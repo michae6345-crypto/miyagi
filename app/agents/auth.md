@@ -88,6 +88,15 @@ setup window opens at the stage's onboarding size (720×560); Electron opens it 
    chip flip to signed out; relaunch: still signed out, no login on launch.
 6. Account page signed out → Sign in → the login window (no intro) → Google → Continue closes it.
 
+## Sign-in errors (Nov 21, `michael/app-login-fix`)
+Every OAuth error that comes back on the loopback (`?error=…&error_code=…&error_description=…`, which Supabase also
+puts in the #fragment) is now explained in plain words, in the browser tab AND in the app (the line stays until the next
+click; miyagi comes forward): `access_denied` → "This Google account isn't allowed yet. Ask to be added as a tester, or
+continue without an account."; Supabase's "Unable to exchange external code" → reason `provider` (the Google client
+secret in Supabase does not match the Google client); anything else shows Supabase's `error_description`; a refused
+code exchange shows Supabase's `msg` (expired / already used → "Try again."). Before this, every one of these showed the
+same "Sign-in did not finish … try again in miyagi" and the app dropped the reason.
+
 ## Core requests (still open)
 - `MiyagiWordmark`'s `height` prop loses to the preflight's `img { height: auto }`; callers pin it with a class. Worth
   fixing in `core/ui/Mark.tsx` (`style={{ height }}`).

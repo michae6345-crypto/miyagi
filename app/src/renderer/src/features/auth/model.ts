@@ -22,10 +22,16 @@ export const PROVIDER_LABEL: Record<Provider, string> = { google: 'Google', appl
 export const LEGAL = { terms: 'https://miyagi.study/terms', privacy: 'https://miyagi.study/privacy' } as const
 
 /** Main's answer to auth:google. */
-export type SignInResult = { ok: true; user: unknown } | { ok: false; reason?: string }
+export type SignInResult = { ok: true; user: unknown } | { ok: false; reason?: string; message?: string }
 
-/** The calm line for a failed sign-in, by main's reason. undefined = say nothing (the learner cancelled). */
-export function reasonLine(reason?: string): string | undefined {
+/**
+ * The line for a failed sign-in. Main's message (the plain-words why: Google's / Supabase's error, the refused
+ * exchange) wins; else a line by main's reason. undefined = say nothing (the learner cancelled).
+ */
+export function reasonLine(reason?: string, message?: unknown): string | undefined {
+  if (reason === 'cancelled') return undefined
+  const m = typeof message === 'string' ? message.replace(/\s+/g, ' ').trim().slice(0, 240) : ''
+  if (m) return m
   switch (reason) {
     case 'cancelled':
       return undefined
@@ -37,7 +43,9 @@ export function reasonLine(reason?: string): string | undefined {
     case 'port':
       return 'Sign-in could not start. Try again, or continue without an account.'
     case 'denied':
-      return 'Google sign-in was declined. Try again when you are ready.'
+      return "This Google account isn't allowed yet. Ask to be added as a tester, or continue without an account."
+    case 'provider':
+      return 'Google sign-in is not set up correctly yet. Continue without an account for now.'
     default:
       return 'Sign-in did not finish. Try again.'
   }

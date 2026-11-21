@@ -24,10 +24,11 @@ type State = {
 export const useAuth = create<State>(() => ({ phase: 'intro', mode: 'new', user: null, loaded: false }))
 
 let noteTimer: ReturnType<typeof setTimeout> | undefined
-export function say(note: string | undefined): void {
+/** stay: keep the line until the next click (a failed sign-in's reason must not vanish while the learner reads it). */
+export function say(note: string | undefined, stay = false): void {
   clearTimeout(noteTimer)
   useAuth.setState({ note })
-  if (note) noteTimer = setTimeout(() => useAuth.setState({ note: undefined }), 6000)
+  if (note && !stay) noteTimer = setTimeout(() => useAuth.setState({ note: undefined }), 6000)
 }
 
 export const setMode = (mode: Mode): void => useAuth.setState({ mode })
@@ -56,9 +57,9 @@ export async function signInWith(p: Provider): Promise<void> {
   try {
     const r = await bridge.invoke<SignInResult>(`auth:${p}`, { mode: useAuth.getState().mode })
     if (r && r.ok) useAuth.setState({ user: cleanUser(r.user) })
-    else say(reasonLine(r?.reason))
+    else say(reasonLine(r?.reason, r?.message), true)
   } catch {
-    say(reasonLine())
+    say(reasonLine(), true)
   } finally {
     useAuth.setState({ pending: undefined })
   }

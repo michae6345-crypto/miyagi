@@ -52,8 +52,18 @@ import { basename, join } from 'node:path'
 import type { EngineLink } from './engine'
 
 export type LocalEngineState = 'off' | 'checking' | 'installing' | 'starting' | 'running' | 'external' | 'missing' | 'failed'
-/** `runtime`: which way this app runs the engine. bundled = the Python inside the app; launcher = ~/miyagi/engine/bin. */
-export type LocalEngineStatus = { state: LocalEngineState; line?: string; logs?: string; runtime?: 'bundled' | 'launcher' }
+/**
+ * `runtime`: which way this app runs the engine. bundled = the Python inside the app; launcher = ~/miyagi/engine/bin.
+ * `reason`: on failed / missing, why, in one plain line for "Copy details" (paths and error codes stay out of `line`).
+ */
+export type LocalEngineStatus = { state: LocalEngineState; line?: string; logs?: string; runtime?: 'bundled' | 'launcher'; reason?: string }
+
+/** The line every surface shows when the engine didn't come up (Home's rail, the setup step). */
+export const ENGINE_FAILED_LINE = "miyagi couldn't start its engine."
+
+/** No answer this long after the app started the engine, or after launch when the app doesn't manage one. */
+const START_TIMEOUT_MS = 60_000
+const UNMANAGED_TIMEOUT_MS = 12_000
 
 /** Michael's installer (docs/INSTALL.md), for a Mac where the app carries no engine. */
 const ONE_LINER = 'curl -fsSL https://raw.githubusercontent.com/michae6345-crypto/miyagi/integration/live/scripts/install.sh | bash'
@@ -189,6 +199,42 @@ export function localEngineState(): LocalEngineState {
 export const ENGINE_TOKEN: string = process.env.MIYAGI_ENGINE_TOKEN?.trim() || randomBytes(32).toString('base64url')
 
 /**
+ * Why this launch doesn't start an engine of its own, or '' when it does (step 1). Pure, so it can be checked in Node.
+ * `npm run dev` is not packaged: it connects to ENGINE_URL (the engine in Terminal) unless MIYAGI_AUTOSTART=1.
+ */
+export function whyUnmanaged(o: { platform: string; packaged: boolean; autostart: boolean; demo: boolean; local: boolean; dev: boolean }): string {
+  if (o.platform !== 'darwin') return `not macOS (${o.platform})`
+  if (o.demo) return 'DEMO=1 (mock engine)'
+  if (o.dev) return 'engine mode dev (engine.json or MIYAGI_ENGINE)'
+  if (!o.local) return 'ENGINE_URL points at another machine'
+  if (!o.packaged && !o.autostart) return 'a development build (npm run dev) without MIYAGI_AUTOSTART=1'
+  return ''
+}
+
+/** Keys, tokens and secrets never leave in "Copy details", even if the engine printed one. */
+function redact(line: string): string {
+  return line.replace(/((?:key|token|secret|password|authorization)[^=:\s]*\s*[=:]\s*)\S+/gi, '$1[hidden]').replace(/\b(sk-[\w-]{8,}|AIza[\w-]{20,})/g, '[hidden]')
+}
+
+/** The text "Copy details" puts on the clipboard: the state, the facts, and the end of engine.log. */
+export function engineDetails(status: LocalEngineStatus, facts: readonly string[], logs: string): string {
+  let tail = ''
+  try {
+    tail = readFileSync(logs, 'utf8').split('\n').slice(-40).map(redact).join('\n').trim()
+  } catch {
+    tail = '(no engine.log yet)'
+  }
+  return [
+    `miyagi engine: ${status.state}${status.reason ? `: ${status.reason}` : ''}`,
+    ...facts,
+    `macOS ${process.getSystemVersion?.() ?? ''} ${process.arch}`,
+    `log: ${logs}`,
+    '',
+    tail
+  ].join('\n')
+}
+
+/**
  * `trusted`: main's sender check (index.ts trustedSender). Every handler here answers only our own windows; an
  * untrusted sender gets undefined / false and, for restart, nothing is stopped or spawned.
  */
@@ -236,6 +282,30 @@ export function setupLocalEngine(
   // The companion works whether or not this app manages the engine (an engine in Terminal still talks to it).
   setupCompanion(broadcast, trusted)
 
+  const home = process.env.MIYAGI_HOME || join(homedir(), 'miyagi', 'engine')
+  const logs = join(home, 'logs', 'engine.log')
+  /** Details (paths, error codes) go to engine.log only; the pill gets plain fixed copy. */
+  const note = (msg: string): void => {
+    try {
+      mkdirSync(join(home, 'logs'), { recursive: true })
+      appendFileSync(logs, `--- ${new Date().toISOString()} ${msg}\n`)
+    } catch {
+      // No log is no reason to fail.
+    }
+  }
+  /** Every failure path ends here: the reason goes to engine.log and "Copy details"; the surfaces say one calm line. */
+  const fail = (reason: string, extra: Partial<LocalEngineStatus> = {}): void => {
+    note(`engine not running: ${reason}`)
+    set({ state: 'failed', line: ENGINE_FAILED_LINE, logs, reason, ...extra })
+  }
+  /** Facts for "Copy details": never the token, never keys. */
+  const facts: string[] = []
+  ipcMain.handle('feat:engine-local:details', (e) => {
+    if (!trusted(e)) return false
+    clipboard.writeText(engineDetails(status, facts, logs))
+    return true
+  })
+
   const port = (() => {
     try {
       return Number(new URL(url).port) || 8787
@@ -253,26 +323,58 @@ export function setupLocalEngine(
     // belong to that app, and Restart says "Restart it in Terminal".
     set({ state: 'external' })
   }
-  const wanted = process.platform === 'darwin' && (app.isPackaged || process.env.MIYAGI_AUTOSTART === '1') && process.env.DEMO !== '1' && local && chosen.mode !== 'dev'
-  if (!wanted) return () => undefined
+  const unmanaged = whyUnmanaged({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    autostart: process.env.MIYAGI_AUTOSTART === '1',
+    demo: process.env.DEMO === '1',
+    local,
+    dev: chosen.mode === 'dev'
+  })
+  facts.push(
+    `app: ${app.getVersion()}, ${app.isPackaged ? 'packaged' : 'not packaged (npm run dev)'}, ${process.execPath}`,
+    `engine url: ${url}`,
+    `engine mode: ${chosen.mode} (${chosen.source})`,
+    `managed by this app: ${unmanaged ? `no, ${unmanaged}` : 'yes'}`
+  )
+  if (unmanaged) {
+    console.log(`[tut] not starting an engine: ${unmanaged}`)
+    // DEMO runs the mock engine in-process; dev mode already says "Start the engine in Terminal" (external).
+    if (process.env.DEMO === '1' || chosen.mode === 'dev') return () => undefined
+    // Nobody starts an engine here (`npm run dev`, a remote ENGINE_URL). If none answers soon, say so instead of
+    // "Connecting" forever (the rows read Connecting while the state is off). Retry tries the link again.
+    const before = status
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const watch = (): void => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = undefined
+        if (!engine.connected) fail(`nothing answers on ${url}, and this app doesn't start an engine (${unmanaged}). Start one in Terminal, or open the installed miyagi app.`)
+      }, UNMANAGED_TIMEOUT_MS)
+    }
+    engine.onStatus((up) => {
+      if (up && status.state === 'failed') set(before)
+      if (!up && status.state !== 'failed') watch()
+    })
+    restart = () => {
+      if (status.state === 'failed') set(before)
+      engine.reconnect()
+      watch()
+      return { ok: true, state: status.state }
+    }
+    if (!engine.connected) watch()
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }
 
-  const home = process.env.MIYAGI_HOME || join(homedir(), 'miyagi', 'engine')
   const src = join(home, 'src')
   const launcher = join(home, 'bin', 'miyagi-engine')
-  const logs = join(home, 'logs', 'engine.log')
   const marker = join(home, 'BUNDLED')
   /** Step 7: which engine process this app started, so a later launch can tell its own leftover from the user's. */
   const pidFile = join(home, 'run', 'app-engine.json')
-  /** Details (paths, error codes) go to engine.log only; the pill gets plain fixed copy. */
-  const note = (msg: string): void => {
-    try {
-      mkdirSync(join(home, 'logs'), { recursive: true })
-      appendFileSync(logs, `--- ${new Date().toISOString()} ${msg}\n`)
-    } catch {
-      // No log is no reason to fail.
-    }
-  }
   const bundle = bundleDir()
+  facts.push(`engine bundle: ${bundle} (${readText(join(bundle, 'VERSION')) || 'no VERSION'})`, `engine home: ${home}`)
   const bundleVersion = (): string => readText(join(bundle, 'VERSION')) || 'bundled'
   const hasSource = existsSync(join(bundle, 'src', 'server', 'pyproject.toml'))
   const python = join(bundle, 'python', 'bin', 'python3')
@@ -281,6 +383,7 @@ export function setupLocalEngine(
     if (!hasSource || !executable(python)) return false
     const problem = pythonArchProblem(bundle)
     if (problem) note(`not using the bundled Python: ${problem}`)
+    facts.push(`bundled Python: ${problem || 'ok'}`)
     return !problem
   })()
   /** Older bundles: source + the uv installer. */
@@ -323,8 +426,7 @@ export function setupLocalEngine(
       await rm(old, { recursive: true, force: true })
       return true
     } catch (err) {
-      note(`engine setup failed: ${String(err)}`)
-      set({ state: 'failed', line: "Couldn't set up the engine.", logs })
+      fail(`setting up ${src} from the app failed: ${String(err)}`)
       return false
     }
   }
@@ -341,13 +443,16 @@ export function setupLocalEngine(
       }
       p.stdout?.on('data', onData)
       p.stderr?.on('data', onData)
-      p.on('error', () => resolve(false))
+      p.on('error', (err) => {
+        fail(`install.sh didn't run: ${String(err)}`)
+        resolve(false)
+      })
       p.on('exit', (code) => {
         if (code === 0) {
           writeFileSync(marker, bundleVersion())
           resolve(true)
         } else {
-          set({ state: 'failed', line: `Setup stopped (exit ${code}). Check the network, then reopen miyagi.`, logs })
+          fail(`install.sh stopped (exit ${code}); it needs the network`)
           resolve(false)
         }
       })
@@ -509,6 +614,16 @@ export function setupLocalEngine(
     return true
   }
 
+  /** Started, but no answer yet: after START_TIMEOUT_MS say so (the engine keeps running; a late connect still wins). */
+  let slow: ReturnType<typeof setTimeout> | undefined
+  const watchStart = (): void => {
+    if (slow) clearTimeout(slow)
+    slow = setTimeout(() => {
+      slow = undefined
+      if (!engine.connected && child && status.state === 'starting') fail(`the engine started (pid ${child.pid}) but didn't answer on port ${port} within ${START_TIMEOUT_MS / 1000} s`, { runtime })
+    }, START_TIMEOUT_MS)
+  }
+
   const start = (): void => {
     set({ state: 'starting', runtime })
     try {
@@ -516,13 +631,12 @@ export function setupLocalEngine(
       rememberPid(child.pid)
     } catch (err) {
       child = undefined
-      note(`engine start failed: ${String(err)}`)
-      return set({ state: 'failed', line: "Couldn't start the engine.", logs, runtime })
+      return fail(`spawning the engine failed: ${String(err)}`, { runtime })
     }
+    watchStart()
     child.on('error', (err) => {
       child = undefined
-      note(`engine start failed: ${String(err)}`)
-      set({ state: 'failed', line: "Couldn't start the engine.", logs, runtime })
+      fail(`the engine process failed: ${String(err)}`, { runtime })
     })
     child.on('exit', (code, signal) => {
       const wasRunning = status.state === 'running'
@@ -533,13 +647,13 @@ export function setupLocalEngine(
         restarting = false
         return start()
       }
-      if (wasRunning) return set({ state: 'failed', line: 'The engine stopped.', logs, runtime })
+      const why = code === null ? `stopped by ${signal ?? 'a signal'}` : `exited with code ${code}`
+      if (wasRunning) return fail(`the engine ${why} while running (its own output is above in this log)`, { line: 'The engine stopped.', runtime })
       // exit 1 right away can be "port already in use" (someone else's engine is up, the link will find it), or a
       // Python error on start. Only the port can tell them apart.
-      if (code === null) note(`engine stopped by ${signal ?? 'a signal'}`)
-      const failed: LocalEngineStatus = { state: 'failed', line: code === null ? 'The engine stopped.' : `The engine stopped (exit ${code}).`, logs, runtime }
-      if (code !== 1) return set(failed)
-      void listening(port).then((up) => set(up ? { state: 'external' } : failed))
+      const failed = (): void => fail(`the engine ${why} before it answered (its own output is above in this log)`, { runtime })
+      if (code !== 1) return failed()
+      void listening(port).then((up) => (up ? set({ state: 'external' }) : failed()))
     })
   }
 
@@ -562,7 +676,7 @@ export function setupLocalEngine(
       return { ok: true, state: 'starting' }
     }
     if (status.state === 'checking' || status.state === 'installing' || status.state === 'starting') return { ok: true, state: status.state }
-    void boot()
+    void safeBoot()
     return { ok: true, state: 'checking' }
   }
 
@@ -592,14 +706,20 @@ export function setupLocalEngine(
     if ((!existsSync(launcher) || stale) && installerBundled && !userInstall) {
       if (!(await install())) return
     }
-    if (!existsSync(launcher)) return set({ state: 'missing', line: ONE_LINER })
+    if (!existsSync(launcher)) {
+      note(`no engine to start: the app carries no usable engine (${bundle}) and ${launcher} doesn't exist`)
+      return set({ state: 'missing', line: ONE_LINER, logs, reason: `no usable engine in ${bundle} and no ${launcher}` })
+    }
     start()
   }
-  void boot()
+  // Never leave the state at checking / installing: anything boot didn't expect is a failure, with its reason.
+  const safeBoot = (): Promise<void> => boot().catch((err: unknown) => fail(`start-up stopped: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`))
+  void safeBoot()
 
   return () => {
     // Only the engine this app started (never one the user runs in Terminal). SIGTERM lets uvicorn close its
     // sockets; the whole group, in case the launcher didn't `exec` into Python.
+    if (slow) clearTimeout(slow)
     if (!child || child.killed || child.pid === undefined) return
     stopping = true
     killGroup(child)

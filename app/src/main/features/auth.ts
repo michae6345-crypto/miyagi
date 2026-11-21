@@ -22,7 +22,9 @@
  *
  * Handles (bridge.invoke):
  *   auth:get                → {signedIn: true, name?, email?, avatarInitial} | null
- *   auth:google ({mode})    → {ok:true, user} | {ok:false, reason: off|not-configured|port|timeout|denied|cancelled|failed}
+ *   auth:google ({mode})    → {ok:true, user} | {ok:false, reason: off|not-configured|port|timeout|denied|provider|cancelled|failed,
+ *                             message?} (message: the plain-words why, from Google's / Supabase's error_description or the
+ *                             refused exchange; the renderer shows it as is)
  *   auth:cancel             stop waiting for the browser → true
  *   auth:continue           the learner is done with the login (signed in, or "Continue without an account"): it never
  *                           shows on launch again; on the first run guided setup opens, then the login window closes
@@ -66,7 +68,8 @@ type Session = { access: string; refresh: string; expiresAt: number; project?: s
 type Answer = { ok: boolean; status: number; body: unknown }
 /** All the renderer ever gets about the learner. */
 type PublicUser = { name?: string; email?: string; avatarInitial: string }
-type Result = { ok: true; user: PublicUser } | { ok: false; reason: string }
+/** message: one plain sentence for the learner (what went wrong, what to do), shown in the app and the browser tab. */
+type Result = { ok: true; user: PublicUser } | { ok: false; reason: string; message?: string }
 
 /** First-run login is on (the build flag, and not switched off for this run). */
 export const loginEnabled = (): boolean => LOGIN_ENABLED && process.env.MIYAGI_LOGIN !== '0'
@@ -128,9 +131,51 @@ function initialOf(u: User): string {
 }
 const publicUser = (u: User): PublicUser => ({ name: u.name, email: u.email, avatarInitial: initialOf(u) })
 
-/** The "back to miyagi" tab in the system browser. Fixed strings only; the app window's theme colors. */
+/** Text from a URL or a server answer, made safe to show: printable, one line, bounded. */
+function plain(v: unknown, max = 200): string | undefined {
+  if (typeof v !== 'string') return undefined
+  // eslint-disable-next-line no-control-regex
+  const s = v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return s ? s.slice(0, max) : undefined
+}
+
+const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+
+const NOT_ALLOWED = "This Google account isn't allowed yet. Ask to be added as a tester, or continue without an account."
+
+/**
+ * What an OAuth error that came back on the loopback means, in plain words. Supabase sends Google's error (and its
+ * own) as ?error=…&error_code=…&error_description=… (also in the #fragment, which never reaches this server).
+ */
+function explainCallbackError(error: string | null, errorCode: string | null, description: string | null): { reason: string; message: string } {
+  // "Unable to exchange external code: 4/0A…": Supabase appends the start of Google's code; never show that part.
+  const desc = plain(description)?.replace(/^(Unable to exchange external code)\b.*$/i, '$1')
+  if (error === 'access_denied') return { reason: 'denied', message: NOT_ALLOWED }
+  if (desc && /unable to exchange external code/i.test(desc)) {
+    // Supabase could not trade Google's code for a Google token: the Google client secret (or client ID) saved in
+    // Supabase's Google provider does not match the Google Cloud OAuth client.
+    return { reason: 'provider', message: 'Google sign-in is not set up correctly yet (Supabase could not finish the Google step). Continue without an account for now.' }
+  }
+  const what = desc ?? plain(errorCode, 80) ?? plain(error, 80)
+  if (!what) return { reason: 'failed', message: 'Google did not send a sign-in code back. Try again, or continue without an account.' }
+  return { reason: 'failed', message: `Sign-in failed: ${what.replace(/[.\s]+$/, '')}. Try again, or continue without an account.` }
+}
+
+/** What a refused code exchange (POST /token?grant_type=pkce) means, in plain words. */
+function explainExchange(res: Answer | undefined): string {
+  if (!res) return 'miyagi could not reach the sign-in server. Check your connection and try again.'
+  const b = (res.body && typeof res.body === 'object' ? res.body : {}) as Record<string, unknown>
+  const code = plain(b.error_code, 80)
+  if (code === 'flow_state_not_found' || code === 'flow_state_expired' || code === 'bad_code_verifier') {
+    return 'That sign-in expired or was already used. Try again.'
+  }
+  const what = plain(b.msg, 160) ?? plain(b.error_description, 160) ?? plain(b.message, 160) ?? code ?? `error ${res.status}`
+  return `The sign-in server refused the sign-in: ${what.replace(/[.\s]+$/, '')}. Try again, or continue without an account.`
+}
+
+/** The "back to miyagi" tab in the system browser. Everything shown is HTML-escaped; the app window's theme colors. */
 const PAGE = (title: string, line: string): string =>
-  `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="margin:0;height:100vh;display:grid;place-items:center;background:${color.window};color:${color.text};font:15px -apple-system,system-ui,sans-serif"><div style="text-align:center"><h1 style="font-size:22px;font-weight:600;margin:0 0 8px">${title}</h1><p style="margin:0;color:${color.label}">${line}</p></div>`
+  `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="margin:0;height:100vh;display:grid;place-items:center;background:${color.window};color:${color.text};font:15px -apple-system,system-ui,sans-serif"><div style="text-align:center;max-width:520px;padding:0 24px"><h1 style="font-size:22px;font-weight:600;margin:0 0 8px">${escapeHtml(title)}</h1><p style="margin:0;color:${color.label}">${escapeHtml(line)}</p></div>`
 /** Callback answers close their connection, so a quick retry never reuses a socket to the last flow's listener. */
 const PAGE_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -353,17 +398,20 @@ export default defineMainFeature({
       f.finish(r)
     }
 
-    async function exchange(cfg: Config, code: string, verifier: string): Promise<Session | undefined> {
+    /** The code → session. A failure carries the plain-words reason (never a token or the code). */
+    async function exchange(cfg: Config, code: string, verifier: string): Promise<{ session: Session } | { message: string }> {
       const res = await post(cfg, '/auth/v1/token?grant_type=pkce', { auth_code: code, code_verifier: verifier })
-      if (!res) {
-        console.warn('[auth] token exchange failed (network)')
-        return undefined
+      if (!res || !res.ok) {
+        const b = (res?.body && typeof res.body === 'object' ? res.body : {}) as Record<string, unknown>
+        console.warn('[auth] token exchange failed:', res ? res.status : '(network)', plain(b.error_code, 80) ?? '', plain(b.msg, 160) ?? '')
+        return { message: explainExchange(res) }
       }
-      if (!res.ok) {
-        console.warn('[auth] token exchange failed:', res.status)
-        return undefined
+      const session = withProject(toSession(res.body), cfg)
+      if (!session) {
+        console.warn('[auth] token exchange answered without a usable session')
+        return { message: 'The sign-in server sent back an incomplete session. Try again.' }
       }
-      return withProject(toSession(res.body), cfg)
+      return { session }
     }
 
     /** The sign-in page, through the strict allowlist for our own project; a dev-run override still gets the https gate. */
@@ -395,25 +443,37 @@ export default defineMainFeature({
             res.writeHead(404, { Connection: 'close' }).end()
             return
           }
-          const code = u.searchParams.get('code')
-          const error = u.searchParams.get('error')
+          const q = u.searchParams
+          const code = q.get('code')
           res.writeHead(200, PAGE_HEADERS)
+          // Bring miyagi forward with the outcome (success or the reason it failed), not just the browser tab.
+          const focusApp = (): void => {
+            if (process.platform === 'darwin') ctx.app.focus({ steal: true })
+          }
           if (!code) {
-            res.end(PAGE('Sign-in did not finish', 'You can close this tab and try again in miyagi.'))
-            stopFlow({ ok: false, reason: error === 'access_denied' ? 'denied' : 'failed' })
+            // Google or Supabase said no: say why, in plain words, in the tab AND in miyagi (it used to drop the reason).
+            const why = explainCallbackError(q.get('error'), q.get('error_code'), q.get('error_description'))
+            console.warn('[auth] sign-in came back without a code:', plain(q.get('error'), 80) ?? '(no error)', plain(q.get('error_code'), 80) ?? '', plain(q.get('error_description'))?.replace(/^(Unable to exchange external code)\b.*$/i, '$1') ?? '')
+            f.aborted = true
+            flow = undefined
+            // Close only after the page is flushed (closeAllConnections would cut it off mid-write).
+            res.end(PAGE('Sign-in did not finish', why.message), () => closeServer(server))
+            focusApp()
+            f.finish({ ok: false, ...why })
             return
           }
           // Not "signed in" yet: the code is exchanged after this page is sent, and miyagi shows the result.
           f.exchanging = true
           res.end(PAGE('Back to miyagi', 'You can close this tab. miyagi finishes signing you in.'), () => closeServer(server))
-          void exchange(cfg, code, verifier).then((s) => {
+          void exchange(cfg, code, verifier).then((r) => {
             if (f.aborted || flow !== f) return // cancelled meanwhile: the answer is dropped, nothing is stored
             flow = undefined
-            if (!s) return f.finish({ ok: false, reason: 'failed' })
+            focusApp()
+            if (!('session' in r)) return f.finish({ ok: false, reason: 'failed', message: r.message })
+            const s = r.session
             setSession(s)
             decide()
             // TODO(cloud-link): link the install token to this user here (see accessToken() above). Not implemented.
-            if (process.platform === 'darwin') ctx.app.focus({ steal: true })
             f.finish({ ok: true, user: publicUser(s.user) })
           })
         })

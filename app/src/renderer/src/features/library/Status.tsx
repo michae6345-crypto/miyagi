@@ -4,6 +4,7 @@
  *   Setup    the onboarding rows (permissions + companion + engine, features/onboarding read-only): "All set" or
  *            "2 of 4 ready". A click opens guided setup (openOnboarding).
  *   Engine   the engine row's state and word (Running, Starting, Connecting, Not yet). Click: guided setup too.
+ *            When the engine couldn't start: "miyagi couldn't start its engine." under it, with Retry and Copy details.
  *   Cloud    the install token's phase (cloud:get) and config.status.cloud: Connected, Setting up, Offline...
  *   Plan     v2Cloud only (mock data in the stage, off in a normal build): the plan and this period's live help.
  *            A click opens the account sheet in the home window (features/shell sheet.ts), the account window elsewhere.
@@ -15,11 +16,12 @@ import { useEffect, type ReactNode } from 'react'
 import { useLesson } from '../../core/lesson'
 import { openOnboarding } from '../../core/surfaces'
 import { color, fill, radius2, surface, type2 } from '../../core/theme'
+import { QuietButton } from '../../core/ui/buttons'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
 import { v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { summarize, useRows } from '../onboarding/rows'
-import { refreshCloud, refreshPerms, requestHealth, useOnboarding } from '../onboarding/store'
+import { refreshCloud, refreshPerms, requestHealth, runAction, useOnboarding } from '../onboarding/store'
 import { openAccountSurface } from '../shell/sheet'
 import { Press } from './motion'
 
@@ -109,6 +111,19 @@ function PlanRow({ cloudUnused }: { cloudUnused: boolean }): ReactNode {
   )
 }
 
+/** The engine didn't come up (main/localEngine.ts failed / missing): say so calmly, with Retry and Copy details. */
+function EngineFailed({ line, retry, alt, onRetry, onAlt }: { line: string; retry: string; alt: string; onRetry: () => void; onAlt: () => void }): ReactNode {
+  return (
+    <div data-home-engine-failed role="status" className="flex flex-col" style={{ padding: '4px 8px 8px', gap: 8 }}>
+      <span style={{ fontSize: type2.xs, color: color.label }}>{line}</span>
+      <span className="flex flex-wrap" style={{ gap: 8 }}>
+        <QuietButton size="md" label={retry} onClick={onRetry} />
+        <QuietButton size="md" label={alt} onClick={onAlt} />
+      </span>
+    </div>
+  )
+}
+
 /** `plan`: false when the account chip below shows the plan already (the home window's sidebar). */
 export function StatusArea({ plan = true }: { plan?: boolean } = {}): ReactNode {
   const rows = useRows()
@@ -143,6 +158,7 @@ export function StatusArea({ plan = true }: { plan?: boolean } = {}): ReactNode 
     <section aria-label="Status" data-home-status className="flex flex-col" style={{ padding: 4, borderRadius: radius2.card, background: fill.group, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
       <Row label="Setup" line={setup} onClick={() => void openOnboarding()} chevron />
       {engine && <Row label="Engine" line={{ state: engine.state, word: engine.word, detail: engine.detail }} onClick={engine.state === 'passed' ? undefined : () => void openOnboarding()} />}
+      {engine?.alt && engine.action && <EngineFailed line={engine.detail} retry={engine.action.label} alt={engine.alt.label} onRetry={() => void runAction('retry-engine')} onAlt={() => void runAction('copy-engine-details')} />}
       {/* A failed cloud setup says "Open setup to retry": the row is the way there (quota, paused, offline: setup can't help). */}
       <Row label="Cloud" line={cloud} onClick={cloud.retry ? () => void openOnboarding() : undefined} chevron={cloud.retry} />
       {v2Cloud && plan && (

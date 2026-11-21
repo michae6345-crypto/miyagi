@@ -220,6 +220,9 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
     return { ok: true, state: 'starting' }
   })
   if (params.get('engine-local') === 'external') webHandlers.set('engine-local:get', () => ({ state: 'external' }))
+  // ?engine-local=failed&offline=1 shows "miyagi couldn't start its engine" (Retry, Copy details) in the stage.
+  if (params.get('engine-local') === 'failed') webHandlers.set('engine-local:get', () => ({ state: 'failed', line: "miyagi couldn't start its engine.", reason: 'stage' }))
+  webHandlers.set('engine-local:details', () => true)
   // The install token (main/features/cloud.ts): off in the stage.
   webHandlers.set('cloud:get', () => ({ state: 'off', configured: false, secure: true, hasToken: false }))
   webHandlers.set('cloud:retry', () => ({ state: 'off', configured: false, secure: true, hasToken: false }))
