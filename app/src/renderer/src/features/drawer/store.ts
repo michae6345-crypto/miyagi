@@ -253,3 +253,57 @@ export function isWebLink(url: string): boolean {
 export function openSource(url: string): void {
   if (isWebLink(url)) window.open(url, '_blank', 'noopener,noreferrer')
 }
+
+/**
+ * Where a link goes, to show next to it (citations, sources): "python.org" for https://www.python.org/x. The label
+ * comes from the engine or a page; the host can't lie about where the click lands. undefined = not a web link.
+ */
+export function linkHost(url: string | undefined): string | undefined {
+  if (!url || !isWebLink(url)) return undefined
+  try {
+    return new URL(url).hostname.replace(/^www\./, '') || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Setup Download links main would not open (not on its setup list, main/safeOpen.ts SETUP_HOSTS): tool → the URL,
+ * shown on the row as text with a Copy button instead. Cleared for a tool when a later open of it works.
+ */
+export const useRefusedLinks = create<{ byTool: Record<string, string> }>(() => ({ byTool: {} }))
+
+/**
+ * A setup row's Download button (cards/index.tsx, cards/VSCodeSheet.tsx). The URL comes from the engine (maybe from a
+ * video description), so it never goes through window.open (any https): main opens it only if it is on the setup
+ * list, else the row shows it as text with Copy (app-harden).
+ */
+export function openSetupLink(tool: string, url: string): void {
+  void bridge
+    .invoke<boolean>('open:external', { setup: url })
+    .catch(() => false)
+    .then((ok) => {
+      useRefusedLinks.setState((s) => {
+        const byTool = { ...s.byTool }
+        if (ok) delete byTool[tool]
+        else byTool[tool] = isWebLink(url) ? url : ''
+        return { byTool }
+      })
+    })
+}
+
+/** Copy a refused setup link (main's clipboard: the overlay can't take focus; see drawer/plan.ts copyText). */
+export async function copySetupLink(url: string): Promise<boolean> {
+  if (!url) return false
+  try {
+    if (await bridge.invoke<boolean>('drawer:copy', url)) return true
+  } catch {
+    // no handler (the stage without one): fall through
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    return true
+  } catch {
+    return false
+  }
+}

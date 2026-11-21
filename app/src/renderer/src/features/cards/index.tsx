@@ -27,7 +27,7 @@ import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot, StatusGlyph } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
-import { useDrawer } from '../drawer/store'
+import { copySetupLink, linkHost, openSetupLink, useDrawer, useRefusedLinks } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
@@ -180,14 +180,19 @@ function Question({ text }: { text: string }): ReactNode {
   )
 }
 
-/** A label that opens its URL outside the overlay (window.open; Electron's main hands https to the browser). */
+/**
+ * A label that opens its URL outside the overlay (window.open; Electron's main hands plain https to the browser).
+ * The destination host shows next to it (app-harden): the label is the engine's words, the host is where it goes.
+ */
 function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: boolean }): ReactNode {
   const fit = wrap ? 'line-clamp-2 break-words' : 'truncate'
-  if (!url) return <span className={fit}>{label}</span>
+  const host = linkHost(url)
+  if (!url || !host) return <span className={fit}>{label}</span>
   return (
     <a
       href={url}
       data-link
+      title={url}
       className={`cursor-pointer ${fit} underline-offset-2 hover:underline`}
       style={{ color: 'inherit' }}
       onClick={(e) => {
@@ -196,6 +201,7 @@ function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: bo
       }}
     >
       {label}
+      <span data-link-host style={{ color: color.faint }}>{` · ${host}`}</span>
     </a>
   )
 }
@@ -619,14 +625,21 @@ function UnifiedDiff({ diff }: { diff: string }): ReactNode {
  * send), "open" (a web app) asks the engine to open it (open_in_browser), the rest install (install {text: tool}).
  */
 function itemAct(x: NonNullable<EngineCard['setup']>['items'][number]): void {
-  if (x.install.method === 'download' && x.install.url) window.open(x.install.url, '_blank', 'noopener,noreferrer')
+  // A download link main refused (not on its setup list): the button copies it instead (app-harden).
+  const refused = useRefusedLinks.getState().byTool[x.tool]
+  if (x.install.method === 'download' && refused !== undefined) void copySetupLink(refused)
+  else if (x.install.method === 'download' && x.install.url) openSetupLink(x.tool, x.install.url)
   else if (x.install.method === 'open') cardAct('open_in_browser', x.tool)
   else cardAct('install', x.tool)
 }
 
 function itemLabel(x: NonNullable<EngineCard['setup']>['items'][number], run?: Install): string {
+  if (x.install.method === 'download' && useRefusedLinks.getState().byTool[x.tool] !== undefined) return 'Copy link'
   return x.install.method === 'download' ? 'Get it' : x.install.method === 'open' ? 'Open' : run?.error ? 'Retry' : 'Install'
 }
+
+/** A refused download link's row text: where it would have gone, never opened (app-harden). */
+const refusedLine = (url: string): string => (url ? `Not on miyagi's list, so not opened: ${url}` : 'Not a web link, so not opened.')
 
 /** Skip on a setup card (A17): a quiet text link, never a button that competes with Install. */
 function QuietLink({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
@@ -652,6 +665,7 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
   // Install all's run (store installAll): the rows still to go, in row order. It lives in the store, so a re-sent or
   // re-mounted card keeps it going.
   const queue = useCards((s) => s.queue)
+  const refused = useRefusedLinks((s) => s.byTool)
   // Rows come in a steady order (store steadySetup: by first appearance; an installed row stays as a check).
   const items = setup.items.filter((x) => x.needed)
   if (items.length === 0) return null
@@ -666,7 +680,7 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
         const run = x.ok ? undefined : installs[x.tool]
         const waiting = !done && !run?.running && !!queue?.tools.includes(x.tool)
         // Until the first progress line, the reason stays (the slot already says "Installing…").
-        const detail = done ? (x.version ?? run?.version) : run?.running ? (run.line ?? x.why) : (run?.error ?? x.why)
+        const detail = done ? (x.version ?? run?.version) : refused[x.tool] !== undefined ? refusedLine(refused[x.tool]) : run?.running ? (run.line ?? x.why) : (run?.error ?? x.why)
         return (
           // A8: every row is exactly 34 px (two 16 px detail lines fit), the mark sits in a fixed 13 px column and the
           // button in a fixed 104 px slot, so nothing moves while a row installs: the next Install stays under the cursor.

@@ -24,6 +24,7 @@ import { color, copy, fill, radius2, status, type2 } from '../../core/theme'
 import { CloseButton, PrimaryButtonV2 } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { cardAct, engineInstalls, itemDone, useCards, type Install } from './store'
+import { copySetupLink, openSetupLink, useRefusedLinks } from '../drawer/store'
 
 type EngineCard = Payload<'card'>
 type SetupItem = NonNullable<EngineCard['setup']>['items'][number]
@@ -79,6 +80,8 @@ function RowGlyph({ done }: { done: boolean }): ReactNode {
 }
 
 function rowDetail(x: SetupItem, done: boolean, run?: Install): string {
+  const refused = done ? undefined : useRefusedLinks.getState().byTool[x.tool]
+  if (refused !== undefined) return refused ? `Not on miyagi's list, so not opened: ${refused}` : 'Not a web link, so not opened.'
   if (run?.running) return run.line ?? 'Installing'
   if (run?.error) return run.error
   if (done) return isEditor(x) ? (bridge.platform.os === 'mac' ? 'Found in Applications' : 'Installed') : x.version ? `Version ${x.version}` : 'Installed'
@@ -91,7 +94,10 @@ function rowDetail(x: SetupItem, done: boolean, run?: Install): string {
  * with no answer coming.
  */
 function act(x: SetupItem): void {
-  if (x.install.method === 'download' && x.install.url) window.open(x.install.url, '_blank', 'noopener,noreferrer')
+  // The engine's URL goes to main's setup list, never window.open; a refused one is copied instead (app-harden).
+  const refused = useRefusedLinks.getState().byTool[x.tool]
+  if (x.install.method === 'download' && refused !== undefined) void copySetupLink(refused)
+  else if (x.install.method === 'download' && x.install.url) openSetupLink(x.tool, x.install.url)
   else if (x.install.method === 'open') cardAct('open_in_browser', x.tool)
   else if (engineInstalls(x)) cardAct('install', x.tool)
 }
@@ -117,6 +123,7 @@ function SheetClose({ skip }: { skip: boolean }): ReactNode {
 
 export function VSCodeSheet({ card }: { card: EngineCard }): ReactNode {
   const installs = useCards((s) => s.installs)
+  const refused = useRefusedLinks((s) => s.byTool) // re-render when main refuses a download link (rowDetail, label)
   const items = (card.setup?.items ?? []).filter((x) => x.needed && (isEditor(x) || isHelper(x)))
   const missing = items.filter((x) => !itemDone(x, installs))
   // VS Code first: the helper can't go in without it.
@@ -126,7 +133,7 @@ export function VSCodeSheet({ card }: { card: EngineCard }): ReactNode {
   const busy = !!run?.running
   const title = editorMissing ? 'miyagi needs VS Code to teach this.' : missing.length > 1 ? 'Two things left before the lesson.' : 'One thing left before the lesson.'
   const body = editorMissing ? 'Install it and miyagi picks up on its own.' : 'The helper lets miyagi run and check your code.'
-  const label = editorMissing ? 'Get VS Code' : busy ? 'Installing helper' : run?.error ? 'Try again' : 'Install extension'
+  const label = next && next.install.method === 'download' && refused[next.tool] !== undefined ? 'Copy link' : editorMissing ? 'Get VS Code' : busy ? 'Installing helper' : run?.error ? 'Try again' : 'Install extension'
   return (
     <div data-card="setup" data-sheet="vscode" role="dialog" aria-labelledby="miyagi-vscode-sheet" className="flex flex-col gap-[20px] p-[24px]">
       <div className="flex h-[22px] items-center gap-[8px]">
