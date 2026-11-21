@@ -14,6 +14,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Check, Copy, Play } from 'lucide-react'
 import type { MissingLine, StepKind } from '../../../../../../../shared/contracts/events'
 import { fill, font, radius2, surface, type2 } from '../../../core/theme'
+import { copyText } from '../plan'
 import { Caption, Inline, tone } from './ui'
 
 export function StepIntro({ title, instructions }: { title: string; instructions: string }): ReactNode {
@@ -89,44 +90,51 @@ export function CodeLine({ text, style }: { text: string; style?: CSSProperties 
   )
 }
 
-/** The Copy chip on the code box: neutral chrome (never a pastel, never the primary), "Copied" for a moment. */
+/**
+ * The Copy chip on the code box: neutral chrome (never a pastel, never the primary), then "Copied" or "Could not copy"
+ * for a moment. It copies through copyText (main's drawer:copy IPC, execCommand as the last try): the overlay is
+ * focusable:false and Chromium refuses navigator.clipboard in an unfocused document, so writeText alone fails silently.
+ */
 function CopyChip({ text }: { text: string }): ReactNode {
-  const [done, setDone] = useState(false)
+  const [result, setResult] = useState<'idle' | 'yes' | 'no'>('idle')
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
-  const copy = (): void => {
-    const ok = (): void => {
-      setDone(true)
-      clearTimeout(timer.current)
-      timer.current = setTimeout(() => setDone(false), 1600)
-    }
+  const copy = async (): Promise<void> => {
+    let ok = false
     try {
-      void navigator.clipboard?.writeText(text).then(ok, () => undefined)
+      ok = await copyText(text)
     } catch {
-      // No clipboard (an insecure context): the code is still there to select.
+      ok = false
     }
+    setResult(ok ? 'yes' : 'no')
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setResult('idle'), ok ? 1600 : 2400)
   }
+  const label = result === 'yes' ? 'Copied' : result === 'no' ? 'Could not copy' : 'Copy'
   return (
     <motion.button
       type="button"
       data-part="panel-code-copy"
-      aria-label={done ? 'Copied' : 'Copy the code'}
-      className="absolute right-[6px] top-[6px] flex h-[24px] cursor-pointer items-center gap-[4px] px-[8px]"
-      style={{ borderRadius: radius2.control, background: fill.button, color: done ? tone.text : tone.label, fontSize: type2.micro, fontWeight: 500 }}
+      data-copy={result}
+      aria-label={result === 'idle' ? 'Copy the code' : label}
+      aria-live="polite"
+      className="absolute right-[6px] top-[6px] flex h-[24px] cursor-pointer items-center gap-[4px] whitespace-nowrap px-[8px]"
+      // "Could not copy" is wider than CHIP_ROOM: for its 2.4 s it sits on an opaque sheet so the code never shows through.
+      style={{ borderRadius: radius2.control, background: result === 'no' ? surface.sheet : fill.button, color: result === 'idle' ? tone.label : tone.text, fontSize: type2.micro, fontWeight: 500 }}
       whileHover={{ backgroundColor: fill.chipHover, color: tone.text }}
       whileTap={{ scale: 0.95 }}
       transition={{ duration: 0.12 }}
       onMouseDown={(e) => e.preventDefault()}
-      onClick={copy}
+      onClick={() => void copy()}
     >
-      {done ? <Check size={11} strokeWidth={2} aria-hidden /> : <Copy size={11} strokeWidth={1.8} aria-hidden />}
-      <span>{done ? 'Copied' : 'Copy'}</span>
+      {result === 'yes' ? <Check size={11} strokeWidth={2} aria-hidden /> : result === 'idle' ? <Copy size={11} strokeWidth={1.8} aria-hidden /> : null}
+      <span>{label}</span>
     </motion.button>
   )
 }
 
-/** Room on the right of the first row for the Copy chip (so it never sits on the code). */
-const CHIP_ROOM = 64
+/** Room on the right of the first row for the Copy chip, sized for "Copied" (so it never sits on the code). */
+const CHIP_ROOM = 80
 
 export function CodeBlock({ code, where, kind, then, waiting }: { code?: string; where?: string; kind?: StepKind; then?: string; waiting?: boolean }): ReactNode {
   const label = where ?? (kind ? DEFAULT_WHERE[kind] : undefined)

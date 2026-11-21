@@ -180,7 +180,7 @@ function Screens({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode
 
 const check = (): void => sendAction('check_step')
 
-/** Les-Passed: the green check draws in, "Good. Now the next one.", Up next, and Next step. */
+/** Les-Passed: the green check draws in, core copy.passed (today "Step done.", see Core request 9), Up next, and Next step. */
 function Passed({ m }: { m: PanelModel }): ReactNode {
   useEnter(!m.last && m.canNext ? releasePass : undefined)
   return (

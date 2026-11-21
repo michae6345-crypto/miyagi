@@ -5,7 +5,8 @@
  *   HintBox         Les-Hint: the pink "Hint" chip (an option's pastel: the learner asked for it), "1 of 2", its ✕, and
  *                   while there is a next rung, a quiet "Another hint" with the Hint keycap. A new hint rises in.
  *   PassedBody      Les-Passed: the green circle springs up from 0.6 and its tick draws in after it (the only green),
- *                   "Good. Now the next one.", what the learner did, Up next.
+ *                   core copy.passed (today "Step done."; CLAUDE.md says "Good. Now the next one.", Core request 9),
+ *                   what the learner did, Up next.
  *   CheckingCaption Les-Checking: what the engine is looking at right now (status.detail), in plain words.
  */
 import type { ReactNode } from 'react'
