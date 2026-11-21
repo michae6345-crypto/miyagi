@@ -9,7 +9,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { CodeText } from '../../core/ui/atoms'
-import { alpha, brand, color, fill, radius2, status, surface, type2 } from '../../core/theme'
+import { alpha, color, fill, radius2, status, surface, tone as tones, toneFor, type2, type Tone } from '../../core/theme'
 import { groupTracks, layoutTrack, nodeStates, reviewFor, reviewIndex, trackHeadline, type NodeState, type SkillGroup } from './model'
 import { caption, Empty, h2, NodeGlyph, STATE_WORD } from './parts'
 import { select, useDash } from './store'
@@ -20,9 +20,6 @@ const NODE_TOP = 6
 const GLYPH = 28
 const MIN_COL = 120
 const MAX_COL = 176
-
-/** Soft pastel per track, in order. Tags and washes only: green stays for mastered. */
-export const TRACK_TONES = [brand.pastel.sky, brand.pastel.lilac, brand.pastel.pink, brand.pastel.apricot] as const
 
 function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null)
@@ -46,7 +43,7 @@ const LEGEND: Array<{ state: NodeState; due?: boolean; word: string }> = [
   { state: 'mastered', due: true, word: 'Review due' }
 ]
 
-function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: string; dueOf: (id: string) => boolean; width: number }): ReactNode {
+function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: (id: string) => boolean; width: number }): ReactNode {
   const t = g.track
   const selected = useDash((s) => (s.selected?.track === t.track ? s.selected.id : undefined))
   const [hover, setHover] = useState<string>()
@@ -79,7 +76,7 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: string; dueOf
   return (
     <section data-track={t.track} aria-label={trackHeadline(t)} className="flex flex-col gap-[8px]">
       <div className="flex items-center gap-[8px]">
-        <span aria-hidden className="block shrink-0" style={{ width: 8, height: 8, borderRadius: radius2.round, background: tone }} />
+        <span aria-hidden className="block shrink-0" style={{ width: 8, height: 8, borderRadius: radius2.round, background: tones[tone].fg }} />
         <h3 className="m-0 min-w-0 truncate" style={{ ...h2, fontSize: type2.md }}>
           {g.title}
         </h3>
@@ -94,7 +91,7 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: string; dueOf
           </span>
         )}
       </div>
-      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: alpha(tone, 0.1) }}>
+      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: tones[tone].bg }}>
         <div className="relative" style={{ width: w, height: h + 8 }}>
           <svg width={w} height={h + 8} className="pointer-events-none absolute inset-0" aria-hidden>
             {t.edges.map((e) => {
@@ -243,7 +240,7 @@ export function Constellation({ data, review, loading, children, bare }: { data?
           width > 0 && (
             <div className="flex flex-col gap-[20px]" style={{ paddingBottom: 4 }}>
               {groups.map((g, i) => (
-                <Cluster key={g.key} g={g} tone={TRACK_TONES[i % TRACK_TONES.length]} width={width} dueOf={(id) => dueIdx.has(`${g.track.track}\u0000${id}`)} />
+                <Cluster key={g.key} g={g} tone={toneFor(g.key)} width={width} dueOf={(id) => dueIdx.has(`${g.track.track}\u0000${id}`)} />
               ))}
             </div>
           )
