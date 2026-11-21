@@ -547,7 +547,7 @@ class Engine:
             self.seen_lesson = ((payload or {}).get("lesson") or {}).get("id")
         if (note := getattr(self.screen, "note_ui", None)) is not None:
             note(type_, payload)  # the targeter never boxes Miyagi's own text (cards, captions) seen on screen
-        await self.hub.emit(type_, payload)
+        await self.hub.emit(type_, self.session._tagged(type_, payload or {}))  # epoch / gen: which lesson and step
 
     async def ingest(self, ev: dict) -> None:
         self.recorder.record(ev)
@@ -1017,13 +1017,21 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await ws.close(code=1008)
         return
     await ws.accept()
-    restored = await engine.auto_resume()  # off unless ORCH_AUTO_RESUME=1 (Nov 21: every launch starts fresh)
-    await engine.hub.send_to(ws, "engine.hello", engine.hello(restored))  # v2: always the first message
-    for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning()):
-        await engine.hub.send_to(ws, type_, payload)
-    for type_, payload in engine.status_replay():  # a v2 app coming back: offline / busy / the last health
-        await engine.hub.send_to(ws, type_, payload)
-    engine.hub.join(ws)
+    engine.hub.begin(ws)  # events emitted while hello + the snapshot go out are held and sent right after
+    try:
+        restored = await engine.auto_resume()  # off unless ORCH_AUTO_RESUME=1 (Nov 21: every launch starts fresh)
+        await engine.hub.send_to(ws, "engine.hello", engine.hello(restored))  # v2: always the first message
+        snap = engine.session.snapshot(ask_resume=engine.app_returning())
+        if not any(t == "status" for t, _ in snap):  # every (re)connect resyncs the island, whatever the early return
+            snap = [*snap, ("status", {"state": "idle"})]
+        for type_, payload in snap:
+            await engine.hub.send_to(ws, type_, engine.session._tagged(type_, payload))
+        for type_, payload in engine.status_replay():  # a v2 app coming back: offline / busy / the last health
+            await engine.hub.send_to(ws, type_, payload)
+        await engine.hub.finish(ws)
+    except Exception as e:  # noqa: BLE001  the app went away mid-handshake: nothing to clean up but the hold
+        engine.hub.drop(ws, f"handshake failed: {type(e).__name__}")
+        return
     engine.mark_lesson_seen()
     queue: asyncio.Queue[dict] = asyncio.Queue()
     running: dict[str, dict] = {}  # the command the worker is on (a press queued behind it is logged on arrival)

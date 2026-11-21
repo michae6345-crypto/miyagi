@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ log = logging.getLogger("orchestrator.hub")
 V2_EVENTS = frozenset({"engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item",
                        "progress"})
 _KNOWN_EVENTS = frozenset(getattr(_contract, "ENGINE_EVENTS", {}))
+SEND_TIMEOUT_S = 5.0  # a client that takes longer to accept one message is dropped: it must not stall every emitter
 QUIET_EVENTS = frozenset({"metric", "screen.seen"})  # several a second / OCR'd screen text: no line at all
 
 
@@ -66,6 +68,9 @@ def log_received(type_: str, p: Any) -> None:
 class Hub:
     def __init__(self, strict: bool | None = None, history: int = 500):
         self.clients: set[WebSocket] = set()
+        # clients still being sent hello + the snapshot: events emitted meanwhile are held and sent right after it,
+        # so nothing falls in the gap between the snapshot and join()
+        self.pending: dict[WebSocket, list[dict]] = {}
         self.strict = os.environ.get("ORCH_STRICT") == "1" if strict is None else strict
         self.history: deque[dict] = deque(maxlen=history)  # recent messages, for /events and tests
         self._pending_noted: set[str] = set()
@@ -84,12 +89,31 @@ class Hub:
             log.warning("event %s does not match events.ts (%s); sending anyway", type_, e)
         return {"type": type_, "payload": payload}
 
+    def begin(self, ws: WebSocket) -> None:
+        """Start holding live events for a client that is about to get hello + the snapshot."""
+        self.pending[ws] = []
+
+    async def finish(self, ws: WebSocket) -> None:
+        """Send what was held while the snapshot went out, then join. No await between the last flush and join, so no
+        event can slip past."""
+        while self.pending.get(ws):
+            held, self.pending[ws] = self.pending[ws], []
+            for msg in held:
+                await self._send(ws, msg)
+        self.pending.pop(ws, None)
+        self.join(ws)
+
+    async def _send(self, ws: WebSocket, msg: dict) -> None:
+        await asyncio.wait_for(ws.send_json(msg), SEND_TIMEOUT_S)
+
     def join(self, ws: WebSocket) -> None:
+        self.pending.pop(ws, None)
         self.clients.add(ws)
         log.info("app connected (%d client%s)", len(self.clients), "" if len(self.clients) == 1 else "s")
 
     def drop(self, ws: WebSocket, why: str) -> None:
         """E14: a WebSocket close is logged (an off-track went out to a vanished app and nothing said so)."""
+        self.pending.pop(ws, None)
         if ws in self.clients:
             self.clients.discard(ws)
             log.info("app disconnected (%s); %d client%s left", why, len(self.clients), "" if len(self.clients) == 1 else "s")
@@ -104,14 +128,15 @@ class Hub:
                 log.debug("-> %s %s", type_, json.dumps(msg["payload"], ensure_ascii=False)[:200])
             else:
                 log.info("-> %s", type_)
-        dead = []
-        for ws in list(self.clients):
-            try:
-                await ws.send_json(msg)
-            except Exception as e:  # noqa: BLE001
-                dead.append((ws, e))
-        for ws, e in dead:
-            self.drop(ws, f"send of {type_} failed: {type(e).__name__}")
+        for held in self.pending.values():
+            held.append(msg)
+        targets = list(self.clients)
+        results = await asyncio.gather(*(self._send(ws, msg) for ws in targets), return_exceptions=True)
+        for ws, r in zip(targets, results):
+            if isinstance(r, asyncio.CancelledError):
+                raise r
+            if isinstance(r, BaseException):
+                self.drop(ws, f"send of {type_} failed: {type(r).__name__}")
 
     async def send_to(self, ws: WebSocket, type_: str, payload: dict) -> None:
-        await ws.send_json(self.encode(type_, payload))
+        await self._send(ws, self.encode(type_, payload))
