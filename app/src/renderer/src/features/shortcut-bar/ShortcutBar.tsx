@@ -270,14 +270,16 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
             {BUTTONS.map(({ kind, label, icon }) => {
               const voiceOn = kind === 'voice_toggle' && voice.on
               const l = isOption(kind) ? look.option(kind) : voiceOn ? look.primary : look.neutral
-              const back = kind === 'back' && textLesson
+              // Back is the previous step in every lesson now (engine 14f55e7, Michael Nov 15): an arrow everywhere,
+              // disabled on step 1 of a text lesson (a video's step 1 still rewinds its clip).
+              const back = kind === 'back'
               return (
                 <Tile
                   key={kind}
                   label={label}
                   icon={back ? ArrowLeft : icon}
                   look={l}
-                  disabled={back && firstStep}
+                  disabled={back && textLesson && firstStep}
                   keycap={bridge.platform.keys[kind]}
                   busyKind={kind}
                   dip={pressed === kind}
