@@ -33,7 +33,12 @@ export type Row = {
   /** The checklist's second line (Onb-Checklist-Mixed): the state in a sentence. */
   detail: string
   action?: { id: RowAction; label: string; item?: HealthItem }
+  /** A second, quieter button beside the action (the engine's "Copy details"). */
+  alt?: { id: RowAction; label: string }
 }
+
+/** main/localEngine.ts ENGINE_FAILED_LINE: the one line for an engine that didn't come up. */
+export const ENGINE_FAILED = "miyagi couldn't start its engine."
 
 export type RowInput = {
   perms?: Permissions
@@ -92,8 +97,9 @@ function engineRow(i: RowInput): Row {
   const local = i.localEngine?.state
   if (!i.connected) {
     if (local === 'checking' || local === 'installing' || local === 'starting') return { ...base, state: 'watching', word: 'Starting', detail: 'Starting on this Mac.' }
-    if (local === 'failed') return { ...base, state: 'notyet', word: 'Not yet', detail: 'It stopped. Try again.', action: { id: 'retry-engine', label: 'Try again' } }
-    if (local === 'missing') return { ...base, state: 'notyet', word: 'Not yet', detail: "The engine isn't installed yet.", action: { id: 'retry-engine', label: 'Try again' } }
+    // Never "Connecting" forever: main says failed (with its reason in engine.log) once the engine can't come up.
+    if (local === 'failed' || local === 'missing')
+      return { ...base, state: 'notyet', word: "Couldn't start", detail: ENGINE_FAILED, action: { id: 'retry-engine', label: 'Retry' }, alt: { id: 'copy-engine-details', label: 'Copy details' } }
     if (local === 'external') return { ...base, state: 'notyet', word: 'Not yet', detail: 'Start the engine in Terminal.' }
     return { ...base, state: 'watching', word: 'Connecting', detail: 'Looking for the engine.' }
   }

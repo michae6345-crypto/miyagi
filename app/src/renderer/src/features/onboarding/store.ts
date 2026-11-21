@@ -39,7 +39,7 @@ export type OnbView = 'intro' | 'setup' | 'welcome' | 'checklist'
 /** The guided steps (steps.ts STEP_ORDER). */
 export type GuidedStepId = 'screen' | 'accessibility' | 'companion' | 'engine'
 /** What a row's button does. The component maps each to a handler below. */
-export type RowAction = 'allow-screen' | 'open-accessibility' | 'relaunch' | 'install-companion' | 'get-vscode' | 'retry-engine' | 'retry-cloud'
+export type RowAction = 'allow-screen' | 'open-accessibility' | 'relaunch' | 'install-companion' | 'get-vscode' | 'retry-engine' | 'copy-engine-details' | 'retry-cloud'
 export type Asked = Partial<Record<'screen' | 'accessibility' | 'companion', number>>
 export type RecoveryKind = Extract<PermissionKind, 'screen' | 'accessibility'>
 export type Recovery = { kind: RecoveryKind; why: 'paused' | 'dropped'; title?: string; body?: string; at: number }
@@ -238,6 +238,12 @@ export async function runAction(a: RowAction, item?: HealthItem): Promise<void> 
     case 'retry-engine':
       await bridge.invoke('engine-local:restart').catch(() => undefined)
       return
+    case 'copy-engine-details': {
+      // main/localEngine.ts: the state, why, and the end of engine.log (keys and tokens hidden) on the clipboard.
+      const ok = await bridge.invoke<boolean>('engine-local:details').catch(() => false)
+      notify(ok ? 'Details copied.' : "Couldn't copy the details.", 'info', { id: 'onb-engine-details' })
+      return
+    }
     case 'retry-cloud':
       await bridge
         .invoke<CloudView>('cloud:retry')
