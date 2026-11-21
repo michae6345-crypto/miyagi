@@ -142,6 +142,13 @@ export default defineMainFeature({
     })
 
     ctx.handle('onboarding:relaunch', () => {
+      // A dev copy (npm run dev) can't app.relaunch(): electron-vite owns the process. Hand the restart to the
+      // ~/Applications/miyagi.app launcher, which stops this copy and starts a fresh one (Michael, Nov 20: Relaunch did nothing).
+      const launcher = join(homedir(), 'Applications', 'miyagi.app')
+      if (!ctx.app.isPackaged && existsSync(launcher)) {
+        execFile('/usr/bin/open', ['-n', launcher], () => undefined)
+        return true
+      }
       ctx.app.relaunch()
       ctx.app.quit()
       return true

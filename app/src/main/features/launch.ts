@@ -160,7 +160,8 @@ export default defineMainFeature({
     onOpenRequest = openHome
 
     // ---- a cold launch ----------------------------------------------------------------------------------------------
-    const coldHome = ctx.app.isPackaged && !atLogin && process.env.MIYAGI_QUIET_LAUNCH !== '1' && onboarded()
+    // Dev copies open home too (Michael tests from a dev build; MIYAGI_QUIET_LAUNCH=1 keeps it quiet for recordings).
+    const coldHome = !atLogin && process.env.MIYAGI_QUIET_LAUNCH !== '1' && onboarded()
     if (coldHome || pending) {
       pending = false
       const go = (): void => openHome()
