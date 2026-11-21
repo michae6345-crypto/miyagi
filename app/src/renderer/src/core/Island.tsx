@@ -313,18 +313,30 @@ function Layer({ id, width, children }: { id: string; width?: number; children: 
   //    a Space change, sleep or lock), so it sits at opacity 0 over the black: force it visible.
   useEffect(() => {
     if (!present) return
-    const born = Date.now()
-    const check = (): void => {
+    const measure = (): void => {
       const b = body.current
       setEmpty(!b || b.offsetWidth === 0 || b.offsetHeight === 0)
-      const el = layer.current
-      if (el && Date.now() - born > FADE_GRACE_MS && Number(getComputedStyle(el).opacity) < 0.99) el.style.opacity = '1'
     }
-    const t = setTimeout(check, FADE_GRACE_MS)
-    const iv = setInterval(check, 500)
+    measure()
+    // Empty-ness follows the body's size (no polling); the fade check polls only until the layer is seen visible.
+    const ro = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
+    if (body.current) ro?.observe(body.current)
+    const born = Date.now()
+    const fade = (): void => {
+      const el = layer.current
+      if (!el || Date.now() - born < FADE_GRACE_MS) return
+      if (Number(getComputedStyle(el).opacity) < 0.99) el.style.opacity = '1'
+      else clearInterval(iv)
+    }
+    const t = setTimeout(() => {
+      measure()
+      fade()
+    }, FADE_GRACE_MS)
+    const iv = setInterval(fade, 500)
     return () => {
       clearTimeout(t)
       clearInterval(iv)
+      ro?.disconnect()
     }
   }, [present])
   return (
@@ -332,7 +344,7 @@ function Layer({ id, width, children }: { id: string; width?: number; children: 
       ref={layer}
       data-island-layer={present ? id : undefined}
       className="absolute left-1/2 top-0"
-      style={{ x: '-50%', width: width ?? 'max-content', transformOrigin: '50% 0%' }}
+      style={{ x: '-50%', width: empty && present ? 'max-content' : (width ?? 'max-content'), transformOrigin: '50% 0%' }}
       initial={{ opacity: 0, y: 4, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { duration: duration.base, delay: 0.06, ease: ease.out } } }}
       exit={{ opacity: 0, scale: 0.98, transition: { duration: duration.instant } }}
@@ -349,7 +361,7 @@ const FADE_GRACE_MS = 700
 /** The island's resting content: the bonsai, on the notch black. What shows when a mode has nothing (or fails) to show. */
 export function RestingPill(): ReactNode {
   return (
-    <div data-ui className="flex items-center justify-center" style={{ width: PILL_FALLBACK.w, height: PILL_FALLBACK.h }}>
+    <div data-ui className="mx-auto flex items-center justify-center" style={{ width: PILL_FALLBACK.w, height: PILL_FALLBACK.h }}>
       <MiyagiMark size={14} />
     </div>
   )

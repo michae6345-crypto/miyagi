@@ -31,9 +31,12 @@ import { defineMainFeature } from '../context'
 const PER_MS = 60_000
 const MAX_RELOADS = 3
 const settling = new WeakSet<WebContents>()
+/** Set when a window's renderer crashed, hung or failed to load; cleared when it loads or responds again. */
+const broken = new WeakSet<WebContents>()
 const reloads = new WeakMap<WebContents, number[]>()
 
 function reloadSoon(wc: WebContents, reason: string): void {
+  broken.add(wc)
   const now = Date.now()
   const recent = (reloads.get(wc) ?? []).filter((t) => now - t < PER_MS)
   if (recent.length >= MAX_RELOADS) {
@@ -43,7 +46,8 @@ function reloadSoon(wc: WebContents, reason: string): void {
       settling.add(wc)
       setTimeout(() => {
         settling.delete(wc)
-        if (!wc.isDestroyed()) reloadSoon(wc, `${reason}, retry`)
+        // Only while still bad: a renderer that recovered must not lose its lesson to a late reload.
+        if (!wc.isDestroyed() && broken.has(wc)) reloadSoon(wc, `${reason}, retry`)
       }, PER_MS)
     }
     return
@@ -83,6 +87,7 @@ function watchLoads(win: BrowserWindow): void {
   watched.add(wc)
   let failed = false
   wc.on('unresponsive', () => {
+    broken.add(wc)
     clearTimeout(hung.get(wc))
     hung.set(
       wc,
@@ -91,14 +96,19 @@ function watchLoads(win: BrowserWindow): void {
       }, HUNG_MS)
     )
   })
-  wc.on('responsive', () => clearTimeout(hung.get(wc)))
+  wc.on('responsive', () => {
+    clearTimeout(hung.get(wc))
+    broken.delete(wc)
+  })
   win.on('closed', () => clearTimeout(hung.get(wc)))
   wc.on('did-fail-load', (_ev, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === ABORTED || !url) return
     failed = true
+    broken.add(wc)
     retryLoad(wc, url, code, desc)
   })
   wc.on('did-finish-load', () => {
+    broken.delete(wc)
     if (!failed || retrying.has(wc)) return
     failed = false
     console.warn(`[recover] window loaded again: ${wc.getURL()}`)
