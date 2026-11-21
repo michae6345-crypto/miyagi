@@ -21,6 +21,12 @@ const GLYPH = 28
 const MIN_COL = 120
 const MAX_COL = 176
 
+/** A track's tone: stable per name (toneFor), never mint (teal beside the pass-green nodes reads as "passed"). */
+const trackTone = (key: string): Tone => {
+  const t = toneFor(key)
+  return t === 'mint' ? 'sky' : t
+}
+
 function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null)
   const [w, setW] = useState(0)
@@ -91,7 +97,7 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
           </span>
         )}
       </div>
-      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: tones[tone].bg }}>
+      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: `color-mix(in srgb, ${tones[tone].bg} 60%, transparent)` }}>
         <div className="relative" style={{ width: w, height: h + 8 }}>
           <svg width={w} height={h + 8} className="pointer-events-none absolute inset-0" aria-hidden>
             {t.edges.map((e) => {
@@ -240,7 +246,7 @@ export function Constellation({ data, review, loading, children, bare }: { data?
           width > 0 && (
             <div className="flex flex-col gap-[20px]" style={{ paddingBottom: 4 }}>
               {groups.map((g, i) => (
-                <Cluster key={g.key} g={g} tone={toneFor(g.key)} width={width} dueOf={(id) => dueIdx.has(`${g.track.track}\u0000${id}`)} />
+                <Cluster key={g.key} g={g} tone={trackTone(g.key)} width={width} dueOf={(id) => dueIdx.has(`${g.track.track}\u0000${id}`)} />
               ))}
             </div>
           )
