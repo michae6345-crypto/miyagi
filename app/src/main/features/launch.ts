@@ -4,10 +4,13 @@
  *   - Clicking the app (Dock icon, Launchpad, Spotlight, Finder) while it runs: macOS sends a reopen ('activate'). A
  *     second launch on Windows (or `open -n` on a Mac): 'second-instance'. A file dropped on the icon: 'open-file'
  *     (the file itself is ignored: miyagi never acts on a dropped file). Each one opens home:
- *       setup not done            → the setup window (onboarding)
+ *       a fallback login window   → bring it forward as it is (the Account page's Sign in)
+ *       setup not done            → the home window, the same one: its first-run flow carries on where it is (one
+ *                                   window from start to finish, Michael Nov 21; never a second window over it)
  *       an app window is open     → bring it forward (Library first)
  *       otherwise                 → the Library (home: Continue, Ready to run, the progress entry)
- *   - A cold launch of the built app with setup done opens the Library too (setup not done: onboarding.ts opens setup).
+ *   - A cold launch of the built app with setup done opens the Library too (setup not done: onboarding.ts opens the
+ *     same home window, in its first-run flow).
  *     Not when started at login, not in `npm run dev`, not with MIYAGI_QUIET_LAUNCH=1.
  *   - The menu bar item (Tray): Open miyagi, Start a lesson (the launcher), Settings…, Quit miyagi. It keeps miyagi
  *     reachable with every window closed (the overlay app has no Dock icon until an app window opens, appWindows.ts).
@@ -92,16 +95,26 @@ export default defineMainFeature({
       else win.once('show', steal)
     }
 
+    /** An open window as it is: shown and focused, no new args (they would reset what it shows). */
+    const raise = (win: BrowserWindow): void => {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+      bringForward(win)
+    }
+
     const openHome = (): void => {
       if (ctx.overlay.isDestroyed()) return
-      // The first-run login is up (features/auth): bring it forward as it is (no new args: they would restart it).
+      // A fallback login window is up (features/auth, the Account page's Sign in): bring it forward as it is.
       const login = ctx.appWindow('auth')
-      if (login && !login.isDestroyed()) {
-        login.show()
-        login.focus()
-        return bringForward(login)
+      if (login && !login.isDestroyed()) return raise(login)
+      // Setup not done: the home window runs the first-run flow. Bring that same window forward (never re-open it with
+      // args, which would move it off the step it is on), or open it.
+      if (!onboarded()) {
+        const home = ctx.appWindow('library')
+        if (home && !home.isDestroyed()) return raise(home)
+        return bringForward(ctx.openWindow('library'))
       }
-      if (!onboarded()) return bringForward(ctx.openWindow('onboarding'))
       for (const route of FORWARD) {
         const w = ctx.appWindow(route)
         if (w && !w.isDestroyed()) return bringForward(ctx.openWindow(route))

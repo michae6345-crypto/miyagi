@@ -2,7 +2,10 @@
  * Core (v2, W0-4): open another surface without importing the feature that owns it. Every opener is a
  * bridge.invoke, so no feature imports another feature's opener (BUILD-PLAN W0-4).
  *
- *   openOnboarding()            the Onboarding app window
+ *   openOnboarding()            guided setup: in the home window, over home (the first-run flow layer); from any other
+ *                               window, the home window opens on it ({setup}); the standalone setup window only when
+ *                               the home window can't open (one window from start to finish, Michael Nov 21)
+ *   setSetupOpener(fn)          the home window's flow (features/shell/flow) registers how it runs setup over home
  *   openSettings(section?)      the Settings sheet, grown from the pill (settings feature, main/features/settings.ts)
  *   openLibrary(id? | {page})   the Library app window, on a lesson's detail when `id` is given, or on a shell page
  *   openLogin(view?)            the login app window (features/auth; 'intro' plays the branded intro first)
@@ -42,7 +45,25 @@ export function focusWindow(route: AppRoute): Promise<boolean | undefined> {
   return quiet(bridge.invoke<boolean>('window:focus', route))
 }
 
-export const openOnboarding = (): Promise<boolean | undefined> => openWindow('onboarding')
+/** Set by the home window's first-run flow (features/shell/flow initFlow): setup asked for in that window runs there. */
+let setupOpener: (() => void) | undefined
+export function setSetupOpener(fn: (() => void) | undefined): void {
+  setupOpener = fn
+}
+/**
+ * Guided setup, never a second window over home. In the home window: the flow over home (setupOpener). Elsewhere (the
+ * Settings sheet from the tray or the pill, another app window): the home window, opened or raised with {setup}, which
+ * its flow reads (Shell.tsx). The standalone setup window only when the home window can't be opened.
+ */
+export async function openOnboarding(): Promise<boolean | undefined> {
+  if (setupOpener) {
+    setupOpener()
+    return true
+  }
+  // A fresh value on every ask, so the home window can tell a new ask from the args it already acted on.
+  if (await openWindow('library', { setup: Date.now() })) return true
+  return openWindow('onboarding')
+}
 /** openLibrary() / openLibrary(id) as before; openLibrary({page, section?}) opens the home window on a shell page. */
 export function openLibrary(target?: string | LibraryTarget): Promise<boolean | undefined> {
   if (typeof target === 'string') return openWindow('library', target ? { id: target } : undefined)

@@ -2,6 +2,7 @@
  * Feature: shell. The home window's persistent left sidebar:
  *
  *   top      room for the traffic lights (the window drags here), then the bonsai and the lowercase wordmark
+ *            (flow/SidebarBrand.tsx: where the first run's bonsai lands, the wordmark writing in after it)
  *   nav      Home, Lessons, Skills, Progress, Settings, Account. The selection is one shape that slides between rows
  *            on the house spring (layoutId). Arrow keys move along the list (and switch the page, like the macOS
  *            sidebar), Home / End jump to the ends. ⌘1..⌘6 are handled by Shell.tsx.
@@ -18,13 +19,13 @@ import { motion } from 'motion/react'
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { color, fill, focus, highlight, radius2, spring, surface, type2 } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
-import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { authOn } from '../auth/model'
 import { loadAuth, useAuth } from '../auth/store'
 import { StatusArea } from '../library/Status'
 import { SharedAvatar } from './AccountSheet'
+import { SidebarBrand } from './flow/SidebarBrand'
 import { openSheet, useSheet } from './sheet'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
@@ -203,8 +204,7 @@ export function Sidebar({ compact, short, blocked = false }: { compact: boolean;
       {/* The window's own traffic lights sit here (hiddenInset); this strip drags the window. */}
       <div data-drag className="shrink-0" style={{ height: 40 }} />
       <div data-drag className="flex shrink-0 items-center gap-[8px]" style={{ padding: compact ? '4px 0 20px' : '4px 10px 20px', justifyContent: compact ? 'center' : undefined }}>
-        <MiyagiMark size={compact ? 22 : 20} />
-        {!compact && <MiyagiWordmark height={16} className="h-[16px] w-auto" />}
+        <SidebarBrand compact={compact} />
       </div>
       <Nav compact={compact} />
       <div className="mt-auto flex flex-col gap-[10px]" style={{ paddingTop: 16 }}>

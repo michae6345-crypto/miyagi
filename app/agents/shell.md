@@ -4,6 +4,18 @@
 
 **Status (Nov 20, branch `michael/app-shell`):** the home window is an app shell with a persistent left sidebar and six pages. Typecheck green. Checked in the browser stage at 1440x900 (headless shots plus DOM checks in the in-app browser). Not verified in Electron.
 
+## First run in this window (lane oneflow, Nov 21)
+`flow/` (FlowLayer, Strip, FlowMark, SidebarBrand, store, motion, web): until setup is over, a full-window flow layer
+covers the shell, sidebar included (intro, Sign in, guided setup, You're ready), then hands over: its screen fades,
+then its paper while the sidebar slides in from the left, the bonsai lands in the sidebar's logo (`FlowMark`, layoutId
+shared with the flow) and the wordmark writes in after it, Home rises in. Shell.tsx mounts nothing of home under a first
+run, wraps everything in one `LayoutGroup`, and ignores ⌘1..⌘6 during the flow. Setup again (Finish setup, the sidebar's status
+rows, Settings' Open setup, anything calling `openOnboarding()`: `flow/store.ts` `requestSetup`) runs the flow over home,
+which stays mounted and inert under it, with "Back to home" / Esc in every phase. From another window it arrives as this
+window's `{setup}` arg (read once per value in Shell.tsx). Spec and timeline:
+agents/onboarding.md "One window". Sidebar.tsx: only the logo row changed (`SidebarBrand` in place of the mark and
+wordmark).
+
 ## Goal
 Michael, after trying the app: "It should be like a dashboard on the left. I should be able to click different pages." The home window (route `library`: the Dock click, the tray's "Open miyagi" and setup's Start all open it) is now a real app shell.
 

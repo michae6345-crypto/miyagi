@@ -27,7 +27,10 @@
  *                             refused exchange; the renderer shows it as is)
  *   auth:cancel             stop waiting for the browser → true
  *   auth:continue           the learner is done with the login (signed in, or "Continue without an account"): it never
- *                           shows on launch again; on the first run guided setup opens, then the login window closes
+ *                           shows on launch again. In the one-window flow (the login is a screen of the home window)
+ *                           nothing opens and nothing closes: the flow moves on to setup by itself. Only the
+ *                           standalone login window (a fallback) hands over: home opens when setup isn't done, then
+ *                           the login window closes
  *   auth:sign-out           revoke (best effort) and forget the session → true
  * Broadcast: feat:auth:changed  {name, email, avatarInitial} | null  (sign-in, refresh that changed the user, sign-out)
  *
@@ -195,8 +198,10 @@ let afterLogin: (() => BrowserWindow | undefined) | undefined
 export const needsLogin = (): boolean => loginEnabled() && !signedIn && !decided
 
 /**
- * onboarding.ts: what opens when the learner is done with the login on the first run (guided setup). Return the window
- * it opened, so the login window closes only once that one is showing (no gap with no window).
+ * onboarding.ts: what opens when the learner is done with the login. In the one-window flow it returns undefined (no
+ * 'auth' window is open; the home window's flow carries on by itself). Only for the standalone login window, a
+ * fallback, it opens a window (home, while setup isn't done) and returns it, so the login window closes only once that
+ * one is showing (no gap with no window).
  */
 export function onLoginDone(fn: () => BrowserWindow | undefined): void {
   afterLogin = fn

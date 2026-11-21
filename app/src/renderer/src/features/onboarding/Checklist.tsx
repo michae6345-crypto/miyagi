@@ -24,11 +24,12 @@ export function Bars({ rows }: { rows: RowData[] }): ReactNode {
   )
 }
 
-export function SheetHeader({ title, rows, sum, brand }: { title: string; rows: RowData[]; sum: Summary; brand?: boolean }): ReactNode {
+/** `mark={false}`: the one-window flow already shows the bonsai in its step strip. */
+export function SheetHeader({ title, rows, sum, brand, mark = true }: { title: string; rows: RowData[]; sum: Summary; brand?: boolean; mark?: boolean }): ReactNode {
   return (
     <div data-drag className="flex items-center justify-between">
       <div className="flex items-center gap-[12px]">
-        <MiyagiMark size={brand ? 32 : 24} />
+        {mark && <MiyagiMark size={brand ? 32 : 24} />}
         <h2
           id="onb-title"
           className="m-0"
@@ -45,10 +46,11 @@ export function SheetHeader({ title, rows, sum, brand }: { title: string; rows: 
   )
 }
 
-export function Checklist({ rows, sum, onGuide }: { rows: RowData[]; sum: Summary; onGuide?: () => void }): ReactNode {
+/** `again`: setup opened again over home (features/shell/flow); the primary is Done, which is always allowed (back to home). */
+export function Checklist({ rows, sum, onGuide, onStart, mark, again }: { rows: RowData[]; sum: Summary; onGuide?: () => void; onStart?: () => void; mark?: boolean; again?: boolean }): ReactNode {
   return (
     <div data-onb-view="checklist" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
-      <SheetHeader title="Review setup" rows={rows} sum={sum} />
+      <SheetHeader title="Review setup" rows={rows} sum={sum} mark={mark} />
       <motion.div role="list" className="mt-[24px] flex flex-col gap-[8px]" variants={stagger(0.04)} initial="hidden" animate="shown">
         {rows.map((r) => (
           <motion.div key={r.id} role="none" variants={rise}>
@@ -60,6 +62,8 @@ export function Checklist({ rows, sum, onGuide }: { rows: RowData[]; sum: Summar
       <Footer
         sum={sum}
         border={false}
+        onStart={onStart}
+        {...(again ? { label: 'Done', always: true } : {})}
         left={
           <div className="flex min-w-0 items-center gap-[16px]">
             {onGuide && !sum.allOk && (
