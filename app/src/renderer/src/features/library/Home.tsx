@@ -11,8 +11,8 @@
  * Every part has its own loading, empty and offline state, and rises in a beat after the one above (motion.tsx).
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowRight, ArrowUpRight, Play, Settings2 } from 'lucide-react'
-import { useRef, type ReactNode } from 'react'
+import { ArrowRight, ChevronRight, CloudOff, Play, Settings2 } from 'lucide-react'
+import { useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
@@ -32,7 +32,7 @@ import type { DashData } from '../dashboard/types'
 import { HOW_LABEL } from '../launcher/parts'
 import { thumbnailFor } from '../launcher/youtube'
 import { summarize, useRows } from '../onboarding/rows'
-import { pickHero, readAsk, recentActivity, setAskText, setHow, stepsPassed, submitAsk, useAsk, type Hero, type How, type Recent } from './homeModel'
+import { flipHow, pickHero, readAsk, recentActivity, setAskText, setHow, stepsPassed, submitAsk, useAsk, type Hero, type How, type Recent } from './homeModel'
 import { Press, Rise } from './motion'
 import { Skeleton, TOOL_NAME, ToolTile, minutesLabel, soft, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
@@ -179,13 +179,14 @@ function HeroCard({ hero }: { hero: Hero }): ReactNode {
 // ---- ask --------------------------------------------------------------------------------------------------------
 
 const IDEAS = ['Clean a messy CSV with pandas', 'Build a tiny web server in Python', 'Train a small image classifier']
-const HOW_HINT: Record<How, string> = { lesson: 'miyagi writes a lesson for it, step by step.', video: 'Pick a tutorial video. miyagi turns it into a lesson.' }
+const HOW_HINT: Record<How, string> = { lesson: 'A lesson, step by step.', video: 'Pick one in the launcher.' }
 
 function Choice({ how, on }: { how: How; on: boolean }): ReactNode {
   return (
     <Press
       role="radio"
       aria-checked={on}
+      tabIndex={on ? 0 : -1}
       data-how={how}
       onClick={() => setHow(how)}
       className="flex flex-1 flex-col gap-[2px]"
@@ -195,11 +196,21 @@ function Choice({ how, on }: { how: How; on: boolean }): ReactNode {
         <span aria-hidden className="block shrink-0" style={{ width: 12, height: 12, borderRadius: radius2.round, boxShadow: `inset 0 0 0 ${on ? 4 : 1.5}px ${on ? color.text : fill.ring}` }} />
         {HOW_LABEL[how]}
       </span>
-      <span className="relative" style={{ ...caption, paddingLeft: 20 }}>
+      <span className="relative truncate" style={{ ...caption, paddingLeft: 20 }}>
         {HOW_HINT[how]}
       </span>
     </Press>
   )
+}
+
+/** Arrow keys move the choice and the focus with it (a radio group: one tab stop, arrows inside). */
+function onHowKey(e: KeyboardEvent<HTMLDivElement>): void {
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
+  e.preventDefault()
+  const group = e.currentTarget
+  flipHow() // two choices: every arrow lands on the other one
+  const now = useAsk.getState().how
+  requestAnimationFrame(() => group.querySelector<HTMLElement>(`[data-how="${now}"]`)?.focus())
 }
 
 function AskCard({ primary }: { primary: boolean }): ReactNode {
@@ -213,7 +224,7 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
     if (!submitAsk(connected)) input.current?.focus()
   }
   const Btn = primary ? PrimaryButton : QuietButton
-  const actionLabel = read.kind === 'link' ? (read.match ? 'Start lesson' : 'Build lesson') : ask.how === 'lesson' ? 'Teach me' : 'Find videos'
+  const actionLabel = read.kind === 'link' ? (read.match ? 'Start lesson' : 'Build lesson') : ask.how === 'lesson' ? 'Teach me' : 'Open the launcher'
   return (
     <section aria-labelledby="home-ask" data-home-ask className="flex h-full flex-col gap-[12px]" style={{ ...card, padding: 20 }}>
       <H2 id="home-ask">Learn something new</H2>
@@ -253,13 +264,14 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
             whileTap={{ scale: 0.94 }}
             transition={spring}
             className="flex shrink-0 cursor-pointer items-center justify-center outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
-            style={{ width: 32, height: 32, borderRadius: radius2.control, background: color.accent, color: color.onAccent, outlineColor: color.text }}
+            style={{ width: 32, height: 32, borderRadius: radius2.control, background: fill.chip, color: color.text, outlineColor: color.text }}
           >
-            {ask.sending ? <Spinner size={13} c={color.onAccent} track={fill.onAccentKey} /> : <ArrowRight size={15} strokeWidth={2} aria-hidden />}
+            {ask.sending ? <Spinner size={13} c={color.text} /> : <ArrowRight size={15} strokeWidth={2} aria-hidden />}
           </motion.button>
         )}
       </form>
-      <div className="relative min-h-[112px]">
+      {/* Tall enough for the tallest state (goal: two choices, the button and a wrapped note), so typing never moves the page. */}
+      <div className="relative min-h-[124px]">
         <AnimatePresence mode="wait" initial={false}>
           {read.kind === 'idle' && (
             <motion.div key="idle" className="flex flex-col gap-[8px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0.12 } }} transition={spring}>
@@ -284,7 +296,7 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
           )}
           {read.kind === 'goal' && (
             <motion.div key="goal" className="flex flex-col gap-[10px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0.12 } }} transition={spring}>
-              <div role="radiogroup" aria-label="How to learn it" className="flex gap-[8px]">
+              <div role="radiogroup" aria-label="How to learn it" className="flex gap-[8px]" onKeyDown={onHowKey}>
                 <Choice how="lesson" on={ask.how === 'lesson'} />
                 <Choice how="video" on={ask.how === 'video'} />
               </div>
@@ -329,10 +341,12 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
 
 // ---- lessons: ready to run, recent activity ---------------------------------------------------------------------
 
-function ReadyToRun(): ReactNode {
+function ReadyToRun({ upNext }: { upNext: Set<string> }): ReactNode {
   const loaded = useLibrary((s) => s.loaded)
   const items = useLibrary((s) => s.items)
-  const ready = items.filter((i) => i.ready && !i.progress)
+  const saved = items.filter((i) => i.ready && !i.progress)
+  // Up next already shows its lessons above: never list one twice on the page.
+  const ready = saved.filter((i) => !upNext.has(i.id))
   return (
     <section aria-labelledby="home-ready" data-home-ready className="flex h-full flex-col gap-[12px]" style={{ ...card, padding: 20 }}>
       <H2 id="home-ready" right={ready.length > 3 ? <QuietButton label={`See all ${ready.length}`} onClick={() => setSection('library')} /> : <span style={caption}>Saved on this Mac</span>}>
@@ -347,7 +361,7 @@ function ReadyToRun(): ReactNode {
       ) : !ready.length ? (
         <div className="flex flex-col items-start gap-[4px]" style={{ padding: 16, borderRadius: radius2.card, border: `1px dashed ${surface.border}` }}>
           <span className="font-medium" style={{ fontSize: type2.sm, color: color.text }}>
-            {items.length ? 'Every saved lesson is under way.' : 'No lessons on this Mac yet.'}
+            {saved.length ? 'Your saved lessons are in Up next.' : items.length ? 'Every saved lesson is under way.' : 'No lessons on this Mac yet.'}
           </span>
           <span style={caption}>Ask miyagi above. New lessons are saved here.</span>
         </div>
@@ -373,7 +387,7 @@ function ReadyToRun(): ReactNode {
                   </span>
                   <span style={caption}>{[stepsLabel(i.steps), minutesLabel(i.estMinutes)].filter(Boolean).join(' · ')}</span>
                 </span>
-                <ArrowUpRight aria-hidden size={14} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.faint }} />
+                <ChevronRight aria-hidden size={13} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.faint }} />
               </Press>
             </Rise>
           ))}
@@ -384,7 +398,8 @@ function ReadyToRun(): ReactNode {
 }
 
 function RecentRow({ r, now, i }: { r: Recent; now: number; i: number }): ReactNode {
-  const allPassed = r.done && r.total > 0 && r.passed + r.skipped >= r.total && r.passed > 0
+  // Green only when every step was passed: a skipped step keeps the white ring.
+  const allPassed = r.done && r.total > 0 && r.passed >= r.total
   const content = (
     <>
       <span className="relative flex shrink-0">
@@ -426,7 +441,7 @@ function RecentRow({ r, now, i }: { r: Recent; now: number; i: number }): ReactN
   )
 }
 
-function RecentActivity({ rows, now, loading }: { rows: Recent[]; now: number; loading: boolean }): ReactNode {
+function RecentActivity({ rows, now, loading, offline }: { rows: Recent[]; now: number; loading: boolean; offline: boolean }): ReactNode {
   return (
     <section aria-labelledby="home-recent" data-home-recent className="flex h-full flex-col gap-[8px]" style={{ ...card, padding: 20 }}>
       <H2 id="home-recent" right={<span style={caption}>Steps you passed yourself</span>}>
@@ -441,9 +456,9 @@ function RecentActivity({ rows, now, loading }: { rows: Recent[]; now: number; l
       ) : !rows.length ? (
         <div className="flex flex-col gap-[4px]" style={{ padding: '8px 10px' }}>
           <span className="font-medium" style={{ fontSize: type2.sm, color: color.text }}>
-            Nothing yet
+            {offline ? 'Waiting for miyagi' : 'Nothing yet'}
           </span>
-          <span style={caption}>Your lessons and the steps you pass show up here.</span>
+          <span style={caption}>{offline ? 'Your recent lessons show when it connects.' : 'Your lessons and the steps you pass show up here.'}</span>
         </div>
       ) : (
         <ul className="m-0 flex list-none flex-col p-0">
@@ -456,12 +471,35 @@ function RecentActivity({ rows, now, loading }: { rows: Recent[]; now: number; l
   )
 }
 
+// ---- offline ----------------------------------------------------------------------------------------------------
+
+/** The engine is away and nothing is cached: one calm line instead of empty charts that read as "your history is gone". */
+function OfflineDash(): ReactNode {
+  return (
+    <section role="status" data-home-offline className="flex items-center gap-[16px]" style={{ ...card, padding: '20px 24px' }}>
+      <span className="flex shrink-0 items-center justify-center" style={{ width: 40, height: 40, borderRadius: radius2.card, background: fill.chip }}>
+        <CloudOff aria-hidden size={18} strokeWidth={1.8} style={{ color: color.label }} />
+      </span>
+      <span className="flex min-w-0 flex-col gap-[2px]">
+        <span className="font-medium" style={{ fontSize: type2.sm, color: color.text }}>
+          {copy.name} is offline. Your progress shows when it connects.
+        </span>
+        <span style={caption}>Your streak, skills and reviews are safe.</span>
+      </span>
+    </section>
+  )
+}
+
 // ---- the page ---------------------------------------------------------------------------------------------------
 
 export function Home(): ReactNode {
   const { data, load, now, goals, r, t, due, later } = useDashView()
   const hero = useHero(data, load === 'loading')
   const loading = load === 'loading'
+  const connected = useLesson((s) => s.connected)
+  // Engine away with nothing to show: the dashboard sections say so once, never "No skills yet".
+  const offline = !connected && !data && !loading
+  const upNext = new Set((data?.next ?? []).flatMap((n) => (n.id ? [n.id] : [])))
   // One primary per surface: the hero's when it has one, else the ask field's action.
   const heroPrimary = hero.kind === 'resume' || hero.kind === 'fresh' || hero.kind === 'live'
   return (
@@ -475,40 +513,50 @@ export function Home(): ReactNode {
             <AskCard primary={!heroPrimary} />
           </Rise>
         </div>
-        <Rise i={2}>
-          <Band data={data} now={now} goals={goals} r={r} t={t} loading={loading} />
-        </Rise>
-        <div className="grid gap-[16px]" style={{ gridTemplateColumns: 'minmax(0, 1fr) 300px' }}>
-          <Rise i={3} className="grid" style={{ minHeight: data?.tracks.length ? 452 : undefined }}>
-            <Constellation data={data} review={due} loading={loading}>
-              <SkillCard data={data} now={now} route="library" />
-            </Constellation>
+        {offline ? (
+          <Rise i={2}>
+            <OfflineDash />
           </Rise>
-          <Rise i={4} className="flex flex-col gap-[12px]" data-rail="">
-            {loading ? (
-              <>
-                <Skeleton h={160} />
-                <Skeleton h={200} />
-              </>
-            ) : (
-              <>
-                <Review data={data} due={due} later={later} now={now} route="library" />
-                <UpNext data={data} route="library" />
-              </>
-            )}
-          </Rise>
-        </div>
+        ) : (
+          <>
+            <Rise i={2}>
+              <Band data={data} now={now} goals={goals} r={r} t={t} loading={loading} />
+            </Rise>
+            <div className="grid gap-[16px]" style={{ gridTemplateColumns: 'minmax(0, 1fr) 300px' }}>
+              <Rise i={3} className="grid" style={{ minHeight: data?.tracks.length ? 452 : undefined }}>
+                <Constellation data={data} review={due} loading={loading}>
+                  <SkillCard data={data} now={now} route="library" />
+                </Constellation>
+              </Rise>
+              <Rise i={4} className="flex flex-col gap-[12px]" data-rail="">
+                {loading ? (
+                  <>
+                    <Skeleton h={160} />
+                    <Skeleton h={200} />
+                  </>
+                ) : (
+                  <>
+                    <Review data={data} due={due} later={later} now={now} route="library" />
+                    <UpNext data={data} route="library" />
+                  </>
+                )}
+              </Rise>
+            </div>
+          </>
+        )}
         <div className="grid gap-[16px]" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}>
           <Rise i={5}>
-            <ReadyToRun />
+            <ReadyToRun upNext={upNext} />
           </Rise>
           <Rise i={6}>
-            <RecentActivity rows={recentActivity(data)} now={now} loading={loading} />
+            <RecentActivity rows={recentActivity(data)} now={now} loading={loading} offline={offline} />
           </Rise>
         </div>
-        <Rise i={7}>
-          <Milestones list={loading ? [] : milestones(data, r, now)} />
-        </Rise>
+        {!offline && (
+          <Rise i={7}>
+            <Milestones list={loading ? [] : milestones(data, r, now)} />
+          </Rise>
+        )}
       </div>
     </div>
   )
