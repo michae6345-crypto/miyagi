@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { Layout } from '../../../../preload/api'
 import { closeWindow, useWindowArgs } from '../../core/surfaces'
+import { AuthView } from '../auth/AuthView'
 import { spring, surface } from '../../core/theme'
 import { isView, type View } from './model'
 import { Menu } from './Menu'
@@ -55,6 +56,9 @@ export function AccountWindow({ layout }: { layout: Layout }): ReactNode {
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
   }, [back])
+
+  // First-run login (features/auth): its own surface, hosted here until core allowlists an 'auth' route.
+  if (args?.view === 'login' || args?.view === 'login-now') return <AuthView skipIntro={args.view === 'login-now'} />
 
   let view = stack[stack.length - 1]
   // The menu belongs to someone: signed out (or no account backend yet) it is Sign in.
