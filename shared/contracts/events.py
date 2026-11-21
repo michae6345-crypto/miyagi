@@ -208,6 +208,8 @@ class StepStarted(_Model):
 
 
 class CheckUpdated(_Model):
+    epoch: int | None = None  # lesson / step generation it was sent under (optional, additive)
+    gen: int | None = None
     stepId: str
     checkId: str
     label: str
@@ -455,6 +457,8 @@ CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "e
 
 
 class Card(_Model):
+    epoch: int | None = None  # lesson / step generation it was sent under (optional, additive)
+    gen: int | None = None
     stepId: str | None = None
     # resume: "Continue where you left off?"; step: a step-control / judge card the engine raises itself ("Run it",
     # "Save X", "X is still empty", "Wrong folder?", "Looks done?", "Not yet"), never an answer; where: the
@@ -568,10 +572,15 @@ class Metric(_Model):
 
 class Status(_Model):
     state: Literal["idle", "watching", "offtrack", "passed", "thinking"]
+    detail: str | None = None
+    epoch: int | None = None  # lesson / step generation it was sent under (optional, additive)
+    gen: int | None = None
 
 
 class Error(_Model):
     message: str
+    epoch: int | None = None
+    gen: int | None = None
 
 
 class LessonEnded(_Model):

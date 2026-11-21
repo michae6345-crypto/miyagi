@@ -46,7 +46,7 @@ export interface EngineEvents {
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
   "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string; kind?: StepKind; what?: string; why?: string; concepts?: string[]; code?: string; estMinutes?: number; replay?: boolean };   // replay: a reconnect's / restore's replay of the step already running (not a new step)   // estMinutes: about how long this step takes ("about 4 min")   // code: the exact code to type / command to run, in full (never truncated)   // what: what you build in this step (<= 12 words); why: what it means (<= 25 words); concepts: primer ids   // instructions: ONE concrete action ("Create calculator.py and type print(…)"); details: the full explanation; video null/absent: no player for this step
-  "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
+  "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string; epoch?: number; gen?: number };
   "step.passed": { stepId: string; nextStepId?: string; pending?: boolean; skipped?: boolean; already?: boolean };   // already: its code was already in the file (pasted ahead / Do it for me): passed without starting; ONE card "You already did steps 2–3" follows   // skipped: the learner pressed Skip (action skip_step): not a pass, never green  // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
   "offtrack": {
     stepId: string;
@@ -76,7 +76,7 @@ export interface EngineEvents {
    *          "Looks done?" and every judge card (source "judge": "Not yet", "Already ahead?", "Save so I can check"). A neutral step tile, not the pink Hint one.
    *  "where": where to work when there is no box to draw ("Open calc.py", "Where to work", "Save it as calc.py"), usually with open_editor: Show me's answer, and Hint's
    *          when the step's code isn't on screen yet. The lilac Show me tile. */
-  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight" | "step" | "where"; title: string; body: string; videoJump?: { t: number; label: string };
+  "card": { epoch?: number; gen?: number; stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight" | "step" | "where"; title: string; body: string; videoJump?: { t: number; label: string };
             output?: string;              // monospace output block (e.g. the last lines of "Run it for me")
             dismissAfterMs?: number;      // the app closes the card on its own after this long (a one-line success: "requests installed ✓", no buttons)
             actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "install_all" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "hint" | "show_me">;    // buttons on the card -> send `action {kind}`; retry ("Try again"): on the "Couldn't reach Claude" answer card; hint / show_me: the same actions as on the off-track card (judge "Not yet" card)
@@ -108,7 +108,7 @@ export interface EngineEvents {
   };
   "speak": { audioUrl: string; text: string };   // audioUrl is RELATIVE (e.g. /tts/<hash>.mp3): resolve it against the engine's http origin
   "metric": { runId: string; step: number; name: string; value: number };   // live curve feed
-  "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" };
+  "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking"; detail?: string; epoch?: number; gen?: number };   // epoch / gen: the lesson and step generation the engine sent it under (optional, additive)
   /** install progress for one setup item (action install): lines while it runs, then {done, ok, error|version|url} */
   "setup.progress": { tool: string; line?: string; done?: boolean; ok?: boolean; error?: string; url?: string; version?: string };
   /** Install token self-heal: the miyagi cloud does not know this install's token (the proxy answered 401, e.g. its database was
@@ -119,7 +119,7 @@ export interface EngineEvents {
   "cloud.token_invalid": { reason?: "unknown_token" };
   /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
   "lesson.ended": { lessonId?: string; reason: string };
-  "error": { message: string };
+  "error": { message: string; epoch?: number; gen?: number };
 }
 
 /** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`. */
