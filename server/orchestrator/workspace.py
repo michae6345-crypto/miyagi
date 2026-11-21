@@ -409,6 +409,20 @@ def editor_needed(items: list[dict]) -> bool:
     return bool(fn(items)) if fn else any(it.get("kind") == "editor" and it.get("needed") for it in items)
 
 
+def editor_missing() -> tuple[dict, dict] | None:
+    """S2: (the "VS Code not found" setup card, its editor row) when this Mac has no VS Code, else None. Blocking (a
+    Spotlight lookup): run it in a thread. Never raises (unknown: None, the open goes ahead as before)."""
+    ws = _s2()
+    fn = getattr(ws, "editor_missing_card", None) if ws is not None else None
+    if fn is None:
+        return None
+    try:
+        return fn()
+    except Exception:
+        log.exception("workspace.editor_missing_card failed")
+        return None
+
+
 def install(item: dict, folder: str, on_line) -> dict:
     """S2: brew / brew --cask / pip into <folder>/.venv. ONLY after the learner said yes. Blocking."""
     ws = _s2()
@@ -498,6 +512,9 @@ class Workspace:
         self.lesson_key = ""  # the current lesson's id (session.load_graph): the editor opens once per lesson + folder
         self.reveal = None  # (path, line) -> revealed? t8: the companion's /open; None = reveal_line on real windows
         self.front = None  # () -> is the editor the active app? None = _editor_in_front (tests inject both)
+        # () -> (card, item) when this Mac has no VS Code, else None: real windows only (tests inject a runner, and may
+        # inject this too)
+        self.editor_check = editor_missing if runner is None else None
 
     @staticmethod
     def _spawn(argv: list[str]) -> bool:

@@ -218,8 +218,10 @@ def check_python_packages(items: list[dict], py: str | None, *, run: Runner = _r
             it.update(installed=False, version="", where="", ok=False)
         return
     payload = [[import_candidates(it), re.split(r"[\[<>=!~ ;]", it.get("pip_name") or it.get("tool") or "")[0]] for it in items]
-    code, out = (run([py, "-c", _PY_PROBE, json.dumps(payload)], timeout=timeout or PY_CHECK_TIMEOUT)
-                 if run is _run else run([py, "-c", _PY_PROBE, json.dumps(payload)]))
+    # The engine's own Python (no lesson .venv yet): -I -S, the stdlib only, which is what a new .venv starts with.
+    # Otherwise the engine's bundled Pillow / PyObjC counted as the lesson's and Install never made the .venv.
+    argv = [py, *(["-I", "-S"] if is_bundled(py) else []), "-c", _PY_PROBE, json.dumps(payload)]
+    code, out = run(argv, timeout=timeout or PY_CHECK_TIMEOUT) if run is _run else run(argv)
     seen: dict[int, dict] = {}
     for line in (out or "").splitlines():
         try:
@@ -286,10 +288,39 @@ def _xcode_stub(path: str | None) -> bool:
         return False
 
 
+def bundled_python() -> str | None:
+    """The Python inside miyagi.app (MIYAGI_BUNDLED_PYTHON, set by the app's localEngine.ts when it starts the engine
+    with it), else the interpreter this engine runs on. A fresh Mac has no other Python 3 (no Homebrew, and
+    /usr/bin/python3 is the Command Line Tools stub), and an app launched from Finder gets PATH=/usr/bin:/bin, so this
+    is what a lesson .venv is built from there. The bundle keeps venv + ensurepip (pip comes from its wheel, offline)."""
+    for p in (os.environ.get("MIYAGI_BUNDLED_PYTHON", "").strip(), getattr(sys, "_base_executable", "") or sys.executable):
+        if p and Path(p).is_file() and os.access(p, os.X_OK) and sys.version_info >= (3, 9):
+            return p
+    return None
+
+
+def is_bundled(py: str | None) -> bool:
+    """Is `py` exactly what bundled_python() picked (best_python's fallback, not a python3.x found on PATH)? Its
+    site-packages hold the ENGINE's libraries (Pillow, PyObjC, anthropic...), which a lesson .venv made from it doesn't
+    have: a package check against it must not count them. Same string only: on a dev Mac PATH's python3.12 and the
+    engine's base interpreter resolve to one file, and that case keeps today's check."""
+    return bool(py) and py == bundled_python()
+
+
 def best_python() -> str | None:
-    """The python3.x to build a lesson .venv with: PYTHON_PREFERENCE order, then plain python3. Never Apple's
-    Xcode stub (no Command Line Tools), so a Mac without Python shows the Python row as missing, with its Install."""
+    """The python3.x to build a lesson .venv with: python3.12 / 3.13 / 3.11 / 3.10 on PATH, else the Python inside
+    miyagi.app (bundled_python: a fresh Mac's only Python 3), then 3.14 / 3.9 and plain python3. Never Apple's Xcode
+    stub (no Command Line Tools)."""
+    later = []
     for minor in PYTHON_PREFERENCE:
+        if minor in (14, 9):  # a newer / older one than the bundled 3.12: the bundle first (TensorFlow-class wheels)
+            later.append(minor)
+            continue
+        if (p := shutil.which(f"python3.{minor}")) and not _xcode_stub(p):
+            return p
+    if p := bundled_python():
+        return p
+    for minor in later:
         if (p := shutil.which(f"python3.{minor}")) and not _xcode_stub(p):
             return p
     p = shutil.which("python3")
@@ -329,9 +360,11 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
             if app:
                 installed, where, version = True, app, _app_version(app, run)
         binary = item.get("binary") or cat.get("bin") or ""
-        if binary == "python3":
-            binary = best_python() or ""
-        b = shutil.which(binary) if binary and re.fullmatch(r"[\w.+\-/]+", binary) else None
+        b = None
+        if binary == "python3":  # our own pick, an absolute path (the bundled one may sit under a folder with spaces)
+            b = best_python()
+        elif binary and re.fullmatch(r"[\w.+\-/]+", binary):
+            b = shutil.which(binary)
         if b and not installed:
             installed, where = True, b
             code, out = run([b, "--version"])
@@ -451,7 +484,76 @@ def _canonical(tool: str) -> str:
     return ALIASES.get(t, t.replace(" ", "-"))
 
 
-def _items(raw: dict) -> list[dict]:
+_JUPYTER_FAMILY = {"jupyter", "notebook", "jupyterlab", "ipykernel", "jupyter-notebook", "jupyter-lab"}
+IPYKERNEL = {"tool": "ipykernel", "kind": "python_package", "why": "Runs the notebook's cells in VS Code.", "needed": True,
+             "min_version": "", "binary": "", "import_name": "ipykernel", "pip_name": "ipykernel", "brew": "",
+             "brew_cask": False, "url": "https://pypi.org/project/ipykernel/"}
+
+
+def _lib_names(graph: dict) -> list[str]:
+    libs = (graph.get("lesson") or {}).get("libraries")
+    names = list(libs) if isinstance(libs, (dict, list)) else []
+    return [str(n).strip() for n in names if isinstance(n, str) and n.strip()]
+
+
+def notebook_lesson(graph: dict) -> bool:
+    """A lesson whose code runs in a notebook (an .ipynb step file, or Jupyter in its libraries / steps): VS Code runs
+    the cells with the lesson .venv's ipykernel, so the setup card must install it."""
+    if {n.lower() for n in _lib_names(graph)} & _JUPYTER_FAMILY:
+        return True
+    for st in graph.get("steps") or []:
+        if not isinstance(st, dict):
+            continue
+        if str(st.get("file") or "").lower().endswith(".ipynb"):
+            return True
+        for x in (st.get("targets") or []) + (st.get("checks") or []) + (st.get("precision_checks") or []):
+            if isinstance(x, dict) and str(x.get("file") or "").lower().endswith(".ipynb"):
+                return True
+        if re.search(r"\bjupyter\b|\.ipynb\b", f"{st.get('title', '')} {st.get('instructions', '')}", re.IGNORECASE):
+            return True
+    return False
+
+
+def _python_lesson(graph: dict) -> bool:
+    if notebook_lesson(graph) or {n.lower() for n in _lib_names(graph)} & {"python", "python3"}:
+        return True
+    for st in graph.get("steps") or []:
+        if not isinstance(st, dict):
+            continue
+        files = [st.get("file")] + [x.get("file") for x in (st.get("targets") or []) + (st.get("checks") or [])
+                                    if isinstance(x, dict)]
+        if any(str(f or "").lower().endswith(".py") for f in files):
+            return True
+        if re.search(r"\b(python3?|pip3?)\s", str(st.get("run_command") or "")):
+            return True
+    return False
+
+
+def local_requirements(graph: dict) -> dict:
+    """What a lesson needs without asking Claude (offline, no key, the API down): the editor when it has code, Python,
+    and lesson.libraries as Python packages (a Python lesson only: a React lesson's libraries are npm's). Notebook
+    lessons get ipykernel in place of the jupyter family. Same shape as Claude's answer; never cached, so the next
+    online check asks Claude as usual."""
+    py = _python_lesson(graph)
+    nb = notebook_lesson(graph)
+    tool = {"needed": True, "min_version": "", "binary": "", "import_name": "", "pip_name": "", "brew": "",
+            "brew_cask": False, "url": ""}
+    tools: list[dict] = []
+    if py:
+        tools.append({**tool, "tool": "python", "kind": "runtime", "why": "Runs the lesson's code.", "binary": "python3"})
+        for name in _lib_names(graph):
+            low = name.lower()
+            if low in ("python", "python3") or (nb and low in _JUPYTER_FAMILY):
+                continue
+            if not pip_requirement(name):
+                continue
+            tools.append({**tool, "tool": low, "kind": "python_package", "why": "The lesson imports it.",
+                          "pip_name": name, "import_name": (IMPORT_ALIASES.get(low) or [""])[0]})
+    return {"editor": {"needed": py or nb, "why": "You write and run the code in VS Code." if py or nb
+                       else "this lesson doesn't edit code files."}, "tools": tools[:16]}
+
+
+def _items(raw: dict, graph: dict | None = None) -> list[dict]:
     ed = raw.get("editor") or {}
     items = [{
         "tool": (eid := _editor.editor_id()), "label": CATALOG[eid]["label"], "kind": "editor", "needed": bool(ed.get("needed")),
@@ -476,6 +578,9 @@ def _items(raw: dict) -> list[dict]:
             "binary": t.get("binary", ""), "import_name": t.get("import_name", ""), "pip_name": t.get("pip_name", ""),
             "brew": t.get("brew", ""), "brew_cask": bool(t.get("brew_cask")), "url": t.get("url", ""),
         })
+    if graph is not None and notebook_lesson(graph) and not seen & _JUPYTER_FAMILY:
+        # VS Code runs a notebook's cells with the lesson .venv's ipykernel; Claude's list often leaves it out
+        items.append({**IPYKERNEL, "label": "Jupyter kernel (ipykernel)"})
     return items
 
 
@@ -495,16 +600,20 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
     if raw is None:
         client = client if client is not None else make_client()
         if client is None:
-            log.warning("requirements: no Anthropic key")
-            return []
-        try:
-            raw = _ask_claude(lesson, client)
-        except Exception as e:  # noqa: BLE001
-            log.warning("requirements: Claude failed: %s", str(e)[:300])
-            return []
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps(raw, indent=1))
-    items = _items(raw)
+            log.warning("requirements: no Anthropic key: the lesson's own list (lesson.libraries)")
+            raw = local_requirements(lesson)
+        else:
+            try:
+                raw = _ask_claude(lesson, client)
+            except Exception as e:  # noqa: BLE001 - offline / API down: the lesson's own list, not an empty card
+                log.warning("requirements: Claude failed (%s): the lesson's own list (lesson.libraries)", str(e)[:300])
+                raw = local_requirements(lesson)
+            else:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(json.dumps(raw, indent=1))
+        if not raw.get("tools") and not (raw.get("editor") or {}).get("needed"):
+            return []  # nothing known: no card (as before)
+    items = _items(raw, lesson)
     brew = brew_path()
     pys = [it for it in items if it["kind"] == "python_package"]
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -534,8 +643,65 @@ def unknown(items: list[dict]) -> list[dict]:
 
 # --------------------------------------------------------------------------- install()
 
+# The engine's own Python setup (the app strips most of these; a launcher or a shell may not): never handed to the
+# lesson's .venv, its pip, or brew.
+_ENGINE_PY_ENV = ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONEXECUTABLE", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__",
+                  "CONDA_PREFIX", "PYTHONNOUSERSITE")
+OFFLINE = "No internet connection. Connect to Wi-Fi, then press Install again."
+NO_PYTHON = "no python3 on this Mac"
+_NET_ERR = re.compile(r"NewConnectionError|Name or service not known|nodename nor servname|Temporary failure in name "
+                      r"resolution|Network is unreachable|Failed to establish a new connection|ConnectTimeout|"
+                      r"Read timed out|Could not resolve host|No matching distribution found", re.IGNORECASE)
+
+
+def _host_of(r: dict) -> str:
+    """The host an install downloads from: PyPI (or PIP_INDEX_URL's), GitHub's for Homebrew's bottles."""
+    if r.get("method") == "pip":
+        m = re.match(r"https?://([^/:@]+@)?([^/:]+)", os.environ.get("PIP_INDEX_URL", ""))
+        return m.group(2) if m else "pypi.org"
+    return "ghcr.io"
+
+
+def online(host: str = "pypi.org", timeout: float = 4.0) -> bool:
+    """Can this Mac reach `host` on 443 right now? A few seconds at most, so an Install with the Wi-Fi off says so at
+    once instead of pip retrying for minutes (and a calm "connect to Wi-Fi" instead of a pip traceback)."""
+    import socket
+
+    try:
+        with socket.create_connection((host, 443), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def ensure_venv(workdir: Path | str, *, emit: Callable[[str], None] | None = None, env: dict | None = None,
+                timeout: float = 600.0, popen=subprocess.Popen) -> tuple[str | None, str]:
+    """<workdir>/.venv's python, made with best_python() when there's none yet (the Python inside miyagi.app on a Mac
+    with no other Python 3; no network: venv + ensurepip's bundled pip). A .venv whose python is a dangling link
+    (miyagi.app moved, or the Python it was made from was removed) is made again in place (--clear).
+    -> (python, "") or (None, why)."""
+    emit = emit or (lambda _line: None)
+    if py := venv_python(workdir):
+        return py, ""
+    base = best_python()
+    if base is None:
+        return None, NO_PYTHON
+    venv = Path(workdir) / ".venv"
+    stale = venv.exists() or venv.is_symlink()
+    env = dict(env if env is not None else os.environ)
+    for k in _ENGINE_PY_ENV:
+        env.pop(k, None)
+    argv = [base, "-m", "venv", *(["--clear"] if stale else []), str(venv)]
+    emit(f"$ {Path(base).name} -m venv {'--clear ' if stale else ''}.venv")
+    code, txt = _stream(argv, emit, env, timeout, popen)
+    if code != 0:
+        return None, f"could not create .venv: {txt[-300:]}"
+    py = venv_python(workdir)
+    return (py, "") if py else (None, "could not create .venv: no python in it")
+
+
 def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[[str], None] | None = None,
-            timeout: float = 1800.0, popen=subprocess.Popen) -> dict:
+            timeout: float = 1800.0, popen=subprocess.Popen, net: Callable[[str], bool] | None = None) -> dict:
     """Install one requirements() item. Call ONLY after the learner confirmed it.
 
     brew / brew cask (HOMEBREW_NO_AUTO_UPDATE), or pip into `<workdir>/.venv` (created with the newest
@@ -554,23 +720,22 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
                    url=r["url"])
         return out
     env = {**os.environ, "HOMEBREW_NO_AUTO_UPDATE": "1", "HOMEBREW_NO_ENV_HINTS": "1", "NONINTERACTIVE": "1"}
+    for k in _ENGINE_PY_ENV:  # the engine's own Python setup never reaches the lesson's .venv / pip
+        env.pop(k, None)
+    reachable = net or (online if popen is subprocess.Popen else (lambda _host: True))  # tests inject popen: no network
+    if not reachable(_host_of(r)):
+        out.update(error=OFFLINE, offline=True)
+        return out
     if r["method"] == "pip":
         if not workdir:
             out["error"] = "pip installs go into the lesson's .venv: no lesson folder given"
             return out
-        py = venv_python(workdir)
+        py, err = ensure_venv(workdir, emit=emit, env=env, timeout=timeout, popen=popen)
         if py is None:
-            base = best_python()
-            if base is None:
-                out.update(error="no python3 on this Mac", url=CATALOG["python"]["url"])
-                return out
-            emit(f"$ {Path(base).name} -m venv .venv")
-            code, txt = _stream([base, "-m", "venv", str(Path(workdir) / ".venv")], emit, env, timeout, popen)
-            if code != 0:
-                out["error"] = f"could not create .venv: {txt[-300:]}"
-                return out
-            py = venv_python(workdir)
-        argv = [py, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off", r["package"]]
+            out.update(error=err, **({"url": CATALOG["python"]["url"]} if err == NO_PYTHON else {}))
+            return out
+        argv = [py, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off",
+                "--retries", "2", "--timeout", "30", r["package"]]
     elif r["method"] == "brew_cask":
         argv = [brew, "install", "--cask", r["package"]]
     else:
@@ -578,6 +743,9 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
     emit("$ " + r["command"])
     code, txt = _stream(argv, emit, env, timeout, popen)
     if code != 0:
+        if _NET_ERR.search(txt) and not reachable(_host_of(r)):  # the Wi-Fi dropped during the download
+            out.update(error=OFFLINE, offline=True)
+            return out
         out.update(error=_last_error(txt) or f"exit {code}", url=r["url"])
         return out
     after = check(dict(item), workdir=workdir)
@@ -662,3 +830,31 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
     if step_id:
         card["stepId"] = step_id
     return card
+
+
+# --------------------------------------------------------------------------- VS Code not found
+
+def editor_item(*, run: Runner = _run) -> dict:
+    """The setup row for the lesson's editor (VS Code), checked on this Mac, with its install recipe: Homebrew's cask
+    when there's Homebrew, else its download page."""
+    eid = _editor.editor_id()
+    it = {"tool": eid, "label": CATALOG[eid]["label"], "kind": "editor", "needed": True, "min_version": "",
+          "why": "miyagi opens your lesson in it."}
+    check(it, run=run)
+    it["install"] = {k: v for k, v in recipe(it, brew_path()).items() if k != "package"}
+    return it
+
+
+def editor_missing_card(*, run: Runner = _run) -> tuple[dict, dict] | None:
+    """(card, item) when the lesson needs VS Code and this Mac has none, else None. The card is a plain setup card
+    whose only missing row is the editor, so the v2 app draws it as its VS Code sheet ("VS Code not found", Get VS
+    Code). Read-only (Spotlight lookup, a few seconds at most): run it in a thread."""
+    if _editor.preferred_editor() is not None:
+        return None
+    it = editor_item(run=run)
+    if it.get("installed"):  # found by Spotlight somewhere preferred_editor didn't look: not "not found"
+        return None
+    card = setup_card([it])
+    card.update(title="VS Code not found", body="miyagi needs VS Code to teach this. Install it, and the lesson opens in it.",
+                actions=[a for a in card["actions"] if a in ("install", "skip_setup")])
+    return card, it
