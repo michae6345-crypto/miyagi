@@ -11,13 +11,15 @@
  * spring; opacity only with reduced motion). While shown it tells core/dock (setDock) where it is, so the island's
  * cards step around it and the engine keeps VS Code beside it (panel.state, when the engine lists it).
  */
-import { motion, useReducedMotion } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import type { Layout } from '../../../../../preload/api'
 import { panelRect, setDock } from '../../../core/dock'
 import { useIslandBox } from '../../../core/Island'
+import { useLesson } from '../../../core/lesson'
 import { sendAction } from '../../../core/shortcuts'
-import { spring, springOut } from '../../../core/theme'
+import { color, spring, springOut, type2 } from '../../../core/theme'
+import { queueCheck, useLinkGate, useQueuedCheck, type Gate } from '../../errors/gate'
 import { GlassCard } from '../../../core/ui/GlassCard'
 import { PrimaryButton } from '../../../core/ui/buttons'
 import { collapsePanel, useDrawer } from '../store'
@@ -86,6 +88,7 @@ const check = (): void => sendAction('check_step')
 
 function Body({ m }: { m: PanelModel }): ReactNode {
   const s = m.step
+  const gate = useLinkGate()
   if (m.view === 'passed') {
     return (
       <>
@@ -97,8 +100,18 @@ function Body({ m }: { m: PanelModel }): ReactNode {
     )
   }
   const notYet = m.view === 'notyet' ? m.notYet : undefined
+  // The link gate (features/errors/gate.ts): while miyagi can't answer, the panel says so instead of looking live.
+  // paused = a blocking card owns the screen: the body dims and goes inert, so the card's action is the one primary.
+  const paused = gate.kind === 'paused'
   return (
-    <>
+    <motion.div
+      data-gate={gate.kind}
+      inert={paused || undefined}
+      aria-disabled={paused || undefined}
+      initial={false}
+      animate={{ opacity: paused ? 0.5 : 1 }}
+      transition={{ duration: 0.2 }}
+    >
       <StepIntro title={s.title} instructions={s.instructions} />
       {notYet && <NotYetBox lines={notYet.lines} />}
       {m.view === 'hint' && m.hint && <HintBox lines={m.hint.lines} n={m.hint.n} of={m.hint.of} onClose={closeHint} />}
@@ -114,11 +127,52 @@ function Body({ m }: { m: PanelModel }): ReactNode {
             <CheckingCaption text={m.checkingCaption} />
           </>
         ) : (
-          <PrimaryButton size="lg" block label={m.view === 'notyet' ? 'Check again' : 'Check my work'} onClick={check} />
+          <GatedCheck gate={gate} label={m.view === 'notyet' ? 'Check again' : 'Check my work'} />
         )}
       </div>
       <Divider />
-      <Help pressed={m.view === 'hint' ? 'hint' : undefined} watchStart={s.video?.start} />
+      <Help pressed={m.view === 'hint' ? 'hint' : undefined} watchStart={s.video?.start} gate={gate} />
+    </motion.div>
+  )
+}
+
+/**
+ * The step's one primary, driven by the link gate: live when ok; "Check when miyagi is back" while waiting (pressed, it
+ * queues and turns into a quiet "Queued" with the spinner); disabled with the reason while a blocking card is up.
+ * The caption fades in and out with the house spring, so the button comes back smoothly when the link recovers.
+ */
+function GatedCheck({ gate, label }: { gate: Gate; label: string }): ReactNode {
+  const stepId = useLesson((x) => x.stepId)
+  const queued = useQueuedCheck((q) => !!q.stepId && q.stepId === stepId)
+  const reduced = useReducedMotion()
+  const waiting = gate.kind === 'wait'
+  const caption = gate.kind === 'ok' ? undefined : queued && waiting ? 'Queued. It runs when miyagi is back.' : gate.caption
+  return (
+    <>
+      {gate.kind === 'ok' ? (
+        <PrimaryButton size="lg" block label={label} onClick={check} />
+      ) : waiting ? (
+        <PrimaryButton size="lg" block busy={queued} disabled={queued} label={queued ? 'Queued' : gate.label ?? label} onClick={queueCheck} />
+      ) : (
+        <PrimaryButton size="lg" block disabled label={label} onClick={() => undefined} />
+      )}
+      <AnimatePresence initial={false}>
+        {caption && (
+          <motion.span
+            key={caption}
+            role="status"
+            data-gate-caption
+            className="block text-center"
+            style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}
+            initial={reduced ? { opacity: 0 } : { opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.12 } }}
+            transition={{ ...spring, opacity: { duration: 0.18 } }}
+          >
+            {caption}
+          </motion.span>
+        )}
+      </AnimatePresence>
     </>
   )
 }

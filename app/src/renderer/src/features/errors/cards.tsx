@@ -1,17 +1,17 @@
 /**
  * Feature: errors. The cards that grow out of the island (one white primary each, no status hue):
  *
- *   err-engine-offline (72)  "The engine stopped responding."  Restart engine / Copy details     Err-EngineReconnect 02
- *   err-editor-closed (66)   "Your place is saved."  Reopen in VS Code / End lesson for now      Err-VSCodeClosed
- *   err-build-failed (62)    "This video could not become a lesson."  Transcript (if offered), library Err-LessonBuildFailed
- *   err-limit (58)           "You have used today's free checks." (v2Cloud only, flagged)          Err-OfflineAndLimits
- *   err-crash (90)           "miyagi closed unexpectedly last time." (launch only, local only)     Err-CrashConsent
+ *   err-engine-offline (72)  "miyagi stopped responding"  Restart miyagi / Copy details           Err-EngineReconnect 02
+ *   err-editor-closed (66)   "Your place is saved"  Reopen in VS Code / End lesson for now      Err-VSCodeClosed
+ *   err-build-failed (62)    "This video could not become a lesson"  Transcript (if offered), library Err-LessonBuildFailed
+ *   err-limit (58)           "You have used today's free checks" (v2Cloud only, flagged)          Err-OfflineAndLimits
+ *   err-crash (90)           "miyagi closed unexpectedly" (Esc = Don't save) (launch only, local only)     Err-CrashConsent
  */
 import { useState, type ReactNode } from 'react'
 import { ChevronRight, KeyRound } from 'lucide-react'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
-import { canSend, startBuild, useCapability, useCurrentStep, useLesson } from '../../core/lesson'
+import { canSend, notify, startBuild, useCapability, useCurrentStep, useLesson } from '../../core/lesson'
 import { sendAction } from '../../core/shortcuts'
 import { setPrefs } from '../../core/prefs'
 import { openAccount, openSettings } from '../../core/surfaces'
@@ -113,7 +113,7 @@ export function EngineOfflineCard(): ReactNode {
     restart === 'failed'
       ? 'Restart did not work. Quit and reopen miyagi.'
       : external
-        ? 'This engine runs in Terminal. Restart it in Terminal.'
+        ? `${copy.name} runs in Terminal here. Restart it there.`
         : restart === 'starting'
           ? 'Restarting. This takes a few seconds.'
           : `Tried ${TRIES} times. Restart takes a few seconds.`
@@ -124,14 +124,14 @@ export function EngineOfflineCard(): ReactNode {
       head={
         <>
           <ErrGlyph g="ring" size={18} />
-          <span style={{ fontSize: type2.xs, color: color.label }}>Engine offline</span>
+          <span style={{ fontSize: type2.xs, color: color.label }}>{copy.name} offline</span>
         </>
       }
-      title="The engine stopped responding."
+      title={`${copy.name} stopped responding`}
       body={inLesson ? 'Your place in the lesson is saved.' : 'Nothing you made is lost.'}
     >
       <div className="flex flex-col gap-2">
-        <PrimaryButton size="lg" block label={external ? 'Try again' : 'Restart engine'} busy={restart === 'starting'} disabled={restart === 'starting'} onClick={() => void onRestart()} />
+        <PrimaryButton size="lg" block label={external ? 'Try again' : `Restart ${copy.name}`} busy={restart === 'starting'} disabled={restart === 'starting'} onClick={() => void onRestart()} />
         <QuietButton size="lg" block label={copied === 'yes' ? 'Copied' : copied === 'no' ? 'Could not copy' : 'Copy details'} onClick={() => void onCopy()} />
       </div>
       <Caption>{foot}</Caption>
@@ -168,7 +168,7 @@ export function EditorClosedCard(): ReactNode {
         </>
       }
       sub={count}
-      title="Your place is saved."
+      title="Your place is saved"
       body={guard(paused?.body ?? blocker?.body, fallback)}
     >
       <div className="flex flex-col gap-2">
@@ -244,7 +244,7 @@ export function BuildFailedCard(): ReactNode {
   }
 
   return (
-    <CardFrame id="err-build-failed" esc title={video ? 'This video could not become a lesson.' : 'This lesson could not be built.'} body={reason}
+    <CardFrame id="err-build-failed" esc title={video ? 'This video could not become a lesson' : 'This lesson could not be built'} body={reason}
       head={
         src?.title ? (
           <span className="truncate" style={{ fontSize: type2.xs, color: color.label }}>
@@ -317,12 +317,12 @@ export function LimitCard(): ReactNode {
     <CardFrame
       id="err-limit"
       head={<span style={{ fontSize: type2.xs, color: color.label }}>Free plan</span>}
-      title="You have used today's free checks."
+      title="You have used today's free checks"
       body="Your progress is saved. Free checks reset tomorrow."
     >
       <div className="flex flex-col gap-2">
         <PrimaryButton size="lg" block label="See plans" onClick={() => void openAccount('upgrade')} />
-        <QuietButton size="lg" block icon={KeyRound} label="Use your own API key" onClick={() => void openSettings('account')} />
+        <QuietButton size="lg" block icon={KeyRound} label="Your own key" onClick={() => void openSettings('account')} />
       </div>
       <Caption>Lessons stay free to read. Only checks and help count.</Caption>
     </CardFrame>
@@ -341,6 +341,7 @@ export function CrashCard(): ReactNode {
   const save = (): void => {
     if (always) setPrefs({ crashReports: 'always' })
     decideCrash(true)
+    notify('Report kept on this Mac', 'info', { id: 'err-crash-saved' })
   }
   return (
     <CardFrame
@@ -353,8 +354,8 @@ export function CrashCard(): ReactNode {
           <span style={{ fontFamily: font.brand, fontSize: type2.md, fontWeight: 500 }}>{copy.name}</span>
         </>
       }
-      title={`${copy.name} closed unexpectedly last time.`}
-      body="Save a crash report on this Mac? Nothing is sent."
+      title={`${copy.name} closed unexpectedly`}
+      body="Keep a report so you can share it if it happens again? It stays on this Mac."
     >
       <div className="grid grid-cols-2" style={{ borderRadius: radius2.card, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
         {[
@@ -386,12 +387,11 @@ export function CrashCard(): ReactNode {
       </label>
       <div className="flex items-center gap-2">
         <span className="mr-auto">
-          <TextButton underline label={view ? 'Hide report' : 'View report'} onClick={() => setView((v) => !v)} />
+          <TextButton label={view ? 'Hide report' : 'View report'} onClick={() => setView((v) => !v)} />
         </span>
-        <QuietButton size="lg" label="Don't save" onClick={() => decideCrash(false)} />
+        <QuietButton size="lg" label="Don't save" keyName="dismiss" onClick={() => decideCrash(false)} />
         <PrimaryButton size="lg" label="Save report" onClick={save} />
       </div>
-      <Caption>Saved on this Mac only.</Caption>
     </CardFrame>
   )
 }

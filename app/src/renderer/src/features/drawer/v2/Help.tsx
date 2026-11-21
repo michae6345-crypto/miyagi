@@ -14,6 +14,7 @@ import { triggerShortcut, usePressed, type ActionShortcut } from '../../../core/
 import { actionTone, color, radius2, type OptionAction } from '../../../core/theme'
 import { OptionTile } from '../../../core/ui/HelpRow'
 import { openSource } from '../store'
+import type { Gate } from '../../errors/gate'
 import { Caption } from './ui'
 
 type Tile = Exclude<OptionAction, 'watch'> & ActionShortcut
@@ -36,14 +37,20 @@ export function useWatchUrl(start: number | undefined): string | undefined {
   })
 }
 
-export function Help({ pressed, watchStart }: { pressed?: OptionAction; watchStart?: number }): ReactNode {
+/**
+ * `gate` (features/errors/gate.ts): while miyagi can't answer, Explain, Hint, Show me and Diagram wait (dimmed,
+ * disabled, the caption says why). Watch only needs the browser, so it stays unless the Mac is offline.
+ */
+export function Help({ pressed, watchStart, gate }: { pressed?: OptionAction; watchStart?: number; gate?: Gate }): ReactNode {
   const thinking = useThinking()
   const busyKind = usePressed((p) => p.kind)
   const watch = useWatchUrl(watchStart)
   const actions: OptionAction[] = watch ? [...TILES, 'watch'] : TILES
+  const waits = !!gate && gate.kind !== 'ok'
+  const off = (a: OptionAction): boolean => waits && (a !== 'watch' || !!gate?.offline)
   return (
     <div data-part="panel-help" className="flex flex-col gap-[12px]" style={{ padding: '16px 20px 16px' }}>
-      <Caption>Need help</Caption>
+      <Caption>{waits ? 'Help waits until miyagi is back' : 'Need help'}</Caption>
       {/*
         Five tiles in 320 px leave each label ~50 px after core OptionTile's 4 px side padding, and "Show me" truncated.
         The mockup's tiles have no side padding: drop it here (Core request 2) and keep a 6 px gap.
@@ -54,7 +61,8 @@ export function Help({ pressed, watchStart }: { pressed?: OptionAction; watchSta
             <OptionTile
               key={a}
               action={a}
-              busy={a !== 'watch' && thinking && busyKind === a}
+              busy={a !== 'watch' && !off(a) && thinking && busyKind === a}
+              disabled={off(a)}
               onClick={() => (a === 'watch' ? watch && openSource(watch) : triggerShortcut(a))}
             />
           )

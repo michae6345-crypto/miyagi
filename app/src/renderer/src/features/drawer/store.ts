@@ -11,6 +11,7 @@ import { useBeforeStart } from '../before-start/store'
 import { useCards } from '../cards/store'
 import { useComplete } from '../complete/store'
 import { useDiagram } from '../diagrams/store'
+import { useErrors } from '../errors/store'
 import { useSearch } from '../launcher/store'
 import { closeHint, hintShown, usePanel } from './v2/panelStore'
 import { isPanelRouted } from './v2/route'
@@ -162,6 +163,8 @@ function othersOpen(): boolean {
     !!useComplete.getState().card ||
     useBeforeStart.getState().open ||
     useSearch.getState().open ||
+    // An error card on the island (engine offline, editor closed, build failed, crash): Esc is that card's first.
+    !!useErrors.getState().visible ||
     hintShown()
   )
 }
@@ -177,7 +180,7 @@ function noteOthers(): void {
 }
 // useLesson, usePressed and useDock too: what isPanelRouted and hintShown read (the step, a diagnosis, a Check press,
 // the panel opening) can change what counts as open without any of the surfaces above changing.
-for (const s of [useCards, useDiagram, useComplete, useBeforeStart, useSearch, usePanel, useLesson, usePressed, useDock] as { subscribe: (fn: () => void) => () => void }[]) s.subscribe(noteOthers)
+for (const s of [useCards, useDiagram, useComplete, useBeforeStart, useSearch, useErrors, usePanel, useLesson, usePressed, useDock] as { subscribe: (fn: () => void) => () => void }[]) s.subscribe(noteOthers)
 
 onUi('dismiss', () => {
   if (!isPanelLesson() || !useDrawer.getState().open) return

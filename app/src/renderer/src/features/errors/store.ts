@@ -13,7 +13,7 @@
 import { create } from 'zustand'
 import { bridge, isElectron } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
-import { useLesson } from '../../core/lesson'
+import { notify, useLesson } from '../../core/lesson'
 // Stage stand-ins first: the crash-pending ask below runs at load.
 import './web'
 
@@ -189,18 +189,34 @@ onUi('reset', (p) => {
   set({ reopening: false, editorDismissed: false, ...(scope === 'lesson' ? {} : { buildDismissedAt: undefined }) })
 })
 
-/** Esc closes our card on the island (and only ours: `visible` is set by the card while it's mounted). */
+/**
+ * Esc closes our card on the island (and only ours: `visible` is set by the card while it's mounted). The lesson panel
+ * counts our card as open (features/drawer othersOpen), so the same Esc never also collapses the panel.
+ *   engine offline  folds into the "miyagi stopped responding [Restart]" pill line: the outage is never hidden
+ *   crash           Esc is "Don't save" (its keycap sits on that button), said on the pill: "Not saved"
+ */
 onUi('dismiss', () => {
   const v = get().visible
   if (!v) return
-  // Esc and the round close button only hide the crash card for this launch (it shows no Esc keycap, so it must not
-  // discard anything): the report is asked about again next launch. Only "Don't save" discards it.
   if (v === 'err-crash') {
-    set({ crash: undefined, visible: undefined })
+    decideCrash(false)
+    set({ visible: undefined })
+    notify('Not saved', 'info', { id: 'err-crash-esc' })
     return
   }
   closeCard(v)
 })
+
+/** The folded pill line's Restart: the engine-offline card comes back. */
+export function reopenOffline(): void {
+  set({ offlineDismissed: false })
+}
+
+/** The engine-offline card was folded by Esc and the outage is still on. */
+export function engineStopped(s: State): boolean {
+  const l = s.link
+  return s.everOpen && !!l && !l.open && l.failures >= TRIES && s.offlineDismissed
+}
 
 export function closeCard(id: CardId): void {
   if (id === 'err-engine-offline') set({ offlineDismissed: true })
