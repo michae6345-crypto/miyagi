@@ -31,7 +31,7 @@ import {
   type ReminderState
 } from './logic'
 import { dayKey } from '../dashboard/model'
-import { drawsIsland, showToast, useReminders } from './store'
+import { drawsIsland, reachableInSettings, showToast, useReminders } from './store'
 
 const KEY = 'miyagi.reminders'
 const params = typeof location === 'undefined' ? new URLSearchParams() : new URLSearchParams(location.search)
@@ -59,14 +59,17 @@ if (!isElectron) {
   if (STAGE_VIEW === 'offer') s = { ...DEFAULT_SETTINGS }
   if (STAGE_VIEW === 'toast' || STAGE_VIEW === 'settings') s = { ...s, enabled: true, offered: true, snoozeUntil: null, lastDay: null }
   if (STAGE_VIEW) save()
+  // The offer only shows once Settings can reach the group (store.ts reachableInSettings). Until the settings lane
+  // mounts it, only the stage's offer views pretend it does, so the offer can still be looked at.
+  if (STAGE_VIEW === 'offer' || params.get('scenario') === 'reminders') reachableInSettings()
 
   registerWebHandler('reminders:get', () => state())
   registerWebHandler('reminders:set', (patch) => {
     const p = sanitizePatch(patch)
-    const turnedOn = turnsOn(s, p)
-    s = turnedOn ? turnOn(s, p, Date.now()) : { ...s, ...p }
+    const on = turnsOn(s, p) ? turnOn(s, p, Date.now()) : { next: { ...s, ...p }, welcome: false }
+    s = on.next
     save()
-    if (turnedOn && drawsIsland()) showToast(welcome(s))
+    if (on.welcome && drawsIsland()) showToast(welcome(s))
     return state()
   })
   registerWebHandler('reminders:snooze', (kind) => {

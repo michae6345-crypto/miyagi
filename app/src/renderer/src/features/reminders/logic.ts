@@ -187,11 +187,19 @@ export function decide(s: ReminderSettings, now: number, lessonActive: boolean):
 export const turnsOn = (s: ReminderSettings, p: Partial<ReminderSettings>): boolean => p.enabled === true && !s.enabled
 
 /**
- * Reminders turned on: no snooze left over, and the welcome note sent right now counts as today's one, so the first
- * daily look is tomorrow (at most one notification a day, whatever the time of day).
+ * Reminders turned on: no snooze left over. The welcome note goes out only the very first time (nothing was ever sent
+ * before), and it counts as today's one: lastSentAt and lastDay are set, so the first daily look is tomorrow. Turning
+ * them off and on again later sends nothing and leaves the day as it was, so flipping the switch never adds a second
+ * notification to a day (at most one a day, whatever the time of day).
  */
-export function turnOn(s: ReminderSettings, p: Partial<ReminderSettings>, now: number): ReminderSettings {
-  return { ...s, ...p, snoozeUntil: null, lastDay: dayKey(now) }
+export function turnOn(
+  s: ReminderSettings,
+  p: Partial<ReminderSettings>,
+  now: number
+): { next: ReminderSettings; welcome: boolean } {
+  const first = s.lastSentAt === null
+  const next = { ...s, ...p, snoozeUntil: null }
+  return first ? { next: { ...next, lastDay: dayKey(now), lastSentAt: now }, welcome: true } : { next, welcome: false }
 }
 
 // ---- is a lesson running? --------------------------------------------------------------------------------------------

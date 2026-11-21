@@ -9,9 +9,9 @@
  *     for the lesson to end (a lesson counts as running only while its events keep coming; see logic.ts lessonSignal).
  *   - The text is calm and specific ("2 skills ready for a quick review: pandas groupby, numpy arrays"). A click opens
  *     the home window on Home.
- *   - Turning it on sends one confirmation right away, so the learner sees what a reminder looks like and macOS asks
- *     for permission in context, not at 6 PM out of nowhere. That one is the day's notification: the first look is
- *     tomorrow.
+ *   - Turning it on the first time ever sends one confirmation right away, so the learner sees what a reminder looks
+ *     like and macOS asks for permission in context, not at 6 PM out of nowhere. That one is the day's notification:
+ *     the first look is tomorrow. Turning it off and on again later sends nothing (logic.ts turnOn).
  *
  * Development builds (not packaged) never post a real notification: the same note goes to the overlay as an in-app
  * toast (feat:reminders:toast). MIYAGI_REAL_NOTIFICATIONS=1 opts a dev run in.
@@ -189,10 +189,10 @@ export default defineMainFeature({
     ctx.handle('reminders:get', () => state())
     ctx.handle('reminders:set', (patch) => {
       const p = sanitizePatch(patch)
-      const turnedOn = turnsOn(s, p)
-      s = turnedOn ? turnOn(s, p, Date.now()) : { ...s, ...p }
+      const on = turnsOn(s, p) ? turnOn(s, p, Date.now()) : { next: { ...s, ...p }, welcome: false }
+      s = on.next
       save()
-      if (turnedOn) post(welcome(s))
+      if (on.welcome) post(welcome(s))
       return state()
     })
     ctx.handle('reminders:snooze', (kind) => {
