@@ -2,7 +2,7 @@
  * Feature: overview. When the hover card may open (Michael's audit A8: it opened over the spotlight's box and the
  * editor top, and repeated the drawer):
  *   - in a "Just teach me" lesson (lesson.mode "lesson"), only while the drawer is closed: the drawer is that
- *     lesson's step card, and it's open by default;
+ *     lesson's step card, and it's open by default; never while the v2 lesson panel is docked (core/dock);
  *   - never over a spotlight hole (the main target or the coach's other targets), in any lesson.
  * The card's own rect is the island's: centered in the overlay at `pillTop`, CARD_W wide, as tall as it was last time.
  * The layout comes from a null overlay layer (LayoutProbe): the island hands its modes no layout.
@@ -12,6 +12,7 @@ import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import type { Layout } from '../../../../preload/api'
 import { bridge } from '../../bridge'
+import { useDock } from '../../core/dock'
 import { useLesson, type Rect } from '../../core/lesson'
 import { useDrawer } from '../drawer/store'
 import { hole, intersects, isUsableRect, toLocal } from '../spotlight/place'
@@ -56,6 +57,11 @@ export function useOverviewActive(hover: boolean): boolean {
   const base = useLesson((s) => hover && !!s.stepId && !s.offtrack)
   const textLesson = useLesson((s) => s.lesson?.mode === 'lesson')
   const drawerOpen = useDrawer((s) => s.open)
+  // v2 (A1): the docked lesson panel is the step card; the hover card would repeat it.
+  const panelOpen = useDock((s) => s.open)
+  // Les-Mini: the collapsed pill is itself the way back into the panel (a click opens it). The hover card grew over it
+  // within 150 ms and swallowed that click (persona QA blocker), so it never opens over Mini.
+  const mini = useDock((s) => s.collapsed)
   const overHole = useCardOverHole()
-  return base && !(textLesson && drawerOpen) && !overHole
+  return base && !(textLesson && drawerOpen) && !(textLesson && mini) && !panelOpen && !overHole
 }

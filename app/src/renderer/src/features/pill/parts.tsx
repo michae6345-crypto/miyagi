@@ -6,7 +6,7 @@
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLesson, useThinking } from '../../core/lesson'
-import { color, spring } from '../../core/theme'
+import { color, spring, status, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { pulsedOfftrack } from './store'
@@ -47,14 +47,14 @@ export function LeadMark({ busy = false }: { busy?: boolean }): ReactNode {
 }
 
 /**
- * Where the learner is: "4/8" (this step / steps) in tabular figures, so the width holds as the digits change.
- * It replaced the progress ring (Michael's audit A5): at 0 the ring was a hollow circle beside the status dot, and
- * part-filled it read as a spinner. Muted like the "Step 4 ·" label; the number crossfades in place on a change.
+ * Where the learner is: "2 of 6" (this step of the lesson's steps; v2 Les-Working / Les-Mini: 12 px in the muted label
+ * color, tabular figures so the width holds as the digits change). It replaced the progress ring (Michael's audit A5)
+ * and then "4/8" (v2). The number crossfades in place on a change.
  */
 export function StepCount({ n, total }: { n: number; total: number }): ReactNode {
-  const label = `${n}/${total}`
+  const label = `${n} of ${total}`
   return (
-    <span className="inline-grid shrink-0 tabular-nums leading-[18px]" style={{ color: color.label }} aria-label={`Step ${n} of ${total}`} data-count={label}>
+    <span className="inline-grid shrink-0 tabular-nums leading-[18px]" style={{ color: color.label, fontSize: type2.xs }} aria-label={`Step ${n} of ${total}`} data-count={label}>
       <AnimatePresence initial={false}>
         <motion.span
           key={label}
@@ -70,8 +70,42 @@ export function StepCount({ n, total }: { n: number; total: number }): ReactNode
   )
 }
 
+/** v2 pill lines (Les-Checking / Les-NotYet / Les-Passed): what the lead glyph says instead of the bonsai. */
+export type Phase = 'checking' | 'notyet' | 'passed'
+
 /**
- * The status slot: a 7px dot (gray watching · amber off-track · green passed) that becomes a
+ * The lead glyph of a phase line, in the bonsai's 16 px box (no layout change between lines):
+ *   checking  the core spinner (a check is in flight: the one state that moves)
+ *   notyet    a hollow white ring, no hue (Les-NotYet: 12 px, 2 px stroke)
+ *   passed    the green circle with an ink tick that draws (Les-Passed); the ONLY green on the pill
+ */
+export function PhaseLead({ phase }: { phase: Phase }): ReactNode {
+  return (
+    <span className="relative mr-[8px] grid h-[16px] w-[16px] shrink-0 place-items-center" data-phase={phase}>
+      {phase === 'checking' && <Spinner size={14} />}
+      {phase === 'notyet' && <span className="block h-[12px] w-[12px] rounded-full" style={{ boxShadow: `inset 0 0 0 2px ${status.notYet}` }} />}
+      {phase === 'passed' && (
+        <motion.svg width="16" height="16" viewBox="0 0 16 16" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1, transition: spring }}>
+          <circle cx="8" cy="8" r="8" fill={status.passed} />
+          <motion.path
+            d="M4.6 8.3 L6.9 10.5 L11.4 5.7"
+            fill="none"
+            stroke={color.onGreen}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 0.25, ease: 'easeOut', delay: 0.08 }}
+          />
+        </motion.svg>
+      )}
+    </span>
+  )
+}
+
+/**
+ * The status slot: an 8px dot (Les-Working / Les-Mini) (gray watching · amber off-track · green passed) that becomes a
  * 16px green check while a step pass is being celebrated, then settles back into a dot.
  * Off-track: the dot eases to amber and pulses twice (scale 1 → 1.35 → 1). Once per episode. No glow, no halo.
  */
@@ -92,7 +126,7 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
   }, [mark, off, reduced, animate, dot])
 
   return (
-    <span className="relative inline-block h-[7px] w-[7px] shrink-0" data-mark={mark}>
+    <span className="relative inline-block h-[8px] w-[8px] shrink-0" data-mark={mark}>
       <span
         ref={dot}
         className="absolute inset-0 rounded-full"
