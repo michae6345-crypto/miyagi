@@ -4,7 +4,9 @@
  * exported helpers are imported):
  *
  *   a goal, "Just teach me"   learn {query, mode: "lesson"}         (launcher teach())
- *   a goal, "Watch a video"   learn {query}, then the launcher opens on the streaming rows (launcher learn())
+ *   a goal, "Watch a video"   opens the launcher, where the learner searches and picks a video. Nothing is sent
+ *                             from here: in Electron the launcher is its own window with its own store, so a search
+ *                             started here would never reach its rows (Core request: launcher:open {text})
  *   a YouTube link            already a lesson here: library.start {id} (zero model calls, launcher build())
  *                             otherwise learn_url {url}             (launcher build())
  * The island then shows the build, so this window steps aside (closeWindow), like the dashboard's Start.
@@ -16,8 +18,8 @@ import { bridge } from '../../bridge'
 import { noteLearnMode } from '../../core/lesson'
 import { closeWindow } from '../../core/surfaces'
 import type { DashData } from '../dashboard/types'
-import { startSearch } from '../launcher/store'
 import { libraryMatch } from '../launcher/library'
+import { useSearch } from '../launcher/store'
 import { parseYouTube, type YouTubeLink } from '../launcher/youtube'
 import { start, useLibrary } from './store'
 
@@ -187,12 +189,10 @@ export function submitAsk(connected: boolean): boolean {
     stepAside()
     return true
   }
-  // Watch a video: the search runs here, its rows stream into the launcher, which opens to let the learner pick.
-  noteLearnMode(undefined)
-  startSearch(read.goal)
-  bridge.send(cmd('learn', { query: read.goal }))
-  bridge.emit('launcher:toggle')
-  set({ sending: 'video' })
-  setTimeout(() => set({ sending: undefined, text: '' }), STEP_ASIDE_MS)
+  // Watch a video: the launcher picks the video. It is its own window (own store) in Electron, so no search starts
+  // here; it opens and the goal stays in this field. Focus on this window has closed it, so the toggle opens it (the
+  // stage shares one store, so a second press there never closes it).
+  if (!useSearch.getState().open) bridge.emit('launcher:toggle')
+  set({ note: 'The launcher is open. Type your goal there to pick a video.' })
   return true
 }
