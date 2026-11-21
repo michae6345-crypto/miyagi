@@ -8,12 +8,11 @@
  *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
  *  - App text in the system font (SF Pro / Segoe). Brand font (Google Sans Flex) only for brand moments. No Inter.
  */
-import type { Transition } from 'motion/react'
-
-/** The one spring used everywhere. */
-export const spring: Transition = { type: 'spring', stiffness: 420, damping: 34, mass: 0.9 }
-/** Collapse is the reverse, slightly faster. */
-export const springOut: Transition = { type: 'spring', stiffness: 420, damping: 38, mass: 0.9 }
+/**
+ * Motion tokens (the springs, fades, beat, press and stagger) live in core/ui/motionTokens.ts (helpers beside them in core/ui/motion.ts), the single source of truth
+ * (docs/MOTION.md). Re-exported here so `import { spring } from '../core/theme'` keeps working.
+ */
+export { beat, duration, ease, fade, press, spring, springOut, stagger } from './ui/motionTokens'
 
 /** Brand palette, verbatim from the kit. */
 export const brand = {
@@ -412,21 +411,3 @@ export const tint = {
 /** The keyboard focus ring (focus-visible only, never on a mouse click): white on dark, ink on paper, 2 px, 2 px out. */
 export const focus = { dark: 'rgba(255,255,255,.88)', paper: 'rgba(20,20,20,.88)', width: 2, offset: 2 } as const
 
-/**
- * Durations (seconds) and curves for the few tweens left (opacity fades, the tint layer). Everything that MOVES uses
- * `spring`. ease.out is a strong ease-out (Kowalski: enter fast, settle slow); never ease-in on an enter.
- */
-export const duration = { instant: 0.08, fast: 0.12, base: 0.18, slow: 0.24 } as const
-export const ease = { out: [0.23, 1, 0.32, 1], inOut: [0.77, 0, 0.175, 1] } as const
-
-/**
- * Press: scale to .97 on the house spring (fast enough at this stiffness: ~90% in 0.13 s) and back with the same
- * spring, so a quick click still finishes the dip. Big targets (the option tiles) go to .96; never below .95.
- */
-export const press = { scale: 0.97, scaleLarge: 0.96, transition: spring } as const
-
-/**
- * Lists that appear together (onboarding rows, a settings section): each child rises 6 px and fades in, 35 ms apart,
- * the stagger capped at 8 children so a long list never makes the learner wait. Reduced motion: fade only (MotionConfig).
- */
-export const stagger = { each: 0.035, cap: 8, rise: 6 } as const
