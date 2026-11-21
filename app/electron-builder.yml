@@ -16,11 +16,20 @@ mac:
     # macOS shows these in the permission prompts (the app starts the engine, so the prompts name miyagi).
     NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
     NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
-  # The engine travels inside the app (scripts/bundle-engine.mjs makes build/engine); on first launch
-  # main/localEngine.ts installs it to ~/miyagi/engine and starts it.
+  # The engine travels inside the app, ready to run offline (scripts/bundle-engine.mjs makes build/engine):
+  #   Resources/engine/src      engine source; first launch copies it to ~/miyagi/engine/src (main/localEngine.ts)
+  #   Resources/engine/python   standalone Python 3.12 with the engine's packages, precompiled; started directly
+  #   Resources/vscode          the VS Code companion .vsix + companion.json, installed with VS Code's `code` CLI
+  # extraResources copy everything as is (symlinks and __pycache__ included: electron-builder's default excludes
+  # apply to `files`, not here), so nothing is compiled or written inside the signed app at run time.
   extraResources:
     - from: build/engine
       to: engine
+      filter:
+        - "**/*"
+        - "!vscode{,/**/*}"
+    - from: build/engine/vscode
+      to: vscode
 win:
   target: nsis
   icon: build/icon.ico
