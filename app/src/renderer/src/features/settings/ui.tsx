@@ -101,6 +101,15 @@ export function Badge({ children }: { children: ReactNode }): ReactNode {
   )
 }
 
+/** A value on the right of a row ("Lessons only", "On this Mac"): plain secondary text, never a pill that looks pressable. */
+export function Plain({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <span className="shrink-0 whitespace-nowrap" style={{ fontSize: type2.xs, color: color.label }}>
+      {children}
+    </span>
+  )
+}
+
 /** A quiet line under a group ("Turn on opens System Settings at the right switch."). */
 export function Note({ children, icon: I = Info }: { children: ReactNode; icon?: LucideIcon }): ReactNode {
   return (

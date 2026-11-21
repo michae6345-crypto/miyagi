@@ -1,24 +1,26 @@
 /**
- * Feature: settings. Account (Plan-OwnKey as a section, Set-Account's BYOK block). The real safeStorage path: the
- * flow is account.ts (moved from the old sheet), main owns the keys, this view only ever sees {set, last4}.
+ * Feature: settings. Your own key (Plan-OwnKey as a section, Set-Account's BYOK block). The real safeStorage path:
+ * the flow is account.ts, main owns the keys, this view only ever sees {set, last4}.
  *
  * One row per key (Anthropic, and Gemini as optional; ElevenLabs stays hidden), each a password field
- * (autocomplete off, spellcheck off, cleared after Save) with Clear / Undo inside it and the key's status:
- * white dot = your key, gray dot "From engine" = the engine's .env, ring = missing, "Invalid" in white. No green.
- * Save key is the section's one primary; Test is quiet. The plan card and meter (Set-Account) show only with an
- * account (v2Cloud): never this push.
+ * (autocomplete off, spellcheck off, cleared after Save) with Clear / Undo inside it and the key's status as words
+ * under its name (no bare dots, persona QA): "Works" with a white tick, "Using miyagi's key" (the engine's own),
+ * "Saved", "Not set" (ring), "Not yet. Check the key." (ring). No green: green only means a step passed.
+ * Save key is the section's one primary (live the moment a field changes, then "Saved to Keychain"); Test is quiet
+ * and needs a key to test. The plan card and meter (Set-Account) show only with an account (v2Cloud): never this push.
  */
 import { motion } from 'motion/react'
-import { Lock, WifiOff } from 'lucide-react'
+import { Check, ExternalLink, Lock, WifiOff } from 'lucide-react'
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import type { KeyState } from '../../../../../../../shared/contracts/events'
 import { bridge } from '../../../bridge'
 import { useLesson } from '../../../core/lesson'
 import { PrimaryButtonV2, QuietButton, Spinner } from '../../../core/ui/atoms'
-import { color, fill, radius2, type2 } from '../../../core/theme'
+import { color, copy, fill, radius2, type2 } from '../../../core/theme'
 import type { KeyFlow } from '../account'
 import { KEY_LABEL, REQUIRED, SHOWN, type KeyInfo, type KeyName } from '../keys'
-import { Group, Note, PageHeader, TextButton } from '../ui'
+import { Group, Note, PageHeader } from '../ui'
+import { OWN_KEY } from '../words'
 
 const isRequired = (k: KeyName): boolean => REQUIRED.includes(k)
 
@@ -30,8 +32,10 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
   const inputs = useRef<Partial<Record<KeyName, HTMLInputElement | null>>>({})
   const { view, status } = flow
 
-  // The caret goes where a key is needed first: a required key with no source, else the first row.
+  // The caret goes where a key is needed first: a required key with no source, else the first row. Not when the
+  // learner arrived with ↑ / ↓ in the sidebar: focus stays on the section list so the arrows keep working.
   useEffect(() => {
+    if (document.activeElement?.getAttribute('role') === 'tab') return
     const first = SHOWN.find((k) => isRequired(k) && status?.[k] === 'missing') ?? SHOWN[0]
     inputs.current[first]?.focus({ preventScroll: true })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -44,10 +48,12 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
   }
 
   const footNote = flow.note ?? (!connected ? 'Offline' : undefined)
+  // Test re-sends the stored keys: with nothing stored (and nothing from the engine) there is nothing to test.
+  const testable = SHOWN.some((k) => !!view?.keys[k]?.set || status?.[k] === 'env' || status?.[k] === 'ok')
 
   return (
     <>
-      <PageHeader title="Use your own key" caption="miyagi works without a key. Our cloud covers it. Your own key bills your own account." />
+      <PageHeader title={OWN_KEY} caption="Paste a key from your AI provider. Calls then bill your own account." />
 
       <div onKeyDown={onKey}>
         <Group label="Your keys">
@@ -57,7 +63,7 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
               name={k}
               info={view?.keys[k]}
               state={status?.[k]}
-              busy={flow.waiting.includes(k)}
+              busy={flow.waiting.includes(k) || (flow.testing && !!view?.keys[k]?.set)}
               draft={flow.drafts[k] ?? ''}
               cleared={flow.cleared.includes(k)}
               readOnly={!live}
@@ -76,17 +82,48 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
 
       <Note icon={Lock}>{view && !view.secure ? 'Not saved: no secure storage. Kept for this run only.' : 'Kept in your Mac’s Keychain, never on our servers.'}</Note>
 
-      <div className="flex items-center gap-[8px]">
+      <div className="flex min-h-[36px] items-center gap-[8px]">
         <span className="flex min-w-0 flex-1 items-center gap-[7px]" style={{ fontSize: type2.xs, color: color.label }}>
           {!flow.note && !connected && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
           {footNote && <span className="truncate">{footNote}</span>}
-          {!footNote && <TextButton label="Where do I find my key?" onClick={() => bridge.invoke('open:external', KEY_HELP).catch(() => {})} />}
+          {!footNote && flow.saved && (
+            <motion.span
+              role="status"
+              className="flex min-w-0 items-center gap-[6px]"
+              style={{ color: color.text }}
+              initial={{ opacity: 0, y: 2 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18 }}
+            >
+              <Check size={13} strokeWidth={1.8} aria-hidden className="shrink-0" />
+              <span className="truncate">{flow.saved}</span>
+            </motion.span>
+          )}
+          {!footNote && !flow.saved && <HelpLink label="Where do I find my key?" onClick={() => bridge.invoke('open:external', KEY_HELP).catch(() => {})} />}
         </span>
-        <QuietButton label="Test" busy={flow.testing} onClick={() => void flow.test()} />
+        <QuietButton
+          label="Test"
+          busy={flow.testing}
+          disabled={!testable || flow.testing || !live}
+          title={testable ? undefined : 'Paste and save a key first'}
+          onClick={() => void flow.test()}
+        />
         <PrimaryButtonV2 label="Save key" busy={flow.saving} disabled={!flow.dirty || flow.saving} onClick={() => void flow.save()} />
       </div>
     </>
   )
+}
+
+type Sub = { text: string; c: string; glyph?: 'tick' | 'ring' | 'spin' }
+
+function statusOf(state: KeyState | undefined, set: boolean, optional: boolean, busy: boolean): Sub | undefined {
+  if (busy) return { text: 'Checking', c: color.label, glyph: 'spin' }
+  if (state === 'ok') return { text: 'Works', c: color.text, glyph: 'tick' }
+  if (state === 'invalid') return { text: 'Not yet. Check the key.', c: color.text, glyph: 'ring' }
+  if (state === 'env') return { text: `Using ${copy.name}'s key`, c: color.label, glyph: 'tick' }
+  if (set) return { text: 'Saved', c: color.label, glyph: 'tick' }
+  if (optional) return { text: 'Optional', c: color.faint }
+  return { text: 'Not set', c: color.label, glyph: 'ring' }
 }
 
 function KeyRow({
@@ -113,23 +150,28 @@ function KeyRow({
   onClear: () => void
 }): ReactNode {
   const optional = !isRequired(name)
-  const sub =
-    state === 'invalid' ? { text: 'Invalid', c: color.text } : state === 'env' ? { text: 'From engine', c: color.label } : optional ? { text: 'Optional', c: color.faint } : undefined
   const set = !!info?.set && !cleared
+  const sub = statusOf(state, set, optional, busy)
   const placeholder = cleared ? 'Cleared' : set ? `•••• ${info?.last4 ?? ''}`.trim() : 'Paste your key'
   /** Clear (or Undo) sits inside the field, only when there's a stored key and nothing typed over it. */
   const clearable = (set || cleared) && !draft
 
   return (
-    <div className="flex min-h-[56px] items-center gap-[12px] px-[16px]">
-      <span className="grid w-[12px] shrink-0 place-items-center">{busy ? <Spinner size={12} c={color.label} /> : <KeyDot state={state} />}</span>
-      <span className="flex w-[124px] shrink-0 flex-col justify-center">
+    <div className="flex min-h-[60px] items-center gap-[12px] px-[16px]">
+      <span className="flex w-[156px] shrink-0 flex-col justify-center gap-[2px]">
         <span className="truncate font-medium" style={{ fontSize: type2.sm, color: color.text }}>
           {KEY_LABEL[name]}
         </span>
         {sub && (
-          <span className="truncate" style={{ fontSize: type2.xs, color: sub.c }}>
-            {sub.text}
+          <span data-key-status className="flex min-w-0 items-center gap-[5px]" style={{ fontSize: type2.xs, color: sub.c }}>
+            {sub.glyph === 'spin' ? (
+              <Spinner size={11} c={color.label} />
+            ) : sub.glyph === 'tick' ? (
+              <Check size={12} strokeWidth={1.8} aria-hidden className="shrink-0" />
+            ) : sub.glyph === 'ring' ? (
+              <Ring />
+            ) : null}
+            <span className="truncate">{sub.text}</span>
           </span>
         )}
       </span>
@@ -159,11 +201,25 @@ function KeyRow({
   )
 }
 
-/** ok = white dot · env = gray dot · missing / invalid = ring · no answer yet = faint ring. No green, no amber, no glow. */
-function KeyDot({ state }: { state?: KeyState }): ReactNode {
-  if (state === 'ok' || state === 'env')
-    return <span className="block h-[7px] w-[7px] rounded-full" style={{ background: state === 'ok' ? color.text : color.gray }} />
-  return <span className="block h-[8px] w-[8px] rounded-full border-[1.5px]" style={{ borderColor: state ? color.label : fill.track }} />
+/** Not set / not working: the hollow ring (no hue). */
+function Ring(): ReactNode {
+  return <span aria-hidden className="block h-[10px] w-[10px] shrink-0 rounded-full border-[1.5px]" style={{ borderColor: color.label }} />
+}
+
+/** A link out (the provider's key page): underlined, with the external-link glyph. */
+function HelpLink({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
+  return (
+    <button
+      type="button"
+      className="flex h-[32px] shrink-0 cursor-pointer items-center gap-[5px] whitespace-nowrap font-medium underline decoration-1 underline-offset-[3px] transition-colors hover:text-white"
+      style={{ fontSize: type2.xs, color: fill.chipText }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {label}
+      <ExternalLink size={12} strokeWidth={1.8} aria-hidden />
+    </button>
+  )
 }
 
 /** Clear / Undo inside a field: neutral chrome. */
