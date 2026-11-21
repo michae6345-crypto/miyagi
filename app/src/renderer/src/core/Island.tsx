@@ -8,6 +8,7 @@
  */
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
 import { onUi } from './bus'
@@ -15,10 +16,21 @@ import { offDock, useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { getIslandModes } from './registry'
-import { color, pill, shadows, spring, springOut } from './theme'
+import { color, duration, ease, pill, shadows, spring, springOut } from './theme'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
 const PRESS_HOLD_MS = 1500
+
+/**
+ * v2 (W0-5): where the island is right now, in the overlay window's coordinates: its box (size + offset from the
+ * notch spot), the winning mode, and whether it's pill-sized. For surfaces that sit beside it or grow out of it
+ * (the lesson panel, the recovery card) without measuring the DOM. `visible` false while another surface has it.
+ */
+export type IslandBox = { x: number; y: number; w: number; h: number; mode?: string; pill: boolean; visible: boolean }
+const useIslandBoxStore = create<IslandBox>(() => ({ x: 0, y: 0, w: 0, h: 0, mode: undefined, pill: true, visible: false }))
+export function useIslandBox(): IslandBox {
+  return useIslandBoxStore()
+}
 
 export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
   const [hover, setHover] = useState(false)
@@ -122,6 +134,12 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   useEffect(() => {
     if (!landing) bridge.emit('island:size', { w: size.w, h: size.h, dx: offset.x, dy: offset.y })
   }, [size, landing, offset.x, offset.y])
+  // v2: the same box for in-window readers (useIslandBox).
+  useEffect(() => {
+    const next: IslandBox = { x: Math.round((layout.width - size.w) / 2 + offset.x), y: Math.round(top + offset.y), w: size.w, h: size.h, mode: modeId, pill: isPill, visible: !!modeId && !yielded }
+    const cur = useIslandBoxStore.getState()
+    if ((Object.keys(next) as (keyof IslandBox)[]).some((k) => cur[k] !== next[k])) useIslandBoxStore.setState(next)
+  }, [layout.width, size.w, size.h, offset.x, offset.y, top, modeId, isPill, yielded])
 
   const enter = (): void => {
     clearTimeout(hoverTimer.current)
@@ -238,17 +256,23 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   )
 }
 
-/** One mode's content layer. Only a present layer carries data-island-layer, so a leaving one is never measured. */
+/**
+ * One mode's content layer. Only a present layer carries data-island-layer, so a leaving one is never measured.
+ * Polish (UI-POLISH-SPEC 8, the pill morph): while the black shape springs to its new size, the old content shrinks a
+ * hair and fades out fast (80 ms) and the new content grows in from .96 at the top center on the same spring, its
+ * fade a touch late (60 ms) so the two never sit on top of each other. Transform and opacity only; with reduced
+ * motion, the fades alone.
+ */
 function Layer({ id, width, children }: { id: string; width?: number; children: ReactNode }): ReactNode {
   const present = useIsPresent()
   return (
     <motion.div
       data-island-layer={present ? id : undefined}
       className="absolute left-1/2 top-0"
-      style={{ x: '-50%', width: width ?? 'max-content' }}
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0, transition: { duration: 0.2, delay: 0.06, ease: 'easeOut' } }}
-      exit={{ opacity: 0, transition: { duration: 0.08 } }}
+      style={{ x: '-50%', width: width ?? 'max-content', transformOrigin: '50% 0%' }}
+      initial={{ opacity: 0, y: 4, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { duration: duration.base, delay: 0.06, ease: ease.out } } }}
+      exit={{ opacity: 0, scale: 0.98, transition: { duration: duration.instant } }}
     >
       {children}
     </motion.div>

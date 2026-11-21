@@ -5,6 +5,7 @@
  * the editor's tab row (RUN_DROP) so the Run button stays clear, and above the terminal (RUN_SHARE). Flyout.tsx.
  */
 import { useLesson } from '../../core/lesson'
+import { LESSON_PANEL_V2 } from './geometry'
 import { useStepDetail } from './plan'
 import { useDrawer } from './store'
 
@@ -13,9 +14,12 @@ export const RUN_DROP = 88
 /** The share of the work area above the terminal panel (VS Code's panel takes about the bottom third). */
 export const RUN_SHARE = 0.6
 
-/** The run step's id while it has the drawer tucked, else undefined. */
+/**
+ * The run step's id while it has the drawer tucked, else undefined. Never with the v2 lesson panel: it docks beside
+ * VS Code (the engine fits the editor to the rest of the screen), so the Run button and the terminal stay clear.
+ */
 export function useRunTuck(): string | undefined {
-  const lessonMode = useLesson((s) => s.lesson?.mode === 'lesson')
+  const lessonMode = useLesson((s) => s.lesson?.mode === 'lesson') && !LESSON_PANEL_V2
   const open = useDrawer((s) => s.open)
   const runStep = useStepDetail((s) => (s.detail?.kind === 'run' ? s.detail.stepId : undefined))
   const peekStep = useDrawer((s) => s.peekStep)

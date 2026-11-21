@@ -1,0 +1,903 @@
+{
+  "name": "progress",
+  "on": {
+    "connect": "prog_lesson",
+    "progress.get": "prog_data"
+  },
+  "segments": {
+    "prog_lesson": [
+      {
+        "wait": 50,
+        "type": "engine.hello",
+        "payload": {
+          "version": "mock",
+          "contract": "2026-11-20",
+          "capabilities": [
+            "health.get",
+            "permission.open",
+            "library.list",
+            "library.get",
+            "library.start",
+            "progress.get",
+            "panel.state"
+          ]
+        }
+      },
+      {
+        "wait": 100,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "prog-mnist-intro",
+            "title": "Code your first neural network with TensorFlow",
+            "sources": [],
+            "complete": true,
+            "builtBy": "curated",
+            "mode": "lesson"
+          },
+          "steps": [
+            {
+              "id": "pg1",
+              "index": 1,
+              "title": "Load the MNIST data",
+              "kind": "code",
+              "estMinutes": 2
+            },
+            {
+              "id": "pg2",
+              "index": 2,
+              "title": "Normalize the pixels",
+              "kind": "code",
+              "estMinutes": 1
+            },
+            {
+              "id": "pg3",
+              "index": 3,
+              "title": "Build the model",
+              "kind": "code",
+              "estMinutes": 3
+            },
+            {
+              "id": "pg4",
+              "index": 4,
+              "title": "Compile it",
+              "kind": "code",
+              "estMinutes": 2
+            },
+            {
+              "id": "pg5",
+              "index": 5,
+              "title": "Train it",
+              "kind": "run",
+              "estMinutes": 3
+            },
+            {
+              "id": "pg6",
+              "index": 6,
+              "title": "Evaluate on the test set",
+              "kind": "code",
+              "estMinutes": 2
+            }
+          ]
+        }
+      },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": {
+          "stepId": "pg1",
+          "index": 1,
+          "title": "Load the MNIST data",
+          "instructions": "In mnist.ipynb, load the data in cell 1",
+          "kind": "code"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "pg1",
+          "checkId": "pg1c1",
+          "label": "`x_train` and `y_train` are loaded",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "pg1",
+          "checkId": "pg1c1",
+          "label": "`x_train` and `y_train` are loaded",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "pg1",
+          "nextStepId": "pg2",
+          "summary": "The MNIST data is in your notebook"
+        }
+      },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": {
+          "stepId": "pg2",
+          "index": 2,
+          "title": "Normalize the pixels",
+          "instructions": "Scale the pixels to 0..1 in cell 2",
+          "kind": "code"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "pg2",
+          "checkId": "pg2c1",
+          "label": "Pixels are divided by 255",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "pg2",
+          "checkId": "pg2c1",
+          "label": "Pixels are divided by 255",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "pg2",
+          "nextStepId": "pg3",
+          "summary": "Every pixel is between 0 and 1"
+        }
+      },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": {
+          "stepId": "pg3",
+          "index": 3,
+          "title": "Build the model",
+          "instructions": "Build a Sequential model in cell 3",
+          "kind": "code"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "pg3",
+          "checkId": "pg3c1",
+          "label": "`model` is a Sequential with 4 layers",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "pg3",
+          "checkId": "pg3c1",
+          "label": "`model` is a Sequential with 4 layers",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "pg3",
+          "nextStepId": "pg4"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "pg4",
+          "index": 4,
+          "title": "Compile it",
+          "instructions": "Compile the model with adam in cell 4",
+          "kind": "code"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "pg4",
+          "checkId": "pg4c1",
+          "label": "`model.compile` uses adam",
+          "status": "pending"
+        }
+      }
+    ],
+    "prog_data": [
+      {
+        "wait": 200,
+        "type": "progress",
+        "payload": {
+          "stageAnchor": "2026-11-20",
+          "skills": [
+            {
+              "track": "Python basics",
+              "mastered": 4,
+              "total": 4,
+              "skills": [
+                {
+                  "id": "py_vars",
+                  "label": "Variables and types",
+                  "state": "mastered",
+                  "detail": "Names point at values",
+                  "lessons": [
+                    "py_basics"
+                  ],
+                  "masteredAt": 1788973200,
+                  "lastPracticedAt": 1788973200,
+                  "reps": 4
+                },
+                {
+                  "id": "py_lists",
+                  "label": "Lists",
+                  "state": "mastered",
+                  "detail": "Ordered, changeable collections",
+                  "lessons": [
+                    "py_basics"
+                  ],
+                  "masteredAt": 1789146000,
+                  "lastPracticedAt": 1791997200,
+                  "reps": 6
+                },
+                {
+                  "id": "py_loops",
+                  "label": "Loops",
+                  "state": "mastered",
+                  "detail": "`for` over any iterable",
+                  "lessons": [
+                    "py_basics"
+                  ],
+                  "masteredAt": 1789491600,
+                  "lastPracticedAt": 1791997200,
+                  "reps": 5
+                },
+                {
+                  "id": "py_funcs",
+                  "label": "Functions",
+                  "state": "mastered",
+                  "detail": "`def`, arguments, return values",
+                  "lessons": [
+                    "py_basics"
+                  ],
+                  "masteredAt": 1789750800,
+                  "lastPracticedAt": 1793293200,
+                  "reps": 7
+                }
+              ],
+              "edges": [
+                {
+                  "from": "py_vars",
+                  "to": "py_lists"
+                },
+                {
+                  "from": "py_vars",
+                  "to": "py_funcs"
+                },
+                {
+                  "from": "py_lists",
+                  "to": "py_loops"
+                }
+              ],
+              "cross": []
+            },
+            {
+              "track": "numpy",
+              "mastered": 2,
+              "total": 5,
+              "skills": [
+                {
+                  "id": "np_arrays",
+                  "label": "Arrays",
+                  "state": "mastered",
+                  "detail": "One type, fast math on every element",
+                  "lessons": [
+                    "np_arrays"
+                  ],
+                  "masteredAt": 1790960400,
+                  "lastPracticedAt": 1794243600,
+                  "reps": 8
+                },
+                {
+                  "id": "np_index",
+                  "label": "Indexing and slicing",
+                  "state": "mastered",
+                  "detail": "`a[1:3, ::2]`",
+                  "lessons": [
+                    "np_arrays"
+                  ],
+                  "masteredAt": 1791392400,
+                  "lastPracticedAt": 1794243600,
+                  "reps": 6
+                },
+                {
+                  "id": "np_broadcast",
+                  "label": "Broadcasting",
+                  "state": "practicing",
+                  "detail": "Step 4 was done for you. Try it yourself.",
+                  "lessons": [
+                    "np_arrays"
+                  ],
+                  "lastPracticedAt": 1793811600,
+                  "reps": 2
+                },
+                {
+                  "id": "np_masks",
+                  "label": "Boolean masks",
+                  "state": "not_started",
+                  "detail": "Pick rows with a condition",
+                  "lessons": []
+                },
+                {
+                  "id": "np_vec",
+                  "label": "Vectorized math",
+                  "state": "not_started",
+                  "detail": "Replace a loop with one expression",
+                  "lessons": []
+                }
+              ],
+              "edges": [
+                {
+                  "from": "np_arrays",
+                  "to": "np_index"
+                },
+                {
+                  "from": "np_arrays",
+                  "to": "np_broadcast"
+                },
+                {
+                  "from": "np_index",
+                  "to": "np_masks"
+                },
+                {
+                  "from": "np_broadcast",
+                  "to": "np_vec"
+                }
+              ],
+              "cross": [
+                {
+                  "track": "Python",
+                  "label": "Loops",
+                  "to": "np_vec",
+                  "note": "A vectorized expression replaces the loop"
+                }
+              ]
+            },
+            {
+              "track": "pandas",
+              "mastered": 2,
+              "total": 6,
+              "skills": [
+                {
+                  "id": "pd_frames",
+                  "label": "DataFrames",
+                  "state": "mastered",
+                  "detail": "Rows and named columns",
+                  "lessons": [
+                    "pd_intro"
+                  ],
+                  "masteredAt": 1792602000,
+                  "lastPracticedAt": 1794934800,
+                  "reps": 7
+                },
+                {
+                  "id": "pd_csv",
+                  "label": "Reading CSVs",
+                  "state": "mastered",
+                  "detail": "`pd.read_csv`",
+                  "lessons": [
+                    "pd_intro",
+                    "pd_clean"
+                  ],
+                  "masteredAt": 1792774800,
+                  "lastPracticedAt": 1794934800,
+                  "reps": 5
+                },
+                {
+                  "id": "pd_clean",
+                  "label": "Cleaning rows",
+                  "state": "practicing",
+                  "detail": "Drop and fill the empty cells",
+                  "lessons": [
+                    "pd_clean"
+                  ],
+                  "lastPracticedAt": 1794934800,
+                  "reps": 3
+                },
+                {
+                  "id": "pd_groupby",
+                  "label": "`groupby`",
+                  "state": "not_started",
+                  "detail": "Split, apply, combine",
+                  "lessons": []
+                },
+                {
+                  "id": "pd_merge",
+                  "label": "Merge and join",
+                  "state": "not_started",
+                  "detail": "Line two tables up on a key",
+                  "lessons": []
+                },
+                {
+                  "id": "pd_pivot",
+                  "label": "Pivot tables",
+                  "state": "not_started",
+                  "detail": "Rows by columns, summarized",
+                  "lessons": []
+                }
+              ],
+              "edges": [
+                {
+                  "from": "pd_frames",
+                  "to": "pd_csv"
+                },
+                {
+                  "from": "pd_csv",
+                  "to": "pd_clean"
+                },
+                {
+                  "from": "pd_frames",
+                  "to": "pd_groupby"
+                },
+                {
+                  "from": "pd_clean",
+                  "to": "pd_merge"
+                },
+                {
+                  "from": "pd_groupby",
+                  "to": "pd_pivot"
+                }
+              ],
+              "cross": [
+                {
+                  "track": "numpy",
+                  "label": "Boolean masks",
+                  "to": "pd_clean",
+                  "note": "Filtering rows is a numpy mask"
+                }
+              ]
+            },
+            {
+              "track": "Neural networks",
+              "mastered": 2,
+              "total": 5,
+              "skills": [
+                {
+                  "id": "nn_tensors",
+                  "label": "Tensors",
+                  "state": "mastered",
+                  "detail": "numpy arrays that can learn",
+                  "lessons": [
+                    "tf_mnist"
+                  ],
+                  "masteredAt": 1794330000,
+                  "lastPracticedAt": 1795194000,
+                  "reps": 4
+                },
+                {
+                  "id": "nn_dense",
+                  "label": "Dense layers",
+                  "state": "mastered",
+                  "detail": "Every input to every unit",
+                  "lessons": [
+                    "tf_mnist"
+                  ],
+                  "masteredAt": 1794848400,
+                  "lastPracticedAt": 1795194000,
+                  "reps": 3
+                },
+                {
+                  "id": "nn_fit",
+                  "label": "Training with `fit`",
+                  "state": "practicing",
+                  "detail": "Epochs, batches, the loss going down",
+                  "lessons": [
+                    "tf_mnist"
+                  ],
+                  "lastPracticedAt": 1795194000,
+                  "reps": 1
+                },
+                {
+                  "id": "nn_eval",
+                  "label": "Evaluating a model",
+                  "state": "not_started",
+                  "detail": "Accuracy on data it never saw",
+                  "lessons": []
+                },
+                {
+                  "id": "nn_conv",
+                  "label": "Convolutions",
+                  "state": "not_started",
+                  "detail": "Small filters slid across an image",
+                  "lessons": []
+                }
+              ],
+              "edges": [
+                {
+                  "from": "nn_tensors",
+                  "to": "nn_dense"
+                },
+                {
+                  "from": "nn_dense",
+                  "to": "nn_fit"
+                },
+                {
+                  "from": "nn_fit",
+                  "to": "nn_eval"
+                },
+                {
+                  "from": "nn_dense",
+                  "to": "nn_conv"
+                }
+              ],
+              "cross": []
+            }
+          ],
+          "completed": [
+            {
+              "lessonId": "pd_intro",
+              "title": "Group and summarize sales with pandas",
+              "finishedAt": 1792861200,
+              "result": {
+                "passed": 6,
+                "skipped": 0,
+                "total": 6
+              },
+              "libraryId": "dash_pd_intro"
+            },
+            {
+              "lessonId": "np_arrays",
+              "title": "numpy arrays from scratch",
+              "finishedAt": 1791392400,
+              "result": {
+                "passed": 5,
+                "skipped": 1,
+                "total": 6
+              },
+              "libraryId": "dash_np"
+            },
+            {
+              "lessonId": "py_basics",
+              "title": "Write your first Python program",
+              "finishedAt": 1789750800,
+              "result": {
+                "passed": 7,
+                "skipped": 0,
+                "total": 7
+              },
+              "libraryId": "dash_py"
+            }
+          ],
+          "inProgress": [
+            {
+              "lessonId": "tf_mnist",
+              "title": "Code your first neural network with TensorFlow",
+              "mode": "lesson",
+              "stepIndex": 3,
+              "stepCount": 7,
+              "passed": 3,
+              "skipped": 0,
+              "assisted": 1,
+              "stepTitle": "Train it",
+              "lastActiveAt": 1795186800,
+              "libraryId": "dash_mnist"
+            },
+            {
+              "lessonId": "pd_clean",
+              "title": "Clean a CSV with pandas",
+              "mode": "lesson",
+              "stepIndex": 2,
+              "stepCount": 6,
+              "passed": 2,
+              "skipped": 0,
+              "stepTitle": "Drop the empty rows",
+              "lastActiveAt": 1794934800,
+              "libraryId": "dash_pandas"
+            }
+          ],
+          "next": [
+            {
+              "title": "Group and pivot sales data",
+              "goal": "Summarize a sales CSV with pandas groupby and pivot tables",
+              "unlocks": [
+                "pd_groupby",
+                "pd_pivot"
+              ],
+              "estMinutes": 20
+            },
+            {
+              "title": "Your first convolutional network",
+              "goal": "Build a small convolutional network for MNIST with Keras",
+              "id": "dash_cnn",
+              "unlocks": [
+                "nn_conv"
+              ],
+              "estMinutes": 30
+            },
+            {
+              "title": "Vectorize a loop with numpy",
+              "goal": "Replace a Python loop with vectorized numpy math",
+              "unlocks": [
+                "np_masks",
+                "np_vec"
+              ],
+              "estMinutes": 15
+            }
+          ],
+          "activity": [
+            {
+              "date": "2026-09-07",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-09",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-11",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-14",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-15",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-17",
+              "reps": 4,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-19",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-23",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-28",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-09-30",
+              "reps": 4,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-01",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-06",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-07",
+              "reps": 3,
+              "assisted": 1,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-09",
+              "reps": 5,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-12",
+              "reps": 4,
+              "assisted": 0,
+              "hints": 2
+            },
+            {
+              "date": "2026-10-14",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-16",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-18",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-19",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-20",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-22",
+              "reps": 4,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-26",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-28",
+              "reps": 4,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-29",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-10-30",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-11-03",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-11-04",
+              "reps": 3,
+              "assisted": 1,
+              "hints": 0
+            },
+            {
+              "date": "2026-11-07",
+              "reps": 4,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-11-09",
+              "reps": 3,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-11-12",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            },
+            {
+              "date": "2026-11-16",
+              "reps": 4,
+              "assisted": 0,
+              "hints": 1
+            },
+            {
+              "date": "2026-11-20",
+              "reps": 2,
+              "assisted": 0,
+              "hints": 0
+            }
+          ],
+          "review": {
+            "due": 2,
+            "items": [
+              {
+                "skillId": "py_funcs",
+                "label": "Functions",
+                "track": "Python basics",
+                "dueAt": 1795107600,
+                "interval": 21,
+                "lastResult": "passed",
+                "lastAt": 1793293200,
+                "when": "Today",
+                "checks": 2
+              },
+              {
+                "skillId": "pd_frames",
+                "label": "DataFrames",
+                "track": "pandas",
+                "dueAt": 1795165200,
+                "interval": 21,
+                "when": "Today",
+                "checks": 2
+              },
+              {
+                "skillId": "np_arrays",
+                "label": "Arrays",
+                "track": "numpy",
+                "dueAt": 1795539600,
+                "interval": 7,
+                "lastResult": "passed",
+                "lastAt": 1794243600,
+                "when": "Tuesday",
+                "checks": 2
+              },
+              {
+                "skillId": "nn_tensors",
+                "label": "Tensors",
+                "track": "Neural networks",
+                "dueAt": 1795798800,
+                "interval": 3,
+                "when": "Friday",
+                "checks": 2
+              },
+              {
+                "skillId": "py_lists",
+                "label": "Lists",
+                "track": "Python basics",
+                "dueAt": 1797354000,
+                "interval": 60,
+                "lastResult": "passed",
+                "lastAt": 1791997200,
+                "when": "Tuesday",
+                "checks": 2
+              }
+            ]
+          },
+          "settings": {
+            "dailyGoal": 3,
+            "weeklyGoal": 3
+          }
+        }
+      }
+    ]
+  }
+}

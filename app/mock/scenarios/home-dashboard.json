@@ -1,0 +1,1165 @@
+{
+ "name": "home-dashboard",
+ "on": {
+  "connect": "step_hd",
+  "progress.get@step_hd": "hd_progress",
+  "library.list@step_hd": "hd_library",
+  "health.get@step_hd": "hd_health",
+  "learn_url@step_hd": "hd_build",
+  "learn:lesson": "hd_build_goal",
+  "learn@step_hd": "hd_search",
+  "library.start:hd_mnist": "hd_start_mnist",
+  "library.start:hd_pandas": "hd_start_pandas",
+  "library.start:hd_venv": "hd_start_venv",
+  "library.start:hd_plot": "hd_start_plot",
+  "library.start:hd_cnn": "hd_start_cnn"
+ },
+ "segments": {
+  "step_hd": [
+   {
+    "wait": 30,
+    "type": "engine.hello",
+    "payload": {
+     "version": "mock",
+     "contract": "2026-11-20",
+     "capabilities": [
+      "health.get",
+      "permission.open",
+      "library.list",
+      "library.get",
+      "library.start",
+      "progress.get",
+      "panel.state"
+     ]
+    }
+   },
+   {
+    "wait": 20,
+    "type": "status",
+    "payload": {
+     "state": "idle"
+    }
+   }
+  ],
+  "hd_progress": [
+   {
+    "wait": 220,
+    "type": "progress",
+    "payload": {
+     "stageAnchor": "2026-11-20",
+     "skills": [
+      {
+       "track": "Python basics",
+       "mastered": 4,
+       "total": 4,
+       "skills": [
+        {
+         "id": "py_vars",
+         "label": "Variables and types",
+         "state": "mastered",
+         "detail": "Names point at values",
+         "lessons": [
+          "py_basics"
+         ],
+         "masteredAt": 1788973200,
+         "lastPracticedAt": 1788973200,
+         "reps": 4
+        },
+        {
+         "id": "py_lists",
+         "label": "Lists",
+         "state": "mastered",
+         "detail": "Ordered, changeable collections",
+         "lessons": [
+          "py_basics"
+         ],
+         "masteredAt": 1789146000,
+         "lastPracticedAt": 1791997200,
+         "reps": 6
+        },
+        {
+         "id": "py_loops",
+         "label": "Loops",
+         "state": "mastered",
+         "detail": "`for` over any iterable",
+         "lessons": [
+          "py_basics"
+         ],
+         "masteredAt": 1789491600,
+         "lastPracticedAt": 1791997200,
+         "reps": 5
+        },
+        {
+         "id": "py_funcs",
+         "label": "Functions",
+         "state": "mastered",
+         "detail": "`def`, arguments, return values",
+         "lessons": [
+          "py_basics"
+         ],
+         "masteredAt": 1789750800,
+         "lastPracticedAt": 1793293200,
+         "reps": 7
+        }
+       ],
+       "edges": [
+        {
+         "from": "py_vars",
+         "to": "py_lists"
+        },
+        {
+         "from": "py_vars",
+         "to": "py_funcs"
+        },
+        {
+         "from": "py_lists",
+         "to": "py_loops"
+        }
+       ],
+       "cross": []
+      },
+      {
+       "track": "numpy",
+       "mastered": 2,
+       "total": 5,
+       "skills": [
+        {
+         "id": "np_arrays",
+         "label": "Arrays",
+         "state": "mastered",
+         "detail": "One type, fast math on every element",
+         "lessons": [
+          "np_arrays"
+         ],
+         "masteredAt": 1790960400,
+         "lastPracticedAt": 1794243600,
+         "reps": 8
+        },
+        {
+         "id": "np_index",
+         "label": "Indexing and slicing",
+         "state": "mastered",
+         "detail": "`a[1:3, ::2]`",
+         "lessons": [
+          "np_arrays"
+         ],
+         "masteredAt": 1791392400,
+         "lastPracticedAt": 1794243600,
+         "reps": 6
+        },
+        {
+         "id": "np_broadcast",
+         "label": "Broadcasting",
+         "state": "practicing",
+         "detail": "Step 4 was done for you. Try it yourself.",
+         "lessons": [
+          "np_arrays"
+         ],
+         "lastPracticedAt": 1793811600,
+         "reps": 2
+        },
+        {
+         "id": "np_masks",
+         "label": "Boolean masks",
+         "state": "not_started",
+         "detail": "Pick rows with a condition",
+         "lessons": []
+        },
+        {
+         "id": "np_vec",
+         "label": "Vectorized math",
+         "state": "not_started",
+         "detail": "Replace a loop with one expression",
+         "lessons": []
+        }
+       ],
+       "edges": [
+        {
+         "from": "np_arrays",
+         "to": "np_index"
+        },
+        {
+         "from": "np_arrays",
+         "to": "np_broadcast"
+        },
+        {
+         "from": "np_index",
+         "to": "np_masks"
+        },
+        {
+         "from": "np_broadcast",
+         "to": "np_vec"
+        }
+       ],
+       "cross": [
+        {
+         "track": "Python",
+         "label": "Loops",
+         "to": "np_vec",
+         "note": "A vectorized expression replaces the loop"
+        }
+       ]
+      },
+      {
+       "track": "pandas",
+       "mastered": 2,
+       "total": 6,
+       "skills": [
+        {
+         "id": "pd_frames",
+         "label": "DataFrames",
+         "state": "mastered",
+         "detail": "Rows and named columns",
+         "lessons": [
+          "pd_intro"
+         ],
+         "masteredAt": 1792602000,
+         "lastPracticedAt": 1794934800,
+         "reps": 7
+        },
+        {
+         "id": "pd_csv",
+         "label": "Reading CSVs",
+         "state": "mastered",
+         "detail": "`pd.read_csv`",
+         "lessons": [
+          "pd_intro",
+          "pd_clean"
+         ],
+         "masteredAt": 1792774800,
+         "lastPracticedAt": 1794934800,
+         "reps": 5
+        },
+        {
+         "id": "pd_clean",
+         "label": "Cleaning rows",
+         "state": "practicing",
+         "detail": "Drop and fill the empty cells",
+         "lessons": [
+          "pd_clean"
+         ],
+         "lastPracticedAt": 1794934800,
+         "reps": 3
+        },
+        {
+         "id": "pd_groupby",
+         "label": "`groupby`",
+         "state": "not_started",
+         "detail": "Split, apply, combine",
+         "lessons": []
+        },
+        {
+         "id": "pd_merge",
+         "label": "Merge and join",
+         "state": "not_started",
+         "detail": "Line two tables up on a key",
+         "lessons": []
+        },
+        {
+         "id": "pd_pivot",
+         "label": "Pivot tables",
+         "state": "not_started",
+         "detail": "Rows by columns, summarized",
+         "lessons": []
+        }
+       ],
+       "edges": [
+        {
+         "from": "pd_frames",
+         "to": "pd_csv"
+        },
+        {
+         "from": "pd_csv",
+         "to": "pd_clean"
+        },
+        {
+         "from": "pd_frames",
+         "to": "pd_groupby"
+        },
+        {
+         "from": "pd_clean",
+         "to": "pd_merge"
+        },
+        {
+         "from": "pd_groupby",
+         "to": "pd_pivot"
+        }
+       ],
+       "cross": [
+        {
+         "track": "numpy",
+         "label": "Boolean masks",
+         "to": "pd_clean",
+         "note": "Filtering rows is a numpy mask"
+        }
+       ]
+      },
+      {
+       "track": "Neural networks",
+       "mastered": 2,
+       "total": 5,
+       "skills": [
+        {
+         "id": "nn_tensors",
+         "label": "Tensors",
+         "state": "mastered",
+         "detail": "numpy arrays that can learn",
+         "lessons": [
+          "tf_mnist"
+         ],
+         "masteredAt": 1794330000,
+         "lastPracticedAt": 1795194000,
+         "reps": 4
+        },
+        {
+         "id": "nn_dense",
+         "label": "Dense layers",
+         "state": "mastered",
+         "detail": "Every input to every unit",
+         "lessons": [
+          "tf_mnist"
+         ],
+         "masteredAt": 1794848400,
+         "lastPracticedAt": 1795194000,
+         "reps": 3
+        },
+        {
+         "id": "nn_fit",
+         "label": "Training with `fit`",
+         "state": "practicing",
+         "detail": "Epochs, batches, the loss going down",
+         "lessons": [
+          "tf_mnist"
+         ],
+         "lastPracticedAt": 1795194000,
+         "reps": 1
+        },
+        {
+         "id": "nn_eval",
+         "label": "Evaluating a model",
+         "state": "not_started",
+         "detail": "Accuracy on data it never saw",
+         "lessons": []
+        },
+        {
+         "id": "nn_conv",
+         "label": "Convolutions",
+         "state": "not_started",
+         "detail": "Small filters slid across an image",
+         "lessons": []
+        }
+       ],
+       "edges": [
+        {
+         "from": "nn_tensors",
+         "to": "nn_dense"
+        },
+        {
+         "from": "nn_dense",
+         "to": "nn_fit"
+        },
+        {
+         "from": "nn_fit",
+         "to": "nn_eval"
+        },
+        {
+         "from": "nn_dense",
+         "to": "nn_conv"
+        }
+       ],
+       "cross": []
+      }
+     ],
+     "completed": [
+      {
+       "lessonId": "pd_intro",
+       "title": "Group and summarize sales with pandas",
+       "finishedAt": 1792861200,
+       "result": {
+        "passed": 6,
+        "skipped": 0,
+        "total": 6
+       },
+       "libraryId": "hd_pd_intro"
+      },
+      {
+       "lessonId": "np_arrays",
+       "title": "numpy arrays from scratch",
+       "finishedAt": 1791392400,
+       "result": {
+        "passed": 5,
+        "skipped": 1,
+        "total": 6
+       },
+       "libraryId": "hd_np"
+      },
+      {
+       "lessonId": "py_basics",
+       "title": "Write your first Python program",
+       "finishedAt": 1789750800,
+       "result": {
+        "passed": 7,
+        "skipped": 0,
+        "total": 7
+       },
+       "libraryId": "hd_py"
+      }
+     ],
+     "inProgress": [
+      {
+       "lessonId": "tf_mnist",
+       "title": "Code your first neural network with TensorFlow",
+       "mode": "lesson",
+       "stepIndex": 3,
+       "stepCount": 7,
+       "passed": 3,
+       "skipped": 0,
+       "assisted": 1,
+       "stepTitle": "Train it",
+       "lastActiveAt": 1795186800,
+       "libraryId": "hd_mnist"
+      },
+      {
+       "lessonId": "pd_clean",
+       "title": "Clean a CSV with pandas",
+       "mode": "lesson",
+       "stepIndex": 2,
+       "stepCount": 6,
+       "passed": 2,
+       "skipped": 0,
+       "stepTitle": "Drop the empty rows",
+       "lastActiveAt": 1794934800,
+       "libraryId": "hd_pandas"
+      }
+     ],
+     "next": [
+      {
+       "title": "Group and pivot sales data",
+       "goal": "Summarize a sales CSV with pandas groupby and pivot tables",
+       "unlocks": [
+        "pd_groupby",
+        "pd_pivot"
+       ],
+       "estMinutes": 20
+      },
+      {
+       "title": "Your first convolutional network",
+       "goal": "Build a small convolutional network for MNIST with Keras",
+       "id": "hd_cnn",
+       "unlocks": [
+        "nn_conv"
+       ],
+       "estMinutes": 30
+      },
+      {
+       "title": "Vectorize a loop with numpy",
+       "goal": "Replace a Python loop with vectorized numpy math",
+       "unlocks": [
+        "np_masks",
+        "np_vec"
+       ],
+       "estMinutes": 15
+      }
+     ],
+     "activity": [
+      {
+       "date": "2026-09-07",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-09",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-11",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-14",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-15",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-17",
+       "reps": 4,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-19",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-23",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-28",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-09-30",
+       "reps": 4,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-01",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-06",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-07",
+       "reps": 3,
+       "assisted": 1,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-09",
+       "reps": 5,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-12",
+       "reps": 4,
+       "assisted": 0,
+       "hints": 2
+      },
+      {
+       "date": "2026-10-14",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-16",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-18",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-19",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-20",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-22",
+       "reps": 4,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-26",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-28",
+       "reps": 4,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-29",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-10-30",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-11-03",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-11-04",
+       "reps": 3,
+       "assisted": 1,
+       "hints": 0
+      },
+      {
+       "date": "2026-11-07",
+       "reps": 4,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-11-09",
+       "reps": 3,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-11-12",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      },
+      {
+       "date": "2026-11-16",
+       "reps": 4,
+       "assisted": 0,
+       "hints": 1
+      },
+      {
+       "date": "2026-11-20",
+       "reps": 2,
+       "assisted": 0,
+       "hints": 0
+      }
+     ],
+     "review": {
+      "items": [
+       {
+        "skillId": "py_funcs",
+        "label": "Functions",
+        "track": "Python basics",
+        "dueAt": 1795107600,
+        "interval": 21,
+        "lastResult": "passed",
+        "lastAt": 1793293200
+       },
+       {
+        "skillId": "pd_frames",
+        "label": "DataFrames",
+        "track": "pandas",
+        "dueAt": 1795165200,
+        "interval": 21
+       },
+       {
+        "skillId": "np_arrays",
+        "label": "Arrays",
+        "track": "numpy",
+        "dueAt": 1795539600,
+        "interval": 7,
+        "lastResult": "passed",
+        "lastAt": 1794243600
+       },
+       {
+        "skillId": "nn_tensors",
+        "label": "Tensors",
+        "track": "Neural networks",
+        "dueAt": 1795798800,
+        "interval": 3
+       },
+       {
+        "skillId": "py_lists",
+        "label": "Lists",
+        "track": "Python basics",
+        "dueAt": 1797354000,
+        "interval": 60,
+        "lastResult": "passed",
+        "lastAt": 1791997200
+       }
+      ]
+     },
+     "settings": {
+      "dailyGoal": 3,
+      "weeklyGoal": 3
+     }
+    }
+   }
+  ],
+  "hd_library": [
+   {
+    "wait": 180,
+    "type": "library",
+    "payload": {
+     "items": [
+      {
+       "id": "hd_mnist",
+       "title": "Code your first neural network with TensorFlow",
+       "steps": 7,
+       "estMinutes": 25,
+       "tools": [
+        "jupyter",
+        "vscode"
+       ],
+       "ready": true,
+       "progress": {
+        "stepIndex": 3,
+        "stepTitle": "Train it",
+        "total": 7
+       }
+      },
+      {
+       "id": "hd_pandas",
+       "title": "Clean a CSV with pandas",
+       "steps": 6,
+       "estMinutes": 20,
+       "tools": [
+        "jupyter"
+       ],
+       "ready": true,
+       "progress": {
+        "stepIndex": 2,
+        "stepTitle": "Drop the empty rows",
+        "total": 6
+       }
+      },
+      {
+       "id": "hd_venv",
+       "title": "Set up Python with a virtual environment",
+       "steps": 5,
+       "estMinutes": 10,
+       "tools": [
+        "terminal",
+        "vscode"
+       ],
+       "ready": true,
+       "source": {
+        "kind": "youtube",
+        "title": "Python virtual environments in 10 minutes",
+        "url": "https://www.youtube.com/watch?v=hOmEvEnV001"
+       }
+      },
+      {
+       "id": "hd_plot",
+       "title": "Plot your data with matplotlib",
+       "steps": 6,
+       "estMinutes": 15,
+       "tools": [
+        "jupyter"
+       ],
+       "ready": true
+      },
+      {
+       "id": "hd_cnn",
+       "title": "Your first convolutional network",
+       "steps": 8,
+       "estMinutes": 30,
+       "tools": [
+        "jupyter"
+       ],
+       "ready": true
+      },
+      {
+       "id": "hd_pd_intro",
+       "title": "Group and summarize sales with pandas",
+       "steps": 6,
+       "estMinutes": 20,
+       "tools": [
+        "jupyter"
+       ],
+       "ready": true
+      },
+      {
+       "id": "hd_np",
+       "title": "numpy arrays from scratch",
+       "steps": 6,
+       "estMinutes": 15,
+       "tools": [
+        "jupyter"
+       ],
+       "ready": true
+      },
+      {
+       "id": "hd_py",
+       "title": "Write your first Python program",
+       "steps": 7,
+       "estMinutes": 15,
+       "tools": [
+        "vscode"
+       ],
+       "ready": true
+      }
+     ]
+    }
+   }
+  ],
+  "hd_health": [
+   {
+    "wait": 120,
+    "type": "health",
+    "payload": {
+     "ready": 4,
+     "total": 4,
+     "items": [
+      {
+       "id": "engine",
+       "label": "miyagi engine",
+       "state": "ok"
+      },
+      {
+       "id": "vscode",
+       "label": "VS Code",
+       "state": "ok",
+       "detail": "1.96"
+      },
+      {
+       "id": "python",
+       "label": "Python",
+       "state": "ok",
+       "detail": "3.11.6"
+      },
+      {
+       "id": "companion",
+       "label": "VS Code companion",
+       "state": "ok"
+      }
+     ]
+    }
+   }
+  ],
+  "hd_build": [
+   {
+    "wait": 300,
+    "type": "lesson.building",
+    "payload": {
+     "message": "Watching the video",
+     "progress": 0.08,
+     "elapsedS": 2,
+     "stage": "watching",
+     "etaS": 300,
+     "phases": [
+      {
+       "id": "watching",
+       "label": "Watching the video",
+       "state": "active"
+      },
+      {
+       "id": "steps",
+       "label": "Finding the steps",
+       "state": "next"
+      },
+      {
+       "id": "checks",
+       "label": "Writing the checks",
+       "state": "next"
+      },
+      {
+       "id": "ready",
+       "label": "Ready to start",
+       "state": "next"
+      }
+     ]
+    }
+   }
+  ],
+  "hd_build_goal": [
+   {
+    "wait": 300,
+    "type": "lesson.building",
+    "payload": {
+     "message": "Finding the steps",
+     "progress": 0.2,
+     "elapsedS": 3,
+     "stage": "steps",
+     "etaS": 90,
+     "phases": [
+      {
+       "id": "steps",
+       "label": "Finding the steps",
+       "state": "active"
+      },
+      {
+       "id": "checks",
+       "label": "Writing the checks",
+       "state": "next"
+      },
+      {
+       "id": "ready",
+       "label": "Ready to start",
+       "state": "next"
+      }
+     ]
+    }
+   }
+  ],
+  "hd_search": [
+   {
+    "wait": 500,
+    "type": "search.result",
+    "payload": {
+     "id": "hd_v1",
+     "kind": "video",
+     "title": "Pandas groupby, step by step",
+     "meta": "Video \u00b7 Example Channel \u00b7 18:20",
+     "score": 0.93,
+     "reason": "Best tutorial"
+    }
+   },
+   {
+    "wait": 180,
+    "type": "search.result",
+    "payload": {
+     "id": "hd_v2",
+     "kind": "video",
+     "title": "Group and aggregate data in pandas",
+     "meta": "Video \u00b7 Example Channel \u00b7 12:05",
+     "score": 0.84
+    }
+   },
+   {
+    "wait": 180,
+    "type": "search.result",
+    "payload": {
+     "id": "hd_v3",
+     "kind": "video",
+     "title": "Split, apply, combine with pandas",
+     "meta": "Video \u00b7 Example Channel \u00b7 22:41",
+     "score": 0.78
+    }
+   },
+   {
+    "wait": 200,
+    "type": "search.done",
+    "payload": {
+     "total": 3
+    }
+   }
+  ],
+  "hd_start_mnist": [
+   {
+    "wait": 400,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "tf_mnist",
+      "title": "Code your first neural network with TensorFlow",
+      "sources": [],
+      "mode": "lesson",
+      "builtBy": "curated"
+     },
+     "steps": [
+      {
+       "id": "hm4",
+       "index": 3,
+       "title": "Train it",
+       "kind": "code"
+      }
+     ]
+    }
+   },
+   {
+    "wait": 100,
+    "type": "step.started",
+    "payload": {
+     "stepId": "hm4",
+     "index": 3,
+     "title": "Train it",
+     "instructions": "Follow the step in your editor.",
+     "kind": "code"
+    }
+   },
+   {
+    "wait": 50,
+    "type": "status",
+    "payload": {
+     "state": "watching"
+    }
+   }
+  ],
+  "hd_start_pandas": [
+   {
+    "wait": 400,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "pd_clean",
+      "title": "Clean a CSV with pandas",
+      "sources": [],
+      "mode": "lesson",
+      "builtBy": "curated"
+     },
+     "steps": [
+      {
+       "id": "hp3",
+       "index": 2,
+       "title": "Drop the empty rows",
+       "kind": "code"
+      }
+     ]
+    }
+   },
+   {
+    "wait": 100,
+    "type": "step.started",
+    "payload": {
+     "stepId": "hp3",
+     "index": 2,
+     "title": "Drop the empty rows",
+     "instructions": "Follow the step in your editor.",
+     "kind": "code"
+    }
+   },
+   {
+    "wait": 50,
+    "type": "status",
+    "payload": {
+     "state": "watching"
+    }
+   }
+  ],
+  "hd_start_venv": [
+   {
+    "wait": 400,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "hd_venv",
+      "title": "Set up Python with a virtual environment",
+      "sources": [],
+      "mode": "lesson",
+      "builtBy": "curated"
+     },
+     "steps": [
+      {
+       "id": "hv1",
+       "index": 0,
+       "title": "Make the environment",
+       "kind": "code"
+      }
+     ]
+    }
+   },
+   {
+    "wait": 100,
+    "type": "step.started",
+    "payload": {
+     "stepId": "hv1",
+     "index": 0,
+     "title": "Make the environment",
+     "instructions": "Follow the step in your editor.",
+     "kind": "code"
+    }
+   },
+   {
+    "wait": 50,
+    "type": "status",
+    "payload": {
+     "state": "watching"
+    }
+   }
+  ],
+  "hd_start_plot": [
+   {
+    "wait": 400,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "hd_plot",
+      "title": "Plot your data with matplotlib",
+      "sources": [],
+      "mode": "lesson",
+      "builtBy": "curated"
+     },
+     "steps": [
+      {
+       "id": "hl1",
+       "index": 0,
+       "title": "Import matplotlib",
+       "kind": "code"
+      }
+     ]
+    }
+   },
+   {
+    "wait": 100,
+    "type": "step.started",
+    "payload": {
+     "stepId": "hl1",
+     "index": 0,
+     "title": "Import matplotlib",
+     "instructions": "Follow the step in your editor.",
+     "kind": "code"
+    }
+   },
+   {
+    "wait": 50,
+    "type": "status",
+    "payload": {
+     "state": "watching"
+    }
+   }
+  ],
+  "hd_start_cnn": [
+   {
+    "wait": 400,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "hd_cnn",
+      "title": "Your first convolutional network",
+      "sources": [],
+      "mode": "lesson",
+      "builtBy": "curated"
+     },
+     "steps": [
+      {
+       "id": "hc1",
+       "index": 0,
+       "title": "Load the images",
+       "kind": "code"
+      }
+     ]
+    }
+   },
+   {
+    "wait": 100,
+    "type": "step.started",
+    "payload": {
+     "stepId": "hc1",
+     "index": 0,
+     "title": "Load the images",
+     "instructions": "Follow the step in your editor.",
+     "kind": "code"
+    }
+   },
+   {
+    "wait": 50,
+    "type": "status",
+    "payload": {
+     "state": "watching"
+    }
+   }
+  ]
+ }
+}
