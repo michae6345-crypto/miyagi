@@ -16,7 +16,8 @@ auth, forwarding, admin) and `store.py` (the database seam).
 | Route | Auth | What it does |
 |---|---|---|
 | `GET /healthz` | none | `{"ok": true, "version": ..., "proxy_enabled": ...}`. No secrets. |
-| `POST /v1/register` | none, 10 per IP per hour | Body `{install_id, app_version, platform}` → `{token}` (32 random bytes, urlsafe). |
+| `POST /v1/install` | none, 10 per IP per hour (shared with `/v1/register`) | What the desktop app calls. Body `{app, os, arch}` (all optional, extra fields ignored) → `{token, token_id}`. `token` is `mi_` + 32 random bytes urlsafe (46 characters); `token_id` is the first 12 hex characters of its sha256, the same id the admin views and `/admin/tokens/{prefix}/disable` use. |
+| `POST /v1/register` | same limit | Older form. Body `{install_id, app_version, platform}` → `{token, token_id}`, same token shape. |
 | `POST /v1/anthropic/messages` | install token | Passthrough to `https://api.anthropic.com/v1/messages`. Also served at `/v1/anthropic/v1/messages` so the Anthropic SDK works with `base_url=<proxy>/v1/anthropic`. |
 | `POST /v1/gemini/{model}:generateContent` and `:streamGenerateContent` | install token | Passthrough to `https://generativelanguage.googleapis.com/v1beta/models/{model}:...`. Also served at `/v1/gemini/v1beta/models/{model}:...` so `google-genai` works with `base_url=<proxy>/v1/gemini`. |
 | `GET /admin/usage` | `X-Admin-Token` header | JSON usage report (see below). `?days=30` by default. |
@@ -139,10 +140,12 @@ and return it from `open_store()` when `DATABASE_URL` is set. The two tables por
 
 ## How the app uses it
 
-1. On first launch the engine calls `POST /v1/register` with a random `install_id`, the app
-   version and the platform, and keeps the returned token (in the app's support folder or the
-   Keychain).
-2. Every AI call goes to `MIYAGI_CLOUD_URL` with that token in place of an API key.
+1. On first launch the app (`app/src/main/features/cloud.ts`) calls `POST <host>/v1/install`
+   and keeps the returned `mi_` token in the Keychain (safeStorage). The host defaults to
+   `https://miyagi-cloud.onrender.com`; `MIYAGI_CLOUD_URL` overrides it, `off` turns it off.
+2. The app sends the engine `config.keys {miyagiToken: <token>, miyagiCloud: "<host>/v1"}`. The
+   engine (`server/config.py`) uses `<host>/v1/anthropic` as the Anthropic SDK `base_url` and
+   `<host>/v1/gemini` (api_version v1beta) for google-genai, with the token as the API key.
 3. A 401 means the token is unknown: register again. A 403 means the install was disabled. A
    503 `proxy_disabled` means the operators paused the proxy.
 

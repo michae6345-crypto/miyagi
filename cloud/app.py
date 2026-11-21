@@ -189,11 +189,11 @@ def presented_token(request: Request) -> str:
 def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     token = presented_token(request)
     if not token or len(token) > 200:
-        return None, error(401, "authentication_error", "Missing or invalid install token. Register at /v1/register.")
+        return None, error(401, "authentication_error", "Missing or invalid install token. Get one at /v1/install.")
     h = hash_token(token)
     row = store.get_token(h)
     if row is None:
-        return None, error(401, "authentication_error", "Unknown install token. Register again at /v1/register.")
+        return None, error(401, "authentication_error", "Unknown install token. Get a new one at /v1/install.")
     request.state.tok = h[:PREFIX_LEN]
     if row["disabled"]:
         return None, error(403, "permission_error", "This install has been disabled.")
@@ -360,6 +360,24 @@ async def healthz():
     return {"ok": True, "version": VERSION, "proxy_enabled": PROXY_ENABLED}
 
 
+TOKEN_PREFIX = "mi_"  # the app (main/features/cloud.ts TOKEN_RE) only keeps tokens of this shape
+
+
+def mint_token(request: Request, install_id: str | None, app_version: str, platform: str) -> tuple[str, str] | JSONResponse:
+    """One new install token, rate limited per client IP. Returns (token, token_id); only the token's hash is stored.
+
+    token_id is the first PREFIX_LEN hex characters of that hash: public, the same id the admin views and
+    /admin/tokens/{prefix}/disable use, and useless for calling the proxy."""
+    if not register_allowed(client_ip(request)):
+        return error(429, "rate_limit_error", "Too many registrations from this network. Try again later.")
+    token = TOKEN_PREFIX + secrets.token_urlsafe(32)  # 43 urlsafe characters after the prefix
+    h = hash_token(token)
+    token_id = h[:PREFIX_LEN]
+    store.add_token(h, install_id or token_id, app_version or "unknown", platform or "unknown")
+    request.state.tok = token_id
+    return token, token_id
+
+
 class RegisterBody(BaseModel):
     install_id: str = Field(min_length=1, max_length=128)
     app_version: str = Field(min_length=1, max_length=64)
@@ -368,13 +386,28 @@ class RegisterBody(BaseModel):
 
 @app.post("/v1/register")
 async def register(body: RegisterBody, request: Request):
-    if not register_allowed(client_ip(request)):
-        return error(429, "rate_limit_error", "Too many registrations from this network. Try again later.")
-    token = secrets.token_urlsafe(32)
-    h = hash_token(token)
-    store.add_token(h, body.install_id, body.app_version, body.platform)
-    request.state.tok = h[:PREFIX_LEN]
-    return {"token": token}
+    minted = mint_token(request, body.install_id, body.app_version, body.platform)
+    if isinstance(minted, JSONResponse):
+        return minted
+    token, token_id = minted
+    return {"token": token, "token_id": token_id}
+
+
+class InstallBody(BaseModel):
+    """What the desktop app sends (app/src/main/features/cloud.ts). Every field optional; extra fields ignored."""
+    app: str = Field(default="", max_length=64)
+    os: str = Field(default="", max_length=64)
+    arch: str = Field(default="", max_length=32)
+
+
+@app.post("/v1/install")
+async def install(body: InstallBody, request: Request):
+    platform = "/".join(x for x in (body.os.strip(), body.arch.strip()) if x)
+    minted = mint_token(request, None, body.app.strip(), platform)
+    if isinstance(minted, JSONResponse):
+        return minted
+    token, token_id = minted
+    return {"token": token, "token_id": token_id}
 
 
 @app.post("/v1/anthropic/messages")
