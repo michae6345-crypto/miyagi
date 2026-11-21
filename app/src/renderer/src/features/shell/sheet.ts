@@ -12,14 +12,15 @@
  *
  *   openSheet(kind)             show (or switch to) a kind
  *   closeSheet()                hide; a browser sign-in still running is cancelled (auth:cancel), like Esc in the
- *                               login window
+ *                               login window, and a sign-in error note is cleared (say(undefined)), so a reopened
+ *                               sheet starts clean
  *   openAccountSurface(kind)    for code that may run outside the home window (StatusArea): the sheet when a home
  *                               window is hosting it, otherwise the old account / login window
  */
 import { create } from 'zustand'
 import { openAccount, openLogin } from '../../core/surfaces'
 import { authOn } from '../auth/model'
-import { cancelSignIn, useAuth } from '../auth/store'
+import { cancelSignIn, say, useAuth } from '../auth/store'
 
 export type SheetKind = 'signin' | 'account' | 'signout' | 'plans'
 export const SHEET_KINDS: readonly SheetKind[] = ['signin', 'account', 'signout', 'plans']
@@ -35,6 +36,8 @@ type State = {
 export const useSheet = create<State>(() => ({ kind: null, hosts: 0 }))
 
 export function openSheet(kind: SheetKind, back?: SheetKind): void {
+  // A fresh sign-in sheet never shows the last session's error (say(reason, true) keeps it until the next click).
+  if (kind === 'signin' && !useSheet.getState().kind) say(undefined)
   useSheet.setState({ kind, back })
 }
 
@@ -42,6 +45,8 @@ export function closeSheet(): void {
   if (!useSheet.getState().kind) return
   // Leaving mid-flow cancels the browser sign-in (main closes its loopback listener), as the login window does.
   if (useAuth.getState().pending) cancelSignIn()
+  // An error from a failed sign-in belongs to this sheet session; reopening starts clean.
+  say(undefined)
   useSheet.setState({ kind: null, back: undefined })
 }
 

@@ -94,6 +94,9 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
   )
 }
 
+/** Above the sheet's scrim (z 30) and the sheet itself (z 40) while the avatar flies back into the chip. */
+const FLIGHT_Z = 45
+
 /** Where the avatar sits while it is lent to the sheet: an empty recessed circle, so the chip never looks broken. */
 function AvatarSocket(): ReactNode {
   return <span aria-hidden data-avatar="socket" className="block shrink-0" style={{ width: 32, height: 32, borderRadius: radius2.round, background: surface.well, boxShadow: `${highlight.well}, inset 0 0 0 1px ${fill.hairline}` }} />
@@ -107,6 +110,14 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
   const on = useShell((s) => s.page === 'account')
   // While a sheet shows the avatar, the chip keeps an empty slot (the avatar is in the sheet's header).
   const lent = useSheet((s) => s.kind !== null && s.kind !== 'plans')
+  // Account → Plans: the avatar comes home without a flight (it would cross the paper sheet).
+  const snap = useSheet((s) => s.kind === 'plans')
+  // While the avatar flies home the chip rides above the scrim and the leaving sheet (they sit at z 30 and 40 in
+  // <main>; the chip is in the sidebar, behind them). Set on the element, so it lands in the flight's first frame.
+  const chip = useRef<HTMLButtonElement>(null)
+  const onFlight = (on: boolean): void => {
+    if (chip.current) chip.current.style.zIndex = on ? String(FLIGHT_Z) : ''
+  }
   const account = useAccount((s) => s.account)
   const accountLoaded = useAccount((s) => s.loaded)
   const user = useAuth((s) => s.user)
@@ -136,6 +147,7 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
   const pending = v2Cloud ? !accountLoaded : login ? !authLoaded : false
   return (
     <motion.button
+      ref={chip}
       type="button"
       data-shell-account={signedIn ? 'in' : 'out'}
       aria-label={`Account: ${name}. ${line}.`}
@@ -154,7 +166,7 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
       aria-haspopup={login || v2Cloud ? 'dialog' : undefined}
       onClick={() => (login || v2Cloud ? openSheet(signedIn ? 'account' : 'signin') : setPage('account'))}
     >
-      {lent ? <AvatarSocket /> : <SharedAvatar initial={initial} size={32} />}
+      {lent ? <AvatarSocket /> : <SharedAvatar initial={initial} size={32} snap={snap} onFlight={onFlight} />}
       {!compact && (
         <span className="relative flex min-w-0 flex-1 flex-col" style={{ gap: 2 }}>
           {pending ? (

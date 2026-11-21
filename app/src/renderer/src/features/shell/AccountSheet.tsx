@@ -6,12 +6,18 @@
  *            of the content area while its surface fades in, then its rows rise 6 px one after another (35 ms apart).
  *            The learner's avatar is a shared element: it flies from the sidebar's account chip into the sheet's
  *            header (layoutId), and back into the chip on close.
- *   switch   Account → Sign out, or a sign-in that just finished: the sheet's surface springs to its new height
- *            (layout, a scale transform with corrected radius) while the old body fades out and the new one rises in.
+ *   switch   Account → Sign out, Cancel back, or a sign-in that just finished: the two bodies crossfade at the same
+ *            time (popLayout: the old one is lifted out of the flow and fades in 80 ms while the new one's rows rise in
+ *            from 20 ms), and the surface springs to the new height (layout, a scale transform with corrected radius;
+ *            DarkSheet re-renders in the same commit, so Motion has its before snapshot). Done in under 300 ms.
  *   close    Esc, the backdrop, the sidebar, the close button or ⌘1..⌘6: the sheet lifts 8 px and fades in 120 ms,
- *            faster than it came. Reduced motion (MotionConfig): fades only.
+ *            faster than it came. Only the chip's avatar flies home (the sheet's copy hides at once, no crossfade), and
+ *            the chip rides above the scrim while it flies. To Plans the avatar snaps into the chip: no flight across
+ *            the paper sheet. Reduced motion (MotionConfig): fades only.
  * Focus: the sheet takes focus on open, Tab and Shift+Tab stay inside it (everything behind is inert), and focus goes
- * back to whatever opened it on close.
+ * back to whatever opened it on close. A switch moves focus into the new body: Cancel on the sign-out confirm (the
+ * safe default), Done on "You're signed in", the Sign out row when Cancel comes back to the account; otherwise the
+ * sheet itself. The leaving body is inert.
  *
  * Sign in: the real login's own pieces from features/auth (store: signInWith → auth:google, cancelSignIn → auth:cancel,
  * signOut → auth:sign-out; model: LIVE, PROVIDER_LABEL; Avatar). Login.tsx exports only the whole window view (its
@@ -19,9 +25,9 @@
  * auth:continue is NOT called: main records the learner's choice when the sign-in succeeds (auth.ts decide()), and
  * from the home window continue could open guided setup as a second window (agents/shell.md, Core requests).
  */
-import { AnimatePresence, motion, useIsPresent, type Variants } from 'motion/react'
+import { AnimatePresence, LayoutGroup, motion, useIsPresent, type Variants } from 'motion/react'
 import { ChevronRight, KeyRound, LogOut, X } from 'lucide-react'
-import { useEffect, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from 'react'
 import { bridge, isElectron } from '../../bridge'
 import { color, copy, duration, elevation, fill, focus, highlight, paper, radius2, scrim, spring, stagger, surface, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
@@ -36,7 +42,7 @@ import { LIVE, PROVIDER_LABEL, type Mode, type Provider } from '../auth/model'
 import { cancelSignIn, loadAuth, openLegal, setMode, signInWith, signOut as signOutAuth, useAuth } from '../auth/store'
 import { Ring } from '../library/motion'
 import { backFromSheet, closeSheet, isSheetKind, openSheet, registerSheetHost, useSheet, type SheetKind } from './sheet'
-import { setPage, setSettingsSection } from './store'
+import { PAGES, setPage, setSettingsSection } from './store'
 
 /** The sidebar chip's avatar and the sheet's are one element (Sidebar.tsx renders it too). */
 export const AVATAR_ID = 'shell-account-avatar'
@@ -54,10 +60,27 @@ const acrossMachines = (): string => (bridge.platform.os === 'mac' ? 'across Mac
  * The learner's avatar as a shared element (layoutId): wherever it renders last, it flies there on the house spring.
  * Its face (person glyph, or the initial once signed in) crossfades with a small scale, so a sign-in that lands while
  * the sheet is open turns the glyph into the initial in place.
+ *
+ * One avatar at a time: no crossfade between the two copies (layoutCrossfade false hides the one left behind), and a
+ * copy inside a leaving sheet hides at once, so nothing trails the real one home.
+ *   snap     land without a flight (the chip, when the Plans sheet takes over from the account sheet)
+ *   onFlight called with true when a flight starts and false when it ends (the chip lifts itself above the scrim)
  */
-export function SharedAvatar({ initial, size }: { initial?: string; size: number }): ReactNode {
+export function SharedAvatar({ initial, size, snap, onFlight }: { initial?: string; size: number; snap?: boolean; onFlight?: (on: boolean) => void }): ReactNode {
+  const present = useIsPresent()
+  const flight = useRef(onFlight)
+  flight.current = onFlight
+  useEffect(() => () => flight.current?.(false), [])
   return (
-    <motion.span layoutId={AVATAR_ID} transition={spring} className="relative block shrink-0" style={{ width: size, height: size, borderRadius: radius2.round }}>
+    <motion.span
+      layoutId={AVATAR_ID}
+      layoutCrossfade={false}
+      transition={snap ? { duration: 0 } : spring}
+      onLayoutAnimationStart={() => flight.current?.(true)}
+      onLayoutAnimationComplete={() => flight.current?.(false)}
+      className="relative block shrink-0"
+      style={{ width: size, height: size, borderRadius: radius2.round, visibility: present ? undefined : 'hidden' }}
+    >
       <AnimatePresence initial={false} mode="popLayout">
         <motion.span
           key={initial ?? 'person'}
@@ -87,11 +110,14 @@ const surfaceV: Variants = {
   hidden: { opacity: 0 },
   shown: { opacity: 1, transition: { duration: duration.instant, delay: 0 } }
 }
-/** A body: its rows rise in one after another (riseItem), after the header; it fades out fast when it is swapped. */
+/**
+ * A body: its rows rise in one after another (riseItem). On open they wait for the header (100 ms); on a switch they
+ * start almost at once (20 ms) while the old body, lifted out of the flow (popLayout), fades out in 80 ms.
+ */
 const bodyV: Variants = {
   hidden: {},
-  shown: { opacity: 1, transition: { delayChildren: (i: number) => 0.1 + Math.min(i, stagger.cap - 1) * stagger.each } },
-  gone: { opacity: 0, transition: { duration: duration.fast } }
+  shown: (swap: boolean) => ({ opacity: 1, transition: { delayChildren: (i: number) => (swap ? 0.02 : 0.1) + Math.min(i, stagger.cap - 1) * stagger.each } }),
+  gone: { opacity: 0, transition: { duration: duration.instant } }
 }
 
 // ---- small pieces -----------------------------------------------------------------------------------------------------
@@ -288,9 +314,11 @@ function SignedInBody(): ReactNode {
         {`Your lessons and progress now sync ${acrossMachines()}.`}
       </motion.p>
       <motion.div variants={riseItem}>
-        <Ring>
-          <PrimaryButton size="lg" block label="Done" onClick={closeSheet} />
-        </Ring>
+        <span data-sheet-focus className="contents">
+          <Ring>
+            <PrimaryButton size="lg" block label="Done" onClick={closeSheet} />
+          </Ring>
+        </span>
       </motion.div>
       <motion.span variants={riseItem} style={{ fontSize: type2.xs, color: color.label }}>
         Not you? <TextLink onClick={() => openSheet('signout')}>Sign out</TextLink>
@@ -339,9 +367,11 @@ function SignOutBody(): ReactNode {
   }
   return (
     <motion.div variants={riseItem} className="grid grid-cols-2 gap-[10px]">
-      <Ring>
-        <QuietButton size="lg" block label="Cancel" onClick={backFromSheet} />
-      </Ring>
+      <span data-sheet-focus className="contents">
+        <Ring>
+          <QuietButton size="lg" block label="Cancel" onClick={backFromSheet} />
+        </Ring>
+      </span>
       <Ring>
         <PrimaryButton size="lg" block icon={LogOut} label="Sign out" onClick={confirm} />
       </Ring>
@@ -392,8 +422,34 @@ function Swap({ id, children, style, className }: { id: string; children: ReactN
   )
 }
 
+type BodyKind = 'signin' | 'signed-in' | 'account' | 'signout'
+
+/**
+ * Where focus lands when the body switches: the safe choice on the sign-out confirm (Cancel), Done once signed in,
+ * and the Sign out row when Cancel comes back to the account (the row that opened the confirm).
+ */
+const FOCUS: Partial<Record<BodyKind, string>> = {
+  signout: '[data-sheet-focus] button',
+  'signed-in': '[data-sheet-focus] button',
+  account: '[data-shell-sheet-row="Sign out"]'
+}
+
+/** One body. Leaving, it is lifted out of the flow (popLayout) and inert, so focus and clicks only reach the new one. */
+function Body({ id, swap, ref, children }: { id: BodyKind; swap: boolean; ref?: Ref<HTMLDivElement>; children: ReactNode }): ReactNode {
+  const present = useIsPresent()
+  return (
+    <motion.div ref={ref} data-shell-sheet-body={id} inert={!present} custom={swap} variants={bodyV} initial="hidden" animate="shown" exit="gone" className="flex flex-col gap-[14px]" style={{ width: '100%' }}>
+      {children}
+    </motion.div>
+  )
+}
+
 function DarkSheet({ kind }: { kind: SheetKind }): ReactNode {
   const who = useWho()
+  // Subscribed here, not only in SignInBody, so a note that appears or goes re-renders the sheet and the surface's
+  // layout spring gets its before snapshot (otherwise the height would jump).
+  useAuth((s) => s.note)
+  const content = useRef<HTMLDivElement>(null)
   // A sign-in that finished while this sheet was open shows "You're signed in"; open on a signed-in learner, it is the
   // account sheet (a stale "Sign in" button).
   const signedInHere = useRef(false)
@@ -401,10 +457,24 @@ function DarkSheet({ kind }: { kind: SheetKind }): ReactNode {
   if (kind === 'signin' && who.signedIn && !wasSignedIn.current) signedInHere.current = true
   wasSignedIn.current = who.signedIn
   const shown: SheetKind = kind === 'account' && !who.signedIn ? 'signin' : kind === 'signin' && who.signedIn && !signedInHere.current ? 'account' : kind
-  const body = shown === 'signin' ? (who.signedIn ? 'signed-in' : 'signin') : shown
+  const body: BodyKind = shown === 'signin' ? (who.signedIn ? 'signed-in' : 'signin') : shown === 'plans' ? 'account' : shown
   const head = headerFor(shown, who, signedInHere.current)
+
+  // A switch (not the first body) starts its rows at once and takes focus into the new body.
+  const first = useRef<BodyKind>(body)
+  const swapped = useRef(false)
+  if (body !== first.current) swapped.current = true
+  useEffect(() => {
+    if (!swapped.current) return
+    const root = content.current
+    const at = root?.querySelector<HTMLElement>(`[data-shell-sheet-body="${body}"]`)
+    const sel = FOCUS[body]
+    const target = (sel && at?.querySelector<HTMLElement>(sel)) || root?.closest<HTMLElement>('[data-shell-sheet]')
+    target?.focus({ preventScroll: true })
+  }, [body])
+
   return (
-    <>
+    <LayoutGroup>
       {/* The surface: springs to each body's height (layout: a scale transform, radius and shadow corrected). */}
       <motion.div
         layout
@@ -414,7 +484,7 @@ function DarkSheet({ kind }: { kind: SheetKind }): ReactNode {
         className="mg-grain absolute inset-0"
         style={{ background: surface.sheet, borderRadius: radius2.sheet, boxShadow: `${highlight.top}, inset 0 0 0 1px ${surface.border}, ${elevation.panel}` }}
       />
-      <div className="relative flex flex-col" style={{ padding: 24, gap: 20 }}>
+      <div ref={content} className="relative flex flex-col" style={{ padding: 24, gap: 20 }}>
         <div className="flex items-center gap-[14px]">
           <SharedAvatar initial={who.initial} size={48} />
           <motion.div variants={riseItem} className="flex min-w-0 flex-1 flex-col gap-[2px]">
@@ -434,13 +504,13 @@ function DarkSheet({ kind }: { kind: SheetKind }): ReactNode {
             <CloseButton />
           </motion.div>
         </div>
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div key={body} data-shell-sheet-body={body} variants={bodyV} initial="hidden" animate="shown" exit="gone" className="flex flex-col gap-[14px]">
+        <AnimatePresence mode="popLayout" initial={false}>
+          <Body key={body} id={body} swap={swapped.current}>
             {body === 'signin' ? <SignInBody /> : body === 'signed-in' ? <SignedInBody /> : body === 'signout' ? <SignOutBody /> : <AccountBody />}
-          </motion.div>
+          </Body>
         </AnimatePresence>
       </div>
-    </>
+    </LayoutGroup>
   )
 }
 
@@ -586,8 +656,10 @@ export function AccountSheetHost({ mainW, mainH }: { mainW: number; mainH: numbe
         closeSheet()
         return
       }
+      // The same chords Shell.tsx takes for the pages: ⌘1..⌘<pages>, no Alt, no Shift.
       const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
-      if (mod && /^[1-9]$/.test(e.key)) closeSheet()
+      const n = Number(e.key)
+      if (mod && !e.altKey && !e.shiftKey && Number.isInteger(n) && n >= 1 && n <= PAGES.length) closeSheet()
     }
     addEventListener('keydown', onKey, true)
     return () => removeEventListener('keydown', onKey, true)
