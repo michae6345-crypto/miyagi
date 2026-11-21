@@ -8,7 +8,7 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
@@ -53,8 +53,10 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
+/** Bumped on every close request and open: a stale close watchdog never hides a newer open. */
+let launcherGen = 0
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
-let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
+let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
@@ -253,6 +255,7 @@ function openLauncher(): void {
   // Launch gate (main/gate.ts): no launcher before the login and setup are through.
   if (launcherOpen || !gateIsOpen()) return
   launcherOpen = true
+  launcherGen++
   keptBlurs = []
   launcherModifier = false
   launcher.show()
@@ -272,7 +275,14 @@ function openLauncher(): void {
 }
 
 function closeLauncher(): void {
-  if (launcherOpen) send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  if (!launcherOpen) return
+  send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  // Watchdog: the launcher renderer is hung or gone and never says launcher:hidden: the island must not stay invisible.
+  // (Only if it is still the same open: a quick reopen has a newer generation.)
+  const gen = ++launcherGen
+  setTimeout(() => {
+    if (launcherOpen && gen === launcherGen && !launcher.isDestroyed()) hideLauncher()
+  }, 2500)
 }
 
 /** When blurs kept the launcher open (loop guard: an app that keeps grabbing focus wins after a few tries). */
@@ -507,7 +517,16 @@ app.whenReady().then(async () => {
   const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
+  // Every way the island can be left half-open by the system: collapse it to rest (core/Island.tsx collapseAll).
+  const collapseIsland = (): void => send(overlay, 'island:collapse')
+  powerMonitor.on('resume', collapseIsland)
+  powerMonitor.on('unlock-screen', collapseIsland)
+  screen.on('display-added', collapseIsland)
+  screen.on('display-removed', collapseIsland)
+  overlay.webContents.on('responsive', collapseIsland)
+
   screen.on('display-metrics-changed', () => {
+    collapseIsland()
     for (const w of [overlay, launcher]) {
       w.setBounds(overlayBounds(screen.getDisplayMatching(w.getBounds())))
       send(w, 'layout', layoutFor(w))
