@@ -136,6 +136,41 @@ def test_t5_cp12_real_runs_still_count():
     assert terminal_runs("python3 main.py", caught, [r"Predictions"]) == (1, False, True)
 
 
+def test_output_that_says_python_never_ends_a_run():
+    """A row the program prints that contains the word ("I love python") is output, not a new command line: (a) a
+    crash after it is still the run's crash (a NameError must not pass "ran in the terminal"), and (b) a
+    KeyboardInterrupt after it still means the run was stopped, so it is not a run at all."""
+    crash = [PROMPT + "python3 main.py", "I love python", "Traceback (most recent call last):",
+             '  File "main.py", line 3, in <module>', "NameError: name 'W1' is not defined", PROMPT]
+    assert terminal_runs("python3 main.py", crash) == (1, True, False)
+    stopped = [PROMPT + "python3 main.py", "I love python", "Traceback (most recent call last):",
+               "KeyboardInterrupt", PROMPT]
+    assert terminal_runs("python3 main.py", stopped) == (0, False, False)
+    # the same with `tut` in the output, and a progress bar ending in "100%" before the word
+    tut = [PROMPT + "python3 main.py", "done 100% python tut", "NameError: name 'x' is not defined", PROMPT]
+    assert terminal_runs("python3 main.py", tut) == (1, True, False)
+    # printed output that says python never demotes the expected output either
+    shown = [PROMPT + "python3 main.py", "Predictions:", "I love python", PROMPT]
+    assert terminal_runs("python3 main.py", shown, [r"Predictions"]) == (1, False, True)
+
+
+@pytest.mark.parametrize("line", [
+    PROMPT + "python3 other.py",                         # zsh: tripi@mac nn %
+    "tripi@mac:~/nn$ python3 other.py",                  # bash: the marker glued to the path
+    "❯ python3 other.py",                           # starship
+    "➜  nn git:(main) ✗ python3 other.py",     # oh-my-zsh
+    PROMPT + "cd nn && python3 other.py",                # a shell join
+    "python3 other.py",                                  # no prompt read at all
+    PROMPT + "tut run python3 other.py",
+])
+def test_a_later_command_line_still_ends_a_run(line):
+    """Each prompt style still ends the earlier run's window: the other script's KeyboardInterrupt is not the good
+    run's, and the good run's output isn't claimed as shown once another python command ran."""
+    rows = [PROMPT + "python3 main.py", "Predictions:", line, "Traceback (most recent call last):",
+            "KeyboardInterrupt", PROMPT]
+    assert terminal_runs("python3 main.py", rows, [r"Predictions"]) == (1, False, False)
+
+
 @pytest.mark.parametrize("code,lines,status", [
     (130, [], "pending"),                                                      # ^C: exit 130
     (1, ["Traceback (most recent call last):", "KeyboardInterrupt"], "pending"),
