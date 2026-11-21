@@ -3,7 +3,7 @@
  * for a while (see index.tsx); that never changes `open`, so it slides back once the target moves on.
  */
 import { create } from 'zustand'
-import { bridge } from '../../bridge'
+import { bridge, isElectron } from '../../bridge'
 import { onMessage, onUi, type PanelRequest } from '../../core/bus'
 import { setDock, useDock } from '../../core/dock'
 import { useLesson } from '../../core/lesson'
@@ -193,6 +193,16 @@ for (const s of [useCards, useDiagram, useComplete, useBeforeStart, useSearch, u
  */
 const appWindows = new Set<string>()
 let appClosedNow = false
+// The stage opens ?window=<route> while bridge.ts initialises, before this listener exists: read the list it already
+// has (as dev/Stage.tsx does), or one Esc would close that window and collapse the panel too. Stage only.
+if (!isElectron) {
+  bridge
+    .invoke<string[]>('window:stage-list')
+    .then((list) => {
+      if (Array.isArray(list)) for (const r of list) appWindows.add(r)
+    })
+    .catch(() => undefined)
+}
 bridge.onFeature('window:stage', (p) => {
   const { route, open } = (p ?? {}) as { route?: string; open?: boolean }
   if (!route) return

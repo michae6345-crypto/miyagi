@@ -36,6 +36,7 @@ import { defineFeature } from '../../core/registry'
 import { color, copy, dock, fill } from '../../core/theme'
 import { Kbd, Spinner, StepDots } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { useChecking } from '../drawer/v2/view'
 import { openPanel } from './panel'
 import { BuildLine, FitSwap, LeadMark, PhaseLead, StatusMark, StepCount, SwapText, type Mark, type Phase } from './parts'
 import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, useHeldPass, usePill, type SavedOffer } from './store'
@@ -285,6 +286,9 @@ function useShown(): Shown & { total: number } {
     }))
   )
   const phase = useStepPhase()
+  // The lesson panel's own "checking" rule (a fresh Check press, or the stage's &panel=checking): when the panel says
+  // Checking, the pill must too, not "Watching" with a spinner (lane QA).
+  const panelChecking = useChecking()
   const held = useHeldPass()
   const { celebrating, advanced, offline } = usePill(
     useShallow((s) => ({ celebrating: s.celebrating, advanced: s.advanced, offline: s.offline }))
@@ -329,7 +333,7 @@ function useShown(): Shown & { total: number } {
     if (lastKnown && i === total - 1 && l.complete) return { key: 'complete', index: total - 1, title: 'Lesson complete', mark: 'done', total }
     return { key: `${id}:passed`, index: i, title: passedLine(i + 1), mark, phase: 'passed', total }
   }
-  if (phase === 'checking') return { key: `${id}:checking`, index: i, title: CHECKING, mark, phase: 'checking', total }
+  if (phase === 'checking' || panelChecking) return { key: `${id}:checking`, index: i, title: CHECKING, mark, phase: 'checking', total }
   if (phase === 'notyet') return { key: `${id}:notyet`, index: i, title: NOT_YET, mark, phase: 'notyet', total }
   return { key: id, index: i, title: found >= 0 ? titleOf(i, l.title) : l.title, mark, total }
 }

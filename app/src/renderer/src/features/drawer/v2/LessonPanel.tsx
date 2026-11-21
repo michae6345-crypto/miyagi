@@ -24,7 +24,7 @@
  * While shown it tells core/dock (setDock) where it is, so the island's cards step around it and the engine keeps VS
  * Code beside it (panel.state, when the engine lists it).
  */
-import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react'
+import { AnimatePresence, motion, useIsPresent, useReducedMotion, type Variants } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../../../preload/api'
 import { panelRect, setDock } from '../../../core/dock'
@@ -247,19 +247,26 @@ function Work({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode {
   )
 }
 
+/** After a screen swap, Enter waits this long: a quick double Enter on Next step must not also press Check. */
+const ENTER_SETTLE_MS = 300
+
 /**
  * Enter presses the panel's primary (power users; persona QA). Not while typing in a field, not on a focused button
- * or link (Enter already presses that), not with a modifier, not while the launcher is open.
+ * or link (Enter already presses that), not with a modifier, not while the launcher is open. Not on a screen that is
+ * leaving (popLayout keeps the old one mounted while it fades), and not in the first moments of a new one.
  */
 function useEnter(run: (() => void) | undefined): void {
+  const present = useIsPresent()
   const ref = useRef(run)
-  ref.current = run
+  ref.current = present ? run : undefined
   useEffect(() => {
+    const ready = Date.now() + ENTER_SETTLE_MS
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Enter' || e.repeat || e.isComposing || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
       const t = e.target as HTMLElement | null
       if (t && (t.closest('input, textarea, select, button, a, [contenteditable=""], [contenteditable="true"]') || t.isContentEditable)) return
       if (useSearch.getState().open || !ref.current) return
+      if (Date.now() < ready) return e.preventDefault()
       e.preventDefault()
       ref.current()
     }
