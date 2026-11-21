@@ -212,6 +212,34 @@ export function reopenOffline(): void {
   set({ offlineDismissed: false })
 }
 
+/** The engine runs outside the app (Terminal, or the bundled engine is off): restart means retry the link. */
+export function engineExternal(): boolean {
+  const st = useLesson.getState().localEngine?.state
+  return st === 'external' || st === 'off' || get().restart === 'external'
+}
+
+/**
+ * Restart the engine: the bundled one through main (engine-local:restart), or retry the link when it runs outside the
+ * app. The engine-offline card's primary and the folded pill line's Restart both call this, so one press is enough.
+ */
+export async function restartEngine(): Promise<void> {
+  if (engineExternal()) {
+    bridge.invoke('engine-link:retry').catch(() => undefined)
+    return
+  }
+  if (get().restart === 'starting') return
+  set({ restart: 'starting' })
+  const r = await bridge.invoke<{ ok?: boolean; state?: string } | null>('engine-local:restart').catch(() => null)
+  if (r?.ok) return
+  set({ restart: r?.state === 'external' || r?.state === 'off' ? 'external' : 'failed' })
+}
+
+/** The folded pill's Restart: start the restart and unfold the card, which shows it working ("Restarting..."). */
+export function restartFromPill(): void {
+  void restartEngine()
+  reopenOffline()
+}
+
 /** The engine-offline card was folded by Esc and the outage is still on. */
 export function engineStopped(s: State): boolean {
   const l = s.link

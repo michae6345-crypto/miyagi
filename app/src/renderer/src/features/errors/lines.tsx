@@ -13,7 +13,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { copy } from '../../core/theme'
 import { useCurrentStep, useLesson } from '../../core/lesson'
 import { PillLine } from './parts'
-import { reconnectTry, reopenOffline, TRIES, useErrors, useNetOffline } from './store'
+import { reconnectTry, restartFromPill, TRIES, useErrors, useNetOffline } from './store'
 
 /** Engine copy goes through the editor-name guard: a line naming an unsupported editor falls back to ours. */
 export function guard(text: string | undefined, fallback: string): string {
@@ -71,7 +71,14 @@ export function BusyLine(): ReactNode {
   return <PillLine id="busy" glyph="arc" text="miyagi is busy. Trying again in" meta={`${left} s`} metaHidden />
 }
 
-/** The engine-offline card, folded by Esc: the outage stays on the pill, and Restart brings the card back. */
+/**
+ * The engine-offline card, folded by Esc: the outage stays on the pill. Its button does what the card's primary does
+ * (restart the bundled engine, or retry the link when it runs in Terminal) and unfolds the card to show it working,
+ * so one press is enough.
+ */
 export function StoppedLine(): ReactNode {
-  return <PillLine id="stopped" glyph="ring" text="miyagi stopped responding" action={{ label: 'Restart', onClick: reopenOffline }} />
+  const outside = useLesson((s) => s.localEngine?.state === 'external' || s.localEngine?.state === 'off')
+  const refused = useErrors((s) => s.restart === 'external')
+  const external = outside || refused
+  return <PillLine id="stopped" glyph="ring" text={`${copy.name} stopped responding`} action={{ label: external ? 'Try again' : 'Restart', onClick: restartFromPill }} />
 }

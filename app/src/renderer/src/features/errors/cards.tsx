@@ -21,7 +21,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { guard } from './lines'
 import { Caption, CardFrame, ErrGlyph, Eyebrow } from './parts'
 import { buildDetails, LIBRARY_ID, type DetailFields } from './scrub'
-import { closeCard, decideCrash, TRIES, useErrors } from './store'
+import { closeCard, decideCrash, restartEngine, TRIES, useErrors } from './store'
 
 /** A text-only control (End lesson for now, View report): chrome, no fill. */
 function TextButton({ label, onClick, underline }: { label: string; onClick: () => void; underline?: boolean }): ReactNode {
@@ -93,16 +93,7 @@ export function EngineOfflineCard(): ReactNode {
   const inLesson = useLesson((s) => !!s.lesson)
   const [copied, setCopied] = useState<'yes' | 'no' | undefined>()
 
-  const onRestart = async (): Promise<void> => {
-    if (external) {
-      bridge.invoke('engine-link:retry').catch(() => undefined)
-      return
-    }
-    useErrors.setState({ restart: 'starting' })
-    const r = await bridge.invoke<{ ok?: boolean; state?: string } | null>('engine-local:restart').catch(() => null)
-    if (r?.ok) return
-    useErrors.setState({ restart: r?.state === 'external' || r?.state === 'off' ? 'external' : 'failed' })
-  }
+  const onRestart = restartEngine
   const onCopy = async (): Promise<void> => {
     const ok = await copyDetails()
     setCopied(ok ? 'yes' : 'no')
