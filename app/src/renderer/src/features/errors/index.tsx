@@ -6,7 +6,7 @@
  *   66 err-editor-closed   VS Code closed: "Your place is saved." (Esc folds it into the blocker line)
  *   62 err-build-failed    the build stopped: transcript only, or a cached library lesson
  *   58 err-limit           free checks used up (v2Cloud only: off in Electron, ?v2Cloud=1 in the stage)
- *    7 err-reconnecting    "Reconnecting to engine  N of 5", then "Back."
+ *    7 err-reconnecting    "Reconnecting… (try N)", then "Back."
  *    7 err-blocker         VS Code closed / opening / back in place, no kernel
  *    6 err-net-offline     offline, then "Online."
  *    6 err-busy            the AI provider is busy, retrying in N s

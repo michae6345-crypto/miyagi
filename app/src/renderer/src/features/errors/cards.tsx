@@ -1,7 +1,7 @@
 /**
  * Feature: errors. The cards that grow out of the island (one white primary each, no status hue):
  *
- *   err-engine-offline (72)  "The engine stopped responding."  Restart engine / Copy details     Err-EngineReconnect 02
+ *   err-engine-offline (72)  "miyagi stopped responding."  Restart engine / Copy details     Err-EngineReconnect 02
  *   err-editor-closed (66)   "Your place is saved."  Reopen in VS Code / End lesson for now      Err-VSCodeClosed
  *   err-build-failed (62)    "This video could not become a lesson."  Transcript (if offered), library Err-LessonBuildFailed
  *   err-limit (58)           "You have used today's free checks." (v2Cloud only, flagged)          Err-OfflineAndLimits
@@ -127,7 +127,7 @@ export function EngineOfflineCard(): ReactNode {
           <span style={{ fontSize: type2.xs, color: color.label }}>Engine offline</span>
         </>
       }
-      title="The engine stopped responding."
+      title="miyagi stopped responding."
       body={inLesson ? 'Your place in the lesson is saved.' : 'Nothing you made is lost.'}
     >
       <div className="flex flex-col gap-2">

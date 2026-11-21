@@ -25,8 +25,9 @@
  * 13px medium · "Step 4 ·" in the muted label color, title in the text color.
  * The step-pass moment (check → flash → crossfade) is driven by ./store.ts.
  */
-import { AnimatePresence, motion } from 'motion/react'
-import { useRef, useState, type ReactNode } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { useDock } from '../../core/dock'
@@ -260,6 +261,8 @@ function Building(): ReactNode {
 type Shown = { key: string; index: number; title: string; mark: Mark; phase?: Phase }
 
 const NEXT_PART = 'Next part is still building'
+/** The pill beside the open lesson panel, Les-Working: only the status. */
+const WATCHING = 'Watching'
 /** Les-Checking's line while a check the learner asked for is in flight. */
 export const CHECKING = 'Checking your work'
 /** Les-NotYet: no hue, the white ring and these words. */
@@ -355,7 +358,34 @@ function LineEnd({ s, gap = 15 }: { s: Shown & { total: number }; gap?: number }
  */
 function Compact(): ReactNode {
   const s = useShown()
+  // The lesson panel is open and already shows the step's title and "Step N of M" (persona QA: the pill repeated it).
+  // The pill keeps only the status: "Watching" and the dot, or the phase line without the count.
+  const docked = useDock((d) => d.open)
+  const textLesson = useLesson((l) => l.lesson?.mode === 'lesson')
+  const panelOpen = docked && textLesson
   const label = s.phase ? `${s.title}, step ${Math.min(s.total, s.index + 1)} of ${s.total}` : `miyagi is watching step ${Math.min(s.total, s.index + 1)} of ${s.total}`
+  if (panelOpen && s.mark !== 'done' && s.mark !== 'pending')
+    return (
+      <div
+        role="status"
+        aria-label={label}
+        className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
+        style={{ color: s.phase ? color.text : color.label }}
+        data-step={s.key}
+        data-line={s.phase ?? 'working'}
+        data-panel-open
+      >
+        {s.phase ? <PhaseLead phase={s.phase} /> : <LeadMark />}
+        <SwapText id={s.phase ? s.key : 'watching'} className="flex">
+          <span>{s.phase ? s.title : WATCHING}</span>
+        </SwapText>
+        {!s.phase && (
+          <span className="ml-[12px] flex items-center">
+            <StatusMark mark={s.mark} />
+          </span>
+        )}
+      </div>
+    )
   return (
     <div
       role="status"
@@ -378,37 +408,52 @@ function Compact(): ReactNode {
  * Les-Mini: the lesson panel collapsed to the pill (core/dock `collapsed`, A1 sets it). dock.miniW wide (380), 34 tall
  * until wave 2: the bonsai (or the phase glyph), the step's title, one bar per step (StepDots 'bars': passed green, this
  * step white, the rest faint; past 10 steps one proportional track), "2 of 6" and the status dot. The whole pill is
- * the button that opens the panel again.
+ * the button that opens the panel again: a hover tint, a chevron that brightens, and on the very first collapse the title
+ * reads "Click to reopen the lesson" for a moment.
  */
 function Mini(): ReactNode {
   const s = useShown()
   const cur = useCurrentStep()
+  const coach = useCoach()
+  const [hot, setHot] = useState(false)
+  const reduced = useReducedMotion()
   const n = Math.min(s.total, s.index + 1)
   const label = s.phase ? `${s.title}, step ${n} of ${s.total}. Click to open.` : `miyagi is watching step ${n} of ${s.total}, ${s.title}. Click to open.`
+  // The first collapse ever says how to get back, in the title's place, for a moment (persona QA: Mini gave no hint).
+  const line = coach ? { key: 'coach', text: REOPEN } : { key: s.key, text: s.title }
   return (
-    <button
+    <motion.button
       type="button"
       data-mini
       data-line={s.phase ?? 'working'}
       data-step={s.key}
-      className="flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] pr-[14px] text-left text-[13px] font-medium"
+      data-coach={coach || undefined}
+      className="flex h-[34px] cursor-pointer items-center whitespace-nowrap rounded-full pl-[13px] pr-[10px] text-left text-[13px] font-medium"
       style={{ width: dock.miniW, color: color.text }}
+      animate={{ backgroundColor: hot ? fill.chipHover : fill.clear }}
+      whileTap={reduced ? undefined : { scale: 0.98 }}
+      transition={{ duration: 0.12 }}
+      onHoverStart={() => setHot(true)}
+      onHoverEnd={() => setHot(false)}
+      onFocus={() => setHot(true)}
+      onBlur={() => setHot(false)}
       onMouseDown={(e) => e.preventDefault()}
       onClick={openPanel}
       aria-label={label}
-      title={s.title}
+      title={OPEN_LESSON}
     >
       {s.phase ? <PhaseLead phase={s.phase} /> : <LeadMark />}
       <span className="relative min-w-0 flex-1 overflow-hidden">
         <AnimatePresence initial={false} mode="popLayout">
           <motion.span
-            key={s.key}
+            key={line.key}
             className="block truncate leading-[18px]"
+            style={{ color: coach ? color.label : undefined }}
             initial={{ opacity: 0, y: 7 }}
             animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
             exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
           >
-            {s.title}
+            {line.text}
           </motion.span>
         </AnimatePresence>
       </span>
@@ -416,8 +461,46 @@ function Mini(): ReactNode {
         <StepDots variant="bars" total={s.total} current={s.index} passed={cur.passed} skipped={cur.skipped} cap={MINI_BARS_CAP} width={MINI_TRACK_W} />
       </span>
       <LineEnd s={s} gap={8} />
-    </button>
+      {/* The way back: a chevron that points down into where the panel opens, brighter on hover. */}
+      <motion.span
+        className="ml-[6px] flex shrink-0 items-center"
+        aria-hidden
+        initial={false}
+        animate={{ opacity: hot || coach ? 1 : 0.45, y: hot && !reduced ? 1 : 0 }}
+        transition={{ duration: 0.14 }}
+        style={{ color: color.text }}
+      >
+        <ChevronDown size={14} strokeWidth={2} />
+      </motion.span>
+    </motion.button>
   )
+}
+
+const OPEN_LESSON = 'Open the lesson panel'
+const REOPEN = 'Click to reopen the lesson'
+const COACH_KEY = 'miyagi.mini.coached'
+const COACH_MS = 2600
+
+/** True for COACH_MS the first time the Mini pill ever shows (remembered; a fresh profile sees it once). */
+function useCoach(): boolean {
+  const [on, setOn] = useState(() => {
+    try {
+      return localStorage.getItem(COACH_KEY) !== '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    if (!on) return
+    try {
+      localStorage.setItem(COACH_KEY, '1')
+    } catch {
+      // storage unavailable: the coach line may show again next time, which is harmless
+    }
+    const id = setTimeout(() => setOn(false), COACH_MS)
+    return () => clearTimeout(id)
+  }, [on])
+  return on
 }
 
 /** Les-Mini: one bar per step up to 10, then one proportional track this wide. */
