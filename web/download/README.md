@@ -22,6 +22,7 @@ Near the top of `index.html`, `window.MIYAGI_DOWNLOAD` is the only thing to edit
 | `mac.needs`, `windows.needs`, `*.chip` | The requirements line. Check `mac.needs` against the Electron version's minimum macOS. |
 | `sizeMB` | Shown only when the live lookup is off or fails. |
 | `pageUrl` | The link phones copy or share. |
+| `cloud` | `false` today: the FAQ and setup card say setup asks for your own Anthropic key and screenshots go straight to Anthropic. `true` once the miyagi-cloud proxy is live: "no account or API key". See below. |
 | `remindEndpoint` | `null` = phones get Copy link (and Share where the phone has it). Set it to a form endpoint (Formspree, Buttondown, a Worker) and phones also get an "Email me the link" field; it POSTs `{ "email", "url" }` as JSON. GitHub Pages can't send mail on its own, so the page doesn't promise an email until this is set. |
 
 ### Moving downloads to Cloudflare R2 later
@@ -42,10 +43,11 @@ Query parameters, for checking a variant from any computer:
 
 - `?os=mac|windows|phone|other` forces the platform.
 - `?chip=intel` or `?chip=arm` forces the Mac chip.
+- `?cloud=1` or `?cloud=0` previews the FAQ for the proxy build or today's own-key build, whatever the config says.
 - `?live=0` skips the GitHub lookup (shows exactly what the config says, as visitors see it when the lookup fails).
 
 ## Before it goes live, please check
 
-- **Do not publish this page while the shipped build still needs an API key.** Two FAQ answers are only true once the miyagi-cloud proxy from `DISTRIBUTION-PLAN.md` is live and the build uses it: "Our server passes them along and doesn't keep them" (What does it read on my screen?) and "You don't need an account or an API key" (Does it cost money?). Until then, either hold the page or rewrite both answers to match the build.
+- **`cloud` stays `false` until the miyagi-cloud proxy ships.** With `false` (today) the page matches the shipped build: screenshots go straight from the computer to Anthropic, miyagi is free, and setup asks for the visitor's own Anthropic key (Gemini optional, for video lessons). Flip `cloud` to `true` when the proxy from `DISTRIBUTION-PLAN.md` is live and the build uses it; the FAQ and the setup card then say "no account or API key" and "our server passes screenshots along and doesn't keep them". The page is safe to publish with either value as long as it matches the build people download.
 - The rest of the FAQ matches the build: Claude for lessons and checks, Gemini only to watch videos; the permissions (Screen Recording, Accessibility, and Apple Events to control VS Code).
 - `mac.needs` ("macOS 13 or later").
