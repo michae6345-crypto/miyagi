@@ -33,6 +33,7 @@ import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
 import { shortEditor, useFitLevel } from './fit'
 import { isEditor, useFrontApp } from './front'
+import { useDock } from '../../core/dock'
 import { useRoutedAway } from './panel'
 import { act, cardAct, installAll, installable, itemDone, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 import { isEditorSheet, SHEET_W, VSCodeSheet } from './VSCodeSheet'
@@ -1187,10 +1188,12 @@ export default defineFeature({
       id: 'success',
       priority: 60,
       width: SUCCESS_W,
-      // Decision 7: with the panel shown, Les-Passed renders inside it, not on the island.
+      // Decision 7: with the panel shown, Les-Passed renders inside it, not on the island; collapsed to the Mini pill,
+      // the step-passed island card is the progress feature's (A8, priority 55), so this one stays out of its way.
       useActive: () => {
         const routed = useRoutedAway('success')
-        return useCards((c) => !!c.success) && !routed
+        const mini = useDock((d) => d.collapsed)
+        return useCards((c) => !!c.success) && !routed && !mini
       },
       Content: Success
     },

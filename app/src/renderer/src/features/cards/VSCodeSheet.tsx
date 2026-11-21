@@ -32,7 +32,8 @@ export const SHEET_W = 352
 /** The helper extension's row: the engine names it by tool id or label (companion / vscode-ext / "helper extension"). */
 const HELPER = /companion|vscode[-_ ]?ext|miyagi[-_ ]?helper|helper extension/i
 const isHelper = (x: SetupItem): boolean => HELPER.test(x.tool) || HELPER.test(x.label)
-const isEditor = (x: SetupItem): boolean => x.kind === 'editor'
+/** The editor itself (VS Code), never its helper even when the engine files the helper under kind "editor". */
+const isEditor = (x: SetupItem): boolean => x.kind === 'editor' && !isHelper(x)
 
 /** Is this setup card the VS Code sheet? Only the editor and / or its helper are missing, nothing else. */
 export function isEditorSheet(c: EngineCard | undefined, installs: Record<string, Install> = {}): boolean {
@@ -129,7 +130,8 @@ export function VSCodeSheet({ card }: { card: EngineCard }): ReactNode {
       </ul>
       {next && (
         <div className="flex flex-col gap-[8px]">
-          <PrimaryButtonV2 size="lg" block label={label} busy={busy} disabled={busy} onClick={() => act(next)} />
+          {/* Busy keeps full strength with the spinner (never look dead); a second press is a no-op (store cardAct). */}
+          <PrimaryButtonV2 size="lg" block label={label} busy={busy} onClick={() => act(next)} />
           {!editorMissing && (
             <p className="m-0 text-center leading-[16px]" style={{ fontSize: type2.micro, color: color.label }}>
               No terminal. VS Code reloads once, your files stay open.

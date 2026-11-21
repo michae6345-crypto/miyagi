@@ -371,7 +371,7 @@ onUi('shortcut', (kind) => {
   if (kind !== 'hint') return
   const s = get()
   if (!useLesson.getState().offtrack || s.offtrackOpen || s.card || s.success) return
-  // v2: the docked panel shows Not yet itself; ⌥H there asks for a hint as usual (nothing to bring back).
+  // v2: the docked panel shows Not yet itself; the Hint key there asks for a hint as usual (nothing to bring back).
   if (panelShown() && isRouted('offtrack')) return
   dismissed = undefined
   set({ offtrackOpen: true })
