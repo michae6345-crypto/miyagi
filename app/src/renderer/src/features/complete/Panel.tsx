@@ -9,13 +9,18 @@
  *            (the newest metric series, else the trained network's loss). Left out when there's none.
  *   steps    "6 of 6 passed" / "5 of 6 passed, 1 skipped" from card.result, else counted from this lesson's
  *            step.passed events, and every step with its state
+ *   skills   what this lesson grew: the track's mastered skills from skillMap (a green check is a mastered skill, the
+ *            one place green is earned here besides the hero), up to four, then "and N more"
  *   next up  skillMap.next[0]
+ * Motion: no confetti. The hero check springs in, then each block settles in turn (40 ms apart) and the step rows tick
+ * in one after another, so the card reads as a short replay of what was built. Opacity only with reduced motion.
  *   actions  Done (quiet) and the one primary, Start next lesson. Start next lesson needs a way to start: a cached
  *            lesson (next.id + library.start, zero model calls), or the goal outside the browser stage. Otherwise it
  *            is shown disabled. With no next lesson, Done is the primary.
  * Every number on the card comes from the engine's card, its metric lines or its network diagrams.
  */
 import { BookOpen } from 'lucide-react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useMemo, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { engineMode } from '../../bridge'
@@ -25,7 +30,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
-import { color, fill, font, radius2, surface, type2 } from '../../core/theme'
+import { color, fill, font, radius2, spring, surface, type2 } from '../../core/theme'
 import { useOverlayWidth, useSeries } from '../cards/store'
 import { lossStat, plain } from './net'
 import { endLesson, startCached, startLesson, useComplete, type CompleteCard, type LessonResult } from './store'
@@ -42,6 +47,16 @@ export function panelWidth(overlay: number): number {
 }
 
 const tab = { fontVariantNumeric: 'tabular-nums' } as const
+/** Each block's entrance: up and in on the house spring, `i` blocks after the hero. */
+const STEP_S = 0.04
+function useEnter(): (i: number) => Record<string, unknown> {
+  const reduce = useReducedMotion()
+  return (i) => ({
+    initial: reduce ? { opacity: 0 } : { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0 },
+    transition: { ...spring, delay: reduce ? 0 : 0.08 + i * STEP_S, opacity: { duration: 0.2, delay: reduce ? 0 : 0.08 + i * STEP_S } }
+  })
+}
 const caption = { fontSize: type2.xs, color: color.label } as const
 
 /** The first up-next lesson (readSkillMap already checked its optional cached id and minutes). */
@@ -144,8 +159,9 @@ function Result({ card }: { card: CompleteCard }): ReactNode {
   )
 }
 
-function Steps({ counts }: { counts?: LessonResult }): ReactNode {
+function Steps({ counts, from = 0 }: { counts?: LessonResult; from?: number }): ReactNode {
   const steps = useSteps()
+  const enter = useEnter()
   if (!steps.length && !counts) return null
   return (
     <div className="flex flex-col gap-[4px]" data-complete-steps>
@@ -161,14 +177,61 @@ function Steps({ counts }: { counts?: LessonResult }): ReactNode {
       </div>
       {steps.length > 0 && (
         <ol className="m-0 flex list-none flex-col overflow-y-auto p-0" style={{ maxHeight: ROWS * 26 }}>
-          {steps.map((s) => (
-            <li key={s.id} data-complete-step={s.state} className="flex shrink-0 items-center gap-[12px]" style={{ height: 26, fontSize: type2.sm, color: s.state === 'passed' ? color.text : color.label }}>
+          {steps.map((s, i) => (
+            <motion.li
+              key={s.id}
+              data-complete-step={s.state}
+              className="flex shrink-0 items-center gap-[12px]"
+              style={{ height: 26, fontSize: type2.sm, color: s.state === 'passed' ? color.text : color.label }}
+              {...enter(from + Math.min(i, ROWS))}
+            >
               <StatusGlyph state={s.state} size={16} />
               <span className="min-w-0 truncate">{s.title}</span>
-            </li>
+            </motion.li>
           ))}
         </ol>
       )}
+    </div>
+  )
+}
+
+/** The track's mastered skills (what this lesson added to), up to four chips, then "and N more". */
+const SKILL_CHIPS = 4
+function Skills({ card }: { card: CompleteCard }): ReactNode {
+  const map = card.map
+  if (!map) return null
+  const mastered = map.nodes.filter((n) => n.state === 'mastered')
+  if (!mastered.length) return null
+  const shown = mastered.slice(0, SKILL_CHIPS)
+  const more = mastered.length - shown.length
+  return (
+    <div className="flex flex-col gap-[8px]" data-complete-skills>
+      <div className="flex items-baseline justify-between gap-[12px]">
+        <span className="min-w-0 truncate font-semibold" style={caption}>
+          {map.track ? `Skills in ${map.track}` : 'Skills'}
+        </span>
+        <span className="shrink-0" style={{ ...caption, ...tab }}>
+          {mastered.length} of {map.nodes.length} mastered
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-[6px]">
+        {shown.map((n) => (
+          <span
+            key={n.id}
+            title={n.detail}
+            className="flex h-[26px] max-w-full items-center gap-[6px]"
+            style={{ padding: '0 10px 0 6px', borderRadius: radius2.round, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, fontSize: type2.xs, color: color.text }}
+          >
+            <StatusGlyph state="passed" size={14} />
+            <span className="truncate">{n.label}</span>
+          </span>
+        ))}
+        {more > 0 && (
+          <span className="flex h-[26px] items-center" style={{ padding: '0 4px', fontSize: type2.xs, color: color.label }}>
+            and {more} more
+          </span>
+        )}
+      </div>
     </div>
   )
 }
@@ -217,6 +280,7 @@ export function CompletePanel(): ReactNode {
   const lessonTitle = useLesson((s) => s.lesson?.title)
   const counts = useCounts(card?.result)
   const w = panelWidth(useOverlayWidth((s) => s.w))
+  const enter = useEnter()
   if (!card) return null
   // Green only when every counted step passed; no counts, a skip or a missed pass all get the plain ring.
   const clean = !!counts && counts.skipped === 0 && counts.passed >= counts.total
@@ -228,19 +292,32 @@ export function CompletePanel(): ReactNode {
       <Header />
       <div className="flex flex-col gap-[8px]">
         <StatusGlyph state={clean ? 'passed' : 'skipped'} size={40} />
-        <h1 className="m-0 mt-[8px] font-semibold" style={{ fontSize: 24, lineHeight: '30px', letterSpacing: '-0.01em', color: color.text }} data-complete-head>
+        <motion.h1 className="m-0 mt-[8px] font-semibold" style={{ fontSize: 24, lineHeight: '30px', letterSpacing: '-0.01em', color: color.text }} data-complete-head {...enter(0)}>
           {clean ? 'Lesson complete' : 'Lesson finished'}
-        </h1>
+        </motion.h1>
         {(subtitle || minutes) && (
-          <p className="m-0" style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label, ...tab }}>
+          <motion.p className="m-0" style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label, ...tab }} {...enter(1)}>
             {[subtitle, minutes ? `${minutes} min` : ''].filter(Boolean).join(' · ')}
-          </p>
+          </motion.p>
         )}
       </div>
-      <Result card={card} />
-      <Steps counts={counts} />
-      {next && <NextUp next={next} />}
-      <Actions next={next} />
+      <motion.div className="empty:hidden" {...enter(2)}>
+        <Result card={card} />
+      </motion.div>
+      <motion.div className="empty:hidden" {...enter(3)}>
+        <Steps counts={counts} from={4} />
+      </motion.div>
+      <motion.div className="empty:hidden" {...enter(5)}>
+        <Skills card={card} />
+      </motion.div>
+      {next && (
+        <motion.div {...enter(6)}>
+          <NextUp next={next} />
+        </motion.div>
+      )}
+      <motion.div {...enter(7)}>
+        <Actions next={next} />
+      </motion.div>
     </section>
   )
 }
