@@ -188,9 +188,11 @@ export class RunGuard {
       const p = e.payload as { lesson?: { id?: unknown }; replay?: unknown }
       const id = typeof p?.lesson?.id === 'string' && p.lesson.id ? p.lesson.id : undefined
       const same = !!id && id === this.lessonId
-      if (!same && !this.pending) return undefined
+      // The engine runs a lesson this run didn't start (a respawned engine replaying another save): the run's lesson
+      // is no longer there, so its steps, checks and cards stay out like at launch (lane reconnect).
+      if (!same && !this.pending) return this.foreign()
       // A new connection's snapshot replay never answers a start sent on the old one.
-      if (!same && this.carried && p?.replay === true) return undefined
+      if (!same && this.carried && p?.replay === true) return this.foreign()
       this.wait(false)
       this.lessonId = id
       return e
@@ -260,6 +262,12 @@ export class RunGuard {
       return p?.clear === true || p?.kind === 'network' ? e : undefined
     }
     return e
+  }
+
+  /** A lesson.ready for a lesson this run didn't start: dropped, and the run's own lesson (if any) is gone from the engine. */
+  private foreign(): undefined {
+    this.lessonId = undefined
+    return undefined
   }
 
   private wait(on: boolean): void {
