@@ -1,4 +1,4 @@
-"""Tiger Data writers + stats for the engine (GENERALITY RULE: the time-series memory of every session).
+"""Learning-event and metric writers for the engine (GENERALITY RULE: the time-series memory of every session).
 
     from server.checks.tiger import record_event, record_metric, record_run
 
@@ -8,18 +8,25 @@
     record_metric("screen-pinn", "loss", 1200, 0.2504)          # any numeric signal
     record_run({"id": "vscode-7-1731670000000", "lesson_id": "text-nn", "source": "learner", ...})  # its runs row
 
-All three are non-blocking (an in-memory queue). A daemon thread COPYs batches into
-``learning_events`` / ``training_metrics`` (and upserts ``runs``) every 0.5 s. **Offline-safe:** when Tiger can't be
-reached (venue Wi-Fi blocking the port, no URL yet, a write error), batches are appended to a
-local spool (``~/.miyagi/tiger-spool/*.jsonl``, override ``$TUT_SPOOL_DIR``). The writer retries
-every 30 s and uploads the whole spool (including ``tut run``'s) as soon as Tiger answers. It
-logs one warning per outage and never blocks or raises into the engine.
+**Local store (claude/eng-drop-vendors).** The engine no longer writes to Tiger Data: rows go to a SQLite file on
+this Mac, ``metrics_db_path()`` = ``$MIYAGI_METRICS_DB``, else ``<engine data dir>/metrics.sqlite`` (the data dir
+is ``$MIYAGI_STATE_DIR`` or ``~/miyagi/state``, the same folder as server.sessions.store). Same three tables and
+columns as ``shared/contracts/tiger-schema.sql`` (``learning_events``, ``training_metrics``, ``runs``), times as
+unix seconds (UTC). No account, no network, no psycopg, and TIGER_DATABASE_URL is not read. The module keeps its
+name and API so every caller (orchestrator.modules, orchestrator.tiger_runs, stats_web) works unchanged.
 
-    python -m server.checks.tiger --ping          # prove connection + schema (no secrets printed)
-    python -m server.checks.tiger --flush-spool   # upload the spool now
+All three calls are non-blocking (an in-memory queue). A daemon thread inserts batches every 0.5 s. If the store
+can't be opened or written (disk full, a locked file), batches are appended to the spool (``~/.miyagi/tiger-spool/
+*.jsonl``, override ``$TUT_SPOOL_DIR``) and the writer retries every 30 s, then loads the whole spool (including
+``tut run``'s) into the store. It logs one warning per outage and never blocks or raises into the engine.
 
-``stats(conn)`` returns ingest rows/sec, row counts, chunk count and query latency (ms) for the
-Tiger-track performance readout (``tut stats``).
+    python -m server.checks.tiger --ping          # the local store: path, row counts, spool backlog
+    python -m server.checks.tiger --flush-spool   # load the spool into the local store now
+    python -m server.checks.tiger --ping --tiger  # old Tiger Data check (TIGER_DATABASE_URL, needs psycopg)
+
+``stats(conn)`` returns ingest rows/sec, row counts and query latency (ms) for a local store connection, or for a
+Tiger connection (``tut stats``, /stats). The Postgres paths here (``write_batch`` on a psycopg connection, ``ping``)
+stay only for an explicit ``TigerWriter(dsn=...)`` and the dev CLI; full removal is ROADMAP 3.6.
 """
 from __future__ import annotations
 
@@ -29,6 +36,7 @@ import logging
 import math
 import os
 import queue
+import sqlite3
 import statistics
 import threading
 import time
@@ -88,8 +96,134 @@ EVENT_COPY = ("COPY learning_events (time, lesson_id, step_id, source_id, video_
 METRIC_COPY = "COPY training_metrics (time, run_id, step, name, value) FROM STDIN"
 
 
+# ---------------------------------------------------------------- the local store (SQLite)
+METRICS_DB_ENV = "MIYAGI_METRICS_DB"
+LOCAL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS learning_events (
+  time REAL NOT NULL, lesson_id TEXT, step_id TEXT, source_id TEXT, video_t REAL, kind TEXT NOT NULL,
+  payload TEXT, session_id TEXT, check_id TEXT);
+CREATE INDEX IF NOT EXISTS learning_events_lesson_time ON learning_events (lesson_id, time);
+CREATE TABLE IF NOT EXISTS training_metrics (
+  time REAL NOT NULL, run_id TEXT NOT NULL, step INTEGER, name TEXT NOT NULL, value REAL);
+CREATE INDEX IF NOT EXISTS training_metrics_run_time ON training_metrics (run_id, time);
+CREATE TABLE IF NOT EXISTS runs (
+  id TEXT PRIMARY KEY, lesson_id TEXT, step_id TEXT, source TEXT, command TEXT, exit_code INTEGER,
+  started_at REAL, ended_at REAL, tail TEXT);
+"""
+LOCAL_INSERT_EVENT = ("INSERT INTO learning_events (time, lesson_id, step_id, source_id, video_t, kind, payload, "
+                      "session_id, check_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+LOCAL_INSERT_METRIC = "INSERT INTO training_metrics (time, run_id, step, name, value) VALUES (?, ?, ?, ?, ?)"
+LOCAL_UPSERT_RUN = (  # same merge rules as INSERT_RUN_SQL
+    "INSERT INTO runs (id, lesson_id, step_id, source, command, exit_code, started_at, ended_at, tail) "
+    "VALUES (:id, :lesson_id, :step_id, :source, :command, :exit_code, :started_at, :ended_at, :tail) "
+    "ON CONFLICT (id) DO UPDATE SET exit_code = COALESCE(excluded.exit_code, runs.exit_code), "
+    "ended_at = COALESCE(excluded.ended_at, runs.ended_at), tail = COALESCE(excluded.tail, runs.tail), "
+    "lesson_id = COALESCE(runs.lesson_id, excluded.lesson_id), step_id = COALESCE(runs.step_id, excluded.step_id)"
+)
+
+
+def engine_data_dir() -> Path:
+    """The engine's data folder: $MIYAGI_STATE_DIR, else ~/miyagi/state (keep in step with server.sessions.store)."""
+    return Path(os.environ.get("MIYAGI_STATE_DIR") or Path.home() / "miyagi" / "state").expanduser()
+
+
+def metrics_db_path() -> Path:
+    """The local metrics store: $MIYAGI_METRICS_DB, else <engine data dir>/metrics.sqlite."""
+    override = os.environ.get(METRICS_DB_ENV, "").strip()
+    return Path(override).expanduser() if override else engine_data_dir() / "metrics.sqlite"
+
+
+def open_local(path: str | Path | None = None, timeout: float = CONNECT_TIMEOUT_S) -> sqlite3.Connection:
+    """Open (and create) the local store: WAL, so a reader never blocks the writer; owner-only file (learning
+    events can hold a learner's question). The connection belongs to the thread that opened it."""
+    p = Path(path) if path else metrics_db_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fresh = not p.exists()
+    conn = sqlite3.connect(str(p), timeout=timeout)
+    try:
+        if fresh:
+            try:
+                os.chmod(p, 0o600)
+            except OSError:
+                pass
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.executescript(LOCAL_SCHEMA)
+    except Exception:
+        conn.close()
+        raise
+    return conn
+
+
+def _epoch(v: Any) -> float | None:
+    """A time for the local store: unix seconds (UTC). Datetimes, ISO strings and numbers are accepted."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, dt.datetime):
+        return (v if v.tzinfo else v.replace(tzinfo=dt.timezone.utc)).timestamp()
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    try:
+        return _epoch(_parse_t(str(v)))
+    except ValueError:
+        return None
+
+
+def _cell(v: Any) -> Any:
+    """A value SQLite can bind (anything else becomes JSON text), so one odd row can't poison a batch or the spool."""
+    if v is None or isinstance(v, (str, int, float, bytes)):
+        return int(v) if isinstance(v, bool) else v
+    if isinstance(v, dt.datetime):
+        return _epoch(v)
+    return json.dumps(v, default=str)
+
+
+def _write_local(conn: sqlite3.Connection, events: list[tuple], metrics: list[tuple], runs: list[dict]) -> int:
+    """One transaction: runs (upserted), events, metrics. NaN values are stored as NULL (SQLite has no NaN)."""
+    with conn:
+        if runs:
+            conn.executemany(LOCAL_UPSERT_RUN, [
+                {k: (_epoch(r.get(k)) if k in ("started_at", "ended_at") else _cell(r.get(k))) for k in RUN_COLS}
+                for r in runs])
+        if events:
+            conn.executemany(LOCAL_INSERT_EVENT, [(_epoch(r[0]), *(_cell(x) for x in r[1:])) for r in events])
+        if metrics:
+            conn.executemany(LOCAL_INSERT_METRIC, [(_epoch(r[0]), *(_cell(x) for x in r[1:])) for r in metrics])
+    return len(events) + len(metrics) + len(runs)
+
+
+def local_summary(path: str | Path | None = None) -> dict:
+    """The local store at a glance: path, row counts, newest row time. Never raises."""
+    p = Path(path) if path else metrics_db_path()
+    out: dict[str, Any] = {"db": str(p), "exists": p.is_file(), "ok": False, "spool": spool_status()}
+    if not p.is_file():
+        out["ok"] = True
+        out["rows"] = {t: 0 for t in ("training_metrics", "learning_events", "runs")}
+        return out
+    try:
+        conn = sqlite3.connect(f"{p.resolve().as_uri()}?mode=ro", uri=True, timeout=CONNECT_TIMEOUT_S)
+    except sqlite3.Error as exc:
+        out["error"] = str(exc)[:200]
+        return out
+    try:
+        out["rows"] = {t: int(conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0])  # noqa: S608 (fixed names)
+                       for t in ("training_metrics", "learning_events", "runs")}
+        newest = conn.execute("SELECT max(t) FROM (SELECT max(time) AS t FROM training_metrics "
+                              "UNION ALL SELECT max(time) FROM learning_events)").fetchone()[0]
+        out["newest"] = _iso(dt.datetime.fromtimestamp(newest, dt.timezone.utc)) if newest is not None else None
+        out["ok"] = True
+    except sqlite3.Error as exc:
+        out["error"] = str(exc)[:200]
+    finally:
+        conn.close()
+    return out
+
+
 def write_batch(conn: Any, events: list[tuple], metrics: list[tuple], runs: list[dict] | None = None) -> int:
-    """COPY one batch (events/metrics as row tuples with datetime first). Returns rows written."""
+    """Write one batch (events/metrics as row tuples with the time first). Returns rows written. A sqlite3
+    connection is the local store; anything else is treated as a Tiger (psycopg) connection and COPYed."""
+    if isinstance(conn, sqlite3.Connection):
+        return _write_local(conn, events, metrics, runs or [])
     with conn.cursor() as cur:
         if events:
             with cur.copy(EVENT_COPY) as cp:
@@ -106,7 +240,8 @@ def write_batch(conn: Any, events: list[tuple], metrics: list[tuple], runs: list
 
 
 def replay_spool(conn: Any, spool_dir: str | Path | None = None, stale_claim_s: float = 600) -> int:
-    """Upload every spooled file (from any process: engine or `tut run`), deleting each once stored.
+    """Store every spooled file (from any process: engine or `tut run`) through `conn` (the local store, or Tiger),
+    deleting each once stored.
 
     Spool format, one JSON object per line:
       {"k": "e", "v": [iso_time, lesson_id, step_id, source_id, video_t, kind, payload_json, session_id, check_id]}
@@ -162,16 +297,21 @@ def replay_spool(conn: Any, spool_dir: str | Path | None = None, stale_claim_s: 
 
 
 class TigerWriter:
-    """Non-blocking writer: queue → background thread → COPY, or → local spool while offline."""
+    """Non-blocking writer: queue → background thread → the local SQLite store, or → the spool while it can't.
+
+    `TigerWriter()` (what the engine uses) writes to `metrics_db_path()` (or `db_path`). An explicit `dsn` is the
+    old Tiger Data path (psycopg COPY; tests and dev tools only): "" means no URL, so everything is spooled."""
 
     def __init__(self, dsn: str | None = None, session_id: str | None = None, flush_every: float = 0.5,
-                 connect: Any = None, spool_dir: str | Path | None = None, retry_every: float = RETRY_S):
-        self._env_dsn = dsn is None  # follows TIGER_DATABASE_URL (see _sync_dsn)
-        self.dsn = dsn if dsn is not None else os.environ.get("TIGER_DATABASE_URL", "")
+                 connect: Any = None, spool_dir: str | Path | None = None, retry_every: float = RETRY_S,
+                 db_path: str | Path | None = None):
+        self.local = dsn is None
+        self.db_path = (Path(db_path) if db_path else metrics_db_path()) if self.local else None
+        self.dsn = "" if dsn is None else dsn
         self.session_id = session_id or os.environ.get("TUT_SESSION_ID") or f"sess_{uuid.uuid4().hex[:10]}"
         self.flush_every = flush_every
         self.retry_every = retry_every
-        self._connect = connect  # injectable for tests; default psycopg.connect
+        self._connect = connect  # injectable for tests: connect(dsn); default open_local / psycopg.connect
         self.spool_dir = Path(spool_dir) if spool_dir else default_spool_dir()
         self.spool_file = self.spool_dir / f"engine-{self.session_id}-{os.getpid()}.jsonl"
         self._q: queue.Queue = queue.Queue(MAX_QUEUE)
@@ -179,9 +319,9 @@ class TigerWriter:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.no_url = not self.dsn or "..." in self.dsn
+        self.no_url = not self.local and (not self.dsn or "..." in self.dsn)
         self.online = False
-        self.last_error: str | None = "TIGER_DATABASE_URL not set" if self.no_url else None
+        self.last_error: str | None = "no Tiger URL" if self.no_url else None
         self._next_retry = 0.0
         self._warned_offline = False
         self.rows_written = 0
@@ -191,7 +331,12 @@ class TigerWriter:
         self.last_flush_ms = 0.0
         self.dropped = 0
         if self.no_url:
-            log.warning("TIGER_DATABASE_URL not set; learning events/metrics are spooled to %s", self.spool_dir)
+            log.warning("no Tiger URL (TIGER_DATABASE_URL); learning events/metrics are spooled to %s", self.spool_dir)
+
+    @property
+    def store(self) -> str:
+        """'local' (the SQLite store on this Mac) or 'tiger' (an explicit dsn)."""
+        return "local" if self.local else "tiger"
 
     # ------------------------------------------------------------ public
     def record_event(self, kind: str, lesson_id: str | None, step_id: str | None, video_t: float | None = None,
@@ -238,11 +383,12 @@ class TigerWriter:
     close = flush
 
     @property
-    def disabled(self) -> bool:  # kept for callers of the first version: "not writing to Tiger right now"
+    def disabled(self) -> bool:  # kept for callers of the first version: "not writing to the store right now"
         return not self.online
 
     def counters(self) -> dict:
-        return {"session_id": self.session_id, "online": self.online, "last_error": self.last_error,
+        return {"session_id": self.session_id, "store": self.store,
+                "db": str(self.db_path) if self.db_path else None, "online": self.online, "last_error": self.last_error,
                 "rows_written": self.rows_written, "rows_spooled": self.rows_spooled,
                 "rows_replayed": self.rows_replayed, "flushes": self.flushes,
                 "last_flush_ms": round(self.last_flush_ms, 2), "dropped": self.dropped,
@@ -276,27 +422,14 @@ class TigerWriter:
     def _open(self):
         if self._connect is not None:
             return self._connect(self.dsn)
-        import psycopg
+        if self.local:
+            return open_local(self.db_path)
+        import psycopg  # the old Tiger path: only for an explicit dsn (psycopg is no longer an engine dependency)
 
         return psycopg.connect(self.dsn, autocommit=True, connect_timeout=CONNECT_TIMEOUT_S)
 
-    def _sync_dsn(self) -> bool:
-        """A writer built from the environment follows TIGER_DATABASE_URL. The app's Settings can send a Tiger URL
-        (config.keys -> os.environ, orchestrator.apply_keys) after this writer started; without this it would keep
-        spooling, or writing to the old service, until the engine restarts. True if the URL changed."""
-        if not self._env_dsn:
-            return False
-        dsn = os.environ.get("TIGER_DATABASE_URL", "")
-        if dsn == self.dsn:
-            return False
-        self.dsn = dsn
-        self.no_url = not dsn or "..." in dsn
-        self.online = False
-        self.last_error = "TIGER_DATABASE_URL not set" if self.no_url else None
-        self._next_retry = 0.0
-        self._warned_offline = False
-        log.info("Tiger Data URL changed (%s)", "cleared" if self.no_url else "connecting")
-        return True
+    def _what(self) -> str:
+        return "Local metrics store" if self.local else "Tiger Data"
 
     def _go_offline(self, why: str) -> None:
         self.online = False
@@ -304,8 +437,8 @@ class TigerWriter:
         self._next_retry = time.monotonic() + self.retry_every
         if not self._warned_offline:
             self._warned_offline = True
-            log.warning("Tiger Data offline (%s); spooling to %s, retrying every %ds",
-                        self.last_error, self.spool_dir, int(self.retry_every))
+            log.warning("%s offline (%s); spooling to %s, retrying every %ds",
+                        self._what(), self.last_error, self.spool_dir, int(self.retry_every))
 
     def _try_connect(self):
         try:
@@ -316,13 +449,13 @@ class TigerWriter:
         self.online = True
         self.last_error = None
         if self._warned_offline:
-            log.warning("Tiger Data reachable again; uploading the spool")
+            log.warning("%s reachable again; storing the spool", self._what())
             self._warned_offline = False
         try:
             self.rows_replayed += replay_spool(conn, self.spool_dir)
         except Exception as exc:  # noqa: BLE001
             self._close(conn)
-            self._go_offline(f"spool upload failed: {_redact(str(exc).strip()[:160], self.dsn)}")
+            self._go_offline(f"spool load failed: {_redact(str(exc).strip()[:160], self.dsn)}")
             return None
         return conn
 
@@ -360,15 +493,12 @@ class TigerWriter:
             while True:
                 stopping = self._stop.wait(self.flush_every)
                 ev, me, rs = self._drain()
-                if self._sync_dsn() and conn is not None:
-                    self._close(conn)
-                    conn = None
                 if conn is None and not self.no_url and time.monotonic() >= self._next_retry:
                     conn = self._try_connect()
                 if ev or me or rs:
                     if conn is not None:
                         t0 = time.perf_counter()
-                        try:  # runs first: an upsert, so spooling it again when the COPY after it fails is harmless
+                        try:  # runs first: an upsert, so spooling it again when the write after it fails is harmless
                             self.rows_written += write_batch(conn, [], [], rs) + write_batch(conn, ev, me)
                             self.flushes += 1
                             self.last_flush_ms = (time.perf_counter() - t0) * 1000
@@ -388,6 +518,8 @@ class TigerWriter:
 
 def _redact(msg: str, dsn: str) -> str:
     """Strip the password (and whole DSN) from an error message before it is logged or printed."""
+    if not dsn:
+        return msg
     try:
         from psycopg.conninfo import conninfo_to_dict
 
@@ -450,6 +582,29 @@ LATENCY_QUERIES = {
     # what the creator dashboard does: the stuck heatmap across all learners
     "stuck_heatmap": "SELECT video_bucket, sum(stuck) FROM stuck_heatmap GROUP BY 1 ORDER BY 2 DESC LIMIT 20",
 }
+LOCAL_LATENCY_QUERIES = {  # the same two reads on the local store (raw rows: SQLite has no continuous aggregates)
+    "live_curve": "SELECT time, value, step FROM training_metrics WHERE run_id = "
+                  "(SELECT run_id FROM training_metrics ORDER BY time DESC LIMIT 1) ORDER BY time DESC LIMIT 300",
+    "stuck_heatmap": "SELECT CAST(video_t / 15 AS INTEGER) * 15 AS video_bucket, count(*) FROM learning_events "
+                     "WHERE kind IN ('offtrack', 'check_fail') AND video_t IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 20",
+}
+
+
+def _local_stats(conn: sqlite3.Connection, runs: int) -> dict:
+    out: dict[str, Any] = {"window_s": RATE_WINDOW_S, "store": "local", "chunks": None}
+    since = time.time() - RATE_WINDOW_S
+    for table in ("training_metrics", "learning_events"):
+        recent = conn.execute(f"SELECT count(*) FROM {table} WHERE time > ?", (since,)).fetchone()[0]  # noqa: S608
+        total = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]  # noqa: S608
+        out[table] = {"rows_per_s": round(recent / RATE_WINDOW_S, 1), "total": int(total or 0)}
+    out["query_ms"] = {}
+    for name, sql in LOCAL_LATENCY_QUERIES.items():
+        try:
+            out["query_ms"][name] = _timed(conn, sql, runs)
+        except sqlite3.Error as exc:
+            out["query_ms"][name] = None
+            out.setdefault("errors", {})[name] = str(exc)[:120]
+    return out
 
 
 def _timed(conn: Any, sql: str, runs: int) -> float:
@@ -462,7 +617,10 @@ def _timed(conn: Any, sql: str, runs: int) -> float:
 
 
 def stats(conn: Any, runs: int = 5) -> dict:
-    """Ingest rate (rows/s over the last 10 s), totals, chunks and median query latency (ms)."""
+    """Ingest rate (rows/s over the last 10 s), totals, chunks and median query latency (ms). `conn` is the local
+    store (sqlite3, `open_local()`) or a Tiger connection (autocommit psycopg)."""
+    if isinstance(conn, sqlite3.Connection):
+        return _local_stats(conn, runs)
     out: dict[str, Any] = {"window_s": RATE_WINDOW_S}
     for table in ("training_metrics", "learning_events"):
         recent = conn.execute(f"SELECT count(*) FROM {table} WHERE time > now() - interval '{RATE_WINDOW_S} seconds'").fetchone()[0]  # noqa: S608
@@ -592,15 +750,19 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     ap = argparse.ArgumentParser(prog="python -m server.checks.tiger", description=__doc__.split("\n")[0])
-    ap.add_argument("--ping", action="store_true", help="connect latency, hypertables/aggregates present, row counts")
-    ap.add_argument("--flush-spool", action="store_true", help="upload the offline spool now")
+    ap.add_argument("--ping", action="store_true", help="the local store's path, row counts and spool backlog")
+    ap.add_argument("--flush-spool", action="store_true", help="load the spool into the local store now")
+    ap.add_argument("--tiger", action="store_true",
+                    help="old Tiger Data path instead (TIGER_DATABASE_URL from .env; needs psycopg installed)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    load_env()
-    dsn = os.environ.get("TIGER_DATABASE_URL", "")
     if not args.ping and not args.flush_spool:
         ap.print_help()
         return 2
+    if not args.tiger:
+        return _main_local(args.ping, args.flush_spool, args.json)
+    load_env()
+    dsn = os.environ.get("TIGER_DATABASE_URL", "")
     if not dsn or "..." in dsn:
         msg = {"ok": False, "error": "TIGER_DATABASE_URL is not set (put it in .env)", "spool": spool_status()}
         print(json.dumps(msg) if args.json else f"{msg['error']}; spool: {msg['spool']['rows']} rows in {msg['spool']['dir']}")
@@ -623,6 +785,35 @@ def main(argv: list[str] | None = None) -> int:
             print(f"spool upload failed: {_redact(str(exc).strip()[:200], dsn)}")
             return 1
         print(f"uploaded {n} spooled rows; {spool_status()['rows']} left")
+    return 0
+
+
+def _main_local(ping_: bool, flush: bool, as_json: bool) -> int:
+    if flush:
+        try:
+            conn = open_local()
+            try:
+                n = replay_spool(conn)
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            print(json.dumps({"ok": False, "error": str(exc)[:200]}) if as_json else f"spool load failed: {str(exc)[:200]}")
+            return 1
+        if not as_json:
+            print(f"stored {n} spooled rows in {metrics_db_path()}; {spool_status()['rows']} left")
+    if ping_ or as_json:
+        r = local_summary()
+        if as_json:
+            print(json.dumps(r))
+        else:
+            print(f"local metrics store {r['db']}{'' if r['exists'] else ' (not created yet)'}")
+            if r.get("rows"):
+                print("  rows    " + "  ".join(f"{k} {v:,}" for k, v in r["rows"].items()))
+            if r.get("newest"):
+                print(f"  newest  {r['newest']}")
+            print(f"  spool   {r['spool']['rows']} rows waiting in {r['spool']['dir']}")
+            print("OK" if r["ok"] else f"FAILED  {r.get('error')}")
+        return 0 if r["ok"] else 1
     return 0
 
 
