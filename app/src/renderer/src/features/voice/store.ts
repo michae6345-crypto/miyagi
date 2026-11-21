@@ -10,6 +10,7 @@
  *   toggleVoice()              for any Voice button: the same path as ⌥V
  */
 import { create } from 'zustand'
+import { VOICE_ENABLED } from '../../../../common/flags'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { usePrefs } from '../../core/prefs'
@@ -28,14 +29,16 @@ export const attachSpeech = speech.attach
 export const toggleVoice = (): void => triggerShortcut('voice_toggle')
 
 const say = (text?: string): void => {
-  if (useVoice.getState().on && text) speech.say(text)
+  if (VOICE_ENABLED && useVoice.getState().on && text) speech.say(text)
 }
 const titled = (title: string, body: string): string => (/[.?!:]$/.test(title.trim()) ? `${title} ${body}` : `${title}. ${body}`)
 const task = (): string => useLesson.getState().instructions || useLesson.getState().stepTitle
 
-// Claimed: voice is local, the engine has nothing to do for it.
+// Claimed: voice is local, the engine has nothing to do for it. With voice off (common/flags) the press is
+// swallowed: voice never turns on and nothing reaches the engine.
 onUi('shortcut', (kind) => {
   if (kind !== 'voice_toggle') return
+  if (!VOICE_ENABLED) return true
   const on = !useVoice.getState().on
   useVoice.setState({ on })
   if (on) say(task())
@@ -46,7 +49,7 @@ onUi('shortcut', (kind) => {
 // Read only here, so flipping the pref mid-lesson waits for the next lesson; ⌥V still toggles freely.
 let readFirstTask = false
 onMessage('lesson.ready', () => {
-  if (!usePrefs.getState().voiceOnStart) return
+  if (!VOICE_ENABLED || !usePrefs.getState().voiceOnStart) return
   useVoice.setState({ on: true })
   readFirstTask = true // lesson.ready has no step yet: the first step.started brings the task
 })

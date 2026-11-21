@@ -4,12 +4,15 @@
  *
  * Owner: core. Agents READ this store freely; add fields only through a small "core:" commit.
  */
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import type { CheckStatus, Source, StepSummary, VideoSegment } from '../../../../../shared/contracts/events'
 import type { ConfigStatus, Payload } from '../../../common/wire'
 import { bridge } from '../bridge'
 import { emitUi, onMessage, onUi, setGate } from './bus'
+// Circular on purpose (shortcuts reads this store inside functions only; neither file uses the other at load).
+import { usePressed } from './shortcuts'
 
 export type CheckItem = { id: string; label: string; status: CheckStatus; detail?: string }
 export type Status = 'watching' | 'offtrack' | 'passed'
@@ -67,12 +70,33 @@ type LessonState = {
   /** One short line for the pill (~5 s): engine errors, offline, an off-screen spotlight caption. See notify(). */
   notice?: Notice
   /** The engine this app starts on a Mac (main/localEngine.ts): installing, starting, missing, failed… */
-  localEngine?: { state: string; line?: string; logs?: string }
+  localEngine?: { state: string; line?: string; logs?: string; reason?: string }
   /** This lesson came from the launcher's Demo option (the curated lesson): no "Claude wrote this lesson" line. */
   demo: boolean
+  // ---- v2 (W0-5) ----
+  /** engine.hello: what this engine speaks. Absent until it says hello (an older engine never does). */
+  hello?: Payload<'engine.hello'>
+  /** Every queued notice, oldest first (notify(); `notice` above stays the latest for older readers). */
+  notices: Notice[]
+  /** The current step as step.started sent it (where / then / kind / what / code ...). */
+  step?: Payload<'step.started'>
+  /** status.detail: what the engine is doing right now ("Checking your cell"). */
+  statusDetail?: string
+  /** status busy: the provider is overloaded; retrying in retryInS seconds from `at`. */
+  busy?: { retryInS?: number; at: number }
+  /** lesson.paused until lesson.resumed. */
+  paused?: Payload<'lesson.paused'>
+  /** blocker events by kind, until { clear: true }. */
+  blockers: Partial<Record<BlockerKind, Payload<'blocker'>>>
+  /** lesson.building's v2 fields while building. */
+  build?: Pick<Payload<'lesson.building'>, 'stage' | 'phases' | 'etaS' | 'source'>
+  /** The last build that failed (lesson.building failed). silent: the learner moved on, show no failure card. */
+  buildFailed?: Pick<Payload<'lesson.building'>, 'failCode' | 'failReason' | 'alternatives' | 'source' | 'silent'> & { at: number }
 }
 
-export type Notice = { text: string; tone: 'error' | 'info'; at: number }
+/** v2: notices carry an id (the same id replaces its earlier notice) and an optional time to live. */
+export type Notice = { text: string; tone: 'error' | 'info'; at: number; id?: string; ttlMs?: number }
+export type BlockerKind = Payload<'blocker'>['kind']
 
 const blank = {
   lesson: undefined,
@@ -99,7 +123,15 @@ const blank = {
   seen: undefined,
   error: undefined,
   notice: undefined,
-  demo: false
+  demo: false,
+  notices: [],
+  step: undefined,
+  statusDetail: undefined,
+  busy: undefined,
+  paused: undefined,
+  blockers: {},
+  build: undefined,
+  buildFailed: undefined
 } satisfies Partial<LessonState>
 
 export const useLesson = create<LessonState>(() => ({ connected: false, ...blank }))
@@ -121,6 +153,8 @@ export const setConnected = (connected: boolean): void => {
   if (!connected && get().building) set({ building: false, buildingMessage: undefined, buildingProgress: undefined, buildingElapsed: undefined })
   // Nothing is thinking on a dead socket.
   if (!connected && get().engineState === 'thinking') set({ engineState: undefined })
+  // v2: the next engine says hello again (it may be an older one): no v2 command goes out until it does.
+  if (!connected) set({ hello: undefined, busy: undefined, statusDetail: undefined })
   set({ connected })
 }
 
@@ -188,9 +222,24 @@ onMessage('lesson.ended', (p) => {
 
 onMessage('lesson.building', (p) =>
   // failed: the build ended in error (an `error` + status idle follow): drop the building UI.
+  // v2: keep why (buildFailed) for the failure card; `silent` = the learner already moved on, so no card (A7 reads it).
   p.failed
-    ? set({ building: false, buildingMessage: undefined, buildingProgress: undefined, buildingElapsed: undefined })
-    : set({ building: true, buildingMessage: p.message, buildingProgress: p.progress, buildingElapsed: p.elapsedS })
+    ? set({
+        building: false,
+        buildingMessage: undefined,
+        buildingProgress: undefined,
+        buildingElapsed: undefined,
+        build: undefined,
+        buildFailed: { failCode: p.failCode, failReason: p.failReason, alternatives: p.alternatives, source: p.source ?? get().build?.source, silent: p.silent === true, at: Date.now() }
+      })
+    : set({
+        building: true,
+        buildingMessage: p.message,
+        buildingProgress: p.progress,
+        buildingElapsed: p.elapsedS,
+        buildFailed: undefined,
+        ...(p.stage || p.phases || p.etaS !== undefined || p.source ? { build: { ...get().build, stage: p.stage, phases: p.phases, etaS: p.etaS, source: p.source ?? get().build?.source } } : {})
+      })
 )
 /** The mode of the last learn the launcher sent. lesson.ready doesn't say "demo", so the app remembers what it asked for. */
 let learnMode: string | undefined
@@ -222,6 +271,8 @@ onMessage('step.started', (p) => {
   set({
     building: false,
     buildingMessage: undefined,
+    build: undefined,
+    step: p,
     stepId: p.stepId,
     stepTitle: p.title,
     instructions: p.instructions,
@@ -299,22 +350,82 @@ export function seekVideo(t: number, play = true): void {
 }
 // Another window called seekVideo (main relays it to every window except the sender).
 bridge.on('video:intent', (v) => set({ video: { ...(v as VideoIntent), at: Date.now() } }))
-onMessage('status', (p) => set({ engineState: p.state }))
+onMessage('status', (p) =>
+  set({
+    engineState: p.state,
+    // v2: detail travels with every status; a status without one clears it. busy comes and goes with its state.
+    statusDetail: typeof p.detail === 'string' && p.detail.trim() ? p.detail.trim() : undefined,
+    busy: p.state === 'busy' ? { retryInS: typeof p.retryInS === 'number' && p.retryInS >= 0 ? p.retryInS : undefined, at: Date.now() } : undefined
+  })
+)
+
+// ---- v2 (W0-5) engine events ------------------------------------------------------------------------------------
+onMessage('engine.hello', (p) => set({ hello: { ...p, capabilities: Array.isArray(p.capabilities) ? p.capabilities.filter((c) => typeof c === 'string') : [] } }))
+onMessage('lesson.paused', (p) => set({ paused: p }))
+onMessage('lesson.resumed', () => set({ paused: undefined }))
+onMessage('blocker', (p) =>
+  set((s) => {
+    const next = { ...s.blockers }
+    if (p.clear) delete next[p.kind]
+    else next[p.kind] = p
+    return { blockers: next }
+  })
+)
+onMessage('lesson.ended', (p) => {
+  // "interrupted" keeps the screen for the engine to come back (see above).
+  if ((p.reason as string | undefined) === 'interrupted' && get().lesson?.id) return
+  set({ paused: undefined, blockers: {}, statusDetail: undefined, busy: undefined })
+})
 onMessage('screen.seen', (p) => set({ seen: p }))
 onMessage('config.status', (p) => set({ keyStatus: p }))
 // The engine this app starts itself (built Mac app). Read once, then follow main's updates.
 bridge.onFeature('engine-local', (p) => useLesson.setState({ localEngine: p as LessonState['localEngine'] }))
 bridge.invoke<LessonState['localEngine']>('engine-local:get').then((p) => p && useLesson.setState({ localEngine: p })).catch(() => undefined)
 
-onMessage('error', (p) => set({ error: { message: p.message, at: Date.now() }, notice: { text: p.message, tone: 'error', at: Date.now() } }))
+onMessage('error', (p) => {
+  set({ error: { message: p.message, at: Date.now() } })
+  notify(p.message, 'error', { id: 'engine-error' })
+})
 
 /**
  * Show one short line on the pill for ~5 s (the pill feature renders `notice`). For anything the learner must
  * see but that has no card: "Add an ElevenLabs key in Settings", a spotlight caption whose rect is off-screen.
  * Engine `error` events land here too (audit P1-2). Keep it under ~8 words.
  */
-export function notify(text: string, tone: Notice['tone'] = 'info'): void {
-  set({ notice: { text, tone, at: Date.now() } })
+export function notify(text: string, tone: Notice['tone'] = 'info', opts: { id?: string; ttlMs?: number } = {}): string {
+  // v2 (W0-5): also queued with an id. The same id replaces its earlier notice ("Reconnecting…" → "Back."), so a
+  // queue never shows two lines about one thing. `notice` stays the latest for the readers that only show one.
+  const id = opts.id ?? `n${++noticeSeq}`
+  const n: Notice = { text, tone, at: Date.now(), id, ...(opts.ttlMs ? { ttlMs: opts.ttlMs } : {}) }
+  set((s) => ({ notice: n, notices: [...s.notices.filter((x) => x.id !== id), n].slice(-MAX_NOTICES) }))
+  return id
+}
+
+let noticeSeq = 0
+const MAX_NOTICES = 5
+
+/** v2: drop one queued notice (its card or pill line was shown / dismissed). The latest `notice` goes with it if it's that one. */
+export function dismissNotice(id: string): void {
+  set((s) => {
+    const notices = s.notices.filter((x) => x.id !== id)
+    return { notices, notice: s.notice?.id === id ? notices[notices.length - 1] : s.notice }
+  })
+}
+
+/** v2: the oldest queued notice (show it, then dismissNotice(id)). */
+export function useNextNotice(): Notice | undefined {
+  return useLesson((s) => s.notices[0])
+}
+
+/**
+ * v2: may the app send this v2 command (core/../common/wire V2_COMMANDS)? Only when engine.hello listed it. Main
+ * enforces the same rule for Electron (main/engine.ts); this lets a feature hide a control that would do nothing.
+ */
+export function canSend(type: string): boolean {
+  return !!get().hello?.capabilities.includes(type)
+}
+export function useCapability(type: string): boolean {
+  return useLesson((s) => !!s.hello?.capabilities.includes(type))
 }
 
 // ---------------------------------------------------------------------------
@@ -342,6 +453,106 @@ export function builtByLabel(by: LessonInfo['builtBy'], mode?: LessonInfo['mode'
 
 export function useStatus(): Status {
   return useLesson((s) => (s.offtrack ? 'offtrack' : s.stepId && s.passed.includes(s.stepId) && !s.skipped.includes(s.stepId) ? 'passed' : 'watching'))
+}
+
+// ---------------------------------------------------------------------------
+// v2 derived hooks (W0-5): one reading of "where am I" for the panel, the Mini pill, cards and progress.
+// ---------------------------------------------------------------------------
+
+export type CurrentStep = {
+  id?: string
+  /** 0-based position in the lesson (the steps list, else the outline); -1 before the first step. */
+  index: number
+  /** Steps in the lesson: the outline's count when it's known (never jumps), else the steps so far. */
+  total: number
+  title: string
+  instructions: string
+  kind?: StepSummary['kind']
+  what?: string
+  code?: string
+  where?: string
+  then?: string
+  estMinutes?: number
+  /** 0-based positions already passed (green) and skipped (never green). */
+  passed: number[]
+  skipped: number[]
+  /** This step is passed (not skipped). */
+  done: boolean
+  /** The lesson's last step. */
+  last: boolean
+}
+
+export function useCurrentStep(): CurrentStep {
+  // Primitives only in the selector (arrays as keys), so the snapshot is stable between renders.
+  const v = useLesson(
+    useShallow((s) => {
+      const outline = s.lesson?.outline
+      const total = Math.max(s.steps.length, outline?.count ?? 0)
+      const index = s.stepId ? s.steps.findIndex((x) => x.id === s.stepId) : -1
+      const pos = (id: string): number => s.steps.findIndex((x) => x.id === id)
+      const st = s.step && s.step.stepId === s.stepId ? s.step : undefined
+      return {
+        id: s.stepId,
+        index,
+        total,
+        title: s.stepTitle,
+        instructions: s.instructions,
+        kind: st?.kind,
+        what: st?.what,
+        code: st?.code,
+        where: st?.where,
+        then: st?.then,
+        estMinutes: st?.estMinutes,
+        passedKey: s.passed
+          .filter((id) => !s.skipped.includes(id))
+          .map(pos)
+          .filter((i) => i >= 0)
+          .join(','),
+        skippedKey: s.skipped
+          .map(pos)
+          .filter((i) => i >= 0)
+          .join(','),
+        done: !!s.stepId && s.passed.includes(s.stepId) && !s.skipped.includes(s.stepId),
+        last: index >= 0 && total > 0 && index === total - 1 && s.complete
+      }
+    })
+  )
+  const { passedKey, skippedKey, ...rest } = v
+  const passed = useMemo(() => (passedKey ? passedKey.split(',').map(Number) : []), [passedKey])
+  const skipped = useMemo(() => (skippedKey ? skippedKey.split(',').map(Number) : []), [skippedKey])
+  return useMemo(() => ({ ...rest, passed, skipped }), [v, passed, skipped]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/**
+ * The lesson panel's view of the step (BUILD-PLAN A1 priority: passed > checking > notyet > hint > working; hint is
+ * the cards' business, so it isn't here). paused (lesson.paused / a blocker) and building come first; idle = no lesson.
+ */
+export type StepPhase = 'idle' | 'building' | 'paused' | 'passed' | 'checking' | 'notyet' | 'working'
+
+export function useStepPhase(): StepPhase {
+  const pressed = usePressed((p) => p.kind)
+  return useLesson((s) => {
+    if (!s.lesson && !s.building) return 'idle'
+    if (s.building && !s.stepId) return 'building'
+    if (s.paused || Object.keys(s.blockers).length) return 'paused'
+    if (s.stepId && s.passed.includes(s.stepId) && !s.skipped.includes(s.stepId)) return 'passed'
+    if (s.engineState === 'thinking' && pressed === 'check_step') return 'checking'
+    if (s.offtrack || s.checks.some((c) => c.status === 'fail')) return 'notyet'
+    return 'working'
+  })
+}
+
+/** The step after this one (from the steps, else the outline while the rest is still being written). */
+export function useUpNext(): { title: string; index: number; kind?: StepSummary['kind']; estMinutes?: number } | undefined {
+  return useLesson(
+    useShallow((s) => {
+      const at = s.stepId ? s.steps.findIndex((x) => x.id === s.stepId) : -1
+      const next = s.steps[at + 1]
+      if (next) return { title: next.title, index: at + 1, kind: next.kind, estMinutes: next.estMinutes }
+      const row = s.lesson?.outline?.steps.find((o) => o.index === (s.steps[at]?.index ?? at) + 1)
+      return row ? { title: row.title, index: at + 1, kind: row.kind, estMinutes: row.estMinutes } : undefined
+    })
+  )
 }
 
 /** Position comes from the steps array (robust to 0- or 1-based `index` from the engine). */
