@@ -1,0 +1,535 @@
+{
+  "name": "lesson-panel",
+  "on": {
+    "connect": "lp_connect",
+    "action:check_step@step_lp": "lp_check1",
+    "action:check_step@step_lp_notyet": "lp_check2",
+    "action:check_step@step_lp3": "lp_check3",
+    "action:hint@step_lp": "lp_hint",
+    "action:hint@step_lp_notyet": "lp_hint",
+    "action:explain@step_lp": "lp_explain",
+    "action:explain@step_lp_notyet": "lp_explain",
+    "stage.panel:checking": "lp_stage_checking",
+    "stage.panel:notyet": "lp_stage_notyet",
+    "stage.panel:hint": "lp_hint",
+    "stage.panel:passed": "lp_pass",
+    "action:hint@step_lp_hint1": "lp_hint2",
+    "action:check_step@step_lp_hint1": "lp_check2",
+    "action:explain@step_lp_hint1": "lp_explain",
+    "action:hint@step_lp_hint2": "lp_hint2",
+    "action:check_step@step_lp_hint2": "lp_check2",
+    "action:explain@step_lp_hint2": "lp_explain"
+  },
+  "segments": {
+    "lp_connect": [
+      {
+        "wait": 100,
+        "type": "status",
+        "payload": {
+          "state": "idle"
+        }
+      },
+      {
+        "wait": 200,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "lp-mnist",
+            "title": "Code your first neural network with TensorFlow",
+            "mode": "lesson",
+            "builtBy": "curated",
+            "sources": [
+              {
+                "id": "src-video",
+                "kind": "video",
+                "title": "Code your first neural network with TensorFlow",
+                "url": "https://www.youtube.com/watch?v=lpmnist0001",
+                "videoId": "lpmnist0001"
+              }
+            ],
+            "outline": {
+              "count": 6,
+              "steps": [
+                {
+                  "index": 0,
+                  "title": "Load the data",
+                  "kind": "code",
+                  "what": "Load MNIST and look at its shape."
+                },
+                {
+                  "index": 1,
+                  "title": "Normalize the pixels",
+                  "kind": "code",
+                  "what": "Scale both image sets to values between 0 and 1."
+                },
+                {
+                  "index": 2,
+                  "title": "Build the model",
+                  "kind": "code",
+                  "what": "Stack a Flatten layer and two Dense layers."
+                },
+                {
+                  "index": 3,
+                  "title": "Compile it",
+                  "kind": "code",
+                  "what": "Pick the optimizer, the loss and a metric."
+                },
+                {
+                  "index": 4,
+                  "title": "Train it",
+                  "kind": "run",
+                  "what": "Fit the model for five epochs."
+                },
+                {
+                  "index": 5,
+                  "title": "Check the accuracy",
+                  "kind": "code",
+                  "what": "Evaluate the model on the test set."
+                }
+              ]
+            }
+          },
+          "steps": [
+            {
+              "id": "lp-1",
+              "index": 0,
+              "title": "Load the data",
+              "kind": "code",
+              "what": "Load MNIST and look at its shape.",
+              "video": {
+                "videoId": "lpmnist0001",
+                "start": 0,
+                "end": 95
+              }
+            },
+            {
+              "id": "lp-2",
+              "index": 1,
+              "title": "Normalize the pixels",
+              "kind": "code",
+              "what": "Scale both image sets to values between 0 and 1.",
+              "video": {
+                "videoId": "lpmnist0001",
+                "start": 95,
+                "end": 180
+              }
+            },
+            {
+              "id": "lp-3",
+              "index": 2,
+              "title": "Build the model",
+              "kind": "code",
+              "what": "Stack a Flatten layer and two Dense layers.",
+              "video": {
+                "videoId": "lpmnist0001",
+                "start": 180,
+                "end": 300
+              }
+            },
+            {
+              "id": "lp-4",
+              "index": 3,
+              "title": "Compile it",
+              "kind": "code",
+              "what": "Pick the optimizer, the loss and a metric.",
+              "video": {
+                "videoId": "lpmnist0001",
+                "start": 300,
+                "end": 380
+              }
+            },
+            {
+              "id": "lp-5",
+              "index": 4,
+              "title": "Train it",
+              "kind": "run",
+              "what": "Fit the model for five epochs.",
+              "video": {
+                "videoId": "lpmnist0001",
+                "start": 380,
+                "end": 520
+              }
+            },
+            {
+              "id": "lp-6",
+              "index": 5,
+              "title": "Check the accuracy",
+              "kind": "code",
+              "what": "Evaluate the model on the test set.",
+              "video": {
+                "videoId": "lpmnist0001",
+                "start": 520,
+                "end": 600
+              }
+            }
+          ]
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.started",
+        "payload": {
+          "stepId": "lp-1",
+          "index": 0,
+          "title": "Load the data",
+          "instructions": "Load MNIST and look at its shape.",
+          "kind": "code"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "lp-1",
+          "nextStepId": "lp-2",
+          "already": true
+        }
+      },
+      {
+        "wait": 100,
+        "goto": "step_lp"
+      }
+    ],
+    "step_lp": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "lp-2",
+          "index": 1,
+          "title": "Normalize the pixels",
+          "instructions": "Scale both image sets to values between 0 and 1.",
+          "kind": "code",
+          "what": "Scale both image sets to values between 0 and 1.",
+          "video": {
+            "videoId": "lpmnist0001",
+            "start": 95,
+            "end": 180
+          },
+          "code": "x_train = x_train / 255.0\nx_test = x_test / 255.0",
+          "where": "Type this in the new cell",
+          "then": "Then run it with the arrow beside the cell."
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "step_lp_notyet": [],
+    "lp_check1": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking",
+          "detail": "Reading `x_train` and `x_test` in your kernel"
+        }
+      },
+      {
+        "wait": 1800,
+        "goto": "lp_stage_notyet"
+      }
+    ],
+    "lp_stage_checking": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking",
+          "detail": "Reading `x_train` and `x_test` in your kernel"
+        }
+      }
+    ],
+    "lp_stage_notyet": [
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "lp-2",
+          "checkId": "train",
+          "label": "x_train is scaled to 0..1",
+          "status": "fail",
+          "detail": "Max is still 255"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "lp-2",
+          "checkId": "test",
+          "label": "x_test is scaled to 0..1",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "card",
+        "payload": {
+          "stepId": "lp-2",
+          "kind": "step",
+          "source": "judge",
+          "verdict": "not_done",
+          "checkIds": [
+            "train"
+          ],
+          "title": "Not yet",
+          "body": "`x_train` still has values up to 255.\nOnly `x_test` was divided.",
+          "actions": [
+            "hint",
+            "show_me"
+          ],
+          "missingLines": [
+            {
+              "text": "x_train = x_train / 255.0",
+              "state": "missing"
+            },
+            {
+              "text": "x_test = x_test / 255.0",
+              "state": "ok"
+            }
+          ],
+          "fixCaption": "Add the first line, then run the cell"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "offtrack"
+        }
+      },
+      {
+        "wait": 0,
+        "goto": "step_lp_notyet"
+      }
+    ],
+    "lp_hint": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking",
+          "detail": "Writing a hint"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "lp-2",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "Pixels run from 0 to 255.\nDividing by `255.0` puts every value between 0 and 1.",
+          "hintStep": {
+            "n": 1,
+            "of": 2
+          }
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 0,
+        "goto": "step_lp_hint1"
+      }
+    ],
+    "lp_explain": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking",
+          "detail": "Writing an explanation"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "lp-2",
+          "kind": "explain",
+          "title": "Why divide by 255",
+          "body": "Pixels run from 0 to 255. Small inputs keep the training steady."
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "lp_check2": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking",
+          "detail": "Reading `x_train` and `x_test` in your kernel"
+        }
+      },
+      {
+        "wait": 1400,
+        "goto": "lp_pass"
+      }
+    ],
+    "lp_pass": [
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "lp-2",
+          "checkId": "train",
+          "label": "x_train is scaled to 0..1",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "lp-2",
+          "checkId": "test",
+          "label": "x_test is scaled to 0..1",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "lp-2",
+          "nextStepId": "lp-3",
+          "summary": "Both sets now top out at `1.0`"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "passed"
+        }
+      },
+      {
+        "wait": 300,
+        "goto": "step_lp3"
+      }
+    ],
+    "step_lp3": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "lp-3",
+          "index": 2,
+          "title": "Build the model",
+          "instructions": "Stack a Flatten layer and two Dense layers.",
+          "kind": "code",
+          "what": "Stack a Flatten layer and two Dense layers.",
+          "video": {
+            "videoId": "lpmnist0001",
+            "start": 180,
+            "end": 300
+          },
+          "code": "model = keras.Sequential([\n    keras.layers.Flatten(input_shape=(28, 28)),\n    keras.layers.Dense(128, activation=\"relu\"),\n    keras.layers.Dense(10)\n])",
+          "where": "Type this in a new cell",
+          "then": "Then run it with the arrow beside the cell."
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "lp_check3": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking",
+          "detail": "Reading `model` in your kernel"
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "lp-3",
+          "nextStepId": "lp-4",
+          "summary": "Your model has three layers."
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "passed"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "lp-4",
+          "index": 3,
+          "title": "Compile it",
+          "instructions": "Pick the optimizer, the loss and a metric.",
+          "kind": "code",
+          "code": "model.compile(optimizer=\"adam\", loss=\"sparse_categorical_crossentropy\", metrics=[\"accuracy\"])",
+          "where": "Type this in a new cell"
+        }
+      }
+    ],
+    "step_lp_hint1": [],
+    "step_lp_hint2": [],
+    "lp_hint2": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking",
+          "detail": "Writing the next hint"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "lp-2",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "Line 1 is the one to type first.\nThen the same for `x_test` on line 2.",
+          "hintStep": {
+            "n": 2,
+            "of": 2
+          }
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 0,
+        "goto": "step_lp_hint2"
+      }
+    ]
+  }
+}
