@@ -3,7 +3,21 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { BOOT_QUIET_MS, decidePlay, DEFER_MS, panelVisible, resumesAfterPass, showsPlayGlyph, startDeferred, stepStartPlays, type PlayCause } from './policy'
+import {
+  BOOT_QUIET_MS,
+  decidePlay,
+  DEFER_MS,
+  engineIntentPlays,
+  GATE_ZONE_S,
+  lessonReadyResets,
+  panelVisible,
+  replayKeepsVideo,
+  resumesAfterPass,
+  showsPlayGlyph,
+  startDeferred,
+  stepStartPlays,
+  type PlayCause
+} from './policy'
 
 const causes: PlayCause[] = ['learner', 'step', 'resume', 'setup', 'engine', 'jump']
 
@@ -25,7 +39,7 @@ describe('decidePlay', () => {
   it('never plays unseen: a live step defers, everything else is refused', () => {
     for (const cause of causes) assert.equal(decidePlay({ visible: false, cause }), cause === 'step' ? 'defer' : 'refuse', cause)
   })
-  it('a play intent from another window or the engine does not start a hidden player', () => {
+  it('a card jump (in this window or relayed from another) or an engine intent does not start a hidden player', () => {
     assert.equal(decidePlay({ visible: false, cause: 'jump' }), 'refuse')
     assert.equal(decidePlay({ visible: false, cause: 'engine' }), 'refuse')
   })
@@ -53,6 +67,46 @@ describe('stepStartPlays', () => {
   })
   it('a waiting setup card holds it', () => {
     assert.equal(stepStartPlays({ ...live, setupHold: true }), false)
+  })
+})
+
+describe('engineIntentPlays', () => {
+  const live = { sinceBootMs: BOOT_QUIET_MS + 10_000, restoring: false }
+  it('a live engine video.play or video.seek {play} may play', () => {
+    assert.equal(engineIntentPlays(live), true)
+  })
+  it('the engine log a recovered window gets as it loads keeps its seeks but not their play', () => {
+    assert.equal(engineIntentPlays({ ...live, sinceBootMs: 50 }), false)
+    assert.equal(engineIntentPlays({ ...live, sinceBootMs: BOOT_QUIET_MS - 1 }), false)
+    assert.equal(engineIntentPlays({ ...live, sinceBootMs: BOOT_QUIET_MS }), true)
+  })
+  it('an engine restore does not play a stale intent', () => {
+    assert.equal(engineIntentPlays({ ...live, restoring: true }), false)
+  })
+})
+
+describe('replay of the same lesson keeps position and playback', () => {
+  // Engine reconnect while step 4 plays at 3:20 (its clip 3:00 to 4:00): lesson.ready {replay}, then step.started {replay}.
+  const step4 = { start: 180, end: 240 }
+  it('lesson.ready {replay} of the lesson already held neither stops nor cues the first clip', () => {
+    assert.equal(lessonReadyResets({ replay: true, sameLesson: true }), false)
+  })
+  it('a new lesson, or a first load of this one, still stops the last video and cues', () => {
+    assert.equal(lessonReadyResets({ replay: false, sameLesson: true }), true)
+    assert.equal(lessonReadyResets({ replay: undefined, sameLesson: false }), true)
+    assert.equal(lessonReadyResets({ replay: true, sameLesson: false }), true)
+  })
+  it('the step.started {replay} after it leaves step 4 at 3:20 as it is, playing', () => {
+    assert.equal(stepStartPlays({ replay: true, restoring: true, sinceBootMs: BOOT_QUIET_MS + 10_000, setupHold: false }), false)
+    assert.equal(replayKeepsVideo({ sameVideo: true, t: 200, ...step4 }), true)
+    // and the resume after a pass still follows the learner's state (nothing set it to 'start')
+    assert.equal(resumesAfterPass({ playing: false, pausedBy: 'gate', setupHold: false }), true)
+  })
+  it('held at the step end (gate zone) stays too; outside the clip, or another video, it cues', () => {
+    assert.equal(replayKeepsVideo({ sameVideo: true, t: step4.end + GATE_ZONE_S - 0.1, ...step4 }), true)
+    assert.equal(replayKeepsVideo({ sameVideo: true, t: step4.end + GATE_ZONE_S, ...step4 }), false)
+    assert.equal(replayKeepsVideo({ sameVideo: true, t: 30, ...step4 }), false)
+    assert.equal(replayKeepsVideo({ sameVideo: false, t: 200, ...step4 }), false)
   })
 })
 

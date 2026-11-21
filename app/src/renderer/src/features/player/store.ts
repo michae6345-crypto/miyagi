@@ -19,7 +19,9 @@
  *
  * Never unseen (policy.ts, Michael Nov 21): every play goes through admit(), which refuses it while the panel isn't on
  * screen (main's player:visible in Electron; the page's visibility on the stage). Hiding pauses. A replayed step cues its
- * clip without playing. One YouTube player at a time (attachPlayer tears down the one before).
+ * clip without playing. A replay of the lesson already held neither stops nor rewinds it. An engine play intent in a window's
+ * boot replay or an engine restore keeps its seek, not its play. One YouTube player at a time (attachPlayer tears down
+ * the one before).
  */
 import { create } from 'zustand'
 import type { VideoSegment } from '../../../../../../shared/contracts/events'
@@ -28,7 +30,7 @@ import { bridge, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { useCards } from '../cards/store'
-import { decidePlay, panelVisible, resumesAfterPass, startDeferred, stepStartPlays, type PausedBy, type PlayCause } from './policy'
+import { decidePlay, engineIntentPlays, GATE_ZONE_S, lessonReadyResets, panelVisible, replayKeepsVideo, resumesAfterPass, startDeferred, stepStartPlays, type PausedBy, type PlayCause } from './policy'
 import { describeYTError, isYouTubeId, loadYouTube, resolveVideoId, YTState, type YTPlayer } from './youtube'
 
 export type { PausedBy } from './policy'
@@ -102,7 +104,7 @@ export const RESUME_DELAY_MS = 400
 /** Stop this close to the end: YouTube's time updates are ~250ms coarse. */
 const GATE_EPS = 0.15
 /** Playing inside [end, end + 3s) while the step is still open stops again (so ▶ at the gate can't sneak past). */
-const GATE_ZONE = 3
+const GATE_ZONE = GATE_ZONE_S
 const TICK_MS = 100
 const REPORT_MS = 1000
 const AUTOPLAY_GRACE_MS = 1500
@@ -137,6 +139,11 @@ const restoring = (): boolean => performance.now() < restoringUntil
  * that loads (index.ts ui:ready). The browser stage's mock starts a lesson right away, live.
  */
 const sinceBoot = (): number => (isElectron ? performance.now() : Number.POSITIVE_INFINITY)
+/**
+ * The lesson the player last cued (lesson.ready's id), so a lesson.ready {replay} of the same lesson leaves the video
+ * alone (policy.ts rule 5). Kept across a reconnect's reset (that lesson may come back); cleared by a real end.
+ */
+let heldLesson: string | undefined
 
 // ---------------------------------------------------------------------------
 // Lesson helpers
@@ -520,12 +527,13 @@ export const player = {
   /**
    * Seek and play/pause. `by` says who paused it when play is false.
    * `fromEngine`: video.seek or a card's video jump (may take the video past the gate on purpose).
+   * `cause`: who asked for the play ('jump' for a card's video jump; default 'engine' when fromEngine, else 'learner').
    */
-  seek(t: number, play: boolean, by: PausedBy = 'user', fromEngine = false): void {
+  seek(t: number, play: boolean, by: PausedBy = 'user', fromEngine = false, cause?: PlayCause): void {
     clearTimeout(resumeTimer)
     setExcursion(t, fromEngine)
     setUi({ resuming: false, pausedBy: play ? undefined : by })
-    go(undefined, t, play, fromEngine ? 'engine' : 'learner')
+    go(undefined, t, play, cause ?? (fromEngine ? 'engine' : 'learner'))
   },
   /** Returns false when the open step's gate holds the video, or the panel isn't on screen. */
   play(cause: PlayCause = 'learner'): boolean {
@@ -603,8 +611,14 @@ export const player = {
 // ---------------------------------------------------------------------------
 
 onMessage('lesson.ready', (p) => {
-  clearTimeout(resumeTimer)
   if (p.replay === true) restoringUntil = performance.now() + RESTORE_WINDOW_MS
+  // A replay of the lesson this player holds (a reconnect, an engine restore): no stop, no rewind to the first clip. The
+  // step.started {replay} after it decides (it leaves a video inside its step's clip as it is). core/lesson's gate
+  // usually drops such a lesson.ready before it gets here; this covers the reconnect whose snapshot came after the hold.
+  const sameLesson = !!heldLesson && heldLesson === p.lesson.id
+  heldLesson = p.lesson.id
+  if (!lessonReadyResets({ replay: p.replay, sameLesson })) return
+  clearTimeout(resumeTimer)
   // A new lesson stops the last one's video first: a "Just teach me" lesson has no clip to cue, and its window hides.
   deferred = undefined
   want = { ...want, play: false }
@@ -627,8 +641,10 @@ onMessage('card', (p) => {
 onMessage('engine.hello', (p) => {
   restoringUntil = p.restored === true ? performance.now() + RESTORE_WINDOW_MS : 0
 })
-onMessage('lesson.ended', () => {
+onMessage('lesson.ended', (p) => {
   restoringUntil = 0
+  // An engine deploy ("interrupted") comes back with the same lesson; any other end is final.
+  if ((p.reason as string | undefined) !== 'interrupted') heldLesson = undefined
 })
 
 onMessage('step.started', (p) => {
@@ -648,7 +664,7 @@ onMessage('step.started', (p) => {
   const sameVideo = resolveVideoId(seg.videoId) === want.videoId
   const start = clipStart(seg)
   // A replay of the step on screen (inside its clip, or held at its end): leave the video exactly as it is.
-  if (replayed && sameVideo && t >= start - 1 && t < seg.end + GATE_ZONE) return
+  if (replayed && replayKeepsVideo({ sameVideo, t, start, end: seg.end })) return
   // Already inside this clip (the previous step resumed straight into it): keep going, no jump.
   if (!replayed && sameVideo && t >= start - 1 && t < seg.end - GATE_EPS) {
     want = { ...want, videoId: resolveVideoId(seg.videoId) }
@@ -681,9 +697,18 @@ useLesson.subscribe((s, prev) => {
   const v = s.video
   // video.pause while a setup card waits: still the setup hold (no "Waiting for your checks"; it starts after setup).
   // Seek and pause always; play only while the panel is on screen (admit() keeps it paused as 'hidden' otherwise).
-  if (v.kind === 'pause') player.pause(setupHold ? 'setup' : 'engine')
-  else if (v.kind === 'play') player.play('engine')
-  else player.seek(v.t, v.playing, v.kind === 'seek' ? 'engine' : 'user', true)
+  if (v.kind === 'pause') return player.pause(setupHold ? 'setup' : 'engine')
+  // An engine intent in this window's boot replay (main replays the engine log into a window that loads) or an engine
+  // restore is stale: keep its position, drop its play (the learner presses play). A card's jump is a live click.
+  const plays = v.kind === 'jump' || engineIntentPlays({ sinceBootMs: sinceBoot(), restoring: restoring() })
+  if (v.kind === 'play') {
+    if (plays) player.play('engine')
+    else if (!usePlayer.getState().playing) setUi({ pausedBy: 'start' })
+    return
+  }
+  const play = v.playing && plays
+  const by: PausedBy = v.playing && !play ? 'start' : v.kind === 'seek' ? 'engine' : 'user'
+  player.seek(v.t, play, by, true, v.kind === 'jump' ? 'jump' : 'engine')
 })
 
 // The lesson is gone (End, an interrupted lesson that never came back, an engine restart with no lesson): the player
@@ -694,14 +719,18 @@ if (isElectron && isHost)
     if (prev.lesson && !s.lesson) bridge.invoke('player:hide').catch(() => undefined)
   })
 
-onUi('reset', () => {
+onUi('reset', (payload) => {
   clearTimeout(resumeTimer)
   clearTimeout(autoplayTimer)
   deferred = undefined
+  // A reconnect (or an engine deploy) may bring the same lesson back: keep knowing it (policy.ts rule 5).
+  const reason = (payload as { reason?: string } | undefined)?.reason
+  if (reason !== 'reconnect' && reason !== 'interrupted') heldLesson = undefined
   excursion = false
   setupHold = false
   skippedIntro = undefined
-  want = { ...want, play: false }
+  // Keep where it was (not the last cue): if a reconnect's reset remounts the panel, it comes back at this position.
+  want = { ...want, t: now(), play: false }
   if (yt && ready) yt.pauseVideo()
   setUi({ ...blank, ready: usePlayer.getState().ready })
 })

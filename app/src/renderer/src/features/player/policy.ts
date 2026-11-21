@@ -9,10 +9,13 @@
  *   3. A live step that starts a moment before its window is shown (lesson.ready reveals the window while step.started
  *      is already on the wire) plays once the window shows, if that happens within DEFER_MS. Later, the learner presses
  *      play.
- *   4. Seek and pause intents are always followed (also unseen); play intents only while seen.
+ *   4. Seek and pause intents are always followed (also unseen); play intents only while seen. An engine play intent
+ *      (video.play, video.seek {play}) in a window's boot replay or an engine restore keeps its position but not its play.
+ *   5. A replay of the lesson the player already holds (lesson.ready {replay}, same id) neither stops nor rewinds it:
+ *      the step.started {replay} after it leaves a video inside its clip exactly as it is.
  */
 
-/** Who asked for playback. */
+/** Who asked for playback. 'jump' = core seekVideo (a card's video link), in this window or relayed from another. */
 export type PlayCause = 'learner' | 'step' | 'resume' | 'setup' | 'engine' | 'jump'
 
 /**
@@ -26,6 +29,8 @@ export type PausedBy = 'gate' | 'engine' | 'user' | 'ended' | 'setup' | 'hidden'
 export const DEFER_MS = 2500
 /** Engine messages a window gets this soon after it loads are the engine log's replay, not live steps. */
 export const BOOT_QUIET_MS = 3000
+/** Playing inside [end, end + GATE_ZONE_S) of the open step still counts as at its gate. */
+export const GATE_ZONE_S = 3
 
 /** Is the player panel on screen? Electron: main's word about the player window. Browser stage: the page. */
 export function panelVisible(o: { electron: boolean; windowShown: boolean; pageVisible: boolean }): boolean {
@@ -41,6 +46,32 @@ export function stepStartPlays(o: { replay?: boolean; restoring: boolean; sinceB
   if (o.setupHold) return false
   if (o.replay || o.restoring) return false
   return o.sinceBootMs >= BOOT_QUIET_MS
+}
+
+/**
+ * May an engine video intent (video.play, or video.seek with play) start playback? Not while a window replays the engine
+ * log it gets as it loads (the first BOOT_QUIET_MS: every video.seek and video.play since lesson.ready), and not during an
+ * engine restore: both are stale intents nobody gave just now. Their seek position is still followed (rule 4, 5).
+ */
+export function engineIntentPlays(o: { sinceBootMs: number; restoring: boolean }): boolean {
+  return !o.restoring && o.sinceBootMs >= BOOT_QUIET_MS
+}
+
+/**
+ * lesson.ready: stop the last video and cue the new lesson's first clip? Not for a replay of the lesson the player already
+ * holds (an engine reconnect or restore sends lesson.ready {replay} before step.started {replay}): stopping there would
+ * pause the learner's video and rewind it to the first clip, and the step replay could not put it back (rule 5).
+ */
+export function lessonReadyResets(o: { replay?: boolean; sameLesson: boolean }): boolean {
+  return !(o.replay === true && o.sameLesson)
+}
+
+/**
+ * A replayed step.started: is the video already where this step wants it (same video, inside the step's clip or held
+ * just past its end)? Then it stays exactly as it is, playing or paused. Otherwise the step's clip is cued.
+ */
+export function replayKeepsVideo(o: { sameVideo: boolean; t: number; start: number; end: number }): boolean {
+  return o.sameVideo && o.t >= o.start - 1 && o.t < o.end + GATE_ZONE_S
 }
 
 /**

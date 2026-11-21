@@ -1,6 +1,6 @@
 # video-quiet
 
-**Status:** built, typechecked, unit-tested (policy.test.ts, 19 pass). **Not run** in Electron or the stage: offline-only lane, no video playback allowed. **Branch:** `michael/app-video-quiet` (from `michael/v2-integration` 5f04f998).
+**Status:** built, typechecked, unit-tested (policy.test.ts, 26 pass; fix round 1 done). **Not run** in Electron or the stage: offline-only lane, no video playback allowed. **Branch:** `michael/app-video-quiet` (from `michael/v2-integration` 5f04f998).
 
 Michael, Nov 21: "Videos play in the background, with audio, when the video is not even open."
 
@@ -26,10 +26,16 @@ The player had no idea whether it was on screen, and every step start rolled the
 - **`src/main/features/player.ts`** (the player feature's own main file): broadcasts `feat:player:visible` on show, hide, minimize and restore, and again a beat after a reveal. It also answers `player:visible`.
 - **`Player.tsx`:** `hidden` and `start` show the plain play glyph (`showsPlayGlyph`). No new copy.
 
+## Fix round 1 (reviewer)
+
+1. **Reconnect rewinds the playing video.** Mostly already blocked: core's gate (`src/renderer/src/core/lesson.ts:188-203`) drops a `lesson.ready` with the same id as the lesson on screen before any feature handler runs, so `features/player/store.ts` never sees the reconnect's `lesson.ready {replay}` and the `step.started {replay}` leaves the video as it is. It leaks when core's reconnect hold (2 s) expires before the snapshot: core resets, the lesson goes blank, and the replay passes as a new lesson. Then the old handler paused and cued the first clip. Fixed in the player anyway: `store.ts:613` remembers the lesson it holds (`heldLesson`, kept across a `reconnect` / `interrupted` reset, cleared by a real end). A `lesson.ready {replay}` of that lesson skips the pause, the `want.play` reset and the first-clip cue (`policy.lessonReadyResets`). The step replay then decides (`policy.replayKeepsVideo`, `store.ts:667`). The reset handler now keeps the current position (`want.t = now()`), so a panel remounted after the reset comes back where it was. Test: "replay of the same lesson keeps position and playback".
+2. **Stale engine intents in a reloaded window.** `store.ts:703`: inside the boot-quiet window (`BOOT_QUIET_MS`) or while `restoring()`, `video.seek` keeps its position but drops its play, and `video.play` is dropped. Either way the video shows the play glyph (`pausedBy: 'start'`). The rule is `policy.engineIntentPlays({sinceBootMs, restoring})`, with tests. A card's `jump` is a live click and is not affected.
+3. **`'jump'` cause.** It is now produced: `player.seek(..., fromEngine, cause)` (`store.ts:536`) passes `'jump'` for a `jump` intent, so the `decidePlay` tests for `'jump'` cover a real path.
+
 ## Checks
 
 - `npm run typecheck`: pass.
-- `npx tsx --test src/renderer/src/features/player/policy.test.ts`: 19 pass, 0 fail. The repo has no vitest; `node:test` runs offline through tsx.
+- `npx tsx --test src/renderer/src/features/player/policy.test.ts`: 26 pass, 0 fail. The repo has no vitest; `node:test` runs offline through tsx.
 - Brand lint on the changed lines: no hex, no em dashes, no banned words, no `dangerouslySetInnerHTML`, no new copy.
 
 ## Core request (optional, not needed for the fix)
