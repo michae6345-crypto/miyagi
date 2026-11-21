@@ -37,7 +37,19 @@ export type MockEngine = {
   stop(): void
 }
 
-export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void, log = false): MockEngine {
+/** main/engine.ts LinkInfo: what a `_link` item fakes (the browser stage's feat:engine-link). */
+export type MockLink = { open: boolean; attempting: boolean; failures: number }
+
+/**
+ * v2 (W0-5):
+ *   - `{ "type": "_link", "payload": { "open": false, "attempting": true, "failures": 2 } }` fakes main's engine link
+ *     (reconnecting "2 of 5", offline) through `onLink`; it never reaches the app as an engine event. Where nothing
+ *     listens (replay.ts, DEMO=1) it's dropped.
+ *   - Every other type passes through as-is, the v2 events included (engine.hello, health, blocker, library, ...).
+ *   - v2 commands trigger like any other: "health.get", "progress.get", "panel.state"; library.get / library.start try
+ *     "<type>:<id>" first ("library.start:nn_intro"), then "<type>".
+ */
+export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void, log = false, onLink?: (l: MockLink) => void): MockEngine {
   let timers: ReturnType<typeof setTimeout>[] = []
   /** Last "stepN" segment played, so triggers like "action:diagram@step6" can depend on it. */
   let current = ''
@@ -64,7 +76,10 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
       timers.push(
         setTimeout(() => {
           if (goto) play(goto)
-          else if (type) {
+          else if (type === '_link') {
+            const l = (payload ?? {}) as Partial<MockLink>
+            onLink?.({ open: !!l.open, attempting: !!l.attempting, failures: Number(l.failures) || 0 })
+          } else if (type) {
             if (log) console.log(`[mock]   → ${type}`)
             emit({ type, payload: payload ?? {} } as Incoming)
           }
@@ -106,6 +121,7 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
         return
       }
       if (cmd.type === 'action') trigger(`action:${cmd.payload.kind}`)
+      else if ((cmd.type === 'library.get' || cmd.type === 'library.start') && scenario.on[`${cmd.type}:${cmd.payload.id}`]) trigger(`${cmd.type}:${cmd.payload.id}`)
       // learn {mode}: a scenario can answer "Just teach me" / "Demo" apart from a video search ("learn:lesson", "learn:demo").
       else if (cmd.type === 'learn' && cmd.payload.mode && scenario.on[`learn:${cmd.payload.mode}`]) trigger(`learn:${cmd.payload.mode}`)
       else trigger(cmd.type)
