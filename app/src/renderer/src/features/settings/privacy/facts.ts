@@ -88,6 +88,19 @@ export const FACTS: readonly Fact[] = [
 /** The keys line when this Mac has no secure storage (settings.ts keeps them in memory for this run). */
 export const KEYS_NO_KEYCHAIN = 'Kept in memory for this run, sent only to their provider.'
 
+/**
+ * The Windows build shows these lines about its own machine: "this computer", never "this Mac" or the Keychain
+ * (keys there are encrypted with Windows' data protection). The lines above stay as written, word for word with
+ * web/privacy.md; this only changes what a Windows screen shows.
+ */
+export function onThisComputer(text: string, mac: boolean): string {
+  if (mac) return text
+  return text
+    .replace(/Locked by your Keychain/g, 'Kept encrypted on this computer')
+    .replace(/this Mac/g, 'this computer')
+    .replace(/your Mac/g, 'your computer')
+}
+
 /** AI calls: how they travel. Shown under the panel and in the policy. */
 export const ROUTE = 'AI calls go through miyagi’s server, or direct with your key.'
 
