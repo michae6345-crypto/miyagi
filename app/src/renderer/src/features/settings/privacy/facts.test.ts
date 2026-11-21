@@ -50,3 +50,19 @@ test('web/privacy.md: a DRAFT, and it says the same lines as the app', () => {
   for (const s of ['13', 'Anthropic', 'Gemini', 'Supabase', 'miyagi-cloud', 'Contact']) assert.ok(policy.includes(s), s)
   assert.ok(!policy.includes(EM_DASH), 'no em dash in the policy')
 })
+
+test('web/privacy.md: one table row per panel row, label and line together', () => {
+  for (const f of FACTS) assert.ok(policy.includes(`| ${f.label} | ${f.line} |`), `policy table is missing the ${f.id} row`)
+})
+
+test('the account link and telemetry say what the code does (cloudLink.ts, telemetry.ts)', () => {
+  const ids = FACTS.map((f) => f.id)
+  for (const id of ['link', 'cloud']) assert.ok(ids.includes(id as never), id)
+  // cloudLink.ts: POST /v1/link keeps the Supabase user id with the install; sign-out never unlinks.
+  assert.match(policy, /keeps your account ID/)
+  assert.match(policy, /Signing out does not unlink it/)
+  // telemetry.ts: off by default, a crash is only {kind, app_version}, never its text.
+  assert.match(FACTS.find((f) => f.id === 'crash')?.line ?? '', /never its text/)
+  assert.match(policy, /Off for everyone unless you turn on "Share crash reports and usage"/)
+  assert.match(policy, /The error text stays on this Mac/)
+})

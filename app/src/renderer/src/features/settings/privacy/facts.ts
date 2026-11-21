@@ -4,11 +4,14 @@
  * what the code does today. Read before changing a line:
  *
  *   screen    engine server/screen/reader.py + privacy.py (OCR text: emails / card / phone numbers scrubbed, text from
- *             password apps and Messages dropped). Screenshots during an active lesson step: server/orchestrator/
- *             scene_watch.py (the step check) blacks out private apps' windows; the pointing path (screen_bridge →
- *             target.pick_on_screen → reader.latest_frame → render_marks) blacks out only miyagi's overlay and other
- *             folders' VS Code windows, so a password app over the editor is sent. Hence the line claims only the text.
- *   code      server/coach/* (the step's code from the editor buffer or the file), Anthropic only
+ *             password apps and Messages dropped, key- and token-shaped text replaced by server/redact.py). Screenshots
+ *             during an active lesson step: server/orchestrator/scene_watch.py (the step check) blacks out private
+ *             apps' windows; every screenshot sent blacks out the rows whose text held a key (target.py, coach/screen.py,
+ *             describe.py). The pointing path (screen_bridge → target.pick_on_screen → reader.latest_frame →
+ *             render_marks) and the help screenshots (coach/screen.py) do NOT black out private apps, so a password app
+ *             over the editor is sent. Hence the line claims only the text.
+ *   code      server/coach/* (the step's code from the editor buffer or the file, keys replaced by server/redact.py),
+ *             Anthropic only. lesson/workdir.py scan (adapt_checks) is sent as is: the policy says so.
  *   editor    server/orchestrator/editor_text.py (the VS Code companion's live buffer, read over localhost)
  *   searches  server/finder/* (YouTube, DuckDuckGo, GitHub, arXiv; Bright Data only with its key; Claude ranks)
  *   videos    server/lesson/gemini.py watch_video (builder.py, progressive.py): the YouTube link, the learner's goal
@@ -17,20 +20,42 @@
  *             workdir summary with the learner's own Gemini key, but builder.py calls claude.adapt_checks today (so
  *             those go to Anthropic): if Gemini adapts again, say so here and in the policy.
  *   account   main/features/auth.ts (Google through Supabase; the session in userData/auth.bin, safeStorage)
+ *   link      main/features/cloudLink.ts: after sign-in, POST <miyagi-cloud>/v1/link with the install token and the
+ *             Supabase access token; the cloud (cloud/app.py on claude/eng-proxy, store.py links table) keeps the
+ *             install's token hash with the Supabase user id. Sign-out never unlinks. Local note: userData/cloud-link.json
+ *             (user id, no token), removed by Delete my data; the cloud's row stays (no cloud delete yet).
+ *   cloud     cloud/app.py + store.py (claude/eng-proxy): passes AI calls on and keeps per-install daily counts
+ *             (requests, tokens, cost by model and role, lesson builds by month); never the request or answer bodies
  *   keys      main/features/settings.ts (userData/keys.bin, safeStorage; memory only without secure storage)
  *   progress  server/sessions/store.py, checks/tiger.py (local SQLite under ~/miyagi/state), lesson folders in
  *             ~/miyagi/lessons (server/workspace/core.py)
- *   crash     main/features/telemetry.ts + telemetry/core.ts scrubCrash, only with prefs.shareTelemetry on
- *   usage     the same switch: telemetry/core.ts EVENT_NAMES (counts, never code, files or screen text)
+ *   crash     main/features/telemetry.ts + telemetry/core.ts crashEvent: only {kind, app_version}, the error text stays
+ *             here; only with prefs.shareTelemetry on (off by default) and the login gate open
+ *   usage     the same switch: telemetry/core.ts EVENT_NAMES / EVENT_PROPS (app_installed, onboarding_done and lesson
+ *             and step counts, numbers and enums only; no cost, never code, files or screen text). The cloud
+ *             (POST /v1/events) keeps them as daily counts per install.
  *
  * AI calls go through miyagi-cloud (main/features/cloud.ts, the hosted proxy) unless the learner added their own key,
- * which goes straight to its provider (server/config.py). NOT done, so never claimed: cropping to the work area
- * (5.1), secret redaction of keys and tokens in screen text (5.2), a "see what was sent" log.
+ * which goes straight to its provider (server/config.py). NOT done, so never claimed in the panel: cropping to the work
+ * area (5.1), a "see what was sent" log. Key and token redaction (5.2, server/redact.py on integration/live) matches by
+ * shape and can miss some, so the panel never promises it; the policy describes it with that caveat.
  *
  * Copy rules: one calm line each, 12 words at most, lowercase "miyagi", no em dashes.
  */
 
-export type FactId = 'screen' | 'code' | 'editor' | 'searches' | 'videos' | 'account' | 'keys' | 'progress' | 'crash' | 'usage'
+export type FactId =
+  | 'screen'
+  | 'code'
+  | 'editor'
+  | 'searches'
+  | 'videos'
+  | 'account'
+  | 'link'
+  | 'cloud'
+  | 'keys'
+  | 'progress'
+  | 'crash'
+  | 'usage'
 
 export type Fact = {
   id: FactId
@@ -52,10 +77,12 @@ export const FACTS: readonly Fact[] = [
   { id: 'searches', label: 'Your searches', line: 'What you ask to learn goes to search sites and the AI.', where: 'To search sites', leaves: true },
   { id: 'videos', label: 'Lesson videos', line: 'The video link and what you want to learn, to Google Gemini.', where: 'To Google', leaves: true },
   { id: 'account', label: 'Your sign-in', line: 'Google sign-in through Supabase. The session stays encrypted here.', where: 'To Supabase', leaves: true },
+  { id: 'link', label: 'Account link', line: 'When you sign in, miyagi’s server ties this Mac to your account.', where: 'To miyagi', leaves: true },
+  { id: 'cloud', label: 'miyagi’s server', line: 'Passes AI calls on. Keeps counts and cost, never your work.', where: 'To miyagi', leaves: true },
   { id: 'keys', label: 'Your API keys', line: 'Locked by your Keychain, sent only to their provider.', where: STAYS, leaves: false },
   { id: 'progress', label: 'Lesson progress', line: 'Lesson folders and progress, kept in ~/miyagi on this Mac.', where: STAYS, leaves: false },
-  { id: 'crash', label: 'Crash reports', line: 'Scrubbed error lines. Sent only when sharing is on.', where: 'To miyagi, if on', leaves: true },
-  { id: 'usage', label: 'Usage counts', line: 'Lesson counts and cost. Never your code or screen.', where: 'To miyagi, if on', leaves: true }
+  { id: 'crash', label: 'Crash reports', line: 'Only the kind of error, never its text. Off unless you share.', where: 'To miyagi, if on', leaves: true },
+  { id: 'usage', label: 'Usage counts', line: 'Lesson and step counts. Never your code or screen.', where: 'To miyagi, if on', leaves: true }
 ]
 
 /** The keys line when this Mac has no secure storage (settings.ts keeps them in memory for this run). */

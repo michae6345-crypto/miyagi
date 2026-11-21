@@ -3,7 +3,7 @@
  * line and, on the right, "On this Mac" or where it goes. Read only: the switches live in Privacy.tsx. Neutral chrome,
  * no hue on any row (leaving the Mac is not a warning, it is just said plainly).
  */
-import { Bug, ChartColumn, CodeXml, Folder, KeyRound, Monitor, Search, SquareCode, UserRound, Video, type LucideIcon } from 'lucide-react'
+import { Bug, ChartColumn, CodeXml, Folder, KeyRound, Link, Monitor, Search, Server, SquareCode, UserRound, Video, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Group, Note, Plain, Row } from '../ui'
 import { FACTS, KEYS_NO_KEYCHAIN, ROUTE, type FactId } from './facts'
@@ -15,6 +15,8 @@ const ICON: Record<FactId, LucideIcon> = {
   searches: Search,
   videos: Video,
   account: UserRound,
+  link: Link,
+  cloud: Server,
   keys: KeyRound,
   progress: Folder,
   crash: Bug,

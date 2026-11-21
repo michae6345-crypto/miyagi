@@ -1,13 +1,13 @@
 # DRAFT: miyagi privacy policy
 
 > **DRAFT for Michael and Adrian to review. Not published, not linked from the site. Not legal advice.**
-> Suggested edits from Adrian's legal pass (#201, stacked on #199), checked against the engine on
-> `origin/integration/live`, the app on `origin/michael/v2-integration` and #199, and miyagi-cloud on
-> `origin/claude/eng-proxy-auth` and `eng-proxy-cache`. Why each change: `research/launch/privacy-review.md` on
-> `adrian/launch-risk` (#204).
+> Adrian's legal pass (#201, stacked on #199) folded in, then re-checked against the engine on
+> `origin/integration/live` (742ab87a: key and token redaction landed), the app on `origin/michael/v2-integration`
+> (telemetry and the account link merged) and miyagi-cloud on `origin/claude/eng-proxy` (6a84ecae: `/v1/link`,
+> `/v1/events`; not deployed yet). Why each change: `research/launch/privacy-review.md` on `adrian/launch-risk` (#204).
 > Every quoted line in the first table is the same line the app shows in Settings › Privacy › What miyagi sees
 > (`app/src/renderer/src/features/settings/privacy/facts.ts`); a test keeps the two the same. Two "Where it goes"
-> cells (editor, searches) are reworded on purpose; the matching panel change is suggested in the review.
+> cells (editor, searches) say more here than the panel's short label on purpose; they say the same thing.
 > **[TBD]** needs a decision or a fact we don't have yet. **[DECIDE]** is a founder decision from the risk register.
 > **[CHECK]** must be re-checked against the release build before publishing. Publish nothing with any of the three left.
 
@@ -34,7 +34,9 @@ engine, so it takes no screenshots and reads no code; say so, or drop the Window
 - Videos play in YouTube's own player, so YouTube sees what you watch.
 - These AI calls go through miyagi-cloud, our server, which keeps counts (requests, cost) but not your screenshots,
   code or answers. If you add your own API key, calls go straight to that provider.
-- Sign-in is optional, through Google and Supabase.
+- Sign-in is optional, through Google and Supabase. If you sign in, miyagi-cloud links this Mac's install to your
+  account ID.
+- Crash reports and usage counts are off unless you turn them on. A crash report says only what kind of error it was.
 - We don't sell your data, we don't use it for ads, and we don't train AI on it.
 
 ## What miyagi sees, why, and where it goes
@@ -46,13 +48,15 @@ miyagi needs to see your work to help with it. Here is everything it reads, said
 | Your screen | During a lesson, screenshots and screen text. Text from password apps dropped. | Anthropic |
 | Your code | The step’s code, when miyagi checks your work or helps. | Anthropic |
 | Your editor | miyagi reads VS Code here to follow your step. | Read on this Mac, then sent as your code |
-| Your searches | What you ask to learn goes to search sites and the AI. | YouTube and Anthropic |
+| Your searches | What you ask to learn goes to search sites and the AI. | Search sites (YouTube first) and Anthropic |
 | Lesson videos | The video link and what you want to learn, to Google Gemini. | Google |
 | Your sign-in | Google sign-in through Supabase. The session stays encrypted here. | Supabase |
+| Account link | When you sign in, miyagi’s server ties this Mac to your account. | miyagi |
+| miyagi’s server | Passes AI calls on. Keeps counts and cost, never your work. | miyagi |
 | Your API keys | Locked by your Keychain, sent only to their provider. | On this Mac |
 | Lesson progress | Lesson folders and progress, kept in ~/miyagi on this Mac. | On this Mac |
-| Crash reports | Scrubbed error lines. Sent only when sharing is on. | miyagi, if on |
-| Usage counts | Lesson counts and cost. Never your code or screen. | miyagi, if on |
+| Crash reports | Only the kind of error, never its text. Off unless you share. | miyagi, if on |
+| Usage counts | Lesson and step counts. Never your code or screen. | miyagi, if on |
 
 AI calls go through miyagi’s server, or direct with your key.
 
@@ -65,26 +69,35 @@ AI calls go through miyagi’s server, or direct with your key.
   recognition and the macOS accessibility features, and the name of the app in front.
 - **What is removed first.** In text read from the screen, email addresses, card numbers, US phone numbers and US
   social security numbers are replaced, and text from password managers (1Password, Bitwarden, Dashlane, LastPass,
-  Keychain Access, Passwords) and Messages is dropped. Those apps are also kept out of step-check screenshots when
-  macOS's screen capture works normally.
-- **What is not removed.** Screenshots taken to point at something or to answer a question are not masked. miyagi
-  does not crop screenshots to your work area, and it does not remove API keys, tokens, names, addresses, other
-  chat or email apps, or browser tabs that are visible. **Anything on your screen, including other people's messages,
-  can be in a screenshot.** Close or hide anything private, especially other people's information, before a lesson.
+  Keychain Access, Passwords) and Messages is dropped. Text that looks like an API key, a token or a password (for
+  example `sk-...`, `ghp_...`, `API_KEY=...`, a private key block) is replaced too, and the rows of the screen where
+  miyagi found one are blacked out in every screenshot it sends. miyagi finds these by their shape, so it can miss
+  some. Password managers and Messages are also kept out of step-check screenshots when macOS's screen capture works
+  normally.
+- **What is not removed.** Screenshots taken to point at something or to answer a question do not black out password
+  managers or Messages. miyagi does not crop screenshots to your work area, and it does not remove names, addresses,
+  other chat or email apps, or browser tabs that are visible. **Anything on your screen, including other people's
+  messages, can be in a screenshot.** Close or hide anything private, especially other people's information, before a
+  lesson.
 - **Why.** To tell whether a step is done, to point at the right place, and to answer when you ask for help.
 
 ### Your code and your editor
 
 Through the miyagi companion for VS Code, miyagi reads on this Mac: the file you're working on (including changes
-you haven't saved), your open tabs, cursor and selection, and the commands you run in VS Code's terminal with the
-last lines of their output. It sends to Anthropic:
+you haven't saved), your open tabs, where you're typing and what you've selected, and the commands you run in VS
+Code's terminal with the last lines of their output. It sends to Anthropic:
 
 - the step's code and the files a step checks, when miyagi checks your work or helps;
 - text you select for "Explain this", with the lines around it and the file's name and path;
 - to fit a lesson's checks to your lesson folder: the list of files in it and up to 60,000 characters of their
   contents, plus the folder's path, which includes your Mac username. Files whose names start with a dot (such as
-  `.env`) and folders like `node_modules` are skipped. Secrets inside other files are not removed;
+  `.env`, but not `.env.example`) and folders like `node_modules` are skipped. Keys or passwords written inside the
+  other files are not removed from this scan;
 - the questions you type to miyagi.
+
+Before the step's code, "Explain this" text and your questions are sent, text that looks like an API key, a token or
+a password is replaced, and the values in files like `.env` are hidden (their names are kept). The lesson-folder scan
+above is sent as it is.
 
 [CHECK: whether the engine forwards terminal output to Anthropic; if so, list it above.]
 
@@ -115,25 +128,37 @@ is stored encrypted with a key from your Keychain. You can continue without an a
 
 - On first launch the app gets an install token from miyagi-cloud and sends the app version, the macOS version and the
   chip type. The token is stored encrypted on this Mac.
-- **If you sign in, miyagi-cloud links this install to your account** (your account ID, not your name or email), so
-  your usage limits can follow you. [DECIDE: unlink on sign-out, or say "signing out does not unlink it".]
+- **If you sign in, miyagi-cloud links this install to your account.** The app sends your install token and your
+  Supabase sign-in token; miyagi-cloud checks the sign-in token and keeps your account ID (not your name or email)
+  next to this install, so your usage limits can follow you. Signing out does not unlink it; if someone else signs in
+  on this Mac, the link moves to their account. The app keeps a note of the link on this Mac (your account ID, no
+  token). [DECIDE: unlink on sign-out, or keep "signing out does not unlink it".]
 - miyagi-cloud passes your screenshots, code and questions to the AI provider and returns the answer. **It does not
   store them.** It stores: for each install, the token's fingerprint, app version, platform and start date; for each
   day, how many requests were made and their size and cost, by AI model and feature; which videos the install built
-  lessons from, by month; and the account link. Its request log lines show the time, the kind of request, the AI
+  lessons from, by month; the account link; and, only if you turned on crash and usage sharing, daily counts of those
+  events. Its request log lines show the time, the kind of request, the AI
   model, sizes, a short install ID and, if you signed in, your account ID. [CHECK: drop the account ID from logs.]
-- miyagi-cloud sees your IP address to stop abuse. It keeps it in memory for up to an hour and does not store it.
+- miyagi-cloud sees your IP address to stop abuse. It uses it in memory to limit how often new installs are made,
+  and does not store it.
 - **[DECIDE, register B12] Shared lessons.** A lesson built for a public video may be saved on miyagi-cloud and reused
   for other learners who pick the same video. It is built from the video, never from your screen or code.
   [CHECK: the cached lesson must not carry the goal you typed.]
 
 ### Crash reports and usage counts
 
-Off unless you turn on "Share crash reports and usage" in Settings › Privacy. When on, miyagi sends error lines with
-usernames, quoted text and keys removed, and counts such as lessons searched, built and finished, steps passed, hints
-used and AI cost. Never your code, files or screen. They go to miyagi-cloud with your install token, so they are tied
-to this install (and to your account if you signed in). [CHECK: the receiving end isn't built yet; add its retention
-before the switch ships.]
+Off for everyone unless you turn on "Share crash reports and usage" in Settings › Privacy, and nothing is sent
+before you are past sign-in and setup. When on, miyagi sends:
+
+- that the app was installed (with the app version, macOS version and chip type) and that setup finished;
+- lesson counts: a lesson was built (how many steps, how it was built), a step passed or failed its check, a hint was
+  used, a lesson was finished (steps passed and skipped, minutes) or left (a one-word reason);
+- for each crash, only what kind of error it was and the app version. The error text stays on this Mac.
+
+Never your code, files, screen text, file paths or anything you typed. They go to miyagi-cloud with your install
+token, which keeps them only as daily counts per install, so they are tied to this install (and to your account if you
+signed in). Turning the switch off stops sending at once and drops anything not sent yet. [CHECK: miyagi-cloud's
+`/v1/events` must be deployed, with its retention, before the switch ships.]
 
 ### Other connections
 
@@ -146,10 +171,11 @@ before the switch ships.]
 
 ### What stays on this Mac
 
-Your API keys, your sign-in session, your install token and your settings (encrypted where they're secret); your
+Your API keys, your sign-in session, your install token, the note of your account link and your settings (encrypted
+where they're secret); your
 lesson folders (~/miyagi/lessons) and lesson progress (~/miyagi/state); cached searches, lessons and video captions;
-the engine's log; and the local error log and crash reports, which are sent only if you turn on crash sharing. We
-don't receive these otherwise.
+the engine's log; and the local error log and crash reports, which never leave this Mac (crash sharing sends only the
+kind of error). We don't receive these.
 
 ## Who receives your data
 
@@ -198,8 +224,9 @@ Before it deletes, it asks once more:
 
 > Signs you out. Lesson folders in ~/miyagi stay. Cannot be undone.
 
-It does not yet remove your install token, the account link, the app's YouTube cookies, cached searches and lessons,
-the engine log or crash reports, or the VS Code extensions. To remove everything on your Mac: quit miyagi, delete the
+It also removes the note of your account link on this Mac. It does not yet remove your install token, the account
+link kept on miyagi-cloud, the app's YouTube cookies, cached searches and lessons, the engine log or crash reports, or
+the VS Code extensions. To remove everything on your Mac: quit miyagi, delete the
 app, delete the `miyagi` folder in your home folder, and remove the miyagi extension from VS Code. [CHECK: list the
 app-data folder for Mac and Windows.]
 
