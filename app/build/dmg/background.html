@@ -1,0 +1,123 @@
+<!doctype html>
+<!--
+  miyagi dmg background (Onb-Install-Dmg). Source for background.png (640x400) and background@2x.png (1280x800).
+
+  What Finder draws on top of this art (so it is NOT painted here):
+    - the window title bar ("miyagi"),
+    - the two icons and their labels: miyagi.app centred at (168, 150), the Applications link at (472, 150),
+      icon size 112, label text 13 (electron-builder dmg.contents / iconSize / iconTextSize).
+  What the art paints: paper, the dashed arrow between the two icon slots, the headline and the caption.
+  Paper and ink only. No signed or version footer until the build is really signed and notarized.
+
+  Open with ?preview to see the icon slots and labels the way Finder will lay them out (review only).
+
+  Re-render (from app/build/dmg, any Chromium; a throwaway profile keeps your browser untouched):
+    B="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"   # or Google Chrome
+    for s in 1 2; do
+      "$B" --headless=new --disable-gpu --hide-scrollbars --allow-file-access-from-files \
+        --user-data-dir="$(mktemp -d)" --window-size=640,400 --force-device-scale-factor=$s \
+        --screenshot="$PWD/out-$s.png" "file://$PWD/background.html"
+    done
+    mv out-1.png background.png && mv out-2.png background@2x.png
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>miyagi dmg background</title>
+<style>
+  /* Mirrors brand.paper and brand.ink in src/renderer/src/core/theme.ts (the `paper` group). Nothing else has a hue. */
+  :root {
+    --paper: #F6F6F3;
+    --ink: #141414;
+    --ink-muted: rgba(20, 20, 20, 0.64);
+    --ink-dash: rgba(20, 20, 20, 0.35);
+    --ink-head: rgba(20, 20, 20, 0.6);
+    --ink-slot: rgba(20, 20, 20, 0.08);
+    --heading: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  }
+  @font-face {
+    font-family: 'Google Sans Flex';
+    src: url('../../brand/fonts/GoogleSansFlex.woff2') format('woff2');
+    font-weight: 100 1000;
+    font-display: block;
+  }
+  html, body { margin: 0; padding: 0; background: var(--paper); }
+  body { width: 640px; height: 400px; overflow: hidden; }
+
+  .art {
+    position: relative;
+    width: 640px;
+    height: 400px;
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The arrow sits between the two icon slots: 112 icon, 48 gap, 96 arrow, 48 gap, 112 icon (centred at y 150). */
+  .arrow { position: absolute; left: 272px; top: 138px; width: 96px; height: 24px; }
+
+  .copy {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 262px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+  }
+  .headline {
+    font-family: var(--heading);
+    font-size: 20px;
+    line-height: 24px;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+  }
+  .caption {
+    font-family: var(--ui);
+    font-size: 13px;
+    line-height: 16px;
+    color: var(--ink-muted);
+  }
+
+  /* ?preview only: where Finder puts the icons and labels. Never part of the rendered PNGs. */
+  .slot { display: none; position: absolute; top: 94px; width: 112px; flex-direction: column; align-items: center; gap: 6px; }
+  .slot .tile { width: 112px; height: 112px; border-radius: 26px; display: flex; align-items: center; justify-content: center; }
+  .slot img { width: 112px; height: 112px; }
+  .slot .label { font-family: var(--ui); font-size: 13px; line-height: 16px; font-weight: 500; }
+  .slot.app { left: 112px; }
+  .slot.apps { left: 416px; }
+  .slot.apps .tile { background: var(--ink-slot); }
+  .preview .slot { display: flex; }
+</style>
+</head>
+<body>
+<div class="art" id="art">
+  <svg class="arrow" viewBox="0 0 96 24" aria-hidden="true">
+    <path d="M4 12h84" stroke="var(--ink-dash)" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round" fill="none"/>
+    <path d="M80 5l8 7-8 7" stroke="var(--ink-head)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+
+  <div class="copy">
+    <span class="headline">Drag miyagi to Applications</span>
+    <span class="caption">Then open it from Applications. No terminal needed.</span>
+  </div>
+
+  <div class="slot app" aria-hidden="true">
+    <img src="../icon.png" alt="">
+    <span class="label">miyagi</span>
+  </div>
+  <div class="slot apps" aria-hidden="true">
+    <div class="tile">
+      <svg width="64" height="64" viewBox="0 0 24 24"><path d="M7 19l5-13 5 13M9 15h6" stroke="var(--ink-head)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <span class="label">Applications</span>
+  </div>
+</div>
+<script>
+  if (new URLSearchParams(location.search).has('preview')) document.getElementById('art').classList.add('preview');
+</script>
+</body>
+</html>
