@@ -180,7 +180,8 @@ export default defineMainFeature({
       if (loginEnabled()) void linker.link()
     }
     onSignedIn(() => void linker.link({ force: true }))
-    onInstallToken(check)
+    const off = onInstallToken(check)
+    ctx.app.on('before-quit', off)
     void ctx.app.whenReady().then(() => setTimeout(check, LAUNCH_DELAY_MS).unref?.())
   }
 })
