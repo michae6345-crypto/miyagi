@@ -9,6 +9,12 @@ from typing import Any
 
 from .playbook import CITATIONS
 
+try:
+    from server.redact import redact_secrets
+except ImportError:  # pragma: no cover - coach/ on its own
+    def redact_secrets(text: str) -> str:
+        return text
+
 ACTIONS_ORDER = ("explain", "show_me", "hint", "apply_fix")
 
 _lesson: dict | None = None
@@ -147,7 +153,9 @@ def fmt_t(seconds: float) -> str:
 
 
 def number_lines(code: str, max_lines: int = 160) -> str:
-    lines = (code or "").splitlines()[:max_lines]
+    """The learner's code, numbered for a prompt. Keys and tokens in it are redacted (ROADMAP 5.2; llm._request
+    redacts the whole message again)."""
+    lines = redact_secrets(code or "").splitlines()[:max_lines]
     return "\n".join(f"{i:>4}| {line}" for i, line in enumerate(lines, start=1))
 
 

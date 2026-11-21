@@ -7,6 +7,9 @@ Keys (bring-your-own-key): the app's keys via `set_keys()` / `server.config`, el
   DEMO=1                   demo mode: offline playbook cards are allowed when the API fails
   COACH_REPLAY_DIR         read responses from fixtures instead of calling the API
   COACH_RECORD_DIR         write every live response to a fixture file
+
+Never sends secrets (ROADMAP 5.2): `_request`, the one place a coach request is shaped, runs the user message (the
+learner's code, terminal output, screen text, a selection) through server.redact.redact_secrets.
 """
 
 from __future__ import annotations
@@ -30,6 +33,12 @@ try:  # the shared key store, miyagi cloud routing and Opus guard (absent only w
     from server import config as _cfg
 except ImportError:  # pragma: no cover
     _cfg = None  # type: ignore[assignment]
+
+try:
+    from server.redact import redact_secrets as _redact_secrets
+except ImportError:  # pragma: no cover - coach/ on its own
+    def _redact_secrets(text: str) -> str:
+        return text
 
 OPUS = "claude-opus-5-5"
 SONNET = "claude-sonnet-5-5"
@@ -260,7 +269,7 @@ def _record(record_dir: Path, purpose: str, model: str, user_text: str, text: st
     record_dir.mkdir(parents=True, exist_ok=True)
     rec = {
         "purpose": purpose,
-        "request": {"model": model, "user": user_text},
+        "request": {"model": model, "user": _redact_secrets(user_text)},  # fixtures get committed: no keys
         "response": {"model": res.model, "text": text, "usage": res.usage, "latency_s": round(res.latency_s, 2)},
     }
     (record_dir / f"{_key(purpose, user_text)}.json").write_text(json.dumps(rec, indent=2, ensure_ascii=False) + "\n")
@@ -380,7 +389,9 @@ async def structured_call_retrying(*, delays: tuple[float, ...] = RETRY_DELAYS_S
 
 
 def _request(client, model: str, system: list[dict], content: Any, schema: dict, effort: str, max_tokens: int, thinking: dict | None = None):
-    """The one place a coach request is shaped (warm() must send the same prefix to hit the cache)."""
+    """The one place a coach request is shaped (warm() must send the same prefix to hit the cache). The user message
+    is redacted here (redact_user_content): no key or token in the learner's code or screen ever goes out."""
+    content = redact_user_content(content)
     kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
@@ -398,6 +409,21 @@ def _request(client, model: str, system: list[dict], content: Any, schema: dict,
     if fb:
         return client.beta.messages, {**fb, **kwargs}
     return client.messages, kwargs
+
+
+def redact_user_content(content: Any) -> Any:
+    """A user message (a string, or content blocks) with secrets redacted in every text part; images pass as is
+    (the screen readers black out secret rows before they encode a screenshot)."""
+    if isinstance(content, str):
+        return _redact_secrets(content)
+    if isinstance(content, list):
+        out = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str):
+                block = {**block, "text": _redact_secrets(block["text"])}
+            out.append(block)
+        return out
+    return content
 
 
 async def _maybe_await(x: Any) -> None:

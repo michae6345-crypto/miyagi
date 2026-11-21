@@ -65,9 +65,19 @@ def card_title(text: str) -> str:
     return f"About `{head}`"
 
 
+def _safe(file: Any, text: str) -> str:
+    """ROADMAP 5.2: a selection in .env shows names only; a key or token selected anywhere is redacted before it
+    reaches the card title, the coach or the session record."""
+    try:
+        from server.workspace.core import text_for_model
+    except Exception:  # noqa: BLE001 - never drop the learner's question over an import
+        return text
+    return text_for_model(file if isinstance(file, str) else None, text)
+
+
 def from_vscode(body: dict) -> dict:
     """The extension's explain_selection event -> a selection dict (see server/coach/selection.py)."""
-    text = _text(body.get("text"))
+    text = _safe(body.get("file") or body.get("relPath"), _text(body.get("text")))
     sel: dict[str, Any] = {"source": "vscode", "text": text, "title": card_title(text),
                            "truncated": bool(body.get("truncated")) or len(str(body.get("text") or "")) > MAX_CHARS}
     for k in ("file", "relPath", "languageId"):
@@ -78,12 +88,13 @@ def from_vscode(body: dict) -> dict:
             sel[k] = n
     around = body.get("around")
     if isinstance(around, dict) and isinstance(around.get("text"), str) and around["text"].strip():
-        sel["around"] = {"startLine": _int(around.get("startLine")) or 1, "text": around["text"][:AROUND_CHARS]}
+        sel["around"] = {"startLine": _int(around.get("startLine")) or 1,
+                         "text": _safe(body.get("file") or body.get("relPath"), around["text"][:AROUND_CHARS])}
     return sel
 
 
 def from_drawer(text: str | None) -> dict:
-    t = _text(text)
+    t = _safe(None, _text(text))
     return {"source": "drawer", "text": t, "title": card_title(t), "truncated": len(str(text or "")) > MAX_CHARS}
 
 
@@ -144,7 +155,7 @@ async def answer(session: Any, step: dict | None, text: str) -> None:
         await session._status("thinking")
     ctx: dict[str, Any] = {"lesson": (session.graph or {}).get("lesson", {})}
     if step is not None and sel["source"] == "drawer":  # lesson text: the learner's own code helps relate it
-        ctx["code"], ctx["file"] = session._code_excerpt(step, limit=4000)
+        ctx["code"], ctx["file"] = session._coach_excerpt(step, limit=4000)  # a .env step file: values hidden
     card = dict(await session.m.explain_selection(step, sel, ctx))
     if step is not None and gen != session.step_gen:
         return  # the learner moved to another step meanwhile: an answer about the old one would mislead

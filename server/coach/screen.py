@@ -13,6 +13,7 @@ The model answers with box ids; `resolve_targets` turns them back into screen re
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import json
 import logging
@@ -21,6 +22,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 from typing import Any
+
+from server.redact import SECRET_MARK
 
 log = logging.getLogger("coach.screen")
 
@@ -137,6 +140,7 @@ class ScreenContext:
     _own: frozenset = field(default=frozenset(), repr=False)  # squashed texts of every kept box (before the MAX_BOXES cut)
     _foreign: frozenset = field(default=frozenset(), repr=False)  # squashed texts of the boxes left out
     _layers: list = field(default_factory=list, repr=False)  # [(rect, hidden)] front to back, when a window is hidden
+    _secret: list = field(default_factory=list, repr=False)  # (x, y, w, h) of every block whose text held a secret
 
     @classmethod
     def from_observation(cls, obs: Any, image: Any, cursor: tuple[float, float], **extra: Any) -> ScreenContext:
@@ -152,11 +156,14 @@ class ScreenContext:
             return hidden[(app, title)]
 
         blocks = _get(obs, "blocks", []) or []
-        boxes, own, foreign = [], set(), set()
+        boxes, own, foreign, secret = [], set(), set(), []
         for b in blocks:
             text = str(_get(b, "text", "")).strip()
             if not text:
                 continue
+            if SECRET_MARK in text:  # 5.2: blacked out in the picture (pil), wherever the box goes
+                with contextlib.suppress(KeyError, TypeError, ValueError):
+                    secret.append(_rect(_get(b, "rect")))
             app = _get(b, "app", "") or ""
             if other(app, str(_get(b, "window", "") or "")):
                 foreign.add(_squash(text))
@@ -174,6 +181,7 @@ class ScreenContext:
         origin = _rect(screen)[:2] if screen is not None else (0.0, 0.0)
         ctx = cls(image=image, cursor=cursor, boxes=boxes, scale=float(_get(obs, "scale", 2.0) or 2.0), origin=origin, app=_get(obs, "app", "") or "", **extra)
         ctx._own, ctx._foreign = frozenset(own - {""}), frozenset(foreign - {""})
+        ctx._secret = secret  # every one, also those numbered() leaves out (past MAX_BOXES)
         if any(h for _, h in layers):
             ctx._layers = layers
         if foreign or ctx._layers:
@@ -216,6 +224,14 @@ class ScreenContext:
                     (x0, y0), (x1, y1) = self.to_px(x, y), self.to_px(x + w, y + h)
                     draw.rectangle([x0, y0, x1, y1], fill=255 if hide else 0)
                 self._img.paste((128, 128, 128), (0, 0, self._img.width, self._img.height), mask)
+            # 5.2: a row whose OCR / AX text held a key or token is blacked out before overview() and crop() encode
+            # the picture (its box text already reads [secret]); the box outline and number still show where it is
+            rows = {*self._secret, *((b.x, b.y, b.w, b.h) for b in self.boxes if SECRET_MARK in b.text)}
+            if rows:
+                draw = ImageDraw.Draw(self._img)
+                for x, y, w, h in rows:
+                    (x0, y0), (x1, y1) = self.to_px(x, y), self.to_px(x + w, y + h)
+                    draw.rectangle([x0, y0, x1, y1], fill=(0, 0, 0))
         return self._img
 
     def to_px(self, x: float, y: float) -> tuple[float, float]:

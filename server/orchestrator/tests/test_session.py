@@ -759,8 +759,10 @@ def test_ws_and_ingest_roundtrip(tmp_path, monkeypatch):
     main.engine.session.result_stagger_s = 0
     main.engine.recorder.enabled = False
     monkeypatch.setitem(main.engine.modules.real, "finder", types.SimpleNamespace())  # no network in tests
+    monkeypatch.setattr(main, "host_allowed", lambda _h: True)  # TestClient's Host is "testserver"
     with TestClient(main.app) as client:
         with client.websocket_connect("/") as ws:
+            assert ws.receive_json()["type"] == "engine.hello"  # v2: always the first message
             first = ws.receive_json()
             assert first["type"] in ("status", "lesson.ready")
             ws.send_json({"type": "learn", "payload": {"query": "pinn"}})
@@ -1241,6 +1243,7 @@ def test_post_end_endpoint(tmp_path, monkeypatch):
     from server.orchestrator import main
 
     main.engine.recorder.enabled = False
+    monkeypatch.setattr(main, "host_allowed", lambda _h: True)  # TestClient's Host is "testserver"
     with TestClient(main.app) as client:
         r = client.post("/end")
         assert r.json() == {"ok": True, "ended": None, "kept": False}  # Nov 15: kept = the place stays for after a restart

@@ -231,13 +231,19 @@ class SceneWatch:
 
     @staticmethod
     def _mask_args(obs: Any) -> dict:
-        """Private apps' windows (1Password, Messages, …) are blacked out before the image leaves the Mac."""
+        """Private apps' windows (1Password, Messages, …) and every text row whose OCR / AX text held a secret (5.2:
+        redacted to [secret]) are blacked out before the image leaves the Mac."""
         try:
-            from server.screen.privacy import is_private_app
+            from server.screen.privacy import holds_secret, is_private_app
         except Exception:  # noqa: BLE001
             def is_private_app(app: Any) -> bool:
                 return False
+
+            def holds_secret(text: Any) -> bool:
+                return False
         rects = [w.rect for w in getattr(obs, "windows", None) or [] if is_private_app(getattr(w, "app", None))]
+        rects += [b.rect for b in getattr(obs, "blocks", None) or []
+                  if getattr(b, "rect", None) is not None and holds_secret(getattr(b, "text", None))]
         scr = getattr(obs, "screen", None)
         return {"mask": rects, "scale": float(getattr(obs, "scale", 1.0) or 1.0),
                 "origin": (float(getattr(scr, "x", 0.0) or 0.0), float(getattr(scr, "y", 0.0) or 0.0))}

@@ -16,6 +16,8 @@ import re
 from collections.abc import Coroutine
 from typing import Any
 
+from server.redact import redact_file_text
+
 from . import llm
 from .common import clamp_words, get_lesson, number_lines, step_brief, system_blocks
 from .diagnose import LAST, _deletes_line, notebook_code
@@ -168,7 +170,9 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
                  "Also fix whatever would stop the file from compiling (see DIAGNOSIS). If the two edits are apart, "
                  "`yours` spans from the first line you change to the last (e.g. to the end of the file).") if add_code else "",
                 f"PREVIOUS ATTEMPT FAILED: {error}" if error else "",
-                f"FILE {file}, numbered:\n{number_lines(notebook_code(file_text), 400)}",
+                # a .env-style file goes as its names with every value hidden (5.2); apply_fix refuses a patch that
+                # would write the hidden-value marker back into the file
+                f"FILE {file}, numbered:\n{number_lines(redact_file_text(file, notebook_code(file_text)), 400)}",
                 "Write the patch.",
             ]
             if x

@@ -126,7 +126,8 @@ class Engine:
         RUNS.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, "ENGINE_PORT": str(self.port), "ENGINE_HOST": "127.0.0.1", "DEMO": "0",
                "ORCH_AUTOSTART": "0", "ORCH_STUBS": "", "ORCH_SCREEN": "1" if screen else "0",
-               "ORCH_OPEN_WORKSPACE": "1" if open_ws else "0", "PYTHONUNBUFFERED": "1"}
+               "ORCH_OPEN_WORKSPACE": "1" if open_ws else "0", "PYTHONUNBUFFERED": "1",
+               "MIYAGI_DEBUG_ROUTES": "1"}  # 5.3: /debug/pass, /debug/goto are dev routes
         if workdir:
             env["TUT_WORKDIR"] = str(Path(workdir).expanduser().resolve())
         for kv in extra_env or []:  # e.g. LESSON_MODEL=gemini-3.1-flash-lite (don't pass secrets: it's logged)

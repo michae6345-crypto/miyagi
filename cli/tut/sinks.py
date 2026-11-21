@@ -15,12 +15,44 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 from .metrics import Metric
 
 MAX_METRICS_PER_NAME_PER_POST = 50
+
+
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def engine_token(url: str) -> str | None:
+    """The engine's per-launch token for `url` (server/engine_token.py: <dir>/<port>.json, written by the engine at
+    startup). Only for an engine on this Mac, and only while that engine's process is alive; never sent elsewhere.
+    An engine the app started needs it on POST /ingest; one started by hand accepts the run without it."""
+    try:
+        u = urllib.parse.urlsplit(url)
+        host, port = (u.hostname or "").lower(), u.port or (443 if u.scheme == "https" else 80)
+    except ValueError:
+        return None
+    if host not in _LOOPBACK:
+        return None
+    d = Path(os.environ.get("MIYAGI_ENGINE_TOKEN_DIR") or Path.home() / ".miyagi" / "engine-tokens").expanduser()
+    try:
+        data = json.loads((d / f"{port}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    tok, pid = (data.get("token"), data.get("pid")) if isinstance(data, dict) else (None, None)
+    if not isinstance(tok, str) or not tok or not isinstance(pid, int) or pid <= 0:
+        return None
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return tok  # alive (owned by another user: still a live engine)
+    except OSError:
+        return None  # the engine that wrote it is gone
+    return tok
 
 
 def warn(msg: str, loud: bool = False) -> None:
@@ -120,7 +152,10 @@ class IngestSink:
         if not self.started_sent and not first:
             events = [self.run_started, *events]
         body = json.dumps(events, allow_nan=False).encode()
-        req = urllib.request.Request(self.url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        headers = {"Content-Type": "application/json"}
+        if tok := engine_token(self.url):
+            headers["X-Miyagi-Token"] = tok
+        req = urllib.request.Request(self.url, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 raw = resp.read()
