@@ -68,8 +68,9 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
 - `terminal_runs(command, rows, expect)` -> `(runs, error, shows)`: how often terminal rows show `command` run (followed
   by another row, so a typed-but-unrun command never counts; nor does one stopped by Ctrl+C: its next row is `^C` or
   the venv activation that sent it, or it ended in `KeyboardInterrupt`, t5; a run's output ends at the next command
-  line that runs python/tut, the command's program: its first word, or right after a prompt marker such as `% ` or
-  `$ `, so another script's or a REPL's ^C never cancels it, while output that merely says "python" never ends it and
+  line that runs python/tut, the command's program: right after a prompt marker such as `% `, `$ ` or fish's `~/nn>`,
+  or as the first word followed by a script, a flag or nothing, so another script's or a REPL's ^C never cancels it,
+  while output that merely says "python" (even first, as in `python 3.12.1 ready`) never ends it and
   other programs such as `node x.js` don't either), and `run_output`'s verdict on the output under the last
   run (not "shown" when a later command line runs the same program: it may be a misread newer run). With
   `command_matches(expected, actual)` for `tut run` / Run it for me / VS Code `command_end` runs, this is the run

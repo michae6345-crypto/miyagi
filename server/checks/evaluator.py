@@ -756,7 +756,9 @@ def _no_cell_yet(step: dict, checks: list[dict], results: list[CheckResult], ctx
         return results
     code_rows = [c for c in checks if c.get("type") == "screen_contains" and c.get("app") not in _TERMINAL_APPS
                  and not is_output_check(c) and not _is_kernel_check(c)]
-    if code_rows and all(evaluate_check(c, ctx)["status"] == "pass" for c in code_rows):
+    if not code_rows:  # nothing would ever see the code (a Colab / browser notebook): the screen decides, as before
+        return results
+    if all(evaluate_check(c, ctx)["status"] == "pass" for c in code_rows):
         return results
     return [{**r, "status": "pending", "detail": "checked when the cell runs"}
             if r["checkId"] in absent and r["status"] == "pass" else r for r in results]
@@ -1063,17 +1065,34 @@ _PROMPT_MARKS = ("%", "$", "#", "❯")  # zsh %, bash $, root #, starship's arro
 
 
 def _after_prompt(prev: str) -> bool:
-    """Is ``prev`` (the word before a program) the end of a shell prompt (``tripi@mac nn %``, ``me@box:~/nn$``,
-    starship's arrow) or a shell join (``cd nn && python3 x.py``)? Not ``100%`` (a progress bar in the output)."""
+    """Is ``prev`` (the word before a program) the end of a shell prompt (``tripi@mac nn %``, ``me@box:~/lesson1$``,
+    starship's arrow, fish's ``~/nn>``) or a shell join (``cd nn && python3 x.py``)? Not ``100%`` (a progress bar in
+    the output): only a glued ``%`` after a digit is refused; a bash folder ending in a digit is still a prompt."""
     if prev in _SHELL_JOIN or prev in _PROMPT_MARKS:
         return True
-    return len(prev) > 1 and prev.endswith(_PROMPT_MARKS) and not prev[-2].isdigit()
+    if len(prev) < 2:
+        return False
+    if prev.endswith("%"):
+        return not prev[-2].isdigit()
+    if prev.endswith(">"):  # fish: user@host ~/nn>  (a path glued to >, never an arrow like ->)
+        return prev[0] in "~/"
+    return prev.endswith(_PROMPT_MARKS)
+
+
+def _starts_command(program: str, rest: list[str]) -> bool:
+    """With no prompt or shell join before it, is a row whose first word is ``program`` a command line? Only when
+    the next word looks like one: nothing (the REPL), a flag (``-m``, ``-c``, ``--version``), a ``*.py`` path, or
+    for ``tut`` a ``*.py`` later on. Output that starts with the word (``python 3.12.1 ready``) is not."""
+    if not rest or rest[0].startswith("-") or rest[0].lower().endswith(".py"):
+        return True
+    return program == "tut" and any(t.lower().endswith(".py") for t in rest)
 
 
 def _command_line_runs(row: str, programs: set[str]) -> bool:
-    """Is ``row`` a command line that runs one of ``programs``: the program is the row's first word, or comes right
-    after a shell prompt marker or a shell join (and oh-my-zsh's ``<arrow>  nn git:(main) x python3 a.py``)? A row
-    that only contains the word (the program's own output, ``I love python``) is not."""
+    """Is ``row`` a command line that runs one of ``programs``: the program comes right after a shell prompt marker
+    or a shell join (and oh-my-zsh's ``<arrow>  nn git:(main) x python3 a.py``), or is the row's first word followed
+    by what a command has (``_starts_command``: a script, a flag, nothing)? A row that only contains the word
+    (``I love python``), or starts with it as output (``python 3.12.1 ready``), is not."""
     words = _words(row)
     if words and words[0] == "➜":  # oh-my-zsh: arrow, <dir>, [git:(branch)], [dirty mark], <command>
         rest = words[2:]
@@ -1083,7 +1102,8 @@ def _command_line_runs(row: str, programs: set[str]) -> bool:
             rest = rest[1:]
         if rest and _program(rest[0]) in programs:
             return True
-    return any(_program(t) in programs and (j == 0 or _after_prompt(words[j - 1])) for j, t in enumerate(words))
+    return any(_program(t) in programs and (_starts_command(_program(t), words[1:]) if j == 0
+                                            else _after_prompt(words[j - 1])) for j, t in enumerate(words))
 
 
 def _interrupted_rows(out: list[str]) -> bool:
@@ -1132,9 +1152,9 @@ def terminal_runs(command: str, rows: list[str], expect: Iterable[str] = ()) -> 
     # Code's own reports): its output starts with ^C or ends the program that way. A run's output ends at the next
     # command line that runs python/tut, the command's program (not only the next run of this command): another
     # script's or a REPL's ^C / KeyboardInterrupt in between never cancels an earlier good run, nor reads as its
-    # crash. A command line means the program is the row's first word or comes right after a prompt marker; a row
-    # that merely contains the word (the program printing "I love python", then crashing) never ends the window,
-    # so that crash is still the run's. Other programs (`node x.js`, `bash y.sh`) don't end it either.
+    # crash. A command line means the program comes right after a prompt marker or shell join, or is the row's
+    # first word followed by a script, a flag or nothing; a row that merely contains the word (the program printing
+    # "I love python" or "python 3.12.1 ready", then crashing) never ends the window, so that crash is the run's. Other programs (`node x.js`, `bash y.sh`) don't end it either.
     progs = {head, "tut"}
     start_set = set(starts)
 

@@ -82,6 +82,17 @@ def test_t11_cp4_a_browser_notebook_is_still_graded_once_its_code_is_on_screen(t
         "status"] == "fail"
 
 
+def test_t11_cp4_a_notebook_step_with_no_code_rows_keeps_the_old_screen_rule(tmp_path):
+    """No notebook on disk and no screen_contains code row to see the code (a Colab / browser notebook): nothing
+    could ever lift the wait, so the error rows read the screen as before instead of blocking the gate forever."""
+    step = video_step("s2")
+    step["checks"] = [c for c in step["checks"] if c["type"] != "screen_contains"]
+    res = by_id(evaluate_step(step, RunContext(workdir=str(tmp_path), screen=S2_TYPED)))
+    assert res["s2c4"]["status"] == "pass" and res["s2c5"]["status"] == "pass", res
+    broken = {"Code": S2_TYPED["Code"] + ["AttributeError: module has no attribute 'load_dat'"]}
+    assert by_id(evaluate_step(step, RunContext(workdir=str(tmp_path), screen=broken)))["s2c4"]["status"] == "fail"
+
+
 def test_t11_cp4_no_workdir_keeps_the_old_screen_rule():
     """Without a lesson folder nothing was looked for (ctx.notebook stays None): the screen decides as before."""
     res = by_id(evaluate_step(video_step("s2"), RunContext(screen=README)))
@@ -152,6 +163,13 @@ def test_output_that_says_python_never_ends_a_run():
     # printed output that says python never demotes the expected output either
     shown = [PROMPT + "python3 main.py", "Predictions:", "I love python", PROMPT]
     assert terminal_runs("python3 main.py", shown, [r"Predictions"]) == (1, False, True)
+    # output whose FIRST word is python is output too, unless a script, a flag or nothing follows it
+    first = [PROMPT + "python3 main.py", "python 3.12.1 ready", "Traceback (most recent call last):", "NameError: x",
+             PROMPT]
+    assert terminal_runs("python3 main.py", first) == (1, True, False)
+    first_stopped = [PROMPT + "python3 main.py", "python 3.12.1 ready", "Traceback (most recent call last):",
+                     "KeyboardInterrupt", PROMPT]
+    assert terminal_runs("python3 main.py", first_stopped) == (0, False, False)
 
 
 @pytest.mark.parametrize("line", [
@@ -161,6 +179,11 @@ def test_output_that_says_python_never_ends_a_run():
     "➜  nn git:(main) ✗ python3 other.py",     # oh-my-zsh
     PROMPT + "cd nn && python3 other.py",                # a shell join
     "python3 other.py",                                  # no prompt read at all
+    "python3 -m other",                                  # no prompt, a module
+    "python3",                                           # no prompt, the REPL
+    "me@box:~/lesson1$ python3 other.py",                # bash: a folder ending in a digit
+    "root@box:/srv/nn2# python3 other.py",               # root: a folder ending in a digit
+    "user@host ~/nn> python3 other.py",                  # fish
     PROMPT + "tut run python3 other.py",
 ])
 def test_a_later_command_line_still_ends_a_run(line):
