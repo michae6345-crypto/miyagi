@@ -612,8 +612,14 @@ class Engine:
         lesson continues at its saved step, as if nothing happened (Michael, Nov 15: restarts sent him back to "begin
         project"). Not a lesson the learner ended (End / Start new: `stopped`, offered by the resume card as before),
         not one finished, not one idle longer than ORCH_AUTO_RESUME_S (default 3 h), never a Demo take (each Demo
-        start is a fresh take at step 1: stage.py). True when it restored one (engine.hello.restored)."""
+        start is a fresh take at step 1: stage.py). True when it restored one (engine.hello.restored).
+        Nov 21: OFF by default. Michael: every launch is a fresh start ("it's like continuing a lesson. No, I need it to
+        restart"): auto-resume opened VS Code, the steps drawer and the old clip with sound before sign-in. The saved
+        lesson stays on disk and is offered by the resume card / Continue; ORCH_AUTO_RESUME=1 turns the old behaviour
+        back on (dev, deploys)."""
         s = self.session
+        if os.environ.get("ORCH_AUTO_RESUME") != "1":
+            return False
         if self.resumer is None or self.hub.clients or s.graph is not None or s.phase != "idle":
             return False
         try:
@@ -1011,7 +1017,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await ws.close(code=1008)
         return
     await ws.accept()
-    restored = await engine.auto_resume()  # Nov 15: an engine restart mid-lesson: back at that exact step
+    restored = await engine.auto_resume()  # off unless ORCH_AUTO_RESUME=1 (Nov 21: every launch starts fresh)
     await engine.hub.send_to(ws, "engine.hello", engine.hello(restored))  # v2: always the first message
     for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning()):
         await engine.hub.send_to(ws, type_, payload)
