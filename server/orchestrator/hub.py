@@ -10,11 +10,17 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from shared.contracts import events as _contract
 from shared.contracts.events import validate_engine_payload
 
-
-
 log = logging.getLogger("orchestrator.hub")
+
+# v2 events (BUILD-PLAN W0-1). Until this tree's contract lists them they pass unvalidated, even under ORCH_STRICT=1
+# (engine.hello goes to every app on connect), with one DEBUG line per type instead of a warning on every send.
+V2_EVENTS = frozenset({"engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item",
+                       "progress"})
+_KNOWN_EVENTS = frozenset(getattr(_contract, "ENGINE_EVENTS", {}))
+QUIET_EVENTS = frozenset({"metric", "screen.seen"})  # several a second / OCR'd screen text: no line at all
 
 
 def _clip(text: Any, n: int = 60) -> str:
@@ -42,7 +48,17 @@ def log_received(type_: str, p: Any) -> None:
         return
     elif type_ in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
         line = f"{type_} {p.kind or 'card'} {_clip(p.title)}" + (f" by={p.by}" if getattr(p, "by", None) else "")
-    else:  # end_lesson, config.keys (name only)
+    elif type_ == "permission.open":
+        line = f"permission.open {getattr(p, 'kind', '?')}"
+    elif type_ in ("library.get", "library.start"):  # the id matched ^[A-Za-z0-9_-]{1,64}$ before we got here
+        line = f"{type_} {getattr(p, 'id', '?')}"
+    elif type_ == "panel.state":  # follows every panel move: DEBUG
+        log.debug("<- panel.state open=%s rect=%s", getattr(p, "open", None), "yes" if getattr(p, "rect", None) else "no")
+        return
+    elif type_ == "health.get":  # polled while onboarding / settings is open: DEBUG
+        log.debug("<- health.get")
+        return
+    else:  # end_lesson, library.list, progress.get, config.keys / config.validate (name only)
         line = type_
     log.info("<- %s", line)
 
@@ -52,8 +68,14 @@ class Hub:
         self.clients: set[WebSocket] = set()
         self.strict = os.environ.get("ORCH_STRICT") == "1" if strict is None else strict
         self.history: deque[dict] = deque(maxlen=history)  # recent messages, for /events and tests
+        self._pending_noted: set[str] = set()
 
     def encode(self, type_: str, payload: dict) -> dict:
+        if type_ in V2_EVENTS and type_ not in _KNOWN_EVENTS:
+            if type_ not in self._pending_noted:
+                self._pending_noted.add(type_)
+                log.debug("event %s is not in this tree's events.py yet (W0-1); sent unvalidated", type_)
+            return {"type": type_, "payload": payload}
         try:
             payload = validate_engine_payload(type_, payload)
         except Exception as e:
@@ -75,8 +97,13 @@ class Hub:
     async def emit(self, type_: str, payload: dict[str, Any] | None = None) -> None:
         msg = self.encode(type_, payload or {})
         self.history.append(msg)
-        if type_ not in ("metric", "screen.seen"):  # screen.seen carries OCR'd screen text: keep it out of logs
-            log.info("-> %s %s", type_, json.dumps(msg["payload"], ensure_ascii=False)[:200])
+        if type_ not in QUIET_EVENTS:  # screen.seen carries OCR'd screen text: keep it out of logs
+            # BUILD-PLAN section 6: payloads (learner code, card text, titles) only at DEBUG; INFO keeps the type, so a
+            # desktop test still sees what went out and when
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug("-> %s %s", type_, json.dumps(msg["payload"], ensure_ascii=False)[:200])
+            else:
+                log.info("-> %s", type_)
         dead = []
         for ws in list(self.clients):
             try:
