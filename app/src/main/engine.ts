@@ -94,7 +94,8 @@ export class EngineLink {
   constructor(private url: string, demoScenario?: string, token?: string) {
     this.token = token || undefined
     this.secure = secureEngineUrl(url)
-    this.run = new RunGuard(!!demoScenario)
+    // MIYAGI_REPLAY_ON_CONNECT=1 (dev only: `npm run dev:all`): the mock plays a lesson on every connect, on purpose.
+    this.run = new RunGuard(!!demoScenario || process.env.MIYAGI_REPLAY_ON_CONNECT === '1')
     if (demoScenario) {
       const scenario = scenarios[demoScenario] ?? scenarios.full
       this.demo = createMockEngine(scenario, (e) => this.dispatch(e))
@@ -250,7 +251,7 @@ export class EngineLink {
       // The engine sends a full snapshot on every connect: forget what the old connection said.
       this.log.length = 0
       this.caps.clear()
-      // Fresh start: a start that went out on the old socket is lost (the learner retries); only the run's lesson replays.
+      // Fresh start: a wait from the old socket now needs a fresh lesson.ready; an old lesson's snapshot stays out.
       this.run.connected()
       this.setConnected(true)
       for (const fn of this.openHooks) fn()
@@ -306,7 +307,10 @@ export class EngineLink {
       e = { ...e, payload: { ...e.payload, audioUrl: new URL(e.payload.audioUrl, this.url.replace(/^ws/, 'http')).href } }
     }
     // A lesson this run never started (the engine's snapshot of an old one): not relayed, not logged, not replayed.
-    if (!this.run.admit(e)) return
+    // An old lesson's watching reaches the pill as idle (RunGuard.filter).
+    const kept = this.run.filter(e)
+    if (!kept) return
+    e = kept
     if (e.type === 'lesson.ready') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
     // An ended lesson must not be replayed into a window that (re)loads: keep only the search rows.
     if (e.type === 'lesson.ended') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))

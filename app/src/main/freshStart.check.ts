@@ -3,15 +3,18 @@
  *
  *   npx tsx src/main/freshStart.check.ts      (from app/)
  *
- * 1. RunGuard alone: an old lesson's replayed events (lesson.ready, steps, checks, a resume card, a watching status,
- *    video, spotlight) are dropped at launch; hello, search, library, an answer card pass; a lesson started now
- *    (learn, library.start, Continue) passes; an interrupted lesson's replay passes again; an ended one stops.
+ * 1. RunGuard alone: an old lesson's replayed events (lesson.ready, steps, checks, a resume or preflight card, its
+ *    thinking / busy / watching statuses, video, spotlight) are dropped at launch, and the pill rests idle; hello,
+ *    search, library, an answer card pass; a lesson started now (learn, library.start, Continue) passes; an
+ *    interrupted lesson's replay passes again; an ended one stops; DEMO re-arms on dev.reset; a build's wait survives
+ *    a reconnect, but only a fresh lesson.ready ends it.
  * 2. The real EngineLink (main/engine.ts, loaded through Vite SSR for its import.meta.glob) against a fake engine on
  *    127.0.0.1 that replays an old lesson on connect, like the engine after a restart: nothing of it reaches the
  *    listeners (what main relays to every window) or the replay log; after `learn` the new lesson does; a reconnect
  *    that replays the run's own lesson keeps it.
  * 3. Starts sent while the engine is down (launch window, engine restart) never leave and let nothing in; a start
- *    that went out but was never answered expires on the next connection.
+ *    that went out but was never answered lets no old replay in after a restart; a build carried over a dropped
+ *    socket still lands; MIYAGI_REPLAY_ON_CONNECT=1 (npm run dev:all) shows the mock's connect lesson.
  * Exits 1 on any failure.
  */
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -34,15 +37,20 @@ function ok(cond: unknown, what: string): void {
 const ev = (type: string, payload: unknown = {}): Incoming => ({ type, payload }) as Incoming
 const cmd = (type: string, payload: unknown = {}): Outgoing => ({ type, payload }) as Outgoing
 const ready = (id: string): Incoming => ev('lesson.ready', { lesson: { id, title: `Lesson ${id}`, sources: [] }, steps: [{ id: 's1', title: 'One' }] })
+/** A snapshot's lesson.ready: the engine marks the SAME lesson again with replay: true (session.py snapshot()). */
+const replayOf = (id: string): Incoming => ev('lesson.ready', { ...(ready(id).payload as object), replay: true })
 
 /** What an engine with a kept lesson sends on connect (its snapshot). */
 const OLD_SNAPSHOT: Incoming[] = [
-  ready('old'),
+  replayOf('old'),
   ev('step.started', { stepId: 's3', index: 2, title: 'Three', instructions: 'Type it' }),
   ev('check.updated', { stepId: 's3', checkId: 'c1', label: 'Runs', status: 'pending' }),
   ev('card', { kind: 'resume', title: 'Continue where you left off?', body: 'Lesson old · step 3', actions: ['resume', 'end_lesson'] }),
   ev('card', { kind: 'step', stepId: 's3', title: 'Save calc.py', body: 'Save it' }),
+  ev('card', { kind: 'preflight', title: 'What this video is', body: 'Build it?', actions: ['build', 'pick_another'] }),
   ev('status', { state: 'watching' }),
+  ev('status', { state: 'thinking', detail: 'Looking at your code' }),
+  ev('status', { state: 'busy', retryInS: 5 }),
   ev('video.seek', { t: 42, play: true }),
   ev('video.play'),
   ev('spotlight', { rect: { x: 1, y: 2, w: 3, h: 4 }, caption: 'Here' }),
@@ -55,18 +63,23 @@ const OLD_SNAPSHOT: Incoming[] = [
   ev('lesson.updated', { steps: [], complete: true }),
   ev('lesson.building', { message: 'Writing checks', progress: 0.5 })
 ]
+/** What a real engine replays for a kept lesson (no build running: its snapshot never holds lesson.building too). */
+const LESSON_SNAPSHOT = OLD_SNAPSHOT.filter((e) => e.type !== 'lesson.building')
+const HELLO = ev('engine.hello', { version: 't', contract: '2026-11-20', capabilities: ['library.start'], restored: true })
+const LIBRARY = ev('library', { items: [] })
+/** The fake engines' last message: when it arrived, the snapshot before it did too. */
+const ANSWER = ev('card', { kind: 'answer', title: 'Answer', body: 'Because' })
 /** Always passes, lesson or not. */
 const NEUTRAL: Incoming[] = [
-  ev('engine.hello', { version: 't', contract: '2026-11-20', capabilities: ['library.start'], restored: true }),
+  HELLO,
   ev('search.result', { id: 'r1', kind: 'video', title: 'A', meta: '', score: 1, reason: '' }),
   ev('search.done', { total: 1 }),
-  ev('library', { items: [] }),
+  LIBRARY,
   ev('progress', {}),
   ev('health', { items: [], ready: 0, total: 0 }),
   ev('error', { message: 'x' }),
   ev('status', { state: 'idle' }),
-  ev('status', { state: 'thinking' }),
-  ev('card', { kind: 'answer', title: 'Answer', body: 'Because' }),
+  ANSWER,
   ev('diagram', { kind: 'graph', caption: 'Idea', data: { nodes: [], edges: [] } }),
   ev('blocker', { kind: 'network', title: 'Offline' }),
   ev('blocker', { kind: 'editor_closed', clear: true }),
@@ -145,11 +158,29 @@ for (const start of [cmd('learn', { query: 'sin(x)' }), cmd('learn_url', { url: 
   ok(!g.admit(ready('old')), 'ask / explain / list / keys / end: the old lesson is still dropped')
   g.command(cmd('dev.reset'))
   ok(!g.admit(ready('old')), 'dev.reset: a fresh start too')
-  ok(new RunGuard(true).admit(ready('demo')), "DEMO=1 (armed): the scripted run's lesson passes")
 }
 
 {
-  // The wait expires: end_lesson (command or the resume card's action) and a new engine connection.
+  // DEMO=1 (armed): the scripted run's lesson passes, and again after every dev.reset (the mock replays its
+  // scenario's 'connect' segment, mock/engine.ts handle('dev.reset')).
+  const d = new RunGuard(true)
+  ok(d.admit(ready('demo')), "DEMO=1 (armed): the scripted run's lesson passes")
+  d.command(cmd('dev.reset'))
+  ok(d.state().pending && !d.state().lessonId, 'DEMO dev.reset: a lesson is on its way again')
+  ok(d.admit(ready('demo')), "DEMO dev.reset: the scenario's connect lesson passes again")
+  ok(d.admit(ev('step.started', { stepId: 's1', index: 0, title: 'One', instructions: '' })), 'DEMO dev.reset: and its step')
+  d.command(cmd('dev.reset'))
+  ok(d.admit(ready('other')), 'DEMO dev.reset: whatever lesson the scenario plays passes')
+  // MIYAGI_REPLAY_ON_CONNECT=1 (npm run dev:all): the mock replays its scenario on every connection.
+  const r = new RunGuard(true)
+  ok(r.admit(ready('m')), 'replay on connect: the first connect lesson passes')
+  r.admit(ev('lesson.ended', { reason: 'end_lesson' }))
+  r.connected()
+  ok(r.admit(replayOf('m2')), 'replay on connect: a reconnect plays the scenario lesson again')
+}
+
+{
+  // The wait ends on end_lesson (command or the resume card's action).
   for (const stop of [cmd('end_lesson'), cmd('action', { kind: 'end_lesson' })]) {
     const name = stop.type === 'action' ? 'action end_lesson' : 'end_lesson'
     const g = new RunGuard()
@@ -163,21 +194,108 @@ for (const start of [cmd('learn', { query: 'sin(x)' }), cmd('learn_url', { url: 
   g.command(cmd('learn', { query: 'x' }))
   ok(g.admit(ev('search.result', { id: 'r1', kind: 'video', title: 'A', meta: '', score: 1, reason: '' })), 'abandoned search: its rows pass')
   g.connected()
-  ok(!g.state().pending, 'abandoned search: a new connection ends the wait')
-  ok(!g.admit(ready('old')), "abandoned search: the restarted engine's old lesson is dropped")
+  ok(g.state().pending && g.state().carried, 'abandoned search: the wait came over the new connection')
+  for (const e of LESSON_SNAPSHOT) ok(!g.admit(e), `abandoned search: the restarted engine's old ${e.type} is dropped`)
   // A library.start the engine answers with an error, then a restart.
   const h = new RunGuard()
   h.command(cmd('library.start', { id: 'nn' }))
   ok(h.admit(ev('error', { message: 'no such lesson' })), 'library.start error: the error passes')
   h.connected()
-  ok(!h.admit(ready('old')), 'library.start error: the replay after a restart is dropped')
+  ok(!h.admit(replayOf('old')), 'library.start error: the replay after a restart is dropped')
   // The run's own lesson survives a new connection.
   const k = new RunGuard()
   k.command(cmd('learn', { query: 'x' }))
   k.admit(ready('a'))
   k.connected()
-  ok(k.admit(ready('a')) && k.state().lessonId === 'a', "a new connection keeps the run's lesson")
-  ok(!k.admit(ready('b')), 'a new connection admits no other lesson')
+  ok(k.admit(replayOf('a')) && k.state().lessonId === 'a', "a new connection keeps the run's lesson")
+  ok(!k.admit(replayOf('b')), 'a new connection admits no other lesson')
+}
+
+{
+  // A long build survives a dropped socket (sleep / wake, the engine stays up): its snapshot's lesson.building and
+  // its final lesson.ready get in; an old lesson's replay does not.
+  const g = new RunGuard()
+  g.command(cmd('build_lesson', { resultIds: ['r1'] }))
+  ok(g.admit(ev('lesson.building', { message: 'Watching', progress: 0.1 })), 'carried build: building passes before the drop')
+  g.connected()
+  ok(g.state().pending && g.state().carried, 'carried build: still waiting after the reconnect')
+  ok(g.admit(ev('lesson.building', { message: 'Writing checks', progress: 0.6 })), "carried build: the snapshot's lesson.building passes")
+  ok(g.admit(ev('status', { state: 'thinking', detail: 'Building your lesson' })), 'carried build: its thinking passes once the build is back')
+  ok(!g.admit(replayOf('old')), 'carried build: a replay of an old lesson is dropped')
+  ok(!g.admit(ev('step.started', { stepId: 's3', index: 2, title: 'Three', instructions: '' })), 'carried build: an old step is dropped')
+  ok(g.admit(ready('built')), 'carried build: the fresh lesson.ready of the build passes')
+  ok(g.state().lessonId === 'built' && !g.state().pending && !g.state().carried, "carried build: it is the run's lesson")
+  ok(g.admit(ev('step.started', { stepId: 's1', index: 0, title: 'One', instructions: '' })), 'carried build: its step passes')
+  // A failed build after the reconnect ends the wait.
+  const f = new RunGuard()
+  f.command(cmd('learn_url', { url: 'https://youtu.be/x' }))
+  f.connected()
+  ok(f.admit(ev('lesson.building', { message: 'x', progress: 0, failed: true })), 'carried build: the failure passes')
+  ok(!f.state().pending && !f.admit(ready('late')), 'carried build: after the failure nothing is let in')
+  // A start sent on the new connection may be answered with a replay (action resume, or a learn / library.start of
+  // the lesson the engine is already running answers with its snapshot, replay: true).
+  for (const start of [cmd('action', { kind: 'resume' }), cmd('library.start', { id: 'nn' }), cmd('learn', { query: 'build a neural network' })]) {
+    const c = new RunGuard()
+    c.command(cmd('learn', { query: 'x' }))
+    c.connected()
+    ok(!c.admit(replayOf('nn')), `${start.type} after a reconnect: the snapshot replay before it is dropped`)
+    c.command(start)
+    ok(!c.state().carried, `${start.type} after a reconnect: a start on the new connection`)
+    ok(c.admit(replayOf('nn')), `${start.type} after a reconnect: its replay answer passes`)
+  }
+}
+
+{
+  // preflight: an old pick's card at launch is dropped; this run's learn_url / learn gets it; Build starts.
+  const pre = ev('card', { kind: 'preflight', title: 'What this video is', body: 'Build it?', actions: ['build', 'pick_another'] })
+  ok(!new RunGuard().admit(pre), 'preflight: an old pick at launch is dropped')
+  const g = new RunGuard()
+  g.command(cmd('learn_url', { url: 'https://youtu.be/x' }))
+  ok(g.admit(pre), "preflight: this run's learn_url shows it")
+  g.command(cmd('action', { kind: 'build' }))
+  ok(g.state().pending, 'preflight: Build keeps a lesson on its way')
+  ok(g.admit(ready('v')), 'preflight: the built lesson passes')
+}
+
+{
+  // The pill never spins for an old lesson (Michael: "the top is not working"). Feed what passes into a pill the way
+  // core/lesson.ts does (engineState = the last status) and check where it rests.
+  const pill = (g: RunGuard, events: Incoming[]): { state: string; detail?: string } => {
+    let st: { state: string; detail?: string } = { state: 'idle' }
+    for (const e of events) {
+      const out = g.filter(e)
+      if (out?.type === 'status') st = out.payload as { state: string; detail?: string }
+    }
+    return st
+  }
+  const thinking = ev('status', { state: 'thinking', detail: 'Looking at your code' })
+  const watching = ev('status', { state: 'watching' })
+  ok(pill(new RunGuard(), [thinking, watching]).state === 'idle', "launch: an old lesson's thinking then watching leaves the pill idle")
+  ok(pill(new RunGuard(), [watching, thinking]).state === 'idle', "launch: an old lesson's watching then thinking leaves the pill idle")
+  ok(pill(new RunGuard(), [ev('status', { state: 'thinking', detail: 'Checking your work' })]).state === 'idle', "launch: a snapshot ending on thinking leaves the pill idle")
+  ok(pill(new RunGuard(), [ev('status', { state: 'busy', retryInS: 3 }), ev('status', { state: 'passed' })]).state === 'idle', 'launch: busy then passed leaves the pill idle')
+  ok(new RunGuard().filter(watching)?.type === 'status' && (new RunGuard().filter(watching)?.payload as { state: string }).state === 'idle', 'launch: an old watching reaches the windows as idle')
+  // A typed question with no lesson: its spinner shows and ends with its answer.
+  const g = new RunGuard()
+  g.command(cmd('action', { kind: 'ask', text: 'why' }))
+  ok(g.admit(ev('status', { state: 'thinking', detail: 'Writing an answer' })), 'ask: its thinking shows')
+  ok(!g.filter(watching), "ask: an old lesson's watching does not end the learner's spinner")
+  ok(g.admit(ANSWER), 'ask: the answer card passes')
+  ok(!g.state().asking, 'ask: the answer ends the wait')
+  ok(pill(g, [thinking, watching]).state === 'idle', 'ask: afterwards an old thinking then watching leaves the pill idle')
+  const x = new RunGuard()
+  x.command(cmd('action', { kind: 'explain' }))
+  x.admit(ev('error', { message: 'no key' }))
+  ok(!x.state().asking && !x.admit(thinking), 'explain: an error ends the wait, a later old thinking is dropped')
+  const y = new RunGuard()
+  y.command(cmd('action', { kind: 'hint' }))
+  y.connected()
+  ok(!y.admit(thinking), 'a press sent on the old connection: its answer no longer comes, old thinking is dropped')
+  // During the run's own lesson every status passes untouched.
+  const l = new RunGuard()
+  l.command(cmd('learn', { query: 'x' }))
+  l.admit(ready('a'))
+  ok(l.admit(thinking) && l.admit(watching), "run's lesson: thinking and watching pass as sent")
 }
 
 // ---- 2. EngineLink against a fake engine on loopback -----------------------------------------------------------------
@@ -206,7 +324,7 @@ async function linkCheck(): Promise<void> {
   const sendAll = (ws: WebSocket, list: Incoming[]): void => list.forEach((m) => ws.send(JSON.stringify(m)))
   wss.on('connection', (ws) => {
     socket = ws
-    sendAll(ws, [NEUTRAL[0], NEUTRAL[3], ...OLD_SNAPSHOT.map((e) => (e.type === 'lesson.ready' ? ready(kept) : e)), NEUTRAL[9]])
+    sendAll(ws, [HELLO, LIBRARY, ...LESSON_SNAPSHOT.map((e) => (e.type === 'lesson.ready' ? replayOf(kept) : e)), ANSWER])
     ws.on('message', (raw) => {
       const m = JSON.parse(String(raw)) as { type: string }
       if (m.type !== 'learn') return
@@ -226,6 +344,8 @@ async function linkCheck(): Promise<void> {
   ok(!seen.some((e) => e.type === 'card' && (e.payload as { kind: string }).kind !== 'answer'), 'link: no resume or step card at launch')
   ok(!seen.some((e) => e.type === 'status' && (e.payload as { state: string }).state === 'watching'), 'link: no watching status at launch')
   ok(!link.log.some((e) => LESSONY.has(e.type)), 'link: the replay log (ui:ready) holds no old lesson')
+  const working = (list: Incoming[]): boolean => list.some((e) => e.type === 'status' && ['thinking', 'busy'].includes((e.payload as { state: string }).state))
+  ok(!working(seen) && !working(link.log), "link: the old lesson's thinking / busy never reach the pill at launch")
 
   link.send({ type: 'learn', payload: { query: 'sin(x)' } })
   const isNew = (e: Incoming): boolean => e.type === 'lesson.ready' && (e.payload as { lesson: { id: string } }).lesson.id === 'new'
@@ -243,13 +363,15 @@ async function linkCheck(): Promise<void> {
   wss.close()
 
   await offlineCheck(EngineLink)
+  await carriedCheck(EngineLink)
+  await replayEnvCheck(EngineLink)
   await vite.close()
 }
 
 /**
  * Starts sent while the engine is down never leave, so they must not let the next connect's old snapshot in:
  * (a) the launch window (localEngine still starting, no engine yet) and (b) an engine restart (update-engine.sh).
- * (c) A start that went out but was never answered expires on the next connection.
+ * (c) A start that went out but was never answered: after a restart, the snapshot replay of an old lesson stays out.
  */
 async function offlineCheck(EngineLink: typeof import('./engine').EngineLink): Promise<void> {
   // A free loopback port with nothing on it yet.
@@ -266,7 +388,7 @@ async function offlineCheck(EngineLink: typeof import('./engine').EngineLink): P
     wss.on('connection', (ws) => {
       sockets.add(ws)
       ws.on('close', () => sockets.delete(ws))
-      for (const m of [NEUTRAL[0], ...OLD_SNAPSHOT, NEUTRAL[9]]) ws.send(JSON.stringify(m))
+      for (const m of [HELLO, ...LESSON_SNAPSHOT, ANSWER]) ws.send(JSON.stringify(m))
     })
     return wss
   }
@@ -276,7 +398,7 @@ async function offlineCheck(EngineLink: typeof import('./engine').EngineLink): P
   }
 
   // Every event of the old snapshot, matched by value (card / status / diagram / blocker also have neutral forms).
-  const OLD = new Set(OLD_SNAPSHOT.map((e) => JSON.stringify(e)))
+  const OLD = new Set(LESSON_SNAPSHOT.map((e) => JSON.stringify(e)))
   const lessonish = (list: Incoming[]): string[] => list.filter((e) => OLD.has(JSON.stringify(e))).map((e) => e.type)
   const answered = (list: Incoming[]): boolean => list.some((e) => e.type === 'card' && (e.payload as { kind: string }).kind === 'answer')
 
@@ -312,6 +434,83 @@ async function offlineCheck(EngineLink: typeof import('./engine').EngineLink): P
   ok(await until(() => answered(seen), 9000), 'abandoned: the engine came back with its snapshot')
   ok(!lessonish(seen).length, `abandoned: the old lesson stays out after the restart (got ${lessonish(seen).join(', ')})`)
   await down(wss)
+}
+
+/** A free loopback port with nothing on it yet. */
+async function freePort(): Promise<number> {
+  const probe = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise<void>((r) => probe.once('listening', () => r()))
+  const port = (probe.address() as { port: number }).port
+  await new Promise<void>((r) => probe.close(() => r()))
+  return port
+}
+
+/**
+ * A long build survives a dropped socket while the engine stays up (sleep / wake): the new connection's snapshot
+ * (thinking + lesson.building) and the build's final lesson.ready reach the windows.
+ */
+async function carriedCheck(EngineLink: typeof import('./engine').EngineLink): Promise<void> {
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise<void>((r) => wss.once('listening', () => r()))
+  const port = (wss.address() as { port: number }).port
+  let building = false
+  let socket: WebSocket | undefined
+  const building1 = ev('lesson.building', { message: 'Writing checks', progress: 0.6 })
+  wss.on('connection', (ws) => {
+    socket = ws
+    // Like session.py snapshot(): a build in progress replays as status thinking + lesson.building, nothing else.
+    const snap = building ? [ev('status', { state: 'thinking', detail: 'Building your lesson' }), building1] : LESSON_SNAPSHOT
+    for (const m of [HELLO, ...snap, ANSWER]) ws.send(JSON.stringify(m))
+    ws.on('message', (raw) => {
+      if ((JSON.parse(String(raw)) as { type: string }).type !== 'build_lesson') return
+      building = true
+      ws.send(JSON.stringify(ev('lesson.building', { message: 'Watching', progress: 0.1 })))
+    })
+  })
+  const link = new EngineLink(`ws://127.0.0.1:${port}`)
+  const seen: Incoming[] = []
+  link.onEvent((e) => seen.push(e))
+  ok(await until(() => seen.some((e) => e.type === 'card')), 'carried: the engine connected')
+  link.send({ type: 'build_lesson', payload: { resultIds: ['r1'] } })
+  ok(await until(() => seen.some((e) => e.type === 'lesson.building')), 'carried: the build started')
+  seen.length = 0
+  socket?.terminate()
+  ok(await until(() => seen.some((e) => e.type === 'lesson.building'), 6000), "carried: after the reconnect the snapshot's lesson.building reaches the windows")
+  // The build finishes on the new connection (no replay flag: a new lesson).
+  socket?.send(JSON.stringify(ready('built')))
+  ok(await until(() => seen.some((e) => e.type === 'lesson.ready')), "carried: the build's lesson.ready reaches the windows")
+  ok(link.log.some((e) => e.type === 'lesson.ready'), 'carried: and the replay log')
+  for (const ws of wss.clients) ws.terminate()
+  await new Promise<void>((r) => wss.close(() => r()))
+}
+
+/**
+ * MIYAGI_REPLAY_ON_CONNECT=1 (`npm run dev:all`): the mock replays a scenario lesson on every connect, on purpose,
+ * and the dev app shows it. Without it (the shipped app) the same replay stays out.
+ */
+async function replayEnvCheck(EngineLink: typeof import('./engine').EngineLink): Promise<void> {
+  const port = await freePort()
+  const wss = new WebSocketServer({ host: '127.0.0.1', port })
+  await new Promise<void>((r) => wss.once('listening', () => r()))
+  wss.on('connection', (ws) => {
+    for (const m of [HELLO, ready('scenario'), ev('step.started', { stepId: 's1', index: 0, title: 'One', instructions: '' }), ANSWER]) ws.send(JSON.stringify(m))
+  })
+  const before = process.env.MIYAGI_REPLAY_ON_CONNECT
+  process.env.MIYAGI_REPLAY_ON_CONNECT = '1'
+  const dev = new EngineLink(`ws://127.0.0.1:${port}`)
+  if (before === undefined) delete process.env.MIYAGI_REPLAY_ON_CONNECT
+  else process.env.MIYAGI_REPLAY_ON_CONNECT = before
+  const seenDev: Incoming[] = []
+  dev.onEvent((e) => seenDev.push(e))
+  ok(await until(() => seenDev.some((e) => e.type === 'card')), 'dev:all: the mock connected')
+  ok(seenDev.some((e) => e.type === 'lesson.ready') && seenDev.some((e) => e.type === 'step.started'), "dev:all (MIYAGI_REPLAY_ON_CONNECT=1): the scenario's connect lesson shows")
+  const shipped = new EngineLink(`ws://127.0.0.1:${port}`)
+  const seenShipped: Incoming[] = []
+  shipped.onEvent((e) => seenShipped.push(e))
+  ok(await until(() => seenShipped.some((e) => e.type === 'card')), 'shipped: connected')
+  ok(!seenShipped.some((e) => e.type === 'lesson.ready' || e.type === 'step.started'), 'shipped (no env): the same replay stays out')
+  for (const ws of wss.clients) ws.terminate()
+  await new Promise<void>((r) => wss.close(() => r()))
 }
 
 void (async () => {
