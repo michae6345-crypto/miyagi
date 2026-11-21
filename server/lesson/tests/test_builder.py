@@ -1129,7 +1129,9 @@ def test_token_usage_is_recorded_per_model():
     c = cost.start()
     cost.add_tokens("claude-haiku-5-5", 1200, 300)
     cost.add_tokens("claude-haiku-5-5", 800, 200)
-    assert c["tokens"]["claude-haiku-5-5"] == {"input": 2000, "output": 500, "calls": 2}
+    t = c["tokens"]["claude-haiku-5-5"]
+    assert {k: t[k] for k in ("input", "output", "calls")} == {"input": 2000, "output": 500, "calls": 2}
+    assert t["usd"] > 0 and c["cost_usd"] == t["usd"]  # dollars per model (server/lesson/cost.py PRICES)
 
 
 # ---- spend guard + lazy parts -----------------------------------------------------------
