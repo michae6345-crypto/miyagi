@@ -35,8 +35,12 @@ export const screenOut: Transition = { duration: duration.fast, ease: ease.out }
 export const layerOut: Transition = { duration: 0.22, delay: 0.1, ease: ease.out }
 /** Setup again (reopenFlow): the flow's paper fading in over home, its screen arriving a beat later. */
 export const layerIn: Transition = { duration: duration.slow, ease: ease.out }
-/** The sidebar sliding in from the window's left edge (its own width, on the house spring). */
-export const sidebarIn: Transition = { x: { ...spring, delay: 0.04 }, opacity: { duration: duration.base, ease: ease.out } }
+/**
+ * The sidebar sliding in from the window's left edge (its own width, on the house spring). Its fade (reduced motion
+ * only: there it fades instead of sliding) waits until screenOut is over and runs with the paper's own fade (layerOut),
+ * so the sidebar is never drawn beside a You're ready that is still fading out.
+ */
+export const sidebarIn: Transition = { x: { ...spring, delay: 0.04 }, opacity: { duration: 0.22, delay: duration.fast, ease: ease.out } }
 /** Home's content arriving once the flow's screen is gone (its cards then rise one after another: library/motion.tsx). */
 export const homeIn: Transition = { opacity: { duration: duration.slow, delay: 0.14, ease: ease.out }, y: { ...spring, delay: 0.14 } }
 /** The sidebar's wordmark writing in once the bonsai has landed beside it (flow/SidebarBrand.tsx). */

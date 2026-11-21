@@ -12,7 +12,7 @@ import type { ReactNode } from 'react'
 import { VOICE_ENABLED } from '../../../../../common/flags'
 import { useLesson } from '../../../core/lesson'
 import { setPrefs, usePrefs, type Appearance } from '../../../core/prefs'
-import { openSetup } from '../../shell/flow/store'
+import { openOnboarding } from '../../../core/surfaces'
 import { QuietButton, Segmented, StatusGlyph, Toggle } from '../../../core/ui/atoms'
 import { color, copy, type2 } from '../../../core/theme'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
@@ -66,7 +66,7 @@ export function General({ live }: { live: boolean }): ReactNode {
           icon={Wrench}
           label={`Set up ${copy.name}`}
           caption="Check permissions and VS Code again."
-          right={<QuietButton label="Open setup" onClick={openSetup} />}
+          right={<QuietButton label="Open setup" onClick={() => void openOnboarding()} />}
         />
       </Group>
     </>

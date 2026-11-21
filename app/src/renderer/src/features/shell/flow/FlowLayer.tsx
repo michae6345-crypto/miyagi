@@ -2,7 +2,8 @@
  * Feature: shell / flow. The first run as one full-window layer inside the home window (route `library`), over the
  * sidebar, from the intro to the moment home slides in (store.ts phases):
  *
- *   top      the slim step strip (Strip.tsx) with the bonsai's slot; "Set up later" at the right during setup. Below
+ *   top      the slim step strip (Strip.tsx) with the bonsai's slot; "Set up later" at the right during setup and on
+ *            Review setup (whose Start stays off while something is left, so it is never a dead end). Below
  *            COMPACT_W (the window's minimum is 560) the strip shows only the current step's label, the others as
  *            ticks and dots, so it never runs into "Set up later".
  *   body     intro (the whole window) → Sign in → guided setup → You're ready (or Review setup when something the
@@ -131,7 +132,8 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
                 <Keycap k="dismiss" size="sm" />
               </motion.button>
             ) : (
-              phase === 'setup' && (
+              // Review setup too: its Start waits on something left (VS Code skipped, say), so this is its way home.
+              (phase === 'setup' || (phase === 'ready' && !sum.canStart)) && (
                 <motion.button
                   key="later"
                   type="button"

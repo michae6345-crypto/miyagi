@@ -27,7 +27,7 @@
  */
 import { create } from 'zustand'
 import { bridge, isElectron } from '../../../bridge'
-import { openOnboarding, setSetupOpener } from '../../../core/surfaces'
+import { setSetupOpener } from '../../../core/surfaces'
 import { markDone, markIntroSeen, useOnboarding, type GuidedStepId } from '../../onboarding/store'
 import { stageFlowStep } from '../../onboarding/web'
 import { ARRIVE_MS } from './motion'
@@ -194,12 +194,6 @@ export function leaveAgain(done = false): void {
   set({ phase: 'leaving' })
   clearTimeout(arriveTimer)
   arriveTimer = setTimeout(() => set({ phase: 'off', again: false }), ARRIVE_MS)
-}
-
-/** Finish setup / Open setup: in the home window, the flow over home; from anywhere else, the home window opens on it. */
-export function openSetup(): void {
-  if (started) requestSetup()
-  else void openOnboarding()
 }
 
 // Remember the guided step on screen (main writes it to onboarding.json) while the flow runs, so a relaunch for
