@@ -191,10 +191,6 @@ export class EngineLink {
     for (const l of this.listeners) l(e)
   }
 
-  /**
-   * Secrets (the engine token header, the install token in config.keys) only to a loopback or wss: engine. Warns once
-   * when one is held back, naming neither the value nor the URL's credentials.
-   */
   /** A `cloud.token_invalid` frame: run the hooks (main only: not logged, not relayed, not replayed). */
   private cloudTokenInvalid(text: string): boolean {
     if (!text.includes('cloud.token_invalid')) return false
@@ -207,6 +203,10 @@ export class EngineLink {
     return true
   }
 
+  /**
+   * Secrets (the engine token header, the install token in config.keys) only to a loopback or wss: engine. Warns once
+   * when one is held back, naming neither the value nor the URL's credentials.
+   */
   private allowSecrets(): boolean {
     if (this.secure) return true
     if (!this.warnedInsecure) {

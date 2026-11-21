@@ -722,8 +722,8 @@ class LessonEnded(_Model):
     reason: str
 
 
+CloudState = Literal["ok", "missing", "paused", "quota", "unauthorized", "offline", "off"]  # v2: missing = a proxy but no token yet; off = no proxy (BYOK or the engine's .env)
 KeyState = Literal["ok", "missing", "invalid", "env"]  # "env" = falling back to the engine's .env
-CloudState = Literal["ok", "paused", "quota", "unauthorized", "offline", "off"]  # v2: off = no token / no proxy configured
 
 
 # ---------- v2 events (BUILD-PLAN W0-1) ----------
@@ -818,6 +818,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "metric": Metric,
     "status": Status,
     "error": Error,
+    "cloud.token_invalid": CloudTokenInvalid,
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
@@ -830,16 +831,15 @@ ENGINE_EVENTS: dict[str, Any] = {
     "library": Library,
     "library.item": LibraryItemEvent,
     "progress": ProgressEvent,
-    "cloud.token_invalid": CloudTokenInvalid,
 }
 
 EngineEventType = Literal[
+    "cloud.token_invalid",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
     "screen.avoid",
     "engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item", "progress",
-    "cloud.token_invalid",
 ]
 
 

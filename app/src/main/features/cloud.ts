@@ -15,7 +15,8 @@
  *   5. Self-heal: when the proxy no longer knows the token (a 401, e.g. its database was reset) the engine sends
  *      `cloud.token_invalid` (EngineLink.onCloudTokenInvalid). The token is dropped (memory and install.bin) and one new
  *      one is minted, then handed to the engine as in 4. At most one heal per HEAL_MS (a failed mint counts too; a
- *      fresh token that is rejected again waits for the window to end), so it never loops. A disabled install (403)
+ *      fresh token that is rejected again waits for the window to end), so it never loops. A config.status with cloud
+ *      "ok" cancels a heal still waiting (a late token_invalid about the token just replaced). A disabled install (403)
  *      sends no token_invalid: config.status.cloud says "unauthorized" and onboarding shows it.
  *
  * Handles: cloud:get → CloudView (no token), cloud:retry → CloudView. Broadcasts feat:cloud CloudView.
@@ -63,22 +64,37 @@ export function cloudUrl(raw = process.env.MIYAGI_CLOUD_URL): string | undefined
 /** What the engine gets as config.keys.miyagiCloud: the proxy's API root (server/config.py cloud_url()). */
 export const cloudApiRoot = (host: string): string => `${host}/v1`
 
-export type Healer = { invalid(): void; dispose(): void }
+export type Healer = { invalid(): void; cancel(): void; dispose(): void }
+export type HealerOptions = {
+  windowMs?: number
+  now?: () => number
+  /** Run `fn` after `ms`; returns what cancels it. Default: an unref'd setTimeout. */
+  schedule?: (fn: () => void, ms: number) => () => void
+}
+
+const timeout = (fn: () => void, ms: number): (() => void) => {
+  const t = setTimeout(fn, ms)
+  t.unref?.()
+  return () => clearTimeout(t)
+}
 
 /**
  * The self-heal's backoff, apart from the mint (so it runs without Electron). invalid(): the engine said
  * cloud.token_invalid. It heals at once unless a heal started less than `windowMs` ago (whatever came of it); then a
  * single heal waits for the window to end, so a fresh token the proxy rejects too never mints again sooner. Every
- * invalid() while a heal runs or waits is absorbed.
+ * invalid() while a heal runs or waits is absorbed. cancel(): drop a waiting heal. features/cloud.ts calls it when a
+ * config.status with cloud "ok" arrives: the engine took a token it accepts, so a token_invalid that landed late (about
+ * the token a heal just replaced, e.g. answering a reconnect's config.keys) must not throw the new one away.
  */
-export function createHealer(heal: () => Promise<void>, opts: { windowMs?: number; now?: () => number } = {}): Healer {
+export function createHealer(heal: () => Promise<void>, opts: HealerOptions = {}): Healer {
   const windowMs = opts.windowMs ?? HEAL_MS
   const now = opts.now ?? Date.now
+  const schedule = opts.schedule ?? timeout
   let last: number | undefined
   let running = false
-  let timer: ReturnType<typeof setTimeout> | undefined
+  let waiting: (() => void) | undefined
   const run = (): void => {
-    timer = undefined
+    waiting = undefined
     last = now()
     running = true
     heal()
@@ -87,18 +103,19 @@ export function createHealer(heal: () => Promise<void>, opts: { windowMs?: numbe
         running = false
       })
   }
+  const cancel = (): void => {
+    waiting?.()
+    waiting = undefined
+  }
   return {
     invalid() {
-      if (running || timer) return
+      if (running || waiting) return
       const wait = last === undefined ? 0 : last + windowMs - now()
       if (wait <= 0) return run()
-      timer = setTimeout(run, wait)
-      timer.unref?.()
+      waiting = schedule(run, wait)
     },
-    dispose() {
-      if (timer) clearTimeout(timer)
-      timer = undefined
-    }
+    cancel,
+    dispose: cancel
   }
 }
 
@@ -199,6 +216,10 @@ export default defineMainFeature({
     }
     const healer = createHealer(heal)
     ctx.engine.onCloudTokenInvalid(() => healer.invalid())
+    // The engine answers each config.keys with config.status; cloud "ok" means it holds a token the proxy accepts.
+    ctx.engine.onEvent((e) => {
+      if (e.type === 'config.status' && e.payload.cloud === 'ok') healer.cancel()
+    })
 
     apply()
     void mint()
