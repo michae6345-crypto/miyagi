@@ -14,6 +14,11 @@
  *   player:hide    the lesson is gone (the player window's lesson became null): hide the window
  *   player:setup   (on: boolean) a setup card is waiting (from the overlay, where the cards live): relayed to every
  *                  window as feat:player:setup, so the player holds the video until setup is done or skipped
+ *   player:visible → boolean: is the player window on screen now
+ *
+ * Broadcasts feat:player:visible (boolean) whenever the window shows, hides, minimizes or restores. The renderer plays
+ * only while it's true (features/player/policy.ts): a window created with show:false reports
+ * document.visibilityState 'visible' anyway, so the page can't tell on its own (Michael, Nov 21: audio from a hidden player).
  *
  * Hidden again on lesson.ended (except reason "interrupted": an engine deploy that comes back with the same lesson).
  *
@@ -106,16 +111,37 @@ export default defineMainFeature({
     win.on('moved', save)
     win.on('resized', save)
 
+    // On screen or not, for the renderer's play gate. Re-told a beat after a reveal: showInactive() can be held until
+    // the first paint, and a 'show' event isn't promised for it on every platform.
+    const shown = (): boolean => !win.isDestroyed() && win.isVisible() && !win.isMinimized()
+    let told: boolean | undefined
+    const tell = (): void => {
+      const now = shown()
+      if (now === told) return
+      told = now
+      ctx.broadcast('player:visible', now)
+    }
+    win.on('show', tell)
+    win.on('hide', tell)
+    win.on('minimize', tell)
+    win.on('restore', tell)
+    win.on('ready-to-show', tell)
+    ctx.handle('player:visible', () => shown())
+
     const reveal = (): void => {
       if (win.isDestroyed() || win.isVisible()) return
       win.showInactive()
       ctx.raise(win, -1)
+      tell()
+      setTimeout(tell, 300)
+      setTimeout(tell, 1200)
     }
     // "Just teach me" (lesson.mode "lesson") has no video: never open or show the player for it (Michael, Sat 3:23 PM).
     const textLesson = (e: { type: string; payload?: unknown }): boolean =>
       e.type === 'lesson.ready' && (e.payload as { lesson?: { mode?: string } } | undefined)?.lesson?.mode === 'lesson'
     const hide = (): void => {
       if (!win.isDestroyed() && win.isVisible()) win.hide()
+      tell()
     }
     let readyAt = 0
     ctx.engine.onEvent((e) => {
