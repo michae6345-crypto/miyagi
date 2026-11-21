@@ -1,17 +1,22 @@
 /**
- * Feature: settings. Privacy (Set-Privacy), the honest subset (BUILD-PLAN Section 6):
- *   - what leaves this Mac, said plainly: screenshots and code go to the AI provider during lessons;
+ * Feature: settings. Privacy (Set-Privacy), the honest subset (BUILD-PLAN Section 6, ROADMAP 5.4):
+ *   - "What miyagi sees" (privacy/Sees.tsx): every source from privacy/facts.ts, the one list web/privacy.md quotes,
+ *     each with "On this Mac" or where it goes;
+ *   - Privacy policy opens https://miyagi.study/privacy through the existing external-link path (auth openLegal);
  *   - the Lesson progress sync and Anonymous usage counts switches are HIDDEN (nothing syncs or counts this push);
  *   - "See what was sent" is hidden (the privacy log is deferred);
  *   - "Share crash reports and usage" (prefs.shareTelemetry, ROADMAP 1.6 / 1.7): off by default for everyone, applies at
  *     once. On (and only once the login gate is open): main/features/telemetry.ts sends crash kinds and lesson counts
  *     (numbers and enums only, a crash is just {kind, app_version}) to miyagi-cloud POST /v1/events; the error text
  *     never leaves this Mac.
- *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin) and
- *     the preferences. It says "on this Mac" because that is all it can reach.
+ *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin), the
+ *     sign-in (main removes auth.bin, login.json and cloud-link.json, then auth:sign-out, awaited, forgets the
+ *     session and revokes it) and the preferences. privacy/erase.ts picks the step: a sign-out that fails is "partial", never "Deleted".
+ *     It says "on this Mac" because that is all it can reach; lesson folders in ~/miyagi stay (the learner's own
+ *     work, kept by the engine) and the confirm says so.
  */
 import { motion } from 'motion/react'
-import { Activity, Camera, CodeXml, KeyRound } from 'lucide-react'
+import { Activity } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_PREFS } from '../../../../../common/prefs'
 import { bridge } from '../../../bridge'
@@ -19,11 +24,16 @@ import { setPrefs, usePrefs } from '../../../core/prefs'
 import { PrimaryButtonV2, QuietButton, Toggle } from '../../../core/ui/atoms'
 import { color, type2 } from '../../../core/theme'
 import { pressMotion } from '../../../core/ui/motion'
+import { openLegal, useAuth } from '../../auth/store'
 import { stage } from '../env'
-import type { DeleteResult, KeysView } from '../keys'
-import { Group, OnWord, PageHeader, Plain, Row } from '../ui'
+import type { KeysView } from '../keys'
+import { eraseData } from '../privacy/erase'
+import { DELETE, POLICY_LINE } from '../privacy/facts'
+import { Sees } from '../privacy/Sees'
+import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
 
-type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'failed'
+/** partial: keys and settings went, but a sign-in file could not be removed (main says signIn: false). */
+type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'partial' | 'failed'
 
 export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v: KeysView) => void }): ReactNode {
   const [step, setStep] = useState<Step>(stage.confirm === 'delete' ? 'confirm' : 'idle')
@@ -37,15 +47,15 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
   const erase = async (): Promise<void> => {
     if (step !== 'confirm') return
     setStep('deleting')
-    try {
-      const r = await bridge.invoke<DeleteResult>('settings:delete')
-      if (!r?.ok) throw new Error('not deleted')
-      onDeleted(r.keys)
+    // privacy/erase.ts: delete the files, then await auth:sign-out (main's auth feature owns the session in memory).
+    // A sign-out that fails or doesn't answer true shows "partial": auth.ts would still hold the session.
+    const r = await eraseData((channel) => bridge.invoke<unknown>(channel))
+    if (r.deleted) {
+      onDeleted(r.deleted.keys)
       setPrefs({ ...DEFAULT_PREFS })
-      setStep('done')
-    } catch {
-      setStep('failed')
     }
+    if (r.signedOut) useAuth.setState({ user: null })
+    setStep(r.step)
   }
 
   // Esc backs out of the confirm before it closes the sheet. Window capture phase, because focus is usually
@@ -64,19 +74,9 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
 
   return (
     <>
-      <PageHeader title="Privacy" caption="What leaves your Mac, and when." />
+      <PageHeader title="Privacy" caption="What miyagi sees, and where it goes." />
 
-      <Group label="What leaves your Mac" inset={64}>
-        <Row minH={64} icon={Camera} label="Screenshots" caption="Sent to the AI provider during a lesson, to follow your step." right={<Plain>Lessons only</Plain>} />
-        <Row minH={64} icon={CodeXml} label="Your code and text" caption="Sent to the AI provider when miyagi checks or helps." right={<Plain>Lessons only</Plain>} />
-        <Row
-          minH={64}
-          icon={KeyRound}
-          label="Your API keys"
-          caption={secure === false ? 'Kept in memory for this run, sent only to their provider.' : 'Kept in your Mac’s Keychain, sent only to their provider.'}
-          right={<Plain>On this Mac</Plain>}
-        />
-      </Group>
+      <Sees secure={secure} />
 
       <Group label="Help improve miyagi">
         <Row
@@ -89,18 +89,19 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
       </Group>
 
       <Group label="Your data">
+        <Row minH={64} label="Privacy policy" caption={POLICY_LINE} right={<TextButton label="Open" onClick={() => openLegal('privacy')} />} />
         {step === 'confirm' || step === 'deleting' ? (
           <Row
             minH={64}
-            label="Delete everything on this Mac?"
-            caption="Your keys and settings. Cannot be undone."
+            label={DELETE.confirmLabel}
+            caption={DELETE.confirm}
             right={
               // The safe choice is the default: Cancel is the white primary and takes focus; Delete is only an outline.
               <div className="flex shrink-0 items-center gap-[8px]">
                 {step === 'deleting' ? (
                   <QuietButton label="Deleting" busy disabled onClick={() => undefined} />
                 ) : (
-                  <OutlineButton label="Delete" aria="Delete everything on this Mac" onClick={() => void erase()} />
+                  <OutlineButton label="Delete" aria={DELETE.confirmLabel} onClick={() => void erase()} />
                 )}
                 <span ref={cancelBox} className="contents">
                   <PrimaryButtonV2 label="Cancel" onClick={() => setStep('idle')} disabled={step === 'deleting'} keyName="dismiss" />
@@ -113,10 +114,10 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
             minH={64}
             label="Delete my data"
             caption={
-              step === 'failed' ? (
-                <span style={{ color: color.text }}>Couldn’t delete. Nothing was removed.</span>
+              step === 'failed' || step === 'partial' ? (
+                <span style={{ color: color.text }}>{step === 'failed' ? DELETE.failed : DELETE.partial}</span>
               ) : (
-                'Erases your keys and settings on this Mac. Cannot be undone.'
+                DELETE.row
               )
             }
             right={step === 'done' ? <OnWord>Deleted from this Mac</OnWord> : <OutlineButton label="Delete" onClick={() => setStep('confirm')} />}
