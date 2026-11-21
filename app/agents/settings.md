@@ -110,3 +110,21 @@ The overlay window is not focusable, so Settings is its own window. Every `ctx.c
 - **Stage:** the sheet is a stage window at z 20 (above the launcher). In `full`, the engine's .env answers (`env` everywhere), so first run doesn't open.
 - **Mac checklist:** first-run open takes focus (or at least a click into a field works); Keychain prompt on first save, if any; keys.bin survives a restart and the dots come back white; blur closes it; focus returns to the editor; the sheet sits on the pill's exact pixels (pillTop 40).
 - **Shots script** (headless Chrome over CDP, screencast frame strips): `side-session-notes/…/settings-shots-cdp.mjs`.
+
+## Round 3 (surfaces lane, michael/app-surfaces-feel)
+
+**Landed**
+- Chrome: the three window lights like every other miyagi window (close live, ✕ on hover/focus, minimize/zoom drawn inactive) and the app window surface (`surface.window` + hairline) fading in over the island's black as the sheet grows (and out as it lands back on the pill). Neutral focus rings (no browser blue).
+- Sections: a vertical tablist. ↑ / ↓ / Home / End switch sections; the highlight slides on the house spring (`layoutId`); focus starts on the active section; Tab wraps inside the sheet (`aria-modal`). Section content crossfades (opacity only with reduced motion).
+- Your own key: one name everywhere (`words.ts` `OWN_KEY`), copy that matches this build (no "our cloud covers it"), status in words under each provider ("Works", "Saved", "Using miyagi's key", "Not set", "Not yet. Check the key.") instead of bare dots, Test disabled until a key is stored, "Saved to Keychain" after Save, the key help is an underlined link with the external glyph.
+- Privacy: values are plain secondary text. Delete confirm: Cancel is the focused white primary (Esc keycap), Delete is an outline.
+- Permissions: names and captions from `words.ts` ("VS Code companion"); the footnote shows only while a row is off and its button is on screen.
+- Shortcuts: read-only until live rebinding ships (`env.canRecord = false`): "Shortcuts work while miyagi is open, in any app."
+
+**Stage:** `?scenario=settings&settings=<section>&size=1440x900&clean` (+ `&perm=accessibility-off`, `&confirm=delete`). Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/surfaces-settings-*.jpg`.
+
+**Core requests (round 3)**
+1. `core/ui/controls` SidebarNav: adopt the tablist + sliding highlight from `Sidebar.tsx` so every sidebar behaves the same.
+2. Status rule for the onboarding lane: granted / running is a neutral check + white word everywhere (Settings already); green stays for passed steps and mastery. Onboarding's green "On / Running / Connected" should follow.
+3. Glossary for every lane (`features/settings/words.ts`): "Your own key" (account menu, upgrade, pricing say "Use your own key", "Use my own key", "Bring your own key"), "VS Code companion".
+4. `copy.appearanceCaption` (core) still says the sheet stays black; it now takes the window surface.

@@ -79,3 +79,18 @@ loaded steps, the island the outline: not this lane's code).
 - Esc closes only our card that is on the island (`visible` in store.ts); the crash card's Esc (and the round close button) only hides it for this launch, so the report is asked about again next launch; only "Don't save" discards it.
 - Reads core/lesson (`blockers`, `paused`, `busy`, `buildFailed`, `localEngine`, `keyStatus`, `hello`) and core prefs; edits no other feature's store.
 - The lane was claimed with the draft PR; the coordination email to Adrian was not sent from this session.
+
+## Round 3 (surfaces lane, michael/app-surfaces-feel)
+
+**Landed**
+- `gate.ts`: the lesson panel follows the link. `wait` (reconnecting, offline, busy): Check my work becomes "Check when miyagi is back" / "Check when back online" / "Check when miyagi is free"; pressed, it queues (spinner, "Queued. It runs when miyagi is back.") and sends `check_step` by itself once the gate is ok. `paused` (engine offline, VS Code closed, onboarding recovery card): the panel body dims to 50 % and is `inert`, its primary disabled with "Paused until miyagi restarts", so the card's action is the only primary. Help tiles wait with it ("Help waits until miyagi is back"; Watch only when the Mac is offline). Captions spring in and out.
+- Esc: an error card on the island counts as open for the panel (drawer `othersOpen`), so one Esc closes only the card. The engine-offline card folds into a persistent `err-stopped` pill line "miyagi stopped responding [Restart]" (Restart brings the card back); the outage is never hidden. Crash card: Esc = Don't save (keycap on that button), confirmed on the pill: "Not saved"; Save says "Report kept on this Mac".
+- Copy: "miyagi" instead of "engine" ("miyagi stopped responding", "Restart miyagi", "miyagi offline"), "Reconnecting to miyagi  try 2 of 5" and "miyagi is busy. Trying again in 18 s" in the body font (mono N of M is the step counter's only), titles without trailing periods, "Your own key" on the limit card. Crash: "Keep a report so you can share it if it happens again? It stays on this Mac.", no duplicate footer, View report is a neutral text button.
+- Cards enter calmly: header, title, body and each block settle in 40 ms apart on the house spring (opacity only with reduced motion). Pill lines fade up.
+
+**Stage:** `?scenario=errors&err=<offline|reconnect|busy|engine-offline|crash>&clean`. Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/surfaces-err-*.jpg`.
+
+**Core requests (round 3)**
+1. `core/bus` dismiss as a stack (card, then window, then panel) instead of every handler on one Esc. The drawer now checks `useErrors.visible`, which covers our cards; account / pricing windows still close together with the panel (account lane).
+2. `core/shortcuts`: the ⌥E / ⌥H / ⌥S / ⌥D keys should respect the gate (today the keys still send while the tiles are disabled). Suggest `triggerShortcut` consults a registered gate.
+3. Onboarding lane: the recovery card should read the same gate copy, and its permission rows should use `features/settings/words.ts` (one name and one caption per permission).

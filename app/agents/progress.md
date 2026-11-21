@@ -66,3 +66,17 @@ Not verified: Electron (`npm run dev`), the window's `data-drag` title bar, `pro
 ## Notes
 - `SHOW_ON_VIDEO` lives in `features/progress/index.tsx` (false).
 - `STAGE_HOLD` (`?hold`) and the `?review` launch check are browser-stage only (`engineMode() === 'inline'`).
+
+## Round 3 (surfaces lane, michael/app-surfaces-feel)
+
+**Landed**
+- `mock/scenarios/progress.json` now answers `progress.get` with the dashboard fixture's full shape (`stageAnchor`, per-day `activity`, per-skill `reps`, `inProgress`, `next`, `settings`) and a review list of mastered skills only (`due: 2`, `when` filled for the reminder card). The window no longer shows "6 of 13 mastered" beside "Not tracked yet".
+- Completion card (features/complete): no confetti; the hero check springs in, then the result, the steps (ticking in one by one), "Skills in <track>" with the mastered skills as chips ("and N more") and Next up settle in 40 ms apart. Opacity only with reduced motion.
+
+**Stage:** `?scenario=progress&window=progress&clean&size=1440x900`, `?scenario=complete&clean&size=1440x900` (press Next step). Shots: `surfaces-progress-window.jpg`, `surfaces-complete.jpg` in `/Users/tripi/sand hacks/miyagi-v2/screens/round3/`.
+
+**Requests to the home lane (features/dashboard owns the Progress window body)**
+1. Hide Today / This week / Rhythm (or one line) when `activity` is null; remove the Goal stepper until daily reps exist; derive reps from passed steps.
+2. Start review: the card's white primary when due > 0, or say why it is off ("Review opens after this lesson"); split Review into "Due now" and "Coming up"; list mastered skills only.
+3. Skill-node tooltips in a portal (they clip under the row); Skills scroller with a bottom fade and padding; Practicing as a half-filled ring, Locked dashed or with a lock glyph, Review due as a neutral "due" chip, not a dot on the green check.
+4. Engine: `review.items` only for mastered skills; `progress.week` / `activity` from passed steps.

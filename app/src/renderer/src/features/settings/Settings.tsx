@@ -220,7 +220,8 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="absolute left-1/2 overflow-hidden text-white"
+        // Neutral focus rings (the browser default is blue, and blue is not ours).
+        className="absolute left-1/2 overflow-hidden text-white [&_*:focus-visible]:outline-2 [&_*:focus-visible]:outline-offset-2 [&_*:focus-visible]:outline-white/70"
         style={{ top: bridge.platform.pillTop, x: '-50%', background: color.island, transformOrigin: '50% 0%' }}
         initial={reduce ? faded : { ...shapeOf(from), opacity: 1 }}
         animate={target}
