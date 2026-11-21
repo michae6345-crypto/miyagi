@@ -210,11 +210,13 @@ class SystemStatus:
 
     async def refresh_health(self) -> dict | None:
         """Sample health now (health.get). The snapshot is updated without sending, so the poller doesn't send the
-        same rows again; the caller replies with the returned payload."""
-        h = await self._sample_health()
-        if h is not None:
-            self._snap = {**self._snap, "health": h}
-        return h
+        same rows again; the caller replies with the returned payload. Holds the lock, so a tick() that is sampling
+        health at the same time can't diff its older sample against this newer snapshot."""
+        async with self._lock:
+            h = await self._sample_health()
+            if h is not None:
+                self._snap = {**self._snap, "health": h}
+            return h
 
     async def _sample_network(self) -> None:
         if self._net_probe is None:

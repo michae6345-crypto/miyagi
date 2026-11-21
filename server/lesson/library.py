@@ -14,7 +14,7 @@ symlink that leads out of it). The raw/ drafts are never listed.
 
 Payload rules (BUILD-PLAN section 6): fields are allowlisted, never the graph's `workdir` (an absolute path on
 someone's Mac), never a file path, never a key; `scrub()` is the last pass over every payload this module returns
-(progress.py and health.py use it too). Nothing here is invented: a lesson with no time estimate has no
+(progress.py uses it too). Nothing here is invented: a lesson with no time estimate has no
 `estMinutes`, a source with no channel has no creator.
 
 Pure reads, no model calls, no network. Every function returns an empty result rather than raising on a bad or
@@ -48,7 +48,9 @@ _SECRET_RES = (
     re.compile(r"\bxi-[A-Za-z0-9]{16,}"),
 )
 # an absolute path (Mac / Linux / Windows), a home path, or a file URL
-_PATH_RE = re.compile(r"(?:^|[\s'\"(=])(?:~/|/(?:Users|home|private|tmp|var|Volumes|opt)/|[A-Za-z]:\\|file://)")
+# anywhere it doesn't continue a word, a dotted name or another path (so `/Users/..`, cwd:/Users, [~/x] all count, while
+# https://x.com/Users/a does not: its "/Users" follows "m")
+_PATH_RE = re.compile(r"(?<![\w.\-/])(?:~/|/(?:Users|home|private|tmp|var|Volumes|opt)/|[A-Za-z]:\\|file://)")
 _DROP_KEYS = frozenset({"workdir", "workdir_fp", "path", "abspath", "cwd", "folder", "graphFile", "keys", "token"})
 
 
