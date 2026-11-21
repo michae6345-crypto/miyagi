@@ -79,7 +79,8 @@
       { "wait": 20, "type": "lesson.resumed", "payload": { "reason": "editor_closed", "stepId": "err-3" } }
     ],
     "err_build_failed": [
-      { "wait": 0, "type": "lesson.building", "payload": { "message": "Watching the video", "progress": 0.2, "elapsedS": 12, "stage": "watching", "source": { "kind": "youtube", "title": "Pandas tutorial for beginners, full course", "url": "https://www.youtube.com/watch?v=VIDEO_ID", "durationS": 3600 } } },
+      { "wait": 0, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"], "restored": true } },
+      { "wait": 20, "type": "lesson.building", "payload": { "message": "Watching the video", "progress": 0.2, "elapsedS": 12, "stage": "watching", "source": { "kind": "youtube", "title": "Pandas tutorial for beginners, full course", "url": "https://www.youtube.com/watch?v=VIDEO_ID", "durationS": 3600 } } },
       { "wait": 700, "type": "lesson.building", "payload": { "message": "Watching the video", "progress": 0.2, "failed": true, "failCode": "unreadable_code", "failReason": "The code on screen is too small to read reliably.", "source": { "kind": "youtube", "title": "Pandas tutorial for beginners, full course", "url": "https://www.youtube.com/watch?v=VIDEO_ID" }, "alternatives": [ { "kind": "transcript", "title": "Try transcript only", "meta": "Builds steps from what the teacher says. Checks may be looser.", "url": "https://www.youtube.com/watch?v=VIDEO_ID" }, { "kind": "library", "id": "pandas_csv", "title": "Load and clean a CSV with pandas", "meta": "Jupyter in VS Code, 6 steps" }, { "kind": "library", "id": "mnist_intro", "title": "Code your first neural network with TensorFlow", "meta": "Jupyter in VS Code, 6 steps" } ] } },
       { "wait": 20, "type": "status", "payload": { "state": "idle" } }
     ],
