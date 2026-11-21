@@ -1,6 +1,6 @@
 # errors (A7)
 
-**Status:** fix round 1 done (7 review fixes), typecheck green, stage shots taken (`agents/shots/A7-*.png`). Draft PR #169 into `adrian/shell` · **Priority:** P1 · **Port:** 5192 · **Branch:** `michael/app-errors` (from `michael/app-core-v2`)
+**Status:** fix round 2 done (5 review fixes), typecheck green, stage shots taken (`agents/shots/A7-*.png`; build-failed and editor-closed retaken in round 2). Draft PR #169 into `adrian/shell` · **Priority:** P1 · **Port:** 5192 · **Branch:** `michael/app-errors` (from `michael/app-core-v2`)
 
 ## Goal
 Every way a lesson can stall, said calmly from the island: the engine reconnecting and then offline, the network gone,
@@ -19,7 +19,7 @@ the AI busy, a build that failed, VS Code closed, no kernel, and the crash conse
 | 90 | `err-crash` (440) | "miyagi closed unexpectedly last time." Only with no lesson and no build; a lesson starting hides it (main keeps the report, next launch asks again) | Err-CrashConsent |
 | 72 | `err-engine-offline` (296) | after 5 failed tries: Restart engine (`engine-local:restart`) / Copy details; a Terminal engine gets "Try again" and "Restart it in Terminal" | Err-EngineReconnect 02 |
 | 66 | `err-editor-closed` (352) | `blocker editor_closed` or `lesson.paused editor_closed`: "Your place is saved." Reopen in VS Code (`open_editor`) / End lesson for now; Esc folds it into the pill line | Err-VSCodeClosed |
-| 62 | `err-build-failed` (520) | `lesson.building failed` (not `silent`): source row, reason, Try transcript only (`learn_url {transcriptOnly}`), library rows (`library.start`, only with the capability and a valid id); no transcript alternative = "Find another video" (opens the launcher). The source link stands in for a transcript option only when the engine sent no `alternatives` at all (an older engine) and the failCode is not `no_captions` | Err-LessonBuildFailed |
+| 62 | `err-build-failed` (520) | `lesson.building failed` (not `silent`): source row, reason, Try transcript only (`learn_url {url, transcriptOnly}`) only when `alternatives[]` has an entry of kind `transcript`; library rows (`library.start`, only with the capability and a valid id). No `alternatives` at all (today's engine, which reads no `transcriptOnly` flag) or none of kind `transcript` = "Find another video" only (opens the launcher, never closes it); we never guess a transcript option | Err-LessonBuildFailed |
 | 58 | `err-limit` (336) | `config.status.cloud === 'quota'`, **v2Cloud only**: off in Electron, `&v2Cloud=1` in the stage. See plans (`openAccount('upgrade')`) / Use your own API key (`openSettings('account')`) | Err-OfflineAndLimits |
 | 7 | `err-reconnecting` | "Reconnecting to engine  N of 5" (main's LinkInfo failures + 1), then "Back. Picking up where you were." for 3.5 s | Err-EngineReconnect 01 |
 | 7 | `err-blocker` | "VS Code closed. Lesson paused.  Step 3 of 6", "Opening VS Code", "Back on Build the model"; kernel: "Pick a kernel so your cells can run  [Select Kernel ▷]" | Err-VSCodeClosed, Err-KernelInContext |
@@ -44,25 +44,25 @@ only after the engine was connected once this launch (a first-launch "can't reac
 - **Crash consent says Save, not Send** ("Save a crash report on this Mac? Nothing is sent.", Don't save / Save report, "Always save without asking"): crash upload is deferred and reports are local only (BUILD-PLAN section 1 and 6), so the mockup's "Send report" would not be honest. View report expands the scrubbed text inside the card. The caption is "Saved on this Mac only.", not "Asked once. Change it later in Settings, Privacy.": Settings has no crashReports control yet (Core request 5), and an unanswered card asks again at the next launch.
 - Restart engine and Reopen in VS Code wait at most 20 s: a restart whose link never opens says "Restart did not work. Quit and reopen miyagi.", and an `open_editor` the engine ignores drops "Opening VS Code" and brings the card back.
 - Build-failed card is 520 wide (`pill.maxCardWidth`), not the mockup's 560.
-- Editor-closed: the pill line and the card are one island (the card is the pill grown), so the card's header carries the pill line (ring, "VS Code closed. Lesson paused.", Step N of M, Esc) instead of the bonsai and lesson title. The file chip ("first-neural-net/mnist.ipynb, 3 cells") is left out: no contract field carries it (Core request 1).
+- Editor-closed: the pill line and the card are one island (the card is the pill grown), so the card's header carries the pill line (ring, "VS Code closed. Lesson paused.", Esc; "Step N of M" moves to a mono line under the title so the header never truncates at 352) instead of the bonsai and lesson title. The file chip ("first-neural-net/mnist.ipynb, 3 cells") is left out: no contract field carries it (Core request 1).
 - Limit card: "See plans" and "Free checks reset tomorrow" instead of the mockup's [PLAN NAME] / [RESET TIME] placeholders.
 - Pill lines are 34 high (core `pill.height`; the mockups' 40 is wave 2).
 - Kernel pill line: the chip is a label pointing at the real control (`Select Kernel ▷`), not a button; the card footer ("Watching for a kernel to start") is A2's.
 
-## Shots (fix round 1)
+## Shots (fix rounds 1 and 2)
 Stage on 5192, `?scenario=errors&size=1440x900&clean&err=<state>`, taken in headless Chromium over CDP (no windows opened):
 `agents/shots/A7-reconnect.png`, `A7-back.png`, `A7-engine-offline.png`, `A7-engine-offline-external.png` (`&engine-local=external`),
 `A7-offline.png`, `A7-online.png`, `A7-busy.png`, `A7-kernel.png`, `A7-editor-closed.png`, `A7-editor-closed-opening.png` (after Reopen),
-`A7-build-failed.png`, `A7-limit.png` (`&v2Cloud=1`), `A7-crash.png`.
+`A7-build-failed.png` (round 2: with the two library rows), `A7-limit.png` (`&v2Cloud=1`), `A7-crash.png`.
 Seen against the mockups: one white primary per card, ring glyphs with no hue, recovery lines with a white tick, Esc keycaps, copy as specified.
-Gaps seen in the shots: the build-failed card shows no library rows in the stage (the inline mock's hello does not grant
-`library.start`, so the rows are correctly hidden); the editor-closed header truncates "VS Code closed. Lesson paused." next to
-"Step 3 of 6" at 352 wide; the lesson panel on the right says "Step 3 of 3" while the island says "of 6" (the panel counts
+Round 2: `err_build_failed` now sends an `engine.hello` with `library.start` first, so the shot shows both rows under
+"Or start a library lesson"; the editor-closed header is ring + "VS Code closed. Lesson paused." + Esc with no truncation,
+and "Step 3 of 6" is a mono line under the title. Gap still seen: the lesson panel on the right says "Step 3 of 3" while the island says "of 6" (the panel counts
 loaded steps, the island the outline: not this lane's code).
 
 ## Not verified
 - Electron: the crash marker (and its pid check), clipboard, `engine-local:restart`, the 20 s timeouts and `render-process-gone` paths are typechecked only.
-- The library rows on the build-failed card were not seen rendered (see Shots).
+- The busy line's countdown kept out of the live region (`aria-hidden` on the mono count) was not checked with VoiceOver.
 
 ## Core requests
 1. **contract** (Michael): `blocker` / `lesson.paused` for `editor_closed` could carry the file to reopen (`file?: string` relative to the lesson folder, `detail?: string` like "3 cells") for the Err-VSCodeClosed chip and "Opening mnist.ipynb". Until then the card has no chip and the line says "Opening VS Code".
@@ -74,6 +74,7 @@ loaded steps, the island the outline: not this lane's code).
 7. **integrator**: `npm run dev` restarts that kill Electron leave the crash marker, so the next dev launch asks about a "crash". If that's noisy, skip the marker when `!app.isPackaged` (one line in `main/features/errors.ts`), or set crashReports to never on dev Macs.
 
 ## Notes
+- Busy line: the 1 s countdown runs only while `busy.retryInS` is set, and its mono count is `aria-hidden`, so screen readers hear "Busy right now. Retrying in" once, not every second.
 - Esc closes only our card that is on the island (`visible` in store.ts); the crash card's Esc is "Don't save".
 - Reads core/lesson (`blockers`, `paused`, `busy`, `buildFailed`, `localEngine`, `keyStatus`, `hello`) and core prefs; edits no other feature's store.
 - The lane was claimed with the draft PR; the coordination email to Adrian was not sent from this session.
