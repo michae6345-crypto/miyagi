@@ -1079,7 +1079,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                              "your browser yourself.", "output": url})
             return
         if self.workspace is not None:
-            self.workspace.run(["open", url])  # macOS: the default browser
+            if os.name == "nt" and self.workspace.run == self.workspace._spawn:  # Windows has no `open`
+                try:
+                    os.startfile(url)  # the default browser (an https URL only, checked above)
+                except OSError as e:
+                    log.warning("could not open %s: %s", url, e)
+            else:
+                self.workspace.run(["open", url])  # macOS: the default browser
 
     async def _install(self, tool: str, item: dict | None = None) -> None:
         """Install one setup item (the learner pressed Install). One install per tool at a time. Progress goes
@@ -8287,9 +8293,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     @staticmethod
     async def _clipboard(text: str) -> bool:
+        # macOS: pbcopy. Windows has no pbcopy: clip.exe, fed UTF-16LE without a byte-order mark (with one, the mark
+        # lands on the clipboard; UTF-8 arrives mangled through the console code page).
+        argv, data = (["clip"], text.encode("utf-16-le")) if os.name == "nt" else (["pbcopy"], text.encode())
         try:
-            proc = await asyncio.create_subprocess_exec("pbcopy", stdin=asyncio.subprocess.PIPE)
-            await proc.communicate(text.encode())
+            proc = await asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.PIPE)
+            await proc.communicate(data)
             return proc.returncode == 0
         except OSError:
             return False
