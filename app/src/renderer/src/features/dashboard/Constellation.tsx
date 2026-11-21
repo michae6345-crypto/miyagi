@@ -132,7 +132,7 @@ function Cluster({ t, dueOf, width }: { t: DashTrack; dueOf: (id: string) => boo
                 data-state={st}
                 data-due={due || undefined}
                 aria-pressed={on}
-                aria-label={`${s.label}: ${STATE_WORD[st]}${due ? ', review due' : ''}`}
+                aria-label={`${s.label.split(String.fromCharCode(96)).join('')}: ${STATE_WORD[st]}${due ? ', review due' : ''}`}
                 onMouseEnter={() => setHover(s.id)}
                 onMouseLeave={() => setHover((h0) => (h0 === s.id ? undefined : h0))}
                 onFocus={() => setHover(s.id)}

@@ -289,9 +289,11 @@ const REP_MARKS = [10, 50, 100, 500]
 
 export function milestones(data: DashData | undefined, r: Rhythm, now: number): Milestone[] {
   const list: Milestone[] = []
+  // Step and rep milestones need per-day activity; without it they're left out rather than shown as not reached.
+  const tracked = !!data?.activity
   const days = (data?.activity ?? []).filter((d) => d.reps > 0)
   const firstStep = days[0]
-  list.push({ id: 'first-step', label: 'First step passed', done: !!firstStep, at: firstStep ? keyToMs(firstStep.date) : undefined })
+  if (tracked) list.push({ id: 'first-step', label: 'First step passed', done: !!firstStep, at: firstStep ? keyToMs(firstStep.date) : undefined })
 
   const skills = data?.tracks.flatMap((t) => t.skills) ?? []
   const masteredTimes = skills.filter((s) => s.state === 'mastered').map((s) => s.masteredAt)
@@ -312,7 +314,7 @@ export function milestones(data: DashData | undefined, r: Rhythm, now: number): 
     for (const m of REP_MARKS) if (before < m && sum >= m) crossed[m] = keyToMs(d.date)
   }
   const total = data?.activity ? sum : null
-  for (const m of REP_MARKS) {
+  for (const m of tracked ? REP_MARKS : []) {
     const done = total !== null && total >= m
     list.push({ id: `reps-${m}`, label: `${m} reps`, done, at: crossed[m], toGo: !done && total !== null ? `${m - total} to go` : undefined })
   }
@@ -321,7 +323,7 @@ export function milestones(data: DashData | undefined, r: Rhythm, now: number): 
   const firstReview = passedReviews.map((i) => i.lastAt).filter((x): x is number => x !== undefined).sort((x, y) => x - y)[0]
   list.push({ id: 'first-review', label: 'First review passed', done: passedReviews.length > 0, at: firstReview })
 
-  for (const m of RHYTHM_MARKS) {
+  for (const m of tracked ? RHYTHM_MARKS : []) {
     const at = r.reached[m]
     const done = at !== undefined || r.best >= m
     list.push({ id: `rhythm-${m}`, label: `${m} week rhythm`, done, at: at !== undefined ? Math.min(addDays(at, 6), now) : undefined, toGo: !done && r.weeks > 0 ? `${m - r.weeks} to go` : undefined })

@@ -3,7 +3,8 @@
   "on": {
     "connect": "dash_hello",
     "progress.get": "dash_progress",
-    "library.list": "dash_library"
+    "library.list": "dash_library",
+    "library.start:dash_mnist": "dash_start_mnist"
   },
   "segments": {
     "dash_hello": [
@@ -767,6 +768,31 @@
                 "vscode"
               ],
               "ready": true
+            }
+          ]
+        }
+      }
+    ],
+    "dash_start_mnist": [
+      {
+        "wait": 400,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "tf_mnist",
+            "title": "Code your first neural network with TensorFlow",
+            "sources": [],
+            "complete": true,
+            "builtBy": "curated",
+            "mode": "lesson"
+          },
+          "steps": [
+            {
+              "id": "dm4",
+              "index": 4,
+              "title": "Train it",
+              "kind": "run",
+              "estMinutes": 3
             }
           ]
         }

@@ -91,15 +91,19 @@ function Week({ data, now, goals, r }: { data?: DashData; now: number; goals: Go
 function Grid({ data, now, goals, rested }: { data?: DashData; now: number; goals: Goals; rested: number[] }): ReactNode {
   const grid = weekGrid(data?.activity ?? null, now, goals.daily)
   const restedKeys = new Set(rested.map((t) => new Date(t).toDateString()))
+  const active = grid.flat().filter((d) => d.state === 'active' || d.state === 'closed').length
   return (
-    <div role="img" aria-label="Activity over the last 12 weeks" className="flex gap-[3px]">
-      {grid.map((week, w) => (
-        <div key={w} className="flex flex-col gap-[3px]" title={restedKeys.has(new Date(`${week[0].date}T00:00:00`).toDateString()) ? 'A rest token covered this week' : undefined}>
-          {week.map((d) => (
-            <DayCellBox key={d.date} state={d.state} size={9} title={`${shortDay(new Date(`${d.date}T12:00:00`).getTime())}: ${plural(d.reps, 'rep')}`} />
-          ))}
-        </div>
-      ))}
+    <div role="img" aria-label="Activity over the last 12 weeks, Monday at the top" className="flex items-end gap-[12px]">
+      <div className="flex gap-[2px]">
+        {grid.map((week, w) => (
+          <div key={w} className="flex flex-col gap-[2px]" title={restedKeys.has(new Date(`${week[0].date}T00:00:00`).toDateString()) ? 'A rest token covered this week' : undefined}>
+            {week.map((d) => (
+              <DayCellBox key={d.date} state={d.state} size={7} title={`${shortDay(new Date(`${d.date}T12:00:00`).getTime())}: ${plural(d.reps, 'rep')}`} />
+            ))}
+          </div>
+        ))}
+      </div>
+      <span style={caption}>{plural(active, 'active day')} in 12 weeks</span>
     </div>
   )
 }
@@ -154,13 +158,13 @@ function RhythmTile({ r, goals, tracked, t, mastered, now }: { r: Rhythm; goals:
           </div>
           {choosing ? (
             <div className="flex items-center gap-[4px]" role="group" aria-label="Pause rhythm for">
-              <span className="mr-[2px]" style={caption}>
-                Pause for
+              <span className="mr-[2px] whitespace-nowrap" style={caption}>
+                Weeks off
               </span>
               {[1, 2, 3, 4].map((w) => (
                 <TextButton
                   key={w}
-                  label={`${w} wk`}
+                  label={String(w)}
                   title={`Pause your rhythm for ${plural(w, 'week')}`}
                   onClick={() => {
                     pauseRhythm(w, now)
@@ -184,7 +188,18 @@ function RhythmTile({ r, goals, tracked, t, mastered, now }: { r: Rhythm; goals:
   )
 }
 
-export function Band({ data, now, goals, r, t }: { data?: DashData; now: number; goals: Goals; r: Rhythm; t: Totals }): ReactNode {
+export function Band({ data, now, goals, r, t, loading }: { data?: DashData; now: number; goals: Goals; r: Rhythm; t: Totals; loading?: boolean }): ReactNode {
+  // While the first answer is on its way, no empty-state copy (it would flash "Not tracked yet").
+  if (loading)
+    return (
+      <div data-band="loading" className="grid shrink-0 gap-[12px]" style={{ gridTemplateColumns: '1.15fr 1.3fr 0.8fr 1.1fr' }} aria-busy>
+        {['Today', 'This week', 'Reps', 'Rhythm'].map((l) => (
+          <Tile key={l} label={l}>
+            <div style={{ height: 64 }} />
+          </Tile>
+        ))}
+      </div>
+    )
   const tracked = !!data?.activity
   const mastered = data?.tracks.reduce((n, x) => n + x.mastered, 0) ?? 0
   return (

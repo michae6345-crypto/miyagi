@@ -226,7 +226,7 @@ export function SkillCard({ data, now, route }: { data?: DashData; now: number; 
     <div
       data-skill-card={s.id}
       role="dialog"
-      aria-label={s.label}
+      aria-label={s.label.split(String.fromCharCode(96)).join('')}
       className="absolute z-20 flex flex-col gap-[12px] overflow-y-auto"
       style={{ top: 16, right: 16, width: 300, maxHeight: 'calc(100% - 32px)', padding: 16, borderRadius: radius2.group, background: surface.sheet, boxShadow: `inset 0 0 0 1px ${surface.border}, ${surface.shadow}` }}
     >

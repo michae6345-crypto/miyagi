@@ -39,7 +39,7 @@ function Milestones({ list }: { list: Milestone[] }): ReactNode {
       <h2 className="m-0 shrink-0" style={{ fontSize: type2.sm, fontWeight: 600, color: color.text }}>
         Milestones
       </h2>
-      {!shown.length && !next ? (
+      {!list.length ? null : !shown.length && !next ? (
         <span style={caption}>Your first passed step will show up here.</span>
       ) : (
         <ul className="m-0 flex min-w-0 flex-1 list-none items-center gap-[20px] p-0">
@@ -101,18 +101,22 @@ export function Dashboard({ route }: { route: AppRoute }): ReactNode {
 
   return (
     <div data-dashboard className="flex h-full min-h-0 w-full flex-col gap-[16px]" style={{ padding: '20px 24px 24px', color: color.text }}>
-      <Band data={data} now={now} goals={goals} r={r} t={t} />
+      <Band data={data} now={now} goals={goals} r={r} t={t} loading={load === 'loading'} />
       <div className="grid min-h-0 flex-1 gap-[16px]" style={{ gridTemplateColumns: 'minmax(0, 1fr) 300px' }}>
         <Constellation data={data} review={due} loading={load === 'loading'}>
           <SkillCard data={data} now={now} route={route} />
         </Constellation>
         <div className="flex min-h-0 flex-col gap-[12px] overflow-y-auto" data-rail>
           <Continue items={active} primary={primary} route={route} />
-          <Review data={data} due={due} later={later} now={now} route={route} />
-          <UpNext data={data} primary={primary} route={route} />
+          {load !== 'loading' && (
+            <>
+              <Review data={data} due={due} later={later} now={now} route={route} />
+              <UpNext data={data} primary={primary} route={route} />
+            </>
+          )}
         </div>
       </div>
-      <Milestones list={milestones(data, r, now)} />
+      <Milestones list={load === 'loading' ? [] : milestones(data, r, now)} />
     </div>
   )
 }
