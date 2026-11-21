@@ -8,7 +8,7 @@
  *                     packages already in python/lib/python3.12/site-packages, all precompiled (unchecked-hash)
  *     vscode/         the VS Code companion: <publisher>.<name>-<version>.vsix + companion.json
  *     VERSION         <ref>@<sha> of the engine source
- *     PYTHON.json     what python/ is: version, arch, archive sha256, package count
+ *     PYTHON.json     what python/ is: version, arch, archive sha256, and every package as name==version
  *     install.sh      the old uv installer, kept only as the fallback for a --no-python build
  *
  * electron-builder copies engine/ (minus vscode/) to miyagi.app/Contents/Resources/engine and vscode/ to
@@ -32,7 +32,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -122,6 +122,13 @@ const du = (p) => {
     return execFileSync('du', ['-sh', p], { encoding: 'utf8' }).split('\t')[0]
   } catch {
     return '?'
+  }
+}
+const readText = (p) => {
+  try {
+    return readFileSync(p, 'utf8')
+  } catch {
+    return ''
   }
 }
 const xml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -234,15 +241,59 @@ function prune(pyDir) {
   return removed
 }
 
-/** Can this machine run the bundled interpreter (same arch, or arm64 Mac with Rosetta for x64)? */
+/**
+ * Can this machine run the bundled interpreter (same arch, or arm64 Mac with Rosetta for x64)? -B and
+ * PYTHONDONTWRITEBYTECODE: starting it must not write timestamp .pycs into python/lib (-I ignores the variable, -B
+ * doesn't). The compileall -f below rewrites any that slip in anyway.
+ */
 function runnable(python) {
   if (DRY || process.platform !== 'darwin') return false
   try {
-    execFileSync(python, ['-I', '-c', 'import sys'], { stdio: 'ignore', timeout: 20_000 })
+    execFileSync(python, ['-I', '-B', '-c', 'import sys'], { stdio: 'ignore', timeout: 20_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
     return true
   } catch {
     return false
   }
+}
+
+/**
+ * .pyc files under `dir` whose header flags are 0 (timestamp-checked). electron-builder doesn't keep mtimes, so in
+ * miyagi.app every one of these is stale and a Python started without PYTHONDONTWRITEBYTECODE (a lesson .venv in
+ * VS Code) would rewrite it inside the signed bundle. → relative paths
+ */
+function timestampPycs(dir) {
+  const bad = []
+  const head = Buffer.alloc(8)
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name)
+      if (e.isDirectory() && !e.isSymbolicLink()) walk(p)
+      else if (e.isFile() && e.name.endsWith('.pyc')) {
+        const fd = openSync(p, 'r')
+        try {
+          // PEP 552: bytes 4..7 are the flags word: 0 = timestamp, 1 = unchecked-hash, 3 = checked-hash.
+          if (readSync(fd, head, 0, 8, 0) < 8 || head.readUInt32LE(4) === 0) bad.push(p.slice(dir.length + 1))
+        } finally {
+          closeSync(fd)
+        }
+      }
+    }
+  }
+  walk(dir)
+  return bad
+}
+
+/** Every package in site-packages as name==version, sorted (from each *.dist-info/METADATA). */
+function frozen(site) {
+  const out = []
+  for (const name of readdirSync(site)) {
+    if (!name.endsWith('.dist-info')) continue
+    const meta = readText(join(site, name, 'METADATA'))
+    const field = (k) => meta.match(new RegExp(`^${k}:\\s*(.+)$`, 'mi'))?.[1].trim()
+    const [dn, dv] = name.slice(0, -'.dist-info'.length).split('-')
+    out.push(`${field('Name') ?? dn}==${field('Version') ?? dv}`)
+  }
+  return out.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
 }
 
 async function bundlePython() {
@@ -266,8 +317,9 @@ async function bundlePython() {
   if (canRun) uvArgs.push('--python', python)
   if (OFFLINE) uvArgs.push('--offline')
   say(`installing the engine's packages into python/lib/python${PY_MINOR}/site-packages`)
-  // A throwaway venv context: uv must not pick up this checkout's .venv or a VIRTUAL_ENV from the shell.
-  const uvEnv = { ...process.env, VIRTUAL_ENV: '', UV_NO_CONFIG: '1' }
+  // A throwaway venv context: uv must not pick up this checkout's .venv or a VIRTUAL_ENV from the shell. uv starts the
+  // bundled interpreter to read its tags: it must not leave timestamp .pycs behind either.
+  const uvEnv = { ...process.env, VIRTUAL_ENV: '', UV_NO_CONFIG: '1', PYTHONDONTWRITEBYTECODE: '1' }
   run(uv, uvArgs, { cwd: tmpdir(), env: uvEnv })
 
   if (DRY) {
@@ -284,8 +336,9 @@ async function bundlePython() {
   }
 
   const pyEnv = { ...process.env, PYTHONNOUSERSITE: '1', PYTHONDONTWRITEBYTECODE: '', PYTHONPATH: '' }
-  // unchecked-hash: never re-validated, so Python never tries to rewrite a .pyc inside the signed app.
-  run(python, ['-I', '-m', 'compileall', '-q', '-j', '0', '--invalidation-mode', 'unchecked-hash', join(pyDir, 'lib')], { env: pyEnv, stdio: ['ignore', 'ignore', 'inherit'] })
+  // unchecked-hash: never re-validated, so Python never tries to rewrite a .pyc inside the signed app. -f: rewrite the
+  // timestamp .pycs that starting the interpreter above (runnable, uv) may have left (compileall skips them otherwise).
+  run(python, ['-I', '-m', 'compileall', '-f', '-q', '-j', '0', '--invalidation-mode', 'unchecked-hash', join(pyDir, 'lib')], { env: pyEnv, stdio: ['ignore', 'ignore', 'inherit'] })
   // checked-hash: src/ is copied to ~/miyagi/engine/src (timestamps change), and a hash check stays valid there.
   const srcDirs = ['server', 'shared', 'cli'].map((d) => join(out, 'src', d)).filter((d) => existsSync(d))
   run(python, ['-I', '-m', 'compileall', '-q', '-j', '0', '--invalidation-mode', 'checked-hash', ...srcDirs], { env: pyEnv, stdio: ['ignore', 'ignore', 'inherit'] })
@@ -294,8 +347,8 @@ async function bundlePython() {
   const noKeys = { ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '', BRIGHTDATA_API_KEY: '', TIGER_DATABASE_URL: '', ELEVENLABS_API_KEY: '' }
   const checkEnv = { ...pyEnv, ...noKeys, PYTHONDONTWRITEBYTECODE: '1' }
   try {
-    execFileSync(python, ['-I', '-c', SMOKE], { env: checkEnv, stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 })
-    execFileSync(python, ['-c', 'import server.orchestrator.main'], {
+    execFileSync(python, ['-I', '-B', '-c', SMOKE], { env: checkEnv, stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 })
+    execFileSync(python, ['-B', '-c', 'import server.orchestrator.main'], {
       cwd: join(out, 'src'),
       env: { ...checkEnv, PYTHONPATH: join(out, 'src') },
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -304,6 +357,9 @@ async function bundlePython() {
   } catch (err) {
     die(`the bundled Python can't import the engine:\n${String(err.stderr ?? err).slice(-1500)}`)
   }
+  const stale = timestampPycs(pyDir)
+  if (stale.length) die(`${stale.length} timestamp .pyc files left in python/ (they'd be rewritten inside the signed app), e.g. ${stale.slice(0, 5).join(', ')}`)
+  say('python/: every .pyc is hash-based (0 timestamp .pycs)')
   return { python, ran: true }
 }
 
@@ -393,8 +449,10 @@ if (WITH_PYTHON) {
   py = await bundlePython()
   if (!DRY) {
     const site = join(out, 'python', 'lib', `python${PY_MINOR}`, 'site-packages')
-    const packages = readdirSync(site).filter((n) => n.endsWith('.dist-info')).length
-    const manifest = { python: PY.version, release: PY.release, arch: ARCH, archive: PY_FILE, sha256: PY.sha256[ARCH], packages, precompiled: py.ran, engine: version }
+    // What shipped, exactly: pyproject.toml has only lower bounds (no lock yet, see agents/bundle.md core requests).
+    const freeze = frozen(site)
+    const packages = freeze.length
+    const manifest = { python: PY.version, release: PY.release, arch: ARCH, archive: PY_FILE, sha256: PY.sha256[ARCH], packages, precompiled: py.ran, engine: version, freeze }
     writeFileSync(join(out, 'PYTHON.json'), JSON.stringify(manifest, null, 2) + '\n')
     say(`python ${PY.version} (${ARCH}) with ${packages} packages: ${du(join(out, 'python'))} on disk`)
   }
