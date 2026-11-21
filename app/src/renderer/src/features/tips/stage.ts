@@ -4,6 +4,7 @@
  *   ?scenario=tips                 idle pill: the launcher's tip, then the menu bar item's
  *   ?scenario=tips&tipsDemo=lesson  a lesson panel from the start: Check my work, then Need help
  *   &panel=mini                    (the drawer's own stage switch) collapses it: the Mini tip
+ *   ?scenario=tips&tipsDemo=offline the engine can't be reached: the idle pill says so, and no launcher tip shows
  *   &tips=reset                    forget what was seen (any ?tips turns tips on in another scenario)
  *
  * Stands in for main's menu bar item position (Core request 2: `launch:tray-bounds`) with a spot in the stage
@@ -22,12 +23,12 @@ export const stageTray = !isElectron && tipsEnabled ? { x: STAGE.width - 276, y:
 if (stageTray) registerWebHandler(TRAY_CHANNEL, () => stageTray)
 
 const demo = !isElectron && typeof location !== 'undefined' ? new URLSearchParams(location.search).get('tipsDemo') : null
-if (demo === 'lesson') {
+if (demo === 'lesson' || demo === 'offline') {
   let sent = false
   // After the scenario's idle status: the mock is connected and listening.
   onMessage('status', () => {
     if (sent) return
     sent = true
-    setTimeout(() => bridge.send({ type: 'stage.tips:lesson', payload: {} } as unknown as Outgoing), 200)
+    setTimeout(() => bridge.send({ type: `stage.tips:${demo}`, payload: {} } as unknown as Outgoing), 200)
   })
 }

@@ -3,6 +3,7 @@
   "on": {
     "connect": "tips_connect",
     "stage.tips:lesson": "tips_lesson",
+    "stage.tips:offline": "tips_offline",
     "action:check_step@step_tips": "tips_check1",
     "action:check_step@step_tips_notyet": "tips_check2",
     "action:check_step@step_tips3": "tips_check3",
@@ -10,6 +11,9 @@
     "action:hint@step_tips_notyet": "tips_hint"
   },
   "segments": {
+    "tips_offline": [
+      { "wait": 100, "type": "_link", "payload": { "open": false, "attempting": false, "failures": 5 } }
+    ],
     "tips_connect": [
       {
         "wait": 100,

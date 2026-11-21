@@ -9,12 +9,12 @@ tips turns them all off.
 
 | Tip | Points at | Copy | Shows when |
 |---|---|---|---|
-| check | the panel's Check my work | Press it when you think you're done. miyagi checks your real work. | panel in its Working view |
-| help | the panel's Need help row | Try [Hint] first, then [Show me]. (pastel chips) | first Not yet, or from step 2 on |
+| check | the panel's Check my work | Press it when you think you're done. miyagi checks your real work. | panel docked open, in its Working view |
+| help | the panel's Need help row | Try [Hint] first, then [Show me]. (pastel chips) | panel docked open, first Not yet or from step 2 on, never while a hint is shown |
 | mini | the Mini pill | It keeps your place. Click it to open the panel again. | the panel collapsed to Mini (also counts the pill tip as seen) |
-| pill | the step pill | Click it to open your lesson. | a step is on and the panel is not docked open (video lessons) |
-| launcher | the idle pill | Press [⌥Space] in any app to start a lesson. (keycap from `bridge.platform.keys.launcher`) | no lesson |
-| menubar | the menu bar (taskbar) item | Open it from the menu bar, even with every window closed. | after the launcher tip, idle, and main says where the item is |
+| pill | the step pill | Point at it to see your step. (the pill takes no click; hovering opens the step card) | a step is on, no panel docked open and no video player docked |
+| launcher | the idle pill | Press [⌥Space] in any app to start a lesson. (keycap from `bridge.platform.keys.launcher`) | no lesson, engine reachable |
+| menubar | the menu bar (taskbar) item | Open it from the menu bar, even with every window closed. | after the launcher tip, idle, engine reachable, and main says where the item is |
 
 Calm rules: nothing while first-run setup is open (the overlay asks `onboarding:get` until it says done), the element must hold still 700 ms (no tips mid-animation), nothing in the first 1.5 s (after start-up, or after setup finishes), 1.4 s between two
 tips, nothing while another surface has the floor (a card out of the island, the launcher or Settings borrowing the
@@ -31,8 +31,10 @@ motion: the fade only. The mark reserves its rect (`reserveRect('tips')`) so isl
 `npm run dev:web -- --port 5613 --strictPort`, then:
 - `http://localhost:5613/?scenario=tips&os=mac&size=1440x900&clean&tips=reset`: launcher tip, Got it, then the menu bar tip (a stand-in tree is drawn in the stage menu bar)
 - `...?scenario=tips&tipsDemo=lesson&os=mac&size=1440x900&clean&tips=reset`: Check my work, Got it, then Need help
-- add `&panel=mini`: the Mini tip · `?scenario=player&...&tips=reset`: the step pill tip · `&os=win`: Windows keycaps
-- Esc closes the open "..." menu first, then the tip. **In the stage tips are off unless `?tips` (any value) or
+- add `&panel=mini`: the Mini tip (the Check my work mark leaves as the panel starts to collapse) · `?scenario=player&...&tips=reset`:
+  no pill tip (the player already shows the step) · `&os=win`: Windows keycaps
+- Esc closes the open "..." menu first, then the tip. Opening the menu moves focus to Don't show tips; closing it
+  puts focus back on "...". **In the stage tips are off unless `?tips` (any value) or
   `scenario=tips` is in the URL**, so other lanes' review shots stay clean. Electron: always on.
 
 Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/tips-1-launcher.jpg` to `tips-7-pill.jpg`.
@@ -57,6 +59,8 @@ Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/tips-1-launcher.jpg` to
    while setup is unfinished, so the first tip comes up to 2 s later than it could.
 
 ## Notes
+- Offline: the launcher and menu bar tips read `usePill`'s `offline` (read only). While the idle pill says Can't reach
+  miyagi (or Setting up, Install the engine, Engine didn't start) neither tip shows.
 - Got it is a QuietButton: the element the tip teaches (Check my work) stays the one primary on screen.
 - The "..." menu reserves its rect next to the mark's while open, and a press anywhere else closes it.
 - The tray position is asked for only after the launcher tip is seen, while the island is idle and setup is done; the
