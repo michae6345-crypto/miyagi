@@ -190,7 +190,7 @@ def test_workdir_scan_finds_metrics_and_flags():
 
 
 def test_fixture_is_valid_and_self_scores_perfectly():
-    exp = json.loads((FIX / "toscano_pinn_part1.expected.json").read_text())
+    exp = json.loads((FIX / "toscano_pinn_part1.expected.json").read_text(encoding="utf-8"))
     assert schema_errors(exp) == []
     r = report(exp, exp, {"loss", "test_loss"}, {"pinn_diffusion.py"})
     assert r["steps"]["f1"] == 1.0 and r["checks"]["regex_accepts_solution"] == 1.0 and r["checks"]["lint_problems"] == 0
@@ -273,11 +273,11 @@ def test_community_signals_attach_to_the_right_step(monkeypatch):
 def test_cache_key_tracks_workdir_layout_not_contents(tmp_path):
     a = tmp_path / "proj"
     a.mkdir()
-    (a / "main.py").write_text("print(1)")
+    (a / "main.py").write_text("print(1)", encoding="utf-8")
     k1 = builder.cache_key(URL, "goal", str(a))
-    (a / "main.py").write_text("print(2)  # learner edit")
+    (a / "main.py").write_text("print(2)  # learner edit", encoding="utf-8")
     assert builder.cache_key(URL, "goal", str(a)) == k1
-    (a / "util.py").write_text("")
+    (a / "util.py").write_text("", encoding="utf-8")
     assert builder.cache_key(URL, "goal", str(a)) != k1
 
 
@@ -1145,10 +1145,10 @@ def test_daily_budget_persists_and_blocks_gemini(tmp_path, monkeypatch):
     monkeypatch.setenv("LESSON_GEMINI_DAILY_CAP", "2")
     monkeypatch.setattr(gemini, "_down_until", 0.0)
     assert budget.remaining() == 2 and budget.try_take("a") and budget.try_take("b") and not budget.try_take("c")
-    assert json.loads((tmp_path / "u.json").read_text())["video_calls"] == 2  # survives a restart
+    assert json.loads((tmp_path / "u.json").read_text(encoding="utf-8"))["video_calls"] == 2  # survives a restart
     with pytest.raises(RuntimeError, match="Gemini budget is used up"):  # the real watch_video checks it first
         asyncio.run(gemini.watch_video(URL, "x"))
-    (tmp_path / "u.json").write_text(json.dumps({"date": "2000-01-01", "video_calls": 99}))
+    (tmp_path / "u.json").write_text(json.dumps({"date": "2000-01-01", "video_calls": 99}), encoding="utf-8")
     assert budget.remaining() == 2  # a new day resets it
 
 

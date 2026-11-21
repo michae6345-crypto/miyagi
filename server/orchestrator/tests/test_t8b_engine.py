@@ -62,7 +62,7 @@ def test_hint_on_the_stuck_run_goes_once_the_weights_are_random(tmp_path, monkey
         await advice_clear.follow(rig.s, force=True)  # still zeros: the card stays
         assert not _clears(rig, m)
         p = rig.workdir / "nn.py"
-        p.write_text(p.read_text().replace(ZEROS, RANDOM))
+        p.write_text(p.read_text(encoding="utf-8").replace(ZEROS, RANDOM), encoding="utf-8")
         await rig.s.on_file_change([str(p)])
         await rig.settle()
         await rig.s.on_screen(rig.s.last_obs)  # the next frame
@@ -102,7 +102,7 @@ def test_a_newer_card_or_the_learners_close_is_never_cleared(tmp_path, monkeypat
         assert rig.s._advice_up is None  # the Explain card took the slot
         m = rig.mark()
         p = rig.workdir / "nn.py"
-        p.write_text(p.read_text().replace(ZEROS, RANDOM))
+        p.write_text(p.read_text(encoding="utf-8").replace(ZEROS, RANDOM), encoding="utf-8")
         await rig.s.on_file_change([str(p)])
         await rig.s.on_screen(rig.s.last_obs)
         await rig.settle()
@@ -188,9 +188,9 @@ def test_nothing_to_go_stale_nothing_tracked():
 def test_lesson_settings_turn_off_sticky_scroll_minimap_and_the_startup_terminal(tmp_path, monkeypatch):
     monkeypatch.setattr(core, "VSCODE_A11Y", "off")
     monkeypatch.setattr(core, "_voiceover_on", lambda: False)
-    (tmp_path / "nn.py").write_text("import numpy as np\n")
+    (tmp_path / "nn.py").write_text("import numpy as np\n", encoding="utf-8")
     core._write_vscode_settings(tmp_path)
-    got = json.loads((tmp_path / ".vscode" / "settings.json").read_text())
+    got = json.loads((tmp_path / ".vscode" / "settings.json").read_text(encoding="utf-8"))
     assert got["terminal.integrated.stickyScroll.enabled"] is False
     assert got["editor.minimap.enabled"] is False
     assert got["editor.wordWrap"] == "on"  # the boxes come from the gutter (a number per file line)
@@ -202,7 +202,7 @@ def test_no_word_wrap_while_the_boxes_use_the_accessibility_caret_row(tmp_path, 
     """The AX caret row counts one screen row per file line: a wrapped line above a box would put it a row off."""
     monkeypatch.setattr(core, "VSCODE_A11Y", "auto")
     core._write_vscode_settings(tmp_path)
-    got = json.loads((tmp_path / ".vscode" / "settings.json").read_text())
+    got = json.loads((tmp_path / ".vscode" / "settings.json").read_text(encoding="utf-8"))
     assert "editor.wordWrap" not in got and got["terminal.integrated.stickyScroll.enabled"] is False
 
 
@@ -211,9 +211,9 @@ def test_an_existing_folder_gets_the_new_keys_and_its_own_values_win(tmp_path, m
     monkeypatch.setattr(core, "_voiceover_on", lambda: False)
     p = tmp_path / ".vscode" / "settings.json"
     p.parent.mkdir()
-    p.write_text(json.dumps({"editor.minimap.enabled": True, "editor.fontSize": 17}))
+    p.write_text(json.dumps({"editor.minimap.enabled": True, "editor.fontSize": 17}), encoding="utf-8")
     core._write_vscode_settings(tmp_path)
-    got = json.loads(p.read_text())
+    got = json.loads(p.read_text(encoding="utf-8"))
     assert got["editor.minimap.enabled"] is True and got["editor.fontSize"] == 17
     assert got["terminal.integrated.stickyScroll.enabled"] is False and got["editor.wordWrap"] == "on"
 
@@ -261,16 +261,16 @@ def test_progress_box_is_as_wide_as_its_line_and_a_changed_line_says_change(tmp_
         await _demo_at(rig, 1, text="")
         step = rig.s.step
         p = rig.workdir / "nn.py"
-        p.write_text(p.read_text() + "\n" + step["code"].replace("(1 - h2 ** 2)", "(1 + h2 ** 2)") + "\n")
+        p.write_text(p.read_text(encoding="utf-8") + "\n" + step["code"].replace("(1 - h2 ** 2)", "(1 + h2 ** 2)") + "\n", encoding="utf-8")
         prog = rig.s._code_progress(step)
         assert prog and prog["kind"] == "change"
-        line = p.read_text().splitlines()[prog["line"] - 1]
+        line = p.read_text(encoding="utf-8").splitlines()[prog["line"] - 1]
         monkeypatch.setattr(wsmod, "line_location", lambda path, n: {
             "rect": {"x": 357.7, "y": 423.7, "w": 920.3, "h": 31.2}, "text_x2": 357.7 + 11.9 * len(line)})
         spot = await rig.s._progress_spot(step, prog)
         assert spot["caption"] == "Change this line"
         assert spot["rect"]["w"] == pytest.approx(11.9 * len(line) + box_fit.PAD)
-        nxt = {**prog, "kind": "next", "line": len(p.read_text().splitlines()) + 1}
+        nxt = {**prog, "kind": "next", "line": len(p.read_text(encoding="utf-8").splitlines()) + 1}
         monkeypatch.setattr(wsmod, "line_location", lambda path, n: {
             "rect": {"x": 357.7, "y": 600.0, "w": 920.3, "h": 31.2}})
         spot = await rig.s._progress_spot(step, nxt)
@@ -398,12 +398,12 @@ def _fixture(name: str):
     from server.screen.types import ScreenObservation
 
     fix = ROOT / "server" / "screen" / "fixtures"
-    obs = ScreenObservation.from_dict(json.loads((fix / f"{name}.ocr.json").read_text()))
-    return obs, json.loads((fix / f"{name}.truth.json").read_text())
+    obs = ScreenObservation.from_dict(json.loads((fix / f"{name}.ocr.json").read_text(encoding="utf-8")))
+    return obs, json.loads((fix / f"{name}.truth.json").read_text(encoding="utf-8"))
 
 
 def _src() -> list[str]:
-    return (ROOT / "server" / "screen" / "fixtures" / "editor_src" / "pinn_convection.py.txt").read_text().splitlines()
+    return (ROOT / "server" / "screen" / "fixtures" / "editor_src" / "pinn_convection.py.txt").read_text(encoding="utf-8").splitlines()
 
 
 @pytest.mark.parametrize("name", ["vscode_fullscreen_top", "vscode_fullscreen_scrolled", "cursor_fullscreen_bigfont"])

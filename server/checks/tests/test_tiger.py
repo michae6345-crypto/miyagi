@@ -9,7 +9,7 @@ import pytest
 
 from server.checks.tiger import TigerWriter, main, replay_spool, spool_status, stats
 
-SCHEMA = (Path(__file__).resolve().parents[3] / "shared/contracts/tiger-schema.sql").read_text()
+SCHEMA = (Path(__file__).resolve().parents[3] / "shared/contracts/tiger-schema.sql").read_text(encoding="utf-8")
 
 
 class FakeCopy:
@@ -166,7 +166,7 @@ def test_replay_handles_tut_run_spool_with_run_row(tmp_path):
         json.dumps({"k": "r", "v": {"id": "run_1", "command": "python t.py", "exit_code": 0, "started_at": "2026-11-14T20:00:00+00:00",
                                     "ended_at": "2026-11-14T20:01:00+00:00", "tail": "ok", "source": "learner"}}) + "\n"
         + json.dumps({"k": "m", "v": ["2026-11-14T20:00:30+00:00", "run_1", 5, "loss", float("nan")]}) + "\n"
-        + "not json\n")
+        + "not json\n", encoding="utf-8")
 
     class C(FakeConn):
         def __init__(self):

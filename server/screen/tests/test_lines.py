@@ -20,8 +20,8 @@ FILE = "pinn_demo/pinn_convection.py"
 
 
 def _load(name):
-    obs = ScreenObservation.from_dict(json.loads((FIX / f"{name}.ocr.json").read_text()))
-    truth = json.loads((FIX / f"{name}.truth.json").read_text())
+    obs = ScreenObservation.from_dict(json.loads((FIX / f"{name}.ocr.json").read_text(encoding="utf-8")))
+    truth = json.loads((FIX / f"{name}.truth.json").read_text(encoding="utf-8"))
     return obs, truth
 
 
@@ -121,13 +121,13 @@ def test_anchor_multi_line_uses_first_line():
 def test_anchor_off_screen_resolves_with_file_text():
     obs, _ = _load("cursor_fullscreen_bigfont")
     assert L.locate_anchor(obs, "def pde_residual(").reason == "not_found"
-    loc = L.locate_anchor(obs, "def pde_residual(", file=FILE, file_text=SRC.read_text())
+    loc = L.locate_anchor(obs, "def pde_residual(", file=FILE, file_text=SRC.read_text(encoding="utf-8"))
     assert not loc and loc.line == 48 and loc.direction == "up" and loc.visible_lines == (70, 115)
 
 
 def test_anchor_prefers_the_occurrence_that_is_in_the_file():
     obs, _ = _load("vscode_fullscreen_scrolled")
-    loc = L.locate_anchor(obs, "torch.autograd.grad(u, x", file_text=SRC.read_text())
+    loc = L.locate_anchor(obs, "torch.autograd.grad(u, x", file_text=SRC.read_text(encoding="utf-8"))
     assert loc.line == 52
 
 
@@ -152,7 +152,7 @@ class FakeEditor:
 
 def test_ax_agreeing_keeps_ocr_width_and_takes_ax_y():
     obs, truth = _load("vscode_fullscreen_scrolled")
-    ed = FakeEditor(48, truth["lines"]["48"]["y"] + 1, text=SRC.read_text())
+    ed = FakeEditor(48, truth["lines"]["48"]["y"] + 1, text=SRC.read_text(encoding="utf-8"))
     loc = L.merge_ax(L.locate_line(obs, FILE, 50), ed, "/u/pinn_demo/pinn_convection.py", FILE, 50)
     assert loc.source == "ax+ocr" and loc.rect.w > 1000
     assert loc.rect.y == truth["lines"]["50"]["y"] + 1
@@ -222,7 +222,7 @@ def test_fresh_vision_ocr_agrees_with_the_recording(name):
 def test_reader_api_on_a_fixture(tmp_path):
     from server.screen.reader import ScreenReader
     src = tmp_path / "pinn_convection.py"
-    src.write_text(SRC.read_text())
+    src.write_text(SRC.read_text(encoding="utf-8"), encoding="utf-8")
     r = ScreenReader(fixture=str(FIX / "cursor_fullscreen_bigfont.png"), use_ax=False, use_events=False)
     assert r.locate_line(str(src), 100)
     off = r.locate_anchor("def pde_residual(", file=str(src))

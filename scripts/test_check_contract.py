@@ -117,15 +117,15 @@ class Cli(unittest.TestCase):
     def test_exit_codes(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            (root / "events.ts").write_text(CONTRACT)
+            (root / "events.ts").write_text(CONTRACT, encoding="utf-8")
             for rel, text in APP_FULL.items():
                 p = root / "src" / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(text)
+                p.write_text(text, encoding="utf-8")
             base = ["--contract", str(root / "events.ts"), "--app", str(root / "src"), "--allow", str(root / "none.txt")]
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(cc.main(base), 0)
-                (root / "src" / "wire.ts").write_text("const KNOWN = new Set<string>(['card'])")
+                (root / "src" / "wire.ts").write_text("const KNOWN = new Set<string>(['card'])", encoding="utf-8")
                 self.assertEqual(cc.main(base), 1)
                 self.assertEqual(cc.main(["--contract", str(root / "nope.ts"), "--app", str(root / "src")]), 2)
 

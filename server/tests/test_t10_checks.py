@@ -27,8 +27,8 @@ from server.checks.evaluator import RunContext, evaluate_gate, evaluate_step
 from server.checks.notebook import read_notebook
 
 ROOT = Path(__file__).resolve().parents[2]
-LESSON = json.loads((ROOT / "demo" / "cache" / "lessons" / "5c0ea8a49f419487.json").read_text())
-NOTEBOOK = json.loads((Path(__file__).parent / "fixtures" / "t10_mnist.ipynb").read_text())
+LESSON = json.loads((ROOT / "demo" / "cache" / "lessons" / "5c0ea8a49f419487.json").read_text(encoding="utf-8"))
+NOTEBOOK = json.loads((Path(__file__).parent / "fixtures" / "t10_mnist.ipynb").read_text(encoding="utf-8"))
 PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY",
              "TIGER_DATABASE_URL")
 # the editor scrolled to the top of the notebook (CP14: the screen showed the compile cell, not the plot)
@@ -53,7 +53,7 @@ def notebook(folder: Path, cells: int, edit=None) -> Path:
     if edit:
         edit(nb["cells"])
     p = folder / "mnist.ipynb"
-    p.write_text(json.dumps(nb))
+    p.write_text(json.dumps(nb), encoding="utf-8")
     return p
 
 
@@ -175,7 +175,7 @@ def lesson_s1(tmp_path) -> dict:
     g = copy.deepcopy(LESSON)
     use_lesson_venv(g)
     (tmp_path / ".venv" / "bin").mkdir(parents=True)
-    (tmp_path / ".venv" / "bin" / "activate").write_text("# Miyagi's own .venv\n")
+    (tmp_path / ".venv" / "bin" / "activate").write_text("# Miyagi's own .venv\n", encoding="utf-8")
     return g
 
 
@@ -247,7 +247,7 @@ def test_run_the_cell_step_never_passes_on_typed_code(tmp_path):
     notebook(tmp_path, 1, lambda cells: cells[0].update(outputs=[], execution_count=None))
     st = step("s2")
     st["checks"] = [c for c in st["checks"] if c["type"] != "screen_absent"]  # only code rows: all green
-    (tmp_path / "Untitled.ipynb").write_text((tmp_path / "mnist.ipynb").read_text())  # precision's file too
+    (tmp_path / "Untitled.ipynb").write_text((tmp_path / "mnist.ipynb").read_text(encoding="utf-8"), encoding="utf-8")  # precision's file too
     gate = evaluate_gate(st, RunContext(workdir=str(tmp_path), screen=s2), precision_mode=True)
     assert not gate["passed"], gate
     assert gate["checks"][-1] == {"checkId": "s2-cell", "label": "Cell run", "status": "pending",
@@ -267,7 +267,7 @@ def test_notebook_file_checks_read_the_learners_notebook_never_the_tutorials(tmp
     assert res["s7p1"]["status"] == "pass" and "mnist.ipynb" in res["s7p1"]["detail"], res["s7p1"]
     (tmp_path / "mnist.ipynb").unlink()
     (tmp_path / "tutorial").mkdir()
-    (tmp_path / "tutorial" / "answers.ipynb").write_text(json.dumps(NOTEBOOK))
+    (tmp_path / "tutorial" / "answers.ipynb").write_text(json.dumps(NOTEBOOK), encoding="utf-8")
     from server.checks.notebook import find_notebook
 
     assert find_notebook(tmp_path, ["Untitled.ipynb"]) is None

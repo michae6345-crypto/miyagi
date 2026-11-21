@@ -57,7 +57,7 @@ async def settle(rig: Rig) -> None:
 async def save(rig: Rig, text: str, wait: float = 5.0) -> None:
     rig.clock.t += wait  # past the step's first seconds
     p = rig.workdir / "nn.py"
-    p.write_text(p.read_text() + text if p.exists() else text)
+    p.write_text(p.read_text(encoding="utf-8") + text if p.exists() else text, encoding="utf-8")
     await rig.s.on_file_change([str(p)])
     await settle(rig)
 
@@ -106,7 +106,7 @@ def test_the_whole_demo(rig):
         assert rig.s.step["id"] == "nn2"
         await save(rig, code("nn2"))
         # step 3: Check my work passes it once its code is there
-        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text() + code("nn3"))
+        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text(encoding="utf-8") + code("nn3"), encoding="utf-8")
         rig.clock.t += 2
         await rig.s.action("check_step")
         await settle(rig)
@@ -176,11 +176,11 @@ def test_presenter_next_back_restart(rig):
         assert await stage.back(rig.s)
         await settle(rig)
         assert rig.s.step["id"] == "nn4"
-        (rig.workdir / "nn.py").write_text("junk\n")
+        (rig.workdir / "nn.py").write_text("junk\n", encoding="utf-8")
         assert await stage.restart(rig.s)
         await settle(rig)
         assert rig.s.step["id"] == "nn1" and stage.on(rig.s)
-        assert (rig.workdir / "nn.py").read_text().startswith("# A neural net from scratch")  # clean starter
+        assert (rig.workdir / "nn.py").read_text(encoding="utf-8").startswith("# A neural net from scratch")  # clean starter
     run(go())
 
 
@@ -219,7 +219,7 @@ def test_check_during_a_saves_pass_is_quiet(rig, monkeypatch):
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
         rig.clock.t += 5
-        (rig.workdir / "nn.py").write_text(NN1_ZEROS)
+        (rig.workdir / "nn.py").write_text(NN1_ZEROS, encoding="utf-8")
         await rig.s.on_file_change([str(rig.workdir / "nn.py")])  # the save's pass starts
         await rig.s.action("check_step")  # and Check my work right behind it
         await settle(rig)
@@ -352,7 +352,7 @@ def test_every_demo_start_is_a_fresh_take(tmp_path, monkeypatch):
             assert await stage.next_step(r1.s)
             await settle(r1)
         assert r1.s.step["id"] == "nn4"
-        nn.write_text(_code("nn1", "nn2", "nn3"))
+        nn.write_text(_code("nn1", "nn2", "nn3"), encoding="utf-8")
         res1.save_now()
         await r1.s.end_lesson("interrupted")
         assert store.load() is None  # a Demo take is never saved
@@ -373,12 +373,12 @@ def test_every_demo_start_is_a_fresh_take(tmp_path, monkeypatch):
         await r2.s.learn("anything", mode="demo")
         await settle(r2)
         assert r2.s.step["id"] == "nn1" and stage.on(r2.s)
-        assert nn.read_text() == starter
+        assert nn.read_text(encoding="utf-8") == starter
         assert [p["stepId"] for p in r2.of("step.started")] == ["nn1"]
         assert not [p for p in r2.of("step.started") + r2.of("lesson.ready") if p.get("replay")]
         assert passed(r2) == []
         # the presenter pastes ahead: "next" still goes one step at a time (no "You already did steps 2-3")
-        nn.write_text(_code("nn1", "nn2", "nn3"))
+        nn.write_text(_code("nn1", "nn2", "nn3"), encoding="utf-8")
         assert await stage.next_step(r2.s)
         await settle(r2)
         assert r2.s.step["id"] == "nn2" and passed(r2) == ["nn1"]
@@ -387,14 +387,14 @@ def test_every_demo_start_is_a_fresh_take(tmp_path, monkeypatch):
         # "build a neural network" re-sent as a Demo while the Demo runs: a new take, never "continuing"
         await r2.s.learn(stage.GOAL, mode="demo")
         await settle(r2)
-        assert r2.s.step["id"] == "nn1" and nn.read_text() == starter
+        assert r2.s.step["id"] == "nn1" and nn.read_text(encoding="utf-8") == starter
         # ⌃⌥⌘R mid-take: step 1, clean nn.py
         assert await stage.next_step(r2.s)
         await settle(r2)
-        nn.write_text(_code("nn1", "nn2", "nn3"))
+        nn.write_text(_code("nn1", "nn2", "nn3"), encoding="utf-8")
         assert await stage.restart(r2.s)
         await settle(r2)
-        assert r2.s.step["id"] == "nn1" and stage.on(r2.s) and nn.read_text() == starter
+        assert r2.s.step["id"] == "nn1" and stage.on(r2.s) and nn.read_text(encoding="utf-8") == starter
         assert store.load() is None
 
     run(go())
@@ -417,7 +417,7 @@ def test_just_teach_me_still_continues_after_a_restart_but_never_a_demo(tmp_path
             await r1.s.force_pass()
             await settle(r1)
         assert r1.s.step["id"] == "nn3"
-        nn.write_text(_code("nn1", "nn2"))
+        nn.write_text(_code("nn1", "nn2"), encoding="utf-8")
         res1.save_now()
         await r1.s.end_lesson("interrupted")
         assert (store.load() or {}).get("stepId") == "nn3"
@@ -426,11 +426,11 @@ def test_just_teach_me_still_continues_after_a_restart_but_never_a_demo(tmp_path
         await r2.s.learn(stage.GOAL, mode="lesson")
         await settle(r2)
         assert r2.s.step["id"] == "nn3" and not stage.on(r2.s)
-        assert nn.read_text() == _code("nn1", "nn2")
+        assert nn.read_text(encoding="utf-8") == _code("nn1", "nn2")
         # the Demo from there: a fresh take (step 1, clean nn.py), not the real lesson's step
         await r2.s.learn("anything", mode="demo")
         await settle(r2)
-        assert r2.s.step["id"] == "nn1" and stage.on(r2.s) and nn.read_text() == curated._starter()
+        assert r2.s.step["id"] == "nn1" and stage.on(r2.s) and nn.read_text(encoding="utf-8") == curated._starter()
         # "Just teach me" during a Demo starts the real lesson (step 1), it doesn't continue the Demo
         assert await stage.next_step(r2.s)
         await settle(r2)
@@ -452,7 +452,7 @@ def test_the_planted_sign_bug_is_the_not_yet(rig):
         await save(rig, code("nn2").replace("(1 - h1 ** 2)", "(1 + h1 ** 2)"))
         await save(rig, code("nn3"))
         assert rig.s.step["id"] == "nn4"
-        line = (rig.workdir / "nn.py").read_text().splitlines().index(SIGN_BUG.rstrip(chr(10))) + 1
+        line = (rig.workdir / "nn.py").read_text(encoding="utf-8").splitlines().index(SIGN_BUG.rstrip(chr(10))) + 1
         await rig.s.action("run_command")
         await settle(rig)
         off = rig.of("offtrack")
@@ -556,9 +556,9 @@ def _paste(rig: Rig, code: str) -> None:
     """The drawer's code pasted under the step's line (its type box's `match`)."""
     anchor = next(t["match"] for t in rig.s.step["targets"] if t.get("match"))
     p = rig.workdir / "nn.py"
-    src = p.read_text()
+    src = p.read_text(encoding="utf-8")
     p.write_text(src.replace(anchor, f"{anchor}\n{code}", 1) if anchor in src
-                 else src.rstrip("\n") + f"\n\n{anchor}\n{code}\n")
+                 else src.rstrip("\n") + f"\n\n{anchor}\n{code}\n", encoding="utf-8")
 
 
 def _beats(events: list[dict]) -> list[str]:
@@ -642,7 +642,7 @@ def test_demo_follows_the_locked_nn_flow(flow):
         assert box["zoom"] is True and box["app"] == "Code"
         # the first ▷: the planted bug's run (real NumPy output), the loss row fails, "Wrong sign in tanh slope"
         p = rig.workdir / "nn.py"
-        bug_line = p.read_text().splitlines().index(SIGN_BUG_H2) + 1
+        bug_line = p.read_text(encoding="utf-8").splitlines().index(SIGN_BUG_H2) + 1
         m = rig.mark()
         await rig.click_run()
         ev = rig.since(m)
@@ -667,7 +667,7 @@ def test_demo_follows_the_locked_nn_flow(flow):
             assert hint["kind"] == "hint" and hint["title"] == want, hint
         assert "(1 - h2 ** 2)" in hint["body"]
         # the fix (+ back to -), ▷ again: it learns, 0.8187 -> 0.0009, the panel draws the run's own frames
-        p.write_text(p.read_text().replace("(1 + h2 ** 2)", "(1 - h2 ** 2)"))
+        p.write_text(p.read_text(encoding="utf-8").replace("(1 + h2 ** 2)", "(1 - h2 ** 2)"), encoding="utf-8")
         rig.clock.t += 5
         await rig.s.on_file_change([str(p)])
         await settle(rig)
@@ -705,7 +705,7 @@ def test_demo_follows_the_locked_nn_flow(flow):
         m = rig.mark()
         assert await stage.restart(rig.s)
         await settle(rig)
-        assert rig.s.step["id"] == "nn1" and p.read_text() == curated._starter() and rig.s.awaiting_start
+        assert rig.s.step["id"] == "nn1" and p.read_text(encoding="utf-8") == curated._starter() and rig.s.awaiting_start
         assert _beats(rig.since(m)) == ["sheet", "nn1", "setup"]
     run(go())
 
@@ -776,7 +776,7 @@ class FakeCompanion:
 
 def _paste_unsaved(rig: Rig, bufs: FakeBuffers, text: str) -> None:
     """A paste into VS Code, NOT saved: only the buffer has it."""
-    disk = (rig.workdir / "nn.py").read_text()
+    disk = (rig.workdir / "nn.py").read_text(encoding="utf-8")
     bufs.buf = (bufs.buf if bufs.buf is not None else disk) + text
 
 
@@ -788,7 +788,7 @@ def test_a_paste_passes_without_a_save(rig):
         await settle(rig)
         bufs = FakeBuffers()
         rig.s._buffers = bufs
-        on_disk = (rig.workdir / "nn.py").read_text()
+        on_disk = (rig.workdir / "nn.py").read_text(encoding="utf-8")
         await rig.s.tick()  # nothing pasted yet: nothing passes
         await settle(rig)
         assert passed(rig) == []
@@ -797,7 +797,7 @@ def test_a_paste_passes_without_a_save(rig):
         await rig.s.tick()  # the 1/s tick (the companion's dirty event does the same, ~0.2 s)
         await settle(rig)
         assert passed(rig) == ["nn1"] and rig.s.step["id"] == "nn2"
-        assert (rig.workdir / "nn.py").read_text() == on_disk  # never saved
+        assert (rig.workdir / "nn.py").read_text(encoding="utf-8") == on_disk  # never saved
         from server.orchestrator import quiet_save  # the companion's dirty event: the same pass
         _paste_unsaved(rig, bufs, code("nn2"))
         quiet_save.on_vscode_event(rig.s, {"type": "dirty", "file": str(rig.workdir / "nn.py")})
@@ -837,7 +837,7 @@ def test_a_stray_cue_never_passes_the_next_step(rig):
         # nn2's code saved behind it, but the press is within the cue guard of nn3's start: not for nn3
         await save(rig, code("nn2"))
         assert passed(rig) == ["nn1", "nn2"] and rig.s.step["id"] == "nn3"
-        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text() + code("nn3"))
+        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text(encoding="utf-8") + code("nn3"), encoding="utf-8")
         await rig.s.action("check_step")
         await settle(rig)
         assert rig.s.step["id"] == "nn3"
@@ -872,7 +872,7 @@ def test_a_new_take_resets_vs_codes_open_nn_py(rig, monkeypatch):
         await settle(rig)
         applies = [c for c in comp.calls if c[0] == "apply"]
         assert applies and applies[0][1].endswith("nn.py") and applies[0][2] == starter and applies[0][3] is True
-        assert bufs.buf == starter and (rig.workdir / "nn.py").read_text() == starter
+        assert bufs.buf == starter and (rig.workdir / "nn.py").read_text(encoding="utf-8") == starter
         assert rig.s.step["id"] == "nn1" and passed(rig) == []
         # a new Demo start from the launcher: the same reset
         _paste_unsaved(rig, bufs, code("nn1"))

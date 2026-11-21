@@ -322,7 +322,7 @@ def test_t10_lesson_start_creates_the_notebook_with_the_venv_kernel(rp):
     run(rp.start())
     nb = rp.folder / NB
     assert nb.is_file(), sorted(p.name for p in rp.folder.iterdir())
-    data = json.loads(nb.read_text())
+    data = json.loads(nb.read_text(encoding="utf-8"))
     assert data["nbformat"] == 4 and data["metadata"]["kernelspec"]["display_name"] == ".venv"
     assert [c["cell_type"] for c in data["cells"]] == ["code"] and not data["cells"][0]["source"]
     assert not (rp.folder / "Untitled.ipynb").exists()
@@ -332,7 +332,7 @@ def test_t10_lesson_start_creates_the_notebook_with_the_venv_kernel(rp):
 def test_t10_lesson_start_keeps_the_learners_own_notebook(rp, tmp_path):
     (rp.folder / NB).write_text(_notebook([_cell("print('mine')", None)]), encoding="utf-8")
     run(rp.start())
-    assert "print('mine')" in (rp.folder / NB).read_text()
+    assert "print('mine')" in (rp.folder / NB).read_text(encoding="utf-8")
 
 
 def test_t10_s1_is_the_vscode_kernel_setup_not_a_jupyter_server(rp):

@@ -20,7 +20,7 @@ from server.orchestrator.tests.test_session import rig  # noqa: F401 (fixture)
 from server.preflight import core as pf
 from server.preflight.meta import parse_watch_page
 
-LESSON = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "t9_mnist_video_lesson.json").read_text())
+LESSON = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "t9_mnist_video_lesson.json").read_text(encoding="utf-8"))
 STEPS = {s["id"]: s for s in LESSON["steps"]}
 
 
@@ -93,7 +93,7 @@ def test_captions_never_no_from_a_missing_badge_and_true_when_known(tmp_path, mo
     from server.lesson import transcript
 
     cache = tmp_path / "VPlFpvLOgtQ.json"
-    cache.write_text(json.dumps({"video_id": "VPlFpvLOgtQ", "transcript": [{"start": i, "text": "x"} for i in range(181)]}))
+    cache.write_text(json.dumps({"video_id": "VPlFpvLOgtQ", "transcript": [{"start": i, "text": "x"} for i in range(181)]}), encoding="utf-8")
     monkeypatch.setattr(transcript, "_cache_path", lambda vid: cache if vid == "VPlFpvLOgtQ" else tmp_path / "none.json")
     assert pf._transcript_cached("VPlFpvLOgtQ") and not pf._transcript_cached("other")
 

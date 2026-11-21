@@ -18,10 +18,10 @@ def test_first_file_is_the_lesson_notebook_and_is_made_if_missing(tmp_path):
 
 
 def test_first_file_keeps_the_learners_notebook(tmp_path):
-    (tmp_path / "mnist.ipynb").write_text('{"cells": [{"cell_type": "code", "source": ["x = 1"]}]}')
+    (tmp_path / "mnist.ipynb").write_text('{"cells": [{"cell_type": "code", "source": ["x = 1"]}]}', encoding="utf-8")
     f = lesson_notebook.first_file(_s(tmp_path))
     assert f.endswith("mnist.ipynb")
-    assert "x = 1" in (tmp_path / "mnist.ipynb").read_text()
+    assert "x = 1" in (tmp_path / "mnist.ipynb").read_text(encoding="utf-8")
 
 
 def test_first_file_none_outside_notebook_lessons(tmp_path):

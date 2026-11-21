@@ -22,7 +22,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "t9_lesson_5c0ea8a4.json"
 
 
 def lesson() -> dict:
-    return copy.deepcopy(json.loads(FIXTURE.read_text()))
+    return copy.deepcopy(json.loads(FIXTURE.read_text(encoding="utf-8")))
 
 
 def step(sid: str) -> dict:
@@ -93,7 +93,7 @@ def notebook(folder: Path, cells: list[tuple[list[str], list[dict]]], name: str 
                      "outputs": outs, "source": src} for i, (src, outs) in enumerate(cells)],
           "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
     p = folder / name
-    p.write_text(json.dumps(nb))
+    p.write_text(json.dumps(nb), encoding="utf-8")
     return p
 
 
@@ -189,11 +189,11 @@ def test_v3_notebook_lessons_autosave(tmp_path):
     from server.workspace import core
 
     assert core.ensure_notebook_autosave(tmp_path) is True
-    st = json.loads((tmp_path / ".vscode" / "settings.json").read_text())
+    st = json.loads((tmp_path / ".vscode" / "settings.json").read_text(encoding="utf-8"))
     assert st["files.autoSave"] == "afterDelay"
-    (tmp_path / ".vscode" / "settings.json").write_text(json.dumps({"files.autoSave": "off", "x": 1}))
+    (tmp_path / ".vscode" / "settings.json").write_text(json.dumps({"files.autoSave": "off", "x": 1}), encoding="utf-8")
     core.ensure_notebook_autosave(tmp_path)
-    assert json.loads((tmp_path / ".vscode" / "settings.json").read_text()) == {"files.autoSave": "off", "x": 1}
+    assert json.loads((tmp_path / ".vscode" / "settings.json").read_text(encoding="utf-8")) == {"files.autoSave": "off", "x": 1}
 
 
 def test_v3_only_printed_results_are_output_checks():

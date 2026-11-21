@@ -126,7 +126,7 @@ def test_opus_request_shape(monkeypatch):
     class FakeBeta:
         async def create(self, **kw):
             seen.update(kw)
-            text = json.loads(next(llm.FIXTURES_DIR.glob("diagnose-*.json")).read_text())["response"]["text"]
+            text = json.loads(next(llm.FIXTURES_DIR.glob("diagnose-*.json")).read_text(encoding="utf-8"))["response"]["text"]
             return SimpleNamespace(
                 stop_reason="end_turn", model=kw["model"],
                 content=[SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text=text)],
@@ -273,10 +273,10 @@ def test_hint_ladder(replay):
 
 def test_apply_fix_never_writes(tmp_path, replay):
     f = tmp_path / "pinn_convection.py"
-    f.write_text(CODE)
+    f.write_text(CODE, encoding="utf-8")
     card = run(coach.diagnose(STEP, FAILED_CHECKS, METRICS, CODE))
-    patch = coach.apply_fix(card["diff"], f.read_text())
-    assert f.read_text() == CODE  # untouched
+    patch = coach.apply_fix(card["diff"], f.read_text(encoding="utf-8"))
+    assert f.read_text(encoding="utf-8") == CODE  # untouched
     assert patch["requires_confirmation"] is True and patch["error"] is None
     assert "-train(model)" in patch["unified_diff"] and "+for " in patch["unified_diff"]
     compile(patch["new_text"], "pinn_convection.py", "exec")

@@ -44,7 +44,7 @@ def test_ensure_venv_sets_a_broken_venv_aside_and_never_empties_a_symlinked_one(
     monkeypatch.setattr(S, "best_python", lambda: sys.executable)
     target = tmp_path / "elsewhere"
     target.mkdir()
-    (target / "keep.txt").write_text("mine")
+    (target / "keep.txt").write_text("mine", encoding="utf-8")
     wd = tmp_path / "lesson"
     wd.mkdir()
     (wd / ".venv").symlink_to(target)  # a .venv that is a link to someone's folder, with no bin/python
@@ -53,12 +53,12 @@ def test_ensure_venv_sets_a_broken_venv_aside_and_never_empties_a_symlinked_one(
     def popen(argv, **kw):
         ran.append(argv)
         (Path(argv[-1]) / "bin").mkdir(parents=True)
-        (Path(argv[-1]) / "bin" / "python").write_text("")
+        (Path(argv[-1]) / "bin" / "python").write_text("", encoding="utf-8")
         return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
 
     py, err = S.ensure_venv(wd, popen=popen)
     assert py and not err and "--clear" not in ran[0] and ran[0][-1] == str(wd / ".venv")
-    assert (target / "keep.txt").read_text() == "mine"  # the link's target is untouched
+    assert (target / "keep.txt").read_text(encoding="utf-8") == "mine"  # the link's target is untouched
     assert sorted(p.name for p in wd.iterdir()) == [".venv"]  # the old link went outside the lesson folder
     assert [p.is_symlink() for p in (tmp_path / "lessons" / ".miyagi-state" / "old-venvs").iterdir()] == [True]
 
@@ -80,7 +80,7 @@ def test_offline_precheck_only_where_the_host_is_certain(monkeypatch, tmp_path):
     monkeypatch.setenv("PIP_INDEX_URL", "https://user:pass@nexus.corp:8443/simple")
     assert S._host_of({"method": "pip"}) is None
     monkeypatch.delenv("PIP_INDEX_URL")
-    (tmp_path / "pip.conf").write_text("[global]\nindex-url = http://localhost:3141/simple\n")
+    (tmp_path / "pip.conf").write_text("[global]\nindex-url = http://localhost:3141/simple\n", encoding="utf-8")
     assert S._host_of({"method": "pip"}) is None
     (tmp_path / "pip.conf").unlink()
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy:3128")
@@ -119,7 +119,7 @@ def test_one_venv_build_per_folder_at_a_time(monkeypatch, tmp_path):
     def popen(argv, **kw):  # a slow build: python appears first, "pip" a moment later
         builds.append(argv)
         (Path(argv[-1]) / "bin").mkdir(parents=True)
-        (Path(argv[-1]) / "bin" / "python").write_text("")
+        (Path(argv[-1]) / "bin" / "python").write_text("", encoding="utf-8")
         time.sleep(0.3)
         return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
 
@@ -141,7 +141,7 @@ def test_a_broken_venv_goes_outside_the_lesson_folder(monkeypatch, tmp_path):
 
     def popen(argv, **kw):
         (Path(argv[-1]) / "bin").mkdir(parents=True)
-        (Path(argv[-1]) / "bin" / "python").write_text("")
+        (Path(argv[-1]) / "bin" / "python").write_text("", encoding="utf-8")
         return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
 
     py, _ = S.ensure_venv(wd, popen=popen)

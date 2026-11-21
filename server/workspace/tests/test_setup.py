@@ -220,7 +220,7 @@ def test_pip_install_creates_lesson_venv(mac, tmp_path, monkeypatch):
             super().__init__(argv, **kw)
             if argv[1:3] == ["-m", "venv"]:
                 (Path(argv[3]) / "bin").mkdir(parents=True)
-                (Path(argv[3]) / "bin" / "python").write_text("")
+                (Path(argv[3]) / "bin" / "python").write_text("", encoding="utf-8")
 
     monkeypatch.setattr(S, "check", lambda it, workdir=None, run=None: {**it, "installed": True, "version": "2.2.3"})
     item = {"tool": "pandas", "kind": "python_package", "label": "pandas", "needed": True, "min_version": "", "pip_name": "pandas"}

@@ -111,7 +111,7 @@ def test_explicit_run_and_lesson_params(client):
 
 def test_offline_shows_spool_and_no_numbers(client, tmp_path):
     (tmp_path / "spool").mkdir()
-    (tmp_path / "spool" / "engine-x.jsonl").write_text('{"k":"m","v":[]}\n' * 42)
+    (tmp_path / "spool" / "engine-x.jsonl").write_text('{"k":"m","v":[]}\n' * 42, encoding="utf-8")
     calls = []
 
     def down():

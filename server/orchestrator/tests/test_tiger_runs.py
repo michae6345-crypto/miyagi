@@ -280,7 +280,7 @@ def test_tiger_down_never_blocks_spools_and_stats_reads_the_curve(tmp_path, monk
     assert tiger_runs.record(session, learner) == 0  # the same run again: nothing new
     w.flush(timeout=5)
     assert not w.online and "37145" in w.last_error and "s3cret" not in w.last_error
-    lines = [json.loads(ln) for f in spool.glob("*.jsonl") for ln in f.read_text().splitlines()]
+    lines = [json.loads(ln) for f in spool.glob("*.jsonl") for ln in f.read_text(encoding="utf-8").splitlines()]
     assert sum(o["k"] == "r" for o in lines) == 2 and sum(o["k"] == "m" for o in lines) == len(LOSSES) + 3
     assert w.rows_spooled == len(LOSSES) + 3 + 2 and w.dropped == 0
 

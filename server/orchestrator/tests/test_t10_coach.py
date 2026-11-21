@@ -42,14 +42,14 @@ def _cells(nb: dict, n: int) -> dict:
 
 def _with_running_training(dst: Path) -> None:
     """The fixture with cell 3 (compile + fit) mid-run: epoch 3 of 5, its progress bar part way."""
-    nb = json.loads(NB.read_text())
+    nb = json.loads(NB.read_text(encoding="utf-8"))
     c = next(c for c in nb["cells"] if "model.fit" in "".join(c.get("source") or []))
     c["outputs"] = [{"output_type": "stream", "name": "stdout", "text": [
         "Epoch 1/5\n", "\x1b[1m1875/1875\x1b[0m \x1b[32m━━━━━━━━━━━━━━━━━━━━\x1b[0m 2s 1ms/step - accuracy: 0.87\n",
         "Epoch 2/5\n", "\x1b[1m1875/1875\x1b[0m ━━━━━━━━━━━━━━━━━━━━ 2s 1ms/step - accuracy: 0.96\n",
         "Epoch 3/5\n", "\x1b[1m 412/1875\x1b[0m ━━━━\x1b[37m━━━━━━━━━━━━━━━━\x1b[0m 1s 1ms/step - accuracy: 0.97"]}]
     c["execution_count"] = None
-    dst.write_text(json.dumps(nb))
+    dst.write_text(json.dumps(nb), encoding="utf-8")
 
 
 # ------------------------------------------------------------------ pure helpers
@@ -320,13 +320,13 @@ def test_coach_drops_a_diagnosis_that_contradicts_passed_checks(rig, monkeypatch
 
 def test_coach_builds_the_attribute_error_card_without_a_model_call(rig, monkeypatch):  # noqa: F811
     """CP5: the s2 AttributeError -> "load_dat is missing the a" from the notebook's error output, no diagnose call."""
-    nb = json.loads(NB.read_text())
+    nb = json.loads(NB.read_text(encoding="utf-8"))
     c0 = nb["cells"][0]
     c0["source"] = "".join(c0["source"]).replace("load_data()", "load_dat()")
     c0["outputs"] = [{"output_type": "error", "ename": "AttributeError",
                       "evalue": "module 'keras.datasets.mnist' has no attribute 'load_dat'",
                       "traceback": ["\x1b[0;31mAttributeError\x1b[0m Traceback", "Cell In[1], line 6"]}]
-    (rig.workdir / "mnist.ipynb").write_text(json.dumps(nb))
+    (rig.workdir / "mnist.ipynb").write_text(json.dumps(nb), encoding="utf-8")
     rows = [{"checkId": "s2c4", "label": "No import or load errors", "status": "fail",
              "detail": "the cell printed 'AttributeError'"}]
     called: list = []

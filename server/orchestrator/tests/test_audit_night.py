@@ -36,7 +36,7 @@ def test_hint_targets_never_bring_back_a_not_yet_whose_cause_is_fixed(tmp_path, 
         await rig.settle()
         assert (rig.s._ot_state or {}).get("pending"), rig.s._ot_state
         p = rig.workdir / "nn.py"
-        p.write_text(p.read_text().replace(ZEROS, RANDOM), encoding="utf-8")  # the fix: random weights
+        p.write_text(p.read_text(encoding="utf-8").replace(ZEROS, RANDOM), encoding="utf-8")  # the fix: random weights
         hint = [c for c in rig.of("card") if c.get("kind") == "hint"][-1]
         m = rig.mark()
         await rig.s.card_seen(False, "nn4", hint["title"], kind="hint", by="timeout")

@@ -15,17 +15,17 @@ from server.workspace import core
 
 def _old_run(folder):
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "mnist.ipynb").write_text('{"cells": [{"source": "model.fit(x, y)"}]}')
-    (folder / "train.py").write_text("model.fit(x, y)\n")
-    (folder / "starter.py").write_text("# TODO\n")  # prepare()'s starter: stays
-    (folder / "README.md").write_text("# lesson\n")
+    (folder / "mnist.ipynb").write_text('{"cells": [{"source": "model.fit(x, y)"}]}', encoding="utf-8")
+    (folder / "train.py").write_text("model.fit(x, y)\n", encoding="utf-8")
+    (folder / "starter.py").write_text("# TODO\n", encoding="utf-8")  # prepare()'s starter: stays
+    (folder / "README.md").write_text("# lesson\n", encoding="utf-8")
     (folder / ".venv" / "bin").mkdir(parents=True)
     (folder / ".vscode").mkdir()
     (folder / "tutorial").mkdir()
-    (folder / "tutorial" / "mnist.ipynb").write_text("{}")  # the video's download: stays
+    (folder / "tutorial" / "mnist.ipynb").write_text("{}", encoding="utf-8")  # the video's download: stays
     sf = core._state_file(folder)
     sf.parent.mkdir(parents=True, exist_ok=True)
-    sf.write_text(json.dumps({"scaffolded": True, "files": ["starter.py"], "readme": "README.md"}))
+    sf.write_text(json.dumps({"scaffolded": True, "files": ["starter.py"], "readme": "README.md"}), encoding="utf-8")
 
 
 def test_set_aside_moves_only_the_learners_files(tmp_path):
@@ -99,7 +99,7 @@ def test_never_a_folder_the_lesson_was_redirected_to(tmp_path, monkeypatch):
     monkeypatch.setenv("MIYAGI_LESSONS_DIR", str(tmp_path / "lessons"))
     mine = tmp_path / "my-project"  # the learner's own folder (adopt_folder)
     mine.mkdir()
-    (mine / "app.py").write_text("print(1)\n")
+    (mine / "app.py").write_text("print(1)\n", encoding="utf-8")
     assert wsmod.set_aside_previous(str(mine), stubs.load_fixture_lesson()) is None and (mine / "app.py").is_file()
 
 

@@ -81,7 +81,7 @@ def test_the_next_press_is_not_stuck_behind_a_hanging_question(rig):
         rig.clock.t += 5
         from server.orchestrator.tests.test_stage import NN1_ZEROS  # (a Demo step passes once its code is there)
 
-        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text() + NN1_ZEROS)
+        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text(encoding="utf-8") + NN1_ZEROS, encoding="utf-8")
         await rig.s.action("check_step")  # Check my work right after: the Demo passes the typing step
         await settle(rig)
         assert time.monotonic() - t0 < 3.0
@@ -124,4 +124,4 @@ def test_tiger_writes_never_wait_on_a_blocked_port(tmp_path):
     w.flush(timeout=5)
     assert started, "the writer never tried Tiger"
     assert not w.online and w.rows_spooled == 401 and w.dropped == 0
-    assert sum(len(f.read_text().splitlines()) for f in tmp_path.glob("*.jsonl")) == 401
+    assert sum(len(f.read_text(encoding="utf-8").splitlines()) for f in tmp_path.glob("*.jsonl")) == 401

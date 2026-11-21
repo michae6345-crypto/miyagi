@@ -67,7 +67,7 @@ def test_video_lesson_auto_open_asks_for_the_short_grace(tmp_path, monkeypatch):
             asked.append({"full": full, "explicit": explicit, **k})
             return super().open(workdir, force, full, explicit, **k)
 
-    (tmp_path / "pinn_convection.py").write_text("import torch\n")
+    (tmp_path / "pinn_convection.py").write_text("import torch\n", encoding="utf-8")
     rig = Rig(tmp_path)
     rig.s.workspace = Rec(enabled=True, runner=lambda argv: True)
 

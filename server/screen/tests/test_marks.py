@@ -13,7 +13,7 @@ FIX = Path(__file__).resolve().parent.parent / "fixtures"
 
 
 def _obs(name):
-    return ScreenObservation.from_dict(json.loads((FIX / f"{name}.ocr.json").read_text()))
+    return ScreenObservation.from_dict(json.loads((FIX / f"{name}.ocr.json").read_text(encoding="utf-8")))
 
 
 def _texts(cands):

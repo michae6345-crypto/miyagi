@@ -22,7 +22,7 @@ LESSON = ROOT / "demo" / "cache" / "lessons" / "5c0ea8a49f419487.json"
 
 
 def _graph() -> dict:
-    return copy.deepcopy(json.loads(LESSON.read_text()))
+    return copy.deepcopy(json.loads(LESSON.read_text(encoding="utf-8")))
 
 
 def _session(tmp_path: Path, graph: dict | None = None) -> Session:
@@ -61,7 +61,7 @@ def test_notebook_steps_say_add_a_cell_and_send_the_code(tmp_path):
 
 def test_no_double_ellipsis(tmp_path):
     s = _session(tmp_path)
-    (tmp_path / "app.py").write_text("")
+    (tmp_path / "app.py").write_text("", encoding="utf-8")
     st = {"id": "x", "title": "t", "instructions": "type it", "file": "app.py",
           "code": "test_loss, test_accuracy = model.evaluate(test_images, test_labels)\nprint(test_accuracy)"}
     line = s._action_line(st)
@@ -88,7 +88,7 @@ def test_tutorial_files_card(tmp_path):
     assert s._tutorial_files_card(found, str(tmp_path)) is None  # once per lesson
     s.lesson_epoch = 2
     (tmp_path / "tutorial").mkdir()
-    (tmp_path / "tutorial" / "mnist.ipynb").write_text("{}")
+    (tmp_path / "tutorial" / "mnist.ipynb").write_text("{}", encoding="utf-8")
     assert s._tutorial_files_card(found, str(tmp_path)) is None  # already in tutorial/
     two = found + [{"name": "data.csv", "url": "https://example.com/data.csv", "kind": "file"}]
     s.lesson_epoch = 3
@@ -126,11 +126,11 @@ def test_readme_after_normalisation(tmp_path):
     (folder / "tutorial").mkdir()
     (folder / ".miyagi").mkdir(exist_ok=True)
     core._state_file(folder).parent.mkdir(parents=True, exist_ok=True)
-    core._state_file(folder).write_text(json.dumps({"scaffolded": True, "lesson_kind": "code", "files": []}))
+    core._state_file(folder).write_text(json.dumps({"scaffolded": True, "lesson_kind": "code", "files": []}), encoding="utf-8")
     g = _graph()
     g["steps"][0]["title"] = "Open mnist.ipynb with the .venv kernel"
     assert core.refresh_readme(folder, g)
-    text = (folder / "README.md").read_text()
+    text = (folder / "README.md").read_text(encoding="utf-8")
     assert "Open mnist.ipynb with the .venv kernel" in text and "Create venv and start Jupyter" not in text
     assert "starts empty" not in text and "`.venv/`" in text and "`tutorial/`" in text
 
@@ -144,7 +144,7 @@ def test_completion_card_reads_notebook_accuracy(tmp_path):
                       "text": ["313/313 - accuracy: 0.9759 - loss: 0.0811\n",
                                "Accuracy of the neural network on the 10000 test images: 97.59%\n"]}]}],
         "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
-    (tmp_path / "Untitled.ipynb").write_text(json.dumps(nb))
+    (tmp_path / "Untitled.ipynb").write_text(json.dumps(nb), encoding="utf-8")
     g = _graph()
     s = types.SimpleNamespace(graph=g, steps=g["steps"], workdir=str(tmp_path), runs={}, notebook_lesson=True)
     assert lesson_end.notebook_line(s) == "Test accuracy 97.59% in your notebook."
