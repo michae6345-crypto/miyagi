@@ -40,11 +40,14 @@ const SCRIPTS: Record<string, Step[]> = {
   // A late event from a session that was already cancelled: it must change nothing.
   stale: [...hold('e1', 2), [200, { type: 'cancelled', id: 'e1', reason: 'keypress' }], [100, { type: 'partial', id: 'e1', text: 'ghost words' }], [100, { type: 'final', id: 'e1', text: 'ghost words' }]],
   'error-mic': [[0, { type: 'error', code: 'mic_denied', message: 'Microphone is off' }]],
-  'error-input': [[0, { type: 'error', code: 'input_denied', message: 'Input Monitoring is off' }]],
+  'error-input': [[0, { type: 'ptt', state: 'down', id: 'g1' }], [260, { type: 'error', code: 'input_denied', message: 'Input Monitoring is off' }]],
+  // The real helper's first hold with the microphone never asked: an error code of its own, the Allow card (not Open settings).
+  'error-mic-undetermined': [[0, { type: 'perm', mic: 'undetermined', input: 'granted', assets: 'installed' }], [100, { type: 'ptt', state: 'down', id: 'g2' }], [260, { type: 'error', code: 'mic_undetermined', message: 'Not asked yet' }]],
   'error-speech': [[0, { type: 'error', code: 'no_stt', message: 'No speech recognizer' }]],
   card: [[0, { type: 'perm', mic: 'undetermined', input: 'granted', assets: 'installed' }], [200, { type: 'ptt', state: 'down', id: 'f1' }]],
   'card-denied': [[0, { type: 'perm', mic: 'denied', input: 'granted', assets: 'installed' }], [200, { type: 'ptt', state: 'down', id: 'f2' }]],
-  'card-input': [[0, { type: 'error', code: 'input_denied', message: 'Input Monitoring is off' }]]
+  // No hold can happen without the key listener: the helper says Input Monitoring is off the moment it is enabled.
+  'card-input': [[0, { type: 'error', code: 'input_denied', message: 'Input Monitoring is off' }], [10, { type: 'perm', mic: 'granted', input: 'denied', assets: 'installed' }]]
 }
 
 const PERMS: Record<string, { mic: string; input: string }> = {

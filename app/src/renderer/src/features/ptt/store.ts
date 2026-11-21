@@ -45,6 +45,7 @@ let cap: ReturnType<typeof setTimeout> | undefined
 let cardTimer: ReturnType<typeof setTimeout> | undefined
 let sendTimer: ReturnType<typeof setTimeout> | undefined
 let seen: string | undefined
+let inputCardShown = false
 
 /** One idempotent way back to rest for the island's claim. */
 export function release(): void {
@@ -89,9 +90,16 @@ export function receive(next: PttState): void {
   }
   if (next.phase === 'error' && prev.phase !== 'error') {
     if (next.code === 'input_denied' || next.code === 'tap_failed') openCard('input')
+    else if (next.code === 'mic_undetermined') openCard('mic')
     else if (next.code === 'mic_denied') openCard('mic-denied')
     else if (next.code === 'no_stt') notify("Speech isn't ready on this Mac.")
     else if (next.code === 'assets_missing') notify('Speech files are still downloading.')
+  }
+  // Input Monitoring is off while push to talk is on: with no key listener a hold can never reach the helper, so the
+  // card cannot wait for one. It shows once per run, with the same explicit Allow button.
+  if (!inputCardShown && next.perms.input === 'denied' && prev.perms.input !== 'denied' && usePrefs.getState().ptt.enabled) {
+    inputCardShown = true
+    openCard('input')
   }
   // Listening starts: the card has done its job.
   if (live) closeCard()

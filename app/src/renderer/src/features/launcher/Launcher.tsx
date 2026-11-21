@@ -321,7 +321,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     }
     const offs = [
       bridge.on('launcher:open', () => void bridge.invoke<string | null>('ptt:prefill-take').then(fill).catch(() => undefined)),
-      bridge.onFeature('ptt:prefill', (t) => phaseRef.current === 'open' && fill(t))
+      bridge.onFeature('ptt:prefill', (t) => {
+        if (phaseRef.current !== 'open') return
+        fill(t)
+        // Taken here, so closing and reopening the launcher doesn't refill it with the same words.
+        void bridge.invoke('ptt:prefill-take').catch(() => undefined)
+      })
     ]
     return () => offs.forEach((off) => off())
   }, [])

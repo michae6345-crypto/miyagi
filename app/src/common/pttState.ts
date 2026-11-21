@@ -63,8 +63,14 @@ export function reducePtt(s: PttState, e: PttInput): PttResult {
     case 'clear-error':
       return { state: s.phase === 'error' ? rest(s) : s }
     case 'error': {
-      // A permission error is also a fact about the permissions: keep the rows honest.
-      const perms = e.code === 'mic_denied' ? { ...s.perms, mic: 'denied' as const } : e.code === 'input_denied' ? { ...s.perms, input: 'denied' as const } : s.perms
+      // A permission error is also a fact about the permissions: keep the rows honest. "Never asked" (mic_undetermined)
+      // is not "denied": the first shows the Allow card, the second the Open settings one.
+      const perms =
+        e.code === 'mic_denied' ? { ...s.perms, mic: 'denied' as const } : e.code === 'mic_undetermined' ? { ...s.perms, mic: 'undetermined' as const } : e.code === 'input_denied' ? { ...s.perms, input: 'denied' as const } : s.perms
+      // The helper reports a missing Input Monitoring grant or a failed key listener as soon as it is switched on, with
+      // no hold in flight. That is a fact about the permissions only (the Settings row and the once-a-run card show it);
+      // it must not put the island into an error face or cancel anything.
+      if ((e.code === 'input_denied' || e.code === 'tap_failed') && !active(s)) return { state: perms === s.perms ? s : { ...s, perms } }
       return { state: { ...rest(s), phase: 'error', code: e.code, perms } }
     }
     case 'ptt':

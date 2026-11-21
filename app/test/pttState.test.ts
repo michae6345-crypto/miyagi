@@ -144,13 +144,27 @@ describe('errors, exits and resets', () => {
     assert.equal(active(s), false)
   })
 
+  test('mic_undetermined is not denied: the permission stays "undetermined" (the Allow card, not Open settings)', () => {
+    const { s } = run([{ type: 'perm', mic: 'undetermined', input: 'granted' }, down('a'), { type: 'error', code: 'mic_undetermined', message: '' }])
+    assert.equal(s.phase, 'error')
+    assert.equal(s.code, 'mic_undetermined')
+    assert.equal(s.perms.mic, 'undetermined')
+  })
+
+  test('input_denied or tap_failed with no hold in flight only updates permissions (no error face at launch)', () => {
+    const a = run([{ type: 'error', code: 'input_denied', message: '' }]).s
+    assert.equal(a.phase, 'idle')
+    assert.equal(a.perms.input, 'denied')
+    assert.equal(run([{ type: 'error', code: 'tap_failed', message: '' }]).s.phase, 'idle')
+  })
+
   test('input_denied marks input; other codes leave permissions alone', () => {
-    assert.equal(run([{ type: 'error', code: 'input_denied', message: '' }]).s.perms.input, 'denied')
+    assert.equal(run([down('a'), { type: 'error', code: 'input_denied', message: '' }]).s.perms.input, 'denied')
     assert.deepEqual(run([{ type: 'error', code: 'no_stt', message: '' }]).s.perms, PTT_REST.perms)
   })
 
   test('clear-error goes back to rest, and only from the error phase', () => {
-    assert.equal(run([{ type: 'error', code: 'tap_failed', message: '' }, { type: 'clear-error' }]).s.phase, 'idle')
+    assert.equal(run([{ type: 'error', code: 'no_stt', message: '' }, { type: 'clear-error' }]).s.phase, 'idle')
     const mid = run([down('a'), listening('a')]).s
     assert.equal(run([{ type: 'clear-error' }], mid).s.phase, 'listening')
   })

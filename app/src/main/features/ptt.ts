@@ -59,6 +59,9 @@ export default defineMainFeature({
   id: 'ptt',
   setup(ctx) {
     if (!PTT_ENABLED || ctx.platform.os !== 'mac' || process.platform !== 'darwin') return
+    // A second copy of the app (`open -n`) is about to exit (features/launch.ts, windows.ts): it must not start a helper
+    // of its own. The lock is already held by the first copy, so asking again is a no-op there.
+    if (!app.requestSingleInstanceLock()) return
     const bin = helperPath()
     if (!existsSync(bin)) {
       console.log('[ptt] no miyagi-listen helper at', bin, '(push to talk stays off)')
@@ -127,13 +130,19 @@ export default defineMainFeature({
       }
       child = p
       startedAt = Date.now()
+      let configured = false
       p.stdout.setEncoding('utf8')
       p.stdout.on('data', (chunk: string) => {
         for (const l of buf.push(chunk)) {
           const ev = parseLine(l)
           if (!ev) continue
           if (ev.type === 'ready') {
-            sendConfig()
+            // Once per helper process: a config line makes the helper re-check its speech engine, and a second ready
+            // answering a second config would be a loop.
+            if (!configured) {
+              configured = true
+              sendConfig()
+            }
             lastTerms = ''
             pushContext()
           }
@@ -147,7 +156,15 @@ export default defineMainFeature({
       })
       p.stderr.on('data', () => undefined) // drained, never logged: it could hold what was said
       p.stdin.on('error', () => undefined)
-      p.on('error', (err) => console.warn('[ptt] helper error', err.message))
+      p.on('error', (err) => {
+        console.warn('[ptt] helper error', err.message)
+        // A spawn failure (no pid) never emits exit: take the same way out as a death.
+        if (p.pid === undefined && child === p) {
+          child = undefined
+          apply({ type: 'exit' })
+          again()
+        }
+      })
       p.on('exit', () => {
         if (child !== p) return
         child = undefined
@@ -246,6 +263,15 @@ export default defineMainFeature({
         child?.stdin.end()
       } catch {
         /* already closed */
+      }
+    })
+    // No orphan: if the app is going down by any route, the helper (mic, key tap) goes with it. It also exits by itself
+    // when its stdin closes, which covers the app being killed outright.
+    app.on('will-quit', () => {
+      try {
+        child?.kill('SIGTERM')
+      } catch {
+        /* already gone */
       }
     })
     start()

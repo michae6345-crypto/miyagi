@@ -11,7 +11,7 @@
  */
 import type { PttChord } from '../common/prefs'
 
-export type PttErrorCode = 'input_denied' | 'mic_denied' | 'assets_missing' | 'no_stt' | 'tap_failed'
+export type PttErrorCode = 'input_denied' | 'mic_denied' | 'mic_undetermined' | 'assets_missing' | 'no_stt' | 'tap_failed'
 export type PttCancelReason = 'esc' | 'keypress' | 'short' | 'empty' | 'timeout' | 'disabled'
 export type MicPerm = 'granted' | 'denied' | 'undetermined'
 export type InputPerm = 'granted' | 'denied'
@@ -28,7 +28,7 @@ export type HelperEvent =
   | { type: 'cancelled'; id: string; reason: PttCancelReason }
   | { type: 'error'; code: PttErrorCode; message: string }
 
-export const ERROR_CODES: readonly PttErrorCode[] = ['input_denied', 'mic_denied', 'assets_missing', 'no_stt', 'tap_failed']
+export const ERROR_CODES: readonly PttErrorCode[] = ['input_denied', 'mic_denied', 'mic_undetermined', 'assets_missing', 'no_stt', 'tap_failed']
 export const CANCEL_REASONS: readonly PttCancelReason[] = ['esc', 'keypress', 'short', 'empty', 'timeout', 'disabled']
 
 /** One line from the helper. A real utterance is a sentence or two; anything beyond this is a fault, not speech. */

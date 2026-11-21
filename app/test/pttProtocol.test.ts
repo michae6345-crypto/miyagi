@@ -41,7 +41,7 @@ describe('parseLine', () => {
   })
 
   test('every error code is accepted, an unknown one is not', () => {
-    for (const code of ['input_denied', 'mic_denied', 'assets_missing', 'no_stt', 'tap_failed']) assert.equal(parseLine(j({ type: 'error', code, message: '' }))?.type, 'error')
+    for (const code of ['input_denied', 'mic_denied', 'mic_undetermined', 'assets_missing', 'no_stt', 'tap_failed']) assert.equal(parseLine(j({ type: 'error', code, message: '' }))?.type, 'error')
     assert.equal(parseLine(j({ type: 'error', code: 'boom', message: '' })), undefined)
   })
 
