@@ -18,6 +18,7 @@ import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson, type Notice } from '../../core/lesson'
 import { sendAction, usePressed } from '../../core/shortcuts'
+import { panelInPlay } from './panel'
 
 /** How long the green check holds before the text crossfades to the next step. */
 export const PASS_HOLD_MS = 560
@@ -152,7 +153,10 @@ onMessage('step.passed', (p) => {
   // no green check for a skip, or for a step done before (already: true, a resume)
   if (p.skipped || (p as typeof p & { already?: boolean }).already) return set({ celebrating: undefined, advanced: { from: p.stepId, to } })
   set({ celebrating: p.stepId, advanced: undefined })
-  holdTimer = setTimeout(() => set({ celebrating: undefined, advanced: { from: p.stepId, to } }), PASS_HOLD_MS)
+  // v2 (A2): with the lesson panel in play (shown, or collapsed to the Mini pill) the learner moves on from the panel's
+  // Next step (decision 7, Les-Passed), so the pill holds "Step N passed" until the engine's step.started instead of
+  // running ahead to a step the panel isn't showing yet.
+  holdTimer = setTimeout(() => set({ celebrating: undefined, advanced: panelInPlay() ? undefined : { from: p.stepId, to } }), PASS_HOLD_MS)
 })
 
 // ---------------------------------------------------------------------------
