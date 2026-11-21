@@ -17,6 +17,7 @@ import { startTour } from '../../tips/tourStore'
 import { QuietButton, Segmented, StatusGlyph, Toggle } from '../../../core/ui/atoms'
 import { color, copy, type2 } from '../../../core/theme'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
+import { PushToTalk } from '../../ptt/SettingsRows'
 import { useHealth } from '../permissions'
 import { Group, OnWord, PageHeader, Row } from '../ui'
 
@@ -59,6 +60,8 @@ export function General({ live }: { live: boolean }): ReactNode {
           />
         )}
       </Group>
+
+      <PushToTalk />
 
       <WorksWith health={health} inLesson={inLesson} />
 
