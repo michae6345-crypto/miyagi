@@ -7,7 +7,7 @@ import { emitUi } from '../bus'
 import { usePressed } from '../shortcuts'
 import { actionTone, brand, color, duration, ease, fill, font, glass, highlight, spring, type OptionAction } from '../theme'
 import { GlassCheck, GlassSpinner } from './glass'
-import { pressMotion } from './motion'
+import { pressMotion, twoBeats } from './motion'
 
 /** A white or pastel slab on the island (options, the island's primary): lit top edge, ink base line. No drop: the island is black. */
 const SLAB = `${highlight.onLight}, ${highlight.base}`
@@ -22,8 +22,8 @@ export function StatusDot({ status, size = 7 }: { status: Status; size?: number 
       className="inline-block shrink-0 rounded-full"
       style={{ width: size, height: size, background: ring ? 'transparent' : c, boxShadow: ring ? `inset 0 0 0 1.5px ${c}` : undefined }}
       initial={{ scale: 1 }}
-      animate={{ scale: status === 'offtrack' ? [1, 1.35, 1, 1.35, 1] : 1 }}
-      transition={{ duration: 0.9, ease: 'easeInOut' }}
+      animate={{ scale: status === 'offtrack' ? [...twoBeats.keyframes] : 1 }}
+      transition={twoBeats.transition}
     />
   )
 }

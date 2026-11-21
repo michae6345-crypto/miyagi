@@ -14,7 +14,7 @@ import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import type { Status } from '../lesson'
 import { color, duration, ease, glass, highlight, spring } from '../theme'
-import { pressMotion } from './motion'
+import { pressMotion, twoBeats } from './motion'
 
 /** Status on glass: gray watching, apricot off track, green passed (both deeper on light). */
 export function GlassDot({ status, size = 7 }: { status: Status; size?: number }): ReactNode {
@@ -26,8 +26,8 @@ export function GlassDot({ status, size = 7 }: { status: Status; size?: number }
       className="inline-block shrink-0 rounded-full"
       style={{ width: size, height: size, background: ring ? 'transparent' : c, boxShadow: ring ? `inset 0 0 0 1.5px ${c}` : undefined }}
       initial={{ scale: 1 }}
-      animate={{ scale: status === 'offtrack' ? [1, 1.35, 1, 1.35, 1] : 1 }}
-      transition={{ duration: 0.9, ease: 'easeInOut' }}
+      animate={{ scale: status === 'offtrack' ? [...twoBeats.keyframes] : 1 }}
+      transition={twoBeats.transition}
     />
   )
 }

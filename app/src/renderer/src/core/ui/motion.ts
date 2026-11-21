@@ -110,6 +110,12 @@ export function draw(reduced: boolean | null | undefined, delay = beat): Pick<Mo
     : { initial: { pathLength: 0, opacity: 0 }, animate: { pathLength: 1, opacity: 1 }, transition: { duration: duration.slow, ease: ease.out, delay, opacity: { ...fade.instant, delay } } }
 }
 
+/**
+ * The off-track dot's two calm beats (no shake, no hue): scale 1 → 1.35 twice over a second. A scale, so
+ * MotionConfig drops it with Reduce Motion and the dot just changes.
+ */
+export const twoBeats = { keyframes: [1, 1.35, 1, 1.35, 1], transition: { duration: 1, ease: ease.inOut } } as const
+
 /** A glyph that pops into place (the passed circle, a status ring): from .6 on the spring, never from 0. */
 export function pop(reduced: boolean | null | undefined, from = 0.6): Pick<MotionProps, 'initial' | 'animate' | 'transition'> {
   return { initial: reduced ? { opacity: 0 } : { opacity: 0, scale: from }, animate: { opacity: 1, scale: 1 }, transition: enter() }

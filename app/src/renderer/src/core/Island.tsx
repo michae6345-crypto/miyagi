@@ -6,7 +6,7 @@
  *
  * Owner: core. Features add modes; they don't edit this file.
  */
-import { AnimatePresence, motion, useIsPresent } from 'motion/react'
+import { AnimatePresence, motion, useIsPresent, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
@@ -16,7 +16,8 @@ import { offDock, useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { getIslandModes } from './registry'
-import { color, duration, ease, pill, shadows, spring, springOut } from './theme'
+import { color, pill, shadows } from './theme'
+import { beat, ease, fade, instant, spring, springOut } from './ui/motion'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
 const PRESS_HOLD_MS = 1500
@@ -39,6 +40,8 @@ export const islandBoxNow = (): IslandBox => useIslandBoxStore.getState()
 
 export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
   const [hover, setHover] = useState(false)
+  // Reduce Motion: the shape snaps to its new size (MotionConfig drops transforms, not sizes); the content still fades.
+  const reduced = useReducedMotion()
   const [landing, setLanding] = useState(false)
   /** The first spring after a landing must start from rest: the one-frame snap leaves a big velocity that made the pill balloon (~540–830px) before settling. */
   const [justLanded, setJustLanded] = useState(false)
@@ -54,6 +57,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const [pointerIn, setPointerIn] = useState(false)
   const [pressHold, setPressHold] = useState(false)
   const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const landedTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Ask every registered mode whether it wants the island. (Stable array → stable hook order.)
   const islandModes = getIslandModes()
@@ -73,7 +77,8 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         setLanding(true)
         setJustLanded(true)
         requestAnimationFrame(() => requestAnimationFrame(() => setLanding(false)))
-        setTimeout(() => setJustLanded(false), 700)
+        clearTimeout(landedTimer.current)
+        landedTimer.current = setTimeout(() => setJustLanded(false), 700)
       }),
       bridge.on('launcher:open', () => setYielded(true)),
       bridge.on('launcher:closed', () => setYielded(false)),
@@ -81,7 +86,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       bridge.on('island:yield', () => setYielded(true)),
       bridge.on('island:return', () => setYielded(false))
     ]
-    return () => offs.forEach((off) => off())
+    return () => {
+      offs.forEach((off) => off())
+      clearTimeout(landedTimer.current)
+    }
   }, [])
 
   // Measure the active mode's live layer; the container springs to its size (Michael's review A1). The layer is found
@@ -240,7 +248,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           height: landing ? pill.height : size.h,
           borderRadius: isPill ? pill.height / 2 : 24
         }}
-        transition={landing ? { duration: 0 } : { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) }}
+        transition={landing || reduced ? instant : { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) }}
         onMouseEnter={enter}
         onMouseLeave={leave}
         onPointerDownCapture={press}
@@ -252,7 +260,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           style={{ background: color.green }}
           initial={{ opacity: 0 }}
           animate={{ opacity: passFlash ? [0, 0.25, 0] : 0 }}
-          transition={{ duration: 0.6, ease: 'easeInOut' }}
+          transition={{ duration: 0.6, ease: ease.inOut }}
         />
         <AnimatePresence initial={false}>
           <Layer key={mode.id} id={mode.id} width={mode.width}>
@@ -281,8 +289,8 @@ function Layer({ id, width, children }: { id: string; width?: number; children: 
       className="absolute left-1/2 top-0"
       style={{ x: '-50%', width: width ?? 'max-content', transformOrigin: '50% 0%' }}
       initial={{ opacity: 0, y: 4, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { duration: duration.base, delay: 0.06, ease: ease.out } } }}
-      exit={{ opacity: 0, scale: 0.98, transition: { duration: duration.instant } }}
+      animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { ...fade.in, delay: beat } } }}
+      exit={{ opacity: 0, scale: 0.98, transition: fade.instant }}
     >
       {children}
     </motion.div>
