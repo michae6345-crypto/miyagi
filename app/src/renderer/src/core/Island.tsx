@@ -15,6 +15,7 @@ import { onUi } from './bus'
 import { offDock, useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
+import { MiyagiMark } from './ui/Mark'
 import { getIslandModes } from './registry'
 import { islandSize, PILL_FALLBACK, type IslandSize } from './islandSize'
 import { color, duration, ease, pill, shadows, spring, springOut } from './theme'
@@ -102,6 +103,8 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // black box at the top centre, still eating clicks): a pill stays pill-tall at its last pill width, an empty card
   // falls back to the pill. ./islandSize.ts.
   const [size, setSize] = useState<IslandSize>(PILL_FALLBACK)
+  /** The first real measurement is in: until then the island is invisible and snaps (no 120 px pill springing wider at launch). */
+  const [sized, setSized] = useState(false)
   const pillW = useRef(PILL_FALLBACK.w)
   const modeId = mode?.id
   const fixed = mode?.width
@@ -115,6 +118,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       const next = islandSize(fixed, m, pillW.current)
       if (fixed === undefined && m && m.w > 0) pillW.current = next.w
       setSize((s) => (s.w === next.w && s.h === next.h ? s : next))
+      setSized(true)
     }
     const measure = (el: HTMLElement): void => apply({ w: el.offsetWidth, h: el.offsetHeight })
     const bind = (): void => {
@@ -255,7 +259,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           background: color.island,
           boxShadow: isPill ? shadows.pill : shadows.card,
           transformOrigin: '50% 0%',
-          opacity: yielded ? 0 : 1
+          opacity: yielded || !sized ? 0 : 1
         }}
         initial={false}
         animate={{
@@ -263,7 +267,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           height: landing ? pill.height : size.h,
           borderRadius: isPill ? pill.height / 2 : 24
         }}
-        transition={landing ? { duration: 0 } : { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) }}
+        transition={landing || !sized ? { duration: 0 } : { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) }}
         onMouseEnter={enter}
         onMouseLeave={leave}
         onPointerDownCapture={press}
@@ -281,7 +285,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           <Layer key={mode.id} id={mode.id} width={mode.width}>
             {/* A mode that throws renders nothing: the island falls back to the pill (./islandSize.ts) and the mode gets a
                 fresh try a second later, so a crashed card isn't an empty black shape until another mode takes over. */}
-            <Boundary name={`island mode ${mode.id}`} retryMs={1000}>
+            <Boundary name={`island mode ${mode.id}`} retryMs={1000} fallback={<RestingPill />}>
               <Content />
             </Boundary>
           </Layer>
@@ -300,8 +304,32 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
  */
 function Layer({ id, width, children }: { id: string; width?: number; children: ReactNode }): ReactNode {
   const present = useIsPresent()
+  const layer = useRef<HTMLDivElement>(null)
+  const body = useRef<HTMLDivElement>(null)
+  const [empty, setEmpty] = useState(false)
+  // Never an empty black shape. Two ways a live layer shows nothing, and both get a safe default:
+  //  - its content renders nothing (a mode with no content, a hidden child): the resting pill mark fills in;
+  //  - its fade-in never ran (the renderer's rAF stalls while macOS treats the transparent panel as occluded, after
+  //    a Space change, sleep or lock), so it sits at opacity 0 over the black: force it visible.
+  useEffect(() => {
+    if (!present) return
+    const born = Date.now()
+    const check = (): void => {
+      const b = body.current
+      setEmpty(!b || b.offsetWidth === 0 || b.offsetHeight === 0)
+      const el = layer.current
+      if (el && Date.now() - born > FADE_GRACE_MS && Number(getComputedStyle(el).opacity) < 0.99) el.style.opacity = '1'
+    }
+    const t = setTimeout(check, FADE_GRACE_MS)
+    const iv = setInterval(check, 500)
+    return () => {
+      clearTimeout(t)
+      clearInterval(iv)
+    }
+  }, [present])
   return (
     <motion.div
+      ref={layer}
       data-island-layer={present ? id : undefined}
       className="absolute left-1/2 top-0"
       style={{ x: '-50%', width: width ?? 'max-content', transformOrigin: '50% 0%' }}
@@ -309,7 +337,34 @@ function Layer({ id, width, children }: { id: string; width?: number; children: 
       animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { duration: duration.base, delay: 0.06, ease: ease.out } } }}
       exit={{ opacity: 0, scale: 0.98, transition: { duration: duration.instant } }}
     >
-      {children}
+      <div ref={body}>{children}</div>
+      {empty && present && <RestingPill />}
     </motion.div>
+  )
+}
+
+/** A layer that should be fully visible by now (the spring and fade take ~300 ms). */
+const FADE_GRACE_MS = 700
+
+/** The island's resting content: the bonsai, on the notch black. What shows when a mode has nothing (or fails) to show. */
+export function RestingPill(): ReactNode {
+  return (
+    <div data-ui className="flex items-center justify-center" style={{ width: PILL_FALLBACK.w, height: PILL_FALLBACK.h }}>
+      <MiyagiMark size={14} />
+    </div>
+  )
+}
+
+/**
+ * The whole island failed (its render threw): a static resting pill under the menu bar, so the top of the screen is
+ * never just empty and the real one gets its retry a second later (Overlay.tsx's Boundary).
+ */
+export function RestingIsland({ top }: { top: number }): ReactNode {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 flex justify-center" style={{ top }}>
+      <div className="overflow-hidden" style={{ background: color.island, borderRadius: PILL_FALLBACK.h / 2, boxShadow: shadows.pill }}>
+        <RestingPill />
+      </div>
+    </div>
   )
 }

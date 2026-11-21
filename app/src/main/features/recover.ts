@@ -14,6 +14,12 @@
  *                                   a retry of the same URL every 2 s until it loads (Michael's test 7, item 10: the
  *                                   overlay stayed blank while main lived, a silent failure on stage).
  *
+ *   webContents 'unresponsive' → if it hasn't come back after 8 s the renderer is hung: a frozen black pill that
+ *                                   grabs the mouse. Reload it (same budget as a crash). 'responsive' cancels.
+ *   app 'child-process-gone' (GPU) → every window is repainted (invalidate), and the overlay and launcher reload, since
+ *                                   a GPU reset on a transparent macOS window can leave a stale or black frame while
+ *                                   the renderer lives.
+ *
  * Core logs render-process-gone in dev only; this adds the recovery, in every build. No core files touched.
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac by killing a
@@ -24,6 +30,7 @@ import { defineMainFeature } from '../context'
 
 const PER_MS = 60_000
 const MAX_RELOADS = 3
+const settling = new WeakSet<WebContents>()
 const reloads = new WeakMap<WebContents, number[]>()
 
 function reloadSoon(wc: WebContents, reason: string): void {
@@ -31,6 +38,14 @@ function reloadSoon(wc: WebContents, reason: string): void {
   const recent = (reloads.get(wc) ?? []).filter((t) => now - t < PER_MS)
   if (recent.length >= MAX_RELOADS) {
     console.error(`[recover] renderer keeps dying (${reason}); not reloading it again for a minute`)
+    // Not for good: a window left blank is worse than one more try once the minute is up.
+    if (!settling.has(wc)) {
+      settling.add(wc)
+      setTimeout(() => {
+        settling.delete(wc)
+        if (!wc.isDestroyed()) reloadSoon(wc, `${reason}, retry`)
+      }, PER_MS)
+    }
     return
   }
   reloads.set(wc, [...recent, now])
@@ -57,6 +72,9 @@ function retryLoad(wc: WebContents, url: string, code: number, desc: string): vo
   }, RETRY_MS)
 }
 
+const HUNG_MS = 8_000
+const hung = new WeakMap<WebContents, ReturnType<typeof setTimeout>>()
+
 const watched = new WeakSet<WebContents>()
 
 function watchLoads(win: BrowserWindow): void {
@@ -64,6 +82,17 @@ function watchLoads(win: BrowserWindow): void {
   if (watched.has(wc)) return
   watched.add(wc)
   let failed = false
+  wc.on('unresponsive', () => {
+    clearTimeout(hung.get(wc))
+    hung.set(
+      wc,
+      setTimeout(() => {
+        if (!wc.isDestroyed()) reloadSoon(wc, 'unresponsive')
+      }, HUNG_MS)
+    )
+  })
+  wc.on('responsive', () => clearTimeout(hung.get(wc)))
+  win.on('closed', () => clearTimeout(hung.get(wc)))
   wc.on('did-fail-load', (_ev, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === ABORTED || !url) return
     failed = true
@@ -88,7 +117,16 @@ export default defineMainFeature({
     for (const w of BrowserWindow.getAllWindows()) watchLoads(w)
     app.on('browser-window-created', (_e, win) => watchLoads(win))
     app.on('child-process-gone', (_e, details) => {
-      if (details.type === 'GPU') console.error(`[recover] GPU process gone: ${details.reason} (exit ${details.exitCode})`)
+      if (details.type !== 'GPU') return
+      console.error(`[recover] GPU process gone: ${details.reason} (exit ${details.exitCode})`)
+      setTimeout(() => {
+        for (const w of BrowserWindow.getAllWindows()) {
+          if (w.isDestroyed() || w.webContents.isDestroyed()) continue
+          w.webContents.invalidate()
+          const route = w.webContents.getURL().split('#')[1] ?? ''
+          if (w.isVisible() && (route === '/overlay' || route === '/launcher')) reloadSoon(w.webContents, 'gpu reset')
+        }
+      }, 800)
     })
   }
 })
