@@ -19,7 +19,8 @@
  *   6. Quit → stop only the engine this app started.
  *   7. Port taken by an engine THIS app started on an earlier launch (miyagi was force-quit or crashed, so step 6 never
  *      ran): that engine still wants the old launch's token and would refuse this launch forever. Its pid file
- *      (~/miyagi/engine/run/app-engine.json) and its command line say it's ours, so stop it and start a fresh one.
+ *      (~/miyagi/engine/run/app-engine.json), its exact command line (this app's Python or launcher, never just the
+ *      module name) and its start time say it's ours, so stop it and start a fresh one.
  *      Anything else on the port (an engine started in Terminal) stays the user's: step 2.
  *
  * Which engine (lane realapp, app/agents/real-app.md, SHIP.md "Which engine"):
@@ -27,7 +28,7 @@
  *   - Dev (Michael's Mac): engine mode "dev" never starts or installs an engine; the app only connects to ENGINE_URL
  *     (default ws://localhost:8787: the dev engine in Terminal, with its own .env). Set it with env MIYAGI_ENGINE=dev
  *     or, for an app opened from Finder / Spotlight (no shell environment), with userData/engine.json
- *     {"engine": "dev"} (`npm run install:local -- --engine dev` writes it). {"cloud": "off"} there also stops the app
+ *     {"engine": "dev"} (`npm run install:local -- --mode-only --engine dev` writes it). {"cloud": "off"} there also stops the app
  *     sending its cloud token (MIYAGI_CLOUD_URL=off), so the dev engine uses its .env keys. Env always wins.
  *
  * Every window hears the state as feat:engine-local {state, line?, runtime?}; bridge.invoke('engine-local:get') reads it.
@@ -418,14 +419,47 @@ export function setupLocalEngine(
   }
 
   /**
-   * Step 7: the port is taken. If the pid file names a live process that is an engine (its command line runs
-   * server.orchestrator.main or the miyagi-engine launcher), it's ours from an earlier launch: stop its group
-   * (SIGTERM, then SIGKILL after 5 s) and wait for the port. → true when the port is free now.
+   * Whether `cmd` (a `ps -o command=` line) is an engine this app starts, and never anyone else's. The module name
+   * alone also matches a dev engine (`.../run-live/.venv/bin/python -m server.orchestrator.main`), so it isn't enough.
+   * Bundled: the exact Python inside this app. Launcher: the launcher script itself, or (when it `exec`s into Python)
+   * an interpreter under this app's engine home running the engine module.
+   */
+  const isOwnEngineCommand = (cmd: string, kind: unknown): boolean => {
+    const line = cmd.trim()
+    if (kind !== 'launcher' && line.startsWith(`${python} `)) return true
+    if (kind === 'bundled') return false
+    const shells = ['', '/bin/bash ', 'bash ', '/bin/sh ', 'sh ', '/bin/zsh ']
+    if (shells.some((sh) => line === `${sh}${launcher}` || line.startsWith(`${sh}${launcher} `))) return true
+    return line.startsWith(`${home}/`) && /\s-m\s+server\.orchestrator\.main(\s|$)/.test(line)
+  }
+
+  /**
+   * The pid started within a few seconds of the pid file's `at` (`ps -o lstart=`, C locale, local time), so a pid the
+   * OS has since handed to another process (a dev engine started later from a shell) is never taken for ours.
+   */
+  const startedWhenSaved = async (pid: number, at: unknown): Promise<boolean> => {
+    const saved = typeof at === 'string' ? Date.parse(at) : NaN
+    if (!Number.isFinite(saved)) return false
+    const ps = await run('/usr/bin/env', ['LC_ALL=C', '/bin/ps', '-o', 'lstart=', '-p', String(pid)], 2000)
+    const began = ps.ok ? Date.parse(ps.out.trim().replace(/\s+/g, ' ')) : NaN
+    return Number.isFinite(began) && Math.abs(saved - began) <= 10_000
+  }
+
+  /**
+   * Step 7: the port is taken. If the pid file names a live process whose command line is this app's own engine
+   * (isOwnEngineCommand) and which started when the file was written (startedWhenSaved), it's ours from an earlier
+   * launch: stop its group (SIGTERM, then SIGKILL after 5 s) and wait for the port. Anything else is never touched.
+   * → true when the port is free now.
    */
   const reclaimOwnLeftover = async (): Promise<boolean> => {
     let pid = 0
+    let at: unknown
+    let kind: unknown
     try {
-      pid = Number((JSON.parse(readFileSync(pidFile, 'utf8')) as { pid?: unknown }).pid) || 0
+      const saved = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid?: unknown; at?: unknown; runtime?: unknown }
+      pid = Number(saved.pid) || 0
+      at = saved.at
+      kind = saved.runtime
     } catch {
       return false
     }
@@ -442,8 +476,8 @@ export function setupLocalEngine(
       return false
     }
     const ps = await run('/bin/ps', ['-o', 'command=', '-p', String(pid)], 2000)
-    if (!ps.ok || !/server\.orchestrator\.main|miyagi-engine/.test(ps.out)) {
-      // The pid was reused by something else: never touch it.
+    if (!ps.ok || !isOwnEngineCommand(ps.out, kind) || !(await startedWhenSaved(pid, at))) {
+      // The pid was reused by something else, or can't be proven ours: never touch it.
       forgetPid()
       return false
     }
@@ -569,6 +603,9 @@ export function setupLocalEngine(
     if (!child || child.killed || child.pid === undefined) return
     stopping = true
     killGroup(child)
+    // Electron exits before the child's 'exit' handler runs, so forget the pid now: a stale file would name a pid
+    // the OS can later hand to someone else's process.
+    forgetPid()
   }
 }
 
