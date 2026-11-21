@@ -43,7 +43,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { riseIn } from '../../core/ui/motion'
 import { Detail } from '../library/Detail'
 import { Home } from '../library/Home'
-import { LessonSearch, Lessons, greeting, openLauncher } from '../library/Library'
+import { LessonSearch, Lessons, openLauncher } from '../library/Library'
 import { Ring } from '../library/motion'
 import { v2Cloud } from '../account/model'
 import { useLibrary } from '../library/store'
@@ -66,15 +66,14 @@ const SHORT_H = 700
 // ---- page header ------------------------------------------------------------------------------------------------
 
 const CAPTION: Partial<Record<PageId, string>> = {
-  skills: 'Pick a skill to see the lessons that teach it.',
-  progress: 'Every number is a step you passed yourself.',
+  skills: 'Pick a skill to see its lessons.',
   account: v2Cloud ? 'Your plan and how miyagi runs here.' : 'Your account and how miyagi runs here.'
 }
 
 function Header({ page }: { page: PageId }): ReactNode {
   const label = PAGES.find((p) => p.id === page)?.label ?? ''
-  const title = page === 'home' ? greeting() : label
-  const caption = page === 'home' ? new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : CAPTION[page]
+  const title = label
+  const caption = CAPTION[page]
   return (
     <header data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 68, padding: '0 32px', borderBottom: `1px solid ${fill.hairline}` }}>
       <div className="flex min-w-0 items-baseline gap-[12px]">
@@ -87,14 +86,6 @@ function Header({ page }: { page: PageId }): ReactNode {
           </span>
         )}
       </div>
-      {page === 'home' && (
-        // Home's own hero holds the one white primary; New lesson stays quiet here.
-        <div data-no-drag className="ml-auto shrink-0">
-          <Ring>
-            <QuietButton label="New lesson" keyName="launcher" onClick={openLauncher} />
-          </Ring>
-        </div>
-      )}
       {page === 'lessons' && (
         <div data-no-drag className="ml-auto flex min-w-0 items-center gap-[12px]">
           <LessonSearch />
@@ -142,7 +133,7 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 // ---- pages --------------------------------------------------------------------------------------------------------
 
 /** Home and Skills scroll inside themselves (Home's container queries, the constellation's own list). */
-const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills'])
+const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
   switch (page) {

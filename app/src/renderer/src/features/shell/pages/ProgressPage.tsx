@@ -24,7 +24,7 @@ export function ProgressPage(): ReactNode {
           <span style={{ fontSize: type2.xs, color: color.label }}>{copy.name} is offline. It shows here when it connects.</span>
         </div>
       )}
-      <div className="min-h-0 flex-1" style={{ minHeight: 520, padding: '0 8px' }}>
+      <div className="min-h-0 flex-1" style={{ padding: 0 }}>
         <Dashboard route="library" />
       </div>
     </div>
