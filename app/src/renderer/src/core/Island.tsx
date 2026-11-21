@@ -279,7 +279,9 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         />
         <AnimatePresence initial={false}>
           <Layer key={mode.id} id={mode.id} width={mode.width}>
-            <Boundary name={`island mode ${mode.id}`}>
+            {/* A mode that throws renders nothing: the island falls back to the pill (./islandSize.ts) and the mode gets a
+                fresh try a second later, so a crashed card isn't an empty black shape until another mode takes over. */}
+            <Boundary name={`island mode ${mode.id}`} retryMs={1000}>
               <Content />
             </Boundary>
           </Layer>

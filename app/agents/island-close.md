@@ -38,6 +38,13 @@ its X then left a big empty black rectangle (about 600 x 280, rounded) stuck at 
     pill. So the clickable rect (the island's DOM box, reported as `overlay.bounds` and `overlay:hits`) shrinks with it.
   - while yielded (launcher / settings own the island) it is `pointer-events-none` and not `data-hit`.
 - `test/islandSize.test.ts`: the size rules, including the 620 x 280 card -> 0-width pill case.
+- Review follow-up: each island mode's `Boundary` now retries after 1 s (`retryMs`), like the island's outer one. A mode
+  that throws rendered nothing until another mode took over; with the size fix that was an empty pill, now it recovers.
+
+## Known, not changed here
+- main's click-catching poll (`main/features/overlay-raise.ts`) still counts the island rect from `island:size` while the
+  island is yielded (launcher / settings). The launcher or settings window covers that spot, so it was left alone.
+- No unit test covers the chip fold (`useFolded`) or the hover drop: both live in React / module-private code.
 
 ## Core request
 Adrian: please review the `core/Island.tsx` change (hover drop after a held card closes or a `dismiss`, size via
