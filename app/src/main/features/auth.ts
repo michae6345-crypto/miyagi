@@ -55,9 +55,12 @@
  * code, state, error, error_code and error_description (each once). A matching-state callback whose code is refused
  * (bad_code_verifier, flow_state_not_found, a junk code) or that carries an error does NOT end the flow: the tab says
  * why (with Try again), main broadcasts auth:attempt {reason, message}, and the listener stays until the 5-minute
- * timeout, which then answers with the last reason. At most 5 callbacks per flow, then 404. If 127.0.0.1:47217 is
- * still taken (EADDRINUSE) after ~3 s of retries, the sign-in stops with a plain reason and the browser never opens. redirect_to is built only
- * from constants and this flow's state (redirectTo), never from a request. PKCE only: no implicit flow anywhere.
+ * timeout, which then answers with the last reason. At most 5 callbacks per flow, then 404; only a callback that passed
+ * every check (this flow's state included) counts, so requests without the state can't use the turns up. On success
+ * the listener lets go of 47217 when the response closes (finished or dropped by the browser). If 127.0.0.1:47217 is
+ * still taken (EADDRINUSE) after ~3 s of retries, the sign-in stops with a plain reason and the browser never opens.
+ * redirect_to is built only from constants and this flow's state (redirectTo), never from a request. PKCE only: no
+ * implicit flow anywhere.
  *
  * UNVERIFIED in Electron (no live run in this package): the browser round trip, the token exchange and the refresh.
  */
@@ -442,7 +445,7 @@ export default defineMainFeature({
     /**
      * The running sign-in. Set BEFORE the listener is up, so a cancel right after the click is never lost, and kept
      * while the code is exchanged, so Cancel / Esc / closing the window still win then (the answer is dropped unused).
-     * callbacks: requests to /auth/callback so far (MAX_CALLBACKS). last: the latest failed attempt's reason, which the
+     * callbacks: callbacks with this flow's state so far (MAX_CALLBACKS). last: the latest failed attempt's reason, which the
      * timeout answers with.
      */
     type Flow = {
@@ -522,8 +525,6 @@ export default defineMainFeature({
           const target = req.url ?? ''
           const at = target.indexOf('?')
           if ((at < 0 ? target : target.slice(0, at)) !== CALLBACK_PATH) return deny() // favicon, probes: not callbacks
-          f.callbacks++
-          if (f.callbacks > MAX_CALLBACKS) return deny()
           if (req.method !== 'GET' || req.headers.host !== CALLBACK_HOST || flow !== f || f.exchanging) return deny()
           let q: URLSearchParams
           try {
@@ -534,6 +535,9 @@ export default defineMainFeature({
           const keys = [...q.keys()]
           if (keys.some((k) => !CALLBACK_PARAMS.has(k)) || new Set(keys).size !== keys.length) return deny()
           if (!sameState(q.get('state'), state)) return deny()
+          // Counted only now, after every check: a request without this flow's state (a local process, an <img> on a
+          // web page, a DNS-rebinding page with another Host) is a cheap 404 that can't use up the real callback's turns.
+          if (++f.callbacks > MAX_CALLBACKS) return deny()
 
           // Bring miyagi forward with the outcome, not just the browser tab.
           const focusApp = (): void => {
@@ -574,8 +578,19 @@ export default defineMainFeature({
             // A refused code (junk, already used, another verifier) is not the end: the real callback may still come.
             if (!('session' in r)) return failed({ reason: 'failed', message: r.message })
             flow = undefined
-            // Close only after the page is flushed (closeAllConnections would cut it off mid-write).
-            res.writeHead(200, PAGE_HEADERS).end(PAGE('Back to miyagi', 'You can close this tab. You are signed in to miyagi.'), () => closeServer(server))
+            // Let go of 47217 once the page is flushed (closeAllConnections would cut it off mid-write), or at once if
+            // the browser already dropped the request during the exchange: 'close' fires on finish AND on abort (end's
+            // callback never runs after an abort, which used to keep the port for the rest of the run). A short
+            // fallback timer covers a response that neither finishes nor closes.
+            const release = (): void => closeServer(server)
+            res.once('close', release)
+            setTimeout(release, 2000).unref?.()
+            try {
+              res.writeHead(200, PAGE_HEADERS).end(PAGE('Back to miyagi', 'You can close this tab. You are signed in to miyagi.'))
+            } catch {
+              /* the browser went away */
+            }
+            if (res.destroyed || req.socket.destroyed) release()
             focusApp()
             const s = r.session
             setSession(s)

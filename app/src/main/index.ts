@@ -43,8 +43,10 @@ import { helperPath } from './features/ptt'
 import { getPrefs, onPrefsChange } from './prefs'
 
 // A built app never starts under a debugger (app-harden): --inspect*, --remote-debugging-* or --js-flags in argv quits
-// before any window, engine or key exists. The fuses already make Node ignore --inspect; Chromium's remote debugging has
-// no fuse. Dev runs (npm run dev) keep them.
+// here, the first statement of this file's own body. The imported modules' top-level code has run by then (ES imports
+// are hoisted: localEngine makes its ENGINE_TOKEN, for one), but nothing that waits for app 'ready' has: no window and
+// no engine process yet. The fuses already make Node ignore --inspect; Chromium's remote debugging has no fuse. Dev
+// runs (npm run dev) keep them.
 if (app.isPackaged) {
   const flag = debugFlagIn(process.argv)
   if (flag) {

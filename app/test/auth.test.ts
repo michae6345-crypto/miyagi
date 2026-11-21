@@ -175,15 +175,38 @@ describe('Google sign-in (PKCE, loopback)', () => {
     assert.equal(((await g.result) as { ok: boolean }).ok, true)
   })
 
-  test('ATTACK more than 5 callbacks: the 6th gets 404, even with the right state and a good code', async () => {
+  test('ATTACK more than 5 callbacks with the right state: the 6th gets 404, even with a good code', async () => {
     auth.setup(h.ctx)
     const g = await startGoogle(h)
-    for (let i = 0; i < MAX_CALLBACKS; i++) assert.equal((await hitCallback(g.callback, { code: `x${i}` }, { state: `guess-${i}` })).status, 404)
+    // Five matching-state callbacks whose codes Supabase refuses: each one is a turn.
+    for (let i = 0; i < MAX_CALLBACKS; i++) assert.equal((await hitCallback(g.callback, { code: `junk-${i}` })).status, 200)
+    const exchanged = supa.calls.length
+    assert.equal(exchanged, MAX_CALLBACKS)
     supa.codes.set('late', { challenge: g.challenge, user: ALICE })
     assert.equal((await hitCallback(g.callback, { code: 'late' })).status, 404, 'the 6th callback')
-    assert.equal(supa.calls.length, 0, 'nothing was exchanged')
+    assert.equal(supa.calls.length, exchanged, 'the 6th was not exchanged')
     assert.equal(await isPending(g.result), true)
     await h.invoke('auth:cancel')
+  })
+
+  test('ATTACK requests without the state (wrong state, none, another Host, POST) never use up the 5 turns', async () => {
+    auth.setup(h.ctx)
+    const g = await startGoogle(h)
+    // What a local process, an <img src=http://127.0.0.1:47217/auth/callback> on a web page, or a DNS-rebinding page
+    // (Host evil.example:47217) can send. Each is a 404 and none counts.
+    for (let i = 0; i < MAX_CALLBACKS; i++) {
+      assert.equal((await raw('/auth/callback')).status, 404)
+      assert.equal((await raw(`/auth/callback?state=guess-${i}&code=x`)).status, 404)
+      assert.equal((await raw(`/auth/callback?state=${g.state}&code=x`, { headers: { Host: 'evil.example:47217' } })).status, 404)
+      assert.equal((await raw(`/auth/callback?state=${g.state}&code=x`, { method: 'POST' })).status, 404)
+    }
+    assert.equal(supa.calls.length, 0)
+    // The real Google callback still signs in.
+    supa.codes.set('real-after-probes', { challenge: g.challenge, user: ALICE })
+    const page = await hitCallback(g.callback, { code: 'real-after-probes' })
+    assert.equal(page.status, 200)
+    assert.match(page.text, /Back to miyagi/)
+    assert.equal(((await g.result) as { ok: boolean }).ok, true)
   })
 
   test('ATTACK request shape: only GET, the exact path, Host 127.0.0.1:47217 and the five known params', async () => {
@@ -200,16 +223,10 @@ describe('Google sign-in (PKCE, loopback)', () => {
     assert.equal((await raw(`/auth/callback?${q}&redirect_to=https://evil.example`)).status, 404)
     assert.equal((await raw(`/auth/callback?${q}&state=${g.state}`)).status, 404, 'a param twice')
     assert.equal(supa.calls.length, 0)
-    // That was 8 of them: the cap counts every request to /auth/callback, so this flow can't finish any more.
-    assert.equal((await raw(`/auth/callback?${q}`)).status, 404)
-    assert.equal(await isPending(g.result), true)
-    await h.invoke('auth:cancel')
-
-    // A fresh flow: the plain request succeeds (the checks above were what refused them, not something else).
-    const g2 = await startGoogle(h)
-    supa.codes.set('code-9', { challenge: g2.challenge, user: ALICE })
-    assert.equal((await raw(`/auth/callback?state=${g2.state}&code=code-9`)).status, 200)
-    assert.equal(((await g2.result) as { ok: boolean }).ok, true)
+    // Those 8 refused requests used none of the 5 turns: the plain request still signs in (and proves the checks above
+    // were what refused them, not something else).
+    assert.equal((await raw(`/auth/callback?${q}`)).status, 200)
+    assert.equal(((await g.result) as { ok: boolean }).ok, true)
   })
 
   test('redirect_to is the constant plus this flow’s state, whatever the request headers', async () => {
@@ -369,6 +386,53 @@ describe('the sign-in port and the flow’s lifetime', () => {
     supa.codes.set('code-11', { challenge: g.challenge, user: ALICE })
     await hitCallback(g.callback, { code: 'code-11' })
     assert.equal(((await g.result) as { ok: boolean }).ok, true)
+  })
+
+  test('the browser drops the tab during a slow exchange: the listener still lets go, and the next sign-in gets the port', async () => {
+    // Hold the pkce exchange until the browser's request is gone (the learner closed the slow tab).
+    const real = supa.handle.bind(supa)
+    let entered = false
+    let letGo!: () => void
+    const gate = new Promise<void>((r) => (letGo = r))
+    supa.handle = async (url, call) => {
+      if (url.searchParams.get('grant_type') === 'pkce') {
+        entered = true
+        await gate
+      }
+      return real(url, call)
+    }
+    // Two quick tries: before the fix the old listener kept 47217 for the rest of the run, and the second sign-in
+    // failed with reason 'port'; it must not hang the test meanwhile.
+    const saved = { ...listenRetry }
+    Object.assign(listenRetry, { tries: 2, ms: 20 })
+    try {
+      auth.setup(h.ctx)
+      const g = await startGoogle(h)
+      supa.codes.set('slow', { challenge: g.challenge, user: ALICE })
+      const req = request({ host: '127.0.0.1', port: 47217, path: `/auth/callback?state=${g.state}&code=slow`, headers: { Connection: 'close' } })
+      req.on('error', () => undefined) // the abort below
+      req.end()
+      await until(() => entered)
+      req.destroy()
+      await new Promise((r) => setTimeout(r, 50)) // the server sees the socket close
+      letGo()
+      assert.equal(((await g.result) as { ok: boolean }).ok, true, 'signed in anyway')
+
+      // Sign out, then sign in again in the same run: the browser opens (the port was free).
+      await h.invoke('auth:sign-out')
+      const before = opened.length
+      let second: unknown
+      const p = h.invoke('auth:google').then((r) => (second = r))
+      await until(() => opened.length > before || second !== undefined, 5000)
+      assert.equal(second, undefined, `the second sign-in did not fail: ${JSON.stringify(second)}`)
+      assert.ok(opened.length > before, 'the browser opened for the second sign-in')
+      await h.invoke('auth:cancel')
+      await p
+      assert.deepEqual(second, { ok: false, reason: 'cancelled' })
+    } finally {
+      Object.assign(listenRetry, saved)
+      letGo()
+    }
   })
 
   test('ATTACK port 47217 already taken (EADDRINUSE): sign-in stops with a clear reason and the browser never opens', async () => {

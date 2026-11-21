@@ -125,11 +125,16 @@ same "Sign-in did not finish … try again in miyagi" and the app dropped the re
   carries an OAuth error does **not** end the flow: the tab shows the reason with a Try again link (this flow's own
   authorize URL), main broadcasts `feat:auth:attempt {reason, message}`, and the listener keeps going until the
   5-minute timeout, which answers with the last reason (or `timeout`). A forged callback can't cancel a real sign-in.
-- At most 5 requests to `/auth/callback` per flow; the 6th and later get 404.
+- At most 5 callbacks per flow; the 6th and later get 404. Only a callback that passed every check above, this
+  flow's state included, counts: requests without the state (a local process, an `<img>` on a web page, a
+  DNS-rebinding page with another Host) are a cheap 404 and can't use the turns up before the real callback comes.
+- On success the listener lets go of 47217 when the response closes, finished or dropped (the learner closed the tab
+  during a slow exchange), with a 2 s fallback; the next sign-in in the same run gets the port.
 - If 127.0.0.1:47217 is still taken after ~3 s of retries (EADDRINUSE: another app, another miyagi), `auth:google`
   answers `{ok:false, reason:'port', message}` in plain words and the browser never opens.
-- Tests: `test/auth.test.ts` (ATTACK cases: junk code, error callback, 6th callback, request shape and Host, taken port,
-  expiry with fake timers, redirect_to vs. hostile headers, PKCE only).
+- Tests: `test/auth.test.ts` (ATTACK cases: junk code, error callback, 6th callback, state-less probes don't count,
+  request shape and Host, a tab dropped mid-exchange, taken port, expiry with fake timers, redirect_to vs. hostile
+  headers, PKCE only).
 
 ## Core requests (still open)
 - `feat:auth:attempt` (app-harden): the login could show the failed attempt's reason while it keeps waiting
