@@ -37,7 +37,7 @@ import { useDock } from '../../core/dock'
 import { useRoutedAway } from './panel'
 import { act, cardAct, installAll, installable, itemDone, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 import { isEditorSheet, SHEET_W, VSCodeSheet } from './VSCodeSheet'
-import { ease, fade, press, spring } from '../../core/ui/motion'
+import { beat, enter, fade, press, spring } from '../../core/ui/motion'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
 const OFFTRACK_MAX = 620
@@ -207,7 +207,7 @@ function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: bo
  */
 function Swap({ id, children }: { id: string; children: ReactNode }): ReactNode {
   return (
-    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ ...fade.in, delay: 0.06, ease: ease.out }}>
+    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={enter(beat)}>
       {children}
     </motion.div>
   )

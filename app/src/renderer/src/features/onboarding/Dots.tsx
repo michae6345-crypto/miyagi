@@ -3,15 +3,18 @@
  * little longer and white, a step done is a green dot (green only means done), a step ahead is faint. No labels on
  * screen (they are named for screen readers), nothing to click. Width and color are the only things that move.
  */
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { color, fill, radius2, spring, status as tone } from '../../core/theme'
+import { sizeMove } from '../../core/ui/motion'
 
 export type DotState = 'current' | 'done' | 'next'
 export type DotItem = { id: string; label: string; state: DotState }
 
 export function Dots({ items, label = 'Setup progress' }: { items: readonly DotItem[]; label?: string }): ReactNode {
   const at = items.findIndex((i) => i.state === 'current')
+  // A width morph: Reduce Motion snaps it (MotionConfig drops transforms, not sizes; docs/MOTION.md rule 5).
+  const reduced = useReducedMotion()
   return (
     <ol aria-label={label} data-onb-dots={at >= 0 ? items[at].id : undefined} className="m-0 flex list-none items-center gap-[7px] p-0">
       {items.map((it) => (
@@ -22,7 +25,7 @@ export function Dots({ items, label = 'Setup progress' }: { items: readonly DotI
             style={{ height: 6, borderRadius: radius2.round, background: it.state === 'current' ? color.text : it.state === 'done' ? tone.passed : fill.trackNext, transition: 'background-color 180ms' }}
             initial={false}
             animate={{ width: it.state === 'current' ? 18 : 6 }}
-            transition={spring}
+            transition={sizeMove(reduced, spring)}
           />
           <span className="sr-only">
             {it.label}
