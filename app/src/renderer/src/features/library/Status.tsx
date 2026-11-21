@@ -21,7 +21,8 @@ import { summarize, useRows } from '../onboarding/rows'
 import { refreshCloud, refreshPerms, requestHealth, useOnboarding } from '../onboarding/store'
 import { Press } from './motion'
 
-type Line = { state: StatusState; word: string; detail?: string }
+/** retry: guided setup can fix it (the row opens it). */
+type Line = { state: StatusState; word: string; detail?: string; retry?: boolean }
 
 function useCloudLine(): Line {
   const cloud = useOnboarding((s) => s.cloud)
@@ -40,7 +41,7 @@ function useCloudLine(): Line {
   }
   if (cloud?.state === 'ok' || status === 'ok') return { state: 'passed', word: 'Connected', detail: 'Lessons build in the cloud.' }
   if (cloud?.state === 'minting') return { state: 'checking', word: 'Setting up', detail: 'Setting up access for this Mac.' }
-  if (cloud?.state === 'failed') return { state: 'notyet', word: 'Not yet', detail: "Couldn't set up access. Open setup to retry." }
+  if (cloud?.state === 'failed') return { state: 'notyet', word: 'Not yet', detail: "Couldn't set up access. Open setup to retry.", retry: true }
   return { state: 'unknown', word: 'Not used', detail: 'Lessons build on this Mac with your own key.' }
 }
 
@@ -138,7 +139,8 @@ export function StatusArea(): ReactNode {
     <section aria-label="Status" data-home-status className="flex flex-col" style={{ padding: 4, borderRadius: radius2.card, background: fill.group, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
       <Row label="Setup" line={setup} onClick={() => void openOnboarding()} chevron />
       {engine && <Row label="Engine" line={{ state: engine.state, word: engine.word, detail: engine.detail }} onClick={engine.state === 'passed' ? undefined : () => void openOnboarding()} />}
-      <Row label="Cloud" line={cloud} />
+      {/* A failed cloud setup says "Open setup to retry": the row is the way there (quota, paused, offline: setup can't help). */}
+      <Row label="Cloud" line={cloud} onClick={cloud.retry ? () => void openOnboarding() : undefined} chevron={cloud.retry} />
       {v2Cloud && (
         <>
           <div aria-hidden style={{ height: 1, margin: '4px 8px', background: fill.rule }} />
