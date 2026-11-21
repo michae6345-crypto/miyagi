@@ -27,7 +27,7 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 - [x] Esc and click-outside collapse it back into the island (never fades out mid-screen)
 
 ## Test
-**v2 (A5):** `npm run dev:web -- --port 5190` → `http://localhost:5190/?scenario=home&size=1440x900&clean`, then Ctrl+K (`#/launcher` closes again right away: Core request 9).
+**v2 (A5):** `npm run dev:web -- --port 5190` → `http://localhost:5190/?scenario=home&size=1440x900&clean`, or add `#/launcher` to open it on load (Core request 9 is fixed).
 - Idle: Continue (Clean a CSV with pandas), Ready to run (3), Try asking. ↓ moves into the cached rows, Enter (or "Open") starts one.
 - Paste `https://youtu.be/mNiStCaCh3d`: "Already a lesson", "Ready instantly", Enter = Start lesson (no build).
 - Paste `https://www.youtube.com/watch?v=hOmEbUiLd01`, Enter: the build card (see `building.md`), held at Writing the checks.
@@ -50,7 +50,7 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 ## Core requests
 **v2 (A5):**
 8. **`mock/engine.ts` (integrator): the default `engine.hello` is lost in the browser stage.** `start()` emits it synchronously while bridge.ts is still being created, before `core/lesson.ts` subscribes, so `canSend()` / `useCapability()` are false in every scenario that doesn't send its own hello (checked: `?scenario=home` without its own hello had `hello` undefined and `library.list` never went out). Suggest emitting it from a `setTimeout(0)` (or queueing dispatches until the first subscriber). `home.json` sends its own hello at 30 ms meanwhile.
-9. **`dev/Stage.tsx` (integrator): `#/launcher` doesn't open the launcher.** Under `<StrictMode>` the open-on-load effect runs twice and its `setTimeout` isn't cleared, so `launcher:toggle` fires twice (open, then close). Suggest clearing the timer in the effect's cleanup. Until then: load the page, then Ctrl+K.
+9. ✅ **Done on `michael/v2-integration`** (the effect clears its timer). **`dev/Stage.tsx` (integrator): `#/launcher` doesn't open the launcher.** Under `<StrictMode>` the open-on-load effect runs twice and its `setTimeout` isn't cleared, so `launcher:toggle` fires twice (open, then close). Suggest clearing the timer in the effect's cleanup. Until then: load the page, then Ctrl+K.
 10. **`main/platform.ts` (integrator): key names for the launcher's footer.** ⌘↵ / Ctrl↵ ("Just teach me") has no platform key name; `parts.modKey()` derives the modifier from `keys.settings` (⌘, / Ctrl+,) so nothing is typed by hand. A `teach` name in `platform.keys` would let the footer use the core Keycap only. ↵, ↑↓ and ⇥ stay navigation glyphs (`parts.NavKey`, drawn like the core keycap).
 11. **Engine (E1/E3): `library` items need `source.url`** for lessons built from a YouTube video, or a pasted link can never show "Already a lesson" / "Ready instantly" (`library.ts` `libraryMatch` compares video ids). `progress` on items drives the launcher's Continue rows.
 12. *(Later, A6)* The launcher keeps its own copy of the `library` answer (`features/launcher/library.ts`). If the library lane exports a read-only store, the launcher can read that instead.

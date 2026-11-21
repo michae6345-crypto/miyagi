@@ -45,8 +45,12 @@ export function Stage({ openLauncher = false }: { openLauncher?: boolean }): Rea
     return () => removeEventListener('resize', fit)
   }, [])
 
+  // #/launcher: open it once. StrictMode runs this effect twice in dev, so the first timer must be cleared, or the
+  // two toggles open and close it again (agents/launcher.md, Core request 9).
   useEffect(() => {
-    if (openLauncher) setTimeout(() => bridge.emit('launcher:toggle'), 300)
+    if (!openLauncher) return
+    const t = setTimeout(() => bridge.emit('launcher:toggle'), 300)
+    return () => clearTimeout(t)
   }, [openLauncher])
 
   // Browser stand-ins for the global shortcuts main registers in Electron.
