@@ -3,7 +3,7 @@
  * and the renderer. Pure TS: no DOM, no Electron, no React.
  *
  * Rules (agents/settings.md): keys live in main only. The renderer sends new values in a SavePatch and gets
- * back a KeysView ({set, last4}) — never a key. Nothing here logs or stores anything.
+ * back a KeysView ({set, last4}), never a key. Nothing here logs or stores anything.
  */
 import type { KeyState } from '../../../../../../shared/contracts/events'
 
@@ -99,7 +99,8 @@ export const SHOWN: readonly KeyName[] = KEY_NAMES.filter((k) => k !== 'elevenla
 export type AboutView = { version?: string }
 
 /** settings:delete (Privacy › Delete my data): what was erased on this Mac. */
-export type DeleteResult = { ok: boolean; keys: KeysView }
+/** signIn: false when the keys went but a sign-in file (auth.bin, login.json) could not be removed. */
+export type DeleteResult = { ok: boolean; keys: KeysView; signIn?: boolean }
 
 /** A patch that removes every stored key. */
 export function clearAll(): SavePatch {

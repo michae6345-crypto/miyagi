@@ -16,8 +16,11 @@
  *   settings:open     ({section}?) grow the sheet out of the island on that section (openSettings(section) in the
  *                     renderer, core/surfaces); already open: switch to the section
  *   settings:about    → {version} for the sidebar's foot
- *   settings:delete   Privacy › Delete my data: erase the keys on this Mac (keys.bin), send the empty config.keys
- *                     → {ok, keys: KeysView}. The renderer then resets the prefs.
+ *   settings:delete   Privacy › Delete my data: erase the keys on this Mac (keys.bin), send the empty config.keys,
+ *                     then the sign-in files (settings/erase.ts SIGN_IN_FILES: auth.bin, login.json)
+ *                     → {ok, keys: KeysView, signIn}. ok false: nothing was removed. signIn false: the keys went but
+ *                     a sign-in file stayed. The renderer then resets the prefs and calls auth:sign-out (auth.ts
+ *                     owns the session in memory and revokes it).
  *   settings:get      → KeysView
  *   settings:save     (SavePatch) merge, encrypt, write, send config.keys → KeysView
  *   settings:test     re-send config.keys (the engine answers config.status)
@@ -36,6 +39,7 @@ import { cmd } from '../../common/wire'
 import { defineMainFeature } from '../context'
 import { returnFocus } from '../platform'
 import { previousApp } from './front-app'
+import { removeFiles, SIGN_IN_FILES } from './settings/erase'
 
 /** How long the closed sheet's window keeps catching clicks (see hide()). */
 const CATCH_MS = 400
@@ -176,7 +180,10 @@ export default defineMainFeature({
         return { ok: false, keys: view() }
       }
       sendKeys() // every name, all empty: the engine drops the app's keys
-      return { ok: true, keys: view() }
+      // The sign-in too (ROADMAP 5.4): only after the keys went, so ok false still means "nothing was removed".
+      const signIn = removeFiles(ctx.app.getPath('userData'), SIGN_IN_FILES)
+      if (!signIn) console.warn('[settings] a sign-in file could not be removed')
+      return { ok: true, keys: view(), signIn }
     })
     ctx.handle('settings:get', () => view())
     ctx.handle('settings:save', (patch) => {
