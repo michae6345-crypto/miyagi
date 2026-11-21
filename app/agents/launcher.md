@@ -1,6 +1,6 @@
 # launcher
 
-**Status:** pass 3 done: a way into Settings (typed word or ⌘, / Ctrl+,), on top of pass 2; waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
+**Status:** v2 pass (A5, wave 1) done: Home-Launcher restyle, LauncherInContext, cached lessons; typecheck green, checked headless on the stage; draft PR #167 into `adrian/shell` · **Priority:** P0 · **Port:** 5190 (v2; was 5176) · **Branch:** `michael/app-launcher` (was `adrian/launcher`)
 
 ## Goal
 Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **Since Sat ~2 PM (Michael): the island expands down into the launcher and every exit collapses it back into the island; nothing opens mid-screen.** Type what you want to learn → results stream in (it grows down) → Build lesson → it collapses back up into the pill (the signature transition). Pasting a YouTube link skips search. **During a lesson** it becomes "Ask about this step": Enter sends `action {kind:"ask", text}` and the answer comes back as a card.
@@ -9,8 +9,8 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 - `app/src/renderer/src/features/launcher/`
 
 ## Contract
-- **In** (engine → app): `search.result`, `search.done`, `lesson.building`, `lesson.ready`, `error`
-- **Out** (app → engine): `learn {query}`, `learn_url {url}`, `build_lesson {resultIds}`, `action {kind:"ask", text}`
+- **In** (engine → app): `search.result`, `search.done`, `lesson.building`, `lesson.ready`, `error`, v2 `library`
+- **Out** (app → engine): `learn {query}`, `learn_url {url}`, `build_lesson {resultIds}`, `action {kind:"ask", text}`, v2 `library.list {}` and `library.start {id}` (only when engine.hello lists them)
 
 ## Plugs in as
 `windows: [{ route: 'launcher', stage: 'fill' }]`; the window itself is created by core
@@ -27,6 +27,12 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 - [x] Esc and click-outside collapse it back into the island (never fades out mid-screen)
 
 ## Test
+**v2 (A5):** `npm run dev:web -- --port 5190` → `http://localhost:5190/?scenario=home&size=1440x900&clean`, or add `#/launcher` to open it on load (Core request 9 is fixed).
+- Idle: Continue (Clean a CSV with pandas), Ready to run (3), Try asking. ↓ moves into the cached rows, Enter (or "Open") starts one.
+- Paste `https://youtu.be/mNiStCaCh3d`: "Already a lesson", "Ready instantly", Enter = Start lesson (no build).
+- Paste `https://www.youtube.com/watch?v=hOmEbUiLd01`, Enter: the build card (see `building.md`), held at Writing the checks.
+- Click "Code your first neural network with TensorFlow" under Ready to run, then Ctrl+K: in context (Continue, Try asking, Ready to run, End lesson). Tab: the search side.
+
 `npm run dev:web -- --port 5176` → `http://localhost:5176/?scenario=full`
 - **Search + build:** Ctrl+K (the pill grows into the launcher), type anything or click a suggestion chip, Enter (rows stream in, it grows down), ↑↓ or hover, Enter again → it collapses into the pill.
 - **Ask:** once "Step 4 · Define the residual" shows, Ctrl+K → ask mode (a faint step line, placeholder "Ask about this step"; Tab flips to a new lesson and back), type, Enter → it collapses back into the step pill and the answer card grows out. The mock answers at step 4 and step 6 (`mock/scenarios/launcher.json`); the chips send Explain / Hint.
@@ -42,6 +48,14 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 **First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
 
 ## Core requests
+**v2 (A5):**
+8. **`mock/engine.ts` (integrator): the default `engine.hello` is lost in the browser stage.** `start()` emits it synchronously while bridge.ts is still being created, before `core/lesson.ts` subscribes, so `canSend()` / `useCapability()` are false in every scenario that doesn't send its own hello (checked: `?scenario=home` without its own hello had `hello` undefined and `library.list` never went out). Suggest emitting it from a `setTimeout(0)` (or queueing dispatches until the first subscriber). `home.json` sends its own hello at 30 ms meanwhile.
+9. ✅ **Done on `michael/v2-integration`** (the effect clears its timer). **`dev/Stage.tsx` (integrator): `#/launcher` doesn't open the launcher.** Under `<StrictMode>` the open-on-load effect runs twice and its `setTimeout` isn't cleared, so `launcher:toggle` fires twice (open, then close). Suggest clearing the timer in the effect's cleanup. Until then: load the page, then Ctrl+K.
+10. **`main/platform.ts` (integrator): key names for the launcher's footer.** ⌘↵ / Ctrl↵ ("Just teach me") has no platform key name; `parts.modKey()` derives the modifier from `keys.settings` (⌘, / Ctrl+,) so nothing is typed by hand. A `teach` name in `platform.keys` would let the footer use the core Keycap only. ↵, ↑↓ and ⇥ stay navigation glyphs (`parts.NavKey`, drawn like the core keycap).
+11. **Engine (E1/E3): `library` items need `source.url`** for lessons built from a YouTube video, or a pasted link can never show "Already a lesson" / "Ready instantly" (`library.ts` `libraryMatch` compares video ids). `progress` on items drives the launcher's Continue rows.
+12. *(Later, A6)* The launcher keeps its own copy of the `library` answer (`features/launcher/library.ts`). If the library lane exports a read-only store, the launcher can read that instead.
+
+**Earlier passes:**
 1. ✅ **Done in core e1517b2** (checked: after Build lesson the island now settles 300 → 259 with no balloon). **`core/Island.tsx`: zero the velocity after the landing snap.** On `pill:receive` the island snaps to 300×34 with `transition={{ duration: 0 }}`. That leaves a huge velocity on the width value, and the next spring launches with it: right after Build lesson the pill balloons to ~826px wide and shrinks back over ~400ms (`shots/launcher-06-build-strip.png`, last frames). **Verified fix** (tried locally, reverted): `transition={landing ? { duration: 0 } : { ...(isPill ? springOut : spring), velocity: 0 }}`. The pill then settles 300 → 256 with no overshoot. A narrower version only zeroes it for the first spring after a landing (a `justLanded` ref), so other interruptions keep their momentum.
 2. **`core/Island.tsx`: no content crossfade on the landing frame** (lower priority, not seen in the stage). If `lesson.building` hasn't reached the overlay window when `pill:receive` arrives (Electron windows are separate; a slow engine), the island switches idle → building at the swap and "Learn anything" fades out for 80ms under the just-landed pill. Suggest: when `pill:receive` changes the mode, show the new content at full opacity with no exit/enter for that one change.
 3. ✅ **Done in core e1517b2** (`fill.*`, `scrim.launcher`, `shadows.pill/card`; the launcher uses them, `tint.ts` keeps only helpers). **`core/theme.ts` tokens** for the neutral fills that were in `features/launcher/tint.ts` (white at low alphas on the black island: field fill/border, chip fill/hover/border/text, row highlight, icon tile/glyph, skeleton, footer rule, backdrop dim; ink at .1 for the keycap on the white button). Also export the island's two **shadows** (pill `'0 2px 10px rgba(0,0,0,.25)'`, card `'0 24px 60px rgba(0,0,0,.5)'`, both hard-coded in Island.tsx) as tokens: the launcher must match them exactly to hand over invisibly.
@@ -51,6 +65,15 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 5. *(Optional)* **Live island size during a collapse.** The launcher collapses to the `from` size it got at open. If the island's size changes while the launcher is open (e.g. the step changes), the island reappears at its new size and springs there. Fine for now; if it shows, main could re-send `{from}` with `launcher:close`.
 
 ## Notes
+**v2 pass, A5 (miyagi-v2 BUILD-PLAN; mockups Home-Launcher, Home-LauncherInContext).** Restyle plus cached lessons. The state machine is untouched: `Phase`, `Mode`, `View`, `Act`, `submit()`, `move()`, the ways (Watch a video / Just teach me / Demo), ask mode, Settings, End lesson. What changed:
+- **Look:** the field is a 64 high header row over a hairline (no field box), 18 px text, the bonsai stays at its left (spinner while searching), the platform's Esc keycap at its right (the decorative mic is gone). Radius 20 (`radius2.panel`). Sections get the mockup's labels: "From your link", "Continue", "Try asking", "Ready to run" (`parts.SectionLabel`). Idle topics and the ask panel's questions are "Try asking" lines (arrow, 44 high) instead of chips; the same click behaviour as before (a topic fills the field; a question is asked on press). Footer: a hairline, then "Paste a YouTube link or type a goal" (search mode, nothing typed, no lesson) or the offline / error note, the key hints ("↑↓ Move", "⇥ Switch") and at most one white primary. Rows: 64x40 tiles, 16 px padding and gap. Continue (lesson in progress) drops its tile and "Continue " prefix (the section says it) and shows ↵.
+- **Cached lessons** (`library.ts`): on open, `library.list {}` when engine.hello lists it; the `library` answer is kept locally. With nothing typed and the idle (or Continue) layout up: "Continue" = items with `progress` (no lesson running, no saved lesson waiting; a tool tag, where it was left, a white meter), "Ready to run" = ready items never started (also in a lesson and in ask mode), the lesson in progress left out by title. A click starts one with `library.start {id}` (zero model calls) and the panel collapses into the pill like Build lesson.
+- **Separate slot range:** the cached rows live in their own containers (Continue rows at ROW_H, Ready rows at READY_H 44), numbered from 0 there, with their own highlight (`readySel`, `SlotHighlight`). They never take a slot or `sel` from the search rows.
+- **Keys:** ↑↓ / Enter reach the cached rows only with no lesson running, no saved lesson waiting, search mode, nothing typed (`libKeys`, the moment `act` is 'none'); the footer then offers "Open ↵". During a lesson they are click-only, so no key can swap out the lesson in progress, and End lesson stays the footer's two-tap link, out of every key's reach (checked: in a lesson, ↓ ↓ Enter only continues the lesson).
+- **From your link:** a pasted link to a video a cached lesson was built from (`source.url`, same video id) shows that lesson ("Already a lesson. 7 steps in Jupyter and VS Code.", "Ready instantly") and Enter (the primary says "Start lesson") sends `library.start` instead of `learn_url`: nothing built twice.
+- **Deviations from the mockups (brand / island rules):** the panel stays at the notch, 640 wide, also in context (LauncherInContext draws it at 600 and mid-screen; every surface is born from the island). The field shows Esc (Home-Launcher); the in-context ⌘K is illustrative, so the footer drops a second "Esc Close". The white footer primary stays (one per surface) where the mockup shows only hints. Meta separators stay " · ". Starting a Ready row during a lesson replaces it on one click (click only, never a key).
+- **Checked** headless (Chrome headless shell over CDP against `?scenario=home&size=1440x900&clean`): idle sections, ↓ highlight and Open, cached and new links, build card through the hold, Stop building two taps, library start, in context (ask and search), ↓ ↓ Enter in a lesson. No console errors. Shots: `agents/shots/A5-01-launcher-idle.png` … `A5-04-link-new.png`, `A5-07-in-context-ask.png`, `A5-08-in-context-search.png` (the build card ones are in `building.md`). Not checked: Electron (separate windows), real `library` payloads (E1/E2 not merged).
+
 Window show/hide/focus is core (`src/main/index.ts`); the shrink target comes from `bridge.platform.pillTop` + `theme.pill`.
 
 **Pass 3 (Sat night, integrator): a way into Settings.** Settings only had the overview gear and first run.

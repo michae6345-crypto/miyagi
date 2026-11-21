@@ -362,3 +362,15 @@ export function CloseButton(): ReactNode {
     </button>
   )
 }
+
+// ---- v2 atoms (W0-3) ----------------------------------------------------------------------------------------------
+// Re-exported so `core/ui/atoms` stays the one import for shared atoms. The v2 PrimaryButton (sizes, paper surface,
+// platform keycap) is PrimaryButtonV2 here, so the island's PrimaryButton above keeps its signature.
+export { StatusGlyph, StatusWord, StatusRow, STATUS_WORD, type StatusState, type StatusSurface } from './status'
+export { Keycap, keyLabel, type KeyName, type KeycapOn } from './Keycap'
+export { GlassCard, type GlassSurface } from './GlassCard'
+export { PrimaryButton as PrimaryButtonV2, QuietButton, type ButtonSize, type ButtonSurface } from './buttons'
+export { Segmented, Toggle, Field, SidebarNav, type NavItem } from './controls'
+export { StepDots, type StepDotsProps } from './StepDots'
+export { HelpRow, OptionTile, WatchIcon, type HelpOption } from './HelpRow'
+export { KeysFooter, type KeysFooterItem } from './KeysFooter'

@@ -98,3 +98,6 @@ export function GlassQuiet({ label, icon: I, onClick, busy }: { label: string; i
     </motion.button>
   )
 }
+
+// v2 (W0-3): the dark card for v2 surfaces, under the glass module too.
+export { GlassCard, type GlassSurface } from './GlassCard'

@@ -77,7 +77,11 @@ export const color = {
    * opaque than the kit's .72: at .90 the code under the ask panel still showed through (Michael's tests 2-3, A13).
    * At .96 text behind the launcher still showed next to its rows (Michael's Devpost shots), so it is now solid.
    */
-  glass: 'rgb(28,28,30)'
+  glass: 'rgb(28,28,30)',
+  /** v2: the ink tick / text on a green (passed) circle. */
+  onGreen: brand.ink,
+  /** v2: an app window's opaque body (Onboarding, Library, Progress). Same as surface.window. */
+  window: 'rgb(28,28,30)'
 } as const
 
 export const font = {
@@ -122,7 +126,28 @@ export const fill = {
   button: 'rgba(255,255,255,.09)',
   /** Generated video thumbnail. */
   thumb: '#1C1C1E',
-  thumbArt: '#3A3A3C'
+  thumbArt: '#3A3A3C',
+  // ---- v2 (W0-2) ----
+  /** A grouped block of rows (Set-General). */
+  group: 'rgba(255,255,255,.04)',
+  hairline: 'rgba(255,255,255,.12)',
+  /** The selected sidebar row (Settings, Library). */
+  navActive: 'rgba(255,255,255,.12)',
+  /** The selected segment of a Segmented control, and its track. */
+  segmentOn: 'rgba(255,255,255,.18)',
+  segmentTrack: 'rgba(255,255,255,.06)',
+  /** A keycap on a dark surface (core/ui/Keycap.tsx). On a pastel or white button it's onAccentKey. */
+  keycap: 'rgba(255,255,255,.12)',
+  keycapBorder: 'rgba(255,255,255,.18)',
+  keycapText: 'rgba(255,255,255,.78)',
+  /** Step dots / meters: a step not reached yet. */
+  trackNext: 'rgba(255,255,255,.18)',
+  /** Les-Mini's step bars: a step not reached yet, a touch brighter on the small 4 px bar. */
+  trackNextMini: 'rgba(255,255,255,.24)',
+  /** A skill being practiced (Prog-Progress-Window): white at 55%, never a hue. */
+  practicing: 'rgba(255,255,255,.55)',
+  /** A Toggle that is off. */
+  toggleOff: 'rgba(255,255,255,.16)'
 } as const
 
 /**
@@ -183,8 +208,20 @@ export const glass = {
  */
 export const scrim = { spotlight: 'rgba(0,0,0,.66)', spotlightSoft: 'rgba(0,0,0,.16)', launcher: 'rgba(0,0,0,.22)' } as const
 
+/** Never name an editor we don't support: a label naming the unsupported fork becomes "your editor"; none at all is VS Code. */
+const UNSUPPORTED_EDITOR = /cursor/i
+export function editorName(label?: string | null): string {
+  const t = (label ?? '').trim()
+  if (!t) return 'VS Code'
+  return UNSUPPORTED_EDITOR.test(t) ? 'your editor' : t
+}
+
 /** Copy from the brand kit. */
 export const copy = {
+  /** v2 (W0-2): the guard every editor label goes through (card.setup.editorLabel, health rows...). */
+  editorName,
+  /** v2: Settings → General caption (decision 9: the settings panel stays black). */
+  appearanceCaption: 'Applies to panels and this window.',
   /** Brand moments are lowercase like the wordmark (Adrian, Sat 5 PM). Teaching copy keeps normal case. */
   name: 'miyagi',
   oneLiner: 'Turn any tutorial into an auto-graded lab.',
@@ -194,6 +231,91 @@ export const copy = {
   /** Michael, test 7: "Good. Now the next one." read as filler; the step's own result says more. */
   passed: 'Step done.'
 } as const
+
+// ---------------------------------------------------------------------------------------------------------------
+// v2 tokens (miyagi-v2 BUILD-PLAN W0-2). Additive: everything above keeps its name and value. Mockup literals that
+// differ from BRAND.md (the mockups' sky #BFE3F5, ⌥ keycaps) lose to BRAND.md and bridge.platform.keys.
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Status, in one place (Les-* / Prog-* / Onb-*). passed is the ONLY green. notYet has no hue: a hollow ring in `notYet`
+ * with the word "Not yet". watching / unknown / offline are the gray. Never a pastel, never a glow.
+ */
+export const status = {
+  passed: brand.pass,
+  /** Green text on a paper (light) surface. */
+  passedOnPaper: brand.passText,
+  notYet: brand.offTrack,
+  /** The ring's stroke on paper. */
+  notYetOnPaper: brand.ink,
+  watching: brand.watching,
+  unknown: brand.watching,
+  offline: brand.watching,
+  /** An empty / pending ring (a step not started, a row not checked yet). */
+  ring: 'rgba(255,255,255,.28)'
+} as const
+
+/** Dark surfaces, back to front: the lesson panel, an app window's body, a sheet inside it, a row on any of them. */
+export const surface = {
+  /** The lesson panel docked beside the editor, the island's cards' glass twin (Les-Working). */
+  panel: 'rgba(28,28,30,0.96)',
+  /** App windows (Onboarding, Library, Progress): opaque, so nothing shows through. Same as color.window. */
+  window: 'rgb(28,28,30)',
+  /** A sheet or popover inside a window (Onb-Checklist-Mixed). */
+  sheet: '#2C2C2E',
+  /** A grouped row on any of the above (Set-General, Home-Library). */
+  row: 'rgba(255,255,255,.06)',
+  rowHover: 'rgba(255,255,255,.1)',
+  border: 'rgba(255,255,255,.12)',
+  shadow: '0 24px 60px rgba(0,0,0,.5)',
+  shadowSmall: '0 8px 24px rgba(0,0,0,.4)'
+} as const
+
+/**
+ * Light surfaces (Plan-Pricing, the dmg art, web pages): the brand's paper and ink. Buttons are ink with paper text,
+ * status green is passText, nothing else gets a hue.
+ */
+export const paper = {
+  bg: brand.paper,
+  surface: brand.surface,
+  ink: brand.ink,
+  muted: 'rgba(20,20,20,.64)',
+  label: 'rgba(20,20,20,.6)',
+  faint: 'rgba(20,20,20,.42)',
+  hairline: 'rgba(20,20,20,.1)',
+  border: 'rgba(20,20,20,.16)',
+  group: 'rgba(20,20,20,.08)',
+  field: 'rgba(20,20,20,.04)',
+  button: brand.ink,
+  buttonText: brand.paper,
+  pass: brand.passText,
+  shadow: '0 12px 32px rgba(20,20,20,.08)',
+  shadowSmall: '0 1px 2px rgba(20,20,20,.12)'
+} as const
+
+/**
+ * The lesson panel's dock (Les-Working: right 16, top 52 at 1440x900, 360 wide; Les-Mini: the collapsed pill 380).
+ * top: px from the display's top (the menu bar plus a gap); core/dock.ts keeps it under the work area's top.
+ */
+export const dock = { w: 360, inset: 16, gap: 10, miniW: 380, top: 52 } as const
+
+/** App windows (decision 4: an explicit exception to "born from the island"; a Dock icon while open). Points. */
+export const windowSize = {
+  onboarding: { w: 720, h: 560 },
+  library: { w: 1280, h: 820 },
+  lessonDetail: { w: 960, h: 700 },
+  progress: { w: 1100, h: 760 },
+  account: { w: 720, h: 560 },
+  pricing: { w: 1200, h: 760 },
+  /** Settings stays the grow-from-pill sheet; this is its clamp (A4). */
+  settings: { w: 912, h: 576 }
+} as const
+export type AppWindowName = keyof typeof windowSize
+
+/** v2 type scale (the mockups use 11 for keycaps and captions). The brand sizes 13 / 15 / 20 / 28 are all in here. */
+export const type2 = { micro: 11, xs: 12, sm: 13, md: 14, body: 15, lg: 17, xl: 20, xxl: 28 } as const
+/** v2 radii (the brand's 14 / 20 / 28 plus the small ones the mockups use). */
+export const radius2 = { keycap: 6, control: 8, row: 10, card: 12, chip: 14, group: 16, panel: 20, sheet: 24, launcher: 28, round: 999 } as const
 
 /** Which bonsai cut to use at which size (see core/ui/Mark.tsx). */
 export const markLevel = (px: number): 'small' | 'icon' | 'full' => (px <= 32 ? 'small' : px <= 140 ? 'icon' : 'full')
