@@ -29,6 +29,21 @@ export const SLOW_RETRY_MAX_MS = 5000
 export const HANDSHAKE_TIMEOUT_MS = 4000
 
 /**
+ * Heartbeat (ROADMAP 1.4: a lost socket must never leave dead UI). A socket can die without a close frame (the engine
+ * hung, a Mac that slept, a half-open port): 'close' would then never fire and the pill would sit on a lesson that no
+ * longer answers. So ping every HEARTBEAT_MS (a WebSocket protocol ping: every engine answers it by itself, nothing in
+ * the contract changes); no pong and no message for HEARTBEAT_DEAD_MS = the socket is dead, so drop it and reconnect.
+ * Generous on purpose: an engine busy for a few seconds (a build, OCR) is not dead.
+ */
+export const HEARTBEAT_MS = 15_000
+export const HEARTBEAT_DEAD_MS = 45_000
+/** After the Mac wakes (wake()): an open socket must answer within this, or it is dropped and reconnected at once. */
+export const WAKE_PROBE_MS = 5000
+
+/** Timings, for tests only (the defaults above everywhere else). */
+export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number }
+
+/**
  * Where the socket is, for the pill (review A16: never say "can't reach" before an attempt has actually failed).
  * failures: attempts that failed since the link was last open; 0 while the first attempt (startup, right after a
  * drop) is still in flight.
@@ -83,12 +98,25 @@ export class EngineLink {
   /** v2: ENGINE_URL is loopback or wss: (secureEngineUrl). Otherwise no token header and no install token, ever. */
   private readonly secure: boolean
   private warnedInsecure = false
+  /** Heartbeat: the last sign of life on the open socket (a pong or any message), and the last tick (to spot a sleep). */
+  private alive = 0
+  private lastTick = 0
+  private beat?: ReturnType<typeof setInterval>
+  private probe?: ReturnType<typeof setTimeout>
+  private readonly heartbeatMs: number
+  private readonly deadMs: number
+  private readonly probeMs: number
+  /** Main is starting the engine itself (localEngine: checking / installing / starting): failed attempts are expected. */
+  private held = false
 
   /**
    * `token` (v2): the per-launch engine token (localEngine ENGINE_TOKEN). Given here, not later, because the first
    * WebSocket attempt starts inside this constructor and must already carry X-Miyagi-Token.
    */
-  constructor(private url: string, demoScenario?: string, token?: string) {
+  constructor(private url: string, demoScenario?: string, token?: string, timings: LinkTimings = {}) {
+    this.heartbeatMs = timings.heartbeatMs ?? HEARTBEAT_MS
+    this.deadMs = timings.deadMs ?? HEARTBEAT_DEAD_MS
+    this.probeMs = timings.probeMs ?? WAKE_PROBE_MS
     this.token = token || undefined
     this.secure = secureEngineUrl(url)
     if (demoScenario) {
@@ -120,7 +148,48 @@ export class EngineLink {
   }
 
   link(): LinkInfo {
-    return { open: this.connected, attempting: !this.demo && this.ws?.readyState === WebSocket.CONNECTING, failures: this.demo ? 0 : this.failures }
+    return { open: this.connected, attempting: !this.demo && this.ws?.readyState === WebSocket.CONNECTING, failures: this.demo || this.held ? 0 : this.failures }
+  }
+
+  /**
+   * Main is (re)starting the engine itself (localEngine.ts: checking, installing, starting, a respawn after a crash).
+   * While held, a refused attempt is expected and not counted, so the pill stays on its calm "reconnecting" line and
+   * never reaches the offline card (Retry only after a real failure: main says when the start failed). Fast retries
+   * start over, so the new engine is picked up within about a second of it listening.
+   */
+  holdFailures(on: boolean): void {
+    if (on === this.held) return
+    this.held = on
+    if (on) {
+      this.failures = 0
+      this.downSince = Date.now()
+      this.slow = 0
+    }
+    this.emitLink()
+  }
+
+  /**
+   * The Mac woke up (or the screen unlocked): a socket that was open before the sleep may be dead without knowing it.
+   * Open: probe it now (a ping) and drop it if nothing answers within WAKE_PROBE_MS. Down: try now, with fast retries
+   * again (timers were frozen during the sleep, so the backoff may say "wait 5 s" for nothing).
+   */
+  wake(): void {
+    if (this.demo) return
+    if (!this.connected) return this.reconnect()
+    const ws = this.ws
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    const asked = Date.now()
+    this.lastTick = asked
+    clearTimeout(this.probe)
+    try {
+      ws.ping()
+    } catch {
+      return this.drop(ws, 'ping failed after wake')
+    }
+    this.probe = setTimeout(() => {
+      this.probe = undefined
+      if (this.ws === ws && this.alive < asked) this.drop(ws, 'no answer after wake')
+    }, this.probeMs)
   }
 
   /**
@@ -238,25 +307,31 @@ export class EngineLink {
       // The engine sends a full snapshot on every connect: forget what the old connection said.
       this.log.length = 0
       this.caps.clear()
+      this.startHeartbeat(ws)
       this.setConnected(true)
       for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
     })
     ws.on('message', (data) => {
       if (this.ws !== ws) return
+      this.alive = Date.now()
       const text = String(data)
       if (this.cloudTokenInvalid(text)) return
       const e = parseEngineMessage(text)
       if (e) this.dispatch(e)
     })
+    ws.on('pong', () => {
+      if (this.ws === ws) this.alive = Date.now()
+    })
     ws.on('close', () => {
       // A newer attempt (Retry) took over: this socket's end means nothing.
       if (this.ws !== ws) return
+      this.stopHeartbeat()
       if (opened) {
         // A drop: a fresh outage, so fast retries again. Not a failed attempt yet (the pill waits for one).
         this.downSince = Date.now()
         this.slow = 0
-      } else this.failures++
+      } else if (!this.held) this.failures++
       this.setConnected(false)
       this.schedule()
     })
@@ -264,6 +339,41 @@ export class EngineLink {
       /* 'close' follows and schedules the retry */
     })
     this.emitLink()
+  }
+
+  /** Ping on a timer while this socket is open; a socket silent for deadMs is dropped (see HEARTBEAT_MS). */
+  private startHeartbeat(ws: WebSocket): void {
+    this.stopHeartbeat()
+    this.alive = this.lastTick = Date.now()
+    this.beat = setInterval(() => {
+      if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return this.stopHeartbeat()
+      const now = Date.now()
+      // The timer itself was late by far more than a beat: the Mac slept (timers froze), not the engine. Don't judge
+      // silence across a sleep; give the socket a fresh window (wake() probes it sooner when powerMonitor says so).
+      if (now - this.lastTick > this.heartbeatMs * 3) this.alive = now
+      this.lastTick = now
+      if (now - this.alive > this.deadMs) return this.drop(ws, `no answer for ${Math.round((now - this.alive) / 1000)} s`)
+      try {
+        ws.ping()
+      } catch {
+        this.drop(ws, 'ping failed')
+      }
+    }, this.heartbeatMs)
+  }
+
+  private stopHeartbeat(): void {
+    clearInterval(this.beat)
+    this.beat = undefined
+    clearTimeout(this.probe)
+    this.probe = undefined
+  }
+
+  /** A dead socket: end it now. Its 'close' runs the usual drop path (fresh outage, fast retries, the pill). */
+  private drop(ws: WebSocket, why: string): void {
+    if (this.ws !== ws) return
+    console.warn(`[engine] connection lost (${why}); reconnecting`)
+    this.stopHeartbeat()
+    ws.terminate()
   }
 
   /** The next attempt: every FAST_RETRY_MS early in an outage, then backing off to SLOW_RETRY_MAX_MS. */
