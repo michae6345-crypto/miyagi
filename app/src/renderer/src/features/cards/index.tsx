@@ -37,6 +37,7 @@ import { useDock } from '../../core/dock'
 import { useRoutedAway } from './panel'
 import { act, cardAct, installAll, installable, itemDone, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 import { isEditorSheet, SHEET_W, VSCodeSheet } from './VSCodeSheet'
+import { ease, fade, press, spring } from '../../core/ui/motion'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
 const OFFTRACK_MAX = 620
@@ -151,8 +152,8 @@ function QuietButton({ label, icon: I, onClick, compact }: { label: string; icon
       className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full text-[13px] font-medium ${iconOnly ? 'w-[30px] justify-center' : 'px-[13px]'}`}
       style={{ backgroundColor: fill.button, color: color.text }}
       whileHover={{ backgroundColor: fill.chipHover }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.12 }}
+      whileTap={{ scale: press.scale }}
+      transition={{ ...fade.tint, scale: spring }}
       title={iconOnly ? label : undefined}
       aria-label={iconOnly ? label : undefined}
       onMouseDown={(e) => e.preventDefault()}
@@ -206,7 +207,7 @@ function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: bo
  */
 function Swap({ id, children }: { id: string; children: ReactNode }): ReactNode {
   return (
-    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: 0.06, ease: 'easeOut' }}>
+    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ ...fade.in, delay: 0.06, ease: ease.out }}>
       {children}
     </motion.div>
   )

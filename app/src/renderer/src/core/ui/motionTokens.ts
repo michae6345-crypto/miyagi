@@ -11,7 +11,7 @@ export const spring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.9 }
 export const springOut = { type: 'spring', stiffness: 420, damping: 38, mass: 0.9 } as const satisfies Transition
 
 /** Tween lengths (seconds) for fades and tints. Never for movement. */
-export const duration = { instant: 0.08, fast: 0.12, base: 0.18, slow: 0.24 } as const
+export const duration = { instant: 0.08, fast: 0.12, base: 0.18, slow: 0.24, /** a diagram line or a chart drawing itself */ draw: 0.4 } as const
 /** ease.out: enter fast, settle slow (never ease-in on an enter). inOut: only for a there-and-back flash. */
 export const ease = { out: [0.23, 1, 0.32, 1], inOut: [0.77, 0, 0.175, 1] } as const
 

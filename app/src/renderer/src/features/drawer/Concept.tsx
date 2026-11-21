@@ -24,6 +24,7 @@ import { Graph } from '../diagrams/Graph'
 import { useStepStatuses } from './plan'
 import { closeConcept, useDrawer } from './store'
 import { CodeBlock } from './Teach'
+import { fade } from '../../core/ui/motion'
 
 /** A picture already asked for (by concept title) this lesson: don't ask the engine twice (StrictMode, reopening). */
 const asked = new Set<string>()
@@ -77,8 +78,8 @@ export function ConceptPanel({ rect }: { rect: Rect }): ReactNode {
       style={panelShell(rect)}
       initial={{ x: 40, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
-      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: { duration: 0.18 } } }}
-      transition={{ ...spring, opacity: { duration: 0.18 } }}
+      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: fade.in } }}
+      transition={{ ...spring, opacity: fade.in }}
     >
       <div className="min-h-0 overflow-y-auto px-[20px] pb-[18px] pt-[16px]" style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` }}>
         <div className="text-[12px] font-semibold leading-[16px]" style={{ color: glass.label }}>
@@ -148,8 +149,8 @@ export function Rail({ rect }: { rect: Rect }): ReactNode {
       style={panelShell(rect)}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.15 } }}
-      transition={{ duration: 0.18 }}
+      exit={{ opacity: 0, transition: fade.in }}
+      transition={fade.in}
     >
       {steps.map((s, i) => {
         const passed = statuses[i] === 'done'

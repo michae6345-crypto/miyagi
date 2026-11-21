@@ -22,6 +22,7 @@ import { Firing, isFiringNetwork } from './Firing'
 import { Heatmap, type HeatmapData } from './Heatmap'
 import { DiagramTabs, titleOf } from './Tabs'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
+import { draw as drawIn, duration, enter, fade, prefersReduced, stagger } from '../../core/ui/motion'
 
 export function DiagramView(): ReactNode {
   const d = useDiagram((s) => s.diagram)
@@ -70,7 +71,8 @@ export function DiagramBody({ d }: { d: DiagramPayload }): ReactNode {
   )
 }
 
-const draw = (i: number) => ({ initial: { pathLength: 0, opacity: 0 }, animate: { pathLength: 1, opacity: 1 }, transition: { duration: 0.35, delay: i * 0.03 } })
+/** A diagram line drawing in as the i-th of its group (a fade with Reduce Motion). */
+const draw = (i: number) => drawIn(prefersReduced(), { delay: i * stagger.each, length: duration.draw })
 
 function Network({ data }: { data: Record<string, unknown> }): ReactNode {
   // Generality: everything comes from the data (no demo-lesson defaults).
@@ -144,9 +146,9 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
               fill={color.island}
               stroke={li === layers.length - 1 ? color.accent : fill.chipText}
               strokeWidth="1.3"
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: li * 0.03, duration: 0.2 }}
+              initial={{ scale: 0.6, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={enter(li * stagger.each)}
             />
           )
         )
@@ -208,7 +210,7 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
       {/* The combined output: an outline, not a filled pill (a filled white pill reads as a button). */}
       {residual && (
         <>
-          <motion.rect x={ux + 20} y={68} width={92} height={28} rx={14} fill={color.island} stroke={color.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} />
+          <motion.rect x={ux + 20} y={68} width={92} height={28} rx={14} fill={color.island} stroke={color.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay: duration.draw }} />
           <text x={ux + 66} y={86} textAnchor="middle" fill={color.text} fontSize="11.5" fontFamily="ui-monospace, monospace">
             {residual.length > 13 ? `${residual.slice(0, 12)}…` : residual}
           </text>

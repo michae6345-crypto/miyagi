@@ -31,6 +31,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { color, fill, radius2, spring, status, type2 } from '../../core/theme'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { keepWorking, tapStop, useBuildCard } from './store'
+import { ease, enter, fade } from '../../core/ui/motion'
 
 export const CARD_W = 560
 const PAD = 28
@@ -171,7 +172,7 @@ function PhaseRow({ phase, index, last }: { phase: Phase; index: number; last: b
       style={{ borderBottom: last ? undefined : `1px solid ${fill.hairline}` }}
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ y: { ...spring, delay }, opacity: { duration: 0.18, delay } }}
+      transition={enter(delay)}
     >
       <span className="relative grid h-[24px] w-[24px] shrink-0 place-items-center">
         <AnimatePresence initial={false}>
@@ -180,8 +181,8 @@ function PhaseRow({ phase, index, last }: { phase: Phase; index: number; last: b
             className="absolute inset-0 grid place-items-center"
             initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.6 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.12 } }}
-            transition={{ scale: spring, opacity: { duration: 0.18 } }}
+            exit={{ opacity: 0, transition: fade.out }}
+            transition={{ scale: spring, opacity: fade.in }}
           >
             <PhaseGlyph state={phase.state} />
           </motion.span>
@@ -192,7 +193,7 @@ function PhaseRow({ phase, index, last }: { phase: Phase; index: number; last: b
         style={{ fontSize: type2.md, fontWeight: active ? 500 : 400 }}
         initial={false}
         animate={{ color: phase.state === 'next' ? color.label : color.text }}
-        transition={{ duration: 0.2 }}
+        transition={fade.in}
       >
         {phase.label}
       </motion.span>
@@ -204,8 +205,8 @@ function PhaseRow({ phase, index, last }: { phase: Phase; index: number; last: b
             style={{ fontSize: type2.xs, color: active ? fill.keycapText : color.label }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.12 } }}
-            transition={{ duration: 0.18 }}
+            exit={{ opacity: 0, transition: fade.out }}
+            transition={fade.in}
           >
             {detail}
           </motion.span>
@@ -235,7 +236,7 @@ function PhaseGlyph({ state }: { state: Phase['state'] }): ReactNode {
           className="h-[8px] w-[8px] rounded-full"
           style={{ background: status.watching }}
           animate={{ opacity: [1, 0.4, 1] }}
-          transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+          transition={{ duration: 2.4, repeat: Infinity, ease: ease.inOut }}
         />
       </span>
     )

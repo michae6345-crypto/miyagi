@@ -101,14 +101,24 @@ export const textSwap = {
 } as const satisfies Pick<MotionProps, 'initial' | 'animate' | 'exit'>
 
 /**
- * A stroke that draws in (the passed tick): pathLength over 240 ms on ease.out, `delay` after its circle. pathLength
- * is not a transform, so MotionConfig would still play it: reduced motion fades the stroke in instead.
+ * A stroke that draws in: pathLength on ease.out, `delay` after what it belongs to (the passed tick: 240 ms a beat
+ * after its circle; a diagram line or a chart: `length` duration.draw). pathLength is not a transform, so MotionConfig
+ * would still play it: with reduced motion the stroke fades in instead. `opacity` is where the stroke ends up.
  */
-export function draw(reduced: boolean | null | undefined, delay = beat): Pick<MotionProps, 'initial' | 'animate' | 'transition'> {
+export function draw(
+  reduced: boolean | null | undefined,
+  { delay = beat, length = duration.slow, opacity = 1 }: { delay?: number; length?: number; opacity?: number } = {}
+): Pick<MotionProps, 'initial' | 'animate' | 'transition'> {
   return reduced
-    ? { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: fadeIn(delay) }
-    : { initial: { pathLength: 0, opacity: 0 }, animate: { pathLength: 1, opacity: 1 }, transition: { duration: duration.slow, ease: ease.out, delay, opacity: { ...fade.instant, delay } } }
+    ? { initial: { opacity: 0 }, animate: { opacity }, transition: fadeIn(delay) }
+    : { initial: { pathLength: 0, opacity: 0 }, animate: { pathLength: 1, opacity }, transition: { duration: length, ease: ease.out, delay, opacity: { ...fade.instant, delay } } }
 }
+
+/**
+ * prefers-reduced-motion right now, for code that can't call the hook (a module-level helper, an imperative
+ * animate()). Components use motion's useReducedMotion().
+ */
+export const prefersReduced = (): boolean => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /**
  * The off-track dot's two calm beats (no shake, no hue): scale 1 → 1.35 twice over a second. A scale, so

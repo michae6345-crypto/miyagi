@@ -10,6 +10,7 @@ import { openLibrary, openSettings } from '../../core/surfaces'
 import { color, fill, radius2, shadows, surface, type2 } from '../../core/theme'
 import { Kbd } from '../../core/ui/atoms'
 import { closeStageMenu, useStageMenu } from './web'
+import { fade } from '../../core/ui/motion'
 
 const W = 220
 
@@ -61,7 +62,7 @@ export function StageMenu(): ReactNode {
       }}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.12, ease: 'easeOut' }}
+      transition={fade.tint}
     >
       {ROWS.map((r, i) =>
         r === 'sep' ? (
@@ -74,7 +75,7 @@ export function StageMenu(): ReactNode {
             className="flex w-full cursor-pointer items-center justify-between text-left"
             style={{ height: 28, padding: '0 9px', borderRadius: radius2.keycap, fontSize: type2.sm, color: color.text, backgroundColor: fill.clear }}
             whileHover={{ backgroundColor: fill.chipHover }}
-            transition={{ duration: 0.08 }}
+            transition={fade.instant}
             onClick={() => {
               closeStageMenu()
               r.run()

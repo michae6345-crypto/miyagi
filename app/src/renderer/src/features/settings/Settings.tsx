@@ -22,6 +22,7 @@ import { getIslandModes, type IslandMode } from '../../core/registry'
 import { color, fill, pill, radius, scrim, shadows, spring, springOut, surface, windowSize } from '../../core/theme'
 import { Shell } from './Shell'
 import { useSettings, type Size } from './store'
+import { beat, ease, fade } from '../../core/ui/motion'
 
 type Phase = 'closed' | 'open' | 'closing'
 
@@ -40,8 +41,8 @@ const round = (s: Size): Size => ({ w: Math.round(s.w), h: Math.round(s.h) })
 
 /** Exits hand the island back once the shape is within a pixel. */
 const settle = { restDelta: 1, restSpeed: 30 }
-const contentIn: Transition = { duration: 0.2, delay: 0.06, ease: 'easeOut' }
-const contentOut: Transition = { duration: 0.08 }
+const contentIn: Transition = { ...fade.in, delay: beat }
+const contentOut: Transition = fade.instant
 /** Space kept free under the sheet when it would otherwise reach the bottom of the screen, and at each side. */
 const BOTTOM_MARGIN = 24
 const SIDE_MARGIN = 24
@@ -202,7 +203,7 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
   /** Reduced motion: crossfade at full size. Exit targets keep every key (a dropped key ends the animation early). */
   const faded = { ...grown, opacity: 0 }
   const target: TargetAndTransition = exiting ? (reduce ? faded : { ...shapeOf(to), opacity: 1 }) : { ...grown, opacity: 1 }
-  const transition: Transition = exiting ? (reduce ? { duration: 0.2 } : { ...springOut, ...settle }) : spring
+  const transition: Transition = exiting ? (reduce ? fade.in : { ...springOut, ...settle }) : spring
 
   return (
     <div key={gen} className="absolute inset-0" data-settings={phase}>
@@ -212,7 +213,7 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
         style={{ background: scrim.launcher }}
         initial={{ opacity: 0 }}
         animate={{ opacity: phase === 'open' ? 1 : 0 }}
-        transition={{ duration: phase === 'open' ? 0.16 : 0.24, ease: 'easeOut' }}
+        transition={{ duration: phase === 'open' ? 0.16 : 0.24, ease: ease.out }}
         onClick={close}
       />
 
@@ -247,7 +248,7 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
           style={{ background: surface.window, boxShadow: `inset 0 0 0 1px ${fill.hairline}`, borderRadius: 'inherit' }}
           initial={{ opacity: reduce ? 1 : 0 }}
           animate={{ opacity: exiting && !reduce ? 0 : 1 }}
-          transition={{ duration: exiting ? 0.12 : 0.22, ease: 'easeOut' }}
+          transition={{ duration: exiting ? 0.12 : 0.22, ease: ease.out }}
         />
         {/* The island's own content, handed over: fades out as the sheet grows… */}
         {handoff && phase === 'open' && !reduce && islandMode && (
@@ -255,7 +256,7 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
         )}
         {/* …and back in as the sheet collapses onto the island's shape. */}
         {exiting && !reduce && islandMode && (
-          <IslandContent mode={islandMode} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.14, delay: 0.12, ease: 'easeOut' }} />
+          <IslandContent mode={islandMode} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay: 2 * beat }} />
         )}
 
         <motion.div

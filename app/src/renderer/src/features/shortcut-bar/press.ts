@@ -1,12 +1,14 @@
 /**
  * The 90 ms press: whichever way a shortcut fires (bar click, global key, stage key, launcher chip), the
- * matching tile scales to 0.94 and back. Listens to every 'shortcut', claimed or not, and never claims one.
+ * matching tile dips to press.scale (.97) on the house spring and back. Listens to every 'shortcut', claimed or not, and never claims one.
  */
 import { create } from 'zustand'
 import { onUi } from '../../core/bus'
+import { press } from '../../core/ui/motion'
 
 export const PRESS_MS = 90
-export const PRESS_SCALE = 0.94
+/** The house press (core/ui/motion press.scale), on the spring: the bar's tiles dip like every other control. */
+export const PRESS_SCALE = press.scale
 
 /** The kind being pressed right now (for PRESS_MS), else undefined. */
 export const usePress = create<{ kind?: string }>(() => ({ kind: undefined }))

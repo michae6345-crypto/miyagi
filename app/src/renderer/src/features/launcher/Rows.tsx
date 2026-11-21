@@ -15,6 +15,7 @@ import { HOW_LABEL, NavKey, PRESS } from './parts'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { alpha, kindTone } from './tint'
+import { ease, fade } from '../../core/ui/motion'
 
 /** Fixed, so a row that gains a learner line later never moves its neighbours or the highlight. */
 export const ROW_H = 64
@@ -26,7 +27,7 @@ export const READY_H = 44
 
 const enter = { opacity: 0, y: 6 }
 const shown = { opacity: 1, y: 0 }
-const gone = { opacity: 0, transition: { duration: 0.12 } }
+const gone = { opacity: 0, transition: fade.out }
 
 type Slot = { slot: number; delay?: number }
 
@@ -88,7 +89,7 @@ function Text({ title, meta, extra, checked = false, warnings }: { title: string
         {extra && <span className="shrink-0 whitespace-pre">{` · ${extra}`}</span>}
         {/* The engine opened this link itself (oEmbed / HTTP / API). Gray: green only means passed. */}
         {checked && (
-          <motion.span className="shrink-0 whitespace-pre" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+          <motion.span className="shrink-0 whitespace-pre" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fade.in}>
             {' · Link checked'}
           </motion.span>
         )}
@@ -177,7 +178,7 @@ export function ResumeRow({
 /** The idle list's active line shows the Enter keycap; it fades in and out as ↑↓ move, so the cue sits on the row Enter runs. */
 function EnterCue({ active }: { active: boolean }): ReactNode {
   return (
-    <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={{ duration: 0.12 }} aria-hidden>
+    <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
       <NavKey>{navKey('enter')}</NavKey>
     </motion.span>
   )
@@ -222,7 +223,7 @@ export function LinkPreview({ link, match, onPick }: { link: YouTubeLink; match?
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       whileTap={PRESS}
-      transition={{ y: spring, opacity: { duration: 0.18 } }}
+      transition={{ y: spring, opacity: fade.in }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onPick}
     >
@@ -356,7 +357,7 @@ export function SkeletonRow({ slot }: { slot: number }): ReactNode {
       initial={{ opacity: 0 }}
       animate={{ opacity: [0.5, 1, 0.5] }}
       exit={gone}
-      transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut', delay: slot * 0.12 }}
+      transition={{ duration: 1.4, repeat: Infinity, ease: ease.inOut, delay: slot * 0.12 }}
     >
       <span className="h-[40px] w-[64px] shrink-0 rounded-[8px]" style={{ background: fill.skeleton }} />
       <span className="flex flex-1 flex-col gap-[8px]">

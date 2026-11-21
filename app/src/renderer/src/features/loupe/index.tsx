@@ -23,6 +23,7 @@ import { useLauncherOpen } from '../launcher/store'
 import { hole, holeRadius, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { arrow, glyphFrom, PAD, placeCallout, ringSize, wantsZoom } from './place'
+import { fade } from '../../core/ui/motion'
 
 const ASKING_OPACITY = 0.3
 /** The arrow: a white hairline over a faint dark keyline (the spotlight ring's recipe), with a small open head. */
@@ -51,7 +52,7 @@ function LoupeLayer({ layout }: { layout: Layout }): ReactNode {
           initial={{ opacity: 0 }}
           animate={{ opacity: asking ? ASKING_OPACITY : 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          transition={fade.in}
         >
           <Callout target={here} glyph={glyphFrom(t?.caption)} bounds={bounds} reduced={reduced} />
         </motion.div>
@@ -72,7 +73,7 @@ function Callout({ target, glyph, bounds, reduced }: { target: Rect; glyph?: str
     <>
       {line && (
         <svg className="absolute inset-0 h-full w-full" aria-hidden data-part="loupe-arrow">
-          <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2, delay: reduced ? 0 : 0.12 }}>
+          <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay: reduced ? 0 : 0.12 }}>
             <Arrow from={line.from} to={line.to} stroke={color.onAccent} width={LINE.keyline} opacity={LINE.keylineOpacity} />
             <Arrow from={line.from} to={line.to} stroke={color.text} width={LINE.width} opacity={1} />
           </motion.g>
@@ -85,7 +86,7 @@ function Callout({ target, glyph, bounds, reduced }: { target: Rect; glyph?: str
         style={{ width: box.w, height: box.h, background: color.island, borderRadius: radius.card, boxShadow: shadows.card, border: `1px solid ${fill.chipBorder}` }}
         initial={reduced ? { opacity: 0, x: box.x, y: box.y } : { opacity: 0, scale: 0.4, x: box.x + from.x, y: box.y + from.y }}
         animate={{ opacity: 1, scale: 1, x: box.x, y: box.y }}
-        transition={reduced ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.15 } }}
+        transition={reduced ? fade.in : { ...spring, opacity: fade.in }}
       >
         {/* The target, enlarged: the spotlight's hairline ring, with the button's glyph on a keycap inside. */}
         <div
