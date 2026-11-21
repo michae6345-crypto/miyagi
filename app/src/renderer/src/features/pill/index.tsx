@@ -409,7 +409,7 @@ function Compact(): ReactNode {
  * until wave 2: the bonsai (or the phase glyph), the step's title, one bar per step (StepDots 'bars': passed green, this
  * step white, the rest faint; past 10 steps one proportional track), "2 of 6" and the status dot. The whole pill is
  * the button that opens the panel again: a hover tint, a chevron that brightens, and on the very first collapse the title
- * reads "Click to reopen the lesson" for a moment.
+ * reads "Click to reopen" for a moment.
  */
 function Mini(): ReactNode {
   const s = useShown()
@@ -477,7 +477,7 @@ function Mini(): ReactNode {
 }
 
 const OPEN_LESSON = 'Open the lesson panel'
-const REOPEN = 'Click to reopen the lesson'
+const REOPEN = 'Click to reopen'
 const COACH_KEY = 'miyagi.mini.coached'
 const COACH_MS = 2600
 

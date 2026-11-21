@@ -9,7 +9,7 @@
  * never an empty gap. `where` / `then` come from step.started (v2). Without `where` a code step says "Type this", a run
  * step "Run this".
  */
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Check, Copy, Play } from 'lucide-react'
 import type { MissingLine, StepKind } from '../../../../../../../shared/contracts/events'
@@ -56,23 +56,35 @@ function Box({ children, label, padLeft = 16, padRight = 16 }: { children: React
   )
 }
 
-/** Mono 13/20, soft-wrapped. */
-const lineStyle: CSSProperties = { fontFamily: font.mono, fontSize: type2.sm, lineHeight: '20px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }
+/** Mono 13/20, soft-wrapped; a token too long for a row breaks only as a last resort. */
+const lineStyle: CSSProperties = { fontFamily: font.mono, fontSize: type2.sm, lineHeight: '20px', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', margin: 0 }
+
+/** Where code may wrap besides spaces: after an opening bracket, a comma, a dot or an operator (never mid-name). */
+const BREAK_AFTER = /([([{,.=+\-*/:])/
 
 /**
- * One line of code with a hanging indent: the first row starts at the line's own indent (its leading spaces are part
- * of the text), a wrapped row starts two columns further in. `ch` is the mono font's column, so it lines up exactly.
+ * One line of code with a hanging indent: the line's own indent becomes padding (so a row never breaks inside it),
+ * the first row starts there and a wrapped row starts two columns further in. `ch` is the mono font's column.
  */
-function hang(text: string): CSSProperties {
-  const lead = (text.match(/^[ \t]*/)?.[0] ?? '').replace(/\t/g, '    ').length
-  const cols = lead + 2
-  return { paddingLeft: `${cols}ch`, textIndent: `-${cols}ch` }
-}
-
 export function CodeLine({ text, style }: { text: string; style?: CSSProperties }): ReactNode {
+  const lead = text.match(/^[ \t]*/)?.[0] ?? ''
+  const cols = lead.replace(/\t/g, '    ').length
+  const body = text.slice(lead.length)
+  const parts = body.split(BREAK_AFTER)
   return (
-    <p style={{ ...lineStyle, ...hang(text), ...style }} data-code-line>
-      {text || ' '}
+    <p style={{ ...lineStyle, paddingLeft: `${cols + 2}ch`, textIndent: '-2ch', ...style }} data-code-line>
+      {body
+        ? parts.map((p, i) =>
+            i % 2 ? (
+              <Fragment key={i}>
+                {p}
+                <wbr />
+              </Fragment>
+            ) : (
+              p
+            )
+          )
+        : ' '}
     </p>
   )
 }

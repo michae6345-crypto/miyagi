@@ -2,6 +2,30 @@
 
 **Status:** v2 lesson panel (BUILD-PLAN A1) built, typecheck green, stage-checked in headless Brave; draft PR #174 into `adrian/shell` · **Priority:** P0 · **Port:** 5186 (v2; passes 1-3 used 5184) · **Branch:** `michael/app-lesson-panel`
 
+## v2: lesson feel (round 3, Nov 20, branch `michael/app-lesson-feel`, stage port 5511)
+Persona QA fixes for the in-lesson experience. See it: `http://localhost:5511/?scenario=lesson-panel&os=mac&size=1440x900&clean` (`&panel=hint|notyet|checking|passed|mini`; `?scenario=errors&err=engine-offline` for step 3's long code and the demoted primary).
+
+| What | Where | Notes |
+|---|---|---|
+| In / out | `v2/LessonPanel.tsx`, `store.ts` (`via`) | A lesson's first step slides the panel in from the right edge; collapse morphs it into the Mini pill, reopening grows it back out of the pill (`useDrawer.via`, AnimatePresence `custom`). Reduced motion: opacity only. |
+| States animate | `v2/LessonPanel.tsx`, `v2/motion.ts` | The body's height springs to its content (`AutoHeight`, one spring). Screens are keyed per step and work/passed: Not yet / Hint / Passed rise 6 px (house spring, 180 ms fade, 120 ms exit), Working and Checking are one screen. "Next step" (and Enter) slides the passed screen out left and the next step in from the right; Back slides the other way. |
+| Passed | `v2/states.tsx` `PassedCheck` | Green circle springs from 0.6, the ink tick draws in 80 ms later over 240 ms, then the line and Up next rise in. The line is core `copy.passed` ("Step done.", Michael's test 7 replaced "Good. Now the next one."). |
+| Code box | `v2/StepBody.tsx` | Never clipped: soft-wraps with a hanging indent (indent as padding, continuation +2 columns, `<wbr>` after `( , . = :` so names don't split). Focusable (`tabIndex 0`, focus ring), a neutral Copy chip ("Copied"), a breathing skeleton while a code step's code hasn't arrived. Same wrapping in `MissingBlock`. |
+| Hint | `v2/LessonPanel.tsx`, `v2/states.tsx` | The hint sits ABOVE the code (the code never disappears). "Another hint" + Hint keycap while n < of; Hint pressed again asks the engine for the next rung; a new rung rises in keyed on n. Mock: `lesson-panel.json` answers the second press with 2 of 2 (`step_lp_hint1` state segment). |
+| Checking | `v2/LessonPanel.tsx`, `v2/states.tsx` | A fixed 16 px slot under the primary holds the caption, so nothing below moves; the "then" line stays. `plainDetail`: "Reading `x` in your kernel" reads "Looking at `x`". |
+| Help tiles | `v2/Help.tsx` | Own tile (label over an 18 px keycap slot; the spinner takes the slot, no jump; Watch shows its play glyph there). Five tiles wrap to two rows (3 over 2) so "Show me" / "Diagram" never truncate. Busy from the press itself (any path, `usePressed`), `notify('No answer yet. Try again.')` after 8 s with no answer and no thinking. Pressed: Hint while the hint shows, Explain while its card is open, Diagram while the flyout is out. Hover dims, press dips. |
+| Chrome | `v2/Header.tsx`, `v2/KeysRow.tsx`, `v2/ui.tsx` `Tip` | Tooltips with keycaps ("Collapse to the pill  Esc", "Previous step  ⌃⌥←"). Back is labeled "Back ⌃⌥←". Every key item has hover and press feedback. |
+| Keyboard | `v2/LessonPanel.tsx` `useEnter` | Enter presses the primary (Check my work / Check again / Next step) unless focus is in a field or on a button, or the launcher is open. No ↵ keycap yet (Core request 7). |
+| One primary | `v2/LessonPanel.tsx` | While a blocking island card is up (`err-*`, `onboarding-recovery`), the panel's primary renders as `QuietButton` so the card's action is the only white button. |
+| Esc | `store.ts` | An app window open in the stage (`window:stage`: account, library, progress, onboarding) takes Esc; the panel stays. |
+| Pill | `pill/index.tsx` | While the panel is open the pill shows only the status ("Watching" + dot, or the phase line without the count). Mini: hover tint, a chevron that brightens, press dip, title "Open the lesson panel", and on the very first collapse "Click to reopen" in the title's place for 2.6 s. |
+| Hover card | `overview/clear.ts`, `overview/index.tsx` | Never opens over Mini (it swallowed the click). No "Video waits" in a text lesson; passed segments green. |
+| Copy | `errors/lines.tsx`, `errors/cards.tsx` | "Reconnecting… (try 2)", "miyagi is busy. Trying again in 17s", "miyagi stopped responding." |
+
+Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/lesson-*.jpg`.
+
+**Not done here (other lanes):** the launcher's ↑/↓/↵ roving selection and two-step Esc (features/launcher); a Watch row in Settings > Shortcuts (features/settings); docking Explain under the panel's step intro (features/cards, left as the island card for now; its tile now shows pressed).
+
 ## v2: lesson panel (A1, Nov 20)
 Mockups: Les-Anatomy, Les-Working, Les-Checking, Les-NotYet, Les-Hint, Les-Passed. In a "Just teach me" lesson (`lesson.mode "lesson"`) the drawer is now the docked lesson panel; a video lesson keeps the drawer below (passes 1-3) unchanged. `geometry.ts` `LESSON_PANEL_V2 = false` is a one-line rollback.
 
@@ -128,6 +152,12 @@ A slim tab on the right edge (vertically centered, 6px from the edge). Click →
 - **3. OptionTile `pressed`** (Les-Hint: an ink ring inside, the pastel ring outside, `aria-pressed`): built as a wrapper in v2/Help.tsx.
 - **4. Esc in Electron**: the overlay is `focusable: false`, so Esc never reaches it; if "Esc hide" should work while the editor has focus it needs a main-side shortcut while the panel is open (main/index.ts).
 - **5. `step.passed.summary` and a "next step started" hint**: the panel holds Les-Passed locally because the engine starts the next step at once; if the engine (E3) waits for the learner (a `next` action), the hold can go.
+- **6. A `watch` key** in `bridge.platform.keys` (main/platform.ts; Alt+V / ⌃⌥V is voice today, so pick a free one) and a Watch row in Settings > Shortcuts. Workaround: Watch's slot shows its play glyph.
+- **7. A `confirm` key** (↵ / Enter) in `bridge.platform.keys`, so the panel's primary can show the keycap for its Enter binding. Workaround: Enter works, no keycap shown.
+- **8. Dock clear of VS Code's tab and toolbar band** (core/dock `panelRect`, islandPlace): start the docked panel and centered cards below about y 96 on a full-screen editor, and add a full-screen VS Code backdrop to the lesson-panel stage so it can be checked. Persona QA: top 52 sits on the editor tab row.
+- **9. Core `copy.passed`**: the lane brief asked for "Good. Now the next one." on Les-Passed; core says "Step done." (Michael, test 7). Kept core; change it there if the brand line should come back.
+- **10. OptionTile**: v2/Help.tsx now draws its own tile (keycap slot, busy at press, pressed ring, two rows at five). Fold that into core `OptionTile` / `HelpRow` when convenient.
+- **11. Esc in Electron app windows**: the stage fix (`window:stage`) covers the browser stage; in Electron each window has its own keys, so check there that Esc in the account window never reaches the overlay's `dismiss`.
 
 **Earlier passes:**
 1. **A shared step-state icon** (`StepIcon {status: 'done' | 'current' | 'locked'}` in `core/ui/atoms.tsx`, on glass tokens), used by the player's Chapters and the drawer, so both show a step the same way. *Workaround:* `StepIcon` / `Tick` / `Ring` in `Drawer.tsx`.
