@@ -25,8 +25,21 @@ export function registerWebHandler(channel: string, fn: (...args: unknown[]) => 
   webHandlers.set(channel, fn)
 }
 
-/** The fake desktop in the browser stage is the 1600×1000 mockup; the Mac menu bar is 32px. */
-export const STAGE: Layout = { origin: { x: 0, y: 0 }, width: 1600, height: 1000, workArea: { x: 0, y: 32, width: 1600, height: 968 } }
+/**
+ * The fake desktop in the browser stage is the 1600×1000 mockup; the Mac menu bar is 32px. v2 (W0-4): ?size=1440x900
+ * sets another stage size (the v2 mockups are 1440×900), 640 to 3840 by 400 to 2400.
+ */
+function stageSize(): { width: number; height: number } {
+  const m = typeof location !== 'undefined' ? /^(\d{3,4})x(\d{3,4})$/.exec(new URLSearchParams(location.search).get('size') ?? '') : null
+  const w = m ? Number(m[1]) : 1600
+  const h = m ? Number(m[2]) : 1000
+  return w >= 640 && w <= 3840 && h >= 400 && h <= 2400 ? { width: w, height: h } : { width: 1600, height: 1000 }
+}
+const SIZE = stageSize()
+export const STAGE: Layout = { origin: { x: 0, y: 0 }, width: SIZE.width, height: SIZE.height, workArea: { x: 0, y: 32, width: SIZE.width, height: SIZE.height - 32 } }
+
+/** The engine link as main reports it (main/engine.ts LinkInfo). */
+type LinkInfo = { open: boolean; attempting: boolean; failures: number }
 
 function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   const params = new URLSearchParams(location.search)
@@ -51,12 +64,19 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
     fire('engine:event', e)
   }
   const setStatus = (c: boolean): void => fire('engine:status', c)
+  /** v2 (W0-5): a scenario's `_link` items fake main's engine link (reconnecting, N failures, offline). */
+  let fakeLink: LinkInfo | undefined
+  const onFakeLink = (l: LinkInfo): void => {
+    fakeLink = l.open ? undefined : l
+    setStatus(!!l.open)
+    fire('feat:engine-link', l)
+  }
 
   const startInline = (): void => {
     if (inline) return
     mode = 'inline'
     const name = params.get('scenario') ?? 'full'
-    inline = createMockEngine(scenarios[name] ?? scenarios.full, dispatch, true)
+    inline = createMockEngine(scenarios[name] ?? scenarios.full, dispatch, true, onFakeLink)
     if (!scenarios[name]) console.warn(`[tut] no scenario "${name}"; have: ${Object.keys(scenarios).join(', ')}`)
     console.info(`[tut] no engine answered: running the "${name}" mock inline`)
     setStatus(true)
@@ -72,8 +92,8 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   let downSince = Date.now()
   let slow = 0
   let retryTimer: ReturnType<typeof setTimeout> | undefined
-  const link = (): { open: boolean; attempting: boolean; failures: number } =>
-    inline ? { open: true, attempting: false, failures: 0 } : { open: ws?.readyState === WebSocket.OPEN, attempting: ws?.readyState === WebSocket.CONNECTING, failures }
+  const link = (): LinkInfo =>
+    inline ? (fakeLink ?? { open: true, attempting: false, failures: 0 }) : { open: ws?.readyState === WebSocket.OPEN, attempting: ws?.readyState === WebSocket.CONNECTING, failures }
   const emitLink = (): void => fire('feat:engine-link', link())
   const schedule = (): void => {
     clearTimeout(retryTimer)
@@ -129,6 +149,80 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
     }
     return link()
   })
+
+  // ---- v2 stand-ins for main's core handlers (W0-4 / W0-5) -------------------------------------------------------
+  // App windows (main/appWindows.ts): the stage shows them over the desktop (dev/Stage.tsx listens to window:stage).
+  const appArgs = new Map<string, unknown>()
+  const appOpen = new Set<string>()
+  const APP_ROUTES = new Set(['onboarding', 'library', 'progress', 'account', 'auth'])
+  webHandlers.set('window:open', (route, args) => {
+    if (typeof route !== 'string' || !APP_ROUTES.has(route)) return false
+    appArgs.set(route, args ?? null)
+    appOpen.add(route)
+    fire('feat:window:stage', { route, open: true })
+    fire('feat:window:args', { route, args: args ?? undefined })
+    return true
+  })
+  webHandlers.set('window:close', (route) => {
+    const r = typeof route === 'string' ? route : [...appOpen].pop()
+    if (!r || !appOpen.delete(r)) return false
+    fire('feat:window:stage', { route: r, open: false })
+    return true
+  })
+  webHandlers.set('window:focus', (route) => typeof route === 'string' && appOpen.has(route))
+  webHandlers.set('window:args', (route) => (typeof route === 'string' ? (appArgs.get(route) ?? null) : null))
+  /** Stage only: the app windows open right now (dev/Stage.tsx). */
+  webHandlers.set('window:stage-list', () => [...appOpen])
+  // ?window=<route> opens one on load (with ?id=<lesson> for the library's detail, ?view=<v> for the account sheet).
+  const startWindow = params.get('window')
+  if (startWindow && APP_ROUTES.has(startWindow)) {
+    const args: Record<string, string> = {}
+    for (const k of ['id', 'view', 'section']) if (params.get(k)) args[k] = params.get(k)!
+    appArgs.set(startWindow, Object.keys(args).length ? args : null)
+    appOpen.add(startWindow)
+  }
+
+  // Permissions (main/permissions.ts): all granted, or ?perm=<kind>-off (accessibility-off, screen-off, ...) and
+  // ?perm=external (an engine started in Terminal: unknown).
+  const permParam = params.get('perm') ?? ''
+  const perms = (): Record<string, unknown> => {
+    const external = permParam === 'external'
+    const state = (k: string): string => (external ? 'unknown' : k === 'automation' ? 'unknown' : permParam.split(',').includes(`${k}-off`) ? 'denied' : 'granted')
+    return { screen: state('screen'), accessibility: state('accessibility'), automation: state('automation'), external, at: Date.now() }
+  }
+  webHandlers.set('permissions:get', () => perms())
+  webHandlers.set('permissions:open', (kind) => {
+    console.info(`[tut] stage: would open System Settings (${String(kind)})`)
+    return typeof kind === 'string' && ['screen', 'accessibility', 'automation'].includes(kind)
+  })
+  webHandlers.set('permissions:watch', () => true)
+
+  // Copy details (A7 builds the allowlisted text; main copies it with Electron's clipboard).
+  webHandlers.set('diagnostics:copy', async (text) => {
+    if (typeof text !== 'string' || !navigator.clipboard?.writeText) return false
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      return false
+    }
+  })
+  // The stage never leaves the page.
+  webHandlers.set('open:external', (url) => {
+    console.info(`[tut] stage: would open ${typeof url === 'string' ? url.slice(0, 80) : '?'}`)
+    return true
+  })
+  // Restart (main/localEngine.ts): the mock is always up; ?engine=external says "Restart it in Terminal".
+  webHandlers.set('engine-local:restart', () => {
+    if (params.get('engine-local') === 'external') return { ok: false, state: 'external' }
+    fire('feat:engine-local', { state: 'starting' })
+    setTimeout(() => fire('feat:engine-local', { state: 'running' }), 800)
+    return { ok: true, state: 'starting' }
+  })
+  if (params.get('engine-local') === 'external') webHandlers.set('engine-local:get', () => ({ state: 'external' }))
+  // The install token (main/features/cloud.ts): off in the stage.
+  webHandlers.set('cloud:get', () => ({ state: 'off', configured: false, secure: true, hasToken: false }))
+  webHandlers.set('cloud:retry', () => ({ state: 'off', configured: false, secure: true, hasToken: false }))
 
   const engineParam = params.get('engine')
   if (engineParam === 'socket' || engineParam?.startsWith('ws://')) connect()

@@ -1,0 +1,17 @@
+{
+  "name": "account",
+  "on": {
+    "connect": "account_connect"
+  },
+  "segments": {
+    "account_connect": [
+      { "wait": 100, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": [] } },
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 200, "type": "lesson.ready", "payload": { "lesson": { "id": "account-demo", "title": "Code your first neural network", "sources": [], "mode": "lesson", "builtBy": "curated", "outline": { "count": 6, "steps": [ { "index": 0, "title": "Load the data" }, { "index": 1, "title": "Normalize the inputs" }, { "index": 2, "title": "Build the model" }, { "index": 3, "title": "Compile it" }, { "index": 4, "title": "Train it" }, { "index": 5, "title": "Check the accuracy" } ] } }, "steps": [ { "id": "acc-1", "index": 0, "title": "Load the data", "kind": "code" }, { "id": "acc-2", "index": 1, "title": "Normalize the inputs", "kind": "code" }, { "id": "acc-3", "index": 2, "title": "Build the model", "kind": "code" } ] } },
+      { "wait": 50, "type": "step.passed", "payload": { "stepId": "acc-1", "nextStepId": "acc-2", "already": true } },
+      { "wait": 50, "type": "step.passed", "payload": { "stepId": "acc-2", "nextStepId": "acc-3", "already": true } },
+      { "wait": 50, "type": "step.started", "payload": { "stepId": "acc-3", "index": 2, "title": "Build the model", "instructions": "Stack the layers the video uses.", "kind": "code" } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching" } }
+    ]
+  }
+}
