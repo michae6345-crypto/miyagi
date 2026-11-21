@@ -252,6 +252,8 @@ class Offtrack(_Model):
     level: Literal[2, 3] | None = None  # hint ladder: 2 concept, 3 exact fix + Do it for me
     targets: list[Target] | None = None
     guidingQuestion: str | None = None
+    epoch: int | None = None  # lesson / step generation it was sent under (optional, additive)
+    gen: int | None = None
 
 
 class ScreenRect(_Model):

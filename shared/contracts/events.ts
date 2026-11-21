@@ -59,6 +59,7 @@ export interface EngineEvents {
     level?: 2 | 3;             // hint ladder: 2 = concept (no fix yet), 3 = exact fix + diff + apply_fix
     targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;  // what the coach points at (screen points)   // lesson mode: ONE target, boxId 0 = the culprit lines the engine measured (label: the box's caption, text: those lines); it may come in a re-sent off-track (same card) once the box is measured; never in a reconnect's replay
     guidingQuestion?: string;  // a Socratic nudge to show under the body
+    epoch?: number; gen?: number;   // the lesson and step generation the engine sent it under (optional, additive)
   };
   /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
   "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string; zoom?: boolean } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption   // zoom: the target is one of VS Code's own controls under 32 pt (the Run ▷, Toggle Panel, a tab's unsaved dot): show the loupe
