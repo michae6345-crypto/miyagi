@@ -17,13 +17,14 @@ from pathlib import Path
 import pytest
 
 CLOUD = Path(__file__).resolve().parents[1]
+ADMIN_TOKEN = "miyagi-tests-admin-0123456789-abcdefghijklmnop"  # 32+ characters: a weak token turns /admin off
 VID = "dQw4w9WgXcQ"
 LESSON = {"title": "Build a CNN", "steps": [{"title": "Install torch", "start": 0, "end": 60}]}
 
 
 @pytest.fixture
 def cloud(tmp_path, monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "admin-test")
+    monkeypatch.setenv("ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.setenv("DB_PATH", str(tmp_path / "miyagi.db"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-upstream-key")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-upstream-key")
@@ -63,7 +64,12 @@ def test_lessons_need_an_install_token(cloud):
     assert client.get(f"/v1/lessons/{VID}?schema=1", headers={"Authorization": "Bearer mi_nope"}).status_code == 401
 
 
-def test_miss_build_upload_then_another_install_hits(cloud):
+def approve(client, vid, h16, schema=None):
+    body = {"hash": h16, **({"schema": schema} if schema is not None else {})}
+    return client.post(f"/admin/lessons/{vid}/approve", headers={"X-Admin-Token": ADMIN_TOKEN}, json=body)
+
+
+def test_miss_build_upload_review_then_another_install_hits(cloud):
     client, _ = cloud
     a, b = install(client), install(client)
     miss = client.get(f"/v1/lessons/{VID}?schema=1", headers=a)
@@ -76,7 +82,14 @@ def test_miss_build_upload_then_another_install_hits(cloud):
     claim = client.post(f"/v1/lessons/{VID}/build", headers=a)
     assert claim.status_code == 200 and claim.json()["builds"]["used"] == 1
     r = put(client, a)
-    assert r.status_code == 201 and r.json()["stored"] is True
+    assert r.status_code == 201 and r.json()["stored"] is True and r.json()["status"] == "pending"
+
+    # nobody is served an unreviewed upload, the uploader included
+    assert client.get(f"/v1/lessons/{VID}?schema=1", headers=b).status_code == 404
+    assert client.get(f"/v1/lessons/{VID}?schema=1", headers=a).status_code == 404
+    pending = client.get("/admin/lessons/pending", headers={"X-Admin-Token": ADMIN_TOKEN}).json()["pending"]
+    assert [(p["video_id"], p["schema"], p["hash"]) for p in pending] == [(VID, 1, r.json()["hash"])]
+    assert approve(client, VID, r.json()["hash"]).json()["status"] == "approved"
 
     hit = client.get(f"/v1/lessons/{VID}?schema=1", headers=b)
     assert hit.status_code == 200
@@ -84,30 +97,39 @@ def test_miss_build_upload_then_another_install_hits(cloud):
     assert body["lesson"] == LESSON and body["schema"] == 1 and body["video_id"] == VID
     # a hit uses none of b's builds
     assert client.get("/v1/lessons/aaaaaaaaaaa?schema=1", headers=b).json()["error"]["builds"]["used"] == 0
+    assert client.get("/admin/lessons/pending", headers={"X-Admin-Token": ADMIN_TOKEN}).json()["pending"] == []
 
 
-def test_first_upload_wins(cloud):
+def test_second_uploader_is_never_locked_out(cloud):
+    """No first-writer-wins: a second upload is its own candidate (no 409), and approval picks one by hash."""
     client, _ = cloud
     a, b = install(client), install(client)
     for h in (a, b):
         client.post(f"/v1/lessons/{VID}/build", headers=h)
-    assert put(client, a).status_code == 201
+    ra = put(client, a)
     other = {"steps": [{"title": "something else"}]}
-    assert put(client, b, lesson=other).status_code == 409
+    rb = put(client, b, lesson=other)
+    assert ra.status_code == 201 and rb.status_code == 201 and ra.json()["hash"] != rb.json()["hash"]
+    assert client.get(f"/v1/lessons/{VID}?schema=1", headers=b).status_code == 404
+    assert approve(client, VID, rb.json()["hash"]).status_code == 200
+    assert client.get(f"/v1/lessons/{VID}?schema=1", headers=a).json()["lesson"] == other
+    assert approve(client, VID, ra.json()["hash"]).status_code == 200  # approving another replaces it
     assert client.get(f"/v1/lessons/{VID}?schema=1", headers=b).json()["lesson"] == LESSON
+    assert approve(client, VID, "0123456789abcdef").status_code == 404
 
 
-def test_schema_versions_are_separate_and_checked(cloud):
-    client, _ = cloud
+def test_only_the_current_schema_is_accepted(cloud):
+    client, app_mod = cloud
+    assert app_mod.LESSON_SCHEMAS == frozenset({1})
     a = install(client)
     client.post(f"/v1/lessons/{VID}/build", headers=a)
     assert put(client, a, schema=1).status_code == 201
-    assert client.get(f"/v1/lessons/{VID}?schema=2", headers=a).status_code == 404
-    assert put(client, a, schema=2).status_code == 201
-    assert client.get(f"/v1/lessons/{VID}?schema=100", headers=a).json()["error"]["type"] == "schema_unsupported"
+    for schema in (2, 0, 99, 100):
+        r = put(client, a, schema=schema)
+        assert r.status_code == 400 and r.json()["error"]["type"] == "schema_unsupported"
+    assert client.get(f"/v1/lessons/{VID}?schema=2", headers=a).json()["error"]["type"] == "schema_unsupported"
     assert client.get(f"/v1/lessons/{VID}", headers=a).status_code == 400  # schema is required
     assert client.get(f"/v1/lessons/{VID}?schema=abc", headers=a).status_code == 400
-    assert put(client, a, schema=0).status_code == 400
     r = client.put(f"/v1/lessons/{VID}", headers=a, content=json.dumps({"schema": True, "lesson": LESSON}))
     assert r.status_code == 400
 
@@ -158,7 +180,7 @@ def test_pro_plan_has_no_caps(cloud):
     r = client.post("/v1/install", json={})
     token, token_id = r.json()["token"], r.json()["token_id"]
     h = {"Authorization": f"Bearer {token}"}
-    admin = {"X-Admin-Token": "admin-test"}
+    admin = {"X-Admin-Token": ADMIN_TOKEN}
     assert client.post(f"/admin/tokens/{token_id}/plan", json={"plan": "pro"}).status_code == 401
     assert client.post(f"/admin/tokens/{token_id}/plan", json={"plan": "gold"}, headers=admin).status_code == 400
     assert client.post(f"/admin/tokens/{token_id}/plan", json={"plan": "pro"}, headers=admin).json()["plan"] == "pro"
@@ -191,7 +213,7 @@ def test_admin_delete_lesson(cloud):
     a = install(client)
     client.post(f"/v1/lessons/{VID}/build", headers=a)
     put(client, a)
-    admin = {"X-Admin-Token": "admin-test"}
+    admin = {"X-Admin-Token": ADMIN_TOKEN}
     assert client.delete(f"/admin/lessons/{VID}").status_code == 401
     assert client.delete(f"/admin/lessons/{VID}", headers=admin).json()["deleted"] == 1
     assert client.get(f"/v1/lessons/{VID}?schema=1", headers=a).status_code == 404

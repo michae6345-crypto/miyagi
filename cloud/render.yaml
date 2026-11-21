@@ -18,25 +18,93 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: ADMIN_TOKEN
+      - key: ADMIN_TOKEN           # 32+ random characters; a weak one turns /admin off (503), never the server
         generateValue: true
       - key: PROXY_ENABLED
         value: "true"
       - key: SUPABASE_URL          # POST /v1/link verifies Supabase access tokens against this project's JWKS
         value: https://wssdpsdbaqtnfhoyimit.supabase.co
-      - key: SUPABASE_JWT_SECRET   # optional: only for legacy HS256 tokens
+      - key: SUPABASE_ALLOW_HS256  # 1 accepts legacy HS256 tokens with SUPABASE_JWT_SECRET; default JWKS only
+        value: "0"
+      - key: SUPABASE_JWT_SECRET   # only with SUPABASE_ALLOW_HS256=1
         sync: false
+      - key: LINK_MAX_INSTALLS_PER_USER
+        value: "10"
       - key: ALLOWED_ANTHROPIC_MODELS
         value: claude-sonnet-5-5,claude-haiku-5-5
       - key: ALLOWED_GEMINI_MODELS
         value: gemini-3.8-flash
       - key: MAX_TOKENS_CAP
         value: "4096"
+      - key: ANTHROPIC_BETAS       # anthropic-beta values forwarded (what the engine sends); others get 400
+        value: server-side-fallback-2026-07-01
+      - key: ANTHROPIC_SERVER_TOOLS  # the engine's finder and text lessons search the web; empty refuses server tools
+        value: web_search,web_fetch
+      - key: SERVER_TOOL_MAX_USES
+        value: "5"
+      - key: GEMINI_MAX_OUTPUT_TOKENS
+        value: "8192"
+      - key: GEMINI_MAX_THINKING_TOKENS
+        value: "2048"
+      - key: MAX_BODY_MB
+        value: "2"
+      - key: MAX_GEMINI_BODY_MB
+        value: "8"
       - key: DB_PATH
         value: /var/data/miyagi.db
+      # Rate limits (class RateLimit, in memory: per process and per instance; one starter instance today)
+      - key: RATE_LIMIT_ENABLED
+        value: "1"
+      - key: RATE_LIMIT_PER_IP_PER_HOUR
+        value: "100"
+      - key: RATE_LIMIT_PER_TOKEN_PER_HOUR
+        value: "600"
+      - key: ADMIN_RATE_LIMIT_PER_IP_PER_HOUR
+        value: "20"
+      - key: ADMIN_LOCKOUT_FAILURES
+        value: "5"
+      - key: RATE_LIMIT_MAX_KEYS
+        value: "200000"
+      - key: TRUSTED_PROXY_HOPS    # check the "X-Forwarded-For entries" log line on staging (README, Rate limits)
+        value: "1"
+      # CLIENT_IP_HEADER: unset (X-Forwarded-For). Set it, e.g. to cf-connecting-ip, only behind such a proxy.
+      # Install minting (SQLite, survives deploys)
+      - key: REGISTER_LIMIT_PER_HOUR
+        value: "20"
+      - key: REGISTER_LIMIT_PER_DAY
+        value: "60"
+      - key: GLOBAL_MINTS_WARN_PER_HOUR
+        value: "500"
+      - key: GLOBAL_MINTS_PER_HOUR
+        value: "2000"
+      # Calls in flight
+      - key: PER_TOKEN_INFLIGHT
+        value: "4"
+      - key: GLOBAL_INFLIGHT
+        value: "80"
+      # Caps for every role (README, Free tier caps: why these numbers)
+      - key: FREE_DAILY_REQUESTS
+        value: "300"
+      - key: FREE_DAILY_USD
+        value: "1.00"
+      - key: LINKED_DAILY_REQUESTS
+        value: "1000"
+      - key: LINKED_DAILY_USD
+        value: "3.00"
       - key: FREE_LESSON_BUILDS_PER_MONTH
         value: "3"
       - key: FREE_COACH_CALLS_PER_DAY
         value: "60"
-      - key: DAILY_USD_CAP         # spend kill switch in dollars per UTC day, every install together; empty = off
+      - key: DAILY_USD_CAP         # spend kill switch in dollars per UTC day, every install; unset or empty = 25, 0 = off
         sync: false
+      # Shared lesson cache
+      - key: MAX_LESSON_KB
+        value: "128"
+      - key: LESSON_SCHEMAS
+        value: "1"
+      - key: LESSON_PUTS_PER_DAY
+        value: "10"
+      - key: LESSON_AUTO_APPROVE_N
+        value: "0"
+      - key: LESSON_DISK_MAX_PCT
+        value: "85"
