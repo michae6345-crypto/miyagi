@@ -50,6 +50,12 @@ DEFAULT_NET_PROBE = "api.anthropic.com:443"
 Change = tuple[str, dict]
 
 
+def _consume(fut: asyncio.Future) -> None:
+    """Read a finished probe's exception so a late failure after a timeout is never reported as unretrieved."""
+    if not fut.cancelled():
+        fut.exception()
+
+
 # ------------------------------------------------------------------------------------------------ pure pieces
 def settle_network(samples: list[bool | None], prev: str = UNKNOWN, need: int = OFFLINE_AFTER) -> str:
     """The network state from recent samples (oldest first): online on the newest good sample, offline after `need`
@@ -143,6 +149,7 @@ class SystemStatus:
         self._health_at: float | None = None
         self._watch_health = True
         self._task: asyncio.Task | None = None
+        self._net_inflight: asyncio.Future | None = None  # the probe thread, kept until it really ends
         self._lock = asyncio.Lock()
 
     # -------- inputs from the rest of the engine
@@ -212,8 +219,19 @@ class SystemStatus:
     async def _sample_network(self) -> None:
         if self._net_probe is None:
             return
+        prev = self._net_inflight
+        if prev is not None and not prev.done():
+            # The last probe is still stuck (create_connection's timeout does not bound getaddrinfo, so a hanging DNS
+            # holds its thread). Start no other thread: they would pile up in the default executor every
+            # asyncio.to_thread in the engine shares. Still hung past its timeout = nothing answered, the same sample
+            # a timeout gives (None would push the earlier failure out of the window and never read offline).
+            self._push(False)
+            return
+        fut = self._net_inflight = asyncio.ensure_future(asyncio.to_thread(self._net_probe))
+        fut.add_done_callback(_consume)
         try:
-            ok = await asyncio.wait_for(asyncio.to_thread(self._net_probe), NET_TIMEOUT_S + 1.0)
+            # shield: on timeout the thread keeps running and `fut` stays not done, which is what the check above sees
+            ok = await asyncio.wait_for(asyncio.shield(fut), NET_TIMEOUT_S + 1.0)
         except asyncio.TimeoutError:
             ok = False  # DNS or connect hung past the timeout: nothing answered
         except Exception as e:  # noqa: BLE001
@@ -281,6 +299,7 @@ class SystemStatus:
             await asyncio.sleep(self.poll_s)
 
     async def stop(self) -> None:
+        self._net_inflight = None  # a stuck probe thread ends on its own; nothing waits for it
         t, self._task = self._task, None
         if t is not None:
             t.cancel()
