@@ -13,11 +13,14 @@
  * once a connect attempt has failed: review A16), "Lesson saved · Undo" after End (review A3) and the saved lesson the
  * engine offers back (review A7).
  */
+import { useSyncExternalStore } from 'react'
 import { create } from 'zustand'
 import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
+import { useDock } from '../../core/dock'
 import { useLesson, type Notice } from '../../core/lesson'
 import { sendAction, usePressed } from '../../core/shortcuts'
+import { panelStore } from '../cards/panel'
 import { panelInPlay } from './panel'
 
 /** How long the green check holds before the text crossfades to the next step. */
@@ -53,6 +56,11 @@ type PillState = {
    * lesson's lesson.ended and its steps; over at the engine's first lesson.building / lesson.ready, or an error.
    */
   planning: boolean
+  /**
+   * Stand-in for A1's held pass (panelStore `heldPass`) while A1 isn't on this branch: the step that passed with the
+   * panel in play, until a press or a step that isn't after it (the same rule as A1's). Unused once A1's store is there.
+   */
+  held?: string
 }
 
 /** main/engine.ts LinkInfo (main-only module, so the shape is repeated here). */
@@ -65,7 +73,7 @@ let holdTimer: ReturnType<typeof setTimeout> | undefined
 
 const clear = (): void => {
   clearTimeout(holdTimer)
-  set({ celebrating: undefined, advanced: undefined, buildMessage: undefined })
+  set({ celebrating: undefined, advanced: undefined, buildMessage: undefined, held: undefined })
 }
 
 // A full reset (dev HUD) clears everything. A lesson-scoped one (reconnect, lesson ended) keeps a notice on screen
@@ -90,7 +98,7 @@ onUi('reset', (p) => {
 })
 onMessage('lesson.ready', () => {
   clearTimeout(holdTimer)
-  set({ celebrating: undefined, advanced: undefined })
+  set({ celebrating: undefined, advanced: undefined, held: undefined })
 })
 // A failed build drops its message: the error arrives as a notice instead.
 onMessage('lesson.building', (p) => set({ buildMessage: p.failed ? undefined : p.message }))
@@ -151,13 +159,42 @@ onMessage('step.passed', (p) => {
   const to = p.nextStepId ?? (i >= 0 ? steps[i + 1]?.id : undefined)
   clearTimeout(holdTimer)
   // no green check for a skip, or for a step done before (already: true, a resume)
-  if (p.skipped || (p as typeof p & { already?: boolean }).already) return set({ celebrating: undefined, advanced: { from: p.stepId, to } })
-  set({ celebrating: p.stepId, advanced: undefined })
+  if (p.skipped || (p as typeof p & { already?: boolean }).already) return set({ celebrating: undefined, advanced: { from: p.stepId, to }, held: undefined })
+  set({ celebrating: p.stepId, advanced: undefined, held: panelInPlay() ? p.stepId : undefined })
   // v2 (A2): with the lesson panel in play (shown, or collapsed to the Mini pill) the learner moves on from the panel's
-  // Next step (decision 7, Les-Passed), so the pill holds "Step N passed" until the engine's step.started instead of
-  // running ahead to a step the panel isn't showing yet.
+  // Next step (decision 7, Les-Passed), so the pill doesn't run ahead: it holds "Step N passed" for as long as the panel
+  // holds Les-Passed (useHeldPass), even though the engine starts the next step right after step.passed.
   holdTimer = setTimeout(() => set({ celebrating: undefined, advanced: panelInPlay() ? undefined : { from: p.stepId, to } }), PASS_HOLD_MS)
 })
+
+// The stand-in held pass ends like A1's: any press (Next step's own press is A1's), or a step that isn't after it.
+usePressed.subscribe((s, prev) => {
+  if (s.kind && s.at !== prev.at && usePill.getState().held) set({ held: undefined })
+})
+onMessage('step.started', (p) => {
+  const held = usePill.getState().held
+  if (!held) return
+  const steps = useLesson.getState().steps
+  const pos = (id: string): number => steps.findIndex((x) => x.id === id)
+  if (pos(p.stepId) <= pos(held)) set({ held: undefined })
+})
+
+const noHeldStore = (): (() => void) => () => undefined
+const subscribeHeld = (fn: () => void): (() => void) => panelStore()?.subscribe(fn) ?? noHeldStore()
+const heldSnapshot = (): string | undefined => panelStore()?.getState().heldPass?.stepId
+
+/**
+ * The step whose pass the lesson panel is still showing (Les-Passed, until Next step), while the panel is in play (shown
+ * or collapsed to Mini); undefined otherwise. A1's `heldPass` once A1's store is there (cards/panel.ts panelStore), else
+ * the pill's stand-in. The pill and the panel then agree: "Step 2 passed" on both until the learner moves on.
+ */
+export function useHeldPass(): string | undefined {
+  const inPlay = useDock((d) => d.open || d.collapsed)
+  const a1 = useSyncExternalStore(subscribeHeld, heldSnapshot)
+  const local = usePill((s) => s.held)
+  if (!inPlay) return undefined
+  return panelStore() ? a1 : local
+}
 
 // ---------------------------------------------------------------------------
 // Notice line: one short line for ~5 s (engine errors, a failed build, notify() from any feature).

@@ -38,7 +38,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { PillGear } from './Gear'
 import { openPanel } from './panel'
 import { BuildLine, FitSwap, LeadMark, PhaseLead, StatusMark, StepCount, SwapText, type Mark, type Phase } from './parts'
-import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, usePill, type SavedOffer } from './store'
+import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, useHeldPass, usePill, type SavedOffer } from './store'
 
 /**
  * Offline, but the app is bringing its own engine up (main/localEngine.ts, built Mac app): say what's happening.
@@ -283,6 +283,7 @@ function useShown(): Shown & { total: number } {
     }))
   )
   const phase = useStepPhase()
+  const held = useHeldPass()
   const { celebrating, advanced, offline } = usePill(
     useShallow((s) => ({ celebrating: s.celebrating, advanced: s.advanced, offline: s.offline }))
   )
@@ -295,8 +296,14 @@ function useShown(): Shown & { total: number } {
     const i = Math.max(0, at(celebrating))
     return { key: `${celebrating}:passed`, index: i, title: passedLine(i + 1), mark: 'watching', phase: 'passed', total }
   }
+  // 1b) With the lesson panel in play: the panel still shows Les-Passed for the held step (until Next step), so the pill
+  //     says the same, even though the engine already started the next one. (Held on the step on screen: case 3.)
+  if (held && held !== l.stepId && at(held) >= 0) {
+    const i = at(held)
+    return { key: `${held}:passed`, index: i, title: passedLine(i + 1), mark: offline ? 'offline' : 'watching', phase: 'passed', total }
+  }
   // 2) After a pass, before the engine's step.started: the next step, the next part still building, or the end.
-  //    (Only without the lesson panel: with it, the pill holds the passed line, case 3.)
+  //    (Only without the lesson panel: with it, the pill holds the passed line, cases 1b and 3.)
   if (advanced && advanced.from === l.stepId) {
     // lesson.updated may have appended the next step since the pass: look it up now, not at pass time.
     const to = advanced.to ?? l.steps[at(advanced.from) + 1]?.id
