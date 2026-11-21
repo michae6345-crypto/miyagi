@@ -13,16 +13,19 @@
  *
  * electron-builder copies engine/ (minus vscode/) to miyagi.app/Contents/Resources/engine and vscode/ to
  * Resources/vscode (electron-builder.yml, mac.extraResources). On first launch main/localEngine.ts copies src/ to
- * ~/miyagi/engine/src and starts `Resources/engine/python/bin/python3 -m server.orchestrator.main`: no uv, no Python
- * download, no network. Nothing is ever written inside the signed bundle (everything is precompiled here and the
- * engine runs with PYTHONDONTWRITEBYTECODE=1).
+ * ~/miyagi/engine/src and starts `Resources/engine/python/bin/python3 -s -B -m server.orchestrator.main` there: no uv,
+ * no Python download, no network. Nothing is ever written inside the signed bundle (everything is precompiled here
+ * and the engine runs with -B). A build that couldn't precompile and import-check the Python stops, unless
+ * --allow-unchecked (then PYTHON.json says precompiled: false and the app never uses that Python).
  *
  *   node scripts/bundle-engine.mjs                     # engine from origin/integration/live (fetched first)
- *   node scripts/bundle-engine.mjs --dry-run           # print every step, download and write nothing
+ *   node scripts/bundle-engine.mjs --dry-run           # print every step, download and write nothing (no git fetch)
  *   node scripts/bundle-engine.mjs --no-python         # source + install.sh only (the old first-run install)
  *   node scripts/bundle-engine.mjs --offline           # packages from uv's cache only
  *   MIYAGI_ENGINE_REF=my-branch node scripts/bundle-engine.mjs
  *   MIYAGI_PY_ARCH=x64 …                               # Intel Python (default arm64; build arm64 first, universal later)
+ *   … --allow-unchecked                                # a Python this machine can't run: no precompile, no import check;
+ *                                                      #   PYTHON.json precompiled: false, so the app won't start it
  *   MIYAGI_INSTALL_REF=origin/claude/distribution …    # where install.sh comes from if the engine ref lacks it
  *   MIYAGI_BUNDLE_CACHE=<dir>                          # where the Python archive is cached (default ~/.cache/miyagi-bundle)
  *
@@ -39,7 +42,7 @@ import { fileURLToPath } from 'node:url'
 
 const args = new Set(process.argv.slice(2))
 for (const a of args) {
-  if (!['--dry-run', '--no-python', '--offline'].includes(a)) {
+  if (!['--dry-run', '--no-python', '--offline', '--allow-unchecked'].includes(a)) {
     console.error(`[bundle-engine] unknown option: ${a}`)
     process.exit(1)
   }
@@ -47,6 +50,7 @@ for (const a of args) {
 const DRY = args.has('--dry-run')
 const WITH_PYTHON = !args.has('--no-python')
 const OFFLINE = args.has('--offline')
+const ALLOW_UNCHECKED = args.has('--allow-unchecked')
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repo = resolve(app, '..')
@@ -136,10 +140,15 @@ const xml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 // ---------------------------------------------------------------------------------------------------------------------
 // 1. The engine source
 
-try {
-  git('fetch', '--quiet', 'origin')
-} catch {
-  console.warn('[bundle-engine] git fetch failed (offline?): using the refs this clone already has')
+// A dry run uses the network for nothing and moves no refs: it reads the refs this clone already has.
+if (DRY) {
+  say('would run: git fetch --quiet origin (dry run: using the refs this clone already has)')
+} else {
+  try {
+    git('fetch', '--quiet', 'origin')
+  } catch {
+    console.warn('[bundle-engine] git fetch failed (offline?): using the refs this clone already has')
+  }
 }
 
 let sha
@@ -310,7 +319,7 @@ async function bundlePython() {
   const canRun = runnable(python)
 
   // Only the engine's dependencies (`-r pyproject.toml` installs them, not the server package itself: the source runs
-  // from ~/miyagi/engine/src on PYTHONPATH). Wheels only, for the target platform, so an x64 build works on arm64.
+  // from ~/miyagi/engine/src, the cwd of `python3 -m`). Wheels only, for the target platform, so an x64 build works on arm64.
   const req = join(out, 'src', 'server', 'pyproject.toml')
   const uvArgs = ['pip', 'install', '--quiet', '--target', site, '--python-version', PY_MINOR, '--python-platform', TRIPLE, '--only-binary', ':all:', '-r', req]
   // Resolve against the bundled interpreter itself when this machine can run it (uv finds another one otherwise).
@@ -330,8 +339,11 @@ async function bundlePython() {
   say(`pruned ${prune(pyDir)} test/driver folders`)
 
   if (!canRun) {
-    console.warn(`[bundle-engine] can't run the ${ARCH} Python on this machine: skipped precompiling and the import check.`)
-    console.warn('[bundle-engine] Build on a matching Mac before shipping, or the first launch writes nothing and starts slower.')
+    // Without precompiling, a lesson .venv made from this Python would write .pycs inside the signed app, and nothing
+    // checked that the engine imports. localEngine.ts refuses a PYTHON.json without precompiled: true.
+    const why = `can't run the ${ARCH} Python on this machine, so it can't be precompiled or import-checked`
+    if (!ALLOW_UNCHECKED) die(`${why}. Build on a Mac that runs ${ARCH} (Rosetta for x64), or pass --allow-unchecked for a bundle the app won't use.`)
+    console.warn(`[bundle-engine] ${why}: --allow-unchecked, so PYTHON.json says precompiled: false and the app falls back.`)
     return { python, ran: false }
   }
 
