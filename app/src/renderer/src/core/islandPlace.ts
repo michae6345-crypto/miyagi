@@ -27,11 +27,14 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
+// TODO(W0-5 core request): the two feature stores below are the last feature imports here. Once spotlight/store.ts and
+// cards/store.ts publish their target rects with core/dock.ts reserveRect('spotlight' | 'card-targets', ...), read
+// useReserved() instead and drop them (agents/core-v2.md, Core requests).
 import { useCards } from '../features/cards/store'
-import { dockRect } from '../features/player/dock'
-import { hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from '../features/spotlight/place'
 import { useSpotlight } from '../features/spotlight/store'
 import { onMessage, onUi } from './bus'
+import { reservedLocal, useReserved } from './dock'
+import { dockRect, hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from './geometry'
 import { useLesson, type Rect } from './lesson'
 
 type Offset = { x: number; y: number }
@@ -293,7 +296,11 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   const clear = useAvoidLocal(layout)
   const w = card?.w ?? 0
   const h = card?.h ?? 0
-  const { others: avoid, chips } = useOverlayUi(wrapper, keepOff.length > 0 || clear.length > 0, card?.id ?? '')
+  const { others: domUi, chips } = useOverlayUi(wrapper, keepOff.length > 0 || clear.length > 0, card?.id ?? '')
+  // v2 (W0-5): space other surfaces reserved (the docked lesson panel, app-side panels in other windows): other UI
+  // a moved card would rather not cover, like the overlay's own. Nothing reserved = exactly the old behaviour.
+  const reserved = useReserved()
+  const avoid = useMemo(() => (reserved.length ? [...domUi, ...reservedLocal(reserved, layout)] : domUi), [domUi, reserved, layout])
 
   const notch = { x: (layout.width - w) / 2, y: top, w, h }
   const wa = layout.workArea
