@@ -38,6 +38,20 @@ WHERE_SYSTEM = ("You locate things on a learner's screen. You get a screenshot a
                 "the request, comma-separated, most relevant first, or `none` if nothing matches.")
 
 
+def _record_cost(model: str, usage) -> None:
+    """Tokens, cache hit rate and dollars of one screen call into the session tally (server.lesson.cost)."""
+    if usage is None:
+        return
+    try:
+        from server.lesson import cost
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a screen answer
+        return
+    try:
+        cost.record_usage(model, usage, source="screen", label="screen describe")
+    except Exception:  # noqa: BLE001
+        log.debug("screen cost record failed", exc_info=True)
+
+
 class DescribeError(RuntimeError):
     """A screen question could not be answered. `reason`: missing_key | invalid_key | no_image |
     refused | unavailable (rate limit / overload / network / timeout)."""
@@ -104,7 +118,10 @@ class Describer:
             {"type": "text", "text": text},
         ]
         model = server_config.guard_model(model)
-        kwargs = {"model": model, "max_tokens": max_tokens, "system": system,
+        # system as a cached block: a prompt under the model's minimum just doesn't cache (no error), and a
+        # longer one is read back on every later screen question at a fraction of the input price
+        kwargs = {"model": model, "max_tokens": max_tokens,
+                  "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                       "output_config": {"effort": effort}, "messages": [{"role": "user", "content": content}]}
         async with self._lock:
             wait = self.min_interval - (time.time() - self._last_call)
@@ -132,6 +149,7 @@ class Describer:
             except (anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
                 raise DescribeError("unavailable", f"{e.__class__.__name__}: {e}"[:200]) from e
         self._key_invalid = False
+        _record_cost(getattr(resp, "model", None) or model, getattr(resp, "usage", None))
         if resp.stop_reason == "refusal":
             cat = getattr(getattr(resp, "stop_details", None), "category", None)
             raise DescribeError("refused", f"category={cat}")

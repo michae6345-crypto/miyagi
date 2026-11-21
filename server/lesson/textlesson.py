@@ -208,9 +208,8 @@ async def research(goal: str) -> dict:
         async with claude.client().messages.stream(model=mid, max_tokens=8000, messages=messages, tools=WEB_TOOLS,
                                                    thinking={"type": "adaptive"}, output_config={"effort": "low"}) as st:
             msg = await st.get_final_message()
-        u = getattr(msg, "usage", None)
-        cost.add_tokens(mid, getattr(u, "input_tokens", 0), getattr(u, "output_tokens", 0))
-        log.info("claude research call: model=%s in=%s out=%s", mid, getattr(u, "input_tokens", "?"), getattr(u, "output_tokens", "?"))
+        cost.record_usage(getattr(msg, "model", None) or mid, getattr(msg, "usage", None) or {}, source="lesson",
+                          label="claude research")
         for b in msg.content:
             t = getattr(b, "type", "")
             if t == "web_search_tool_result" and isinstance(getattr(b, "content", None), list):  # an error is an object, not a list
@@ -422,6 +421,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     link_run_steps(g["steps"])
     _finalize(g, info)
     g["build"]["cost"] = json.loads(json.dumps(counter))
+    cost.finish_build(counter, kind="text", lesson_id=g.get("lesson", {}).get("id"))
     errs = schema_errors(g)
     if errs:
         raise RuntimeError("text lesson failed contract validation:\n" + "\n".join(errs))

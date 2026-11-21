@@ -55,6 +55,19 @@ def model_for(purpose: str) -> str:
     return guard(os.environ.get(f"COACH_MODEL_{purpose.upper()}") or MODELS.get(purpose, HAIKU))
 
 
+def _record_cost(model: str, usage: dict, purpose: str) -> None:
+    """Dollars and cache hit rate of one coach call into the session tally (server.lesson.cost). Skipped when
+    coach/ runs on its own."""
+    try:
+        from server.lesson import cost
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        cost.record_usage(model, usage, source="coach", label=f"coach {purpose}")
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a coach call
+        log.debug("coach cost record failed", exc_info=True)
+
+
 def cached_system(text: str) -> list[dict]:
     """A one-block system prompt marked for prompt caching (short prompts just won't cache)."""
     return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
@@ -317,6 +330,7 @@ async def structured_call(
         usage["first_text_s"] = round(ttft, 2)
     res = CallResult(data=data, model=resp.model, usage=usage, latency_s=latency, source="live")
     log.info("%s %s %.2fs usage=%s", purpose, resp.model, latency, usage)
+    _record_cost(resp.model or model, usage, purpose)
     record_dir = os.environ.get("COACH_RECORD_DIR")
     if record_dir:
         _record(Path(record_dir), purpose, model, user_text, text, res)

@@ -163,6 +163,15 @@ class _RateLimited(Exception):
         self.retry_after = retry_after
 
 
+def cached_system(system: str) -> list[dict] | str:
+    """The system prompt as one block with a cache breakpoint. The lesson prompts (WATCH_SYSTEM, ADAPT_SYSTEM)
+    repeat across a build's segment, per-step and adapt calls, so later calls read them from the cache. A
+    prompt under the model's minimum (512 tokens on current models) just does not cache; no error."""
+    if not system:
+        return system
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+
 async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema: dict | None):
     global _fast_ok
     output_config: dict = {"effort": effort}
@@ -171,7 +180,7 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
     kwargs = dict(
         model=mid,
         max_tokens=32000,
-        system=system,
+        system=cached_system(system),
         messages=[{"role": "user", "content": prompt}],
         thinking={"type": "adaptive"},
         output_config=output_config,
@@ -216,10 +225,9 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
         raise RuntimeError(f"Claude call failed ({e.status_code}): {str(e)[:300]}") from e
     except anthropic.APIConnectionError as e:
         raise RuntimeError(f"Claude unreachable: {e}") from e
-    u = getattr(msg, "usage", None)
-    cost.add_tokens(getattr(msg, "model", None) or mid, getattr(u, "input_tokens", 0), getattr(u, "output_tokens", 0))
-    log.info("claude call: model=%s in=%s out=%s fast=%s", getattr(msg, "model", None) or mid,
-             getattr(u, "input_tokens", "?"), getattr(u, "output_tokens", "?"), fast)
+    # tokens, cache reads/writes and dollars into the build + session tallies; logs the cache hit rate
+    cost.record_usage(getattr(msg, "model", None) or mid, getattr(msg, "usage", None) or {}, source="lesson",
+                      label="claude" + (" fast" if fast else ""))
     if msg.stop_reason == "refusal":
         raise RuntimeError(f"Claude declined: {getattr(msg, 'stop_details', None)}")
     if msg.stop_reason == "max_tokens":
@@ -282,11 +290,13 @@ async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *,
             log.info("structured output schema too complex for the API; using prompt-described JSON + client validation")
 
     validator = Draft202012Validator(schema)
-    ask = (prompt + "\n\nReply with ONE JSON object (no prose, no code fence) that validates against this JSON Schema:\n"
-           + json.dumps(schema))
+    # the schema rides in the cached system block (same bytes on every per-step call), not after the prompt
+    sys_schema = (system + "\n\nReply with ONE JSON object (no prose, no code fence) that validates against this JSON Schema:\n"
+                  + json.dumps(schema, sort_keys=True))
+    ask = prompt
     errors: list[str] = []
     for _attempt in range(2):
-        msg, text = await _call(mid, system, ask, effort=effort, schema=None)
+        msg, text = await _call(mid, sys_schema, ask, effort=effort, schema=None)
         try:
             obj = extract_json(text)
             errors = [f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}" for e in validator.iter_errors(obj)]

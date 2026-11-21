@@ -101,6 +101,22 @@ def model(fast: bool = False) -> str:
     return os.environ.get("LESSON_MODEL", DEFAULT_MODEL)
 
 
+def record_usage(mid: str, um) -> float:
+    """Tokens and dollars of one Gemini call into the build + session tallies. Gemini's prompt count includes
+    the implicitly cached tokens, so those are split out as cache reads. Logs the hit rate; returns dollars."""
+    def n(k: str) -> int:
+        v = getattr(um, k, 0)
+        return int(v) if isinstance(v, (int, float)) else 0
+
+    prompt, cached = n("prompt_token_count"), n("cached_content_token_count")
+    out = n("candidates_token_count") + n("thoughts_token_count")
+    cached = min(cached, prompt)
+    dollars = cost.add_tokens(mid, prompt - cached, out, cache_read=cached, source="lesson")
+    log.info("gemini call: model=%s in=%s out=%s cached=%s hit=%s usd=%.5f", mid, prompt, out, cached,
+             f"{cached / prompt:.0%}" if prompt else "-", dollars)
+    return dollars
+
+
 YOUTUBE_ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/embed/|/live/)([\w-]{11})")
 
 
@@ -205,10 +221,7 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
                 if mid != model_id:
                     log.warning("used fallback model %s (wanted %s)", mid, model_id)
                 um = getattr(resp, "usage_metadata", None)
-                cost.add_tokens(mid, getattr(um, "prompt_token_count", 0),
-                                (getattr(um, "candidates_token_count", 0) or 0) + (getattr(um, "thoughts_token_count", 0) or 0))
-                log.info("gemini call: model=%s in=%s out=%s", mid, getattr(um, "prompt_token_count", "?"),
-                         (getattr(um, "candidates_token_count", 0) or 0) + (getattr(um, "thoughts_token_count", 0) or 0))
+                record_usage(mid, um)
                 out = json.loads(resp.text or "")
                 global last_model
                 last_model = mid

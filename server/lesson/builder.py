@@ -111,7 +111,8 @@ async def build_lesson(
         g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
                                      on_progress=on_progress, video_meta=video_meta, **kw)
         if not g.get("build", {}).get("cost") and counter.get("tokens"):
-            g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens per model
+            g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens + dollars per model
+            cost.finish_build(counter, kind="prebuild" if _prebuild else "video", lesson_id=(g.get("lesson") or {}).get("id"))
         if qs:
             await qs.finish(g)
         return g
