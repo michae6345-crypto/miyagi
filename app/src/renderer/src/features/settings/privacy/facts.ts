@@ -3,13 +3,19 @@
  * web/privacy.md says the same lines word for word (facts.test.ts checks both). Honest subset only: every line is
  * what the code does today. Read before changing a line:
  *
- *   screen    engine server/screen/reader.py + privacy.py (OCR and accessibility text, emails / card / phone numbers
- *             scrubbed, password apps and Messages dropped), server/orchestrator/scene_watch.py and coach/scene.py
- *             (screenshots during an active lesson step, private apps blacked out), screen/describe.py, target.py
+ *   screen    engine server/screen/reader.py + privacy.py (OCR text: emails / card / phone numbers scrubbed, text from
+ *             password apps and Messages dropped). Screenshots during an active lesson step: server/orchestrator/
+ *             scene_watch.py (the step check) blacks out private apps' windows; the pointing path (screen_bridge →
+ *             target.pick_on_screen → reader.latest_frame → render_marks) blacks out only miyagi's overlay and other
+ *             folders' VS Code windows, so a password app over the editor is sent. Hence the line claims only the text.
  *   code      server/coach/* (the step's code from the editor buffer or the file), Anthropic only
  *   editor    server/orchestrator/editor_text.py (the VS Code companion's live buffer, read over localhost)
  *   searches  server/finder/* (YouTube, DuckDuckGo, GitHub, arXiv; Bright Data only with its key; Claude ranks)
- *   videos    server/lesson/gemini.py (Gemini watches the YouTube link; Gemini is used for nothing else)
+ *   videos    server/lesson/gemini.py watch_video (builder.py, progressive.py): the YouTube link, the learner's goal
+ *             (what they want to learn) and the YouTube page text (title, description, chapters); step_detail re-sends
+ *             the link with a step's title and time range. gemini.adapt_checks would also send the draft steps and a
+ *             workdir summary with the learner's own Gemini key, but builder.py calls claude.adapt_checks today (so
+ *             those go to Anthropic): if Gemini adapts again, say so here and in the policy.
  *   account   main/features/auth.ts (Google through Supabase; the session in userData/auth.bin, safeStorage)
  *   keys      main/features/settings.ts (userData/keys.bin, safeStorage; memory only without secure storage)
  *   progress  server/sessions/store.py, checks/tiger.py (local SQLite under ~/miyagi/state), lesson folders in
@@ -40,11 +46,11 @@ export type Fact = {
 export const STAYS = 'On this Mac'
 
 export const FACTS: readonly Fact[] = [
-  { id: 'screen', label: 'Your screen', line: 'During a lesson, screenshots and screen text. Password apps blacked out.', where: 'To Anthropic', leaves: true },
+  { id: 'screen', label: 'Your screen', line: 'During a lesson, screenshots and screen text. Text from password apps dropped.', where: 'To Anthropic', leaves: true },
   { id: 'code', label: 'Your code', line: 'The step’s code, when miyagi checks your work or helps.', where: 'To Anthropic', leaves: true },
   { id: 'editor', label: 'Your editor', line: 'miyagi reads VS Code here to follow your step.', where: 'Read on this Mac', leaves: false },
   { id: 'searches', label: 'Your searches', line: 'What you ask to learn goes to search sites and the AI.', where: 'To search sites', leaves: true },
-  { id: 'videos', label: 'Lesson videos', line: 'The video’s link goes to Google Gemini to build the lesson.', where: 'To Google', leaves: true },
+  { id: 'videos', label: 'Lesson videos', line: 'The video link and what you want to learn, to Google Gemini.', where: 'To Google', leaves: true },
   { id: 'account', label: 'Your sign-in', line: 'Google sign-in through Supabase. The session stays encrypted here.', where: 'To Supabase', leaves: true },
   { id: 'keys', label: 'Your API keys', line: 'Locked by your Keychain, sent only to their provider.', where: STAYS, leaves: false },
   { id: 'progress', label: 'Lesson progress', line: 'Lesson folders and progress, kept in ~/miyagi on this Mac.', where: STAYS, leaves: false },

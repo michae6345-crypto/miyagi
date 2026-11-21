@@ -8,8 +8,8 @@
  *   - "Share crash reports and usage" (prefs.shareTelemetry, ROADMAP 1.6 / 1.7): off by default for everyone, applies at
  *     once. On: main/features/telemetry.ts sends scrubbed crash lines and lesson counts (the engine its own counts).
  *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin), the
- *     sign-in (main removes auth.bin and login.json, then auth:sign-out forgets the session and revokes it) and the
- *     preferences. It says "on this Mac" because that is all it can reach; lesson folders in ~/miyagi stay (the
+ *     sign-in (main removes auth.bin and login.json, then auth:sign-out, awaited, forgets the session and revokes it)
+ *     and the preferences. privacy/erase.ts picks the step: a sign-out that fails is "partial", never "Deleted". It says "on this Mac" because that is all it can reach; lesson folders in ~/miyagi stay (the
  *     learner's own work, kept by the engine) and the confirm says so.
  */
 import { motion } from 'motion/react'
@@ -21,9 +21,10 @@ import { setPrefs, usePrefs } from '../../../core/prefs'
 import { PrimaryButtonV2, QuietButton, Toggle } from '../../../core/ui/atoms'
 import { color, type2 } from '../../../core/theme'
 import { pressMotion } from '../../../core/ui/motion'
-import { openLegal, signOut } from '../../auth/store'
+import { openLegal, useAuth } from '../../auth/store'
 import { stage } from '../env'
-import type { DeleteResult, KeysView } from '../keys'
+import type { KeysView } from '../keys'
+import { eraseData } from '../privacy/erase'
 import { DELETE, POLICY_LINE } from '../privacy/facts'
 import { Sees } from '../privacy/Sees'
 import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
@@ -43,17 +44,15 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
   const erase = async (): Promise<void> => {
     if (step !== 'confirm') return
     setStep('deleting')
-    try {
-      const r = await bridge.invoke<DeleteResult>('settings:delete')
-      if (!r?.ok) throw new Error('not deleted')
-      onDeleted(r.keys)
+    // privacy/erase.ts: delete the files, then await auth:sign-out (main's auth feature owns the session in memory).
+    // A sign-out that fails or doesn't answer true shows "partial": auth.ts would still hold the session.
+    const r = await eraseData((channel) => bridge.invoke<unknown>(channel))
+    if (r.deleted) {
+      onDeleted(r.deleted.keys)
       setPrefs({ ...DEFAULT_PREFS })
-      // Forget the session in memory too (main's auth feature owns it): best effort revoke, every window signs out.
-      signOut()
-      setStep(r.signIn === false ? 'partial' : 'done')
-    } catch {
-      setStep('failed')
     }
+    if (r.signedOut) useAuth.setState({ user: null })
+    setStep(r.step)
   }
 
   // Esc backs out of the confirm before it closes the sheet. Window capture phase, because focus is usually

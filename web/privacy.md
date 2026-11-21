@@ -18,11 +18,11 @@ miyagi needs to see your work to help with it. Here is everything it reads, said
 
 | What | What happens | Where it goes |
 | --- | --- | --- |
-| Your screen | During a lesson, screenshots and screen text. Password apps blacked out. | Anthropic |
+| Your screen | During a lesson, screenshots and screen text. Text from password apps dropped. | Anthropic |
 | Your code | The step’s code, when miyagi checks your work or helps. | Anthropic |
 | Your editor | miyagi reads VS Code here to follow your step. | Read on this Mac |
 | Your searches | What you ask to learn goes to search sites and the AI. | Search sites |
-| Lesson videos | The video’s link goes to Google Gemini to build the lesson. | Google |
+| Lesson videos | The video link and what you want to learn, to Google Gemini. | Google |
 | Your sign-in | Google sign-in through Supabase. The session stays encrypted here. | Supabase |
 | Your API keys | Locked by your Keychain, sent only to their provider. | On this Mac |
 | Lesson progress | Lesson folders and progress, kept in ~/miyagi on this Mac. | On this Mac |
@@ -36,14 +36,18 @@ AI calls go through miyagi’s server, or direct with your key.
 - **Why we send your screen and code.** To tell whether a step is done, to point at the right place, and to
   answer when you ask for help. Screenshots are taken only while a lesson step is active. Before text read from
   the screen is used, email addresses, card numbers, phone numbers and US social security numbers are replaced,
-  and windows of password managers (1Password, Bitwarden, Dashlane, LastPass, Keychain Access, Passwords) and
-  Messages are left out or blacked out. miyagi does not yet crop screenshots to your work area, and it does not
-  yet remove API keys or tokens that are visible on screen, so keep those out of view during a lesson.
-- **The AI providers.** Screen and code go to Anthropic (Claude). The link of a lesson video goes to Google
-  Gemini, which watches the video to build the lesson; Gemini gets nothing else. By default these calls go
-  through miyagi-cloud, our server, so we can pay for them and keep usage within limits. If you add your own API
-  key in Settings, calls with that key go straight to that provider instead. Each provider handles what it
-  receives under its own API terms.
+  and text read from password managers (1Password, Bitwarden, Dashlane, LastPass, Keychain Access, Passwords) and
+  Messages is dropped. Screenshots taken to check a step black out those windows. Screenshots taken to point at
+  something on screen do not yet: if one of those windows is over your editor, it can be in the picture. miyagi
+  does not yet crop screenshots to your work area, and it does not yet remove API keys or tokens that are visible
+  on screen, so keep password apps, keys and tokens out of view during a lesson.
+- **The AI providers.** Screen and code go to Anthropic (Claude). To fit a lesson's checks to your lesson
+  folder, the draft lesson steps and a summary of that folder also go to Anthropic. When miyagi builds a lesson
+  from a video, Google Gemini gets the video's link, what you want to learn, and the text of the video's YouTube
+  page (its title, description and chapters), and may get a step's title and time to watch that part again.
+  By default these calls go through miyagi-cloud, our server, so we can pay for them and keep usage within
+  limits. If you add your own API key in Settings, calls with that key go straight to that provider instead.
+  Each provider handles what it receives under its own API terms.
 - **Searches.** When you ask miyagi to find something to learn, the words you type are sent to YouTube,
   DuckDuckGo, GitHub and arXiv to find sources, and to Anthropic to rank them. If you add a Bright Data key, the
   search may also go through Bright Data.

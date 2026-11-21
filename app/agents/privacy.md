@@ -36,7 +36,7 @@ line each. A link opens the privacy policy. Delete my data erases everything miy
 ## Test
 `npm run dev:web -- --port 5615 --strictPort` → `http://localhost:5615/?scenario=settings&settings=privacy`
 (`&confirm=delete` opens on the delete confirm). Use the `settings` scenario, not `full`: `full` merges the player.
-Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/privacy/facts.test.ts src/main/features/settings/erase.test.ts`
+Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/privacy/facts.test.ts src/renderer/src/features/settings/privacy/erase.test.ts src/main/features/settings/erase.test.ts`
 
 ## Notes (first pass)
 - `privacy/facts.ts` is the one list (screen, code, editor, searches, videos, sign-in, keys, progress, crash, usage).
@@ -50,7 +50,25 @@ Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/pri
 - `web/privacy.md`: DRAFT with [TBD] for retention on miyagi-cloud, contact address, last-updated date.
 - Stage shots: `shots/privacy-panel.png`, `privacy-data.png`, `privacy-confirm.png` (headless, no window).
 
+## Notes (fix round 1, after review)
+- Gemini: the policy no longer says "Gemini gets nothing else". `gemini.watch_video` sends the link, the learner's
+  goal and the YouTube page text; `step_detail` a step's title and time. The panel line is now "The video link and
+  what you want to learn, to Google Gemini." `gemini.adapt_checks` (own Gemini key: draft steps + workdir summary)
+  is not called on integration/live: `builder.py` calls `claude.adapt_checks`, so the policy says those go to
+  Anthropic. The facts.ts header says to change both if Gemini adapts again.
+- Screen: the line claims only the text ("Text from password apps dropped."). Only `scene_watch.py` (the step
+  check) blacks out private-app windows; the pointing path (`screen_bridge` → `target.pick_on_screen` →
+  `reader.latest_frame` → `render_marks`) does not, and the policy says so.
+- Delete my data: the flow lives in `privacy/erase.ts` (`eraseData`, `eraseStep`), tested by `privacy/erase.test.ts`.
+  It awaits `auth:sign-out` and shows "partial" unless it answers `true`; the signed-in user is cleared in this
+  window only when the sign-out is confirmed. auth.ts is untouched (the sign-in-gate lane owns it).
+- Stage shots not retaken this round: a headless capture caught the settings sheet mid-animation. The screen and
+  videos lines in `shots/privacy-panel.png` are the old copy; retake before review.
+
 ## Open
+- Engine follow-up (not this lane, no server/ edits here): mask private apps in `reader.latest_frame` (pointing
+  screenshots), the same way `scene_watch._mask_args` does, and in `reader._vision_input` (`describe`, unused live).
+  Then the screen line can say "Password apps blacked out." again.
 - Not deleted by Delete my data (said so in the confirm and policy): ~/miyagi (lessons, progress: engine side),
   the anonymous install token (install.bin), the local error log and saved crash reports, onboarding.json.
 - auth.ts keeps `decided` in memory, so the login shows again on the next launch, not right away.
