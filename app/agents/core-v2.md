@@ -38,6 +38,10 @@ The shared base for miyagi v2 (`miyagi-v2/BUILD-PLAN.md` section 2): the contrac
 - Window-open handler: any plain https link opens in the default browser again (see Deviations); `open:external` stays allowlisted.
 - `feat:window:args` checks `deps.trusted(e)` like every other core handler.
 
+## Fix round 3 (review)
+- Mock engine (`mock/engine.ts`) says `engine.hello` with every `V2_COMMANDS` capability on `start()`, on `dev.reset` and when a `_link` item comes back open, before the scenario's own items. Every scenario (`?scenario=full` included) now passes `canSend()` / `useCapability()` and `setDock` sends `panel.state`. A scenario's own later hello replaces it (core-v2 still sends its `restored` hello after the fake reconnect).
+- `main/engine.ts`: the `X-Miyagi-Token` header and the cloud install token in `config.keys` go only to a loopback ENGINE_URL (the localEngine.ts test) or a `wss:` one (`secureEngineUrl`). Any other URL gets neither, and main warns once without printing a value.
+
 ## Test
 `npm run typecheck` (green). Python: `python -m py_compile shared/contracts/events.py` and an import + validate script with empty keys (green; library ids with a path are rejected).
 Stage: `npm run dev:web -- --port 5197` → `http://localhost:5197/?scenario=core-v2&size=1440x900&clean`: hello with 7 capabilities, build phases, a lesson step with where/then, a kernel blocker and clear, a fake reconnect (`_link` 1 and 2 failures, then open and a restored hello), busy with retryInS. Checked in the page: `canSend('panel.state')` true after hello; `openLibrary('mnist_intro')` opens the stage window with args `{id}`; `openWindow('evil')` false; `permissions:get` honours `?perm=`; `panelRect` at 1440x900 = x 1064, y 52, w 360. No console errors. Atoms rendered on a panel card for a look (status rows, help row, buttons, controls, dots, keys footer).

@@ -41,6 +41,15 @@ export const TOKEN_HEADER = 'X-Miyagi-Token'
 const V2 = new Set<string>(V2_COMMANDS)
 /** The anonymous install token for the hosted proxy (main/features/cloud.ts): folded into config.keys, nowhere else. */
 export type CloudKeys = { miyagiToken: string; miyagiCloud: string }
+/** This Mac (the same test as localEngine.ts `local`). */
+const LOOPBACK = /^wss?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i
+/**
+ * May secrets travel to this ENGINE_URL? Only to this Mac or over TLS: the engine token and the install token (which
+ * can spend money at the proxy) must never cross the network in cleartext ws://.
+ */
+export function secureEngineUrl(url: string): boolean {
+  return LOOPBACK.test(url) || /^wss:\/\//i.test(url)
+}
 
 export class EngineLink {
   /** Every event since the last learn/build, replayed to a window that reloads. */
@@ -68,6 +77,9 @@ export class EngineLink {
   private caps = new Set<string>()
   /** v2: the last config.keys the settings feature sent (the full payload), so a later token can ride on it. */
   private lastKeys?: Extract<Outgoing, { type: 'config.keys' }>
+  /** v2: ENGINE_URL is loopback or wss: (secureEngineUrl). Otherwise no token header and no install token, ever. */
+  private readonly secure: boolean
+  private warnedInsecure = false
 
   /**
    * `token` (v2): the per-launch engine token (localEngine ENGINE_TOKEN). Given here, not later, because the first
@@ -75,6 +87,7 @@ export class EngineLink {
    */
   constructor(private url: string, demoScenario?: string, token?: string) {
     this.token = token || undefined
+    this.secure = secureEngineUrl(url)
     if (demoScenario) {
       const scenario = scenarios[demoScenario] ?? scenarios.full
       this.demo = createMockEngine(scenario, (e) => this.dispatch(e))
@@ -150,7 +163,7 @@ export class EngineLink {
     // engine side for its provider.
     if (cmd.type === 'config.keys') {
       this.lastKeys = cmd
-      if (this.cloud) cmd = { ...cmd, payload: { ...cmd.payload, ...this.cloud } }
+      if (this.cloud && this.allowSecrets()) cmd = { ...cmd, payload: { ...cmd.payload, ...this.cloud } }
     }
     if (this.demo) return this.demo.handle(cmd)
     const msg = JSON.stringify(cmd)
@@ -166,12 +179,26 @@ export class EngineLink {
     for (const l of this.listeners) l(e)
   }
 
+  /**
+   * Secrets (the engine token header, the install token in config.keys) only to a loopback or wss: engine. Warns once
+   * when one is held back, naming neither the value nor the URL's credentials.
+   */
+  private allowSecrets(): boolean {
+    if (this.secure) return true
+    if (!this.warnedInsecure) {
+      this.warnedInsecure = true
+      console.warn('[engine] ENGINE_URL is neither this Mac nor wss:, so the engine token and install token are not sent')
+    }
+    return false
+  }
+
   private connect(): void {
     clearTimeout(this.timer)
     this.timer = undefined
     let ws: WebSocket
+    const header = this.token && this.allowSecrets() ? { headers: { [TOKEN_HEADER]: this.token } } : {}
     try {
-      ws = new WebSocket(this.url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS, ...(this.token ? { headers: { [TOKEN_HEADER]: this.token } } : {}) })
+      ws = new WebSocket(this.url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS, ...header })
     } catch {
       // A malformed ENGINE_URL: count it as a failed attempt and keep the retry loop (never throw out of main).
       this.failures++
