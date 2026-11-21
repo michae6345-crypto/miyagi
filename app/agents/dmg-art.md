@@ -27,6 +27,8 @@ Deviations from the mockup (brand rules): the mockup's mid-gray folder and traff
 - `agents/shots/dmg-art-preview.png`: `background.html?preview`, icon slots and labels where Finder will put them.
 
 ## Core requests
+Done on `michael/v2-integration` (Nov 20): `electron-builder.yml` `dmg` block, `ship-mac.sh` builds `dist/Miyagi-Mac.dmg` (artifact name `Miyagi-Mac.dmg`, not `miyagi-mac.dmg`, to match the zip it replaces). electron-builder ignores `dmg.window` when a background is set and sizes the window from the art (640x400). Not yet checked by eye in Finder.
+
 For the wave 2 integrator (`electron-builder.yml`, `scripts/ship-mac.sh`; not edited here):
 1. `mac.target` add `dmg`, and a `dmg` block:
    ```yaml

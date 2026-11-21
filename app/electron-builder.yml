@@ -6,8 +6,11 @@ directories:
 files:
   - out/**
   - package.json
+# Chromium ships ~55 UI locales per platform (~9 MB on Mac); the app's copy is English only.
+electronLanguages: [en]
 mac:
-  target: dir
+  # scripts/ship-mac.sh builds the .app with --dir, signs it ad hoc, then makes this dmg from it (--prepackaged).
+  target: dmg
   icon: build/icon.png
   category: public.app-category.education
   identity: null
@@ -30,6 +33,20 @@ mac:
         - "!vscode{,/**/*}"
     - from: build/engine/vscode
       to: vscode
+# The Mac download (art and layout: agents/dmg-art.md). Finder draws both icons on the art; the art is 640x400 and
+# electron-builder sizes the window from it (background@2x.png next to it becomes the Retina half of a .tiff).
+# ULFO = lzfse, the strongest format electron-builder accepts; ship-mac.sh then recompresses to ULMO (lzma).
+dmg:
+  artifactName: Miyagi-Mac.${ext}
+  title: miyagi
+  background: build/dmg/background.png
+  iconSize: 112
+  iconTextSize: 13
+  format: ULFO
+  writeUpdateInfo: false
+  contents:
+    - { x: 168, y: 150, type: file }
+    - { x: 472, y: 150, type: link, path: /Applications }
 win:
   target: nsis
   icon: build/icon.ico

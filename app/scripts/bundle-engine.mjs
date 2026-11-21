@@ -84,14 +84,30 @@ const PY_MINOR = PY.version.split('.').slice(0, 2).join('.')
 const CACHE = process.env.MIYAGI_BUNDLE_CACHE || join(homedir(), '.cache', 'miyagi-bundle')
 
 /**
- * Pruned after the packages are in: tests (PyObjCTest alone is ~16 MB), Tiger's Postgres driver (Tiger is gone;
- * psycopg itself stays and is only imported when TIGER_DATABASE_URL is set), console scripts whose shebangs point at
- * this build machine, and stdlib parts the engine never loads. ensurepip and venv stay: lesson .venvs are made from
- * this Python when the Mac has no other (MIYAGI_BUNDLED_PYTHON).
+ * Pruned after the packages are in (app/SIZE.md has the reasons and the sizes):
+ *   site-packages: tests (PyObjCTest alone is ~16 MB), Tiger's Postgres driver (Tiger is gone; psycopg is only
+ *     imported when TIGER_DATABASE_URL is set), console scripts whose shebangs point at this build machine, pip (the
+ *     standalone Python ships it; the engine never runs it, and lesson .venvs get their own pip from ensurepip),
+ *     build-only sources (.pyi stubs, Cython .pyx/.pxd, C sources) and each dist-info's RECORD (lists files we pruned).
+ *     .py and .pyc both stay: anyio builds its lazy-import map from its own source (inspect.getsource), so a
+ *     sourceless site-packages breaks it; the .pyc keep the engine import at about 1 s instead of 2 to 2.5 s.
+ *   stdlib: tests, IDLE, Tk (tkinter, turtle and the Tcl/Tk libraries), lib2to3, pydoc_data. ensurepip and venv stay:
+ *     lesson .venvs are made from this Python when the Mac has no other (MIYAGI_BUNDLED_PYTHON).
+ *   python/: libpython3.12.dylib (bin/python3.12 is statically linked; it is only for embedding), the C headers,
+ *     man pages and pkg-config files (only for building extensions against this Python), and the 2to3, pydoc, pip
+ *     and *-config scripts.
  */
 const PRUNE_SITE_DIRS = new Set(['PyObjCTest', 'tests', 'test', '__tests__'])
-const PRUNE_SITE_TOP = [/^psycopg_binary/, /^bin$/]
-const PRUNE_STDLIB = ['test', 'idlelib', 'turtledemo']
+const PRUNE_SITE_TOP = [/^psycopg_binary/, /^bin$/, /^pip$/, /^pip-.*\.dist-info$/]
+const PRUNE_SITE_FILES = [/\.pyi$/, /\.pyx$/, /\.pxd$/, /\.c$/, /\.cpp$/]
+const PRUNE_DIST_INFO_FILES = new Set(['RECORD'])
+const PRUNE_STDLIB = ['test', 'idlelib', 'turtledemo', 'tkinter', 'turtle.py', 'lib2to3', 'pydoc_data', 'lib-dynload/_tkinter.cpython-312-darwin.so']
+const PRUNE_PYTHON = ['include', 'share', 'lib/pkgconfig', 'lib/libpython3.12.dylib', 'lib/libtcl9.0.dylib', 'lib/libtcl9tk9.0.dylib']
+const PRUNE_PYTHON_LIB = [/^tcl\d/, /^tk\d/, /^itcl\d/, /^thread\d/]
+const PRUNE_BIN = [/^idle3/, /^2to3/, /^pydoc3/, /^pip/, /-config$/]
+/** Engine source: the tests stay in git (no runtime module imports them). */
+const PRUNE_SRC_DIRS = new Set(['tests'])
+const PRUNE_SRC_FILES = new Set(['conftest.py'])
 /** Imported with the bundled Python before we call the bundle good. */
 const SMOKE = 'import fastapi, uvicorn, websockets, pydantic, httpx, anthropic, google.genai, jsonschema, watchdog, rapidfuzz, PIL, Quartz, Vision, ScreenCaptureKit, ApplicationServices'
 
@@ -174,6 +190,7 @@ if (!DRY) {
   // Relative path + cwd: GNU tar on Windows reads 'C:' as a remote host.
   execFileSync('tar', ['-xf', join('..', '..', 'engine.tar')], { cwd: join(out, 'src'), stdio: 'inherit' })
   rmSync(tar, { force: true })
+  say(`pruned ${pruneSrc(join(out, 'src'))} test folders/files from the engine source`)
   writeFileSync(join(out, 'VERSION'), version + '\n')
   if (installRef) {
     writeFileSync(join(out, 'install.sh'), git('show', `${installRef}:scripts/install.sh`))
@@ -222,9 +239,21 @@ function prune(pyDir) {
       removed++
     }
   }
-  // Their scripts in bin/ would point at the pruned idlelib.
+  for (const p of PRUNE_PYTHON) {
+    if (existsSync(join(pyDir, p))) {
+      rmSync(join(pyDir, p), { recursive: true, force: true })
+      removed++
+    }
+  }
+  for (const name of readdirSync(join(pyDir, 'lib'))) {
+    if (PRUNE_PYTHON_LIB.some((re) => re.test(name))) {
+      rmSync(join(pyDir, 'lib', name), { recursive: true, force: true })
+      removed++
+    }
+  }
+  // Their scripts in bin/ would point at the pruned idlelib, lib2to3, pydoc_data and pip.
   for (const name of readdirSync(join(pyDir, 'bin'))) {
-    if (/^idle3/.test(name)) {
+    if (PRUNE_BIN.some((re) => re.test(name))) {
       rmSync(join(pyDir, 'bin', name), { force: true })
       removed++
     }
@@ -238,15 +267,35 @@ function prune(pyDir) {
   }
   const walk = (dir) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (!e.isDirectory() || e.isSymbolicLink()) continue
+      if (e.isSymbolicLink()) continue
       const p = join(dir, e.name)
-      if (PRUNE_SITE_DIRS.has(e.name)) {
+      const drop = e.isDirectory()
+        ? PRUNE_SITE_DIRS.has(e.name)
+        : PRUNE_SITE_FILES.some((re) => re.test(e.name)) || (PRUNE_DIST_INFO_FILES.has(e.name) && dir.endsWith('.dist-info'))
+      if (drop) {
         rmSync(p, { recursive: true, force: true })
         removed++
-      } else walk(p)
+      } else if (e.isDirectory()) walk(p)
     }
   }
   walk(site)
+  return removed
+}
+
+/** The engine source minus its tests (PRUNE_SRC_*). → files removed */
+function pruneSrc(srcDir) {
+  let removed = 0
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isSymbolicLink()) continue
+      const p = join(dir, e.name)
+      if (e.isDirectory() ? PRUNE_SRC_DIRS.has(e.name) : PRUNE_SRC_FILES.has(e.name)) {
+        rmSync(p, { recursive: true, force: true })
+        removed++
+      } else if (e.isDirectory()) walk(p)
+    }
+  }
+  for (const d of ['server', 'shared', 'cli']) if (existsSync(join(srcDir, d))) walk(join(srcDir, d))
   return removed
 }
 
@@ -292,6 +341,34 @@ function timestampPycs(dir) {
   return bad
 }
 
+/**
+ * Mach-O files under python/ that load a library prune() removed (libpython3.12.dylib, Tcl/Tk). The import check
+ * only loads what the engine imports; this covers every extension. → "file → library" lines
+ */
+function prunedLinks(pyDir) {
+  const gone = /libpython3|libtcl|libtk|tcl9tk/
+  const files = []
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name)
+      if (e.isDirectory() && !e.isSymbolicLink()) walk(p)
+      else if (e.isFile() && (/\.(so|dylib)$/.test(e.name) || d.endsWith('/bin'))) files.push(p)
+    }
+  }
+  walk(pyDir)
+  const bad = []
+  for (const f of files) {
+    let links = ''
+    try {
+      links = execFileSync('otool', ['-L', f], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    } catch {
+      continue // not Mach-O (a shell script in bin/)
+    }
+    for (const line of links.split('\n').slice(1)) if (gone.test(line)) bad.push(`${f.slice(pyDir.length + 1)} → ${line.trim().split(' ')[0]}`)
+  }
+  return bad
+}
+
 /** Every package in site-packages as name==version, sorted (from each *.dist-info/METADATA). */
 function frozen(site) {
   const out = []
@@ -332,11 +409,11 @@ async function bundlePython() {
   run(uv, uvArgs, { cwd: tmpdir(), env: uvEnv })
 
   if (DRY) {
-    say(`would prune: site-packages/**/{${[...PRUNE_SITE_DIRS].join(',')}}, psycopg_binary, site-packages/bin, stdlib ${PRUNE_STDLIB.join(', ')}`)
+    say(`would prune: site-packages/**/{${[...PRUNE_SITE_DIRS].join(',')}}, psycopg_binary, pip, site-packages/bin, stubs and C/Cython sources, dist-info RECORD; stdlib ${PRUNE_STDLIB.join(', ')}; python/{${PRUNE_PYTHON.join(',')}}, Tcl/Tk; src/**/tests`)
     say(`would precompile python/ (unchecked-hash) and src/ (checked-hash), then import-check: ${SMOKE.replace('import ', '')}`)
     return { python, ran: false }
   }
-  say(`pruned ${prune(pyDir)} test/driver folders`)
+  say(`pruned ${prune(pyDir)} folders/files the engine never loads (SIZE.md)`)
 
   if (!canRun) {
     // Without precompiling, a lesson .venv made from this Python would write .pycs inside the signed app, and nothing
@@ -372,6 +449,9 @@ async function bundlePython() {
   const stale = timestampPycs(pyDir)
   if (stale.length) die(`${stale.length} timestamp .pyc files left in python/ (they'd be rewritten inside the signed app), e.g. ${stale.slice(0, 5).join(', ')}`)
   say('python/: every .pyc is hash-based (0 timestamp .pycs)')
+  const dangling = prunedLinks(pyDir)
+  if (dangling.length) die(`binaries still link pruned libraries (put them back in PRUNE_*): ${dangling.slice(0, 5).join('; ')}`)
+  say('python/: no binary links a pruned library (libpython, Tcl/Tk)')
   return { python, ran: true }
 }
 
