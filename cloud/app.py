@@ -167,7 +167,7 @@ class Guard:
                 if status[0] == 0:
                     await error(413, "request_too_large", f"Request body over {limit // (1024 * 1024)} MB.")(scope, receive, send_logged)
         finally:
-            extra = "".join(f" {k}={state[k]}" for k in ("model", "tokens_in", "tokens_out", "tok") if state.get(k) is not None)
+            extra = "".join(f" {k}={state[k]}" for k in ("model", "tokens_in", "tokens_out", "tok", "user") if state.get(k) is not None)
             log.info("%s %s %s %dms%s", scope["method"], path, status[0] or 500, (time.monotonic() - start) * 1000, extra)
 
 
@@ -204,6 +204,7 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     if row is None:
         return None, error(401, "authentication_error", "Unknown install token. Get a new one at /v1/install.")
     request.state.tok = h[:PREFIX_LEN]
+    request.state.user = (store.get_link(h) or {}).get("user_id")  # the linked account, for the log line
     if row["disabled"]:
         return None, error(403, "permission_error", "This install has been disabled.")
     return h, None
@@ -461,6 +462,43 @@ async def install(body: InstallBody, request: Request):
         return minted
     token, token_id = minted
     return {"token": token, "token_id": token_id}
+
+
+# --------------------------------------------------------------------------- accounts: POST /v1/link
+#
+# The app sends its install token and the signed-in Supabase user's access token; we verify the JWT
+# (supabase_auth.py) and remember install -> user. Unlinked installs keep using the proxy as before, and
+# signing out never unlinks. Errors use the flat {"error": kind} shape the app's link client reads.
+
+import supabase_auth  # noqa: E402  (kept beside the one route that uses it)
+from starlette.concurrency import run_in_threadpool  # noqa: E402
+
+verifier = supabase_auth.SupabaseVerifier.from_env()  # SUPABASE_URL, SUPABASE_JWT_SECRET; tests swap it
+
+
+def link_error(status: int, kind: str) -> JSONResponse:
+    return JSONResponse({"error": kind}, status_code=status)
+
+
+@app.post("/v1/link")
+async def link(request: Request):
+    token = presented_token(request)
+    h = hash_token(token) if token and len(token) <= 200 else None
+    row = store.get_token(h) if h else None
+    if row is None or row["disabled"]:
+        return link_error(401, "bad_install_token")
+    request.state.tok = h[:PREFIX_LEN]
+    body, _ = await read_json(request)
+    try:  # the first call (and one every 10 minutes) fetches the JWKS: keep it off the event loop
+        claims = await run_in_threadpool(verifier.verify, (body or {}).get("access_token"))
+    except supabase_auth.AuthUnavailable:
+        return link_error(503, "link_unavailable")
+    except supabase_auth.BadAccessToken:
+        return link_error(403, "bad_access_token")
+    user_id = claims["sub"]
+    store.link_user(h, user_id)
+    request.state.user = user_id
+    return {"ok": True, "user_id": user_id}
 
 
 @app.post("/v1/anthropic/messages")
