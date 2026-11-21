@@ -16,6 +16,7 @@ import { offDock, useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { getIslandModes } from './registry'
+import { islandSize, PILL_FALLBACK, type IslandSize } from './islandSize'
 import { color, duration, ease, pill, shadows, spring, springOut } from './theme'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
@@ -59,6 +60,20 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const mode = at < 0 ? undefined : islandModes[at]
   const isPill = !mode || mode.width === undefined
 
+  // A card the learner closed under the pointer (its ✕, a button) must not hand the island straight to a hover card:
+  // the pointer is still on the island, so the hover overview (or an off-track peek) grew out of it at once, and the
+  // island "expanded" on the very click that closed it (Michael, Nov 21). Hover waits for the pointer to leave and come
+  // back. Set during render (React's "previous render" pattern), so the hover card never commits for a frame.
+  const heldCard = mode && !isPill && held[at] ? mode.id : undefined
+  const [lastHeld, setLastHeld] = useState(heldCard)
+  if (heldCard !== lastHeld) {
+    setLastHeld(heldCard)
+    if (lastHeld && !heldCard && hover) {
+      clearTimeout(hoverTimer.current)
+      setHover(false)
+    }
+  }
+
   // The launcher just shrank onto our exact pixels: appear at its size, then spring to ours.
   useEffect(() => {
     const offs = [
@@ -82,8 +97,12 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // Measure the active mode's live layer; the container springs to its size (Michael's review A1). The layer is found
   // by data-island-layer, which only a present layer carries: a mode that comes back under the same key while its exit
   // still runs keeps its old node and gets no new ref, so a ref bound on mount could point at a node that was leaving
-  // (measured 0 once gone: the island collapsed to nothing for 35 s). A 0 measurement never wins: the last good size stays.
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 120, h: pill.height })
+  // (measured 0 once gone: the island collapsed to nothing for 35 s).
+  // A 0 measurement (or a layer never found) no longer keeps the last size (Michael, Nov 21: a card's ✕ left a big empty
+  // black box at the top centre, still eating clicks): a pill stays pill-tall at its last pill width, an empty card
+  // falls back to the pill. ./islandSize.ts.
+  const [size, setSize] = useState<IslandSize>(PILL_FALLBACK)
+  const pillW = useRef(PILL_FALLBACK.w)
   const modeId = mode?.id
   const fixed = mode?.width
   useLayoutEffect(() => {
@@ -92,15 +111,17 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     let ro: ResizeObserver | undefined
     let raf = 0
     let tries = 0
-    const measure = (el: HTMLElement): void => {
-      const w = fixed ?? Math.ceil(el.offsetWidth)
-      const h = fixed ? Math.ceil(el.offsetHeight) : pill.height
-      if (w > 0 && h > 0) setSize((s) => (s.w === w && s.h === h ? s : { w, h }))
+    const apply = (m: { w: number; h: number } | undefined): void => {
+      const next = islandSize(fixed, m, pillW.current)
+      if (fixed === undefined && m && m.w > 0) pillW.current = next.w
+      setSize((s) => (s.w === next.w && s.h === next.h ? s : next))
     }
+    const measure = (el: HTMLElement): void => apply({ w: el.offsetWidth, h: el.offsetHeight })
     const bind = (): void => {
       const el = root.querySelector<HTMLElement>(`[data-island-layer="${CSS.escape(modeId)}"]`)
       if (!el) {
         if (++tries < 30) raf = requestAnimationFrame(bind)
+        else apply(undefined)
         return
       }
       measure(el)
@@ -159,6 +180,16 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     pressTimer.current = setTimeout(() => setPressHold(false), PRESS_HOLD_MS)
   }
   useEffect(() => () => clearTimeout(pressTimer.current), [])
+  // Esc or a ✕ (the 'dismiss' UI event) closes surfaces; it never opens the hover card, even with the pointer resting on
+  // the island (or its hover timer still running). Hover comes back on the next entry.
+  useEffect(
+    () =>
+      onUi('dismiss', () => {
+        clearTimeout(hoverTimer.current)
+        setHover(false)
+      }),
+    []
+  )
 
   // The pointer left without a mouseleave (click-through forwarding can drop it): the next move outside, or the
   // pointer leaving the window, ends it. So does the island going away under it.
@@ -216,8 +247,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     >
       <motion.div
         ref={islandEl}
-        data-hit
-        className="pointer-events-auto relative overflow-hidden text-white"
+        // Hidden while another surface has it (launcher, settings): not a click target either, or the invisible island
+        // keeps eating clicks through overlay.bounds / main's click-catching poll.
+        data-hit={yielded ? undefined : true}
+        className={`${yielded ? 'pointer-events-none' : 'pointer-events-auto'} relative overflow-hidden text-white`}
         style={{
           background: color.island,
           boxShadow: isPill ? shadows.pill : shadows.card,
@@ -246,7 +279,9 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         />
         <AnimatePresence initial={false}>
           <Layer key={mode.id} id={mode.id} width={mode.width}>
-            <Boundary name={`island mode ${mode.id}`}>
+            {/* A mode that throws renders nothing: the island falls back to the pill (./islandSize.ts) and the mode gets a
+                fresh try a second later, so a crashed card isn't an empty black shape until another mode takes over. */}
+            <Boundary name={`island mode ${mode.id}`} retryMs={1000}>
               <Content />
             </Boundary>
           </Layer>
