@@ -8,7 +8,7 @@
   GET  /library          lessons cached on this Mac {items, continue} (lesson/library.py)
   GET  /library/{id}     one lesson's preview {item, steps, overview}; 404 for a bad or unknown id
   GET  /progress         skills, finished and in-progress lessons (sessions/progress.py); null = nothing yet
-  GET  /events?since=N   recent engine events (debugging)
+  GET  /events?since=N   the hub's recent history, every session event (dev only)
   POST /debug/pass       force-pass the active step            (dev only: MIYAGI_DEBUG_ROUTES=1 or DEMO=1, else 404)
   POST /debug/goto/{i}   jump to step i                       (dev only)
   POST /debug/lesson     DEMO only: load the cached/canned lesson without searching (dev only)
@@ -29,7 +29,7 @@ the app sends a v2 command only when `capabilities` lists it. Security (BUILD-PL
     /state, /library) need none. It is read once and removed from os.environ, so no learner subprocess inherits it.
     run() writes the token (or, with none set, a fresh random one) to ~/.miyagi/engine-tokens/<port>.json (0600,
     server/engine_token.py) for the VS Code companion, `tut run` and the dev CLI, and removes it on exit.
-  - Dev routes (/debug/*, /demo/*) answer 404 unless MIYAGI_DEBUG_ROUTES=1 or DEMO=1: the app's engine (localEngine.ts)
+  - Dev routes (/debug/*, /demo/*, /events) answer 404 unless MIYAGI_DEBUG_ROUTES=1 or DEMO=1: the app's engine (localEngine.ts)
     sets neither, so a release build never serves them.
   - Origin: a request that carries an Origin header (a browser page) must come from this Mac (http(s)://localhost,
     127.0.0.1, [::1]) or MIYAGI_ALLOWED_ORIGINS; a POST/PUT/PATCH/DELETE carrying one only from MIYAGI_ALLOWED_ORIGINS.
@@ -157,8 +157,15 @@ REFUSED_PAGE = "This page may not call the miyagi engine."
 REFUSED_HOST = "This address may not call the miyagi engine."
 REFUSED_TOKEN = "Send the engine token (X-Miyagi-Token)."
 DEV_PREFIXES = ("/debug/", "/demo/")
+# /events hands out the hub's whole history (cards, selections, run and terminal output) to a loopback GET, which needs
+# no token: a local program the WebSocket refuses could read the session there. Development only.
+DEV_PATHS = frozenset({"/events", "/events/"})
 DEBUG_ENV = "MIYAGI_DEBUG_ROUTES"
 _bind_host: str | None = None  # run() sets it from --host; else ENGINE_HOST (uvicorn ... --host has no say)
+
+
+def is_dev_route(path: str) -> bool:
+    return path.startswith(DEV_PREFIXES) or path in DEV_PATHS
 
 
 def debug_routes_on() -> bool:
@@ -298,7 +305,7 @@ class RequestGuard:
         if not host_allowed(headers.get("host")):
             log.warning("refused %s %s for host %s", method, path, _shown(headers.get("host")))
             refused = _refuse(REFUSED_HOST, 403)
-        elif path.startswith(DEV_PREFIXES) and not debug_routes_on():
+        elif is_dev_route(path) and not debug_routes_on():
             log.info("refused %s %s: dev route (set %s=1 to serve it)", method, path, DEBUG_ENV)
             refused = _refuse("Not found.", 404)
         elif needs_token(method, scope) and not token_ok(headers.get(TOKEN_HEADER)):
@@ -1308,6 +1315,7 @@ async def progress_get() -> dict | None:
 
 @app.get("/events")
 async def events(since: int = 0) -> dict:
+    """Dev only (is_dev_route): the hub's recent history, for debugging an engine by hand."""
     items = list(engine.hub.history)
     return {"total": len(items), "events": items[since:]}
 

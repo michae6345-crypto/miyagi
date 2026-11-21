@@ -4,6 +4,7 @@ coach requests, screen describe, VS Code selections). Every key below is fake.""
 from __future__ import annotations
 
 import io
+import time
 
 import pytest
 
@@ -23,10 +24,15 @@ GITHUB = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
 SLACK = "xoxb-" + "123456789012-abcdefghijKLMN"
 JWT = "eyJhbGciOiJIUzI1NiJ9." + "eyJzdWIiOiIxMjM0NTY3ODkwIn0." + "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
 B64 = "c2VjcmV0LXZhbHVlLWZvci10ZXN0cw1234"
+HF = "hf_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7"
+NPM = "npm_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+GITLAB = "glpat-" + "x1Y2z3A4b5C6d7E8f9G0"
+PYPI = "pypi-AgEIcHlwaS5vcmc" + "CJDAwMDAwMDAwLTAwMDAtMDAwMC0wMDAw"
 
 
 @pytest.mark.parametrize("secret", [ANT, OPENAI, GOOGLE, GITHUB, SLACK, JWT, "AKIA" + "IOSFODNN7EXAMPLE",
-                                    "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc", "github_pat_" + "11ABCDEFG0" * 4])
+                                    "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc", "github_pat_" + "11ABCDEFG0" * 4,
+                                    HF, NPM, GITLAB, PYPI])
 def test_known_token_formats_are_redacted_anywhere_in_a_line(secret):
     out = redact_secrets(f"client = make(key='{secret}')  # mine")
     assert secret not in out and SECRET_MARK in out and out.endswith("# mine")
@@ -85,6 +91,41 @@ def test_env_file_text_keeps_names_and_hides_values():
     assert "abc" not in redact_file_text("~/.ssh/id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\nabc")
     code = f"import os\nKEY = '{ANT}'\nprint(1)\n"
     assert redact_file_text("main.py", code) == f"import os\nKEY = '{SECRET_MARK}'\nprint(1)\n"
+
+
+def test_npmrc_netrc_and_pgpass_never_leak_a_value():
+    """Their secret lines have no NAME=value shape: .npmrc hides everything after `=`, .netrc and .pgpass go whole."""
+    npmrc = f"//registry.npmjs.org/:_authToken={NPM}\n; scope\n@me:registry=https://npm.me.dev/\nemail=${{NPM_EMAIL}}\n"
+    out = redact_file_text("/proj/.npmrc", npmrc)
+    assert out.splitlines() == [f"//registry.npmjs.org/:_authToken={SECRET_MARK}", "; scope",
+                                f"@me:registry={SECRET_MARK}", "email=${NPM_EMAIL}"]
+    plain = "//registry.npmjs.org/:_authToken=plainOldTokenValue"  # no known format: hidden for being in .npmrc
+    assert redact_file_text(".npmrc", plain) == f"//registry.npmjs.org/:_authToken={SECRET_MARK}"
+    for name, text, secret in ((".netrc", "machine api.github.com login bob password s3cr3tPassw0rdValue",
+                                "s3cr3tPassw0rdValue"),
+                               ("/home/me/.pgpass", "db.example.com:5432:app:bob:Sup3rS3cretPass", "Sup3rS3cretPass")):
+        out = redact_file_text(name, text)
+        assert secret not in out and "bob" not in out and out.startswith(SECRET_MARK), name
+
+
+def test_pypirc_hides_values_after_equals_or_colon():
+    out = redact_file_text("~/.pypirc", f"[pypi]\nusername = __token__\npassword: {PYPI}\n# done\n")
+    assert out.splitlines() == ["[pypi]", f"username = {SECRET_MARK}", f"password: {SECRET_MARK}", "# done"]
+
+
+@pytest.mark.parametrize("text", [
+    "key" + "a-" * 50_000, "token_" * 17_000, "a." * 50_000 + "key='x'", "a-" * 50_000 + "://", "k=\"" * 33_000,
+    "x=a" + " " * 100_000 + "b", "api_key=" * 12_500, "token:" * 17_000,
+])
+def test_a_100kb_adversarial_line_redacts_quickly(text):
+    """Coach requests redact the learner's whole file: a long run of `a-a-...` or `token_token_...` (minified code, a
+    data line) must not backtrack for seconds. Every pattern is linear; this was 9.8 s / 23 s before."""
+    assert len(text) >= 96_000
+    for fn in (lambda: redact_secrets(text, known=()), lambda: redact_file_text(".env", text),
+               lambda: redact_file_text(".npmrc", text)):
+        t0 = time.perf_counter()
+        fn()
+        assert time.perf_counter() - t0 < 0.2
 
 
 def test_scrub_walks_payloads():

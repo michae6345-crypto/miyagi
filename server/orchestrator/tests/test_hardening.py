@@ -35,12 +35,14 @@ def engine(monkeypatch, tmp_path):
 def test_dev_routes_are_404_unless_asked_for(engine, monkeypatch):
     c = TestClient(engine.app, base_url=BASE, client=LOCAL)
     for method, path in (("POST", "/debug/pass"), ("POST", "/debug/goto/3"), ("POST", "/debug/lesson"),
-                         ("GET", "/demo/runs"), ("POST", "/demo/replay")):
+                         ("GET", "/demo/runs"), ("POST", "/demo/replay"), ("GET", "/events"),
+                         ("GET", "/events?since=0")):
         r = c.request(method, path)
         assert r.status_code == 404, (method, path, r.status_code)
     assert c.get("/health").status_code == 200  # everything else is unchanged
     monkeypatch.setenv(main.DEBUG_ENV, "1")
     assert c.get("/demo/runs").status_code == 200
+    assert c.get("/events").status_code == 200
     monkeypatch.delenv(main.DEBUG_ENV)
     monkeypatch.setenv("DEMO", "1")  # a DEMO engine (never the app's: localEngine.ts refuses DEMO=1)
     assert c.get("/demo/runs").status_code == 200

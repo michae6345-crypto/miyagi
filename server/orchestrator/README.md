@@ -151,7 +151,7 @@ Also handled on the socket: `overlay.bounds` → screen reader (OCR ignores our 
 with `config.status` (`ok`/`env`/`missing`, never the keys).
 
 `POST /ingest` takes one event, a list of events, or `{"events":[...]}` in the engine-internal.md shapes. A `metric` event can also carry
-`"metrics":[{step,name,value},...]`. The reply carries `{lesson_id, step_id}` so `tut run` can tag its Tiger run. Debug routes: `GET /state`, `GET /events?since=N`, and (dev only, `MIYAGI_DEBUG_ROUTES=1` or `DEMO=1`) `POST /debug/pass`, `POST /debug/goto/{i}`, `POST /debug/lesson`.
+`"metrics":[{step,name,value},...]`. The reply carries `{lesson_id, step_id}` so `tut run` can tag its Tiger run. Debug routes: `GET /state`, and (dev only, `MIYAGI_DEBUG_ROUTES=1` or `DEMO=1`) `GET /events?since=N`, `POST /debug/pass`, `POST /debug/goto/{i}`, `POST /debug/lesson`.
 
 ## DEMO=1 cache layout (read from `demo/cache/`; any missing file falls back to the stub)
 

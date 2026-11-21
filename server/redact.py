@@ -3,6 +3,7 @@
     from server.redact import redact_secrets, redact_file_text, is_secret_file, scrub_secrets
     redact_secrets("key sk-ant-api03-...")         # "key [secret]"
     redact_file_text(".env", "OPENAI_API_KEY=abc") # "OPENAI_API_KEY=[secret]": names kept, every value hidden
+    redact_file_text(".netrc", "machine ...")       # withheld whole: no name=value shape to keep
     is_secret_file("~/proj/.env.local")            # True
     scrub_secrets({"a": ["ghp_..."]})              # a copy with every string redacted
 
@@ -14,11 +15,16 @@ text; only what is sent out is redacted.
 What counts as a secret:
   - known formats: Anthropic / OpenAI `sk-...`, Google `AIza...`, GitHub `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` /
     `github_pat_`, Slack `xox?-` / `xapp-`, Stripe `sk_live_` / `rk_test_` ..., ElevenLabs `sk_<hex>`, AWS `AKIA...`,
-    JWTs (`eyJ...`), PEM private key blocks, the password in `scheme://user:password@host`;
+    HuggingFace `hf_...`, npm `npm_...`, GitLab `glpat-...`, PyPI `pypi-AgEIcHlwaS5vcmc...`, JWTs (`eyJ...`),
+    PEM private key blocks, the password in `scheme://user:password@host`;
   - a long base64-ish value after a name with KEY / TOKEN / SECRET / PASSWORD / CREDENTIAL / AUTH in it
     (`API_KEY=...`, `token: "..."`, `secret = '...'`);
   - the exact keys this engine holds (Settings keys, the miyagi cloud token, provider keys in the environment).
 The marker is SECRET_MARK, so a caller can tell a line held one (the screen describe call blacks out those rows).
+
+Cost: coach requests redact the learner's whole file, so every pattern stays linear in the text. A name before `=` or
+`:` is at most 64 characters and matched possessively (Python 3.11+), so a long run of `a-a-a-...` or `token_token_...`
+(minified code, a data line) never backtracks; 100 KB of such text redacts in milliseconds (test_redact.py).
 """
 
 from __future__ import annotations
@@ -47,19 +53,32 @@ _TOKEN_RES: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?<![\w-])xi-[A-Za-z0-9]{16,}"),
     re.compile(r"(?<![A-Z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Z0-9])"),
     re.compile(r"(?<![\w-])eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"),
+    re.compile(r"(?<![\w-])hf_[A-Za-z0-9]{30,}"),
+    re.compile(r"(?<![\w-])npm_[A-Za-z0-9]{36,}"),
+    re.compile(r"(?<![\w-])glpat-[A-Za-z0-9_\-]{20,}"),
+    re.compile(r"(?<![\w-])pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{20,}"),
 )
 _BEARER = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9_\-.=+/]{16,}")
 # scheme://user:password@host -> the password only
-_URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.\-]*://[^\s:/@]+:)([^\s@/]{3,})(@)", re.IGNORECASE)
-# NAME = "value" / NAME: value / NAME=value, where NAME says it holds a secret and the value looks like one
-_SECRET_NAME = r"(?:[A-Za-z_][\w.\-]*?)?(?:key|token|secret|passw(?:or)?d|pwd|credential|auth|dsn)[\w.\-]*"
+_URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.\-]{0,30}://[^\s:/@]+:)([^\s@/]{3,})(@)", re.IGNORECASE)
+# NAME = "value" / NAME: value / NAME=value, where NAME says it holds a secret and the value looks like one. NAME is
+# one identifier of at most 64 characters, taken possessively (`{0,63}+` never gives characters back), and the
+# secret-sounding word is looked for in it afterwards (_SECRET_WORD): no nested, unbounded backtracking.
+_NAME = r"(?P<n>[A-Za-z_][\w.\-]{0,63}+)"
+_SECRET_WORD = re.compile(r"(?i)key|token|secret|passw(?:or)?d|pwd|credential|auth|dsn")
 _ASSIGN_QUOTED = re.compile(
-    r"(?i)(?P<name>\b" + _SECRET_NAME + r"""["']?[ \t]*[:=][ \t]*)(?P<q>["'])(?P<val>[A-Za-z0-9+/_\-.=~:]{12,})(?P=q)""")
+    r"(?i)(?P<name>\b" + _NAME + r"""["']?[ \t]*[:=][ \t]*)(?P<q>["'])(?P<val>[A-Za-z0-9+/_\-.=~:]{12,})(?P=q)""")
 _ASSIGN_BARE = re.compile(
-    r"(?im)(?P<name>^[ \t]*(?:export[ \t]+)?" + _SECRET_NAME + r"[ \t]*[:=][ \t]*)"
+    r"(?im)(?P<name>^[ \t]*(?:export[ \t]+)?" + _NAME + r"[ \t]*[:=][ \t]*)"
     r"(?P<val>[A-Za-z0-9+/_\-.=~]{16,})[ \t]*$")
-# one KEY=value line of an env file (names kept, the value hidden)
-_ENV_LINE = re.compile(r"(?m)^([ \t]*(?:export[ \t]+)?[A-Za-z_][A-Za-z0-9_.\-]*[ \t]*=[ \t]*)(\S.*?)[ \t]*$")
+# one line of a secret file whose shape is kept (names and comments stay, the value is hidden). `(\S(?:.*\S)?)` takes
+# the value up to its last non-blank character without a lazy scan (a lazy `.*?` before `[ \t]*$` is quadratic).
+_VALUE = r"(\S(?:.*\S)?)[ \t]*$"
+_ENV_LINE = re.compile(r"(?m)^([ \t]*(?:export[ \t]+)?[A-Za-z_][A-Za-z0-9_.\-]*[ \t]*=[ \t]*)" + _VALUE)
+# .pypirc (configparser: `password = ...` or `password: ...`)
+_INI_LINE = re.compile(r"(?m)^([ \t]*[A-Za-z_][\w.\-]*[ \t]*[:=][ \t]*)" + _VALUE)
+# .npmrc: everything after the first `=` (`//registry.npmjs.org/:_authToken=...` has no plain name)
+_NPMRC_LINE = re.compile(r"(?m)^([ \t]*[^\s#;=][^=\n]*=[ \t]*)" + _VALUE)
 _PLACEHOLDER = re.compile(r"""^["']?(?:|<[^>]*>|\$\{?\w+\}?|your[_\-\w]*|x{4,}|\.{3}|changeme|none|null|true|false|\d{1,6})["']?$""",
                           re.IGNORECASE)
 
@@ -68,7 +87,10 @@ _SECRET_NAMES = frozenset({".env", ".envrc", ".netrc", ".npmrc", ".pypirc", ".pg
                            "credentials.json", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"})
 _SECRET_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".keystore", ".jks")
 _ENV_EXAMPLES = frozenset({"example", "sample", "template", "dist", "defaults"})
-_ENV_STYLE = frozenset({".env", ".envrc", ".pypirc", ".npmrc", ".netrc", ".pgpass"})
+# secret files whose names and comments are kept with every value hidden (.netrc and .pgpass have no name=value
+# shape, `machine h login u password p` / `host:port:db:user:password`, so they are withheld whole)
+_ENV_STYLE = frozenset({".env", ".envrc"})
+_LINE_STYLE: dict[str, re.Pattern[str]] = {".npmrc": _NPMRC_LINE, ".pypirc": _INI_LINE}
 
 
 _KNOWN_TTL_S = 2.0
@@ -107,7 +129,8 @@ def _quick_skip(text: str) -> bool:
     low = text.lower()
     return not any(t in low for t in ("sk", "aiza", "gh", "xox", "xapp", "xi-", "akia", "asia", "eyj", "://",
                                       "key", "token", "secret", "pass", "pwd", "credential", "auth", "dsn",
-                                      "-----begin", "github_pat", "bearer")) and not _has_known(text)
+                                      "-----begin", "github_pat", "bearer", "hf_", "npm_", "glpat-",
+                                      "pypi-")) and not _has_known(text)
 
 
 def _has_known(text: str) -> bool:
@@ -144,13 +167,13 @@ def _looks_secret(val: str) -> bool:
 
 
 def _assign_quoted(m: re.Match[str]) -> str:
-    if not _looks_secret(m.group("val")):
+    if not _SECRET_WORD.search(m.group("n")) or not _looks_secret(m.group("val")):
         return m.group(0)
     return f"{m.group('name')}{m.group('q')}{SECRET_MARK}{m.group('q')}"
 
 
 def _assign_bare(m: re.Match[str]) -> str:
-    if not _looks_secret(m.group("val")):
+    if not _SECRET_WORD.search(m.group("n")) or not _looks_secret(m.group("val")):
         return m.group(0)
     return f"{m.group('name')}{SECRET_MARK}"
 
@@ -169,15 +192,18 @@ def is_secret_file(path: str | os.PathLike[str] | None) -> bool:
 
 
 def redact_file_text(path: str | os.PathLike[str] | None, text: str) -> str:
-    """Text read from `path`, safe to send. An env-style secret file (.env, .envrc, .npmrc, ...) keeps its names and
-    comments with every value hidden, so the coach can still help with its shape; any other secret file (a key, a
-    credentials JSON) is withheld whole; everything else goes through redact_secrets."""
+    """Text read from `path`, safe to send. A secret file with name=value lines (.env, .env.local, .envrc, .npmrc,
+    .pypirc) keeps its names and comments with every value hidden, so the coach can still help with its shape; any other
+    secret file (a key, a credentials JSON, .netrc, .pgpass) is withheld whole; everything else goes through
+    redact_secrets."""
     if not isinstance(text, str) or not text:
         return text
     if is_secret_file(path):
         name = PurePath(os.fspath(path)).name.lower()  # type: ignore[arg-type]
         if name in _ENV_STYLE or name.startswith(".env."):
             return redact_secrets(_ENV_LINE.sub(_env_value, text))
+        if name in _LINE_STYLE:
+            return redact_secrets(_LINE_STYLE[name].sub(_env_value, text))
         return f"{SECRET_MARK} (the contents of {PurePath(os.fspath(path)).name} are not shared)"  # type: ignore[arg-type]
     return redact_secrets(text)
 

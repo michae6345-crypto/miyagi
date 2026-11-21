@@ -22,7 +22,9 @@ key or token on the learner's screen or in their files ever leaves in a model re
   replaces the main one. A file whose pid is gone is ignored everywhere. Readers: the companion, `tut run`
   (`cli/tut/sinks.py`, only for a loopback ingest URL), the dev CLI (`server/orchestrator/client.py`, also honours an
   exported `MIYAGI_ENGINE_TOKEN`).
-- **Dev routes off in release**: `/debug/*` and `/demo/*` answer 404 unless `MIYAGI_DEBUG_ROUTES=1` or `DEMO=1`.
+- **Dev routes off in release**: `/debug/*`, `/demo/*` and `GET /events` answer 404 unless `MIYAGI_DEBUG_ROUTES=1`
+  or `DEMO=1`. `/events` returns the hub's whole history (cards, selections, run and terminal output) and, as a
+  loopback GET, needs no token, so a local program the WebSocket refuses could otherwise read the session there.
   `localEngine.ts` sets neither (and never starts with DEMO=1). Turned on for `scripts/stage.py`, `scripts/rehearse.py`
   and `scripts/miyagi-demo.sh` (DEMO.md's `/debug/goto/7` backup). The dev CLI prints a hint on a 404.
 - **VS Code companion 0.0.7** (`vscode-ext/extension.js`):
@@ -35,11 +37,15 @@ key or token on the learner's screen or in their files ever leaves in a model re
   - Engine side: `server/workspace/vscode_ext.py` sends `X-Miyagi-Token` on every call (`set_link_token` from
     `run()`; another process reads a live engine's token file). Old companions ignore the header.
 - **Secret redaction** (`server/redact.py`, 5.2): `redact_secrets` replaces known token formats (Anthropic / OpenAI
-  `sk-`, Google `AIza`, GitHub `ghp_`/`github_pat_`, Slack `xox?-`/`xapp-`, Stripe, ElevenLabs, AWS `AKIA`, JWTs, PEM
-  private keys, `scheme://user:password@`, `Bearer ...`), long values after KEY/TOKEN/SECRET/PASSWORD/AUTH names, and
-  the exact keys the engine holds, with `[secret]`. `.env` files (and `.envrc`, `.npmrc`, `.netrc`, ...) keep their
-  names with every value hidden; key files are withheld whole (`redact_file_text`). No false positive across this
-  repo's own Python, TypeScript and eval JSON. Wired at the boundaries, never into grading:
+  `sk-`, Google `AIza`, GitHub `ghp_`/`github_pat_`, Slack `xox?-`/`xapp-`, Stripe, ElevenLabs, AWS `AKIA`,
+  HuggingFace `hf_`, npm `npm_`, GitLab `glpat-`, PyPI `pypi-`, JWTs, PEM private keys, `scheme://user:password@`,
+  `Bearer ...`), long values after KEY/TOKEN/SECRET/PASSWORD/AUTH names, and the exact keys the engine holds, with
+  `[secret]`. `.env` files (and `.env.*`, `.envrc`) keep their names with every value hidden; `.npmrc` hides everything
+  after `=` on every line and `.pypirc` everything after `=` or `:`; `.netrc`, `.pgpass` and key files are withheld whole
+  (`redact_file_text`). Every pattern is linear in the text (names before `=` are bounded and possessive): a 100 KB
+  adversarial line redacts in well under 0.2 s. It errs toward hiding: an identifier-like string with a digit after a
+  key-sounding name (`const key = 'user_profile_settings_v2'`) is redacted too. Wired at the boundaries, never into
+  grading:
   - screen OCR blocks and AX text (`server/screen/privacy.redact`, which every reader path already used);
   - every coach request (`server/coach/llm._request` redacts the user message; `common.number_lines` too) and
     recorded fixtures (`COACH_RECORD_DIR`);
@@ -47,11 +53,14 @@ key or token on the learner's screen or in their files ever leaves in a model re
     in the screenshot) and the target picker (`server/screen/target.py`: same mask, text redacted);
   - "Explain this" selections from VS Code and the drawer (`server/orchestrator/selection.py` via
     `server/workspace/core.text_for_model`): the card title, the coach and the session record see the redacted text.
-- **Tests**: `server/orchestrator/tests/test_hardening.py` (11), `server/tests/test_redact.py` (39),
+- **Tests**: `server/orchestrator/tests/test_hardening.py` (11), `server/tests/test_redact.py` (53),
   `cli/tests/test_engine_token.py` (2), 3 new companion tests in `vscode-ext/test/extension.test.js`. Stale tests fixed:
   `test_session.py::test_ws_and_ingest_roundtrip` and `::test_post_end_endpoint`, and
   `test_vscode_ext.py::test_engine_route_records_events` patch `host_allowed` (TestClient's Host is `testserver`), as
   `server/sessions/tests/test_sessions.py::_restarted_engine` does; the WS test now reads `engine.hello` first.
+  The lane task listed "test_session.py ws tests (5)": only those 2 failed because of the Host header (fixed, with the
+  companion test above). The other test_session.py failures are not Host-related and still fail, identically on
+  `origin/integration/live` (see Notes).
   `server/conftest.py` points `MIYAGI_ENGINE_TOKEN_DIR` at a temp folder for every server test.
 
 ## Core requests
@@ -72,5 +81,7 @@ key or token on the learner's screen or in their files ever leaves in a model re
   `::test_build_progress_ticks_with_real_stages_then_fails_humanly` and `::test_build_success_still_loads_the_lesson`
   (payload shape drift: `detail`, `phases`), `test_coach::test_models_by_purpose`, and the others listed in the lane
   task.
+- `GET /state` (session state for the dev CLI's simulator) is still a token-free loopback GET; it holds less than
+  `/events` did (no history), but a later round could gate it on the token when one is set.
 - Screenshots still carry pixels: only rows whose OCR text held a secret are masked, so a key OCR misread can still
   appear in an image sent to Claude vision.
