@@ -61,6 +61,8 @@ export class EngineLink {
   private listeners = new Set<Listener>()
   private statusListeners = new Set<StatusListener>()
   private openHooks = new Set<() => void>()
+  /** cloud.token_invalid hooks (features/cloud.ts): main only, never relayed to a window. */
+  private cloudInvalidHooks = new Set<() => void>()
   private linkListeners = new Set<LinkListener>()
   /** When this outage began (or Retry / a window load restarted the fast retries): drives FAST_WINDOW_MS. */
   private downSince = Date.now()
@@ -149,6 +151,15 @@ export class EngineLink {
     if (this.lastKeys && this.connected) this.send(this.lastKeys)
   }
 
+  /**
+   * Install token self-heal: the engine says the proxy does not know the install token it was given (a 401,
+   * `cloud.token_invalid`). Only while this link holds a token it may send (setCloud + a secure URL); the event carries
+   * no token. features/cloud.ts mints a new one (with its own backoff) and hands it back through setCloud.
+   */
+  onCloudTokenInvalid(fn: () => void): void {
+    this.cloudInvalidHooks.add(fn)
+  }
+
   /** v2: did the engine list this command type in engine.hello.capabilities? */
   can(type: string): boolean {
     return this.caps.has(type)
@@ -178,6 +189,18 @@ export class EngineLink {
   /** To every window, but not into the replay log (a reloaded window must not see a stale error). */
   private notify(e: Incoming): void {
     for (const l of this.listeners) l(e)
+  }
+
+  /** A `cloud.token_invalid` frame: run the hooks (main only: not logged, not relayed, not replayed). */
+  private cloudTokenInvalid(text: string): boolean {
+    if (!text.includes('cloud.token_invalid')) return false
+    try {
+      if ((JSON.parse(text) as { type?: unknown })?.type !== 'cloud.token_invalid') return false
+    } catch {
+      return false
+    }
+    if (this.cloud && this.secure) for (const fn of this.cloudInvalidHooks) fn()
+    return true
   }
 
   /**
@@ -221,7 +244,9 @@ export class EngineLink {
     })
     ws.on('message', (data) => {
       if (this.ws !== ws) return
-      const e = parseEngineMessage(String(data))
+      const text = String(data)
+      if (this.cloudTokenInvalid(text)) return
+      const e = parseEngineMessage(text)
       if (e) this.dispatch(e)
     })
     ws.on('close', () => {

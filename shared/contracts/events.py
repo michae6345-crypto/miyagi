@@ -722,8 +722,8 @@ class LessonEnded(_Model):
     reason: str
 
 
+CloudState = Literal["ok", "missing", "paused", "quota", "unauthorized", "offline", "off"]  # v2: missing = a proxy but no token yet; off = no proxy (BYOK or the engine's .env)
 KeyState = Literal["ok", "missing", "invalid", "env"]  # "env" = falling back to the engine's .env
-CloudState = Literal["ok", "paused", "quota", "unauthorized", "offline", "off"]  # v2: off = no token / no proxy configured
 
 
 # ---------- v2 events (BUILD-PLAN W0-1) ----------
@@ -790,6 +790,12 @@ class ConfigStatus(_Model):
     cloud: CloudState | None = None  # v2: what the proxy said about it
 
 
+class CloudTokenInvalid(_Model):
+    """cloud.token_invalid: the proxy does not know this install's token (401). Never carries the token."""
+
+    reason: Literal["unknown_token"] | None = None
+
+
 ENGINE_EVENTS: dict[str, Any] = {
     "search.result": SearchResult,
     "search.done": SearchDone,
@@ -812,6 +818,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "metric": Metric,
     "status": Status,
     "error": Error,
+    "cloud.token_invalid": CloudTokenInvalid,
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
@@ -827,6 +834,7 @@ ENGINE_EVENTS: dict[str, Any] = {
 }
 
 EngineEventType = Literal[
+    "cloud.token_invalid",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",

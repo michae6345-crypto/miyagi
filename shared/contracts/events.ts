@@ -122,6 +122,12 @@ export interface EngineEvents {
   "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" | "busy"; detail?: string; retryInS?: number };   // v2: detail = what the engine does right now ("Checking your cell", <= 6 words); busy = the AI provider is overloaded, the engine retries in retryInS seconds (no hue)
   /** install progress for one setup item (action install): lines while it runs, then {done, ok, error|version|url} */
   "setup.progress": { tool: string; line?: string; done?: boolean; ok?: boolean; error?: string; url?: string; version?: string };
+  /** Install token self-heal: the miyagi cloud does not know this install's token (the proxy answered 401, e.g. its database was
+   *  reset). Sent once per token, and again when config.keys repeats that token. Never carries the token or its hash. The app drops
+   *  the token, mints a new one (POST <host>/v1/install) and sends config.keys again, at most once per 5 minutes; a config.status
+   *  with cloud "ok" (the new token's answer) cancels a heal still waiting. Not sent for an install an operator disabled (403):
+   *  config.status.cloud says "unauthorized" instead. */
+  "cloud.token_invalid": { reason?: "unknown_token" };
   /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
   "lesson.ended": { lessonId?: string; reason: string };
   "error": { message: string };
@@ -254,7 +260,7 @@ export interface AppCommands {
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;
                                                      miyagiToken?: KeyState; cloud?: CloudState } } // same key names as config.keys   // v2: cloud = what the proxy said about this install's token
-export type CloudState = "ok" | "paused" | "quota" | "unauthorized" | "offline" | "off";   // off = no token / no proxy configured (BYOK or the engine's .env)
+export type CloudState = "ok" | "missing" | "paused" | "quota" | "unauthorized" | "offline" | "off";   // missing = a proxy but no token yet; off = no token / no proxy configured (BYOK or the engine's .env)
 export type KeyState = "ok" | "missing" | "invalid" | "env";   // "env" = falling back to the engine's .env
 
 export type EngineMessage = { [K in keyof EngineEvents]: { type: K; payload: EngineEvents[K] } }[keyof EngineEvents];

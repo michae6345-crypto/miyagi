@@ -12,11 +12,17 @@
  *   4. It reaches the engine only inside config.keys (miyagiToken + miyagiCloud), via EngineLink.setCloud: memory
  *      only, never logged, never on a command line, never sent to a renderer. miyagiCloud is the proxy's API root,
  *      `<host>/v1` (cloudApiRoot), the form server/config.py expects: it appends /anthropic and /gemini to it.
+ *   5. Self-heal: when the proxy no longer knows the token (a 401, e.g. its database was reset) the engine sends
+ *      `cloud.token_invalid` (EngineLink.onCloudTokenInvalid). The token is dropped (memory and install.bin) and one new
+ *      one is minted, then handed to the engine as in 4. At most one heal per HEAL_MS (a failed mint counts too; a
+ *      fresh token that is rejected again waits for the window to end), so it never loops. A config.status with cloud
+ *      "ok" cancels a heal still waiting (a late token_invalid about the token just replaced). A disabled install (403)
+ *      sends no token_invalid: config.status.cloud says "unauthorized" and onboarding shows it.
  *
  * Handles: cloud:get → CloudView (no token), cloud:retry → CloudView. Broadcasts feat:cloud CloudView.
  */
 import { safeStorage } from 'electron'
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
 
@@ -28,6 +34,8 @@ const TOKEN_RE = /^mi_[A-Za-z0-9_-]{16,128}$/
 const TOKEN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 const MINT_TIMEOUT_MS = 10_000
 const RETRY_MS = 5 * 60_000
+/** Self-heal backoff (cloud.token_invalid): at most one heal per this long, whatever its outcome. */
+export const HEAL_MS = 5 * 60_000
 
 type Stored = { token: string; tokenId?: string; url: string }
 
@@ -55,6 +63,61 @@ export function cloudUrl(raw = process.env.MIYAGI_CLOUD_URL): string | undefined
 
 /** What the engine gets as config.keys.miyagiCloud: the proxy's API root (server/config.py cloud_url()). */
 export const cloudApiRoot = (host: string): string => `${host}/v1`
+
+export type Healer = { invalid(): void; cancel(): void; dispose(): void }
+export type HealerOptions = {
+  windowMs?: number
+  now?: () => number
+  /** Run `fn` after `ms`; returns what cancels it. Default: an unref'd setTimeout. */
+  schedule?: (fn: () => void, ms: number) => () => void
+}
+
+const timeout = (fn: () => void, ms: number): (() => void) => {
+  const t = setTimeout(fn, ms)
+  t.unref?.()
+  return () => clearTimeout(t)
+}
+
+/**
+ * The self-heal's backoff, apart from the mint (so it runs without Electron). invalid(): the engine said
+ * cloud.token_invalid. It heals at once unless a heal started less than `windowMs` ago (whatever came of it); then a
+ * single heal waits for the window to end, so a fresh token the proxy rejects too never mints again sooner. Every
+ * invalid() while a heal runs or waits is absorbed. cancel(): drop a waiting heal. features/cloud.ts calls it when a
+ * config.status with cloud "ok" arrives: the engine took a token it accepts, so a token_invalid that landed late (about
+ * the token a heal just replaced, e.g. answering a reconnect's config.keys) must not throw the new one away.
+ */
+export function createHealer(heal: () => Promise<void>, opts: HealerOptions = {}): Healer {
+  const windowMs = opts.windowMs ?? HEAL_MS
+  const now = opts.now ?? Date.now
+  const schedule = opts.schedule ?? timeout
+  let last: number | undefined
+  let running = false
+  let waiting: (() => void) | undefined
+  const run = (): void => {
+    waiting = undefined
+    last = now()
+    running = true
+    heal()
+      .catch(() => undefined)
+      .finally(() => {
+        running = false
+      })
+  }
+  const cancel = (): void => {
+    waiting?.()
+    waiting = undefined
+  }
+  return {
+    invalid() {
+      if (running || waiting) return
+      const wait = last === undefined ? 0 : last + windowMs - now()
+      if (wait <= 0) return run()
+      waiting = schedule(run, wait)
+    },
+    cancel,
+    dispose: cancel
+  }
+}
 
 function secureStorage(): boolean {
   if (!safeStorage.isEncryptionAvailable()) return false
@@ -137,6 +200,26 @@ export default defineMainFeature({
       })()
       return inFlight
     }
+
+    /** Self-heal: forget the token the proxy no longer knows (memory and install.bin) and mint one new one. */
+    const heal = async (): Promise<void> => {
+      if (!url) return
+      if (inFlight) return inFlight // already getting a token
+      console.warn('[cloud] the proxy does not know this install token; getting a new one') // never the token
+      stored = undefined
+      try {
+        rmSync(file, { force: true })
+      } catch {
+        console.warn('[cloud] could not remove install.bin')
+      }
+      await mint()
+    }
+    const healer = createHealer(heal)
+    ctx.engine.onCloudTokenInvalid(() => healer.invalid())
+    // The engine answers each config.keys with config.status; cloud "ok" means it holds a token the proxy accepts.
+    ctx.engine.onEvent((e) => {
+      if (e.type === 'config.status' && e.payload.cloud === 'ok') healer.cancel()
+    })
 
     apply()
     void mint()
