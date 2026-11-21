@@ -20,7 +20,7 @@ import { cmd, type Payload } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
 import { emitUi, onMessage, onUi } from '../../core/bus'
 import { canSend, notify, useLesson } from '../../core/lesson'
-import { closeWindow } from '../../core/surfaces'
+import { closeWindow, openLibrary } from '../../core/surfaces'
 import { setPrefs } from '../../core/prefs'
 import { sendAction } from '../../core/shortcuts'
 
@@ -241,12 +241,16 @@ export function markDone(): void {
   setPrefs({ onboarded: true })
 }
 
-/** Start learning: the engine's suggested lesson (zero model calls), else the launcher. Then the window closes. */
+/**
+ * Start learning: the lesson the Ready card shows (the engine's suggestion, zero model calls), else home: the Library
+ * (Continue, Ready to run, New lesson), the same window a click on the miyagi app opens from now on (launch-ease
+ * lane). Then the setup window closes.
+ */
 export function startLearning(): void {
   markDone()
   const pick = get().suggestion
   if (pick && canSend('library.start')) bridge.send(cmd('library.start', { id: pick.id }))
-  else bridge.emit('launcher:toggle')
+  else void openLibrary()
   void closeWindow('onboarding')
 }
 
