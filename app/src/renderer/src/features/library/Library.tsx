@@ -14,9 +14,10 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { SidebarNav, type NavItem } from '../../core/ui/controls'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { openProgress, openSettings } from '../../core/surfaces'
-import { Dashboard } from '../dashboard/Dashboard'
 import { color, fill, radius2, scrim, surface, type2 } from '../../core/theme'
 import { Chip, FILTER_TOOLS, Meter, Skeleton, TOOL_NAME, ToolTile, minutesLabel, progressLabel, soft, stepsLabel } from './parts'
+import { Home } from './Home'
+import { StatusArea } from './Status'
 import { openDetail, setQuery, setSection, setTool, start, useLibrary, visible, type Section } from './store'
 
 const NAV: NavItem[] = [
@@ -64,7 +65,11 @@ function Sidebar(): ReactNode {
             aria-pressed={tool === t}
             className="flex cursor-pointer items-center gap-[12px] text-left"
             style={{ height: 36, padding: '0 12px', borderRadius: radius2.control, fontSize: type2.sm, color: tool === t ? color.text : soft, background: tool === t ? fill.navActive : 'transparent' }}
-            onClick={() => setTool(tool === t ? 'all' : t)}
+            onClick={() => {
+              const next = tool === t && section !== 'home' ? 'all' : t
+              setTool(next)
+              if (section === 'home') setSection('library')
+            }}
           >
             <ToolTile tool={t} size={20} />
             {TOOL_NAME[t]}
@@ -78,7 +83,8 @@ function Sidebar(): ReactNode {
           </span>
         </div>
       </div>
-      <div className="mt-auto" style={{ paddingTop: 16 }} data-home-more>
+      <div className="mt-auto flex flex-col gap-[12px]" style={{ paddingTop: 16 }} data-home-more>
+        <StatusArea />
         <SidebarNav title="More" items={MORE} active="" onSelect={openMore} />
       </div>
     </aside>
@@ -86,6 +92,12 @@ function Sidebar(): ReactNode {
 }
 
 const TITLE: Record<Section, string> = { home: 'Home', library: 'Library', continue: 'Continue' }
+
+/** Home's title: a calm greeting by the time of day. */
+function greeting(d = new Date()): string {
+  const h = d.getHours()
+  return h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+}
 
 function Header(): ReactNode {
   const section = useLibrary((s) => s.section)
@@ -95,8 +107,11 @@ function Header(): ReactNode {
   return (
     <header data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 72, padding: '0 32px', borderBottom: `1px solid ${surface.border}` }}>
       <h1 className="m-0 font-semibold" style={{ fontSize: type2.xl, letterSpacing: '-0.01em' }}>
-        {TITLE[section]}
+        {home ? greeting() : TITLE[section]}
       </h1>
+      {home && (
+        <span style={{ fontSize: type2.sm, color: color.label }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</span>
+      )}
       {home ? (
         <div data-no-drag className="ml-auto">
           <QuietButton label="New lesson" keyName="launcher" onClick={openLauncher} />
@@ -236,9 +251,7 @@ export function Library(): ReactNode {
       <main className="flex min-w-0 flex-1 flex-col">
         <Header />
         {s.section === 'home' ? (
-          <div className="min-h-0 flex-1">
-            <Dashboard route="library" />
-          </div>
+          <Home />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col gap-[32px] overflow-y-auto" style={{ padding: '24px 32px 32px' }}>
             {!s.loaded ? (

@@ -30,7 +30,7 @@ function useNow(): number {
   return now
 }
 
-function Milestones({ list }: { list: Milestone[] }): ReactNode {
+export function Milestones({ list }: { list: Milestone[] }): ReactNode {
   const done = list.filter((m) => m.done).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
   const next = list.find((m) => !m.done)
   const shown = done.slice(-4)
@@ -71,7 +71,11 @@ function Milestones({ list }: { list: Milestone[] }): ReactNode {
   )
 }
 
-export function Dashboard({ route }: { route: AppRoute }): ReactNode {
+/**
+ * The dashboard's data and derived numbers, with the asks that keep it fresh (on open, when the engine (re)connects,
+ * and whenever the window comes forward). Shared by the full dashboard below and Library's Home (features/library).
+ */
+export function useDashView() {
   const data = useDash((s) => s.data)
   const prefs = useDash((s) => s.prefs)
   const load = useLoad()
@@ -79,7 +83,6 @@ export function Dashboard({ route }: { route: AppRoute }): ReactNode {
   const hello = useLesson((s) => s.hello)
   const now = useNow()
 
-  // Ask on open, when the engine (re)connects, and whenever the window comes forward.
   useEffect(() => {
     void requestDashboard()
   }, [connected, hello])
@@ -95,6 +98,11 @@ export function Dashboard({ route }: { route: AppRoute }): ReactNode {
   const due = dueItems(data?.review ?? null, now)
   const later = laterItems(data?.review ?? null, now)
   const active = [...(data?.inProgress ?? [])].sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0))
+  return { data, load, now, goals, r, t, due, later, active }
+}
+
+export function Dashboard({ route }: { route: AppRoute }): ReactNode {
+  const { data, load, now, goals, r, t, due, later, active } = useDashView()
   // The one primary: Resume the newest saved lesson in progress, else Start the first up-next lesson.
   const resumable = active.find((a) => a.libraryId)
   const primary = resumable ? `resume:${resumable.lessonId}` : data?.next[0] ? `next:${data.next[0].title}` : undefined
