@@ -112,9 +112,8 @@ same "Sign-in did not finish … try again in miyagi" and the app dropped the re
 - `MiyagiWordmark`'s `height` prop loses to the preflight's `img { height: auto }`; callers pin it with a class. Worth
   fixing in `core/ui/Mark.tsx` (`style={{ height }}`).
 
-## TODO seam (not implemented)
-**Link the anonymous miyagi-cloud install token to the user** (`TODO(cloud-link)` in `main/features/auth.ts`, at
-`accessToken()` and at the sign-in success point): after a sign-in (and once per launch while signed in), `cloud.ts`
-calls `accessToken()` and sends `POST /v1/install/link` with the install token and the Supabase JWT; miyagi-cloud
-verifies the JWT against the project's JWKS and attaches the install to the user, so quotas and history follow the
-account across Macs. Sign-out does not unlink. The JWT never goes to the engine or a renderer, and is never logged.
+## Cloud link (shipped, `michael/app-cloud-link`)
+The old `TODO(cloud-link)` seam is done: `main/features/cloudLink.ts` sends `POST /v1/link` (install token as Bearer,
+`{"access_token": <Supabase JWT>}`) after each sign-in (auth.ts `onSignedIn`) and on launch while signed in and not
+linked yet. Sign-out does not unlink. The JWT never goes to the engine or a renderer, and is never logged. Details,
+tests and Core requests: agents/cloud-link.md.

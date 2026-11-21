@@ -4,7 +4,11 @@
  *
  *   1. Only on macOS (the engine reads the screen with Vision / ScreenCaptureKit), only in a built app or with
  *      MIYAGI_AUTOSTART=1, never with DEMO=1, and only when ENGINE_URL is unset or points at this Mac.
- *   2. Something already answers on 127.0.0.1:<port> → use it. An engine started in Terminal stays the user's.
+ *   2. Something already answers on 127.0.0.1:<port> and it isn't ours (step 7). `npm run dev` or engine mode dev
+ *      → use it: an engine started in Terminal stays the user's. The installed app (packaged, engine mode bundled)
+ *      never adopts it (lane engine-isolation, app/agents/engine-isolation.md): a dev engine or a dev app's engine
+ *      would hand the installed app its lesson, its save and its screen. It says "Another miyagi engine is running.",
+ *      writes the holder (lsof pid and command) to engine.log, never stops it, and starts its own once the port is free.
  *   3. ~/miyagi/engine/bin/miyagi-engine exists with no BUNDLED marker (the user ran Michael's one-liner) → start it.
  *      The app never replaces an engine the user installed.
  *   4. A12 (DISTRIBUTION-PLAN.md section 2): this app carries a standalone Python with the engine's packages
@@ -19,9 +23,13 @@
  *   6. Quit → stop only the engine this app started.
  *   7. Port taken by an engine THIS app started on an earlier launch (miyagi was force-quit or crashed, so step 6 never
  *      ran): that engine still wants the old launch's token and would refuse this launch forever. Its pid file
- *      (~/miyagi/engine/run/app-engine.json), its exact command line (this app's Python or launcher, never just the
+ *      (~/miyagi/engine/run/app-engine.json; app-engine-dev.json for `npm run dev`, so a dev app never reclaims the
+ *      installed app's engine, nor the reverse), its exact command line (this app's Python or launcher, never just the
  *      module name) and its start time say it's ours, so stop it and start a fresh one.
  *      Anything else on the port (an engine started in Terminal) stays the user's: step 2.
+ *   8. The engine this app starts (bundled Python or launcher) always gets ORCH_AUTO_RESUME=0 and ORCH_AUTOSTART=0
+ *      (hard in a built app: a launch starts from new, never reloads the last lesson) and an explicit MIYAGI_STATE_DIR
+ *      (~/miyagi/state for the installed app, ~/miyagi/state-dev for `npm run dev`, unless the env names one).
  *
  * Which engine (lane realapp, app/agents/real-app.md, SHIP.md "Which engine"):
  *   - Default, what every user gets: the engine inside the app (steps 1-7) + the miyagi cloud (features/cloud.ts).
@@ -42,7 +50,7 @@
  * Only Visual Studio Code (bundle id com.microsoft.VSCode). Never a `code` found on PATH: other editors ship one.
  */
 import { app, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { cp, rename, rm } from 'node:fs/promises'
@@ -232,6 +240,92 @@ export function whyUnmanaged(o: { platform: string; packaged: boolean; autostart
   return ''
 }
 
+/** The line every surface shows while an engine this app didn't start holds its port (packaged app, step 2). */
+export const ENGINE_HELD_LINE = 'Another miyagi engine is running.'
+/** How often the installed app checks whether that engine has gone, so it can start its own. */
+export const HELD_POLL_MS = 5000
+
+/**
+ * Step 2, pure: something answers on the port and reclaimOwnLeftover() said it isn't ours (`ours`: it was ours and is
+ * now stopped, so start a fresh one). Adopt it as 'external' only in `npm run dev` or engine mode dev. The installed
+ * app (packaged, mode bundled or unset) never silently uses an engine it didn't start.
+ */
+export function adoptExternal(o: { packaged: boolean; mode?: 'bundled' | 'dev'; ours: boolean }): boolean {
+  if (o.ours) return false
+  return !o.packaged || o.mode === 'dev'
+}
+
+/** Step 7: one pid file per build, so a dev app and the installed app never reclaim or stop each other's engine. */
+export function pidFileName(packaged: boolean): string {
+  return packaged ? 'app-engine.json' : 'app-engine-dev.json'
+}
+
+/**
+ * Step 8, pure: what every engine this app starts must see, whatever the inherited environment says. A built app
+ * pins ORCH_AUTO_RESUME and ORCH_AUTOSTART to 0 (a launch starts from new: no reloaded lesson, no VS Code, no video);
+ * `npm run dev` keeps an explicit value. MIYAGI_STATE_DIR is explicit, so the installed engine's saves stay in
+ * ~/miyagi/state and a dev app's engine never writes there (~/miyagi/state-dev, as for dev engines).
+ */
+export function enginePins(env: NodeJS.ProcessEnv, packaged: boolean): { ORCH_AUTO_RESUME: string; ORCH_AUTOSTART: string; MIYAGI_STATE_DIR: string } {
+  return {
+    ORCH_AUTO_RESUME: packaged ? '0' : env.ORCH_AUTO_RESUME || '0',
+    ORCH_AUTOSTART: packaged ? '0' : env.ORCH_AUTOSTART || '0',
+    MIYAGI_STATE_DIR: env.MIYAGI_STATE_DIR || join(homedir(), 'miyagi', packaged ? 'state' : 'state-dev'),
+  }
+}
+
+/** The launcher runtime's environment (~/miyagi/engine/bin/miyagi-engine): the app's env plus the step 8 pins. */
+export function launcherEnv(env: NodeJS.ProcessEnv, packaged: boolean): NodeJS.ProcessEnv {
+  return { ...env, ...enginePins(env, packaged) }
+}
+
+/**
+ * The bundled Python's environment: the launcher's defaults (scripts/install.sh writes the same ones), the user's
+ * own values win (except the step 8 pins), and nothing from a shell's Python setup leaks in (PYTHONHOME, a venv). No
+ * PYTHONPATH, PYTHONNOUSERSITE or PYTHONDONTWRITEBYTECODE: the engine hands its environment to everything it starts
+ * (`code <folder>` in workspace/editor.py, the learner's commands in "Run it for me"), and VS Code's terminals and
+ * kernels must get the user's own Python setup. The interpreter flags do that job instead (spawnEngine: -s -B, cwd = src).
+ */
+export function pythonEnv(env: NodeJS.ProcessEnv, home: string, python: string, port: number, packaged: boolean): NodeJS.ProcessEnv {
+  const e: NodeJS.ProcessEnv = { ...env }
+  for (const k of ['PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONEXECUTABLE', 'VIRTUAL_ENV', '__PYVENV_LAUNCHER__', 'CONDA_PREFIX']) delete e[k]
+  return {
+    ...e,
+    PYTHONUNBUFFERED: '1',
+    // workspace/setup.py builds lesson .venvs from this when the Mac has no other Python 3 (engine side, E-lane).
+    MIYAGI_BUNDLED_PYTHON: python,
+    TUT_ENV: e.TUT_ENV || join(home, 'engine.env'),
+    ENGINE_HOST: '127.0.0.1',
+    ENGINE_PORT: String(port),
+    ORCH_SCREEN: e.ORCH_SCREEN || '1',
+    ORCH_OPEN_WORKSPACE: e.ORCH_OPEN_WORKSPACE || '1',
+    LESSON_ENGINE: e.LESSON_ENGINE || 'claude',
+    MIYAGI_EDITOR: e.MIYAGI_EDITOR || 'vscode',
+    ...enginePins(e, packaged),
+  }
+}
+
+/** Who listens on 127.0.0.1:port, for engine.log: `pid <n> (<command name>)` from lsof, never a command line. */
+async function portHolder(port: number): Promise<string> {
+  const r = await run('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc'], 3000)
+  const seen: string[] = []
+  let pid = ''
+  for (const l of r.out.split('\n')) {
+    if (l.startsWith('p')) pid = l.slice(1)
+    else if (l.startsWith('c') && pid) seen.push(`pid ${pid} (${l.slice(1)})`)
+  }
+  return [...new Set(seen)].join(', ') || 'unknown (lsof named no listener)'
+}
+
+/** What setupLocalEngine reaches outside the process for; the tests pass fakes (no engine, no lsof). */
+export type LocalEngineDeps = {
+  listening: (port: number, ms?: number) => Promise<boolean>
+  spawn: (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess
+  holder: (port: number) => Promise<string>
+  pollMs: number
+  platform: string
+}
+
 /** Keys, tokens and secrets never leave in "Copy details", even if the engine printed one. */
 function redact(line: string): string {
   return line.replace(/((?:key|token|secret|password|authorization)[^=:\s]*\s*[=:]\s*)\S+/gi, '$1[hidden]').replace(/\b(sk-[\w-]{8,}|AIza[\w-]{20,})/g, '[hidden]')
@@ -263,8 +357,11 @@ export function setupLocalEngine(
   engine: EngineLink,
   url: string,
   broadcast: (channel: string, payload: unknown) => void,
-  trusted: (e: IpcMainInvokeEvent) => boolean
+  trusted: (e: IpcMainInvokeEvent) => boolean,
+  deps: Partial<LocalEngineDeps> = {}
 ): () => void {
+  const d: LocalEngineDeps = { listening, spawn, holder: portHolder, pollMs: HELD_POLL_MS, platform: process.platform, ...deps }
+  const packaged = app.isPackaged
   let status: LocalEngineStatus = { state: 'off' }
   let child: ChildProcess | undefined
   /** We're quitting: the engine's exit is ours, not a crash. */
@@ -348,8 +445,8 @@ export function setupLocalEngine(
     set({ state: 'external' })
   }
   const unmanaged = whyUnmanaged({
-    platform: process.platform,
-    packaged: app.isPackaged,
+    platform: d.platform,
+    packaged,
     autostart: process.env.MIYAGI_AUTOSTART === '1',
     demo: process.env.DEMO === '1',
     local,
@@ -396,7 +493,7 @@ export function setupLocalEngine(
   const launcher = join(home, 'bin', 'miyagi-engine')
   const marker = join(home, 'BUNDLED')
   /** Step 7: which engine process this app started, so a later launch can tell its own leftover from the user's. */
-  const pidFile = join(home, 'run', 'app-engine.json')
+  const pidFile = join(home, 'run', pidFileName(packaged))
   const bundle = bundleDir()
   facts.push(`engine bundle: ${bundle} (${readText(join(bundle, 'VERSION')) || 'no VERSION'})`, `engine home: ${home}`)
   const bundleVersion = (): string => readText(join(bundle, 'VERSION')) || 'bundled'
@@ -419,7 +516,12 @@ export function setupLocalEngine(
   let respawnTimer: ReturnType<typeof setTimeout> | undefined
   ownChildAlive = () => !!child && !child.killed && child.exitCode === null
 
+  /** Step 2 (packaged): an engine this app didn't start holds the port; boot() waits for it to go. */
+  let held: ReturnType<typeof setTimeout> | undefined
+  let holding = false
   engine.onStatus((up) => {
+    // The link may reach the other engine; that never makes it this app's engine (Core request: a link hold).
+    if (holding) return
     if (up && status.state !== 'running' && status.state !== 'external') set({ state: child ? 'running' : 'external', runtime: child ? runtime : undefined })
   })
 
@@ -462,7 +564,7 @@ export function setupLocalEngine(
   const install = async (): Promise<boolean> => {
     if (!(await copySource())) return false
     return new Promise((resolve) => {
-      const p = spawn('bash', [join(bundle, 'install.sh'), '--src', src, '--no-app', '--no-vscode', '--no-start', '--yes'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+      const p = d.spawn('bash', [join(bundle, 'install.sh'), '--src', src, '--no-app', '--no-vscode', '--no-start', '--yes'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
       const onData = (b: Buffer): void => {
         // eslint-disable-next-line no-control-regex
         const last = b.toString().replace(/\x1b\[[0-9;]*m/g, '').split('\n').map((l) => l.replace(/^\[miyagi\]\s*/, '').trim()).filter(Boolean).pop()
@@ -486,44 +588,18 @@ export function setupLocalEngine(
     })
   }
 
-  /**
-   * The bundled Python's environment: the launcher's defaults (scripts/install.sh writes the same ones), the user's
-   * own values win, and nothing from a shell's Python setup leaks in (PYTHONHOME, a venv). No PYTHONPATH,
-   * PYTHONNOUSERSITE or PYTHONDONTWRITEBYTECODE: the engine hands its environment to everything it starts (`code
-   * <folder>` in workspace/editor.py, the learner's commands in "Run it for me"), and VS Code's terminals and kernels
-   * must get the user's own Python setup. The interpreter flags do that job instead (spawnEngine: -s -B, cwd = src).
-   */
-  const pythonEnv = (): NodeJS.ProcessEnv => {
-    const e: NodeJS.ProcessEnv = { ...env }
-    for (const k of ['PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONEXECUTABLE', 'VIRTUAL_ENV', '__PYVENV_LAUNCHER__', 'CONDA_PREFIX']) delete e[k]
-    return {
-      ...e,
-      PYTHONUNBUFFERED: '1',
-      // workspace/setup.py builds lesson .venvs from this when the Mac has no other Python 3 (engine side, E-lane).
-      MIYAGI_BUNDLED_PYTHON: python,
-      TUT_ENV: e.TUT_ENV || join(home, 'engine.env'),
-      ENGINE_HOST: '127.0.0.1',
-      ENGINE_PORT: String(port),
-      ORCH_SCREEN: e.ORCH_SCREEN || '1',
-      ORCH_OPEN_WORKSPACE: e.ORCH_OPEN_WORKSPACE || '1',
-      ORCH_AUTOSTART: e.ORCH_AUTOSTART || '0',
-      LESSON_ENGINE: e.LESSON_ENGINE || 'claude',
-      MIYAGI_EDITOR: e.MIYAGI_EDITOR || 'vscode',
-    }
-  }
-
   /** Spawn the engine. Its own process group, so quitting stops it and anything it started (see killGroup). */
   const spawnEngine = (): ChildProcess => {
-    if (runtime === 'launcher') return spawn(launcher, [], { env, stdio: 'ignore', detached: true })
+    if (runtime === 'launcher') return d.spawn(launcher, [], { env: launcherEnv(env, packaged), stdio: 'ignore', detached: true })
     // Bundled Python: no launcher script in between, so this app writes the log the launcher would have.
     mkdirSync(join(home, 'logs'), { recursive: true })
     const fd = openSync(logs, 'a')
     try {
       writeSync(fd, `--- ${new Date().toISOString()} engine start (bundled Python, ${bundleVersion()})\n`)
       // -s: no user site-packages; -B: no .pyc written; -m with cwd = src puts src first on sys.path (no PYTHONPATH).
-      return spawn(python, ['-s', '-B', '-m', 'server.orchestrator.main', '--host', '127.0.0.1', '--port', String(port)], {
+      return d.spawn(python, ['-s', '-B', '-m', 'server.orchestrator.main', '--host', '127.0.0.1', '--port', String(port)], {
         cwd: src,
-        env: pythonEnv(),
+        env: pythonEnv(env, home, python, port, packaged),
         stdio: ['ignore', fd, fd],
         detached: true,
       })
@@ -627,10 +703,10 @@ export function setupLocalEngine(
     }
     const freed = async (ms: number): Promise<boolean> => {
       for (const until = Date.now() + ms; Date.now() < until; ) {
-        if (!(await listening(port, 300))) return true
+        if (!(await d.listening(port, 300))) return true
         await new Promise((r) => setTimeout(r, 250))
       }
-      return !(await listening(port, 300))
+      return !(await d.listening(port, 300))
     }
     signal('SIGTERM')
     if (!(await freed(5000))) {
@@ -693,7 +769,11 @@ export function setupLocalEngine(
       // Python error on start. Only the port can tell them apart.
       const failed = (): void => fail(`the engine ${why} before it answered (its own output is above in this log)`, { runtime })
       if (code !== 1) return failed()
-      void listening(port).then((up) => (up ? set({ state: 'external' }) : failed()))
+      void d.listening(port).then((up) => {
+        if (!up) return failed()
+        if (adoptExternal({ packaged, mode: chosen.mode, ours: false })) return set({ state: 'external' })
+        void hold()
+      })
     })
   }
 
@@ -727,11 +807,47 @@ export function setupLocalEngine(
     return { ok: true, state: 'checking' }
   }
 
+  const stopHolding = (): void => {
+    if (held) clearTimeout(held)
+    held = undefined
+    holding = false
+  }
+  /**
+   * Step 2, installed app: the port belongs to an engine this app didn't start. Say so calmly, log who holds it, never
+   * stop it, and check every pollMs (5 s); once the port is free, run the start-up sequence again (it ends in start()).
+   */
+  const hold = async (): Promise<void> => {
+    stopHolding()
+    holding = true
+    const who = redact(await d.holder(port).catch((err: unknown) => `unknown (${String(err)})`))
+    note(`port ${port} already has an engine this app didn't start (${who}): not using it, not stopping it; waiting for the port`)
+    set({ state: 'failed', line: ENGINE_HELD_LINE, logs, reason: `port ${port} held by an engine this app did not start` })
+    const poll = (): void => {
+      held = setTimeout(() => {
+        held = undefined
+        if (!holding) return
+        void d.listening(port).then((up) => {
+          if (!holding) return
+          if (up) return poll()
+          stopHolding()
+          note(`port ${port} is free again: starting this app's engine`)
+          void safeBoot()
+        })
+      }, d.pollMs)
+    }
+    poll()
+  }
+
   const boot = async (): Promise<void> => {
+    stopHolding()
     set({ state: 'checking' })
-    if ((await listening(port)) && !(await reclaimOwnLeftover())) {
-      note(`port ${port} already has an engine this app didn't start: using it, and leaving it running on quit`)
-      return set({ state: 'external' })
+    if (await d.listening(port)) {
+      const ours = await reclaimOwnLeftover()
+      if (!ours) {
+        if (!adoptExternal({ packaged, mode: chosen.mode, ours })) return hold()
+        note(`port ${port} already has an engine this app didn't start: using it, and leaving it running on quit`)
+        return set({ state: 'external' })
+      }
     }
     const installedFromBundle = existsSync(marker)
     // The user's own install (the one-liner: a launcher and no BUNDLED marker) always wins.
@@ -767,6 +883,8 @@ export function setupLocalEngine(
     // Only the engine this app started (never one the user runs in Terminal). SIGTERM lets uvicorn close its
     // sockets; the whole group, in case the launcher didn't `exec` into Python.
     if (slow) clearTimeout(slow)
+    stopHolding()
+    // Quitting: a respawn waiting to start never starts (and an exit from here on is ours, not a crash).
     stopping = true
     clearTimeout(respawnTimer)
     if (!child || child.killed || child.pid === undefined) return

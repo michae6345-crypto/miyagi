@@ -23,6 +23,7 @@
 import { execFile } from 'node:child_process'
 import { app, BrowserWindow } from 'electron'
 import { defineMainFeature } from '../context'
+import { gateIsOpen } from '../gate'
 
 /** Mirrored in renderer features/shortcut-bar/front.ts. */
 export type FrontState = {
@@ -148,8 +149,10 @@ export default defineMainFeature({
     // (the launcher and settings do when they're open), hand activation back to the app the learner was in, so
     // that first click lands. At most once every HAND_BACK_MS. MIYAGI_HAND_BACK=0 turns it off.
     let handedAt = 0
+    // Launch gate (main/gate.ts): before the login and setup are through, only the home window is up, and miyagi in
+    // front is the learner signing in. Never take that away from them.
     const handBack = (): void => {
-      if (process.env.MIYAGI_HAND_BACK === '0' || !lastOther || Date.now() - handedAt < HAND_BACK_MS) return
+      if (!gateIsOpen() || process.env.MIYAGI_HAND_BACK === '0' || !lastOther || Date.now() - handedAt < HAND_BACK_MS) return
       try {
         if (BrowserWindow.getFocusedWindow()) return
         if (!ctx.launcher.isDestroyed() && ctx.launcher.isVisible()) return

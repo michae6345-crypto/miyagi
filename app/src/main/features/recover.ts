@@ -14,18 +14,26 @@
  *                                   a retry of the same URL every 2 s until it loads (Michael's test 7, item 10: the
  *                                   overlay stayed blank while main lived, a silent failure on stage).
  *
+ *   webContents 'unresponsive' → if it hasn't come back after 8 s the renderer is hung: a frozen black pill that
+ *                                   grabs the mouse. Reload it (same budget as a crash). 'responsive' cancels.
+ *   app 'child-process-gone' (GPU) → every window is repainted (invalidate), and the overlay and launcher reload, since
+ *                                   a GPU reset on a transparent macOS window can leave a stale or black frame while
+ *                                   the renderer lives.
+ *
  * Core logs render-process-gone in dev only; this adds the recovery, in every build.
  *
  * ROADMAP 1.4, reconnect and recovery (a lost socket, an engine crash or a Mac that slept never leaves dead UI):
- *   engine crash          the engine this app started dies while running → localEngine.ts asks setRespawnPolicy and
+ *   engine crash          the engine this app started dies while running → localEngine.ts asks the respawn policy and
  *                         starts it again after 0.5 s, 2 s, 5 s (respawn.ts: at most 3 in 3 minutes; then it reports
- *                         the failure and the learner gets Retry). Meanwhile the surfaces say "miyagi is reconnecting".
- *   engine hung           ours, alive, but the link has been down HUNG_MS while the Mac is awake → restart it (same budget).
- *   Mac sleep / unlock    powerMonitor resume / unlock-screen → engine.wake(): probe an open socket (dead after a sleep
- *                         = dropped and reconnected at once) or try now with fast retries.
- *   lost socket           engine.ts: heartbeat pings, backoff reconnect.
- *   the session           nothing to send: on every connect the engine sends its snapshot (engine.hello.restored when it
- *                         kept the lesson: server/sessions resume), and core/lesson.ts holds the screen for the same lesson.
+ *                         the failure and the learner gets Retry). Meanwhile the link holds its failures, so the
+ *                         surfaces stay on "reconnecting" instead of the offline card.
+ *   engine hung           ours, alive, but the link has been down 30 s (respawn.ts HUNG_MS) while awake → restart it
+ *                         (same budget). respawn.ts superviseEngine, tested offline in test/reconnect.test.ts.
+ *   Mac sleep / unlock    index.ts calls engine.wake() (probe an open socket, redial a closed one); here a sleep only
+ *                         pauses the hung verdict.
+ *   lost socket           engine.ts + heartbeat.ts: protocol pings, a late tick after a sleep probes instead of dropping.
+ *   the session           nothing to send: on every connect the engine sends its snapshot. RunGuard (freshStart.ts)
+ *                         keeps filtering it across every reconnect and respawn: only this run's lesson comes back.
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac by killing a
  * Miyagi renderer ("Miyagi Helper (Renderer)") in Activity Monitor: the window should come back within a second.
@@ -33,17 +41,30 @@
 import { app, BrowserWindow, powerMonitor, type WebContents } from 'electron'
 import { defineMainFeature, type MainContext } from '../context'
 import { localEngineChildAlive, localEngineState, restartLocalEngine, setRespawnPolicy } from '../localEngine'
-import { HUNG_MS, MAX_RESPAWNS, RespawnBudget } from '../respawn'
+import { superviseEngine } from '../respawn'
 
 const PER_MS = 60_000
 const MAX_RELOADS = 3
+const settling = new WeakSet<WebContents>()
+/** Set when a window's renderer crashed, hung or failed to load; cleared when it loads or responds again. */
+const broken = new WeakSet<WebContents>()
 const reloads = new WeakMap<WebContents, number[]>()
 
 function reloadSoon(wc: WebContents, reason: string): void {
+  broken.add(wc)
   const now = Date.now()
   const recent = (reloads.get(wc) ?? []).filter((t) => now - t < PER_MS)
   if (recent.length >= MAX_RELOADS) {
     console.error(`[recover] renderer keeps dying (${reason}); not reloading it again for a minute`)
+    // Not for good: a window left blank is worse than one more try once the minute is up.
+    if (!settling.has(wc)) {
+      settling.add(wc)
+      setTimeout(() => {
+        settling.delete(wc)
+        // Only while still bad: a renderer that recovered must not lose its lesson to a late reload.
+        if (!wc.isDestroyed() && broken.has(wc)) reloadSoon(wc, `${reason}, retry`)
+      }, PER_MS)
+    }
     return
   }
   reloads.set(wc, [...recent, now])
@@ -70,6 +91,9 @@ function retryLoad(wc: WebContents, url: string, code: number, desc: string): vo
   }, RETRY_MS)
 }
 
+const HUNG_MS = 8_000
+const hung = new WeakMap<WebContents, ReturnType<typeof setTimeout>>()
+
 const watched = new WeakSet<WebContents>()
 
 function watchLoads(win: BrowserWindow): void {
@@ -77,12 +101,29 @@ function watchLoads(win: BrowserWindow): void {
   if (watched.has(wc)) return
   watched.add(wc)
   let failed = false
+  wc.on('unresponsive', () => {
+    broken.add(wc)
+    clearTimeout(hung.get(wc))
+    hung.set(
+      wc,
+      setTimeout(() => {
+        if (!wc.isDestroyed()) reloadSoon(wc, 'unresponsive')
+      }, HUNG_MS)
+    )
+  })
+  wc.on('responsive', () => {
+    clearTimeout(hung.get(wc))
+    broken.delete(wc)
+  })
+  win.on('closed', () => clearTimeout(hung.get(wc)))
   wc.on('did-fail-load', (_ev, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === ABORTED || !url) return
     failed = true
+    broken.add(wc)
     retryLoad(wc, url, code, desc)
   })
   wc.on('did-finish-load', () => {
+    broken.delete(wc)
     if (!failed || retrying.has(wc)) return
     failed = false
     console.warn(`[recover] window loaded again: ${wc.getURL()}`)
@@ -91,45 +132,15 @@ function watchLoads(win: BrowserWindow): void {
 
 /** The engine side of recovery (see the header). */
 function recoverEngine(ctx: MainContext): void {
-  const budget = new RespawnBudget()
-  setRespawnPolicy((why) => {
-    const delay = budget.next()
-    if (delay === undefined) console.error(`[recover] engine ${why} again; it keeps stopping, so it is reported (Retry starts it)`)
-    else console.warn(`[recover] engine ${why}; starting it again in ${delay} ms (${budget.used()} of ${MAX_RESPAWNS})`)
-    return delay
+  const watch = superviseEngine({
+    connected: () => ctx.engine.connected,
+    onStatus: (fn) => ctx.engine.onStatus(fn),
+    ownEngineAlive: () => localEngineState() === 'running' && localEngineChildAlive(),
+    restart: () => void restartLocalEngine(),
+    setPolicy: setRespawnPolicy
   })
-  let hung: ReturnType<typeof setTimeout> | undefined
-  let asleep = false
-  const watchHung = (open: boolean): void => {
-    clearTimeout(hung)
-    hung = undefined
-    if (open || asleep) return
-    hung = setTimeout(() => {
-      hung = undefined
-      if (ctx.engine.connected || asleep) return
-      if (localEngineState() !== 'running' || !localEngineChildAlive()) return
-      const delay = budget.next()
-      if (delay === undefined) return console.error('[recover] engine alive but not answering, and the restart budget is spent')
-      console.warn(`[recover] engine alive but not answering for ${HUNG_MS / 1000} s; restarting it`)
-      restartLocalEngine()
-    }, HUNG_MS)
-  }
-  ctx.engine.onStatus((up) => {
-    // A spent budget ends in a reported failure and Retry: an engine that answers again after that earns a fresh one.
-    if (up && budget.used() >= MAX_RESPAWNS) budget.reset()
-    watchHung(up)
-  })
-  powerMonitor.on('suspend', () => {
-    asleep = true
-    watchHung(true)
-  })
-  const woke = (): void => {
-    asleep = false
-    ctx.engine.wake()
-    watchHung(ctx.engine.connected)
-  }
-  powerMonitor.on('resume', woke)
-  powerMonitor.on('unlock-screen', () => ctx.engine.wake())
+  powerMonitor.on('suspend', () => watch.suspend())
+  powerMonitor.on('resume', () => watch.resume())
 }
 
 export default defineMainFeature({
@@ -145,7 +156,16 @@ export default defineMainFeature({
     for (const w of BrowserWindow.getAllWindows()) watchLoads(w)
     app.on('browser-window-created', (_e, win) => watchLoads(win))
     app.on('child-process-gone', (_e, details) => {
-      if (details.type === 'GPU') console.error(`[recover] GPU process gone: ${details.reason} (exit ${details.exitCode})`)
+      if (details.type !== 'GPU') return
+      console.error(`[recover] GPU process gone: ${details.reason} (exit ${details.exitCode})`)
+      setTimeout(() => {
+        for (const w of BrowserWindow.getAllWindows()) {
+          if (w.isDestroyed() || w.webContents.isDestroyed()) continue
+          w.webContents.invalidate()
+          const route = w.webContents.getURL().split('#')[1] ?? ''
+          if (w.isVisible() && (route === '/overlay' || route === '/launcher')) reloadSoon(w.webContents, 'gpu reset')
+        }
+      }, 800)
     })
   }
 })

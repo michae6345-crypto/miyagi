@@ -9,6 +9,8 @@ import WebSocket from 'ws'
 import { parseEngineMessage, V2_COMMANDS, type Incoming, type Outgoing } from '../common/wire'
 import { createMockEngine, type MockEngine } from '../../mock/engine'
 import { scenarios } from '../../mock/scenarios'
+import { RunGuard } from './freshStart'
+import { Heartbeat } from './heartbeat'
 
 type Listener = (m: Incoming) => void
 
@@ -29,18 +31,9 @@ export const SLOW_RETRY_MAX_MS = 5000
 export const HANDSHAKE_TIMEOUT_MS = 4000
 
 /**
- * Heartbeat (ROADMAP 1.4: a lost socket must never leave dead UI). A socket can die without a close frame (the engine
- * hung, a Mac that slept, a half-open port): 'close' would then never fire and the pill would sit on a lesson that no
- * longer answers. So ping every HEARTBEAT_MS (a WebSocket protocol ping: every engine answers it by itself, nothing in
- * the contract changes); no pong and no message for HEARTBEAT_DEAD_MS = the socket is dead, so drop it and reconnect.
- * Generous on purpose: an engine busy for a few seconds (a build, OCR) is not dead.
+ * Timings, for tests only: heartbeatMs (ping interval), deadMs (silence that drops the socket) and probeMs (the wake
+ * probe). Everywhere else main/heartbeat.ts's PING_MS, DEAD_MS and PROBE_MS.
  */
-export const HEARTBEAT_MS = 15_000
-export const HEARTBEAT_DEAD_MS = 45_000
-/** After the Mac wakes (wake()): an open socket must answer within this, or it is dropped and reconnected at once. */
-export const WAKE_PROBE_MS = 5000
-
-/** Timings, for tests only (the defaults above everywhere else). */
 export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number }
 
 /**
@@ -85,6 +78,10 @@ export class EngineLink {
   private slow = 0
   private failures = 0
   private timer?: ReturnType<typeof setTimeout>
+  /** Protocol ping/pong (main/heartbeat.ts): a half-open socket (sleep, Wi-Fi change, hung engine) is dropped and redialled. */
+  private beat?: Heartbeat
+  /** The last overlay.bounds JSON that left, so an identical resend (a window move storm) is dropped. */
+  private lastBoundsJson = ''
   /** Re-sent on reconnect so the engine's OCR keeps ignoring our UI. */
   private lastBounds?: Outgoing
   /** v2: the per-launch engine token (main/localEngine.ts), sent as a header on every connect. Memory only. */
@@ -98,15 +95,11 @@ export class EngineLink {
   /** v2: ENGINE_URL is loopback or wss: (secureEngineUrl). Otherwise no token header and no install token, ever. */
   private readonly secure: boolean
   private warnedInsecure = false
-  /** Heartbeat: the last sign of life on the open socket (a pong or any message), and the last tick (to spot a sleep). */
-  private alive = 0
-  private lastTick = 0
-  private beat?: ReturnType<typeof setInterval>
-  private probe?: ReturnType<typeof setTimeout>
-  private readonly heartbeatMs: number
-  private readonly deadMs: number
-  private readonly probeMs: number
-  /** Main is starting the engine itself (localEngine: checking / installing / starting): failed attempts are expected. */
+  /** Fresh start (main/freshStart.ts): only a lesson started or chosen in this app run reaches the windows. */
+  private readonly run: RunGuard
+  /** Heartbeat timings (tests pass shorter ones; undefined = heartbeat.ts defaults). */
+  private readonly timings: LinkTimings
+  /** Main is starting the engine itself (localEngine: checking / installing / starting / a respawn): refused attempts are expected. */
   private held = false
 
   /**
@@ -114,11 +107,11 @@ export class EngineLink {
    * WebSocket attempt starts inside this constructor and must already carry X-Miyagi-Token.
    */
   constructor(private url: string, demoScenario?: string, token?: string, timings: LinkTimings = {}) {
-    this.heartbeatMs = timings.heartbeatMs ?? HEARTBEAT_MS
-    this.deadMs = timings.deadMs ?? HEARTBEAT_DEAD_MS
-    this.probeMs = timings.probeMs ?? WAKE_PROBE_MS
+    this.timings = timings
     this.token = token || undefined
     this.secure = secureEngineUrl(url)
+    // MIYAGI_REPLAY_ON_CONNECT=1 (dev only: `npm run dev:all`): the mock plays a lesson on every connect, on purpose.
+    this.run = new RunGuard(!!demoScenario || process.env.MIYAGI_REPLAY_ON_CONNECT === '1')
     if (demoScenario) {
       const scenario = scenarios[demoScenario] ?? scenarios.full
       this.demo = createMockEngine(scenario, (e) => this.dispatch(e))
@@ -164,32 +157,10 @@ export class EngineLink {
       this.failures = 0
       this.downSince = Date.now()
       this.slow = 0
+      // A slow retry already waiting (up to SLOW_RETRY_MAX_MS) starts over on the fast one.
+      if (!this.demo && !this.connected && this.timer && this.ws?.readyState !== WebSocket.CONNECTING) this.schedule()
     }
     this.emitLink()
-  }
-
-  /**
-   * The Mac woke up (or the screen unlocked): a socket that was open before the sleep may be dead without knowing it.
-   * Open: probe it now (a ping) and drop it if nothing answers within WAKE_PROBE_MS. Down: try now, with fast retries
-   * again (timers were frozen during the sleep, so the backoff may say "wait 5 s" for nothing).
-   */
-  wake(): void {
-    if (this.demo) return
-    if (!this.connected) return this.reconnect()
-    const ws = this.ws
-    if (!ws || ws.readyState !== WebSocket.OPEN) return
-    const asked = Date.now()
-    this.lastTick = asked
-    clearTimeout(this.probe)
-    try {
-      ws.ping()
-    } catch {
-      return this.drop(ws, 'ping failed after wake')
-    }
-    this.probe = setTimeout(() => {
-      this.probe = undefined
-      if (this.ws === ws && this.alive < asked) this.drop(ws, 'no answer after wake')
-    }, this.probeMs)
   }
 
   /**
@@ -202,6 +173,16 @@ export class EngineLink {
     this.slow = 0
     if (this.ws?.readyState === WebSocket.CONNECTING) return
     this.connect()
+  }
+
+  /**
+   * The machine woke, unlocked, or the network came back. An open socket may be half open: ping it now and drop it if
+   * nothing answers in PROBE_MS; a closed one is redialled at once (fast retries again).
+   */
+  wake(): void {
+    if (this.demo) return
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) return this.beat?.probe()
+    this.reconnect()
   }
 
   /**
@@ -246,9 +227,22 @@ export class EngineLink {
       this.lastKeys = cmd
       if (this.cloud && this.allowSecrets()) cmd = { ...cmd, payload: { ...cmd.payload, ...this.cloud } }
     }
-    if (this.demo) return this.demo.handle(cmd)
+    // Fresh start: a lesson this run starts or chooses (learn, library.start, Continue) may reach the windows, but
+    // only once the command really leaves (one dropped offline must not admit the next connect's old snapshot).
+    if (this.demo) {
+      this.run.command(cmd)
+      return this.demo.handle(cmd)
+    }
     const msg = JSON.stringify(cmd)
-    if (this.ws?.readyState === WebSocket.OPEN) return this.ws.send(msg)
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      // An overlay.bounds identical to the last one sent says nothing new to the engine (window move/resize storms).
+      if (cmd.type === 'overlay.bounds') {
+        if (msg === this.lastBoundsJson) return
+        this.lastBoundsJson = msg
+      }
+      this.run.command(cmd)
+      return this.ws.send(msg)
+    }
     // Offline (audit P1-3): never queue a learner command and replay it stale on reconnect (a build_lesson
     // whose resultIds a restarted engine doesn't know). Fail it visibly instead. overlay.bounds is re-sent
     // from lastBounds and config.keys from the onOpen hooks, so nothing else needs remembering.
@@ -307,26 +301,46 @@ export class EngineLink {
       // The engine sends a full snapshot on every connect: forget what the old connection said.
       this.log.length = 0
       this.caps.clear()
-      this.startHeartbeat(ws)
+      // Fresh start: a wait from the old socket now needs a fresh lesson.ready; an old lesson's snapshot stays out.
+      this.run.connected()
       this.setConnected(true)
+      this.lastBoundsJson = ''
+      this.beat?.stop()
+      this.beat = new Heartbeat({
+        ping: () => {
+          try {
+            ws.ping()
+          } catch {
+            /* a closing socket: close follows */
+          }
+        },
+        // Nothing came back: terminate() makes 'close' fire at once, which sets connected=false (every window drops its
+        // thinking / building state) and starts the fast reconnect.
+        dead: () => {
+          console.warn('[engine] no answer from the engine; dropping the socket and reconnecting')
+          ws.terminate()
+        }
+      }, this.timings.heartbeatMs, this.timings.deadMs, this.timings.probeMs)
+      this.beat.start()
       for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
     })
+    ws.on('pong', () => {
+      if (this.ws === ws) this.beat?.alive()
+    })
     ws.on('message', (data) => {
       if (this.ws !== ws) return
-      this.alive = Date.now()
+      this.beat?.alive()
       const text = String(data)
       if (this.cloudTokenInvalid(text)) return
       const e = parseEngineMessage(text)
       if (e) this.dispatch(e)
     })
-    ws.on('pong', () => {
-      if (this.ws === ws) this.alive = Date.now()
-    })
     ws.on('close', () => {
       // A newer attempt (Retry) took over: this socket's end means nothing.
       if (this.ws !== ws) return
-      this.stopHeartbeat()
+      this.beat?.stop()
+      this.beat = undefined
       if (opened) {
         // A drop: a fresh outage, so fast retries again. Not a failed attempt yet (the pill waits for one).
         this.downSince = Date.now()
@@ -339,41 +353,6 @@ export class EngineLink {
       /* 'close' follows and schedules the retry */
     })
     this.emitLink()
-  }
-
-  /** Ping on a timer while this socket is open; a socket silent for deadMs is dropped (see HEARTBEAT_MS). */
-  private startHeartbeat(ws: WebSocket): void {
-    this.stopHeartbeat()
-    this.alive = this.lastTick = Date.now()
-    this.beat = setInterval(() => {
-      if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return this.stopHeartbeat()
-      const now = Date.now()
-      // The timer itself was late by far more than a beat: the Mac slept (timers froze), not the engine. Don't judge
-      // silence across a sleep; give the socket a fresh window (wake() probes it sooner when powerMonitor says so).
-      if (now - this.lastTick > this.heartbeatMs * 3) this.alive = now
-      this.lastTick = now
-      if (now - this.alive > this.deadMs) return this.drop(ws, `no answer for ${Math.round((now - this.alive) / 1000)} s`)
-      try {
-        ws.ping()
-      } catch {
-        this.drop(ws, 'ping failed')
-      }
-    }, this.heartbeatMs)
-  }
-
-  private stopHeartbeat(): void {
-    clearInterval(this.beat)
-    this.beat = undefined
-    clearTimeout(this.probe)
-    this.probe = undefined
-  }
-
-  /** A dead socket: end it now. Its 'close' runs the usual drop path (fresh outage, fast retries, the pill). */
-  private drop(ws: WebSocket, why: string): void {
-    if (this.ws !== ws) return
-    console.warn(`[engine] connection lost (${why}); reconnecting`)
-    this.stopHeartbeat()
-    ws.terminate()
   }
 
   /** The next attempt: every FAST_RETRY_MS early in an outage, then backing off to SLOW_RETRY_MAX_MS. */
@@ -401,6 +380,11 @@ export class EngineLink {
     if (e.type === 'speak' && e.payload.audioUrl && !/^(https?:|data:|blob:)/.test(e.payload.audioUrl)) {
       e = { ...e, payload: { ...e.payload, audioUrl: new URL(e.payload.audioUrl, this.url.replace(/^ws/, 'http')).href } }
     }
+    // A lesson this run never started (the engine's snapshot of an old one): not relayed, not logged, not replayed.
+    // An old lesson's watching reaches the pill as idle (RunGuard.filter).
+    const kept = this.run.filter(e)
+    if (!kept) return
+    e = kept
     if (e.type === 'lesson.ready') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
     // An ended lesson must not be replayed into a window that (re)loads: keep only the search rows.
     if (e.type === 'lesson.ended') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))

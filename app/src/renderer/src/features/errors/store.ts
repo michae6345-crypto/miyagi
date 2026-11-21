@@ -13,6 +13,7 @@
 import { create } from 'zustand'
 import { bridge, isElectron } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
+import { onGateOpen } from '../../core/gate'
 import { notify, useLesson } from '../../core/lesson'
 // Stage stand-ins first: the crash-pending ask below runs at load.
 import './web'
@@ -261,14 +262,22 @@ export function setVisible(id: CardId, on: boolean): void {
 }
 
 // ---- crash consent -----------------------------------------------------------------------------------------------
-/** Ask main once, at launch, for a report it kept ('ask' only: 'always' and 'never' are settled in main). Overlay only. */
-if (isOverlayWindow)
+/**
+ * Ask main once per launch for a report it kept ('ask' only: 'always' and 'never' are settled in main). Overlay only,
+ * and only once the sign-in gate is open (core/gate.ts): nothing is asked on a launch screen the learner hasn't passed.
+ */
+let crashAsked = false
+export function askCrashPending(): void {
+  if (crashAsked) return
+  crashAsked = true
   bridge
     .invoke<{ report?: unknown } | null>('errors:crash-pending')
     .then((p) => {
       if (p && typeof p.report === 'string' && p.report.trim() && !useLesson.getState().lesson) set({ crash: { report: p.report } })
     })
     .catch(() => undefined)
+}
+if (isOverlayWindow) onGateOpen(askCrashPending)
 
 export function decideCrash(save: boolean): void {
   set({ crash: undefined })

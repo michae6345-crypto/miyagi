@@ -8,7 +8,7 @@
  * A2. The overlay activated miyagi as a regular app: the menu bar read "Electron File Edit View Window", VS Code
  *    went inactive, and a click could move Spaces. On macOS miyagi is now an "accessory" app by default (no Dock
  *    icon, not in ⌘Tab, clicks never activate it or switch Spaces); MIYAGI_REGULAR_APP=1 opts out. It's named
- *    "miyagi" with a minimal menu (Edit stays, so ⌘C / ⌘V / ⌘A keep working in the launcher's field).
+ *    "miyagi" (its one menu is set in main/index.ts setupMenu; Edit stays, so ⌘C / ⌘V / ⌘A keep working in the launcher's field).
  * A3. A click on the pill fell through to the wallpaper: the overlay ignores the mouse until the renderer sees a
  *    hover, and a quick click can land first. Main polls the cursor and stops ignoring the mouse the moment it
  *    enters the island's rect.
@@ -27,7 +27,7 @@
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac.
  */
-import { app, Menu, screen } from 'electron'
+import { app, screen } from 'electron'
 import { defineMainFeature } from '../context'
 
 const isMac = process.platform === 'darwin'
@@ -52,14 +52,7 @@ export default defineMainFeature({
   id: 'overlay-raise',
   setup(ctx) {
     // ---- A2: an accessory app with a minimal menu ----------------------------------------------------------
-    if (isMac) {
-      Menu.setApplicationMenu(
-        Menu.buildFromTemplate([
-          { label: 'miyagi', submenu: [{ role: 'hide' }, { role: 'quit' }] },
-          { role: 'editMenu' }
-        ])
-      )
-    }
+    // The app menu (miyagi, Edit, View, Window) is defined once, in main/index.ts setupMenu. Edit stays in it, so ⌘C / ⌘V / ⌘A keep working in the launcher's field.
     if (accessory) {
       app.setActivationPolicy('accessory')
       console.log('[overlay-raise] accessory app (no Dock icon, clicks never switch Spaces); MIYAGI_REGULAR_APP=1 opts out')
@@ -134,14 +127,15 @@ export default defineMainFeature({
       if (!ctx.overlay.isVisible()) return
       if (Date.now() < passUntil) return
       const d = ctx.display().bounds
-      const { w, h, dx = 0, dy = 0 } = ctx.islandSize()
+      const { w, h, dx = 0, dy = 0, shown = true } = ctx.islandSize()
       // The island from its live size and place (the reported rects lag up to 300 ms while it grows into a card or
       // moves off the spotlight: core/islandPlace.ts), plus the rest.
-      const island = { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + ctx.platform.pillTop + dy, w, h }
+      // A hidden island (no mode, or the launcher has it) is not a click target: no ghost box eating clicks.
+      const island = shown ? { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + ctx.platform.pillTop + dy, w, h } : { x: -1e6, y: -1e6, w: 0, h: 0 }
       const p = screen.getCursorScreenPoint()
       if (away) {
         // Grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
-        if (!within(p, island)) restSince = 0
+        if (!shown || !within(p, island)) restSince = 0
         else if (!restSince) restSince = Date.now()
         else if (restSince > 0 && Date.now() - restSince >= REST_MS) {
           restSince = -1 // once per rest
@@ -149,7 +143,7 @@ export default defineMainFeature({
         }
         return
       }
-      const now = within(p, island) || (hits ?? ctx.overlayRects()).some((r) => within(p, r))
+      const now = (shown && within(p, island)) || (hits ?? ctx.overlayRects()).some((r) => within(p, r))
       if (now && !grabbed) {
         grabbed = true
         ctx.overlay.setIgnoreMouseEvents(false)

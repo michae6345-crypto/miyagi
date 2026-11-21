@@ -43,7 +43,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { riseIn } from '../../core/ui/motion'
 import { Detail } from '../library/Detail'
 import { Home } from '../library/Home'
-import { LessonSearch, Lessons, greeting, openLauncher } from '../library/Library'
+import { LessonSearch, Lessons, openLauncher } from '../library/Library'
 import { Ring } from '../library/motion'
 import { v2Cloud } from '../account/model'
 import { useLibrary } from '../library/store'
@@ -66,15 +66,14 @@ const SHORT_H = 700
 // ---- page header ------------------------------------------------------------------------------------------------
 
 const CAPTION: Partial<Record<PageId, string>> = {
-  skills: 'Pick a skill to see the lessons that teach it.',
-  progress: 'Every number is a step you passed yourself.',
+  skills: 'Pick a skill to see its lessons.',
   account: v2Cloud ? 'Your plan and how miyagi runs here.' : 'Your account and how miyagi runs here.'
 }
 
 function Header({ page }: { page: PageId }): ReactNode {
   const label = PAGES.find((p) => p.id === page)?.label ?? ''
-  const title = page === 'home' ? greeting() : label
-  const caption = page === 'home' ? new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : CAPTION[page]
+  const title = label
+  const caption = CAPTION[page]
   return (
     <header data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 68, padding: '0 32px', borderBottom: `1px solid ${fill.hairline}` }}>
       <div className="flex min-w-0 items-baseline gap-[12px]">
@@ -87,14 +86,6 @@ function Header({ page }: { page: PageId }): ReactNode {
           </span>
         )}
       </div>
-      {page === 'home' && (
-        // Home's own hero holds the one white primary; New lesson stays quiet here.
-        <div data-no-drag className="ml-auto shrink-0">
-          <Ring>
-            <QuietButton label="New lesson" keyName="launcher" onClick={openLauncher} />
-          </Ring>
-        </div>
-      )}
       {page === 'lessons' && (
         <div data-no-drag className="ml-auto flex min-w-0 items-center gap-[12px]">
           <LessonSearch />
@@ -142,7 +133,7 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 // ---- pages --------------------------------------------------------------------------------------------------------
 
 /** Home and Skills scroll inside themselves (Home's container queries, the constellation's own list). */
-const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills'])
+const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
   switch (page) {
@@ -169,6 +160,8 @@ const frame: Variants = {
 
 function PageFrame({ page, active, covered }: { page: PageId; active: boolean; covered: boolean }): ReactNode {
   const off = !active || covered
+  // Reduced motion: a page is born in its final state (no hidden frame to wait on).
+  const reduce = useReducedMotion() ?? false
   return (
     <motion.section
       data-shell-page={page}
@@ -176,7 +169,7 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
       aria-hidden={off || undefined}
       inert={off}
       variants={frame}
-      initial="hidden"
+      initial={reduce ? (active ? 'shown' : 'hidden') : 'hidden'}
       animate={active ? 'shown' : 'hidden'}
       className="absolute inset-0 flex flex-col"
       style={{ visibility: active ? 'visible' : 'hidden', color: color.text }}
@@ -302,7 +295,7 @@ export function Shell(): ReactNode {
             inert={covered}
             className={`relative ${sideZ} flex h-full shrink-0`}
             // From the window's left edge, its own width (reduced motion: a fade, nothing slides).
-            initial={enter ? (reduce ? { opacity: 0 } : { x: -sideW }) : false}
+            initial={enter && !reduce ? { x: -sideW } : false}
             animate={{ x: 0, opacity: 1 }}
             transition={sidebarIn}
           >
@@ -312,7 +305,7 @@ export function Shell(): ReactNode {
         {/* While the sheet is open the sidebar stays lit but inert; a click on it closes the sheet. */}
         {home && sheet && <div data-shell-sheet-catcher data-no-drag aria-hidden className="absolute inset-y-0 left-0 z-40" style={{ width: sideW }} onPointerDown={closeSheet} />}
         {home && (
-          <motion.main aria-hidden={covered || undefined} inert={covered} className="relative min-w-0 flex-1 overflow-hidden" initial={enter ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
+          <motion.main aria-hidden={covered || undefined} inert={covered} className="relative min-w-0 flex-1 overflow-hidden" initial={enter && !reduce ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
             {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
               <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId || sheet || covered} />
             ))}

@@ -22,47 +22,11 @@
 }
 
 /*
- * Glass panels (theme.glass): dark by default, light under <html data-appearance="light"> (Settings → Appearance).
- * The island and the cards don't use these; they stay black.
- * --glass-bg is nearly opaque (.96 / .97): CSS can't blur other apps in Electron, and at .9 the terminal text under
- * the shortcut bar showed through (Michael's audit A22).
+ * Every themed variable (--c-*, --f-*, --s-*, --e-*, --h-*, --l-*, --tone-*, --glass-*, --mg-tint-*) is generated from
+ * core/theme.ts `palette` by themeCss() and injected by core/prefs.ts before first paint. Dark is the default; light
+ * follows <html data-appearance="light">; data-theme="dark" pins dark (island, overlay), data-theme="auto" resumes.
+ * This file only uses them.
  */
-:root {
-  --glass-bg: rgba(28, 28, 30, 0.96);
-  --glass-text: #F4F4F5;
-  --glass-label: rgba(255, 255, 255, 0.6);
-  --glass-faint: rgba(255, 255, 255, 0.42);
-  --glass-hairline: rgba(255, 255, 255, 0.12);
-  --glass-field: rgba(255, 255, 255, 0.06);
-  --glass-field-hover: rgba(255, 255, 255, 0.1);
-  --glass-rule: rgba(255, 255, 255, 0.08);
-  --glass-key: rgba(255, 255, 255, 0.1);
-  --glass-key-text: rgba(255, 255, 255, 0.62);
-  --glass-track: rgba(255, 255, 255, 0.18);
-  --glass-button: #F4F4F5;
-  --glass-button-text: #141414;
-  --glass-pass: #30D158;
-  --glass-offtrack: #F4F4F5;
-  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 14px rgba(0, 0, 0, 0.24), 0 18px 40px rgba(0, 0, 0, 0.3), 0 36px 80px rgba(0, 0, 0, 0.32);
-}
-:root[data-appearance="light"] {
-  --glass-bg: rgba(250, 250, 248, 0.97);
-  --glass-text: #141414;
-  --glass-label: rgba(0, 0, 0, 0.56);
-  --glass-faint: rgba(0, 0, 0, 0.38);
-  --glass-hairline: rgba(0, 0, 0, 0.1);
-  --glass-field: rgba(0, 0, 0, 0.045);
-  --glass-field-hover: rgba(0, 0, 0, 0.08);
-  --glass-rule: rgba(0, 0, 0, 0.08);
-  --glass-key: rgba(0, 0, 0, 0.07);
-  --glass-key-text: rgba(0, 0, 0, 0.55);
-  --glass-track: rgba(0, 0, 0, 0.14);
-  --glass-button: #141414;
-  --glass-button-text: #F6F6F3;
-  --glass-pass: #1C8A3C;
-  --glass-offtrack: #141414;
-  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 6px 14px rgba(0, 0, 0, 0.07), 0 18px 44px rgba(0, 0, 0, 0.1);
-}
 
 /* Brand font for brand moments only (the app UI uses the system font). */
 @font-face {
@@ -84,7 +48,7 @@ body,
   height: 100%;
   overflow: hidden;
   background: transparent;
-  color: #fff;
+  color: var(--c-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -103,7 +67,7 @@ html[data-route="stage"] body {
  * feature allows it. The 28 px strip under the traffic lights drags the window.
  */
 html[data-kind="app"] body {
-  background: rgb(28, 28, 30);
+  background: var(--l-base);
 }
 html[data-kind="app"] [data-drag] {
   -webkit-app-region: drag;
@@ -114,10 +78,26 @@ html[data-kind="app"] [data-no-drag] {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * The room kept for the traffic lights (they hide in macOS full screen; core/prefs.ts sets <html data-fullscreen>):
+ * the sidebar's top strip, the setup header's height and its left inset. In full screen the empty band is dropped.
+ */
+.mg-lights { height: 40px; }
+.mg-flow-head { height: 64px; }
+.mg-lights-pad { padding-left: 88px; }
+html[data-fullscreen] .mg-lights { height: 12px; }
+html[data-fullscreen] .mg-flow-head { height: 48px; }
+html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
+
 /* Paper surfaces (Plan-Pricing, theme.paper) inside any window. */
 [data-surface="paper"] {
   background: #F6F6F3;
   color: #141414;
+}
+
+/* Text on a black scrim (video overlays, duration badges) stays white in light mode: Tailwind text-white follows the theme (--c-white), so pin it under any bg-black. */
+[class*="bg-black"] {
+  --color-white: #fff;
 }
 
 button {
@@ -136,9 +116,7 @@ input {
  */
 :root {
   --mg-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --mg-focus: rgba(255, 255, 255, 0.88);
-  --mg-tint-hover: rgba(255, 255, 255, 0.06);
-  --mg-tint-press: rgba(255, 255, 255, 0.1);
+  --mg-focus: var(--c-focus);
 }
 [data-surface="paper"] {
   --mg-focus: rgba(20, 20, 20, 0.88);
@@ -208,9 +186,15 @@ input {
     opacity: 1;
     transition-duration: 40ms;
   }
+  /* A white or pastel fill darkens (both themes). */
   .mg-press-light {
-    --mg-tint-hover: rgba(0, 0, 0, 0.045);
-    --mg-tint-press: rgba(0, 0, 0, 0.09);
+    --mg-tint-hover: var(--mg-tint-hover-fill);
+    --mg-tint-press: var(--mg-tint-press-fill);
+  }
+  /* The accent fill is white on dark (darkens) and ink on light (lightens). */
+  .mg-press-accent {
+    --mg-tint-hover: var(--mg-tint-hover-accent);
+    --mg-tint-press: var(--mg-tint-press-accent);
   }
   /*
    * Polish: a busy control holds its pressed tint (a busy option tile reads as pressed in, spec section 3). Enabled
@@ -232,12 +216,32 @@ input {
     --mg-focus: var(--glass-text);
   }
   :root[data-appearance="light"] .mg-glass {
-    --mg-tint-hover: rgba(0, 0, 0, 0.045);
-    --mg-tint-press: rgba(0, 0, 0, 0.09);
+    --mg-tint-hover: var(--mg-tint-hover-fill);
+    --mg-tint-press: var(--mg-tint-press-fill);
   }
   :root[data-appearance="light"] .mg-glass.mg-press-light {
-    --mg-tint-hover: rgba(255, 255, 255, 0.08);
-    --mg-tint-press: rgba(255, 255, 255, 0.14);
+    --mg-tint-hover: var(--mg-tint-hover-accent);
+    --mg-tint-press: var(--mg-tint-press-accent);
+  }
+
+  /*
+   * .mg-lift: an interactive surface moves ONE elevation level on hover (raised to overlay) and settles on press.
+   * Add it to a core/ui Surface or GlassCard with `lift`. The shadow swap is the one place a shadow animates (a short
+   * 160 ms ease-out, no glow); the rest of the app animates transform and opacity only. Reduced motion: no travel.
+   */
+  .mg-lift {
+    transition: transform 160ms var(--mg-ease-out), box-shadow 160ms var(--mg-ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .mg-lift:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--h-top), inset 0 0 0 1px var(--s-border), var(--e-overlay) !important;
+    }
+  }
+  .mg-lift:active {
+    transform: translateY(0) scale(0.985);
+    box-shadow: var(--h-top-soft), inset 0 0 0 1px var(--s-border), var(--e-raised) !important;
+    transition-duration: 60ms;
   }
 
   /*
@@ -348,5 +352,9 @@ input {
   }
   .mg-press::after {
     transition-duration: 0ms;
+  }
+  .mg-lift:hover,
+  .mg-lift:active {
+    transform: none;
   }
 }
