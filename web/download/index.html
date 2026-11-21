@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-os="mac" data-steps="mac" data-pkg="zip">
+<html lang="en" data-os="mac" data-steps="mac" data-pkg="zip" data-cloud="0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -24,6 +24,9 @@ window.MIYAGI_DOWNLOAD = {
   releasesUrl: "https://github.com/adrian-erlikhman/miyagi/releases",
   pageUrl: "https://miyagi.study/download/",          // the link phones copy or share
   remindEndpoint: null,                               // optional: a form endpoint that emails the link (see README)
+  // false = the shipped build uses the visitor's own API keys (today). Set true only once the miyagi-cloud proxy is live
+  // and the build uses it: the FAQ then says "no account or API key" and "our server passes screenshots along".
+  cloud: false,
   mac: {
     tag: "mac",
     // The file that is on the `mac` release today. The page works with these two lines alone (no API call needed).
@@ -103,7 +106,8 @@ code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
 [data-os="phone"] .h-mac, [data-os="phone"] .h-win, [data-os="phone"] .h-desk, [data-os="phone"] .h-other,
 [data-os="other"] .h-phone,
 [data-steps="mac"] .v-win, [data-steps="windows"] .v-mac,
-[data-pkg="dmg"] .pk-zip, [data-pkg="zip"] .pk-dmg { display: none !important; }
+[data-pkg="dmg"] .pk-zip, [data-pkg="zip"] .pk-dmg,
+[data-cloud="0"] .cl-on, [data-cloud="1"] .cl-off { display: none !important; }
 [data-os="other"] .alt.h-mac, [data-os="other"] .alt.h-win,
 [data-os="other"] #dl-mac, [data-os="other"] #dl-win, [data-os="other"] .meta.h-mac, [data-os="other"] .meta.h-win { display: none !important; }
 html:not([data-intel="1"]) .intel-note, html:not([data-intel="1"]) .intel-anyway { display: none !important; }
@@ -134,7 +138,7 @@ html[data-intel="1"] #dl-mac { display: none !important; }
 .btn-quiet:hover { background: var(--skeleton); }
 .meta { color: var(--label); font-size: 14px; line-height: 1.6; }
 .meta b { color: var(--text); font-weight: 500; }
-.meta .dot { padding: 0 3px 0 7px; color: var(--faint); }
+.meta .dot { padding: 0 6px 0 2px; color: var(--faint); }
 .meta .nb { white-space: nowrap; }
 .alt { font-size: 14px; color: var(--label); }
 .alt button { background: none; border: 0; color: var(--text); font: inherit; padding: 2px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; }
@@ -162,7 +166,7 @@ html[data-intel="1"] #dl-mac { display: none !important; }
 .phone-status { margin-top: 10px; font-size: 14px; color: var(--text); }
 .email { display: flex; gap: 8px; margin-top: 14px; }
 .email input { flex: 1; min-width: 0; height: 44px; border-radius: var(--r-row); border: 0; padding: 0 12px; background: rgba(0,0,0,.35); color: var(--text); font: 15px var(--font-ui); box-shadow: inset 0 0 0 1px var(--hairline); }
-.email input::placeholder { color: var(--faint); }
+.email input::placeholder { color: var(--label); }
 
 /* ---------- sections ---------- */
 section.block { padding: 64px 0; border-top: 1px solid var(--hairline); }
@@ -188,12 +192,12 @@ section.block { padding: 64px 0; border-top: 1px solid var(--hairline); }
 
 /* illustrations: plain shapes, neutral chrome, a white ring = "click here" */
 .mini { width: 100%; max-width: 280px; border-radius: var(--r-card); background: var(--sheet); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--hairline), var(--shadow); font-size: 12px; text-align: left; }
-.mini .bar { display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--hairline); color: var(--faint); font-size: 11px; }
+.mini .bar { display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--hairline); color: var(--label); font-size: 11px; }
 .lights { display: inline-flex; gap: 5px; margin-right: 6px; }
 .lights i { width: 8px; height: 8px; border-radius: 50%; background: var(--skeleton); display: block; }
 .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-control); position: relative; }
 .row .t { color: var(--text); font-size: 12.5px; font-weight: 500; }
-.row .s { color: var(--faint); font-size: 11px; }
+.row .s { color: var(--label); font-size: 11px; }
 .ghost { height: 7px; border-radius: 99px; background: var(--skeleton); display: block; }
 .ringed { box-shadow: 0 0 0 2px var(--text); }
 .badge { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font: 700 11px/20px var(--font-ui); text-align: center; }
@@ -212,7 +216,24 @@ section.block { padding: 64px 0; border-top: 1px solid var(--hairline); }
 .arrow { width: 54px; height: 14px; }
 .finder .cap { text-align: center; font-size: 11px; color: var(--ink-soft); padding: 0 0 12px; }
 
-.settings { width: 100%; max-width: 310px; display: grid; grid-template-columns: 108px 1fr; border-radius: var(--r-card); overflow: hidden; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow); font-size: 10.5px; }
+/* zip: a Downloads window in Finder; miyagi is dragged onto Applications in the sidebar */
+.fz { width: 100%; max-width: 300px; display: grid; grid-template-columns: 112px 1fr; grid-template-rows: 26px 20px 30px 26px 24px 24px; border-radius: var(--r-card); overflow: hidden; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow); font-size: 10.5px; text-align: left; }
+.fz .sb { grid-column: 1; grid-row: 1 / -1; background: rgba(0,0,0,.22); border-right: 1px solid var(--hairline); }
+.fz .lights { grid-column: 1; grid-row: 1; align-self: center; margin-left: 10px; }
+.fz .ttl { grid-column: 2; grid-row: 1; align-self: center; padding-left: 12px; font-weight: 600; font-size: 11.5px; color: var(--text); }
+.fz .grp { grid-column: 1; grid-row: 2; align-self: end; padding: 0 0 2px 12px; font-size: 9.5px; font-weight: 600; color: var(--label); }
+.fz .it { grid-column: 1; align-self: center; margin: 0 6px; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 6px; border-radius: 5px; color: var(--label); white-space: nowrap; }
+.fz .it svg { width: 12px; height: 12px; flex: none; }
+.fz .it i { width: 10px; height: 10px; border-radius: 3px; background: var(--skeleton); flex: none; }
+.fz .it .ghost { flex: 1; height: 5px; }
+.fz .it.on { background: var(--skeleton); color: var(--text); }
+.fz .it.ringed { color: var(--text); }
+.fz .drag { grid-column: 2; grid-row: 3; display: flex; align-items: center; gap: 6px; padding: 0 22px 0 6px; }
+.fz .drag svg.arw { flex: 1; min-width: 40px; height: 14px; }
+.fz .app { width: 40px; height: 40px; border-radius: 10px; background: var(--window); display: grid; place-items: center; flex: none; margin: 0 8px; box-shadow: inset 0 0 0 1px var(--hairline), 0 2px 6px rgba(0,0,0,.3); }
+.fz .app svg { width: 32px; height: 32px; }
+.fz .nm { grid-column: 2; grid-row: 4; justify-self: end; width: 56px; margin-right: 22px; padding-top: 7px; text-align: center; color: var(--text); font-weight: 500; font-size: 11px; }
+.settings { width: 100%; max-width: 310px; display: grid; grid-template-columns: 120px 1fr; border-radius: var(--r-card); overflow: hidden; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow); font-size: 10.5px; }
 .settings .side { background: rgba(0,0,0,.22); padding: 26px 6px 8px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--hairline); }
 .settings .side .it { display: flex; align-items: center; gap: 5px; padding: 4px 5px; border-radius: 5px; color: var(--label); white-space: nowrap; font-size: 10px; }
 .settings .side .it i { width: 10px; height: 10px; border-radius: 3px; background: var(--skeleton); flex: none; }
@@ -220,7 +241,7 @@ section.block { padding: 64px 0; border-top: 1px solid var(--hairline); }
 .settings .side .it .ghost { flex: 1; height: 5px; }
 .settings .pane { padding: 12px 12px 14px; position: relative; }
 .settings .pane .h { font-weight: 600; font-size: 12px; color: var(--text); }
-.settings .pane .lbl { color: var(--faint); margin-top: 10px; }
+.settings .pane .lbl { color: var(--label); margin-top: 10px; }
 .settings .msg { margin-top: 6px; padding: 8px; border-radius: 6px; background: var(--group); box-shadow: inset 0 0 0 1px var(--hairline); color: var(--label); line-height: 1.35; }
 .settings .msg .act { display: flex; justify-content: flex-end; margin-top: 8px; position: relative; }
 .macbtn { background: var(--skeleton); color: var(--text); border-radius: 5px; padding: 3px 9px; font-size: 10.5px; font-weight: 500; position: relative; }
@@ -246,7 +267,7 @@ section.block { padding: 64px 0; border-top: 1px solid var(--hairline); }
 .next .ico svg { width: 20px; height: 20px; }
 .next h3 { font-size: 18px; letter-spacing: -0.015em; }
 .next p { color: var(--label); font-size: 15px; margin-top: 6px; }
-.next .when { color: var(--faint); font-size: 13px; margin-bottom: 4px; }
+.next .when { color: var(--label); font-size: 13px; margin-bottom: 4px; }
 
 /* ---------- faq ---------- */
 .faq { max-width: 760px; }
@@ -266,7 +287,7 @@ section.block { padding: 64px 0; border-top: 1px solid var(--hairline); }
 .privacy svg { width: 20px; height: 20px; flex: none; margin-top: 2px; color: var(--text); }
 .privacy b { color: var(--text); font-weight: 500; }
 
-footer { border-top: 1px solid var(--hairline); padding: 28px 0 44px; color: var(--faint); font-size: 13px; }
+footer { border-top: 1px solid var(--hairline); padding: 28px 0 44px; color: var(--label); font-size: 13px; }
 footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 footer .brand .tree { width: 20px; height: 20px; }
 footer .brand .word { height: 16px; }
@@ -340,19 +361,19 @@ footer a:hover { color: var(--text); }
           <span class="file">Miyagi-Windows-Setup.exe</span>
         </a>
 
-        <p class="meta h-mac" data-slot="mac-meta">Version 0.1.0<span class="dot">·</span>Apple silicon<span class="dot">·</span>macOS 13 or later</p>
-        <p class="meta h-win" data-slot="win-meta">Version 0.1.0<span class="dot">·</span>64-bit<span class="dot">·</span>Windows 10 or 11</p>
+        <p class="meta h-mac" data-slot="mac-meta"><span class="nb">Version 0.1.0</span> <span class="nb"><span class="dot">·</span>Apple silicon</span> <span class="nb"><span class="dot">·</span>macOS 13 or later</span></p>
+        <p class="meta h-win" data-slot="win-meta"><span class="nb">Version 0.1.0</span> <span class="nb"><span class="dot">·</span>64-bit</span> <span class="nb"><span class="dot">·</span>Windows 10 or 11</span></p>
         <p class="alt h-mac intel-anyway"><a data-dl="mac" href="https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip">Download anyway (Apple silicon only)</a></p>
 
         <p class="alt h-other">miyagi runs on Mac and Windows. Pick yours:</p>
         <div class="pick h-other">
           <div>
             <a class="btn btn-quiet" data-dl="mac" href="https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span>Mac</span></a>
-            <p class="meta" data-slot="mac-meta">Version 0.1.0<span class="dot">·</span>Apple silicon<span class="dot">·</span>macOS 13 or later</p>
+            <p class="meta" data-slot="mac-meta"><span class="nb">Version 0.1.0</span> <span class="nb"><span class="dot">·</span>Apple silicon</span> <span class="nb"><span class="dot">·</span>macOS 13 or later</span></p>
           </div>
           <div>
             <a class="btn btn-quiet" data-dl="win" href="https://github.com/adrian-erlikhman/miyagi/releases/download/windows/Miyagi-Windows-Setup.exe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span>Windows</span></a>
-            <p class="meta" data-slot="win-meta">Version 0.1.0<span class="dot">·</span>64-bit<span class="dot">·</span>Windows 10 or 11</p>
+            <p class="meta" data-slot="win-meta"><span class="nb">Version 0.1.0</span> <span class="nb"><span class="dot">·</span>64-bit</span> <span class="nb"><span class="dot">·</span>Windows 10 or 11</span></p>
           </div>
         </div>
 
@@ -430,9 +451,26 @@ footer a:hover { color: var(--text); }
           </div>
         </li>
         <li class="step">
-          <div class="art" role="img" aria-label="The miyagi icon with an arrow to the Applications folder">
+          <div class="art pk-zip" role="img" aria-label="Your Downloads window, with an arrow from the miyagi icon to Applications in the Finder sidebar">
+            <div class="fz" aria-hidden="true">
+              <span class="sb"></span>
+              <span class="lights"><i></i><i></i><i></i></span>
+              <span class="ttl">Downloads</span>
+              <span class="grp">Favorites</span>
+              <span class="it ringed" style="grid-row:3"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3.2 10.5 6 2.5l2.8 8M4.2 7.8h3.6"/></svg>Applications</span>
+              <span class="it on" style="grid-row:4"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="5"/><path d="M6 3.4v4.8M3.9 6.3 6 8.3l2.1-2"/></svg>Downloads</span>
+              <span class="it" style="grid-row:5"><i></i><span class="ghost"></span></span>
+              <span class="it" style="grid-row:6"><i></i><span class="ghost"></span></span>
+              <span class="drag">
+                <svg class="arw" viewBox="0 0 60 14" preserveAspectRatio="xMinYMid slice" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 7h48" stroke="var(--label)" stroke-dasharray="4 5"/><path d="m8 2-6 5 6 5" stroke="var(--text)"/></svg>
+                <span class="app"><svg><use href="#m-tree"/></svg></span>
+              </span>
+              <span class="nm">miyagi</span>
+            </div>
+          </div>
+          <div class="art pk-dmg" role="img" aria-label="The miyagi icon with an arrow to the Applications folder">
             <div class="finder" aria-hidden="true">
-              <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="t"><span class="pk-dmg">miyagi</span><span class="pk-zip">Downloads</span></span></div>
+              <div class="bar"><span class="lights"><i></i><i></i><i></i></span><span class="t">miyagi</span></div>
               <div class="stage">
                 <div class="icon"><span class="appicon"><svg><use href="#m-tree"/></svg></span>miyagi</div>
                 <svg class="arrow" viewBox="0 0 54 14" fill="none" stroke="var(--ink-dash)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h44" stroke-dasharray="4 5"/><path d="m44 2 6 5-6 5" stroke="var(--ink-soft)"/></svg>
@@ -441,14 +479,14 @@ footer a:hover { color: var(--text); }
                   Applications
                 </div>
               </div>
-              <div class="cap pk-dmg">Drag miyagi to Applications</div>
+              <div class="cap">Drag miyagi to Applications</div>
             </div>
           </div>
           <div class="body">
             <span class="num" aria-hidden="true">2</span>
             <h3>Drag miyagi to Applications</h3>
             <p class="pk-dmg">A window opens. Drag the miyagi icon onto the Applications folder.</p>
-            <p class="pk-zip">Drag miyagi from Downloads into your Applications folder.</p>
+            <p class="pk-zip">In the same Downloads window, drag miyagi onto <b>Applications</b> in the Finder sidebar.</p>
           </div>
         </li>
         <li class="step">
@@ -476,7 +514,7 @@ footer a:hover { color: var(--text); }
           <div class="body">
             <span class="num" aria-hidden="true">3</span>
             <h3>Open it, then Open Anyway</h3>
-            <p>Open miyagi from Applications and click Done when macOS stops it. Then go to <span class="path">System Settings &gt; Privacy &amp; Security</span>, scroll down, click <b>Open Anyway</b> and enter your password.</p>
+            <p>Open miyagi from Applications. When macOS stops it, click <b>Done</b> (or <b>Cancel</b>), not Move to Trash. Then go to <span class="path">System Settings &gt; Privacy &amp; Security</span>, scroll down and click <b>Open Anyway</b>. Enter your password, then click <b>Open Anyway</b> once more.</p>
             <a class="link" href="x-apple.systempreferences:com.apple.preference.security?General">Open Privacy &amp; Security</a>
           </div>
         </li>
@@ -558,8 +596,10 @@ footer a:hover { color: var(--text); }
           <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
           <p class="when">Then, about a minute</p>
           <h3>Setup</h3>
-          <p class="v-mac">Let miyagi see your screen, point at buttons and connect to VS Code. One button each.</p>
-          <p class="v-win">Connect miyagi to VS Code and check it's ready. One button each.</p>
+          <p class="v-mac cl-on">Let miyagi see your screen, point at buttons and connect to VS Code. One button each.</p>
+          <p class="v-win cl-on">Connect miyagi to VS Code and check it's ready. One button each.</p>
+          <p class="v-mac cl-off">Paste your Anthropic key, then let miyagi see your screen, point at buttons and connect to VS Code.</p>
+          <p class="v-win cl-off">Paste your Anthropic key, then connect miyagi to VS Code and check it's ready.</p>
         </li>
         <li>
           <div class="ico" aria-hidden="true"><svg aria-hidden="true"><use href="#m-tree-small"/></svg></div>
@@ -591,14 +631,17 @@ footer a:hover { color: var(--text); }
           <summary>What does it read on my screen?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
           <div class="a">
             <p>During a lesson, miyagi looks at your screen to see which step you're on, read your code and its output, and point at the right button.</p>
-            <p>Screenshots go to the AI model only to check your step. Our server passes them along and doesn't keep them.</p>
+            <p class="cl-off">Screenshots go straight from your computer to the AI provider, Anthropic, only to check your step. There's no miyagi server in between.</p>
+            <p class="cl-on">Screenshots go to the AI model only to check your step. Our server passes them along and doesn't keep them.</p>
           </div>
         </details>
         <details>
           <summary>Does it cost money?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
           <div class="a">
-            <p>No. miyagi is free right now. You don't need an account or an API key.</p>
-            <p>If you'd rather use your own Anthropic key, you can add it in Settings.</p>
+            <p class="cl-off">miyagi itself is free. For now, setup asks for your own <b>Anthropic API key</b>, and Anthropic bills its use to your account. A <b>Gemini key</b> is optional; add one to learn from video tutorials.</p>
+            <p class="cl-off">You can change either key later in Settings.</p>
+            <p class="cl-on">No. miyagi is free right now. You don't need an account or an API key.</p>
+            <p class="cl-on">If you'd rather use your own Anthropic key, you can add it in Settings.</p>
           </div>
         </details>
         <details>
@@ -652,6 +695,9 @@ footer a:hover { color: var(--text); }
   var C = window.MIYAGI_DOWNLOAD || {};
   var root = document.documentElement;
   var params = new URLSearchParams(location.search);
+  // Which build the FAQ describes: own keys today (0), the miyagi-cloud proxy once it ships (1). ?cloud=1|0 previews either.
+  var cloudParam = params.get("cloud");
+  root.setAttribute("data-cloud", (cloudParam ? cloudParam === "1" : C.cloud === true) ? "1" : "0");
   var live = { mac: null, windows: null };
 
   /* ---------- detection ---------- */
@@ -703,8 +749,10 @@ footer a:hover { color: var(--text); }
     try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch (e) { return ""; }
   }
   function metaHTML(parts) {
-    return parts.filter(Boolean).map(function (p) { return '<span class="nb">' + p.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }) + "</span>"; })
-      .join('<span class="dot">· </span>');
+    // The dot sits inside the next item's nowrap span, so a wrapped line never ends on a hanging dot.
+    return parts.filter(Boolean).map(function (p, i) {
+      return '<span class="nb">' + (i ? '<span class="dot">·</span>' : "") + p.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }) + "</span>";
+    }).join(" ");
   }
   function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
