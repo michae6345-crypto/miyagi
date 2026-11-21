@@ -224,6 +224,7 @@ MAX_MISSING_LINES = 8  # a Not yet lists the step's lines only when they fit the
 EDITOR_POLL_S = 3.0  # lesson.paused "editor_closed": how often the lesson's VS Code window is looked for
 EDITOR_GONE_POLLS = 2  # ... and how many sure misses in a row pause the lesson (one closed-and-reopened tab: no pause)
 EDITOR_OPEN_GRACE_S = 30.0  # ... never this soon after the engine opened VS Code (a cold start takes up to 20 s)
+NO_EDITOR_POLL_S = 10.0  # "VS Code not found": how often to look for it again (a Spotlight lookup)
 KERNEL_POLL_S = 2.0  # blocker "kernel": how often the frame is read for VS Code's "Select Kernel"
 KERNEL_CLEAR_POLLS = 2  # ... and how many frames without it clear the blocker
 _SELECT_KERNEL = re.compile(r"^\W{0,3}select\s+kernel\W{0,3}$", re.I)
@@ -840,9 +841,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
                 asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
         self.resources = found
+        if any(it.get("tool") == "python" and it.get("needed") for it in items or []) \
+                and getattr(self.workspace, "editor_check", None) is not None:  # real windows only (never in tests)
+            self._spawn(asyncio.to_thread(wsmod.ensure_lesson_venv, folder, True))  # fresh Mac: .venv from the bundle
         if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
             self.reqs = items or None
-            miss = [it for it in items or [] if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
+            miss = [it for it in items or [] if it.get("needed") and not it.get("ok")
+                    and (it.get("kind") != "editor" or not it.get("installed"))]  # no VS Code at all: its row stays
             card = setup_rows.with_install_all(wsmod.setup_card(miss)) if miss else None
             if card:
                 card["actions"] = [a for a in card.get("actions") or [] if a != "open_editor"]
@@ -948,6 +953,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._auto_opening = None
 
     async def _auto_open_editor_now(self, folder: str) -> None:
+        if await self._editor_missing():
+            return
         for _ in range(20):  # up to ~10 s
             if not self.typing():
                 break
@@ -1050,7 +1057,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 if fresh:
                     self.reqs = full = fresh
                     if self.lesson_mode:  # _setup_card_task's lesson-mode card: tools really missing, never the editor
-                        fresh = [it for it in fresh if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
+                        fresh = [it for it in fresh if it.get("needed") and not it.get("ok")
+                                 and (it.get("kind") != "editor" or not it.get("installed"))]
                     old = self._setup_card
                     new = wsmod.setup_card(fresh, resources=None if self.lesson_mode else self.resources) if fresh else None
                     if old and not fresh:  # lesson mode, nothing missing any more: the rows flip, none vanish
@@ -1128,6 +1136,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.reqs is not None and not wsmod.editor_needed(self.reqs):
             log.info("open_editor ignored: this lesson doesn't use an editor")
             return  # e.g. a Blender/Figma lesson: never open VS Code
+        if await self._editor_missing(explicit=True):
+            return
         log.info("open_editor: bringing %s forward", Path(self.workdir).name)
         file = self._editor_file(self.step) or lesson_notebook.first_file(self)  # no step file yet: the notebook
         loc = wsmod.target_location(self.workdir, self.step) if self.step is not None and file else None
@@ -1468,6 +1478,60 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 payload.setdefault("etaS", float(round(left)))
         return payload
 
+    async def _editor_missing(self, explicit: bool = False) -> bool:
+        """No VS Code on this Mac: the "VS Code not found" setup card (the v2 app draws it as its VS Code sheet: Get VS
+        Code / Install) instead of an open that does nothing and a lesson left with no editor. Once per lesson, again
+        when the learner presses Open. True while it's missing (the caller opens nothing); _v2_tick opens the lesson
+        once VS Code is there. A setup card already listing a missing editor row says it already: no second card."""
+        check = getattr(self.workspace, "editor_check", None) if self.workspace is not None else None
+        if check is None:
+            return False
+        found = await asyncio.to_thread(check)
+        if not found:
+            self._no_editor = False
+            return False
+        card, item = found
+        self._no_editor = True
+        self.reqs = [it for it in self.reqs or [] if it.get("kind") != "editor"] + [item]  # Install finds the row
+        pending = ((self._setup_card or {}).get("setup") or {}).get("items") or []
+        listed = any(r.get("kind") == "editor" and not r.get("ok") for r in pending)
+        if explicit and listed:  # the setup card on screen already has the VS Code row: that card again, rows kept
+            await self.emit("card", self._setup_card)
+            return True
+        if explicit or (getattr(self, "_no_editor_epoch", None) != self.lesson_epoch and not listed):
+            self._no_editor_epoch = self.lesson_epoch
+            self._setup_card = card
+            log.info("VS Code not found: setup card (%s)", item.get("install", {}).get("method"))
+            self._record("editor_missing", {"method": (item.get("install") or {}).get("method"), "explicit": explicit})
+            await self.emit("card", card)
+        return True
+
+    async def _editor_found_check(self) -> None:
+        """_v2_tick, while VS Code was missing: once it's installed (Homebrew from the card, or the learner's own
+        download), the card goes and the lesson opens in it."""
+        try:
+            found = await asyncio.to_thread(self.workspace.editor_check) if self.workspace is not None \
+                and getattr(self.workspace, "editor_check", None) else None
+        finally:
+            self._no_editor_poll_t = self.clock()  # the next look in NO_EDITOR_POLL_S
+        if found or self.graph is None or not self.workdir:
+            return
+        self._no_editor = False
+        from . import workspace as wsmod
+
+        if self.reqs is not None and not wsmod.editor_needed(self.reqs):
+            return  # a lesson without an editor (the one that asked has ended)
+        log.info("VS Code found: opening the lesson")
+        if self._setup_card is not None and all(r.get("kind") == "editor" for r in
+                                                (self._setup_card.get("setup") or {}).get("items") or []):
+            self._setup_card = None
+            await self.emit("card", {"kind": "setup", "title": "VS Code found", "body": "", "actions": [],
+                                     "dismissAfterMs": 3000})
+        if self.lesson_mode:
+            self._spawn(self._open_editor_full(self.workdir))
+        else:
+            self._spawn(self._auto_open_editor(self.workdir))
+
     async def _pause(self, reason: str) -> None:
         """The lesson waits for something outside it (v2 app only): no checks, judge or coach run, nothing counts as
         Not yet. lesson.paused + the matching blocker; the place is kept (the step, its passed checks)."""
@@ -1522,6 +1586,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if getattr(self.screen, "reader", None) is None:
             return self.paused is not None
         now = self.clock()
+        if getattr(self, "_no_editor", False) and now - getattr(self, "_no_editor_poll_t", -1e9) >= NO_EDITOR_POLL_S:
+            self._no_editor_poll_t = now + 3600.0  # one look at a time (Spotlight); _editor_found_check sets the next
+            self._spawn(self._editor_found_check())
         settled = now - getattr(self, "_editor_open_t", -1e9) >= EDITOR_OPEN_GRACE_S
         if self.editor_open and settled and self.workspace is not None and self.workdir \
                 and now - self._editor_poll_t >= EDITOR_POLL_S:
@@ -2237,6 +2304,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _open_editor_full(self, folder: str) -> None:
         """Lesson mode: the editor IS the lesson, so it opens (full screen) without asking."""
         if self.workspace is None or getattr(self.workspace, "blocked", False):  # ORCH_OPEN_WORKSPACE=0: never on its own
+            return
+        if await self._editor_missing():
             return
         first = self.steps[0] if self.steps else None  # L2: open ON step 1's file (start_step(0) comes next)
         if first is not None:
@@ -3080,6 +3149,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def load_graph(self, graph: dict) -> None:
         self.lesson_epoch += 1
+        self._no_editor = False  # "VS Code not found" belongs to the lesson that asked
         self._bind_epoch()  # this task (the build / autostart) now speaks for the new lesson
         self.notebook_lesson = is_notebook_lesson(graph)
         if self.notebook_lesson and is_colab_lesson(graph):  # t10 R3: never a VS Code one (the video panel showed
@@ -4381,7 +4451,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         log.info("lesson start (%s): %s", why, (step or {}).get("id"))
         if step is None or self.passed:
             return
-        if self.lesson_mode and why == "Start" and self.workspace is not None and self.workdir:
+        if self.lesson_mode and why == "Start" and self.workspace is not None and self.workdir \
+                and not await self._editor_missing(explicit=True):  # pressed Start: the card again if it's still missing
             # Start pressed: bring the lesson's VS Code window forward on the step's file. A repeat run (Demo, a
             # rerun) reuses the folder, so the once-per-lesson auto-open may never fire; the learner must not be
             # left on the desktop with no editor (Michael, Nov 15 3:50 AM).

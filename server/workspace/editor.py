@@ -171,10 +171,19 @@ def _app_path(ed: dict) -> str | None:
     return None
 
 
-def _cli(ed: dict) -> str | None:
+def _cli(ed: dict, app_path: str | None = None) -> str | None:
+    """The editor's CLI: on PATH, else inside the app wherever it is. A fresh Mac never ran "Install 'code' command in
+    PATH", and an app launched from Finder gets PATH=/usr/bin:/bin, so the app bundle's own copy is the usual one; an
+    app in ~/Applications or ~/Downloads has it there, not under /Applications."""
     if found := shutil.which(ed["cli"]):
         return found
-    return ed["bundled_cli"] if Path(ed["bundled_cli"]).exists() else None
+    if Path(ed["bundled_cli"]).exists():
+        return ed["bundled_cli"]
+    if app_path:
+        inside = Path(app_path) / "Contents" / "Resources" / "app" / "bin" / ed["cli"]
+        if inside.exists():
+            return str(inside)
+    return None
 
 
 def installed_editors() -> list[dict]:
@@ -182,7 +191,8 @@ def installed_editors() -> list[dict]:
     out = []
     for eid in PREFERENCE:
         ed = EDITORS[eid]
-        app_path, cli = _app_path(ed), _cli(ed)
+        app_path = _app_path(ed)
+        cli = _cli(ed, app_path)
         if app_path or cli:
             out.append({"id": eid, "label": ed["label"], "app": ed["app"], "app_path": app_path, "cli": cli,
                         "bundle": ed["bundle"], "process": PROCESS_NAMES.get(eid, ed["app"])})
@@ -1008,10 +1018,15 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
         if not explicit:
             return {"opened": False, "already": True, "state": st["state"]}
         ed = kw.get("editor") or preferred_editor()
-        if not ed or not ed.get("cli"):
-            return {"opened": False, "already": True, "error": "no editor CLI"}
+        if not ed:
+            return {"opened": False, "already": True, "error": "no supported editor installed (VS Code)"}
         target = Path(file) if file and Path(file).is_absolute() else (Path(key[1]) / file if file else None)
-        argv = [ed["cli"], key[1]] + (["-g", str(target)] if target and target.is_file() else [])
+        if ed.get("cli"):
+            argv = [ed["cli"], key[1]] + (["-g", str(target)] if target and target.is_file() else [])
+        elif sys.platform == "darwin":  # the app is there but no CLI (none on PATH, none inside it): macOS opens it
+            argv = ["open", "-a", ed.get("app_path") or ed["app"], key[1]] + ([str(target)] if target and target.is_file() else [])
+        else:
+            return {"opened": False, "already": True, "error": "no editor CLI"}
         ok = (runner or _run)(argv)
         log.info("editor already open for %s: brought forward (%s)", Path(key[1]).name, ok)
         return {"opened": bool(ok), "already": True, "command": " ".join([Path(argv[0]).name, *argv[1:]])}

@@ -47,7 +47,8 @@ class FakeMac:
         if argv[0] == "defaults":
             return 0, "4.2.1\n"
         if argv[-1] == "--version":
-            return 0, f"version v{self.bins[Path(argv[0]).name]}\n"
+            v = self.bins.get(Path(argv[0]).name)
+            return (0, f"version v{v}\n") if v else (127, "not found")
         if len(argv) == 4 and argv[1] == "-c":  # the batched import probe: one JSON line per package
             lines = []
             for i, (cands, _dist) in enumerate(json.loads(argv[3])):
@@ -151,9 +152,14 @@ def test_unsafe_names_never_reach_commands(mac):
     assert not any("rm" in " ".join(a) for a in mac.argv)
 
 
-def test_no_key_or_api_error_returns_empty(mac, monkeypatch):
+def test_no_key_or_api_error_falls_back_to_the_lessons_own_list(mac, monkeypatch):
+    # Fresh Mac, offline or no key: the lesson's own libraries (never cached), not an empty card. A lesson with
+    # nothing to go on (Blender: no Python, no editor) still gets no card.
     monkeypatch.setattr(S, "make_client", lambda: None)
-    assert requirements(load("pandas_pokemon.json"), run=mac.run) == []
+    items = requirements(load("pandas_pokemon.json"), run=mac.run)
+    assert [(it["tool"], it["kind"]) for it in items] == [("vscode", "editor"), ("python", "runtime"),
+                                                          ("pandas", "python_package")]
+    assert items[2]["install"]["method"] == "pip" and not S._cache_file(load("pandas_pokemon.json")).exists()
 
     class Boom(FakeClient):
         def create(self, **kw):
@@ -221,7 +227,8 @@ def test_pip_install_creates_lesson_venv(mac, tmp_path, monkeypatch):
     res = install(item, workdir=wd, popen=VenvPopen)
     assert FakePopen.calls[0] == ["/usr/local/bin/python3.12", "-m", "venv", str(wd / ".venv")]
     assert FakePopen.calls[1] == [str(wd / ".venv/bin/python"), "-m", "pip", "install", "--disable-pip-version-check",
-                                  "--progress-bar", "off", "pandas"]  # ed9078d: no progress-bar glyphs in the card
+                                  "--progress-bar", "off", "--retries", "2", "--timeout", "30", "pandas"]
+    # ed9078d: no progress-bar glyphs in the card; a dropped connection fails in about a minute, not five
     assert res["ok"] and res["version"] == "2.2.3"
 
 

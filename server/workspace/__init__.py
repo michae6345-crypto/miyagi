@@ -22,7 +22,7 @@ from .editor import (
 from .paths import build_workdir, folder_name, hero_workdir, lessons_root
 from .resources import NO_RESOURCES, download_resources, find_resources
 from .resources import summary as download_summary
-from .setup import editor_needed, install, missing, requirements, setup_card
+from .setup import editor_missing_card, editor_needed, install, missing, requirements, setup_card
 
 __all__ = [
     "active_editor", "adopt_folder", "folder_on_screen", "vscode_windows", "wrong_folder",
@@ -33,6 +33,7 @@ __all__ = [
     "editor_label",
     "editor_line_location",
     "editor_line_rect",
+    "editor_missing_card",
     "editor_needed",
     "find_resources",
     "folder_name",
