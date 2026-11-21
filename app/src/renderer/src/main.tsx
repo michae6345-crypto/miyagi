@@ -42,6 +42,8 @@ function App(): ReactNode {
 }
 
 document.documentElement.dataset.route = isElectron ? route : 'stage'
+// v2 (W0-4): an app window (Onboarding, Library, Progress, Account) is a normal opaque window: styles.css paints its body.
+if (isElectron && getFeatureWindows().some((w) => w.route === route && w.kind === 'app')) document.documentElement.dataset.kind = 'app'
 // Reuse the root if Vite re-runs this module (dependency re-optimization in dev).
 const container = document.getElementById('root')! as HTMLElement & { __root?: ReturnType<typeof createRoot> }
 container.__root ??= createRoot(container)

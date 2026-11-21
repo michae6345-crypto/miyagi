@@ -1,0 +1,9 @@
+{
+  "name": "updates",
+  "on": {
+    "connect": "updates_idle"
+  },
+  "segments": {
+    "updates_idle": [{ "wait": 300, "type": "status", "payload": { "state": "idle" } }]
+  }
+}

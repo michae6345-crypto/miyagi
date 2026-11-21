@@ -7,14 +7,20 @@ import type { ReactNode } from 'react'
 import { CircleAlert, CirclePlay, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Thumb } from '../../core/ui/atoms'
-import { brand, clock, color, fill, spring } from '../../core/theme'
-import { HOW_LABEL } from './parts'
+import { brand, clock, color, fill, font, spring } from '../../core/theme'
+import { toolsLabel, type LibraryItem } from './library'
+import { HOW_LABEL, NavKey } from './parts'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { alpha, kindTone } from './tint'
 
 /** Fixed, so a row that gains a learner line later never moves its neighbours or the highlight. */
 export const ROW_H = 64
+/** Home-Launcher's tile: 64×40, radius 8. */
+const TILE_W = 64
+const TILE_H = 40
+/** A "Ready to run" row (Home-LauncherInContext): one line, 44 high. */
+export const READY_H = 44
 
 const enter = { opacity: 0, y: 6 }
 const shown = { opacity: 1, y: 0 }
@@ -27,7 +33,7 @@ function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { child
     <motion.button
       type="button"
       tabIndex={-1}
-      className="absolute inset-x-0 flex cursor-pointer items-center gap-[14px] px-[10px] text-left"
+      className="absolute inset-x-0 flex cursor-pointer items-center gap-[16px] px-[16px] text-left"
       style={{ top: slot * ROW_H, height: ROW_H }}
       initial={enter}
       animate={shown}
@@ -43,14 +49,14 @@ function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { child
   )
 }
 
-/** 60×38: the video's thumbnail, or a neutral tile with the source kind's glyph. */
+/** 64×40 (Home-Launcher): the video's thumbnail, or a neutral tile with the source kind's glyph. */
 function Tile({ kind, thumbnail }: Pick<SearchResult, 'kind' | 'thumbnail'>): ReactNode {
-  if (kind === 'video') return <Thumb w={60} h={38} src={thumbnail} />
+  if (kind === 'video') return <Thumb w={TILE_W} h={TILE_H} src={thumbnail} />
   const I = kind === 'repo' ? FolderGit2 : kind === 'notebook' ? FileCode2 : kind === 'paper' ? FileText : Newspaper
   const tone = kindTone[kind]
   return (
     <span
-      className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]"
+      className="grid h-[40px] w-[64px] shrink-0 place-items-center rounded-[8px]"
       style={tone ? { background: alpha(tone, 0.16), color: tone } : { background: fill.tile, color: fill.tileGlyph }}
     >
       <I size={16} strokeWidth={1.6} />
@@ -129,7 +135,7 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
 export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: () => void }): ReactNode {
   return (
     <RowShell slot={0} onHover={onHover} onPick={onPick}>
-      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile }}>
+      <span className="grid h-[40px] w-[64px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile }}>
         <MiyagiMark size={18} />
       </span>
       <Text title={HOW_LABEL.lesson} meta="A lesson built from the internet, no video" />
@@ -138,17 +144,16 @@ export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: ()
 }
 
 /**
- * During a lesson with nothing typed, the only row (highlighted): back to the lesson where it was. Enter, or a click,
- * closes the launcher into the island, so the lesson is one key away and never restarted by accident. Ending the
- * lesson is not a row (desktop test 3, item 8): it's the quiet two-tap link in the footer (parts EndLink).
+ * During a lesson with nothing typed, the only row (highlighted, under "Continue"): back to the lesson where it was.
+ * Enter, or a click, closes the launcher into the island, so the lesson is one key away and never restarted by
+ * accident. Ending the lesson is not a row (desktop test 3, item 8): it's the quiet two-tap link in the footer (parts
+ * EndLink). Home-LauncherInContext: no tile, the lesson's title, where you are, and the ↵ it answers to.
  */
 export function ResumeRow({ lessonTitle, where, onPick }: { lessonTitle?: string; where: string; onPick: () => void }): ReactNode {
   return (
     <RowShell slot={0} onPick={onPick}>
-      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
-        <CirclePlay size={16} strokeWidth={1.6} />
-      </span>
-      <Text title={lessonTitle ? `Continue ${lessonTitle}` : 'Continue the lesson'} meta={where} />
+      <Text title={lessonTitle ?? 'The lesson in progress'} meta={where} />
+      <NavKey>↵</NavKey>
     </RowShell>
   )
 }
@@ -157,7 +162,7 @@ export function ResumeRow({ lessonTitle, where, onPick }: { lessonTitle?: string
 export function SettingsRow({ onPick }: { onPick: () => void }): ReactNode {
   return (
     <RowShell slot={0} onPick={onPick}>
-      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
+      <span className="grid h-[40px] w-[64px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
         <Settings size={16} strokeWidth={1.6} />
       </span>
       <Text title="Settings" meta="Keys and appearance" />
@@ -165,13 +170,100 @@ export function SettingsRow({ onPick }: { onPick: () => void }): ReactNode {
   )
 }
 
-/** A pasted YouTube link: no search, one row, Enter builds straight from it. */
-export function LinkRow({ link, onPick }: { link: YouTubeLink; onPick: () => void }): ReactNode {
+/**
+ * A pasted YouTube link (Home-Launcher "From your link"): no search, one row, Enter builds straight from it. When a
+ * cached lesson was built from this exact video, the row says so ("Already a lesson", "Ready instantly") and Enter
+ * starts it with library.start: zero model calls, nothing built twice.
+ */
+export function LinkRow({ link, match, onPick }: { link: YouTubeLink; match?: LibraryItem; onPick: () => void }): ReactNode {
+  const tools = toolsLabel(match?.tools)
   return (
     <RowShell slot={0} onPick={onPick}>
       <Tile kind="video" thumbnail={thumbnailFor(link.videoId)} />
-      <Text title="YouTube video" meta={`youtu.be/${link.videoId}${link.start ? ` · from ${clock(link.start)}` : ''}`} />
+      {match ? (
+        <Text title={match.title} meta={`Already a lesson. ${match.steps} steps${tools ? ` in ${tools}` : ''}.`} />
+      ) : (
+        <Text title="YouTube video" meta={`youtu.be/${link.videoId}${link.start ? ` · from ${clock(link.start)}` : ''}`} />
+      )}
+      {match && (
+        <span
+          className="inline-flex h-[24px] shrink-0 items-center rounded-full px-[8px] text-[12px]"
+          style={{ boxShadow: `inset 0 0 0 1px ${fill.hairline}`, color: fill.keycapText }}
+        >
+          Ready instantly
+        </span>
+      )}
+      <NavKey>↵</NavKey>
     </RowShell>
+  )
+}
+
+/** Two letters for the tool a cached lesson runs in (Home-Launcher's "Jn" tile). */
+const TOOL_TAG: Record<string, string> = { jupyter: 'Jn', vscode: 'VS', terminal: '>_', excel: 'Xl' }
+
+/**
+ * Home-Launcher "Continue": a cached lesson started on this Mac and not finished. Its tool's tag, the title, where it
+ * was left ("Step 3 of 6 · Drop the empty rows") and a white meter. Click to pick it up (library.start). Its own slot
+ * range: these rows never share slots with the search rows.
+ */
+export function LibraryContinueRow({ item, slot, onHover, onPick }: { item: LibraryItem; slot: number; onHover: () => void; onPick: () => void }): ReactNode {
+  const p = item.progress
+  const done = p ? Math.min(1, Math.max(0, p.stepIndex / Math.max(1, p.total))) : 0
+  return (
+    <RowShell slot={slot} onHover={onHover} onPick={onPick}>
+      <span
+        className="grid h-[32px] w-[32px] shrink-0 place-items-center rounded-[8px] text-[11px]"
+        style={{ background: fill.tile, boxShadow: `inset 0 0 0 1px ${fill.hairline}`, color: fill.keycapText, fontFamily: font.mono }}
+      >
+        {TOOL_TAG[item.tools?.[0] ?? ''] ?? <CirclePlay size={14} strokeWidth={1.6} />}
+      </span>
+      <Text title={item.title} meta={p ? `Step ${p.stepIndex + 1} of ${p.total}${p.stepTitle ? ` · ${p.stepTitle}` : ''}` : `${item.steps} steps`} />
+      <span className="h-[4px] w-[96px] shrink-0 overflow-hidden rounded-full" style={{ background: fill.hairline }}>
+        <span className="block h-full rounded-full" style={{ width: `${Math.round(done * 100)}%`, background: color.text }} />
+      </span>
+    </RowShell>
+  )
+}
+
+/**
+ * Home-LauncherInContext "Ready to run": a cached lesson, built and never started. One line: the title and its step
+ * count. 44 high, in its own slot range (READY_H), apart from the search rows and the Continue rows.
+ */
+export function ReadyRow({
+  item,
+  slot,
+  hover = false,
+  onHover,
+  onPick
+}: {
+  item: LibraryItem
+  slot: number
+  /** Its own hover fill (click-only rows during a lesson); with keys, the list's moving highlight shows it instead. */
+  hover?: boolean
+  onHover: () => void
+  onPick: () => void
+}): ReactNode {
+  return (
+    <motion.button
+      type="button"
+      tabIndex={-1}
+      data-ready={item.id}
+      className="absolute inset-x-0 flex cursor-pointer items-center gap-[16px] rounded-[12px] px-[16px] text-left"
+      style={{ top: slot * READY_H, height: READY_H, backgroundColor: fill.clear }}
+      whileHover={hover ? { backgroundColor: fill.highlight } : undefined}
+      initial={enter}
+      animate={shown}
+      exit={gone}
+      transition={spring}
+      onMouseDown={(e) => e.preventDefault()}
+      onMouseMove={onHover}
+      onClick={onPick}
+    >
+      <span className="min-w-0 flex-1 truncate text-[14px] text-white">{item.title}</span>
+      <span className="shrink-0 text-[12px]" style={{ color: color.label }}>
+        {item.steps === 1 ? '1 step' : `${item.steps} steps`}
+      </span>
+    </motion.button>
   )
 }
 
@@ -179,14 +271,14 @@ export function LinkRow({ link, onPick }: { link: YouTubeLink; onPick: () => voi
 export function SkeletonRow({ slot }: { slot: number }): ReactNode {
   return (
     <motion.div
-      className="absolute inset-x-0 flex items-center gap-[14px] px-[10px]"
+      className="absolute inset-x-0 flex items-center gap-[16px] px-[16px]"
       style={{ top: slot * ROW_H, height: ROW_H }}
       initial={{ opacity: 0 }}
       animate={{ opacity: [0.5, 1, 0.5] }}
       exit={gone}
       transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut', delay: slot * 0.12 }}
     >
-      <span className="h-[38px] w-[60px] shrink-0 rounded-[8px]" style={{ background: fill.skeleton }} />
+      <span className="h-[40px] w-[64px] shrink-0 rounded-[8px]" style={{ background: fill.skeleton }} />
       <span className="flex flex-1 flex-col gap-[8px]">
         <span className="h-[10px] rounded-full" style={{ width: `${52 - slot * 9}%`, background: fill.skeleton }} />
         <span className="h-[8px] rounded-full" style={{ width: `${30 + slot * 6}%`, background: fill.skeleton }} />
@@ -200,7 +292,7 @@ export function MessageRow({ tone, title, detail, slot = 0 }: { tone: 'empty' | 
   const I = tone === 'error' ? CircleAlert : SearchX
   return (
     <motion.div
-      className="absolute inset-x-0 flex items-center gap-[14px] px-[10px]"
+      className="absolute inset-x-0 flex items-center gap-[16px] px-[16px]"
       style={{ top: slot * ROW_H, height: ROW_H }}
       initial={enter}
       animate={shown}
@@ -208,7 +300,7 @@ export function MessageRow({ tone, title, detail, slot = 0 }: { tone: 'empty' | 
       transition={spring}
     >
       <span
-        className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]"
+        className="grid h-[40px] w-[64px] shrink-0 place-items-center rounded-[8px]"
         style={{ background: fill.tile, color: tone === 'error' ? color.text : fill.tileGlyph }}
       >
         <I size={17} strokeWidth={1.6} />
