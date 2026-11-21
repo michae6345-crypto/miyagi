@@ -206,7 +206,7 @@ export const glass = {
  */
 export const scrim = { spotlight: 'rgba(0,0,0,.66)', spotlightSoft: 'rgba(0,0,0,.16)', launcher: 'rgba(0,0,0,.22)' } as const
 
-/** Never name an editor we don't support: any label that mentions Cursor becomes "your editor"; none at all is VS Code. */
+/** Never name an editor we don't support: a label naming the unsupported fork becomes "your editor"; none at all is VS Code. */
 const UNSUPPORTED_EDITOR = /cursor/i
 export function editorName(label?: string | null): string {
   const t = (label ?? '').trim()

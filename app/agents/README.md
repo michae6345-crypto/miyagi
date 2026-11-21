@@ -22,6 +22,58 @@ Everything Adrian's side has to ship, split so each piece is one Claude session 
 
 P0 = needed for the 6 PM checkpoint (the happy path end to end) and "never cut" (launcher, pill status, off-track card, video gating). P1 = by 9 PM. P2 = overnight.
 
+## v2 lanes (miyagi-v2 BUILD-PLAN, wave 1)
+
+Wave 0 (`michael/app-core-v2`, brief `core-v2.md`) lands first: contract sync, theme tokens, shared atoms (`core/ui/*`), app windows (`core/surfaces.ts`, `main/appWindows.ts`), shell services (`core/geometry.ts`, `core/dock.ts`, lesson hooks, prefs, `main/permissions.ts`, engine token, cloud token) and the security core. Every wave 1 lane branches from its merge. Each lane edits only the files its plan entry lists; a core change goes under **Core requests** in its brief.
+
+| Plan | Lane (brief) | Branch | Mockups | Port |
+|---|---|---|---|---|
+| W0 | **core-v2** (`core-v2.md`) | `michael/app-core-v2` | tokens and atoms for all | 5173 |
+| A1 | **lesson-panel** (`drawer.md`) | `michael/app-lesson-panel` | Les-Anatomy, Working, Checking, NotYet, Hint, Passed | 5186 |
+| A2 | **pill-cards** (`pill.md`, `cards.md`) | `michael/app-pill-cards` | Les-Mini, pill lines, Err-KernelInContext footer, Err-VSCodeSetup | 5187 |
+| A3 | **onboarding** (`onboarding.md`) | `michael/app-onboarding` | Onb-Setup-Full, Checklist-Mixed, Setup-Ready, Permission-Recovery | 5188 |
+| A4 | **settings-v2** (`settings.md`) | `michael/app-settings` | Set-General, Permissions, Privacy, Account, Shortcuts, Plan-OwnKey | 5189 |
+| A5 | **home** (`launcher.md`, `building.md`) | `michael/app-launcher` | Home-Launcher, LauncherInContext, Home-Building | 5190 |
+| A6 | **library** (`library.md`) | `michael/app-library` | Home-Library, Home-LessonDetail | 5191 |
+| A7 | **errors** (`errors.md`) | `michael/app-errors` | Err-EngineReconnect, OfflineAndLimits, LessonBuildFailed, VSCodeClosed, KernelInContext, CrashConsent | 5192 |
+| A8 | **progress** (`progress.md`) | `michael/app-progress` | Prog-Step-Passed, Completion, Review-Reminder, Progress-Window | 5193 |
+| A9 | **account** (`account.md`, flag `v2Cloud`) | `michael/app-account` | Plan-AccountMenu, Upgrade, SignIn, Pricing | 5194 |
+| A10 | **dmg-art** | `michael/app-dmg-art` | Onb-Install-Dmg | 5195 |
+| A11 | **studio** (wave 2 optional, stage only) | `michael/app-studio` | Biz-Import, Building, StepEditor | 5196 |
+
+Stage: `npm run dev:web -- --port <port>` then `?scenario=<name>&size=1440x900&clean` (v2 mockups are 1440×900); app windows open with `&window=<route>` (onboarding, library, progress, account). `?scenario=v2-core` plays the v2 events (engine.hello, health, building phases, blocker, library, progress) and a fake reconnect (`_link`).
+
+## Island priority table (v2)
+
+Higher wins. Ranges: 0–9 pill-sized · 20 hover · 40–79 cards · 80+ modal. Reviewers check new modes against this table; a lane that needs a new number adds it here in its PR.
+
+| Priority | Mode (feature) | Status |
+|---|---|---|
+| 0 | idle (pill) | built |
+| 2 | compact (pill): the step pill, "N of M" in v2 | built (A2 restyles) |
+| 3 | building (pill) | built |
+| 4 | saved (pill) | built |
+| 5 | notice (pill): notify() lines | built |
+| 6 | net-offline, busy (errors) | A7 |
+| 7 | reconnecting, blocker pill line (errors) | A7 |
+| 9 | Mini lesson pill (pill-cards, while the panel is collapsed) | A2 |
+| 20 | overview (hover) | built |
+| 45 | build card (building) | A5 |
+| 50 | card (cards) | built |
+| 55 | step passed card (progress; Mini only, never on the last step or with the panel open) | A8 |
+| 58 | limit (errors, `v2Cloud`, flagged) | A7 |
+| 60 | success (cards) | built |
+| 62 | build failed (errors) | A7 |
+| 64 | complete (complete) | built (A8 restyles) |
+| 65 | before-start (before-start) | built |
+| 66 | editor closed (errors) | A7 |
+| 70 | offtrack (cards) | built |
+| 72 | engine offline (errors) | A7 |
+| 75 | permission recovery (onboarding) | A3 |
+| 90 | crash consent (errors; at launch only, never mid-lesson) | A7 |
+
+The lesson panel (A1) is an overlay layer docked right (`core/dock.ts`, z 40), not an island mode; app windows (Onboarding, Library, Progress, Account) are their own windows (decision 4). Panel-routed cards (A1 `isPanelRouted`) render inside the panel while it's open, so the island skips them (A2).
+
 ## Order of work
 1. **Now:** player, launcher, pill, cards, spotlight in parallel (5 agents).
 2. **After the 4:30 sync:** overview, shortcut-bar, settings, diagrams.
