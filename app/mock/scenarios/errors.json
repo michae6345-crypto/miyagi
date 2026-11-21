@@ -86,7 +86,7 @@
     ],
     "err_limit": [
       { "wait": 0, "goto": "err_lesson" },
-      { "wait": 800, "type": "config.status", "payload": { "anthropic": "env", "gemini": "env", "brightdata": "env", "elevenlabs": "env", "tigerUrl": "env", "cloud": "quota" } }
+      { "wait": 800, "type": "config.status", "payload": { "anthropic": "env", "gemini": "env", "elevenlabs": "env", "tigerUrl": "env", "cloud": "quota" } }
     ]
   }
 }
