@@ -3,48 +3,35 @@
  *
  *   Setup    the onboarding rows (permissions + companion + engine, features/onboarding read-only): "All set" or
  *            "2 of 4 ready". A click opens guided setup (openOnboarding).
- *   Engine   the engine row's state and word (Running, Starting, Connecting, Not yet). Click: guided setup too.
- *            When the engine couldn't start: "miyagi couldn't start its engine." under it, with Retry and Copy details.
- *   Cloud    the install token's phase (cloud:get) and config.status.cloud: Connected, Setting up, Offline...
+ *   Ready    one calm line for the engine and the cloud access together (features/errors startup.ts + boot.tsx):
+ *            "miyagi is getting ready" with a soft progress line, "Ready", and only after a real failure or 45 s
+ *            "miyagi couldn't start" with Retry and Copy details. Round 5: it replaced "Engine Connecting" and
+ *            "Cloud Waiting", which read like an alarm while everything was simply starting.
  *   Plan     v2Cloud only (mock data in the stage, off in a normal build): the plan and this period's live help.
  * Status glyphs are the shared ones: green only when that part is done, the white ring for Not yet, gray otherwise.
  * Reads only; it asks for fresh permissions / health / cloud when the window comes forward. Never prompts.
  */
 import { ChevronRight } from 'lucide-react'
+import { LayoutGroup, motion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
 import { useLesson } from '../../core/lesson'
 import { openAccount, openOnboarding } from '../../core/surfaces'
-import { color, fill, radius2, surface, type2 } from '../../core/theme'
-import { QuietButton } from '../../core/ui/buttons'
+import { color, fill, radius2, spring, surface, type2 } from '../../core/theme'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
 import { v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
+import { BootRow } from '../errors/boot'
 import { summarize, useRows } from '../onboarding/rows'
-import { refreshCloud, refreshPerms, requestHealth, runAction, useOnboarding } from '../onboarding/store'
+import { refreshCloud, refreshPerms, requestHealth, useOnboarding } from '../onboarding/store'
 import { Press } from './motion'
 
-/** retry: guided setup can fix it (the row opens it). unused: this Mac builds with its own key, no cloud help. */
-type Line = { state: StatusState; word: string; detail?: string; retry?: boolean; unused?: boolean }
+type Line = { state: StatusState; word: string; detail?: string }
 
-function useCloudLine(): Line {
-  const cloud = useOnboarding((s) => s.cloud)
-  const connected = useLesson((s) => s.connected)
+/** The cloud help isn't used on this Mac (it builds with its own key): the plan's help meter would contradict that. */
+function useCloudUnused(): boolean {
+  const cloud = useOnboarding((s) => s.cloud?.state)
   const status = useLesson((s) => s.keyStatus?.cloud)
-  if (!connected) return { state: 'unknown', word: 'Waiting', detail: 'Needs the engine first.' }
-  switch (status) {
-    case 'offline':
-      return { state: 'notyet', word: 'Offline', detail: "Can't reach miyagi. Check your connection." }
-    case 'quota':
-      return { state: 'notyet', word: 'Used up', detail: "Today's free use is used up. Back tomorrow." }
-    case 'paused':
-      return { state: 'notyet', word: 'Paused', detail: 'miyagi is paused for now.' }
-    case 'unauthorized':
-      return { state: 'notyet', word: 'Off', detail: "This Mac's access was turned off." }
-  }
-  if (cloud?.state === 'ok' || status === 'ok') return { state: 'passed', word: 'Connected', detail: 'Lessons build in the cloud.' }
-  if (cloud?.state === 'minting') return { state: 'checking', word: 'Setting up', detail: 'Setting up access for this Mac.' }
-  if (cloud?.state === 'failed') return { state: 'notyet', word: 'Not yet', detail: "Couldn't set up access. Open setup to retry.", retry: true }
-  return { state: 'unknown', word: 'Not used', detail: 'Lessons build on this Mac with your own key.', unused: true }
+  return !status && cloud !== 'ok' && cloud !== 'minting' && cloud !== 'failed'
 }
 
 function Row({ label, line, onClick, chevron }: { label: string; line: Line; onClick?: () => void; chevron?: boolean }): ReactNode {
@@ -109,25 +96,14 @@ function PlanRow({ cloudUnused }: { cloudUnused: boolean }): ReactNode {
   )
 }
 
-/** The engine didn't come up (main/localEngine.ts failed / missing): say so calmly, with Retry and Copy details. */
-function EngineFailed({ line, retry, alt, onRetry, onAlt }: { line: string; retry: string; alt: string; onRetry: () => void; onAlt: () => void }): ReactNode {
-  return (
-    <div data-home-engine-failed role="status" className="flex flex-col" style={{ padding: '4px 8px 8px', gap: 8 }}>
-      <span style={{ fontSize: type2.xs, color: color.label }}>{line}</span>
-      <span className="flex flex-wrap" style={{ gap: 8 }}>
-        <QuietButton size="md" label={retry} onClick={onRetry} />
-        <QuietButton size="md" label={alt} onClick={onAlt} />
-      </span>
-    </div>
-  )
-}
-
-/** `plan`: false when the account chip below shows the plan already (the home window's sidebar). */
-export function StatusArea({ plan = true }: { plan?: boolean } = {}): ReactNode {
+/**
+ * `plan`: false when the account chip below shows the plan already (the home window's sidebar).
+ * `setup`: false keeps only the ready line (a short window).
+ */
+export function StatusArea({ plan = true, setup: withSetup = true }: { plan?: boolean; setup?: boolean } = {}): ReactNode {
   const rows = useRows()
   const sum = summarize(rows)
-  const engine = rows.find((r) => r.id === 'engine')
-  const cloud = useCloudLine()
+  const cloudUnused = useCloudUnused()
   const connected = useLesson((s) => s.connected)
   const hello = useLesson((s) => s.hello)
   const known = rows.some((r) => r.state !== 'unknown')
@@ -152,19 +128,32 @@ export function StatusArea({ plan = true }: { plan?: boolean } = {}): ReactNode 
         ? { state: 'unknown', word: `${sum.ready} of ${sum.total} ready`, detail: sum.hint }
         : { state: 'notyet', word: `${sum.ready} of ${sum.total} ready`, detail: sum.hint }
 
+  // The section and its rows glide (layout: transforms) when the failed block opens under the Ready row.
   return (
-    <section aria-label="Status" data-home-status className="flex flex-col" style={{ padding: 4, borderRadius: radius2.card, background: fill.group, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
-      <Row label="Setup" line={setup} onClick={() => void openOnboarding()} chevron />
-      {engine && <Row label="Engine" line={{ state: engine.state, word: engine.word, detail: engine.detail }} onClick={engine.state === 'passed' ? undefined : () => void openOnboarding()} />}
-      {engine?.alt && engine.action && <EngineFailed line={engine.detail} retry={engine.action.label} alt={engine.alt.label} onRetry={() => void runAction('retry-engine')} onAlt={() => void runAction('copy-engine-details')} />}
-      {/* A failed cloud setup says "Open setup to retry": the row is the way there (quota, paused, offline: setup can't help). */}
-      <Row label="Cloud" line={cloud} onClick={cloud.retry ? () => void openOnboarding() : undefined} chevron={cloud.retry} />
-      {v2Cloud && plan && (
-        <>
-          <div aria-hidden style={{ height: 1, margin: '4px 8px', background: fill.rule }} />
-          <PlanRow cloudUnused={!!cloud.unused} />
-        </>
-      )}
-    </section>
+    <LayoutGroup id="home-status">
+      <motion.section
+        layout
+        transition={spring}
+        aria-label="Status"
+        data-home-status
+        className="flex flex-col"
+        style={{ padding: 4, borderRadius: radius2.card, background: fill.group, boxShadow: `inset 0 0 0 1px ${surface.border}` }}
+      >
+        <motion.div layout="position" transition={spring}>
+          <BootRow />
+        </motion.div>
+        {withSetup && (
+          <motion.div layout="position" transition={spring}>
+            <Row label="Setup" line={setup} onClick={() => void openOnboarding()} chevron />
+          </motion.div>
+        )}
+        {v2Cloud && plan && (
+          <motion.div layout="position" transition={spring}>
+            <div aria-hidden style={{ height: 1, margin: '4px 8px', background: fill.rule }} />
+            <PlanRow cloudUnused={cloudUnused} />
+          </motion.div>
+        )}
+      </motion.section>
+    </LayoutGroup>
   )
 }
