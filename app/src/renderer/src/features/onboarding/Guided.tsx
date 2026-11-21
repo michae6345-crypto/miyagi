@@ -13,6 +13,11 @@
  * advances on its own once it is green. Enter presses the primary (unless focus is on another button).
  * Motion: steps slide 24 px on the house spring with a fade, their parts rise in with a 35 ms stagger; reduced motion
  * keeps only the fades (MotionConfig in main.tsx). Transform and opacity only.
+ *
+ * chrome 'flow' (the one-window first run, features/shell/flow): no header of its own (the flow's step strip and its
+ * bonsai take that place). `resumeAt`: the step saved before a relaunch; when it is green by now (Screen Recording
+ * after the relaunch) it shows Done for a moment, then the walk moves on, so the learner sees it worked.
+ * Getting miyagi ready shows a soft progress line in its status while the engine starts or access is set up.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
@@ -25,6 +30,7 @@ import { StatusGlyph } from '../../core/ui/status'
 import { Illustration } from './Illustration'
 import { MARK_ID } from './Intro'
 import { EASE_OUT, rise } from './parts'
+import { useReducedMotion } from 'motion/react'
 import { wordColor } from './Row'
 import type { Row } from './rows'
 import { canSkip, firstOpen, guidedRows, nextOpen, STEP_COPY, statusLine, type StepId } from './steps'
@@ -98,6 +104,28 @@ const slide: Variants = {
   exit: ({ d }: Slide) => ({ opacity: 0, x: d * -16, transition: { duration: 0.12, ease: EASE_OUT } })
 }
 
+/** Still on its way by itself (the engine starting, access being set up): no button to press, so the line moves. */
+const settling = (row: Row): boolean => row.id === 'engine' && (row.state === 'watching' || row.state === 'checking') && !row.alt
+
+/**
+ * The soft progress line: one short neutral segment crossing the bottom of the status on a slow loop (transform only,
+ * no hue, no gradient). Reduced motion: the segment stays and breathes instead (never frozen: frozen reads as a hang).
+ */
+function SoftProgress(): ReactNode {
+  const reduce = useReducedMotion() ?? false
+  return (
+    <span aria-hidden data-onb-progress className="absolute bottom-0 left-0 right-0 block h-[2px] overflow-hidden" style={{ background: fill.trackSoft }}>
+      <motion.span
+        className="absolute bottom-0 left-0 top-0 block w-[28%]"
+        style={{ background: fill.practicing, borderRadius: radius2.round }}
+        initial={reduce ? { opacity: 0.35, x: '130%' } : { x: '-100%' }}
+        animate={reduce ? { opacity: [0.35, 0.9, 0.35] } : { x: '360%' }}
+        transition={reduce ? { duration: 2, ease: 'easeInOut', repeat: Infinity } : { duration: 1.6, ease: [0.77, 0, 0.175, 1], repeat: Infinity, repeatDelay: 0.2 }}
+      />
+    </span>
+  )
+}
+
 function Status({ row, advancing }: { row: Row; advancing: boolean }): ReactNode {
   return (
     <div
@@ -117,6 +145,7 @@ function Status({ row, advancing }: { row: Row; advancing: boolean }): ReactNode
       <span className="min-w-0 flex-1" style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label }}>
         {statusLine(row)}
       </span>
+      {settling(row) && <SoftProgress />}
       {/* Moving on: a hairline fills under the status while the done step waits its second (transform only). */}
       {advancing && (
         <motion.span
@@ -176,7 +205,23 @@ function StepScreen({ row, wide, picture, advancing }: { row: Row; wide: boolean
 
 // ---- the walk ------------------------------------------------------------------------------------------------------
 
-export function Guided({ rows, width, height, enterDelay = 0, onFinish }: { rows: Row[]; width: number; height: number; enterDelay?: number; onFinish: () => void }): ReactNode {
+export function Guided({
+  rows,
+  width,
+  height,
+  enterDelay = 0,
+  onFinish,
+  chrome = 'window',
+  resumeAt
+}: {
+  rows: Row[]
+  width: number
+  height: number
+  enterDelay?: number
+  onFinish: () => void
+  chrome?: 'window' | 'flow'
+  resumeAt?: StepId
+}): ReactNode {
   const canAsk = useCapability('health.get')
   const steps = useMemo(() => guidedRows(rows, canAsk), [rows, canAsk])
   const skippedSteps = useOnboarding((s) => s.skippedSteps)
@@ -197,15 +242,25 @@ export function Guided({ rows, width, height, enterDelay = 0, onFinish }: { rows
     const t = setTimeout(() => setSettled(true), SETTLE_MS)
     return () => clearTimeout(t)
   }, [permsKnown])
+  /** The step a relaunch came back to, while it is still the one on screen. */
+  const resumed = useRef<number | undefined>(undefined)
   useEffect(() => {
     if (!settled || idx !== undefined) return
+    // Back after a relaunch on a step that is green by now: show it done for a moment, then move on.
+    const back = resumeAt ? steps.findIndex((s) => s.id === resumeAt) : -1
+    if (back >= 0 && steps[back].state === 'passed') {
+      resumed.current = back
+      setIdx(back)
+      return
+    }
     const first = firstOpen(steps, done)
     if (first === undefined) finish.current()
     else setIdx(first)
-  }, [settled, idx, steps, done])
+  }, [settled, idx, steps, done, resumeAt])
 
   const go = useCallback((to: number | undefined, from?: number) => {
     setAdvancing(false)
+    resumed.current = undefined
     if (to === undefined) return finish.current()
     setDir(from === undefined || to >= from ? 1 : -1)
     setIdx(to)
@@ -215,10 +270,17 @@ export function Guided({ rows, width, height, enterDelay = 0, onFinish }: { rows
   useEffect(() => setGuidedStep(row?.id), [row?.id])
   useEffect(() => () => setGuidedStep(undefined), [])
 
-  // Auto-advance: only a step that turns green while it is on screen (Back to a done step stays put).
+  // Auto-advance: only a step that turns green while it is on screen (Back to a done step stays put), and the step a
+  // relaunch came back to.
   const seen = useRef<{ id: StepId; state: string } | undefined>(undefined)
   useEffect(() => {
     if (!row || idx === undefined) return
+    if (resumed.current === idx && row.state === 'passed') {
+      seen.current = { id: row.id, state: row.state }
+      setAdvancing(true)
+      const t = setTimeout(() => go(nextOpen(steps, idx, done), idx), ADVANCE_MS)
+      return () => clearTimeout(t)
+    }
     const prev = seen.current
     seen.current = { id: row.id, state: row.state }
     if (!prev || prev.id !== row.id || prev.state === 'passed' || row.state !== 'passed') {
@@ -299,8 +361,8 @@ export function Guided({ rows, width, height, enterDelay = 0, onFinish }: { rows
   const picture = wide || height >= 640
 
   return (
-    <div data-onb-view="setup" data-onb-step={row?.id} role="dialog" aria-labelledby="onb-title" className="flex h-full w-full flex-col">
-      <header data-drag className="flex h-[60px] shrink-0 items-center justify-between pl-[88px] pr-[28px]">
+    <div data-onb-view="setup" data-onb-step={row?.id} data-onb-chrome={chrome} role="dialog" aria-labelledby="onb-title" className="flex h-full w-full flex-col">
+      {chrome === 'window' && <header data-drag className="flex h-[60px] shrink-0 items-center justify-between pl-[88px] pr-[28px]">
         <div className="flex items-center gap-[10px]">
           <motion.div layoutId={MARK_ID} className="relative" style={{ width: 22, height: 22 }} transition={{ layout: spring }}>
             <MiyagiMark size={22} />
@@ -314,7 +376,7 @@ export function Guided({ rows, width, height, enterDelay = 0, onFinish }: { rows
             <StepBars rows={steps} idx={idx} done={new Set([...done, ...steps.filter((s) => s.state === 'passed').map((s) => s.id)])} onJump={(i) => go(i, idx)} />
           </motion.div>
         )}
-      </header>
+      </header>}
 
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {row ? (

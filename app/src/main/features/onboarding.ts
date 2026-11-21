@@ -1,13 +1,17 @@
 /**
  * Main-process side of onboarding (A3; renderer: src/renderer/src/features/onboarding/).
  *
- *   - First-run order: branded intro → miyagi login → guided setup → home. While features/auth.ts says the login is
- *     needed, the login window (route `auth`, same size and spot) opens first and plays the intro; setup follows when
- *     the learner signs in or continues without an account (onLoginDone).
- *   - Flags: userData/onboarding.json {done, at, introSeen}. Not done → the Onboarding app window opens once the overlay
- *     has loaded, at the first-run size (FIRST_RUN): the branded intro the very first time ({view:'intro'}), guided
- *     setup after that ({view:'setup'}: a relaunch for Screen Recording lands back in the walk, not the intro).
- *     MIYAGI_SKIP_ONBOARDING=1 skips it (dev). The window's title stays "miyagi" whatever the page says.
+ *   - ONE WINDOW from start to finish (Michael, Nov 21: never a login window floating over home). On a first launch
+ *     only the home window opens (route `library`); its first-run flow layer (renderer features/shell/flow) covers it:
+ *     branded intro → Sign in (while features/auth.ts says the login is needed) → guided setup → You're ready → home
+ *     slides in. No login window, no setup window, nothing behind them. The renderer asks onboarding:get whether the
+ *     flow is on. The Dock click, the tray's Open miyagi and a second launch bring this same window forward
+ *     (launch.ts); a relaunch for Screen Recording comes back to the step it left (flag.step).
+ *   - Flags: userData/onboarding.json {done, at, introSeen, step, later}. done: setup finished (no flow). introSeen:
+ *     the intro played once. step: the guided step on screen (onboarding:step). later: "Set up later" (no flow on
+ *     launch; home's Finish setup opens the setup window). MIYAGI_SKIP_ONBOARDING=1 skips all of it (dev).
+ *   - The standalone setup window (route `onboarding`) and login window (route `auth`) stay as fallbacks only:
+ *     Settings' Open setup and home's Finish setup open the setup window; the Account page's Sign in opens the login.
  *   - Prompts happen ONLY here and ONLY on a click (BUILD-PLAN Section 6): onboarding:prompt(kind). Screen Recording:
  *     one tiny capture makes macOS ask; Accessibility: isTrustedAccessibilityClient(true). System Settings itself opens
  *     through core's permissions:open(kind) (fixed URLs in main/safeOpen.ts), never a URL from a renderer.
@@ -17,7 +21,9 @@
  *     the renderer falls back to the engine's own fix. Never another editor.
  *
  * Handles (bridge.invoke; ctx.handle checks the sender):
- *   onboarding:get                  → { done, introSeen }
+ *   onboarding:get                  → { done, introSeen, flow, login, step }   flow: the home window runs the first run
+ *   onboarding:step (step)          the guided step on screen, saved for a relaunch → true
+ *   onboarding:later                "Set up later": home on launch from now on, setup still not done → true
  *   onboarding:done                 write the flag → true
  *   onboarding:intro-seen           the intro played (or was skipped) → true
  *   onboarding:prompt (kind)        the macOS prompt for 'screen' | 'accessibility' → boolean (asked)
@@ -26,7 +32,7 @@
  *
  * UNVERIFIED in Electron (cost freeze; no live run in this package): the TCC prompts, the relaunch, the CLI install.
  */
-import { desktopCapturer, screen, systemPreferences, type BrowserWindow } from 'electron'
+import { desktopCapturer, systemPreferences, type BrowserWindow } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -34,13 +40,15 @@ import { join } from 'node:path'
 import { defineMainFeature } from '../context'
 import { needsLogin, onLoginDone } from './auth'
 
-/** The first launch's window (intro + guided setup). The renderer's stage uses the same numbers (features/onboarding/web.ts). */
-const FIRST_RUN = { w: 944, h: 640 }
+/** The guided steps a relaunch may come back to (renderer onboarding/steps.ts STEP_ORDER). */
+const STEPS = ['screen', 'accessibility', 'companion', 'engine'] as const
+type Step = (typeof STEPS)[number]
+const isStep = (s: unknown): s is Step => typeof s === 'string' && (STEPS as readonly string[]).includes(s)
 const INSTALL_TIMEOUT_MS = 180_000
 const EXTENSIONS = ['ms-python.python', 'ms-toolsai.jupyter']
 const VSIX_RE = /^miyagi[A-Za-z0-9._-]*\.vsix$/
 
-type Flag = { done: boolean; at?: string; introSeen?: boolean }
+type Flag = { done: boolean; at?: string; introSeen?: boolean; step?: Step; later?: boolean }
 
 /** VS Code's own CLI inside the app bundle: present even when `code` was never added to PATH. */
 function codeCli(): string | undefined {
@@ -87,7 +95,7 @@ export default defineMainFeature({
     if (existsSync(file)) {
       try {
         const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<Flag>
-        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true }
+        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true, step: isStep(raw.step) ? raw.step : undefined, later: raw.later === true }
       } catch {
         console.warn('[onboarding] onboarding.json could not be read; showing setup again')
       }
@@ -103,62 +111,59 @@ export default defineMainFeature({
       }
     }
 
-    /** A first-run window (login or setup), centered on the display under the pointer, clamped to its work area. */
-    const place = (win: BrowserWindow | undefined): BrowserWindow | undefined => {
+    const skip = process.env.MIYAGI_SKIP_ONBOARDING === '1'
+    /** The home window runs the first run (renderer features/shell/flow): setup not done and not put off. */
+    const flowOn = (): boolean => !skip && !flag.done && !flag.later
+
+    /** The product's name, lowercase, in the title bar and the Window menu (BRAND.md), whatever the page sets. */
+    const pinned = new WeakSet<BrowserWindow>()
+    const pinTitle = (win: BrowserWindow | undefined): BrowserWindow | undefined => {
       if (!win || win.isDestroyed()) return undefined
-      // The product's name, lowercase, in the title bar and the Window menu (BRAND.md), whatever the page sets.
       win.setTitle('miyagi')
-      win.on('page-title-updated', (e) => e.preventDefault())
-      const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
-      const w = Math.min(FIRST_RUN.w, area.width - 32)
-      const h = Math.min(FIRST_RUN.h, area.height - 32)
-      // Before it is shown (ready-to-show), so nothing animates or jumps.
-      win.setBounds({ x: Math.round(area.x + (area.width - w) / 2), y: Math.round(area.y + (area.height - h) / 2), width: w, height: h })
+      if (!pinned.has(win)) {
+        pinned.add(win)
+        win.on('page-title-updated', (e) => e.preventDefault())
+      }
       return win
     }
 
-    /** The first run's setup window: intro (once) then guided setup. */
-    const openFirstRun = (): BrowserWindow | undefined => place(ctx.openWindow('onboarding', { view: flag.introSeen ? 'setup' : 'intro' }))
+    /**
+     * The first launch: only the home window. Its flow layer plays the intro, Sign in, guided setup and You're ready
+     * in place, then home slides in (renderer features/shell/flow). A later launch with setup put off ("Set up later")
+     * opens home too, without the flow.
+     */
+    const startFirstRun = (): void => {
+      pinTitle(ctx.openWindow('library'))
+    }
 
     /**
-     * First-run order (agents/auth.md): branded intro → miyagi login → guided setup → home. While the login is
-     * needed (features/auth.ts: on, nobody signed in, no choice made yet), the login window opens first and plays the
-     * intro itself; when the learner is done there (signed in, or "Continue without an account"), auth.ts asks for
-     * setup, which opens without the intro (it already played).
+     * Done with the login (auth.ts auth:continue). In the one-window flow the login is a screen of the home window: the
+     * flow moves on by itself, nothing opens. Only the standalone login window (a fallback: the Account page's Sign in)
+     * hands over to a window: home, when setup isn't done yet (its flow carries on there), else nothing.
      */
-    let quitting = false
-    ctx.app.on('before-quit', () => (quitting = true))
-    let loginDone = false
-    const introPlayed = (): void => {
-      if (flag.introSeen) return
-      flag = { ...flag, introSeen: true }
-      save()
-    }
-
-    const startFirstRun = (): void => {
-      if (!needsLogin()) {
-        openFirstRun()
-        return
-      }
-      const login = place(ctx.openWindow('auth', { view: flag.introSeen ? 'login' : 'intro' }))
-      // Closed with the red button, no choice made: setup still opens (nobody is left with only the pill), and the
-      // intro won't play again. The login itself shows again next launch, since nothing was chosen.
-      login?.once('closed', () => {
-        if (quitting || loginDone || flag.done) return
-        introPlayed()
-        openFirstRun()
-      })
-    }
     onLoginDone(() => {
-      loginDone = true
-      if (flag.done) return undefined // a later sign-in (Account page): no setup to open
-      introPlayed()
-      return openFirstRun()
+      if (!ctx.appWindow('auth')) return undefined
+      if (flag.done) return undefined
+      return pinTitle(ctx.openWindow('library'))
     })
 
-    if (!flag.done && process.env.MIYAGI_SKIP_ONBOARDING !== '1') ctx.overlay.webContents.once('did-finish-load', startFirstRun)
+    if (!flag.done && !skip) ctx.overlay.webContents.once('did-finish-load', startFirstRun)
 
-    ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true }))
+    ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true, flow: flowOn(), login: flowOn() && needsLogin(), step: flag.step }))
+    ctx.handle('onboarding:step', (step: unknown) => {
+      if (isStep(step) && flag.step !== step && !flag.done) {
+        flag = { ...flag, step }
+        save()
+      }
+      return true
+    })
+    ctx.handle('onboarding:later', () => {
+      if (!flag.later && !flag.done) {
+        flag = { ...flag, later: true, introSeen: true }
+        save()
+      }
+      return true
+    })
     ctx.handle('onboarding:done', () => {
       if (!flag.done) {
         flag = { ...flag, done: true, at: new Date().toISOString() }

@@ -1,6 +1,72 @@
 # onboarding (A3)
 
-**Status:** intro + guided setup pass done (lane intro-setup): typecheck green, brand lint clean, stage flows walked end to end headless (intro, skip, reduced motion, steps 1-4 with auto-advance, Back, Review setup, Walk me through it, You're ready, Start). Electron not run (cost freeze) · **Priority:** P0 (first run) · **Port:** 5402 (this lane; 5188 before) · **Branch:** `michael/app-intro-setup` (from `michael/v2-integration`; earlier `michael/app-onboarding`, draft #171) · **PR:** draft into `adrian/shell`
+**Status:** one-window first run (lane oneflow, Nov 21: the flow layer in the home window, see below); before that, intro + guided setup pass done (lane intro-setup): typecheck green, brand lint clean, stage flows walked end to end headless (intro, skip, reduced motion, steps 1-4 with auto-advance, Back, Review setup, Walk me through it, You're ready, Start). Electron not run (cost freeze) · **Priority:** P0 (first run) · **Port:** 5402 (this lane; 5188 before) · **Branch:** `michael/app-intro-setup` (from `michael/v2-integration`; earlier `michael/app-onboarding`, draft #171) · **PR:** draft into `adrian/shell`
+
+## One window from start to finish (lane oneflow, Nov 21, branch `michael/app-one-flow`)
+Michael: it must feel like ONE app; a login window floating over home ("two separate pages") is out. The first run now
+happens inside the home window (route `library`, the app shell): a full-window **flow layer**
+(`features/shell/flow/`) covers it, sidebar included, and hands the window to home at the end.
+
+| Phase | What shows |
+|---|---|
+| intro | the branded intro (Intro.tsx), the first time only; any key or click skips |
+| login | "Sign in to miyagi" (features/auth Login.tsx): one big white Continue with Google, a quiet "Apple · GitHub · coming soon", "Continue without an account" under it. Only while main says the login is needed. |
+| setup | guided setup (Guided.tsx, `chrome="flow"`: no header of its own): Screen Recording, Accessibility, VS Code companion, Getting miyagi ready (engine + cloud access, with a soft progress line; Retry and Copy details on a real failure: `engine-local:restart` / `engine-local:details`) |
+| ready | You're ready (Ready.tsx, `onStart`), or Review setup when something the learner can fix is left |
+| leaving | the hand-off: the layer fades, the sidebar slides in from the left over it, the bonsai lands in the sidebar's logo, Home rises in |
+
+- **Strip** (Strip.tsx): `[bonsai] Sign in · Screen · Accessibility · VS Code · Ready` at the top. Current step white on a
+  raised pill that slides between steps; done steps get the green tick (green = done only), the rest are faint.
+  "Ready" covers Getting miyagi ready and You're ready. "Set up later" (top right, setup only) hands over to home
+  without finishing setup (`onboarding:later`: home on launch from then on; home's Finish setup opens the setup window).
+- **Main** (`main/features/onboarding.ts`, `launch.ts`): a first launch opens ONLY the home window; no login window,
+  no setup window, nothing behind them. `onboarding:get` answers `{done, introSeen, flow, login, step}`; the guided step
+  on screen is saved (`onboarding:step`) so a relaunch for Screen Recording returns to it (shown Done for a moment
+  when it is green by now, then the walk moves on). The Dock click, the tray's Open miyagi and a second launch bring
+  the same window forward as it is (no new args). `auth:continue` in the flow opens nothing (`onLoginDone` returns
+  nothing while no login window is open).
+- **Fallbacks kept**: the standalone setup window (`openOnboarding()`: Settings' Open setup, home's Finish setup, the
+  sidebar's Setup row) and the standalone login window (`openLogin()`: the Account page's Sign in). The login window
+  now shows the same lighter login.
+
+### One window: motion spec
+All moves use the house spring `{stiffness 420, damping 34, mass 0.9}`; fades are tweens on `ease.out`
+`cubic-bezier(0.23, 1, 0.32, 1)`. Transform and opacity only; the window never resizes. Constants:
+`features/shell/flow/motion.ts`.
+
+**Shared elements** (motion `layoutId`, one `LayoutGroup id="shell"` around the shell):
+| layoutId | Where it lives, in order |
+|---|---|
+| `onb-mark` (MARK_ID) | Intro, 148 px, center → Login header, 56 px → the strip's step indicator, 18 px (setup and ready) → the sidebar's top-left logo, 20 px (`FlowMark`, Sidebar.tsx). Only one is mounted at a time; motion glides the new one from the last one's box. |
+| `flow-strip-current` | the strip's current-step pill, from step to step |
+| `shell-nav-selection` | (the sidebar's own, unchanged) |
+
+**Timeline**
+| Transition | Motion |
+|---|---|
+| intro | as before: tree grows 0 to 1.05 s, wordmark 0.95 s, line 1.3 s, ends 2.5 s |
+| intro → login | intro fades 200 ms; the tree glides and shrinks into the login header (spring); the login fades in 240 ms, 80 ms late; the strip fades in (opacity 240 ms, y -4 → 0 on the spring) |
+| login → setup | login fades 120 ms with a 6 px lift; the tree glides up into the strip; the pill slides Sign in → Screen and Sign in gets its tick (scale .6 → 1, spring); the step slides in 24 px, 160 ms late, its parts rising 35 ms apart |
+| step → step | Done for 1.1 s (a green hairline fills under the status, linear), then the step slides 24 px (spring) with a 180 ms fade; exit 16 px / 120 ms; the pill slides along |
+| Getting miyagi ready | a soft progress line: one 28 % neutral segment crossing the status's bottom edge, 1.6 s `ease.inOut`, 0.2 s rest, looping, transform only |
+| setup → ready | the step fades 120 ms; Ready's rows rise 35 ms apart |
+| ready → home | the strip drops the tree; the layer fades 220 ms; the sidebar slides in from x = -its width (spring, 40 ms late) over the fading layer; the tree glides into the sidebar logo; home fades in 240 ms and rises 8 px (spring), 120 ms late, then its cards rise one after another (library/motion.tsx); the layer is gone after 900 ms |
+| login: waiting | the button's glyph swaps to the spinner (scale .7 → 1, spring), the label slides 6 px up into "Waiting for Google…" (spring + 180 ms fade); one faint ink band (`tint.hoverOnLight`, no gradient) crosses the button, 1.8 s `ease.inOut`, 0.4 s rest; "Finish in your browser · Cancel" fades in under it |
+| login: failed | the reason fades in under the button (240 ms), with Try again. No shake, no hue. |
+
+**Reduced motion** (`MotionConfig reducedMotion="user"`, main.tsx): every transform and layout move is dropped and the
+fades stay, so each hand-off is a crossfade: the tree appears in its new place as the views crossfade; the sidebar
+fades in (opacity, no slide); the progress line and the shimmer breathe in place (opacity loops, never frozen); the
+intro is one static frame (as before).
+
+**Stage**: `npm run dev:web -- --port 6111` →
+`http://localhost:6111/?scenario=onboarding&flow=1&size=1440x900&clean&step=intro|login|screen|access|vscode|engine|ready|done`
+(`done`: You're ready, then Start by itself, so the hand-off plays; `&auth=fail` for the failure line). Frame sequences
+(headless, 1440x900): `miyagi-v2/screens/round5/oneflow-*.jpg` (sheets: `oneflow-sheet-a-intro-to-login`,
+`-b-login-to-setup`, `-c-google-wait-fail`, `-d-engine-to-ready`, `-e-ready-to-home`, `-f-reduced-motion-handoff`,
+`-g-screen-to-accessibility`).
+Not verified in Electron (no live run in this lane): the first launch opening only home, the Dock / tray / second
+launch bringing it forward, the relaunch landing back on the step, the traffic lights over the strip.
 
 ## Goal (intro-setup lane, Nov 20)
 First launch = a branded intro, then guided setup, one step per screen (Michael's choice; replaces the all-in-one

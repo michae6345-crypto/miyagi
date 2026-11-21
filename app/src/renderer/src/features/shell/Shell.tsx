@@ -15,8 +15,13 @@
  * preview, a skill card or clears the search, and otherwise does nothing.
  * Each page renders inside its own error boundary: a page that throws shows a calm card with Try again, and the
  * other pages keep working.
+ *
+ * The first run happens in this same window (flow/: one window from start to finish). Until setup is over, the flow
+ * layer covers everything, sidebar included; nothing of home mounts under it. At the end the layer fades, the sidebar
+ * slides in from the window's left edge over it, the bonsai glides from the flow's step strip into the sidebar's logo
+ * (one LayoutGroup, layoutId MARK_ID) and Home rises in, its cards one after another. Reduced motion: crossfades only.
  */
-import { AnimatePresence, motion, type Variants } from 'motion/react'
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion, type Variants } from 'motion/react'
 import { RotateCcw } from 'lucide-react'
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
@@ -33,7 +38,10 @@ import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SkillsPage } from './pages/SkillsPage'
-import { Sidebar } from './Sidebar'
+import { FlowLayer } from './flow/FlowLayer'
+import { homeIn, sidebarIn } from './flow/motion'
+import { flowCovers, initFlow, useFlow } from './flow/store'
+import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_W } from './Sidebar'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
@@ -194,13 +202,19 @@ export function Shell(): ReactNode {
   const visited = useShell((s) => s.visited)
   const openId = useLibrary((s) => s.openId)
   const [ref, size] = useSize<HTMLDivElement>()
+  const phase = useFlow((s) => s.phase)
+  const reduce = useReducedMotion() ?? false
+  /** Home arrives from the first-run flow (this session): the sidebar slides in and the content rises. */
+  const arriving = useRef(false)
+  if (phase === 'leaving') arriving.current = true
+  useEffect(() => initFlow(), [])
 
   // ⌘1..⌘6 (Ctrl+1..6 on Windows) pick a page. Typing in a field is left alone except for these chords.
   useEffect(() => {
     const mac = bridge.platform.os === 'mac'
     const onKey = (e: KeyboardEvent): void => {
       const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
-      if (!mod || e.altKey || e.shiftKey) return
+      if (!mod || e.altKey || e.shiftKey || useFlow.getState().phase !== 'off') return
       const n = Number(e.key)
       if (!Number.isInteger(n) || n < 1 || n > PAGES.length) return
       e.preventDefault()
@@ -211,21 +225,40 @@ export function Shell(): ReactNode {
   }, [])
 
   const backLabel = PAGES.find((p) => p.id === page)?.label
+  const home = phase === 'off' || phase === 'leaving'
+  const compact = size.w < COMPACT_W
+  const enter = arriving.current
   return (
-    <div ref={ref} data-shell={page} className="flex h-full w-full" style={{ color: color.text }}>
-      <Sidebar compact={size.w < COMPACT_W} short={size.h < SHORT_H} />
-      <main className="relative min-w-0 flex-1 overflow-hidden">
-        {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
-          <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId} />
-        ))}
-        <AnimatePresence>
-          {openId && (
-            <motion.div key="detail" data-shell-detail={openId} {...riseIn} className="absolute inset-0 z-20" style={{ background: color.window }}>
-              <Detail id={openId} back={backLabel} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
-    </div>
+    <LayoutGroup id="shell">
+      <div ref={ref} data-shell={page} data-flow-phase={phase} className="relative flex h-full w-full overflow-hidden" style={{ color: color.text }}>
+        {home && (
+          <motion.div
+            data-shell-sidebar-wrap
+            className="relative z-[3] flex h-full shrink-0"
+            // From the window's left edge, its own width (reduced motion: a fade, nothing slides).
+            initial={enter ? (reduce ? { opacity: 0 } : { x: -(compact ? SIDEBAR_COMPACT_W : SIDEBAR_W) }) : false}
+            animate={{ x: 0, opacity: 1 }}
+            transition={sidebarIn}
+          >
+            <Sidebar compact={compact} short={size.h < SHORT_H} />
+          </motion.div>
+        )}
+        {home && (
+          <motion.main className="relative min-w-0 flex-1 overflow-hidden" initial={enter ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
+            {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
+              <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId} />
+            ))}
+            <AnimatePresence>
+              {openId && (
+                <motion.div key="detail" data-shell-detail={openId} {...riseIn} className="absolute inset-0 z-20" style={{ background: color.window }}>
+                  <Detail id={openId} back={backLabel} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.main>
+        )}
+        <AnimatePresence>{flowCovers(phase) && <FlowLayer key="flow" width={size.w} height={size.h} />}</AnimatePresence>
+      </div>
+    </LayoutGroup>
   )
 }

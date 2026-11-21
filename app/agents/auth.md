@@ -1,7 +1,16 @@
 # auth: first-run login (branches `michael/app-login`, then `michael/app-login-wire`)
 
 Flow: **branded intro** (the bonsai grows up out of its pot in the middle of the window, the wordmark settles under it)
-→ **miyagi login** (New user / Returning user, three sign-on boxes at the bottom) → **guided setup** (onboarding) → home.
+→ **Sign in to miyagi** → **guided setup** (onboarding) → home.
+
+**One window (lane oneflow, Nov 21):** on a first launch all of this happens inside the home window (the shell's flow
+layer, `features/shell/flow/`, see agents/onboarding.md "One window"); the login window below is now only a fallback
+(the Account page's Sign in). The login is lighter: one big white **Continue with Google**, a quiet line "Apple ·
+GitHub · coming soon", **Continue without an account** under it; no New / Returning toggle. While the browser is open
+the button morphs into "Waiting for Google…" (spinner, a faint band crossing it) with "Finish in your browser ·
+Cancel"; a failure's plain-words reason fades in under the button with Try again (no shake, no hue).
+`Login({onContinue})` moves the flow on; `auth:continue` opens nothing in the flow (onboarding.ts `onLoginDone`
+returns nothing while no login window is open).
 
 - **On by default**: `LOGIN_ENABLED = true` in `src/common/flags.ts`, separate from v2Cloud. `MIYAGI_LOGIN=0` turns it
   off for one run. The plans, pricing and usage mock stays behind v2Cloud=false.

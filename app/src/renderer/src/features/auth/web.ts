@@ -6,8 +6,9 @@
  *   ?auth=signedin                  auth:get answers a fixture learner (also the shell's Account page and chip)
  *   ?auth=fail                      auth:google answers a failure (reason 'timeout')
  *   ?auth=unset                     auth:google answers reason 'not-configured'
- * auth:google waits 1.6 s (the browser round trip) and signs in the fixture. auth:continue opens guided setup
- * (onboarding, view setup) and closes the login, like main on a first run. Mock data only.
+ * auth:google waits 1.6 s (the browser round trip) and signs in the fixture. auth:continue from the login window opens
+ * guided setup (onboarding, view setup) and closes the login; in the one-window flow (no login window) it does nothing
+ * more, like main. Mock data only.
  */
 import { bridge, isElectron, registerWebHandler } from '../../bridge'
 import { closeWindow, openWindow } from '../../core/surfaces'
@@ -44,6 +45,9 @@ function setupWeb(): void {
     return true
   })
   registerWebHandler('auth:continue', async () => {
+    // Like main: the one-window first run (no login window open) carries on in the home window by itself.
+    const open = await bridge.invoke<string[]>('window:stage-list').catch((): string[] => [])
+    if (!open?.includes('auth')) return { next: 'none' }
     // Like main: guided setup only while it isn't done (a later sign-in from the Account page just closes the login).
     const onb = await bridge.invoke<{ done?: boolean }>('onboarding:get').catch(() => undefined)
     const setup = !onb?.done

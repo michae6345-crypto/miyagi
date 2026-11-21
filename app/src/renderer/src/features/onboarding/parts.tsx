@@ -37,7 +37,8 @@ export function ReadyCount({ sum }: { sum: Summary }): ReactNode {
 }
 
 /** The bottom bar: what's left (or `left`) and the one primary. */
-export function Footer({ sum, left, border = true, label = 'Start learning' }: { sum: Summary; left?: ReactNode; border?: boolean; label?: string }): ReactNode {
+/** `onStart`: what the primary does (the setup window's startLearning by default; the one-window flow hands over to home). */
+export function Footer({ sum, left, border = true, label = 'Start learning', onStart = startLearning }: { sum: Summary; left?: ReactNode; border?: boolean; label?: string; onStart?: () => void }): ReactNode {
   return (
     <div className="flex items-center justify-between gap-[24px] pt-[24px]" style={{ borderTop: border ? `1px solid ${fill.hairline}` : undefined }}>
       {left ?? (
@@ -46,7 +47,7 @@ export function Footer({ sum, left, border = true, label = 'Start learning' }: {
         </span>
       )}
       <span data-onb-primary>
-        <PrimaryButton size="lg" label={label} disabled={!sum.canStart} onClick={startLearning} />
+        <PrimaryButton size="lg" label={label} disabled={!sum.canStart} onClick={onStart} />
       </span>
     </div>
   )

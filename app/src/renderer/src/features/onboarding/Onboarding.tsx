@@ -34,7 +34,8 @@ const ARGS_WAIT_MS = 250
 
 type Phase = 'intro' | 'setup' | 'ready' | 'checklist'
 
-function useLive(): void {
+/** Live, never prompting: watch permissions and ask for health while this window is focused (also the flow layer's). */
+export function useLive(): void {
   const hello = useLesson((s) => !!s.hello)
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined

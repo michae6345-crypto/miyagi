@@ -19,6 +19,13 @@
  *   - cloud access (DISTRIBUTION-PLAN 4) is "setting up" until the engine step has been up 2.5 s, then ready, so the
  *     last step shows and advances on its own (full, step1-4).
  *   - library.get {id: "onb_<variant>"} selects the variant's segment in the mock (health answers for that variant).
+ *
+ * ?flow=1&step=<step> is the one-window first run (features/shell/flow): the HOME window opens (never the setup window)
+ * and the flow layer covers it, starting at that step:
+ *   intro   the intro, then Sign in        login   Sign in (intro seen)       screen  Screen Recording (signed out
+ *   access  Accessibility (Screen on)      vscode  VS Code (both grants on)   engine  Getting miyagi ready (access 2.5 s)
+ *   ready   You're ready                   done    You're ready, then Start by itself (the hand-off to home)
+ * onboarding:step / onboarding:later stand in for main (memory only).
  */
 import { cmd } from '../../../../common/wire'
 import { bridge, isElectron, registerWebHandler } from '../../bridge'
@@ -42,10 +49,34 @@ export function stageWindowSize(): { w: number; h: number } {
   return stageVariant && GUIDED.includes(stageVariant) ? FIRST_RUN_SIZE : windowSize.onboarding
 }
 
+export type FlowStep = 'intro' | 'login' | 'screen' | 'access' | 'vscode' | 'engine' | 'ready' | 'done'
+const FLOW_STEPS: readonly FlowStep[] = ['intro', 'login', 'screen', 'access', 'vscode', 'engine', 'ready', 'done']
+/** Each flow step as the guided variant it starts from (grants and the mock segment). */
+const FLOW_VARIANT: Record<FlowStep, StageVariant> = { intro: 'full', login: 'full', screen: 'step1', access: 'step2', vscode: 'step3', engine: 'step4', ready: 'ready', done: 'ready' }
+
+/** ?flow=1&step=…: the stage's one-window first run, or undefined. */
+export function stageFlowStep(): FlowStep | undefined {
+  const q = new URLSearchParams(location.search)
+  if (q.get('flow') !== '1') return undefined
+  return FLOW_STEPS.find((s) => s === q.get('step')) ?? 'intro'
+}
+
 function setupWeb(): void {
+  const flowStep = stageFlowStep()
   let done = false
-  let introSeen = false
-  registerWebHandler('onboarding:get', () => ({ done, introSeen }))
+  let introSeen = !!flowStep && flowStep !== 'intro'
+  let later = false
+  let savedStep: string | undefined
+  const login = flowStep === 'intro' || flowStep === 'login'
+  registerWebHandler('onboarding:get', () => ({ done, introSeen, ...(flowStep ? { flow: !done && !later, login, step: savedStep } : {}) }))
+  registerWebHandler('onboarding:step', (step) => {
+    savedStep = typeof step === 'string' ? step : undefined
+    return true
+  })
+  registerWebHandler('onboarding:later', () => {
+    later = true
+    return true
+  })
   registerWebHandler('onboarding:done', () => {
     done = true
     return true
@@ -65,7 +96,7 @@ function setupWeb(): void {
   registerWebHandler('onboarding:install-companion', () => ({ ok: false, reason: 'no-vsix' }))
 
   const raw = new URLSearchParams(location.search).get('onb')
-  const variant = VARIANTS.find((v) => v === raw)
+  const variant = flowStep ? FLOW_VARIANT[flowStep] : VARIANTS.find((v) => v === raw)
   if (!variant) return
   stageVariant = variant
   const guided = GUIDED.includes(variant)
@@ -85,9 +116,10 @@ function setupWeb(): void {
     return true
   })
 
-  if (guided) {
+  // The flow's ready: access is set up already (the walk goes straight to You're ready).
+  if (guided || (flowStep && variant === 'ready')) {
     // Cloud access: setting up until the engine step has been on screen a moment, then ready.
-    let cloud: CloudView = { state: 'minting', configured: true, secure: true, hasToken: false }
+    let cloud: CloudView = variant === 'ready' ? { state: 'ok', configured: true, secure: true, hasToken: true } : { state: 'minting', configured: true, secure: true, hasToken: false }
     registerWebHandler('cloud:get', () => cloud)
     registerWebHandler('cloud:retry', () => cloud)
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -106,6 +138,11 @@ function setupWeb(): void {
   const segment = variant === 'mixed' || variant === 'ready' || variant === 'recovery' ? variant : variant === 'step4' ? 'ready' : 'full'
   bridge.send(cmd('library.get', { id: `onb_${segment}` }))
   if (variant === 'recovery') return
+  // One window: home opens, and the flow layer covers it.
+  if (flowStep) {
+    void openWindow('library')
+    return
+  }
   const view = variant === 'intro' || variant === 'full' ? 'intro' : guided ? 'setup' : 'checklist'
   void openWindow('onboarding', variant === 'intro' ? { view, hold: true } : { view })
 }
