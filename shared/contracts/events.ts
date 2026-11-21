@@ -21,6 +21,11 @@ export interface PrimerItem { id: string; title: string; body: string; code?: st
 export interface LessonBuild { summary: string; outcome: string; estMinutes?: number }   // summary: what you'll build (<= 20 words); outcome: what the finished result looks like / does (<= 25 words); estMinutes: the whole lesson (= the sum of the steps' estMinutes)
 export interface FlowBox { label: string; detail?: string; stepIndex?: number }   // one box of the "How it works" diagram (3-6, left to right): label <= 3 words; detail: a formula or <= 4 words; stepIndex: StepSummary.index of the step that builds this box (absent: no single step)
 export interface Prerequisite { id: string; title: string; why: string; status: "passed" | "unknown"; evidence?: string }   // title <= 4 words; why <= 12 words; passed: a lesson completed on this Mac covered it (evidence "Passed in Python Calculator"); unknown: not seen yet (never a failure)
+/** lesson.ready's outline (E23): EVERY step of the lesson from the first lesson.ready on, while the rest is still being written
+ *  (lesson.updated then delivers the steps themselves), so "Step 1 of N · about M min" is right from the start and never jumps.
+ *  count = the number of steps the lesson ends with; a row's index = that StepSummary.index once it arrives. */
+export interface OutlineStep { index: number; title: string; kind?: StepKind; what?: string; estMinutes?: number }
+export interface LessonOutline { count: number; steps: OutlineStep[]; estMinutes?: number }   // estMinutes: the whole lesson (the sum of the rows'), when every row has one
 export interface LearnFirstItem { title: string; minutes: number; kind: "notebook" | "interactive" | "video" | "read"; covers: string }   // a short mini-lesson for a prerequisite not passed yet; covers: Prerequisite.id; the app starts one with learn {query: title, mode: "lesson"} ("video" kind: mode "video")
 
 // ---------- Engine -> App events ----------
@@ -32,16 +37,21 @@ export interface EngineEvents {
                      verified?: boolean; warnings?: string[]; scoredBy?: string; watched?: string;
                      prerequisites?: string[]; codeNotes?: string; comments?: string };
   "search.done": { total: number };
-  "lesson.building": { message: string; progress: number; failed?: boolean; elapsedS?: number };   // message = the stage (changes only with the stage); elapsedS = seconds since the build started (the 1 s heartbeat)   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
-  "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "chapters" | "unknown"; provisional?: boolean;
+  "lesson.building": { message: string; progress: number; failed?: boolean; elapsedS?: number;
+                        stage?: BuildStage; phases?: BuildPhase[]; etaS?: number; source?: BuildSource;              // v2 (Home-Building): the current stage, the checklist rows, about how long is left (seconds), what it is built from
+                        failCode?: BuildFailCode; failReason?: string; alternatives?: BuildAlternative[];             // v2 (Err-LessonBuildFailed), with failed: why in one plain sentence, and what to try instead
+                        silent?: boolean };                                                                            // v2, with failed: the learner already moved on: drop the building UI, no failure card   // message = the stage (changes only with the stage); elapsedS = seconds since the build started (the 1 s heartbeat)   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
+  "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "chapters" | "unknown" | "curated"; provisional?: boolean;
                               goalMatch?: { score: number | null; note: string };
                               mode?: "video" | "lesson"; primer?: PrimerItem[]; overview?: string;
-                              build?: LessonBuild; flow?: FlowBox[]; prerequisites?: Prerequisite[]; learnFirst?: LearnFirstItem[] }; steps: StepSummary[] };   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
+                              build?: LessonBuild; flow?: FlowBox[]; prerequisites?: Prerequisite[]; learnFirst?: LearnFirstItem[];
+                              outline?: LessonOutline }; steps: StepSummary[]; replay?: boolean };   // builtBy "curated": written by hand (the curated "Just teach me" / Demo lessons, server/orchestrator/curated.py), no model wrote it: no "Claude wrote this lesson" line   // replay: the SAME lesson again (an app reconnect / engine restore): keep its progress, never a new start or "Before you start"   // outline: every step from the start (absent: a build whose step count isn't known yet)   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
-  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string; kind?: StepKind; what?: string; why?: string; concepts?: string[]; code?: string; estMinutes?: number };   // estMinutes: about how long this step takes ("about 4 min")   // code: the exact code to type / command to run, in full (never truncated)   // what: what you build in this step (<= 12 words); why: what it means (<= 25 words); concepts: primer ids   // instructions: ONE concrete action ("Create calculator.py and type print(…)"); details: the full explanation; video null/absent: no player for this step
+  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string; kind?: StepKind; what?: string; why?: string; concepts?: string[]; code?: string; estMinutes?: number; replay?: boolean;
+                    where?: string; then?: string };   // v2 (Les-Working): where = the line above the code ("Type this in the new cell"); then = the line under it ("Then run it with the arrow beside the cell.")   // replay: a reconnect's / restore's replay of the step already running (not a new step)   // estMinutes: about how long this step takes ("about 4 min")   // code: the exact code to type / command to run, in full (never truncated)   // what: what you build in this step (<= 12 words); why: what it means (<= 25 words); concepts: primer ids   // instructions: ONE concrete action ("Create calculator.py and type print(…)"); details: the full explanation; video null/absent: no player for this step
   "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
-  "step.passed": { stepId: string; nextStepId?: string; pending?: boolean; skipped?: boolean };   // skipped: the learner pressed Skip (action skip_step): not a pass, never green  // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
+  "step.passed": { stepId: string; nextStepId?: string; pending?: boolean; skipped?: boolean; already?: boolean; summary?: string };   // summary (v2, Les-Passed / Prog-Step-Passed): what the learner just did, <= 12 words   // already: its code was already in the file (pasted ahead / Do it for me): passed without starting; ONE card "You already did steps 2–3" follows   // skipped: the learner pressed Skip (action skip_step): not a pass, never green  // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
   "offtrack": {
     stepId: string;
     severity: "warn" | "fail";
@@ -51,13 +61,17 @@ export interface EngineEvents {
     citation?: { label: string; url: string };
     actions: Array<"explain" | "show_me" | "apply_fix" | "hint">;   // apply_fix = "Do it for me" (only at level 3)
     level?: 2 | 3;             // hint ladder: 2 = concept (no fix yet), 3 = exact fix + diff + apply_fix
-    targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;  // what the coach points at (screen points)
+    targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;  // what the coach points at (screen points)   // lesson mode: ONE target, boxId 0 = the culprit lines the engine measured (label: the box's caption, text: those lines); it may come in a re-sent off-track (same card) once the box is measured; never in a reconnect's replay
     guidingQuestion?: string;  // a Socratic nudge to show under the body
   };
   /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
-  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption
+  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string; zoom?: boolean } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption   // zoom: the target is one of VS Code's own controls under 32 pt (the Run ▷, Toggle Panel, a tab's unsaved dot): show the loupe
   /** What the engine currently sees (debug HUD / optional). */
   "screen.seen": { app: string; summary: string; t: number };
+  /** t9: VS Code's quick-pick (the input box at the top centre: command palette, kernel picker, "Select Interpreter") is open under Miyagi's
+   *  overlay: move the card and the step pill off these rects. Same space as spotlight.rect (screen points, top-left origin). Sent only while a
+   *  lesson is active and only when the set changes; rects [] = it closed: clear it (also drop it on lesson.ended). */
+  "screen.avoid": { rects: { kind: "quickpick"; x: number; y: number; w: number; h: number }[] };
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
@@ -65,17 +79,20 @@ export interface EngineEvents {
    *  "step": a step-control / step-status card the engine raises itself, never an answer: "Run it" (run_command), "Save calc.py", "calc.py is still empty", "Wrong folder?",
    *          "Looks done?" and every judge card (source "judge": "Not yet", "Already ahead?", "Save so I can check"). A neutral step tile, not the pink Hint one.
    *  "where": where to work when there is no box to draw ("Open calc.py", "Where to work", "Save it as calc.py"), usually with open_editor: Show me's answer, and Hint's
-   *          when the step's code isn't on screen yet. The lilac Show me tile. */
+   *          when the step's code isn't on screen yet. The lilac Show me tile.
+   *  "complete" (v2, Prog-Completion): the last step passed; carries skillMap + result. Typed as CardKindV2 (below), not in this union,
+   *  so the app's exhaustive per-kind tables keep compiling; the engine sends it only when the app said so (a future capability). */
   "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight" | "step" | "where"; title: string; body: string; videoJump?: { t: number; label: string };
             output?: string;              // monospace output block (e.g. the last lines of "Run it for me")
-            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "hint" | "show_me">;    // buttons on the card -> send `action {kind}`; retry ("Try again"): on the "Couldn't reach Claude" answer card; hint / show_me: the same actions as on the off-track card (judge "Not yet" card)
+            dismissAfterMs?: number;      // the app closes the card on its own after this long (a one-line success: "requests installed ✓", no buttons)
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "install_all" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "hint" | "show_me">;    // buttons on the card -> send `action {kind}`; retry ("Try again"): on the "Couldn't reach Claude" answer card; hint / show_me: the same actions as on the off-track card (judge "Not yet" card)
             items?: SetupItem[];          // kind "preflight": early tool check (a second card of the same kind replaces the first)
             warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)
             recommended?: "build" | "pick_another";   // which button to make primary
             preflight?: PreflightInfo;    // kind "preflight": what the picked video is, before anything is built
-            where?: string;               // coach (E5): where to go when the place isn't on screen ("Open app.py in Cursor"); shown without a dim
+            where?: string;               // coach (E5): where to go when the place isn't on screen ("Open app.py in VS Code"); shown without a dim
             setup?: { editorNeeded: boolean; items: SetupItem[];
-                      editorLabel?: string | null;                       // "Cursor": the open_editor button reads "Open Cursor"
+                      editorLabel?: string | null;                       // "Visual Studio Code": the open_editor button reads "Open Visual Studio Code"
                       resources?: Array<{ name: string; url: string; kind: "repo" | "notebook" | "gist" | "file" }>;   // files the video links (action download)
                       actionLabels?: { [action: string]: string } };     // button labels, e.g. download: "Download tutorial files"   // kind "setup": what the lesson needs on this Mac (one Install button per missing item -> action install {text: tool})
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
@@ -83,25 +100,80 @@ export interface EngineEvents {
             guidingQuestion?: string;
             source?: "judge";              // E5's step judge made it ("Looks done?" / "Not yet" / "Already ahead?" / "Save so I can check"): a step-status card, never an answer to the learner (sent as kind "step"); don't let it replace an answer card
             verdict?: "done" | "not_done"; // source "judge": Claude's verdict on the WHOLE step. done -> "Looks done?" (confirm = Yes); not_done -> "Not yet" (hint / show_me)
-            checkIds?: string[] };         // source "judge": the checks it is about (done: what Yes vouches for; not_done: what is still missing)
+            checkIds?: string[];           // source "judge": the checks it is about (done: what Yes vouches for; not_done: what is still missing)
+            skillMap?: SkillMap;           // the lesson-complete card (last step passed): the skill map to draw under "Congratulations" (mockup 10)
+            hintStep?: { n: number; of: number };   // v2 (Les-Hint): kind "hint" is rung n of the ladder ("Hint 1 of 2")
+            missingLines?: MissingLine[];  // v2 (Les-NotYet): the step's lines in order, each there or missing
+            fixCaption?: string;           // v2 (Les-NotYet): what to do about them ("Add the first line, then run the cell")
+            waiting?: string;              // v2 (Err-KernelInContext): the footer while the engine waits ("Watching for a kernel to start")
+            result?: LessonResult };       // v2: kind "complete": what the lesson counted (never invented)
   "diagram": {
     kind: "network" | "gradients" | "heatmap" | "graph";
     caption: string;
     stepId?: string;
     data:
-      | { layers: number[]; activation: string; derivatives: string[]; residual: string }            // network
+      | { layers: number[]; activation: string; derivatives: string[]; residual: string; preview?: boolean }   // network   // preview true: a picture of the lesson's own network before the learner's first run (curated.py), not a run: its frames have no epoch / loss and it never plays training (mode forward / backward / stuck); show a "Preview" label, no Epoch / Loss / loss sparkline, and keep it out of the completion screen's charts. Absent: a real run (the learner's terminal, Run it for me, the Demo's recorded runs), frames carry epoch + loss
       | { layers: string[]; epochs: number[]; norms: number[][] }                                     // gradients: norms[layer][epochIdx]
       | { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }                      // heatmap
       | GraphDiagramData;                                                                             // graph (any topic; server/diagrams)
   };
   "speak": { audioUrl: string; text: string };   // audioUrl is RELATIVE (e.g. /tts/<hash>.mp3): resolve it against the engine's http origin
   "metric": { runId: string; step: number; name: string; value: number };   // live curve feed
-  "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" };
+  "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" | "busy"; detail?: string; retryInS?: number };   // v2: detail = what the engine does right now ("Checking your cell", <= 6 words); busy = the AI provider is overloaded, the engine retries in retryInS seconds (no hue)
   /** install progress for one setup item (action install): lines while it runs, then {done, ok, error|version|url} */
   "setup.progress": { tool: string; line?: string; done?: boolean; ok?: boolean; error?: string; url?: string; version?: string };
   /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
   "lesson.ended": { lessonId?: string; reason: string };
   "error": { message: string };
+
+  // ---------- v2 (miyagi-v2 BUILD-PLAN W0-1). All additive; an app that ignores them keeps today's behaviour. ----------
+  /** First message on every connect. contract: the contract date this engine speaks ("2026-11-20"); capabilities: the v2 COMMANDS it
+   *  understands (e.g. "health.get", "library.start", "panel.state"). The app sends a v2 command only when it is listed here.
+   *  restored: this connect resumed a lesson the engine kept (a restart / reconnect), not a fresh start. */
+  "engine.hello": { version: string; contract: string; capabilities: string[]; restored?: boolean };
+  /** Onboarding / Settings rows the ENGINE can probe (companion, VS Code, Python, cloud). Polled only on health.get, never prompts. */
+  "health": { items: HealthItem[]; ready: number; total: number };   // ready = items with state "ok"
+  /** The lesson waits for something outside it (VS Code closed, no kernel, offline): no checks run, nothing counts as Not yet. */
+  "lesson.paused": { reason: PauseReason; title?: string; body?: string; stepId?: string };
+  "lesson.resumed": { reason?: PauseReason; stepId?: string };
+  /** One thing in the learner's way, shown in context (Err-KernelInContext / Err-VSCodeClosed / offline pill line).
+   *  clear: true = it is gone (the same kind). rect: the real control to point at (screen points, spotlight.rect space). */
+  "blocker": { kind: BlockerKind; title?: string; body?: string; action?: string; rect?: { x: number; y: number; w: number; h: number }; clear?: boolean };
+  /** Answer to library.list: lessons built once and cached on this Mac (ready to start with zero model calls). */
+  "library": { items: LibraryItem[] };
+  /** Answer to library.get: one lesson's preview (Home-LessonDetail). */
+  "library.item": { item: LibraryItem; steps?: OutlineStep[]; overview?: string };
+  /** Answer to progress.get (Prog-Progress-Window). Every number comes from passed checks; null fields = not tracked yet. */
+  "progress": Progress;
+}
+
+// ---------- v2 shapes ----------
+/** card.kind including the v2 "complete" card (Prog-Completion). Read a card's kind as this where you handle it. */
+export type CardKindV2 = EngineEvents["card"]["kind"] | "complete";
+export type BuildStage = "watching" | "steps" | "checks" | "ready";   // Home-Building: Watching the video · Finding the steps · Writing the checks · Ready to start
+export interface BuildPhase { id: BuildStage; label: string; state: "done" | "active" | "next"; detail?: string }   // detail: "6 steps found", "Step 4 of 6"
+export interface BuildSource { kind: "youtube" | "goal" | "library"; title: string; channel?: string; durationS?: number; url?: string }
+export type BuildFailCode = "unreadable_code" | "no_steps" | "too_long" | "no_captions" | "network" | "provider" | "unknown";
+/** A way out of a failed build: transcript only (learn_url {url, transcriptOnly: true}) or a cached library lesson (library.start {id}). */
+export interface BuildAlternative { kind: "transcript" | "library"; title: string; meta?: string; id?: string; url?: string }
+export interface MissingLine { text: string; state: "ok" | "missing" }
+/** card kind "complete": what the lesson counted. Skips are counted as skips, never as passes. */
+export interface LessonResult { passed: number; skipped: number; total: number; minutes?: number; lessonId?: string; title?: string }
+export type HealthState = "ok" | "missing" | "off" | "checking" | "unknown";   // unknown = cannot tell without prompting (gray, never a failure)
+export interface HealthItem { id: "vscode" | "companion" | "python" | "jupyter" | "engine" | "cloud" | string; label: string; state: HealthState; detail?: string; fix?: string }   // fix: the action kind that fixes it ("install", "open_editor")
+export type PermissionKind = "screen" | "accessibility" | "automation";
+export type PauseReason = "editor_closed" | "kernel" | "network" | "permission" | "user";
+export type BlockerKind = "kernel" | "editor_closed" | "network";
+export type LessonTool = "vscode" | "jupyter" | "terminal" | "excel";
+/** A cached lesson. id matches ^[A-Za-z0-9_-]{1,64}$; never a path. progress: where the learner left it on this Mac. */
+export interface LibraryItem { id: string; title: string; by?: string; steps: number; estMinutes?: number; tools: LessonTool[]; ready: boolean;
+                               progress?: { stepIndex: number; stepTitle: string; total: number }; source?: BuildSource; updatedAt?: string }
+export type SkillProgressState = "mastered" | "practicing" | "not_started";
+export interface Progress {
+  skills: Array<{ track: string; mastered: number; total: number; items: Array<{ label: string; state: SkillProgressState }> }>;
+  completed: Array<{ lessonId: string; title: string; at: string }>;   // at: ISO date
+  week?: { minutes?: number | null; streak?: number | null; days: boolean[] } | null;   // absent / null: activity not tracked yet (empty state)
+  review?: { due: number; items: Array<{ label: string; file?: string; checks: number; when: string }> } | null;   // absent / null: no review scheduler yet
 }
 
 /** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`. */
@@ -138,20 +210,51 @@ export interface GraphDiagramData {
   groups?: Array<{ id: string; label: string }>;
 }
 
+/** card.skillMap (server/lesson/skillmap.py): what the finished lesson taught, on one track (mockup 10 "Your skills").
+ *  Nodes left to right in track order; edges connect them (arrows). Progress is never invented: mastered = every step behind
+ *  the node passed (a check), learning = one of them was skipped (a ring), next = not learned yet (dashed). */
+export type SkillState = "mastered" | "learning" | "next";
+export interface SkillNode { id: string; label: string; state: SkillState; detail?: string }   // label <= 6 words; detail: a formula / "Step 2 skipped" / why it's next (<= 12 words), shown under the label
+export interface SkillEdge { from: string; to: string }                                         // SkillNode ids
+export interface SkillCross { track: string; label: string; to: string; note?: string }       // a dashed "shared idea" link from another track's concept (track "Math", label "Matrix multiply") to SkillNode.id `to`; note: the link's caption
+export interface SkillNext { title: string; goal: string }                                     // an up-next lesson; goal = launcher text: start it with learn {query: goal, mode: "lesson"}
+export interface SkillMap { track: string; headline: string; nodes: SkillNode[]; edges: SkillEdge[]; cross: SkillCross[]; next: SkillNext[] }   // track: "Neural networks"; headline: "A 1-4-4-1 network that learns the shape of sin(x). 8 mastered, 5 up next in Neural networks."
+
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
   "learn": { query: string; mode?: "video" | "lesson" | "demo" };   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video"); mode "demo": the launcher's Demo option, the staged neural-net lesson for any goal (server/orchestrator/stage.py: typing steps pass on a save or Check my work, runs are recorded, one planned off-track on Train it)
-  "learn_url": { url: string };                     // pasted YouTube link
+  "learn_url": { url: string; transcriptOnly?: boolean };   // pasted YouTube link   // transcriptOnly (v2, Err-LessonBuildFailed "Try transcript only"): build from what the teacher says, no screen reading
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry"; text?: string };  // retry: the "Couldn't reach Claude" card's Try again: the engine re-sends the learner's last ask / explain / hint (no text needed)  // run_command: "Run it for me" on a run step (the engine runs the step's command in the lesson folder, max 10 s, and shows the output)  // use_this_folder: the learner is editing the lesson file in another folder; adopt that folder as the lesson folder (copies only missing files, never overwrites)  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+  /** explain: no text = explain the current step (Explain button / shortcut, unchanged). text = the learner's selection (the drawer's "Explain more" pop-up on selected lesson text):
+   *  the engine answers with a card {kind: "explain", title: "About `<start of the selection>`", body}: the selection explained, the current step as context. VS Code's "Miyagi: Explain this" gives the same card (it reaches the engine over POST /vscode/event, not this socket). */
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "install_all" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "start"; text?: string };  // install_all (t9 V12): the setup card's "Install all": every missing row, one after another (each row gets its own setup.progress)  // start: "Start the lesson" on the "Before you start" sheet: a "Just teach me" lesson with build / flow / prerequisites / learnFirst holds step 1 (VS Code opens under the sheet; no checks, boxes, idle timers, stuck cards or off-tracks) from a lesson.ready whose first step.started is step 1 until this, a key / click with the lesson's editor in front (the sheet's own Start / Esc land there, the overlay can't take focus), the first edit of the step file, or a step control (show_me, hint, check_step, skip_step, run_command, open_editor ...); optional for the app  // retry: the "Couldn't reach Claude" card's Try again: the engine re-sends the learner's last ask / explain / hint (no text needed)  // run_command: "Run it for me" on a run step (the engine runs the step's command in the lesson folder, max 10 s, and shows the output)  // use_this_folder: the learner is editing the lesson file in another folder; adopt that folder as the lesson folder (copies only missing files, never overwrites)  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };
   /** Bring-your-own-key (like cue): sent on every connect from the app's Settings. Engine uses these over its .env, keeps them in memory only, never logs them. */
-  "config.keys": { anthropic?: string; gemini?: string; brightdata?: string; elevenlabs?: string; tigerUrl?: string };
+  "config.keys": { anthropic?: string; gemini?: string; brightdata?: string; elevenlabs?: string; tigerUrl?: string;
+                   miyagiToken?: string; miyagiCloud?: string };   // v2 (DISTRIBUTION-PLAN): the anonymous install token ("mi_...") and the proxy's https base URL; memory only, never logged, never on a command line
+  /** What the learner really has on screen (E14: the engine assumed every card it sent was visible). Optional: an app that never sends these keeps today's behaviour.
+   *  card.shown: a `card` or the `offtrack` card became visible in the card slot (not while the sheet / launcher covers the slot or the window is hidden; send it when it shows).
+   *  card.closed: it left the slot. by: "user" (✕ / Esc / a video jump), "replaced" (another card / diagram / off-track took the slot), "timeout" (it closed itself, e.g. a pressed button gave up), "hidden" (the sheet / launcher covered the slot, the window hid).
+   *  title / kind / stepId: copied from the card's payload; kind "offtrack" for the off-track card. On by "user" / "timeout" the engine lifts the off-track hold that this card (matched by title) caused; "replaced" / "hidden" lift nothing (the engine knows what it sent; a covered card shows again). */
+  "card.shown": { stepId?: string; title: string; kind?: string };
+  "card.closed": { stepId?: string; title: string; kind?: string; by: "user" | "replaced" | "timeout" | "hidden" };
+
+  // ---------- v2 commands: send one only when engine.hello.capabilities lists its type ----------
+  "health.get": {};                                  // -> health
+  "permission.open": { kind: PermissionKind };       // the engine reports the grant it needs; the APP opens System Settings (main/permissions.ts), never a URL from here
+  "library.list": {};                                // -> library
+  "library.get": { id: string };                     // -> library.item
+  "library.start": { id: string };                   // start a cached lesson: zero model calls; -> lesson.ready (or error)
+  "progress.get": {};                                // -> progress
+  /** The lesson panel docked beside the editor (screen points): the engine keeps boxes and VS Code clear of it. rect absent = closed. */
+  "panel.state": { open: boolean; rect?: { x: number; y: number; w: number; h: number } };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
-export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tigerUrl: KeyState } } // same key names as config.keys
+export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;
+                                                     miyagiToken?: KeyState; cloud?: CloudState } } // same key names as config.keys   // v2: cloud = what the proxy said about this install's token
+export type CloudState = "ok" | "paused" | "quota" | "unauthorized" | "offline" | "off";   // off = no token / no proxy configured (BYOK or the engine's .env)
 export type KeyState = "ok" | "missing" | "invalid" | "env";   // "env" = falling back to the engine's .env
 
 export type EngineMessage = { [K in keyof EngineEvents]: { type: K; payload: EngineEvents[K] } }[keyof EngineEvents];
