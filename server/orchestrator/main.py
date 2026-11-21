@@ -532,6 +532,7 @@ class Engine:
         self.hub.on_progress_event = self.forget_reads
         self._reads: dict[str, tuple[float, Any]] = {}  # coalesced app reads: key -> (when, result)
         self._reads_inflight: dict[str, asyncio.Future] = {}
+        self._reads_gen = 0  # bumped by forget_reads: an older in-flight read must not cache its stale result
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -613,9 +614,9 @@ class Engine:
                 self._autostart = asyncio.create_task(self.session.learn_url(url, skip_preflight=True))
         self._ticker = asyncio.create_task(self._tick_loop())
         self._avoider = asyncio.create_task(self._avoid_loop())
-        log.info("engine up: demo=%s modules=%s workdir=%s screen=%s precision=%s", self.modules.demo,
-                 self.modules.describe(), self.session.workdir, self.session.screen_active(),
-                 config.precision_setting())
+        # screen state is logged by _start_screen: the bridge boots in a thread after this line
+        log.info("engine up: demo=%s modules=%s workdir=%s precision=%s", self.modules.demo,
+                 self.modules.describe(), self.session.workdir, config.precision_setting())
 
     def _screen_up(self, ok: bool) -> None:
         if not ok:
@@ -729,18 +730,29 @@ class Engine:
 
     async def _coalesced(self, key: str, make: Any, ttl: float = READ_TTL_S) -> Any:
         """One file read per `ttl` for the app's burst of identical reads (log: library.list x3 and progress.get x3-4 on
-        every window open): concurrent askers share one in-flight read, and a repeat within `ttl` gets its result."""
-        hit = self._reads.get(key)
-        if hit is not None and time.monotonic() - hit[0] < ttl:
-            return hit[1]
-        fut = self._reads_inflight.get(key)
-        if fut is not None:
-            return await asyncio.shield(fut)
+        every window open): concurrent askers share one in-flight read, and a repeat within `ttl` gets its result.
+        If the leader running make() is cancelled, waiters are not cancelled with it: they retry (one becomes leader)."""
+        while True:
+            hit = self._reads.get(key)
+            if hit is not None and time.monotonic() - hit[0] < ttl:
+                return hit[1]
+            fut = self._reads_inflight.get(key)
+            if fut is None:
+                break
+            try:
+                return await asyncio.shield(fut)
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise  # this waiter itself was cancelled
+                # the leader was cancelled: loop and retry
+        gen = self._reads_gen
         fut = asyncio.get_running_loop().create_future()
         self._reads_inflight[key] = fut
         try:
             res = await make()
-            self._reads[key] = (time.monotonic(), res)
+            if gen == self._reads_gen:  # a PROGRESS event during the read made this result stale: do not cache it
+                self._reads[key] = (time.monotonic(), res)
             fut.set_result(res)
             return res
         except BaseException as e:
@@ -748,9 +760,11 @@ class Engine:
             fut.exception() if not fut.cancelled() else None  # mark retrieved (nobody else may await it)
             raise
         finally:
-            self._reads_inflight.pop(key, None)
+            if self._reads_inflight.get(key) is fut:
+                self._reads_inflight.pop(key, None)
 
     def forget_reads(self) -> None:
+        self._reads_gen += 1
         self._reads.clear()
 
     async def library_payload(self) -> dict:

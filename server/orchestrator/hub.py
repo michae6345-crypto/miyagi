@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -69,6 +70,7 @@ def log_received(type_: str, p: Any) -> None:
 class Hub:
     def __init__(self, strict: bool | None = None, history: int = 500):
         self.clients: set[WebSocket] = set()
+        self._close_tasks: set[asyncio.Task] = set()  # strong refs to in-flight ws.close() tasks
         self.strict = os.environ.get("ORCH_STRICT") == "1" if strict is None else strict
         self.history: deque[dict] = deque(maxlen=history)  # recent messages, for /events and tests
         self._pending_noted: set[str] = set()
@@ -98,6 +100,23 @@ class Hub:
             self.clients.discard(ws)
             log.info("app disconnected (%s); %d client%s left", why, len(self.clients), "" if len(self.clients) == 1 else "s")
 
+    def _drop_and_close(self, ws: WebSocket, why: str) -> None:
+        """A send timeout / error: a cancelled mid-frame send leaves the stream unusable, and merely forgetting the
+        client left the receive loop (and the app's ping/pong heartbeat) alive on a socket that gets no events. Close
+        it (1011) so the app sees the disconnect and reconnects for a fresh snapshot."""
+        self.drop(ws, why)
+        try:
+            task = asyncio.get_running_loop().create_task(self._close_quietly(ws))
+        except RuntimeError:
+            return
+        self._close_tasks.add(task)
+        task.add_done_callback(self._close_tasks.discard)
+
+    @staticmethod
+    async def _close_quietly(ws: WebSocket) -> None:
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(ws.close(code=1011), 2.0)
+
     async def emit(self, type_: str, payload: dict[str, Any] | None = None) -> None:
         msg = self.encode(type_, payload or {})
         self.history.append(msg)
@@ -119,7 +138,7 @@ class Hub:
         results = await asyncio.gather(*(self._send_capped(ws, msg) for ws in clients))
         for ws, e in zip(clients, results):
             if e is not None:
-                self.drop(ws, f"send of {type_} failed: {type(e).__name__}")
+                self._drop_and_close(ws, f"send of {type_} failed: {type(e).__name__}")
 
     async def _send_capped(self, ws: WebSocket, msg: dict) -> BaseException | None:
         try:
