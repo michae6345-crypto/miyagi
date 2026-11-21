@@ -17,7 +17,7 @@
  *                     renderer, core/surfaces); already open: switch to the section
  *   settings:about    → {version} for the sidebar's foot
  *   settings:delete   Privacy › Delete my data: erase the keys on this Mac (keys.bin), send the empty config.keys,
- *                     then the sign-in files (settings/erase.ts SIGN_IN_FILES: auth.bin, login.json)
+ *                     then the sign-in files (settings/erase.ts SIGN_IN_FILES: auth.bin, login.json, cloud-link.json)
  *                     → {ok, keys: KeysView, signIn}. ok false: nothing was removed. signIn false: the keys went but
  *                     a sign-in file stayed. The renderer then resets the prefs and calls auth:sign-out (auth.ts
  *                     owns the session in memory and revokes it).

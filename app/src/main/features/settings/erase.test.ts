@@ -9,8 +9,10 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { removeFiles, SIGN_IN_FILES } from './erase'
 
-test('SIGN_IN_FILES: the session and the login choice, with their temp files', () => {
-  for (const f of ['auth.bin', 'login.json', 'auth.bin.tmp', 'login.json.tmp']) assert.ok(SIGN_IN_FILES.includes(f as never), f)
+test('SIGN_IN_FILES: the session, the login choice and the account-link note, with their temp files', () => {
+  for (const f of ['auth.bin', 'login.json', 'auth.bin.tmp', 'login.json.tmp', 'cloud-link.json', 'cloud-link.json.tmp']) {
+    assert.ok(SIGN_IN_FILES.includes(f as never), f)
+  }
   assert.ok(!SIGN_IN_FILES.includes('keys.bin' as never)) // the keys go through settings.ts persist()
   assert.ok(!SIGN_IN_FILES.includes('install.bin' as never)) // the anonymous cloud token is not the sign-in
 })
