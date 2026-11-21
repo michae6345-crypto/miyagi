@@ -138,7 +138,9 @@ needs VS Code shell integration, which is on by default for zsh and bash on VS C
 ## Events → engine
 
 The extension makes a best-effort `POST <miyagi.engineUrl>/vscode/event` (default `http://127.0.0.1:8787`,
-300 ms timeout). Errors are ignored. Every event carries `{type, ts, port, pid, folders, windowFocused}` plus:
+300 ms timeout). Errors are ignored. 0.0.7: `engineUrl` must be `http://` on this Mac (`127.0.0.1`, `localhost`,
+`[::1]`); any other URL (a workspace's `.vscode/settings.json` could set one) gets no events. Each event carries
+`X-Miyagi-Token` when the engine on that port has published one (see Safety). Every event carries `{type, ts, port, pid, folders, windowFocused}` plus:
 
 | `type` | Extra fields | When |
 |---|---|---|
@@ -185,6 +187,16 @@ and takes at most 300 ms. From async code, use `await asyncio.to_thread(...)`.
   - any POST that isn't `application/json` (this forces a CORS preflight, which is never answered).
 
   The engine's plain HTTP client sends none of these headers.
+- Engine token (0.0.7, ROADMAP 5.3): every engine writes a per-launch token to
+  `~/.miyagi/engine-tokens/<port>.json` (`{token, pid, port}`, mode 0600; `MIYAGI_ENGINE_TOKEN_DIR` moves the folder;
+  `server/engine_token.py`). While any live engine has one (its `pid` still runs), every route except `GET /` and
+  `GET /health` needs `X-Miyagi-Token` with one of those tokens, else 401 `token_required`: another program on this
+  Mac can't open files, edit buffers or run terminal commands through the extension. No live token (an older engine,
+  or none running): open to loopback as before. A file left by a crashed engine is ignored. The engine's client
+  (`vscode_ext.py`) sends its token on every call; events to the engine carry the token of the engine on that port
+  (an engine the app started with `MIYAGI_ENGINE_TOKEN` refuses token-less events from an older extension).
+- Requests from a remote address other than loopback are refused (403 `not_loopback`), on top of the `127.0.0.1`
+  bind.
 - The extension never opens a new window, never installs anything, and makes no network calls except to the
   engine on localhost.
 

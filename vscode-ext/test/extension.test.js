@@ -10,6 +10,10 @@ const path = require('path');
 const http = require('http');
 const { createFakeVscode, loadExtension } = require('./fake-vscode');
 
+// Engine tokens (../extension.js liveTokens) come from a temp folder, never the live engine's ~/.miyagi/engine-tokens.
+const TOKEN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'miyagi-tokens-'));
+process.env.MIYAGI_ENGINE_TOKEN_DIR = TOKEN_DIR;
+
 const CALC = '"""A simple Python calculator."""\n\n# Step 1: Start building your calculator here\n';
 
 function request(port, method, p, body, headers = {}) {
@@ -35,12 +39,13 @@ async function fakeEngine() {
     let raw = '';
     req.on('data', (c) => { raw += c; });
     req.on('end', () => {
-      if (req.url === '/vscode/event') events.push(JSON.parse(raw));
+      if (req.url === '/vscode/event') events.push({ ...JSON.parse(raw), _token: req.headers['x-miyagi-token'] || null });
       res.end('{"ok":true}');
     });
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-  return { events, url: `http://127.0.0.1:${srv.address().port}`, close: () => new Promise((r) => srv.close(r)) };
+  const port = srv.address().port;
+  return { events, port, url: `http://127.0.0.1:${port}`, close: () => new Promise((r) => srv.close(r)) };
 }
 
 async function waitFor(fn, ms = 1500) {
@@ -297,6 +302,50 @@ test('refuses browsers and DNS rebinding; requires JSON', async (t) => {
   const badJson = await s.req('POST', '/open', '{nope');
   assert.equal(badJson.status, 400);
   assert.equal((await s.req('GET', '/nope')).status, 404);
+});
+
+function writeToken(port, token, pid = process.pid) {
+  const f = path.join(TOKEN_DIR, `${port}.json`);
+  fs.writeFileSync(f, JSON.stringify({ token, pid, port }), { mode: 0o600 });
+  return f;
+}
+
+test('engine token: required on the API while a live engine wrote one; events to the engine carry it', async (t) => {
+  const s = await setup(t);
+  const f = writeToken(s.engine.port, 'tok-live-123');
+  t.after(() => fs.rmSync(f, { force: true }));
+  s.ext._internal.S.tokens = null; // drop the 1 s cache
+  assert.equal((await s.req('GET', '/state')).status, 401);
+  assert.equal((await s.req('POST', '/terminal/run', { cmd: 'echo pwned' }, { 'x-miyagi-token': 'wrong' })).status, 401);
+  assert.equal(s.ctl.terminals.length, 0, 'nothing ran');
+  assert.equal((await s.req('GET', '/health')).status, 200, 'liveness stays open');
+  assert.equal((await s.req('GET', '/state', undefined, { 'x-miyagi-token': 'tok-live-123' })).status, 200);
+  const r = await s.req('POST', '/open', { file: 'calculator.py', line: 1 }, { 'x-miyagi-token': 'tok-live-123' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const ev = await waitFor(() => s.engine.events.find((e) => e.type === 'editor' && e._token));
+  assert.equal(ev._token, 'tok-live-123');
+});
+
+test('engine token: a file whose engine is gone (crash) is ignored, so the API stays open as before', async (t) => {
+  const s = await setup(t);
+  const f = writeToken(s.engine.port, 'tok-dead', 2 ** 22 + 12345);
+  t.after(() => fs.rmSync(f, { force: true }));
+  s.ext._internal.S.tokens = null;
+  assert.equal((await s.req('GET', '/state')).status, 200);
+});
+
+test('events go to an engine on this Mac only (a workspace setting can\'t send them elsewhere)', async (t) => {
+  const s = await setup(t);
+  const { engineTarget } = s.ext._internal;
+  assert.ok(engineTarget(), 'the default 127.0.0.1 engine');
+  for (const url of ['http://evil.example:8787', 'https://127.0.0.1:8787', 'http://10.0.0.5:8787', 'not a url']) {
+    s.vscode.workspace.getConfiguration = () => ({ get: (k) => (k === 'engineUrl' ? url : undefined) });
+    assert.equal(engineTarget(), null, url);
+  }
+  for (const url of ['http://localhost:8787', 'http://[::1]:8787']) {
+    s.vscode.workspace.getConfiguration = () => ({ get: (k) => (k === 'engineUrl' ? url : undefined) });
+    assert.ok(engineTarget(), url);
+  }
 });
 
 test('a slow action answers {pending} within the deadline and reports the result as an event', async (t) => {

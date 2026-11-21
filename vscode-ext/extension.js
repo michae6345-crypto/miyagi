@@ -6,13 +6,14 @@
 // from 8791 (8791..8799). The engine scans that range and picks the window it needs (see
 // server/workspace/vscode_ext.py).
 
+const crypto = require('crypto');
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const VERSION = '0.0.6';
+const VERSION = '0.0.7';
 const DEFAULT_PORT = 8791;
 const PORT_SPAN = 9;
 const ACTION_DEADLINE_MS = 250; // the engine's client gives up after 300 ms
@@ -32,6 +33,10 @@ const PENDING = Symbol('pending');
 // never as raw JSON in a text editor (t9 V11). No such editor: VS Code's default for the file (vscode.open).
 const NOTEBOOK_TYPE = 'jupyter-notebook';
 const NOTEBOOK_WAIT_MS = 1500; // the notebook editor shows up in visibleNotebookEditors shortly after openWith
+// The engine's per-launch token (server/engine_token.py): <dir>/<port>.json {token, pid, port}, 0600. While a live
+// engine has written one, every call to this API must carry one of the live tokens; events to the engine carry its.
+const TOKEN_HEADER = 'x-miyagi-token';
+const TOKEN_TTL_MS = 1000;
 
 const S = {
   server: null,
@@ -49,6 +54,8 @@ const S = {
   visibleTimer: null,
   visibleKey: null, // file|ranges|lineCount of the last `visible` event
   lastExplain: null, // {text, at} of the last "Miyagi: Explain this" press
+  tokens: null, // {at, byPort: Map(port -> token)} of the live engines (TOKEN_TTL_MS cache)
+  warnedEngineUrl: false,
   log: null,
 };
 
@@ -658,19 +665,74 @@ async function runAction(name, fn, body) {
   return { ok: true, pending: true, id, action: name };
 }
 
+// ---------------------------------------------------------------- engine token
+
+function tokenDir() {
+  return process.env.MIYAGI_ENGINE_TOKEN_DIR || path.join(os.homedir(), '.miyagi', 'engine-tokens');
+}
+
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return !!(err && err.code === 'EPERM');
+  }
+}
+
+// port -> token of every live engine (a file whose engine is gone is ignored: an engine crash never locks us out)
+function liveTokens() {
+  const now = Date.now();
+  if (S.tokens && now - S.tokens.at < TOKEN_TTL_MS) return S.tokens.byPort;
+  const byPort = new Map();
+  let names = [];
+  try {
+    names = fs.readdirSync(tokenDir()).filter((n) => /^\d+\.json$/.test(n));
+  } catch (_) { /* no engine has written one: older engines, or none running */ }
+  for (const n of names) {
+    try {
+      const d = JSON.parse(fs.readFileSync(path.join(tokenDir(), n), 'utf8'));
+      if (d && typeof d.token === 'string' && d.token && pidAlive(d.pid)) byPort.set(Number(d.port) || 0, d.token);
+    } catch (_) { /* half-written or unreadable: skip */ }
+  }
+  S.tokens = { at: now, byPort };
+  return byPort;
+}
+
+function sameToken(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
 // ---------------------------------------------------------------- HTTP
 
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
+const LOOPBACK_ADDR = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/;
+const LOOPBACK_NAME = /^(127\.0\.0\.1|localhost|\[::1\]|::1)$/i;
 
 // Browsers can reach 127.0.0.1 too: refuse anything a web page could send (Origin, Sec-Fetch-Site,
 // non-JSON simple POSTs) and DNS-rebinding Hosts. The engine's plain HTTP client sends none of these.
-function refuse(req) {
+// While a live engine has written its token, every route but GET / and /health needs it (0.0.7): another local
+// program can't open files, run terminal commands or edit buffers through us. No live engine token (an older
+// engine, an engine started without one): open to loopback as before.
+function refuse(req, route) {
+  const remote = String((req.socket && req.socket.remoteAddress) || '');
+  if (remote && !LOOPBACK_ADDR.test(remote)) return [403, 'not_loopback'];
   if (req.headers.origin) return [403, 'origin_not_allowed'];
   const site = req.headers['sec-fetch-site'];
   if (site && site !== 'none') return [403, 'browser_not_allowed'];
   if (!LOCAL_HOST.test(String(req.headers.host || ''))) return [403, 'host_not_allowed'];
   if (req.method === 'POST' && !/^application\/json\b/i.test(String(req.headers['content-type'] || ''))) {
     return [415, 'json_required'];
+  }
+  if (route !== 'GET /' && route !== 'GET /health') {
+    const live = [...liveTokens().values()];
+    const given = req.headers[TOKEN_HEADER];
+    if (live.length && !(typeof given === 'string' && live.some((t) => sameToken(t, given.trim())))) {
+      return [401, 'token_required'];
+    }
   }
   return null;
 }
@@ -717,10 +779,10 @@ function readBody(req) {
 }
 
 async function handle(req, res) {
-  const no = refuse(req);
-  if (no) return send(res, no[0], { ok: false, error: no[1] });
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   const route = `${req.method} ${url.pathname.replace(/\/+$/, '') || '/'}`;
+  const no = refuse(req, route);
+  if (no) return send(res, no[0], { ok: false, error: no[1] });
   try {
     if (route === 'GET /' || route === 'GET /health') {
       return send(res, 200, { ok: true, name: 'miyagi-companion', version: VERSION, port: S.port, pid: process.pid });
@@ -764,19 +826,36 @@ function listen(base) {
 
 // ---------------------------------------------------------------- events -> engine
 
-function postEvent(type, extra) {
+// Events go to the engine on this Mac only: a workspace's .vscode/settings.json could point miyagi.engineUrl
+// elsewhere and collect file names, selections and terminal output (0.0.7). Non-loopback URLs are dropped.
+function engineTarget() {
   let u;
   try {
     u = new URL('/vscode/event', String(cfg('engineUrl', 'http://127.0.0.1:8787')));
   } catch (_) {
-    return;
+    return null;
   }
+  if (u.protocol !== 'http:' || !LOOPBACK_NAME.test(u.hostname)) {
+    if (!S.warnedEngineUrl) {
+      S.warnedEngineUrl = true;
+      log(`miyagi.engineUrl is not on this Mac (${u.protocol}//${u.hostname}): events are not sent`);
+    }
+    return null;
+  }
+  return u;
+}
+
+function postEvent(type, extra) {
+  const u = engineTarget();
+  if (!u) return;
   const body = JSON.stringify({ type, ts: Date.now(), port: S.port, pid: process.pid, folders: folders(),
     windowFocused: !!(vscode.window.state && vscode.window.state.focused), ...extra });
+  const headers = { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) };
+  const token = liveTokens().get(Number(u.port || 80));
+  if (token) headers[TOKEN_HEADER] = token;
   try {
-    const req = http.request({ hostname: u.hostname, port: u.port || 80, path: u.pathname, method: 'POST',
-      timeout: EVENT_TIMEOUT_MS,
-      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } });
+    const req = http.request({ hostname: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || 80, path: u.pathname,
+      method: 'POST', timeout: EVENT_TIMEOUT_MS, headers });
     req.on('timeout', () => req.destroy());
     req.on('error', () => { /* engine not running: fine */ });
     req.on('response', (r) => r.resume());
@@ -1005,4 +1084,5 @@ function deactivate() {
     proposed: new Map(), dirty: new Map(), lastFocusedAt: 0 });
 }
 
-module.exports = { activate, deactivate, _internal: { S, cleanOutput, tailLines, editToReplace, refuse, selectionPayload, notebookCellForLine } };
+module.exports = { activate, deactivate, _internal: { S, cleanOutput, tailLines, editToReplace, refuse, selectionPayload, notebookCellForLine,
+  engineTarget, liveTokens } };
