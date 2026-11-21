@@ -15,7 +15,7 @@ import type { MissingLine, StepKind } from '../../../../../../../shared/contract
 import { useLesson, useThinking } from '../../../core/lesson'
 import { usePressed } from '../../../core/shortcuts'
 import { useStepDetail } from '../plan'
-import { forCurrentStep, isNotYetCard, usePanel, type PanelCard } from './panelStore'
+import { panelFacts, PRESS_GRACE_MS, usePanel, type PanelCard } from './panelStore'
 import { panelRenders } from './route'
 
 export type PanelView = 'passed' | 'checking' | 'notyet' | 'hint' | 'working'
@@ -28,9 +28,6 @@ export function pickView(f: { passed: boolean; checking: boolean; notyet: boolea
   if (f.hint) return 'hint'
   return 'working'
 }
-
-/** A press of Check shows Checking at once, before the engine's status thinking arrives (never look dead). */
-const PRESS_GRACE_MS = 1500
 
 function useChecking(): boolean {
   const thinking = useThinking()
@@ -146,8 +143,12 @@ export function usePanelModel(): PanelModel {
   )
   const pos = (id: string | undefined): number => (id ? l.steps.findIndex((x) => x.id === id) : -1)
   const total = Math.max(l.steps.length, l.outlineCount)
-  const heldIndex = held ? pos(held.stepId) : -1
-  const holding = !!held && heldIndex >= 0
+  // The view rule's inputs (shared with drawer/store.ts's Esc through hintShown).
+  const facts = panelFacts(
+    { stepId: l.stepId, steps: l.steps, passed: l.passedIds, skipped: l.skippedIds, checks: l.checks, offtrack: l.offtrack },
+    { hint: hintCard, notYet, heldPass: held }
+  )
+  const { holding, card, off, fails, hint, notyetFresh } = facts
   // While a pass is held, the panel stays on that step (its title, its green dot), whatever the engine started since.
   const shownId = holding ? held!.stepId : l.stepId
   const index = pos(shownId)
@@ -168,19 +169,11 @@ export function usePanelModel(): PanelModel {
   }
   const passed = l.passedIds.filter((id) => !l.skippedIds.includes(id)).map(pos).filter((i) => i >= 0)
   const skipped = l.skippedIds.map(pos).filter((i) => i >= 0)
-  const donePassed = !!l.stepId && l.passedIds.includes(l.stepId) && !l.skippedIds.includes(l.stepId)
 
-  // Not yet: the freshest diagnosis for the step on screen.
-  const card = notYet.card && isNotYetCard(notYet.card) && forCurrentStep(notYet.card) ? notYet.card : undefined
-  const off = l.offtrack && l.offtrack.stepId === l.stepId ? l.offtrack : undefined
-  const fails = l.checks.filter((c) => c.status === 'fail')
-  const diagnosed = !!card || !!off || fails.length > 0
-  const hint = hintCard && forCurrentStep(hintCard) ? hintCard : undefined
-  const notyetFresh = diagnosed && (!hint || notYet.at >= hint.at)
   // An off-track with a fix stays on the island card: the panel says only "Not yet" and its title.
   const offInfo = off && !card ? (panelRenders({ kind: 'offtrack', ...off }) ? off : { title: off.title, body: '' }) : undefined
 
-  const view = pickView({ passed: holding || donePassed, checking: !holding && checking, notyet: notyetFresh, hint: !!hint })
+  const view = pickView({ passed: facts.passed, checking: !holding && checking, notyet: notyetFresh, hint: !!hint })
 
   const nextRow = index >= 0 ? l.steps[index + 1] : undefined
   const outlineNext = !nextRow && index >= 0 ? l.outline?.find((o) => o.index === (row?.index ?? index) + 1) : undefined

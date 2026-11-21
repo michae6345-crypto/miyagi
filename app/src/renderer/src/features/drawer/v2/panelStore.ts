@@ -14,7 +14,7 @@
 import { create } from 'zustand'
 import type { Payload } from '../../../../../common/wire'
 import { onMessage, onUi } from '../../../core/bus'
-import { dismissAfter, useLesson, WITHDRAW_MS } from '../../../core/lesson'
+import { dismissAfter, useLesson, WITHDRAW_MS, type CheckItem, type Offtrack } from '../../../core/lesson'
 import { usePressed } from '../../../core/shortcuts'
 
 export type PanelCard = Payload<'card'>
@@ -50,6 +50,57 @@ export function isNotYetCard(c: PanelCard | undefined): boolean {
 export function forCurrentStep(c: { stepId?: string } | undefined): boolean {
   const cur = useLesson.getState().stepId
   return !!c && (!c.stepId || c.stepId === cur)
+}
+
+// ---- which view holds (view.ts draws it; drawer/store.ts's Esc asks hintShown) -----------------------------------
+
+/** A press of Check shows Checking at once, before the engine's status thinking arrives (never look dead). */
+export const PRESS_GRACE_MS = 1500
+
+/** The panel says Checking right now (view.ts's useChecking is the same rule, re-rendered when the grace ends). */
+export function checkingNow(): boolean {
+  const p = usePressed.getState()
+  if (get().stageChecking) return true
+  return p.kind === 'check_step' && (useLesson.getState().engineState === 'thinking' || Date.now() - p.at < PRESS_GRACE_MS)
+}
+
+type LessonNow = ReturnType<typeof useLesson.getState>
+
+export type PanelFacts = {
+  /** A passed step is held on screen (heldPass on a step the lesson knows). */
+  holding: boolean
+  /** Les-Passed holds: the held pass, or the step on screen passed (not skipped). */
+  passed: boolean
+  /** The judge "Not yet" card for this step, the offtrack for this step, the failed checks. */
+  card?: PanelCard
+  off?: Offtrack
+  fails: CheckItem[]
+  /** The hint for this step. */
+  hint?: PanelCard & { at: number }
+  /** A diagnosis for this step newer than the hint (or with no hint): Not yet wins over the hint. */
+  notyetFresh: boolean
+}
+
+/** What the view rule (view.ts pickView) reads, pure. usePanelModel and hintShown share it so they never disagree. */
+export function panelFacts(l: Pick<LessonNow, 'stepId' | 'steps' | 'passed' | 'skipped' | 'checks' | 'offtrack'>, p: Pick<PanelState, 'hint' | 'notYet' | 'heldPass'>): PanelFacts {
+  const held = p.heldPass
+  const holding = !!held && l.steps.some((x) => x.id === held.stepId)
+  const donePassed = !!l.stepId && l.passed.includes(l.stepId) && !l.skipped.includes(l.stepId)
+  const card = p.notYet.card && isNotYetCard(p.notYet.card) && forCurrentStep(p.notYet.card) ? p.notYet.card : undefined
+  const off = l.offtrack && l.offtrack.stepId === l.stepId ? l.offtrack : undefined
+  const fails = l.checks.filter((c) => c.status === 'fail')
+  const diagnosed = !!card || !!off || fails.length > 0
+  const hint = p.hint && forCurrentStep(p.hint) ? p.hint : undefined
+  return { holding, passed: holding || donePassed, card, off, fails, hint, notyetFresh: diagnosed && (!hint || p.notYet.at >= hint.at) }
+}
+
+/**
+ * The panel's hint is the view on screen (not hidden under Passed, Checking or a newer Not yet). Esc closes it only
+ * then; a hidden hint is not "something open".
+ */
+export function hintShown(): boolean {
+  const f = panelFacts(useLesson.getState(), get())
+  return !!f.hint && !f.passed && !f.notyetFresh && !checkingNow()
 }
 
 // ---- engine events ----------------------------------------------------------------------------------------------

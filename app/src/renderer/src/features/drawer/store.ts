@@ -4,7 +4,7 @@
  */
 import { create } from 'zustand'
 import { onMessage, onUi, type PanelRequest } from '../../core/bus'
-import { setDock } from '../../core/dock'
+import { setDock, useDock } from '../../core/dock'
 import { useLesson } from '../../core/lesson'
 import { usePressed } from '../../core/shortcuts'
 import { useBeforeStart } from '../before-start/store'
@@ -12,7 +12,8 @@ import { useCards } from '../cards/store'
 import { useComplete } from '../complete/store'
 import { useDiagram } from '../diagrams/store'
 import { useSearch } from '../launcher/store'
-import { closeHint, usePanel } from './v2/panelStore'
+import { closeHint, hintShown, usePanel } from './v2/panelStore'
+import { isPanelRouted } from './v2/route'
 
 export type Side = 'left' | 'right'
 
@@ -145,21 +146,23 @@ onUi('panel', (req) => {
 })
 
 /**
- * Esc collapses the panel only when nothing else is open (A1): a card, the off-track card, a diagram, the completion
- * panel, the launcher, "Before you start", or the panel's own hint. Every `dismiss` handler runs on the same Esc, in
- * feature order, so a surface that closed earlier in this same Esc counts as open (`closedNow`, cleared next tick).
+ * Esc collapses the panel only when nothing else the learner can see is open (A1): an island card, the off-track card,
+ * a diagram, the completion panel, the launcher, "Before you start", or the panel's own hint. Every `dismiss` handler
+ * runs on the same Esc, in feature order, so a surface that closed earlier in this same Esc counts as open
+ * (`closedNow`, cleared next tick). A card the panel renders itself (isPanelRouted: the island hides it) and a hint
+ * hidden under Checking, Passed or a newer Not yet are not open: closing one must not spend the Esc.
  */
 function othersOpen(): boolean {
   const c = useCards.getState()
   return (
-    !!c.card ||
-    c.offtrackOpen ||
+    (!!c.card && !isPanelRouted(c.card)) ||
+    (c.offtrackOpen && !isPanelRouted({ kind: 'offtrack', ...useLesson.getState().offtrack })) ||
     !!c.success ||
     useDiagram.getState().open ||
     !!useComplete.getState().card ||
     useBeforeStart.getState().open ||
     useSearch.getState().open ||
-    !!usePanel.getState().hint
+    hintShown()
   )
 }
 let closedNow = false
@@ -172,12 +175,14 @@ function noteOthers(): void {
   }
   wasOpen = now
 }
-for (const s of [useCards, useDiagram, useComplete, useBeforeStart, useSearch, usePanel] as { subscribe: (fn: () => void) => () => void }[]) s.subscribe(noteOthers)
+// useLesson, usePressed and useDock too: what isPanelRouted and hintShown read (the step, a diagnosis, a Check press,
+// the panel opening) can change what counts as open without any of the surfaces above changing.
+for (const s of [useCards, useDiagram, useComplete, useBeforeStart, useSearch, usePanel, useLesson, usePressed, useDock] as { subscribe: (fn: () => void) => () => void }[]) s.subscribe(noteOthers)
 
 onUi('dismiss', () => {
   if (!isPanelLesson() || !useDrawer.getState().open) return
-  // The panel's hint is its own "something open": Esc closes it first.
-  if (usePanel.getState().hint) return closeHint()
+  // The panel's hint, while it is the view on screen, is its own "something open": Esc closes it first.
+  if (hintShown()) return closeHint()
   if (othersOpen() || closedNow) return
   collapsePanel()
 })
