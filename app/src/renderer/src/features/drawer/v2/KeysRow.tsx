@@ -13,8 +13,11 @@ import { Keycap, keyLabel } from '../../../core/ui/Keycap'
 import { useVoice } from '../../voice/store'
 import { tone } from './ui'
 
-/** Long launcher keys (Windows' Ctrl⇧Space) get the short label so the row never wraps. */
-const SHORT_KEY = 6
+/**
+ * Room for "ask miyagi anything" only beside a short key (the mockup's two-glyph key). ⌥Space or Ctrl⇧Space plus Back
+ * and Voice leave about 60 px, so those read "ask miyagi" and the row never truncates.
+ */
+const SHORT_KEY = 3
 
 export function KeysRow({ onHide, backDisabled }: { onHide: () => void; backDisabled?: boolean }): ReactNode {
   const voiceOn = useVoice((v) => v.on)

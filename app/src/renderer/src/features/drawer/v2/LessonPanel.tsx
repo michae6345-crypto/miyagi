@@ -20,7 +20,7 @@ import { sendAction } from '../../../core/shortcuts'
 import { spring, springOut } from '../../../core/theme'
 import { GlassCard } from '../../../core/ui/GlassCard'
 import { PrimaryButton } from '../../../core/ui/buttons'
-import { collapsePanel } from '../store'
+import { collapsePanel, useDrawer } from '../store'
 import { closeHint, releasePass } from './panelStore'
 import { Header } from './Header'
 import { Help } from './Help'
@@ -41,7 +41,11 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
   useLayoutEffect(() => {
     const el = box.current
     if (!el) return
-    const report = (): void => setDock({ open: true, collapsed: false, rect: { x: rect.x + layout.origin.x, y: rect.y + layout.origin.y, w: rect.w, h: el.offsetHeight } })
+    const report = (): void => {
+      // Collapsing: the panel is still on screen while it shrinks into the pill, but the dock is already free.
+      if (!useDrawer.getState().open) return
+      setDock({ open: true, collapsed: false, rect: { x: rect.x + layout.origin.x, y: rect.y + layout.origin.y, w: rect.w, h: el.offsetHeight } })
+    }
     report()
     const ro = new ResizeObserver(report)
     ro.observe(el)

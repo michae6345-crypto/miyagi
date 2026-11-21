@@ -44,7 +44,11 @@ export function Help({ pressed, watchStart }: { pressed?: OptionAction; watchSta
   return (
     <div data-part="panel-help" className="flex flex-col gap-[12px]" style={{ padding: '16px 20px 16px' }}>
       <Caption>Need help</Caption>
-      <div className="flex items-stretch gap-[8px]">
+      {/*
+        Five tiles in 320 px leave each label ~50 px after core OptionTile's 4 px side padding, and "Show me" truncated.
+        The mockup's tiles have no side padding: drop it here (Core request 2) and keep a 6 px gap.
+      */}
+      <div className="flex items-stretch gap-[6px] [&_button[data-option]]:!px-0">
         {actions.map((a) => {
           const tile = (
             <OptionTile

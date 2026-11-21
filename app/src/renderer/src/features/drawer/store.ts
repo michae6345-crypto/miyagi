@@ -41,6 +41,9 @@ type DrawerState = {
    * covering it"). The learner pressing the handle brings it back for that step: this is that step's id.
    */
   peekStep?: string
+  /** v2 (A1): the same as the exported openPanel / collapsePanel, for readers that hold the store (A2: useDrawer.getState().openPanel()). */
+  openPanel: () => void
+  collapsePanel: () => void
 }
 
 /** Stage only: `?drawer=open` starts with the drawer open (review and screenshots). */
@@ -56,7 +59,7 @@ function savedSide(): Side {
 }
 
 const initialSide = savedSide()
-export const useDrawer = create<DrawerState>(() => ({ open: startOpen, side: initialSide, at: initialSide }))
+export const useDrawer = create<DrawerState>(() => ({ open: startOpen, side: initialSide, at: initialSide, openPanel, collapsePanel }))
 
 /** The learner dropped the drawer on an edge: keep it there (this session and the next). */
 export function setDrawerSide(side: Side): void {
