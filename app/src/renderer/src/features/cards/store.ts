@@ -8,6 +8,9 @@ import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { sendAction, usePressed, type ActionKind } from '../../core/shortcuts'
 import { clearOfftrack, dismissAfter, seekVideo, useLesson, WITHDRAW_MS, type CheckItem } from '../../core/lesson'
+import { reserveRect } from '../../core/dock'
+import type { CardKindV2 } from '../../../../../../shared/contracts/events'
+import { isRouted, panelShown } from './panel'
 
 export type Point = { step: number; value: number }
 /** `seq` = event order of its first point (compared with the off-track's), `at` = when its last point arrived (ms). */
@@ -368,6 +371,8 @@ onUi('shortcut', (kind) => {
   if (kind !== 'hint') return
   const s = get()
   if (!useLesson.getState().offtrack || s.offtrackOpen || s.card || s.success) return
+  // v2: the docked panel shows Not yet itself; ⌥H there asks for a hint as usual (nothing to bring back).
+  if (panelShown() && isRouted('offtrack')) return
   dismissed = undefined
   set({ offtrackOpen: true })
   return true
@@ -510,6 +515,8 @@ function autoClose(c: Payload<'card'>, after: number | undefined): void {
   else autoTimer = setTimeout(go, after)
 }
 onMessage('card', (raw) => {
+  // v2 card kind "complete" (Prog-Completion) is the complete feature's (A8): never an island card here.
+  if ((raw.kind as CardKindV2) === 'complete') return
   const after = dismissAfter(raw)
   const cur = get().card
   // An identical card updates in place: the object on screen stays, so nothing re-renders or re-animates.
@@ -619,4 +626,16 @@ useLesson.subscribe((s, prev) => {
   const { offtrackOpen, card, cardFrom } = get()
   const staleCard = !!card && cardFrom === 'check_step' && !awaitsDecision(card) && (!card.stepId || card.stepId === s.stepId)
   if (offtrackOpen || staleCard) set({ offtrackOpen: false, resume: false, ...(staleCard ? { card: undefined } : {}) })
+})
+
+/**
+ * v2 (core-v2 brief, Core request 1): the open card's target rects (screen points) as a core/dock reservation, so
+ * core/islandPlace.ts can read useReserved() instead of importing this store. Released when the card goes.
+ */
+let reservedTargets: unknown
+useCards.subscribe((s) => {
+  const targets = s.card?.targets
+  if (targets === reservedTargets) return
+  reservedTargets = targets
+  reserveRect('card-targets', (targets ?? []).map((t) => t?.rect).filter((r): r is NonNullable<typeof r> => !!r))
 })
