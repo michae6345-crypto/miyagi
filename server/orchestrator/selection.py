@@ -155,7 +155,7 @@ async def answer(session: Any, step: dict | None, text: str) -> None:
         await session._status("thinking")
     ctx: dict[str, Any] = {"lesson": (session.graph or {}).get("lesson", {})}
     if step is not None and sel["source"] == "drawer":  # lesson text: the learner's own code helps relate it
-        ctx["code"], ctx["file"] = session._code_excerpt(step, limit=4000)
+        ctx["code"], ctx["file"] = session._coach_excerpt(step, limit=4000)  # a .env step file: values hidden
     card = dict(await session.m.explain_selection(step, sel, ctx))
     if step is not None and gen != session.step_gen:
         return  # the learner moved to another step meanwhile: an answer about the old one would mislead

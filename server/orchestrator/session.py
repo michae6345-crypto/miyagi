@@ -435,6 +435,15 @@ def hint_step(card: dict, *, curated_of: int | None = None, curated_n: int | Non
     return None  # (hint_level alone can't say how long the ladder is: no "of" rather than a wrong one)
 
 
+def _for_coach(code: str, file: str | None) -> str:
+    """The step file's text as a coach request may carry it: a secret file (.env, .env.local, .npmrc ...) keeps its
+    names with every value hidden (server.workspace.core.text_for_model), so `DB_PASSWORD=hunter2` never leaves."""
+    from server.redact import is_secret_file
+    from server.workspace.core import text_for_model
+
+    return text_for_model(file, code) if code and file and is_secret_file(file) else code
+
+
 def notebook_sources(text: str) -> str | None:
     """A Jupyter notebook's JSON -> its code cells' source with `# %% [cell N]` markers (N = index among all
     cells, E5's numbering), outputs dropped. Cutting the raw JSON leaves invalid JSON and mostly outputs, so
@@ -4643,6 +4652,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     return "\n".join(ls)[:limit], None
         return "", None
 
+    def _coach_excerpt(self, step: dict, limit: int = 6000) -> tuple[str, str | None]:
+        """_code_excerpt for a coach request (diagnose, explain, diagrams, "Explain this"): a step file that is a
+        secret file (.env, .env.local, .npmrc ...) goes as its names with every value hidden (5.2; key-shaped text in
+        any file is redacted again in coach.llm). Grading and patching read _code_excerpt's real text."""
+        code, file = self._code_excerpt(step, limit)
+        return _for_coach(code, file), file
+
     def _learner_evidence(self) -> bool:
         """Lesson mode, without keyboard signals: the step's file was saved since the step began, or a run step's
         VS Code terminal shows new output. Either means the learner did it (never stale output / old files)."""
@@ -4951,7 +4967,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._early_spot = False
                 think = self._spawn(self._think_soon(gen), timer=True)  # L4: a rules-only answer never shows "thinking"
                 try:
-                    card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail),
+                    card = await self.m.diagnose(step, failed_checks, ctx.metrics, _for_coach(code, _file),
+                                                 error_text="\n".join(tail),
                                                  cursor=self.cursor_context(), screen=screen, on_targets=on_targets,
                                                  file_state=file_state, code_source="file" if _file else "screen")
                     think.cancel()
@@ -6137,7 +6154,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.info("diagram prefetch skipped: %s", e)
 
     def _explain_context(self) -> dict:
-        code, file = self._code_excerpt(self.step) if self.step else ("", None)
+        code, file = self._coach_excerpt(self.step) if self.step else ("", None)
         return {
             "lesson": (self.graph or {}).get("lesson", {}),
             "query": self.query,

@@ -8,17 +8,20 @@
     scrub_secrets({"a": ["ghp_..."]})              # a copy with every string redacted
 
 Applied at the boundaries where text leaves the engine: screen OCR and Accessibility text (server.screen.privacy),
-every coach request (server.coach.llm), the screen describe/where calls (server.screen.describe), and editor text the
-companion hands over ("Explain this", via server.workspace.core.text_for_model). Grading reads the learner's real
-text; only what is sent out is redacted.
+every coach request (server.coach.llm), the screen describe/where calls (server.screen.describe), editor text the
+companion hands over ("Explain this", via server.workspace.core.text_for_model), a secret step file sent to the coach
+(session._coach_excerpt, coach.actions.do_it_for_me) and web search words (coach.web.search_safe). Every screenshot
+sent out blacks out rows that held a secret. Grading reads the learner's real text; only what is sent out is redacted,
+and coach.hints.apply_fix refuses a patch that would write SECRET_MARK into the file.
 
 What counts as a secret:
   - known formats: Anthropic / OpenAI `sk-...`, Google `AIza...`, GitHub `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` /
     `github_pat_`, Slack `xox?-` / `xapp-`, Stripe `sk_live_` / `rk_test_` ..., ElevenLabs `sk_<hex>`, AWS `AKIA...`,
     HuggingFace `hf_...`, npm `npm_...`, GitLab `glpat-...`, PyPI `pypi-AgEIcHlwaS5vcmc...`, JWTs (`eyJ...`),
     PEM private key blocks, the password in `scheme://user:password@host`;
-  - a long base64-ish value after a name with KEY / TOKEN / SECRET / PASSWORD / CREDENTIAL / AUTH in it
-    (`API_KEY=...`, `token: "..."`, `secret = '...'`);
+  - a long base64-ish value after a name with KEY / TOKEN / SECRET / PASSWORD / CREDENTIAL / AUTH in it, anywhere in
+    a line (`API_KEY=...`, `token: "..."`, `secret = '...'`, `API_KEY=... python app.py`, `?apiKey=...&x=1`,
+    `"x-api-key: ..."`), and `Basic <base64 of user:password>`;
   - the exact keys this engine holds (Settings keys, the miyagi cloud token, provider keys in the environment).
 The marker is SECRET_MARK, so a caller can tell a line held one (the screen describe call blacks out those rows).
 
@@ -29,6 +32,8 @@ Cost: coach requests redact the learner's whole file, so every pattern stays lin
 
 from __future__ import annotations
 
+import base64
+import binascii
 import contextlib
 import os
 import re
@@ -59,6 +64,9 @@ _TOKEN_RES: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?<![\w-])pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{20,}"),
 )
 _BEARER = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9_\-.=+/]{16,}")
+# `Authorization: Basic dXNlcjpwYXNz...`: base64 of `user:password` (decoded and checked in _basic, so "basic
+# understanding" stays)
+_BASIC = re.compile(r"(?i)(\bbasic[ \t]+)(?P<val>[A-Za-z0-9+/]{12,}+={0,2})(?![\w+/=])")
 # scheme://user:password@host -> the password only
 _URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.\-]{0,30}://[^\s:/@]+:)([^\s@/]{3,})(@)", re.IGNORECASE)
 # NAME = "value" / NAME: value / NAME=value, where NAME says it holds a secret and the value looks like one. NAME is
@@ -71,6 +79,13 @@ _ASSIGN_QUOTED = re.compile(
 _ASSIGN_BARE = re.compile(
     r"(?im)(?P<name>^[ \t]*(?:export[ \t]+)?" + _NAME + r"[ \t]*[:=][ \t]*)"
     r"(?P<val>[A-Za-z0-9+/_\-.=~]{16,})[ \t]*$")
+# NAME=value anywhere in a line: a command (`API_KEY=... python app.py`, `export TOKEN=...  # mine`, `HF_TOKEN=...;`),
+# a URL query (`?apiKey=...&x=1`, `&access_token=...`), a header (`"x-api-key: ..."`), a CLI flag (`--token=...`). NAME
+# starts the line or follows ? & ( , - whitespace or a quote; the value ends at whitespace, & ; # ) , a quote or the
+# line's end. Both are bounded / possessive, so this stays linear (_SECRET_WORD and _looks_secret decide afterwards).
+_ASSIGN_INLINE = re.compile(
+    r"""(?m)(?P<name>(?:^|(?<=[?&(,\-\s"']))""" + _NAME + r"[ \t]{0,4}+[:=][ \t]{0,4}+)"
+    r"""(?P<val>[A-Za-z0-9+/_\-.=~%]{12,}+)(?=[\s&;#),"']|$)""")
 # one line of a secret file whose shape is kept (names and comments stay, the value is hidden). `(\S(?:.*\S)?)` takes
 # the value up to its last non-blank character without a lazy scan (a lazy `.*?` before `[ \t]*$` is quadratic).
 _VALUE = r"(\S(?:.*\S)?)[ \t]*$"
@@ -153,6 +168,8 @@ def redact_secrets(text: str, *, known: Iterable[str] | None = None) -> str:
     text = _URL_PASSWORD.sub(lambda m: m.group(1) + SECRET_MARK + m.group(3), text)
     text = _ASSIGN_QUOTED.sub(_assign_quoted, text)
     text = _ASSIGN_BARE.sub(_assign_bare, text)
+    text = _ASSIGN_INLINE.sub(_assign_bare, text)
+    text = _BASIC.sub(_basic, text)
     return text
 
 
@@ -176,6 +193,19 @@ def _assign_bare(m: re.Match[str]) -> str:
     if not _SECRET_WORD.search(m.group("n")) or not _looks_secret(m.group("val")):
         return m.group(0)
     return f"{m.group('name')}{SECRET_MARK}"
+
+
+def _basic(m: re.Match[str]) -> str:
+    """`Basic <base64>` whose base64 decodes to `user:password` (or looks like a token): hidden."""
+    val = m.group("val")
+    try:
+        raw = base64.b64decode(val + "=" * (-len(val) % 4), validate=True)
+        creds = b":" in raw and all(32 <= c < 127 for c in raw)
+    except (ValueError, binascii.Error):
+        creds = False
+    if not creds and not (len(val) >= 20 and any(c.isdigit() for c in val) and any(c.isalpha() for c in val)):
+        return m.group(0)
+    return m.group(1) + SECRET_MARK
 
 
 def is_secret_file(path: str | os.PathLike[str] | None) -> bool:

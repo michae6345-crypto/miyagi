@@ -3,6 +3,7 @@ coach requests, screen describe, VS Code selections). Every key below is fake.""
 
 from __future__ import annotations
 
+import asyncio
 import io
 import time
 
@@ -45,6 +46,34 @@ def test_known_token_formats_are_redacted_anywhere_in_a_line(secret):
 def test_long_values_after_key_token_secret_names(line):
     out = redact_secrets(line)
     assert B64 not in out and SECRET_MARK in out
+
+
+V = "abcd1234efgh5678ijkl"
+
+
+@pytest.mark.parametrize("line, want", [
+    (f"API_KEY={V} python app.py", f"API_KEY={SECRET_MARK} python app.py"),
+    (f"export API_KEY={V}  # mine", f"export API_KEY={SECRET_MARK}  # mine"),
+    (f"HF_TOKEN={V}; python x.py", f"HF_TOKEN={SECRET_MARK}; python x.py"),
+    ('curl "https://newsapi.org/v2/top?country=us&apiKey=0123456789abcdef0123456789abcdef"',
+     f'curl "https://newsapi.org/v2/top?country=us&apiKey={SECRET_MARK}"'),
+    (f'url = "https://api.x.com/v1?access_token={V}&x=1"', f'url = "https://api.x.com/v1?access_token={SECRET_MARK}&x=1"'),
+    (f'curl -H "x-api-key: {V}"', f'curl -H "x-api-key: {SECRET_MARK}"'),
+    ("Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Njc4", f"Authorization: Basic {SECRET_MARK}"),
+    (f"tool --token={V} run", f"tool --token={SECRET_MARK} run"),
+    (f"client = f(api_key={V}, x=1)", f"client = f(api_key={SECRET_MARK}, x=1)"),
+])
+def test_values_after_a_secret_name_mid_line(line, want):
+    """Terminal output and the coach's code hold NAME=value mid-line: a command, a URL query, a header."""
+    assert redact_secrets(line, known=()) == want
+
+
+@pytest.mark.parametrize("line", [
+    "a basic understanding of loops", "Basic usage: python app.py", "sort(key=lambda x: x)",
+    "model.fit(x, epochs=10, batch_size=32)", "https://example.com/docs?tab=readme-ov-file&page=2",
+])
+def test_mid_line_matcher_leaves_ordinary_text(line):
+    assert redact_secrets(line, known=()) == line
 
 
 def test_urls_with_a_password_and_bearer_headers():
@@ -115,7 +144,8 @@ def test_pypirc_hides_values_after_equals_or_colon():
 
 @pytest.mark.parametrize("text", [
     "key" + "a-" * 50_000, "token_" * 17_000, "a." * 50_000 + "key='x'", "a-" * 50_000 + "://", "k=\"" * 33_000,
-    "x=a" + " " * 100_000 + "b", "api_key=" * 12_500, "token:" * 17_000,
+    "x=a" + " " * 100_000 + "b", "api_key=" * 12_500, "token:" * 17_000, "&key=" * 20_000, "basic " * 17_000,
+    "Basic " + "A" * 100_000, "?token=" + "a1" * 50_000 + "&", " key: " * 17_000,
 ])
 def test_a_100kb_adversarial_line_redacts_quickly(text):
     """Coach requests redact the learner's whole file: a long run of `a-a-...` or `token_token_...` (minified code, a
@@ -198,3 +228,108 @@ def test_vscode_selections_are_redacted_before_the_card_and_the_coach():
     sel = from_vscode({"file": "/l/main.py", "text": f"client = Client('{ANT}')"})
     assert ANT not in sel["text"]
     assert GITHUB not in from_drawer(f"use {GITHUB}")["text"]
+
+
+def test_a_secret_step_file_reaches_the_coach_as_names_only():
+    """A step whose file is .env / .env.local: diagnose, explain, diagrams and "Explain this" get the names with every
+    value hidden (a short password has no key shape); grading and patching still read the real text."""
+    from types import SimpleNamespace
+
+    from server.orchestrator.session import LessonSession, _for_coach
+
+    env = "# db\nDB_PASSWORD=hunter2\nTOKEN=abc\nPORT=8080\n"
+    for name in (".env", ".env.local", "sub/.env"):
+        out = _for_coach(env, name)
+        assert "hunter2" not in out and "=abc" not in out
+        assert out.splitlines()[:2] == ["# db", f"DB_PASSWORD={SECRET_MARK}"]
+    assert _for_coach("x = 'hunter2'\n", "main.py") == "x = 'hunter2'\n"  # not a secret file: llm.py redacts keys
+    fake = SimpleNamespace(_code_excerpt=lambda step, limit=6000: (env, ".env"))
+    code, file = LessonSession._coach_excerpt(fake, {"id": "s1"})
+    assert file == ".env" and "hunter2" not in code and fake._code_excerpt({})[0] == env
+
+
+def test_do_it_for_me_sends_a_secret_file_without_its_values(monkeypatch):
+    from server.coach import actions, llm
+
+    seen = []
+
+    async def fake_call(**kw):
+        seen.append(kw["user_text"])
+        raise llm.CoachLLMError("offline test")
+
+    monkeypatch.setattr(llm, "structured_call", fake_call)
+    with pytest.raises(llm.CoachUnavailable):
+        asyncio.run(actions.do_it_for_me({"id": "s", "title": "set the port"}, ".env",
+                                          "DB_PASSWORD=hunter2\nPORT=80\n", {}, lesson={}, use_diagnosis=False))
+    assert seen and "hunter2" not in seen[0] and f"DB_PASSWORD={SECRET_MARK}" in seen[0]
+
+
+def test_a_patch_that_writes_the_secret_marker_is_refused():
+    """The coach reads `api_key="[secret]"`; a patch echoing that line would write the placeholder into the learner's
+    file. apply_fix returns no new_text, so Do it for me falls back to the fix-it-by-hand card."""
+    from server.coach.hints import apply_fix
+
+    yours = 'resp = client.chat.completions.create(model="gpt-4o-mini" messages=[])'
+    text = f'from openai import OpenAI\nclient = OpenAI(api_key="{OPENAI}")\n{yours}\n'
+    fixed = 'resp = client.chat.completions.create(model="gpt-4o-mini", messages=[])'
+    p = apply_fix({"yours": yours, "expected": f'client = OpenAI(api_key="{SECRET_MARK}")\n{fixed}', "file": "main.py"},
+                  text)
+    assert p["new_text"] is None and SECRET_MARK in p["error"]
+    ok = apply_fix({"yours": yours, "expected": fixed, "file": "main.py"}, text)
+    assert ok["error"] is None and OPENAI in ok["new_text"]  # a patch that leaves the key line alone still applies
+
+
+def _secret_obs():
+    from server.screen.types import Block, Rect, ScreenObservation, Window
+
+    return ScreenObservation(t=0.0, app="Code", windows=[Window("Code", "main.py", Rect(0, 0, 200, 100))],
+                             blocks=[Block(f"OPENAI_API_KEY={SECRET_MARK}", Rect(10, 10, 80, 10), 1.0, "Code"),
+                                     Block("print(1)", Rect(10, 60, 40, 10), 1.0, "Code")],
+                             screen=Rect(0, 0, 200, 100), scale=1.0)
+
+
+def test_scene_looks_black_out_rows_that_held_a_secret():
+    from server.orchestrator.scene_watch import SceneWatch
+    from server.screen.types import Rect
+
+    assert SceneWatch._mask_args(_secret_obs())["mask"] == [Rect(10, 10, 80, 10)]
+
+
+def test_diagnose_screenshots_black_out_rows_that_held_a_secret():
+    from PIL import Image
+
+    from server.coach.screen import ScreenContext
+
+    ctx = ScreenContext.from_observation(_secret_obs(), Image.new("RGB", (200, 100), (255, 255, 255)), (150, 90))
+    img = ctx.pil()
+    assert img.getpixel((50, 15))[0] < 40  # the key's row
+    assert img.getpixel((150, 50))[0] > 215  # the rest of the screen
+    ov = ctx.overview()  # what claude_content encodes: the row stays black after the boxes are drawn
+    f = ov.width / 200
+    assert ov.getpixel((int(50 * f), int(15 * f)))[0] < 40
+    assert len(ctx.claude_content()) == 3
+
+
+def test_web_grounding_never_searches_with_a_secret(monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    from server.coach import web
+
+    urls = []
+
+    async def fake_fetch(kind, url):
+        urls.append(url)
+        return None
+
+    monkeypatch.setattr(web, "fetch", fake_fetch)
+    monkeypatch.setattr(web, "configured", lambda: True)
+    monkeypatch.setattr(web, "docs_for", web._docs_for)
+    monkeypatch.setattr(web, "community_signals", web._community_signals)
+    err = f"requests.exceptions.HTTPError: 403 for url: https://maps.example.com/api?key={GOOGLE}&q=x"
+    asyncio.run(web.gather("requests", "", f"why 403 with token={B64} {GITHUB}", error=err, timeout=2.0))
+    assert len(urls) == 2
+    for u in urls:
+        q = parse_qs(urlparse(u).query)["q"][0]
+        assert GOOGLE not in q and B64 not in q and GITHUB not in q and SECRET_MARK not in q
+    assert web.search_safe("TypeError: x is not a function") == "TypeError: x is not a function"
+    assert GOOGLE not in web.serp_url(f"error {GOOGLE}")

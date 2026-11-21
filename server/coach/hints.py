@@ -10,6 +10,8 @@ import json
 import re
 import textwrap
 
+from server.redact import SECRET_MARK
+
 from . import scene
 from .common import clamp_words, fmt_t, get_lesson
 from .diagnose import LAST
@@ -454,6 +456,11 @@ def apply_fix(diff: dict, file_text: str | None = None) -> dict:
         new_text, unified, error = _patch_notebook(file_text, yours, expected, name)
     else:
         new_text, unified, error = _patch(file_text, yours, expected, diff.get("line"), name, python=not file or file.endswith(".py"))
+    if new_text is not None and new_text.count(SECRET_MARK) > (file_text or "").count(SECRET_MARK):
+        # 5.2: the coach reads a key or a .env value as `[secret]`; a patch echoing it would write the placeholder
+        # over (or beside) the learner's real value. No patch: the app shows the fix-it-by-hand card.
+        new_text, unified = None, ""
+        error = f"the patch writes {SECRET_MARK} (a hidden value) into the file: leave lines holding it unchanged"
     if not unified:
         unified = "".join(
             difflib.unified_diff(

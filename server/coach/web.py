@@ -23,6 +23,8 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import httpx
 
+from server.redact import SECRET_MARK, redact_secrets
+
 from . import llm
 
 log = logging.getLogger("coach.web")
@@ -187,8 +189,19 @@ def _usable(kind: str, body: str) -> bool:
     return True
 
 
+def search_safe(text: str) -> str:
+    """`text` fit for a web search: every key- or token-shaped value (an error line's `?key=AIza...` URL, a key the
+    learner pasted into their question) is dropped, not sent to the search engine (5.2)."""
+    if not text:
+        return text
+    out = redact_secrets(text)
+    if SECRET_MARK not in out:
+        return text
+    return re.sub(r"[ \t]{2,}", " ", out.replace(SECRET_MARK, " ")).strip()
+
+
 def serp_url(query: str) -> str:
-    return f"{DDG_URL}?q={quote_plus(query)}"
+    return f"{DDG_URL}?q={quote_plus(search_safe(query))}"
 
 
 _DDG_LINK = re.compile(r'<a\b[^>]*\bclass="[^"]*result__a[^"]*"[^>]*\bhref="([^"]+)"[^>]*>(.*?)</a>', re.S)
@@ -294,6 +307,8 @@ async def gather(library: str, symbol: str, query: str, *, error: str = "", time
     """Docs + community in parallel, bounded by `timeout`; [] when the web is unavailable."""
     if not configured() or not (library or query):
         return []
+    # the learner's question and the terminal's error line go out as search words: no key or token in them (5.2)
+    query, error, symbol = search_safe(query), search_safe(error), search_safe(symbol)
     tasks = []
     if library:
         tasks.append(asyncio.ensure_future(docs_for(library, symbol, error=error)))
