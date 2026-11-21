@@ -1,0 +1,68 @@
+# eng-wire (E2: wire the v2 engine surface)
+
+**Status:** implemented, pushed, not merged · **Branch:** `claude/eng-wire` (from `origin/claude/eng-session`, with `origin/claude/eng-modules` merged in) · **Engine only** (no app files, no port) · BUILD-PLAN section 3, E2
+
+## Goal
+The engine speaks the v2 protocol the app-core-v2 shell expects: it says hello with its capabilities on every connect, answers the v2 commands with E1's modules (health, library, progress) and E3's session hooks (panel.state, the v2 gate), starts a cached lesson with no build, and closes the security items of BUILD-PLAN section 6 for the engine side (token, Origin, JSON-only POSTs, fixed key errors, log redaction).
+
+## Files (only these)
+`server/orchestrator/main.py`, `server/orchestrator/hub.py`, this brief. `server/config.py` is not touched (owned by eng-cloud-client; `safe_env()` already exists there).
+
+## What changed
+- **`engine.hello {version, contract, capabilities, restored?}`**: the first message on every WebSocket connect, before the snapshot. `version` from `server/pyproject.toml`; `contract` is the contract's `CONTRACT_VERSION` when this tree has it, else `"2026-11-20"` (W0-1); `capabilities` lists only commands whose module loaded (health.get + permission.open with health.py, library.list/get/start with library.py, progress.get with progress.py, panel.state with the session hook); `restored: true` when this connect's auto-resume restored a lesson (`Engine.auto_resume` now returns a bool).
+- **v2 dispatch** (`Engine.handle_v2`, `Engine.library_start`). Every v2 command calls `session.note_app_v2(type)` first (E3 core request 2) and starts the system-status poller.
+  - `health.get` -> `health` (sampled now through `SystemStatus.refresh_health()`, else `health.snapshot` in a thread).
+  - `permission.open {kind}` -> keeps health sampling on and answers `health`. Nothing prompts and no URL leaves the engine: the app opens System Settings itself (A3's store does).
+  - `library.list` -> `library`, `library.get {id}` -> `library.item` (no reply for an unknown id, as E1's contract says), `progress.get` -> `progress` (`{}` when nothing is recorded yet).
+  - `panel.state {open, rect?}` -> `await session.panel_state(open, rect)`.
+  - The reads and panel.state are answered at once, beside the command queue (a library list never waits behind a build or a coach answer); replies go to the asking socket only. `library.start` queues like `learn` and, like it, cancels a running build or search.
+  - Every blocking read runs in `asyncio.to_thread` (E1 core request 2).
+- **`library.start {id}`**: `library.load_graph(id)` in a thread; the graph's `workdir` (another Mac's path) is dropped; the lesson gets its own folder with no model call (`workspace.lesson_folder(graph)`, the folder S2's prepare would use, found without writing; else `~/miyagi/lessons/<slug>`; `TUT_WORKDIR` pins it). Same flow as the curated start: `lesson.building` with `source {kind: "library"}` and "Loading the lesson", the last run's files set aside on a fresh start (`set_aside_previous`, skipped when a save of this lesson continues), "Lesson ready", `load_graph`. A re-sent start of the running lesson replays the snapshot instead of restarting. Unknown id: `error "That lesson isn't on this Mac any more."`.
+- **Payload shapes**: E1's payloads are adapted to the W0-1 contract (app-core-v2 `shared/contracts/events.py`, which the app's stores read), keeping E1's own fields as extras (`extra="allow"`):
+  - health rows gain `label` (and `detail` = companion version); a `vscode` row (`missing`, fix `get_vscode`) is added only when E1 found no VS Code, so the app's companion row can offer Get VS Code. `ready`/`total` unchanged.
+  - library rows: `source` becomes `{kind: "youtube", title, url?, channel?, videoId?}` or `{kind: "goal", title}`; `by` only when the cache names the channel; `ready: true`; `updatedAt` ISO; `progress {stepIndex, stepTitle, total}` from E1's Continue row for that library id (only when both numbers are known). `continue` stays alongside `items`.
+  - `library.item`: `{item, steps: [{index, title, check?}], overview?}` (E1's `stepList` moved to `steps`, 0-based; a step's first check label stays `check`, never posing as `what`).
+  - progress: each track's `skills` become `items`; `completed[].at` is the learner's local date of `finishedAt`, or `""` when unknown (never invented); `inProgress` kept; no `week` / `review` (no scheduler).
+  - Checked offline: every adapted payload validates against app-core-v2's `events.py`.
+- **System status poller** (E1 `SystemStatus`): one per engine, started by the first v2 command (not at startup, so an older app or a test never makes it probe; `MIYAGI_SYSTEM_STATUS=0` keeps it off), stopped on shutdown. Its events (`blocker network`, `status busy` + `retryInS`, `health`) go out only once `session.app_v2` is set; `replay()` goes to each reconnecting v2 app after the snapshot. `restore_status` gives the session's own state (with its detail while thinking). `session.system_status` points at it for E4's hooks.
+- **HTTP**: `GET /health` stays instant liveness (scripts poll it every 0.25 s); `GET /health?checks=1` adds `{items, ready, total}`. New `GET /library`, `GET /library/{id}` (404 "No such lesson on this Mac." for a bad or unknown id), `GET /progress` (null when nothing yet).
+- **Security** (BUILD-PLAN section 6):
+  - Token: `MIYAGI_ENGINE_TOKEN` is read once at import and removed from `os.environ` (kernels, "Run it for me", pip and VS Code terminals never inherit it). When set, a WebSocket without a matching `X-Miyagi-Token` header (constant-time compare) is refused before the handshake (HTTP 403). Unset (an engine started by hand, tests): no token needed. The token is never logged.
+  - Origin: a WebSocket or HTTP request carrying an `Origin` header must be `http(s)://localhost|127.0.0.1|[::1]` (any port) or listed in `MIYAGI_ALLOWED_ORIGINS` (comma-separated); otherwise 403 / close 1008. Native clients (the app's main process, the VS Code companion, `tut run`, curl) send no Origin and pass. `null` and `file://` origins are refused.
+  - JSON-only POSTs (`RequestGuard`, pure ASGI): a POST/PUT/PATCH/DELETE with a body must be `application/json` (or `+json`), else 415. A bodyless POST (`curl -X POST localhost:8787/end`) still works; the companion, `tut run` and the scripts already send JSON.
+  - `config.keys` (and a future `config.validate`): a failure answers the fixed "Couldn't read those keys. Check them and try again." and logs `type + exception class` only, no traceback (pydantic errors print the input). v2 command failures answer "Couldn't answer that just now. Try again."; a malformed v2 command (bad id, bad kind, bad rect) is refused in one log line that never echoes the value.
+  - `_redact` covers `config.keys` and `config.validate` and clips any long payload; the instant-command error path logs through it too.
+  - Hub: emitted payloads are logged at DEBUG only; INFO keeps `-> <type>` so desktop tests still see what went out. `metric` / `screen.seen` stay silent. `panel.state` and `health.get` receipts log at DEBUG (they repeat); `permission.open <kind>`, `library.get|start <id>` at INFO.
+  - `ENGINE_HOST` / `--host` not on loopback: a startup warning, saying so louder when no token is set.
+- **Hub contract drift**: v2 event types this tree's `events.py` doesn't know yet (`engine.hello`, `health`, `library`, `library.item`, `progress`, `blocker`, `lesson.paused`, `lesson.resumed`) are sent unvalidated with one DEBUG line per type, also under `ORCH_STRICT=1` (engine.hello goes to every app; before, strict mode would have raised on connect). Every other event validates as before.
+- **Contract fallback**: `parse_command()` parses the seven v2 commands itself while this tree's `APP_COMMANDS` lacks them (same names and id pattern as W0-1); once the W0-1 contract lands, its models parse them and the fallback is unused.
+- **`app_v2` per connection** (E3's question): kept sticky per engine (one app per engine). Resetting it on reconnect would lose v2 until the app happened to send another v2 command (the app re-sends panel.state only when the dock moves).
+
+## Checks run
+- `python -m py_compile server/orchestrator/main.py server/orchestrator/hub.py`: OK (run-live venv, Python 3.12).
+- `python -I -c "import server.orchestrator.main, server.orchestrator.hub"` with `ANTHROPIC_API_KEY= GEMINI_API_KEY= BRIGHTDATA_API_KEY= TIGER_DATABASE_URL=` and this worktree first on `sys.path`: OK.
+- `ruff check --select F,E9` on both files: clean.
+- Offline smoke script (scratchpad `e2_smoke.py`, not committed; temp state / library / lessons dirs, no lifespan so no screen reader, watcher or VS Code; injected health probe; no network; no model calls): 52 checks pass. Covers: token read and removed from env; WS refused without / with a wrong token and from a foreign Origin; hello first, snapshot after; no v2 before a v2 command; health labels, the vscode row, ready/total; library shapes, ISO `updatedAt`, Continue -> progress, no paths; library.item shape; a bad id answered with the fixed error; progress reply; permission.open -> health; config.keys fixed error with no echo; `/health`, `/health?checks=1`, `/library`, `/library/{id}` (404s), `/progress`; HTTP foreign Origin 403, loopback Origin OK, text POST 415, JSON and bodyless POSTs OK; the adapters; Origin rules (`null`, `file://`, `localhost.evil.com` refused, `[::1]` allowed); redaction; every adapted payload validates against app-core-v2's `events.py`; poller events withheld from an older app and sent (blocker, busy, labelled health) to a v2 app, replay; library.start picks its own folder and never the cached workdir; a missing id answers the fixed error; a strict hub passes pending v2 events.
+- No pytest, no paid calls, nothing touched on :8787, no app or VS Code touched.
+
+## Core requests
+1. **W0-1 contract on this tree** (`shared/contracts/events.py` + `events.ts`, the `contract:` PR from `michael/app-core-v2`): until it lands the engine parses v2 commands itself and sends v2 events unvalidated. Contract notes from wiring E1:
+   - `HealthItem.id` comment lists `vscode / companion / python / jupyter / engine / cloud`; the engine sends `screen / accessibility / companion / engine / keys` (+ `vscode` only when missing) with E1's extras `required`, `kind`, `running`, `version`. Worth updating the comment.
+   - `LibraryItem.updatedAt` is a string: the engine sends ISO 8601 UTC (`2026-11-20T10:00:00Z`).
+   - `CompletedLesson.at` is required: the engine sends `""` when the finish day is unknown.
+2. **eng-cloud-client (`server/config.py`)**: add `MIYAGI_ENGINE_TOKEN` to `safe_env()`'s secret list (belt and braces; main.py already removes it from `os.environ` at import).
+3. **`safe_env()` call sites** (E3 / workspace owners, also eng-cloud-client core request 3): `orchestrator/session.py` "Run it for me" (`env = dict(os.environ)`), `workspace/setup.py`, `workspace/core.py`, `workspace/editor.py` (VS Code launch).
+4. **Tests (not run here)**:
+   - `server/orchestrator/tests/test_session.py:765` (`test_ws_and_ingest_roundtrip`): the first WS message is now `engine.hello`; read it first (`assert first["type"] == "engine.hello"`), then expect `status` / `lesson.ready`.
+   - Any test that POSTs a non-JSON body now gets 415; a test that sends an `Origin` header from a non-loopback host gets 403; a test with `MIYAGI_ENGINE_TOKEN` in its env must send `X-Miyagi-Token`.
+   - Worth adding: the smoke script's cases (Origin rules, token, adapters, 415).
+5. **E4 (cost guards)**: `getattr(session, "system_status", None)` is E1's poller once a v2 app is connected (None before): call `mark_busy(retry_after_s)` on a provider 429 / overloaded, `clear_busy()` on the next success, `note_network(False)` on a connect error.
+6. **E3 / session (`permission.open`)**: A3's store says the engine "holds checks" while the learner is in System Settings. No such hold exists; today permission.open only keeps health sampling on and answers `health`. If wanted, a session-side hold (like the editor_closed pause) belongs in session.py.
+7. **library.start and "zero model calls"**: no build and no lesson-writing call runs, but `load_graph` still pre-warms the coach (`self.m.warm()`, a prompt-cache warm-up when a key is set) like every lesson start. A library lesson in a folder S2 never scaffolded starts without Claude-written starter files (S2's `prepare()` would call Claude); `load_graph` still writes the README. If either matters, session.py / workspace own the change.
+8. **`server/orchestrator/client.py`** (dev CLI): send `X-Miyagi-Token` from `MIYAGI_ENGINE_TOKEN` when set, so it can reach an app-launched engine.
+9. **App (W0-5 / A3 / A6 / A8)**: the token is enforced only when the engine's env had `MIYAGI_ENGINE_TOKEN` (localEngine sets it); an engine started in Terminal accepts the app without one. A renderer page with a `file://` (`null`) origin would be refused on HTTP fetches that carry Origin; serve.ts's `http://localhost:<port>` origin is allowed, and `MIYAGI_ALLOWED_ORIGINS` can add one. `library` carries `continue` and `progress` carries `inProgress` as extras the app may ignore.
+
+## Notes
+- The network probe (E1) is a bare TCP connect to `api.anthropic.com:443` every 5 s while a v2 app is connected (no bytes, no API call); `MIYAGI_NET_PROBE=0` turns it off.
+- `health.get` while the poller is mid-tick waits for its lock (at most the network probe's 3 s timeout).
+- The v2 reads run beside the queue, so two of them can answer out of order; each reply is complete on its own.
