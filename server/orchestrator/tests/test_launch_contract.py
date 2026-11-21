@@ -142,6 +142,14 @@ def _until(ws, type_: str, limit: int = 200) -> list[dict]:
     return got
 
 
+def _queued_fence(ws) -> list[dict]:
+    """Everything up to the engine's answer to a malformed queued command. Queued commands run one at a time in
+    order, so all a command before it sent is in the list. (Never fence on an instant read such as progress.get: those
+    run as side tasks beside each other and can answer out of order.)"""
+    ws.send_json({"type": "fence.test", "payload": {}})
+    return _until(ws, "error")
+
+
 def _visible(msgs: list[dict]) -> list[dict]:
     return [m for m in msgs if m["type"] in ("lesson.ready", "step.started", "spotlight", "lesson.building")
             or m["type"].startswith("video.")
@@ -183,22 +191,23 @@ def test_saved_lesson_is_offered_after_library_list_and_continue_restores_it_pau
             assert ws.receive_json()["type"] == "engine.hello"
             assert ws.receive_json() == {"type": "status", "payload": {"state": "idle"}}
             ws.send_json({"type": "library.list", "payload": {}})
-            lib = ws.receive_json()
-            assert lib["type"] == "library"
-            ws.send_json({"type": "progress.get", "payload": {}})  # fence: exactly one card came with the library
-            after = _until(ws, "progress")[:-1]
-            cards = [m for m in after if m["type"] == "card"]
-            assert len(cards) == 1 and cards[0]["payload"]["kind"] == "resume", after
-            assert "step 3 of" in cards[0]["payload"]["body"]
-            assert not [m for m in after if m["type"] != "card"]
+            assert [m["type"] for m in _until(ws, "library")] == ["library"]
+            after = _until(ws, "card")  # the same handler sends it right after `library`
+            assert [m["type"] for m in after] == ["card"]
+            card = after[0]["payload"]
+            assert card["kind"] == "resume" and "step 3 of" in card["body"], card
+            # exactly one card per library.list: a second ask answers `library` with no card before it
+            ws.send_json({"type": "library.list", "payload": {}})
+            assert [m["type"] for m in _until(ws, "library")] == ["library"]
+            assert _until(ws, "card")[-1]["payload"]["kind"] == "resume"
             assert quiet_env.starts == 0
 
             ws.send_json({"type": "action", "payload": {"kind": "resume"}})  # Continue
             got = _until(ws, "step.started")
             types = [m["type"] for m in got]
             assert "lesson.ready" in types
-            ws.send_json({"type": "progress.get", "payload": {}})
-            got += _until(ws, "progress")
+            got += _until(ws, "video.seek")  # start_step seeks after step.started
+            got += _queued_fence(ws)  # everything the Continue sent (it ran before the fence in the queue)
             seeks = [m["payload"] for m in got if m["type"] == "video.seek"]
             assert seeks and seeks[-1] == {"t": seg["start"] + 20, "play": False}  # waits paused at its place
             assert not [m for m in got if m["type"] == "video.play"]
@@ -213,15 +222,17 @@ def test_library_list_offers_nothing_for_a_stopped_save(quiet_env, monkeypatch):
 
     _save_unended_video_lesson(monkeypatch)
     sessions.save({**sessions.load(), "stopped": True})  # the learner pressed End last time
-    main, _, _, _ = _engine(monkeypatch)
+    main, eng, _, _ = _engine(monkeypatch)
     with TestClient(main.app) as client:
         with client.websocket_connect("/") as ws:
-            ws.receive_json()
-            ws.receive_json()
+            assert ws.receive_json()["type"] == "engine.hello"
+            assert ws.receive_json()["type"] == "status"
             ws.send_json({"type": "library.list", "payload": {}})
-            ws.send_json({"type": "progress.get", "payload": {}})
-            got = _until(ws, "progress")
-            assert [m["type"] for m in got if m["type"] in ("library", "card")] == ["library"]
+            assert [m["type"] for m in _until(ws, "library")] == ["library"]
+            assert eng.resumer.pending_offer() is None  # the handler sends a card only for an offer
+            ws.send_json({"type": "library.list", "payload": {}})  # a second ask: nothing came between the two
+            assert [m["type"] for m in _until(ws, "library")] == ["library"]
+            assert [m["type"] for m in _queued_fence(ws)] == ["error"]
 
 
 # ---------------------------------------------------------------------------------------------- VS Code waits for Start
@@ -316,6 +327,43 @@ def test_returning_app_never_gets_an_old_preflight_card(quiet_env, tmp_path):
     s.pending_pick = {"url": "https://example.com/v", "row": {}, "card": {"kind": "preflight", "title": "Check"}}
     s.phase = "preflight"
     assert ("card", s.pending_pick["card"]) in s.snapshot()  # a quick reconnect: the card is still up
-    assert s.snapshot(returning=True) == [("status", {"state": "idle"})]  # the app relaunched: dropped
-    assert s.pending_pick is None and s.phase == "idle"
-    assert json.dumps(s.snapshot())  # and it stays gone
+    assert s.snapshot(returning=True) == [("status", {"state": "idle"})]  # the app came back: never replayed
+    assert json.dumps(s.snapshot()) and ("card", s.pending_pick["card"]) not in s.snapshot()  # and it stays unsent
+    assert s.pending_pick is not None  # the pick is kept: that run's card can still press Build
+
+
+def test_build_still_works_after_the_app_came_back_with_its_card_still_up(quiet_env, tmp_path):
+    """Sleep / wake or a Wi-Fi drop (> ORCH_RESUME_AFTER_S): the same app run still shows its preflight card. Its
+    Build must still build the picked video, not do nothing."""
+    s, _, _ = _held_session(tmp_path, asked=True)
+    built: list = []
+
+    async def run_build(url, goal, video_meta=None, **_k):
+        built.append(url)
+
+    s._run_build = run_build
+    s.pending_pick = {"url": "https://example.com/v", "row": {}, "card": {"kind": "preflight", "title": "Check"}}
+    s.phase = "preflight"
+    assert s.snapshot(returning=True) == [("status", {"state": "idle"})]
+
+    async def go():
+        await s.action("build")
+        await asyncio.sleep(0.05)
+        await s.drain()
+
+    asyncio.run(go())
+    assert built == ["https://example.com/v"] and s.pending_pick is None
+
+
+def test_a_late_preflight_card_after_a_return_is_shown_again_on_a_quick_reconnect(quiet_env, tmp_path):
+    s, _, _ = _held_session(tmp_path, asked=True)
+    pick = {"url": "https://example.com/v", "row": {}, "card": {"kind": "preflight", "title": "Old"}}
+    s.pending_pick, s.phase = pick, "preflight"
+    s.snapshot(returning=True)
+    s.m.preflight_card = lambda res: {"kind": "preflight", "title": "New"}
+
+    async def go():
+        await s._show_preflight(pick, {"items": []})
+
+    asyncio.run(go())
+    assert ("card", {"kind": "preflight", "title": "New"}) in s.snapshot()  # a card sent this run: shown again

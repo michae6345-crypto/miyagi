@@ -1877,6 +1877,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.pending_pick is not pick:
             return
         card = self.m.preflight_card(res)
+        pick.pop("no_replay", None)  # a new card, sent now: a later quick reconnect may show it again
         self.reqs = list(card.get("items") or res.get("items") or []) or self.reqs  # Install on this card uses S2's flow
         pick["card"] = card
         await self._sync_row_captions(res)
@@ -8034,15 +8035,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     def snapshot(self, ask_resume: bool = False, returning: bool = False) -> list[tuple[str, dict]]:
         """Messages that bring a freshly connected client up to date. ask_resume (the app came back
         after being away): pause and offer "Continue / Start new" instead of jumping back in. returning (the app
-        relaunched after being away, lesson or not): an old preflight card is dropped, never sent again (Nov 21)."""
+        relaunched after being away, lesson or not): an old preflight card is never sent again (Nov 21). The pick
+        itself is kept: the same app run (sleep / wake, a Wi-Fi drop) still shows that card, and its Build works."""
         from . import lesson_end
 
         out: list[tuple[str, dict]] = []
-        if (ask_resume or returning) and self.pending_pick is not None:
-            log.info("app returning: the old preflight card is dropped")
-            self.pending_pick = None  # (a preflight still running then shows nothing: pending_pick is not its pick)
-            if self.phase == "preflight":
-                self.phase = "idle"
+        if (ask_resume or returning) and self.pending_pick is not None and not self.pending_pick.get("no_replay"):
+            log.info("app returning: the old preflight card is not sent again (the pick is kept for its Build)")
+            self.pending_pick["no_replay"] = True  # (_show_preflight sends a late, fresh card and clears this)
         done = lesson_end.finished(self)  # t5: a finished lesson is never "Continue where you left off?"
         if ask_resume and self.graph is not None and self.step is not None and not done:
             self.awaiting_resume = True
@@ -8050,7 +8050,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return [("spotlight", {"clear": True}), ("video.pause", {}), ("card", self.resume_card())]
         if self.awaiting_resume and self.graph is not None:  # still undecided: show the question again
             return [("spotlight", {"clear": True}), ("video.pause", {}), ("card", self.resume_card())]
-        if self.pending_pick is not None and self.pending_pick.get("card"):  # preflight card awaiting build / pick_another
+        if self.pending_pick is not None and self.pending_pick.get("card") and not self.pending_pick.get("no_replay"):
+            # preflight card awaiting build / pick_another (never replayed to an app that came back: Nov 21)
             return [("status", {"state": "idle"}), ("card", self.pending_pick["card"])]
         if self.phase == "building" and self.build_progress:  # reconnect mid-build: keep the spinner honest
             out.append(("status", {"state": "thinking", **({"detail": self.status_detail}

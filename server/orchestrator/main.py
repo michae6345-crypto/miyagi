@@ -622,13 +622,13 @@ class Engine:
     async def auto_resume(self) -> bool:
         """The first app connection after an engine restart (or a deploy's POST /end) while a lesson was running: that
         lesson continues at its saved step, as if nothing happened (Michael, Nov 15: restarts sent him back to "begin
-        project"). Not a lesson the learner ended (End / Start new: `stopped`, offered by the resume card as before),
+        project"). Not a lesson the learner ended (End / Start new: `stopped`, only the library's Continue row now),
         not one finished, not one idle longer than ORCH_AUTO_RESUME_S (default 3 h), never a Demo take (each Demo
         start is a fresh take at step 1: stage.py). True when it restored one (engine.hello.restored).
         Nov 21: OFF by default. Michael: every launch is a fresh start ("it's like continuing a lesson. No, I need it to
         restart"): auto-resume opened VS Code, the steps drawer and the old clip with sound before sign-in. The saved
-        lesson stays on disk and is offered by the resume card / Continue; ORCH_AUTO_RESUME=1 turns the old behaviour
-        back on (dev, deploys)."""
+        lesson stays on disk: the library's Continue row, plus the resume card after library.list when it was not
+        ended (never on connect); ORCH_AUTO_RESUME=1 turns the old behaviour back on (dev, deploys)."""
         s = self.session
         if os.environ.get("ORCH_AUTO_RESUME") != "1":
             return False

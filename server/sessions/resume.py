@@ -8,11 +8,13 @@ video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
     me" text lessons) and step.started / step.passed (passed + skipped) / video.state (throttled); cleared on
     POST /end and when the last step passes; KEPT on lesson.ended "stopped" (the bar's End) and "end_lesson"
     (the resume card's "Start a new lesson", E11: it threw the lesson away for good, and a stray click near
-    Continue did it), marked `stopped`: offered back by the resume card when the app next connects, restored
-    only by its Continue, replaced once another lesson is actually built (a rebuild of the same lesson starts
-    over and replaces it). The lesson it replaced goes on the recent list (store.recent()).
+    Continue did it), marked `stopped`: offered back only as the library's Continue row (Nov 21: no card,
+    on connect or after library.list), restored only by that Continue (library.start), replaced once another
+    lesson is actually built (a rebuild of the same lesson starts over and replaces it).
+    The lesson it replaced goes on the recent list (store.recent()).
   - snapshot() with no lesson in memory: status idle only (Nov 21, launch-quiet: nothing on connect). A saved
-    lesson is offered (pending_offer(): the resume card) after the app's library.list, never on connect
+    lesson that was not ended (not `stopped`) is offered (pending_offer(): the resume card) only after the app's
+    library.list, never on connect; any saved lesson is also the library's Continue row
   - resume() with no lesson in memory: reload the cached step graph (no rebuild) at the saved step and
     seek the video to the saved position; with one in memory: the session's own resume
   - resume_card(): "<title> · Step 3 of 7 · 12 min ago" for the in-memory case too
