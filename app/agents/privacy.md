@@ -37,7 +37,10 @@ line each. A link opens the privacy policy. Delete my data erases everything miy
 ## Test
 `npm run dev:web -- --port 5615 --strictPort` → `http://localhost:5615/?scenario=settings&settings=privacy`
 (`&confirm=delete` opens on the delete confirm). Use the `settings` scenario, not `full`: `full` merges the player.
-Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/privacy/facts.test.ts src/renderer/src/features/settings/privacy/erase.test.ts src/main/features/settings/erase.test.ts`
+Unit: the standard app command runs them: `cd app && node --import tsx --import ./test/setup.mjs --test --test-force-exit test/*.test.ts`
+(`test/privacy.test.ts` imports the three files that live next to their code). Alone:
+`cd app && node --import tsx --test src/renderer/src/features/settings/privacy/facts.test.ts src/renderer/src/features/settings/privacy/erase.test.ts src/main/features/settings/erase.test.ts`
+CI (ci.yml) runs only typecheck and lint, so these run by hand or in a review round.
 
 ## Notes (first pass)
 - `privacy/facts.ts` is the one list (screen, code, editor, searches, videos, sign-in, keys, progress, crash, usage).
@@ -105,8 +108,22 @@ Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/pri
   The policy table has one row per panel row; facts.test.ts checks label and line together and the link and
   telemetry wording.
 - Delete my data also removes userData/cloud-link.json (the local note of the link, no token). The cloud row stays.
-- Stage shots not retaken this round (no visible windows allowed): privacy-panel.png shows the old crash and usage
-  lines and lacks the two new rows. Retake headlessly before merge.
+- Stage shots not retaken this round (no visible windows allowed); retaken in the next round (below).
+
+## Notes (finish round, fix round 1)
+- Merged origin/michael/v2-integration again (notch island); no conflicts.
+- web/privacy.md: app_installed sends `os: process.platform` ("darwin") and `arch()`, not the macOS version
+  (telemetry.ts, core.ts EVENT_PROPS). The bullet now says "the app version, the system (macOS) and the chip type".
+  The macOS version goes only to /v1/install (cloud.ts), which the miyagi-cloud section covers.
+- Comments in privacy/erase.ts, keys.ts (DeleteResult) and sections/Privacy.tsx now name cloud-link.json with
+  auth.bin and login.json, as main settings/erase.ts SIGN_IN_FILES does.
+- `test/privacy.test.ts` imports facts.test.ts, privacy/erase.test.ts and main settings/erase.test.ts, so the
+  standard `test/*.test.ts` command runs them (18 tests).
+- All three stage shots retaken headlessly: Playwright's cached headless_shell driven over CDP (no window, muted,
+  dark color scheme, 1440x900 @2x, `settings` scenario, no player), 1.5 s after "What miyagi sees" shows.
+  `privacy-panel.png` is scrolled 200 px so Account link and miyagi's server show; `privacy-data.png` is scrolled to
+  the bottom (new crash and usage lines, the switch, policy, delete); `privacy-confirm.png` is the same with
+  `&confirm=delete`. The old data and confirm shots also showed the replaced crash and usage lines.
 
 ## Merge status
 - v2-integration is merged into this branch; it can merge into michael/v2-integration after review. Draft PR #199
