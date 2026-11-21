@@ -320,6 +320,8 @@ export const windowSize = {
   lessonDetail: { w: 960, h: 700 },
   progress: { w: 1100, h: 760 },
   account: { w: 720, h: 560 },
+  /** The login (features/auth): the first-run size, so intro → login → setup stays in one spot (main/features/onboarding.ts). */
+  auth: { w: 944, h: 640 },
   pricing: { w: 1200, h: 760 },
   /** Settings stays the grow-from-pill sheet; this is its clamp (A4). */
   settings: { w: 912, h: 576 }

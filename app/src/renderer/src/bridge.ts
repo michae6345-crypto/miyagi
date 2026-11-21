@@ -154,7 +154,7 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   // App windows (main/appWindows.ts): the stage shows them over the desktop (dev/Stage.tsx listens to window:stage).
   const appArgs = new Map<string, unknown>()
   const appOpen = new Set<string>()
-  const APP_ROUTES = new Set(['onboarding', 'library', 'progress', 'account'])
+  const APP_ROUTES = new Set(['onboarding', 'library', 'progress', 'account', 'auth'])
   webHandlers.set('window:open', (route, args) => {
     if (typeof route !== 'string' || !APP_ROUTES.has(route)) return false
     appArgs.set(route, args ?? null)

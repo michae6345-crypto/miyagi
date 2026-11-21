@@ -17,7 +17,9 @@ import { pressMotion } from '../../core/ui/motion'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
-import { PersonGlyph } from '../account/ui'
+import { Avatar } from '../auth/Avatar'
+import { authOn } from '../auth/model'
+import { loadAuth, useAuth } from '../auth/store'
 import { StatusArea } from '../library/Status'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
@@ -89,18 +91,39 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
   )
 }
 
-/** The account chip: the person and the plan (v2Cloud), or that miyagi runs on this Mac without an account. */
+/**
+ * The account chip: the signed-in learner (the real login, features/auth: avatar initial, name, email), "Not signed
+ * in / Sign in to sync" when signed out; the person and the plan under v2Cloud (mock); "This Mac" with login off.
+ */
 function AccountChip({ compact }: { compact: boolean }): ReactNode {
   const on = useShell((s) => s.page === 'account')
   const account = useAccount((s) => s.account)
-  const loaded = useAccount((s) => s.loaded)
+  const accountLoaded = useAccount((s) => s.loaded)
+  const user = useAuth((s) => s.user)
+  const authLoaded = useAuth((s) => s.loaded)
+  const login = !v2Cloud && authOn
   useEffect(() => {
     if (v2Cloud) void loadAccount()
+    else if (authOn) void loadAuth()
   }, [])
-  const signedIn = v2Cloud && !!account?.signedIn
-  const name = signedIn ? (account?.name ?? account?.email ?? 'Signed in') : v2Cloud ? 'Not signed in' : 'This Mac'
-  const line = signedIn ? `${planLabel(account!.plan)} plan` : v2Cloud ? 'Sign in to sync' : 'No account needed'
-  const pending = v2Cloud && !loaded
+  let name: string
+  let line: string
+  let initial: string | undefined
+  let signedIn = false
+  if (v2Cloud) {
+    signedIn = !!account?.signedIn
+    name = signedIn ? (account?.name ?? account?.email ?? 'Signed in') : 'Not signed in'
+    line = signedIn ? `${planLabel(account!.plan)} plan` : 'Sign in to sync'
+  } else if (login) {
+    signedIn = !!user
+    name = user ? (user.name ?? user.email ?? 'Signed in') : 'Not signed in'
+    line = user ? (user.name && user.email ? user.email : 'Signed in') : 'Sign in to sync'
+    initial = user?.avatarInitial
+  } else {
+    name = 'This Mac'
+    line = 'No account needed'
+  }
+  const pending = v2Cloud ? !accountLoaded : login ? !authLoaded : false
   return (
     <motion.button
       type="button"
@@ -120,9 +143,7 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
       {...pressMotion()}
       onClick={() => setPage('account')}
     >
-      <span className="relative flex shrink-0 items-center justify-center" style={{ width: 32, height: 32, borderRadius: radius2.round, background: fill.navActive, color: color.text }}>
-        <PersonGlyph size={18} />
-      </span>
+      <Avatar initial={initial} size={32} />
       {!compact && (
         <span className="relative flex min-w-0 flex-1 flex-col" style={{ gap: 2 }}>
           {pending ? (

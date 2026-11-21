@@ -22,7 +22,8 @@ export const ALLOWED_HOSTS = [
   'console.anthropic.com', // Settings › Account: where to get a key (BYOK)
   'aistudio.google.com',
   'elevenlabs.io',
-  'github.com' // the engine's install notes
+  'github.com', // the engine's install notes
+  'wssdpsdbaqtnfhoyimit.supabase.co' // Google sign-in's start page (features/auth.ts; the exact project, main/publicConfig.ts)
 ] as const
 
 /** System Settings panes, by kind. Fixed strings: nothing from a renderer is ever appended. */

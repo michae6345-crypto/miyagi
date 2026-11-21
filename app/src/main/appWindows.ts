@@ -21,7 +21,8 @@ export const APP_ROUTES = {
   onboarding: windowSize.onboarding,
   library: windowSize.library,
   progress: windowSize.progress,
-  account: windowSize.account
+  account: windowSize.account,
+  auth: windowSize.auth
 } as const
 export type AppRoute = keyof typeof APP_ROUTES
 

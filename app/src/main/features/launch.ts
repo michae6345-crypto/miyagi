@@ -94,6 +94,13 @@ export default defineMainFeature({
 
     const openHome = (): void => {
       if (ctx.overlay.isDestroyed()) return
+      // The first-run login is up (features/auth): bring it forward as it is (no new args: they would restart it).
+      const login = ctx.appWindow('auth')
+      if (login && !login.isDestroyed()) {
+        login.show()
+        login.focus()
+        return bringForward(login)
+      }
       if (!onboarded()) return bringForward(ctx.openWindow('onboarding'))
       for (const route of FORWARD) {
         const w = ctx.appWindow(route)

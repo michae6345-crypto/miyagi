@@ -27,6 +27,7 @@ import { Detail } from '../library/Detail'
 import { Home } from '../library/Home'
 import { LessonSearch, Lessons, greeting, openLauncher } from '../library/Library'
 import { Ring } from '../library/motion'
+import { v2Cloud } from '../account/model'
 import { useLibrary } from '../library/store'
 import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
@@ -44,7 +45,7 @@ const SHORT_H = 700
 const CAPTION: Partial<Record<PageId, string>> = {
   skills: 'Pick a skill to see the lessons that teach it.',
   progress: 'Every number is a step you passed yourself.',
-  account: 'Your plan and how miyagi runs here.'
+  account: v2Cloud ? 'Your plan and how miyagi runs here.' : 'Your account and how miyagi runs here.'
 }
 
 function Header({ page }: { page: PageId }): ReactNode {

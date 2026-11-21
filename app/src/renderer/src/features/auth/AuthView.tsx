@@ -1,26 +1,46 @@
 /**
- * Feature: auth. The whole first-run login surface: Intro, then Login, in one LayoutGroup so the bonsai flies from
- * the middle of the window into the login's header. Mounted by the account window for view 'login' (until core
- * allowlists an 'auth' route of its own; see agents/auth.md, Core requests).
+ * Feature: auth. The login window (route `auth`, kind 'app'): the branded intro (features/onboarding's Intro, the
+ * bonsai grows up out of its pot in the middle of the window), then "miyagi login", in one LayoutGroup so the tree
+ * travels from the middle of the window into the login's header (shared layoutId).
+ *
+ * Window args {view}: 'intro' (the first run, main/features/onboarding.ts) plays the intro first; 'login' (a later
+ * "Sign in", or a first run whose intro already played) opens on the login.
  */
 import { AnimatePresence, LayoutGroup } from 'motion/react'
-import { useEffect, type ReactNode } from 'react'
-import { surface } from '../../core/theme'
-import { Intro } from './Intro'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useWindowArgs } from '../../core/surfaces'
+import { color, copy, font } from '../../core/theme'
+import { Intro } from '../onboarding/Intro'
 import { Login } from './Login'
-import { cancelSignIn, loadAuth, useAuth } from './store'
+import { cancelSignIn, endIntro, loadAuth, useAuth } from './store'
 
-export function AuthView({ skipIntro = false }: { skipIntro?: boolean }): ReactNode {
+/** How long the window waits for its open args before it opens on the login. */
+const ARGS_WAIT_MS = 250
+
+export function AuthView(): ReactNode {
+  const args = useWindowArgs('auth')
+  const [waited, setWaited] = useState(false)
+  /** The view the store's phase was last reset for: nothing renders before that, so a 'login' open never flashes the intro. */
+  const [synced, setSynced] = useState<string | undefined>(undefined)
   const phase = useAuth((s) => s.phase)
+  const view = args?.view === 'intro' ? 'intro' : args ? 'login' : waited ? 'login' : undefined
 
   useEffect(() => {
-    useAuth.setState({ phase: skipIntro ? 'login' : 'intro', pending: undefined, note: undefined })
-    void loadAuth()
-  }, [skipIntro])
+    const t = setTimeout(() => setWaited(true), ARGS_WAIT_MS)
+    if (document.title !== copy.name) document.title = copy.name
+    return () => clearTimeout(t)
+  }, [])
 
-  // Esc while the browser sign-in runs cancels it (main closes its loopback listener) instead of closing the window
-  // under a flow that would keep waiting. Capture phase, so the account window's Esc (close) sees defaultPrevented.
-  // Leaving the view mid-flow cancels it too.
+  // Every open (and re-open with another view) starts fresh on that view, with fresh data.
+  useEffect(() => {
+    if (!view) return
+    useAuth.setState({ phase: view, pending: undefined, note: undefined })
+    setSynced(view)
+    void loadAuth()
+  }, [view, args])
+
+  // Esc while the browser sign-in runs cancels it (main closes its loopback listener) instead of leaving a flow that
+  // keeps waiting. Leaving the window mid-flow cancels it too.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || !useAuth.getState().pending) return
@@ -35,11 +55,13 @@ export function AuthView({ skipIntro = false }: { skipIntro?: boolean }): ReactN
   }, [])
 
   return (
-    <div data-auth-phase={phase} className="relative h-full w-full overflow-hidden" style={{ background: surface.window }}>
+    <div data-window="auth" data-auth-phase={view ? phase : 'loading'} className="relative h-full w-full select-none overflow-hidden" style={{ background: color.window, color: color.text, fontFamily: font.ui }}>
       <div data-drag className="absolute inset-x-0 top-0 z-10" style={{ height: 28 }} />
-      <LayoutGroup>
-        <AnimatePresence>{phase === 'intro' ? <Intro key="intro" /> : <Login key="login" />}</AnimatePresence>
-      </LayoutGroup>
+      {view && synced === view && (
+        <LayoutGroup>
+          <AnimatePresence>{phase === 'intro' ? <Intro key="intro" onDone={endIntro} /> : <Login key="login" />}</AnimatePresence>
+        </LayoutGroup>
+      )}
     </div>
   )
 }

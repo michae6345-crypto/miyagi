@@ -4,7 +4,8 @@
  *
  *   openOnboarding()            the Onboarding app window
  *   openSettings(section?)      the Settings sheet, grown from the pill (settings feature, main/features/settings.ts)
- *   openLibrary(id?)            the Library app window, on a lesson's detail when `id` is given
+ *   openLibrary(id? | {page})   the Library app window, on a lesson's detail when `id` is given, or on a shell page
+ *   openLogin(view?)            the login app window (features/auth; 'intro' plays the branded intro first)
  *   openProgress()              the Progress app window
  *   openAccount(view)           the Account sheet (v2Cloud only; A9)
  *   closeWindow(route?)         close an app window (no route: the one this code runs in)
@@ -16,7 +17,11 @@
 import { useEffect, useState } from 'react'
 import { bridge } from '../bridge'
 
-export type AppRoute = 'onboarding' | 'library' | 'progress' | 'account'
+export type AppRoute = 'onboarding' | 'library' | 'progress' | 'account' | 'auth'
+/** The login window (features/auth): the branded intro first, or straight to "miyagi login". */
+export type AuthView = 'intro' | 'login'
+/** openLibrary's deep link: a lesson's preview ({id}), or a shell page ({page}, and for Settings a {section}). */
+export type LibraryTarget = { id?: string; page?: string; section?: SettingsSection }
 export type SettingsSection = 'general' | 'permissions' | 'privacy' | 'account' | 'shortcuts'
 export type AccountView = 'menu' | 'upgrade' | 'signin' | 'pricing'
 export type WindowArgs = Record<string, string | number | boolean>
@@ -38,7 +43,17 @@ export function focusWindow(route: AppRoute): Promise<boolean | undefined> {
 }
 
 export const openOnboarding = (): Promise<boolean | undefined> => openWindow('onboarding')
-export const openLibrary = (id?: string): Promise<boolean | undefined> => openWindow('library', id ? { id } : undefined)
+/** openLibrary() / openLibrary(id) as before; openLibrary({page, section?}) opens the home window on a shell page. */
+export function openLibrary(target?: string | LibraryTarget): Promise<boolean | undefined> {
+  if (typeof target === 'string') return openWindow('library', target ? { id: target } : undefined)
+  const args: WindowArgs = {}
+  if (target?.id) args.id = target.id
+  if (target?.page) args.page = target.page
+  if (target?.section) args.section = target.section
+  return openWindow('library', Object.keys(args).length ? args : undefined)
+}
+/** The login window (features/auth). Main decides on the first run; this is for a later "Sign in". */
+export const openLogin = (view: AuthView = 'login'): Promise<boolean | undefined> => openWindow('auth', { view })
 export const openProgress = (): Promise<boolean | undefined> => openWindow('progress')
 export const openAccount = (view: AccountView): Promise<boolean | undefined> => openWindow('account', { view })
 /** Settings stays the grow-from-pill sheet (decision 4); the section is a hint its feature reads (A4). */

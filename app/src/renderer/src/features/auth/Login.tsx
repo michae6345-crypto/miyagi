@@ -11,11 +11,11 @@ import { color, copy, fill, font, radius2, spring, surface, type2 } from '../../
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { openLink } from '../account/store'
 import { AppleGlyph, GoogleGlyph, Note, TextLink } from '../account/ui'
-import { MARK_ID } from './Intro'
+import { MARK_ID } from '../onboarding/Intro'
+import { Avatar } from './Avatar'
 import { LIVE, PROVIDER_LABEL, type Mode, type Provider } from './model'
-import { cancelSignIn, continueToSetup, setMode, signInWith, signOut, useAuth } from './store'
+import { cancelSignIn, continueToSetup, openLegal, setMode, signInWith, signOut, useAuth } from './store'
 
 const MODES: Array<{ id: Mode; label: string }> = [
   { id: 'new', label: 'New user' },
@@ -118,10 +118,13 @@ function ProviderBox({ p, mode, pending }: { p: Provider; mode: Mode; pending?: 
   )
 }
 
-function SignedIn({ name, email }: { name?: string; email?: string }): ReactNode {
+function SignedIn({ name, email, initial }: { name?: string; email?: string; initial: string }): ReactNode {
   return (
     <motion.div key="signed-in" data-auth-signed-in initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={spring} className="flex w-full max-w-[360px] flex-col items-center gap-[16px]">
       <div className="flex w-full flex-col items-center gap-[4px] text-center" style={{ padding: '16px 20px', borderRadius: radius2.group, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
+        <span style={{ marginBottom: 6 }}>
+          <Avatar initial={initial} size={40} />
+        </span>
         <span style={{ fontSize: type2.xs, color: color.label }}>Signed in as</span>
         <span className="font-semibold" style={{ fontSize: type2.body, color: color.text }}>
           {name ?? email}
@@ -164,7 +167,7 @@ export function Login(): ReactNode {
       <div className="flex flex-1 flex-col items-center justify-center gap-[16px]">
         <AnimatePresence mode="wait" initial={false}>
           {user ? (
-            <SignedIn name={user.name} email={user.email} />
+            <SignedIn name={user.name} email={user.email} initial={user.avatarInitial} />
           ) : (
             <motion.div key="choose" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={spring} className="flex flex-col items-center gap-[14px]">
               <ModeSwitch mode={mode} />
@@ -198,7 +201,7 @@ export function Login(): ReactNode {
                 <TextLink onClick={continueToSetup}>Continue without an account</TextLink>
                 <span aria-hidden>·</span>
                 <span>
-                  <TextLink onClick={() => openLink('terms')}>Terms</TextLink> and <TextLink onClick={() => openLink('privacy')}>Privacy</TextLink>
+                  <TextLink onClick={() => openLegal('terms')}>Terms</TextLink> and <TextLink onClick={() => openLegal('privacy')}>Privacy</TextLink>
                 </span>
               </>
             )}

@@ -1,25 +1,27 @@
 /**
- * Feature: auth. The login window's state. Memory only: nothing here goes to localStorage or a log.
+ * Feature: auth. The login's state, and the signed-in learner for every window (the shell's Account page and sidebar
+ * chip read `user` from here). Memory only: nothing here goes to localStorage or a log.
  *
- *   phase    intro (the bonsai grows in) → login
+ *   phase    intro (the branded intro grows in) → login
  *   mode     New user / Returning user (only the copy and the provider labels change; OAuth is the same call)
  *   pending  the provider whose browser sign-in is running
- *   user     the signed-in learner (name, email), or null
+ *   user     the signed-in learner {name, email, avatarInitial}, or null
+ *   loaded   auth:get answered once in this window
  */
 import { create } from 'zustand'
 import { bridge } from '../../bridge'
-import { closeWindow, openOnboarding } from '../../core/surfaces'
-import { cleanUser, LIVE, PROVIDER_LABEL, reasonLine, type Mode, type Provider, type SignInResult, type User } from './model'
+import { cleanUser, LEGAL, LIVE, PROVIDER_LABEL, reasonLine, type Mode, type Provider, type SignInResult, type User } from './model'
 
 type State = {
   phase: 'intro' | 'login'
   mode: Mode
   pending?: Provider
   user: User | null
+  loaded: boolean
   note?: string
 }
 
-export const useAuth = create<State>(() => ({ phase: 'intro', mode: 'new', user: null }))
+export const useAuth = create<State>(() => ({ phase: 'intro', mode: 'new', user: null, loaded: false }))
 
 let noteTimer: ReturnType<typeof setTimeout> | undefined
 export function say(note: string | undefined): void {
@@ -33,11 +35,15 @@ export const endIntro = (): void => useAuth.setState({ phase: 'login' })
 
 export async function loadAuth(): Promise<void> {
   try {
-    useAuth.setState({ user: cleanUser(await bridge.invoke<unknown>('auth:get')) })
+    useAuth.setState({ user: cleanUser(await bridge.invoke<unknown>('auth:get')), loaded: true })
   } catch {
-    useAuth.setState({ user: null })
+    useAuth.setState({ user: null, loaded: true })
   }
 }
+
+// Main tells every window when the learner signs in or out (feat:auth:changed), so the home window's chip follows
+// a sign-in that happened in the login window.
+bridge.onFeature('auth:changed', (u) => useAuth.setState({ user: cleanUser(u), loaded: true }))
 
 export async function signInWith(p: Provider): Promise<void> {
   if (useAuth.getState().pending) return
@@ -49,7 +55,7 @@ export async function signInWith(p: Provider): Promise<void> {
   useAuth.setState({ pending: p })
   try {
     const r = await bridge.invoke<SignInResult>(`auth:${p}`, { mode: useAuth.getState().mode })
-    if (r && r.ok) useAuth.setState({ user: cleanUser({ ...r.user, signedIn: true }) })
+    if (r && r.ok) useAuth.setState({ user: cleanUser(r.user) })
     else say(reasonLine(r?.reason))
   } catch {
     say(reasonLine())
@@ -69,9 +75,13 @@ export function signOut(): void {
 }
 
 /**
- * Login done (or skipped): on to guided setup. The flow is intro → login → setup → home.
- * The login lives in the account window (view 'login') until core allowlists its own 'auth' route (Core requests).
+ * Done with the login (signed in, or "Continue without an account"). Main remembers the choice (the login never shows
+ * on launch again), opens guided setup on the first run, and closes the login window once setup is showing.
  */
 export function continueToSetup(): void {
-  void openOnboarding().then(() => closeWindow('account'))
+  bridge.invoke('auth:continue').catch(() => undefined)
+}
+
+export function openLegal(page: keyof typeof LEGAL): void {
+  bridge.invoke('open:external', LEGAL[page]).catch(() => undefined)
 }

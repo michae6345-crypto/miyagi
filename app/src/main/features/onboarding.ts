@@ -1,6 +1,9 @@
 /**
  * Main-process side of onboarding (A3; renderer: src/renderer/src/features/onboarding/).
  *
+ *   - First-run order: branded intro → miyagi login → guided setup → home. While features/auth.ts says the login is
+ *     needed, the login window (route `auth`, same size and spot) opens first and plays the intro; setup follows when
+ *     the learner signs in or continues without an account (onLoginDone).
  *   - Flags: userData/onboarding.json {done, at, introSeen}. Not done → the Onboarding app window opens once the overlay
  *     has loaded, at the first-run size (FIRST_RUN): the branded intro the very first time ({view:'intro'}), guided
  *     setup after that ({view:'setup'}: a relaunch for Screen Recording lands back in the walk, not the intro).
@@ -23,12 +26,13 @@
  *
  * UNVERIFIED in Electron (cost freeze; no live run in this package): the TCC prompts, the relaunch, the CLI install.
  */
-import { desktopCapturer, screen, systemPreferences } from 'electron'
+import { desktopCapturer, screen, systemPreferences, type BrowserWindow } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
+import { needsLogin, onLoginDone } from './auth'
 
 /** The first launch's window (intro + guided setup). The renderer's stage uses the same numbers (features/onboarding/web.ts). */
 const FIRST_RUN = { w: 944, h: 640 }
@@ -99,10 +103,9 @@ export default defineMainFeature({
       }
     }
 
-    /** The first run: intro (once) then guided setup, centered on the display under the pointer, clamped to its work area. */
-    const openFirstRun = (): void => {
-      const win = ctx.openWindow('onboarding', { view: flag.introSeen ? 'setup' : 'intro' })
-      if (!win || win.isDestroyed()) return
+    /** A first-run window (login or setup), centered on the display under the pointer, clamped to its work area. */
+    const place = (win: BrowserWindow | undefined): BrowserWindow | undefined => {
+      if (!win || win.isDestroyed()) return undefined
       // The product's name, lowercase, in the title bar and the Window menu (BRAND.md), whatever the page sets.
       win.setTitle('miyagi')
       win.on('page-title-updated', (e) => e.preventDefault())
@@ -111,9 +114,35 @@ export default defineMainFeature({
       const h = Math.min(FIRST_RUN.h, area.height - 32)
       // Before it is shown (ready-to-show), so nothing animates or jumps.
       win.setBounds({ x: Math.round(area.x + (area.width - w) / 2), y: Math.round(area.y + (area.height - h) / 2), width: w, height: h })
+      return win
     }
 
-    if (!flag.done && process.env.MIYAGI_SKIP_ONBOARDING !== '1') ctx.overlay.webContents.once('did-finish-load', openFirstRun)
+    /** The first run's setup window: intro (once) then guided setup. */
+    const openFirstRun = (): BrowserWindow | undefined => place(ctx.openWindow('onboarding', { view: flag.introSeen ? 'setup' : 'intro' }))
+
+    /**
+     * First-run order (agents/auth.md): branded intro → miyagi login → guided setup → home. While the login is
+     * needed (features/auth.ts: on, nobody signed in, no choice made yet), the login window opens first and plays the
+     * intro itself; when the learner is done there (signed in, or "Continue without an account"), auth.ts asks for
+     * setup, which opens without the intro (it already played).
+     */
+    const startFirstRun = (): void => {
+      if (!needsLogin()) {
+        openFirstRun()
+        return
+      }
+      place(ctx.openWindow('auth', { view: flag.introSeen ? 'login' : 'intro' }))
+    }
+    onLoginDone(() => {
+      if (flag.done) return undefined // a later sign-in (Account page): no setup to open
+      if (!flag.introSeen) {
+        flag = { ...flag, introSeen: true }
+        save()
+      }
+      return openFirstRun()
+    })
+
+    if (!flag.done && process.env.MIYAGI_SKIP_ONBOARDING !== '1') ctx.overlay.webContents.once('did-finish-load', startFirstRun)
 
     ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true }))
     ctx.handle('onboarding:done', () => {

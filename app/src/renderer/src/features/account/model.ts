@@ -9,9 +9,10 @@ import { isElectron } from '../../bridge'
 
 /**
  * v2Cloud: the account surfaces exist at all. Off in a normal build: the feature isn't mounted (registry `enabled`).
- * On in the browser stage (mock data only), or in a build made with VITE_MIYAGI_V2_CLOUD=1.
+ * On in the browser stage (mock data only; ?v2Cloud=0 shows the shipped state), or in a build made with
+ * VITE_MIYAGI_V2_CLOUD=1.
  */
-export const v2Cloud: boolean = !isElectron || import.meta.env.VITE_MIYAGI_V2_CLOUD === '1'
+export const v2Cloud: boolean = !isElectron ? new URLSearchParams(location.search).get('v2Cloud') !== '0' : import.meta.env.VITE_MIYAGI_V2_CLOUD === '1'
 
 export type View = 'menu' | 'upgrade' | 'signin' | 'pricing'
 export const VIEWS: readonly View[] = ['menu', 'upgrade', 'signin', 'pricing']

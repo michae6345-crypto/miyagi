@@ -13,7 +13,7 @@
  */
 import { ChartNoAxesColumn, CircleUserRound, House, LibraryBig, Settings, Waypoints, type LucideIcon } from 'lucide-react'
 import { create } from 'zustand'
-import { openWindow, type SettingsSection } from '../../core/surfaces'
+import { openLibrary, type SettingsSection } from '../../core/surfaces'
 import { closeDetail, useLibrary } from '../library/store'
 
 export type PageId = 'home' | 'lessons' | 'skills' | 'progress' | 'settings' | 'account'
@@ -56,7 +56,7 @@ export function setSettingsSection(section: SettingsSection): void {
 
 /** Open the home window on a page (and, for Settings, a section). Works from any window. */
 export function openPage(page: PageId, section?: SettingsSection): Promise<boolean | undefined> {
-  return openWindow('library', section ? { page, section } : { page })
+  return openLibrary({ page, section })
 }
 
 /** Step one page up or down the sidebar, wrapping. */

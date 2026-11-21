@@ -1,28 +1,28 @@
 /**
  * Feature: auth (first-run login). Types and the small pure helpers the views share.
  *
- * Nothing secret ever reaches the renderer: main keeps the session (safeStorage) and answers `auth:get` with a name
- * and an email only. No token, code or email goes into a URL, localStorage or a log.
+ * Nothing secret ever reaches the renderer: main keeps the session (safeStorage) and answers `auth:get` with
+ * {name, email, avatarInitial} only. No token, code or email goes into a URL, localStorage or a log.
  */
-import { isElectron } from '../../bridge'
+import { LOGIN_ENABLED } from '../../../../common/flags'
 
-/**
- * The login surfaces exist at all: same switch as the account sheet (v2Cloud). On in the browser stage, or in a build
- * made with VITE_MIYAGI_V2_CLOUD=1. Main answers `{ok:false, reason:'off'}` unless MIYAGI_V2_CLOUD=1.
- */
-export const authOn: boolean = !isElectron || import.meta.env.VITE_MIYAGI_V2_CLOUD === '1'
+/** The login exists at all (common/flags.ts LOGIN_ENABLED; main also honors MIYAGI_LOGIN=0). Separate from v2Cloud. */
+export const authOn: boolean = LOGIN_ENABLED
 
 export type Mode = 'new' | 'returning'
 export type Provider = 'google' | 'apple' | 'github'
 
-export type User = { name?: string; email?: string }
+export type User = { name?: string; email?: string; avatarInitial: string }
 
 /** Which providers are live. Only Google for now; the others are placeholders that send nothing. */
 export const LIVE: Record<Provider, boolean> = { google: true, apple: false, github: false }
 export const PROVIDER_LABEL: Record<Provider, string> = { google: 'Google', apple: 'Apple', github: 'GitHub' }
 
+/** Fixed pages the login links to (open:external, allowlisted miyagi.study). Nothing is ever appended. */
+export const LEGAL = { terms: 'https://miyagi.study/terms', privacy: 'https://miyagi.study/privacy' } as const
+
 /** Main's answer to auth:google. */
-export type SignInResult = { ok: true; user: User } | { ok: false; reason?: string }
+export type SignInResult = { ok: true; user: unknown } | { ok: false; reason?: string }
 
 /** The calm line for a failed sign-in, by main's reason. undefined = say nothing (the learner cancelled). */
 export function reasonLine(reason?: string): string | undefined {
@@ -43,12 +43,15 @@ export function reasonLine(reason?: string): string | undefined {
   }
 }
 
-/** A plain, bounded copy of what came over IPC. */
+/** A plain, bounded copy of what came over IPC: {name, email, avatarInitial}, nothing else. */
 export function cleanUser(raw: unknown): User | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
   if (r.signedIn === false) return null
   const str = (v: unknown, max: number): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined)
-  const user = { name: str(r.name, 80), email: str(r.email, 254) }
-  return user.name || user.email ? user : null
+  const name = str(r.name, 80)
+  const email = str(r.email, 254)
+  if (!name && !email) return null
+  const initial = [...(str(r.avatarInitial, 4) ?? name ?? email ?? 'm')][0].toLocaleUpperCase()
+  return { name, email, avatarInitial: initial }
 }
