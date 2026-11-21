@@ -141,7 +141,9 @@ fi
 
 # --- 1. build -------------------------------------------------------------------------------------------------------
 if [ "$BUILD" = 1 ]; then
-  say "1/6 ship build (a few minutes: engine, app, ad-hoc signature, dmg)"
+  say "1/6 ship build (a few minutes: engine, push-to-talk helper, app, ad-hoc signature, dmg)"
+  # The helper is compiled and signed before electron-builder seals the app (ship-mac.sh runs this too; it's incremental).
+  act bash native/listen/build.sh
   act bash scripts/ship-mac.sh ${SHIP_ARGS[@]+"${SHIP_ARGS[@]}"}
 else
   say "1/6 build skipped: using $DMG"

@@ -1,0 +1,23 @@
+{
+  "name": "ptt",
+  "on": {
+    "connect": "ptt_connect",
+    "action:ask@step_ptt": "ptt_answer"
+  },
+  "segments": {
+    "ptt_connect": [
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 100, "type": "lesson.ready", "payload": { "lesson": { "id": "ptt-nn", "title": "Train a small neural network", "sources": [], "mode": "lesson", "builtBy": "curated", "outline": { "count": 4, "steps": [ { "index": 0, "title": "Load the data" }, { "index": 1, "title": "Build the model" }, { "index": 2, "title": "Pick a loss and optimizer" }, { "index": 3, "title": "Train it" } ] } }, "steps": [ { "id": "ptt-1", "index": 0, "title": "Load the data", "kind": "code" }, { "id": "ptt-2", "index": 1, "title": "Build the model", "kind": "code" }, { "id": "ptt-3", "index": 2, "title": "Pick a loss and optimizer", "kind": "code" } ] } },
+      { "wait": 100, "goto": "step_ptt" }
+    ],
+    "step_ptt": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "ptt-3", "index": 2, "title": "Pick a loss and optimizer", "instructions": "Compile the model with a loss and an optimizer.", "kind": "code", "where": "Type this in the new cell", "code": "model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')", "estMinutes": 3 } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching", "detail": "Watching your notebook" } }
+    ],
+    "ptt_answer": [
+      { "wait": 300, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 700, "type": "card", "payload": { "stepId": "ptt-3", "kind": "answer", "title": "A smaller step lowers the loss slowly", "body": "Each update moves the weights a little. A smaller learning rate takes smaller moves, so the loss falls more slowly but more steadily." } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching" } }
+    ]
+  }
+}

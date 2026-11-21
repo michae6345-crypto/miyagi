@@ -8,6 +8,7 @@ import type { LucideIcon } from 'lucide-react'
 import { Keycap, type KeyName } from '../../core/ui/Keycap'
 import { color, fill, paper, radius2, surface, type2 } from '../../core/theme'
 import { resetDay, type HelpMeter } from './model'
+import { fade, press, spring } from '../../core/ui/motion'
 
 export type Tone = 'dark' | 'paper'
 
@@ -60,7 +61,7 @@ export function MenuRow({ icon: I, label, onClick, keyName, right }: { icon: Luc
       style={{ height: 44, padding: '0 12px', borderRadius: radius2.row, color: color.text, fontSize: type2.md, backgroundColor: fill.clear }}
       whileHover={{ backgroundColor: surface.row }}
       whileFocus={{ backgroundColor: surface.row }}
-      transition={{ duration: 0.12 }}
+      transition={fade.tint}
       onClick={onClick}
     >
       <I size={16} strokeWidth={1.6} className="shrink-0" style={{ color: fill.chipText }} aria-hidden />
@@ -154,8 +155,8 @@ export function GlyphButton({ glyph, label, onClick }: { glyph: ReactNode; label
       className="flex w-full cursor-pointer items-center justify-center gap-[8px] font-medium"
       style={{ height: 44, borderRadius: radius2.card, backgroundColor: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, color: color.text, fontSize: type2.md }}
       whileHover={{ backgroundColor: surface.rowHover }}
-      whileTap={{ scale: 0.98 }}
-      transition={{ duration: 0.12 }}
+      whileTap={{ scale: press.scale }}
+      transition={{ ...fade.tint, scale: spring }}
       onClick={onClick}
     >
       {glyph}

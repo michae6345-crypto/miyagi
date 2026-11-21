@@ -24,14 +24,15 @@
  * While shown it tells core/dock (setDock) where it is, so the island's cards step around it and the engine keeps VS
  * Code beside it (panel.state, when the engine lists it).
  */
-import { AnimatePresence, motion, useIsPresent, useReducedMotion, type Variants } from 'motion/react'
+import { AnimatePresence, motion, useIsPresent, useReducedMotion, type TargetAndTransition, type Variants } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../../../preload/api'
 import { panelRect, setDock } from '../../../core/dock'
-import { useIslandBox } from '../../../core/Island'
+import { islandBoxNow, useIslandBox } from '../../../core/Island'
 import { useLesson } from '../../../core/lesson'
 import { sendAction, triggerShortcut } from '../../../core/shortcuts'
-import { color, spring, springOut, type2 } from '../../../core/theme'
+import { color, type2 } from '../../../core/theme'
+import { beat, fade, rise, sizeMove, spring, springOut } from '../../../core/ui/motion'
 import { GlassCard } from '../../../core/ui/GlassCard'
 import { PrimaryButton, QuietButton } from '../../../core/ui/buttons'
 import { queueCheck, useLinkGate, useQueuedCheck, type Gate } from '../../errors/gate'
@@ -41,7 +42,6 @@ import { closeHint, releasePass } from './panelStore'
 import { Header } from './Header'
 import { Help, useWaitingOn } from './Help'
 import { KeysRow } from './KeysRow'
-import { FADE_IN, FADE_OUT, rise } from './motion'
 import { CodeBlock, MissingBlock, StepIntro } from './StepBody'
 import { CheckingCaption, HintBox, NotYetBox, PassedBody } from './states'
 import { Divider } from './ui'
@@ -57,7 +57,8 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
   const rect = panelRect(layout)
   const box = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
-  const island = useIslandBox()
+  // Only the winning mode, and only while a card is open: the panel never re-renders because the island moved.
+  const blockingMode = useIslandBox((b) => (b.visible && !b.pill ? b.mode : undefined))
   // Where this panel came from, fixed at mount (the exit reads AnimatePresence's `custom`, see index.tsx).
   const [via] = useState<PanelVia>(() => useDrawer.getState().via ?? 'edge')
   // Paused (a blocking card owns Esc and the primary): the keys line dims and goes inert with the body, so the card's
@@ -65,40 +66,50 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
   const paused = useLinkGate().kind === 'paused'
 
   // Tell core/dock where the panel is (screen points, its real height), and that it's gone when it unmounts.
+  // Motion (docs/MOTION.md): the height reported is the one the body is springing TO, not the one it is passing
+  // through, so a hint or a check tells the dock once instead of on every frame (each report re-rendered the whole
+  // panel and moved the island).
   useLayoutEffect(() => {
     const el = box.current
     if (!el) return
+    const body = el.querySelector<HTMLElement>('[data-part="panel-body"]')
+    const inner = body?.firstElementChild as HTMLElement | null | undefined
     const report = (): void => {
       // Collapsing: the panel is still on screen while it shrinks into the pill, but the dock is already free.
       if (!useDrawer.getState().open) return
-      setDock({ open: true, collapsed: false, rect: { x: rect.x + layout.origin.x, y: rect.y + layout.origin.y, w: rect.w, h: el.offsetHeight } })
+      const settled = body && inner ? el.offsetHeight - body.offsetHeight + inner.offsetHeight : el.offsetHeight
+      const h = Math.round(Math.min(rect.h, settled))
+      setDock({ open: true, collapsed: false, rect: { x: rect.x + layout.origin.x, y: rect.y + layout.origin.y, w: rect.w, h } })
     }
     report()
     const ro = new ResizeObserver(report)
     ro.observe(el)
+    if (inner) ro.observe(inner)
     return () => ro.disconnect()
-  }, [rect.x, rect.y, rect.w, layout.origin.x, layout.origin.y])
+  }, [rect.x, rect.y, rect.w, rect.h, layout.origin.x, layout.origin.y])
   useEffect(() => () => setDock({ open: false, rect: undefined }), [])
 
-  // The pill's box, relative to the panel: where the panel grows from and shrinks back into.
-  const pill = {
-    x: island.w ? island.x + island.w / 2 - (rect.x + rect.w / 2) : 0,
-    y: island.w ? island.y - rect.y : -24,
-    scale: island.w ? Math.max(0.2, Math.min(1, island.w / rect.w)) : 0.9
+  // The pill's box, relative to the panel: where the panel grows from and shrinks back into. Read when the motion
+  // starts (variant functions run then), so a collapse that begins while the island is still springing aims at
+  // where the pill is now, and the panel doesn't re-render on every island move.
+  const pill = (): { x: number; y: number; scale: number } => {
+    const b = islandBoxNow()
+    return {
+      x: b.w ? b.x + b.w / 2 - (rect.x + rect.w / 2) : 0,
+      y: b.w ? b.y - rect.y : -24,
+      scale: b.w ? Math.max(0.2, Math.min(1, b.w / rect.w)) : 0.9
+    }
   }
   // Off the right edge: the panel's width plus its inset, so it starts fully off screen.
   const edgeX = rect.w + Math.max(16, layout.width - (rect.x + rect.w))
+  const away = (to: PanelVia): TargetAndTransition => (reduced ? { opacity: 0 } : to === 'pill' ? { opacity: 0, ...pill() } : { opacity: 0, x: edgeX, y: 0, scale: 1 })
   const variants: Variants = {
-    hidden: (to: PanelVia = via) =>
-      reduced
-        ? { opacity: 0 }
-        : to === 'pill'
-          ? { opacity: 0, x: pill.x, y: pill.y, scale: pill.scale }
-          : { opacity: 0, x: edgeX, y: 0, scale: 1 },
-    shown: { opacity: 1, x: 0, y: 0, scale: 1, transition: { ...spring, opacity: { duration: via === 'pill' ? 0.18 : 0.24 } } },
+    hidden: (to: PanelVia = via) => away(to),
+    // Out of the pill it grows with the quick fade (it starts small); off the edge, the big surface's slower one.
+    shown: { opacity: 1, x: 0, y: 0, scale: 1, transition: { ...spring, opacity: via === 'pill' ? fade.in : fade.slow } },
     gone: (to: PanelVia = 'edge') => ({
-      ...(reduced ? { opacity: 0 } : to === 'pill' ? { opacity: 0, x: pill.x, y: pill.y, scale: pill.scale } : { opacity: 0, x: edgeX, y: 0, scale: 1 }),
-      transition: { ...springOut, opacity: { duration: to === 'pill' ? 0.16 : 0.2, delay: to === 'pill' ? 0 : 0.06 } }
+      ...away(to),
+      transition: { ...springOut, opacity: to === 'pill' ? fade.out : { ...fade.out, delay: beat } }
     })
   }
 
@@ -118,7 +129,7 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
           <Divider />
           <div className="min-h-0 flex-initial overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'thin' }}>
             <AutoHeight>
-              <Screens m={m} blocked={BLOCKING(island.visible && !island.pill ? island.mode : undefined)} />
+              <Screens m={m} blocked={BLOCKING(blockingMode)} />
             </AutoHeight>
           </div>
           <motion.div
@@ -127,7 +138,7 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
             aria-disabled={paused || undefined}
             initial={false}
             animate={{ opacity: paused ? 0.5 : 1 }}
-            transition={{ duration: 0.2 }}
+            transition={fade.in}
           >
             <KeysRow onHide={collapsePanel} backDisabled={m.step.index <= 0} />
           </motion.div>
@@ -152,7 +163,7 @@ function AutoHeight({ children }: { children: ReactNode }): ReactNode {
     return () => ro.disconnect()
   }, [])
   return (
-    <motion.div data-part="panel-body" className="relative overflow-hidden" initial={false} animate={{ height: h }} transition={reduced ? { duration: 0 } : spring}>
+    <motion.div data-part="panel-body" className="relative overflow-hidden" initial={false} animate={{ height: h }} transition={sizeMove(reduced)}>
       <div ref={inner}>{children}</div>
     </motion.div>
   )
@@ -177,11 +188,12 @@ function Screens({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode
   const swap = last.current.swap
   const variants: Variants = {
     enter: (s: Swap) => (reduced ? { opacity: 0 } : s.kind === 'slide' ? { opacity: 0, x: 28 * s.dir, y: 0 } : { opacity: 0, x: 0, y: 6 }),
-    center: { opacity: 1, x: 0, y: 0, transition: { ...spring, opacity: { duration: FADE_IN, delay: swap.kind === 'slide' ? 0.05 : 0 } } },
+    // A slide's new screen fades in a beat late, so the old one has mostly gone first.
+    center: { opacity: 1, x: 0, y: 0, transition: { ...spring, opacity: swap.kind === 'slide' ? { ...fade.in, delay: beat } : fade.in } },
     leave: (s: Swap) =>
       reduced || s.kind === 'rise'
-        ? { opacity: 0, transition: { duration: FADE_OUT } }
-        : { opacity: 0, x: -28 * s.dir, transition: { ...spring, opacity: { duration: FADE_OUT } } }
+        ? { opacity: 0, transition: fade.out }
+        : { opacity: 0, x: -28 * s.dir, transition: { ...springOut, opacity: fade.out } }
   }
   return (
     <AnimatePresence initial={false} mode="popLayout" custom={swap}>
@@ -235,7 +247,7 @@ function Work({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode {
       aria-disabled={paused || undefined}
       initial={false}
       animate={{ opacity: paused ? 0.5 : 1 }}
-      transition={{ duration: 0.2 }}
+      transition={fade.in}
     >
       <StepIntro title={s.title} instructions={s.instructions} />
       <AnimatePresence initial={false}>
@@ -262,7 +274,7 @@ function Work({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode {
         <div className="relative h-[16px]">
           <AnimatePresence initial={false}>
             {checking ? (
-              <motion.div key="checking" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: FADE_IN }}>
+              <motion.div key="checking" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: fade.out }} transition={fade.in}>
                 <CheckingCaption text={m.checkingCaption} />
               </motion.div>
             ) : (
@@ -275,8 +287,8 @@ function Work({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode {
                   style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  exit={{ opacity: 0, transition: { duration: FADE_OUT } }}
-                  transition={{ duration: FADE_IN }}
+                  exit={{ opacity: 0, transition: fade.out }}
+                  transition={fade.in}
                 >
                   {caption}
                 </motion.span>

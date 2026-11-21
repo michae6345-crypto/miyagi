@@ -36,7 +36,8 @@ import { bridge } from '../../bridge'
 import { useDock } from '../../core/dock'
 import { notify, useCurrentStep, useLesson, useStepPhase } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { color, copy, dock, fill, spring } from '../../core/theme'
+import { color, copy, dock, fill } from '../../core/theme'
+import { beat, enter, fade, pressMotion, press, spring, textSwap } from '../../core/ui/motion'
 import { Kbd, Spinner, StepDots } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { useChecking } from '../drawer/v2/view'
@@ -87,8 +88,8 @@ function Unreachable({ text = UNREACHABLE, onRetry = retryEngine, busy }: { text
         style={{ color: color.text }}
         initial={false}
         animate={{ backgroundColor: hot ? fill.chipHover : fill.button }}
-        whileTap={{ scale: 0.96 }}
-        transition={{ duration: 0.12 }}
+        whileTap={{ scale: press.scale }}
+        transition={{ ...fade.tint, scale: spring }}
       >
         Retry
       </motion.span>
@@ -194,7 +195,7 @@ function Idle(): ReactNode {
       {/* Fully round (radius 10 inside the pill's 17). Hidden offline: nothing to ask. Hidden on Continue: a click resumes.
           It rises in when miyagi is up (getting ready, then ask miyagi). */}
       {!offline && !cont && !ready && (
-        <motion.span className="ml-[10px] inline-flex" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0, transition: { ...spring, opacity: { duration: 0.18, delay: 0.08 } } }}>
+        <motion.span className="ml-[10px] inline-flex" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0, transition: enter(beat) }}>
           <Kbd className="!h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>
         </motion.span>
       )}
@@ -465,8 +466,8 @@ function Mini(): ReactNode {
       className="flex h-[34px] cursor-pointer items-center whitespace-nowrap rounded-full pl-[13px] pr-[10px] text-left text-[13px] font-medium"
       style={{ width: dock.miniW, color: color.text }}
       animate={{ backgroundColor: hot ? fill.chipHover : fill.clear }}
-      whileTap={reduced ? undefined : { scale: 0.98 }}
-      transition={{ duration: 0.12 }}
+      whileTap={pressMotion().whileTap}
+      transition={{ ...spring, backgroundColor: fade.tint }}
       onHoverStart={() => setHot(true)}
       onHoverEnd={() => setHot(false)}
       onFocus={() => setHot(true)}
@@ -483,9 +484,7 @@ function Mini(): ReactNode {
             key={line.key}
             className="block truncate leading-[18px]"
             style={{ color: coach ? color.label : undefined }}
-            initial={{ opacity: 0, y: 7 }}
-            animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
-            exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
+            {...textSwap}
           >
             {line.text}
           </motion.span>
@@ -501,7 +500,7 @@ function Mini(): ReactNode {
         aria-hidden
         initial={false}
         animate={{ opacity: hot || coach ? 1 : 0.45, y: hot && !reduced ? 1 : 0 }}
-        transition={{ duration: 0.14 }}
+        transition={{ ...spring, opacity: fade.tint }}
         style={{ color: color.text }}
       >
         <ChevronDown size={14} strokeWidth={2} />
@@ -579,8 +578,8 @@ function SavedLine(): ReactNode {
         className="ml-[4px] h-[22px] cursor-pointer rounded-full px-[10px] text-[12px] font-medium"
         style={{ backgroundColor: fill.button, color: color.text }}
         whileHover={{ backgroundColor: fill.chipHover }}
-        whileTap={{ scale: 0.96 }}
-        transition={{ duration: 0.12 }}
+        whileTap={{ scale: press.scale }}
+        transition={{ ...spring, backgroundColor: fade.tint }}
         onClick={undoEnd}
         aria-label="Undo: continue the lesson"
       >

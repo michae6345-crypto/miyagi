@@ -26,8 +26,9 @@ mac:
     NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
     NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
     # Electron's own Info.plist carries generic "This app needs access to ..." strings for these. miyagi uses none of
-    # them (voice is off), but if macOS ever asks, the prompt names miyagi and says so plainly.
-    NSMicrophoneUsageDescription: miyagi doesn't use the microphone.
+    # them (voice output is off), but if macOS ever asks, the prompt names miyagi and says so plainly.
+    NSMicrophoneUsageDescription: miyagi listens only while you hold Fn+Control, to hear your question. Speech is turned into text on this Mac.
+    NSSpeechRecognitionUsageDescription: miyagi turns your spoken question into text on this Mac.
     NSCameraUsageDescription: miyagi doesn't use the camera.
     NSBluetoothAlwaysUsageDescription: miyagi doesn't use Bluetooth.
     NSBluetoothPeripheralUsageDescription: miyagi doesn't use Bluetooth.
@@ -46,6 +47,12 @@ mac:
         - "!vscode{,/**/*}"
     - from: build/engine/vscode
       to: vscode
+    # Push to talk: the Swift helper (native/listen/build.sh makes build/helpers/miyagi-listen, universal, ad-hoc signed
+    # before the app is sealed). Main spawns it from process.resourcesPath/helpers. Mac only (this block is under mac:).
+    - from: build/helpers
+      to: helpers
+      filter:
+        - miyagi-listen
 # The Mac download (art and layout: agents/dmg-art.md). Finder draws both icons on the art; the art is 640x400 and
 # electron-builder sizes the window from it (background@2x.png next to it becomes the Retina half of a .tiff).
 # ULFO = lzfse, the strongest format electron-builder accepts; ship-mac.sh then recompresses to ULMO (lzma).

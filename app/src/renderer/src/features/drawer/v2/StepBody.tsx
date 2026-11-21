@@ -14,7 +14,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Check, Copy, Play } from 'lucide-react'
 import type { MissingLine, StepKind } from '../../../../../../../shared/contracts/events'
 import { fill, font, highlight, radius2, surface, type2 } from '../../../core/theme'
-import { pressMotion } from '../../../core/ui/motion'
+import { fade, pressMotion, rise } from '../../../core/ui/motion'
 import { copyText } from '../plan'
 import { Caption, Inline, tone } from './ui'
 
@@ -149,7 +149,7 @@ export function CodeBlock({ code, where, kind, then, waiting }: { code?: string;
       {(code || skeleton) && label && <Caption>{label}</Caption>}
       <AnimatePresence initial={false} mode="popLayout">
         {code ? (
-          <motion.div key="code" initial={reduced ? { opacity: 0 } : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
+          <motion.div key="code" {...rise(reduced, { y: 4 })}>
             <Box label={label ? `${label}: code` : 'Code'} padRight={lines.length > 1 ? 16 : CHIP_ROOM}>
               <CopyChip text={code} />
               {lines.map((ln, i) => (
@@ -158,7 +158,7 @@ export function CodeBlock({ code, where, kind, then, waiting }: { code?: string;
             </Box>
           </motion.div>
         ) : skeleton ? (
-          <motion.div key="skeleton" exit={{ opacity: 0, transition: { duration: 0.12 } }}>
+          <motion.div key="skeleton" exit={{ opacity: 0, transition: fade.out }}>
             <CodeSkeleton />
           </motion.div>
         ) : null}

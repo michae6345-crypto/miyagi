@@ -6,7 +6,8 @@
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLesson, useThinking } from '../../core/lesson'
-import { color, spring, status, type2 } from '../../core/theme'
+import { color, status, type2 } from '../../core/theme'
+import { beat, draw, fade, pop, sizeMove, spring, springOut, textSwap, twoBeats } from '../../core/ui/motion'
 import { Spinner } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { pulsedOfftrack } from './store'
@@ -25,7 +26,7 @@ export function LeadMark({ busy = false }: { busy?: boolean }): ReactNode {
   const thinking = useThinking() || busy
   return (
     <span className="relative mr-[8px] inline-block h-[16px] w-[16px] shrink-0" data-thinking={thinking || undefined}>
-      <motion.span className="absolute inset-0" initial={false} animate={{ opacity: thinking ? 0 : 1 }} transition={{ duration: 0.15 }}>
+      <motion.span className="absolute inset-0" initial={false} animate={{ opacity: thinking ? 0 : 1 }} transition={thinking ? fade.out : fade.in}>
         <MiyagiMark size={16} className="block" />
       </motion.span>
       <AnimatePresence initial={false}>
@@ -35,8 +36,8 @@ export function LeadMark({ busy = false }: { busy?: boolean }): ReactNode {
             className="absolute inset-0 grid place-items-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
+            exit={{ opacity: 0, transition: fade.out }}
+            transition={fade.in}
           >
             <Spinner size={14} />
           </motion.span>
@@ -60,8 +61,8 @@ export function StepCount({ n, total }: { n: number; total: number }): ReactNode
           key={label}
           style={{ gridArea: '1 / 1' }}
           initial={{ opacity: 0 }}
-          animate={{ opacity: 1, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
-          exit={{ opacity: 0, transition: { duration: 0.1, ease: 'easeIn' } }}
+          animate={{ opacity: 1, transition: { ...fade.in, delay: beat } }}
+          exit={{ opacity: 0, transition: fade.out }}
         >
           {label}
         </motion.span>
@@ -80,12 +81,13 @@ export type Phase = 'checking' | 'notyet' | 'passed'
  *   passed    the green circle with an ink tick that draws (Les-Passed); the ONLY green on the pill
  */
 export function PhaseLead({ phase }: { phase: Phase }): ReactNode {
+  const reduced = useReducedMotion()
   return (
     <span className="relative mr-[8px] grid h-[16px] w-[16px] shrink-0 place-items-center" data-phase={phase}>
       {phase === 'checking' && <Spinner size={14} />}
       {phase === 'notyet' && <span className="block h-[12px] w-[12px] rounded-full" style={{ boxShadow: `inset 0 0 0 2px ${status.notYet}` }} />}
       {phase === 'passed' && (
-        <motion.svg width="16" height="16" viewBox="0 0 16 16" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1, transition: spring }}>
+        <motion.svg width="16" height="16" viewBox="0 0 16 16" {...pop(reduced)}>
           <circle cx="8" cy="8" r="8" fill={status.passed} />
           <motion.path
             d="M4.6 8.3 L6.9 10.5 L11.4 5.7"
@@ -94,9 +96,7 @@ export function PhaseLead({ phase }: { phase: Phase }): ReactNode {
             strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: 0.25, ease: 'easeOut', delay: 0.08 }}
+            {...draw(reduced)}
           />
         </motion.svg>
       )}
@@ -118,7 +118,7 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
   useEffect(() => {
     if (mark !== 'offtrack' || !off || pulsedOfftrack.has(off)) return
     // Two calm beats while the color eases to amber. No shake, no red.
-    if (!reduced) animate(dot.current, { scale: [1, 1.35, 1, 1.35, 1] }, { duration: 1.1, ease: 'easeInOut', delay: 0.15 })
+    if (!reduced) animate(dot.current, { scale: [...twoBeats.keyframes] }, { ...twoBeats.transition, delay: 0.15 })
     // Count the episode as seen only if we stayed on screen for the beats. When offtrack arrives the
     // card takes the island at once and this pill is only fading out: it pulses on its next mount.
     const seen = setTimeout(() => pulsedOfftrack.add(off), 700)
@@ -135,7 +135,7 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
           // Offline: the same dot, hollow and gray. Off track: hollow and white (no hue, Adrian Sat 5 PM).
           backgroundColor: mark === 'offline' || mark === 'offtrack' ? 'transparent' : tone,
           boxShadow: `inset 0 0 0 ${mark === 'offline' || mark === 'offtrack' ? 1.5 : 0}px ${mark === 'offtrack' ? tone : color.gray}`,
-          transition: 'background-color .3s ease, box-shadow .3s ease'
+          transition: 'background-color 240ms var(--mg-ease-out), box-shadow 240ms var(--mg-ease-out)'
         }}
       />
       <AnimatePresence>
@@ -146,9 +146,8 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
             height="16"
             viewBox="0 0 16 16"
             className="absolute left-1/2 top-1/2 -ml-[8px] -mt-[8px]"
-            initial={{ scale: 7 / 16, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1, transition: spring }}
-            exit={{ scale: 7 / 16, opacity: 0, transition: { duration: 0.2, ease: 'easeIn' } }}
+            {...pop(reduced, 7 / 16)}
+            exit={{ scale: 7 / 16, opacity: 0, transition: { ...springOut, opacity: fade.out } }}
           >
             <circle cx="8" cy="8" r="8" fill={color.green} />
             <motion.path
@@ -158,9 +157,7 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
               strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.25, ease: 'easeOut', delay: 0.08 }}
+              {...draw(reduced)}
             />
           </motion.svg>
         )}
@@ -176,7 +173,8 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
  */
 export function SwapText({ id, children, className = '' }: { id: string; children: ReactNode; className?: string }): ReactNode {
   const measure = useRef<HTMLSpanElement>(null)
-  // First measurement lands instantly (no growing from 0 on mount); later ones spring.
+  const reduced = useReducedMotion()
+  // First measurement lands instantly (no growing from 0 on mount); later ones spring (snap with Reduce Motion).
   const [w, setW] = useState<{ px: number; instant: boolean }>()
   useLayoutEffect(() => {
     const el = measure.current
@@ -193,9 +191,10 @@ export function SwapText({ id, children, className = '' }: { id: string; childre
   return (
     <motion.span
       className="relative block h-[34px] shrink-0 overflow-hidden"
+      data-swap-w={w?.px}
       initial={false}
       animate={{ width: w?.px }}
-      transition={w?.instant ? { duration: 0 } : spring}
+      transition={sizeMove(reduced || w?.instant, spring)}
     >
       {/* w-max: an absolute box shrinks to its container, which is this slot's current (animated) width, so a
           truncating title inside could never measure wider than the last one (Michael's test 8: "See what it learne"). */}
@@ -206,9 +205,7 @@ export function SwapText({ id, children, className = '' }: { id: string; childre
         <motion.span
           key={id}
           className={`absolute left-0 top-[8px] w-max whitespace-nowrap leading-[18px] ${className}`}
-          initial={{ opacity: 0, y: 7 }}
-          animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
-          exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
+          {...textSwap}
         >
           {children}
         </motion.span>
@@ -225,8 +222,8 @@ export function BuildLine({ progress }: { progress: number }): ReactNode {
       style={{ background: color.hairline }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
+      exit={{ opacity: 0, transition: fade.out }}
+      transition={fade.in}
     >
       <motion.span
         className="absolute inset-0 origin-left rounded-full"
@@ -254,9 +251,7 @@ export function FitSwap({ id, children }: { id: string; children: ReactNode }): 
           key={id}
           className="whitespace-nowrap pt-[8px] leading-[18px]"
           style={{ gridArea: '1 / 1' }}
-          initial={{ opacity: 0, y: 7 }}
-          animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
-          exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
+          {...textSwap}
         >
           {children}
         </motion.span>

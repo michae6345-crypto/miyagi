@@ -15,3 +15,11 @@ export const VOICE_ENABLED = false
  * v2Cloud=false. MIYAGI_LOGIN=0 turns it off for one run (main/features/auth.ts).
  */
 export const LOGIN_ENABLED = true
+
+/**
+ * PTT_ENABLED (Michael, Nov 21): push to talk. Hold the chord (Fn+Control, or Control+Option), say a question, let go:
+ * miyagi gets it as an ask. Speech turns into text on this Mac (the miyagi-listen helper, main/features/ptt.ts); miyagi
+ * never talks back, so it is separate from VOICE_ENABLED (text to speech), which stays false. Off = no helper is
+ * started, no settings row, no island state. The learner can also switch it off in Settings > General (prefs.ptt).
+ */
+export const PTT_ENABLED = true

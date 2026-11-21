@@ -24,6 +24,7 @@ import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
 import { copyText, findPrimer, useStepDetail, type OutlineRow } from './plan'
 import { openConcept, useDrawer } from './store'
+import { fade, prefersReduced } from '../../core/ui/motion'
 
 const hoverVar = { '--drawer-hover': glass.fieldHover } as CSSProperties
 const thinScroll = { scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` } as CSSProperties
@@ -168,7 +169,7 @@ export function PrimerSection(): ReactNode {
         </motion.span>
       </button>
       {open && (
-        <motion.div className="flex flex-col gap-[6px] px-[2px] pb-[2px] pt-[4px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+        <motion.div className="flex flex-col gap-[6px] px-[2px] pb-[2px] pt-[4px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fade.in}>
           {primer.map((p) => (
             <PrimerCard key={p.id} item={p} />
           ))}
@@ -386,7 +387,7 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
             title="More to the right"
             aria-label="Scroll the code right"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => pre.current?.scrollBy({ left: Math.round(pre.current.clientWidth * 0.6), behavior: 'smooth' })}
+            onClick={() => pre.current?.scrollBy({ left: Math.round(pre.current.clientWidth * 0.6), behavior: prefersReduced() ? 'auto' : 'smooth' })}
           >
             <span className="absolute inset-0 grid place-items-center" style={{ background: glass.field }}>
               <ChevronRight size={13} strokeWidth={2} />

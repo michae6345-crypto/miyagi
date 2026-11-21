@@ -357,4 +357,9 @@ input {
   .mg-lift:active {
     transform: none;
   }
+  /* No smooth scrolling (a scroll that glides is motion too). JS scrolls check prefersReduced() (core/ui/motion). */
+  html,
+  * {
+    scroll-behavior: auto !important;
+  }
 }

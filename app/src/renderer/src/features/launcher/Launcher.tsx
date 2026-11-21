@@ -80,6 +80,7 @@ import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from
 import { isDuplicateToggle } from './guard'
 import { placeClear } from './place'
 import { parseYouTube } from './youtube'
+import { beat, ease, fade, instant } from '../../core/ui/motion'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
 type Mode = 'search' | 'ask'
@@ -178,8 +179,8 @@ const shapeOf = (s: Size): TargetAndTransition => ({
 /** Exits hand the island back once the shape is within a pixel (no waiting on a sub-pixel settle). */
 const settle = { restDelta: 1, restSpeed: 30 }
 
-const contentIn: Transition = { duration: 0.2, delay: 0.06, ease: 'easeOut' }
-const contentOut: Transition = { duration: 0.08 }
+const contentIn: Transition = { ...fade.in, delay: beat }
+const contentOut: Transition = fade.instant
 
 /** Which island mode the island is showing right now (same rule as core/Island, without hover). */
 function useIslandMode(): IslandMode | undefined {
@@ -309,6 +310,27 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       }),
     [setPhase, disarmEnd]
   )
+  // Push to talk with no lesson (features/ptt): the words heard wait in main and fill the search field. The learner
+  // confirms with Enter; nothing is built or searched by surprise.
+  useEffect(() => {
+    const fill = (text: unknown): void => {
+      if (typeof text !== 'string' || !text.trim()) return
+      setMode('search')
+      setQuery(text.trim())
+      setHowPicked(undefined)
+      setIdleSel(0)
+    }
+    const offs = [
+      bridge.on('launcher:open', () => void bridge.invoke<string | null>('ptt:prefill-take').then(fill).catch(() => undefined)),
+      bridge.onFeature('ptt:prefill', (t) => {
+        if (phaseRef.current !== 'open') return
+        fill(t)
+        // Taken here, so closing and reopening the launcher doesn't refill it with the same words.
+        void bridge.invoke('ptt:prefill-take').catch(() => undefined)
+      })
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
   useEffect(
     () =>
       bridge.on('launcher:close', () => {
@@ -792,13 +814,14 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   /** Reduced motion: crossfade at full size. Exit targets keep every key (a dropped key ends the animation early). */
   const faded = { ...grown, opacity: 0 }
   let target: TargetAndTransition = { ...grown, opacity: 1 }
-  let transition: Transition = spring
+  // Reduce Motion: the open panel's height follows its rows at once (MotionConfig doesn't cover sizes); it fades.
+  let transition: Transition = reduce ? { ...instant, opacity: fade.in } : spring
   if (phase === 'closing' || phase === 'sending') {
     target = reduce ? faded : { ...shapeOf(from), opacity: 1 }
-    transition = reduce ? { duration: 0.2 } : { ...springOut, ...settle }
+    transition = reduce ? fade.in : { ...springOut, ...settle }
   } else if (phase === 'building') {
     target = reduce ? faded : { ...shapeOf(PILL), opacity: 1 }
-    transition = reduce ? { duration: 0.2 } : { ...spring, ...settle }
+    transition = reduce ? fade.in : { ...spring, ...settle }
   }
 
   // What the island will show the moment it takes over again: its own content, drawn on the collapsed panel.
@@ -882,7 +905,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         style={{ background: scrim.launcher }}
         initial={{ opacity: 0 }}
         animate={{ opacity: phase === 'open' ? 1 : 0 }}
-        transition={{ duration: phase === 'open' ? 0.16 : 0.24, ease: 'easeOut' }}
+        transition={{ duration: phase === 'open' ? 0.16 : 0.24, ease: ease.out }}
         onClick={close}
       />
 
@@ -900,7 +923,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         )}
         {/* …and fades back in as the panel collapses onto the island's shape. */}
         {exiting && !reduce && returnTo && (
-          <IslandContent mode={returnTo} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.14, delay: 0.12, ease: 'easeOut' }} />
+          <IslandContent mode={returnTo} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay: 2 * beat }} />
         )}
 
         <motion.div

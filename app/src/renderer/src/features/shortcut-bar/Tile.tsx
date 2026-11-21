@@ -13,7 +13,7 @@ import type { ActionKind } from '../../core/shortcuts'
 import { actionTone, color, fill, glass, spring, type OptionAction } from '../../core/theme'
 import { Glyph } from './Busy'
 import { useAltHeld } from './keys'
-import { PRESS_MS, PRESS_SCALE } from './press'
+import { PRESS_SCALE } from './press'
 
 /** A tile's fill and glyph color, plus its busy spinner: `glass` = GlassSpinner (CSS vars), `track` = ring behind the arc. */
 export type Look = { background: string; color: string; track: string; glass: boolean }
@@ -78,7 +78,7 @@ export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, di
       title={title}
       animate={{ scale: dip && !disabled ? PRESS_SCALE : 1 }}
       whileTap={disabled ? undefined : { scale: PRESS_SCALE }}
-      transition={{ duration: PRESS_MS / 1000 }}
+      transition={spring}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
       onPointerDown={onDown && !disabled ? (e) => e.button === 0 && onClick() : undefined}

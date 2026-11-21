@@ -9,6 +9,7 @@ import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAppearance } from '../../core/prefs'
 import { actionTone, color, rawThumb } from '../../core/theme'
+import { duration, ease, prefersReduced, stagger } from '../../core/ui/motion'
 
 export type HeatmapData = { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }
 
@@ -81,9 +82,10 @@ export function Heatmap({ data }: { data: HeatmapData }): ReactNode {
             <motion.div
               className="overflow-hidden"
               style={{ width: pw, height: ph, borderRadius: 8 }}
-              initial={{ clipPath: 'inset(0 100% 0 0)' }}
-              animate={{ clipPath: 'inset(0 0% 0 0)' }}
-              transition={{ duration: 0.35, delay: k * 0.03, ease: 'easeOut' }}
+              // The panels sweep in left to right (clip-path); with Reduce Motion they fade.
+              initial={prefersReduced() ? { opacity: 0 } : { clipPath: 'inset(0 100% 0 0)' }}
+              animate={prefersReduced() ? { opacity: 1 } : { clipPath: 'inset(0 0% 0 0)' }}
+              transition={{ duration: duration.draw, delay: k * stagger.each, ease: ease.out }}
             >
               <Field grid={p.grid} lo={lo} hi={hi} w={pw} h={ph} onHover={setHover} />
             </motion.div>
