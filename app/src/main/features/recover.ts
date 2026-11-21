@@ -14,13 +14,26 @@
  *                                   a retry of the same URL every 2 s until it loads (Michael's test 7, item 10: the
  *                                   overlay stayed blank while main lived, a silent failure on stage).
  *
- * Core logs render-process-gone in dev only; this adds the recovery, in every build. No core files touched.
+ * Core logs render-process-gone in dev only; this adds the recovery, in every build.
+ *
+ * ROADMAP 1.4, reconnect and recovery (a lost socket, an engine crash or a Mac that slept never leaves dead UI):
+ *   engine crash          the engine this app started dies while running → localEngine.ts asks setRespawnPolicy and
+ *                         starts it again after 0.5 s, 2 s, 5 s (respawn.ts: at most 3 in 3 minutes; then it reports
+ *                         the failure and the learner gets Retry). Meanwhile the surfaces say "miyagi is reconnecting".
+ *   engine hung           ours, alive, but the link has been down HUNG_MS while the Mac is awake → restart it (same budget).
+ *   Mac sleep / unlock    powerMonitor resume / unlock-screen → engine.wake(): probe an open socket (dead after a sleep
+ *                         = dropped and reconnected at once) or try now with fast retries.
+ *   lost socket           engine.ts: heartbeat pings, backoff reconnect.
+ *   the session           nothing to send: on every connect the engine sends its snapshot (engine.hello.restored when it
+ *                         kept the lesson: server/sessions resume), and core/lesson.ts holds the screen for the same lesson.
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac by killing a
  * Miyagi renderer ("Miyagi Helper (Renderer)") in Activity Monitor: the window should come back within a second.
  */
-import { app, BrowserWindow, type WebContents } from 'electron'
-import { defineMainFeature } from '../context'
+import { app, BrowserWindow, powerMonitor, type WebContents } from 'electron'
+import { defineMainFeature, type MainContext } from '../context'
+import { localEngineChildAlive, localEngineState, restartLocalEngine, setRespawnPolicy } from '../localEngine'
+import { HUNG_MS, MAX_RESPAWNS, RespawnBudget } from '../respawn'
 
 const PER_MS = 60_000
 const MAX_RELOADS = 3
@@ -76,9 +89,53 @@ function watchLoads(win: BrowserWindow): void {
   })
 }
 
+/** The engine side of recovery (see the header). */
+function recoverEngine(ctx: MainContext): void {
+  const budget = new RespawnBudget()
+  setRespawnPolicy((why) => {
+    const delay = budget.next()
+    if (delay === undefined) console.error(`[recover] engine ${why} again; it keeps stopping, so it is reported (Retry starts it)`)
+    else console.warn(`[recover] engine ${why}; starting it again in ${delay} ms (${budget.used()} of ${MAX_RESPAWNS})`)
+    return delay
+  })
+  let hung: ReturnType<typeof setTimeout> | undefined
+  let asleep = false
+  const watchHung = (open: boolean): void => {
+    clearTimeout(hung)
+    hung = undefined
+    if (open || asleep) return
+    hung = setTimeout(() => {
+      hung = undefined
+      if (ctx.engine.connected || asleep) return
+      if (localEngineState() !== 'running' || !localEngineChildAlive()) return
+      const delay = budget.next()
+      if (delay === undefined) return console.error('[recover] engine alive but not answering, and the restart budget is spent')
+      console.warn(`[recover] engine alive but not answering for ${HUNG_MS / 1000} s; restarting it`)
+      restartLocalEngine()
+    }, HUNG_MS)
+  }
+  ctx.engine.onStatus((up) => {
+    // A spent budget ends in a reported failure and Retry: an engine that answers again after that earns a fresh one.
+    if (up && budget.used() >= MAX_RESPAWNS) budget.reset()
+    watchHung(up)
+  })
+  powerMonitor.on('suspend', () => {
+    asleep = true
+    watchHung(true)
+  })
+  const woke = (): void => {
+    asleep = false
+    ctx.engine.wake()
+    watchHung(ctx.engine.connected)
+  }
+  powerMonitor.on('resume', woke)
+  powerMonitor.on('unlock-screen', () => ctx.engine.wake())
+}
+
 export default defineMainFeature({
   id: 'recover',
-  setup() {
+  setup(ctx) {
+    recoverEngine(ctx)
     app.on('render-process-gone', (_e, wc, details) => {
       if (details.reason === 'clean-exit') return
       if (!BrowserWindow.fromWebContents(wc)) return // only our own windows
