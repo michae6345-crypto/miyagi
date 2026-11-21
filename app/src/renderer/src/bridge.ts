@@ -12,6 +12,7 @@
 import { parseEngineMessage, type Incoming, type Outgoing } from '../../common/wire'
 import { describePlatform } from '../../main/platform'
 import type { Layout, TutBridge, UiSignal, Unsub } from '../../preload/api'
+import { stageNotch } from '../../common/notch'
 import { createMockEngine, type MockEngine } from '../../../mock/engine'
 import { scenarios } from '../../../mock/scenarios'
 
@@ -36,7 +37,7 @@ function stageSize(): { width: number; height: number } {
   return w >= 640 && w <= 3840 && h >= 400 && h <= 2400 ? { width: w, height: h } : { width: 1600, height: 1000 }
 }
 const SIZE = stageSize()
-export const STAGE: Layout = { origin: { x: 0, y: 0 }, width: SIZE.width, height: SIZE.height, workArea: { x: 0, y: 32, width: SIZE.width, height: SIZE.height - 32 } }
+export const STAGE: Layout = { origin: { x: 0, y: 0 }, width: SIZE.width, height: SIZE.height, notch: stageNotch(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('notch') : null, SIZE.width), workArea: { x: 0, y: 32, width: SIZE.width, height: SIZE.height - 32 } }
 
 /** The engine link as main reports it (main/engine.ts LinkInfo). */
 type LinkInfo = { open: boolean; attempting: boolean; failures: number }
