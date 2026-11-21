@@ -77,5 +77,9 @@ Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/pri
   the anonymous install token (install.bin), the local error log and saved crash reports, onboarding.json.
 - auth.ts keeps `decided` in memory, so the login shows again on the next launch, not right away.
 
+## Merge status
+- Waits for telemetry merge: origin/claude/telemetry is not yet in michael/v2-integration, so this lane is not merged
+  there yet (merging first would drag in an unreviewed lane). Draft PR #199 (michael/app-privacy -> adrian/shell) stays open.
+
 ## Core requests
 _None expected._
