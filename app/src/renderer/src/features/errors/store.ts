@@ -13,7 +13,7 @@
 import { create } from 'zustand'
 import { bridge, isElectron } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
-import { useLesson } from '../../core/lesson'
+import { notify, useLesson } from '../../core/lesson'
 // Stage stand-ins first: the crash-pending ask below runs at load.
 import './web'
 
@@ -189,18 +189,62 @@ onUi('reset', (p) => {
   set({ reopening: false, editorDismissed: false, ...(scope === 'lesson' ? {} : { buildDismissedAt: undefined }) })
 })
 
-/** Esc closes our card on the island (and only ours: `visible` is set by the card while it's mounted). */
+/**
+ * Esc closes our card on the island (and only ours: `visible` is set by the card while it's mounted). The lesson panel
+ * counts our card as open (features/drawer othersOpen), so the same Esc never also collapses the panel.
+ *   engine offline  folds into the "miyagi stopped responding [Restart]" pill line: the outage is never hidden
+ *   crash           Esc is "Don't save" (its keycap sits on that button), said on the pill: "Not saved"
+ */
 onUi('dismiss', () => {
   const v = get().visible
   if (!v) return
-  // Esc and the round close button only hide the crash card for this launch (it shows no Esc keycap, so it must not
-  // discard anything): the report is asked about again next launch. Only "Don't save" discards it.
   if (v === 'err-crash') {
-    set({ crash: undefined, visible: undefined })
+    decideCrash(false)
+    set({ visible: undefined })
+    notify('Not saved', 'info', { id: 'err-crash-esc' })
     return
   }
   closeCard(v)
 })
+
+/** The folded pill line's Restart: the engine-offline card comes back. */
+export function reopenOffline(): void {
+  set({ offlineDismissed: false })
+}
+
+/** The engine runs outside the app (Terminal, or the bundled engine is off): restart means retry the link. */
+export function engineExternal(): boolean {
+  const st = useLesson.getState().localEngine?.state
+  return st === 'external' || st === 'off' || get().restart === 'external'
+}
+
+/**
+ * Restart the engine: the bundled one through main (engine-local:restart), or retry the link when it runs outside the
+ * app. The engine-offline card's primary and the folded pill line's Restart both call this, so one press is enough.
+ */
+export async function restartEngine(): Promise<void> {
+  if (engineExternal()) {
+    bridge.invoke('engine-link:retry').catch(() => undefined)
+    return
+  }
+  if (get().restart === 'starting') return
+  set({ restart: 'starting' })
+  const r = await bridge.invoke<{ ok?: boolean; state?: string } | null>('engine-local:restart').catch(() => null)
+  if (r?.ok) return
+  set({ restart: r?.state === 'external' || r?.state === 'off' ? 'external' : 'failed' })
+}
+
+/** The folded pill's Restart: start the restart and unfold the card, which shows it working ("Restarting..."). */
+export function restartFromPill(): void {
+  void restartEngine()
+  reopenOffline()
+}
+
+/** The engine-offline card was folded by Esc and the outage is still on. */
+export function engineStopped(s: State): boolean {
+  const l = s.link
+  return s.everOpen && !!l && !l.open && l.failures >= TRIES && s.offlineDismissed
+}
 
 export function closeCard(id: CardId): void {
   if (id === 'err-engine-offline') set({ offlineDismissed: true })

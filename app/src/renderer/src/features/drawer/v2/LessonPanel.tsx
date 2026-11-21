@@ -11,13 +11,15 @@
  * spring; opacity only with reduced motion). While shown it tells core/dock (setDock) where it is, so the island's
  * cards step around it and the engine keeps VS Code beside it (panel.state, when the engine lists it).
  */
-import { motion, useReducedMotion } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../../../preload/api'
 import { panelRect, setDock } from '../../../core/dock'
 import { useIslandBox } from '../../../core/Island'
+import { useLesson } from '../../../core/lesson'
 import { sendAction } from '../../../core/shortcuts'
-import { spring, springOut } from '../../../core/theme'
+import { color, spring, springOut, type2 } from '../../../core/theme'
+import { queueCheck, useLinkGate, useQueuedCheck, type Gate } from '../../errors/gate'
 import { GlassCard } from '../../../core/ui/GlassCard'
 import { PrimaryButton } from '../../../core/ui/buttons'
 import { riseIn } from '../../../core/ui/motion'
@@ -48,6 +50,9 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
     setSettled(key)
     setRise(key)
   }
+  // Paused (a blocking card owns Esc and the primary): the keys line dims and goes inert with the body, so the card's
+  // own Esc keycap is the only live Esc hint on screen.
+  const paused = useLinkGate().kind === 'paused'
 
   // Tell core/dock where the panel is (screen points, its real height), and that it's gone when it unmounts.
   useLayoutEffect(() => {
@@ -87,7 +92,16 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
           <div className="min-h-0 flex-initial overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
             <Body m={m} rise={rise === m.view} />
           </div>
-          <KeysRow onHide={collapsePanel} backDisabled={m.step.index <= 0} />
+          <motion.div
+            className="shrink-0"
+            inert={paused || undefined}
+            aria-disabled={paused || undefined}
+            initial={false}
+            animate={{ opacity: paused ? 0.5 : 1 }}
+            transition={{ duration: 0.2 }}
+          >
+            <KeysRow onHide={collapsePanel} backDisabled={m.step.index <= 0} />
+          </motion.div>
         </aside>
       </GlassCard>
     </motion.div>
@@ -113,6 +127,7 @@ function Rise({ on, children }: { on: boolean; children: ReactNode }): ReactNode
 
 function Body({ m, rise }: { m: PanelModel; rise: boolean }): ReactNode {
   const s = m.step
+  const gate = useLinkGate()
   if (m.view === 'passed') {
     return (
       <>
@@ -126,8 +141,18 @@ function Body({ m, rise }: { m: PanelModel; rise: boolean }): ReactNode {
     )
   }
   const notYet = m.view === 'notyet' ? m.notYet : undefined
+  // The link gate (features/errors/gate.ts): while miyagi can't answer, the panel says so instead of looking live.
+  // paused = a blocking card owns the screen: the body dims and goes inert, so the card's action is the one primary.
+  const paused = gate.kind === 'paused'
   return (
-    <>
+    <motion.div
+      data-gate={gate.kind}
+      inert={paused || undefined}
+      aria-disabled={paused || undefined}
+      initial={false}
+      animate={{ opacity: paused ? 0.5 : 1 }}
+      transition={{ duration: 0.2 }}
+    >
       <StepIntro title={s.title} instructions={s.instructions} />
       {notYet && (
         <Rise on={rise}>
@@ -147,18 +172,55 @@ function Body({ m, rise }: { m: PanelModel; rise: boolean }): ReactNode {
         m.view !== 'hint' && <CodeBlock code={s.code} where={s.where} kind={s.kind} then={m.view === 'working' ? s.then : undefined} />
       )}
       <div className="flex flex-col gap-[12px]" style={{ padding: 20 }}>
-        {/* Polish: one button in the slot (busy while checking), so it keeps its DOM node and keyboard focus. */}
-        <PrimaryButton
-          size="lg"
-          block
-          busy={m.view === 'checking'}
-          label={m.view === 'checking' ? 'Checking' : m.view === 'notyet' ? 'Check again' : 'Check my work'}
-          onClick={check}
-        />
+        {/* Polish: one button in the slot (busy while checking), so it keeps its DOM node and keyboard focus. The link
+            gate decides what that button says while miyagi can't answer (GatedCheck). */}
+        <GatedCheck gate={gate} checking={m.view === 'checking'} label={m.view === 'notyet' ? 'Check again' : 'Check my work'} />
         {m.view === 'checking' && <CheckingCaption text={m.checkingCaption} />}
       </div>
       <Divider />
-      <Help pressed={m.view === 'hint' ? 'hint' : undefined} watchStart={s.video?.start} />
+      <Help pressed={m.view === 'hint' ? 'hint' : undefined} watchStart={s.video?.start} gate={gate} />
+    </motion.div>
+  )
+}
+
+/**
+ * The step's one primary, driven by the link gate: live when ok; "Check when miyagi is back" while waiting (pressed, it
+ * queues and turns into a quiet "Queued" with the spinner); disabled with the reason while a blocking card is up.
+ * The caption fades in and out with the house spring, so the button comes back smoothly when the link recovers.
+ */
+function GatedCheck({ gate, label, checking }: { gate: Gate; label: string; checking: boolean }): ReactNode {
+  const stepId = useLesson((x) => x.stepId)
+  const queued = useQueuedCheck((q) => !!q.stepId && q.stepId === stepId)
+  const reduced = useReducedMotion()
+  const waiting = gate.kind === 'wait'
+  const caption = checking || gate.kind === 'ok' ? undefined : queued && waiting ? gate.queued ?? gate.caption : gate.caption
+  // Every branch is a PrimaryButton in the same slot, so a check (or the gate changing) keeps its DOM node and focus.
+  return (
+    <>
+      {checking || gate.kind === 'ok' ? (
+        <PrimaryButton size="lg" block busy={checking} label={checking ? 'Checking' : label} onClick={check} />
+      ) : waiting ? (
+        <PrimaryButton size="lg" block busy={queued} disabled={queued} label={queued ? 'Queued' : gate.label ?? label} onClick={queueCheck} />
+      ) : (
+        <PrimaryButton size="lg" block disabled label={label} onClick={() => undefined} />
+      )}
+      <AnimatePresence initial={false}>
+        {caption && (
+          <motion.span
+            key={caption}
+            role="status"
+            data-gate-caption
+            className="block text-center"
+            style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}
+            initial={reduced ? { opacity: 0 } : { opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.12 } }}
+            transition={{ ...spring, opacity: { duration: 0.18 } }}
+          >
+            {caption}
+          </motion.span>
+        )}
+      </AnimatePresence>
     </>
   )
 }

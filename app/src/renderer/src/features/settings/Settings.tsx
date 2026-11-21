@@ -1,7 +1,9 @@
 /**
  * Feature: settings. The Settings sheet, born from the notch island (its own focusable window, route `settings`).
- * v2 (A4): a 912x576 sheet (clamped to the screen) with a sidebar: General, Permissions, Privacy, Your key, Shortcuts
- * (Shell.tsx). The sheet stays black in every appearance, like the island (decision 9).
+ * v2 (A4): a 912x576 sheet (clamped to the screen) with a sidebar: General, Permissions, Privacy, Your own key, Shortcuts
+ * (Shell.tsx). It grows out of the black island, then takes the app windows' surface (surface.window + hairline) and their
+ * three window lights, so it reads as one family with Onboarding, Home and Progress. Focus starts on the active section
+ * and stays inside the sheet (Tab wraps).
  *
  * Opening: `settings:open {from, section}` (main) / requestOpen (browser stage) carries the island's current size and,
  * from openSettings(section), the section to show. The sheet starts on exactly that shape (top = platform.pillTop,
@@ -17,7 +19,7 @@ import type { Layout } from '../../../../preload/api'
 import { bridge, isElectron } from '../../bridge'
 import { onUi } from '../../core/bus'
 import { getIslandModes, type IslandMode } from '../../core/registry'
-import { color, pill, radius, scrim, shadows, spring, springOut, windowSize } from '../../core/theme'
+import { color, fill, pill, radius, scrim, shadows, spring, springOut, surface, windowSize } from '../../core/theme'
 import { Shell } from './Shell'
 import { useSettings, type Size } from './store'
 
@@ -164,6 +166,25 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
   }, [phase, close])
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>): void => {
+    // Focus stays inside the sheet: Tab past the last control comes back to the first (and Shift+Tab the other way).
+    if (e.key === 'Tab') {
+      const all = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])')).filter(
+        (el) => !el.hasAttribute('disabled') && el.tabIndex >= 0 && el.offsetParent !== null
+      )
+      if (!all.length) return
+      const first = all[0]
+      const last = all[all.length - 1]
+      const at = document.activeElement
+      const inside = !!at && e.currentTarget.contains(at)
+      if (e.shiftKey && (at === first || !inside)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && (at === last || !inside)) {
+        e.preventDefault()
+        first.focus()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation() // the stage's Esc would also dismiss cards
@@ -197,15 +218,37 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
 
       <motion.div
         role="dialog"
+        aria-modal="true"
         aria-label="Settings"
-        className="absolute left-1/2 overflow-hidden text-white"
-        style={{ top: bridge.platform.pillTop, x: '-50%', background: color.island, transformOrigin: '50% 0%' }}
+        // Neutral focus rings (the browser default is blue, and blue is not ours), in the theme's label color through
+        // --focus-ring, so no color is hard-coded here. The sidebar's tabs use this one ring too (after the first key press).
+        className="absolute left-1/2 overflow-hidden [&_*:focus-visible]:outline-2 [&_*:focus-visible]:outline-offset-2 [&_*:focus-visible]:outline-[color:var(--focus-ring)]"
+        style={{
+          top: bridge.platform.pillTop,
+          x: '-50%',
+          background: color.island,
+          color: color.text,
+          transformOrigin: '50% 0%',
+          ['--focus-ring' as string]: color.label
+        }}
         initial={reduce ? faded : { ...shapeOf(from), opacity: 1 }}
         animate={target}
         transition={transition}
         onAnimationComplete={() => exiting && finish()}
         onKeyDown={onKey}
       >
+        {/*
+          The window surface (the same dark gray and hairline as Onboarding, Home and Progress) fades in over the island's
+          black as the sheet grows, and back out as it collapses, so it still lands on the black pill.
+        */}
+        <motion.div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{ background: surface.window, boxShadow: `inset 0 0 0 1px ${fill.hairline}`, borderRadius: 'inherit' }}
+          initial={{ opacity: reduce ? 1 : 0 }}
+          animate={{ opacity: exiting && !reduce ? 0 : 1 }}
+          transition={{ duration: exiting ? 0.12 : 0.22, ease: 'easeOut' }}
+        />
         {/* The island's own content, handed over: fades out as the sheet grows… */}
         {handoff && phase === 'open' && !reduce && islandMode && (
           <IslandContent mode={islandMode} initial={{ opacity: 1 }} animate={{ opacity: 0 }} transition={contentOut} />
@@ -217,6 +260,7 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
 
         <motion.div
           // Laid out at the full sheet size from the first frame, centered: the shape grows over it, never reflows it.
+          className="relative"
           style={{ width: size.w, height: size.h, marginLeft: `calc(50% - ${size.w / 2}px)` }}
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}

@@ -110,3 +110,39 @@ The overlay window is not focusable, so Settings is its own window. Every `ctx.c
 - **Stage:** the sheet is a stage window at z 20 (above the launcher). In `full`, the engine's .env answers (`env` everywhere), so first run doesn't open.
 - **Mac checklist:** first-run open takes focus (or at least a click into a field works); Keychain prompt on first save, if any; keys.bin survives a restart and the dots come back white; blur closes it; focus returns to the editor; the sheet sits on the pill's exact pixels (pillTop 40).
 - **Shots script** (headless Chrome over CDP, screencast frame strips): `side-session-notes/…/settings-shots-cdp.mjs`.
+
+## Round 3 (surfaces lane, michael/app-surfaces-feel)
+
+**Landed**
+- Chrome: the three window lights like every other miyagi window (close live, ✕ on hover/focus, minimize/zoom drawn inactive) and the app window surface (`surface.window` + hairline) fading in over the island's black as the sheet grows (and out as it lands back on the pill). Neutral focus rings (no browser blue).
+- Sections: a vertical tablist. ↑ / ↓ / Home / End switch sections; the highlight slides on the house spring (`layoutId`); focus starts on the active section; Tab wraps inside the sheet (`aria-modal`). Section content crossfades (opacity only with reduced motion).
+- Your own key: one name everywhere (`words.ts` `OWN_KEY`), copy that matches this build (no "our cloud covers it"), status in words under each provider ("Works", "Saved", "Using miyagi's key", "Not set", "Not yet. Check the key.") instead of bare dots, Test disabled until a key is stored, "Saved to Keychain" after Save, the key help is an underlined link with the external glyph.
+- Privacy: values are plain secondary text. Delete confirm: Cancel is the focused white primary (Esc keycap), Delete is an outline.
+- Permissions: names and captions from `words.ts` ("VS Code companion"); the footnote shows only while a row is off and its button is on screen.
+- Shortcuts: read-only until live rebinding ships (`env.canRecord = false`): "Shortcuts work while miyagi is open, in any app."
+
+**Stage:** `?scenario=settings&settings=<section>&size=1440x900&clean` (+ `&perm=accessibility-off`, `&confirm=delete`). Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/surfaces-settings-*.jpg`.
+
+**Core requests (round 3)**
+1. `core/ui/controls` SidebarNav: adopt the tablist + sliding highlight from `Sidebar.tsx` so every sidebar behaves the same.
+2. Status rule for the onboarding lane: granted / running is a neutral check + white word everywhere (Settings already); green stays for passed steps and mastery. Onboarding's green "On / Running / Connected" should follow.
+3. Glossary for every lane (`features/settings/words.ts`): "Your own key" (account menu, upgrade, pricing say "Use your own key", "Use my own key", "Bring your own key"), "VS Code companion".
+4. `copy.appearanceCaption` (core) still says the sheet stays black; it now takes the window surface.
+
+**Fix round 1 (surfaces)**
+- Focus rings use the theme: `color.label` through a `--focus-ring` CSS variable on the sheet, which the sidebar tabs read too. No Tailwind `white/*`; the sheet's text is `color.text`, not `text-white` (same for the key field and the help link hover).
+- Your own key: the caret lands in the key field again when the sheet opens on this section (`openSettings('account')` from the limit card's "Your own key") or on a click. The store records how a section was reached (`via: 'keys'` from ↑ / ↓ / Home / End); only then does focus stay on the sidebar.
+
+**Decision for Michael: the sheet covers VS Code's Explorer and tabs**
+At 1440x900 the 912x576 sheet sits at x 264-1175, y 40-615, over the Explorer and the editor tabs, which the UX bar otherwise forbids ("never cover Explorer/tabs/toolbar"). This lane keeps it as an explicit exception:
+- Settings is a modal sheet the learner opened on purpose, with a scrim. Nothing in VS Code is needed while it is up, and Esc, the close light or a click outside collapses it into the island at once.
+- "Every surface is born from the notch island" (Michael, Sat): it starts on the pill's exact pixels at the top center, and a sheet this big can't clear the Explorer and tabs from there without leaving the island.
+- Clamping it to the editor's free area (right of the Explorer, under the tabs) would still cover code at 1440x900 and would detach it from the island.
+If Michael wants it clear anyway, the cheapest option is a compact sheet (about 720x520) moved down under the tab bar, keeping the island neck. That needs Core request 5.
+
+**Core requests (fix round 1)**
+5. Only if Michael rejects the exception above: expose the editor's chrome rect (Explorer width, tab bar and toolbar bottom) from core/dock or the layout, so the sheet can be placed clear of it.
+
+**Fix round 2 (surfaces)**
+- One focus ring on the sidebar tabs: the tab's own `ring-1` is gone, so only the sheet's outline (`--focus-ring`) draws, and it waits for the first key press (a mouse open shows only the active row's fill). The active tab still takes focus on open, so ↑ / ↓ work at once. Shot: `surfaces-set-general-kbd.jpg`.
+- Your own key: while Test is off the footer says why ("Save a key to test it.", beside "Where do I find my key?"); the tooltip moved to a wrapper, since a disabled button never shows its own. Shot: `surfaces-set-account-test.jpg`.

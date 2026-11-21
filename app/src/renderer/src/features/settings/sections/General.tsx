@@ -65,7 +65,7 @@ export function General({ live }: { live: boolean }): ReactNode {
         <Row
           icon={Wrench}
           label={`Set up ${copy.name}`}
-          caption="Check permissions, VS Code and the engine again."
+          caption="Check permissions and VS Code again."
           right={<QuietButton label="Open setup" onClick={() => void openOnboarding()} />}
         />
       </Group>

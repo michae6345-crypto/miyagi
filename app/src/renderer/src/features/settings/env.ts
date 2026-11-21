@@ -4,7 +4,7 @@
  *   SECTIONS / isSection   the five sidebar sections (core/surfaces SettingsSection), validated (IPC input is untrusted)
  *   stage                  browser-stage params for the scenario shots: ?settings=<section>, ?record=<shortcut>,
  *                          ?confirm=delete. Always empty in Electron.
- *   canRecord              the shortcut recorder runs in the stage only (live rebinding is wave 2)
+ *   canRecord              the shortcut recorder: off until live rebinding ships (wave 2); the rows are read-only
  *   v2Cloud                plan card and meter (Set-Account) only with an account; off this push (A9's flag)
  */
 import { isElectron } from '../../bridge'
@@ -31,7 +31,11 @@ export const stage = {
   confirm: params.get('confirm') ?? undefined
 } as const
 
-export const canRecord = !isElectron
+/**
+ * The recorder stays off everywhere until live rebinding ships (persona QA: a recorded key that does nothing is a dead
+ * end). Flip to `!isElectron` to work on it in the stage.
+ */
+export const canRecord = false
 
 /** Account and plan (A9, `v2Cloud`): no sign-in, billing or quota this push, so the plan card never shows. */
 export const v2Cloud = false

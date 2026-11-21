@@ -28,6 +28,8 @@ export type KeyFlow = {
   testing: boolean
   note?: string
   dirty: boolean
+  /** "Saved to Keychain" for a moment after a Save that went through. */
+  saved?: string
   save: () => Promise<void>
   test: () => Promise<void>
   setDraft: (k: KeyName, v: string) => void
@@ -45,6 +47,9 @@ export function useKeyFlow(live: boolean): KeyFlow {
   const [waiting, setWaiting] = useState<KeyName[]>([])
   const [testing, setTesting] = useState(false)
   const [note, setNote] = useState<string>()
+  const [saved, setSaved] = useState<string>()
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(savedTimer.current), [])
   const liveRef = useRef(live)
   liveRef.current = live
 
@@ -82,6 +87,11 @@ export function useKeyFlow(live: boolean): KeyFlow {
       setDrafts({})
       setCleared([])
       if (v.error) setNote(v.error)
+      else {
+        setSaved(v.secure ? 'Saved to Keychain' : 'Saved for this run')
+        clearTimeout(savedTimer.current)
+        savedTimer.current = setTimeout(() => setSaved(undefined), 4000)
+      }
     } catch {
       setSaving(false)
       setNote('Couldn’t save')
@@ -109,6 +119,7 @@ export function useKeyFlow(live: boolean): KeyFlow {
 
   const setDraft = useCallback((k: KeyName, v: string): void => {
     setDrafts((d) => ({ ...d, [k]: v }))
+    setSaved(undefined)
     if (v) setCleared((c) => c.filter((x) => x !== k))
   }, [])
 
@@ -123,5 +134,5 @@ export function useKeyFlow(live: boolean): KeyFlow {
     setCleared([])
   }, [])
 
-  return { view, status, drafts, cleared, saving, waiting, testing, note, dirty, save, test, setDraft, toggleClear, replaceView }
+  return { view, status, drafts, cleared, saving, waiting, testing, note, dirty, saved, save, test, setDraft, toggleClear, replaceView }
 }
