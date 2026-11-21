@@ -9,6 +9,7 @@ import WebSocket from 'ws'
 import { parseEngineMessage, V2_COMMANDS, type Incoming, type Outgoing } from '../common/wire'
 import { createMockEngine, type MockEngine } from '../../mock/engine'
 import { scenarios } from '../../mock/scenarios'
+import { RunGuard } from './freshStart'
 
 type Listener = (m: Incoming) => void
 
@@ -83,6 +84,8 @@ export class EngineLink {
   /** v2: ENGINE_URL is loopback or wss: (secureEngineUrl). Otherwise no token header and no install token, ever. */
   private readonly secure: boolean
   private warnedInsecure = false
+  /** Fresh start (main/freshStart.ts): only a lesson started or chosen in this app run reaches the windows. */
+  private readonly run: RunGuard
 
   /**
    * `token` (v2): the per-launch engine token (localEngine ENGINE_TOKEN). Given here, not later, because the first
@@ -91,6 +94,7 @@ export class EngineLink {
   constructor(private url: string, demoScenario?: string, token?: string) {
     this.token = token || undefined
     this.secure = secureEngineUrl(url)
+    this.run = new RunGuard(!!demoScenario)
     if (demoScenario) {
       const scenario = scenarios[demoScenario] ?? scenarios.full
       this.demo = createMockEngine(scenario, (e) => this.dispatch(e))
@@ -170,6 +174,8 @@ export class EngineLink {
     if (cmd.type === 'overlay.bounds') this.lastBounds = cmd
     // v2 commands only to an engine that announced them (an older engine answers an unknown type with an error).
     if (V2.has(cmd.type) && !this.demo && !this.caps.has(cmd.type)) return
+    // Fresh start: a lesson this run starts or chooses (learn, library.start, Continue) may reach the windows.
+    this.run.command(cmd)
     // The install token rides along with the BYOK keys the settings feature sends: a separate config.keys would
     // clear them (the engine's set_app_keys drops names that are missing). A BYOK key the learner set still wins
     // engine side for its provider.
@@ -291,6 +297,8 @@ export class EngineLink {
     if (e.type === 'speak' && e.payload.audioUrl && !/^(https?:|data:|blob:)/.test(e.payload.audioUrl)) {
       e = { ...e, payload: { ...e.payload, audioUrl: new URL(e.payload.audioUrl, this.url.replace(/^ws/, 'http')).href } }
     }
+    // A lesson this run never started (the engine's snapshot of an old one): not relayed, not logged, not replayed.
+    if (!this.run.admit(e)) return
     if (e.type === 'lesson.ready') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
     // An ended lesson must not be replayed into a window that (re)loads: keep only the search rows.
     if (e.type === 'lesson.ended') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
