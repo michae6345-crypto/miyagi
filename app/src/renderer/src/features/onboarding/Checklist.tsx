@@ -2,9 +2,11 @@
  * Feature: onboarding (A3). Onb-Checklist-Mixed: the compact setup sheet (the window when it isn't the two-pane first
  * run, e.g. "Set up miyagi" from Settings). One bar per row: green only for a row that is done, the track otherwise.
  */
+import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { color, fill, status as tone, type2 } from '../../core/theme'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { staggerList } from '../../core/ui/motion'
 import { Row } from './Row'
 import type { Row as RowData, Summary } from './rows'
 import { Footer, ReadyCount } from './SetupList'
@@ -40,11 +42,11 @@ export function Checklist({ rows, sum }: { rows: RowData[]; sum: Summary }): Rea
   return (
     <div data-onb-view="checklist" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
       <SheetHeader title="Set up in one place" rows={rows} sum={sum} />
-      <div role="list" className="mt-[24px] flex flex-col gap-[8px]">
+      <motion.div role="list" variants={staggerList} initial="hidden" animate="shown" className="mt-[24px] flex flex-col gap-[8px]">
         {rows.map((r) => (
           <Row key={r.id} row={r} variant="card" />
         ))}
-      </div>
+      </motion.div>
       <div className="flex-1" />
       <Footer sum={sum} border={false} />
     </div>

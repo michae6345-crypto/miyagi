@@ -9,7 +9,7 @@
 import type { ReactNode } from 'react'
 import type { KeyName } from '../../../../main/platform'
 import { bridge } from '../../bridge'
-import { fill, paper, radius2, type2 } from '../theme'
+import { fill, highlight, paper, radius2, type2 } from '../theme'
 
 export type { KeyName }
 export type KeycapOn = 'dark' | 'accent' | 'paper'
@@ -20,10 +20,11 @@ export function keyLabel(k: KeyName): string | undefined {
   return keys[k] || undefined
 }
 
-const TONE: Record<KeycapOn, { bg: string; fg: string; border?: string }> = {
-  dark: { bg: fill.keycap, fg: fill.keycapText, border: fill.keycapBorder },
+/** Polish: a keycap stands on its surface (a darker bottom lip, a faint top edge) so it reads as a key, not a tag. */
+const TONE: Record<KeycapOn, { bg: string; fg: string; border?: string; lip?: string }> = {
+  dark: { bg: fill.keycap, fg: fill.keycapText, border: fill.keycapBorder, lip: `${highlight.keyLip}, ${highlight.topSoft}` },
   accent: { bg: fill.onAccentKey, fg: 'inherit' },
-  paper: { bg: paper.group, fg: paper.muted, border: paper.hairline }
+  paper: { bg: paper.group, fg: paper.muted, border: paper.hairline, lip: highlight.base }
 }
 
 export function Keycap({ k, on = 'dark', size = 'md' }: { k: KeyName; on?: KeycapOn; size?: 'sm' | 'md' }): ReactNode {
@@ -42,7 +43,7 @@ export function Keycap({ k, on = 'dark', size = 'md' }: { k: KeyName; on?: Keyca
         borderRadius: on === 'accent' ? radius2.round : radius2.keycap,
         background: t.bg,
         color: t.fg,
-        boxShadow: t.border ? `inset 0 0 0 1px ${t.border}` : undefined,
+        boxShadow: [t.lip, t.border && `inset 0 0 0 1px ${t.border}`].filter(Boolean).join(', ') || undefined,
         fontSize: type2.micro,
         lineHeight: 1
       }}

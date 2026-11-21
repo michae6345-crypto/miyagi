@@ -96,8 +96,19 @@ export const text = { xs: 13, sm: 15, md: 20, lg: 28 } as const
 export const radius = { chip: 14, card: 20, island: 24, pill: 17, launcher: 28 } as const
 export const shadow = '0 20px 60px rgba(0,0,0,.45)'
 
-/** The island's two shadows. Anything that hands over to the island (the launcher) must match them exactly. */
-export const shadows = { pill: '0 2px 10px rgba(0,0,0,.25)', card: '0 24px 60px rgba(0,0,0,.5)' } as const
+/**
+ * The island's two shadows. Anything that hands over to the island (the launcher, settings) must match them exactly.
+ * Polish (UI-POLISH-SPEC 2): layered, not one blur. A tight contact shadow, a mid shadow and a wide ambient one, so the
+ * black pill sits ON the screen instead of floating in a haze. Both have the SAME four layers, because Settings and the
+ * launcher still animate boxShadow between them in their pill-to-sheet morphs (pre-existing), and motion interpolates a
+ * shadow string layer by layer: equal counts keep that morph smooth. Moving those morphs to an opacity crossfade of two
+ * shadow layers (brand: transform and opacity only) is a follow-up for those lanes. The first layer is a 0.5 px hairline
+ * that keeps the black island apart from a dark editor behind it.
+ */
+export const shadows = {
+  pill: '0 0 0 0.5px rgba(255,255,255,.09), 0 1px 2px rgba(0,0,0,.32), 0 4px 10px rgba(0,0,0,.22), 0 10px 24px rgba(0,0,0,.14)',
+  card: '0 0 0 0.5px rgba(255,255,255,.09), 0 2px 4px rgba(0,0,0,.3), 0 12px 28px rgba(0,0,0,.34), 0 32px 72px rgba(0,0,0,.42)'
+} as const
 
 /** Neutral fills on the black island / dark HUD: white at low alphas, nothing else (brand: no extra hues). */
 export const fill = {
@@ -266,9 +277,12 @@ export const surface = {
   /** A grouped row on any of the above (Set-General, Home-Library). */
   row: 'rgba(255,255,255,.06)',
   rowHover: 'rgba(255,255,255,.1)',
+  /** Polish: a recessed box (the code to type, a text field): darker than the surface it sits in, never lighter. */
+  well: 'rgba(0,0,0,.26)',
   border: 'rgba(255,255,255,.12)',
-  shadow: '0 24px 60px rgba(0,0,0,.5)',
-  shadowSmall: '0 8px 24px rgba(0,0,0,.4)'
+  /** Polish: layered (contact + mid + ambient), see `elevation`. Same names, so every caller gets the depth. */
+  shadow: '0 1px 2px rgba(0,0,0,.3), 0 6px 14px rgba(0,0,0,.24), 0 18px 40px rgba(0,0,0,.3), 0 36px 80px rgba(0,0,0,.32)',
+  shadowSmall: '0 1px 2px rgba(0,0,0,.3), 0 4px 10px rgba(0,0,0,.22), 0 12px 28px rgba(0,0,0,.24)'
 } as const
 
 /**
@@ -340,3 +354,77 @@ export function alpha(hex: string, a: number): string {
   const n = parseInt(hex.slice(1, 7), 16)
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Polish (UI-POLISH-SPEC.md): depth, press and motion tokens. Neutral only: black shadows, white highlights at low
+// alpha. No hue, no glow (a glow is a colored or white OUTER blur; nothing here blurs light outward).
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Elevation, back to front. Each level is a layered stack (Comeau / Ahlin: several shadows whose offset and blur double
+ * while the alpha falls), tuned for a dark HUD where a single soft shadow disappears.
+ *   flat     a row or well on a surface: nothing
+ *   raised   a button, a selected segment, a keycap-sized thing lifted 1 to 2 px
+ *   overlay  a sheet, a popover, a menu
+ *   panel    the docked lesson panel, the island's cards (surface.shadow)
+ */
+export const elevation = {
+  flat: 'none',
+  raised: '0 1px 1px rgba(0,0,0,.3), 0 2px 4px rgba(0,0,0,.22), 0 6px 14px rgba(0,0,0,.2)',
+  overlay: surface.shadowSmall,
+  panel: surface.shadow
+} as const
+
+/**
+ * Edges that make a dark surface read as a lit object (macOS draws the same: a brighter top edge, a hairline all round).
+ *   top       the top inner highlight on a raised dark surface (panel, sheet, quiet button)
+ *   topSoft   the same on a grouped block or row, quieter
+ *   onLight   the top highlight on a white or pastel fill (primary, option tiles): a faint white line on the top edge
+ *   base      a faint ink line on the bottom inner edge of a white or pastel fill, so it reads as a pressable slab
+ *   well      a recessed box (code, fields): a short inner shadow from the top edge, the surface pressed IN
+ */
+export const highlight = {
+  top: 'inset 0 1px 0 rgba(255,255,255,.1)',
+  topSoft: 'inset 0 1px 0 rgba(255,255,255,.06)',
+  onLight: 'inset 0 1px 0 rgba(255,255,255,.55)',
+  base: 'inset 0 -1px 0 rgba(0,0,0,.1)',
+  well: 'inset 0 1px 3px rgba(0,0,0,.4)',
+  /** A keycap's bottom lip: the key stands on the surface. */
+  keyLip: 'inset 0 -1px 0 rgba(0,0,0,.35)'
+} as const
+
+/**
+ * Hover and press tints, painted by a layer over the control whose OPACITY animates (styles.css .mg-press), so no
+ * color or filter ever animates. `onDark` lightens a neutral control; `onLight` darkens a white or pastel one.
+ * `onInk` lightens the ink GlassPrimary under light glass (styles.css .mg-glass); an ink fill needs a stronger white.
+ */
+export const tint = {
+  hoverOnDark: 'rgba(255,255,255,.06)',
+  pressOnDark: 'rgba(255,255,255,.1)',
+  hoverOnLight: 'rgba(0,0,0,.045)',
+  pressOnLight: 'rgba(0,0,0,.09)',
+  hoverOnInk: 'rgba(255,255,255,.08)',
+  pressOnInk: 'rgba(255,255,255,.14)'
+} as const
+
+/** The keyboard focus ring (focus-visible only, never on a mouse click): white on dark, ink on paper, 2 px, 2 px out. */
+export const focus = { dark: 'rgba(255,255,255,.88)', paper: 'rgba(20,20,20,.88)', width: 2, offset: 2 } as const
+
+/**
+ * Durations (seconds) and curves for the few tweens left (opacity fades, the tint layer). Everything that MOVES uses
+ * `spring`. ease.out is a strong ease-out (Kowalski: enter fast, settle slow); never ease-in on an enter.
+ */
+export const duration = { instant: 0.08, fast: 0.12, base: 0.18, slow: 0.24 } as const
+export const ease = { out: [0.23, 1, 0.32, 1], inOut: [0.77, 0, 0.175, 1] } as const
+
+/**
+ * Press: scale to .97 on the house spring (fast enough at this stiffness: ~90% in 0.13 s) and back with the same
+ * spring, so a quick click still finishes the dip. Big targets (the option tiles) go to .96; never below .95.
+ */
+export const press = { scale: 0.97, scaleLarge: 0.96, transition: spring } as const
+
+/**
+ * Lists that appear together (onboarding rows, a settings section): each child rises 6 px and fades in, 35 ms apart,
+ * the stagger capped at 8 children so a long list never makes the learner wait. Reduced motion: fade only (MotionConfig).
+ */
+export const stagger = { each: 0.035, cap: 8, rise: 6 } as const

@@ -12,7 +12,7 @@
  * cards step around it and the engine keeps VS Code beside it (panel.state, when the engine lists it).
  */
 import { motion, useReducedMotion } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../../../preload/api'
 import { panelRect, setDock } from '../../../core/dock'
 import { useIslandBox } from '../../../core/Island'
@@ -20,6 +20,7 @@ import { sendAction } from '../../../core/shortcuts'
 import { spring, springOut } from '../../../core/theme'
 import { GlassCard } from '../../../core/ui/GlassCard'
 import { PrimaryButton } from '../../../core/ui/buttons'
+import { riseIn } from '../../../core/ui/motion'
 import { collapsePanel, useDrawer } from '../store'
 import { closeHint, releasePass } from './panelStore'
 import { Header } from './Header'
@@ -36,6 +37,17 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
   const box = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
   const island = useIslandBox()
+  // Polish (UI-POLISH-SPEC 5): the rise is keyed on the view, with Working and Checking sharing a key, so pressing
+  // Check never replays it. `rise` is the key whose new block (Not yet, Hint, Passed) rises when it mounts. Not yet,
+  // Checking, Not yet changes key twice, so the fresh finding (remounted after the check) rises like any other state.
+  // Null on the first render: the panel's own grow is the entrance there.
+  const key: View = m.view === 'checking' ? 'working' : m.view
+  const [settled, setSettled] = useState<View>(key)
+  const [rise, setRise] = useState<View | null>(null)
+  if (key !== settled) {
+    setSettled(key)
+    setRise(key)
+  }
 
   // Tell core/dock where the panel is (screen points, its real height), and that it's gone when it unmounts.
   useLayoutEffect(() => {
@@ -73,7 +85,7 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
           <Header lessonTitle={m.lessonTitle} total={m.step.total} index={m.step.index} passed={m.passed} skipped={m.skipped} onCollapse={collapsePanel} />
           <Divider />
           <div className="min-h-0 flex-initial overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-            <Body m={m} />
+            <Body m={m} rise={rise === m.view} />
           </div>
           <KeysRow onHide={collapsePanel} backDisabled={m.step.index <= 0} />
         </aside>
@@ -82,14 +94,31 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
   )
 }
 
+type View = PanelModel['view']
+
 const check = (): void => sendAction('check_step')
 
-function Body({ m }: { m: PanelModel }): ReactNode {
+/**
+ * Polish: only the block that is new rises 6 px into place (no exit: the old state is gone at once). The step text,
+ * the code box, the Check button and Help keep their DOM nodes, so keyboard focus stays put across a check and the
+ * unchanged content never blinks. Every rising block sits above other content, so its 6 px never overflows the scroller.
+ */
+function Rise({ on, children }: { on: boolean; children: ReactNode }): ReactNode {
+  return (
+    <motion.div initial={on ? riseIn.initial : false} animate={riseIn.animate} transition={riseIn.transition}>
+      {children}
+    </motion.div>
+  )
+}
+
+function Body({ m, rise }: { m: PanelModel; rise: boolean }): ReactNode {
   const s = m.step
   if (m.view === 'passed') {
     return (
       <>
-        <PassedBody summary={m.summary} upNext={m.upNext} total={s.total} />
+        <Rise on={rise}>
+          <PassedBody summary={m.summary} upNext={m.upNext} total={s.total} />
+        </Rise>
         <div style={{ padding: 20 }}>
           {!m.last && <PrimaryButton size="lg" block label="Next step" disabled={!m.canNext} onClick={releasePass} />}
         </div>
@@ -100,22 +129,33 @@ function Body({ m }: { m: PanelModel }): ReactNode {
   return (
     <>
       <StepIntro title={s.title} instructions={s.instructions} />
-      {notYet && <NotYetBox lines={notYet.lines} />}
-      {m.view === 'hint' && m.hint && <HintBox lines={m.hint.lines} n={m.hint.n} of={m.hint.of} onClose={closeHint} />}
+      {notYet && (
+        <Rise on={rise}>
+          <NotYetBox lines={notYet.lines} />
+        </Rise>
+      )}
+      {m.view === 'hint' && m.hint && (
+        <Rise on={rise}>
+          <HintBox lines={m.hint.lines} n={m.hint.n} of={m.hint.of} onClose={closeHint} />
+        </Rise>
+      )}
       {notYet?.missing ? (
-        <MissingBlock lines={notYet.missing} caption={notYet.fixCaption} />
+        <Rise on={rise}>
+          <MissingBlock lines={notYet.missing} caption={notYet.fixCaption} />
+        </Rise>
       ) : (
         m.view !== 'hint' && <CodeBlock code={s.code} where={s.where} kind={s.kind} then={m.view === 'working' ? s.then : undefined} />
       )}
       <div className="flex flex-col gap-[12px]" style={{ padding: 20 }}>
-        {m.view === 'checking' ? (
-          <>
-            <PrimaryButton size="lg" block busy label="Checking" onClick={() => undefined} />
-            <CheckingCaption text={m.checkingCaption} />
-          </>
-        ) : (
-          <PrimaryButton size="lg" block label={m.view === 'notyet' ? 'Check again' : 'Check my work'} onClick={check} />
-        )}
+        {/* Polish: one button in the slot (busy while checking), so it keeps its DOM node and keyboard focus. */}
+        <PrimaryButton
+          size="lg"
+          block
+          busy={m.view === 'checking'}
+          label={m.view === 'checking' ? 'Checking' : m.view === 'notyet' ? 'Check again' : 'Check my work'}
+          onClick={check}
+        />
+        {m.view === 'checking' && <CheckingCaption text={m.checkingCaption} />}
       </div>
       <Divider />
       <Help pressed={m.view === 'hint' ? 'hint' : undefined} watchStart={s.video?.start} />

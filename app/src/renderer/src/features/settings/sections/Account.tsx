@@ -15,6 +15,7 @@ import type { KeyState } from '../../../../../../../shared/contracts/events'
 import { bridge } from '../../../bridge'
 import { useLesson } from '../../../core/lesson'
 import { PrimaryButtonV2, QuietButton, Spinner } from '../../../core/ui/atoms'
+import { pressMotion } from '../../../core/ui/motion'
 import { color, fill, radius2, type2 } from '../../../core/theme'
 import type { KeyFlow } from '../account'
 import { KEY_LABEL, REQUIRED, SHOWN, type KeyInfo, type KeyName } from '../keys'
@@ -166,16 +167,14 @@ function KeyDot({ state }: { state?: KeyState }): ReactNode {
   return <span className="block h-[8px] w-[8px] rounded-full border-[1.5px]" style={{ borderColor: state ? color.label : fill.track }} />
 }
 
-/** Clear / Undo inside a field: neutral chrome. */
+/** Clear / Undo inside a field: neutral chrome. Polish: hover is the .mg-press tint, not an animated fill. */
 function SmallButton({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
   return (
     <motion.button
       type="button"
-      className="flex h-[26px] shrink-0 cursor-pointer items-center whitespace-nowrap px-[10px] font-medium"
+      {...pressMotion()}
+      className="mg-press flex h-[26px] shrink-0 cursor-pointer items-center whitespace-nowrap px-[10px] font-medium"
       style={{ borderRadius: radius2.keycap, backgroundColor: fill.button, color: color.text, fontSize: type2.xs }}
-      whileHover={{ backgroundColor: fill.chipHover }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.12 }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >

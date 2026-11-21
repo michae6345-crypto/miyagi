@@ -163,7 +163,7 @@ function Steps({ counts }: { counts?: LessonResult }): ReactNode {
         <ol className="m-0 flex list-none flex-col overflow-y-auto p-0" style={{ maxHeight: ROWS * 26 }}>
           {steps.map((s) => (
             <li key={s.id} data-complete-step={s.state} className="flex shrink-0 items-center gap-[12px]" style={{ height: 26, fontSize: type2.sm, color: s.state === 'passed' ? color.text : color.label }}>
-              <StatusGlyph state={s.state} size={16} />
+              <StatusGlyph state={s.state} size={16} still />
               <span className="min-w-0 truncate">{s.title}</span>
             </li>
           ))}

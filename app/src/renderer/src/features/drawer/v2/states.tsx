@@ -3,11 +3,12 @@
  *   NotYetBox       Les-NotYet: a hollow white ring and "Not yet" (no hue, no shake), the finding, a muted detail.
  *   HintBox         Les-Hint: the pink "Hint" chip (an option's pastel: the learner asked for it), "1 of 2", its ✕.
  *   PassedBody      Les-Passed: the green circle (the only green), the passed line, what the learner did, Up next.
- *   CheckingCaption Les-Checking: what the engine is reading right now (status.detail).
+ *   CheckingCaption Les-Checking: what the engine is reading right now (status.detail), with the calm thinking dots.
  */
 import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
-import { actionTone, color, copy, fill, radius2, status, surface, type2 } from '../../../core/theme'
+import { actionTone, color, copy, fill, highlight, radius2, status, surface, type2 } from '../../../core/theme'
+import { ThinkingDots } from '../../../core/ui/Thinking'
 import { StatusGlyph } from '../../../core/ui/status'
 import { Caption, Inline, tone } from './ui'
 
@@ -48,7 +49,7 @@ export function HintBox({ lines, n, of, onClose }: { lines: string[]; n?: number
         aria-label="Hint"
         data-part="panel-hint"
         className="flex flex-col gap-[8px]"
-        style={{ background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, borderRadius: radius2.card, padding: '12px 16px 16px' }}
+        style={{ background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}, ${highlight.topSoft}`, borderRadius: radius2.card, padding: '12px 16px 16px' }}
       >
         <div className="flex items-center gap-[8px]">
           <span className="inline-flex h-[20px] items-center" style={{ padding: '0 8px', borderRadius: radius2.round, background: actionTone.hint, color: color.onAccent, fontSize: type2.micro, fontWeight: 600 }}>
@@ -107,7 +108,7 @@ export function PassedBody({ summary, upNext, total }: { summary?: string; upNex
           <div
             data-part="panel-upnext"
             className="flex flex-col gap-[4px]"
-            style={{ background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, borderRadius: radius2.card, padding: '12px 16px' }}
+            style={{ background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}, ${highlight.topSoft}`, borderRadius: radius2.card, padding: '12px 16px' }}
           >
             <Caption>
               Up next, step {upNext.index + 1} of {total}
@@ -129,8 +130,11 @@ export function PassedBody({ summary, upNext, total }: { summary?: string; upNex
 
 export function CheckingCaption({ text }: { text?: string }): ReactNode {
   return (
-    <span role="status" data-part="panel-checking" className="block text-center" style={{ fontSize: type2.xs, lineHeight: '16px', color: tone.label }}>
-      <Inline text={text || 'Running the checks for this step'} />
+    <span role="status" data-part="panel-checking" className="flex items-center justify-center gap-[6px] text-center" style={{ fontSize: type2.xs, lineHeight: '16px', color: tone.label }}>
+      <span>
+        <Inline text={text || 'Running the checks for this step'} />
+      </span>
+      <ThinkingDots size={3} gap={2} label={null} />
     </span>
   )
 }

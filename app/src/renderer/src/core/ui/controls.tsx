@@ -6,11 +6,17 @@
  *   <Toggle on={v} onChange={setV} label="Open at login" />
  *   <Field label="Anthropic key" secret value={v} onChange={setV} />   secret: password field, no autofill, no spellcheck
  *   <SidebarNav items={[{id:'general',label:'General',icon:Settings}]} active="general" onSelect={go} />
+ *
+ * Polish (UI-POLISH-SPEC 4): the selected segment is a raised thumb (lit top edge, a small lift) that slides on the
+ * spring; the toggle's knob is a lit disc that travels on a transform (x, never `left`) and stretches a little while
+ * held, like the macOS switch; a field is a well (pressed in) with the focus ring on keyboard focus; the sidebar's
+ * selection slides between rows (a shared layoutId) and rows take the hover tint.
  */
 import { motion } from 'motion/react'
-import { useId, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { color, fill, paper, radius2, spring, type2 } from '../theme'
+import { color, elevation, fill, highlight, paper, radius2, spring, surface as dark, type2 } from '../theme'
+import { pressMotion } from './motion'
 
 export type ControlSurface = 'dark' | 'paper'
 
@@ -52,7 +58,7 @@ export function Segmented<T extends string>({
               <motion.span
                 layoutId={`seg-${group}`}
                 className="absolute inset-0"
-                style={{ background: onPaper ? paper.surface : fill.segmentOn, borderRadius: radius2.keycap, boxShadow: onPaper ? paper.shadowSmall : undefined }}
+                style={{ background: onPaper ? paper.surface : fill.segmentOn, borderRadius: radius2.keycap, boxShadow: onPaper ? paper.shadowSmall : `${highlight.top}, ${elevation.raised}` }}
                 transition={spring}
               />
             )}
@@ -68,22 +74,40 @@ export function Toggle({ on, onChange, label, disabled, surface = 'dark' }: { on
   const onPaper = surface === 'paper'
   const track = on ? (onPaper ? paper.ink : color.accent) : onPaper ? paper.border : fill.toggleOff
   const knob = on ? (onPaper ? paper.surface : color.onAccent) : onPaper ? paper.surface : color.text
+  // Polish: the stretch origin is captured when the press starts and held until the next press, so the knob does not
+  // jump when `on` flips on release while scaleX is still springing back from 1.15.
+  const [origin, setOrigin] = useState(on ? 1 : 0)
   return (
-    <button
+    <motion.button
       type="button"
       role="switch"
       aria-checked={on}
       aria-label={label}
       disabled={disabled}
-      className="grid shrink-0 cursor-pointer place-items-center disabled:cursor-default"
+      // Polish: the focus ring draws around the 40x24 track (and follows its radius), not the invisible 56x44 hit box.
+      className="grid shrink-0 cursor-pointer place-items-center outline-none disabled:cursor-default [&:focus-visible>span]:outline-2 [&:focus-visible>span]:outline-offset-2 [&:focus-visible>span]:[outline-color:var(--mg-focus)] [&:focus-visible>span]:[outline-style:solid]"
       style={{ width: 56, height: 44, opacity: disabled ? 0.4 : 1 }}
+      whileTap={disabled ? undefined : 'held'}
+      onTapStart={() => setOrigin(on ? 1 : 0)}
       onClick={() => onChange(!on)}
     >
       {/* Set-General: a 40x24 track with a 20 px knob (ink on white when on) inside a 56x44 hit target. */}
-      <span className="relative block" style={{ width: 40, height: 24, borderRadius: radius2.round, background: track, transition: 'background 150ms ease-out' }}>
-        <motion.span className="absolute top-[2px] block" style={{ width: 20, height: 20, borderRadius: radius2.round, background: knob }} initial={false} animate={{ left: on ? 18 : 2 }} transition={spring} />
+      {/* Polish: the track color flips at once (no color transition); only the knob moves, by transform. No well on paper, as Field. */}
+      <span
+        className="relative block"
+        style={{ width: 40, height: 24, borderRadius: radius2.round, background: track, boxShadow: on || onPaper ? undefined : highlight.well }}
+      >
+        {/* The knob travels on x (a transform) and stretches 15% toward its travel while held (scaleX from its far edge). */}
+        <motion.span
+          className="absolute left-[2px] top-[2px] block"
+          style={{ width: 20, height: 20, borderRadius: radius2.round, background: knob, boxShadow: onPaper ? paper.shadowSmall : elevation.raised, originX: origin }}
+          initial={false}
+          animate={{ x: on ? 16 : 0, scaleX: 1 }}
+          variants={{ held: { scaleX: 1.15 } }}
+          transition={spring}
+        />
       </span>
-    </button>
+    </motion.button>
   )
 }
 
@@ -128,15 +152,16 @@ export function Field({
         disabled={disabled}
         value={value}
         placeholder={placeholder}
-        className="w-full outline-none"
+        className="w-full"
         style={{
           height: 34,
           padding: '0 12px',
           fontSize: type2.sm,
           borderRadius: radius2.control,
-          background: onPaper ? paper.field : fill.field,
+          background: onPaper ? paper.field : dark.well,
           color: onPaper ? paper.ink : color.text,
-          boxShadow: `inset 0 0 0 1px ${onPaper ? paper.border : fill.fieldBorder}`
+          // A well: pressed into the surface (a short inner shadow from the top) inside its hairline.
+          boxShadow: `inset 0 0 0 1px ${onPaper ? paper.border : fill.fieldBorder}${onPaper ? '' : `, ${highlight.well}`}`
         }}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && onEnter?.()}
@@ -149,32 +174,42 @@ export function Field({
 export type NavItem = { id: string; label: string; icon?: LucideIcon; disabled?: boolean }
 
 export function SidebarNav({ items, active, onSelect, title }: { items: ReadonlyArray<NavItem>; active: string; onSelect: (id: string) => void; title?: string }): ReactNode {
+  const group = useId()
   return (
     <nav aria-label={title} className="flex flex-col gap-[2px]">
       {items.map(({ id, label, icon: I, disabled }) => {
         const on = id === active
         return (
-          <button
+          <motion.button
             key={id}
             type="button"
             data-nav={id}
             aria-current={on ? 'page' : undefined}
             disabled={disabled}
-            className="flex cursor-pointer items-center gap-[9px] text-left font-medium disabled:cursor-default"
+            className={`${on ? '' : 'mg-press'} relative flex cursor-pointer items-center gap-[9px] text-left font-medium disabled:cursor-default`}
             style={{
               height: 30,
               padding: '0 10px',
               borderRadius: radius2.control,
               fontSize: type2.sm,
-              background: on ? fill.navActive : 'transparent',
               color: on ? color.text : color.label,
               opacity: disabled ? 0.4 : 1
             }}
+            {...pressMotion(disabled || on)}
             onClick={() => onSelect(id)}
           >
-            {I && <I size={15} strokeWidth={1.8} className="shrink-0" />}
-            <span className="truncate">{label}</span>
-          </button>
+            {on && (
+              <motion.span
+                layoutId={`nav-${group}`}
+                aria-hidden
+                className="absolute inset-0"
+                style={{ background: fill.navActive, borderRadius: radius2.control, boxShadow: highlight.topSoft }}
+                transition={spring}
+              />
+            )}
+            {I && <I size={15} strokeWidth={1.8} className="relative shrink-0" />}
+            <span className="relative truncate">{label}</span>
+          </motion.button>
         )
       })}
     </nav>

@@ -3,10 +3,12 @@
  * when the engine offers one (a cached lesson from library.list); nothing is invented when it doesn't. Start learning
  * starts that lesson (library.start: zero model calls) or, without one, opens the Library (home).
  */
+import { motion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
 import { NotebookText } from 'lucide-react'
 import type { LessonTool, LibraryItem } from '../../../../../../shared/contracts/events'
 import { color, radius2, surface, type2 } from '../../core/theme'
+import { staggerList } from '../../core/ui/motion'
 import { Row } from './Row'
 import type { Row as RowData, Summary } from './rows'
 import { SheetHeader } from './Checklist'
@@ -31,11 +33,11 @@ export function Ready({ rows, sum }: { rows: RowData[]; sum: Summary }): ReactNo
   return (
     <div data-onb-view="ready" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
       <SheetHeader title="You're all set" rows={rows} sum={sum} brand />
-      <div role="list" className="mt-[24px] grid grid-cols-2 gap-[8px]">
+      <motion.div role="list" variants={staggerList} initial="hidden" animate="shown" className="mt-[24px] grid grid-cols-2 gap-[8px]">
         {rows.map((r) => (
           <Row key={r.id} row={r} variant="compact" />
         ))}
-      </div>
+      </motion.div>
       {suggestion && (
         <div data-onb-lesson={suggestion.id} className="mt-[24px] flex flex-col gap-[8px]">
           <span style={{ fontSize: type2.xs, letterSpacing: '0.2px', color: color.label }}>Your first lesson</span>
