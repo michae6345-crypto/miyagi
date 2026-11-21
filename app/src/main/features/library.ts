@@ -4,7 +4,8 @@
  *
  *   bridge.invoke('library:caps')        → { list, get, start }: what this engine says it understands (engine.hello)
  *   bridge.invoke('library:list')        → LibraryItem[] (cleaned), [] on any failure
- *   bridge.invoke('library:get', id)     → { item, steps, overview? } or null
+ *   bridge.invoke('library:get', id)     → { item, steps, overview? }, null when the engine answered without one,
+ *                                          rejects when nothing answered (so the window asks again later)
  *   bridge.invoke('library:start', id)   → true when library.start went out (zero model calls engine side)
  *
  * Why main and not the window: the engine's replay log drops engine.hello once a lesson starts, so a Library window
@@ -38,20 +39,68 @@ function httpOrigin(): string | undefined {
   }
 }
 
-async function getJson(path: string): Promise<unknown> {
+/** The body as text, or undefined past MAX_BYTES (counted in bytes as they arrive; the rest is never read). */
+async function readCapped(res: Response): Promise<string | undefined> {
+  const declared = Number(res.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > MAX_BYTES) {
+    await res.body?.cancel().catch(() => undefined)
+    return undefined
+  }
+  if (!res.body) return ''
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > MAX_BYTES) {
+      await reader.cancel().catch(() => undefined)
+      return undefined
+    }
+    chunks.push(value)
+  }
+  const buf = new Uint8Array(total)
+  let at = 0
+  for (const c of chunks) {
+    buf.set(c, at)
+    at += c.byteLength
+  }
+  return new TextDecoder().decode(buf)
+}
+
+/**
+ * GET a JSON path on the engine's http origin. `{ body }` when it answered with JSON, null when it answered without
+ * usable JSON (404, wrong type, over the cap, unparsable), undefined when nothing answered (no origin, down, timeout).
+ */
+async function getJson(path: string): Promise<{ body: unknown } | null | undefined> {
   const origin = httpOrigin()
   if (!origin) return undefined
+  let res: Response
   try {
-    const res = await fetch(`${origin}${path}`, {
+    res = await fetch(`${origin}${path}`, {
       headers: { Accept: 'application/json', ...(ENGINE_TOKEN ? { [TOKEN_HEADER]: ENGINE_TOKEN } : {}) },
       redirect: 'error',
       signal: AbortSignal.timeout(HTTP_MS)
     })
-    if (!res.ok || !/json/i.test(res.headers.get('content-type') ?? '')) return undefined
-    const text = await res.text()
-    return text.length > MAX_BYTES ? undefined : (JSON.parse(text) as unknown)
   } catch {
     return undefined
+  }
+  if (!res.ok || !/json/i.test(res.headers.get('content-type') ?? '')) {
+    await res.body?.cancel().catch(() => undefined)
+    return null
+  }
+  let text: string | undefined
+  try {
+    text = await readCapped(res)
+  } catch {
+    return undefined // the stream broke or timed out mid-body
+  }
+  if (text === undefined) return null
+  try {
+    return { body: JSON.parse(text) as unknown }
+  } catch {
+    return null
   }
 }
 
@@ -93,7 +142,7 @@ export default defineMainFeature({
         )
         if (items) return items
       }
-      return cleanList(await getJson('/library'))
+      return cleanList((await getJson('/library'))?.body)
     })
 
     ctx.handle('library:get', async (id: unknown): Promise<LibraryDetail | null> => {
@@ -105,7 +154,11 @@ export default defineMainFeature({
         )
         if (d) return d
       }
-      return cleanDetail(await getJson(`/library/${encodeURIComponent(id)}`), id) ?? null
+      const got = await getJson(`/library/${encodeURIComponent(id)}`)
+      // Nothing answered (engine not connected, the WS ask timed out, HTTP down): reject, so the window doesn't cache
+      // "no steps" and asks again on its next refresh.
+      if (got === undefined) throw new Error('library:get: no answer from the engine')
+      return got ? (cleanDetail(got.body, id) ?? null) : null
     })
 
     ctx.handle('library:start', (id: unknown): boolean => {

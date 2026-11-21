@@ -19,8 +19,15 @@ type State = {
   /** The first answer came back (empty or not). */
   loaded: boolean
   caps: Caps
-  /** Previews by id: undefined = not asked yet, null = the engine had none (the list row is used). */
+  /** library:caps came back at least once. Until then nothing says the engine can't start a lesson. */
+  capsKnown: boolean
+  /**
+   * Previews by id: undefined = not asked yet (or the last ask got no answer), null = the engine answered and had
+   * none (the list row is used). A null is asked again on the next refresh.
+   */
   details: Record<string, LibraryDetail | null>
+  /** Ids whose last library:get got no answer (engine not reachable yet). Asked again on the next refresh. */
+  detailFailed: Record<string, boolean>
   /** The preview on screen (Home-LessonDetail), or undefined for the list (Home-Library). */
   openId?: string
   section: Section
@@ -36,7 +43,9 @@ export const useLibrary = create<State>(() => ({
   items: [],
   loaded: false,
   caps: { list: false, get: false, start: false },
+  capsKnown: false,
   details: {},
+  detailFailed: {},
   section: 'library',
   tool: 'all',
   query: ''
@@ -48,27 +57,56 @@ const get = useLibrary.getState
 const START_MS = 15_000
 const STARTED_LINGER_MS = 300
 
-let listSeq = 0
-export async function refresh(): Promise<void> {
-  const seq = ++listSeq
-  const [items, caps] = await Promise.all([
-    bridge.invoke<unknown>('library:list').then(cleanList, () => []),
-    bridge.invoke<Partial<Caps> | null>('library:caps').then(
-      (c) => ({ list: c?.list === true, get: c?.get === true, start: c?.start === true }),
-      () => ({ list: false, get: false, start: false })
-    )
-  ])
-  if (seq !== listSeq) return
-  set({ items, caps, loaded: true })
+const NO_CAPS: Caps = { list: false, get: false, start: false }
+
+let capsSeq = 0
+/** Caps on their own: a slow library:list (WS ask, then HTTP) must not hold Start lesson back. */
+async function refreshCaps(): Promise<void> {
+  const seq = ++capsSeq
+  const caps = await bridge.invoke<Partial<Caps> | null>('library:caps').then(
+    (c) => ({ list: c?.list === true, get: c?.get === true, start: c?.start === true }),
+    () => NO_CAPS
+  )
+  if (seq !== capsSeq) return
+  set({ caps, capsKnown: true })
 }
 
-export async function loadDetail(id: string): Promise<void> {
-  if (!isLibraryId(id) || get().details[id] !== undefined) return
+let listSeq = 0
+export async function refresh(): Promise<void> {
+  void refreshCaps()
+  // A preview that got no answer, or whose engine had none, is asked again: the engine may have come back since.
+  // Other null entries are dropped so they're asked again when opened; the open one stays on screen until its answer.
+  const { openId, details, detailFailed } = get()
+  const kept = Object.fromEntries(Object.entries(details).filter(([k, v]) => v !== null || k === openId))
+  if (Object.keys(kept).length !== Object.keys(details).length) set({ details: kept })
+  if (openId && (details[openId] === null || detailFailed[openId])) void loadDetail(openId, true)
+  const seq = ++listSeq
+  const items = await bridge.invoke<unknown>('library:list').then(cleanList, () => [])
+  if (seq !== listSeq) return
+  set({ items, loaded: true })
+}
+
+const asking = new Set<string>()
+/** `again`: ask even when an answer is cached (a refresh after no answer, or after an empty one). */
+export async function loadDetail(id: string, again = false): Promise<void> {
+  if (!isLibraryId(id) || asking.has(id)) return
+  if (!again && get().details[id] !== undefined) return
+  asking.add(id)
+  // Main rejects when nothing answered (engine not connected, the WS ask timed out, HTTP down). That is never cached.
   const d = await bridge.invoke<unknown>('library:get', id).then(
-    (v) => (v ? (cleanDetail(v, id) ?? null) : null),
-    () => null
+    (v): LibraryDetail | null => (v ? (cleanDetail(v, id) ?? null) : null),
+    (): 'failed' => 'failed'
   )
-  set((s) => ({ details: { ...s.details, [id]: d } }))
+  asking.delete(id)
+  if (d === 'failed') {
+    set((s) => ({ detailFailed: { ...s.detailFailed, [id]: true } }))
+    return
+  }
+  set((s) => {
+    const failed = { ...s.detailFailed }
+    delete failed[id]
+    return { details: { ...s.details, [id]: d }, detailFailed: failed }
+  })
 }
 
 export function openDetail(id: string): void {
