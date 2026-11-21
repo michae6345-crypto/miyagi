@@ -115,7 +115,7 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
       exit={{ opacity: 0, transition: layerOut }}
     >
       <motion.div data-flow-screen className="flex h-full w-full select-none flex-col" initial={false} animate={{ opacity: leaving ? 0 : 1 }} transition={screenOut}>
-        <header data-drag className="relative flex h-[64px] shrink-0 items-center justify-center">
+        <header data-drag className="mg-flow-head relative flex shrink-0 items-center justify-center">
           {!intro && <Strip phase={phase} step={phase === 'setup' ? step : undefined} rows={rows} skipped={skipped} mark={!leaving && !again} compact={width < COMPACT_W} />}
           <AnimatePresence>
             {again ? (
@@ -173,7 +173,7 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             {phase === 'ready' && (
               <View key={sum.canStart ? 'ready' : 'checklist'} id={sum.canStart ? 'ready' : 'checklist'}>
                 {sum.canStart ? (
-                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} />
+                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} onTour={() => finishFlow(true)} />
                 ) : (
                   <Checklist rows={rows} sum={sum} mark={false} again={again} onGuide={backToSetup} onStart={again ? () => leaveAgain() : start} />
                 )}

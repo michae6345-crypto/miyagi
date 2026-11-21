@@ -12,15 +12,16 @@ import { color, fill, radius2, status, surface, type2 } from '../../core/theme'
 import { lessonIndex, nextFor, nodeStates, prereqs, relDay, relInLine, reviewFor, reviewIndex, shortDay, unlockLabels } from './model'
 import { caption, Empty, h2, NodeGlyph, STATE_WORD } from './parts'
 import { canReview, select, startGoal, startReview, startSaved, useDash } from './store'
-import type { DashActive, DashData, DashNext, ReviewEntry } from './types'
+import { contLine, type Cont } from './continue'
+import type { DashData, DashNext, ReviewEntry } from './types'
 
 const row = { borderTop: `1px solid ${fill.hairline}` } as const
 
 function Card({ id, title, right, children }: { id: string; title: string; right?: ReactNode; children: ReactNode }): ReactNode {
   return (
-    <section aria-labelledby={id} className="flex shrink-0 flex-col gap-[10px]" style={{ padding: 16, borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}>
+    <section aria-labelledby={id} className="flex shrink-0 flex-col gap-[10px]">
       <div className="flex items-baseline justify-between gap-[8px]">
-        <h2 id={id} style={h2}>
+        <h2 id={id} style={{ ...h2, fontSize: type2.xs, fontWeight: 500, color: color.label, letterSpacing: '0.02em' }}>
           {title}
         </h2>
         {right}
@@ -93,48 +94,24 @@ export function Review({ data, due, later, now, route }: { data?: DashData; due:
 
 // ---- continue ---------------------------------------------------------------------------------------------------
 
-function stepLine(a: DashActive): string {
-  const parts: string[] = []
-  if (a.stepIndex !== undefined && a.stepCount) parts.push(`Step ${Math.min(a.stepIndex + 1, a.stepCount)} of ${a.stepCount}`)
-  if (a.stepTitle) parts.push(a.stepTitle)
-  return parts.join('. ')
-}
-
-export function Continue({ items, primary, route }: { items: DashActive[]; primary?: string; route: AppRoute }): ReactNode {
+export function Continue({ items, route }: { items: Cont[]; route: AppRoute }): ReactNode {
   const starting = useDash((s) => s.starting)
   if (!items.length) return null
   return (
     <Card id="dash-continue" title="Continue">
-      <ul className="m-0 flex list-none flex-col gap-[12px] p-0">
-        {items.slice(0, 2).map((a, i) => {
-          const key = `resume:${a.lessonId}`
-          const frac = a.stepCount ? Math.min(1, (a.passed ?? a.stepIndex ?? 0) / a.stepCount) : 0
-          const Btn = primary === key ? PrimaryButton : QuietButton
+      <ul className="m-0 flex list-none flex-col gap-[14px] p-0">
+        {items.slice(0, 3).map((c, i) => {
+          const Btn = i === 0 ? PrimaryButton : QuietButton
           return (
-            <li key={a.lessonId || i} data-continue={a.lessonId} className="flex flex-col gap-[8px]" style={i ? { ...row, paddingTop: 12 } : undefined}>
-              <div className="flex min-w-0 flex-col gap-[2px]">
-                <span className="truncate" style={{ fontSize: type2.sm, fontWeight: 500, color: color.text }}>
-                  {a.title}
+            <li key={c.libraryId} data-continue={c.libraryId} className="flex items-center gap-[16px]">
+              <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
+                <span className="font-medium" style={{ fontSize: type2.body, color: color.text }}>
+                  {c.title}
                 </span>
-                <span className="truncate" style={caption}>
-                  {stepLine(a) || (a.lastActiveAt ? `Last opened ${shortDay(a.lastActiveAt)}` : 'In progress')}
-                </span>
+                <span style={caption}>{contLine(c)}</span>
               </div>
-              {a.stepCount ? (
-                <div role="progressbar" aria-label={`${a.title}: ${stepLine(a)}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frac * 100)} style={{ height: 4, borderRadius: radius2.round, background: fill.hairline }}>
-                  <div style={{ width: `${frac * 100}%`, height: 4, borderRadius: radius2.round, background: color.text }} />
-                </div>
-              ) : null}
-              <Btn
-                label="Resume"
-                icon={Play}
-                block
-                busy={!!a.libraryId && starting === a.libraryId}
-                disabled={!a.libraryId || !!starting}
-                title={a.libraryId ? undefined : 'Open it from the launcher to pick it up again'}
-                onClick={() => a.libraryId && void startSaved(a.libraryId, route)}
-              />
-              {a.libraryId && <StartError k={a.libraryId} />}
+              <Btn label="Continue" icon={Play} busy={starting === c.libraryId} disabled={!!starting && starting !== c.libraryId} onClick={() => void startSaved(c.libraryId, route)} />
+              <StartError k={c.libraryId} />
             </li>
           )
         })}
@@ -155,7 +132,7 @@ function NextRow({ n, data, primary, route, first }: { n: DashNext; data?: DashD
       <div className="flex min-w-0 flex-col gap-[2px]">
         <span style={{ fontSize: type2.sm, fontWeight: 500, color: color.text }}>{n.title}</span>
         {unlocks.length > 0 && (
-          <span className="line-clamp-2" style={caption}>
+          <span style={caption}>
             Unlocks <CodeText text={unlocks.join(', ')} />
           </span>
         )}

@@ -28,7 +28,7 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
   if (!open) return null
   const overlayLayers = getOverlayLayers()
   return (
-    <div ref={root} className="absolute inset-0 overflow-hidden" style={{ width: layout.width, height: layout.height }}>
+    <div ref={root} data-theme="dark" className="absolute inset-0 overflow-hidden" style={{ width: layout.width, height: layout.height }}>
       {overlayLayers
         .filter((l) => l.z < ISLAND_Z)
         .map(({ id, Component }) => (

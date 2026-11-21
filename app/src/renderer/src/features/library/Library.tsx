@@ -17,17 +17,13 @@ import { Spinner } from '../../core/ui/atoms'
 import { QuietButton } from '../../core/ui/buttons'
 import { color, copy, fill, focus, highlight, radius2, surface, type2 } from '../../core/theme'
 import { Press, Ring, Rise } from './motion'
-import { Chip, FILTER_TOOLS, Meter, Skeleton, TOOL_NAME, ToolTile, minutesLabel, progressLabel, soft, stepsLabel } from './parts'
+import { Chip, FILTER_TOOLS, Meter, Skeleton, TOOL_NAME, ToolTag, ToolTile, minutesLabel, stepsLabel } from './parts'
+import { contLine, continueList, type Cont } from '../dashboard/continue'
+import { useDash } from '../dashboard/store'
 import { openDetail, setQuery, setTool, start, useLibrary, visible } from './store'
 
 /** New lesson / Paste a link: the launcher takes a goal or a pasted YouTube link (it builds; the library never does). */
 export const openLauncher = (): void => bridge.emit('launcher:toggle')
-
-/** Home's title: a calm greeting by the time of day. */
-export function greeting(d = new Date()): string {
-  const h = d.getHours()
-  return h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
-}
 
 /** The Lessons page's search field (the shell puts it in the page header). A well: pressed into the header. */
 export function LessonSearch(): ReactNode {
@@ -73,30 +69,30 @@ const meta = { fontSize: type2.xs, color: color.label } as const
 /** Cards on the window: a lighter step, a top edge from above, a hairline (UI-POLISH-SPEC section 2, flat). */
 const cardStyle = { borderRadius: radius2.group, background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}` } as const
 
-function ContinueCard({ item }: { item: LibraryItem }): ReactNode {
-  const p = item.progress!
+function ContinueCard({ c }: { c: Cont }): ReactNode {
+  const item = useLibrary((s) => s.items.find((i) => i.id === c.libraryId))
   const starting = useLibrary((s) => s.starting)
-  const canStart = useLibrary((s) => s.caps.start) && item.ready
-  const busy = starting === item.id
+  const canStart = useLibrary((s) => s.caps.start) && (item?.ready ?? true)
+  const busy = starting === c.libraryId
   return (
     <div className="flex items-center gap-[16px]" style={{ ...cardStyle, padding: 16 }}>
-      <ToolTile tool={item.tools[0] ?? 'vscode'} size={48} />
-      <button type="button" className="min-w-0 flex-1 cursor-pointer text-left outline-offset-4 focus-visible:outline-2 focus-visible:outline-solid" style={{ outlineColor: focus.dark, borderRadius: radius2.control }} onClick={() => openDetail(item.id)}>
+      <ToolTile tool={item?.tools[0] ?? 'vscode'} size={48} />
+      <button type="button" className="min-w-0 flex-1 cursor-pointer text-left outline-offset-4 focus-visible:outline-2 focus-visible:outline-solid" style={{ outlineColor: focus.dark, borderRadius: radius2.control }} onClick={() => openDetail(c.libraryId)}>
         <div className="truncate font-medium" style={{ fontSize: type2.md }}>
-          {item.title}
+          {c.title}
         </div>
         <div className="truncate" style={{ ...meta, marginTop: 4 }}>
-          {progressLabel(p)}
+          {contLine(c)}
         </div>
         <div style={{ marginTop: 12 }}>
-          <Meter fraction={p.stepIndex / p.total} label={`${item.title}: ${progressLabel(p)}`} />
+          <Meter fraction={c.passed / c.total} label={`${c.title}: ${contLine(c)}`} />
         </div>
       </button>
       <Press
-        aria-label={`Resume ${item.title}`}
+        aria-label={`Continue ${c.title}`}
         title={canStart ? undefined : 'Open the lesson to see why it can’t start'}
         disabled={!canStart || !!starting}
-        onClick={() => void start(item.id)}
+        onClick={() => void start(c.libraryId)}
         className="flex shrink-0 items-center justify-center"
         style={{ width: 44, height: 44, borderRadius: radius2.round, background: surface.row, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}`, color: color.text, opacity: canStart || busy ? 1 : 0.4 }}
       >
@@ -112,11 +108,13 @@ function LessonCard({ item }: { item: LibraryItem }): ReactNode {
     <Press large data-lesson={item.id} onClick={() => openDetail(item.id)} className="flex h-full w-full flex-col gap-[12px]" style={{ ...cardStyle, padding: 16, color: color.text }}>
       <span className="relative flex w-full items-center gap-[8px]">
         {item.tools.map((t) => (
-          <ToolTile key={t} tool={t} />
+          <ToolTag key={t} tool={t} />
         ))}
-        <span className="ml-auto" style={{ fontSize: type2.xs, color: item.ready ? soft : color.label }}>
-          {item.ready ? 'Ready instantly' : 'Not ready yet'}
-        </span>
+        {!item.ready && (
+          <span className="ml-auto" style={{ fontSize: type2.xs, color: color.label }}>
+            Not ready yet
+          </span>
+        )}
       </span>
       <span className="relative block w-full min-w-0">
         <span className="block font-medium" style={{ fontSize: type2.body }}>
@@ -161,7 +159,12 @@ export function Lessons(): ReactNode {
   const s = useLibrary()
   const connected = useLesson((st) => st.connected)
   // The page always shows the whole list: Continue and Ready to run together.
-  const { continuing, ready } = visible({ ...s, section: 'library' })
+  const data = useDash((st) => st.data)
+  const shown = visible({ ...s, section: 'library' })
+  const q = s.query.trim().toLowerCase()
+  const continuing = continueList(data, s.items).filter((c) => !q || c.title.toLowerCase().includes(q)).filter((c) => s.tool === 'all' || (s.items.find((i) => i.id === c.libraryId)?.tools.includes(s.tool) ?? false))
+  const going = new Set(continuing.map((c) => c.libraryId))
+  const ready = shown.ready.filter((i) => !going.has(i.id))
   const filtered = s.tool !== 'all' || s.query.trim() !== ''
   const nothing = s.loaded && s.items.length === 0
   const offline = nothing && !connected
@@ -194,12 +197,11 @@ export function Lessons(): ReactNode {
               <SectionHead id="lib-cont" title="Continue">
                 <span className="ml-auto" style={meta}>
                   <StartError />
-                  {!s.startError && 'Picks up where you left off'}
                 </span>
               </SectionHead>
               <div className="grid grid-cols-1 gap-[16px] @min-[760px]:grid-cols-2">
-                {continuing.map((i) => (
-                  <ContinueCard key={i.id} item={i} />
+                {continuing.map((c) => (
+                  <ContinueCard key={c.libraryId} c={c} />
                 ))}
               </div>
             </section></Rise>
@@ -210,9 +212,8 @@ export function Lessons(): ReactNode {
               {FILTER_TOOLS.map((t) => (
                 <Chip key={t} label={TOOL_NAME[t]} on={s.tool === t} onClick={() => setTool(t)} />
               ))}
-              <Chip label="Excel, soon" disabled />
               <span className="ml-auto" style={meta}>
-                {continuing.length === 0 && s.startError ? <StartError /> : 'Saved on this Mac'}
+                {continuing.length === 0 && s.startError ? <StartError /> : null}
               </span>
             </SectionHead>
             <div className="grid grid-cols-1 gap-[16px] @min-[640px]:grid-cols-2 @min-[900px]:grid-cols-3">

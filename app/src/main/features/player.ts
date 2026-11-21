@@ -30,7 +30,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
 import { dockRect } from '../../renderer/src/features/player/dock'
-import { color, hud } from '../../renderer/src/core/theme'
+import { glassBg } from '../../renderer/src/core/theme'
 
 /** rgba(r,g,b,a) → rgb(r,g,b): the window isn't transparent, so its background can't take an alpha. */
 const opaque = (c: string): string => c.replace(/^rgba\(\s*([^,]+),\s*([^,]+),\s*([^,]+),[^)]*\)$/, 'rgb($1,$2,$3)')
@@ -40,7 +40,7 @@ const opaque = (c: string): string => c.replace(/^rgba\(\s*([^,]+),\s*([^,]+),\s
  * Settings → Appearance. Core main sets nativeTheme.themeSource from the pref, so shouldUseDarkColors is
  * the resolved appearance. Dark: the glass panel color; light: the kit's light HUD glass. Both from core/theme.
  */
-const windowBg = (): string => opaque(nativeTheme.shouldUseDarkColors ? color.glass : hud.light.glass)
+const windowBg = (): string => opaque(nativeTheme.shouldUseDarkColors ? glassBg.dark : glassBg.light)
 
 function loadBounds(file: string): Rectangle | undefined {
   try {

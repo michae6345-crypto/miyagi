@@ -15,6 +15,7 @@ import { gateIsOpen } from '../../core/gate'
 import { useIslandBox } from '../../core/Island'
 import { defineFeature } from '../../core/registry'
 import { openSettings } from '../../core/surfaces'
+import { startTour } from '../tips/tourStore'
 import { StageMenu } from './StageMenu'
 import './web'
 
@@ -26,6 +27,7 @@ export function onLaunchOpen(what: unknown): void {
   if (!gateIsOpen()) return
   if (what === 'launcher') bridge.emit('launcher:toggle')
   else if (what === 'settings') void openSettings()
+  else if (what === 'tour') startTour()
 }
 
 bridge.onFeature('launch:open', onLaunchOpen)

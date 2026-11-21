@@ -188,7 +188,8 @@ export function showInDock(app: App, on: boolean): void {
 
 /**
  * v2: options for an app window: a normal titled window (hiddenInset traffic lights on macOS), opaque, NOT a panel,
- * NOT always on top, sandboxed like every window. The caller adds bounds.
+ * NOT always on top, sandboxed like every window. The caller adds bounds. `background` is the first-paint color for the
+ * current theme (main/prefs.ts windowBackground()); trackWindowBackground keeps it in step when the theme changes.
  */
 export function appWindowOptions(background: string): BrowserWindowConstructorOptions {
   return {
@@ -197,8 +198,10 @@ export function appWindowOptions(background: string): BrowserWindowConstructorOp
     transparent: false,
     resizable: true,
     minimizable: true,
-    maximizable: false,
-    fullscreenable: false,
+    // Nov 21: app windows (home, settings, onboarding...) zoom and go full screen like any Mac window. The overlay, the
+    // pill and the panels stay non-fullscreenable (overlayWindowOptions, the launcher, the player).
+    maximizable: true,
+    fullscreenable: true,
     alwaysOnTop: false,
     skipTaskbar: false,
     backgroundColor: background,

@@ -14,7 +14,7 @@ import type { Rect } from './place'
 export type TipId = 'check' | 'help' | 'mini' | 'pill' | 'launcher' | 'menubar'
 
 /** A piece of a tip's body: text, a keycap (by platform key name), or an option's pastel chip. */
-export type BodyPart = string | { key: 'launcher' } | { option: 'hint' | 'show_me' }
+export type BodyPart = string | { key: 'launcher' } | { option: 'hint' | 'show_me' | 'explain' }
 
 export type Side = 'below' | 'above' | 'left'
 

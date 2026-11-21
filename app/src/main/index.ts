@@ -8,12 +8,12 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
-import { setupPrefs } from './prefs'
+import { setupPrefs, trackWindowBackground, windowBackground } from './prefs'
 import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { setupAppWindows, type AppWindows } from './appWindows'
@@ -53,6 +53,11 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
+/** When the launcher last opened (ms): a second press of the key inside LAUNCHER_DOUBLE_MS is the same press twice, not a close. */
+let launcherOpenedAt = 0
+const LAUNCHER_DOUBLE_MS = 400
+/** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
+let launcherOrigin: BrowserWindow | undefined
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
 let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
@@ -162,6 +167,10 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions, k
   })
   windows.add(win)
   win.on('closed', () => windows.delete(win))
+  if (kind === 'app') {
+    win.setBackgroundColor(windowBackground())
+    trackWindowBackground(win)
+  }
   showAfterFirstPaint(win)
   // Every overlay window follows the learner across Spaces and over full-screen apps (Michael, Sat). App windows
   // (v2) stay on their own Space like any Mac window.
@@ -248,7 +257,10 @@ function forEachWindow(fn: (w: BrowserWindow) => void): void {
 function openLauncher(): void {
   // Launch gate (main/gate.ts): no launcher before the login and setup are through.
   if (launcherOpen || !gateIsOpen()) return
+  const front = BrowserWindow.getFocusedWindow()
+  launcherOrigin = front && front !== overlay && front !== launcher && !front.isDestroyed() ? front : undefined
   launcherOpen = true
+  launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
   launcher.show()
@@ -304,6 +316,16 @@ function hideLauncher(): void {
   launcherOpen = false
   launcher.hide()
   send(overlay, 'launcher:closed') // the island is back
+  const origin = launcherOrigin
+  launcherOrigin = undefined
+  if (origin && !origin.isDestroyed() && origin.isVisible()) {
+    // Opened from a miyagi window: it gets the keyboard back. returnFocus would reactivate "the last other app" (Finder).
+    overlay.showInactive()
+    raise(overlay)
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    origin.focus()
+    return
+  }
   returnFocus(app, overlay, previousApp())
 }
 
@@ -404,7 +426,10 @@ app.whenReady().then(async () => {
     overlay,
     launcherKey: (on) => {
       if (!on) return globalShortcut.unregister(platform.accelerators.launcher)
-      const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
+      const ok = globalShortcut.register(platform.accelerators.launcher, () => {
+        if (!launcherOpen) return openLauncher()
+        if (Date.now() - launcherOpenedAt >= LAUNCHER_DOUBLE_MS) closeLauncher() // a second press right after an open is ignored
+      })
       if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
     },
     closed: () => {
@@ -553,7 +578,26 @@ app.whenReady().then(async () => {
     openWindow: (route, args) => appWindows?.open(route, args),
     appWindow: (route) => appWindows?.get(route)
   })
+  setupMenu()
 })
+
+/**
+ * The standard macOS app menu (Nov 21: the test found only "Edit"): miyagi, Edit, View (Enter Full Screen), Window
+ * (Minimize, Zoom). The only menu definition (overlay-raise.ts no longer sets one), set once after the features load. Full screen
+ * and zoom act on the focused window; only app windows are fullscreenable (platform.ts appWindowOptions), so for the
+ * overlay, pill and panels those items stay disabled by Electron.
+ */
+function setupMenu(): void {
+  if (platform.os !== 'mac') return
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      { label: 'miyagi', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { role: 'editMenu' },
+      { label: 'View', submenu: [{ role: 'togglefullscreen' }] },
+      { label: 'Window', role: 'windowMenu', submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }] }
+    ])
+  )
+}
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()

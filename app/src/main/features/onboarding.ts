@@ -34,7 +34,9 @@
  *   onboarding:done                 write the flag → true
  *   onboarding:intro-seen           the intro played (or was skipped) → true
  *   onboarding:prompt (kind)        the macOS prompt for 'screen' | 'accessibility' → boolean (asked)
- *   onboarding:relaunch             app.relaunch() + quit (macOS applies a Screen Recording grant after one)
+ *   onboarding:tour (what)          'start' | 'end' open or close the first-lesson walkthrough in the overlay (broadcast
+ *                                   feat:onboarding:tour {open}); 'seen' remembers it (onboarding.json tourSeen) → true
+ *   onboarding:relaunch            app.relaunch() + quit (macOS applies a Screen Recording grant after one)
  *   onboarding:install-companion    → { ok, reason? }; broadcasts feat:onboarding:companion {state}
  *
  * Broadcast: feat:onboarding:gate  GateView (cleanGate) on every change of the launch gate (main/gate.ts).
@@ -63,7 +65,7 @@ const INSTALL_TIMEOUT_MS = 180_000
 const EXTENSIONS = ['ms-python.python', 'ms-toolsai.jupyter']
 const VSIX_RE = /^miyagi[A-Za-z0-9._-]*\.vsix$/
 
-type Flag = { done: boolean; at?: string; introSeen?: boolean; step?: Step; later?: boolean }
+type Flag = { done: boolean; at?: string; introSeen?: boolean; step?: Step; later?: boolean; tourSeen?: boolean }
 
 /** Started by macOS at login (launch.ts reads it the same way). */
 function startedAtLogin(app: App): boolean {
@@ -119,7 +121,7 @@ export default defineMainFeature({
     if (existsSync(file)) {
       try {
         const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<Flag>
-        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true, step: isStep(raw.step) ? raw.step : undefined, later: raw.later === true }
+        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true, step: isStep(raw.step) ? raw.step : undefined, later: raw.later === true, tourSeen: raw.tourSeen === true }
       } catch {
         console.warn('[onboarding] onboarding.json could not be read; showing setup again')
       }
@@ -184,7 +186,18 @@ export default defineMainFeature({
     // Whenever the gate is closed at launch (login or setup ahead), not only on a first run: launch = start from new.
     if (!skip && !quiet) ctx.overlay.webContents.once('did-finish-load', startFirstRun)
 
-    ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true, flow: flowOn(), login: needsLogin(), step: flag.step, gate: gateView() }))
+    // The first-lesson walkthrough (renderer features/tips TourLayer.tsx, drawn in the overlay): 'start' and 'end' reach every
+    // window (feat:onboarding:tour), so a start from the home window opens it in the overlay; 'seen' is remembered.
+    ctx.handle('onboarding:tour', (what: unknown) => {
+      if (what === 'seen') {
+        if (!flag.tourSeen) {
+          flag = { ...flag, tourSeen: true }
+          save()
+        }
+      } else if (what === 'start' || what === 'end') ctx.broadcast('onboarding:tour', { open: what === 'start' })
+      return true
+    })
+    ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true, tourSeen: flag.tourSeen === true, flow: flowOn(), login: needsLogin(), step: flag.step, gate: gateView() }))
     ctx.handle('onboarding:step', (step: unknown) => {
       if (isStep(step) && flag.step !== step && !flag.done) {
         flag = { ...flag, step }
