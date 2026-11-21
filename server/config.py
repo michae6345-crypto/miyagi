@@ -16,6 +16,17 @@ key. A key the learner typed in Settings (bring-your-own-key) always wins for it
 always goes straight to that provider, never to the proxy. Build every client from
 `anthropic_kwargs()` / `gemini_kwargs()` so this holds everywhere.
 
+The cloud URL is the proxy's API root, `https://<host>/v1` (not the bare host): the engine appends
+`/anthropic` and `/gemini`, so the SDKs land on the proxy's `/v1/anthropic/v1/messages` and
+`/v1/gemini/v1beta/models/{model}:generateContent` (claude/eng-proxy cloud/app.py). The app mints the
+install token at `<host>/v1/register`. A bare host would 404 on every call.
+
+The install token lives here in memory only. It is never written to os.environ (no ANTHROPIC_API_KEY,
+GEMINI_API_KEY, MIYAGI_CLOUD_TOKEN or ANTHROPIC_BASE_URL export), so a learner's subprocess (their code,
+pip, a kernel, VS Code terminals) cannot inherit a credential that bills miyagi; `safe_env()` strips the
+rest. A non-cloud key (Settings or .env) always goes to https://api.anthropic.com: ANTHROPIC_BASE_URL
+is ignored by every engine client.
+
 Cost guards (BUILD-PLAN E4): `guard_model()` turns any Opus / Fable / Mythos choice into Sonnet
 unless MIYAGI_ALLOW_OPUS=1 (and never through the cloud, which rejects them), and
 `fallback_kwargs()` adds the server-side refusal fallback only in a form that cannot land on Opus.
@@ -162,7 +173,8 @@ def anthropic_kwargs(role: str | None = None, *, key: str | None = None) -> dict
         if role:
             kw["default_headers"] = {"x-miyagi-role": role}
         return kw
-    # an explicit base URL: a direct key must never follow ANTHROPIC_BASE_URL to the proxy
+    # an explicit base URL: a Settings or .env key always goes to api.anthropic.com and never follows
+    # ANTHROPIC_BASE_URL (which the engine ignores, for 'env' mode too) to the proxy or anywhere else
     return {"api_key": key, "base_url": ANTHROPIC_DIRECT_URL}
 
 
@@ -174,6 +186,8 @@ def gemini_http_options(role: str | None = None, *, key: str | None = None, **ex
     if is_cloud_token(key):
         from google.genai import types
 
+        # v1beta: the proxy serves /v1/gemini/v1beta/models/{m} only, and google-genai 3.x defaults to v1
+        extra.setdefault("api_version", "v1beta")
         return types.HttpOptions(base_url=f"{cloud_url()}/gemini", headers={"x-miyagi-role": role} if role else None,
                                  **extra)
     if extra:
@@ -209,25 +223,52 @@ CLOUD_ERRORS = {  # plain card copy for the proxy's own refusals (no em dashes: 
 }
 
 
-def cloud_error(exc: BaseException) -> str | None:
-    """'miyagi_paused' | 'miyagi_quota' | 'miyagi_auth' when `exc` (an SDK status error) is the proxy
-    turning a call away, else None. Look the card text up in CLOUD_ERRORS."""
+def _error_body(exc: BaseException) -> dict:
+    """The parsed error JSON: anthropic's APIStatusError.body, or google.genai's APIError.details."""
+    for attr in ("body", "details"):
+        b = getattr(exc, attr, None)
+        if isinstance(b, list) and len(b) == 1:
+            b = b[0]
+        if isinstance(b, dict):
+            return b
+    return {}
+
+
+def _proxy_shaped(err: dict, status: int | None) -> bool:
+    """The proxy's own error() shape: {type, status: TYPE.upper(), code: <http status>}. Anthropic's
+    errors (forwarded unchanged) carry no code/status; Google's carry no type."""
+    typ = err.get("type")
+    return isinstance(typ, str) and err.get("status") == typ.upper() and err.get("code") == status
+
+
+def cloud_error(exc: BaseException, provider: str = "anthropic") -> str | None:
+    """'miyagi_paused' | 'miyagi_quota' | 'miyagi_auth' when `exc` (an SDK status error from a `provider`
+    call) is the miyagi cloud turning the call away, else None. Look the card text up in CLOUD_ERRORS.
+
+    Read against claude/eng-proxy cloud/app.py: the kill switch is 503 `proxy_disabled` (paused); a disabled
+    install is 403 `permission_error` and an unknown token 401 (auth, in cloud mode only); the quota stop is
+    429 `rate_limit_error` in the proxy's own shape (quota, so nobody retries it; an upstream 429 forwarded
+    as is stays an ordinary rate limit). `miyagi_paused` / `miyagi_quota` / `miyagi_auth` as the type are
+    read too (Core request 6)."""
     status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
-    body = getattr(exc, "body", None)
-    typ = None
-    if isinstance(body, dict):
-        typ = body.get("type")
-        err = body.get("error")
-        if typ in (None, "error") and isinstance(err, dict):
-            typ = err.get("type")
-    if typ in ("miyagi_paused", "miyagi_quota"):
+    body = _error_body(exc)
+    err = body.get("error") if isinstance(body.get("error"), dict) else {}
+    typ = body.get("type")
+    if typ in (None, "error"):
+        typ = err.get("type")
+    if typ in CLOUD_ERRORS:
         return typ
-    if status == 503 and "miyagi_paused" in str(exc):
+    text = str(exc)
+    if typ == "proxy_disabled" or (status == 503 and ("miyagi_paused" in text or "proxy_disabled" in text)):
         return "miyagi_paused"
-    if status == 429 and "miyagi_quota" in str(exc):
+    if status == 429 and "miyagi_quota" in text:
         return "miyagi_quota"
-    if status == 401 and cloud_on() and mode("anthropic") == "cloud":
+    if mode(provider) != "cloud":  # a direct key: a 401/403/429 is the provider's, not the cloud's
+        return None
+    if status == 401 or (status == 403 and typ == "permission_error"):
         return "miyagi_auth"
+    if status == 429 and typ == "rate_limit_error" and _proxy_shaped(err, 429):
+        return "miyagi_quota"
     return None
 
 
