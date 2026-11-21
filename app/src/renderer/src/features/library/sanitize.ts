@@ -17,8 +17,12 @@ const TOOLS: readonly LessonTool[] = ['vscode', 'jupyter', 'terminal', 'excel']
 const MAX_ITEMS = 200
 const MAX_STEPS = 100
 
-/** A path-looking string (/Users/..., C:\..., ~/...) is never shown: it can leak a home folder. */
-const PATHY = /(^|\s)(\/(Users|home|private|var|tmp|opt)\/|~\/|[A-Za-z]:\\)/
+/**
+ * A string with a path anywhere in it (/Users/..., "/Users/...", (/home/...), file:///Users/..., '~/...', =C:\...) is
+ * never shown: it can leak a home folder. Matched anywhere, not only at a word start, so quotes, brackets and file://
+ * can't hide it.
+ */
+const PATHY = /\/(Users|home|private|var|tmp|opt)\/|~\/|[A-Za-z]:\\/
 
 function str(v: unknown, max = 160): string | undefined {
   if (typeof v !== 'string') return undefined
