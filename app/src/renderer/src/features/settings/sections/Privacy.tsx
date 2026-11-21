@@ -9,8 +9,9 @@
  *     once. On: main/features/telemetry.ts sends scrubbed crash lines and lesson counts (the engine its own counts).
  *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin), the
  *     sign-in (main removes auth.bin and login.json, then auth:sign-out, awaited, forgets the session and revokes it)
- *     and the preferences. privacy/erase.ts picks the step: a sign-out that fails is "partial", never "Deleted". It says "on this Mac" because that is all it can reach; lesson folders in ~/miyagi stay (the
- *     learner's own work, kept by the engine) and the confirm says so.
+ *     and the preferences. privacy/erase.ts picks the step: a sign-out that fails is "partial", never "Deleted".
+ *     It says "on this Mac" because that is all it can reach; lesson folders in ~/miyagi stay (the learner's own
+ *     work, kept by the engine) and the confirm says so.
  */
 import { motion } from 'motion/react'
 import { Activity } from 'lucide-react'

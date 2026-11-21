@@ -62,8 +62,12 @@ Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/pri
 - Delete my data: the flow lives in `privacy/erase.ts` (`eraseData`, `eraseStep`), tested by `privacy/erase.test.ts`.
   It awaits `auth:sign-out` and shows "partial" unless it answers `true`; the signed-in user is cleared in this
   window only when the sign-out is confirmed. auth.ts is untouched (the sign-in-gate lane owns it).
-- Stage shots not retaken this round: a headless capture caught the settings sheet mid-animation. The screen and
-  videos lines in `shots/privacy-panel.png` are the old copy; retake before review.
+
+## Notes (fix round 2)
+- `shots/privacy-panel.png` retaken headlessly (headless Chromium, no window, muted, `settings` scenario, no player):
+  `?scenario=settings&settings=privacy` at 1440x900 @2x, after the dialog is visible plus 1.5 s for the sheet to
+  settle. It shows the current copy: "Text from password apps dropped." and "The video link and what you want to
+  learn, to Google Gemini." `privacy-data.png` and `privacy-confirm.png` show unchanged copy and stay as they are.
 
 ## Open
 - Engine follow-up (not this lane, no server/ edits here): mask private apps in `reader.latest_frame` (pointing
