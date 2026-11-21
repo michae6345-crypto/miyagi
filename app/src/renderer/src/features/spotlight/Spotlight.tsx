@@ -34,6 +34,7 @@ import { useLesson, useStatus, type Rect } from '../../core/lesson'
 import { useDrawer } from '../drawer/store'
 import { useLauncherOpen } from '../launcher/store'
 import { color, fill, font, radius, scrim, shadows, spring, text } from '../../core/theme'
+import { VOICE_ENABLED } from '../../../../common/flags'
 import { toggleVoice, useVoice } from '../voice/store'
 import { CodeText } from '../../core/ui/atoms'
 import { closeTicks, missingLines, plain } from './code'
@@ -338,7 +339,7 @@ function Snippet({ code, missing, maxHeight }: { code: string; missing: Set<numb
 }
 
 function Caption({ target, hole: cut, bounds: screen, avoid: outside, text: boxed, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; text: Rect[]; reduced: boolean }): ReactNode {
-  const voiceOn = useVoice((s) => s.on)
+  const voiceOn = useVoice((s) => VOICE_ENABLED && s.on) // voice is off for now (common/flags)
   // The code lives in one place (Michael's desktop test, item 5): a "Just teach me" lesson or an open drawer has it
   // in the drawer, so the caption shows only the words.
   const textLesson = useLesson((s) => s.lesson?.mode === 'lesson')
