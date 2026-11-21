@@ -24,7 +24,7 @@ lines and cheaper than a banner.
 | `www.youtube.com/iframe_api` + `youtube-nocookie.com` player | third-party embed | Starts automatically when the story reaches a video part (`index.html:893-913`) | **Possibly, in the EU/UK.** The player stores data in its own frame even in privacy-enhanced mode, and the visitor didn't ask to play anything. |
 | `miyagi.study/live/` | old app renderer copy, writes `miyagi.prefs` | Public but unlinked | Remove it, or list it. |
 
-Full evidence: `docs/legal/research_notes/Miyagi legal and privacy risks/site_cookies_check.md` on `adrian/legal-privacy` (#201).
+Full evidence: [`privacy-legal/sources/site_cookies_check.md`](privacy-legal/sources/site_cookies_check.md).
 
 ## Why, by law
 
@@ -35,7 +35,11 @@ Full evidence: `docs/legal/research_notes/Miyagi legal and privacy risks/site_co
   is written only after the visitor asks to unlock downloads. The EDPB reads Art. 5(3) broadly, to cover scripts and
   embeds that make the browser store or send information for a third party
   ([EDPB Guidelines 2/2023](https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-22023-technical-scope-art-53-eprivacy-directive_en)),
-  which is why the auto-starting YouTube player is the item to fix.
+  which is why the auto-starting YouTube player is the item to fix. A Munich court awarded damages for sending a
+  visitor's IP address to Google by loading Google Fonts from Google (LG München I, 20 Jan 2022, 3 O 17493/20); the
+  same reasoning could reach jsDelivr and `i.ytimg.com`, which is why self-hosting them is on the list below. The UK's
+  Data (Use and Access) Act 2025 added more cookie exemptions (in force 2026-02-05), which only makes the UK answer
+  easier.
 - **US:** no federal or California law requires a cookie banner. CalOPPA requires a posted privacy policy that says
   how the site responds to Do Not Track signals and whether third parties collect data about visitors
   ([Cal. Bus. & Prof. Code § 22575](https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?lawCode=BPC&sectionNum=22575)).
@@ -49,11 +53,15 @@ Full evidence: `docs/legal/research_notes/Miyagi legal and privacy risks/site_co
 
 1. Load the YouTube embed only after a click on the stills ("play the real video"), or drop it. **This is the change
    that removes the banner question.**
-2. Publish the cookie notice (`docs/legal/COOKIES.md` on #201) at `miyagi.study/cookies` or as a section of the
-   privacy policy, and link it and the policy from the footer.
+2. Publish the notice: it is the "The miyagi.study website" section of the suggested privacy policy on #201
+   (`web/privacy.md`), so one page covers the app and the site. Link the policy from the footer.
 3. Optional but cheap: self-host three.js and Lenis (also closes a security gap: the CDN imports have no integrity
    hashes), and swap the `i.ytimg.com` thumbnails for our own stills.
 4. Remove `miyagi.study/live/`.
 5. Re-check this page before adding any analytics, form, chat widget or new embed.
+
+The app is a separate question with the same answer: the EDPB counts an app sending locally held data to a server as
+"access" under Art. 5(3), but the screenshots and code a learner asks miyagi to check fall under the
+strictly-necessary exemption, and opt-in crash and usage sharing already asks first. No banner there either.
 
 Lawyer needed: no.
