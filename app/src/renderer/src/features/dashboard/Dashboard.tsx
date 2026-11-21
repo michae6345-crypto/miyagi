@@ -113,7 +113,7 @@ export function Dashboard({ route }: { route: AppRoute }): ReactNode {
   const rail = !loading && (hasReview || hasNext)
   // One quiet page: Continue, then Skills with Review and Up next beside them. Parts with nothing to show are left out.
   return (
-    <div data-dashboard className="relative h-full min-h-0 w-full" style={{ color: color.text }}>
+    <div data-dashboard className="@container relative h-full min-h-0 w-full" style={{ color: color.text }}>
       <div className="h-full overflow-y-auto" style={{ padding: '24px 32px 32px', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
         <div className="mx-auto flex w-full flex-col gap-[36px]" style={{ maxWidth: 1040 }}>
           {cont.length > 0 && <Continue items={cont} route={route} />}
