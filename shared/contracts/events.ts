@@ -145,6 +145,11 @@ export interface EngineEvents {
   "library.item": { item: LibraryItem; steps?: OutlineStep[]; overview?: string };
   /** Answer to progress.get (Prog-Progress-Window). Every number comes from passed checks; null fields = not tracked yet. */
   "progress": Progress;
+  /** Install token self-heal: the miyagi cloud does not know this install's token (the proxy answered 401, e.g. its database was
+   *  reset). Sent once per token, and again when config.keys repeats that token. Never carries the token or its hash. The app drops
+   *  the token, mints a new one (POST <host>/v1/install) and sends config.keys again, at most once per 5 minutes. Not sent for an
+   *  install an operator disabled (403): config.status.cloud says "unauthorized" instead. */
+  "cloud.token_invalid": { reason?: "unknown_token" };
 }
 
 // ---------- v2 shapes ----------

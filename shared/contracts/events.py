@@ -790,6 +790,12 @@ class ConfigStatus(_Model):
     cloud: CloudState | None = None  # v2: what the proxy said about it
 
 
+class CloudTokenInvalid(_Model):
+    """cloud.token_invalid: the proxy does not know this install's token (401). Never carries the token."""
+
+    reason: Literal["unknown_token"] | None = None
+
+
 ENGINE_EVENTS: dict[str, Any] = {
     "search.result": SearchResult,
     "search.done": SearchDone,
@@ -824,6 +830,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "library": Library,
     "library.item": LibraryItemEvent,
     "progress": ProgressEvent,
+    "cloud.token_invalid": CloudTokenInvalid,
 }
 
 EngineEventType = Literal[
@@ -832,6 +839,7 @@ EngineEventType = Literal[
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
     "screen.avoid",
     "engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item", "progress",
+    "cloud.token_invalid",
 ]
 
 
