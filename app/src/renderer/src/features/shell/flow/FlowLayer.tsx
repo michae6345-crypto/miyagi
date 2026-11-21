@@ -173,7 +173,7 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             {phase === 'ready' && (
               <View key={sum.canStart ? 'ready' : 'checklist'} id={sum.canStart ? 'ready' : 'checklist'}>
                 {sum.canStart ? (
-                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} />
+                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} onTour={() => finishFlow(true)} />
                 ) : (
                   <Checklist rows={rows} sum={sum} mark={false} again={again} onGuide={backToSetup} onStart={again ? () => leaveAgain() : start} />
                 )}
