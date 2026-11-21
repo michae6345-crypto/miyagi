@@ -19,6 +19,7 @@ import { ArrowLeft, AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, 
 import { cmd } from '../../../../common/wire'
 import { bridge, registerWebHandler } from '../../bridge'
 import { emitUi } from '../../core/bus'
+import { useDock } from '../../core/dock'
 import { useLesson, useProgress } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
@@ -191,7 +192,10 @@ function Handle({ bottom, height, onReach }: { bottom: number; height: number; o
 export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; dock?: number; lift?: number }): ReactNode {
   // Michael's test 8: no Hint / Skip / Check my work under the lesson-complete panel (it has its own End lesson).
   const completing = useComplete((c) => !!c.card)
-  const on = useLesson((x) => !!x.lesson) && !completing
+  // v2 (A1): the lesson panel carries Check, the help row, Back and Voice; the bar steps away while it is open and
+  // comes back when it collapses to the pill.
+  const panelOpen = useDock((d) => d.open)
+  const on = useLesson((x) => !!x.lesson) && !completing && !panelOpen
   const hasStep = useLesson((x) => !!x.stepId)
   const diagramOpen = useDiagram((d) => d.open)
   // The step has a diagram the learner hasn't opened: a small neutral dot on the Diagram tile (nothing opens by itself).
