@@ -10,6 +10,7 @@
  */
 import type { ComponentType } from 'react'
 import type { Layout } from '../../../preload/api'
+import type { NotchView } from './notchGeometry'
 
 export type IslandMode = {
   id: string
@@ -23,6 +24,13 @@ export type IslandMode = {
   /** A React hook: is this mode wanted right now? `hover` = the pointer is over the island. */
   useActive: (hover: boolean) => boolean
   Content: ComponentType
+  /**
+   * In the notch (layout.notch.place 'notch'): what a pill-sized mode looks like. `useView` is a hook: 'rest' = just the
+   * notch, 'ears' = the notch widened by an ear each side with `Left` (default the bonsai) and `Right` in them,
+   * 'drop' = its Content under the notch row (also what a hover peek shows), 'ears+drop' = both. Default 'drop', so a
+   * mode that says nothing keeps showing its content. Cards (width set) ignore it. Below the menu bar it is unused.
+   */
+  notch?: { useView: () => NotchView; Left?: ComponentType; Right?: ComponentType }
 }
 
 export type OverlayLayer = {

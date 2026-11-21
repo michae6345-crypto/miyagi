@@ -1,12 +1,12 @@
 /**
- * How tall the completion card may grow: from the island's top (platform.pillTop) down to the usable screen's bottom
+ * How tall the completion card may grow: from the island's top (core/islandEdge: the display top in the notch, platform.pillTop below the menu bar) down to the usable screen's bottom
  * (the work area, so the Dock stays clear), less 16 px. An invisible overlay layer reports it, the same way the cards
  * feature reports the overlay's width.
  */
 import { useEffect, type ReactNode } from 'react'
 import { create } from 'zustand'
 import type { Layout } from '../../../../preload/api'
-import { bridge } from '../../bridge'
+import { islandTop } from '../../core/islandEdge'
 
 const MARGIN = 16
 
@@ -21,7 +21,7 @@ export function roomFor(layout: Layout, top: number): number {
 }
 
 export function RoomProbe({ layout }: { layout: Layout }): ReactNode {
-  const h = roomFor(layout, bridge.platform.pillTop)
+  const h = roomFor(layout, islandTop(layout))
   useEffect(() => useRoom.setState({ h }), [h])
   return null
 }

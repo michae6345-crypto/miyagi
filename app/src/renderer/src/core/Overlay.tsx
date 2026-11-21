@@ -13,6 +13,7 @@ import { cmd } from '../../../common/wire'
 import { bridge } from '../bridge'
 import { gateIsOpen, useGateOpen } from './gate'
 import { Island, RestingIsland } from './Island'
+import { islandTop } from './islandEdge'
 import { perf } from './perf'
 import { getOverlayLayers } from './registry'
 import { triggerShortcut, type ActionShortcut } from './shortcuts'
@@ -38,8 +39,8 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
           </Boundary>
         ))}
       {/* Michael's 5 AM shoot: one bad Island render (a stale hot reload) wiped the overlay. Now it comes back in 1 s. */}
-      <Boundary name="island" retryMs={1000} fallback={<RestingIsland top={bridge.platform.pillTop} />}>
-        <Island top={bridge.platform.pillTop} layout={layout} />
+      <Boundary name="island" retryMs={1000} fallback={<RestingIsland top={islandTop(layout)} layout={layout} />}>
+        <Island top={islandTop(layout)} layout={layout} />
       </Boundary>
       {overlayLayers
         .filter((l) => l.z >= ISLAND_Z)
