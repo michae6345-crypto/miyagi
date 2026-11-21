@@ -261,11 +261,12 @@ def test_async_subscriber_runs_on_the_loop():
     assert got == ["editor"]
 
 
-def test_engine_route_records_events():
+def test_engine_route_records_events(monkeypatch):
     from fastapi.testclient import TestClient
 
     from server.orchestrator import main
 
+    monkeypatch.setattr(main, "host_allowed", lambda _h: True)  # TestClient's Host is "testserver"
     client = TestClient(main.app)  # no `with`: the lifespan (screen reader, watcher) doesn't start
     r = client.post("/vscode/event", json={"type": "save", "file": "/x/calculator.py", "port": 8791})
     assert r.status_code == 200 and r.json() == {"ok": True}
