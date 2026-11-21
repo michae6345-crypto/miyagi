@@ -68,7 +68,7 @@ export function Permissions({ live }: { live: boolean }): ReactNode {
       {perms?.external ? (
         <Note>Your engine runs in Terminal, so macOS asks Terminal for these.</Note>
       ) : (
-        <Note>{companion ? 'Turn on opens System Settings at the right switch. Set up installs the extension.' : 'Turn on opens System Settings at the right switch.'}</Note>
+        <Note>{companion && fromHealth(companion) === 'off' ? 'Turn on opens System Settings at the right switch. Set up installs the extension.' : 'Turn on opens System Settings at the right switch.'}</Note>
       )}
     </>
   )
