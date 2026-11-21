@@ -40,7 +40,7 @@ export function ReviewReminderCard(): ReactNode {
   return (
     <section aria-labelledby="progress-review-title" data-progress="review" className="flex flex-col" style={{ width: REVIEW_W, padding: 20, gap: 12 }}>
       <div className="flex items-center gap-[8px]" style={{ height: 28, fontSize: type2.xs, color: color.label }}>
-        <MiyagiWordmark height={13} />
+        <MiyagiWordmark height={13} className="h-[13px] w-auto" />
         <span aria-hidden>·</span>
         <span>Spaced review</span>
       </div>

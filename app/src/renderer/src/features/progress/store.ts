@@ -171,19 +171,27 @@ const drawsIsland = (): boolean => {
   return route === 'overlay' || route === 'stage'
 }
 
-onMessage('engine.hello', () => {
-  void refreshCaps()
-  if (reviewChecked || !drawsIsland()) return
+function scheduleReviewCheck(): void {
+  if (reviewChecked) return
   clearTimeout(reviewTimer)
   reviewTimer = setTimeout(() => {
-    if (reviewChecked || lessonOn() || !canSend('progress.get')) return
-    // The browser stage asks only with ?review, so ?scenario=full stays quiet for every other lane.
-    if (engineMode() === 'inline' && !STAGE_REVIEW) return
+    if (reviewChecked || lessonOn() || !drawsIsland()) return
+    // The browser stage asks only with ?review, so ?scenario=full stays quiet for every other lane; there the mock
+    // answers whatever the app sends, so it doesn't wait for a hello (the stage can miss the mock's first one).
+    const stage = engineMode() === 'inline'
+    if (stage ? !STAGE_REVIEW : !canSend('progress.get')) return
     reviewChecked = true
     reminderAsked = true
     bridge.send(cmd('progress.get', {}))
   }, REVIEW_CHECK_MS)
+}
+
+onMessage('engine.hello', () => {
+  void refreshCaps()
+  scheduleReviewCheck()
 })
+// Browser stage with ?review: look once after load even if no hello reached this window.
+if (STAGE_REVIEW && engineMode() === 'inline') scheduleReviewCheck()
 
 export function closeReview(): void {
   if (get().review) set({ review: undefined })

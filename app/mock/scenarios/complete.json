@@ -9,7 +9,24 @@
   "segments": {
     "step_nn_done": [
       {
-        "wait": 150,
+        "wait": 50,
+        "type": "engine.hello",
+        "payload": {
+          "version": "mock",
+          "contract": "2026-11-20",
+          "capabilities": [
+            "health.get",
+            "permission.open",
+            "library.list",
+            "library.get",
+            "library.start",
+            "progress.get",
+            "panel.state"
+          ]
+        }
+      },
+      {
+        "wait": 100,
         "type": "lesson.ready",
         "payload": {
           "lesson": {

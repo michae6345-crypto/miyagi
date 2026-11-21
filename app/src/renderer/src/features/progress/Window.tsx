@@ -41,7 +41,7 @@ function TitleBar(): ReactNode {
       <div className="pointer-events-none absolute inset-x-0 flex justify-center">
         <div className="flex items-center gap-[8px]">
           <MiyagiMark size={16} />
-          <MiyagiWordmark height={14} />
+          <MiyagiWordmark height={14} className="h-[14px] w-auto" />
           <span style={{ fontSize: type2.md, color: color.faint }}>/</span>
           <span className="font-semibold" style={{ fontSize: type2.md, color: color.text }}>
             Progress
@@ -288,11 +288,12 @@ export function ProgressWindow(_: { layout: Layout }): ReactNode {
   const data = useProgress((s) => s.data)
   const load = useProgress((s) => s.load)
   const canStart = useProgress((s) => s.caps.review)
-  // Every open (and re-open) of the window asks again.
+  // Every open (and re-open) of the window asks again, and so does an engine that says hello after it opened.
+  const canAsk = useProgress((s) => s.caps.progress)
   const args = useWindowArgs('progress')
   useEffect(() => {
     void requestProgress()
-  }, [args])
+  }, [args, canAsk])
   const loading = load === 'loading' && !data
   return (
     <div data-progress="window" className="flex h-full w-full flex-col text-white" style={{ background: surface.window }}>

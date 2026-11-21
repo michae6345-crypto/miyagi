@@ -43,17 +43,9 @@ export function panelWidth(overlay: number): number {
 const tab = { fontVariantNumeric: 'tabular-nums' } as const
 const caption = { fontSize: type2.xs, color: color.label } as const
 
-/** A next lesson as the engine may send it: SkillNext, plus an optional cached-lesson id and minutes (Core request). */
-type Next = SkillNext & { id?: string; estMinutes?: number }
-const LIB_ID = /^[A-Za-z0-9_-]{1,64}$/
-
-function readNext(card: CompleteCard): Next | undefined {
-  const n = card.map?.next[0] as (SkillNext & Record<string, unknown>) | undefined
-  if (!n) return undefined
-  const id = typeof n.id === 'string' && LIB_ID.test(n.id) ? n.id : undefined
-  const est = typeof n.estMinutes === 'number' && Number.isFinite(n.estMinutes) && n.estMinutes > 0 ? Math.round(n.estMinutes) : undefined
-  return { title: n.title, goal: n.goal, ...(id ? { id } : {}), ...(est ? { estMinutes: est } : {}) }
-}
+/** The first up-next lesson (readSkillMap already checked its optional cached id and minutes). */
+type Next = SkillNext
+const readNext = (card: CompleteCard): Next | undefined => card.map?.next[0]
 
 /** The lesson's steps as this window saw them: positions, titles and states (skipped is never passed). */
 function useSteps(): Array<{ id: string; title: string; state: StatusState }> {
@@ -115,7 +107,7 @@ function Header(): ReactNode {
     <div className="flex items-center justify-between" style={{ height: 28 }}>
       <div className="flex items-center gap-[8px]">
         <MiyagiMark size={18} />
-        <MiyagiWordmark height={15} />
+        <MiyagiWordmark height={15} className="h-[15px] w-auto" />
       </div>
       <div className="flex items-center gap-[8px]">
         <Keycap k="dismiss" size="sm" />

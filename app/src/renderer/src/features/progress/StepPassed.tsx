@@ -41,7 +41,7 @@ export function StepPassedCard(): ReactNode {
       <div className="flex items-center justify-between" style={{ height: 24 }}>
         <div className="flex items-center gap-[8px]">
           <MiyagiMark size={16} />
-          <MiyagiWordmark height={13} />
+          <MiyagiWordmark height={13} className="h-[13px] w-auto" />
         </div>
         <span className="tabular-nums" style={{ fontSize: type2.xs, color: color.label }}>
           Step {card.index + 1} of {card.total}
