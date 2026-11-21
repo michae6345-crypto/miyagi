@@ -7,7 +7,7 @@
  *     the preferences. It says "on this Mac" because that is all it can reach.
  */
 import { Camera, CodeXml, KeyRound } from 'lucide-react'
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { DEFAULT_PREFS } from '../../../../../common/prefs'
 import { bridge } from '../../../bridge'
 import { setPrefs } from '../../../core/prefs'
@@ -36,14 +36,19 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
     }
   }
 
-  // Esc backs out of the confirm before it closes the sheet.
-  const onKey = (e: KeyboardEvent<HTMLDivElement>): void => {
-    if (e.key === 'Escape' && step === 'confirm') {
+  // Esc backs out of the confirm before it closes the sheet. Window capture phase, because focus is usually
+  // outside this section (the first Delete never takes focus), so a local onKeyDown would never see it.
+  useEffect(() => {
+    if (step !== 'confirm') return
+    const h = (e: globalThis.KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
       e.preventDefault()
       e.stopPropagation()
       setStep('idle')
     }
-  }
+    addEventListener('keydown', h, true)
+    return () => removeEventListener('keydown', h, true)
+  }, [step])
 
   return (
     <>
@@ -61,36 +66,34 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
         />
       </Group>
 
-      <div onKeyDown={onKey}>
-        <Group label="Your data">
-          {step === 'confirm' || step === 'deleting' ? (
-            <Row
-              minH={64}
-              label="Delete everything on this Mac?"
-              caption="Your keys and settings. Cannot be undone."
-              right={
-                <div className="flex shrink-0 items-center gap-[8px]">
-                  <QuietButton label="Cancel" onClick={() => setStep('idle')} disabled={step === 'deleting'} />
-                  <PrimaryButtonV2 label="Delete" busy={step === 'deleting'} disabled={step === 'deleting'} onClick={() => void erase()} />
-                </div>
-              }
-            />
-          ) : (
-            <Row
-              minH={64}
-              label="Delete my data"
-              caption={
-                step === 'failed' ? (
-                  <span style={{ color: color.text }}>Couldn’t delete. Nothing was removed.</span>
-                ) : (
-                  'Erases your keys and settings on this Mac. Cannot be undone.'
-                )
-              }
-              right={step === 'done' ? <OnWord>Deleted from this Mac</OnWord> : <OutlineButton label="Delete" onClick={() => setStep('confirm')} />}
-            />
-          )}
-        </Group>
-      </div>
+      <Group label="Your data">
+        {step === 'confirm' || step === 'deleting' ? (
+          <Row
+            minH={64}
+            label="Delete everything on this Mac?"
+            caption="Your keys and settings. Cannot be undone."
+            right={
+              <div className="flex shrink-0 items-center gap-[8px]">
+                <QuietButton label="Cancel" onClick={() => setStep('idle')} disabled={step === 'deleting'} />
+                <PrimaryButtonV2 label="Delete" busy={step === 'deleting'} disabled={step === 'deleting'} onClick={() => void erase()} />
+              </div>
+            }
+          />
+        ) : (
+          <Row
+            minH={64}
+            label="Delete my data"
+            caption={
+              step === 'failed' ? (
+                <span style={{ color: color.text }}>Couldn’t delete. Nothing was removed.</span>
+              ) : (
+                'Erases your keys and settings on this Mac. Cannot be undone.'
+              )
+            }
+            right={step === 'done' ? <OnWord>Deleted from this Mac</OnWord> : <OutlineButton label="Delete" onClick={() => setStep('confirm')} />}
+          />
+        )}
+      </Group>
     </>
   )
 }

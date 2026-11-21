@@ -10,7 +10,7 @@
  *   - One focusable window, route `settings`, covering the overlay's display like the launcher, so its sheet
  *     can grow out of the island's exact rect and collapse back into it. Hidden until opened; hidden windows
  *     never take focus.
- *   - First run: opens once if Anthropic or Gemini is `missing` (not `env`) in config.status.
+ *   - Never opens by itself: the learner opens it (gear, launcher, ⌘,).
  *
  * Handles (bridge.invoke from any window):
  *   settings:open     ({section}?) grow the sheet out of the island on that section (openSettings(section) in the
@@ -166,10 +166,17 @@ export default defineMainFeature({
     ctx.handle('settings:open', (p) => show(isSection((p as { section?: unknown } | undefined)?.section) ? (p as { section: Section }).section : undefined))
     ctx.handle('settings:about', (): AboutView => ({ version: ctx.app.getVersion() }))
     ctx.handle('settings:delete', (): DeleteResult => {
+      const prev = keys
       keys = {}
       persist() // removes keys.bin
+      if (error) {
+        // keys.bin is still there: keep the keys in memory and on the engine too, so "Nothing was removed" is true.
+        keys = prev
+        error = undefined
+        return { ok: false, keys: view() }
+      }
       sendKeys() // every name, all empty: the engine drops the app's keys
-      return { ok: !error, keys: view() }
+      return { ok: true, keys: view() }
     })
     ctx.handle('settings:get', () => view())
     ctx.handle('settings:save', (patch) => {

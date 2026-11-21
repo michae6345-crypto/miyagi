@@ -74,7 +74,7 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
         </Group>
       </div>
 
-      <Note icon={Lock}>{view && !view.secure ? 'Not saved: no secure storage. Kept for this run only.' : 'Kept in your Mac’s Keychain. Never sent to miyagi.'}</Note>
+      <Note icon={Lock}>{view && !view.secure ? 'Not saved: no secure storage. Kept for this run only.' : 'Kept in your Mac’s Keychain, never on our servers.'}</Note>
 
       <div className="flex items-center gap-[8px]">
         <span className="flex min-w-0 flex-1 items-center gap-[7px]" style={{ fontSize: type2.xs, color: color.label }}>

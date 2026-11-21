@@ -19,6 +19,8 @@ Scenario: `npm run dev:web -- --port 5189` then `http://localhost:5189/?scenario
 **Checked in the stage (headless Chromium over CDP, real time):** each section renders; recorder refuses a bare J ("Add Control, Option or Command."), stores `Control+Alt+J` for Hint and shows "Not active yet"; Control+Alt+E is refused ("Explain already uses that."); Esc in the recorder cancels it and the sheet stays open; sidebar click switches section; Esc on the sheet collapses it; Delete → "Deleted from this Mac"; Save key clears the field, shows `•••• 1234`, nothing in localStorage. Typecheck green. Brand lint (hex, typed keycaps, Cursor, innerHTML, console.log, openExternal) clean on the package files.
 **Not verified:** Electron (`settings:delete` unlinking keys.bin, `settings:about`, section switch while open, permissions polling against real TCC), the reviewer agent round.
 
+**Fix round 1 (review):** Esc in the delete confirm is now a window capture-phase listener while `step === 'confirm'` (focus stays on the sidebar because the first Delete never takes it, so the old wrapper `onKeyDown` never fired and the sheet closed). `settings:delete` restores the old keys and skips `config.keys` when unlinking keys.bin fails, so "Couldn’t delete. Nothing was removed." stays true. Your key note now reads "Kept in your Mac’s Keychain, never on our servers." (keys do go to the local miyagi engine). Main header no longer claims a first-run auto-open. Typecheck green; not re-run in the stage or Electron.
+
 **Shots:** `shots/settings-v2-general.png`, `-permissions.png` (`perm=accessibility-off`), `-privacy-confirm.png`, `-account.png`, `-account-saved.png`, `-shortcuts-record.png`.
 
 **Deviations from the mockups (brand rules or plan):**
