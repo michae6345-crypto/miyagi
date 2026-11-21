@@ -1,0 +1,380 @@
+#!/usr/bin/env bash
+# miyagi-uninstall.sh: remove miyagi from this Mac for a truly clean reinstall test.
+#
+# Dry run by default: it only lists what it finds. Pass --yes to remove it.
+# The list is DISTRIBUTION-PLAN.md section 5; the full test is docs/CLEAN-TEST.md.
+#
+#   scripts/miyagi-uninstall.sh                  # dry run: show what would go
+#   scripts/miyagi-uninstall.sh --yes            # remove it
+#   scripts/miyagi-uninstall.sh --yes --keep-lessons
+#
+# What it never does:
+#   - kill a process. It asks miyagi to quit (like ⌥Q) and stops if miyagi or anything on
+#     port 8787 is still running, so a dev engine on 8787 is never touched.
+#   - delete lessons. ~/miyagi/lessons is moved aside to ~/miyagi-lessons-<time> (or left
+#     in place with --keep-lessons).
+#   - touch ~/.cache/uv, ~/.local/share/uv, the Python or Jupyter VS Code extensions, or the
+#     "Electron Safe Storage" keychain item (shared by every Electron app run from source).
+#   - print a keychain secret. Keychain lookups read attributes only and their output is dropped.
+#
+# macOS only, bash 3.2 compatible (the one that ships with macOS). Run as yourself, not sudo.
+
+set -u
+
+BUNDLE_ID="dev.sandhacks.miyagi"
+ENGINE_PORT=8787
+EXT_ID="miyagi.companion"
+# Names the app has run under: "miyagi" (packaged, productName), "Miyagi" (older builds),
+# "miyagi-overlay" (npm run dev: package.json name).
+APP_NAMES="miyagi Miyagi miyagi-overlay"
+TCC_SERVICES="ScreenCapture Accessibility AppleEvents Microphone"
+
+MODE="dry"
+KEEP_LESSONS=0
+
+usage() {
+  cat <<'EOF'
+usage: miyagi-uninstall.sh [--dry-run | --yes] [--keep-lessons]
+
+Removes miyagi from this Mac so the next download starts from nothing:
+the app, its data, its keychain item, the local engine and its state, the
+VS Code companion extension and the macOS permissions it was granted.
+
+  --dry-run       list what would be removed and change nothing (default)
+  --yes, -y       remove it
+  --keep-lessons  leave ~/miyagi/lessons where it is (default: move it aside
+                  to ~/miyagi-lessons-<time>, never delete it)
+  -h, --help      this text
+
+Full test procedure: docs/CLEAN-TEST.md
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run|-n) MODE="dry" ;;
+    --yes|-y) MODE="act" ;;
+    --keep-lessons) KEEP_LESSONS=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'miyagi-uninstall: unknown option %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+die() { printf 'miyagi-uninstall: %s\n' "$*" >&2; exit 1; }
+
+[ "$(uname -s)" = "Darwin" ] || die "this script is for macOS only."
+[ "$(id -u)" -ne 0 ] || die "run it as yourself, not with sudo (it works on your home folder)."
+case "${HOME:-}" in
+  ""|"/") die "HOME is not set to a home folder." ;;
+esac
+[ -d "$HOME" ] || die "HOME ($HOME) is not a folder."
+
+FOUND=0     # things found (dry run: things that would change)
+CHANGED=0   # things removed or reset (--yes)
+FAILED=0    # things that could not be removed (--yes)
+SEEN=""     # device:inode of every path already handled (case-insensitive volumes)
+
+section() { printf '\n== %s\n' "$*"; }
+info()    { printf '   %s\n' "$*"; }
+would()   { FOUND=$((FOUND + 1)); printf '   would %s\n' "$*"; }
+did()     { CHANGED=$((CHANGED + 1)); printf '   done   %s\n' "$*"; }
+failed()  { FAILED=$((FAILED + 1)); printf '   FAILED %s\n' "$*"; }
+nothing() { printf '   nothing to do: %s\n' "$*"; }
+tilde()   { case "$1" in "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;; *) printf '%s' "$1" ;; esac; }
+
+# A path is removable only when it is inside $HOME (and not $HOME itself or a top-level
+# Library folder), or it is the app bundle in /Applications.
+safe_target() {
+  p="$1"
+  case "$p" in
+    *"/../"*|*"/./"*|*/..|*/.) return 1 ;;
+  esac
+  case "$p" in
+    /Applications/miyagi.app|/Applications/Miyagi.app) return 0 ;;
+    "$HOME"/Library) return 1 ;;
+    "$HOME"/Library/?*/?*) return 0 ;;
+    "$HOME"/Library/*) return 1 ;;
+    "$HOME"/?*) return 0 ;;
+  esac
+  return 1
+}
+
+# Returns 0 the first time a path (by device and inode) is seen, 1 after that.
+first_sight() {
+  key=$(stat -f '%d:%i' "$1" 2>/dev/null) || return 0
+  case " $SEEN " in *" $key "*) return 1 ;; esac
+  SEEN="$SEEN $key"
+  return 0
+}
+
+size_of() { du -sh "$1" 2>/dev/null | awk '{print $1}'; }
+
+# remove PATH: delete a file or folder if it exists.
+remove() {
+  p="$1"
+  [ -e "$p" ] || [ -L "$p" ] || return 0
+  first_sight "$p" || return 0
+  shown=$(tilde "$p")
+  if ! safe_target "$p"; then
+    failed "refusing to remove $shown (outside the allowed places)"
+    return 0
+  fi
+  if [ "$MODE" = "dry" ]; then
+    would "remove $shown ($(size_of "$p"))"
+  elif rm -rf -- "$p" 2>/dev/null && [ ! -e "$p" ]; then
+    did "removed $shown"
+  else
+    failed "could not remove $shown (check its owner, or remove it in Finder)"
+  fi
+}
+
+# rmdir_if_empty PATH: tidy a parent folder once its contents are gone.
+rmdir_if_empty() {
+  [ "$MODE" = "act" ] || return 0
+  [ -d "$1" ] || return 0
+  if rmdir "$1" 2>/dev/null; then info "removed empty $(tilde "$1")"; fi
+}
+
+app_pids() { pgrep -f '/[Mm]iyagi\.app/Contents/MacOS/' 2>/dev/null; }
+port_pids() { lsof -nP -iTCP:"$ENGINE_PORT" -sTCP:LISTEN -t 2>/dev/null | sort -u; }
+show_pids() { for pid in "$@"; do info "pid $pid: $(ps -o command= -p "$pid" 2>/dev/null | cut -c1-140)"; done; }
+
+if [ "$MODE" = "dry" ]; then
+  printf 'miyagi-uninstall: DRY RUN, nothing will change. Run with --yes to remove.\n'
+else
+  printf 'miyagi-uninstall: removing miyagi from this Mac.\n'
+fi
+
+# ---------------------------------------------------------------------------------------
+section "1. Processes"
+pids=$(app_pids)
+if [ -n "$pids" ]; then
+  if [ "$MODE" = "dry" ]; then
+    would "ask miyagi to quit (the same as ⌥Q):"
+    show_pids $pids
+  else
+    info "asking miyagi to quit (the same as ⌥Q)..."
+    osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+    i=0
+    while [ -n "$(app_pids)" ] && [ $i -lt 15 ]; do sleep 1; i=$((i + 1)); done
+    if [ -n "$(app_pids)" ]; then
+      show_pids $(app_pids)
+      die "miyagi is still running. Quit it with ⌥Q (or from its menu), then run this again. Nothing was removed."
+    fi
+    did "miyagi quit"
+  fi
+else
+  nothing "miyagi is not running"
+fi
+
+pids=$(port_pids)
+if [ -n "$pids" ] && [ "$MODE" = "act" ]; then
+  # The app's own engine can take a few seconds to exit after the app quits.
+  i=0
+  while [ -n "$(port_pids)" ] && [ $i -lt 10 ]; do sleep 1; i=$((i + 1)); done
+  pids=$(port_pids)
+fi
+if [ -n "$pids" ]; then
+  if [ "$MODE" = "dry" ]; then
+    FOUND=$((FOUND + 1))
+    info "BLOCKER: something listens on port $ENGINE_PORT, so a reinstalled miyagi would use it"
+    info "instead of its own engine. Stop it yourself before --yes (this script never kills it):"
+    show_pids $pids
+  else
+    info "something still listens on port $ENGINE_PORT:"
+    show_pids $pids
+    die "stop that process yourself (this script never kills processes), then run this again. Nothing was removed."
+  fi
+else
+  info "port $ENGINE_PORT is free"
+fi
+
+# ---------------------------------------------------------------------------------------
+section "2. Permissions and login item (before the app goes, while macOS still knows its id)"
+for svc in $TCC_SERVICES; do
+  if [ "$MODE" = "dry" ]; then
+    info "would reset the $svc permission for $BUNDLE_ID (tccutil reset)"
+  elif err=$(tccutil reset "$svc" "$BUNDLE_ID" 2>&1 >/dev/null); then
+    did "reset the $svc permission"
+  else
+    case "$err" in
+      *"No such bundle identifier"*) nothing "$svc: macOS no longer knows $BUNDLE_ID (app already gone)" ;;
+      *) failed "could not reset $svc (remove miyagi in System Settings > Privacy & Security > $svc)" ;;
+    esac
+  fi
+done
+if [ "$MODE" = "dry" ]; then
+  info "would remove the \"miyagi\" login item if \"Open at login\" was on"
+else
+  # macOS may ask once to let Terminal control System Events; declining only skips this.
+  out=$(osascript -e 'tell application "System Events"
+      set n to 0
+      repeat with nm in {"miyagi", "Miyagi"}
+        if exists login item nm then
+          delete login item nm
+          set n to n + 1
+        end if
+      end repeat
+      return n
+    end tell' 2>/dev/null) || out=""
+  case "$out" in
+    ""|0) nothing "no miyagi login item found by System Events" ;;
+    *) did "removed the miyagi login item" ;;
+  esac
+fi
+info "check System Settings > General > Login Items: no miyagi entry should remain"
+
+# ---------------------------------------------------------------------------------------
+section "3. App"
+remove "/Applications/miyagi.app"
+remove "/Applications/Miyagi.app"
+remove "$HOME/Applications/miyagi.app"
+remove "$HOME/Applications/Miyagi.app"
+for vol in /Volumes/[Mm]iyagi*; do
+  [ -d "$vol" ] || continue
+  if [ "$MODE" = "dry" ]; then
+    would "eject the mounted disk image $vol"
+  elif hdiutil detach "$vol" -quiet 2>/dev/null; then
+    did "ejected $vol"
+  else
+    failed "could not eject $vol (eject it in Finder)"
+  fi
+done
+if [ -d "$HOME/Downloads" ]; then
+  while IFS= read -r f; do remove "$f"; done < <(
+    find "$HOME/Downloads" -maxdepth 1 -iname 'miyagi*' \
+      \( -iname '*.zip' -o -iname '*.dmg' -o -iname '*.app' \) 2>/dev/null)
+fi
+
+# ---------------------------------------------------------------------------------------
+section "4. App data (keys.bin, install.bin, prefs, caches, logs)"
+for name in $APP_NAMES; do
+  remove "$HOME/Library/Application Support/$name"
+  remove "$HOME/Library/Caches/$name"
+  remove "$HOME/Library/Logs/$name"
+done
+for p in "$HOME/Library/Caches/$BUNDLE_ID"* "$HOME/Library/HTTPStorages/$BUNDLE_ID"* \
+         "$HOME/Library/Saved Application State/$BUNDLE_ID"*; do
+  remove "$p"
+done
+# cfprefsd caches preferences in memory: clear the domain first, then the file.
+if defaults read "$BUNDLE_ID" >/dev/null 2>&1; then
+  if [ "$MODE" = "dry" ]; then
+    would "clear the preferences domain $BUNDLE_ID (defaults delete)"
+  elif defaults delete "$BUNDLE_ID" >/dev/null 2>&1; then
+    did "cleared the preferences domain $BUNDLE_ID"
+  else
+    failed "could not clear the preferences domain $BUNDLE_ID"
+  fi
+fi
+for p in "$HOME/Library/Preferences/$BUNDLE_ID"*.plist; do
+  remove "$p"
+done
+
+# ---------------------------------------------------------------------------------------
+section "5. Keychain (safeStorage key that encrypts keys.bin and install.bin)"
+kc_found=0
+for name in $APP_NAMES; do
+  svc="$name Safe Storage"
+  # find-generic-password without -g or -w reads attributes only; output dropped anyway.
+  security find-generic-password -s "$svc" >/dev/null 2>&1 || continue
+  kc_found=1
+  if [ "$MODE" = "dry" ]; then
+    would "delete the keychain item \"$svc\""
+    continue
+  fi
+  i=0
+  while security find-generic-password -s "$svc" >/dev/null 2>&1 && [ $i -lt 5 ]; do
+    security delete-generic-password -s "$svc" >/dev/null 2>&1 || break
+    i=$((i + 1))
+  done
+  if security find-generic-password -s "$svc" >/dev/null 2>&1; then
+    failed "could not delete the keychain item \"$svc\" (delete it in Keychain Access)"
+  else
+    did "deleted the keychain item \"$svc\""
+  fi
+done
+[ $kc_found -eq 1 ] || nothing "no miyagi Safe Storage item in the login keychain"
+info "kept \"Electron Safe Storage\" (shared by every Electron app run from source)"
+
+# ---------------------------------------------------------------------------------------
+section "6. Engine and state"
+remove "$HOME/miyagi/engine"
+remove "$HOME/miyagi/state"
+remove "$HOME/.miyagi/tiger-spool"
+remove "$HOME/.cache/sandhacks-tutor/tts"
+lessons="$HOME/miyagi/lessons"
+if [ -d "$lessons" ]; then
+  if [ $KEEP_LESSONS -eq 1 ]; then
+    info "kept ~/miyagi/lessons in place (--keep-lessons)"
+  else
+    dest="$HOME/miyagi-lessons-$(date +%Y%m%d-%H%M%S)"
+    if [ "$MODE" = "dry" ]; then
+      would "move ~/miyagi/lessons aside to $(tilde "$dest") ($(size_of "$lessons"), not deleted)"
+    elif mv -- "$lessons" "$dest" 2>/dev/null; then
+      did "moved ~/miyagi/lessons to $(tilde "$dest")"
+    else
+      failed "could not move ~/miyagi/lessons aside"
+    fi
+  fi
+fi
+if [ -n "${MIYAGI_LESSONS_DIR:-}" ]; then
+  info "note: MIYAGI_LESSONS_DIR is set to $MIYAGI_LESSONS_DIR; that folder is left alone"
+fi
+rmdir_if_empty "$HOME/miyagi"
+rmdir_if_empty "$HOME/.miyagi"
+rmdir_if_empty "$HOME/.cache/sandhacks-tutor"
+
+# ---------------------------------------------------------------------------------------
+section "7. VS Code companion extension ($EXT_ID)"
+CODE=""
+for c in "$(command -v code 2>/dev/null)" \
+         "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+         "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"; do
+  if [ -n "$c" ] && [ -x "$c" ]; then CODE="$c"; break; fi
+done
+ext_dirs=0
+for d in "$HOME/.vscode/extensions/$EXT_ID"-*; do
+  [ -e "$d" ] && ext_dirs=1
+done
+if [ $ext_dirs -eq 1 ]; then
+  if [ -n "$CODE" ]; then
+    if [ "$MODE" = "dry" ]; then
+      would "run: code --uninstall-extension $EXT_ID"
+    elif "$CODE" --uninstall-extension "$EXT_ID" >/dev/null 2>&1; then
+      did "uninstalled $EXT_ID from VS Code"
+    else
+      info "VS Code could not uninstall $EXT_ID; removing its folder instead"
+    fi
+  else
+    info "VS Code's command line tool was not found; removing the extension folder directly"
+  fi
+  for d in "$HOME/.vscode/extensions/$EXT_ID"-*; do remove "$d"; done
+  [ "$MODE" = "dry" ] || info "reload any open VS Code window so it forgets the extension"
+else
+  nothing "$EXT_ID is not installed"
+fi
+info "kept the Python and Jupyter extensions"
+
+# ---------------------------------------------------------------------------------------
+section "8. Kept on purpose"
+info "~/.cache/uv and ~/.local/share/uv (other projects use them; the new bundle does not)"
+info "the Python and Jupyter VS Code extensions"
+info "\"Electron Safe Storage\" in the keychain"
+
+printf '\n'
+if [ "$MODE" = "dry" ]; then
+  if [ $FOUND -eq 0 ] && [ $FAILED -eq 0 ]; then
+    printf 'Dry run: this Mac is already clean of miyagi.\n'
+  else
+    printf 'Dry run: %d item(s) would change. Nothing was changed.\n' "$FOUND"
+    printf 'Run again with --yes to remove them. Next: docs/CLEAN-TEST.md\n'
+  fi
+  [ $FAILED -eq 0 ] || exit 1
+  exit 0
+fi
+printf 'Done: %d item(s) removed or reset, %d failed.\n' "$CHANGED" "$FAILED"
+printf 'Run it again (dry run) to confirm nothing is left. Next: docs/CLEAN-TEST.md\n'
+[ $FAILED -eq 0 ] || exit 1
+exit 0
