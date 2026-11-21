@@ -11,6 +11,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
+import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
 import { setupPrefs } from './prefs'
 import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
@@ -377,6 +378,7 @@ app.on('web-contents-created', (_e, wc) => hardenContents(wc))
 
 app.whenReady().then(async () => {
   setupApp(app)
+  setupIdentity()
   hardenSession()
   youtubeReferer()
   if (!process.env.ELECTRON_RENDERER_URL) {

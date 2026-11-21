@@ -1,5 +1,9 @@
 appId: dev.sandhacks.miyagi
+# The app's name everywhere on the Mac: the .app folder, CFBundleName/CFBundleDisplayName (menu bar, Dock, ⌘Tab,
+# Activity Monitor, Spotlight) and the macOS permission prompts. Lowercase, like the brand (BRAND.md). The main
+# process says the same (src/main/identity.ts), and package.json productName keeps userData at .../miyagi.
 productName: miyagi
+copyright: © 2026 miyagi
 directories:
   output: dist
   buildResources: build
@@ -16,9 +20,18 @@ mac:
   identity: null
   extendInfo:
     LSUIElement: true
+    CFBundleName: miyagi
+    CFBundleDisplayName: miyagi
     # macOS shows these in the permission prompts (the app starts the engine, so the prompts name miyagi).
     NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
     NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
+    # Electron's own Info.plist carries generic "This app needs access to ..." strings for these. miyagi uses none of
+    # them (voice is off), but if macOS ever asks, the prompt names miyagi and says so plainly.
+    NSMicrophoneUsageDescription: miyagi doesn't use the microphone.
+    NSCameraUsageDescription: miyagi doesn't use the camera.
+    NSBluetoothAlwaysUsageDescription: miyagi doesn't use Bluetooth.
+    NSBluetoothPeripheralUsageDescription: miyagi doesn't use Bluetooth.
+    NSAudioCaptureUsageDescription: miyagi doesn't record audio.
   # The engine travels inside the app, ready to run offline (scripts/bundle-engine.mjs makes build/engine):
   #   Resources/engine/src      engine source; first launch copies it to ~/miyagi/engine/src (main/localEngine.ts)
   #   Resources/engine/python   standalone Python 3.12 with the engine's packages, precompiled; started directly
@@ -50,13 +63,13 @@ dmg:
 win:
   target: nsis
   icon: build/icon.ico
-# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts Miyagi when done.
+# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts miyagi when done.
 # Stable file name so the site can link straight to it. Unsigned: SmartScreen asks once (More info > Run anyway).
 nsis:
   artifactName: Miyagi-Windows-Setup.${ext}
   oneClick: true
   perMachine: false
-  shortcutName: Miyagi
+  shortcutName: miyagi
   createDesktopShortcut: true
   createStartMenuShortcut: true
   runAfterFinish: true

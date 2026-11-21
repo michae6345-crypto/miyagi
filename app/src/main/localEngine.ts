@@ -17,6 +17,19 @@
  *   5. Older bundles (install.sh + src/, no python/): run `install.sh --src … --no-app --no-vscode --no-start --yes`
  *      once (uv + Python + packages: about a minute, needs the network), then start the launcher it writes.
  *   6. Quit → stop only the engine this app started.
+ *   7. Port taken by an engine THIS app started on an earlier launch (miyagi was force-quit or crashed, so step 6 never
+ *      ran): that engine still wants the old launch's token and would refuse this launch forever. Its pid file
+ *      (~/miyagi/engine/run/app-engine.json), its exact command line (this app's Python or launcher, never just the
+ *      module name) and its start time say it's ours, so stop it and start a fresh one.
+ *      Anything else on the port (an engine started in Terminal) stays the user's: step 2.
+ *
+ * Which engine (lane realapp, app/agents/real-app.md, SHIP.md "Which engine"):
+ *   - Default, what every user gets: the engine inside the app (steps 1-7) + the miyagi cloud (features/cloud.ts).
+ *   - Dev (Michael's Mac): engine mode "dev" never starts or installs an engine; the app only connects to ENGINE_URL
+ *     (default ws://localhost:8787: the dev engine in Terminal, with its own .env). Set it with env MIYAGI_ENGINE=dev
+ *     or, for an app opened from Finder / Spotlight (no shell environment), with userData/engine.json
+ *     {"engine": "dev"} (`npm run install:local -- --mode-only --engine dev` writes it). {"cloud": "off"} there also stops the app
+ *     sending its cloud token (MIYAGI_CLOUD_URL=off), so the dev engine uses its .env keys. Env always wins.
  *
  * Every window hears the state as feat:engine-local {state, line?, runtime?}; bridge.invoke('engine-local:get') reads it.
  * The macOS Screen Recording prompt names miyagi (the app started the engine), not Terminal.
@@ -31,7 +44,7 @@
 import { app, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
+import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { cp, rename, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
@@ -140,6 +153,27 @@ function pythonArchProblem(bundle: string): string {
   return `unknown bundled Python arch: ${String(arch)}`
 }
 
+/** Which engine this launch uses: env MIYAGI_ENGINE, else userData/engine.json. → { mode, cloud } */
+export type EngineMode = { mode: 'bundled' | 'dev'; cloud?: 'off'; source: 'env' | 'file' | 'default' }
+export function engineMode(): EngineMode {
+  const pick = (v: unknown): 'bundled' | 'dev' | undefined => {
+    const t = typeof v === 'string' ? v.trim().toLowerCase() : ''
+    return t === 'dev' || t === 'external' ? 'dev' : t === 'bundled' || t === 'app' ? 'bundled' : undefined
+  }
+  let file: { engine?: unknown; cloud?: unknown } = {}
+  try {
+    const v: unknown = JSON.parse(readFileSync(join(app.getPath('userData'), 'engine.json'), 'utf8'))
+    if (v && typeof v === 'object') file = v as typeof file
+  } catch {
+    // No file: the default.
+  }
+  const cloud = typeof file.cloud === 'string' && /^(off|0|false|no)$/i.test(file.cloud.trim()) ? ('off' as const) : undefined
+  const env = pick(process.env.MIYAGI_ENGINE)
+  if (env) return { mode: env, cloud, source: 'env' }
+  const fromFile = pick(file.engine)
+  return fromFile ? { mode: fromFile, cloud, source: 'file' } : { mode: 'bundled', cloud, source: 'default' }
+}
+
 /** v2: the latest state, for core modules that need it (main/permissions.ts: 'external' means grants are unknown). */
 let current: LocalEngineStatus = { state: 'off' }
 export function localEngineState(): LocalEngineState {
@@ -210,7 +244,16 @@ export function setupLocalEngine(
     }
   })()
   const local = /^wss?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(url)
-  const wanted = process.platform === 'darwin' && (app.isPackaged || process.env.MIYAGI_AUTOSTART === '1') && process.env.DEMO !== '1' && local
+  const chosen = engineMode()
+  // {"cloud": "off"} in engine.json: features/cloud.ts reads MIYAGI_CLOUD_URL when it sets up, after this runs.
+  if (chosen.cloud === 'off' && process.env.MIYAGI_CLOUD_URL === undefined) process.env.MIYAGI_CLOUD_URL = 'off'
+  if (chosen.mode === 'dev') {
+    console.log(`[tut] engine mode dev (${chosen.source}): connecting to ${url}, never starting one`)
+    // The engine is someone else's (Terminal): onboarding says "Running in Terminal", permissions.ts knows the grants
+    // belong to that app, and Restart says "Restart it in Terminal".
+    set({ state: 'external' })
+  }
+  const wanted = process.platform === 'darwin' && (app.isPackaged || process.env.MIYAGI_AUTOSTART === '1') && process.env.DEMO !== '1' && local && chosen.mode !== 'dev'
   if (!wanted) return () => undefined
 
   const home = process.env.MIYAGI_HOME || join(homedir(), 'miyagi', 'engine')
@@ -218,6 +261,8 @@ export function setupLocalEngine(
   const launcher = join(home, 'bin', 'miyagi-engine')
   const logs = join(home, 'logs', 'engine.log')
   const marker = join(home, 'BUNDLED')
+  /** Step 7: which engine process this app started, so a later launch can tell its own leftover from the user's. */
+  const pidFile = join(home, 'run', 'app-engine.json')
   /** Details (paths, error codes) go to engine.log only; the pill gets plain fixed copy. */
   const note = (msg: string): void => {
     try {
@@ -356,10 +401,119 @@ export function setupLocalEngine(
     }
   }
 
+  const forgetPid = (): void => {
+    try {
+      rmSync(pidFile, { force: true })
+    } catch {
+      // A stale pid file is checked against the process before it's ever used.
+    }
+  }
+  const rememberPid = (pid: number | undefined): void => {
+    if (pid === undefined) return
+    try {
+      mkdirSync(join(home, 'run'), { recursive: true })
+      writeFileSync(pidFile, JSON.stringify({ pid, port, runtime, at: new Date().toISOString() }))
+    } catch {
+      // Without it a force-quit leaves an engine the next launch can't reclaim: the pill says so, nothing breaks.
+    }
+  }
+
+  /**
+   * Whether `cmd` (a `ps -o command=` line) is an engine this app starts, and never anyone else's. The module name
+   * alone also matches a dev engine (`.../run-live/.venv/bin/python -m server.orchestrator.main`), so it isn't enough.
+   * Bundled: the exact Python inside this app. Launcher: the launcher script itself, or (when it `exec`s into Python)
+   * an interpreter under this app's engine home running the engine module.
+   */
+  const isOwnEngineCommand = (cmd: string, kind: unknown): boolean => {
+    const line = cmd.trim()
+    if (kind !== 'launcher' && line.startsWith(`${python} `)) return true
+    if (kind === 'bundled') return false
+    const shells = ['', '/bin/bash ', 'bash ', '/bin/sh ', 'sh ', '/bin/zsh ']
+    if (shells.some((sh) => line === `${sh}${launcher}` || line.startsWith(`${sh}${launcher} `))) return true
+    return line.startsWith(`${home}/`) && /\s-m\s+server\.orchestrator\.main(\s|$)/.test(line)
+  }
+
+  /**
+   * The pid started within a few seconds of the pid file's `at` (`ps -o lstart=`, C locale, local time), so a pid the
+   * OS has since handed to another process (a dev engine started later from a shell) is never taken for ours.
+   */
+  const startedWhenSaved = async (pid: number, at: unknown): Promise<boolean> => {
+    const saved = typeof at === 'string' ? Date.parse(at) : NaN
+    if (!Number.isFinite(saved)) return false
+    const ps = await run('/usr/bin/env', ['LC_ALL=C', '/bin/ps', '-o', 'lstart=', '-p', String(pid)], 2000)
+    const began = ps.ok ? Date.parse(ps.out.trim().replace(/\s+/g, ' ')) : NaN
+    return Number.isFinite(began) && Math.abs(saved - began) <= 10_000
+  }
+
+  /**
+   * Step 7: the port is taken. If the pid file names a live process whose command line is this app's own engine
+   * (isOwnEngineCommand) and which started when the file was written (startedWhenSaved), it's ours from an earlier
+   * launch: stop its group (SIGTERM, then SIGKILL after 5 s) and wait for the port. Anything else is never touched.
+   * → true when the port is free now.
+   */
+  const reclaimOwnLeftover = async (): Promise<boolean> => {
+    let pid = 0
+    let at: unknown
+    let kind: unknown
+    try {
+      const saved = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid?: unknown; at?: unknown; runtime?: unknown }
+      pid = Number(saved.pid) || 0
+      at = saved.at
+      kind = saved.runtime
+    } catch {
+      return false
+    }
+    const alive = (): boolean => {
+      try {
+        process.kill(pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    if (pid <= 1 || pid === process.pid || !alive()) {
+      forgetPid()
+      return false
+    }
+    const ps = await run('/bin/ps', ['-o', 'command=', '-p', String(pid)], 2000)
+    if (!ps.ok || !isOwnEngineCommand(ps.out, kind) || !(await startedWhenSaved(pid, at))) {
+      // The pid was reused by something else, or can't be proven ours: never touch it.
+      forgetPid()
+      return false
+    }
+    note(`port ${port} held by this app's engine from an earlier launch (pid ${pid}): stopping it`)
+    const signal = (sig: NodeJS.Signals): void => {
+      try {
+        process.kill(-pid, sig)
+      } catch {
+        try {
+          process.kill(pid, sig)
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+    const freed = async (ms: number): Promise<boolean> => {
+      for (const until = Date.now() + ms; Date.now() < until; ) {
+        if (!(await listening(port, 300))) return true
+        await new Promise((r) => setTimeout(r, 250))
+      }
+      return !(await listening(port, 300))
+    }
+    signal('SIGTERM')
+    if (!(await freed(5000))) {
+      signal('SIGKILL')
+      if (!(await freed(2000))) return false
+    }
+    forgetPid()
+    return true
+  }
+
   const start = (): void => {
     set({ state: 'starting', runtime })
     try {
       child = spawnEngine()
+      rememberPid(child.pid)
     } catch (err) {
       child = undefined
       note(`engine start failed: ${String(err)}`)
@@ -373,6 +527,7 @@ export function setupLocalEngine(
     child.on('exit', (code, signal) => {
       const wasRunning = status.state === 'running'
       child = undefined
+      forgetPid()
       if (stopping) return set({ state: 'off' })
       if (restarting) {
         restarting = false
@@ -413,7 +568,10 @@ export function setupLocalEngine(
 
   const boot = async (): Promise<void> => {
     set({ state: 'checking' })
-    if (await listening(port)) return set({ state: 'external' })
+    if ((await listening(port)) && !(await reclaimOwnLeftover())) {
+      note(`port ${port} already has an engine this app didn't start: using it, and leaving it running on quit`)
+      return set({ state: 'external' })
+    }
     const installedFromBundle = existsSync(marker)
     // The user's own install (the one-liner: a launcher and no BUNDLED marker) always wins.
     const userInstall = existsSync(launcher) && !installedFromBundle
@@ -445,6 +603,9 @@ export function setupLocalEngine(
     if (!child || child.killed || child.pid === undefined) return
     stopping = true
     killGroup(child)
+    // Electron exits before the child's 'exit' handler runs, so forget the pid now: a stale file would name a pid
+    // the OS can later hand to someone else's process.
+    forgetPid()
   }
 }
 
