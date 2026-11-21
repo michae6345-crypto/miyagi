@@ -71,7 +71,7 @@ let launcherOrigin: BrowserWindow | undefined
 /** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
 let basePillTop = 0
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
-let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean } = { w: 300, h: 34 }
+let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean; top?: number; place?: 'notch'; radii?: { top: number; bottom: number } } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false

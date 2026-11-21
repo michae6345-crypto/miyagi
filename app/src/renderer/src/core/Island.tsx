@@ -19,6 +19,7 @@ import { Boundary } from './ui/Boundary'
 import { MiyagiMark } from './ui/Mark'
 import { getIslandModes, type IslandMode } from './registry'
 import { perf } from './perf'
+import { NotchContext } from './notchContext'
 import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
 import { color, notchDrop, pill, shadows } from './theme'
 import {
@@ -399,7 +400,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const radii = radiiFor(open)
   const shown = landing && nm ? restSize(nm) : size
   const layers = (
-    <>
+    <NotchContext.Provider value={!!nm}>
       {/* Step passed: the island flashes green (tint 0 → .25 → 0 over 600ms). */}
       <motion.div
         key={passFlash}
@@ -421,7 +422,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           </Layer>
         )}
       </AnimatePresence>
-    </>
+    </NotchContext.Provider>
   )
 
   return (
@@ -437,7 +438,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         ref={islandEl}
         // Hidden while another surface has it (launcher, settings): not a click target either, or the invisible island
         // keeps eating clicks through overlay.bounds / main's click-catching poll.
-        data-hit={yielded ? undefined : true}
+        data-hit={!nm && !yielded ? true : undefined}
         className={`${yielded ? 'pointer-events-none' : 'pointer-events-auto'} relative`}
         // In the notch the hover zone is the island plus a margin (HOVER.margin) either side and below; the margin is
         // transparent and only catches the pointer. Main's grab clamps to the same +-6 / +12 (features/overlay-raise.ts).
@@ -447,7 +448,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         onPointerDownCapture={press}
       >
         {nm ? (
-          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} open={open} snap={landing || !sized} reduced={!!reduced} lift={justLanded}>
+          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} open={open} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded}>
             {layers}
           </NotchShape>
         ) : (
@@ -481,7 +482,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
  * the clip path is rebuilt from the live values every frame. One black pixel sits above the display (STRIP) so no seam
  * shows. Open (the peek and cards) gets a soft drop shadow; at rest there is none, so it fuses with the hardware notch.
  */
-function NotchShape({ w, h, rt, rb, open, snap, reduced, lift, children }: { w: number; h: number; rt: number; rb: number; open: boolean; snap: boolean; reduced: boolean; lift: boolean; children: ReactNode }): ReactNode {
+function NotchShape({ w, h, rt, rb, open, snap, reduced, lift, hit, children }: { w: number; h: number; rt: number; rb: number; open: boolean; snap: boolean; reduced: boolean; lift: boolean; hit: boolean; children: ReactNode }): ReactNode {
   const W = useMotionValue(w)
   const H = useMotionValue(h)
   const RT = useMotionValue(rt)
@@ -496,7 +497,7 @@ function NotchShape({ w, h, rt, rb, open, snap, reduced, lift, children }: { w: 
   const boxH = useTransform(H, (v) => v + STRIP)
   return (
     <div style={{ filter: open ? notchDrop : 'none' }}>
-      <motion.div className="relative overflow-hidden text-white" style={{ width: W, height: boxH, top: -STRIP, background: color.island, clipPath: clip }}>
+      <motion.div data-hit={hit ? true : undefined} className="relative overflow-hidden text-white" style={{ width: W, height: boxH, top: -STRIP, background: color.island, clipPath: clip }}>
         {children}
       </motion.div>
     </div>

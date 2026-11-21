@@ -34,7 +34,8 @@ import { ChevronDown } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { useDock } from '../../core/dock'
-import { notify, useCurrentStep, useLesson, useStepPhase } from '../../core/lesson'
+import { notify, useCurrentStep, useLesson, useStepPhase, useThinking } from '../../core/lesson'
+import type { NotchView } from '../../core/notchGeometry'
 import { defineFeature } from '../../core/registry'
 import { color, copy, dock, fill } from '../../core/theme'
 import { beat, enter, fade, pressMotion, press, spring, textSwap } from '../../core/ui/motion'
@@ -589,13 +590,50 @@ function SavedLine(): ReactNode {
   )
 }
 
+/**
+ * In the notch (core/Island.tsx, layout.notch.place 'notch'): the island at rest is just the notch. When there is
+ * something to show it grows an ear each side (bonsai left, status right); anything with words (offline, getting ready,
+ * a saved lesson to continue, notices, the mini line) drops its usual line under the notch, and a hover peek does the same.
+ */
+function useIdleView(): NotchView {
+  const offline = usePill((s) => s.offline)
+  const offer = usePill((s) => s.offer)
+  const boot = useBoot()
+  const bootIn = useBootInput()
+  const setupPending = useSetupPending()
+  const thinking = useThinking()
+  const firstOrSetup = !bootIn.everOpen || setupPending
+  const gettingReady = !bootIn.connected && firstOrSetup && (boot.phase === 'starting' || boot.phase === 'reconnecting' || boot.phase === 'failed')
+  if (offline || gettingReady || offer) return 'drop'
+  return thinking ? 'ears' : 'rest'
+}
+
+/** The right ear: the engine is thinking (the small spinner). Nothing otherwise. */
+function ThinkingEar(): ReactNode {
+  return useThinking() ? <Spinner size={14} /> : null
+}
+
+/** The right ear of a lesson line: the phase glyph (checking, not yet, passed), the spinner while thinking, else the status dot. */
+function StatusEar(): ReactNode {
+  const s = useShown()
+  const thinking = useThinking()
+  if (s.phase) return <PhaseLead phase={s.phase} flush />
+  if (thinking || s.mark === 'pending') return <Spinner size={14} />
+  return <StatusMark mark={s.mark} />
+}
+
+/** A build in flight: the spinner. */
+function BuildingEar(): ReactNode {
+  return <Spinner size={14} />
+}
+
 export default defineFeature({
   id: 'pill',
   islandModes: [
     // No step and nothing building. Also a lesson that's set but stopped building before its first step (a failed or
     // dropped build after lesson.ready): no mode covered that, and the island drew nothing (review A20: "blank").
-    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.stepId && !s.building), Content: Idle },
-    { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact },
+    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.stepId && !s.building), Content: Idle, notch: { useView: useIdleView, Right: ThinkingEar } },
+    { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact, notch: { useView: () => 'ears', Right: StatusEar } },
     // Over compact while a new build is being planned (a lesson started from the launcher during another one); otherwise
     // building (no step yet) and compact (a step) never overlap.
     {
@@ -606,7 +644,8 @@ export default defineFeature({
         const building = useLesson((s) => s.building && !s.stepId)
         return planning || building
       },
-      Content: Building
+      Content: Building,
+      notch: { useView: () => 'ears', Right: BuildingEar }
     },
     // Over the idle pill only (a new lesson building or on screen wins), and never offline: Undo would go nowhere.
     {

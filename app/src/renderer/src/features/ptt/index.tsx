@@ -9,7 +9,7 @@
  */
 import { PTT_ENABLED } from '../../../../common/flags'
 import { defineFeature } from '../../core/registry'
-import { AllowCard, CARD_W, ListeningPill } from './Island'
+import { AllowCard, CARD_W, ListeningPill, NotchRing } from './Island'
 import { usePtt } from './store'
 import './web'
 
@@ -17,7 +17,7 @@ export default defineFeature({
   id: 'ptt',
   enabled: PTT_ENABLED,
   islandModes: [
-    { id: 'ptt-listening', priority: 84, useActive: () => usePtt((s) => s.owned && (s.ptt.phase === 'listening' || s.ptt.phase === 'sending')), Content: ListeningPill },
+    { id: 'ptt-listening', priority: 84, useActive: () => usePtt((s) => s.owned && (s.ptt.phase === 'listening' || s.ptt.phase === 'sending')), Content: ListeningPill, notch: { useView: () => 'ears+drop', Right: NotchRing } },
     { id: 'ptt-card', priority: 82, width: CARD_W, useActive: () => usePtt((s) => !!s.card && !s.owned), Content: AllowCard }
   ]
 })
