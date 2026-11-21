@@ -1,0 +1,145 @@
+{
+ "id": "react-components",
+ "topic": "react",
+ "stack": "React 18 + Vite 4 (VS Code, its terminal, browser)",
+ "tutorial": {"kind": "video", "video_id": "hn80mWvP-9g", "url": "https://www.youtube.com/watch?v=hn80mWvP-9g", "goal": "learn React basics by building components"},
+ "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+ "learner": {
+  "folder": "react-lab",
+  "notes": "npm and Vite output is written in their verbatim formats (create-vite 4.4, Vite 4.4.9); `npm create vite` writes Vite's real React template files."
+ },
+ "outline": [
+  {
+   "step": "s1", "about": "scaffold a Vite React app and start the dev server", "match": "vite",
+   "expect_checks": [
+    {"type": "file_exists", "file": "my-react-app/package.json"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Local:\\s+http://localhost:5173/"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "npm create vite@latest", "output": ["Need to install the following packages:", "  create-vite@4.4.1", "Ok to proceed? (y) y",
+     "✔ Project name: … my-react-app", "✔ Select a framework: › React", "✔ Select a variant: › JavaScript", "",
+     "Scaffolding project in /Users/me/react-lab/my-react-app...", "", "Done. Now run:", "", "  cd my-react-app", "  npm install", "  npm run dev", ""],
+     "creates": {
+      "my-react-app/package.json": "{\n  \"name\": \"my-react-app\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.2.0\",\n    \"react-dom\": \"^18.2.0\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.0.3\",\n    \"vite\": \"^4.4.5\"\n  }\n}\n",
+      "my-react-app/index.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <title>Vite + React</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/main.jsx\"></script>\n  </body>\n</html>\n",
+      "my-react-app/src/main.jsx": "import React from 'react'\nimport ReactDOM from 'react-dom/client'\nimport App from './App.jsx'\nimport './index.css'\n\nReactDOM.createRoot(document.getElementById('root')).render(\n  <React.StrictMode>\n    <App />\n  </React.StrictMode>,\n)\n",
+      "my-react-app/src/App.css": "#root {\n  max-width: 1280px;\n}\n",
+      "my-react-app/src/index.css": ":root {\n  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;\n}\n",
+      "my-react-app/src/App.jsx": "import { useState } from 'react'\nimport reactLogo from './assets/react.svg'\nimport viteLogo from '/vite.svg'\nimport './App.css'\n\nfunction App() {\n  const [count, setCount] = useState(0)\n\n  return (\n    <>\n      <div>\n        <a href=\"https://vitejs.dev\" target=\"_blank\">\n          <img src={viteLogo} className=\"logo\" alt=\"Vite logo\" />\n        </a>\n        <a href=\"https://react.dev\" target=\"_blank\">\n          <img src={reactLogo} className=\"logo react\" alt=\"React logo\" />\n        </a>\n      </div>\n      <h1>Vite + React</h1>\n      <div className=\"card\">\n        <button onClick={() => setCount((count) => count + 1)}>\n          count is {count}\n        </button>\n        <p>\n          Edit <code>src/App.jsx</code> and save to test HMR\n        </p>\n      </div>\n      <p className=\"read-the-docs\">\n        Click on the Vite and React logos to learn more\n      </p>\n    </>\n  )\n}\n\nexport default App\n"
+     }},
+    {"do": "mistake", "note": "runs npm install in react-lab instead of my-react-app; then cds in and starts the server with the npm ERR! lines still on screen",
+     "caught_by_spec": false,
+     "finding": "after the fix, the stale `npm ERR!` lines in the terminal scrollback keep s1c3 (screen_absent ERR!) failing, and that fail also vetoes the precision route, until the learner clears the terminal",
+     "actions": [
+      {"do": "run", "cmd": "npm install", "exit": 254, "output": ["npm ERR! code ENOENT", "npm ERR! syscall open", "npm ERR! path /Users/me/react-lab/package.json",
+       "npm ERR! errno -2", "npm ERR! enoent ENOENT: no such file or directory, open '/Users/me/react-lab/package.json'",
+       "npm ERR! enoent This is related to npm not being able to find a file.", "npm ERR! enoent", "",
+       "npm ERR! A complete log of this run can be found in: /Users/me/.npm/_logs/2026-11-21T18_02_11_402Z-debug-0.log"]},
+      {"do": "run", "cmd": "cd my-react-app", "output": []},
+      {"do": "run", "cmd": "npm install", "output": ["", "added 270 packages, and audited 271 packages in 18s", "", "97 packages are looking for funding",
+       "  run `npm fund` for details", "", "found 0 vulnerabilities"]},
+      {"do": "run", "cmd": "npm run dev", "running": true, "output": ["", "> my-react-app@0.0.0 dev", "> vite", "", "",
+       "  VITE v4.4.9  ready in 312 ms", "", "  ➜  Local:   http://localhost:5173/", "  ➜  Network: use --host to expose", "  ➜  press h to show help"]}
+     ]},
+    {"do": "clear"},
+    {"do": "run", "cmd": "npm run dev", "running": true, "output": ["", "> my-react-app@0.0.0 dev", "> vite", "", "",
+     "  VITE v4.4.9  ready in 298 ms", "", "  ➜  Local:   http://localhost:5173/", "  ➜  Network: use --host to expose", "  ➜  press h to show help"]}
+   ]
+  },
+  {
+   "step": "s2", "about": "empty App() and delete App.css", "match": "clean|App",
+   "expect_checks": [
+    {"type": "file_contains", "file": "my-react-app/src/App.jsx", "pattern": "^export default App"},
+    {"type": "screen_absent", "app": "Code", "pattern": "useState"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "deletes the JSX but leaves the useState line and its import", "actions": [
+     {"do": "write", "file": "my-react-app/src/App.jsx", "text": "import { useState } from 'react'\n\nfunction App() {\n  const [count, setCount] = useState(0)\n\n  return (<></>);\n}\n\nexport default App\n"}
+    ]},
+    {"do": "write", "file": "my-react-app/src/App.jsx", "text": "function App() {\n  return (<></>);\n}\n\nexport default App\n"},
+    {"do": "run", "cmd": "rm src/App.css", "output": [], "deletes": ["my-react-app/src/App.css"]}
+   ]
+  },
+  {
+   "step": "s3", "about": "make Header.jsx and render it from App", "match": "header",
+   "expect_checks": [
+    {"type": "file_contains", "file": "my-react-app/src/Header.jsx", "pattern": "<h1>My website</h1>"},
+    {"type": "file_contains", "file": "my-react-app/src/App.jsx", "pattern": "import Header from \"\\./Header\\.jsx\""}
+   ],
+   "actions": [
+    {"do": "write", "file": "my-react-app/src/Header.jsx", "text": "function Header() {\n  return (\n    <header>\n      <h1>My website</h1>\n    </header>\n  );\n}\n\nexport default Header\n"},
+    {"do": "mistake", "note": "renders <Header/> without importing it (ReferenceError in the browser)", "actions": [
+     {"do": "write", "file": "my-react-app/src/App.jsx", "text": "function App() {\n  return (<Header/>);\n}\n\nexport default App\n"},
+     {"do": "browser", "lines": ["localhost:5173", "Uncaught ReferenceError: Header is not defined", "    at App (App.jsx:2:11)"]}
+    ]},
+    {"do": "write", "file": "my-react-app/src/App.jsx", "text": "import Header from \"./Header.jsx\"\n\nfunction App() {\n  return (<Header/>);\n}\n\nexport default App\n"},
+    {"do": "browser", "lines": ["localhost:5173", "My website"]}
+   ]
+  },
+  {
+   "step": "s4", "about": "add a nav with four links and an hr", "match": "nav",
+   "expect_checks": [
+    {"type": "file_contains", "file": "my-react-app/src/Header.jsx", "pattern": "<li><a href=\"#\">Contact</a></li>"},
+    {"type": "screen_contains", "app": "Code", "pattern": "<hr"}
+   ],
+   "actions": [
+    {"do": "edit", "file": "my-react-app/src/Header.jsx", "find": "      <h1>My website</h1>\n",
+     "replace": "      <h1>My website</h1>\n      <nav>\n        <ul>\n          <li><a href=\"#\">Home</a></li>\n          <li><a href=\"#\">About</a></li>\n          <li><a href=\"#\">Services</a></li>\n          <li><a href=\"#\">Contact</a></li>\n        </ul>\n      </nav>\n      <hr></hr>\n"}
+   ]
+  },
+  {
+   "step": "s5", "about": "make Footer.jsx", "match": "footer",
+   "expect_checks": [
+    {"type": "file_contains", "file": "my-react-app/src/Footer.jsx", "pattern": "&copy; Your website name"},
+    {"type": "file_contains", "file": "my-react-app/src/Footer.jsx", "pattern": "^export default Footer"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "forgets export default Footer", "caught": false,
+     "finding": "s5's only precision check is that Footer.jsx exists, so precision mode passes it without the export (App's import then fails)",
+     "actions": [
+     {"do": "write", "file": "my-react-app/src/Footer.jsx", "text": "function Footer() {\n  return (\n    <footer>\n      <p>&copy; Your website name</p>\n    </footer>\n  );\n}\n"}
+    ]},
+    {"do": "append", "file": "my-react-app/src/Footer.jsx", "text": "\nexport default Footer\n"}
+   ]
+  },
+  {
+   "step": "s6", "about": "render Header and Footer inside a fragment", "match": "fragment|footer",
+   "expect_checks": [
+    {"type": "file_contains", "file": "my-react-app/src/App.jsx", "pattern": "<>\\s*<Header/>\\s*<Footer/>\\s*</>"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "returns <Header/> and <Footer/> side by side without a fragment (Vite: Adjacent JSX elements)", "caught": false,
+     "finding": "s6's precision check is only <Footer, so App.jsx with no fragment passes in precision mode while Vite shows 'Adjacent JSX elements must be wrapped in an enclosing tag'",
+     "actions": [
+      {"do": "write", "file": "my-react-app/src/App.jsx", "text": "import Header from \"./Header.jsx\"\nimport Footer from \"./Footer.jsx\"\n\nfunction App() {\n  return (\n    <Header/>\n    <Footer/>\n  );\n}\n\nexport default App\n"},
+      {"do": "browser", "lines": ["[plugin:vite:react-babel] /Users/me/react-lab/my-react-app/src/App.jsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (7:4)"]}
+     ]},
+    {"do": "write", "file": "my-react-app/src/App.jsx", "text": "import Header from \"./Header.jsx\"\nimport Footer from \"./Footer.jsx\"\n\nfunction App() {\n  return (\n    <>\n      <Header/>\n      <Footer/>\n    </>\n  );\n}\n\nexport default App\n"},
+    {"do": "browser", "lines": ["localhost:5173", "My website", "Home", "About", "Services", "Contact", "© Your website name"]}
+   ]
+  },
+  {
+   "step": "s7", "about": "show the current year in the footer", "match": "year",
+   "expect_checks": [
+    {"type": "file_contains", "file": "my-react-app/src/Footer.jsx", "pattern": "&copy; \\{new Date\\(\\)\\.getFullYear\\(\\)\\} Your website name"}
+   ],
+   "actions": [
+    {"do": "edit", "file": "my-react-app/src/Footer.jsx", "find": "&copy; Your website name", "replace": "&copy; {new Date().getFullYear()} Your website name"},
+    {"do": "browser", "lines": ["localhost:5173", "My website", "© 2026 Your website name"]}
+   ]
+  },
+  {
+   "step": "s8", "about": "make Food.jsx with variables in JSX and render it", "match": "food",
+   "expect_checks": [
+    {"type": "file_contains", "file": "my-react-app/src/Food.jsx", "pattern": "\\{food2\\.toUpperCase\\(\\)\\}"},
+    {"type": "file_contains", "file": "my-react-app/src/App.jsx", "pattern": "<Header/>\\s*<Food/>\\s*<Footer/>"}
+   ],
+   "actions": [
+    {"do": "write", "file": "my-react-app/src/Food.jsx", "text": "function Food() {\n  const food1 = \"Orange\";\n  const food2 = \"Banana\";\n\n  return (\n    <ul>\n      <li>Apple</li>\n      <li>{food1}</li>\n      <li>{food2.toUpperCase()}</li>\n    </ul>\n  );\n}\n\nexport default Food\n"},
+    {"do": "edit", "file": "my-react-app/src/App.jsx", "find": "import Footer from \"./Footer.jsx\"\n", "replace": "import Footer from \"./Footer.jsx\"\nimport Food from \"./Food.jsx\"\n"},
+    {"do": "edit", "file": "my-react-app/src/App.jsx", "find": "      <Header/>\n", "replace": "      <Header/>\n      <Food/>\n"},
+    {"do": "browser", "lines": ["localhost:5173", "My website", "Apple", "Orange", "BANANA", "© 2026 Your website name"]}
+   ]
+  }
+ ]
+}

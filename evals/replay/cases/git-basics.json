@@ -1,0 +1,179 @@
+{
+ "id": "git-basics",
+ "topic": "git",
+ "stack": "git (terminal) + VS Code",
+ "tutorial": {"kind": "video", "video_id": "rE2zRhZdjFU", "url": "https://www.youtube.com/watch?v=rE2zRhZdjFU", "goal": "learn the basic git commands"},
+ "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+ "learner": {
+  "folder": "git-lab",
+  "notes": "git output is written in git's verbatim formats (hashes arbitrary); the clone and push are scripted, nothing touches GitHub."
+ },
+ "outline": [
+  {
+   "step": "s1", "about": "set user.name, user.email and an alias", "match": "config|alias",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "user\\.name=Ada Lovelace"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "alias\\.i=init"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "misspells the key: git config --global user.nmae", "caught": false,
+     "finding": "s1's precision command_exit_ok rows accept ANY `git config` that exits 0 (_script_tokens keeps only `git config`), so user.nmae passes in precision mode",
+     "actions": [
+      {"do": "run", "cmd": "git config --global user.nmae \"Ada Lovelace\"", "output": []},
+      {"do": "run", "cmd": "git config --global alias.i init", "output": []}
+     ]},
+    {"do": "run", "cmd": "git config --global user.name \"Ada Lovelace\"", "output": []},
+    {"do": "run", "cmd": "git config --global user.email ada@example.com", "output": []},
+    {"do": "run", "cmd": "git config --list", "output": ["credential.helper=osxkeychain", "init.defaultbranch=main", "user.nmae=Ada Lovelace", "alias.i=init", "user.name=Ada Lovelace", "user.email=ada@example.com"]}
+   ]
+  },
+  {
+   "step": "s2", "about": "make project1 and git init it", "match": "init",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Initialized empty Git repository in .*/project1/\\.git/"},
+    {"type": "file_exists", "file": "project1/.git/HEAD"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "mkdir project1", "output": [], "creates": {"project1/": ""}},
+    {"do": "run", "cmd": "cd project1", "output": []},
+    {"do": "run", "cmd": "git i", "output": ["Initialized empty Git repository in /Users/me/git-lab/project1/.git/"],
+     "creates": {"project1/.git/HEAD": "ref: refs/heads/main\n"}}
+   ]
+  },
+  {
+   "step": "s3", "about": "create three files, stage two, read git status", "match": "stage|create",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "new file:\\s+learning\\.py"},
+    {"type": "file_exists", "file": "project1/waiting.py"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "touch hello.md learning.py waiting.py", "output": [],
+     "creates": {"project1/hello.md": "", "project1/learning.py": "", "project1/waiting.py": ""}},
+    {"do": "run", "cmd": "git add hello.md", "output": []},
+    {"do": "run", "cmd": "git add learning.py", "output": []},
+    {"do": "run", "cmd": "git status", "output": ["On branch main", "", "No commits yet", "", "Changes to be committed:",
+     "  (use \"git rm --cached <file>...\" to unstage)", "\tnew file:   hello.md", "\tnew file:   learning.py", "",
+     "Untracked files:", "  (use \"git add <file>...\" to include in what will be committed)", "\twaiting.py", ""]}
+   ]
+  },
+  {
+   "step": "s4", "about": "add a print to learning.py in VS Code and stage it", "match": "edit|print",
+   "expect_checks": [
+    {"type": "file_contains", "file": "project1/learning.py", "pattern": "print\\(\"I am learning git!\"\\)"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "git add learning\\.py"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "code .", "output": []},
+    {"do": "write", "file": "project1/learning.py", "text": "print(\"I am learning git!\")\n"},
+    {"do": "mistake", "note": "stages a misspelled path: git add learnig.py (fatal: pathspec)", "caught": false, "caught_by_spec": false,
+     "finding": "s4c2 (git add learning) still passes on s3's `git add learning.py` in the terminal scrollback, so the failed add isn't caught",
+     "actions": [
+      {"do": "run", "cmd": "git add learnig.py", "exit": 128, "output": ["fatal: pathspec 'learnig.py' did not match any files"]}
+     ]},
+    {"do": "run", "cmd": "git add learning.py", "output": []}
+   ]
+  },
+  {
+   "step": "s5", "about": "commit, add my_function, commit the rest", "match": "commit",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "\\[main [0-9a-f]{7}\\] add waiting file"},
+    {"type": "file_contains", "file": "project1/learning.py", "pattern": "def my_function\\(\\):"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "git commit -m \"initial commit\"", "output": ["[main (root-commit) 4b1e2c7] initial commit", " 2 files changed, 1 insertion(+)", " create mode 100644 hello.md", " create mode 100644 learning.py"]},
+    {"do": "write", "file": "project1/learning.py", "text": "print(\"I am learning git!\")\n\ndef my_function():\n    print(\"my function\")\n"},
+    {"do": "run", "cmd": "git add .", "output": []},
+    {"do": "run", "cmd": "git commit -m \"add waiting file\"", "output": ["[main 9c3d5a1] add waiting file", " 2 files changed, 3 insertions(+)", " create mode 100644 waiting.py"]}
+   ]
+  },
+  {
+   "step": "s6", "about": "clone GitGoing and cd into it", "match": "clone",
+   "expect": ["fail", "pass-precision"],
+   "finding": "s6's screen check fails for a correct learner: `git clone .../GitGoing.git` makes GitGoing/ and tab completion types `cd GitGoing`, but s6c2's pattern cd\\s+.*gitgoing is case-sensitive (precision's gitgoing/index.html passes only on a case-insensitive disk)",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Cloning into 'GitGoing'"},
+    {"type": "file_exists", "file": "GitGoing/index.html"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "cd ..", "output": []},
+    {"do": "run", "cmd": "git clone https://github.com/LadyKerr/GitGoing.git",
+     "output": ["Cloning into 'GitGoing'...", "remote: Enumerating objects: 12, done.", "remote: Counting objects: 100% (12/12), done.",
+      "remote: Compressing objects: 100% (8/8), done.", "remote: Total 12 (delta 2), reused 9 (delta 1), pack-reused 0",
+      "Receiving objects: 100% (12/12), 4.10 KiB | 4.10 MiB/s, done.", "Resolving deltas: 100% (2/2), done."],
+     "creates": {"GitGoing/.git/HEAD": "ref: refs/heads/main\n",
+      "GitGoing/index.html": "<!DOCTYPE html>\n<html>\n<head>\n  <title>GitGoing</title>\n</head>\n<body>\n  <h1>GitGoing</h1>\n  <p>Add your name below!</p>\n</body>\n</html>\n"}},
+    {"do": "run", "cmd": "cd GitGoing", "output": []}
+   ]
+  },
+  {
+   "step": "s7", "about": "create and switch branches", "match": "branch",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Switched to a new branch 'update-name'"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^\\* update-name$"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "git checkout -b update-name", "output": ["Switched to a new branch 'update-name'"]},
+    {"do": "run", "cmd": "git branch", "output": ["  main", "* update-name"]},
+    {"do": "run", "cmd": "git checkout main", "output": ["Switched to branch 'main'", "Your branch is up to date with 'origin/main'."]},
+    {"do": "run", "cmd": "git checkout update-name", "output": ["Switched to branch 'update-name'"]}
+   ]
+  },
+  {
+   "step": "s8", "about": "edit the heading, commit on the branch, push it", "match": "push",
+   "expect_checks": [
+    {"type": "file_contains", "file": "GitGoing/index.html", "pattern": "<h1>Git Going</h1>"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "\\[new branch\\]\\s+update-name -> update-name"}
+   ],
+   "actions": [
+    {"do": "edit", "file": "GitGoing/index.html", "find": "<h1>GitGoing</h1>", "replace": "<h1>Git Going</h1>"},
+    {"do": "run", "cmd": "git add index.html", "output": []},
+    {"do": "run", "cmd": "git commit -m \"update name\"", "output": ["[update-name 5d6e7f8] update name", " 1 file changed, 1 insertion(+), 1 deletion(-)"]},
+    {"do": "mistake", "note": "pushes main instead of the branch", "caught": false,
+     "finding": "s8's only precision check is the edited heading, so precision mode passes the step before the branch is pushed",
+     "actions": [
+     {"do": "run", "cmd": "git push origin main", "output": ["Everything up-to-date"]}
+    ]},
+    {"do": "run", "cmd": "git push origin update-name",
+     "output": ["Enumerating objects: 5, done.", "Counting objects: 100% (5/5), done.", "Delta compression using up to 10 threads",
+      "Compressing objects: 100% (3/3), done.", "Writing objects: 100% (3/3), 322 bytes | 322.00 KiB/s, done.",
+      "Total 3 (delta 2), reused 0 (delta 0), pack-reused 0", "remote: Resolving deltas: 100% (2/2), completed with 2 local objects.",
+      "remote:", "remote: Create a pull request for 'update-name' on GitHub by visiting:",
+      "remote:      https://github.com/LadyKerr/GitGoing/pull/new/update-name", "remote:",
+      "To https://github.com/LadyKerr/GitGoing.git", " * [new branch]      update-name -> update-name"]}
+   ]
+  },
+  {
+   "step": "s9", "about": "pull the merged PR on main and git show it", "match": "pull",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Fast-forward"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^commit [0-9a-f]{40}"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "git checkout main", "output": ["Switched to branch 'main'", "Your branch is up to date with 'origin/main'."]},
+    {"do": "run", "cmd": "git pull", "output": ["remote: Enumerating objects: 1, done.", "remote: Counting objects: 100% (1/1), done.",
+     "remote: Total 1 (delta 0), reused 0 (delta 0), pack-reused 0", "Unpacking objects: 100% (1/1), 900 bytes | 300.00 KiB/s, done.",
+     "From https://github.com/LadyKerr/GitGoing", "   1a2b3c4..7e8f9a0  main       -> origin/main", "Updating 1a2b3c4..7e8f9a0",
+     "Fast-forward", " index.html | 2 +-", " 1 file changed, 1 insertion(+), 1 deletion(-)"]},
+    {"do": "run", "cmd": "git show", "output": ["commit 7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f (HEAD -> main, origin/main, origin/HEAD)",
+     "Merge: 1a2b3c4 5d6e7f8", "Author: Ada Lovelace <ada@example.com>", "Date:   Fri Nov 21 10:12:44 2026 -0800", "",
+     "    Merge pull request #7 from LadyKerr/update-name", "", "    update name"]}
+   ]
+  },
+  {
+   "step": "s10", "about": "delete the branch locally and on origin", "match": "delete",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Deleted branch update-name \\(was [0-9a-f]{7}\\)\\."},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "- \\[deleted\\]\\s+update-name"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "deletes the branch while it is checked out", "actions": [
+     {"do": "run", "cmd": "git checkout update-name", "output": ["Switched to branch 'update-name'"]},
+     {"do": "run", "cmd": "git branch -d update-name", "exit": 1, "output": ["error: Cannot delete branch 'update-name' checked out at '/Users/me/git-lab/GitGoing'"]}
+    ]},
+    {"do": "run", "cmd": "git checkout main", "output": ["Switched to branch 'main'", "Your branch is up to date with 'origin/main'."]},
+    {"do": "run", "cmd": "git branch -d update-name", "output": ["Deleted branch update-name (was 5d6e7f8)."]},
+    {"do": "run", "cmd": "git push --delete origin update-name", "output": ["To https://github.com/LadyKerr/GitGoing.git", " - [deleted]         update-name"]}
+   ]
+  }
+ ]
+}

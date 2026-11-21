@@ -1,0 +1,116 @@
+{
+ "id": "tf-mnist-notebook",
+ "topic": "deep-learning",
+ "stack": "TensorFlow 2.15 / Keras in a Jupyter notebook (venv, VS Code)",
+ "tutorial": {"kind": "video", "video_id": "VPlFpvLOgtQ", "url": "https://www.youtube.com/watch?v=VPlFpvLOgtQ", "goal": "build a neural network"},
+ "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+ "learner": {
+  "folder": "mnist-lab",
+  "notes": "Cells are written into a real Untitled.ipynb with outputs in TF 2.15's verbatim Keras formats (values plausible, not recorded); the checks read that notebook exactly as in a live lesson."
+ },
+ "outline": [
+  {
+   "step": "s1", "about": "venv, pip install, start Jupyter", "match": "venv|jupyter",
+   "expect_checks": [
+    {"type": "file_exists", "file": "venv/bin/activate"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Successfully installed .*tensorflow-2\\.15\\.0"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "python3 -m venv venv", "output": [], "creates": {"venv/bin/activate": "# This file must be used with \"source bin/activate\"\n"}},
+    {"do": "mistake", "note": "starts Jupyter before activating the venv: command not found", "caught": false,
+     "finding": "s1's only precision check is venv/bin/activate, so precision mode passes s1 as soon as the venv exists, before pip install or Jupyter",
+     "actions": [
+     {"do": "run", "cmd": "jupyter notebook", "exit": 127, "output": ["zsh: command not found: jupyter"]}
+    ]},
+    {"do": "run", "cmd": "source venv/bin/activate", "output": []},
+    {"do": "run", "cmd": "pip3 install jupyter tensorflow numpy matplotlib", "output": ["Collecting jupyter", "  Using cached jupyter-1.0.0-py2.py3-none-any.whl (2.7 kB)",
+     "Collecting tensorflow", "  Downloading tensorflow-2.15.0-cp311-cp311-macosx_12_0_arm64.whl (2.1 kB)", "Installing collected packages: ...",
+     "Successfully installed jupyter-1.0.0 keras-2.15.0 matplotlib-3.8.3 numpy-1.26.4 tensorflow-2.15.0 tensorflow-macos-2.15.0"]},
+    {"do": "run", "cmd": "jupyter notebook", "running": true, "output": ["[I 2026-11-21 10:02:11.531 ServerApp] jupyter_lsp | extension was successfully loaded.",
+     "[I 2026-11-21 10:02:11.540 ServerApp] Serving notebooks from local directory: /Users/me/mnist-lab",
+     "[I 2026-11-21 10:02:11.540 ServerApp] Jupyter Server 2.12.5 is running at:",
+     "[I 2026-11-21 10:02:11.540 ServerApp] http://localhost:8888/tree?token=0c9d6e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b",
+     "[I 2026-11-21 10:02:11.540 ServerApp]     http://127.0.0.1:8888/tree?token=0c9d6e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b"]}
+   ]
+  },
+  {
+   "step": "s2", "about": "import TensorFlow and load MNIST scaled to 0..1", "match": "mnist",
+   "expect_checks": [
+    {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "train_images\\.astype\\('float32'\\) / 255"},
+    {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "mnist\\.npz"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "runs the cell on the system Python kernel, not the venv: ModuleNotFoundError", "actions": [
+     {"do": "cell", "file": "Untitled.ipynb", "source": "import tensorflow as tf\nfrom tensorflow.keras import layers, models\nimport matplotlib.pyplot as plt\nimport numpy as np\n\n(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()\ntrain_images = train_images.astype('float32') / 255\ntest_images = test_images.astype('float32') / 255\n",
+      "error": {"ename": "ModuleNotFoundError", "evalue": "No module named 'tensorflow'", "traceback": ["---------------------------------------------------------------------------", "ModuleNotFoundError                       Traceback (most recent call last)", "Cell In[1], line 1", "----> 1 import tensorflow as tf", "ModuleNotFoundError: No module named 'tensorflow'"]}}
+    ]},
+    {"do": "cell", "file": "Untitled.ipynb", "index": 0, "source": "import tensorflow as tf\nfrom tensorflow.keras import layers, models\nimport matplotlib.pyplot as plt\nimport numpy as np\n\n(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()\ntrain_images = train_images.astype('float32') / 255\ntest_images = test_images.astype('float32') / 255\n",
+     "outputs": ["Downloading data from https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz", "11490434/11490434 [==============================] - 1s 0us/step"]}
+   ]
+  },
+  {
+   "step": "s3", "about": "print the dataset sizes and plot ten digits", "match": "shape|plot",
+   "expect_checks": [
+    {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "Number of images in the training dataset: 60000"},
+    {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "image/png"}
+   ],
+   "actions": [
+    {"do": "cell", "file": "Untitled.ipynb", "source": "print('Number of images in the training dataset:', train_images.shape[0])\nprint('Number of images in the testing dataset:', test_images.shape[0])\nprint('Shape of the images in the training dataset:', train_images[0].shape)\n\nfig, axes = plt.subplots(1, 10, figsize=(10, 10))\nfor i in range(10):\n    axes[i].imshow(train_images[i].reshape(28, 28), cmap='gray')\n    axes[i].set_title(train_labels[i])\n    axes[i].axis('off')\nplt.show()\n",
+     "outputs": ["Number of images in the training dataset: 60000", "Number of images in the testing dataset: 10000", "Shape of the images in the training dataset: (28, 28)", {"image": true, "text": "<Figure size 1000x1000 with 10 Axes>"}]}
+   ]
+  },
+  {
+   "step": "s4", "about": "a Sequential model: Flatten, Dense 128, Dense 64, Dense 10 softmax", "match": "sequential|network",
+   "expect_checks": [
+    {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "layers\\.Dense\\(10, activation='softmax'\\)"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "the output layer has no softmax", "caught": false,
+     "finding": "s4's precision check is only models.Sequential, so a model with no softmax passes in precision mode",
+     "actions": [
+     {"do": "cell", "file": "Untitled.ipynb", "source": "model = models.Sequential([\n    layers.Flatten(input_shape=(28, 28, 1)),\n    layers.Dense(128, activation='relu'),\n    layers.Dense(64, activation='relu'),\n    layers.Dense(10)\n])\n", "outputs": []}
+    ]},
+    {"do": "cell", "file": "Untitled.ipynb", "index": 2, "source": "model = models.Sequential([\n    layers.Flatten(input_shape=(28, 28, 1)),\n    layers.Dense(128, activation='relu'),\n    layers.Dense(64, activation='relu'),\n    layers.Dense(10, activation='softmax')\n])\n", "outputs": []}
+   ]
+  },
+  {
+   "step": "s5", "about": "compile with adam and fit 5 epochs to >= 0.95 accuracy", "match": "train|compile",
+   "expect_checks": [
+    {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "Epoch 5/5"},
+    {"type": "metric_threshold", "metric": "acc", "metric_pattern": "accuracy:\\s*(?P<value>\\d+\\.\\d+)", "op": ">=", "value": 0.95}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "trains a single epoch: accuracy 0.9296", "actions": [
+     {"do": "cell", "file": "Untitled.ipynb", "source": "model.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=1\n)\n",
+      "outputs": ["Epoch 1/1", "1875/1875 [==============================] - 4s 2ms/step - loss: 0.2398 - accuracy: 0.9296"]}
+    ]},
+    {"do": "cell", "file": "Untitled.ipynb", "index": 3, "source": "model.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)\n",
+     "outputs": ["Epoch 1/5", "1875/1875 [==============================] - 4s 2ms/step - loss: 0.2398 - accuracy: 0.9296",
+      "Epoch 2/5", "1875/1875 [==============================] - 4s 2ms/step - loss: 0.1012 - accuracy: 0.9690",
+      "Epoch 3/5", "1875/1875 [==============================] - 4s 2ms/step - loss: 0.0705 - accuracy: 0.9784",
+      "Epoch 4/5", "1875/1875 [==============================] - 4s 2ms/step - loss: 0.0527 - accuracy: 0.9838",
+      "Epoch 5/5", "1875/1875 [==============================] - 4s 2ms/step - loss: 0.0410 - accuracy: 0.9868"]}
+   ]
+  },
+  {
+   "step": "s6", "about": "predict one test digit and plot class probabilities", "match": "predict",
+   "expect_checks": [
+    {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "1/1 \\[=+\\] - 0s \\d+ms/step"}
+   ],
+   "actions": [
+    {"do": "cell", "file": "Untitled.ipynb", "source": "def view_classify(image, probabilities):\n    fig, (ax1, ax2) = plt.subplots(figsize=(6,9), ncols=2)\n    ax1.imshow(image)\n    ax1.axis('off')\n    ax2.barh(np.arange(10), probabilities)\n    ax2.set_aspect(0.1)\n    ax2.set_yticks(np.arange(10))\n    ax2.set_yticklabels(np.arange(10))\n    ax2.set_title('Class Probability')\n    ax2.set_xlim(0, 1.1)\n    plt.tight_layout()\n\nimage, label = test_images[0], test_labels[0]\nprobabilities = model.predict(image.reshape(1, 28, 28, 1))\nview_classify(image, probabilities[0])\n",
+     "outputs": ["1/1 [==============================] - 0s 85ms/step", {"image": true, "text": "<Figure size 600x900 with 2 Axes>"}]}
+   ]
+  },
+  {
+   "step": "s7", "about": "evaluate on the 10,000 test images (>= 95%)", "match": "evaluate",
+   "expect_checks": [
+    {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "on the 10000 test images: 97\\.63%"}
+   ],
+   "actions": [
+    {"do": "cell", "file": "Untitled.ipynb", "source": "test_loss, test_accuracy = model.evaluate(test_images, test_labels)\nprint(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')\n",
+     "outputs": ["313/313 [==============================] - 1s 2ms/step - loss: 0.0812 - accuracy: 0.9763", "Accuracy of the neural network on the 10000 test images: 97.63%"]}
+   ]
+  }
+ ]
+}

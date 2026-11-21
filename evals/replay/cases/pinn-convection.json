@@ -1,0 +1,427 @@
+{
+ "id": "pinn-convection",
+ "topic": "physics-ml",
+ "stack": "PyTorch (VS Code + its terminal)",
+ "tutorial": {
+  "kind": "video",
+  "video_id": "unBU1PwCnvQ",
+  "url": "https://www.youtube.com/watch?v=unBU1PwCnvQ",
+  "goal": "train a PINN on the convection equation"
+ },
+ "lesson": "demo/cache/lessons/8032bf0cabe0e287.json",
+ "learner": {
+  "folder": "pinn-lab",
+  "notes": "Writes pinn_convection.py from an empty folder (demo/pinn-lab no longer has it). Training output is in that script's own print + ::metric:: format; the loss values are synthetic, not recorded."
+ },
+ "outline": [
+  {
+   "step": "s1",
+   "about": "a PINN class: linear layers with Tanh",
+   "match": "PINN|network",
+   "expect_checks": [
+    {
+     "type": "file_contains",
+     "file": "pinn_convection.py",
+     "pattern": "self\\.net = nn\\.Sequential\\(\\*layers\\)"
+    }
+   ],
+   "actions": [
+    {
+     "do": "write",
+     "file": "pinn_convection.py",
+     "text": "\"\"\"PINN for the 1D linear convection equation u_t + beta * u_x = 0, x in [0, 2 pi], t in [0, 1], u(x, 0) = sin(x).\"\"\"\nimport argparse\nimport math\n\nimport torch\nimport torch.nn as nn\n\n\ndef log_metric(step, name, value):\n    print(f'::metric:: {{\"step\": {step}, \"name\": \"{name}\", \"value\": {value}}}', flush=True)\n\n\nclass PINN(nn.Module):\n    def __init__(self, hidden=50, depth=4):\n        super().__init__()\n        layers = [nn.Linear(2, hidden), nn.Tanh()]\n        for _ in range(depth - 1):\n            layers += [nn.Linear(hidden, hidden), nn.Tanh()]\n        layers.append(nn.Linear(hidden, 1))\n        self.net = nn.Sequential(*layers)\n\n    def forward(self, x, t):\n        return self.net(torch.cat([x, t], dim=1))\n"
+    }
+   ]
+  },
+  {
+   "step": "s2",
+   "about": "pde_residual with autograd du/dt and du/dx",
+   "match": "residual|physics loss",
+   "expect_checks": [
+    {
+     "type": "file_contains",
+     "file": "pinn_convection.py",
+     "pattern": "return du_dt \\+ beta \\* du_dx"
+    }
+   ],
+   "actions": [
+    {
+     "do": "append",
+     "file": "pinn_convection.py",
+     "text": "def pde_residual(model, x, t, beta):\n    u = model(x, t)\n    du_dt = torch.autograd.grad(u, t, torch.ones_like(u), create_graph=True)[0]\n    du_dx = torch.autograd.grad(u, x, torch.ones_like(u), create_graph=True)[0]\n    return du_dt + beta * du_dx\n"
+    }
+   ]
+  },
+  {
+   "step": "s3",
+   "about": "sample_points with requires_grad, and the training loop",
+   "match": "sample|training loop",
+   "expect_checks": [
+    {
+     "type": "file_contains",
+     "file": "pinn_convection.py",
+     "pattern": "\\.requires_grad_\\(True\\)"
+    },
+    {
+     "type": "command_exit_ok",
+     "command": "python3 pinn_convection.py --epochs 10"
+    }
+   ],
+   "actions": [
+    {
+     "do": "append",
+     "file": "pinn_convection.py",
+     "text": "def sample_points(n):\n    x = (torch.rand(n, 1) * 2 * math.pi).requires_grad_(True)\n    t = torch.rand(n, 1).requires_grad_(True)\n    return x, t\n\n\ndef main():\n    p = argparse.ArgumentParser()\n    p.add_argument(\"--beta\", type=float, default=1.0)\n    p.add_argument(\"--epochs\", type=int, default=4000)\n    args = p.parse_args()\n    torch.manual_seed(0)\n    model = PINN()\n    opt = torch.optim.Adam(model.parameters(), lr=1e-3)\n    x0 = torch.rand(256, 1) * 2 * math.pi\n    t0 = torch.zeros_like(x0)\n    u0 = torch.sin(x0)\n    for epoch in range(args.epochs):\n        x, t = sample_points(1000)\n        loss = pde_residual(model, x, t, args.beta).pow(2).mean() + (model(x0, t0) - u0).pow(2).mean()\n        opt.zero_grad()\n        loss.backward()\n        opt.step()\n        if epoch % 100 == 0:\n            print(f\"epoch {epoch} | beta {args.beta} | loss {loss.item():.4e}\", flush=True)\n            log_metric(epoch, \"loss\", loss.item())\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    },
+    {
+     "do": "run",
+     "cmd": "python3 pinn_convection.py --epochs 10",
+     "output": [
+      "epoch 0 | beta 1.0 | loss 9.0200e-01",
+      "::metric:: {\"step\": 0, \"name\": \"loss\", \"value\": 0.902}"
+     ]
+    }
+   ]
+  },
+  {
+   "step": "s4",
+   "about": "train with beta = 1 and see the loss drop below 0.1",
+   "match": "run training|beta=1",
+   "expect_checks": [
+    {
+     "type": "metric_threshold",
+     "metric": "loss",
+     "op": "<",
+     "value": 0.01,
+     "by_step": 3900
+    }
+   ],
+   "actions": [
+    {
+     "do": "run",
+     "cmd": "python pinn_convection.py",
+     "output": [
+      "epoch 0 | beta 1.0 | loss 9.0200e-01",
+      "::metric:: {\"step\": 0, \"name\": \"loss\", \"value\": 0.902}",
+      "epoch 100 | beta 1.0 | loss 1.7191e-01",
+      "::metric:: {\"step\": 100, \"name\": \"loss\", \"value\": 0.171915}",
+      "epoch 200 | beta 1.0 | loss 3.3872e-02",
+      "::metric:: {\"step\": 200, \"name\": \"loss\", \"value\": 0.0338717}",
+      "epoch 300 | beta 1.0 | loss 7.6569e-03",
+      "::metric:: {\"step\": 300, \"name\": \"loss\", \"value\": 0.00765689}",
+      "epoch 400 | beta 1.0 | loss 2.6525e-03",
+      "::metric:: {\"step\": 400, \"name\": \"loss\", \"value\": 0.00265247}",
+      "epoch 500 | beta 1.0 | loss 1.6820e-03",
+      "::metric:: {\"step\": 500, \"name\": \"loss\", \"value\": 0.00168197}",
+      "epoch 600 | beta 1.0 | loss 1.4118e-03",
+      "::metric:: {\"step\": 600, \"name\": \"loss\", \"value\": 0.0014118}",
+      "epoch 700 | beta 1.0 | loss 1.2414e-03",
+      "::metric:: {\"step\": 700, \"name\": \"loss\", \"value\": 0.00124143}",
+      "epoch 800 | beta 1.0 | loss 1.1428e-03",
+      "::metric:: {\"step\": 800, \"name\": \"loss\", \"value\": 0.0011428}",
+      "epoch 900 | beta 1.0 | loss 1.1073e-03",
+      "::metric:: {\"step\": 900, \"name\": \"loss\", \"value\": 0.00110734}",
+      "epoch 1000 | beta 1.0 | loss 1.0574e-03",
+      "::metric:: {\"step\": 1000, \"name\": \"loss\", \"value\": 0.00105735}",
+      "epoch 1100 | beta 1.0 | loss 9.6044e-04",
+      "::metric:: {\"step\": 1100, \"name\": \"loss\", \"value\": 0.000960438}",
+      "epoch 1200 | beta 1.0 | loss 8.7195e-04",
+      "::metric:: {\"step\": 1200, \"name\": \"loss\", \"value\": 0.000871949}",
+      "epoch 1300 | beta 1.0 | loss 8.3378e-04",
+      "::metric:: {\"step\": 1300, \"name\": \"loss\", \"value\": 0.000833777}",
+      "epoch 1400 | beta 1.0 | loss 8.0802e-04",
+      "::metric:: {\"step\": 1400, \"name\": \"loss\", \"value\": 0.000808022}",
+      "epoch 1500 | beta 1.0 | loss 7.4753e-04",
+      "::metric:: {\"step\": 1500, \"name\": \"loss\", \"value\": 0.000747532}",
+      "epoch 1600 | beta 1.0 | loss 6.7258e-04",
+      "::metric:: {\"step\": 1600, \"name\": \"loss\", \"value\": 0.000672578}",
+      "epoch 1700 | beta 1.0 | loss 6.2944e-04",
+      "::metric:: {\"step\": 1700, \"name\": \"loss\", \"value\": 0.000629442}",
+      "epoch 1800 | beta 1.0 | loss 6.1232e-04",
+      "::metric:: {\"step\": 1800, \"name\": \"loss\", \"value\": 0.000612315}",
+      "epoch 1900 | beta 1.0 | loss 5.7884e-04",
+      "::metric:: {\"step\": 1900, \"name\": \"loss\", \"value\": 0.000578839}",
+      "epoch 2000 | beta 1.0 | loss 5.2256e-04",
+      "::metric:: {\"step\": 2000, \"name\": \"loss\", \"value\": 0.000522564}",
+      "epoch 2100 | beta 1.0 | loss 4.7858e-04",
+      "::metric:: {\"step\": 2100, \"name\": \"loss\", \"value\": 0.000478575}",
+      "epoch 2200 | beta 1.0 | loss 4.6156e-04",
+      "::metric:: {\"step\": 2200, \"name\": \"loss\", \"value\": 0.000461561}",
+      "epoch 2300 | beta 1.0 | loss 4.4447e-04",
+      "::metric:: {\"step\": 2300, \"name\": \"loss\", \"value\": 0.000444471}",
+      "epoch 2400 | beta 1.0 | loss 4.0705e-04",
+      "::metric:: {\"step\": 2400, \"name\": \"loss\", \"value\": 0.000407045}",
+      "epoch 2500 | beta 1.0 | loss 3.6738e-04",
+      "::metric:: {\"step\": 2500, \"name\": \"loss\", \"value\": 0.000367376}",
+      "epoch 2600 | beta 1.0 | loss 3.4779e-04",
+      "::metric:: {\"step\": 2600, \"name\": \"loss\", \"value\": 0.000347791}",
+      "epoch 2700 | beta 1.0 | loss 3.3819e-04",
+      "::metric:: {\"step\": 2700, \"name\": \"loss\", \"value\": 0.000338193}",
+      "epoch 2800 | beta 1.0 | loss 3.1619e-04",
+      "::metric:: {\"step\": 2800, \"name\": \"loss\", \"value\": 0.00031619}",
+      "epoch 2900 | beta 1.0 | loss 2.8452e-04",
+      "::metric:: {\"step\": 2900, \"name\": \"loss\", \"value\": 0.000284517}",
+      "epoch 3000 | beta 1.0 | loss 2.6334e-04",
+      "::metric:: {\"step\": 3000, \"name\": \"loss\", \"value\": 0.000263344}",
+      "epoch 3100 | beta 1.0 | loss 2.5548e-04",
+      "::metric:: {\"step\": 3100, \"name\": \"loss\", \"value\": 0.000255484}",
+      "epoch 3200 | beta 1.0 | loss 2.4390e-04",
+      "::metric:: {\"step\": 3200, \"name\": \"loss\", \"value\": 0.000243898}",
+      "epoch 3300 | beta 1.0 | loss 2.2148e-04",
+      "::metric:: {\"step\": 3300, \"name\": \"loss\", \"value\": 0.00022148}",
+      "epoch 3400 | beta 1.0 | loss 2.0114e-04",
+      "::metric:: {\"step\": 3400, \"name\": \"loss\", \"value\": 0.000201142}",
+      "epoch 3500 | beta 1.0 | loss 1.9242e-04",
+      "::metric:: {\"step\": 3500, \"name\": \"loss\", \"value\": 0.000192417}",
+      "epoch 3600 | beta 1.0 | loss 1.8643e-04",
+      "::metric:: {\"step\": 3600, \"name\": \"loss\", \"value\": 0.000186433}",
+      "epoch 3700 | beta 1.0 | loss 1.7240e-04",
+      "::metric:: {\"step\": 3700, \"name\": \"loss\", \"value\": 0.000172396}",
+      "epoch 3800 | beta 1.0 | loss 1.5512e-04",
+      "::metric:: {\"step\": 3800, \"name\": \"loss\", \"value\": 0.00015512}",
+      "epoch 3900 | beta 1.0 | loss 1.4525e-04",
+      "::metric:: {\"step\": 3900, \"name\": \"loss\", \"value\": 0.000145245}"
+     ]
+    }
+   ]
+  },
+  {
+   "step": "s5",
+   "about": "train with beta = -1",
+   "match": "negative|beta -1",
+   "expect_checks": [
+    {
+     "type": "screen_contains",
+     "app": "Terminal",
+     "pattern": "beta -1\\.0"
+    }
+   ],
+   "actions": [
+    {
+     "do": "mistake",
+     "note": "drops the minus sign and reruns beta 1.0",
+     "caught": false,
+     "finding": "s5's precision rows can't tell which beta ran (command_exit_ok drops the flags, the loss threshold is the same), so rerunning beta 1.0 passes in precision mode",
+     "actions": [
+      {
+       "do": "run",
+       "cmd": "python pinn_convection.py --beta 1.0 --epochs 500",
+       "output": [
+        "epoch 0 | beta 1.0 | loss 9.0200e-01",
+        "::metric:: {\"step\": 0, \"name\": \"loss\", \"value\": 0.902}",
+        "epoch 100 | beta 1.0 | loss 1.7191e-01",
+        "::metric:: {\"step\": 100, \"name\": \"loss\", \"value\": 0.171915}",
+        "epoch 200 | beta 1.0 | loss 3.3872e-02",
+        "::metric:: {\"step\": 200, \"name\": \"loss\", \"value\": 0.0338717}",
+        "epoch 300 | beta 1.0 | loss 7.6569e-03",
+        "::metric:: {\"step\": 300, \"name\": \"loss\", \"value\": 0.00765689}",
+        "epoch 400 | beta 1.0 | loss 2.6525e-03",
+        "::metric:: {\"step\": 400, \"name\": \"loss\", \"value\": 0.00265247}"
+       ]
+      }
+     ]
+    },
+    {
+     "do": "run",
+     "cmd": "python pinn_convection.py --beta -1.0 --epochs 500",
+     "output": [
+      "epoch 0 | beta -1.0 | loss 9.0200e-01",
+      "::metric:: {\"step\": 0, \"name\": \"loss\", \"value\": 0.902}",
+      "epoch 100 | beta -1.0 | loss 1.7191e-01",
+      "::metric:: {\"step\": 100, \"name\": \"loss\", \"value\": 0.171915}",
+      "epoch 200 | beta -1.0 | loss 3.3872e-02",
+      "::metric:: {\"step\": 200, \"name\": \"loss\", \"value\": 0.0338717}",
+      "epoch 300 | beta -1.0 | loss 7.6569e-03",
+      "::metric:: {\"step\": 300, \"name\": \"loss\", \"value\": 0.00765689}",
+      "epoch 400 | beta -1.0 | loss 2.6525e-03",
+      "::metric:: {\"step\": 400, \"name\": \"loss\", \"value\": 0.00265247}"
+     ]
+    }
+   ]
+  },
+  {
+   "step": "s6",
+   "about": "train with beta = 2",
+   "match": "beta 2|higher convection",
+   "finding": "the title says 'Train on sharper Gaussian IC' but the instructions and checks only rerun with --beta 2.0",
+   "expect_checks": [
+    {
+     "type": "screen_contains",
+     "app": "Terminal",
+     "pattern": "beta 2\\.0"
+    }
+   ],
+   "actions": [
+    {
+     "do": "run",
+     "cmd": "python pinn_convection.py --beta 2.0 --epochs 500",
+     "output": [
+      "epoch 0 | beta 2.0 | loss 1.1726e+00",
+      "::metric:: {\"step\": 0, \"name\": \"loss\", \"value\": 1.1726}",
+      "epoch 100 | beta 2.0 | loss 2.2349e-01",
+      "::metric:: {\"step\": 100, \"name\": \"loss\", \"value\": 0.223489}",
+      "epoch 200 | beta 2.0 | loss 4.4033e-02",
+      "::metric:: {\"step\": 200, \"name\": \"loss\", \"value\": 0.0440332}",
+      "epoch 300 | beta 2.0 | loss 9.9540e-03",
+      "::metric:: {\"step\": 300, \"name\": \"loss\", \"value\": 0.00995396}",
+      "epoch 400 | beta 2.0 | loss 3.4482e-03",
+      "::metric:: {\"step\": 400, \"name\": \"loss\", \"value\": 0.00344821}"
+     ]
+    }
+   ]
+  },
+  {
+   "step": "s7",
+   "about": "a full 4000-epoch run, loss still decreasing",
+   "match": "4000|converg",
+   "expect": "fail",
+   "finding": "a correct learner can never pass s7: its metric_trend rows have window 5 (training steps), and a trend needs >= 8 points in the window, so even a metric logged every step gives 6 at most (also: the title says 'Compare with non-dimensionalized PINN' but the step only reruns 4000 epochs)",
+   "expect_checks": [
+    {
+     "type": "screen_contains",
+     "app": "Terminal",
+     "pattern": "epoch 3900 \\| beta 1\\.0"
+    }
+   ],
+   "actions": [
+    {
+     "do": "mistake",
+     "note": "stops the run with Ctrl+C at epoch 1500 (KeyboardInterrupt traceback)",
+     "actions": [
+      {
+       "do": "run",
+       "cmd": "python pinn_convection.py --epochs 4000",
+       "exit": 130,
+       "output": [
+        "epoch 0 | beta 1.0 | loss 9.0200e-01",
+        "::metric:: {\"step\": 0, \"name\": \"loss\", \"value\": 0.902}",
+        "epoch 100 | beta 1.0 | loss 1.7191e-01",
+        "::metric:: {\"step\": 100, \"name\": \"loss\", \"value\": 0.171915}",
+        "epoch 200 | beta 1.0 | loss 3.3872e-02",
+        "::metric:: {\"step\": 200, \"name\": \"loss\", \"value\": 0.0338717}",
+        "epoch 300 | beta 1.0 | loss 7.6569e-03",
+        "::metric:: {\"step\": 300, \"name\": \"loss\", \"value\": 0.00765689}",
+        "epoch 400 | beta 1.0 | loss 2.6525e-03",
+        "::metric:: {\"step\": 400, \"name\": \"loss\", \"value\": 0.00265247}",
+        "epoch 500 | beta 1.0 | loss 1.6820e-03",
+        "::metric:: {\"step\": 500, \"name\": \"loss\", \"value\": 0.00168197}",
+        "epoch 600 | beta 1.0 | loss 1.4118e-03",
+        "::metric:: {\"step\": 600, \"name\": \"loss\", \"value\": 0.0014118}",
+        "epoch 700 | beta 1.0 | loss 1.2414e-03",
+        "::metric:: {\"step\": 700, \"name\": \"loss\", \"value\": 0.00124143}",
+        "epoch 800 | beta 1.0 | loss 1.1428e-03",
+        "::metric:: {\"step\": 800, \"name\": \"loss\", \"value\": 0.0011428}",
+        "epoch 900 | beta 1.0 | loss 1.1073e-03",
+        "::metric:: {\"step\": 900, \"name\": \"loss\", \"value\": 0.00110734}",
+        "epoch 1000 | beta 1.0 | loss 1.0574e-03",
+        "::metric:: {\"step\": 1000, \"name\": \"loss\", \"value\": 0.00105735}",
+        "epoch 1100 | beta 1.0 | loss 9.6044e-04",
+        "::metric:: {\"step\": 1100, \"name\": \"loss\", \"value\": 0.000960438}",
+        "epoch 1200 | beta 1.0 | loss 8.7195e-04",
+        "::metric:: {\"step\": 1200, \"name\": \"loss\", \"value\": 0.000871949}",
+        "epoch 1300 | beta 1.0 | loss 8.3378e-04",
+        "::metric:: {\"step\": 1300, \"name\": \"loss\", \"value\": 0.000833777}",
+        "epoch 1400 | beta 1.0 | loss 8.0802e-04",
+        "::metric:: {\"step\": 1400, \"name\": \"loss\", \"value\": 0.000808022}",
+        "epoch 1500 | beta 1.0 | loss 7.4753e-04",
+        "::metric:: {\"step\": 1500, \"name\": \"loss\", \"value\": 0.000747532}",
+        "^CTraceback (most recent call last):",
+        "  File \"/Users/me/pinn-lab/pinn_convection.py\", line 62, in <module>",
+        "    main()",
+        "  File \"/Users/me/pinn-lab/pinn_convection.py\", line 54, in main",
+        "    loss.backward()",
+        "KeyboardInterrupt"
+       ]
+      }
+     ]
+    },
+    {
+     "do": "run",
+     "cmd": "python pinn_convection.py --epochs 4000",
+     "output": [
+      "epoch 0 | beta 1.0 | loss 9.0200e-01",
+      "::metric:: {\"step\": 0, \"name\": \"loss\", \"value\": 0.902}",
+      "epoch 100 | beta 1.0 | loss 1.7191e-01",
+      "::metric:: {\"step\": 100, \"name\": \"loss\", \"value\": 0.171915}",
+      "epoch 200 | beta 1.0 | loss 3.3872e-02",
+      "::metric:: {\"step\": 200, \"name\": \"loss\", \"value\": 0.0338717}",
+      "epoch 300 | beta 1.0 | loss 7.6569e-03",
+      "::metric:: {\"step\": 300, \"name\": \"loss\", \"value\": 0.00765689}",
+      "epoch 400 | beta 1.0 | loss 2.6525e-03",
+      "::metric:: {\"step\": 400, \"name\": \"loss\", \"value\": 0.00265247}",
+      "epoch 500 | beta 1.0 | loss 1.6820e-03",
+      "::metric:: {\"step\": 500, \"name\": \"loss\", \"value\": 0.00168197}",
+      "epoch 600 | beta 1.0 | loss 1.4118e-03",
+      "::metric:: {\"step\": 600, \"name\": \"loss\", \"value\": 0.0014118}",
+      "epoch 700 | beta 1.0 | loss 1.2414e-03",
+      "::metric:: {\"step\": 700, \"name\": \"loss\", \"value\": 0.00124143}",
+      "epoch 800 | beta 1.0 | loss 1.1428e-03",
+      "::metric:: {\"step\": 800, \"name\": \"loss\", \"value\": 0.0011428}",
+      "epoch 900 | beta 1.0 | loss 1.1073e-03",
+      "::metric:: {\"step\": 900, \"name\": \"loss\", \"value\": 0.00110734}",
+      "epoch 1000 | beta 1.0 | loss 1.0574e-03",
+      "::metric:: {\"step\": 1000, \"name\": \"loss\", \"value\": 0.00105735}",
+      "epoch 1100 | beta 1.0 | loss 9.6044e-04",
+      "::metric:: {\"step\": 1100, \"name\": \"loss\", \"value\": 0.000960438}",
+      "epoch 1200 | beta 1.0 | loss 8.7195e-04",
+      "::metric:: {\"step\": 1200, \"name\": \"loss\", \"value\": 0.000871949}",
+      "epoch 1300 | beta 1.0 | loss 8.3378e-04",
+      "::metric:: {\"step\": 1300, \"name\": \"loss\", \"value\": 0.000833777}",
+      "epoch 1400 | beta 1.0 | loss 8.0802e-04",
+      "::metric:: {\"step\": 1400, \"name\": \"loss\", \"value\": 0.000808022}",
+      "epoch 1500 | beta 1.0 | loss 7.4753e-04",
+      "::metric:: {\"step\": 1500, \"name\": \"loss\", \"value\": 0.000747532}",
+      "epoch 1600 | beta 1.0 | loss 6.7258e-04",
+      "::metric:: {\"step\": 1600, \"name\": \"loss\", \"value\": 0.000672578}",
+      "epoch 1700 | beta 1.0 | loss 6.2944e-04",
+      "::metric:: {\"step\": 1700, \"name\": \"loss\", \"value\": 0.000629442}",
+      "epoch 1800 | beta 1.0 | loss 6.1232e-04",
+      "::metric:: {\"step\": 1800, \"name\": \"loss\", \"value\": 0.000612315}",
+      "epoch 1900 | beta 1.0 | loss 5.7884e-04",
+      "::metric:: {\"step\": 1900, \"name\": \"loss\", \"value\": 0.000578839}",
+      "epoch 2000 | beta 1.0 | loss 5.2256e-04",
+      "::metric:: {\"step\": 2000, \"name\": \"loss\", \"value\": 0.000522564}",
+      "epoch 2100 | beta 1.0 | loss 4.7858e-04",
+      "::metric:: {\"step\": 2100, \"name\": \"loss\", \"value\": 0.000478575}",
+      "epoch 2200 | beta 1.0 | loss 4.6156e-04",
+      "::metric:: {\"step\": 2200, \"name\": \"loss\", \"value\": 0.000461561}",
+      "epoch 2300 | beta 1.0 | loss 4.4447e-04",
+      "::metric:: {\"step\": 2300, \"name\": \"loss\", \"value\": 0.000444471}",
+      "epoch 2400 | beta 1.0 | loss 4.0705e-04",
+      "::metric:: {\"step\": 2400, \"name\": \"loss\", \"value\": 0.000407045}",
+      "epoch 2500 | beta 1.0 | loss 3.6738e-04",
+      "::metric:: {\"step\": 2500, \"name\": \"loss\", \"value\": 0.000367376}",
+      "epoch 2600 | beta 1.0 | loss 3.4779e-04",
+      "::metric:: {\"step\": 2600, \"name\": \"loss\", \"value\": 0.000347791}",
+      "epoch 2700 | beta 1.0 | loss 3.3819e-04",
+      "::metric:: {\"step\": 2700, \"name\": \"loss\", \"value\": 0.000338193}",
+      "epoch 2800 | beta 1.0 | loss 3.1619e-04",
+      "::metric:: {\"step\": 2800, \"name\": \"loss\", \"value\": 0.00031619}",
+      "epoch 2900 | beta 1.0 | loss 2.8452e-04",
+      "::metric:: {\"step\": 2900, \"name\": \"loss\", \"value\": 0.000284517}",
+      "epoch 3000 | beta 1.0 | loss 2.6334e-04",
+      "::metric:: {\"step\": 3000, \"name\": \"loss\", \"value\": 0.000263344}",
+      "epoch 3100 | beta 1.0 | loss 2.5548e-04",
+      "::metric:: {\"step\": 3100, \"name\": \"loss\", \"value\": 0.000255484}",
+      "epoch 3200 | beta 1.0 | loss 2.4390e-04",
+      "::metric:: {\"step\": 3200, \"name\": \"loss\", \"value\": 0.000243898}",
+      "epoch 3300 | beta 1.0 | loss 2.2148e-04",
+      "::metric:: {\"step\": 3300, \"name\": \"loss\", \"value\": 0.00022148}",
+      "epoch 3400 | beta 1.0 | loss 2.0114e-04",
+      "::metric:: {\"step\": 3400, \"name\": \"loss\", \"value\": 0.000201142}",
+      "epoch 3500 | beta 1.0 | loss 1.9242e-04",
+      "::metric:: {\"step\": 3500, \"name\": \"loss\", \"value\": 0.000192417}",
+      "epoch 3600 | beta 1.0 | loss 1.8643e-04",
+      "::metric:: {\"step\": 3600, \"name\": \"loss\", \"value\": 0.000186433}",
+      "epoch 3700 | beta 1.0 | loss 1.7240e-04",
+      "::metric:: {\"step\": 3700, \"name\": \"loss\", \"value\": 0.000172396}",
+      "epoch 3800 | beta 1.0 | loss 1.5512e-04",
+      "::metric:: {\"step\": 3800, \"name\": \"loss\", \"value\": 0.00015512}",
+      "epoch 3900 | beta 1.0 | loss 1.4525e-04",
+      "::metric:: {\"step\": 3900, \"name\": \"loss\", \"value\": 0.000145245}"
+     ]
+    }
+   ]
+  }
+ ]
+}

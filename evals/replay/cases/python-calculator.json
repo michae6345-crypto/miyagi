@@ -1,0 +1,115 @@
+{
+ "id": "python-calculator",
+ "topic": "python-basics",
+ "stack": "Python 3 (VS Code + its terminal), stdlib only",
+ "tutorial": {"kind": "text", "goal": "python calculator", "note": "Just teach me text lesson (no video)"},
+ "lesson": "demo/cache/lessons/text-43e26ca1d86c37ed.json",
+ "learner": {
+  "folder": "python-calculator",
+  "files": {"calculator.py": "# Step 1: Start building your calculator here\n"},
+  "notes": "Both runs (s2, s8) really execute the learner's calculator.py with this Python; stdin answers the input() prompts."
+ },
+ "outline": [
+  {
+   "step": "s1", "about": "write add(a, b) and a test print", "match": "add",
+   "expect_checks": [
+    {"type": "file_contains", "file": "calculator.py", "pattern": "def add\\(a, b\\):\\n\\s+return a \\+ b"},
+    {"type": "screen_contains", "app": "Code", "pattern": "print\\(add\\(2, 3\\)\\)"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "add() returns a - b (copied the wrong operator)", "caught": false,
+     "finding": "s1's precision_checks (def add, print(add(2, 3))) pass with return a - b, so precision mode passes the step; only s1c2 (a screen check) looks at the operator",
+     "actions": [
+     {"do": "insert", "file": "calculator.py", "after": "# Step 1", "text": "def add(a, b):\n    return a - b\n\nprint(add(2, 3))"}
+    ]},
+    {"do": "edit", "file": "calculator.py", "find": "return a - b", "replace": "return a + b"}
+   ]
+  },
+  {
+   "step": "s2", "about": "run it and see 5", "match": "run",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^5$"},
+    {"type": "command_exit_ok", "command": "python3 calculator.py"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "runs it from the parent folder: No such file or directory", "actions": [
+     {"do": "run", "cmd": "cd ..", "output": []},
+     {"do": "run", "cmd": "python3 calculator.py", "exit": 2,
+      "output": ["/Library/Developer/CommandLineTools/usr/bin/python3: can't open file '/Users/me/calculator.py': [Errno 2] No such file or directory"]}
+    ]},
+    {"do": "run", "cmd": "cd python-calculator", "output": []},
+    {"do": "run", "cmd": "python3 calculator.py", "real": true}
+   ]
+  },
+  {
+   "step": "s3", "about": "add subtract, multiply and divide", "match": "operation",
+   "expect_checks": [
+    {"type": "file_contains", "file": "calculator.py", "pattern": "def subtract\\(a, b\\):[\\s\\S]*def multiply\\(a, b\\):[\\s\\S]*def divide\\(a, b\\):"}
+   ],
+   "actions": [
+    {"do": "edit", "file": "calculator.py", "find": "print(add(2, 3))",
+     "replace": "def subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    return a / b\n\nprint(add(2, 3))"}
+   ]
+  },
+  {
+   "step": "s4", "about": "guard divide() against zero", "match": "zero",
+   "expect_checks": [
+    {"type": "file_contains", "file": "calculator.py", "pattern": "if b == 0:\\n\\s+raise ValueError\\(\"Cannot divide by zero\"\\)"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "returns None for zero instead of raising", "actions": [
+     {"do": "edit", "file": "calculator.py", "find": "def divide(a, b):\n    return a / b",
+      "replace": "def divide(a, b):\n    if b == 0:\n        return None\n    return a / b"}
+    ]},
+    {"do": "edit", "file": "calculator.py", "find": "        return None", "replace": "        raise ValueError(\"Cannot divide by zero\")"}
+   ]
+  },
+  {
+   "step": "s5", "about": "read two numbers and an operator in main()", "match": "input",
+   "expect_checks": [
+    {"type": "file_contains", "file": "calculator.py", "pattern": "def main\\(\\):\\n\\s+first = float\\(input\\("},
+    {"type": "file_contains", "file": "calculator.py", "pattern": "second = float\\(input\\("}
+   ],
+   "actions": [
+    {"do": "edit", "file": "calculator.py", "find": "print(add(2, 3))",
+     "replace": "def main():\n    first = float(input(\"First number: \"))\n    op = input(\"Operator (+, -, *, /): \")\n    second = float(input(\"Second number: \"))"}
+   ]
+  },
+  {
+   "step": "s6", "about": "pick the operation and print the result", "match": "operation",
+   "expect_checks": [
+    {"type": "file_contains", "file": "calculator.py", "pattern": "elif op == \"/\":\\n\\s+result = divide\\(first, second\\)"},
+    {"type": "screen_contains", "app": "Code", "pattern": "print\\(f\"Result: \\{result\\}\"\\)"}
+   ],
+   "actions": [
+    {"do": "insert", "file": "calculator.py", "after": "second = float(input(",
+     "text": "    if op == \"+\":\n        result = add(first, second)\n    elif op == \"-\":\n        result = subtract(first, second)\n    elif op == \"*\":\n        result = multiply(first, second)\n    elif op == \"/\":\n        result = divide(first, second)\n    else:\n        print(\"Unknown operator\")\n        return\n    print(f\"Result: {result}\")"}
+   ]
+  },
+  {
+   "step": "s7", "about": "call main() under the __main__ guard", "match": "main",
+   "expect_checks": [
+    {"type": "file_contains", "file": "calculator.py", "pattern": "^if __name__ == \"__main__\":\\n    main\\(\\)$"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "writes \"main\" instead of \"__main__\" in the guard", "actions": [
+     {"do": "append", "file": "calculator.py", "text": "\nif __name__ == \"main\":\n    main()\n"}
+    ]},
+    {"do": "edit", "file": "calculator.py", "find": "if __name__ == \"main\":", "replace": "if __name__ == \"__main__\":"}
+   ]
+  },
+  {
+   "step": "s8", "about": "try 8 / 2 and see Result: 4.0", "match": "try|run",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Result: 4\\.0"},
+    {"type": "screen_absent", "app": "Terminal", "pattern": "Traceback"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "types x for multiply: Unknown operator", "actions": [
+     {"do": "run", "cmd": "python3 calculator.py", "real": true, "stdin": "8\nx\n2\n"}
+    ]},
+    {"do": "run", "cmd": "python3 calculator.py", "real": true, "stdin": "8\n/\n2\n"}
+   ]
+  }
+ ]
+}
