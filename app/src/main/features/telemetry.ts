@@ -9,16 +9,19 @@
  *   What:   only {"events": [{name, at, props}]} (core.ts has the contract): app_installed (once per Mac),
  *           onboarding_done (once, read from userData/onboarding.json), lesson counts read from the engine events main
  *           already receives (core.ts usageEvent: lesson_built, step_passed, step_failed_check, hint_used,
- *           lesson_completed, lesson_abandoned; counts and enums only), and crash: every new line of the error log
- *           (userData/errors/errors.json, features/errors.ts), scrubbed again (core.ts scrubCrash). Never screen text,
- *           code, file paths, emails or tokens.
+ *           lesson_completed, lesson_abandoned; counts and enums only), and crash: one per new line of the error log
+ *           (userData/errors/errors.json, features/errors.ts) with only {kind, app_version}; the message stays on this
+ *           Mac. Each event carries only its allowlisted props (core.ts EVENT_PROPS). Never screen text, code, file
+ *           paths, emails or tokens.
  *   When:   only while the switch is on AND the launch gate is open (main/gate.ts: signed in or guest, setup done or put
  *           off). A tick every TICK_MS reads the switch (prefs.json), queues what is new and sends it in batches
  *           (core.ts Batcher: at most 50 events and 32 KB a request, backoff on failure). A 404 (an older cloud without
  *           the route) drops everything silently and stops for the run.
  *   Off:    the queue is dropped and the crash mark moves to the end of the log, so turning it on later never sends
  *           crashes from before.
- *   State:  userData/telemetry/state.json {installed, onboarding, crashMark}: flags are saved only once sent.
+ *   State:  userData/telemetry/state.json {installed, onboarding, crashMark}. A flag is saved only once the batch
+ *           holding its event was taken (202); a refused batch (400/413/422) or a 404 saves nothing, so the next
+ *           launch tries again. Within a run each once-only event is queued at most once.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { arch } from 'node:os'
@@ -110,9 +113,17 @@ export function createReporter(d: ReporterDeps): Reporter {
       clearTimeout(timer)
     }
   }
-  const batcher = new Batcher({ send, ...d.batcher })
-  /** Flags queued but not sent yet: saved once the queue drains. */
+  /** Flags queued this run but not sent yet: not queued again this run, saved only once the endpoint took them. */
   let pending: State = {}
+  /** A batch was taken (202): remember the once-only events in it, so the next launch does not send them again. */
+  const onSent = (events: TelemetryEvent[]): void => {
+    const installed = events.some((e) => e.name === 'app_installed')
+    const onboarding = events.some((e) => e.name === 'onboarding_done')
+    if (!installed && !onboarding) return
+    state = { ...state, ...(installed ? { installed: true } : {}), ...(onboarding ? { onboarding: true } : {}) }
+    save()
+  }
+  const batcher = new Batcher({ send, onSent, ...d.batcher })
   /** The switch was seen off this run: the next "on" starts the crash feed from there. */
   let sawOff = false
   const lesson = newTrack()
@@ -163,11 +174,6 @@ export function createReporter(d: ReporterDeps): Reporter {
       }
       if (!endpoint()) return // no install token yet: events wait
       await batcher.flush()
-      if (batcher.size === 0 && !batcher.stopped && (pending.installed || pending.onboarding)) {
-        state = { ...state, ...pending }
-        pending = {}
-        save()
-      }
     } finally {
       ticking = false
     }

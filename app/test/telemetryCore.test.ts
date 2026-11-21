@@ -1,5 +1,5 @@
 /**
- * Telemetry core (main/features/telemetry/core.ts): scrubbing, props, the endpoint, the lesson counts and batching.
+ * Telemetry core (main/features/telemetry/core.ts): allowlisted props, the endpoint, crashes, lesson counts, batching.
  * No Electron, no network. Run from app/: node --import tsx --import ./test/setup.mjs --test test/telemetryCore.test.ts
  */
 import assert from 'node:assert/strict'
@@ -9,13 +9,15 @@ import {
   body,
   cleanProps,
   crashEvent,
+  EVENT_NAMES,
+  EVENT_PROPS,
   makeEvent,
   MAX_BYTES,
   MAX_EVENTS,
   newLines,
   newTrack,
+  PROP_KEYS,
   resultFor,
-  scrubCrash,
   telemetryUrl,
   usageEvent,
   type SendResult,
@@ -35,72 +37,76 @@ test('telemetryUrl: the token host plus /v1/events; MIYAGI_TELEMETRY=off turns i
   assert.equal(telemetryUrl(undefined, 'https://u:p@t.example.com'), undefined)
 })
 
-test('scrubCrash: no usernames, paths, URLs, screen text or keys; miyagi bundle files keep their name only', () => {
-  const dev = scrubCrash("TypeError: Cannot read 'x' of undefined at /Users/michael/code/miyagi/app/out/main/index.js:12:5")
-  assert.doesNotMatch(dev, /michael|code\/miyagi|'x'/)
-  assert.match(dev, /app:index\.js:12:5/)
-  const packed = scrubCrash('at file:///Applications/miyagi.app/Contents/Resources/app.asar/out/renderer/assets/index-Ab12.js:3:9')
-  assert.equal(packed, 'at app:index-Ab12.js:3:9')
-  const learner = scrubCrash('ENOENT /Users/michael/thesis/secret_plan.py')
-  assert.doesNotMatch(learner, /michael|thesis|secret_plan/)
-  assert.match(learner, /\[path\]/)
-  const win = scrubCrash('Error at C:\\Users\\adrian\\AppData\\miyagi\\main.js:1')
-  assert.doesNotMatch(win, /adrian|AppData/)
-  const tmp = scrubCrash('ENOENT /private/var/folders/ab/T/miyagi/file.json')
-  assert.equal(tmp, 'ENOENT [path]')
-  const url = scrubCrash('fetch failed https://www.youtube.com/watch?v=abc123 and http://127.0.0.1:8787/ws')
-  assert.doesNotMatch(url, /youtube|abc123|8787/)
-  const screen = scrubCrash('OCR failed on "import secret_project as sp" in “my notes”')
-  assert.doesNotMatch(screen, /secret_project|my notes/)
-  assert.match(screen, /\[text\]/)
-  const keys = scrubCrash('auth sk-ant-api03-abcdefghijklmnop failed for me@example.com token mi_abcdefghijklmnopqrstu')
-  assert.doesNotMatch(keys, /sk-ant-api03|example\.com|mi_abcdef/)
-  assert.doesNotMatch(scrubCrash('a\nb\tc'), /\n|\t/)
-  assert.ok(scrubCrash('x'.repeat(5000)).length <= 300)
+/**
+ * Every prop key the app can send. The cloud keeps a prop only when its EVENT_PROP_KEYS (cloud/app.py) lists it, so a
+ * change here needs the same change there (a Cloud request in app/agents/telemetry.md). This pin makes that visible.
+ */
+const WIRE_PROP_KEYS = ['already', 'app_version', 'arch', 'built_by', 'kind', 'minutes', 'mode', 'os', 'passed', 'reason', 'skipped', 'steps', 'total']
+
+test('prop keys: the full set the app can send is pinned, and every event has its own list', () => {
+  assert.deepEqual([...PROP_KEYS], WIRE_PROP_KEYS)
+  assert.deepEqual(Object.keys(EVENT_PROPS).sort(), [...EVENT_NAMES].sort())
+  assert.deepEqual([...EVENT_PROPS.crash].sort(), ['app_version', 'kind'])
+  for (const k of PROP_KEYS) assert.doesNotMatch(k, /message|text|path|file|url|email|token|title|id$/)
 })
 
-test('cleanProps: only short keys with numbers, booleans and enum-like strings', () => {
+test('cleanProps: only allowlisted keys with numbers, booleans and enum-like strings', () => {
   const p = cleanProps({
     mode: 'video',
     steps: 7,
+    already: true,
     ok: true,
     Bad: 1,
-    query: 'how do I train a neural network on my thesis data',
+    reason: 'how do I train a neural network on my thesis data',
+    kind: 'mi_abcdefghijklmnopqrstu',
+    query: 'x',
     path: '/Users/michael/x.py',
-    tok: 'mi_abcdefghijklmnopqrstu',
-    nan: Number.NaN,
-    obj: { a: 1 },
+    minutes: Number.NaN,
+    total: { a: 1 },
     message: 'Error at /Users/michael/a/b/c.js "secret"'
   })
-  assert.deepEqual(Object.keys(p).sort(), ['message', 'mode', 'ok', 'steps'])
-  assert.doesNotMatch(String(p.message), /michael|secret/)
+  assert.deepEqual(Object.keys(p).sort(), ['already', 'mode', 'steps'])
+  assert.deepEqual(cleanProps({ mode: 'video', steps: 3 }, ['steps']), { steps: 3 })
   assert.deepEqual(cleanProps(null), {})
   assert.deepEqual(cleanProps([1, 2]), {})
   const many = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, i]))
-  assert.equal(Object.keys(cleanProps(many)).length, 12)
+  assert.deepEqual(cleanProps(many, Object.keys(many)), Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`k${i}`, i])))
 })
 
 test('makeEvent: unknown names are dropped; the shape is {name, at, props}', () => {
   assert.equal(makeEvent('screen_text', { a: 1 }), undefined)
-  const e = makeEvent('lesson_built', { mode: 'video' }, new Date('2026-11-21T10:00:00Z'))
-  assert.deepEqual(e, { name: 'lesson_built', at: '2026-11-21T10:00:00.000Z', props: { mode: 'video' } })
+  const e = makeEvent('lesson_built', { mode: 'video', reason: 'quit' }, new Date('2026-11-21T10:00:00Z'))
+  assert.deepEqual(e, { name: 'lesson_built', at: '2026-11-21T10:00:00.000Z', props: { mode: 'video' } }) // reason is not lesson_built's
+  assert.deepEqual(makeEvent('hint_used', { steps: 3 })?.props, {})
 })
 
-test('crash feed: only lines after the mark, each scrubbed into a crash event with the app version', () => {
+test('crash feed: only lines after the mark, each a crash event with its kind and the app version, never the message', () => {
   const log = [
     { at: '2026-11-21T10:00:00.000Z', text: 'main error: old' },
     { at: '2026-11-21T10:05:00.000Z', text: 'window gone: crashed (exit 5)' },
     { at: '2026-11-21T10:06:00.000Z', text: 'renderer error: TypeError at /Users/michael/a/b/c.js' },
+    { at: '2026-11-21T10:07:00.000Z', text: 'GPU process gone: crashed (exit 9)' },
     { bad: true }
   ]
   const fresh = newLines(log, '2026-11-21T10:00:00.000Z')
-  assert.equal(fresh.length, 2)
-  const [a, b] = fresh.map((l) => crashEvent(l, '1.2.3'))
-  assert.equal(a?.props.kind, 'window')
-  assert.equal(a?.props.message, 'crashed (exit 5)')
-  assert.equal(a?.props.app_version, '1.2.3')
-  assert.equal(b?.props.kind, 'renderer_error')
-  assert.doesNotMatch(String(b?.props.message), /michael/)
+  assert.equal(fresh.length, 3)
+  const [a, b, c] = fresh.map((l) => crashEvent(l, '1.2.3'))
+  assert.deepEqual(a?.props, { kind: 'window', app_version: '1.2.3' })
+  assert.deepEqual(b?.props, { kind: 'renderer_error', app_version: '1.2.3' })
+  assert.deepEqual(c?.props, { kind: 'gpu_process', app_version: '1.2.3' })
+  assert.equal(a?.at, '2026-11-21T10:05:00.000Z')
+  // Free text that slipped past every scrubber before: none of it can leave now, whatever the line says.
+  for (const text of [
+    'main error: ENOENT notes/secret_plan.py not found',
+    'renderer error: Unexpected token h in JSON at position 0 hello my name is Michael',
+    'main error: login failed password=hunter2',
+    'hello my name is Michael: and this is my thesis'
+  ]) {
+    const e = crashEvent({ at: '2026-11-21T10:08:00.000Z', text }, '1.2.3')
+    assert.deepEqual(Object.keys(e?.props ?? {}).sort(), ['app_version', 'kind'])
+    assert.doesNotMatch(JSON.stringify(e), /secret_plan|notes|hello|Michael|hunter2|password|thesis/)
+  }
+  assert.equal(crashEvent({ at: 'x', text: 'hello my name is Michael: x' })?.props.kind, 'other')
   assert.equal(newLines('nope', undefined).length, 0)
 })
 
@@ -136,6 +142,8 @@ test('usageEvent: lesson milestones become counts, never titles, ids or text', (
   assert.equal(usageEvent(null, t), undefined)
 
   for (const e of [built, passed, done, quit]) assert.doesNotMatch(JSON.stringify(e), /secret|les_\d|my_secret|\/Users/)
+  // Every key a lesson count carries is on the wire list (and so on the cloud's, per the Cloud request).
+  for (const e of [built, passed, done, quit]) for (const k of Object.keys(e?.props ?? {})) assert.ok(PROP_KEYS.includes(k), k)
 })
 
 test('resultFor: 2xx sent, 404 stops, bad batches drop, everything else retries', () => {
@@ -200,6 +208,16 @@ test('Batcher: a retry keeps the batch and backs off; drop drops it; stop ends t
   assert.equal(b.stopped, true)
   b.push(ev(5))
   assert.equal(b.size, 0)
+})
+
+test('Batcher: onSent sees only batches the endpoint took', async () => {
+  const seen: number[] = []
+  const answers: SendResult[] = ['drop', 'sent']
+  const b = new Batcher({ batch: 1, send: async () => answers.shift() ?? 'sent', onSent: (es) => seen.push(...es.map((e) => Date.parse(e.at))) })
+  b.push(ev(1))
+  b.push(ev(2))
+  assert.equal(await b.flush(), 1)
+  assert.deepEqual(seen, [2])
 })
 
 test('Batcher: a throwing send counts as a retry; the cap drops the oldest; clear empties it', async () => {

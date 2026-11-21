@@ -132,20 +132,40 @@ test('on: the exact contract request, to the token host, with only {events}', as
   assert.equal(calls.length, 1)
 })
 
-test('crashes: only those logged after sharing was turned on, scrubbed', async () => {
+test('crashes: only those logged after sharing was turned on, and only {kind, app_version}', async () => {
   const r = reporter()
   log.push({ at: new Date(Date.now() - 60_000).toISOString(), text: 'main error: before opt-in at /Users/michael/x.js' })
   await r.tick() // off: the mark moves past it
   on = true
   await r.tick() // the switch went on: the feed starts here
-  log.push({ at: new Date(Date.now() + 1000).toISOString(), text: 'renderer error: TypeError for me@example.com at /Users/michael/thesis/a.py "my screen" sk-ant-api03-abcdefghijklmnop' })
+  log.push({ at: new Date(Date.now() + 1000).toISOString(), text: 'renderer error: TypeError for me@example.com at /Users/michael/thesis/a.py "my screen" sk-ant-api03-abcdefghijklmnop notes/secret_plan.py password=hunter2' })
   await r.tick()
   const crashes = calls.flatMap((c) => c.body.events).filter((e) => e.name === 'crash')
   assert.equal(crashes.length, 1)
   const text = JSON.stringify(crashes[0])
-  assert.doesNotMatch(text, /before opt-in|michael|example\.com|thesis|my screen|sk-ant/)
+  assert.doesNotMatch(text, /before opt-in|michael|example\.com|thesis|my screen|sk-ant|secret_plan|hunter2|TypeError/)
+  assert.deepEqual(Object.keys(crashes[0].props).sort(), ['app_version', 'kind'])
   assert.equal(crashes[0].props.kind, 'renderer_error')
   assert.equal(crashes[0].props.app_version, '1.2.3')
+})
+
+test('a refused batch (400) saves no once-only flag: the next launch sends app_installed again', async () => {
+  on = true
+  status = 400
+  const r = reporter()
+  await r.tick()
+  assert.equal(calls.length, 1)
+  assert.equal(r.queued, 0) // dropped, not retried
+  await r.tick()
+  assert.equal(calls.length, 1) // not queued again this run
+  status = 202
+  const next = reporter()
+  await next.tick()
+  assert.equal(calls.length, 2)
+  assert.deepEqual(calls[1].body.events.map((e) => e.name).sort(), ['app_installed', 'onboarding_done'])
+  const third = reporter()
+  await third.tick()
+  assert.equal(calls.length, 2) // taken (202): saved, never sent again
 })
 
 test('404 from an older cloud: dropped silently and nothing more is sent this run', async () => {

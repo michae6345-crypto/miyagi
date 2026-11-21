@@ -9,8 +9,9 @@
  *   Never screen text, code, file paths, emails or tokens.
  *
  *   telemetryUrl(off, cloudHost)   where events go: <miyagi-cloud>/v1/events (the host that minted the install token)
- *   scrubCrash(text)               an error line made safe to send: keys, emails, URLs, paths and quoted text out
- *   cleanProps(props)              only short keys with numbers, booleans or short enum-like strings
+ *   EVENT_PROPS / PROP_KEYS        the only prop keys each event may carry (the cloud's EVENT_PROP_KEYS must keep them)
+ *   cleanProps(props, keys)        only allowlisted keys with numbers, booleans or short enum-like strings
+ *   crashEvent(line)               an error-log line → {kind, app_version}: the message itself never leaves the Mac
  *   usageEvent(msg, track)         an engine event the app already receives → a lesson count (never its text)
  *   Batcher                        a capped queue, sent in batches that fit the contract, retried with backoff
  *
@@ -32,6 +33,24 @@ export const EVENT_NAMES = [
 ] as const
 export type EventName = (typeof EVENT_NAMES)[number]
 const NAMES = new Set<string>(EVENT_NAMES)
+
+/**
+ * The only prop keys each event may carry; makeEvent drops every other key. The cloud keeps a prop only when its key
+ * is in its EVENT_PROP_KEYS (cloud/app.py), so a key added here needs a Cloud request (app/agents/telemetry.md).
+ */
+export const EVENT_PROPS: Readonly<Record<EventName, readonly string[]>> = {
+  app_installed: ['app_version', 'os', 'arch'],
+  onboarding_done: [],
+  lesson_built: ['steps', 'built_by', 'mode'],
+  step_passed: ['already'],
+  step_failed_check: [],
+  hint_used: [],
+  lesson_completed: ['passed', 'skipped', 'total', 'minutes'],
+  lesson_abandoned: ['reason'],
+  crash: ['kind', 'app_version']
+}
+/** Every prop key the app can send, sorted. */
+export const PROP_KEYS: readonly string[] = [...new Set(Object.values(EVENT_PROPS).flat())].sort()
 
 export type Props = Record<string, string | number | boolean>
 export type TelemetryEvent = { name: EventName; at: string; props: Props }
@@ -68,54 +87,23 @@ export function telemetryUrl(off: string | undefined, cloudHost: string | undefi
   return cloudHost ? cleanUrl(`${cloudHost.replace(/\/+$/, '').replace(/\/v1$/, '')}/v1/events`) : undefined
 }
 
-/** The longest crash line sent. */
-export const MAX_CRASH = 300
-
-/** A URL of any scheme (file:// is handled first, as a path). */
-const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>()]+/gi
-/** A path: two or more /- or \-separated parts, optionally from ~ or a drive letter. */
-const PATH = /(?:~|\b[A-Za-z]:)?(?:[\\/][^\\/\s:()[\]"'`]+){2,}/g
-/** Where miyagi's own bundled code lives (packaged app.asar, or electron-vite's out/ in a dev copy). */
-const OWN_CODE = /app\.asar|[\\/]out[\\/](?:main|preload|renderer)[\\/]/
-const JS_FILE = /^[\w.-]+\.(?:js|mjs|cjs)$/
-
-/** A path → `app:<file>.js` when it is miyagi's own bundled script, else `[path]` (never a learner's file name). */
-function pathToken(p: string): string {
-  const base = p.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
-  return OWN_CODE.test(p) && JS_FILE.test(base) ? `app:${base}` : '[path]'
-}
-
-/**
- * An error line, safe to send. scrub() takes keys, tokens, emails and home folders; then anything quoted is dropped
- * (quoted text in an error is usually data: what was on screen, a file's contents, a typed query), URLs go, and every
- * path goes too: only miyagi's own bundled script keeps its file name (`app:index.js:12:5`) so a crash can be found.
- */
-export function scrubCrash(text: string): string {
-  let s = scrub(String(text ?? '').replace(/\s+/g, ' ').trim(), 4 * MAX_CRASH)
-  s = s.replace(/"[^"]*"|'[^']*'|`[^`]*`|“[^”]*”|‘[^’]*’/g, '[text]')
-  s = s.replace(/\bfile:\/\/\/?(?:[A-Za-z]:)?([^\s"'`<>():]+)/gi, (_m, p: string) => pathToken(p))
-  s = s.replace(URL_RE, '[url]')
-  s = s.replace(PATH, (m) => pathToken(m))
-  // scrub() turned home folders into ~: a lone ~ left over says nothing.
-  s = s.replace(/~(?=[\s:]|$)/g, '[path]')
-  return s.length > MAX_CRASH ? `${s.slice(0, MAX_CRASH - 1)}…` : s
-}
-
 const KEY = /^[a-z][a-z0-9_]{0,31}$/
 /** Enum-like values only (a reason, a mode, a version): never sentences, never paths. */
 const WORD = /^[A-Za-z0-9_.-]{1,40}$/
 const MAX_PROPS = 12
 
-/** Keep only short snake_case keys whose values are finite numbers, booleans, or short enum-like strings. */
-export function cleanProps(raw: unknown, crashKeys: readonly string[] = ['message']): Props {
+/**
+ * Keep only allowlisted short snake_case keys whose values are finite numbers, booleans, or short enum-like strings.
+ * There is no free-text prop: a message, a query or a path is never sent, whatever key it comes under.
+ */
+export function cleanProps(raw: unknown, keys: readonly string[] = PROP_KEYS): Props {
   const out: Props = {}
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (Object.keys(out).length >= MAX_PROPS) break
-    if (!KEY.test(k)) continue
+    if (!KEY.test(k) || !keys.includes(k)) continue
     if (typeof v === 'boolean') out[k] = v
     else if (typeof v === 'number' && Number.isFinite(v)) out[k] = Math.round(v * 1e6) / 1e6
-    else if (typeof v === 'string' && crashKeys.includes(k)) out[k] = scrubCrash(v)
     else if (typeof v === 'string' && WORD.test(v.trim())) {
       const w = scrub(v.trim(), 40)
       if (!w.includes('[')) out[k] = w // a token or key-shaped word is dropped, not sent as a placeholder
@@ -126,7 +114,7 @@ export function cleanProps(raw: unknown, crashKeys: readonly string[] = ['messag
 
 export function makeEvent(name: string, props?: unknown, now: Date = new Date()): TelemetryEvent | undefined {
   if (!NAMES.has(name)) return undefined
-  return { name: name as EventName, at: now.toISOString(), props: cleanProps(props) }
+  return { name: name as EventName, at: now.toISOString(), props: cleanProps(props, EVENT_PROPS[name as EventName]) }
 }
 
 /** The request body the contract expects, and its size in bytes. */
@@ -151,6 +139,8 @@ export function resultFor(status: number): SendResult {
 export type BatcherOptions = {
   /** Sends one batch. */
   send: (events: TelemetryEvent[]) => Promise<SendResult>
+  /** Called with each batch the endpoint took ('sent'), never with a dropped one. */
+  onSent?: (events: TelemetryEvent[]) => void
   /** Events per request (at most MAX_EVENTS). */
   batch?: number
   /** Bytes per request body (at most MAX_BYTES). */
@@ -175,7 +165,7 @@ export class Batcher {
   private failures = 0
   private notBefore = 0
   private halted = false
-  private readonly o: Required<Omit<BatcherOptions, 'send'>> & Pick<BatcherOptions, 'send'>
+  private readonly o: Required<Omit<BatcherOptions, 'send' | 'onSent'>> & Pick<BatcherOptions, 'send' | 'onSent'>
 
   constructor(opts: BatcherOptions) {
     this.o = { batch: 25, maxBytes: MAX_BYTES, cap: 200, backoffMs: 30_000, maxBackoffMs: 30 * 60_000, now: Date.now, ...opts }
@@ -248,7 +238,14 @@ export class Batcher {
         this.failures = 0
         this.notBefore = 0
         this.shift(batch)
-        if (r === 'sent') sent += batch.length
+        if (r === 'sent') {
+          sent += batch.length
+          try {
+            this.o.onSent?.(batch)
+          } catch {
+            // a caller's bookkeeping never stops the queue
+          }
+        }
       }
     } finally {
       this.busy = false
@@ -259,6 +256,9 @@ export class Batcher {
 
 export type LogLine = { at: string; text: string }
 
+/** The prefixes main/features/errors.ts writes: window gone, <type> process gone, main error, renderer error. */
+const CRASH_KIND = /^(?:window|main_error|renderer_error|[a-z_]{1,24}_process)$/
+
 /** errors.json lines written after `since` (ISO), oldest first. Bad rows are skipped. */
 export function newLines(log: unknown, since: string | undefined): LogLine[] {
   if (!Array.isArray(log)) return []
@@ -268,12 +268,17 @@ export function newLines(log: unknown, since: string | undefined): LogLine[] {
     .filter((l) => (Date.parse(l.at) || 0) > t0)
 }
 
-/** One errors.json line → a crash event: its kind (the text before the first colon) and the scrubbed message. */
+/**
+ * One errors.json line → a crash event: only its kind (window, gpu_process, main_error, renderer_error; any other
+ * prefix is `other`) and the app version. The message stays in the local error log: free text can carry a learner's file name, typed text
+ * or a key=value secret that no scrubber catches reliably, and the cloud drops it anyway.
+ */
 export function crashEvent(line: LogLine, appVersion?: string): TelemetryEvent | undefined {
-  const m = /^([a-z][a-z ]{0,30}?)(?: gone)?:\s*(.*)$/i.exec(line.text)
-  const kind = (m?.[1] ?? 'error').trim().toLowerCase().replace(/\s+/g, '_').slice(0, 32)
+  const m = /^([a-z][a-z ]{0,30}?)(?: gone)?:/i.exec(line.text)
+  const word = (m?.[1] ?? '').trim().toLowerCase().replace(/\s+/g, '_')
+  const kind = CRASH_KIND.test(word) ? word : 'other'
   const at = Number.isFinite(Date.parse(line.at)) ? new Date(Date.parse(line.at)) : new Date()
-  return makeEvent('crash', { kind, message: m?.[2] ?? line.text, ...(appVersion ? { app_version: appVersion } : {}) }, at)
+  return makeEvent('crash', { kind, ...(appVersion ? { app_version: appVersion } : {}) }, at)
 }
 
 /** What the app remembers about the lesson in progress, in memory only (the lesson id is never sent). */
