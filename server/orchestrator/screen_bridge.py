@@ -11,6 +11,7 @@ import asyncio
 import importlib
 import logging
 import os
+import sys
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -54,6 +55,11 @@ class ScreenBridge:
     def start(self, on_obs: Callable[[Any], Awaitable[None]], loop: asyncio.AbstractEventLoop | None = None) -> bool:
         """`loop`: the engine's loop, when this runs in a worker thread (Engine.start does, so the port opens first)."""
         if not self.enabled:
+            return False
+        if sys.platform != "darwin" and not os.environ.get("TUT_SCREEN_FIXTURE"):
+            # The reader captures with ScreenCaptureKit / screencapture and reads with Apple Vision: macOS only. Started
+            # elsewhere (Windows) it logged a "No module named 'objc'" traceback every second while a step ran.
+            log.warning("screen reader unavailable (macOS only, this is %s); running without screen", sys.platform)
             return False
         try:
             mod = importlib.import_module("server.screen")
