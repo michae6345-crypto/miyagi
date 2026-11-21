@@ -17,9 +17,11 @@ import { HARD_CAP_MS } from '../../../../main/pttProtocol'
 import { active, PTT_REST, type PttState } from '../../../../common/pttState'
 import { bridge, isElectron } from '../../bridge'
 import { onUi } from '../../core/bus'
+import { gateIsOpen, onGateOpen } from '../../core/gate'
 import { notify, useLesson } from '../../core/lesson'
 import { usePrefs } from '../../core/prefs'
 import { sendAction } from '../../core/shortcuts'
+import { shouldShowInputCard } from './inputCard'
 import { routeFor, type Routed } from './route'
 
 export type PttCard = 'mic' | 'mic-denied' | 'input'
@@ -67,6 +69,17 @@ function openCard(card: PttCard): void {
   set({ card })
 }
 
+/**
+ * Input Monitoring is off while push to talk is on: with no key listener a hold can never reach the helper, so the card
+ * cannot wait for one. Once per run, with the same explicit Allow button, and never before the launch gate is open
+ * (first-run setup is not over yet): it is asked again when the gate opens and when the pref changes.
+ */
+function maybeInputCard(): void {
+  if (!shouldShowInputCard({ shown: inputCardShown, inputDenied: get().ptt.perms.input === 'denied', enabled: usePrefs.getState().ptt.enabled, gateOpen: gateIsOpen() })) return
+  inputCardShown = true
+  openCard('input')
+}
+
 /** A new PttState from main (or the stage's mock helper). */
 export function receive(next: PttState): void {
   const prev = get().ptt
@@ -95,12 +108,7 @@ export function receive(next: PttState): void {
     else if (next.code === 'no_stt') notify("Speech isn't ready on this Mac.")
     else if (next.code === 'assets_missing') notify('Speech files are still downloading.')
   }
-  // Input Monitoring is off while push to talk is on: with no key listener a hold can never reach the helper, so the
-  // card cannot wait for one. It shows once per run, with the same explicit Allow button.
-  if (!inputCardShown && next.perms.input === 'denied' && prev.perms.input !== 'denied' && usePrefs.getState().ptt.enabled) {
-    inputCardShown = true
-    openCard('input')
-  }
+  maybeInputCard()
   // Listening starts: the card has done its job.
   if (live) closeCard()
 }
@@ -126,7 +134,9 @@ useLesson.subscribe((s) => {
 // The learner's pref (Settings > General) reaches the helper through main.
 usePrefs.subscribe((s, p) => {
   if (s.ptt.enabled !== p.ptt.enabled || s.ptt.chord !== p.ptt.chord) bridge.invoke('ptt:config', s.ptt).catch(() => undefined)
+  if (s.ptt.enabled && !p.ptt.enabled) maybeInputCard()
 })
+onGateOpen(maybeInputCard)
 
 // ---- the words ----
 
