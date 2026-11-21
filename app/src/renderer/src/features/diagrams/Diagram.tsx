@@ -12,7 +12,7 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Waypoints } from 'lucide-react'
-import { actionTone, color, fill } from '../../core/theme'
+import { actionTone, brand, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
 import { useDiagram, type DiagramPayload } from './store'
 import { Graph } from './Graph'
@@ -241,7 +241,7 @@ function Gradients({ data }: { data: Record<string, unknown> }): ReactNode {
   const y = (v: number): number => pad.t + ((hi - v) / (hi - lo || 1)) * (H - pad.t - pad.b)
   // The highlighted layers (data.highlight, default the first two) in sky; the rest neutral. Amber only means off track.
   const hot = (data.highlight as number[]) ?? [0, 1]
-  const tone = (i: number): string => (hot.includes(i) ? actionTone.diagram : i < 3 ? color.label : color.text)
+  const tone = (i: number): string => (hot.includes(i) ? brand.pastel.sky : i < 3 ? color.label : color.text)
   return (
     <svg width={W} height={H} className="mx-auto block overflow-visible">
       <line x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} stroke={color.hairline} />
