@@ -53,6 +53,8 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
+/** Bumped on every close request and open: a stale close watchdog never hides a newer open. */
+let launcherGen = 0
 /** When the launcher last opened (ms): a second press of the key inside LAUNCHER_DOUBLE_MS is the same press twice, not a close. */
 let launcherOpenedAt = 0
 const LAUNCHER_DOUBLE_MS = 400
@@ -61,7 +63,7 @@ let launcherOrigin: BrowserWindow | undefined
 /** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
 let basePillTop = 0
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
-let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
+let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
@@ -262,6 +264,7 @@ function openLauncher(): void {
   const front = BrowserWindow.getFocusedWindow()
   launcherOrigin = front && front !== overlay && front !== launcher && !front.isDestroyed() ? front : undefined
   launcherOpen = true
+  launcherGen++
   launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
@@ -282,7 +285,14 @@ function openLauncher(): void {
 }
 
 function closeLauncher(): void {
-  if (launcherOpen) send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  if (!launcherOpen) return
+  send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  // Watchdog: the launcher renderer is hung or gone and never says launcher:hidden: the island must not stay invisible.
+  // (Only if it is still the same open: a quick reopen has a newer generation.)
+  const gen = ++launcherGen
+  setTimeout(() => {
+    if (launcherOpen && gen === launcherGen && !launcher.isDestroyed()) hideLauncher()
+  }, 2500)
 }
 
 /** When blurs kept the launcher open (loop guard: an app that keeps grabbing focus wins after a few tries). */
@@ -547,12 +557,30 @@ app.whenReady().then(async () => {
       }
     }, 150)
   }
-  screen.on('display-metrics-changed', refit)
-  screen.on('display-added', refit)
-  screen.on('display-removed', refit)
+  // Every way the island can be left half-open by the system: collapse it to rest (core/Island.tsx collapseAll).
+  const collapseIsland = (): void => send(overlay, 'island:collapse')
+  overlay.webContents.on('responsive', collapseIsland)
+  screen.on('display-metrics-changed', () => {
+    collapseIsland()
+    refit()
+  })
+  screen.on('display-added', () => {
+    collapseIsland()
+    refit()
+  })
+  screen.on('display-removed', () => {
+    collapseIsland()
+    refit()
+  })
   // Wake and unlock: macOS can drop the panels' level and the renderer's frames; re-raise and re-send the layout.
-  powerMonitor.on('resume', refit)
-  powerMonitor.on('unlock-screen', refit)
+  powerMonitor.on('resume', () => {
+    collapseIsland()
+    refit()
+  })
+  powerMonitor.on('unlock-screen', () => {
+    collapseIsland()
+    refit()
+  })
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.

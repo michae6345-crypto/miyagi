@@ -12,6 +12,7 @@ import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
 import { onUi } from './bus'
+import { NO_ACTION, resolveMode, reportedBox, WATCHDOG_TICK_MS, WATCH_REST, watchdogStep } from './islandState'
 import { offDock, useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
@@ -57,7 +58,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const wanted = islandModes.map((m) => m.useActive(hover))
   // Open without the pointer on it: a hover peek must stay under the pointer, so only these cards move (islandPlace.ts).
   const held = islandModes.map((m) => m.useActive(false))
-  const at = wanted.indexOf(true)
+  const at = resolveMode(wanted)
   const mode = at < 0 ? undefined : islandModes[at]
   /** The active mode's layer shows nothing (or its Boundary fell back): the island is the pill, not a card-wide bar. */
   const [layerEmpty, setLayerEmpty] = useState(false)
@@ -77,6 +78,23 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     }
   }
 
+  // The one idempotent way back to rest: hover, pointer and press holds cleared, timers cancelled, the size re-derived
+  // from the live layer (a pill-sized or absent mode snaps its size state to the pill; the spring carries the shape, so
+  // an interrupted morph is never left half-way and the window itself is never resized). Safe to call at any time, any
+  // number of times: it only ever sets rest values. Called by the watchdog, a disconnect, sleep/wake, a display change,
+  // the window going hidden or losing focus, and main's 'island:collapse'.
+  const collapseAll = (): void => {
+    clearTimeout(hoverTimer.current)
+    clearTimeout(pressTimer.current)
+    leaving.current = false
+    setHover(false)
+    setPointerIn(false)
+    setPressHold(false)
+    setEpoch((n) => n + 1)
+  }
+  const collapseRef = useRef(collapseAll)
+  collapseRef.current = collapseAll
+
   // The launcher just shrank onto our exact pixels: appear at its size, then spring to ours.
   useEffect(() => {
     const offs = [
@@ -92,7 +110,9 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       bridge.on('launcher:closed', () => setYielded(false)),
       // Any other surface born from the island (settings…): same hand-over.
       bridge.on('island:yield', () => setYielded(true)),
-      bridge.on('island:return', () => setYielded(false))
+      bridge.on('island:return', () => setYielded(false)),
+      // Main: wake from sleep, unlock, a display change, a hung overlay renderer.
+      bridge.on('island:collapse', () => collapseRef.current())
     ]
     return () => offs.forEach((off) => off())
   }, [])
@@ -108,11 +128,15 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   /** The first real measurement is in: until then the island is invisible and snaps (no 120 px pill springing wider at launch). */
   const [sized, setSized] = useState(false)
   const pillW = useRef(PILL_FALLBACK.w)
+  /** Bumped by collapseAll: re-runs the measurement so the size is re-derived from what is actually mounted. */
+  const [epoch, setEpoch] = useState(0)
   const modeId = mode?.id
   const fixed = mode?.width
   useLayoutEffect(() => {
+    // No mode owns the island: it is at rest, not at the last card's size (the watchdog's reset lands here too).
+    if (!modeId) return void setSize((s) => (s.w === pillW.current && s.h === PILL_FALLBACK.h ? s : { w: pillW.current, h: PILL_FALLBACK.h }))
     const root = islandEl.current
-    if (!root || !modeId) return
+    if (!root) return
     let ro: ResizeObserver | undefined
     let raf = 0
     let tries = 0
@@ -139,7 +163,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       cancelAnimationFrame(raf)
       ro?.disconnect()
     }
-  }, [modeId, fixed, layerEmpty])
+  }, [modeId, fixed, layerEmpty, epoch])
 
   // An open card steps off the spotlight's hole, the coach's and its own targets (Michael's desktop test 3, item 3) and
   // out of the engine's avoid rects (screen.avoid: VS Code's quick-pick, test 9, A3), decided as it opens and then held
@@ -159,8 +183,9 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).
   useEffect(() => {
-    if (!landing) bridge.emit('island:size', { w: size.w, h: size.h, dx: offset.x, dy: offset.y })
-  }, [size, landing, offset.x, offset.y])
+    // `shown` false = nothing is drawn (no mode, or the launcher has it): main's click poll must not grab a ghost box.
+    if (!landing) bridge.emit('island:size', reportedBox(!!modeId && !yielded, size, offset.x, offset.y))
+  }, [size, landing, offset.x, offset.y, modeId, yielded])
   // v2: the same box for in-window readers (useIslandBox).
   useEffect(() => {
     const next: IslandBox = { x: Math.round((layout.width - size.w) / 2 + offset.x), y: Math.round(top + offset.y), w: size.w, h: size.h, mode: modeId, pill: isPill, visible: !!modeId && !yielded }
@@ -238,6 +263,56 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hover])
+
+  // Safety net (core/islandState.ts): an extended size with no card mode claiming it, or a hover card whose pointer is
+  // gone or has been still for a long time, collapses on its own. The snapshot ref keeps one interval for the island's life.
+  const lastActivity = useRef(Date.now())
+  const snap = useRef({ mode, size, hover, pointerIn })
+  snap.current = { mode, size, hover, pointerIn }
+  useEffect(() => {
+    const bump = (): void => void (lastActivity.current = Date.now())
+    window.addEventListener('mousemove', bump)
+    window.addEventListener('pointerdown', bump)
+    let state = WATCH_REST
+    const id = setInterval(() => {
+      const r = watchdogStep(state, { ...snap.current, lastActivity: lastActivity.current, now: Date.now() })
+      state = r.state
+      if (r.action !== NO_ACTION) {
+        if (r.action.clearHover) {
+          clearTimeout(hoverTimer.current)
+          setHover(false)
+        }
+        if (r.action.resetSize) collapseRef.current()
+      }
+    }, WATCHDOG_TICK_MS)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('mousemove', bump)
+      window.removeEventListener('pointerdown', bump)
+    }
+  }, [])
+  // The engine dropped: whatever the pointer was doing, the island starts over from rest (stores drop their own cards).
+  const connected = useLesson((s) => s.connected)
+  const wasConnected = useRef(connected)
+  useEffect(() => {
+    if (wasConnected.current && !connected) collapseRef.current()
+    wasConnected.current = connected
+  }, [connected])
+  // The display changed, or the page came back from hidden (sleep, a Space or full-screen switch): rAF springs may have
+  // stalled mid-morph, so re-derive from rest.
+  const firstLayout = useRef(true)
+  useEffect(() => {
+    // Not on mount: the island is already at rest, and a needless remeasure would churn its first morph.
+    if (firstLayout.current) return void (firstLayout.current = false)
+    collapseRef.current()
+  }, [layout.width, layout.height])
+  useEffect(() => {
+    const visible = (): void => {
+      if (document.visibilityState === 'visible') collapseRef.current()
+    }
+    document.addEventListener('visibilitychange', visible)
+    return () => document.removeEventListener('visibilitychange', visible)
+  }, [])
 
   if (!mode) return null
   const { Content } = mode

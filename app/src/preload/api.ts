@@ -30,6 +30,8 @@ export type UiSignal =
   | 'video:intent'
   | 'island:yield'
   | 'island:return'
+  /** main -> overlay: wake, unlock, display change or a hung renderer: the island collapses to rest (core/Island.tsx). */
+  | 'island:collapse'
   | 'shortcut'
   | 'overlay:interactive'
   | 'layout'
