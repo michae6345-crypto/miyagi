@@ -29,31 +29,6 @@ export function Rise({ i, children, className = '' }: { i: number; children: Rea
 }
 
 /**
- * A topic suggestion chip: always a quiet neutral chip. Topics are not options, so they never take the action pastels
- * (Michael's audit A18). A topic is only the "what": a click puts it in the field, and the two ways to learn it come
- * up with the default highlighted (review A18: a topic click no longer starts a video search at once).
- * Colors are inline because they animate on hover.
- */
-export function Chip({ icon: I, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }): ReactNode {
-  return (
-    <motion.button
-      type="button"
-      tabIndex={-1}
-      className="flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] pr-[13px] text-[13px]"
-      style={{ backgroundColor: fill.chip, borderColor: fill.chipBorder, color: fill.chipText }}
-      whileHover={{ backgroundColor: fill.chipHover, color: color.text }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.12 }}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-    >
-      <I size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.faint }} />
-      {label}
-    </motion.button>
-  )
-}
-
-/**
  * How the learner wants to learn the topic they typed (Michael, "two ways to learn"), plus "Demo": the staged
  * neural-net lesson for any topic (learn {mode:"demo"}, the engine's stage.py), for presenting.
  */

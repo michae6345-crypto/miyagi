@@ -776,7 +776,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     settings: 'Settings',
     resume: 'Continue',
     ask: 'Ask',
-    build: 'Build lesson',
+    // A link that is already a cached lesson builds nothing: Enter starts it (library.start).
+    build: linkMatch ? 'Start lesson' : 'Build lesson',
     teach: HOW_LABEL.lesson,
     // The one exception to "the chip's own name" (#121): a bare "Demo" button doesn't say what Enter does.
     demo: 'Start demo',

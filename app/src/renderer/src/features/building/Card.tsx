@@ -6,7 +6,7 @@
  *              library lesson; "From YouTube" / "From your goal" / "From your library", the title, channel and length
  *   phases     Watching the video · Finding the steps · Writing the checks · Ready to start (lesson.building phases).
  *              done = a white tick in a faint ring (white, never green: nothing has passed yet), active = the gray
- *              ring with a gray dot (decision 5: never a spinner), next = a faint empty ring. Details on the right.
+ *              ring with a still gray dot (decision 5: never a spinner; only a check in flight moves), next = a faint empty ring. Details on the right.
  *              No phases (a stage alone): one active row with the stage's message.
  *   meter      a white line at lesson.building progress, "Usually a few minutes. Only built once." and about how long
  *              is left (etaS). Never invents a number: no etaS, no time.
@@ -14,7 +14,7 @@
  *
  * Island card: black like every card born from the pill; neutral fills only (core/theme.ts), no hue anywhere.
  */
-import { motion, useReducedMotion } from 'motion/react'
+import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { BookOpen, Check, Play } from 'lucide-react'
@@ -169,7 +169,6 @@ function PhaseRow({ phase, last }: { phase: Phase; last: boolean }): ReactNode {
 
 /** 24 px. done: white tick in a faint ring (never green). active: the gray ring and dot. next: a faint ring. */
 function PhaseGlyph({ state }: { state: Phase['state'] }): ReactNode {
-  const reduce = useReducedMotion()
   if (state === 'done')
     return (
       <span className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-full" style={{ boxShadow: `inset 0 0 0 1px ${fill.ring}`, color: color.text }}>
@@ -179,13 +178,7 @@ function PhaseGlyph({ state }: { state: Phase['state'] }): ReactNode {
   if (state === 'active')
     return (
       <span className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-full" style={{ boxShadow: `inset 0 0 0 2px ${status.watching}` }}>
-        <motion.span
-          className="h-[8px] w-[8px] rounded-full"
-          style={{ background: status.watching }}
-          initial={false}
-          animate={reduce ? { opacity: 1 } : { opacity: [1, 0.45, 1] }}
-          transition={reduce ? undefined : { duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-        />
+        <span className="h-[8px] w-[8px] rounded-full" style={{ background: status.watching }} />
       </span>
     )
   return <span className="h-[24px] w-[24px] shrink-0 rounded-full" style={{ boxShadow: `inset 0 0 0 1px ${fill.ring}` }} />
