@@ -20,13 +20,29 @@
  *                                   a GPU reset on a transparent macOS window can leave a stale or black frame while
  *                                   the renderer lives.
  *
- * Core logs render-process-gone in dev only; this adds the recovery, in every build. No core files touched.
+ * Core logs render-process-gone in dev only; this adds the recovery, in every build.
+ *
+ * ROADMAP 1.4, reconnect and recovery (a lost socket, an engine crash or a Mac that slept never leaves dead UI):
+ *   engine crash          the engine this app started dies while running → localEngine.ts asks the respawn policy and
+ *                         starts it again after 0.5 s, 2 s, 5 s (respawn.ts: at most 3 in 3 minutes; then it reports
+ *                         the failure and the learner gets Retry). Meanwhile the link holds its failures, so the
+ *                         surfaces stay on "reconnecting" instead of the offline card.
+ *   engine hung           ours, alive, but the link has been down 30 s (respawn.ts HUNG_MS) while awake → restart it
+ *                         (same budget; the clock starts when the link goes down, not on each failed retry). respawn.ts
+ *                         superviseEngine, tested offline in test/reconnect.test.ts (with a real link too).
+ *   Mac sleep / unlock    index.ts calls engine.wake() (probe an open socket, redial a closed one); here a sleep only
+ *                         pauses the hung verdict.
+ *   lost socket           engine.ts + heartbeat.ts: protocol pings, a late tick after a sleep probes instead of dropping.
+ *   the session           nothing to send: on every connect the engine sends its snapshot. RunGuard (freshStart.ts)
+ *                         keeps filtering it across every reconnect and respawn: only this run's lesson comes back.
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac by killing a
  * Miyagi renderer ("Miyagi Helper (Renderer)") in Activity Monitor: the window should come back within a second.
  */
-import { app, BrowserWindow, type WebContents } from 'electron'
-import { defineMainFeature } from '../context'
+import { app, BrowserWindow, powerMonitor, type WebContents } from 'electron'
+import { defineMainFeature, type MainContext } from '../context'
+import { localEngineChildAlive, localEngineState, restartLocalEngine, setRespawnPolicy } from '../localEngine'
+import { superviseEngine } from '../respawn'
 
 const PER_MS = 60_000
 const MAX_RELOADS = 3
@@ -115,9 +131,23 @@ function watchLoads(win: BrowserWindow): void {
   })
 }
 
+/** The engine side of recovery (see the header). */
+function recoverEngine(ctx: MainContext): void {
+  const watch = superviseEngine({
+    connected: () => ctx.engine.connected,
+    onStatus: (fn) => ctx.engine.onStatus(fn),
+    ownEngineAlive: () => localEngineState() === 'running' && localEngineChildAlive(),
+    restart: () => void restartLocalEngine(),
+    setPolicy: setRespawnPolicy
+  })
+  powerMonitor.on('suspend', () => watch.suspend())
+  powerMonitor.on('resume', () => watch.resume())
+}
+
 export default defineMainFeature({
   id: 'recover',
-  setup() {
+  setup(ctx) {
+    recoverEngine(ctx)
     app.on('render-process-gone', (_e, wc, details) => {
       if (details.reason === 'clean-exit') return
       if (!BrowserWindow.fromWebContents(wc)) return // only our own windows

@@ -452,6 +452,17 @@ const restsIdle = (g: RunGuard, e: Incoming): boolean => (g.filter(e)?.payload a
   l.command(cmd('learn', { query: 'x' }))
   l.admit(ready('a'))
   ok(l.admit(thinking) && l.admit(watching), "run's lesson: thinking and watching pass as sent")
+  // Lane reconnect: a respawned engine replays another save's lesson. The run's lesson is gone from the engine, so the
+  // other lesson's steps, checks and cards stay out, as at launch; a later replay of the run's own id is a new start.
+  const r = new RunGuard()
+  r.command(cmd('learn', { query: 'x' }))
+  r.admit(ready('mine'))
+  r.connected()
+  ok(!r.admit(replayOf('old')), "respawn: another lesson's replay is dropped")
+  ok(r.state().lessonId === undefined, "respawn: the run's lesson is no longer the engine's")
+  ok(!r.admit(ev('step.started', { stepId: 's2', index: 1, title: 'Two', instructions: '' })), "respawn: the other lesson's step stays out")
+  ok(!r.admit(ev('card', { kind: 'resume', title: 'Continue?', body: '', actions: [] })), "respawn: and its resume card")
+  ok(pill(r, [watching]).state === 'idle', "respawn: and its watching rests the pill")
 }
 
 // ---- 2. EngineLink against a fake engine on loopback -----------------------------------------------------------------

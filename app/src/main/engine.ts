@@ -31,6 +31,13 @@ export const SLOW_RETRY_MAX_MS = 5000
 export const HANDSHAKE_TIMEOUT_MS = 4000
 
 /**
+ * Timings, for tests only: heartbeatMs (ping interval), deadMs (silence that drops the socket), probeMs (the wake
+ * probe) and handshakeMs (an attempt nobody answers). Everywhere else main/heartbeat.ts's PING_MS, DEAD_MS and
+ * PROBE_MS, and HANDSHAKE_TIMEOUT_MS.
+ */
+export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number; handshakeMs?: number }
+
+/**
  * Where the socket is, for the pill (review A16: never say "can't reach" before an attempt has actually failed).
  * failures: attempts that failed since the link was last open; 0 while the first attempt (startup, right after a
  * drop) is still in flight.
@@ -91,12 +98,17 @@ export class EngineLink {
   private warnedInsecure = false
   /** Fresh start (main/freshStart.ts): only a lesson started or chosen in this app run reaches the windows. */
   private readonly run: RunGuard
+  /** Heartbeat timings (tests pass shorter ones; undefined = heartbeat.ts defaults). */
+  private readonly timings: LinkTimings
+  /** Main is starting the engine itself (localEngine: checking / installing / starting / a respawn): refused attempts are expected. */
+  private held = false
 
   /**
    * `token` (v2): the per-launch engine token (localEngine ENGINE_TOKEN). Given here, not later, because the first
    * WebSocket attempt starts inside this constructor and must already carry X-Miyagi-Token.
    */
-  constructor(private url: string, demoScenario?: string, token?: string) {
+  constructor(private url: string, demoScenario?: string, token?: string, timings: LinkTimings = {}) {
+    this.timings = timings
     this.token = token || undefined
     this.secure = secureEngineUrl(url)
     // MIYAGI_REPLAY_ON_CONNECT=1 (dev only: `npm run dev:all`): the mock plays a lesson on every connect, on purpose.
@@ -130,7 +142,26 @@ export class EngineLink {
   }
 
   link(): LinkInfo {
-    return { open: this.connected, attempting: !this.demo && this.ws?.readyState === WebSocket.CONNECTING, failures: this.demo ? 0 : this.failures }
+    return { open: this.connected, attempting: !this.demo && this.ws?.readyState === WebSocket.CONNECTING, failures: this.demo || this.held ? 0 : this.failures }
+  }
+
+  /**
+   * Main is (re)starting the engine itself (localEngine.ts: checking, installing, starting, a respawn after a crash).
+   * While held, a refused attempt is expected and not counted, so the pill stays on its calm "reconnecting" line and
+   * never reaches the offline card (Retry only after a real failure: main says when the start failed). Fast retries
+   * start over, so the new engine is picked up within about a second of it listening.
+   */
+  holdFailures(on: boolean): void {
+    if (on === this.held) return
+    this.held = on
+    if (on) {
+      this.failures = 0
+      this.downSince = Date.now()
+      this.slow = 0
+      // A slow retry already waiting (up to SLOW_RETRY_MAX_MS) starts over on the fast one.
+      if (!this.demo && !this.connected && this.timer && this.ws?.readyState !== WebSocket.CONNECTING) this.schedule()
+    }
+    this.emitLink()
   }
 
   /**
@@ -255,7 +286,7 @@ export class EngineLink {
     let ws: WebSocket
     const header = this.token && this.allowSecrets() ? { headers: { [TOKEN_HEADER]: this.token } } : {}
     try {
-      ws = new WebSocket(this.url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS, ...header })
+      ws = new WebSocket(this.url, { handshakeTimeout: this.timings.handshakeMs ?? HANDSHAKE_TIMEOUT_MS, ...header })
     } catch {
       // A malformed ENGINE_URL: count it as a failed attempt and keep the retry loop (never throw out of main).
       this.failures++
@@ -286,13 +317,18 @@ export class EngineLink {
         },
         // Nothing came back: terminate() makes 'close' fire at once, which sets connected=false (every window drops its
         // thinking / building state) and starts the fast reconnect.
-        dead: () => ws.terminate()
-      })
+        dead: () => {
+          console.warn('[engine] no answer from the engine; dropping the socket and reconnecting')
+          ws.terminate()
+        }
+      }, this.timings.heartbeatMs, this.timings.deadMs, this.timings.probeMs)
       this.beat.start()
       for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
     })
-    ws.on('pong', () => this.beat?.alive())
+    ws.on('pong', () => {
+      if (this.ws === ws) this.beat?.alive()
+    })
     ws.on('message', (data) => {
       if (this.ws !== ws) return
       this.beat?.alive()
@@ -310,7 +346,7 @@ export class EngineLink {
         // A drop: a fresh outage, so fast retries again. Not a failed attempt yet (the pill waits for one).
         this.downSince = Date.now()
         this.slow = 0
-      } else this.failures++
+      } else if (!this.held) this.failures++
       this.setConnected(false)
       this.schedule()
     })

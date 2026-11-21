@@ -71,6 +71,8 @@ export const ENGINE_FAILED_LINE = "miyagi couldn't start its engine."
 
 /** No answer this long after the app started the engine, or after launch when the app doesn't manage one. */
 const START_TIMEOUT_MS = 60_000
+/** A Restart sends SIGTERM; still alive this long after (as in reclaimOwnLeftover), it gets SIGKILL. */
+const KILL_AFTER_MS = 5000
 const UNMANAGED_TIMEOUT_MS = 12_000
 
 /** Michael's installer (docs/INSTALL.md), for a Mac where the app carries no engine. */
@@ -199,6 +201,27 @@ export function localEngineState(): LocalEngineState {
 }
 
 /**
+ * ROADMAP 1.4 (features/recover.ts sets these). The engine this app started died while it was running (a crash, not a
+ * quit or a Restart): how long to wait before starting it again, or undefined to give up and report the failure (the
+ * learner then gets Retry). Without a policy a crash is reported at once, as before.
+ */
+export type RespawnPolicy = (why: string) => number | undefined
+let respawnPolicy: RespawnPolicy | undefined
+export function setRespawnPolicy(policy: RespawnPolicy | undefined): void {
+  respawnPolicy = policy
+}
+/** The same restart the Engine offline card's Restart runs (feat:engine-local:restart), for main-side recovery. */
+let restartRef: () => { ok: boolean; state: LocalEngineState } = () => ({ ok: false, state: current.state })
+export function restartLocalEngine(): { ok: boolean; state: LocalEngineState } {
+  return restartRef()
+}
+/** Is the engine process this app started alive right now (not one in Terminal)? */
+let ownChildAlive = (): boolean => false
+export function localEngineChildAlive(): boolean {
+  return ownChildAlive()
+}
+
+/**
  * v2 (W0-5): a per-launch engine token. 32 random bytes, made once per app launch, kept in memory only: passed to the
  * engine this app starts in its environment (MIYAGI_ENGINE_TOKEN, never on a command line) and sent back by the link
  * as a header, so a page in a browser or another local process can't drive the engine (the engine checks it, E2).
@@ -303,6 +326,12 @@ export type LocalEngineDeps = {
   holder: (port: number) => Promise<string>
   pollMs: number
   platform: string
+  /** process.kill: tests pass a fake, so they never signal a real pid. */
+  kill: (pid: number, signal: NodeJS.Signals) => void
+  /** A Restart's SIGTERM unanswered this long (a hung uvicorn ignores it): SIGKILL the group. */
+  killAfterMs: number
+  /** Started (or restarted) and no answer this long: failed, with Retry. */
+  startTimeoutMs: number
 }
 
 /** Keys, tokens and secrets never leave in "Copy details", even if the engine printed one. */
@@ -339,7 +368,17 @@ export function setupLocalEngine(
   trusted: (e: IpcMainInvokeEvent) => boolean,
   deps: Partial<LocalEngineDeps> = {}
 ): () => void {
-  const d: LocalEngineDeps = { listening, spawn, holder: portHolder, pollMs: HELD_POLL_MS, platform: process.platform, ...deps }
+  const d: LocalEngineDeps = {
+    listening,
+    spawn,
+    holder: portHolder,
+    pollMs: HELD_POLL_MS,
+    platform: process.platform,
+    kill: (pid, signal) => void process.kill(pid, signal),
+    killAfterMs: KILL_AFTER_MS,
+    startTimeoutMs: START_TIMEOUT_MS,
+    ...deps
+  }
   const packaged = app.isPackaged
   let status: LocalEngineStatus = { state: 'off' }
   let child: ChildProcess | undefined
@@ -350,6 +389,8 @@ export function setupLocalEngine(
   const set = (next: LocalEngineStatus): void => {
     status = next
     current = next
+    // While main brings the engine up itself, refused connects are expected: the pill stays calm (engine.ts).
+    engine.holdFailures(next.state === 'checking' || next.state === 'installing' || next.state === 'starting')
     broadcast('engine-local', status)
   }
   // Every connect carries the token (index.ts also passes it to the EngineLink constructor, so the very first attempt
@@ -375,6 +416,7 @@ export function setupLocalEngine(
    */
   let restart: () => { ok: boolean; state: LocalEngineState } = () => ({ ok: false, state: status.state })
   ipcMain.handle('feat:engine-local:restart', (e) => (trusted(e) ? restart() : { ok: false, state: status.state }))
+  restartRef = () => restart()
 
   // The companion works whether or not this app manages the engine (an engine in Terminal still talks to it).
   setupCompanion(broadcast, trusted)
@@ -488,6 +530,11 @@ export function setupLocalEngine(
   const env: NodeJS.ProcessEnv = { ...process.env, MIYAGI_HOME: home, PATH: fixedPath(home), MIYAGI_ENGINE_TOKEN: ENGINE_TOKEN }
   /** Which way start() runs the engine; boot() decides. */
   let runtime: 'bundled' | 'launcher' = 'launcher'
+  /** A respawn waiting to start (ROADMAP 1.4). */
+  let respawnTimer: ReturnType<typeof setTimeout> | undefined
+  /** A Restart's SIGKILL, waiting in case the engine ignores SIGTERM (a hung uvicorn never acts on it). */
+  let forceKill: ReturnType<typeof setTimeout> | undefined
+  ownChildAlive = () => !!child && !child.killed && child.exitCode === null
 
   /** Step 2 (packaged): an engine this app didn't start holds the port; boot() waits for it to go. */
   let held: ReturnType<typeof setTimeout> | undefined
@@ -696,8 +743,8 @@ export function setupLocalEngine(
     if (slow) clearTimeout(slow)
     slow = setTimeout(() => {
       slow = undefined
-      if (!engine.connected && child && status.state === 'starting') fail(`the engine started (pid ${child.pid}) but didn't answer on port ${port} within ${START_TIMEOUT_MS / 1000} s`, { runtime })
-    }, START_TIMEOUT_MS)
+      if (!engine.connected && child && status.state === 'starting') fail(`the engine started (pid ${child.pid}) but didn't answer on port ${port} within ${d.startTimeoutMs / 1000} s`, { runtime })
+    }, d.startTimeoutMs)
   }
 
   const start = (): void => {
@@ -716,6 +763,8 @@ export function setupLocalEngine(
     })
     child.on('exit', (code, signal) => {
       const wasRunning = status.state === 'running'
+      clearTimeout(forceKill)
+      forceKill = undefined
       child = undefined
       forgetPid()
       if (stopping) return set({ state: 'off' })
@@ -724,6 +773,19 @@ export function setupLocalEngine(
         return start()
       }
       const why = code === null ? `stopped by ${signal ?? 'a signal'}` : `exited with code ${code}`
+      // ROADMAP 1.4: a crash mid-run starts it again (features/recover.ts decides how soon, and when to give up). The
+      // surfaces keep the calm "miyagi is reconnecting"; the lesson comes back on reconnect (the engine's snapshot).
+      const delay = wasRunning ? respawnPolicy?.(why) : undefined
+      if (delay !== undefined) {
+        note(`the engine ${why} while running; starting it again in ${delay} ms`)
+        set({ state: 'starting', runtime })
+        clearTimeout(respawnTimer)
+        respawnTimer = setTimeout(() => {
+          respawnTimer = undefined
+          if (!stopping && !child) start()
+        }, delay)
+        return
+      }
       if (wasRunning) return fail(`the engine ${why} while running (its own output is above in this log)`, { line: 'The engine stopped.', runtime })
       // exit 1 right away can be "port already in use" (someone else's engine is up, the link will find it), or a
       // Python error on start. Only the port can tell them apart.
@@ -737,22 +799,46 @@ export function setupLocalEngine(
     })
   }
 
-  const killGroup = (c: ChildProcess): void => {
+  const killGroup = (c: ChildProcess, sig: NodeJS.Signals = 'SIGTERM'): void => {
     if (c.pid === undefined) return
     try {
-      process.kill(-c.pid, 'SIGTERM')
+      d.kill(-c.pid, sig)
     } catch {
-      c.kill('SIGTERM')
+      try {
+        c.kill(sig)
+      } catch {
+        // Already gone.
+      }
     }
   }
 
   restart = () => {
     if (status.state === 'external') return { ok: false, state: 'external' }
     if (child && !child.killed) {
-      if (restarting) return { ok: true, state: status.state }
+      // A restart already under way waits for its exit; one that failed (the engine never stopped) may try again.
+      if (restarting && status.state !== 'failed') return { ok: true, state: status.state }
+      const again = restarting
       restarting = true
       set({ state: 'starting', line: 'Restarting the engine', runtime })
-      killGroup(child)
+      const target = child
+      killGroup(target, again ? 'SIGKILL' : 'SIGTERM')
+      // A hung engine ignores SIGTERM: SIGKILL its group if it is still the same process after killAfterMs.
+      clearTimeout(forceKill)
+      forceKill = setTimeout(() => {
+        forceKill = undefined
+        if (child !== target || stopping) return
+        note(`the engine (pid ${target.pid}) ignored SIGTERM for ${d.killAfterMs / 1000} s; sending SIGKILL`)
+        killGroup(target, 'SIGKILL')
+      }, d.killAfterMs)
+      // And a restart that never comes back ends in failed, with Retry (never "starting" forever).
+      watchStart()
+      return { ok: true, state: 'starting' }
+    }
+    if (respawnTimer) {
+      // Retry while a respawn waits: start it now.
+      clearTimeout(respawnTimer)
+      respawnTimer = undefined
+      start()
       return { ok: true, state: 'starting' }
     }
     if (status.state === 'checking' || status.state === 'installing' || status.state === 'starting') return { ok: true, state: status.state }
@@ -837,9 +923,18 @@ export function setupLocalEngine(
     // sockets; the whole group, in case the launcher didn't `exec` into Python.
     if (slow) clearTimeout(slow)
     stopHolding()
-    if (!child || child.killed || child.pid === undefined) return
+    // Quitting: a respawn waiting to start never starts (and an exit from here on is ours, not a crash).
     stopping = true
-    killGroup(child)
+    // A respawn was waiting (no process right now): it never starts, and the state ends in off.
+    const waiting = respawnTimer !== undefined
+    clearTimeout(respawnTimer)
+    respawnTimer = undefined
+    if (waiting && !child) set({ state: 'off' })
+    clearTimeout(forceKill)
+    forceKill = undefined
+    if (!child || child.killed || child.pid === undefined) return
+    // A Restart under way already sent SIGTERM and it is still alive: it ignores SIGTERM, so SIGKILL.
+    killGroup(child, restarting ? 'SIGKILL' : 'SIGTERM')
     // Electron exits before the child's 'exit' handler runs, so forget the pid now: a stale file would name a pid
     // the OS can later hand to someone else's process.
     forgetPid()
