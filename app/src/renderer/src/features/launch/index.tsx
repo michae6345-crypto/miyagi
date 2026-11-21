@@ -6,21 +6,29 @@
  *     open, Settings opens instead, so a right-click is never dead. This replaced the gear that was glued to the
  *     pill's right edge (it covered the status dot on Michael's Mac). Pill-sized only: cards keep their own clicks.
  *   - feat:launch:open from main (the menu bar item, the pill menu), sent to the overlay window only: 'launcher' opens
- *     the launcher, 'settings' grows Settings out of the pill.
+ *     the launcher, 'settings' grows Settings out of the pill. Both are ignored while the sign-in gate is closed.
  * Browser stage: web.ts stands in for main and draws the menu in the page (StageMenu).
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
+import { gateIsOpen } from '../../core/gate'
 import { useIslandBox } from '../../core/Island'
 import { defineFeature } from '../../core/registry'
 import { openSettings } from '../../core/surfaces'
 import { StageMenu } from './StageMenu'
 import './web'
 
-bridge.onFeature('launch:open', (what) => {
+/**
+ * feat:launch:open from main (tray 'Start a lesson', 'Settings…'). Ignored while the sign-in gate is closed
+ * (core/gate.ts, lane overlay-gate): the launcher opens no lesson, and Settings no window, before sign-in.
+ */
+export function onLaunchOpen(what: unknown): void {
+  if (!gateIsOpen()) return
   if (what === 'launcher') bridge.emit('launcher:toggle')
   else if (what === 'settings') void openSettings()
-})
+}
+
+bridge.onFeature('launch:open', onLaunchOpen)
 
 /** Air between the pill's bottom edge and the menu. */
 const MENU_GAP = 6

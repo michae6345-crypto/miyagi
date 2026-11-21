@@ -11,7 +11,11 @@
  *   known   main answered at least once (or a broadcast arrived)
  *
  * Compatibility: a main that answers onboarding:get without a `gate` field predates the gate, so the gate reads OPEN
- * (this lane merges alone). A main with no onboarding:get handler at all reads open too after RETRIES tries.
+ * (this lane merges alone). A main with no onboarding:get handler at all (Electron's "No handler registered for
+ * 'feat:onboarding:get'", RETRIES times, RETRY_MS apart) reads open too.
+ * Any other failure (main's handler threw: a bad onboarding.json, an error in its sign-in check) is not an older main:
+ * the gate stays closed and the ask repeats with a capped backoff (RETRY_MS doubling up to MAX_RETRY_MS) until main
+ * answers or a feat:onboarding:gate broadcast arrives. Only main ever opens the gate.
  */
 import { useSyncExternalStore } from 'react'
 import { create } from 'zustand'
@@ -21,9 +25,20 @@ export type GateState = { open: boolean; known: boolean }
 
 export const useGate = create<GateState>(() => ({ open: false, known: false }))
 
-/** How long to wait before asking again when onboarding:get fails (a handler not registered yet). */
-const RETRY_MS = 1000
-const RETRIES = 3
+/** A missing onboarding:get handler (an older main, or main still starting): ask again this often, this many times. */
+export const RETRY_MS = 1000
+export const RETRIES = 3
+/** Any other failure: ask again after RETRY_MS, doubling, never longer than this. The gate stays closed meanwhile. */
+export const MAX_RETRY_MS = 15000
+
+/** Electron's rejection when main registered no handler for the channel: the one failure that reads as an older main. */
+const NO_HANDLER = /No handler registered for 'feat:onboarding:get'/
+
+/** True when an onboarding:get rejection means main has no handler for it (and nothing else). */
+export function isNoHandler(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
+  return NO_HANDLER.test(text)
+}
 
 /** True for the gate part of an onboarding:get answer: no `gate` field = an older main (open); else gate.open === true. */
 export function gateFromAnswer(answer: unknown): boolean {
@@ -45,8 +60,12 @@ function apply(open: boolean): void {
 /** A broadcast is newer than any answer still in flight: once one arrives, a late answer never overrides it. */
 let heard = false
 let started = false
+/** Rejections so far: "No handler registered" ones (they open the gate at RETRIES), and every other kind. */
+let noHandler = 0
+let failed = 0
 
-function ask(tries: number): void {
+function ask(): void {
+  if (heard) return // a broadcast already said where the gate is: stop asking
   let p: Promise<unknown>
   try {
     p = bridge.invoke<unknown>('onboarding:get')
@@ -57,10 +76,17 @@ function ask(tries: number): void {
     (answer) => {
       if (!heard) apply(gateFromAnswer(answer))
     },
-    () => {
+    (err: unknown) => {
       if (heard) return
-      if (tries + 1 < RETRIES) setTimeout(() => ask(tries + 1), RETRY_MS)
-      else apply(true) // no handler: a main from before onboarding:get never blocks the overlay
+      if (isNoHandler(err)) {
+        noHandler += 1
+        if (noHandler >= RETRIES) return apply(true) // a main from before onboarding:get never blocks the overlay
+        setTimeout(ask, RETRY_MS)
+        return
+      }
+      // main has the handler and it failed: never a reason to open. Stay closed and ask again, a little later each time.
+      setTimeout(ask, Math.min(RETRY_MS * 2 ** failed, MAX_RETRY_MS))
+      failed += 1
     }
   )
 }
@@ -73,7 +99,7 @@ export function startGate(): void {
     heard = true
     apply(gateFromBroadcast(payload))
   })
-  setTimeout(() => ask(0), 0)
+  setTimeout(ask, 0)
 }
 
 export const gateIsOpen = (): boolean => useGate.getState().open
