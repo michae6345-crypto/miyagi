@@ -1,0 +1,58 @@
+{
+  "name": "onboarding",
+  "on": {
+    "connect": "step_onb_full",
+    "library.get:onb_full": "step_onb_full",
+    "library.get:onb_mixed": "step_onb_full",
+    "library.get:onb_ready": "step_onb_ready",
+    "library.get:onb_recovery": "step_onb_recovery",
+    "health.get@step_onb_full": "onb_health_mixed",
+    "health.get@step_onb_installed": "onb_health_ok",
+    "health.get@step_onb_ready": "onb_health_ok",
+    "health.get@step_onb_recovery": "onb_health_ok",
+    "action:install@step_onb_full": "step_onb_installed",
+    "library.list@step_onb_installed": "onb_library",
+    "library.list@step_onb_ready": "onb_library",
+    "library.start:onb_mnist": "step_onb_first",
+    "permission.open@step_onb_recovery": "onb_recovery_resume"
+  },
+  "segments": {
+    "step_onb_full": [
+      { "wait": 30, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"] } },
+      { "wait": 20, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 50, "goto": "onb_health_mixed" }
+    ],
+    "step_onb_ready": [
+      { "wait": 150, "goto": "onb_health_ok" }
+    ],
+    "step_onb_installed": [
+      { "wait": 0, "type": "health", "payload": { "ready": 3, "total": 4, "items": [ { "id": "engine", "label": "miyagi engine", "state": "ok" }, { "id": "vscode", "label": "VS Code", "state": "ok", "detail": "1.96" }, { "id": "python", "label": "Python", "state": "ok", "detail": "3.11.6" }, { "id": "companion", "label": "VS Code companion", "state": "checking" } ] } },
+      { "wait": 1800, "goto": "onb_health_ok" }
+    ],
+    "onb_health_mixed": [
+      { "wait": 100, "type": "health", "payload": { "ready": 3, "total": 4, "items": [ { "id": "engine", "label": "miyagi engine", "state": "ok" }, { "id": "vscode", "label": "VS Code", "state": "ok", "detail": "1.96" }, { "id": "python", "label": "Python", "state": "ok", "detail": "3.11.6" }, { "id": "companion", "label": "VS Code companion", "state": "missing", "fix": "install" } ] } }
+    ],
+    "onb_health_ok": [
+      { "wait": 100, "type": "health", "payload": { "ready": 4, "total": 4, "items": [ { "id": "engine", "label": "miyagi engine", "state": "ok" }, { "id": "vscode", "label": "VS Code", "state": "ok", "detail": "1.96" }, { "id": "python", "label": "Python", "state": "ok", "detail": "3.11.6" }, { "id": "companion", "label": "VS Code companion", "state": "ok" } ] } }
+    ],
+    "onb_library": [
+      { "wait": 150, "type": "library", "payload": { "items": [ { "id": "onb_mnist", "title": "Code your first neural network with TensorFlow", "by": "[CREATOR NAME]", "steps": 6, "estMinutes": 25, "tools": ["jupyter", "vscode"], "ready": true } ] } }
+    ],
+    "step_onb_first": [
+      { "wait": 200, "type": "lesson.ready", "payload": { "lesson": { "id": "onb-mnist", "title": "Code your first neural network with TensorFlow", "sources": [], "mode": "lesson", "builtBy": "curated", "outline": { "count": 6, "steps": [ { "index": 0, "title": "Load the data" }, { "index": 1, "title": "Normalize the pixels" }, { "index": 2, "title": "Build the model" }, { "index": 3, "title": "Compile it" }, { "index": 4, "title": "Train it" }, { "index": 5, "title": "Check the accuracy" } ] } }, "steps": [ { "id": "onb-1", "index": 0, "title": "Load the data", "kind": "code" } ] } },
+      { "wait": 150, "type": "step.started", "payload": { "stepId": "onb-1", "index": 0, "title": "Load the data", "instructions": "Load the MNIST digits into four arrays.", "kind": "code", "where": "Type this in the first cell", "code": "import tensorflow as tf\n(x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()", "then": "Then run it with the arrow beside the cell." } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching", "detail": "Watching your notebook" } }
+    ],
+    "step_onb_recovery": [
+      { "wait": 100, "type": "lesson.ready", "payload": { "lesson": { "id": "onb-recovery", "title": "Code your first neural network with TensorFlow", "sources": [], "mode": "lesson", "builtBy": "curated", "outline": { "count": 6, "steps": [ { "index": 0, "title": "Load the data" }, { "index": 1, "title": "Normalize the pixels" }, { "index": 2, "title": "Build the model" }, { "index": 3, "title": "Compile it" }, { "index": 4, "title": "Train it" }, { "index": 5, "title": "Check the accuracy" } ] } }, "steps": [ { "id": "onbr-1", "index": 0, "title": "Load the data", "kind": "code" }, { "id": "onbr-2", "index": 1, "title": "Normalize the pixels", "kind": "code" }, { "id": "onbr-3", "index": 2, "title": "Build the model", "kind": "code" } ] } },
+      { "wait": 100, "type": "step.passed", "payload": { "stepId": "onbr-1", "nextStepId": "onbr-2", "already": true } },
+      { "wait": 50, "type": "step.passed", "payload": { "stepId": "onbr-2", "nextStepId": "onbr-3", "already": true } },
+      { "wait": 50, "type": "step.started", "payload": { "stepId": "onbr-3", "index": 2, "title": "Build the model", "instructions": "Stack a Flatten layer and a Dense layer.", "kind": "code", "where": "Type this in the new cell", "code": "model = tf.keras.models.Sequential([\n    tf.keras.layers.Flatten(input_shape=(28, 28)),\n    tf.keras.layers.Dense(128, activation='relu'),\n])", "then": "Then run it with the arrow beside the cell." } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching", "detail": "Watching your notebook" } },
+      { "wait": 1200, "type": "lesson.paused", "payload": { "reason": "permission", "title": "Accessibility was turned off", "stepId": "onbr-3" } }
+    ],
+    "onb_recovery_resume": [
+      { "wait": 2700, "type": "lesson.resumed", "payload": { "reason": "permission", "stepId": "onbr-3" } }
+    ]
+  }
+}
