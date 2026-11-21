@@ -28,8 +28,16 @@ export type PermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown
 export type Permissions = Record<PermissionKind, PermissionState> & { external: boolean; at: number }
 /** main/features/cloud.ts CloudView: what a renderer may see (never the token). */
 export type CloudView = { state: 'off' | 'minting' | 'ok' | 'failed'; configured: boolean; secure: boolean; hasToken: boolean }
-/** The window's two first views: the two-pane first run (Onb-Setup-Full) or the compact checklist (Onb-Checklist-Mixed). */
-export type OnbView = 'welcome' | 'checklist'
+/**
+ * What the window was opened for (window args `view`):
+ *   intro      the first launch: the branded intro, then guided setup (main/features/onboarding.ts)
+ *   setup      guided setup without the intro (a relaunch mid-setup, a reopen before setup is done)
+ *   welcome    the old first-run name: same as intro (or setup once the intro has been seen)
+ *   checklist  Review setup: the compact checklist (Settings, home, a later run)
+ */
+export type OnbView = 'intro' | 'setup' | 'welcome' | 'checklist'
+/** The guided steps (steps.ts STEP_ORDER). */
+export type GuidedStepId = 'screen' | 'accessibility' | 'companion' | 'engine'
 /** What a row's button does. The component maps each to a handler below. */
 export type RowAction = 'allow-screen' | 'open-accessibility' | 'relaunch' | 'install-companion' | 'get-vscode' | 'retry-engine' | 'retry-cloud'
 export type Asked = Partial<Record<'screen' | 'accessibility' | 'companion', number>>
@@ -46,6 +54,14 @@ type State = {
   installing: boolean
   /** onboarding.json done flag (main/features/onboarding.ts). */
   done: boolean
+  /** onboarding.json introSeen: the branded intro plays once per Mac, not again after a relaunch mid-setup. */
+  introSeen: boolean
+  /** onboarding:get answered (until then the window doesn't know which view to open with). */
+  loaded: boolean
+  /** The guided step on screen (the stage's fixtures read it; nothing else does). */
+  step?: GuidedStepId
+  /** Guided steps the learner skipped for now (the companion, when VS Code isn't on this Mac). */
+  skippedSteps: GuidedStepId[]
   /** A cached lesson the engine offers for the first run (library answer). Only then does Ready show a lesson card. */
   suggestion?: LibraryItem
   recovery?: Recovery
@@ -53,7 +69,7 @@ type State = {
   skipped: RecoveryKind[]
 }
 
-export const useOnboarding = create<State>(() => ({ asked: {}, installing: false, done: false, skipped: [] }))
+export const useOnboarding = create<State>(() => ({ asked: {}, installing: false, done: false, introSeen: false, loaded: false, skipped: [], skippedSteps: [] }))
 const set = useOnboarding.setState
 const get = useOnboarding.getState
 
@@ -158,9 +174,9 @@ export function requestSuggestion(): void {
 }
 
 bridge
-  .invoke<{ done?: boolean }>('onboarding:get')
-  .then((r) => r && set({ done: r.done === true }))
-  .catch(() => undefined)
+  .invoke<{ done?: boolean; introSeen?: boolean }>('onboarding:get')
+  .then((r) => set({ done: r?.done === true, introSeen: r?.introSeen === true, loaded: true }))
+  .catch(() => set({ loaded: true }))
 refreshCloud()
 
 // ---- the row buttons (every prompt or System Settings pane opens only here, on a click) ----------------------------
@@ -229,6 +245,24 @@ export async function runAction(a: RowAction, item?: HealthItem): Promise<void> 
         .catch(() => undefined)
       return
   }
+}
+
+// ---- the guided walk ----------------------------------------------------------------------------------------------
+
+/** The intro played (or was skipped): it won't play again on this Mac. */
+export function markIntroSeen(): void {
+  if (get().introSeen) return
+  set({ introSeen: true })
+  bridge.invoke('onboarding:intro-seen').catch(() => undefined)
+}
+
+export function setGuidedStep(step: GuidedStepId | undefined): void {
+  if (get().step !== step) set({ step })
+}
+
+/** "Skip for now" (the companion without VS Code): the walk moves on; the checklist still shows it as Not yet. */
+export function skipStep(step: GuidedStepId): void {
+  set((s) => ({ skippedSteps: [...s.skippedSteps.filter((k) => k !== step), step] }))
 }
 
 // ---- finishing -----------------------------------------------------------------------------------------------------
