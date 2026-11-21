@@ -27,13 +27,17 @@ Onb-Setup-Ready ("miyagi engine" and "VS Code companion" rows, A3) and Err-VSCod
   version **and sha256** (arm64 and x64 constants in the script; a mismatch stops the build). Packages from
   `server/pyproject.toml` installed with `uv pip install --target python/lib/python3.12/site-packages
   --python-platform <triple> --only-binary :all: -r pyproject.toml` (dependencies only; the source runs from
-  `PYTHONPATH`). Pruned: `PyObjCTest`, every `tests`/`test` folder in site-packages, `psycopg_binary`, site-packages
+  `~/miyagi/engine/src`, the cwd of `python3 -m`). Pruned: `PyObjCTest`, every `tests`/`test` folder in site-packages, `psycopg_binary`, site-packages
   `bin/`, stdlib `test`/`idlelib`/`turtledemo`. `ensurepip` and `venv` stay (lesson `.venv`s). Then everything is
   precompiled with `compileall -f --invalidation-mode unchecked-hash`, so Python never writes inside the signed app
   (`-f`: starting the interpreter for the arch probe and for uv leaves timestamp `.pyc`s that compileall would
   otherwise skip; electron-builder drops mtimes, so those would be stale in miyagi.app and a lesson `.venv` started
   without `PYTHONDONTWRITEBYTECODE` would rewrite them and break the signature). The probe and uv also run with
   `-B` / `PYTHONDONTWRITEBYTECODE=1`. The build stops if any `.pyc` under `python/` is still timestamp-based.
+- When this machine can't run the target Python (`MIYAGI_PY_ARCH=x64` on Apple silicon without Rosetta) the build
+  stops: no precompile and no import check means a lesson `.venv` would write `.pyc`s inside the signed app.
+  `--allow-unchecked` lets it finish with `PYTHON.json` `precompiled: false`, and localEngine.ts never starts a
+  Python whose `PYTHON.json` doesn't say `precompiled: true`.
 - Import check with the bundled Python, keys empty: the packages (fastapi, uvicorn, anthropic, google.genai,
   Quartz, Vision, ScreenCaptureKit, ...) and `import server.orchestrator.main`. A failure stops the build.
 - `vscode/miyagi.companion-<ver>.vsix` + `companion.json`: packed with plain `zip` like PR #66's
@@ -41,8 +45,8 @@ Onb-Setup-Ready ("miyagi engine" and "VS Code companion" rows, A3) and Err-VSCod
 - `VERSION`, `PYTHON.json` (version, arch, sha256, package count, and `freeze`: every installed package as
   `name==version` from its `.dist-info/METADATA`, so each build records exactly what shipped), and `install.sh`
   (fallback only, `--no-python`).
-- Flags: `--dry-run` (prints every step, downloads and writes nothing), `--no-python` (old layout), `--offline`
-  (uv cache only). Env: `MIYAGI_ENGINE_REF`, `MIYAGI_PY_ARCH=arm64|x64` (default arm64), `MIYAGI_BUNDLE_CACHE`
+- Flags: `--dry-run` (prints every step, downloads and writes nothing, and skips `git fetch`: it reads the refs this
+  clone already has), `--no-python` (old layout), `--offline` (uv cache only), `--allow-unchecked` (see above). Env: `MIYAGI_ENGINE_REF`, `MIYAGI_PY_ARCH=arm64|x64` (default arm64), `MIYAGI_BUNDLE_CACHE`
   (archive cache, default `~/.cache/miyagi-bundle`), `MIYAGI_INSTALL_REF`.
 
 **`electron-builder.yml`**: `build/engine` → `Resources/engine` (minus `vscode/`), `build/engine/vscode` →
@@ -52,14 +56,19 @@ to `files`; checked in app-builder-lib 26.18.0).
 **`src/main/localEngine.ts`**, start-up order:
 1. something listens on the port → `external` (unchanged);
 2. the user's own install (launcher, no `BUNDLED` marker) → start the launcher (unchanged: never replaced);
-3. **new:** bundled Python present and runnable on this Mac (`PYTHON.json` `arch`: arm64 needs Apple silicon; x64
-   runs on Intel, or on Apple silicon only with Rosetta; no readable arch → not used, reason in engine.log) → copy `Resources/engine/src` to `~/miyagi/engine/src` once per bundled version
-   (async; the current `src/demo/cache`, and a `src.old` left by a run that stopped mid-swap, are merged into
-   `src.new` before the swap, so the learner's cache is never only in a folder about to be deleted), write `BUNDLED`,
-   then spawn
-   `Resources/engine/python/bin/python3 -m server.orchestrator.main --host 127.0.0.1 --port <port>` in its own
-   process group, cwd `~/miyagi/engine/src`, env `PYTHONPATH=src`, `PYTHONNOUSERSITE=1`,
-   `PYTHONDONTWRITEBYTECODE=1`, `MIYAGI_BUNDLED_PYTHON`, the launcher's defaults (`ENGINE_HOST=127.0.0.1`,
+3. **new:** bundled Python present and runnable on this Mac (`PYTHON.json` `precompiled: true` and `arch`: arm64
+   needs Apple silicon; x64 runs on Intel, or on Apple silicon only with Rosetta; no readable arch, or not
+   precompiled → not used, reason in engine.log) → copy `Resources/engine/src` to `~/miyagi/engine/src` once per bundled version
+   (async; what the engine writes into its own tree, `src/demo/cache` (lessons, searches, transcripts) and
+   `src/demo/runs` (recorder runs, the backups made before "Do it for me"), from the current `src` and from a
+   `src.old` left by a run that stopped mid-swap, is merged into `src.new` before the swap with `force: false`, so
+   it is never only in a folder about to be deleted), write `BUNDLED`, then spawn
+   `Resources/engine/python/bin/python3 -s -B -m server.orchestrator.main --host 127.0.0.1 --port <port>` in its own
+   process group, cwd `~/miyagi/engine/src` (`-m` puts the cwd first on `sys.path`; `-s` no user site-packages; `-B`
+   no `.pyc`). No `PYTHONPATH`, `PYTHONNOUSERSITE`, `PYTHONDONTWRITEBYTECODE` or `PYTHON` in the env: the engine
+   passes its env to `code <folder>` (workspace/editor.py) and to "Run it for me" commands, and VS Code's terminals
+   and kernels must keep the user's own Python setup. Env: `PYTHONUNBUFFERED=1`, `MIYAGI_BUNDLED_PYTHON`, the
+   launcher's defaults (`ENGINE_HOST=127.0.0.1`,
    `ORCH_SCREEN`, `ORCH_OPEN_WORKSPACE`, `ORCH_AUTOSTART=0`, `LESSON_ENGINE=claude`, `MIYAGI_EDITOR=vscode`,
    `TUT_ENV`), the per-launch `MIYAGI_ENGINE_TOKEN`; `PYTHONHOME`/`VIRTUAL_ENV` stripped. stdout/stderr go to
    `~/miyagi/engine/logs/engine.log` like the launcher's;
@@ -87,6 +96,10 @@ to `files`; checked in app-builder-lib 26.18.0).
   the companion."); the rows' real copy belongs to A3/A2.
 
 ## Checks run
+Fix round 2:
+- `npm run typecheck`: green.
+- `node --check scripts/bundle-engine.mjs`: parses. `--dry-run`: prints "would run: git fetch" and runs none, every other step as before.
+
 Fix round 1:
 - `npm run typecheck`: green.
 - Full bundle run (arm64, packages from uv's cache): every `.pyc` under `build/engine/python` is unchecked-hash
