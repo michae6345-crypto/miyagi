@@ -433,7 +433,7 @@ async function bundlePython() {
   run(python, ['-I', '-m', 'compileall', '-q', '-j', '0', '--invalidation-mode', 'checked-hash', ...srcDirs], { env: pyEnv, stdio: ['ignore', 'ignore', 'inherit'] })
 
   // The import check: the packages, then the engine itself with no keys (no network, no model calls on import).
-  const noKeys = { ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '', BRIGHTDATA_API_KEY: '', TIGER_DATABASE_URL: '', ELEVENLABS_API_KEY: '' }
+  const noKeys = { ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '', TIGER_DATABASE_URL: '', ELEVENLABS_API_KEY: '' }
   const checkEnv = { ...pyEnv, ...noKeys, PYTHONDONTWRITEBYTECODE: '1' }
   try {
     execFileSync(python, ['-I', '-B', '-c', SMOKE], { env: checkEnv, stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 })

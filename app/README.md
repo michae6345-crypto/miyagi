@@ -76,7 +76,7 @@ That's a deliberate change from "one small BrowserWindow per surface": the spec'
 | **Voice** | ⌥V | → `action {kind:"voice_toggle"}` · ← `speak {audioUrl,text}` | Plays the audio while voice is on; equalizer on the Voice button | ✅ (untested with real ElevenLabs audio) |
 | **Back / Show me** | ⌥← / ⌥S | → `action` · ← `video.seek` | Player follows | ⏳ F4 |
 | **Live curve** | Training run | ← `metric {runId,step,name,value}` | Stored per metric (capped). The off-track card's yours-vs-tutorial curve should switch to this | ⏳ (mock uses an optional `offtrack.curve`) |
-| **Settings (your own keys)** | ⌘, / gear in the expanded pill / first run | → `config.keys {anthropic,gemini,brightdata,elevenlabs,tigerUrl}` on every connect · ← `config.status` (ok / missing / invalid / env per key) | Apple-style sheet; keys encrypted with Electron `safeStorage` in userData, never logged; green dot + Test per key | ⏳ next (store already keeps `config.status`; mock answers it) |
+| **Settings (your own keys)** | ⌘, / gear in the expanded pill / first run | → `config.keys {anthropic,gemini,elevenlabs,tigerUrl}` on every connect · ← `config.status` (ok / missing / invalid / env per key) | Apple-style sheet; keys encrypted with Electron `safeStorage` in userData, never logged; green dot + Test per key | ⏳ next (store already keeps `config.status`; mock answers it) |
 | **Demo mode** | `DEMO=1` | – | Scripted run plays inside Electron, no network | ✅ |
 | **Global shortcuts** | ⌥E/D/S/H/V, ⌥← | main → engine `action` + overlay button animates | Registered after `lesson.ready` (so they don't steal keys before a lesson) | ✅ written · not run on hardware yet |
 

@@ -112,7 +112,7 @@ Window show/hide/focus is core (`src/main/index.ts`); the shrink target comes fr
 - Everything else stays black and white (row highlight, field, footer, the white tree); no gradients or glow. Checked headless: computed colors match the spec exactly; no console errors.
 - Shots: `agents/shots/launcher-pastel-01-idle.png`, `-02-results.png`, `-03-ask.png`.
 
-**Learner warnings + "Link checked" (Sat ~3 PM, Adrian via the Miyagi progress status session; Bright Data "Data for Good" track).**
+**Learner warnings + "Link checked" (Sat ~3 PM, Adrian via the Miyagi progress status session).**
 - The engine already sends two extra fields on `search.result` (server/finder/core.py `PUBLIC_FIELDS`), typed locally as `ResultExtras` in `store.ts` (the contract is untouched): `warnings?: string[]` (up to 3 raw YouTube comments ≤200 chars, matched by a regex that also catches "error"/"version", so false positives happen) and `verified?: true | 'indexed'`.
 - Row: `verified === true` → " · Link checked" at the end of the meta line (gray; `'indexed'` or missing → nothing). `warnings` → one gray line, clamped: `A learner said: “<first>” · +N more`, the full comments in the native tooltip. Quoted as-is, never labelled "outdated" in our words; no amber (off-track only), no green (passed only).
 - Rows are a fixed 64px (was 60) so the extra line fits and nothing moves. A re-sent row (same id) is merged into its slot instead of being moved to the end; the learner line grows in (height 0 → 16 on the spring). Checked headless: same DOM nodes, same slots, panel height and highlight unchanged; an update for an unknown id with no title is ignored.
