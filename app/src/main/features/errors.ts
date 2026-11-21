@@ -121,9 +121,15 @@ export default defineMainFeature({
     // ---- last launch: a marker still there = it did not quit cleanly ----
     // Unless its process still runs: this is a second instance (Windows packaged exits in windows.ts right after this
     // setup, or a second copy opened from the dmg). It must not call the live one a crash, nor take over its marker.
+    // A marker alone is not a crash: Force Quit, SIGKILL, power loss and `npm run dev` restarts leave one too. Only a
+    // packaged app with something logged since that launch started (a window or child process went away, or main threw)
+    // gets a report; any other stale marker is dropped silently (the marker below overwrites it).
     const prev = readJson<Marker>(markerFile)
     const second = !!prev && typeof prev === 'object' && alive(prev.pid)
-    if (prev && typeof prev === 'object' && !second) write(pendingFile, buildReport(prev, log))
+    if (prev && typeof prev === 'object' && !second && app.isPackaged) {
+      const since = Date.parse(String(prev.startedAt ?? ''))
+      if (Number.isFinite(since) && log.some((l) => Date.parse(l.at) >= since)) write(pendingFile, buildReport(prev, log))
+    }
 
     const prefs = sanitizePrefs(readJson<unknown>(join(app.getPath('userData'), 'prefs.json')))
     const choice = (): 'ask' | 'always' | 'never' => {

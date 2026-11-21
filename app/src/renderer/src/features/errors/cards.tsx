@@ -89,7 +89,7 @@ async function copyDetails(): Promise<boolean> {
 
 export function EngineOfflineCard(): ReactNode {
   const restart = useErrors((s) => s.restart)
-  const external = useLesson((s) => s.localEngine?.state === 'external') || restart === 'external'
+  const external = useLesson((s) => s.localEngine?.state === 'external' || s.localEngine?.state === 'off') || restart === 'external'
   const inLesson = useLesson((s) => !!s.lesson)
   const [copied, setCopied] = useState<'yes' | 'no' | undefined>()
 
@@ -101,7 +101,7 @@ export function EngineOfflineCard(): ReactNode {
     useErrors.setState({ restart: 'starting' })
     const r = await bridge.invoke<{ ok?: boolean; state?: string } | null>('engine-local:restart').catch(() => null)
     if (r?.ok) return
-    useErrors.setState({ restart: r?.state === 'external' ? 'external' : 'failed' })
+    useErrors.setState({ restart: r?.state === 'external' || r?.state === 'off' ? 'external' : 'failed' })
   }
   const onCopy = async (): Promise<void> => {
     const ok = await copyDetails()

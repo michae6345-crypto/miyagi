@@ -42,11 +42,13 @@ only after the engine was connected once this launch (a first-launch "can't reac
 
 ## Deviations (and why)
 - **Crash consent says Save, not Send** ("Save a crash report on this Mac? Nothing is sent.", Don't save / Save report, "Always save without asking"): crash upload is deferred and reports are local only (BUILD-PLAN section 1 and 6), so the mockup's "Send report" would not be honest. View report expands the scrubbed text inside the card. The caption is "Saved on this Mac only.", not "Asked once. Change it later in Settings, Privacy.": Settings has no crashReports control yet (Core request 5), and an unanswered card asks again at the next launch.
+- Engine offline treats a local engine in state `off` (main does not manage it: dev without MIYAGI_AUTOSTART, DEMO=1, a non-local URL) like `external`: the card says Try again and "Restart it in Terminal.", not "Quit and reopen miyagi.".
 - Restart engine and Reopen in VS Code wait at most 20 s: a restart whose link never opens says "Restart did not work. Quit and reopen miyagi.", and an `open_editor` the engine ignores drops "Opening VS Code" and brings the card back.
 - Build-failed card is 520 wide (`pill.maxCardWidth`), not the mockup's 560.
 - Editor-closed: the pill line and the card are one island (the card is the pill grown), so the card's header carries the pill line (ring, "VS Code closed. Lesson paused.", Esc; "Step N of M" moves to a mono line under the title so the header never truncates at 352) instead of the bonsai and lesson title. The file chip ("first-neural-net/mnist.ipynb, 3 cells") is left out: no contract field carries it (Core request 1).
 - Limit card: "See plans" and "Free checks reset tomorrow" instead of the mockup's [PLAN NAME] / [RESET TIME] placeholders.
 - Pill lines are 34 high (core `pill.height`; the mockups' 40 is wave 2).
+- Crash detection: a leftover marker counts as a crash only when the app is packaged and something was logged since that launch started (a window or child process went away, or main threw). Force Quit, SIGKILL, power loss and `npm run dev` restarts leave a marker with nothing logged, so it is dropped silently and no card opens (the desktop test protocol force-quits miyagi before every test).
 - Kernel pill line: the chip is a label pointing at the real control (`Select Kernel ▷`), not a button; the card footer ("Watching for a kernel to start") is A2's.
 
 ## Shots (fix rounds 1 and 2)
@@ -71,10 +73,9 @@ loaded steps, the island the outline: not this lane's code).
 4. **core**: one `v2Cloud` flag (registry or prefs) for A7 and A9. Today `err-limit` reads `?v2Cloud=1` in the stage and is off in Electron.
 5. **A4 settings**: Privacy should show the `crashReports` choice (ask / always / never). Today "Always save without asking" has no way back. Once it ships, the crash caption can say "Change it later in Settings, Privacy." again.
 6. **E2/E3 engine**: send `lesson.building {failed, failCode, failReason, alternatives}` with `alternatives[].url` on the transcript option (or `source.url`), library alternatives only with ids that pass `^[A-Za-z0-9_-]{1,64}$`, and `blocker {kind:'network'}` / `status {state:'busy', retryInS}` as specified; `editor_closed` blockers with an `action` of at most 3 words.
-7. **integrator**: `npm run dev` restarts that kill Electron leave the crash marker, so the next dev launch asks about a "crash". If that's noisy, skip the marker when `!app.isPackaged` (one line in `main/features/errors.ts`), or set crashReports to never on dev Macs.
 
 ## Notes
 - Busy line: the 1 s countdown runs only while `busy.retryInS` is set, and its mono count is `aria-hidden`, so screen readers hear "Busy right now. Retrying in" once, not every second.
-- Esc closes only our card that is on the island (`visible` in store.ts); the crash card's Esc is "Don't save".
+- Esc closes only our card that is on the island (`visible` in store.ts); the crash card's Esc (and the round close button) only hides it for this launch, so the report is asked about again next launch; only "Don't save" discards it.
 - Reads core/lesson (`blockers`, `paused`, `busy`, `buildFailed`, `localEngine`, `keyStatus`, `hello`) and core prefs; edits no other feature's store.
 - The lane was claimed with the draft PR; the coordination email to Adrian was not sent from this session.

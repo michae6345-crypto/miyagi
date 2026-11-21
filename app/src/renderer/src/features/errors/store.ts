@@ -192,7 +192,14 @@ onUi('reset', (p) => {
 /** Esc closes our card on the island (and only ours: `visible` is set by the card while it's mounted). */
 onUi('dismiss', () => {
   const v = get().visible
-  if (v) closeCard(v)
+  if (!v) return
+  // Esc and the round close button only hide the crash card for this launch (it shows no Esc keycap, so it must not
+  // discard anything): the report is asked about again next launch. Only "Don't save" discards it.
+  if (v === 'err-crash') {
+    set({ crash: undefined, visible: undefined })
+    return
+  }
+  closeCard(v)
 })
 
 export function closeCard(id: CardId): void {
