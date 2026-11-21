@@ -136,7 +136,13 @@ def resolve(lid: Any, root: Path | None = None) -> Path | None:
     r = _root(root)
     if r is None:
         return None
-    return _contained(r / f"{lid}.json", r)
+    name = f"{lid}.json"
+    try:
+        if name not in os.listdir(r):
+            return None  # exact match: on case-insensitive APFS "GOOD-1" would open good-1.json (one lesson, two ids)
+    except OSError:
+        return None
+    return _contained(r / name, r)
 
 
 def _read_graph(p: Path) -> dict | None:
@@ -168,9 +174,14 @@ def load_graph(lid: Any, root: Path | None = None) -> dict | None:
 
 # ------------------------------------------------------------------------------------------------ fields
 def _text(v: Any, limit: int = MAX_TEXT) -> str | None:
+    """Display text, or None when empty or when it holds a filesystem path: the caller's fallback ("Lesson",
+    "Step N") then applies, so scrub() never has to drop a required field. Key-shaped text is removed."""
     if not isinstance(v, str):
         return None
-    t = " ".join(v.split())
+    c = _clean_text(v)
+    if c is None:
+        return None
+    t = " ".join(c.split())
     if not t:
         return None
     return t if len(t) <= limit else t[: limit - 1].rstrip() + "…"
@@ -366,14 +377,17 @@ def continuing(index: dict[str, str] | None = None) -> list[dict]:
     """The "Continue" rows: the saved lesson (sessions/store current.json) and the recent unfinished ones, newest
     first, one per lesson: {lessonId, title, mode, stepIndex, stepCount, stepTitle?, lastActiveAt?, libraryId?}.
     libraryId only when that lesson is in the library (Continue can start it without a build)."""
-    from server.sessions import store  # light: json files under ~/miyagi/state
+    from server.sessions import progress, store  # light: json files under ~/miyagi/state
 
     rows: list[dict] = []
     try:
+        # A lesson finished after it was last active is not "continue" any more (recent.json keeps its entry when
+        # the lesson later finishes). Same rule as progress inProgress; a replay of a finished lesson stays.
+        finished = progress.finished_at([e for e in store.completed() if isinstance(e, dict)])
         cur = store.load()
-        if cur is not None:
+        if isinstance(cur, dict) and not progress.superseded(cur, finished, is_current=True):
             rows.append(cur)
-        rows += store.recent()
+        rows += [r for r in store.recent() if isinstance(r, dict) and not progress.superseded(r, finished)]
     except Exception as e:  # noqa: BLE001 - a bad state file must not break the library
         log.warning("library: could not read saved lessons: %s", e)
         return []

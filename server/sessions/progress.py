@@ -38,9 +38,14 @@ MAX_LESSONS = 50
 
 
 def _text(v: Any, limit: int = 200) -> str | None:
+    """Display text, or None when empty or when it holds a filesystem path (so the caller's fallback, e.g. "Lesson",
+    applies before scrub() would drop the whole field). Key-shaped text is removed."""
     if not isinstance(v, str):
         return None
-    t = " ".join(v.split())
+    from server.lesson.library import _clean_text  # pure; deferred like the other library uses here
+
+    c = _clean_text(v)
+    t = " ".join(c.split()) if c is not None else ""
     return (t if len(t) <= limit else t[: limit - 1].rstrip() + "…") if t else None
 
 
@@ -111,6 +116,35 @@ def current_map(state: dict | None, graph: dict | None) -> dict | None:
 
 
 # ------------------------------------------------------------------------------------------------ lessons
+def finished_at(history: list[dict]) -> dict[str, float | None]:
+    """lessonId -> its latest finishedAt (None when no history entry for it has one), from store.completed()."""
+    out: dict[str, float | None] = {}
+    for e in history or []:
+        lid = e.get("lessonId") if isinstance(e, dict) else None
+        if not isinstance(lid, str) or not lid:
+            continue
+        t = _num(e.get("finishedAt"))
+        prev = out.get(lid)
+        out[lid] = t if prev is None else (prev if t is None else max(prev, t))
+    return out
+
+
+def superseded(row: dict, finished: dict[str, float | None], is_current: bool = False) -> bool:
+    """True when a saved lesson row (current.json or a recent.json entry) was finished after it was last active, so
+    it is not in progress any more. The one rule library Continue and progress inProgress both use, so they agree.
+
+    A row whose lesson was never finished is kept. A replay (active after its last finish) is kept. When a timestamp
+    is missing: the current lesson is kept (it is the live session), a recent row is dropped (it can't prove it is
+    newer than the finish)."""
+    lid = row.get("lessonId")
+    if not isinstance(lid, str) or lid not in finished:
+        return False
+    done, active = finished[lid], _num(row.get("lastActiveAt"))
+    if done is None or active is None:
+        return not is_current
+    return done >= active
+
+
 def _finished_row(e: dict, index: dict[str, str]) -> dict | None:
     lid = e.get("lessonId")
     if not isinstance(lid, str) or not lid:
@@ -161,18 +195,22 @@ def build(history: list[dict], current: dict | None = None, current_graph: dict 
     index = index or {}
     history = [e for e in history or [] if isinstance(e, dict)]
     newest_first = list(reversed(history))
-    finished_ids = {e.get("lessonId") for e in history}
+    finished = finished_at(history)
+    if not isinstance(current, dict) or superseded(current, finished, is_current=True):
+        current = None  # finished after it was last active: a completed row, not an in-progress one
 
     maps: list[dict] = []
-    cm = current_map(current, current_graph) if current and current.get("lessonId") not in finished_ids else None
+    cm = current_map(current, current_graph) if current else None
     if cm:
         maps.append(cm)
     maps += [e["skillMap"] for e in newest_first if isinstance(e.get("skillMap"), dict)]
 
     completed = [r for r in (_finished_row(e, index) for e in newest_first[:MAX_LESSONS]) if r]
     active: list[dict] = []
-    seen: set[str] = set(str(x) for x in finished_ids if x)
-    for s in ([current] if isinstance(current, dict) else []) + [r for r in recent or [] if isinstance(r, dict)]:
+    seen: set[str] = set()
+    rows = ([current] if current else []) + [r for r in recent or [] if isinstance(r, dict)
+                                                and not superseded(r, finished)]
+    for s in rows:
         row = _active_row(s, index)
         if row is None or row["lessonId"] in seen:
             continue
