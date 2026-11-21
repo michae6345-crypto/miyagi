@@ -624,11 +624,25 @@ def _on_run_output(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if absent:
+        if _stopped(ctx):
+            # t5: a run stopped by ^C prints "Traceback … KeyboardInterrupt": not the learner's error, and no verdict
+            return _result(check, "pending", "it stopped before it finished: run it again")
         if m:
             return _result(check, "fail", f"the last run printed {m.group(0)[:80]!r}")
         return _result(check, "pass", "not in the last run's output")
     return _result(check, "pass", "printed by the last run") if m else \
         _result(check, "fail", "the last run didn't print it")
+
+
+def _stopped(ctx: RunContext) -> bool:
+    """The step's last run was stopped by Ctrl+C: exit 130, or its output ends with ^C / KeyboardInterrupt
+    (server.orchestrator.terminal_run.interrupted's rule, kept here so the checks import nothing of the engine)."""
+    if ctx.exit_code == 130:
+        return True
+    if ctx.exit_code == 0:
+        return False
+    tail = ctx.output_tail.splitlines() if isinstance(ctx.output_tail, str) else [str(x) for x in ctx.output_tail]
+    return any(_CTRL_C_ROW.match(x) or _KEYBOARD_INTERRUPT.match(x) for x in tail[-3:])
 
 
 _APP_NAMES = {"Code": "VS Code", "Terminal": "the Terminal", "iTerm2": "iTerm"}  # what the learner calls them
@@ -724,7 +738,28 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     code = "\n".join([str(step.get("code") or "")] + [str(t.get("match") or "") for t in step.get("targets") or []]
                      + (ctx.notebook.sources if isinstance(ctx.notebook, Notebook) else []))
     checks = [{**c, "_code": code} if c.get("type") == "screen_contains" and is_output_check(c) else c for c in checks]
-    return [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
+    results = [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
+    return _no_cell_yet(step, checks, results, ctx)
+
+
+def _no_cell_yet(step: dict, checks: list[dict], results: list[CheckResult], ctx: RunContext) -> list[CheckResult]:
+    """t11 (CP4, s2): "No import or load errors · not showing in VS Code" passed 0.4 s into the step, before the
+    learner's notebook existed: with no notebook on disk the step's cell can't have run, so a screen_absent row (an
+    error the cell would print) has nothing to grade. It waits ("checked when the cell runs") until the step's code is
+    at least on screen (every code row passes: a notebook that lives only in a browser still gets graded then).
+    Only on a notebook step with code whose lesson folder was searched and held no notebook."""
+    if ctx.notebook is not False or not str(step.get("code") or "").strip() or not is_notebook_step(step) \
+            or not os.path.isabs(str(ctx.workdir or "")):
+        return results
+    absent = {str(c.get("id")) for c in checks if c.get("type") == "screen_absent" and c.get("app") not in _TERMINAL_APPS}
+    if not any(r["checkId"] in absent and r["status"] == "pass" for r in results):
+        return results
+    code_rows = [c for c in checks if c.get("type") == "screen_contains" and c.get("app") not in _TERMINAL_APPS
+                 and not is_output_check(c) and not _is_kernel_check(c)]
+    if code_rows and all(evaluate_check(c, ctx)["status"] == "pass" for c in code_rows):
+        return results
+    return [{**r, "status": "pending", "detail": "checked when the cell runs"}
+            if r["checkId"] in absent and r["status"] == "pass" else r for r in results]
 
 
 _NOTEBOOK_RUN = re.compile(r"shift\s*\+\s*enter|\bcells?\b|\bnotebook\b|\bjupyter\b|\bcolab\b", re.I)
@@ -1015,6 +1050,55 @@ def run_output(lines: Iterable[str], expect: Iterable[str] = ()) -> tuple[bool, 
     return bool(errs) and not wanted, shows
 
 
+_CTRL_C_ROW = re.compile(r"^\s*\^C")
+_KEYBOARD_INTERRUPT = re.compile(r"^\s*KeyboardInterrupt\b")
+# VS Code's Python extension activating the venv in a new terminal: it sends ^C (no echo in zsh), then this line
+# (a path with a space comes quoted: source "/Users/a b/.venv/bin/activate")
+_ACTIVATION_ROW = re.compile(r"""(?:^|\s)(?:source|\.)\s+(?:\S*|"[^"]*|'[^']*)bin/activate(?:\.\w+)?["']?\s*$"""
+                             r"|(?:^|\s)conda\s+activate\s+\S+\s*$")
+
+
+_SHELL_JOIN = {"&&", "||", ";", "|"}
+_PROMPT_MARKS = ("%", "$", "#", "❯")  # zsh %, bash $, root #, starship's arrow
+
+
+def _after_prompt(prev: str) -> bool:
+    """Is ``prev`` (the word before a program) the end of a shell prompt (``tripi@mac nn %``, ``me@box:~/nn$``,
+    starship's arrow) or a shell join (``cd nn && python3 x.py``)? Not ``100%`` (a progress bar in the output)."""
+    if prev in _SHELL_JOIN or prev in _PROMPT_MARKS:
+        return True
+    return len(prev) > 1 and prev.endswith(_PROMPT_MARKS) and not prev[-2].isdigit()
+
+
+def _command_line_runs(row: str, programs: set[str]) -> bool:
+    """Is ``row`` a command line that runs one of ``programs``: the program is the row's first word, or comes right
+    after a shell prompt marker or a shell join (and oh-my-zsh's ``<arrow>  nn git:(main) x python3 a.py``)? A row
+    that only contains the word (the program's own output, ``I love python``) is not."""
+    words = _words(row)
+    if words and words[0] == "➜":  # oh-my-zsh: arrow, <dir>, [git:(branch)], [dirty mark], <command>
+        rest = words[2:]
+        if rest and rest[0].startswith("git:("):
+            rest = rest[1:]
+        if rest and rest[0] == "✗":
+            rest = rest[1:]
+        if rest and _program(rest[0]) in programs:
+            return True
+    return any(_program(t) in programs and (j == 0 or _after_prompt(words[j - 1])) for j, t in enumerate(words))
+
+
+def _interrupted_rows(out: list[str]) -> bool:
+    """A run's output rows (up to the next command line that runs python/tut, the command's program) show it stopped
+    by Ctrl+C: the first row is ^C
+    (the shell cancelled it at once) or the venv activation that sent that ^C (t5: the command swallowed, nothing
+    printed), or Python ended it with KeyboardInterrupt in its last 3 rows (terminal_run.interrupted's rule)."""
+    if not out:
+        return False
+    first = str(out[0])
+    tail = [str(r) for r in out if str(r).strip()][-3:]
+    return bool(_CTRL_C_ROW.match(first) or _ACTIVATION_ROW.search(first)) \
+        or any(_KEYBOARD_INTERRUPT.match(r) for r in tail)
+
+
 def terminal_runs(command: str, rows: list[str], expect: Iterable[str] = ()) -> tuple[int, bool, bool]:
     """``(runs, error, shows)`` for terminal ``rows`` (visual lines, top to bottom): how many times they show
     ``command`` being RUN, and for the output after the last such run ``run_output``'s ``(error, shows)``: a crash
@@ -1023,8 +1107,9 @@ def terminal_runs(command: str, rows: list[str], expect: Iterable[str] = ()) -> 
     A run is a row that names what the command runs (its script tokens, plus its program: ``python``/``python3``,
     or ``tut``; a command with no script, ``python3 --version``, ends the row whole) with at least one row after it
     (Enter was pressed: output or a new prompt). A command typed but not yet run is the bottom row, so it never
-    counts; neither does a traceback line that mentions the file. When a later row runs the same program (another
-    script, or this one misread by OCR: ``calculator.pv``), the output under the last run seen may not be the latest
+    counts; neither does a traceback line that mentions the file, nor a run stopped by ^C / KeyboardInterrupt (t5).
+    When a later command line runs the same program
+    (another script, or this one misread by OCR: ``calculator.pv``), the output under the last run seen may not be the latest
     run's, so it never counts as shown."""
     want = _script_tokens(command)
     head = next((_program(t) for t in _words(command) if "=" not in t), "")  # skip env assignments (X=1 cmd)
@@ -1041,13 +1126,29 @@ def terminal_runs(command: str, rows: list[str], expect: Iterable[str] = ()) -> 
             return _ends_with(row, whole)
         return all(w in _script_tokens(row) for w in want) and runs_program(row)
 
-    n, last = 0, None
-    for i, row in enumerate(rows[:-1]):
-        if is_run(row):
-            n, last = n + 1, i
+    starts = [i for i, row in enumerate(rows[:-1]) if is_run(row)]
+    # t5 (CP12): `python3 main.py` then a "^C" row (the venv activation cancelled it) passed "Ran python3 main.py"
+    # with nothing run. A run stopped by ^C / KeyboardInterrupt never counts (terminal_run.verdict's rule for VS
+    # Code's own reports): its output starts with ^C or ends the program that way. A run's output ends at the next
+    # command line that runs python/tut, the command's program (not only the next run of this command): another
+    # script's or a REPL's ^C / KeyboardInterrupt in between never cancels an earlier good run, nor reads as its
+    # crash. A command line means the program is the row's first word or comes right after a prompt marker; a row
+    # that merely contains the word (the program printing "I love python", then crashing) never ends the window,
+    # so that crash is still the run's. Other programs (`node x.js`, `bash y.sh`) don't end it either.
+    progs = {head, "tut"}
+    start_set = set(starts)
+
+    def bounds(k: int) -> bool:
+        return k in start_set or _command_line_runs(rows[k], progs)
+
+    def end_of(i: int) -> int:
+        return next((k for k in range(i + 1, len(rows)) if bounds(k)), len(rows))
+
+    kept = [i for i in starts if not _interrupted_rows(rows[i + 1:end_of(i)])]
+    n, last = len(kept), (kept[-1] if kept else None)
     if last is None:
         return 0, False, False
-    err, shows = run_output(rows[last + 1:], expect)
-    if shows and any(runs_program(r) for r in rows[last + 1:-1]):
+    err, shows = run_output(rows[last + 1:end_of(last)], expect)  # never a later run's traceback
+    if shows and any(bounds(k) for k in range(last + 1, len(rows) - 1)):
         shows = False
     return n, err, shows

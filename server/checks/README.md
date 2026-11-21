@@ -27,7 +27,7 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
 | type | pass | fail | pending |
 |---|---|---|---|
 | `screen_contains` | regex found in the OCR text (scoped to `app` windows if given; also tried with whitespace collapsed, so it survives OCR line wraps) | not seen; or `app` not on screen once the segment is over (detail: "open Terminal so I can check: …") | no screen reading at all, or `app` not on screen while the segment still plays |
-| `screen_absent` | regex not in the (scoped) OCR text; or `app`/screen not visible once the segment is over (a hidden Terminal can't show a Traceback) | still showing (detail quotes it); only ever when the pattern is actually seen | `app`/screen not visible while the segment still plays |
+| `screen_absent` | regex not in the (scoped) OCR text; or `app`/screen not visible once the segment is over (a hidden Terminal can't show a Traceback) | still showing (detail quotes it); only ever when the pattern is actually seen | `app`/screen not visible while the segment still plays; a run step's terminal row until the run (a run stopped by ^C: until a finished one); a notebook step's row until its cell ran (no notebook on disk: until the step's code is on screen, t11) |
 | `file_exists` | file present | missing | – |
 | `file_contains` | regex (MULTILINE) found; detail gives `file:line` | file missing / no match / bad regex | – |
 | `command_exit_ok` | the last run of the same script exited 0 | exited ≠ 0 | no run yet, still running, or the last run was a different script (flags may differ) |
@@ -66,8 +66,12 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
   the pass. OCR misreads while the learner types into an unsaved (still empty) file never un-pass it. A hold the
   file on disk doesn't confirm keeps the row green but never passes the step (gate or judge route): the save does.
 - `terminal_runs(command, rows, expect)` -> `(runs, error, shows)`: how often terminal rows show `command` run (followed
-  by another row, so a typed-but-unrun command never counts), and `run_output`'s verdict on the output under the last
-  run (not "shown" when a later row runs the same program: it may be a misread newer run). With
+  by another row, so a typed-but-unrun command never counts; nor does one stopped by Ctrl+C: its next row is `^C` or
+  the venv activation that sent it, or it ended in `KeyboardInterrupt`, t5; a run's output ends at the next command
+  line that runs python/tut, the command's program: its first word, or right after a prompt marker such as `% ` or
+  `$ `, so another script's or a REPL's ^C never cancels it, while output that merely says "python" never ends it and
+  other programs such as `node x.js` don't either), and `run_output`'s verdict on the output under the last
+  run (not "shown" when a later command line runs the same program: it may be a misread newer run). With
   `command_matches(expected, actual)` for `tut run` / Run it for me / VS Code `command_end` runs, this is the run
   evidence a run step needs: its code being on screen is not enough. A command with no script (`python3 --version`,
   `node -v`) matches as a whole, at the end of the row / command line (`python` == `python3`).
