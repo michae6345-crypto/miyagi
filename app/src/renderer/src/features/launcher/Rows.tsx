@@ -169,10 +169,17 @@ export function ResumeRow({
   return (
     <RowShell slot={0} onHover={onHover} onPick={onPick}>
       <Text title={lessonTitle ?? 'The lesson in progress'} meta={where} />
-      <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={{ duration: 0.12 }} aria-hidden>
-        <NavKey>{navKey('enter')}</NavKey>
-      </motion.span>
+      <EnterCue active={active} />
     </RowShell>
+  )
+}
+
+/** The idle list's active line shows the Enter keycap; it fades in and out as ↑↓ move, so the cue sits on the row Enter runs. */
+function EnterCue({ active }: { active: boolean }): ReactNode {
+  return (
+    <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={{ duration: 0.12 }} aria-hidden>
+      <NavKey>{navKey('enter')}</NavKey>
+    </motion.span>
   )
 }
 
@@ -261,7 +268,20 @@ const TOOL_TAG: Record<string, string> = { jupyter: 'Jn', vscode: 'VS', terminal
  * was left ("Step 3 of 6 · Drop the empty rows") and a white meter. Click to pick it up (library.start). Its own slot
  * range: these rows never share slots with the search rows.
  */
-export function LibraryContinueRow({ item, slot, onHover, onPick }: { item: LibraryItem; slot: number; onHover: () => void; onPick: () => void }): ReactNode {
+export function LibraryContinueRow({
+  item,
+  slot,
+  active = false,
+  onHover,
+  onPick
+}: {
+  item: LibraryItem
+  slot: number
+  /** The idle list's active line: it shows the Enter keycap. */
+  active?: boolean
+  onHover: () => void
+  onPick: () => void
+}): ReactNode {
   const p = item.progress
   const done = p ? Math.min(1, Math.max(0, p.stepIndex / Math.max(1, p.total))) : 0
   return (
@@ -276,6 +296,7 @@ export function LibraryContinueRow({ item, slot, onHover, onPick }: { item: Libr
       <span className="h-[4px] w-[96px] shrink-0 overflow-hidden rounded-full" style={{ background: fill.hairline }}>
         <span className="block h-full rounded-full" style={{ width: `${Math.round(done * 100)}%`, background: color.text }} />
       </span>
+      <EnterCue active={active} />
     </RowShell>
   )
 }
@@ -288,11 +309,14 @@ export function ReadyRow({
   item,
   slot,
   hover = false,
+  active = false,
   onHover,
   onPick
 }: {
   item: LibraryItem
   slot: number
+  /** The idle list's active line: it shows the Enter keycap. */
+  active?: boolean
   /** Its own hover fill (click-only rows during a lesson); with keys, the list's moving highlight shows it instead. */
   hover?: boolean
   onHover: () => void
@@ -318,6 +342,7 @@ export function ReadyRow({
       <span className="shrink-0 text-[12px]" style={{ color: color.label }}>
         {item.steps === 1 ? '1 step' : `${item.steps} steps`}
       </span>
+      <EnterCue active={active} />
     </motion.button>
   )
 }

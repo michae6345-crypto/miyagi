@@ -1018,7 +1018,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                     <div className="relative" style={{ height: libCont.length * ROW_H }}>
                       <SlotHighlight at={libSel} count={libCont.length} h={ROW_H} />
                       {libCont.map((item, i) => (
-                        <LibraryContinueRow key={item.id} item={item} slot={i} onHover={() => libKeys && setIdleSel(i)} onPick={() => startCached(item)} />
+                        <LibraryContinueRow key={item.id} item={item} slot={i} active={libSel === i} onHover={() => libKeys && setIdleSel(i)} onPick={() => startCached(item)} />
                       ))}
                     </div>
                   </Rise>
@@ -1113,7 +1113,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   !lesson.hasLesson && (
                     <>
                       <span className="truncate">Paste a YouTube link or type a goal</span>
-                      <NavKey>{navKey('enter')}</NavKey>
+                      {/* Only when Enter has nothing else to run: with an idle line active, ↵ belongs to that line
+                          and the footer's primary, so a second ↵ here would read as "submit my goal". */}
+                      {!activeItem && <NavKey>{navKey('enter')}</NavKey>}
                     </>
                   )
                 )}
@@ -1197,7 +1199,7 @@ function ReadyList({
     <div className="relative" style={{ height: items.length * READY_H }}>
       <SlotHighlight at={sel} offset={offset} count={items.length} h={READY_H} />
       {items.map((item, i) => (
-        <ReadyRow key={item.id} item={item} slot={i} hover={!keys} onHover={() => keys && onSel(offset + i)} onPick={() => onPick(item)} />
+        <ReadyRow key={item.id} item={item} slot={i} hover={!keys} active={keys && sel === offset + i} onHover={() => keys && onSel(offset + i)} onPick={() => onPick(item)} />
       ))}
     </div>
   )
