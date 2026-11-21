@@ -18,7 +18,7 @@ import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
-import { openLinkInBrowser, safeOpenExternal } from './safeOpen'
+import { debugFlagIn, openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
 import { gateCore, gateIsOpen } from './gate'
 import { coalesce } from './coalesce'
@@ -38,6 +38,18 @@ import {
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
 import { VOICE_ENABLED } from '../common/flags'
+
+// A built app never starts under a debugger (app-harden): --inspect*, --remote-debugging-* or --js-flags in argv quits
+// before any window, engine or key exists. The fuses already make Node ignore --inspect; Chromium's remote debugging has
+// no fuse. Dev runs (npm run dev) keep them.
+if (app.isPackaged) {
+  const flag = debugFlagIn(process.argv)
+  if (flag) {
+    console.error(`[tut] a packaged miyagi does not start with --${flag}; quitting`)
+    app.exit(1)
+    process.exit(1)
+  }
+}
 
 const platform = describePlatform(process.platform)
 const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
@@ -167,7 +179,9 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions, k
       contextIsolation: true,
       backgroundThrottling: false,
       additionalArguments: [`--tut-platform=${encodeURIComponent(JSON.stringify(platform))}`],
-      ...options.webPreferences
+      ...options.webPreferences,
+      // Last, so no caller (player, settings, app windows) can turn it back on: no DevTools in a built app (app-harden).
+      devTools: !app.isPackaged
     }
   })
   windows.add(win)
@@ -660,7 +674,9 @@ app.whenReady().then(async () => {
  * overlay, pill and panels those items stay disabled by Electron.
  */
 function setupMenu(): void {
-  if (platform.os !== 'mac') return
+  // Windows / Linux: no menu at all. Electron's default one carries Reload (Ctrl+R), Force Reload and Toggle Developer
+  // Tools (Ctrl+Shift+I) as accelerators even in a built app (app-harden). Copy and paste work without a menu there.
+  if (platform.os !== 'mac') return Menu.setApplicationMenu(null)
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       { label: 'miyagi', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },

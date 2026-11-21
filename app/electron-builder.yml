@@ -12,6 +12,36 @@ files:
   - package.json
 # Chromium ships ~55 UI locales per platform (~9 MB on Mac); the app's copy is English only.
 electronLanguages: [en]
+# Electron fuses (app-harden lane; test/fuses.test.ts pins every value). Flipped inside the Electron binary at package
+# time by @electron/fuses, before electron-builder signs, so they hold in every packaged build (dev runs are unaffected):
+#   runAsNode false: ELECTRON_RUN_AS_NODE=1 can't turn miyagi into a plain Node that runs any script with our
+#     permissions (screen recording, accessibility). Nothing in main forks or runs process.execPath as node: the engine
+#     (Resources/engine/python), the VS Code companion (Resources/vscode) and miyagi-listen (Resources/helpers) are
+#     extraResources that are spawned as their own programs, never require()d.
+#   enableNodeOptionsEnvironmentVariable false: NODE_OPTIONS / NODE_EXTRA_CA_CERTS (--require a script, a rogue CA) ignored.
+#   enableNodeCliInspectArguments false: --inspect, --inspect-brk and SIGUSR1 can't attach a debugger to main.
+#     index.ts also quits a packaged build started with those or with Chromium's --remote-debugging-* / --js-flags.
+#   enableEmbeddedAsarIntegrityValidation + onlyLoadAppFromAsar true: main and the renderer load only from app.asar,
+#     and only if its header hash matches ElectronAsarIntegrity in Contents/Info.plist (an app/ folder or a swapped asar
+#     is refused). Main reads nothing executable from outside the asar (identity.ts reads engine/VERSION, a text file).
+#     scripts/ship-mac.sh re-signs ad hoc after electron-builder (codesign --force --deep -s -) and edits only the
+#     helper apps' Info.plist (CFBundleName): the main Info.plist and app.asar are untouched, so the integrity hash
+#     electron-builder wrote still matches, and re-signing just seals that plist again. Signing identity and hardened
+#     runtime are unchanged here (a Developer ID is Michael's call; SHIP.md Known gaps).
+#   enableCookieEncryption true: the cookie store on disk is encrypted with the Keychain key (one way: never turn off).
+#   loadBrowserProcessSpecificV8Snapshot false: the default snapshot (no custom browser snapshot is shipped).
+#   grantFileProtocolExtraPrivileges false: file:// pages get no more than a browser gives them. The renderer is
+#     served from http://127.0.0.1 (main/serve.ts); the file:// fallback (only if that server fails) loses file://
+#     fetch and module loading, which is the point of the fuse.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  grantFileProtocolExtraPrivileges: false
 mac:
   # scripts/ship-mac.sh builds the .app with --dir, signs it ad hoc, then makes this dmg from it (--prepackaged).
   target: dmg
