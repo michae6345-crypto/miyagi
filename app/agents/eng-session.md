@@ -73,6 +73,7 @@ The engine sends what the v2 lesson panel, Home-Building, the error surfaces and
    - `blocker editor_closed` carries `action: "open_editor"`: Reopen sends `action {kind: "open_editor"}`, End sends `end_lesson`;
    - `blocker kernel` has no action, only `rect`, the real Select Kernel control to point at with ▷;
    - `lesson.paused.reason` is `editor_closed` only for now. `kernel` stays a blocker, not a pause: the mockup shows it in context with the step.
+   - on `lesson.ready` and `lesson.ended` the engine sends `blocker {kind, clear: true}` for each blocker it still holds, then forgets them; no `lesson.resumed` follows a pause there. The app drops every blocker and the paused surface on either event anyway.
 6. **`screen/ax.py` (not this lane)**: a `ui:select_kernel` AX key (like `ui:interpreter`) would give the kernel blocker an exact rect without OCR. Today it is the OCR line's rect.
 7. **Tests to update (not run here)**:
    - assertions on exact `status` payloads (`{"state": "thinking"}`) now see `detail` on the thinking states listed above;
@@ -80,8 +81,10 @@ The engine sends what the v2 lesson panel, Home-Building, the error surfaces and
    - failed `lesson.building` payloads gain `failCode` / `failReason` (and `source`);
    - `step.started` payloads with code gain `where` (and `then`);
    - history entries gain `skillMap` and `result`;
-   - `DRAWER_W` constant 436 → 392, but `fit_full` still reserves 436 (`DRAWER_W_V1`) until a v2 app is known. One assertion breaks on merge: `server/orchestrator/tests/test_t10_layout.py:51` (`test_full_screen_layout_starts_below_the_pill`) checks `w == 1728 - E.DRAWER_W` (now 1336) while the v1 frame is 1292. New expectation: `w == 1728 - E.drawer_reserve()` (or `1728 - E.DRAWER_W_V1`).
+   - `DRAWER_W` constant 436 → 392, but `fit_full` still reserves 436 (`DRAWER_W_V1`) until a v2 app is known. Several assertions break on merge (the list below). `server/orchestrator/tests/test_t10_layout.py:51` (`test_full_screen_layout_starts_below_the_pill`) checks `w == 1728 - E.DRAWER_W` (now 1336) while the v1 frame is 1292. New expectation: `w == 1728 - E.drawer_reserve()` (or `1728 - E.DRAWER_W_V1`).
    - `server/orchestrator/tests/test_session.py:1035`: the mid-build snapshot status is now `{"state": "thinking", "detail": "Building your lesson"}`, not `{"state": "thinking"}`.
+   - `server/orchestrator/tests/test_session.py:1045` (`test_build_success_still_loads_the_lesson`): `rig.of("lesson.building")[-1] == {"message": "Lesson ready", "progress": 1.0}` fails. "Lesson ready" (session.py, `_build`) goes out before `load_graph` clears `_build_v2`, so `_building_v2` adds `stage: "ready"`, `phases` (all done) and `source {kind: "youtube", title: "YouTube video", url}`. New expectation: compare only `message` and `progress` (`{k: ev[k] for k in ("message", "progress")}`), or include the three v2 keys. The curated and text builds' "Lesson ready" events carry the same `stage` / `phases` plus `source {kind: "goal", title}` when a title is known; any test that compares those payloads whole needs the same change.
+   - `step.passed.summary` on a run step uses the run's metric line only when it comes from the newest run ("... in your last run."); an earlier step's run falls through to the step's own `summary` / `what`.
    - `server/workspace/editor.py` keeps `_app_v2` and `_panel_rect` as module globals that stay set. A test that calls `note_app_v2()` or `panel_state()` leaks the 392 reserve into every later layout test, so those tests need a reset fixture (`monkeypatch.setattr(E, "_app_v2", False)` and `monkeypatch.setattr(E, "_panel_rect", None)`, autouse in the layout test modules).
    - Worth adding: the offline script's cases (scratchpad `e3_check.py`).
 8. **Wave 2 integrator**: once the shortcut bar is off in lesson mode (`Feature.enabled`), `MIYAGI_BAR_CLEARANCE` can drop to 0 so the editor uses the full height beside the panel.
@@ -105,3 +108,8 @@ The engine sends what the v2 lesson panel, Home-Building, the error surfaces and
 - `snapshot`: the final reconnect status keeps `detail` while thinking ("Checking your work", "Writing a hint", "Drawing a diagram"), like the mid-build branch.
 - `missing_lines`: a trailing comment outside quotes is dropped from both sides before comparing (`x = x / 255.0  # scale` matches `x = x / 255.0`); `"a # b"` and `x#y` are left alone.
 - Core request 7 now names the two assertions that change on merge and the editor globals that need a reset fixture.
+
+## Fix round 3
+- `_passed_summary`: the metric line counts only from the newest run (the one that passed the step). An earlier step's "Loss 2.3 → 0.1 when you ran it." is not this step's number; it falls through to the step's `summary` / `what`.
+- `emit` on `lesson.ready` / `lesson.ended`: a v2 app gets `blocker {kind, clear: true}` (raw, no re-entry) for each held blocker before they are reset. Core request 5 says the app drops blockers and the paused surface on both events.
+- Core request 7 now also names `test_session.py:1045` ("Lesson ready" gains `stage`, `phases`, `source`) and the curated / text "Lesson ready" payloads.

@@ -744,6 +744,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
             return
         if type_ in ("lesson.ready", "lesson.ended"):  # a new / ended lesson: nothing waits, nothing blocks
+            if getattr(self, "app_v2", False):  # the v2 app drops each blocker it shows (raw: no re-entry here)
+                for kind in list(getattr(self, "blockers", None) or {}):
+                    await self._emit_raw("blocker", {"kind": kind, "clear": True})
             self.paused, self.blockers, self._editor_misses, self._kernel_misses = None, {}, 0, 0
         elif getattr(self, "paused", None) is not None and self._held_by_pause(type_, payload or {}):
             log.info("lesson paused (%s): no %s %r", self.paused.get("reason"), type_, (payload or {}).get("title"))
@@ -1385,12 +1388,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     def _passed_summary(self, step: dict) -> str | None:
         """step.passed.summary (<= 12 words): a run step's real numbers from the learner's own run ("Loss 0.49 → 0.0009
-        in your last run."), else what the step built, in the lesson's words. None rather than an invented line."""
+        in your last run."), else what the step built, in the lesson's words. None rather than an invented line.
+        Only the newest run counts: it is the one that passed this step. An earlier step's run ("... when you ran it.")
+        is another step's number, so it falls through to the step's own words."""
         if self._run_command(step):
             from . import lesson_end
 
             try:
-                if (line := words_ok(lesson_end.metric_line(self), SUMMARY_WORDS)) is not None:
+                line = words_ok(lesson_end.metric_line(self), SUMMARY_WORDS)
+                if line is not None and line.endswith("in your last run."):
                     return line
             except Exception:  # noqa: BLE001
                 log.exception("summary from the run failed")
