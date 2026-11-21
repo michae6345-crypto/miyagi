@@ -9,13 +9,17 @@ import type { App, BrowserWindow, BrowserWindowConstructorOptions } from 'electr
 export type Rect = { x: number; y: number; width: number; height: number }
 
 export type ShortcutKind = 'launcher' | 'back' | 'explain' | 'diagram' | 'show_me' | 'hint' | 'voice_toggle'
+/** v2 (W0-4): keys shown in the UI that are not global shortcuts: open Settings (in an app window's menu) and dismiss. */
+export type UiKeyKind = 'settings' | 'dismiss'
+/** Every label in PlatformInfo.keys: the ONLY source of keycaps (core/ui/Keycap.tsx). */
+export type KeyName = ShortcutKind | UiKeyKind
 
 export type PlatformInfo = {
   os: 'mac' | 'win'
   /** Top of the pill, in px from the top of the display. Mac: just under the notch / menu-bar band (see pillTopFor). */
   pillTop: number
-  /** Labels shown in the UI (⌥E on Mac, Alt+E on Windows). */
-  keys: Record<ShortcutKind, string>
+  /** Labels shown in the UI (⌥E on Mac, Alt+E on Windows), plus settings / dismiss (v2). */
+  keys: Record<KeyName, string>
   /** Electron accelerators for globalShortcut. */
   accelerators: Record<ShortcutKind, string>
 }
@@ -52,9 +56,9 @@ export function describePlatform(os: string): PlatformInfo {
     // in VS Code and ⌥E/D/S/H/V type characters (⌥E is the accent key), so global ⌥ shortcuts stole the learner's
     // typing. ⌃⌥ combos type nothing. The launcher stays ⌥Space. Windows is unchanged (Ctrl+Alt is AltGr there).
     keys: mac
-      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V' }
+      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V', settings: '⌘,', dismiss: 'Esc' }
       : // Alt+Space is the Windows system menu: never bind it there.
-        { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V' },
+        { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V', settings: 'Ctrl+,', dismiss: 'Esc' },
     accelerators: mac
       ? {
           launcher: 'Alt+Space',
@@ -152,6 +156,37 @@ export function overlayBounds(display: { bounds: Rect }): Rect {
 /** Behave like a system feature: no Dock icon on macOS. */
 export function setupApp(app: App): void {
   if (isMac()) app.dock?.hide()
+}
+
+/**
+ * v2 (decision 4): an app window (Onboarding, Library, Progress, Account; main/appWindows.ts) shows a Dock icon while
+ * it is open, so it can be found with ⌘Tab; the last one closing hides it again. Windows: taskbar entries are per
+ * window already, nothing to do.
+ */
+export function showInDock(app: App, on: boolean): void {
+  if (!isMac() || !app.dock) return
+  if (on) void app.dock.show()
+  else app.dock.hide()
+}
+
+/**
+ * v2: options for an app window: a normal titled window (hiddenInset traffic lights on macOS), opaque, NOT a panel,
+ * NOT always on top, sandboxed like every window. The caller adds bounds.
+ */
+export function appWindowOptions(background: string): BrowserWindowConstructorOptions {
+  return {
+    show: false,
+    frame: true,
+    transparent: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    backgroundColor: background,
+    ...(isMac() ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } } : { autoHideMenuBar: true })
+  }
 }
 
 /**
