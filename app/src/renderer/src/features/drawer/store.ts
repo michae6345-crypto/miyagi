@@ -3,6 +3,7 @@
  * for a while (see index.tsx); that never changes `open`, so it slides back once the target moves on.
  */
 import { create } from 'zustand'
+import { bridge } from '../../bridge'
 import { onMessage, onUi, type PanelRequest } from '../../core/bus'
 import { setDock, useDock } from '../../core/dock'
 import { useLesson } from '../../core/lesson'
@@ -42,6 +43,12 @@ type DrawerState = {
    * covering it"). The learner pressing the handle brings it back for that step: this is that step's id.
    */
   peekStep?: string
+  /**
+   * v2: where the lesson panel comes from and goes to. 'edge': it slides in from the screen's right edge (a lesson's
+   * first step) and out to it (the lesson ends). 'pill': it morphs out of the Mini pill and back into it (collapse and
+   * reopen). collapsePanel sets 'pill'; a new lesson resets it to 'edge'.
+   */
+  via?: 'edge' | 'pill'
   /** v2 (A1): the same as the exported openPanel / collapsePanel, for readers that hold the store (A2: useDrawer.getState().openPanel()). */
   openPanel: () => void
   collapsePanel: () => void
@@ -76,7 +83,7 @@ export const setDrawerAt = (at: Side): void => {
 }
 
 export const toggleDrawer = (): void => useDrawer.setState((s) => ({ open: !s.open, concept: undefined, claimed: false }))
-export const closeDrawer = (): void => useDrawer.setState({ open: false, concept: undefined, claimed: false })
+export const closeDrawer = (): void => useDrawer.setState({ open: false, concept: undefined, claimed: false, via: 'edge' })
 /** The handle was pressed while the drawer had yielded to the spotlight: bring it back and keep it out. */
 export const claimDrawer = (): void => useDrawer.setState({ open: true, claimed: true })
 /** A concept chip was clicked: open the concept panel (the drawer stays open, as a rail). */
@@ -96,7 +103,7 @@ onUi('reset', closeDrawer)
 // A new lesson starts closed (the stage's ?drawer=open keeps it open for review). A "Just teach me" lesson
 // (lesson.mode "lesson") opens it: there's no player and no chapter list, so the drawer is where
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
-onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined, peekStep: undefined, claimed: false }))
+onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined, peekStep: undefined, claimed: false, via: 'edge' }))
 
 // A pushed diagram opens nothing (Michael, Nov 15 7 AM). The learner opened the Diagram flyout: it slides out of the
 // drawer's inner edge, so bring the drawer (as the full panel, not the concept rail) if it was closed.
@@ -131,7 +138,7 @@ export function openPanel(): void {
 }
 
 export function collapsePanel(): void {
-  useDrawer.setState({ open: false, concept: undefined, claimed: false })
+  useDrawer.setState({ open: false, concept: undefined, claimed: false, via: 'pill' })
   if (isPanelLesson()) setDock({ open: false, collapsed: true, rect: undefined })
 }
 
@@ -179,8 +186,26 @@ function noteOthers(): void {
 // the panel opening) can change what counts as open without any of the surfaces above changing.
 for (const s of [useCards, useDiagram, useComplete, useBeforeStart, useSearch, usePanel, useLesson, usePressed, useDock] as { subscribe: (fn: () => void) => () => void }[]) s.subscribe(noteOthers)
 
+/**
+ * App windows open over the lesson (account, library, progress, onboarding). In the browser stage they share this
+ * page, so Esc reaches every dismiss handler at once: the window takes it, never the panel too (persona QA: one Esc
+ * closed the account menu AND collapsed the panel). Electron windows get their own keys; the list stays empty there.
+ */
+const appWindows = new Set<string>()
+let appClosedNow = false
+bridge.onFeature('window:stage', (p) => {
+  const { route, open } = (p ?? {}) as { route?: string; open?: boolean }
+  if (!route) return
+  if (open) appWindows.add(route)
+  else if (appWindows.delete(route)) {
+    appClosedNow = true
+    setTimeout(() => (appClosedNow = false), 0)
+  }
+})
+
 onUi('dismiss', () => {
   if (!isPanelLesson() || !useDrawer.getState().open) return
+  if (appWindows.size > 0 || appClosedNow) return
   // The panel's hint, while it is the view on screen, is its own "something open": Esc closes it first.
   if (hintShown()) return closeHint()
   if (othersOpen() || closedNow) return

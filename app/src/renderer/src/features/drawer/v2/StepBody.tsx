@@ -1,14 +1,19 @@
 /**
  * Feature: drawer (v2, A1). The step itself (Les-Anatomy "Short instruction", "Fresh code to type", "Points at real
- * UI"): its title and one-line instruction, the code to type in full (never truncated: long lines scroll sideways),
- * and the line under it that points at the real control ("Then run it with the arrow beside the cell.").
+ * UI"): its title and one-line instruction, the code to type in full, and the line under it that points at the real
+ * control ("Then run it with the arrow beside the cell.").
  *
- * `where` / `then` come from step.started (v2). Without `where` a code step says "Type this", a run step "Run this".
+ * The code is never clipped (persona QA, blocker): long lines soft-wrap with a hanging indent, so a continuation sits
+ * two columns in from the line's own indent and reads as the same line. The box is keyboard-focusable (it is
+ * something to read) and has a Copy chip. A code step whose code hasn't arrived yet shows a quiet skeleton of the box,
+ * never an empty gap. `where` / `then` come from step.started (v2). Without `where` a code step says "Type this", a run
+ * step "Run this".
  */
-import type { ReactNode } from 'react'
-import { Play } from 'lucide-react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { Check, Copy, Play } from 'lucide-react'
 import type { MissingLine, StepKind } from '../../../../../../../shared/contracts/events'
-import { font, radius2, surface, type2 } from '../../../core/theme'
+import { fill, font, radius2, surface, type2 } from '../../../core/theme'
 import { Caption, Inline, tone } from './ui'
 
 export function StepIntro({ title, instructions }: { title: string; instructions: string }): ReactNode {
@@ -28,37 +33,139 @@ export function StepIntro({ title, instructions }: { title: string; instructions
 
 const DEFAULT_WHERE: Partial<Record<StepKind, string>> = { code: 'Type this', run: 'Run this' }
 
-/** The code box: rgba white .06 on the panel, a hairline, radius 12, mono 13/20. */
-function Box({ children, padLeft = 16 }: { children: ReactNode; padLeft?: number }): ReactNode {
+/** The code box: rgba white .06 on the panel, a hairline, radius 12, mono 13/20. Focusable: it is read, not clicked. */
+function Box({ children, label, padLeft = 16, padRight = 16 }: { children: ReactNode; label: string; padLeft?: number; padRight?: number }): ReactNode {
   return (
     <div
       data-part="panel-code"
-      className="overflow-x-auto"
-      style={{ background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, borderRadius: radius2.card, padding: `12px 16px 12px ${padLeft}px`, scrollbarWidth: 'thin' }}
+      role="group"
+      tabIndex={0}
+      aria-label={label}
+      className="relative outline-none focus-visible:[box-shadow:inset_0_0_0_1px_var(--code-border),0_0_0_2px_var(--code-focus)]"
+      style={{
+        background: surface.row,
+        boxShadow: `inset 0 0 0 1px ${surface.border}`,
+        borderRadius: radius2.card,
+        padding: `12px ${padRight}px 12px ${padLeft}px`,
+        ['--code-border' as string]: surface.border,
+        ['--code-focus' as string]: tone.text
+      }}
     >
       {children}
     </div>
   )
 }
 
-const lineStyle = { fontFamily: font.mono, fontSize: type2.sm, lineHeight: '20px', whiteSpace: 'pre' as const, margin: 0 }
+/** Mono 13/20, soft-wrapped. */
+const lineStyle: CSSProperties = { fontFamily: font.mono, fontSize: type2.sm, lineHeight: '20px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }
 
-export function CodeBlock({ code, where, kind, then }: { code?: string; where?: string; kind?: StepKind; then?: string }): ReactNode {
+/**
+ * One line of code with a hanging indent: the first row starts at the line's own indent (its leading spaces are part
+ * of the text), a wrapped row starts two columns further in. `ch` is the mono font's column, so it lines up exactly.
+ */
+function hang(text: string): CSSProperties {
+  const lead = (text.match(/^[ \t]*/)?.[0] ?? '').replace(/\t/g, '    ').length
+  const cols = lead + 2
+  return { paddingLeft: `${cols}ch`, textIndent: `-${cols}ch` }
+}
+
+export function CodeLine({ text, style }: { text: string; style?: CSSProperties }): ReactNode {
+  return (
+    <p style={{ ...lineStyle, ...hang(text), ...style }} data-code-line>
+      {text || ' '}
+    </p>
+  )
+}
+
+/** The Copy chip on the code box: neutral chrome (never a pastel, never the primary), "Copied" for a moment. */
+function CopyChip({ text }: { text: string }): ReactNode {
+  const [done, setDone] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const copy = (): void => {
+    const ok = (): void => {
+      setDone(true)
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => setDone(false), 1600)
+    }
+    try {
+      void navigator.clipboard?.writeText(text).then(ok, () => undefined)
+    } catch {
+      // No clipboard (an insecure context): the code is still there to select.
+    }
+  }
+  return (
+    <motion.button
+      type="button"
+      data-part="panel-code-copy"
+      aria-label={done ? 'Copied' : 'Copy the code'}
+      className="absolute right-[6px] top-[6px] flex h-[24px] cursor-pointer items-center gap-[4px] px-[8px]"
+      style={{ borderRadius: radius2.control, background: fill.button, color: done ? tone.text : tone.label, fontSize: type2.micro, fontWeight: 500 }}
+      whileHover={{ backgroundColor: fill.chipHover, color: tone.text }}
+      whileTap={{ scale: 0.95 }}
+      transition={{ duration: 0.12 }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={copy}
+    >
+      {done ? <Check size={11} strokeWidth={2} aria-hidden /> : <Copy size={11} strokeWidth={1.8} aria-hidden />}
+      <span>{done ? 'Copied' : 'Copy'}</span>
+    </motion.button>
+  )
+}
+
+/** Room on the right of the first row for the Copy chip (so it never sits on the code). */
+const CHIP_ROOM = 64
+
+export function CodeBlock({ code, where, kind, then, waiting }: { code?: string; where?: string; kind?: StepKind; then?: string; waiting?: boolean }): ReactNode {
   const label = where ?? (kind ? DEFAULT_WHERE[kind] : undefined)
-  if (!code && !then) return null
+  const reduced = useReducedMotion()
+  const skeleton = !code && waiting && kind === 'code'
+  if (!code && !then && !skeleton) return null
+  const lines = code ? code.split('\n') : []
   return (
     <div className="flex flex-col gap-[8px]" style={{ padding: '16px 20px 0' }}>
-      {code && label && <Caption>{label}</Caption>}
-      {code && (
-        <Box>
-          {code.split('\n').map((ln, i) => (
-            <p key={i} style={{ ...lineStyle, color: tone.text }}>
-              {ln || ' '}
-            </p>
-          ))}
-        </Box>
-      )}
+      {(code || skeleton) && label && <Caption>{label}</Caption>}
+      <AnimatePresence initial={false} mode="popLayout">
+        {code ? (
+          <motion.div key="code" initial={reduced ? { opacity: 0 } : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
+            <Box label={label ? `${label}: code` : 'Code'} padRight={lines.length > 1 ? 16 : CHIP_ROOM}>
+              <CopyChip text={code} />
+              {lines.map((ln, i) => (
+                <CodeLine key={i} text={ln} style={{ color: tone.text, paddingRight: i === 0 && lines.length > 1 ? CHIP_ROOM - 16 : undefined }} />
+              ))}
+            </Box>
+          </motion.div>
+        ) : skeleton ? (
+          <motion.div key="skeleton" exit={{ opacity: 0, transition: { duration: 0.12 } }}>
+            <CodeSkeleton />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
       {then && <ThenLine text={then} />}
+    </div>
+  )
+}
+
+/** A code step whose code is still on its way: the box's shape, three soft bars that breathe (no shimmer, no hue). */
+function CodeSkeleton(): ReactNode {
+  const reduced = useReducedMotion()
+  return (
+    <div
+      data-part="panel-code-skeleton"
+      role="status"
+      aria-label="Getting the code for this step"
+      className="flex flex-col gap-[8px]"
+      style={{ background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, borderRadius: radius2.card, padding: '16px' }}
+    >
+      {[0.72, 0.9, 0.48].map((w, i) => (
+        <motion.span
+          key={i}
+          className="block h-[12px]"
+          style={{ width: `${w * 100}%`, borderRadius: radius2.keycap, background: fill.skeleton }}
+          animate={{ opacity: [1, 0.4, 1] }}
+          transition={{ duration: reduced ? 2.6 : 2, repeat: Infinity, repeatDelay: 0.5, ease: 'easeInOut' }}
+        />
+      ))}
     </div>
   )
 }
@@ -66,8 +173,10 @@ export function CodeBlock({ code, where, kind, then }: { code?: string; where?: 
 /** "Then run it with the arrow beside the cell.": the play mark, then the line (points at the real UI). */
 export function ThenLine({ text }: { text: string }): ReactNode {
   return (
-    <div data-part="panel-then" className="flex items-center gap-[8px]" style={{ fontSize: type2.sm, lineHeight: '18px', color: tone.body }}>
-      <Play size={12} strokeWidth={1.8} className="shrink-0" style={{ color: tone.text }} aria-hidden />
+    <div data-part="panel-then" className="flex items-start gap-[8px]" style={{ fontSize: type2.sm, lineHeight: '18px', color: tone.body }}>
+      <span className="grid h-[18px] w-[18px] shrink-0 place-items-center" style={{ borderRadius: radius2.keycap, background: fill.key, color: tone.text }} aria-hidden>
+        <Play size={10} strokeWidth={2} fill="currentColor" />
+      </span>
       <span className="min-w-0 break-words">
         <Inline text={text} />
       </span>
@@ -77,28 +186,27 @@ export function ThenLine({ text }: { text: string }): ReactNode {
 
 /**
  * Les-NotYet: the step's lines in order, the missing ones marked (a white bar at the left and "missing"), the ones
- * already there muted. Under the fix caption ("Add the first line, then run the cell").
+ * already there muted. Under the fix caption ("Add the first line, then run the cell"). Wrapped like CodeBlock.
  */
 export function MissingBlock({ lines, caption }: { lines: MissingLine[]; caption?: string }): ReactNode {
   const missing = lines.filter((l) => l.state === 'missing').length
+  const cap = caption ?? (missing === 1 ? 'Add the missing line' : 'Add the missing lines')
   return (
     <div className="flex flex-col gap-[8px]" style={{ padding: '16px 20px 0' }}>
-      <Caption>{caption ?? (missing === 1 ? 'Add the missing line' : 'Add the missing lines')}</Caption>
-      <Box padLeft={14}>
+      <Caption>{cap}</Caption>
+      <Box label={cap} padLeft={14}>
         {lines.map((l, i) =>
           l.state === 'missing' ? (
-            <div key={i} data-line="missing" className="flex items-center gap-[8px]" style={{ borderLeft: `2px solid ${tone.text}`, paddingLeft: 8, marginLeft: -2 }}>
-              <p className="flex-1" style={{ ...lineStyle, color: tone.text }}>
-                {l.text || ' '}
-              </p>
-              <span className="shrink-0" style={{ fontSize: type2.micro, color: tone.label }}>
+            <div key={i} data-line="missing" className="flex items-start gap-[8px]" style={{ borderLeft: `2px solid ${tone.text}`, paddingLeft: 8, marginLeft: -2 }}>
+              <CodeLine text={l.text} style={{ color: tone.text, flex: 1, minWidth: 0 }} />
+              <span className="shrink-0" style={{ fontSize: type2.micro, lineHeight: '20px', color: tone.label }}>
                 missing
               </span>
             </div>
           ) : (
-            <p key={i} data-line="ok" style={{ ...lineStyle, color: tone.label, paddingLeft: 10 }}>
-              {l.text || ' '}
-            </p>
+            <div key={i} data-line="ok" style={{ paddingLeft: 10 }}>
+              <CodeLine text={l.text} style={{ color: tone.label }} />
+            </div>
           )
         )}
       </Box>
