@@ -7,6 +7,10 @@
  *
  * Side effects in main: appearance → nativeTheme.themeSource (so vibrancy and prefers-color-scheme follow),
  * launchAtLogin → app.setLoginItemSettings.
+ *
+ * v2 (W0-5): panelCollapsed, onboarded, crashReports ('ask' by default), usageCounts (off), shortcuts. They are only
+ * stored here (no side effect yet): `shortcuts` is validated as Electron accelerators and kept for wave 2's live
+ * rebinding; a patch's `shortcuts` replaces the whole map, so send all of it.
  */
 import { app, ipcMain, nativeTheme } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
