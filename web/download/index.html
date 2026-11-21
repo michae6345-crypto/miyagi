@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-os="mac" data-host="mac" data-steps="mac" data-pkg="zip" data-cloud="0">
+<html lang="en" data-os="mac" data-host="mac" data-steps="mac" data-pkg="dmg" data-cloud="1">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -26,15 +26,15 @@ window.MIYAGI_DOWNLOAD = {
   remindEndpoint: null,                               // optional: a form endpoint that emails the link (see README)
   // false = the shipped build uses the visitor's own API keys (today). Set true only once the miyagi-cloud proxy is live
   // and the build uses it: the FAQ then says "no account or API key" and "our server passes screenshots along".
-  cloud: false,
+  cloud: true,                                        // v2 builds use the miyagi-cloud proxy: no API key needed
   mac: {
     tag: "mac",
     // The file that is on the `mac` release today. The page works with these two lines alone (no API call needed).
     // When Miyagi-Mac.dmg is uploaded: set file and url to the .dmg, and fallbackFile to "Miyagi-Mac.zip".
-    file: "Miyagi-Mac.zip",
-    url: "https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip",
+    file: "Miyagi-Mac.dmg",
+    url: "https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.dmg",
     // Optional: if the release lacks `file` but has this one, the live lookup links this one instead.
-    fallbackFile: null,
+    fallbackFile: "Miyagi-Mac.zip",
     sizeMB: null,                                     // fallback when the live lookup is off or fails
     chip: "Apple silicon",                            // this build runs on M1 and later
     intelUrl: null,                                   // set when an Intel (x64) or universal build exists
