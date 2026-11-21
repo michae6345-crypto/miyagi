@@ -107,7 +107,8 @@ function PlanRow({ cloudUnused }: { cloudUnused: boolean }): ReactNode {
   )
 }
 
-export function StatusArea(): ReactNode {
+/** `plan`: false when the account chip below shows the plan already (the home window's sidebar). */
+export function StatusArea({ plan = true }: { plan?: boolean } = {}): ReactNode {
   const rows = useRows()
   const sum = summarize(rows)
   const engine = rows.find((r) => r.id === 'engine')
@@ -142,7 +143,7 @@ export function StatusArea(): ReactNode {
       {engine && <Row label="Engine" line={{ state: engine.state, word: engine.word, detail: engine.detail }} onClick={engine.state === 'passed' ? undefined : () => void openOnboarding()} />}
       {/* A failed cloud setup says "Open setup to retry": the row is the way there (quota, paused, offline: setup can't help). */}
       <Row label="Cloud" line={cloud} onClick={cloud.retry ? () => void openOnboarding() : undefined} chevron={cloud.retry} />
-      {v2Cloud && (
+      {v2Cloud && plan && (
         <>
           <div aria-hidden style={{ height: 1, margin: '4px 8px', background: fill.rule }} />
           <PlanRow cloudUnused={!!cloud.unused} />

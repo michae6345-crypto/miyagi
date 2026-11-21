@@ -1,29 +1,59 @@
 /**
- * Feature: library. The Library app window (route `library`): the list, or a lesson's preview when opened with
- * openLibrary(id) or a card click. Loads on open, whenever the window comes forward, and when the engine connects.
+ * Feature: library. The home window (route `library`): the app shell (features/shell) with its sidebar and six pages.
+ * Each open carries its own args:
+ *   {}                        the page the learner was on (Home on a fresh window)
+ *   {id}                      that lesson's preview, over Lessons (openLibrary(id))
+ *   {page, section?}          that page, and for Settings that section (openPage in features/shell/store.ts)
+ * Loads on open, whenever the window comes forward, and when the engine connects. The window title stays "miyagi".
  */
 import { useEffect, type ReactNode } from 'react'
-import { bridge } from '../../bridge'
+import { bridge, isElectron } from '../../bridge'
 import { useLesson } from '../../core/lesson'
-import { useWindowArgs } from '../../core/surfaces'
+import { useWindowArgs, type WindowArgs } from '../../core/surfaces'
 import { color, font } from '../../core/theme'
-import { Detail } from './Detail'
-import { Library } from './Library'
-import { closeDetail, openDetail, refresh, useLibrary } from './store'
+import { Shell } from '../shell/Shell'
+import { isPage, isSettingsSection, setPage, setSettingsSection } from '../shell/store'
+import { closeDetail, openDetail, refresh } from './store'
+
+/** Stage only: ?page=<id> (&section=<section>) opens the window on that page, for the shell's screenshots. */
+const stageArgs: WindowArgs | undefined = (() => {
+  if (!isElectron) {
+    const q = new URLSearchParams(location.search)
+    const page = q.get('page')
+    if (isPage(page)) return { page, ...(isSettingsSection(q.get('section')) ? { section: q.get('section')! } : {}) }
+  }
+  return undefined
+})()
+
+function apply(args: WindowArgs | null | undefined): void {
+  if (args && typeof args.id === 'string') {
+    setPage('lessons')
+    openDetail(args.id)
+    return
+  }
+  if (args && isPage(args.page)) {
+    if (isSettingsSection(args.section)) setSettingsSection(args.section)
+    setPage(args.page)
+    return
+  }
+  // Opened again with no args (openLibrary()): the page stays, a preview over it closes.
+  closeDetail()
+}
 
 export function LibraryWindow(): ReactNode {
   const args = useWindowArgs('library')
-  const openId = useLibrary((s) => s.openId)
   const connected = useLesson((s) => s.connected)
   const hello = useLesson((s) => s.hello)
 
-  // Each open carries its own args: {id} = that lesson's preview, none = the list.
   useEffect(() => {
-    if (args && typeof args.id === 'string') openDetail(args.id)
+    if (stageArgs) apply(stageArgs)
+  }, [])
+  useEffect(() => {
+    apply(args)
   }, [args])
-  // useWindowArgs can't tell "opened without args" from "not loaded yet", so a re-open with no id is read here:
-  // openLibrary() on a window showing a preview goes back to the list. (Electron sends the args to this window
-  // only; the stage's one bus tags them with the route.)
+  // useWindowArgs can't tell "opened without args" from "not loaded yet", so a re-open with no args is read here:
+  // openLibrary() on a window showing a preview closes the preview (the page stays). (Electron sends the args to this
+  // window only; the stage's one bus tags them with the route.)
   useEffect(
     () =>
       bridge.onFeature('window:args', (p) => {
@@ -47,7 +77,7 @@ export function LibraryWindow(): ReactNode {
 
   return (
     <div data-window="library" className="h-full w-full select-none overflow-hidden" style={{ fontFamily: font.ui, background: color.window }}>
-      {openId ? <Detail id={openId} /> : <Library />}
+      <Shell />
     </div>
   )
 }

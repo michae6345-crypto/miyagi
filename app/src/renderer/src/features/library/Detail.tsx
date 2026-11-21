@@ -38,7 +38,8 @@ function Video({ vid, by }: { vid: string; by?: string }): ReactNode {
   )
 }
 
-export function Detail({ id }: { id: string }): ReactNode {
+/** `back`: the page the preview was opened from (the shell names it); without it the bar leaves room for the traffic lights. */
+export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
   const item = useLibrary((s) => itemFor(s, id))
   const detail = useLibrary((s) => s.details[id])
   const canStart = useLibrary((s) => s.caps.start)
@@ -67,17 +68,17 @@ export function Detail({ id }: { id: string }): ReactNode {
   }, [id, ready, starting])
 
   const bar = (
-    <div data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 52, padding: '0 16px 0 84px', borderBottom: `1px solid ${surface.border}` }}>
+    <div data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 52, padding: back ? '0 16px' : '0 16px 0 84px', borderBottom: `1px solid ${surface.border}` }}>
       <button
         type="button"
-        aria-label="Back to library"
+        aria-label={`Back to ${back ?? 'Library'}`}
         onClick={closeDetail}
         className="flex cursor-pointer items-center justify-center"
         style={{ width: 44, height: 36, borderRadius: radius2.control, color: soft }}
       >
         <ChevronLeft aria-hidden size={16} strokeWidth={1.8} />
       </button>
-      <span style={{ fontSize: type2.sm, color: color.label }}>Library</span>
+      <span style={{ fontSize: type2.sm, color: color.label }}>{back ?? 'Library'}</span>
     </div>
   )
 
