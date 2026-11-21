@@ -40,14 +40,21 @@ from urllib.parse import urlsplit
 
 log = logging.getLogger("server.config")
 
-KEY_ENV = {
+KEY_ENV = {  # what the app may send in config.keys, and what config.status reports
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
-    "brightdata": "BRIGHTDATA_API_KEY",
     "elevenlabs": "ELEVENLABS_API_KEY",
-    "tigerUrl": "TIGER_DATABASE_URL",
     "miyagiToken": "MIYAGI_CLOUD_TOKEN",  # the app's anonymous install token for the miyagi cloud proxy
 }
+# Dropped vendors (DISTRIBUTION-PLAN, claude/eng-drop-vendors): miyagi no longer asks for Bright Data or Tiger
+# Data. A `brightdata` / `tigerUrl` value in config.keys is ignored and config.status leaves both out.
+# - Bright Data is an optional dev extra, read from .env only (BRIGHTDATA_API_KEY): the finder, the coach's web
+#   lookups and the transcript fetch use it when it is set and skip it otherwise (no key = no call).
+# - Tiger Data is replaced by the local SQLite store (server/checks/tiger.py, `metrics_db_path()`); the engine's
+#   writer no longer reads TIGER_DATABASE_URL and psycopg is no longer a dependency.
+# Full code removal is ROADMAP 3.6.
+ENV_ONLY_KEYS = {"brightdata": "BRIGHTDATA_API_KEY"}
+RETIRED_KEYS = ("brightdata", "tigerUrl")
 CLOUD_URL_ENV = "MIYAGI_CLOUD_URL"  # config.keys.miyagiCloud wins over it
 CLOUD_PROVIDERS = ("anthropic", "gemini")  # what the proxy forwards (Gemini: watching YouTube video only)
 ANTHROPIC_DIRECT_URL = "https://api.anthropic.com"
@@ -93,7 +100,7 @@ def set_app_keys(keys: dict) -> None:
 
 
 def _env_key(name: str) -> str | None:
-    v = os.environ.get(KEY_ENV.get(name, name), "")
+    v = os.environ.get(KEY_ENV.get(name) or ENV_ONLY_KEYS.get(name) or name, "")
     return v if usable(v) else None
 
 
@@ -330,10 +337,10 @@ _SECRET_PREFIXES = ("ANTHROPIC_", "GEMINI_", "GOOGLE_API", "GOOGLE_GENAI", "BRIG
 
 def safe_env(base: dict | None = None, **extra: str) -> dict[str, str]:
     """A copy of the environment (or `base`) for a learner's subprocess (their code, pip, a kernel, VS Code):
-    every provider key, the cloud token and URL and the Tiger URL removed, then `extra` added."""
+    every provider key, the cloud token and URL and any Bright Data / Tiger value removed, then `extra` added."""
     env = dict(os.environ if base is None else base)
-    secret = set(KEY_ENV.values()) | {CLOUD_URL_ENV, "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "GOOGLE_API_KEY",
-                                      "ADMIN_PASSWORD"}
+    secret = set(KEY_ENV.values()) | set(ENV_ONLY_KEYS.values()) | {
+        CLOUD_URL_ENV, "TIGER_DATABASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "GOOGLE_API_KEY", "ADMIN_PASSWORD"}
     for var in list(env):
         if var in secret or var.upper().startswith(_SECRET_PREFIXES):
             env.pop(var, None)
