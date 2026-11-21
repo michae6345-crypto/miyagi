@@ -557,6 +557,8 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
     except Exception as e:  # noqa: BLE001  (auth / rate limit / overload / network: the locate path wins)
         timed_out = "Timeout" in type(e).__name__
         _STATS["timeouts" if timed_out else "errors"] += 1
+        from server import config as server_config
+        server_config.cloud_error(e)  # an unknown install token heals in the app (cloud.token_invalid)
         log.warning("pick_target: %s: %s", type(e).__name__, str(e)[:200])
         if fmt and getattr(e, "status_code", None) == 400 and re.search(r"output_config|schema", str(e), re.I):
             _FORMAT_OK = False                 # this API / model won't take the schema: plain JSON from now on

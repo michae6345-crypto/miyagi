@@ -343,6 +343,15 @@ def model() -> str:
     return guard_model(m)
 
 
+def _note_cloud(e: BaseException) -> None:
+    """Let server.config hear a miyagi cloud refusal (an unknown install token heals in the app: cloud.token_invalid)."""
+    try:
+        from server.config import cloud_error
+    except ImportError:  # pragma: no cover - the scaffold run on its own
+        return
+    cloud_error(e)
+
+
 def make_client():
     """A sync Anthropic client with the app's key, the miyagi cloud's install token (through the proxy) or the env,
     else None (server.config.anthropic_kwargs)."""
@@ -448,6 +457,7 @@ def generate(graph: dict, goal: str, client=None) -> Scaffold:
             raw = _ask(client, messages)
             sc, _ = vet(raw, graph)  # whatever still leaks is dropped by vet
     except Exception as e:
+        _note_cloud(e)
         log.warning("starter files: Claude failed: %s", str(e)[:300])
         return Scaffold(error=f"Claude failed: {str(e)[:200]}")
     sc.model = model()

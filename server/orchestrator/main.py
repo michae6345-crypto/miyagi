@@ -522,6 +522,9 @@ class Engine:
         # E1's poller (network / AI busy / health, sent on change only). Started by the first v2 command, so an older
         # app (or a test) never makes it probe; its events go out only to a v2 app.
         self.status: Any = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._cloud_off: Any = None  # removes the cloud verdict listener (watch_cloud)
+        self._cloud_tasks: set[asyncio.Task] = set()
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -550,7 +553,42 @@ class Engine:
         self.recorder.record(ev)
         await self.session.ingest(ev)
 
+    def watch_cloud(self) -> None:
+        """Install token self-heal: hear the proxy's verdicts (server_config.cloud_error, from any thread) and tell the
+        apps: `cloud.token_invalid` the first time the proxy does not know the token (a 401; the app mints a new one),
+        and a fresh `config.status` (cloud: unauthorized / paused / quota) on each new verdict. Call on the loop."""
+        self._loop = asyncio.get_running_loop()
+        if self._cloud_off is None:
+            self._cloud_off = server_config.on_cloud_verdict(self._on_cloud_verdict)
+
+    def _on_cloud_verdict(self, event: dict) -> None:
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        try:
+            here = asyncio.get_running_loop() is loop
+        except RuntimeError:
+            here = False
+        if here:
+            self._cloud_task(self._announce_cloud(event))
+        else:  # a worker thread (sync clients, to_thread): hop onto the engine's loop
+            asyncio.run_coroutine_threadsafe(self._announce_cloud(event), loop)
+
+    async def _announce_cloud(self, event: dict) -> None:
+        if event.get("token_invalid"):
+            await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})  # never the token or its hash
+        await self.hub.emit("config.status", key_status())
+        ttl = event.get("ttl")
+        if ttl and self._loop is not None:  # paused / quota lapse on their own: say so when they do
+            self._loop.call_later(float(ttl) + 0.5, lambda: self._cloud_task(self.hub.emit("config.status", key_status())))
+
+    def _cloud_task(self, coro: Any) -> None:
+        task = asyncio.get_running_loop().create_task(coro)
+        self._cloud_tasks.add(task)  # keep a reference until it is done
+        task.add_done_callback(self._cloud_tasks.discard)
+
     async def start(self) -> None:
+        self.watch_cloud()
         self.watcher.set_root(self.session.workdir)
         self.watcher.start()
         if not self.screen.start(self.session.on_screen):
@@ -766,6 +804,9 @@ class Engine:
                 log.exception("saving lesson progress failed")
 
     async def stop(self) -> None:
+        if self._cloud_off is not None:
+            self._cloud_off()
+            self._cloud_off = None
         self.save_progress()
         await self.watcher.stop()
         self.screen.stop()
@@ -828,6 +869,8 @@ class Engine:
             await s.end_lesson("stopped")  # (the resume card's "Start a new lesson", action end_lesson, keeps it too)
         elif msg.type == "config.keys":
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
+            if server_config.token_invalid_pending():  # the same dead token again (e.g. after a reconnect): say it again
+                await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})
         elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
             await s.card_seen(msg.type == "card.shown", p.stepId, p.title, p.kind, getattr(p, "by", None))
 
@@ -857,6 +900,11 @@ def apply_keys(keys: dict) -> dict:
             os.environ[var] = _ENV_AT_START[name]
         else:
             os.environ.pop(var, None)
+    return key_status()
+
+
+def key_status() -> dict:
+    """config.status: where each key comes from (never the key) and what the miyagi cloud said (cloud_status)."""
     status = {name: server_config.key_source(name) for name in KEY_ENV}
     status["cloud"] = server_config.cloud_status()
     return status

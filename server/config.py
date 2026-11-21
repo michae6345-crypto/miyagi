@@ -34,8 +34,13 @@ unless MIYAGI_ALLOW_OPUS=1 (and never through the cloud, which rejects them), an
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import threading
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 log = logging.getLogger("server.config")
@@ -91,6 +96,7 @@ def _clean_url(value: str | None) -> str | None:
 def set_app_keys(keys: dict) -> None:
     """Store keys from the app (empty / placeholder values are ignored), plus the cloud URL."""
     global _app_cloud_url
+    before = cloud_token()
     for name in KEY_ENV:
         if name in RETIRED_KEYS:  # the app can no longer supply these (Bright Data is .env only, Tiger is gone)
             _app_keys.pop(name, None)
@@ -104,6 +110,8 @@ def set_app_keys(keys: dict) -> None:
     _app_cloud_url = _clean_url(raw if isinstance(raw, str) else None)
     if raw and not _app_cloud_url:
         log.warning("config.keys.miyagiCloud is not an https URL; the cloud is off")
+    if cloud_token() != before:  # a new install token (or none): whatever the proxy said about the old one is moot
+        _clear_verdict()
 
 
 def _env_key(name: str) -> str | None:
@@ -139,10 +147,14 @@ def mode(provider: str) -> str:
 
 
 def cloud_status() -> str:
-    """config.status.cloud: 'ok' (URL and token) | 'missing' (URL but no token yet) | 'off'."""
+    """config.status.cloud: 'ok' (URL and token) | 'missing' (URL but no token yet) | 'off', or what the proxy last
+    said about the current token (cloud_verdict): 'unauthorized' (unknown or disabled install) | 'paused' | 'quota'."""
     if not cloud_url():
         return "off"
-    return "ok" if cloud_token() else "missing"
+    if not cloud_token():
+        return "missing"
+    v = cloud_verdict()
+    return v["state"] if v else "ok"
 
 
 def get_key(name: str) -> str | None:
@@ -266,8 +278,21 @@ def cloud_error(exc: BaseException, provider: str = "anthropic") -> str | None:
     install is 403 `permission_error` and an unknown token 401 (auth, in cloud mode only); the quota stop is
     429 `rate_limit_error` in the proxy's own shape (quota, so nobody retries it; an upstream 429 forwarded
     as is stays an ordinary rate limit). `miyagi_paused` / `miyagi_quota` / `miyagi_auth` as the type are
-    read too (Core request 6)."""
+    read too (Core request 6).
+
+    Side effect (install token self-heal): in cloud mode the verdict is remembered for the current install token
+    (cloud_status() reports it) and the listeners from on_cloud_verdict() hear about each new one."""
     status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    code = _classify_cloud(exc, provider, status)
+    if code:
+        try:
+            _record_verdict(code, status, exc, provider)
+        except Exception:  # classifying a refusal never raises
+            log.exception("could not record the miyagi cloud verdict")
+    return code
+
+
+def _classify_cloud(exc: BaseException, provider: str, status) -> str | None:
     body = _error_body(exc)
     err = body.get("error") if isinstance(body.get("error"), dict) else {}
     typ = body.get("type")
@@ -287,6 +312,124 @@ def cloud_error(exc: BaseException, provider: str = "anthropic") -> str | None:
     if status == 429 and typ == "rate_limit_error" and _proxy_shaped(err, 429):
         return "miyagi_quota"
     return None
+
+
+# ------------------------------------------------------------------ what the proxy said about this install token
+#
+# cloud_error() remembers the proxy's refusal for the token in use, so config.status.cloud can say so and the app can
+# heal: a 401 means the proxy does not know the token (its database was reset): the orchestrator sends the app
+# `cloud.token_invalid` once per token and the app mints a new one. A 403 means an operator disabled this install:
+# no token_invalid (a new token would dodge the switch), config.status.cloud is 'unauthorized'. Paused and over quota
+# are transient: they expire on their own (the next refused call sets them again). A new token from the app
+# (set_app_keys) clears the verdict. Only a short sha256 of the token is kept here; the token is never logged.
+
+PAUSED_TTL_S = 120.0
+CloudListener = Callable[[dict], None]
+
+_verdict_lock = threading.Lock()
+_verdict: dict | None = None  # {"token": token id, "state": CloudState, "reason": str, "until": monotonic | None}
+_announced: set[str] = set()  # token ids a cloud.token_invalid went out for (once per token)
+_listeners: list[CloudListener] = []
+
+
+def _token_id(token: str | None) -> str:
+    return hashlib.sha256((token or "").encode()).hexdigest()[:16]
+
+
+def _clear_verdict() -> None:
+    global _verdict
+    with _verdict_lock:
+        _verdict = None
+
+
+def on_cloud_verdict(fn: CloudListener) -> Callable[[], None]:
+    """Call `fn(event)` on each new verdict about the current token, from whatever thread made the refused call.
+    event: {"state": 'unauthorized' | 'paused' | 'quota', "reason": 'unknown_token' | 'disabled' | 'paused' | 'quota',
+    "token_invalid": True the first time this token is reported unknown, "ttl": seconds until it lapses or None}.
+    Returns the function that removes `fn`."""
+    _listeners.append(fn)
+
+    def off() -> None:
+        if fn in _listeners:
+            _listeners.remove(fn)
+
+    return off
+
+
+def cloud_verdict() -> dict | None:
+    """The live verdict about the current install token ({state, reason}), or None."""
+    with _verdict_lock:
+        v = _verdict
+    if v is None or v["token"] != _token_id(cloud_token()):
+        return None
+    if v["until"] is not None and time.monotonic() >= v["until"]:
+        return None
+    return {"state": v["state"], "reason": v["reason"]}
+
+
+def token_invalid_pending() -> bool:
+    """The proxy does not know the current token (a 401): the app should mint a new one."""
+    v = cloud_verdict()
+    return bool(v) and v["reason"] == "unknown_token"
+
+
+def _seconds_to_utc_midnight() -> float:
+    now = datetime.now(UTC)
+    nxt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(60.0, (nxt - now).total_seconds())
+
+
+def _exc_token(exc: BaseException) -> str | None:
+    """The key the refused request carried (x-api-key / x-goog-api-key / Bearer), when the SDK error keeps the
+    request; else None. Never logged: compared with the current token only."""
+    response = getattr(exc, "response", None)
+    for req in (getattr(exc, "request", None), getattr(response, "request", None) if response is not None else None):
+        h = getattr(req, "headers", None)
+        if h is None or not hasattr(h, "get"):
+            continue
+        v = h.get("x-api-key") or h.get("x-goog-api-key") or ""
+        auth = h.get("authorization") or ""
+        if not v and isinstance(auth, str) and auth[:7].lower() == "bearer ":
+            v = auth[7:]
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _record_verdict(code: str, status, exc: BaseException, provider: str) -> None:
+    global _verdict
+    if mode(provider) != "cloud":
+        return
+    token = cloud_token()
+    used = _exc_token(exc)
+    if used is not None and used != token:  # a call made with an older token ended after the app sent a new one
+        return
+    if code == "miyagi_auth":
+        state, reason, ttl = "unauthorized", ("unknown_token" if status == 401 else "disabled"), None
+    elif code == "miyagi_paused":
+        state, reason, ttl = "paused", "paused", PAUSED_TTL_S
+    elif code == "miyagi_quota":
+        state, reason, ttl = "quota", "quota", _seconds_to_utc_midnight()
+    else:
+        return
+    tid = _token_id(token)
+    with _verdict_lock:
+        live = _verdict is not None and _verdict["token"] == tid and (
+            _verdict["until"] is None or time.monotonic() < _verdict["until"])
+        if live and _verdict["reason"] == reason:  # type: ignore[index]
+            return  # already known: one event per verdict, not one per refused call
+        _verdict = {"token": tid, "state": state, "reason": reason,
+                    "until": None if ttl is None else time.monotonic() + ttl}
+        first_invalid = reason == "unknown_token" and tid not in _announced
+        if first_invalid:
+            _announced.add(tid)
+    log.warning("miyagi cloud: %s (config.status.cloud=%s)", reason, state)
+    event = {"state": state, "reason": reason, "token_invalid": first_invalid, "ttl": ttl}
+    for fn in [*_listeners]:
+        try:
+            fn(event)
+        except Exception:  # a listener never breaks the caller's error handling
+            log.exception("cloud verdict listener failed")
 
 
 # ------------------------------------------------------------------ cost guards (E4)

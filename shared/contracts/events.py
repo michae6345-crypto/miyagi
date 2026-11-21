@@ -580,6 +580,7 @@ class LessonEnded(_Model):
 
 
 KeyState = Literal["ok", "missing", "invalid", "env"]  # "env" = falling back to the engine's .env
+CloudState = Literal["ok", "paused", "quota", "unauthorized", "offline", "off"]  # v2: off = no token / no proxy configured
 
 
 class ConfigStatus(_Model):
@@ -588,6 +589,16 @@ class ConfigStatus(_Model):
     brightdata: KeyState
     elevenlabs: KeyState
     tigerUrl: KeyState
+    miyagiToken: KeyState | None = None  # v2: the install token
+    # v2: what the proxy said about it. The engine also sends "missing" (a proxy URL but no token yet:
+    # server/config.py cloud_status), which events.ts's CloudState does not list yet.
+    cloud: CloudState | Literal["missing"] | None = None
+
+
+class CloudTokenInvalid(_Model):
+    """cloud.token_invalid: the proxy does not know this install's token (401). Never carries the token."""
+
+    reason: Literal["unknown_token"] | None = None
 
 
 ENGINE_EVENTS: dict[str, Any] = {
@@ -615,13 +626,14 @@ ENGINE_EVENTS: dict[str, Any] = {
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
+    "cloud.token_invalid": CloudTokenInvalid,
 }
 
 EngineEventType = Literal[
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
-    "screen.avoid",
+    "screen.avoid", "cloud.token_invalid",
 ]
 
 

@@ -114,6 +114,11 @@ export interface EngineEvents {
   /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
   "lesson.ended": { lessonId?: string; reason: string };
   "error": { message: string };
+  /** Install token self-heal: the miyagi cloud does not know this install's token (the proxy answered 401, e.g. its database was
+   *  reset). Sent once per token, and again when config.keys repeats that token. Never carries the token or its hash. The app drops
+   *  the token, mints a new one (POST <host>/v1/install) and sends config.keys again, at most once per 5 minutes. Not sent for an
+   *  install an operator disabled (403): config.status.cloud says "unauthorized" instead. */
+  "cloud.token_invalid": { reason?: "unknown_token" };
 }
 
 /** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`. */
@@ -181,7 +186,9 @@ export interface AppCommands {
   "card.closed": { stepId?: string; title: string; kind?: string; by: "user" | "replaced" | "timeout" | "hidden" };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
-export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tigerUrl: KeyState } } // same key names as config.keys
+export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;
+                                                     miyagiToken?: KeyState; cloud?: CloudState } } // same key names as config.keys   // v2: cloud = what the proxy said about this install's token
+export type CloudState = "ok" | "paused" | "quota" | "unauthorized" | "offline" | "off";   // off = no token / no proxy configured (BYOK or the engine's .env)
 export type KeyState = "ok" | "missing" | "invalid" | "env";   // "env" = falling back to the engine's .env
 
 export type EngineMessage = { [K in keyof EngineEvents]: { type: K; payload: EngineEvents[K] } }[keyof EngineEvents];

@@ -51,6 +51,23 @@ def client(key: str) -> anthropic.AsyncAnthropic:
     return _clients[sig]
 
 
+def _note_cloud(e: BaseException) -> None:
+    """Let server.config hear a miyagi cloud refusal (an unknown install token heals in the app)."""
+    try:
+        from server.config import cloud_error  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - the finder run on its own
+        return
+    cloud_error(e)
+
+
+async def _create(key: str, **kw):
+    try:
+        return await client(key).messages.create(**kw)
+    except anthropic.APIStatusError as e:
+        _note_cloud(e)
+        raise
+
+
 # --------------------------------------------------------------------------- search
 
 SEARCH_SYSTEM = """You find the best hands-on learning resources on the web for one learner.
@@ -92,7 +109,8 @@ async def search(key: str, goal: str, *, timeout: float = 12.0, max_uses: int = 
 
     candidates: [{url, title, kind?, why?, page_age?}], only URLs from the tool's results:
     Claude's picks first (in its order, with its 'why'), then the remaining search results."""
-    resp = await client(key).messages.create(
+    resp = await _create(
+        key,
         model=model(),
         max_tokens=3000,
         system=VIDEO_SEARCH_SYSTEM if videos_only else SEARCH_SYSTEM,
@@ -169,7 +187,8 @@ async def score(key: str, goal: str, cands: list[dict], *, system: str, prompt: 
         {"id": c["id"], "kind": c["kind"], "title": c["title"][:160], "meta": c.get("meta", ""), "description": (c.get("description") or "")[:350]}
         for c in cands
     ]
-    resp = await client(key).messages.create(
+    resp = await _create(
+        key,
         model=model(),
         max_tokens=4000,
         system=system,
@@ -217,7 +236,8 @@ Page: {title} ({url})
 
 
 async def read(key: str, goal: str, item: dict, text: str, *, timeout: float = 8.0) -> dict:
-    resp = await client(key).messages.create(
+    resp = await _create(
+        key,
         model=model(),
         max_tokens=2000,
         system=READ_SYSTEM,

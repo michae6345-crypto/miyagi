@@ -155,6 +155,15 @@ def mark_down(reason: str, seconds: float | None = None) -> None:
     log.warning("Gemini marked unavailable for %.0fs: %s", COOLDOWN_S if seconds is None else seconds, reason)
 
 
+def _note_cloud(e: BaseException) -> None:
+    """Let server.config hear a miyagi cloud refusal (an unknown install token heals in the app)."""
+    try:
+        from server.config import cloud_error
+    except ImportError:  # pragma: no cover - server.lesson run on its own
+        return
+    cloud_error(e, "gemini")
+
+
 def _classify(e: Exception) -> tuple[str, float]:
     """-> (kind, wait_seconds). kind: 'billing'/'auth' (fatal), 'daily'/'gone' (skip model), 'rate' (wait), 'busy', 'other'."""
     msg = str(e)
@@ -209,6 +218,7 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
                 continue
             except Exception as e:  # noqa: BLE001  network / 429 / 5xx
                 last = e
+                _note_cloud(e)
                 kind, wait = _classify(e)
                 if kind == "billing":  # every model and every call will fail the same way: stop now
                     mark_down("billing: 402 Payment Required (Gemini credits are used up)")
