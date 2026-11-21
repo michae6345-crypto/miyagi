@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 import type { ShortcutKind } from '../../../main/platform'
 import type { AppCommands } from '../../../../../shared/contracts/events'
+import { VOICE_ENABLED } from '../../../common/flags'
 import { cmd } from '../../../common/wire'
 import { bridge, isElectron } from '../bridge'
 import { emitUi, onMessage, onUi } from './bus'
@@ -50,6 +51,8 @@ export function sendAction(kind: ActionKind, text?: string): void {
 }
 
 export function triggerShortcut(kind: ActionShortcut): void {
+  // Voice is off for now (common/flags): the press goes nowhere, not to the voice feature, not to the engine.
+  if (kind === 'voice_toggle' && !VOICE_ENABLED) return
   // Electron: only the overlay window runs shortcuts (it has the bar, the cards and the spinner). Any other window
   // (the launcher) hands the press to main, which replays it in the overlay like a global key.
   if (isElectron && document.documentElement.dataset.route !== 'overlay') return bridge.emit('shortcut', kind)
