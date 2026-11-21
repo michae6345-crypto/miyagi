@@ -1,6 +1,6 @@
 # telemetry
 
-**Status:** adopted and finished (crash reports + lesson counts, off by default). Matches the miyagi-cloud `POST /v1/events` contract. Fix round 1 done: a crash sends only `{kind, app_version}`, every event's props are allowlisted and pinned, once-only flags are saved only when their batch was taken. Unit and reporter tests pass offline; not run in Electron and never sent to the real cloud (offline lane). · **Priority:** P2 · **Branch:** `claude/telemetry`
+**Status:** adopted and finished (crash reports + lesson counts, off by default). Matches the miyagi-cloud `POST /v1/events` contract. Fix round 1 done: a crash sends only `{kind, app_version}`, every event's props are allowlisted and pinned, once-only flags are saved only when their batch was taken. Fix round 2 done: merged `michael/v2-integration` again after push to talk landed (`common/prefs.ts` keeps both `shareTelemetry` and `ptt`), and the Privacy header comment now says a crash sends only its kind, never the error text. Unit and reporter tests pass offline; not run in Electron and never sent to the real cloud (offline lane). · **Priority:** P2 · **Branch:** `claude/telemetry`
 
 ## Goal
 ROADMAP 1.6 (crash reporting) and 1.7 (usage analytics) without a vendor SDK. One switch in Settings › Privacy, **"Share crash reports and usage", off by default for everyone**. Nothing leaves the Mac before the learner turns it on, and nothing before the launch gate opens (signed in or guest, setup done or put off).
