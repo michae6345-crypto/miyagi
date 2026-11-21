@@ -222,12 +222,13 @@ def python_terminal_settings(workdir: str | Path) -> bool:
         return False
 
 
-def ensure_lesson_venv(workdir: str | Path) -> bool:
+def ensure_lesson_venv(workdir: str | Path, python_lesson: bool = False) -> bool:
     """A fresh Mac whose only Python is the one inside miyagi.app: a Python lesson folder gets its .venv before VS Code
     opens (venv + ensurepip, no network, ~2 s), so `python3` in VS Code's terminal (.venv/bin first on PATH, see
     python_terminal_settings) is a real Python, never the Command Line Tools' "install developer tools" dialog. Only
     under the lessons root, only for a folder with .py / .ipynb files and no .venv, only when the bundled Python is the
-    one a .venv would be made from. Blocking. True when one was made. Never raises."""
+    one a .venv would be made from. python_lesson: the setup check says it's a Python lesson (a video lesson's VS Code
+    opens before any step file exists). Blocking. True when one was made. Never raises."""
     try:
         from server.workspace import paths
         from server.workspace import setup as ws_setup
@@ -237,10 +238,12 @@ def ensure_lesson_venv(workdir: str | Path) -> bool:
             return False
         if not ws_setup.is_bundled(ws_setup.best_python()):
             return False  # the Mac has its own Python 3: as before (the setup card's Install makes the .venv)
-        if not any(p.suffix in (".py", ".ipynb") for p in list(folder.glob("*")) + list(folder.glob("*/*"))):
+        if not python_lesson and not any(p.suffix in (".py", ".ipynb") for p in list(folder.glob("*")) + list(folder.glob("*/*"))):
             return False
         py, err = ws_setup.ensure_venv(folder, timeout=120.0)
         log.info("lesson .venv from the bundled Python for %s: %s", folder.name, "made" if py else err)
+        if py:
+            python_terminal_settings(folder)  # VS Code's terminals: .venv/bin first (written only once a .venv exists)
         return bool(py)
     except Exception:
         log.exception("lesson .venv failed")

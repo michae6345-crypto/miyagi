@@ -3,7 +3,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from server.workspace import setup as S
+
+
+
+@pytest.fixture(autouse=True)
+def _lessons_root(monkeypatch, tmp_path):  # hermetic: never the real ~/Miyagi/lessons
+    monkeypatch.setenv("MIYAGI_LESSONS_DIR", str(tmp_path / "lessons"))
+    monkeypatch.setattr(S.paths, "lessons_root", lambda: tmp_path / "lessons")
 
 
 def _no_path_pythons(monkeypatch, bundled: str, plain: str | None = None):
@@ -51,7 +60,8 @@ def test_ensure_venv_sets_a_broken_venv_aside_and_never_empties_a_symlinked_one(
     py, err = S.ensure_venv(wd, popen=popen)
     assert py and not err and "--clear" not in ran[0] and ran[0][-1] == str(wd / ".venv")
     assert (target / "keep.txt").read_text() == "mine"  # the link's target is untouched
-    assert [p.name.startswith(".venv.old-") for p in wd.iterdir() if p.name != ".venv"] == [True]
+    assert sorted(p.name for p in wd.iterdir()) == [".venv"]  # the old link went outside the lesson folder
+    assert [p.is_symlink() for p in (tmp_path / "lessons" / ".miyagi-state" / "old-venvs").iterdir()] == [True]
 
 
 def test_never_a_venv_from_the_disk_image(monkeypatch, tmp_path):
@@ -95,3 +105,64 @@ def test_ipykernel_only_for_a_vs_code_notebook_lesson():
     colab = {**nb, "lesson": {"title": "MNIST in Google Colab"}}
     assert "ipykernel" not in [it["tool"] for it in S._items(raw, colab)]
     assert "ipykernel" not in [it["tool"] for it in S._items({"editor": {"needed": False, "why": ""}, "tools": []}, nb)]
+
+
+def test_one_venv_build_per_folder_at_a_time(monkeypatch, tmp_path):
+    import threading
+    import time
+
+    monkeypatch.setattr(S, "best_python", lambda: sys.executable)
+    monkeypatch.setattr(S.paths, "lessons_root", lambda: tmp_path)
+    wd = tmp_path / "lesson"
+    wd.mkdir()
+    builds = []
+
+    def popen(argv, **kw):  # a slow build: python appears first, "pip" a moment later
+        builds.append(argv)
+        (Path(argv[-1]) / "bin").mkdir(parents=True)
+        (Path(argv[-1]) / "bin" / "python").write_text("")
+        time.sleep(0.3)
+        return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
+
+    out = []
+    ts = [threading.Thread(target=lambda: out.append(S.ensure_venv(wd, popen=popen))) for _ in range(3)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(builds) == 1 and all(py for py, _ in out)  # the others waited for it, none moved it aside
+    assert sorted(p.name for p in wd.iterdir()) == [".venv"]
+
+
+def test_a_broken_venv_goes_outside_the_lesson_folder(monkeypatch, tmp_path):
+    monkeypatch.setattr(S, "best_python", lambda: sys.executable)
+    monkeypatch.setattr(S.paths, "lessons_root", lambda: tmp_path)
+    wd = tmp_path / "lesson"
+    (wd / ".venv" / "bin").mkdir(parents=True)  # no python in it: broken
+
+    def popen(argv, **kw):
+        (Path(argv[-1]) / "bin").mkdir(parents=True)
+        (Path(argv[-1]) / "bin" / "python").write_text("")
+        return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
+
+    py, _ = S.ensure_venv(wd, popen=popen)
+    assert py and sorted(p.name for p in wd.iterdir()) == [".venv"]
+    assert [p.name.startswith("lesson-") for p in (tmp_path / ".miyagi-state" / "old-venvs").iterdir()] == [True]
+
+
+def test_lesson_venv_for_a_python_lesson_before_any_step_file(monkeypatch, tmp_path):
+    from server.orchestrator import workspace as wsmod
+
+    monkeypatch.setattr(S.paths, "lessons_root", lambda: tmp_path)
+    monkeypatch.setattr(S, "best_python", lambda: "/b/python3")
+    monkeypatch.setattr(S, "is_bundled", lambda py: py == "/b/python3")
+    made = []
+    monkeypatch.setattr(S, "ensure_venv", lambda folder, **k: made.append(folder) or ("/x/python", ""))
+    monkeypatch.setattr(wsmod, "python_terminal_settings", lambda folder: True)
+    wd = tmp_path / "video-lesson"
+    wd.mkdir()  # no .py yet: a video lesson's VS Code opens before step 1's file
+    assert wsmod.ensure_lesson_venv(wd) is False and not made
+    assert wsmod.ensure_lesson_venv(wd, True) is True and made == [wd.resolve()]
+    monkeypatch.setattr(S, "is_bundled", lambda py: False)  # the Mac has its own Python: never on open
+    assert wsmod.ensure_lesson_venv(wd, True) is False
+    assert wsmod.ensure_lesson_venv(tmp_path, True) is False  # the lessons root itself: never

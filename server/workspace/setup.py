@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -519,6 +520,16 @@ def notebook_lesson(graph: dict) -> bool:
     return False
 
 
+def _colab_lesson(graph: dict) -> bool:
+    """A notebook lesson done in Google Colab (a browser): the orchestrator's is_colab_lesson, same fields."""
+    les = graph.get("lesson") or {}
+    blob = " ".join([str(les.get(k) or "") for k in ("title", "goal")]
+                    + [str(s.get("url") or "") for s in graph.get("sources") or [] if isinstance(s, dict)]
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps") or []
+                       if isinstance(st, dict)]).lower()
+    return "colab" in blob
+
+
 def _python_lesson(graph: dict) -> bool:
     if notebook_lesson(graph) or {n.lower() for n in _lib_names(graph)} & {"python", "python3"}:
         return True
@@ -588,8 +599,7 @@ def _items(raw: dict, graph: dict | None = None) -> list[dict]:
             "binary": t.get("binary", ""), "import_name": t.get("import_name", ""), "pip_name": t.get("pip_name", ""),
             "brew": t.get("brew", ""), "brew_cask": bool(t.get("brew_cask")), "url": t.get("url", ""),
         })
-    colab = graph is not None and "colab" in json.dumps(graph.get("lesson") or {}).lower() + " ".join(
-        f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps") or [] if isinstance(st, dict)).lower()
+    colab = graph is not None and _colab_lesson(graph)
     if graph is not None and ed.get("needed") and not colab and notebook_lesson(graph) and not seen & _JUPYTER_FAMILY:
         # VS Code runs a notebook's cells with the lesson .venv's ipykernel; Claude's list often leaves it out
         items.append({**IPYKERNEL, "label": "Jupyter kernel (ipykernel)"})
@@ -714,10 +724,37 @@ def ensure_venv(workdir: Path | str, *, emit: Callable[[str], None] | None = Non
                 timeout: float = 600.0, popen=subprocess.Popen) -> tuple[str | None, str]:
     """<workdir>/.venv's python, made with best_python() when there's none yet (the Python inside miyagi.app on a Mac
     with no other Python 3; no network: venv + ensurepip's bundled pip). A .venv whose python is a dangling link
-    (miyagi.app moved, or the Python it was made from was removed) is moved aside to .venv.old-<time> (never emptied:
-    `venv --clear` on a symlinked .venv empties its target) and made again.
+    (miyagi.app moved, or the Python it was made from was removed) is moved aside to the lessons root's
+    .miyagi-state/old-venvs/ (never emptied: `venv --clear` on a symlinked .venv empties its target) and made again.
+    One build per folder at a time (_venv_lock): the setup card's Install and the open's ensure_lesson_venv may both
+    ask at once, and a half-built .venv (python there, pip not yet) must never be used or moved aside.
     -> (python, "") or (None, why)."""
-    emit = emit or (lambda _line: None)
+    with _venv_lock(workdir):
+        return _ensure_venv(workdir, emit or (lambda _line: None), env, timeout, popen)
+
+
+_venv_locks: dict[str, threading.Lock] = {}
+_venv_locks_guard = threading.Lock()
+
+
+def _venv_lock(workdir: Path | str) -> threading.Lock:
+    key = str(Path(workdir).expanduser().resolve())
+    with _venv_locks_guard:
+        return _venv_locks.setdefault(key, threading.Lock())
+
+
+def _aside_dir(venv: Path) -> Path:
+    """Where a broken .venv goes: <lessons root>/.miyagi-state/old-venvs/ (outside the lesson folder, so the file
+    watcher and VS Code's interpreter list never see it), else beside it."""
+    try:
+        d = paths.lessons_root().expanduser() / ".miyagi-state" / "old-venvs"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{venv.parent.name}-{time.strftime('%Y%m%d-%H%M%S')}"
+    except OSError:
+        return venv.with_name(f".venv.old-{time.strftime('%Y%m%d-%H%M%S')}")
+
+
+def _ensure_venv(workdir, emit, env, timeout, popen) -> tuple[str | None, str]:
     if py := venv_python(workdir):
         return py, ""
     base = best_python()
@@ -728,10 +765,14 @@ def ensure_venv(workdir: Path | str, *, emit: Callable[[str], None] | None = Non
         return None, NOT_INSTALLED_APP
     venv = Path(workdir) / ".venv"
     if venv.exists() or venv.is_symlink():  # a broken .venv (dangling python link): set aside, never emptied
-        aside = venv.with_name(f".venv.old-{time.strftime('%Y%m%d-%H%M%S')}")
+        aside = _aside_dir(venv)
         try:
-            venv.rename(aside)
-            emit(f"(the old .venv no longer runs: moved to {aside.name})")
+            try:
+                venv.rename(aside)
+            except OSError:  # another volume: beside it instead
+                aside = venv.with_name(f".venv.old-{time.strftime('%Y%m%d-%H%M%S')}")
+                venv.rename(aside)
+            emit(f"(the old .venv no longer runs: moved to {aside})")
         except OSError as e:
             return None, f"could not move the broken .venv aside: {e}"
     env = dict(env if env is not None else os.environ)

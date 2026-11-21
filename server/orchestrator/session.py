@@ -841,6 +841,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
                 asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
         self.resources = found
+        if any(it.get("tool") == "python" and it.get("needed") for it in items or []) \
+                and getattr(self.workspace, "editor_check", None) is not None:  # real windows only (never in tests)
+            self._spawn(asyncio.to_thread(wsmod.ensure_lesson_venv, folder, True))  # fresh Mac: .venv from the bundle
         if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
             self.reqs = items or None
             miss = [it for it in items or [] if it.get("needed") and not it.get("ok")
@@ -1489,6 +1492,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.reqs = [it for it in self.reqs or [] if it.get("kind") != "editor"] + [item]  # Install finds the row
         pending = ((self._setup_card or {}).get("setup") or {}).get("items") or []
         listed = any(r.get("kind") == "editor" and not r.get("ok") for r in pending)
+        if explicit and listed:  # the setup card on screen already has the VS Code row: that card again, rows kept
+            await self.emit("card", self._setup_card)
+            return True
         if explicit or (getattr(self, "_no_editor_epoch", None) != self.lesson_epoch and not listed):
             self._no_editor_epoch = self.lesson_epoch
             self._setup_card = card

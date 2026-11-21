@@ -79,3 +79,21 @@ def test_vscode_installed_opens_as_before(tmp_path, monkeypatch):
     run(go())
     assert not [c for c in rig.of("card") if c.get("title") == "VS Code not found"]
     assert [c for c in calls if str(tmp_path.resolve()) in c] and rig.s.editor_open
+
+
+def test_open_resends_the_setup_card_that_already_lists_vscode(tmp_path, monkeypatch):
+    rig, _calls = _rig(tmp_path, monkeypatch, [True])
+    listed = {"kind": "setup", "title": "Set up first", "body": "Missing: VS Code, numpy.", "actions": ["install", "skip_setup"],
+              "setup": {**CARD["setup"], "items": CARD["setup"]["items"] + [{**CARD["setup"]["items"][0], "tool": "numpy",
+                                                                              "label": "numpy", "kind": "python_package"}]}}
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        await rig.settle()
+        rig.s._setup_card = listed
+        await rig.s.action("open_editor")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("card")[-1]["title"] == "Set up first"  # rows kept: the packages aren't dropped for the sheet
