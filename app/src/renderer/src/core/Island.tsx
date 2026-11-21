@@ -8,6 +8,7 @@
  */
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
 import { onUi } from './bus'
@@ -19,6 +20,17 @@ import { color, pill, shadows, spring, springOut } from './theme'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
 const PRESS_HOLD_MS = 1500
+
+/**
+ * v2 (W0-5): where the island is right now, in the overlay window's coordinates: its box (size + offset from the
+ * notch spot), the winning mode, and whether it's pill-sized. For surfaces that sit beside it or grow out of it
+ * (the lesson panel, the recovery card) without measuring the DOM. `visible` false while another surface has it.
+ */
+export type IslandBox = { x: number; y: number; w: number; h: number; mode?: string; pill: boolean; visible: boolean }
+const useIslandBoxStore = create<IslandBox>(() => ({ x: 0, y: 0, w: 0, h: 0, mode: undefined, pill: true, visible: false }))
+export function useIslandBox(): IslandBox {
+  return useIslandBoxStore()
+}
 
 export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
   const [hover, setHover] = useState(false)
@@ -122,6 +134,12 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   useEffect(() => {
     if (!landing) bridge.emit('island:size', { w: size.w, h: size.h, dx: offset.x, dy: offset.y })
   }, [size, landing, offset.x, offset.y])
+  // v2: the same box for in-window readers (useIslandBox).
+  useEffect(() => {
+    const next: IslandBox = { x: Math.round((layout.width - size.w) / 2 + offset.x), y: Math.round(top + offset.y), w: size.w, h: size.h, mode: modeId, pill: isPill, visible: !!modeId && !yielded }
+    const cur = useIslandBoxStore.getState()
+    if ((Object.keys(next) as (keyof IslandBox)[]).some((k) => cur[k] !== next[k])) useIslandBoxStore.setState(next)
+  }, [layout.width, size.w, size.h, offset.x, offset.y, top, modeId, isPill, yielded])
 
   const enter = (): void => {
     clearTimeout(hoverTimer.current)
