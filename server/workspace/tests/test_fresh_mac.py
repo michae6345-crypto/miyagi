@@ -8,7 +8,6 @@ import pytest
 from server.workspace import setup as S
 
 
-
 @pytest.fixture(autouse=True)
 def _lessons_root(monkeypatch, tmp_path):  # hermetic: never the real ~/Miyagi/lessons
     monkeypatch.setenv("MIYAGI_LESSONS_DIR", str(tmp_path / "lessons"))
