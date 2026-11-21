@@ -5,7 +5,9 @@
  *   nav      Home, Lessons, Skills, Progress, Settings, Account. The selection is one shape that slides between rows
  *            on the house spring (layoutId). Arrow keys move along the list (and switch the page, like the macOS
  *            sidebar), Home / End jump to the ends. ⌘1..⌘6 are handled by Shell.tsx.
- *   status   Setup, Engine and Cloud at a glance (features/library Status.tsx), hidden when the window is short
+ *   status   is miyagi ready (one calm line: getting ready, Ready, or couldn't start with Retry) and Setup at a glance
+ *            (features/library Status.tsx), hidden when the window is short (the pill carries the status
+ *            then, and the account chip stays fully in view down to the 420 px minimum height)
  *   account  a chip at the foot: who is signed in and the plan, or how miyagi runs without an account. Opens the
  *            account sheet over the content (signed in: the account; signed out: Sign in to sync), never a window.
  *            Its avatar is shared with the sheet: it flies into the sheet's header and back (AccountSheet.tsx).

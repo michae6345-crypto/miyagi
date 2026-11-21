@@ -61,8 +61,11 @@ function Chip({ children }: { children: ReactNode }): ReactNode {
 
 type AppInfo = { version?: string; system?: string }
 
-/** Copy details: an allowlisted, scrubbed summary (scrub.ts); main scrubs again and writes the clipboard. */
-async function copyDetails(): Promise<boolean> {
+/**
+ * Copy details: an allowlisted, scrubbed summary (scrub.ts); main scrubs again and writes the clipboard. `extra`: the
+ * startup status's own fields (startup.ts: the cloud phase and what the status said).
+ */
+export async function copyDetails(extra: Pick<DetailFields, 'cloud' | 'startup'> = {}): Promise<boolean> {
   const info = await bridge.invoke<AppInfo | null>('errors:info').catch(() => null)
   const s = useLesson.getState()
   const e = useErrors.getState()
@@ -79,6 +82,8 @@ async function copyDetails(): Promise<boolean> {
     step: index >= 0 ? `${index + 1} of ${total}` : undefined,
     status: s.engineState,
     lastError: s.error?.message,
+    cloud: extra.cloud,
+    startup: extra.startup,
     at: new Date().toISOString()
   }
   const ok = await bridge.invoke<boolean>('diagnostics:copy', buildDetails(fields)).catch(() => false)

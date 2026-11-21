@@ -58,6 +58,8 @@ export const DETAIL_FIELDS = [
   ['link', 'Engine link'],
   ['engine', 'Engine'],
   ['engineVersion', 'Engine version'],
+  ['cloud', 'Cloud access'],
+  ['startup', 'Startup'],
   ['contract', 'Contract'],
   ['lesson', 'Lesson'],
   ['step', 'Step'],

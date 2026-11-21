@@ -11,6 +11,11 @@
  *    7 err-blocker         VS Code closed / opening / back in place, no kernel
  *    6 err-net-offline     offline, then "Online."
  *    6 err-busy            the AI provider is busy, retrying in N s
+ *
+ * Quiet start (startup.ts useQuietStart, round 5): with no lesson on screen, while first-run setup is not finished or
+ * the app's own engine is in its first start, the engine-offline card and the stopped, reconnecting and offline lines
+ * stay off. The setup flow shows the engine itself, and the home rail says "miyagi is getting ready". A lesson on
+ * screen is never quiet: real mid-lesson errors show as before.
  */
 import { isElectron } from '../../bridge'
 import { useLesson } from '../../core/lesson'
@@ -18,6 +23,7 @@ import { defineFeature } from '../../core/registry'
 import { pill } from '../../core/theme'
 import { BuildFailedCard, CrashCard, EditorClosedCard, EngineOfflineCard, LimitCard } from './cards'
 import { BlockerLine, BusyLine, OfflineLine, ReconnectLine, StoppedLine } from './lines'
+import { useQuietStart } from './startup'
 import { engineOffline, engineStopped, reconnectTry, useErrors, useNetOffline } from './store'
 import './gate'
 
@@ -40,7 +46,16 @@ export default defineFeature({
       },
       Content: CrashCard
     },
-    { id: 'err-engine-offline', priority: 72, width: 296, useActive: () => useErrors(engineOffline), Content: EngineOfflineCard },
+    {
+      id: 'err-engine-offline',
+      priority: 72,
+      width: 296,
+      useActive: () => {
+        const quiet = useQuietStart()
+        return useErrors(engineOffline) && !quiet
+      },
+      Content: EngineOfflineCard
+    },
     {
       id: 'err-editor-closed',
       priority: 66,
@@ -74,8 +89,24 @@ export default defineFeature({
       Content: LimitCard
     },
     // Pill lines. Same priority: the first listed wins (the registry's sort is stable).
-    { id: 'err-stopped', priority: 7, useActive: () => useErrors(engineStopped), Content: StoppedLine },
-    { id: 'err-reconnecting', priority: 7, useActive: () => useErrors((s) => reconnectTry(s) !== undefined || s.flash?.id === 'back'), Content: ReconnectLine },
+    {
+      id: 'err-stopped',
+      priority: 7,
+      useActive: () => {
+        const quiet = useQuietStart()
+        return useErrors(engineStopped) && !quiet
+      },
+      Content: StoppedLine
+    },
+    {
+      id: 'err-reconnecting',
+      priority: 7,
+      useActive: () => {
+        const quiet = useQuietStart()
+        return useErrors((s) => reconnectTry(s) !== undefined || s.flash?.id === 'back') && !quiet
+      },
+      Content: ReconnectLine
+    },
     {
       id: 'err-blocker',
       priority: 7,
@@ -93,7 +124,8 @@ export default defineFeature({
       useActive: () => {
         const offline = useNetOffline()
         const online = useErrors((s) => s.flash?.id === 'online')
-        return offline || online
+        const quiet = useQuietStart()
+        return (offline || online) && !quiet
       },
       Content: OfflineLine
     },
