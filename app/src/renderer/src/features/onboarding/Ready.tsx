@@ -9,7 +9,7 @@ import { useEffect, type ReactNode } from 'react'
 import { NotebookText } from 'lucide-react'
 import type { LessonTool, LibraryItem } from '../../../../../../shared/contracts/events'
 import { color, radius2, surface, type2 } from '../../core/theme'
-import { staggerList } from '../../core/ui/motion'
+import { fade, staggerList } from '../../core/ui/motion'
 import { Row } from './Row'
 import type { Row as RowData, Summary } from './rows'
 import { SheetHeader } from './Checklist'
@@ -37,7 +37,7 @@ export function Ready({ rows, sum, onStart, mark, again }: { rows: RowData[]; su
   return (
     <div data-onb-view="ready" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
       <SheetHeader title="You're ready" rows={rows} sum={sum} brand mark={mark} />
-      <motion.p className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+      <motion.p className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fade.in}>
         miyagi is set up on this Mac.
       </motion.p>
       <motion.div role="list" className="mt-[24px] grid grid-cols-2 gap-[8px]" variants={stagger(0.06)} initial="hidden" animate="shown">

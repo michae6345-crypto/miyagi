@@ -26,6 +26,8 @@ export const fade = {
   slow: { duration: duration.slow, ease: ease.out },
   /** Tint layers and hover fills. */
   tint: { duration: duration.fast, ease: ease.out },
+  /** The pressed tint: there at once (40 ms, as .mg-press:active in styles.css). */
+  press: { duration: 0.04, ease: ease.out },
   /** Anything that must just be gone now (a layer swapped out under a morph). */
   instant: { duration: duration.instant, ease: ease.out }
 } as const satisfies Record<string, Transition>

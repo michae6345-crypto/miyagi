@@ -20,7 +20,8 @@ import { useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
-import { color, copy, fill, radius2, scrim, spring, surface, type2 } from '../../core/theme'
+import { color, copy, fill, radius2, scrim, surface, type2 } from '../../core/theme'
+import { enter, fade, press } from '../../core/ui/motion'
 import { ProgressRing, Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
@@ -263,8 +264,8 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
             disabled={!!ask.sending}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            whileTap={{ scale: 0.94 }}
-            transition={spring}
+            whileTap={{ scale: press.scale }}
+            transition={enter()}
             className="flex shrink-0 cursor-pointer items-center justify-center outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
             style={{ width: 32, height: 32, borderRadius: radius2.control, background: fill.chip, color: color.text, outlineColor: color.text }}
           >
@@ -274,9 +275,10 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
       </form>
       {/* Tall enough for the tallest state (a link: the video row and the button), so typing never moves the page. */}
       <div className="relative min-h-[112px]">
-        <AnimatePresence mode="wait" initial={false}>
+        {/* popLayout: the leaving state steps out of the flow at once, so a fast typist never waits on an exit. */}
+        <AnimatePresence mode="popLayout" initial={false}>
           {read.kind === 'idle' && (
-            <motion.div key="idle" className="flex flex-col gap-[8px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0.12 } }} transition={spring}>
+            <motion.div key="idle" className="flex flex-col gap-[8px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: fade.out }} transition={enter()}>
               <span style={caption}>Type a goal or paste a YouTube link. Try one:</span>
               <div className="flex flex-wrap gap-[6px]">
                 {IDEAS.map((t) => (
@@ -297,7 +299,7 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
             </motion.div>
           )}
           {read.kind === 'goal' && (
-            <motion.div key="goal" className="flex flex-col gap-[12px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0.12 } }} transition={spring}>
+            <motion.div key="goal" className="flex flex-col gap-[12px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: fade.out }} transition={enter()}>
               <div className="flex items-center gap-[12px]">
                 {/* Busy, never disabled: the label stays readable while it sends (submitAsk ignores a second send). */}
                 <Ring>
@@ -328,7 +330,7 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
             </motion.div>
           )}
           {read.kind === 'link' && (
-            <motion.div key="link" className="flex flex-col gap-[10px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0.12 } }} transition={spring}>
+            <motion.div key="link" className="flex flex-col gap-[10px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: fade.out }} transition={enter()}>
               <div className="flex items-center gap-[12px]" style={{ padding: 8, borderRadius: radius2.card, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
                 <img src={thumbnailFor(read.link.videoId)} alt="" width={80} height={45} className="block shrink-0 object-cover" style={{ borderRadius: radius2.keycap, background: fill.thumb }} />
                 <div className="flex min-w-0 flex-col gap-[2px]">
