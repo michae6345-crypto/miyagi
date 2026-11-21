@@ -21,8 +21,8 @@ import { summarize, useRows } from '../onboarding/rows'
 import { refreshCloud, refreshPerms, requestHealth, useOnboarding } from '../onboarding/store'
 import { Press } from './motion'
 
-/** retry: guided setup can fix it (the row opens it). */
-type Line = { state: StatusState; word: string; detail?: string; retry?: boolean }
+/** retry: guided setup can fix it (the row opens it). unused: this Mac builds with its own key, no cloud help. */
+type Line = { state: StatusState; word: string; detail?: string; retry?: boolean; unused?: boolean }
 
 function useCloudLine(): Line {
   const cloud = useOnboarding((s) => s.cloud)
@@ -42,7 +42,7 @@ function useCloudLine(): Line {
   if (cloud?.state === 'ok' || status === 'ok') return { state: 'passed', word: 'Connected', detail: 'Lessons build in the cloud.' }
   if (cloud?.state === 'minting') return { state: 'checking', word: 'Setting up', detail: 'Setting up access for this Mac.' }
   if (cloud?.state === 'failed') return { state: 'notyet', word: 'Not yet', detail: "Couldn't set up access. Open setup to retry.", retry: true }
-  return { state: 'unknown', word: 'Not used', detail: 'Lessons build on this Mac with your own key.' }
+  return { state: 'unknown', word: 'Not used', detail: 'Lessons build on this Mac with your own key.', unused: true }
 }
 
 function Row({ label, line, onClick, chevron }: { label: string; line: Line; onClick?: () => void; chevron?: boolean }): ReactNode {
@@ -72,7 +72,8 @@ function Row({ label, line, onClick, chevron }: { label: string; line: Line; onC
   )
 }
 
-function PlanRow(): ReactNode {
+/** cloudUnused: the help meter counts cloud help, so with the cloud "Not used" it would contradict the row above. */
+function PlanRow({ cloudUnused }: { cloudUnused: boolean }): ReactNode {
   const account = useAccount((s) => s.account)
   const loaded = useAccount((s) => s.loaded)
   useEffect(() => {
@@ -81,7 +82,7 @@ function PlanRow(): ReactNode {
   if (!loaded) return <div aria-hidden style={{ height: 44, margin: '4px 8px 0', borderRadius: radius2.control, background: fill.skeleton }} />
   if (!account?.signedIn)
     return <Row label="Account" line={{ state: 'unknown', word: 'Sign in', detail: 'Sign in to keep your plan on every Mac.' }} onClick={() => void openAccount('signin')} chevron />
-  const help = account.help
+  const help = cloudUnused ? undefined : account.help
   const plan = account.plan === 'pro' ? 'Pro plan' : account.plan === 'teams' ? 'Teams plan' : 'Free plan'
   const f = help && help.limit ? Math.min(1, help.used / help.limit) : 0
   return (
@@ -144,7 +145,7 @@ export function StatusArea(): ReactNode {
       {v2Cloud && (
         <>
           <div aria-hidden style={{ height: 1, margin: '4px 8px', background: fill.rule }} />
-          <PlanRow />
+          <PlanRow cloudUnused={!!cloud.unused} />
         </>
       )}
     </section>
