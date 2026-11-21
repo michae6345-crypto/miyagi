@@ -10,6 +10,9 @@
  *   review  the spaced-review reminder (Prog-Review-Reminder): asked for once per app session, at launch, only by the
  *           overlay, only while no lesson runs. There is no scheduler yet, so today only fixture data opens it.
  *
+ * The launch check waits for the sign-in gate (core/gate.ts, lane overlay-gate): no progress.get, no caps ask and no
+ * timer before it opens. A hello that came earlier is answered the moment it opens.
+ *
  * Capabilities come from main (main/features/progress.ts `progress:caps`), because an app window that opens mid-lesson
  * never saw this connection's engine.hello. In the browser stage web.ts answers from core/lesson canSend().
  */
@@ -18,6 +21,7 @@ import { cmd, type Outgoing } from '../../../../common/wire'
 import { bridge, engineMode } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useDock } from '../../core/dock'
+import { gateIsOpen, onGateClose, onGateOpen } from '../../core/gate'
 import { canSend, useLesson } from '../../core/lesson'
 import { readProgress, type Progress, type ReviewItem } from './types'
 
@@ -172,10 +176,10 @@ const drawsIsland = (): boolean => {
 }
 
 function scheduleReviewCheck(): void {
-  if (reviewChecked) return
+  if (reviewChecked || !gateIsOpen()) return
   clearTimeout(reviewTimer)
   reviewTimer = setTimeout(() => {
-    if (reviewChecked || lessonOn() || !drawsIsland()) return
+    if (reviewChecked || lessonOn() || !drawsIsland() || !gateIsOpen()) return
     // The browser stage asks only with ?review, so ?scenario=full stays quiet for every other lane; there the mock
     // answers whatever the app sends, so it doesn't wait for a hello (the stage can miss the mock's first one).
     const stage = engineMode() === 'inline'
@@ -186,12 +190,24 @@ function scheduleReviewCheck(): void {
   }, REVIEW_CHECK_MS)
 }
 
-onMessage('engine.hello', () => {
-  void refreshCaps()
-  scheduleReviewCheck()
-})
+/** engine.hello arrived (it can come before the gate opens: the launch check then waits for the gate). */
+let helloSeen = false
 // Browser stage with ?review: look once after load even if no hello reached this window.
-if (STAGE_REVIEW && engineMode() === 'inline') scheduleReviewCheck()
+const stageReview = STAGE_REVIEW && engineMode() === 'inline'
+
+/** After a hello, once the gate is open: refresh the caps and schedule the launch check. */
+function launchCheck(): void {
+  if (!gateIsOpen()) return
+  if (helloSeen) void refreshCaps()
+  if (helloSeen || stageReview) scheduleReviewCheck()
+}
+onMessage('engine.hello', () => {
+  helloSeen = true
+  launchCheck()
+})
+onGateOpen(launchCheck)
+// The gate closed again (a sign-out) before the check ran: drop it, the next opening schedules it again.
+onGateClose(() => clearTimeout(reviewTimer))
 
 export function closeReview(): void {
   if (get().review) set({ review: undefined })

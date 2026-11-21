@@ -11,12 +11,16 @@
  *   leaving  the hand-off: the flow fades, the sidebar slides in, the bonsai lands in the sidebar, Home rises
  *   off      home as usual
  *
- * Main decides (main/features/onboarding.ts onboarding:get): flow = setup not done on this Mac and not put off.
+ * Main decides (main/features/onboarding.ts onboarding:get): the flow is on whenever the launch gate is closed
+ * (common/gate.ts: login, then setup), on every launch, not only the first one (Michael, Nov 21: "like it's just
+ * starting from new"). It starts on the first part still needed: the login (after the intro, once per Mac), else
+ * setup. Home stays covered until the gate opens: a login with setup already through goes straight home after it, and
+ * a sign-out (the gate closing again, feat:onboarding:gate) brings the flow back at the login. Without a gate in the
+ * answer (an older main, the stage) the old rule holds: flow = setup not done on this Mac and not put off.
  * The guided step on screen is saved (onboarding:step), so a relaunch for Screen Recording lands back on it.
  *
- * No blank first frame: every answer is remembered in this window's localStorage (OFF_KEY), so an open after the
- * first run starts on 'off' and home is there in the first paint; main's answer still comes, and a flow that turns
- * out to be on (a late answer, or flags reset) still starts. Only a real first run waits on 'pending'.
+ * In Electron every open waits on 'pending' (the window's plain paper for a few ms) for main's answer, so home never
+ * shows over a closed gate. The stage keeps its remembered 'off' (OFF_KEY in localStorage) for a quick first paint.
  *
  * Again (reopenFlow): every ask for setup after the first run (home's Finish setup, the sidebar's Setup, Engine and
  * Cloud rows, Settings' Open setup, here or from the tray's Settings) runs guided setup over home, in this same window:
@@ -26,6 +30,7 @@
  * Done (leaveAgain): back to home, no lesson started.
  */
 import { create } from 'zustand'
+import { cleanGate, firstNeeded, type GateView } from '../../../../../common/gate'
 import { bridge, isElectron } from '../../../bridge'
 import { setSetupOpener } from '../../../core/surfaces'
 import { markDone, markIntroSeen, useOnboarding, type GuidedStepId } from '../../onboarding/store'
@@ -42,6 +47,8 @@ type State = {
   resume?: GuidedStepId
   /** Setup reopened over home (reopenFlow): home stays mounted under the flow, the bonsai stays in the sidebar. */
   again: boolean
+  /** The launch gate as main last said (onboarding:get, feat:onboarding:gate). undefined: main sent none. */
+  gate?: GateView
 }
 
 /** Remembered "no flow here" (setup done or put off), read synchronously on the next open of the window. */
@@ -65,12 +72,12 @@ function writeOff(off: boolean): void {
 /** The stage's ?flow=1 always plays the flow (its localStorage outlives a run). */
 const stageFlow = !isElectron && !!stageFlowStep()
 
-export const useFlow = create<State>(() => ({ phase: !stageFlow && readOff() ? 'off' : 'pending', login: false, again: false }))
+export const useFlow = create<State>(() => ({ phase: !isElectron && !stageFlow && readOff() ? 'off' : 'pending', login: false, again: false }))
 const set = useFlow.setState
 const get = useFlow.getState
 
 /** onboarding:get, as main/features/onboarding.ts answers it. */
-type FlowGet = { done?: boolean; introSeen?: boolean; flow?: boolean; login?: boolean; step?: string }
+type FlowGet = { done?: boolean; introSeen?: boolean; flow?: boolean; login?: boolean; step?: string; gate?: unknown }
 
 const STEPS: readonly GuidedStepId[] = ['screen', 'accessibility', 'companion', 'engine']
 const asStep = (s: unknown): GuidedStepId | undefined => STEPS.find((x) => x === s)
@@ -98,17 +105,21 @@ export function initFlow(): void {
     .invoke<FlowGet>('onboarding:get')
     .then((r) => {
       clearTimeout(fallback)
-      writeOff(!r?.flow)
+      const gate = r?.gate === undefined ? undefined : cleanGate(r.gate)
+      // The gate decides when main sends it: closed = the flow, at the first part still needed.
+      const on = gate ? !gate.open : !!r?.flow
+      set({ gate })
+      writeOff(!on)
       const p = get().phase
-      if (!r?.flow) {
+      if (!on) {
         if (p === 'pending') set({ phase: 'off' })
         return
       }
       // On: start it, unless the learner already left it or reopened it themselves.
       if (p !== 'pending' && !(p === 'off' && guessed)) return
       guessed = false
-      const login = r.login === true
-      set({ login, resume: asStep(r.step), again: false, phase: !r.introSeen ? 'intro' : login ? 'login' : 'setup' })
+      const login = gate ? firstNeeded(gate) === 'login' : r?.login === true
+      set({ login, resume: asStep(r?.step), again: false, phase: !r?.introSeen ? 'intro' : login ? 'login' : 'setup' })
     })
     .catch(() => {
       clearTimeout(fallback)
@@ -121,9 +132,22 @@ export function endIntro(): void {
   set({ phase: get().login ? 'login' : 'setup' })
 }
 
-/** Signed in, or "Continue without an account" (auth:continue already told main): on to setup. */
+/**
+ * Signed in, or "Continue without an account" (auth:continue already told main): on to setup, or straight home when
+ * setup is already done or put off on this Mac (a later launch: the login was all the gate still needed).
+ */
 export function endLogin(): void {
+  if (get().gate?.setup) return handHome()
   set({ phase: 'setup', login: false })
+}
+
+/** Back to home with nothing marked (no done, no later): the gate opens on main's side by itself. */
+function handHome(): void {
+  guessed = false
+  writeOff(true)
+  set({ phase: 'leaving', login: false })
+  clearTimeout(arriveTimer)
+  arriveTimer = setTimeout(() => set({ phase: 'off', again: false }), ARRIVE_MS)
 }
 
 export const toReady = (): void => set({ phase: 'ready' })
@@ -195,6 +219,18 @@ export function leaveAgain(done = false): void {
   clearTimeout(arriveTimer)
   arriveTimer = setTimeout(() => set({ phase: 'off', again: false }), ARRIVE_MS)
 }
+
+// The gate closing again while home shows (a sign-out): the flow covers home again, at the part now needed.
+bridge.onFeature('onboarding:gate', (raw) => {
+  const gate = cleanGate(raw)
+  set({ gate })
+  if (!started || gate.open || get().phase !== 'off') return
+  clearTimeout(arriveTimer)
+  const login = firstNeeded(gate) === 'login'
+  guessed = false
+  writeOff(false)
+  set({ login, resume: undefined, again: false, phase: login ? 'login' : 'setup' })
+})
 
 // Remember the guided step on screen (main writes it to onboarding.json) while the flow runs, so a relaunch for
 // Screen Recording comes back to the same step instead of the intro.

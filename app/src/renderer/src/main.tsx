@@ -20,7 +20,12 @@ const route = location.hash.replace(/^#\/?/, '') || (isElectron ? 'overlay' : 's
 function useEngineFeed(): Layout {
   const [layout, setLayout] = useState<Layout>({ origin: { x: 0, y: 0 }, width: innerWidth, height: innerHeight, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
   useEffect(() => {
-    const offs = [bridge.onEvent(dispatch), bridge.onStatus(setConnected), bridge.on('layout', (l) => setLayout(l as Layout))]
+    const offs = [bridge.onEvent(dispatch), bridge.onStatus(setConnected), bridge.on('layout', (l) => {
+        // Main re-fits the pill under the menu bar / notch when the displays change: every reader of platform.pillTop follows.
+        const next = l as Layout
+        if (typeof next.pillTop === 'number') (bridge.platform as { pillTop: number }).pillTop = next.pillTop
+        setLayout(next)
+      })]
     bridge.ready()
     return () => offs.forEach((off) => off())
   }, [])

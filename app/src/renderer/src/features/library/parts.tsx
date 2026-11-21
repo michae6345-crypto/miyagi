@@ -4,31 +4,42 @@
  */
 import type { ReactNode } from 'react'
 import type { LessonTool, LibraryItem } from '../../../../../../shared/contracts/events'
-import { color, fill, font, radius2, surface, type2 } from '../../core/theme'
+import { color, fill, radius2, surface, tone, type Tone, type2 } from '../../core/theme'
 
 /** Secondary text on the window (the mockups' white at 78%). */
 export const soft = fill.keycapText
 
 export const TOOL_NAME: Record<LessonTool, string> = { vscode: 'VS Code', jupyter: 'Jupyter', terminal: 'Terminal', excel: 'Excel' }
-const TOOL_ABBR: Record<LessonTool, string> = { vscode: 'VS', jupyter: 'Jn', terminal: '>_', excel: 'Xl' }
+const TOOL_ABBR: Record<LessonTool, string> = { vscode: 'VS', jupyter: 'Jn', terminal: 'Sh', excel: 'Xl' }
 /** The tools a lesson can be filtered by today; Excel shows as "soon". */
 export const FILTER_TOOLS: LessonTool[] = ['vscode', 'jupyter', 'terminal']
 
-/** A tool's two-letter tile (Home-Library .app). */
+/** Soft pastel per tool (the theme's tone tokens, so a tag reads in light and dark). A tag, never status. */
+export const TOOL_TONE: Record<LessonTool, Tone> = { vscode: 'sky', jupyter: 'lilac', terminal: 'pink', excel: 'peach' }
+
+/** A tool's soft tag: "VS Code" in its pastel. */
+export function ToolTag({ tool }: { tool: LessonTool }): ReactNode {
+  return (
+    <span className="inline-flex shrink-0 items-center whitespace-nowrap font-medium" style={{ height: 20, padding: '0 8px', borderRadius: radius2.round, background: tone[TOOL_TONE[tool]].bg, color: tone[TOOL_TONE[tool]].fg, fontSize: type2.micro }}>
+      {TOOL_NAME[tool]}
+    </span>
+  )
+}
+
+/** A tool's tile (Lessons cards): the pastel square with its two letters in ink. */
 export function ToolTile({ tool, size = 32, muted }: { tool: LessonTool; size?: number; muted?: boolean }): ReactNode {
   return (
     <span
       aria-hidden
-      className="inline-flex shrink-0 items-center justify-center"
+      className="inline-flex shrink-0 items-center justify-center font-medium"
       style={{
         width: size,
         height: size,
         borderRadius: size <= 20 ? radius2.keycap : size >= 48 ? radius2.card : radius2.control,
-        background: surface.row,
-        boxShadow: `inset 0 0 0 1px ${surface.border}`,
-        fontFamily: font.mono,
+        background: tone[TOOL_TONE[tool]].bg,
+        opacity: muted ? 0.6 : 1,
         fontSize: size >= 48 ? type2.sm : type2.micro,
-        color: muted ? color.label : soft
+        color: tone[TOOL_TONE[tool]].fg
       }}
     >
       {TOOL_ABBR[tool]}

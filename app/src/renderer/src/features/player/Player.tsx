@@ -22,6 +22,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { usePill } from '../pill/store'
 import { dockRect } from './dock'
 import { GlassCheck, GlassDot, GlassPrimary, GlassQuiet, GlassSpinner } from './glass'
+import { showsPlayGlyph } from './policy'
 import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
 import { beat, ease, enter, fade as fades, prefersReduced, pressMotion } from '../../core/ui/motion'
 
@@ -176,7 +177,7 @@ function Video(): ReactNode {
           ? 'setup'
           : !p.playing && stepOpen && (p.pausedBy === 'gate' || p.pausedBy === 'engine')
           ? 'waiting'
-          : !p.playing && p.pausedBy === 'user'
+          : !p.playing && showsPlayGlyph(p.pausedBy)
             ? 'paused'
             : undefined
 

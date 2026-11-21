@@ -77,6 +77,7 @@ import { stepQuestions } from './questions'
 import { LessonRow, LibraryContinueRow, LinkPreview, MessageRow, READY_H, ReadyRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { navKey } from './keys'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
+import { isDuplicateToggle } from './guard'
 import { placeClear } from './place'
 import { parseYouTube } from './youtube'
 import { beat, ease, fade, instant } from '../../core/ui/motion'
@@ -263,6 +264,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   // ---- open / close ---------------------------------------------------------------------------
 
+  /** When main last opened the launcher (guard.ts). */
+  const openedAt = useRef(0)
   const close = useCallback(() => {
     if (phaseRef.current === 'open') setPhase('closing')
   }, [setPhase])
@@ -283,6 +286,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     () =>
       bridge.on('launcher:open', (payload) => {
         const f = (payload as { from?: Size } | undefined)?.from
+        openedAt.current = Date.now()
         setFrom(f && f.w > 0 && f.h > 0 ? { w: Math.round(f.w), h: Math.round(f.h) } : PILL)
         const hasLesson = !!useLesson.getState().lesson
         setMode(hasLesson ? 'ask' : 'search')
@@ -312,6 +316,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         // Main thinks the panel is open but this renderer isn't showing it (a hot reload remounted it): let main hide
         // the window, or its invisible full-screen panel keeps the keyboard, every click and the island.
         if (phaseRef.current === 'closed') return bridge.emit('launcher:hidden')
+        // A second toggle right after the open (double-click, key twice): stay open; main still counts it open.
+        if (isDuplicateToggle(Date.now() - openedAt.current)) return
         close()
       }),
     [close]

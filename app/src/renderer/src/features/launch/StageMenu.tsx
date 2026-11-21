@@ -9,6 +9,7 @@ import { bridge } from '../../bridge'
 import { openLibrary, openSettings } from '../../core/surfaces'
 import { color, fill, radius2, shadows, surface, type2 } from '../../core/theme'
 import { Kbd } from '../../core/ui/atoms'
+import { startTour } from '../tips/tourStore'
 import { closeStageMenu, useStageMenu } from './web'
 import { fade } from '../../core/ui/motion'
 
@@ -18,6 +19,7 @@ type Row = { label: string; run: () => void; key?: boolean }
 const ROWS: (Row | 'sep')[] = [
   { label: 'Open miyagi', run: () => void openLibrary() },
   { label: 'Start a lesson', run: () => bridge.emit('launcher:toggle'), key: true },
+  { label: 'Show me around', run: () => startTour() },
   { label: 'Settings…', run: () => void openSettings() },
   'sep',
   { label: 'Quit miyagi', run: () => undefined }

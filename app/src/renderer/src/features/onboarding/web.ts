@@ -116,7 +116,8 @@ function setupWeb(): void {
   registerWebHandler('permissions:open', (kind) => {
     if (kind !== 'screen' && kind !== 'accessibility') return false
     console.info(`[onboarding] stage: would open System Settings (${kind}); switching it on in 2.5 s`)
-    setTimeout(() => (perms[kind] = 'granted'), 2500)
+    // ?regrant=1: macOS shows it on but never reports the grant (an update dropped it): the step says what to try.
+    if (!new URLSearchParams(location.search).has('regrant')) setTimeout(() => (perms[kind] = 'granted'), 2500)
     return true
   })
 
@@ -137,6 +138,10 @@ function setupWeb(): void {
     refreshCloud()
   }
 
+  if (new URLSearchParams(location.search).has('regrant')) {
+    markAsked('screen')
+    markAsked('accessibility')
+  }
   // The checklist mockup's Accessibility row is already Watching (the learner clicked it once).
   if (variant === 'mixed') markAsked('accessibility')
   const segment = variant === 'mixed' || variant === 'ready' || variant === 'recovery' ? variant : variant === 'step4' ? 'ready' : 'full'

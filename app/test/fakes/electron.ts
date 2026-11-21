@@ -22,4 +22,81 @@ export const shell = {
   }
 }
 
-export const app = { isPackaged: false }
+/**
+ * The module-level app (features import it directly). on() records listeners in appListeners; nothing fires them
+ * unless a test does.
+ */
+export const appListeners: [string, (...a: unknown[]) => void][] = []
+export const app = {
+  isPackaged: false,
+  on: (ev: string, fn: (...a: unknown[]) => void): void => void appListeners.push([ev, fn]),
+  getLoginItemSettings: (): { wasOpenedAtLogin: boolean } => ({ wasOpenedAtLogin: false }),
+  focus: (): void => undefined,
+  quit: (): void => undefined
+}
+
+/**
+ * Every call that would show a macOS privacy prompt or capture the screen (onboarding.ts onboarding:prompt). A launch
+ * must leave this empty: prompts come only from a setup button click.
+ */
+export const promptCalls: string[] = []
+export const systemPreferences = {
+  isTrustedAccessibilityClient: (prompt: boolean): boolean => {
+    promptCalls.push(`accessibility:${prompt}`)
+    return false
+  },
+  getMediaAccessStatus: (kind: string): string => {
+    promptCalls.push(`media-status:${kind}`)
+    return 'not-determined'
+  }
+}
+export const desktopCapturer = {
+  getSources: async (): Promise<unknown[]> => {
+    promptCalls.push('capture')
+    return []
+  }
+}
+
+/** Global keys registered and unregistered, in order (index.ts's launcher key through main/gate.ts gateCore). */
+export const shortcuts = new Set<string>()
+export const globalShortcut = {
+  register: (acc: string): boolean => {
+    shortcuts.add(acc)
+    return true
+  },
+  unregister: (acc: string): void => void shortcuts.delete(acc),
+  isRegistered: (acc: string): boolean => shortcuts.has(acc)
+}
+
+type MenuItem = { label?: string; type?: string; click?: () => void }
+/** The menu bar item: the last context menu set, as its items. */
+export class Menu {
+  constructor(public items: MenuItem[]) {}
+  static buildFromTemplate(items: MenuItem[]): Menu {
+    return new Menu(items)
+  }
+  popup(): void {}
+}
+export const trays: Tray[] = []
+export class Tray {
+  menu?: Menu
+  constructor() {
+    trays.push(this)
+  }
+  setToolTip(): void {}
+  setContextMenu(m: Menu): void {
+    this.menu = m
+  }
+  on(): void {}
+  destroy(): void {}
+}
+export const nativeImage = {
+  createFromDataURL: (): { addRepresentation: () => void } => ({ addRepresentation: () => undefined })
+}
+
+/** Only the static helpers features call; there are no real windows. */
+export class BrowserWindow {
+  static getFocusedWindow(): undefined {
+    return undefined
+  }
+}

@@ -783,7 +783,6 @@ class ProgressEvent(_Model):
 class ConfigStatus(_Model):
     anthropic: KeyState
     gemini: KeyState
-    brightdata: KeyState
     elevenlabs: KeyState
     tigerUrl: KeyState
     miyagiToken: KeyState | None = None  # v2: the install token
@@ -885,11 +884,12 @@ class OverlayBounds(_Model):
 
 
 class ConfigKeys(_Model):
-    """Bring-your-own-key. Keep in memory only; never log or echo these."""
+    """Bring-your-own-key. Keep in memory only; never log or echo these. Unknown names (from older app builds) are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
 
     anthropic: str | None = None
     gemini: str | None = None
-    brightdata: str | None = None
     elevenlabs: str | None = None
     tigerUrl: str | None = None
     miyagiToken: str | None = None  # v2: the anonymous install token ("mi_..."); memory only

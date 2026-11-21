@@ -26,7 +26,7 @@ Scenario: `npm run dev:web -- --port 5189` then `http://localhost:5189/?scenario
 **Deviations from the mockups (brand rules or plan):**
 - Sheet top is the pill's top (it grows out of the pill), not 48 px under a separate pill; one close dot instead of three traffic lights (the other two would be dead).
 - Pastels are BRAND.md's (sky `#C5E4F9`, pink, lilac), not the mockup's; keycaps are the platform's (⌃⌥E, ⌥Space), not ⌥E / ⌘K; Watch has no row (decision 3).
-- Nav reads "Your key", the section "Use your own key": no account or plan this push (`v2Cloud`). One row per key (Anthropic, Gemini, Bright Data, Tiger Data URL) instead of Plan-OwnKey's provider select, because the key flow is moved, not rewritten. Save key and Test sit under the rows; no Cancel button (Esc and the close dot close the sheet).
+- Nav reads "Your key", the section "Use your own key": no account or plan this push (`v2Cloud`). One row per key (Anthropic, Gemini, Tiger Data URL) instead of Plan-OwnKey's provider select, because the key flow is moved, not rewritten. Save key and Test sit under the rows; no Cancel button (Esc and the close dot close the sheet).
 - Privacy copy changed for honesty (screenshots are sent to the provider during lessons, not "Used only..."), sync/usage switches and the log row hidden, Delete erases keys and settings on this Mac only.
 - General: the "Works with" VS Code row shows the engine's version (no lesson file name in the app state); Voice caption describes `voiceOnStart`.
 
@@ -60,7 +60,7 @@ The sheet is now **Settings**: a **General** section above **Keys** (keys unchan
 **Left:** Electron check on the Mac (list below). `invalid` only shows once the engine produces it. A way to open Settings in Electron before the overview's gear lands (see Core requests 3).
 
 ## Goal
-Bring-your-own-keys. A small settings sheet **born from the notch island** (like the launcher): a focusable window whose panel starts at the island's exact rect and collapses back into it. Five keys: **Anthropic** and **Gemini** (required), **Bright Data** (optional: without it you paste a YouTube link), **ElevenLabs** (optional: voice), **Tiger Data URL** (optional). One status per key, a Test button, Save.
+Bring-your-own-keys. A small settings sheet **born from the notch island** (like the launcher): a focusable window whose panel starts at the island's exact rect and collapses back into it. Four keys: **Anthropic** and **Gemini** (required), **ElevenLabs** (optional: voice), **Tiger Data URL** (optional). One status per key, a Test button, Save.
 
 ## Owns
 - `app/src/renderer/src/features/settings/`: window route `settings`, the sheet, status dots
