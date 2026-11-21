@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: miyagi-cloud
+    runtime: python
+    rootDir: cloud
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    disk:
+      name: miyagi-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: PROXY_ENABLED
+        value: "true"
+      - key: ALLOWED_ANTHROPIC_MODELS
+        value: claude-sonnet-5-5,claude-haiku-5-5
+      - key: ALLOWED_GEMINI_MODELS
+        value: gemini-3.8-flash
+      - key: MAX_TOKENS_CAP
+        value: "4096"
+      - key: DB_PATH
+        value: /var/data/miyagi.db
