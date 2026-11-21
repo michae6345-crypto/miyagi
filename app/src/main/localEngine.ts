@@ -10,8 +10,10 @@
  *   4. A12 (DISTRIBUTION-PLAN.md section 2): this app carries a standalone Python with the engine's packages
  *      (Resources/engine/python + src/, put there by scripts/bundle-engine.mjs) → copy the source to
  *      ~/miyagi/engine/src once per bundled version (cached lessons kept), then start
- *      `Resources/engine/python/bin/python3 -m server.orchestrator.main --host 127.0.0.1` directly. No uv, no Python
- *      download, no network; nothing is written inside the signed app (PYTHONDONTWRITEBYTECODE=1, all precompiled).
+ *      `Resources/engine/python/bin/python3 -s -B -m server.orchestrator.main --host 127.0.0.1` directly (cwd = src). No
+ *      uv, no Python download, no network; nothing is written inside the signed app (-B, and all precompiled: a
+ *      PYTHON.json without precompiled: true isn't used). No PYTHON* variables are set: the engine passes its
+ *      environment to VS Code and to the learner's commands, which must see the user's own Python setup.
  *   5. Older bundles (install.sh + src/, no python/): run `install.sh --src … --no-app --no-vscode --no-start --yes`
  *      once (uv + Python + packages: about a minute, needs the network), then start the launcher it writes.
  *   6. Quit → stop only the engine this app started.
@@ -102,6 +104,12 @@ function vscodeDir(): string {
   return dev ? join(dev, 'vscode') : join(process.resourcesPath, 'vscode')
 }
 
+/** Folders the engine writes into its own source tree, kept across app updates (copySource). */
+const KEPT_DIRS: readonly string[][] = [
+  ['demo', 'cache'],
+  ['demo', 'runs'],
+]
+
 /** Where Rosetta 2 lives once installed (Apple silicon only). */
 const ROSETTA = '/Library/Apple/usr/share/rosetta/rosetta'
 
@@ -112,12 +120,16 @@ const ROSETTA = '/Library/Apple/usr/share/rosetta/rosetta'
  * never a spawn that dies with "bad CPU type". → '' when it can, else why not (for engine.log)
  */
 function pythonArchProblem(bundle: string): string {
-  let arch: unknown
+  let manifest: { arch?: unknown; precompiled?: unknown }
   try {
-    arch = (JSON.parse(readFileSync(join(bundle, 'PYTHON.json'), 'utf8')) as { arch?: unknown }).arch
+    manifest = JSON.parse(readFileSync(join(bundle, 'PYTHON.json'), 'utf8')) as { arch?: unknown; precompiled?: unknown }
   } catch {
     return 'no readable PYTHON.json'
   }
+  // Built where the target Python couldn't run: no import check and no .pycs, so a lesson .venv made from it would
+  // write .pycs inside the signed app. Never used.
+  if (manifest?.precompiled !== true) return 'bundled Python was not precompiled or import-checked (PYTHON.json precompiled is not true)'
+  const arch = manifest.arch
   const appleSilicon = process.arch === 'arm64' || app.runningUnderARM64Translation
   if (arch === 'universal2') return ''
   if (arch === 'arm64') return appleSilicon ? '' : `bundled Python is arm64, this Mac is ${process.arch}`
@@ -238,8 +250,9 @@ export function setupLocalEngine(
 
   /**
    * Copy the bundled source into ~/miyagi/engine/src: next to it first, then swap, so a crash mid-copy never leaves a
-   * half tree. Built lessons, searches and transcripts are cached in src/demo/cache: merged into src.new before the
-   * swap (the new source's files win), so src.old never holds the only copy once it's deleted. A src.old left by a run
+   * half tree. What the engine writes into its own tree is merged into src.new before the swap (the new source's
+   * files win), so src.old never holds the only copy once it's deleted: src/demo/cache (built lessons, searches,
+   * transcripts) and src/demo/runs (recorder runs, and the backups of learner files made before "Do it for me"). A src.old left by a run
    * that stopped mid-swap is merged the same way before it goes. Async so the first launch never blocks the main
    * process. → ok
    */
@@ -252,10 +265,12 @@ export function setupLocalEngine(
       await rm(next, { recursive: true, force: true })
       // preserveTimestamps: the .pyc files are hash-checked, but keeping mtimes avoids needless re-reads.
       await cp(join(bundle, 'src'), next, { recursive: true, preserveTimestamps: true })
-      // force: false keeps what's already there: the bundle's files first, then the current src's cache over src.old's.
+      // force: false keeps what's already there: the bundle's files first, then the current src's over src.old's.
       for (const from of [src, old]) {
-        const cache = join(from, 'demo', 'cache')
-        if (existsSync(cache)) await cp(cache, join(next, 'demo', 'cache'), { recursive: true, force: false, errorOnExist: false })
+        for (const dir of KEPT_DIRS) {
+          const kept = join(from, ...dir)
+          if (existsSync(kept)) await cp(kept, join(next, ...dir), { recursive: true, force: false, errorOnExist: false })
+        }
       }
       await rm(old, { recursive: true, force: true })
       if (existsSync(src)) await rename(src, old)
@@ -296,20 +311,19 @@ export function setupLocalEngine(
 
   /**
    * The bundled Python's environment: the launcher's defaults (scripts/install.sh writes the same ones), the user's
-   * own values win, and nothing from a shell's Python setup leaks in (PYTHONHOME, a venv, user site-packages).
+   * own values win, and nothing from a shell's Python setup leaks in (PYTHONHOME, a venv). No PYTHONPATH,
+   * PYTHONNOUSERSITE or PYTHONDONTWRITEBYTECODE: the engine hands its environment to everything it starts (`code
+   * <folder>` in workspace/editor.py, the learner's commands in "Run it for me"), and VS Code's terminals and kernels
+   * must get the user's own Python setup. The interpreter flags do that job instead (spawnEngine: -s -B, cwd = src).
    */
   const pythonEnv = (): NodeJS.ProcessEnv => {
     const e: NodeJS.ProcessEnv = { ...env }
     for (const k of ['PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONEXECUTABLE', 'VIRTUAL_ENV', '__PYVENV_LAUNCHER__', 'CONDA_PREFIX']) delete e[k]
     return {
       ...e,
-      PYTHONPATH: src,
-      PYTHONNOUSERSITE: '1',
-      PYTHONDONTWRITEBYTECODE: '1',
       PYTHONUNBUFFERED: '1',
       // workspace/setup.py builds lesson .venvs from this when the Mac has no other Python 3 (engine side, E-lane).
       MIYAGI_BUNDLED_PYTHON: python,
-      PYTHON: python,
       TUT_ENV: e.TUT_ENV || join(home, 'engine.env'),
       ENGINE_HOST: '127.0.0.1',
       ENGINE_PORT: String(port),
@@ -329,7 +343,8 @@ export function setupLocalEngine(
     const fd = openSync(logs, 'a')
     try {
       writeSync(fd, `--- ${new Date().toISOString()} engine start (bundled Python, ${bundleVersion()})\n`)
-      return spawn(python, ['-m', 'server.orchestrator.main', '--host', '127.0.0.1', '--port', String(port)], {
+      // -s: no user site-packages; -B: no .pyc written; -m with cwd = src puts src first on sys.path (no PYTHONPATH).
+      return spawn(python, ['-s', '-B', '-m', 'server.orchestrator.main', '--host', '127.0.0.1', '--port', String(port)], {
         cwd: src,
         env: pythonEnv(),
         stdio: ['ignore', fd, fd],
