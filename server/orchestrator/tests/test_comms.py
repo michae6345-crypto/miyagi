@@ -21,6 +21,10 @@ class FakeWS:
     def __init__(self, delay: float = 0.0, fail: bool = False):
         self.sent: list[dict] = []
         self.delay, self.fail = delay, fail
+        self.closed: int | None = None
+
+    async def close(self, code: int = 1000):
+        self.closed = code
 
     async def send_json(self, msg):
         if self.delay:
@@ -41,6 +45,10 @@ def test_hub_drops_a_stalled_client_without_blocking_the_rest(monkeypatch):
         await h.emit("status", {"state": "idle"})
         assert [m["type"] for m in ok.sent] == ["status"]
         assert h.clients == {ok}
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert slow.closed == 1011 and dead.closed == 1011  # dropped sockets are closed, so the app reconnects
+        assert ok.closed is None
 
     run(go())
 
@@ -185,15 +193,46 @@ def test_every_connect_gets_hello_first_and_a_tagged_status_snapshot(monkeypatch
 
 
 def test_disconnect_mid_work_cancels_cleanly(monkeypatch):
+    import time
+
     from fastapi.testclient import TestClient
 
     from server.orchestrator import main
 
     main.engine.recorder.enabled = False
+    sess = main.engine.session
+    started = {"n": 0}
+
+    async def slow(kind, text=None):
+        started["n"] += 1
+        await sess._status("thinking", detail="Writing a hint")
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(sess, "_action", slow)
     with TestClient(main.app) as client:
         with client.websocket_connect("/", headers={"host": "127.0.0.1:8787"}) as ws:
-            ws.receive_json()
-        assert not main.engine.hub.clients
-        with client.websocket_connect("/", headers={"host": "127.0.0.1:8787"}) as ws:  # the engine is still healthy for the next client
             assert ws.receive_json()["type"] == "engine.hello"
-    assert main.engine.session.status != "thinking"
+            ws.send_json({"type": "action", "payload": {"kind": "hint"}})
+            for _ in range(60):  # until the island says thinking: the command is running
+                m = ws.receive_json()
+                if m["type"] == "status" and m["payload"]["state"] == "thinking":
+                    break
+            else:
+                raise AssertionError("the action never set thinking")
+            assert sess.status == "thinking" and started["n"] == 1
+        # the app left mid-work: the command is cancelled and thinking resolves
+        for _ in range(100):
+            if sess.status != "thinking" and not main.engine.hub.clients:
+                break
+            time.sleep(0.05)
+        assert not main.engine.hub.clients
+        assert sess.status != "thinking"
+        with client.websocket_connect("/", headers={"host": "127.0.0.1:8787"}) as ws:  # the next client is resynced
+            assert ws.receive_json()["type"] == "engine.hello"
+            st = None
+            for _ in range(40):
+                m = ws.receive_json()
+                if m["type"] == "status":
+                    st = m["payload"]
+                    break
+            assert st is not None and st["state"] != "thinking"

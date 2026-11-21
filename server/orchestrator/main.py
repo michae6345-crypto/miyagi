@@ -1023,14 +1023,14 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await engine.hub.send_to(ws, "engine.hello", engine.hello(restored))  # v2: always the first message
         snap = engine.session.snapshot(ask_resume=engine.app_returning())
         if not any(t == "status" for t, _ in snap):  # every (re)connect resyncs the island, whatever the early return
-            snap = [*snap, ("status", {"state": "idle"})]
+            snap = [*snap, ("status", {"state": engine.session.status or "idle"})]
         for type_, payload in snap:
             await engine.hub.send_to(ws, type_, engine.session._tagged(type_, payload))
         for type_, payload in engine.status_replay():  # a v2 app coming back: offline / busy / the last health
             await engine.hub.send_to(ws, type_, payload)
         await engine.hub.finish(ws)
     except Exception as e:  # noqa: BLE001  the app went away mid-handshake: nothing to clean up but the hold
-        engine.hub.drop(ws, f"handshake failed: {type(e).__name__}")
+        engine.hub.drop(ws, f"handshake failed: {type(e).__name__}", close=True)
         return
     engine.mark_lesson_seen()
     queue: asyncio.Queue[dict] = asyncio.Queue()

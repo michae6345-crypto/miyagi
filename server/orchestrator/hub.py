@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ V2_EVENTS = frozenset({"engine.hello", "health", "lesson.paused", "lesson.resume
                        "progress"})
 _KNOWN_EVENTS = frozenset(getattr(_contract, "ENGINE_EVENTS", {}))
 SEND_TIMEOUT_S = 5.0  # a client that takes longer to accept one message is dropped: it must not stall every emitter
+_CLOSERS: set[asyncio.Task] = set()  # background closes of dropped sockets (kept referenced until done)
 QUIET_EVENTS = frozenset({"metric", "screen.seen"})  # several a second / OCR'd screen text: no line at all
 
 
@@ -111,12 +113,28 @@ class Hub:
         self.clients.add(ws)
         log.info("app connected (%d client%s)", len(self.clients), "" if len(self.clients) == 1 else "s")
 
-    def drop(self, ws: WebSocket, why: str) -> None:
-        """E14: a WebSocket close is logged (an off-track went out to a vanished app and nothing said so)."""
+    def drop(self, ws: WebSocket, why: str, close: bool = False) -> None:
+        """E14: a WebSocket close is logged (an off-track went out to a vanished app and nothing said so).
+        close=True: the engine is giving up on a socket that is still open (send timeout / error): close it, so the
+        app's reconnect logic runs instead of believing it is connected (its heartbeat pongs still arrive)."""
         self.pending.pop(ws, None)
+        if close:
+            self._close_later(ws)
         if ws in self.clients:
             self.clients.discard(ws)
             log.info("app disconnected (%s); %d client%s left", why, len(self.clients), "" if len(self.clients) == 1 else "s")
+
+    @staticmethod
+    def _close_later(ws: WebSocket) -> None:
+        """Close in the background: a stalled socket's close can hang, and nothing may wait on it."""
+        async def _close() -> None:
+            with contextlib.suppress(Exception):
+                await ws.close(code=1011)
+
+        with contextlib.suppress(RuntimeError):  # no running loop
+            task = asyncio.get_running_loop().create_task(_close())
+            _CLOSERS.add(task)
+            task.add_done_callback(_CLOSERS.discard)
 
     async def emit(self, type_: str, payload: dict[str, Any] | None = None) -> None:
         msg = self.encode(type_, payload or {})
@@ -136,7 +154,7 @@ class Hub:
             if isinstance(r, asyncio.CancelledError):
                 raise r
             if isinstance(r, BaseException):
-                self.drop(ws, f"send of {type_} failed: {type(r).__name__}")
+                self.drop(ws, f"send of {type_} failed: {type(r).__name__}", close=True)
 
     async def send_to(self, ws: WebSocket, type_: str, payload: dict) -> None:
         await self._send(ws, self.encode(type_, payload))
