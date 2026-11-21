@@ -85,11 +85,12 @@ res = S.install(next(it for it in miss if it["kind"] == "python_package"), workd
                 popen=lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(AssertionError("ran")),
                 net=lambda host: False)
 check(res.get("offline") and res["error"] == S.OFFLINE and not calls, f"offline: {res['error']!r}, nothing run")
-os.environ["PIP_INDEX_URL"] = "https://pypi.invalid/simple"  # real check, unreachable host
+real_host = S._host_of
+S._host_of = lambda r: "pypi.invalid"  # the real socket check against a host that can't be reached (Wi-Fi off)
 t0 = time.monotonic()
 res = S.install(next(it for it in miss if it["kind"] == "python_package"), workdir=wd)
 check(res.get("offline") and time.monotonic() - t0 < 10, f"offline (real socket check): {time.monotonic() - t0:.1f}s")
-del os.environ["PIP_INDEX_URL"]
+S._host_of = real_host
 check(not (wd / ".venv").exists(), "offline: no half-made .venv")
 
 # ---- A5: VS Code not found (simulated: no editor app, no CLI, no Homebrew)

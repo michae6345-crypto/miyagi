@@ -222,6 +222,31 @@ def python_terminal_settings(workdir: str | Path) -> bool:
         return False
 
 
+def ensure_lesson_venv(workdir: str | Path) -> bool:
+    """A fresh Mac whose only Python is the one inside miyagi.app: a Python lesson folder gets its .venv before VS Code
+    opens (venv + ensurepip, no network, ~2 s), so `python3` in VS Code's terminal (.venv/bin first on PATH, see
+    python_terminal_settings) is a real Python, never the Command Line Tools' "install developer tools" dialog. Only
+    under the lessons root, only for a folder with .py / .ipynb files and no .venv, only when the bundled Python is the
+    one a .venv would be made from. Blocking. True when one was made. Never raises."""
+    try:
+        from server.workspace import paths
+        from server.workspace import setup as ws_setup
+
+        root, folder = paths.lessons_root().expanduser().resolve(), Path(workdir).expanduser().resolve()
+        if folder == root or root not in folder.parents or ws_setup.venv_python(folder):
+            return False
+        if not ws_setup.is_bundled(ws_setup.best_python()):
+            return False  # the Mac has its own Python 3: as before (the setup card's Install makes the .venv)
+        if not any(p.suffix in (".py", ".ipynb") for p in list(folder.glob("*")) + list(folder.glob("*/*"))):
+            return False
+        py, err = ws_setup.ensure_venv(folder, timeout=120.0)
+        log.info("lesson .venv from the bundled Python for %s: %s", folder.name, "made" if py else err)
+        return bool(py)
+    except Exception:
+        log.exception("lesson .venv failed")
+        return False
+
+
 def fit_beside_drawer(workdir: str | Path) -> str:
     """A run step: the lesson's VS Code window leaves room for Miyagi's drawer
     (server.workspace.editor.fit_beside_drawer; full screen / maximized under it: logged and left). Blocking (AX):
@@ -544,6 +569,7 @@ class Workspace:
         if not (self.enabled or force) or (self.blocked and not explicit) or not Path(workdir).is_dir():
             return
         if self.run == self._spawn:  # real windows only: tests inject a runner
+            ensure_lesson_venv(workdir)
             python_terminal_settings(workdir)
         ws = _s2()
         if ws is not None and self._guarded(ws):

@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -190,6 +191,9 @@ IMPORT_ALIASES = {
     "python-dotenv": ["dotenv"], "scikit-image": ["skimage"], "pytorch": ["torch"], "tensorflow-cpu": ["tensorflow"],
 }
 _MOD = re.compile(r"[A-Za-z_][\w.]*")
+# import name -> pip name (lesson.libraries sometimes holds the import name)
+PIP_FOR_IMPORT = {"sklearn": "scikit-learn", "cv2": "opencv-python", "pil": "pillow", "bs4": "beautifulsoup4",
+                  "yaml": "pyyaml", "skimage": "scikit-image", "dotenv": "python-dotenv"}
 
 
 def import_candidates(item: dict) -> list[str]:
@@ -366,9 +370,10 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
         elif binary and re.fullmatch(r"[\w.+\-/]+", binary):
             b = shutil.which(binary)
         if b and not installed:
-            installed, where = True, b
             code, out = run([b, "--version"])
-            version = _version(out) if code == 0 else ""
+            if code == 0 or binary != "python3":  # our python pick must run: one that can't print its version isn't there
+                installed, where = True, b
+                version = _version(out) if code == 0 else ""
     item.update(installed=installed, version=version, where=where, ok=installed and meets(version, item.get("min_version", "")))
     return item
 
@@ -545,10 +550,15 @@ def local_requirements(graph: dict) -> dict:
             low = name.lower()
             if low in ("python", "python3") or (nb and low in _JUPYTER_FAMILY):
                 continue
-            if not pip_requirement(name):
+            canon = _canonical(low)
+            if canon in CATALOG and CATALOG[canon].get("kind") != "python_package":
+                continue  # git, node, docker, VS Code...: not a pip package
+            pip = PIP_FOR_IMPORT.get(low, name)  # sklearn -> scikit-learn, cv2 -> opencv-python, PIL -> pillow
+            if not pip_requirement(pip):
                 continue
-            tools.append({**tool, "tool": low, "kind": "python_package", "why": "The lesson imports it.",
-                          "pip_name": name, "import_name": (IMPORT_ALIASES.get(low) or [""])[0]})
+            tools.append({**tool, "tool": pip.lower(), "kind": "python_package", "why": "The lesson imports it.",
+                          "pip_name": pip, "import_name": name if pip.lower() != low else
+                          (IMPORT_ALIASES.get(low) or [""])[0]})
     return {"editor": {"needed": py or nb, "why": "You write and run the code in VS Code." if py or nb
                        else "this lesson doesn't edit code files."}, "tools": tools[:16]}
 
@@ -578,7 +588,9 @@ def _items(raw: dict, graph: dict | None = None) -> list[dict]:
             "binary": t.get("binary", ""), "import_name": t.get("import_name", ""), "pip_name": t.get("pip_name", ""),
             "brew": t.get("brew", ""), "brew_cask": bool(t.get("brew_cask")), "url": t.get("url", ""),
         })
-    if graph is not None and notebook_lesson(graph) and not seen & _JUPYTER_FAMILY:
+    colab = graph is not None and "colab" in json.dumps(graph.get("lesson") or {}).lower() + " ".join(
+        f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps") or [] if isinstance(st, dict)).lower()
+    if graph is not None and ed.get("needed") and not colab and notebook_lesson(graph) and not seen & _JUPYTER_FAMILY:
         # VS Code runs a notebook's cells with the lesson .venv's ipykernel; Claude's list often leaves it out
         items.append({**IPYKERNEL, "label": "Jupyter kernel (ipykernel)"})
     return items
@@ -649,24 +661,48 @@ _ENGINE_PY_ENV = ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONEXECUTABLE
                   "CONDA_PREFIX", "PYTHONNOUSERSITE")
 OFFLINE = "No internet connection. Connect to Wi-Fi, then press Install again."
 NO_PYTHON = "no python3 on this Mac"
+NOT_INSTALLED_APP = "Drag miyagi into your Applications folder and open it from there, then press Install again."
 _NET_ERR = re.compile(r"NewConnectionError|Name or service not known|nodename nor servname|Temporary failure in name "
                       r"resolution|Network is unreachable|Failed to establish a new connection|ConnectTimeout|"
                       r"Read timed out|Could not resolve host|No matching distribution found", re.IGNORECASE)
 
 
-def _host_of(r: dict) -> str:
-    """The host an install downloads from: PyPI (or PIP_INDEX_URL's), GitHub's for Homebrew's bottles."""
+_PROXY_ENV = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
+_PIP_CONF = ("PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PIP_CONFIG_FILE")
+_BREW_MIRROR = ("HOMEBREW_BOTTLE_DOMAIN", "HOMEBREW_API_DOMAIN", "HOMEBREW_ARTIFACT_DOMAIN")
+
+
+def _pip_conf_files() -> list[Path]:
+    home = Path.home()
+    return [home / ".config" / "pip" / "pip.conf", home / ".pip" / "pip.conf",
+            home / "Library" / "Application Support" / "pip" / "pip.conf", Path("/Library/Application Support/pip/pip.conf"),
+            Path("/etc/pip.conf")]
+
+
+def _host_of(r: dict) -> str | None:
+    """The host an install downloads from, when it's certain: pypi.org for pip, ghcr.io for Homebrew's bottles. None
+    (no pre-check: the install itself decides, and a failure is read for network errors) behind a proxy, with a custom
+    pip index (env or pip.conf) or a Homebrew mirror, where a direct probe of the default host would say "offline" on
+    a Mac that is online."""
+    if any(os.environ.get(k) for k in _PROXY_ENV):
+        return None
     if r.get("method") == "pip":
-        m = re.match(r"https?://([^/:@]+@)?([^/:]+)", os.environ.get("PIP_INDEX_URL", ""))
-        return m.group(2) if m else "pypi.org"
+        if any(os.environ.get(k) for k in _PIP_CONF) or any(p.is_file() for p in _pip_conf_files()):
+            return None
+        return "pypi.org"
+    if any(os.environ.get(k) for k in _BREW_MIRROR):
+        return None
     return "ghcr.io"
 
 
-def online(host: str = "pypi.org", timeout: float = 4.0) -> bool:
+def online(host: str | None = "pypi.org", timeout: float = 4.0) -> bool:
     """Can this Mac reach `host` on 443 right now? A few seconds at most, so an Install with the Wi-Fi off says so at
-    once instead of pip retrying for minutes (and a calm "connect to Wi-Fi" instead of a pip traceback)."""
+    once instead of pip retrying for minutes (and a calm "connect to Wi-Fi" instead of a pip traceback). None: no
+    certain host to probe, so True (the install decides)."""
     import socket
 
+    if not host:
+        return True
     try:
         with socket.create_connection((host, 443), timeout=timeout):
             return True
@@ -678,7 +714,8 @@ def ensure_venv(workdir: Path | str, *, emit: Callable[[str], None] | None = Non
                 timeout: float = 600.0, popen=subprocess.Popen) -> tuple[str | None, str]:
     """<workdir>/.venv's python, made with best_python() when there's none yet (the Python inside miyagi.app on a Mac
     with no other Python 3; no network: venv + ensurepip's bundled pip). A .venv whose python is a dangling link
-    (miyagi.app moved, or the Python it was made from was removed) is made again in place (--clear).
+    (miyagi.app moved, or the Python it was made from was removed) is moved aside to .venv.old-<time> (never emptied:
+    `venv --clear` on a symlinked .venv empties its target) and made again.
     -> (python, "") or (None, why)."""
     emit = emit or (lambda _line: None)
     if py := venv_python(workdir):
@@ -686,13 +723,22 @@ def ensure_venv(workdir: Path | str, *, emit: Callable[[str], None] | None = Non
     base = best_python()
     if base is None:
         return None, NO_PYTHON
+    if is_bundled(base) and ("/AppTranslocation/" in base or base.startswith("/Volumes/")):
+        # miyagi runs from the disk image (or macOS moved it aside): a .venv linked to this path breaks next launch
+        return None, NOT_INSTALLED_APP
     venv = Path(workdir) / ".venv"
-    stale = venv.exists() or venv.is_symlink()
+    if venv.exists() or venv.is_symlink():  # a broken .venv (dangling python link): set aside, never emptied
+        aside = venv.with_name(f".venv.old-{time.strftime('%Y%m%d-%H%M%S')}")
+        try:
+            venv.rename(aside)
+            emit(f"(the old .venv no longer runs: moved to {aside.name})")
+        except OSError as e:
+            return None, f"could not move the broken .venv aside: {e}"
     env = dict(env if env is not None else os.environ)
     for k in _ENGINE_PY_ENV:
         env.pop(k, None)
-    argv = [base, "-m", "venv", *(["--clear"] if stale else []), str(venv)]
-    emit(f"$ {Path(base).name} -m venv {'--clear ' if stale else ''}.venv")
+    argv = [base, "-m", "venv", str(venv)]
+    emit(f"$ {Path(base).name} -m venv .venv")
     code, txt = _stream(argv, emit, env, timeout, popen)
     if code != 0:
         return None, f"could not create .venv: {txt[-300:]}"

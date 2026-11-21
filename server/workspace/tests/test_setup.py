@@ -47,7 +47,8 @@ class FakeMac:
         if argv[0] == "defaults":
             return 0, "4.2.1\n"
         if argv[-1] == "--version":
-            return 0, f"version v{self.bins[Path(argv[0]).name]}\n"
+            v = self.bins.get(Path(argv[0]).name)
+            return (0, f"version v{v}\n") if v else (127, "not found")
         if len(argv) == 4 and argv[1] == "-c":  # the batched import probe: one JSON line per package
             lines = []
             for i, (cands, _dist) in enumerate(json.loads(argv[3])):
