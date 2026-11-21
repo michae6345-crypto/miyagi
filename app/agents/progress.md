@@ -47,6 +47,8 @@ Start next lesson: enabled with a cached next lesson (`next.id` + `library.start
 - `?scenario=complete&clean&size=1440x900` completion (6 of 6, Start next lesson enabled through library.start). With `hold` the last step shows no step card.
 - Brand lint over the package: no hex, no typed keycaps, no Cursor, no em dashes, no innerHTML, no console.log, no openExternal.
 Shots: `progress-step-passed.png`, `progress-completion.png`, `progress-completion-skipped.png` (a skipped step dispatched in the page: "Lesson finished", "5 of 6 passed, 1 skipped", Done primary), `progress-review-reminder.png`, `progress-window.png`, `progress-window-partial.png`, `progress-window-empty.png`.
+`progress-step-passed.png` is a `?hold` stage artifact: the step card shows next to the open lesson panel only because the stage-only `hold` forces it and the old drawer does not set `useDock.open`. In the app the card never shows while the panel is open (decision 7).
+Fix round 1: the completion's green check and "Lesson complete" now need counts with no skip and every step passed (`passed >= total`); missed passes or no counts show "Lesson finished" under the plain ring. This week and Review show no empty-state copy while the window is still loading.
 Not verified: Electron (`npm run dev`), the window's `data-drag` title bar, `progress:caps` against a live engine (cost freeze; no live engine), the independent reviewer round (no reviewer agent available in this run).
 
 ## Core requests
