@@ -38,3 +38,5 @@ services:
         value: "3"
       - key: FREE_COACH_CALLS_PER_DAY
         value: "60"
+      - key: DAILY_USD_CAP         # spend kill switch in dollars per UTC day, every install together; empty = off
+        sync: false
