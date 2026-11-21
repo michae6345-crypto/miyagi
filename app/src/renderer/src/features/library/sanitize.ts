@@ -63,7 +63,8 @@ export function cleanItem(v: unknown): LibraryItem | undefined {
   const title = str(o.title)
   if (!title) return undefined
   const steps = int(o.steps, 0, 1000) ?? 0
-  const tools = Array.isArray(o.tools) ? TOOLS.filter((t) => (o.tools as unknown[]).includes(t)) : []
+  // The engine's order (the main tool first), known tools only, no repeats.
+  const tools = Array.isArray(o.tools) ? [...new Set(o.tools.filter((t): t is LessonTool => TOOLS.includes(t as LessonTool)))] : []
   const p = obj(o.progress)
   const total = p ? int(p.total, 1, 1000) : undefined
   const stepIndex = p ? int(p.stepIndex, 0, 999) : undefined

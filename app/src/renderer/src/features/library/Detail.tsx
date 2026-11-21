@@ -2,7 +2,7 @@
  * Feature: library. A lesson's preview (mockup Home-LessonDetail), inside the Library window: what it teaches, its
  * steps, where it works, and Start lesson (the one primary). Start sends library.start {id} (zero model calls) and
  * nothing else: no `learn`, no build. Deviations from the mockup, by rule: "Saved on this Mac" instead of "Built
- * once, shared" (A6: no cross-user claim); no ↵ keycap (keycaps only from bridge.platform.keys, which has no Enter;
+ * once, shared" (A6: no cross-user claim); no Enter keycap (keycaps only from bridge.platform.keys, which has no Enter;
  * Enter still starts); no Level row (the engine doesn't send one); the step's check name is not in the contract, so a
  * step shows its minutes when the engine sends them.
  */
@@ -170,7 +170,7 @@ export function Detail({ id }: { id: string }): ReactNode {
           )}
 
           <div className="mt-auto flex flex-col gap-[12px]">
-            {item.ready && (
+            {ready && (
               <div className="flex items-center gap-[8px]" style={{ fontSize: type2.xs, color: soft }}>
                 <CircleCheck aria-hidden size={14} strokeWidth={1.8} />
                 Ready instantly. Saved on this Mac.

@@ -1,15 +1,16 @@
 /**
  * Feature: library. Browser-stage stand-in for src/main/features/library.ts (does nothing in Electron).
  *
- * Same channels, same rules: v2 commands only when the mock's engine.hello lists them, answers cleaned by
- * sanitize.ts, nothing ever sends `learn`. When the scenario has no library trigger (e.g. ?scenario=home), the stage
+ * Same channels, same rules: v2 commands only to an engine that lists them in engine.hello, answers cleaned by
+ * sanitize.ts, nothing ever sends `learn`. The inline mock counts as capable, like main's DEMO link (main/engine.ts
+ * lets every v2 command through to the mock): its default hello is not always seen by the renderer (Core requests). When the scenario has no library trigger (e.g. ?scenario=home), the stage
  * serves STAGE_ITEMS below so the window has something to show; these never exist in Electron, where a missing answer
  * is [] (an empty library). Stage extras: ?library=empty forces the empty state, ?library=nocaps hides the engine's
  * library capabilities (Start disabled).
  */
 import { cmd, type Incoming } from '../../../../common/wire'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
-import { bridge, isElectron, registerWebHandler } from '../../bridge'
+import { bridge, engineMode, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage } from '../../core/bus'
 import { canSend } from '../../core/lesson'
 import { cleanDetail, cleanList, isLibraryId, type LibraryDetail } from './sanitize'
@@ -21,7 +22,7 @@ const STAGE_ITEMS: LibraryItem[] = [
   { id: 'stage_plot', title: 'Plot your data with matplotlib', by: '[CREATOR NAME]', steps: 6, estMinutes: 15, tools: ['jupyter'], ready: true },
   { id: 'stage_func', title: 'Write your first Python function', by: '[CREATOR NAME]', steps: 4, estMinutes: 10, tools: ['vscode'], ready: true }
 ]
-const STAGE_STEPS = ['Open the notebook', 'Load the data', 'Normalize the pixels', 'Build the model', 'Compile it', 'Train it', 'Test it on new digits']
+const STAGE_STEPS = ['Open the project', 'Set things up', 'Write the first part', 'Run it', 'Read the output', 'Change one thing', 'Try it on new input']
 
 function stageDetail(id: string): LibraryDetail | undefined {
   const item = STAGE_ITEMS.find((i) => i.id === id)
@@ -54,7 +55,7 @@ function ask<T>(send: () => void, type: Incoming['type'], match: (payload: unkno
 
 function setupWeb(): void {
   const mode = new URLSearchParams(location.search).get('library')
-  const can = (t: string): boolean => mode !== 'nocaps' && canSend(t)
+  const can = (t: string): boolean => mode !== 'nocaps' && (canSend(t) || engineMode() === 'inline')
 
   registerWebHandler('library:caps', () => ({ list: can('library.list'), get: can('library.get'), start: can('library.start') }))
 

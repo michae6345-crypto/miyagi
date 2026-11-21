@@ -34,7 +34,7 @@ function Sidebar(): ReactNode {
       <div style={{ height: 16 }} />
       <div className="flex items-center gap-[8px]" style={{ padding: '24px 12px' }}>
         <MiyagiMark size={20} />
-        <MiyagiWordmark height={16} />
+        <MiyagiWordmark height={16} className="h-[16px] w-auto" />
       </div>
       <SidebarNav title="Sections" items={NAV} active={section} onSelect={(id) => setSection(id as Section)} />
       <div className="font-semibold uppercase" style={{ padding: '24px 12px 8px', fontSize: type2.micro, letterSpacing: '0.04em', color: color.label }}>

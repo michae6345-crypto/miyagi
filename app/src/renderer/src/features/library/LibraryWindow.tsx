@@ -3,6 +3,7 @@
  * openLibrary(id) or a card click. Loads on open, whenever the window comes forward, and when the engine connects.
  */
 import { useEffect, type ReactNode } from 'react'
+import { bridge } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { useWindowArgs } from '../../core/surfaces'
 import { color, font } from '../../core/theme'
@@ -18,10 +19,21 @@ export function LibraryWindow(): ReactNode {
 
   // Each open carries its own args: {id} = that lesson's preview, none = the list.
   useEffect(() => {
-    if (!args) return
-    if (typeof args.id === 'string') openDetail(args.id)
-    else closeDetail()
+    if (args && typeof args.id === 'string') openDetail(args.id)
   }, [args])
+  // useWindowArgs can't tell "opened without args" from "not loaded yet", so a re-open with no id is read here:
+  // openLibrary() on a window showing a preview goes back to the list. (Electron sends the args to this window
+  // only; the stage's one bus tags them with the route.)
+  useEffect(
+    () =>
+      bridge.onFeature('window:args', (p) => {
+        const tagged = !!p && typeof p === 'object' && 'route' in p
+        if (tagged && (p as { route?: unknown }).route !== 'library') return
+        const a = (tagged ? (p as { args?: unknown }).args : p) as { id?: unknown } | null | undefined
+        if (!a || typeof a.id !== 'string') closeDetail()
+      }),
+    []
+  )
 
   useEffect(() => {
     void refresh()
