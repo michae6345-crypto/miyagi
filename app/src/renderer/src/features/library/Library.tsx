@@ -31,7 +31,7 @@ function Sidebar(): ReactNode {
   return (
     <aside className="flex shrink-0 flex-col" style={{ width: 232, padding: '16px 12px', borderRight: `1px solid ${surface.border}`, background: scrim.launcher }}>
       {/* The window's own traffic lights sit here (hiddenInset). */}
-      <div style={{ height: 16 }} />
+      <div data-drag style={{ height: 16 }} />
       <div className="flex items-center gap-[8px]" style={{ padding: '24px 12px' }}>
         <MiyagiMark size={20} />
         <MiyagiWordmark height={16} className="h-[16px] w-auto" />
@@ -70,11 +70,11 @@ function Header(): ReactNode {
   const section = useLibrary((s) => s.section)
   const query = useLibrary((s) => s.query)
   return (
-    <header className="flex shrink-0 items-center gap-[16px]" style={{ height: 72, padding: '0 32px', borderBottom: `1px solid ${surface.border}` }}>
+    <header data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 72, padding: '0 32px', borderBottom: `1px solid ${surface.border}` }}>
       <h1 className="m-0 font-semibold" style={{ fontSize: type2.xl, letterSpacing: '-0.01em' }}>
         {section === 'continue' ? 'Continue' : 'Library'}
       </h1>
-      <div className="relative ml-auto" style={{ width: 320 }}>
+      <div data-no-drag className="relative ml-auto" style={{ width: 320 }}>
         <Search aria-hidden size={16} strokeWidth={1.8} className="absolute" style={{ left: 12, top: 10, color: color.label }} />
         <input
           type="search"

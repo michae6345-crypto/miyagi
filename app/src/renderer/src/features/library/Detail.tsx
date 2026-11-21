@@ -67,7 +67,7 @@ export function Detail({ id }: { id: string }): ReactNode {
   }, [id, ready, starting])
 
   const bar = (
-    <div className="flex shrink-0 items-center gap-[16px]" style={{ height: 52, padding: '0 16px 0 84px', borderBottom: `1px solid ${surface.border}` }}>
+    <div data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 52, padding: '0 16px 0 84px', borderBottom: `1px solid ${surface.border}` }}>
       <button
         type="button"
         aria-label="Back to library"
