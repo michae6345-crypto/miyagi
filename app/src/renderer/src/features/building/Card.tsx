@@ -14,7 +14,8 @@
  *              built once." and about how long is left (etaS). Never invents a number: no etaS, then how long it has
  *              been building (the engine's elapsedS), and with neither, nothing.
  *   footer     "The pill tells you when it is ready." Stop building (quiet, two taps) and Keep working (the one primary).
- *              Both are real buttons (Tab reaches them); Esc folds the card like Keep working.
+ *              Both are real buttons. Esc (the 'dismiss' UI event) folds the card like Keep working in the browser
+ *              stage only: in Electron the overlay window is not focusable, so no key reaches it (launcher.md Core request 16).
  *
  * Island card: black like every card born from the pill; neutral fills only (core/theme.ts), no hue anywhere.
  */

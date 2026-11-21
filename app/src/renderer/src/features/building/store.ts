@@ -2,7 +2,7 @@
  * Feature: building (Home-Building). Whether the build card is showing, and the two-tap Stop building.
  *
  * It opens on the first v2 lesson.building of a build (one that says what it is doing: phases, stage or source), once
- * per build: "Keep working" (or Esc) folds it back into the building pill for the rest of that build. It closes on
+ * per build: "Keep working" folds it back into the building pill for the rest of that build. It closes on
  * lesson.ready (the lesson is there), a failed build (the errors feature's build-failed card, 62, takes over), a
  * disconnect (no `failed` can arrive any more), lesson.ended and a reset. An old engine that sends only message +
  * progress never opens it: the building pill alone says it, as before.
@@ -78,7 +78,8 @@ onMessage('lesson.ready', finished)
 onMessage('step.started', finished)
 onMessage('lesson.ended', finished)
 onUi('reset', finished)
-// Esc (the stage / the global dismiss) folds it like Keep working.
+// The 'dismiss' UI event (the stage's Esc, a card's ✕) folds it like Keep working. In Electron the overlay window is
+// not focusable, so Esc never reaches it there (launcher.md Core request 16).
 onUi('dismiss', keepWorking)
 // Dropped mid-build: no `failed` can arrive any more (core drops the building pill the same way).
 useLesson.subscribe((s, prev) => {

@@ -22,7 +22,7 @@ islandModes: `build-card`, priority 45, width 560 (README island table: above th
 ## Done when
 - [x] Opens on a v2 `lesson.building` (phases, stage or source) once per build; an old engine (message + progress only) never opens it
 - [x] Closes on `lesson.ready`, a failed build (`failed: true`; A7's build-failed card takes over), a disconnect (`connected` true → false), `step.started`, `lesson.ended` and a reset
-- [x] Keep working and Esc (`dismiss`) fold it into the building pill for the rest of that build; the next build opens it again
+- [x] Keep working folds it into the building pill for the rest of that build; the next build opens it again. The `dismiss` UI event does the same (the stage's Esc); in Electron Esc cannot reach the non-focusable overlay yet (Core request 3)
 - [x] Done ticks are white in a faint ring, never green; the active phase is the gray ring with a still gray dot (never a spinner); next is a faint ring
 - [x] Meter: white line at `progress`; "About N min left" only when `etaS` is there (never a guessed number)
 - [x] One primary (Keep working); Stop building is two taps (arm "Tap again to stop" for 3 s, then `end_lesson`)
@@ -38,6 +38,7 @@ islandModes: `build-card`, priority 45, width 560 (README island table: above th
 ## Core requests
 1. **Engine (E3): send the v2 build fields.** The card only opens when `lesson.building` carries `phases`, `stage` or `source`; `source.url` on a YouTube build gives the thumbnail, `source.channel` / `durationS` the meta line, `etaS` the time left. Without them the building pill alone shows the build, as before.
 2. **mock/engine.ts** (integrator): see `launcher.md` Core request 8 (the default hello is lost in the stage; `home.json` sends its own).
+3. **Core / main: Esc for island cards in Electron.** See `launcher.md` Core request 16.
 
 ## Notes
 - **Mockup deviations:** the mockup draws the "Building lesson" pill above a separate card; here the island is one shape, so the pill's words (gray dot, "Building lesson") are the card's top line. Buttons are the core v2 `lg` buttons (44 high, 15 px primary, 13 px quiet). Meta separators " · " like the rest of the app. The tile for a goal is the bonsai, for a library lesson a book glyph, for a video the YouTube thumbnail (`i.ytimg.com`, allowed by the CSP) or a play glyph.
@@ -49,5 +50,5 @@ islandModes: `build-card`, priority 45, width 560 (README island table: above th
 - The active phase's gray dot breathes (opacity 1 to 0.4, 2.4 s, ease-in-out): the one moving element, never a spinner, no hue. It keeps going with reduced motion (opacity only), so waiting never looks frozen.
 - A phase changing state crossfades its glyph; a tick springs up from 0.6 on the house spring; the label's color eases; rows rise in 40 ms apart on first show.
 - Time: "About N min left" from `etaS`; without it, "Building for N min" from the engine's `elapsedS` (the 1 s heartbeat); with neither, nothing. Never a guess.
-- Cancel: Stop building (two taps, `end_lesson`) and Keep working are real buttons; Esc folds the card.
+- Cancel: Stop building (two taps, `end_lesson`) and Keep working are real buttons. Esc folds the card only in the browser stage: the Electron overlay is not focusable, so no key reaches it (Core request 3).
 - Not moved: the card grows at `pillTop` like every island card, so it covers the editor's tabs (y 40 to 497 on 1440×900). See launcher.md Core request 14.
