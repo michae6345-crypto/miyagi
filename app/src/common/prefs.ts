@@ -30,6 +30,8 @@ export type Prefs = {
   usageCounts: boolean
   /** Shortcut overrides (Settings → Shortcuts). Validated and stored; live rebinding comes in wave 2. */
   shortcuts: ShortcutPrefs
+  /** Settings › Privacy "Share crash reports and usage" (main/features/telemetry.ts). Off by default, for everyone. */
+  shareTelemetry: boolean
   /** Push to talk: on by default (when PTT_ENABLED), and which chord. Send the whole object in a patch. */
   ptt: PttPrefs
 }
@@ -43,6 +45,7 @@ export const DEFAULT_PREFS: Prefs = {
   crashReports: 'ask',
   usageCounts: false,
   shortcuts: {},
+  shareTelemetry: false,
   ptt: { enabled: true, chord: 'fn+control' }
 }
 
@@ -71,6 +74,7 @@ export function sanitizePrefs(raw: unknown): Partial<Prefs> {
   if (typeof r.onboarded === 'boolean') out.onboarded = r.onboarded
   if (r.crashReports === 'ask' || r.crashReports === 'always' || r.crashReports === 'never') out.crashReports = r.crashReports
   if (typeof r.usageCounts === 'boolean') out.usageCounts = r.usageCounts
+  if (typeof r.shareTelemetry === 'boolean') out.shareTelemetry = r.shareTelemetry
   if (r.ptt && typeof r.ptt === 'object' && !Array.isArray(r.ptt)) {
     const p = r.ptt as Record<string, unknown>
     out.ptt = {
