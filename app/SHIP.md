@@ -11,7 +11,52 @@ What a new user sees the first time they open it:
 3. macOS asks for **Screen Recording for miyagi** (the app started the engine, so the prompt names miyagi, not Terminal).
 4. Settings (the gear, typing "settings" in the launcher, or ⌘,): paste the **Anthropic** key. That's the only required key.
 
-If an engine is already running on port 8787 (say you started one in Terminal), the app uses that one and never stops it.
+If an engine is already running on port 8787 (say you started one in Terminal), the app uses that one and never stops it. The one exception is the app's own engine from an earlier launch that didn't quit cleanly (force quit, crash): the app recognizes it and starts a fresh one (see "Which engine").
+
+## Daily use on your own Mac
+
+Use the real app, not `npm run dev` (in dev the Dock and ⌘Tab say "Electron"; the built app says miyagi everywhere: menu bar, Dock, ⌘Tab, Activity Monitor, About, the permission prompts, with the bonsai icon).
+
+```bash
+cd app
+npm run install:local                  # ship build, then installs /Applications/miyagi.app
+npm run install:local -- --dry-run     # see every step first; changes nothing
+```
+
+Then open miyagi from Spotlight (⌘Space, "miyagi") or Applications. After a code change, run `npm run install:local` again.
+
+`scripts/install-local.sh` builds the dmg (`ship:mac`), copies miyagi.app out of it (exactly what users download), checks the signature, quits a running miyagi (a normal quit, so its engine stops) and a dev copy of this app (`npm run dev` Electron), then swaps the app into /Applications with two renames on one volume. The previous app goes to `~/miyagi/app-backups.noindex/` (the last 2 are kept; `.noindex` keeps them out of Spotlight). It strips quarantine (your own build) and registers the app with Launch Services so Spotlight and the Dock pick up the name and icon at once. It never touches `~/Applications`, VS Code or an engine you started.
+
+Options: `--skip-build` (install the dmg already in `dist/`), `--open`, `--engine dev|bundled` and `--cloud off` (next section), `--ship <ship:mac options>`.
+
+**Permissions after a reinstall.** The app is signed ad hoc, so macOS treats every rebuild as a new app. A Screen Recording or Accessibility switch can look on and still belong to the old build. Fix: System Settings › Privacy & Security › Screen & System Audio Recording (macOS 15; "Screen Recording" on 14), select miyagi, press −, open miyagi again and allow it. Same under Accessibility. Or reset only miyagi's grants and let it ask again:
+
+```bash
+tccutil reset ScreenCapture dev.sandhacks.miyagi
+tccutil reset Accessibility dev.sandhacks.miyagi
+tccutil reset AppleEvents dev.sandhacks.miyagi
+```
+
+**Two miyagis in Spotlight?** A dev launcher in `~/Applications/miyagi.app` has the same name. Pick the one in /Applications, or rename the dev one.
+
+## Which engine
+
+| Mode | What the app does | Who it's for |
+|---|---|---|
+| **bundled** (default) | Starts the engine inside the app on 127.0.0.1:8787 (offline, its own Python), AI calls through the miyagi cloud (`features/cloud.ts`, anonymous install token). An engine already on :8787 that the app didn't start is used as is and left running. | Every user. Test this before you ship. |
+| **dev** | Never starts or installs an engine. Only connects to `ENGINE_URL` (default `ws://localhost:8787`): your engine in Terminal, with the repo's `.env`. The pill waits while it restarts. | Michael's Mac while working on the engine. |
+
+Switch it, for an app opened from Spotlight (no shell environment):
+
+```bash
+npm run install:local -- --skip-build --engine dev               # writes ~/Library/Application Support/miyagi/engine.json
+npm run install:local -- --skip-build --engine dev --cloud off   # also no cloud token, so your engine uses .env keys
+npm run install:local -- --skip-build --engine bundled           # back to what users get (removes engine.json)
+```
+
+Quit and reopen miyagi after switching. The file is `{"engine": "dev"}`, plus `"cloud": "off"` if asked. From Terminal, env wins over the file: `MIYAGI_ENGINE=dev|bundled`, `MIYAGI_CLOUD_URL=off`, and `ENGINE_URL` for an engine elsewhere (the built app's page policy only allows port 8787 on this Mac, so keep a local engine on 8787). Example: `open -a miyagi --env MIYAGI_ENGINE=dev`.
+
+Why dev mode exists: in bundled mode, if miyagi opens while your engine is restarting (`update-engine.sh`), the app starts its own engine on 8787 and your restart then fails on a busy port. Dev mode never takes the port.
 
 ## Build (on your Mac)
 
@@ -54,7 +99,9 @@ This uploads `dist/Miyagi-Mac.dmg` to the **`mac`** release on `adrian-erlikhman
 ## How it works (for debugging)
 
 - `app/src/main/localEngine.ts` runs it, and the pill shows its state (`core/lesson` `localEngine`).
-- It only runs in a built app on macOS. In dev, set `MIYAGI_AUTOSTART=1` to try it. `DEMO=1`, or an `ENGINE_URL` that points at another machine, turns it off.
+- It only runs in a built app on macOS. In dev, set `MIYAGI_AUTOSTART=1` to try it. `DEMO=1`, engine mode dev (`MIYAGI_ENGINE=dev` or `engine.json`), or an `ENGINE_URL` that points at another machine, turns it off.
+- The app writes the pid of the engine it started to `~/miyagi/engine/run/app-engine.json`. If miyagi was force-quit, that engine keeps running and still expects the old launch's token, so the next launch would never connect. On launch, when :8787 is busy, the app checks that pid file: a live process whose command line is the engine (`server.orchestrator.main` or `miyagi-engine`) is its own leftover, so it stops it (SIGTERM, SIGKILL after 5 s) and starts a fresh one. Anything else on the port is left alone. `engine.log` notes which one happened.
+- About miyagi (app menu, when an app window is in front) shows the app version and the engine commit inside the app.
 - Engine files live in `~/miyagi/engine`: `src/`, `venv/`, `bin/miyagi-engine`, `logs/engine.log`. `MIYAGI_HOME` moves them.
 - An app update carrying a newer engine reinstalls it on the next launch, but only if the app installed it (the `BUNDLED` marker). An engine someone installed with the one-liner is never touched. Built lessons in `src/demo/cache` are kept either way.
 - To start over: quit, `rm -rf ~/miyagi/engine`, open again.
