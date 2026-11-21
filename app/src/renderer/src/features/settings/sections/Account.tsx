@@ -2,7 +2,7 @@
  * Feature: settings. Account (Plan-OwnKey as a section, Set-Account's BYOK block). The real safeStorage path: the
  * flow is account.ts (moved from the old sheet), main owns the keys, this view only ever sees {set, last4}.
  *
- * One row per key (Anthropic, Gemini, Bright Data, Tiger Data URL; ElevenLabs stays hidden), each a password field
+ * One row per key (Anthropic, and Gemini as optional; ElevenLabs stays hidden), each a password field
  * (autocomplete off, spellcheck off, cleared after Save) with Clear / Undo inside it and the key's status:
  * white dot = your key, gray dot "From engine" = the engine's .env, ring = missing, "Invalid" in white. No green.
  * Save key is the section's one primary; Test is quiet. The plan card and meter (Set-Account) show only with an
@@ -47,7 +47,7 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
 
   return (
     <>
-      <PageHeader title="Use your own key" caption="Lessons use your key. Your provider bills you directly." />
+      <PageHeader title="Use your own key" caption="miyagi works without a key. Our cloud covers it. Your own key bills your own account." />
 
       <div onKeyDown={onKey}>
         <Group label="Your keys">
@@ -116,7 +116,7 @@ function KeyRow({
   const sub =
     state === 'invalid' ? { text: 'Invalid', c: color.text } : state === 'env' ? { text: 'From engine', c: color.label } : optional ? { text: 'Optional', c: color.faint } : undefined
   const set = !!info?.set && !cleared
-  const placeholder = cleared ? 'Cleared' : set ? `•••• ${info?.last4 ?? ''}`.trim() : name === 'tigerUrl' ? 'Paste URL' : 'Paste your key'
+  const placeholder = cleared ? 'Cleared' : set ? `•••• ${info?.last4 ?? ''}`.trim() : 'Paste your key'
   /** Clear (or Undo) sits inside the field, only when there's a stored key and nothing typed over it. */
   const clearable = (set || cleared) && !draft
 
@@ -144,7 +144,7 @@ function KeyRow({
           onChange={(e) => onDraft(e.target.value)}
           readOnly={readOnly}
           placeholder={placeholder}
-          aria-label={`${KEY_LABEL[name]} ${name === 'tigerUrl' ? 'URL' : 'key'}`}
+          aria-label={`${KEY_LABEL[name]} key`}
           autoComplete="off"
           spellCheck={false}
           autoCapitalize="off"

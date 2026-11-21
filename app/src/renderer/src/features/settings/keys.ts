@@ -7,8 +7,12 @@
  */
 import type { KeyState } from '../../../../../../shared/contracts/events'
 
-/** Same names as config.keys / config.status in shared/contracts/events.ts, in display order. */
-export const KEY_NAMES = ['anthropic', 'gemini', 'brightdata', 'elevenlabs', 'tigerUrl'] as const
+/**
+ * The keys miyagi keeps, in display order (names as in config.keys / config.status, shared/contracts/events.ts).
+ * Bright Data and Tiger Data are dropped (v2): the contract still lists brightdata / tigerUrl as optional, but the
+ * app no longer stores, shows or sends them, and a stored value from an older build is ignored on the next read.
+ */
+export const KEY_NAMES = ['anthropic', 'gemini', 'elevenlabs'] as const
 export type KeyName = (typeof KEY_NAMES)[number]
 
 /** The app can't build a lesson without these. First run opens Settings if either is `missing`. */
@@ -66,7 +70,7 @@ export function cleanKeys(raw: unknown): Keys {
 }
 
 /**
- * The full config.keys payload: EVERY name, '' when unset. The engine's set_app_keys drops any key missing
+ * The full config.keys payload: every name in KEY_NAMES, '' when unset. The engine's set_app_keys drops any key missing
  * from the payload, so a partial send would clear the others.
  */
 export function fullPayload(keys: Keys): Record<KeyName, string> {
@@ -84,9 +88,7 @@ export const isSection = (s: unknown): s is Section => typeof s === 'string' && 
 export const KEY_LABEL: Record<KeyName, string> = {
   anthropic: 'Anthropic',
   gemini: 'Gemini',
-  brightdata: 'Bright Data',
-  elevenlabs: 'ElevenLabs',
-  tigerUrl: 'Tiger Data URL'
+  elevenlabs: 'ElevenLabs'
 }
 
 /** Rows shown in the sheet. ElevenLabs is hidden: voice speaks with the computer's own voice now (Adrian, Sat),
