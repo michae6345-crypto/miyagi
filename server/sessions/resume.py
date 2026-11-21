@@ -8,11 +8,13 @@ video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
     me" text lessons) and step.started / step.passed (passed + skipped) / video.state (throttled); cleared on
     POST /end and when the last step passes; KEPT on lesson.ended "stopped" (the bar's End) and "end_lesson"
     (the resume card's "Start a new lesson", E11: it threw the lesson away for good, and a stray click near
-    Continue did it), marked `stopped`: offered back by the resume card when the app next connects, restored
-    only by its Continue, replaced once another lesson is actually built (a rebuild of the same lesson starts
-    over and replaces it). The lesson it replaced goes on the recent list (store.recent()).
-  - snapshot() with no lesson in memory but one saved (the engine restarted): spotlight clear,
-    video.pause, status idle, the resume card
+    Continue did it), marked `stopped`: offered back only as the library's Continue row (Nov 21: no card,
+    on connect or after library.list), restored only by that Continue (library.start), replaced once another
+    lesson is actually built (a rebuild of the same lesson starts over and replaces it).
+    The lesson it replaced goes on the recent list (store.recent()).
+  - snapshot() with no lesson in memory: status idle only (Nov 21, launch-quiet: nothing on connect). A saved
+    lesson that was not ended (not `stopped`) is offered (pending_offer(): the resume card) only after the app's
+    library.list, never on connect; any saved lesson is also the library's Continue row
   - resume() with no lesson in memory: reload the cached step graph (no rebuild) at the saved step and
     seek the video to the saved position; with one in memory: the session's own resume
   - resume_card(): "<title> · Step 3 of 7 · 12 min ago" for the in-memory case too
@@ -158,7 +160,7 @@ class Resumer:
 
     async def _emit_and_save(self, type_: str, payload: dict | None = None) -> None:
         await self._emit(type_, payload)
-        if type_ not in PROMPT_EVENTS:
+        if type_ not in PROMPT_EVENTS and not self._restoring:  # a restore's replay isn't the learner's activity
             self._last_activity = self.clock()
         try:
             if type_ in ("lesson.ready", "lesson.updated"):  # a new / replaced / extended graph: write it now
@@ -211,16 +213,26 @@ class Resumer:
             self.save_now()
 
     # ------------------------------------------------------------------ connections
-    def snapshot(self, ask_resume: bool = False) -> list[tuple[str, dict]]:
-        """What a newly connected app gets. Differs from the session's own snapshot only when no lesson is
-        in memory but one is saved on disk (the engine restarted mid-lesson)."""
+    def snapshot(self, ask_resume: bool = False, **kw: Any) -> list[tuple[str, dict]]:
+        """What a newly connected app gets. Nov 21 (launch-quiet): with no lesson in memory (a fresh engine, the
+        engine restarted mid-lesson) only status idle: no spotlight clear, no video.pause and no resume card on
+        connect, so the app's sign-in comes first. A saved lesson is offered when the app asks for the library
+        (pending_offer(), sent after `library` by main.py) and stays on disk for Continue / action resume."""
         s = self.s
         if s.graph is None and s.phase == "idle":
-            state = store.load()
-            if state is not None and store.load_graph(state) is not None:
-                return [("spotlight", {"clear": True}), ("video.pause", {}), ("status", {"state": "idle"}),
-                        ("card", resume_offer(state, self.clock()))]
-        return self._snapshot(ask_resume=ask_resume)
+            return [("status", {"state": "idle"})]
+        return self._snapshot(ask_resume=ask_resume, **kw)
+
+    def pending_offer(self) -> dict | None:
+        """The resume card for a saved lesson still waiting for the learner (not ended with End / Start new, not a
+        Demo, its graph still on disk), or None. Only with no lesson in memory."""
+        s = self.s
+        if s.graph is not None or s.phase != "idle":
+            return None
+        state = store.load()
+        if state is None or state.get("stopped") or store.load_graph(state) is None:
+            return None
+        return resume_offer(state, self.clock())
 
     def resume_card(self) -> dict:
         st = self.capture()
@@ -265,6 +277,8 @@ class Resumer:
         s = self.s
         idx = max(0, min(int(state["stepIndex"]), len(graph["steps"]) - 1))
         self._started_at[state["lessonId"]] = state.get("startedAt") or self.clock()
+        if isinstance(state.get("lastActiveAt"), (int, float)):  # Nov 21: the restore keeps "12 min ago" honest: the
+            self._last_activity = float(state["lastActiveAt"])  # saves it makes carry the saved time, not now
         self._graph_saved_for = None  # the first save after a restore rewrites the graph file too
         editor_open = bool(state.get("editorOpen"))
         t = state.get("videoT")
@@ -300,10 +314,12 @@ class Resumer:
         s.emit = filtered
         s.start_step = saved_step
         self._restoring = True
+        s.restoring = True  # start_step: the saved position is sought paused (video.seek play false, no video.play)
         try:
             await self._load_graph(graph)  # the session's own, not this wrapper
         finally:
             self._restoring = False
+            s.restoring = False
             s.emit = wrapped
             if "start_step" in vars(s):
                 del s.start_step

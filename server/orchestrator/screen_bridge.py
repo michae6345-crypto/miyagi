@@ -42,6 +42,10 @@ class ScreenBridge:
         self._fresh_after = 0.0  # wall clock of the last resume(): frames older than that are from before the pause
         self._on_front: Callable[[str], Awaitable[None]] | None = None
         self._pause_lock = threading.Lock()
+        # Nov 21 (launch-quiet): the reader is created at boot but never started until the first lesson step: no
+        # capture, no Accessibility reader, no event taps, no frontmost poller (and so no permission prompt) before
+        # the learner picks a lesson. resume() starts it the first time. ORCH_SCREEN_EAGER=1: the old boot start.
+        self.started = False
 
     @property
     def active(self) -> bool:
@@ -57,12 +61,15 @@ class ScreenBridge:
                 return False
             # ~1 frame/s (OCR still runs only when the screen changed) so a check flips within ~2 s
             reader.interval = float(os.environ.get("ORCH_SCREEN_INTERVAL_S", "1.0"))
-            reader.start()
+            eager = env_flag("ORCH_SCREEN_EAGER", False)  # dev escape hatch: capture from boot, as before Nov 21
+            if eager:
+                reader.start()
             self._loop = asyncio.get_running_loop()
             self._unsub = reader.subscribe(on_obs)
             self.reader = reader
-            self.paused = False
-            log.info("screen reader started")
+            self.started = eager
+            self.paused = not eager  # launch-quiet: resume() (the first lesson step) starts it
+            log.info("screen reader %s", "started" if eager else "ready (starts with the first lesson step)")
             return True
         except Exception as e:  # noqa: BLE001 - permission / platform problems must not kill the hub
             log.warning("screen reader unavailable (%s); running without screen", e)
@@ -107,7 +114,21 @@ class ScreenBridge:
         if r is None or not self.paused:
             return
         with self._pause_lock:
+            if not self.paused:  # another resume() got here first
+                return
             self._fresh_after = time.time()
+            if not self.started:  # launch-quiet: the first lesson step starts the reader (taps, AX, capture) once
+                try:
+                    r.start()
+                    self.started = True
+                except Exception:  # noqa: BLE001
+                    log.exception("screen start failed")
+                    return  # stays paused: the next step / tick tries again
+                self.paused = False
+                if self._on_front is not None:
+                    self.watch_frontmost(self._on_front)
+                log.info("screen reader started (%s)", why or "lesson step")
+                return
             try:
                 ax = getattr(r, "ax_reader", None)
                 for t in (getattr(r, "_thread", None), getattr(ax, "_thread", None)):
@@ -135,6 +156,11 @@ class ScreenBridge:
         self._on_front = on_front  # re-subscribed by resume()
         if r is None or self._loop is None or not hasattr(r, "on_frontmost_change"):
             return
+        if self.paused:  # launch-quiet / paused: no poller until a lesson step resumes the reader
+            return
+        if getattr(self, "_front_unsub", None):  # never two subscriptions for one watcher
+            self._front_unsub()
+            self._front_unsub = None
         loop = self._loop
 
         def cb(new: dict | None, old: dict | None) -> None:  # E6's poller thread

@@ -33,6 +33,9 @@ export ORCH_OPEN_WORKSPACE="${ORCH_OPEN_WORKSPACE:-1}"
 # (The PINN hero with demo/pinn-lab autostarted is scripts/miyagi-demo.sh.)
 export ORCH_AUTOSTART="${ORCH_AUTOSTART:-0}"
 export ORCH_AUTO_RESUME="${ORCH_AUTO_RESUME:-1}"  # dev deploys keep the running lesson; the app (localEngine.ts) starts fresh
+# Nov 21: the dev engine keeps its own saved lesson, never the installed app's (~/miyagi/state): a dev run's
+# auto-resume must not reload (or overwrite) the lesson the real app offers back, and the other way round
+export MIYAGI_STATE_DIR="${MIYAGI_STATE_DIR:-$HOME/miyagi/state-dev}"
 
 # --- macOS Screen Recording permission (the screen reader needs it) ---------------------
 if [ "$(uname)" = "Darwin" ] && [ "$ORCH_SCREEN" = "1" ]; then
