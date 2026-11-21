@@ -17,7 +17,7 @@ import { useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
-import { alpha, brand, color, copy, elevation, fill, highlight, radius2, spring, type2 } from '../../core/theme'
+import { color, copy, elevation, fill, highlight, radius2, spring, tone, type Tone, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
@@ -146,10 +146,10 @@ function ContinueBlock({ hero, fix }: { hero: Hero; fix?: { label: string; line:
 
 // ---- ask --------------------------------------------------------------------------------------------------------
 
-const IDEAS: Array<{ text: string; tone: string }> = [
-  { text: 'Clean a messy CSV with pandas', tone: brand.pastel.sky },
-  { text: 'Build a tiny web server', tone: brand.pastel.lilac },
-  { text: 'Train an image classifier', tone: brand.pastel.pink }
+const IDEAS: Array<{ text: string; tone: Tone }> = [
+  { text: 'Clean a messy CSV with pandas', tone: 'sky' },
+  { text: 'Build a tiny web server', tone: 'lilac' },
+  { text: 'Train an image classifier', tone: 'pink' }
 ]
 
 function AskBlock({ primary }: { primary: boolean }): ReactNode {
@@ -222,7 +222,7 @@ function AskBlock({ primary }: { primary: boolean }): ReactNode {
                 input.current?.focus()
               }}
               className="flex items-center"
-              style={{ height: 30, padding: '0 12px', borderRadius: radius2.round, background: alpha(t.tone, 0.16), fontSize: type2.xs, color: color.text }}
+              style={{ height: 30, padding: '0 12px', borderRadius: radius2.round, background: tone[t.tone].bg, fontSize: type2.xs, color: tone[t.tone].fg }}
             >
               <span className="relative">{t.text}</span>
             </Press>

@@ -8,7 +8,7 @@
  * A2. The overlay activated miyagi as a regular app: the menu bar read "Electron File Edit View Window", VS Code
  *    went inactive, and a click could move Spaces. On macOS miyagi is now an "accessory" app by default (no Dock
  *    icon, not in ⌘Tab, clicks never activate it or switch Spaces); MIYAGI_REGULAR_APP=1 opts out. It's named
- *    "miyagi" with a minimal menu (Edit stays, so ⌘C / ⌘V / ⌘A keep working in the launcher's field).
+ *    "miyagi" (its one menu is set in main/index.ts setupMenu; Edit stays, so ⌘C / ⌘V / ⌘A keep working in the launcher's field).
  * A3. A click on the pill fell through to the wallpaper: the overlay ignores the mouse until the renderer sees a
  *    hover, and a quick click can land first. Main polls the cursor and stops ignoring the mouse the moment it
  *    enters the island's rect.
@@ -27,7 +27,7 @@
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac.
  */
-import { app, Menu, screen } from 'electron'
+import { app, screen } from 'electron'
 import { defineMainFeature } from '../context'
 
 const isMac = process.platform === 'darwin'
@@ -52,14 +52,7 @@ export default defineMainFeature({
   id: 'overlay-raise',
   setup(ctx) {
     // ---- A2: an accessory app with a minimal menu ----------------------------------------------------------
-    if (isMac) {
-      Menu.setApplicationMenu(
-        Menu.buildFromTemplate([
-          { label: 'miyagi', submenu: [{ role: 'hide' }, { role: 'quit' }] },
-          { role: 'editMenu' }
-        ])
-      )
-    }
+    // The app menu (miyagi, Edit, View, Window) is defined once, in main/index.ts setupMenu. Edit stays in it, so ⌘C / ⌘V / ⌘A keep working in the launcher's field.
     if (accessory) {
       app.setActivationPolicy('accessory')
       console.log('[overlay-raise] accessory app (no Dock icon, clicks never switch Spaces); MIYAGI_REGULAR_APP=1 opts out')

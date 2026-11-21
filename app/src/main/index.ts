@@ -53,8 +53,16 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
+<<<<<<< HEAD
 /** Bumped on every close request and open: a stale close watchdog never hides a newer open. */
 let launcherGen = 0
+=======
+/** When the launcher last opened (ms): a second press of the key inside LAUNCHER_DOUBLE_MS is the same press twice, not a close. */
+let launcherOpenedAt = 0
+const LAUNCHER_DOUBLE_MS = 400
+/** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
+let launcherOrigin: BrowserWindow | undefined
+>>>>>>> origin/michael/app-ui-nov21
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
 let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
@@ -254,8 +262,11 @@ function forEachWindow(fn: (w: BrowserWindow) => void): void {
 function openLauncher(): void {
   // Launch gate (main/gate.ts): no launcher before the login and setup are through.
   if (launcherOpen || !gateIsOpen()) return
+  const front = BrowserWindow.getFocusedWindow()
+  launcherOrigin = front && front !== overlay && front !== launcher && !front.isDestroyed() ? front : undefined
   launcherOpen = true
   launcherGen++
+  launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
   launcher.show()
@@ -318,6 +329,16 @@ function hideLauncher(): void {
   launcherOpen = false
   launcher.hide()
   send(overlay, 'launcher:closed') // the island is back
+  const origin = launcherOrigin
+  launcherOrigin = undefined
+  if (origin && !origin.isDestroyed() && origin.isVisible()) {
+    // Opened from a miyagi window: it gets the keyboard back. returnFocus would reactivate "the last other app" (Finder).
+    overlay.showInactive()
+    raise(overlay)
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    origin.focus()
+    return
+  }
   returnFocus(app, overlay, previousApp())
 }
 
@@ -418,7 +439,10 @@ app.whenReady().then(async () => {
     overlay,
     launcherKey: (on) => {
       if (!on) return globalShortcut.unregister(platform.accelerators.launcher)
-      const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
+      const ok = globalShortcut.register(platform.accelerators.launcher, () => {
+        if (!launcherOpen) return openLauncher()
+        if (Date.now() - launcherOpenedAt >= LAUNCHER_DOUBLE_MS) closeLauncher() // a second press right after an open is ignored
+      })
       if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
     },
     closed: () => {
@@ -581,7 +605,7 @@ app.whenReady().then(async () => {
 
 /**
  * The standard macOS app menu (Nov 21: the test found only "Edit"): miyagi, Edit, View (Enter Full Screen), Window
- * (Minimize, Zoom). Set after the features load so it replaces the minimal menu overlay-raise.ts sets first. Full screen
+ * (Minimize, Zoom). The only menu definition (overlay-raise.ts no longer sets one), set once after the features load. Full screen
  * and zoom act on the focused window; only app windows are fullscreenable (platform.ts appWindowOptions), so for the
  * overlay, pill and panels those items stay disabled by Electron.
  */

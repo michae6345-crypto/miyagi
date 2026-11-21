@@ -4,7 +4,7 @@
  */
 import type { ReactNode } from 'react'
 import type { LessonTool, LibraryItem } from '../../../../../../shared/contracts/events'
-import { brand, color, fill, radius2, surface, type2 } from '../../core/theme'
+import { color, fill, radius2, surface, tone, type Tone, type2 } from '../../core/theme'
 
 /** Secondary text on the window (the mockups' white at 78%). */
 export const soft = fill.keycapText
@@ -14,13 +14,13 @@ const TOOL_ABBR: Record<LessonTool, string> = { vscode: 'VS', jupyter: 'Jn', ter
 /** The tools a lesson can be filtered by today; Excel shows as "soon". */
 export const FILTER_TOOLS: LessonTool[] = ['vscode', 'jupyter', 'terminal']
 
-/** Soft pastel per tool. A tag, never status: ink on the pastel reads in light and dark. */
-export const TOOL_TONE: Record<LessonTool, string> = { vscode: brand.pastel.sky, jupyter: brand.pastel.lilac, terminal: brand.pastel.pink, excel: brand.pastel.apricot }
+/** Soft pastel per tool (the theme's tone tokens, so a tag reads in light and dark). A tag, never status. */
+export const TOOL_TONE: Record<LessonTool, Tone> = { vscode: 'sky', jupyter: 'lilac', terminal: 'pink', excel: 'peach' }
 
 /** A tool's soft tag: "VS Code" in its pastel. */
 export function ToolTag({ tool }: { tool: LessonTool }): ReactNode {
   return (
-    <span className="inline-flex shrink-0 items-center whitespace-nowrap font-medium" style={{ height: 20, padding: '0 8px', borderRadius: radius2.round, background: TOOL_TONE[tool], color: brand.ink, fontSize: type2.micro }}>
+    <span className="inline-flex shrink-0 items-center whitespace-nowrap font-medium" style={{ height: 20, padding: '0 8px', borderRadius: radius2.round, background: tone[TOOL_TONE[tool]].bg, color: tone[TOOL_TONE[tool]].fg, fontSize: type2.micro }}>
       {TOOL_NAME[tool]}
     </span>
   )
@@ -36,10 +36,10 @@ export function ToolTile({ tool, size = 32, muted }: { tool: LessonTool; size?: 
         width: size,
         height: size,
         borderRadius: size <= 20 ? radius2.keycap : size >= 48 ? radius2.card : radius2.control,
-        background: TOOL_TONE[tool],
+        background: tone[TOOL_TONE[tool]].bg,
         opacity: muted ? 0.6 : 1,
         fontSize: size >= 48 ? type2.sm : type2.micro,
-        color: brand.ink
+        color: tone[TOOL_TONE[tool]].fg
       }}
     >
       {TOOL_ABBR[tool]}

@@ -10,7 +10,7 @@
  * sits in its slot from guided setup on, and leaves it for the sidebar at the end.
  * Not interactive: it is a progress line, not navigation (Back lives in the footer).
  */
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Dots, type DotItem } from '../../onboarding/Dots'
 import type { Row } from '../../onboarding/rows'
@@ -61,11 +61,12 @@ export function Strip({
   /** Kept for callers: the dots are the same at every width. */
   compact?: boolean
 }): ReactNode {
+  const reduce = useReducedMotion()
   const current = currentItem(phase, step)
   const withMark = mark && (phase === 'setup' || phase === 'ready')
   const items: DotItem[] = STRIP.map((it) => ({ id: it.id, label: it.label, state: it.id === current ? 'current' : itemDone(it.id, phase, rows, skipped) ? 'done' : 'next' }))
   return (
-    <motion.nav aria-label="Setup progress" data-flow-strip={current} className="flex items-center" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={stripIn}>
+    <motion.nav aria-label="Setup progress" data-flow-strip={current} className="flex items-center" initial={reduce ? false : { opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={stripIn}>
       <span className="block shrink-0" style={{ width: MARK, height: MARK, marginRight: SLOT_GAP }}>
         {withMark && <FlowMark size={MARK} />}
       </span>

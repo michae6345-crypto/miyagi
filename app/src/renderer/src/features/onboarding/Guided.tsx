@@ -352,7 +352,7 @@ export function Guided({
 
   return (
     <div data-onb-view="setup" data-onb-step={row?.id} data-onb-chrome={chrome} role="dialog" aria-labelledby="onb-title" className="flex h-full w-full flex-col">
-      {chrome === 'window' && <header data-drag className="flex h-[60px] shrink-0 items-center justify-between pl-[88px] pr-[28px]">
+      {chrome === 'window' && <header data-drag className="mg-flow-head mg-lights-pad flex shrink-0 items-center justify-between pr-[28px]">
         <div className="flex items-center gap-[10px]">
           <motion.div layoutId={MARK_ID} className="relative" style={{ width: 22, height: 22 }} transition={{ layout: spring }}>
             <MiyagiMark size={22} />

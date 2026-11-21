@@ -5,7 +5,7 @@
  * finished and the learner lands on Home: no lesson is ever started from here.
  * `again`: setup opened again over home; the primary is Done (back to home, no tour offered).
  */
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { NotebookText } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { brand, color, elevation, fill, font, highlight, radius2, surface, type2 } from '../../core/theme'
@@ -23,13 +23,14 @@ import { startLearning } from './store'
  */
 export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summary; onStart?: () => void; onTour?: () => void; mark?: boolean; again?: boolean }): ReactNode {
   const home = onStart ?? startLearning
+  const reduce = useReducedMotion()
   const tour = (): void => {
     startTour()
     ;(onTour ?? home)()
   }
   return (
     <div data-onb-view="ready" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[560px] flex-col px-[32px]">
-      <motion.div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center" variants={stagger(0.05)} initial="hidden" animate="shown">
+      <motion.div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center" variants={stagger(0.05)} initial={reduce ? false : 'hidden'} animate="shown">
         <motion.div
           variants={rise}
           data-onb-stage
