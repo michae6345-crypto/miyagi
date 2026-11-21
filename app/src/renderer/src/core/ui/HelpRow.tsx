@@ -1,7 +1,8 @@
 /**
  * Core (v2, W0-3): the "Need help" row of the lesson panel (Les-Working): Explain, Hint, Show me, Diagram, Watch.
- * Each is an OptionTile in its pastel (BRAND.md mapping, theme.actionTone: sky = Explain / Diagram / Watch, pink =
- * Hint, lilac = Show me) with an ink glyph and its keycap from the platform. Watch has no shortcut (decision 3).
+ * Five equal OptionTiles, gap 8, each a solid pastel (BRAND.md mapping, theme.actionTone: sky = Explain / Diagram /
+ * Watch, pink = Hint, lilac = Show me) with an ink label and its keycap from the platform inside the tile. Watch has
+ * no shortcut (decision 3).
  * Options only: never a status, never the primary.
  *
  *   <HelpRow options={[{ action: 'explain', onClick }, { action: 'hint', onClick, busy }]} />
@@ -29,9 +30,22 @@ const ICON: Partial<Record<OptionAction, LucideIcon>> = { explain: MessageSquare
 /** The platform key for each option; Watch has none this push. */
 const KEY: Partial<Record<OptionAction, KeyName>> = { explain: 'explain', hint: 'hint', show_me: 'show_me', diagram: 'diagram' }
 
-export type HelpOption = { action: OptionAction; onClick: () => void; label?: string; busy?: boolean; disabled?: boolean; hideKey?: boolean }
+export type HelpOption = {
+  action: OptionAction
+  onClick: () => void
+  label?: string
+  busy?: boolean
+  disabled?: boolean
+  hideKey?: boolean
+  /** A small ink glyph above the label. Off by default (the Les-Working row is label + keycap only). */
+  glyph?: boolean
+}
 
-export function OptionTile({ action, onClick, label, busy, disabled, hideKey }: HelpOption): ReactNode {
+/**
+ * One tile of the row (Les-Working `.hb`): flex-1, 56 high, radius 12, a solid pastel fill, an ink label 12 px / 600
+ * and the keycap inside the tile in the ink-on-pastel tone. Watch has no keycap.
+ */
+export function OptionTile({ action, onClick, label, busy, disabled, hideKey, glyph }: HelpOption): ReactNode {
   const I = ICON[action]
   const k = hideKey ? undefined : KEY[action]
   return (
@@ -39,33 +53,33 @@ export function OptionTile({ action, onClick, label, busy, disabled, hideKey }: 
       type="button"
       data-option={action}
       disabled={disabled}
-      className="flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-[6px] disabled:cursor-default"
-      style={{ opacity: disabled ? 0.4 : 1 }}
+      aria-busy={busy || undefined}
+      className="flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-[4px] disabled:cursor-default"
+      style={{ height: 56, padding: '0 4px', borderRadius: radius2.card, background: actionTone[action], color: color.onAccent, opacity: disabled ? 0.4 : 1 }}
+      whileHover={disabled ? undefined : { filter: 'brightness(0.96)' }}
       whileTap={disabled ? undefined : { scale: 0.96 }}
       transition={{ duration: 0.12 }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
-      <span className="grid place-items-center" style={{ width: 32, height: 32, borderRadius: radius2.control, background: actionTone[action], color: color.onAccent }}>
-        {busy ? <Spinner size={14} c={color.onAccent} track={fill.onAccentKey} /> : I ? <I size={15} strokeWidth={1.8} /> : <WatchIcon size={15} />}
-      </span>
-      <span className="truncate font-medium" style={{ fontSize: type2.xs, color: color.text }}>
+      {busy ? <Spinner size={12} c={color.onAccent} track={fill.onAccentKey} /> : glyph ? I ? <I size={12} strokeWidth={1.8} aria-hidden /> : <WatchIcon size={12} /> : null}
+      <span className="max-w-full truncate" style={{ fontSize: type2.xs, fontWeight: 600, lineHeight: 1.2 }}>
         {label ?? LABEL[action]}
       </span>
-      {k ? <Keycap k={k} size="sm" /> : <span style={{ height: 18 }} aria-hidden />}
+      {k && <Keycap k={k} on="accent" size="sm" />}
     </motion.button>
   )
 }
 
 export function HelpRow({ options, title = 'Need help' }: { options: ReadonlyArray<HelpOption>; title?: string | null }): ReactNode {
   return (
-    <div data-help-row className="flex flex-col gap-[10px]">
+    <div data-help-row className="flex flex-col gap-[12px]">
       {title && (
         <div className="font-medium" style={{ fontSize: type2.xs, color: color.label }}>
           {title}
         </div>
       )}
-      <div className="flex items-start gap-[6px]">
+      <div className="flex items-stretch gap-[8px]">
         {options.map((o) => (
           <OptionTile key={o.action} {...o} />
         ))}

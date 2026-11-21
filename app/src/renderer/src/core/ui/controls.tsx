@@ -30,7 +30,12 @@ export function Segmented<T extends string>({
   const onPaper = surface === 'paper'
   const group = useId()
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex shrink-0 items-center p-[2px]" style={{ background: onPaper ? paper.group : fill.segmentTrack, borderRadius: radius2.control }}>
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="inline-flex shrink-0 items-center p-[2px]"
+      style={{ background: onPaper ? paper.group : fill.segmentTrack, borderRadius: radius2.control, border: `1px solid ${onPaper ? paper.border : fill.hairline}` }}
+    >
       {options.map((o) => {
         const on = o.value === value
         return (
@@ -39,8 +44,8 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={on}
-            className="relative cursor-pointer whitespace-nowrap px-[12px] font-medium"
-            style={{ height: 26, fontSize: type2.sm, color: onPaper ? paper.ink : on ? color.text : color.label, borderRadius: radius2.keycap }}
+            className="relative cursor-pointer whitespace-nowrap px-[16px]"
+            style={{ height: 32, fontSize: type2.xs, fontWeight: on ? 500 : 400, color: onPaper ? paper.ink : on ? color.text : fill.chipText, borderRadius: radius2.keycap }}
             onClick={() => onChange(o.value)}
           >
             {on && (
@@ -70,11 +75,14 @@ export function Toggle({ on, onChange, label, disabled, surface = 'dark' }: { on
       aria-checked={on}
       aria-label={label}
       disabled={disabled}
-      className="relative shrink-0 cursor-pointer disabled:cursor-default"
-      style={{ width: 36, height: 22, borderRadius: radius2.round, background: track, opacity: disabled ? 0.4 : 1, transition: 'background 150ms ease-out' }}
+      className="grid shrink-0 cursor-pointer place-items-center disabled:cursor-default"
+      style={{ width: 56, height: 44, opacity: disabled ? 0.4 : 1 }}
       onClick={() => onChange(!on)}
     >
-      <motion.span className="absolute top-[3px] block" style={{ width: 16, height: 16, borderRadius: radius2.round, background: knob }} initial={false} animate={{ left: on ? 17 : 3 }} transition={spring} />
+      {/* Set-General: a 40x24 track with a 20 px knob (ink on white when on) inside a 56x44 hit target. */}
+      <span className="relative block" style={{ width: 40, height: 24, borderRadius: radius2.round, background: track, transition: 'background 150ms ease-out' }}>
+        <motion.span className="absolute top-[2px] block" style={{ width: 20, height: 20, borderRadius: radius2.round, background: knob }} initial={false} animate={{ left: on ? 18 : 2 }} transition={spring} />
+      </span>
     </button>
   )
 }

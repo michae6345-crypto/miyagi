@@ -142,6 +142,8 @@ export const fill = {
   keycapText: 'rgba(255,255,255,.78)',
   /** Step dots / meters: a step not reached yet. */
   trackNext: 'rgba(255,255,255,.18)',
+  /** Les-Mini's step bars: a step not reached yet, a touch brighter on the small 4 px bar. */
+  trackNextMini: 'rgba(255,255,255,.24)',
   /** A skill being practiced (Prog-Progress-Window): white at 55%, never a hue. */
   practicing: 'rgba(255,255,255,.55)',
   /** A Toggle that is off. */

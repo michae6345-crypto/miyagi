@@ -10,15 +10,21 @@ import { color, fill, paper, type2 } from '../theme'
 
 export type KeysFooterItem = { k: KeyName; label: string; onClick?: () => void }
 
-export function KeysFooter({ items, surface = 'dark', divider = true }: { items: ReadonlyArray<KeysFooterItem>; surface?: 'dark' | 'paper'; divider?: boolean }): ReactNode {
+/** Les-*: no top divider, padded 0 20 16, gap 16. `divider` adds a hairline above (a window footer). */
+export function KeysFooter({ items, surface = 'dark', divider = false }: { items: ReadonlyArray<KeysFooterItem>; surface?: 'dark' | 'paper'; divider?: boolean }): ReactNode {
   const shown = items.filter((i) => keyLabel(i.k))
   if (!shown.length) return null
   const onPaper = surface === 'paper'
   return (
     <div
       data-keys-footer
-      className="flex items-center gap-[14px] px-[16px]"
-      style={{ height: 36, borderTop: divider ? `1px solid ${onPaper ? paper.hairline : fill.hairline}` : undefined, fontSize: type2.xs, color: onPaper ? paper.faint : color.label }}
+      className="flex items-center gap-[16px]"
+      style={{
+        padding: divider ? '12px 20px 16px' : '0 20px 16px',
+        borderTop: divider ? `1px solid ${onPaper ? paper.hairline : fill.hairline}` : undefined,
+        fontSize: type2.xs,
+        color: onPaper ? paper.faint : color.label
+      }}
     >
       {shown.map((i) => {
         const body = (
