@@ -196,10 +196,11 @@ def test_saved_lesson_is_offered_after_library_list_and_continue_restores_it_pau
             assert [m["type"] for m in after] == ["card"]
             card = after[0]["payload"]
             assert card["kind"] == "resume" and "step 3 of" in card["body"], card
-            # exactly one card per library.list: a second ask answers `library` with no card before it
+            # once per connection: the app asks for its library on every launcher / library open, and a second
+            # ask answers `library` with no card after it (the queued fence: everything the reads sent is in)
             ws.send_json({"type": "library.list", "payload": {}})
             assert [m["type"] for m in _until(ws, "library")] == ["library"]
-            assert _until(ws, "card")[-1]["payload"]["kind"] == "resume"
+            assert [m["type"] for m in _queued_fence(ws)] == ["error"]
             assert quiet_env.starts == 0
 
             ws.send_json({"type": "action", "payload": {"kind": "resume"}})  # Continue
@@ -233,6 +234,65 @@ def test_library_list_offers_nothing_for_a_stopped_save(quiet_env, monkeypatch):
             ws.send_json({"type": "library.list", "payload": {}})  # a second ask: nothing came between the two
             assert [m["type"] for m in _until(ws, "library")] == ["library"]
             assert [m["type"] for m in _queued_fence(ws)] == ["error"]
+
+
+def test_a_closed_offer_is_never_sent_again_in_this_engine_run(quiet_env, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    _save_unended_video_lesson(monkeypatch)
+    main, eng, _, _ = _engine(monkeypatch)
+    with TestClient(main.app) as client:
+        with client.websocket_connect("/") as ws:
+            _until(ws, "status")
+            ws.send_json({"type": "library.list", "payload": {}})
+            _until(ws, "library")
+            card = _until(ws, "card")[-1]["payload"]
+            assert card["kind"] == "resume"
+            ws.send_json({"type": "card.closed", "payload": {"title": card["title"], "kind": "resume", "by": "user"}})
+            _queued_fence(ws)
+        with client.websocket_connect("/") as ws:  # a new connection (the app relaunched): still closed
+            _until(ws, "status")
+            ws.send_json({"type": "library.list", "payload": {}})
+            assert [m["type"] for m in _until(ws, "library")] == ["library"]
+            assert [m["type"] for m in _queued_fence(ws)] == ["error"]
+    assert eng.resumer.pending_offer() is not None  # the save itself stays: the library's Continue row
+
+
+def test_a_new_connection_gets_the_unanswered_offer_once(quiet_env, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    _save_unended_video_lesson(monkeypatch)
+    main, eng, _, _ = _engine(monkeypatch)
+    with TestClient(main.app) as client:
+        for _ in range(2):  # neither answered nor closed (e.g. the app quit with it up): each app run sees it once
+            with client.websocket_connect("/") as ws:
+                _until(ws, "status")
+                got: list[dict] = []
+                for _n in range(2):
+                    ws.send_json({"type": "library.list", "payload": {}})
+                    got += _until(ws, "library")
+                got += _queued_fence(ws)
+                assert [m["payload"]["kind"] for m in got if m["type"] == "card"] == ["resume"]
+    assert eng._offered_to == set()  # each closed socket is forgotten
+
+
+def test_answering_the_offer_with_start_new_stops_it(quiet_env, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    _save_unended_video_lesson(monkeypatch)
+    main, eng, _, _ = _engine(monkeypatch)
+    with TestClient(main.app) as client:
+        with client.websocket_connect("/") as ws:
+            _until(ws, "status")
+            ws.send_json({"type": "library.list", "payload": {}})
+            _until(ws, "card")
+            ws.send_json({"type": "action", "payload": {"kind": "end_lesson"}})  # "Start a new lesson"
+            _queued_fence(ws)
+        with client.websocket_connect("/") as ws:
+            _until(ws, "status")
+            ws.send_json({"type": "library.list", "payload": {}})
+            _until(ws, "library")
+            assert not [m for m in _queued_fence(ws) if m["type"] == "card"]
 
 
 # ---------------------------------------------------------------------------------------------- VS Code waits for Start
@@ -320,6 +380,48 @@ def test_engine_marks_learner_asks_per_connection(quiet_env, monkeypatch):
         assert eng.session.learner_asked is True
 
     asyncio.run(go())
+
+
+def _connect_and_ask(client) -> None:
+    with client.websocket_connect("/") as ws:
+        _until(ws, "status")
+        ws.send_json({"type": "action", "payload": {"kind": "start"}})  # a learner ask (no lesson yet: a no-op)
+        _queued_fence(ws)  # it ran
+
+
+def test_a_quick_reconnect_mid_build_keeps_the_learner_ask(quiet_env, monkeypatch):
+    """A Wi-Fi / WS blip between the learner's ask and lesson.ready: VS Code still opens under "Before you start"."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("ORCH_RESUME_AFTER_S", "30")
+    main, eng, ws_rec, _ = _engine(monkeypatch)
+    with TestClient(main.app) as client:
+        _connect_and_ask(client)
+        assert eng.session.learner_asked is True
+        with client.websocket_connect("/") as ws:  # back 0 s later: the same app run
+            _until(ws, "status")
+            assert eng.session.learner_asked is True
+
+            async def ready() -> None:
+                await eng.session.load_graph(_sheet_lesson())
+                await eng.session.drain()
+
+            client.portal.call(ready)
+            assert eng.session.awaiting_start  # the sheet is up (an app is connected)
+            assert ws_rec.opens and ws_rec.opens[0]["full"] is True  # and VS Code opened under it, as after a learn
+
+
+def test_a_new_app_run_asks_again(quiet_env, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("ORCH_RESUME_AFTER_S", "0")  # every reconnect counts as the app having been away
+    main, eng, _, _ = _engine(monkeypatch)
+    with TestClient(main.app) as client:
+        _connect_and_ask(client)
+        assert eng.session.learner_asked is True
+        with client.websocket_connect("/") as ws:
+            _until(ws, "status")
+            assert eng.session.learner_asked is False
 
 
 def test_returning_app_never_gets_an_old_preflight_card(quiet_env, tmp_path):

@@ -506,6 +506,11 @@ class Engine:
         # Nov 21 (launch-quiet): nothing asked yet: VS Code never opens under "Before you start" until the learner
         # asks on a connection (dispatch: learn / pick / library.start / action start or resume)
         self.session.learner_asked = False
+        # Nov 21 (launch-quiet review): the saved-lesson card after library.list goes at most once per connection
+        # (the app asks for its library on every launcher / library open) and never again in this engine run once the
+        # learner answered it (Continue / Start new) or closed it
+        self._offered_to: set[Any] = set()
+        self._offer_answered = False
         # E7: the app left: no screen reading / looks / cards (an engine that never had one, e.g. rehearse_boxes, goes on)
         self.session.app_left = lambda: not self.hub.clients and self.last_client_gone is not None
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
@@ -747,11 +752,7 @@ class Engine:
             await reply("health", await self.health_payload())
         elif type_ == "library.list":
             await reply("library", await self.library_payload())
-            # Nov 21 (launch-quiet): the saved lesson is offered here, once the app asks for its library (after
-            # sign-in), never on connect. Its `continue` row is in the library too; Continue = action resume.
-            offer = self.resumer.pending_offer() if self.resumer is not None else None
-            if offer is not None:
-                await reply("card", offer)
+            # Nov 21 (launch-quiet): the saved lesson's card follows (dispatch: _offer_saved_lesson), never on connect
         elif type_ == "library.get":
             found = await self.library_detail(p.id)
             if found is None:  # no reply (contract): the app's ask ends on its own timeout
@@ -861,6 +862,20 @@ class Engine:
             except Exception:
                 log.exception("screen.avoid poll failed")
 
+    async def _offer_saved_lesson(self, ws: WebSocket | None, reply: Any) -> None:
+        """Nov 21 (launch-quiet): after `library`, the saved lesson's resume card (sessions.Resumer.pending_offer: a
+        lesson not ended, nothing in memory). At most once per connection: the app sends library.list on every
+        launcher and library open, and the card store keeps a closed decision card closed only until the next one.
+        Never again in this engine run once the learner answered (Continue / Start new) or closed it. The library's
+        Continue row always carries the saved lesson."""
+        if self.resumer is None or self._offer_answered or ws in self._offered_to:
+            return
+        offer = self.resumer.pending_offer()
+        if offer is None:
+            return
+        self._offered_to.add(ws)
+        await reply("card", offer)
+
     async def dispatch(self, raw: dict, ws: WebSocket | None = None) -> None:
         """One App->Engine command. `ws`: the socket it came on (v2 replies go to that app only; None: to every app)."""
         msg = parse_command(raw)
@@ -869,6 +884,9 @@ class Engine:
         log_received(msg.type, p)
         if msg.type in LEARNER_ASKS or msg.type == "action" and getattr(p, "kind", None) in LEARNER_ASK_ACTIONS:
             s.learner_asked = True  # Nov 21: the learner asked for this lesson: VS Code may open under the sheet
+        if (msg.type == "action" and getattr(p, "kind", None) in ("resume", "end_lesson")
+                or msg.type == "card.closed" and getattr(p, "kind", None) == "resume"):
+            self._offer_answered = True  # Nov 21: answered or closed: the saved-lesson card is not offered again
         if msg.type in V2_INSTANT:
             async def reply(type_: str, payload: dict) -> None:
                 if ws is None:
@@ -877,6 +895,8 @@ class Engine:
                     await self.hub.send_to(ws, type_, payload)
 
             await self.handle_v2(msg.type, p, reply)
+            if msg.type == "library.list":
+                await self._offer_saved_lesson(ws, reply)
         elif msg.type == "library.start":
             await self.library_start(p.id)
         elif msg.type == "learn":
@@ -1036,8 +1056,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await ws.close(code=1008)
         return
     await ws.accept()
-    if not engine.hub.clients:  # Nov 21: a new app run asks again before VS Code opens by itself
-        engine.session.learner_asked = False
+    if engine.app_was_away():  # Nov 21: a new app run asks again before VS Code opens by itself (a quick blip
+        engine.session.learner_asked = False  # mid-build keeps the ask; the first connection is False from __init__)
     restored = await engine.auto_resume()  # off unless ORCH_AUTO_RESUME=1 (Nov 21: every launch starts fresh)
     await engine.hub.send_to(ws, "engine.hello", engine.hello(restored))  # v2: always the first message
     for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning(), returning=engine.app_was_away()):
@@ -1116,6 +1136,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
         why = "error"
     finally:
         engine.hub.drop(ws, why)
+        engine._offered_to.discard(ws)
         if not engine.hub.clients:
             engine.last_client_gone = time.monotonic()
             engine.save_progress()  # the app left: keep the exact video position (autosave is throttled)
