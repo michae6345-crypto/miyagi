@@ -12,7 +12,7 @@
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { MoreHorizontal } from 'lucide-react'
-import { forwardRef, useId, type ReactNode } from 'react'
+import { forwardRef, useEffect, useId, useRef, type ReactNode } from 'react'
 import { actionTone, color, duration, elevation, fill, highlight, radius2, spring, surface, type2 } from '../../core/theme'
 import { QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
@@ -43,6 +43,17 @@ export const CoachMark = forwardRef<HTMLDivElement, Props>(function CoachMark({ 
   const titleId = useId()
   const bodyId = useId()
   const from = reduced ? { x: 0, y: 0 } : FROM[caret]
+  // Focus goes back to "..." when its menu closes (Esc, a pick, a second press), if it was in the menu: a keyboard
+  // user lands where they were. A press elsewhere moves focus there itself, so focus on anything else is left alone.
+  const trigger = useRef<HTMLButtonElement>(null)
+  const wasOpen = useRef(menu)
+  useEffect(() => {
+    if (wasOpen.current && !menu) {
+      const a = document.activeElement
+      if (!a || a === document.body || a.closest('[data-part="tip"] [role="menu"]')) trigger.current?.focus({ preventScroll: true })
+    }
+    wasOpen.current = menu
+  }, [menu])
   return (
     <motion.div
       ref={ref}
@@ -76,6 +87,7 @@ export const CoachMark = forwardRef<HTMLDivElement, Props>(function CoachMark({ 
       </div>
       <div className="relative mt-[12px] flex items-center justify-between">
         <motion.button
+          ref={trigger}
           type="button"
           aria-label="Tip options"
           aria-haspopup="menu"
@@ -146,6 +158,9 @@ function Caret({ side, at }: { side: CaretSide; at: number }): ReactNode {
 }
 
 function Menu({ onOff }: { onOff: () => void }): ReactNode {
+  // Its one item takes focus as it opens, so a keyboard user reaches it straight from "...".
+  const item = useRef<HTMLButtonElement>(null)
+  useEffect(() => item.current?.focus({ preventScroll: true }), [])
   return (
     <motion.div
       role="menu"
@@ -169,6 +184,7 @@ function Menu({ onOff }: { onOff: () => void }): ReactNode {
       transition={{ ...spring, opacity: { duration: duration.base } }}
     >
       <button
+        ref={item}
         type="button"
         role="menuitem"
         className="mg-press flex h-[30px] w-full cursor-pointer items-center whitespace-nowrap text-left"
