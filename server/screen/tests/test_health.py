@@ -83,7 +83,7 @@ def test_bridge_stays_paused_when_resume_cannot_start_the_reader(monkeypatch):
     b = ScreenBridge.__new__(ScreenBridge)
     import threading
     b._pause_lock, b._fresh_after, b._on_front, b._loop = threading.Lock(), 0.0, None, None
-    b.paused = True
+    b.paused, b.started = True, False
 
     class Dead:
         events = None

@@ -24,7 +24,6 @@ V2_EVENTS = frozenset({"engine.hello", "health", "lesson.paused", "lesson.resume
 _KNOWN_EVENTS = frozenset(getattr(_contract, "ENGINE_EVENTS", {}))
 PROGRESS_EVENTS = frozenset({"lesson.ready", "lesson.ended", "step.started", "check.updated", "lesson.complete"})
 SEND_TIMEOUT_S = 5.0  # a client that takes longer to accept one message is dropped: it must not stall every emitter
-_CLOSERS: set[asyncio.Task] = set()  # background closes of dropped sockets (kept referenced until done)
 QUIET_EVENTS = frozenset({"metric", "screen.seen"})  # several a second / OCR'd screen text: no line at all
 
 
@@ -74,6 +73,7 @@ class Hub:
         # clients still being sent hello + the snapshot: events emitted meanwhile are held and sent right after it,
         # so nothing falls in the gap between the snapshot and join()
         self.pending: dict[WebSocket, list[dict]] = {}
+        self._close_tasks: set[asyncio.Task] = set()  # strong refs to in-flight ws.close() tasks
         self.strict = os.environ.get("ORCH_STRICT") == "1" if strict is None else strict
         self.history: deque[dict] = deque(maxlen=history)  # recent messages, for /events and tests
         self._pending_noted: set[str] = set()
@@ -126,17 +126,16 @@ class Hub:
             self.clients.discard(ws)
             log.info("app disconnected (%s); %d client%s left", why, len(self.clients), "" if len(self.clients) == 1 else "s")
 
-    @staticmethod
-    def _close_later(ws: WebSocket) -> None:
+    def _close_later(self, ws: WebSocket) -> None:
         """Close in the background: a stalled socket's close can hang, and nothing may wait on it."""
         async def _close() -> None:
             with contextlib.suppress(Exception):
-                await ws.close(code=1011)
+                await asyncio.wait_for(ws.close(code=1011), 2.0)
 
         with contextlib.suppress(RuntimeError):  # no running loop
             task = asyncio.get_running_loop().create_task(_close())
-            _CLOSERS.add(task)
-            task.add_done_callback(_CLOSERS.discard)
+            self._close_tasks.add(task)
+            task.add_done_callback(self._close_tasks.discard)
 
     async def emit(self, type_: str, payload: dict[str, Any] | None = None) -> None:
         msg = self.encode(type_, payload or {})

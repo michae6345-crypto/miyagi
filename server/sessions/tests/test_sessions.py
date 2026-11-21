@@ -420,7 +420,8 @@ def test_restart_connect_state_then_resume_starts_the_saved_step(tmp_path, monke
         for _ in range(2):  # connect, leave, connect again: nothing is answered yet
             with client.websocket_connect("/") as ws:
                 assert ws.receive_json()["type"] == "engine.hello"  # v2: always the first message
-                assert ws.receive_json() == {"type": "status", "payload": {"state": "idle"}}  # Nov 21: only idle
+                first = ws.receive_json()  # epoch/gen tags are additive
+                assert first["type"] == "status" and first["payload"]["state"] == "idle"  # Nov 21: only idle
                 ws.send_json({"type": "library.list", "payload": {}})  # the offer comes with the library
                 msgs = [ws.receive_json() for _ in range(2)]
                 assert [m["type"] for m in msgs] == ["library", "card"]

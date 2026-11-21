@@ -170,7 +170,7 @@ def test_fresh_engine_connect_is_quiet(quiet_env, monkeypatch):
             assert hello["type"] == "engine.hello" and "restored" not in hello["payload"]
             ws.send_json({"type": "progress.get", "payload": {}})  # a fence: everything before it is the connect burst
             burst = _until(ws, "progress")[:-1]
-            assert burst == [{"type": "status", "payload": {"state": "idle"}}], [m["type"] for m in burst]
+            assert [(m["type"], m["payload"]["state"]) for m in burst] == [("status", "idle")], [m["type"] for m in burst]
             assert not _visible(burst)
         assert client.get("/state").json()["phase"] != "active"
     assert eng.session.graph is None and calls == []
@@ -189,7 +189,8 @@ def test_saved_lesson_is_offered_after_library_list_and_continue_restores_it_pau
     with TestClient(main.app) as client:
         with client.websocket_connect("/") as ws:
             assert ws.receive_json()["type"] == "engine.hello"
-            assert ws.receive_json() == {"type": "status", "payload": {"state": "idle"}}
+            first = ws.receive_json()  # epoch/gen tags are additive; the state is what matters
+            assert first["type"] == "status" and first["payload"]["state"] == "idle"
             ws.send_json({"type": "library.list", "payload": {}})
             assert [m["type"] for m in _until(ws, "library")] == ["library"]
             after = _until(ws, "card")  # the same handler sends it right after `library`
