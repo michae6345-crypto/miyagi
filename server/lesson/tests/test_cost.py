@@ -263,3 +263,142 @@ def test_screen_describe_caches_its_system_prompt_and_records_dollars(monkeypatc
     assert seen[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
     s = cost.session()
     assert s["by_source"]["screen"] == pytest.approx(cost.usd("claude-haiku-5-5", 1500, 2))
+
+
+# ---- review round 1: every billed call counts, failed / cancelled builds, prebuild source, overrides ---------
+
+def test_price_override_keys_are_case_insensitive(monkeypatch):
+    monkeypatch.setenv("MIYAGI_PRICES_JSON", '{"Claude-Haiku-5-5": [1, 2, 0.5]}')
+    assert cost.price("claude-haiku-5-5") == (1.0, 2.0, 0.5)
+    assert cost.price("CLAUDE-HAIKU-5-5") == (1.0, 2.0, 0.5)
+    monkeypatch.delenv("MIYAGI_PRICES_JSON")
+    assert cost.price("claude-haiku-5-5") == (0.10, 0.50, 0.01)
+
+
+def test_a_failed_build_emits_build_cost_and_its_spend_is_tagged():
+    got = _events()
+    c = cost.start()
+    with pytest.raises(RuntimeError):
+        with cost.build_scope(c, kind="video"):
+            cost.add_tokens("gemini-3.8-flash", 10_000, 1_000)
+            raise RuntimeError("build failed")
+    (name, props), = got
+    assert name == "build_cost" and props["outcome"] == "failed" and props["kind"] == "video"
+    assert props["cost_usd"] == pytest.approx(cost.usd("gemini-3.8-flash", 10_000, 1_000), abs=1e-6)
+    s = cost.session()
+    assert s["by_source"].get("lesson", 0) == 0 and s["by_source"]["lesson_failed"] == pytest.approx(props["cost_usd"])
+    assert s["cost_usd"] == pytest.approx(props["cost_usd"])  # it was paid: still in the session total
+
+
+def test_a_build_with_no_calls_emits_nothing():
+    got = _events()
+    with cost.build_scope(cost.start(), kind="video") as scope:
+        scope["lesson_id"] = "cached"
+    assert got == []
+
+
+def test_a_cancelled_prebuild_emits_build_cost_with_its_own_source(monkeypatch, tmp_path):
+    from server.lesson import builder
+
+    got = _events()
+
+    async def impl(*a, **kw):
+        cost.add_tokens("gemini-3.8-flash", 5_000, 500)  # the build counter's source tags it
+        await asyncio.sleep(10)
+
+    async def main():
+        cost.start("prebuild")  # prebuild.Job.run does this before build_lesson(_prebuild=True)
+        t = asyncio.ensure_future(builder.build_lesson("https://www.youtube.com/watch?v=abcdefghijk", "g",
+                                                       str(tmp_path), _prebuild=True))
+        await asyncio.sleep(0.05)
+        t.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t
+
+    monkeypatch.setattr(builder, "_build_lesson_impl", impl)
+    asyncio.run(main())
+    (name, props), = got
+    assert props["kind"] == "prebuild" and props["outcome"] == "cancelled" and props["cost_usd"] > 0
+    assert cost.session()["by_source"] == {"prebuild": 0.0, "prebuild_cancelled": props["cost_usd"]}
+
+
+def test_a_video_build_emits_once_with_the_lesson_id(monkeypatch, tmp_path):
+    from server.lesson import builder
+
+    got = _events()
+
+    async def impl(*a, **kw):
+        cost.add_tokens("gemini-3.8-flash", 1_000, 100)
+        return {"lesson": {"id": "L1"}, "steps": []}
+
+    monkeypatch.setattr(builder, "_build_lesson_impl", impl)
+    g = asyncio.run(builder.build_lesson("not-a-video", "g", str(tmp_path)))
+    assert [n for n, _ in got] == ["build_cost"]
+    assert got[0][1]["outcome"] == "ok" and got[0][1]["lesson_id"] == "L1"
+    assert g["build"]["cost"]["cost_usd"] == got[0][1]["cost_usd"]
+    assert cost.session()["by_source"] == {"lesson": got[0][1]["cost_usd"]}
+
+
+def test_coach_structured_call_counts_a_refused_or_cut_off_call(monkeypatch):
+    from server.coach import llm
+
+    monkeypatch.setattr(llm, "offline_mode", lambda: False)
+    monkeypatch.setattr(llm, "has_credentials", lambda: True)
+    for stop in ("refusal", "max_tokens"):
+        class _Api:
+            async def create(self, **kw):
+                return SimpleNamespace(stop_reason=stop, model="claude-haiku-5-5", content=[],
+                                       usage=SimpleNamespace(input_tokens=1000, output_tokens=400,
+                                                             cache_read_input_tokens=0, cache_creation_input_tokens=0))
+
+        fake = SimpleNamespace(messages=_Api(), beta=SimpleNamespace(messages=_Api()))
+        fake.with_options = lambda **_: fake
+        monkeypatch.setattr(llm, "get_client", lambda: fake)
+        with pytest.raises(llm.CoachLLMError):
+            asyncio.run(llm.structured_call(purpose="explain", model="claude-haiku-5-5", system=[], user_text="q",
+                                            schema={"type": "object"}))
+    assert cost.session()["by_source"]["coach"] == pytest.approx(2 * cost.usd("claude-haiku-5-5", 1000, 400))
+
+
+def test_scene_look_uses_the_shared_price_table_and_counts_in_the_session():
+    from PIL import Image
+
+    from server.coach import scene
+
+    class _Msgs:
+        async def create(self, **kw):
+            return SimpleNamespace(model="claude-haiku-5-5", stop_reason="end_turn",
+                                   content=[SimpleNamespace(type="text", text="{}")],
+                                   usage=SimpleNamespace(input_tokens=2300, output_tokens=100))
+
+    assert not hasattr(scene, "PRICE_IN")  # one price table: server/lesson/cost.py
+    sc = asyncio.run(scene.look(Image.new("RGB", (64, 64)), {"id": "s1", "title": "t"},
+                                client=SimpleNamespace(messages=_Msgs())))
+    assert sc.cost_usd == pytest.approx(cost.usd("claude-haiku-5-5", 2300, 100))
+    assert cost.session()["by_source"]["coach"] == pytest.approx(sc.cost_usd)
+
+
+def test_diagram_calls_count_in_the_session_even_when_refused():
+    import importlib
+
+    build = importlib.import_module("server.diagrams.build")  # the package exports a build() that shadows it
+    resp = SimpleNamespace(model="claude-sonnet-5-5", stop_reason="refusal",
+                           usage=SimpleNamespace(input_tokens=3000, output_tokens=200))
+    build._record_cost(resp, "claude-sonnet-5-5")
+    assert cost.session()["by_source"]["diagrams"] == pytest.approx(cost.usd("claude-sonnet-5-5", 3000, 200))
+
+
+def test_finder_gemini_answers_count_in_the_session():
+    from server.finder import gemini as fg
+
+    um = SimpleNamespace(prompt_token_count=2000, candidates_token_count=100)
+    fg._record_cost("gemini-3.8-flash", SimpleNamespace(usage_metadata=um))
+    assert cost.session()["by_source"]["finder"] == pytest.approx(cost.usd("gemini-3.8-flash", 2000, 100))
+
+
+def test_web_searches_are_billed_on_top_of_tokens():
+    u = {"input_tokens": 1000, "output_tokens": 100, "server_tool_use": {"web_search_requests": 3}}
+    d = cost.record_usage("claude-sonnet-5-5", u, source="finder")
+    assert d == pytest.approx(cost.usd("claude-sonnet-5-5", 1000, 100) + 3 * cost.WEB_SEARCH_USD)
+    u2 = SimpleNamespace(input_tokens=10, output_tokens=1, server_tool_use=SimpleNamespace(web_search_requests=None))
+    assert cost.record_usage("claude-haiku-5-5", u2) == pytest.approx(cost.usd("claude-haiku-5-5", 10, 1))

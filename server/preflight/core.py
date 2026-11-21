@@ -128,6 +128,18 @@ def _prompt(goal: str, m: dict, skim: dict | None, prior: dict | None = None) ->
     return "\n".join(lines)
 
 
+def _record_cost(resp: Any, model_id: str) -> None:
+    """The classify call's dollars into the session tally (server.lesson.cost, source "preflight")."""
+    try:
+        from server.lesson import cost
+
+        m = getattr(resp, "model", None)
+        cost.record_usage(m if isinstance(m, str) and m else model_id, getattr(resp, "usage", None) or {},
+                          source="preflight", label="preflight classify")
+    except Exception:  # noqa: BLE001 - cost accounting never breaks preflight
+        log.debug("preflight cost record failed", exc_info=True)
+
+
 async def classify(key: str, goal: str, m: dict, skim: dict | None, *, timeout: float, client=None,
                    prior: dict | None = None) -> dict:
     """Claude's read of the metadata. Raises on failure (the caller marks it missing)."""
@@ -135,14 +147,16 @@ async def classify(key: str, goal: str, m: dict, skim: dict | None, *, timeout: 
         from server.finder import claude as finder_claude
 
         client = finder_claude.client(key)
+    mid = os.environ.get("PREFLIGHT_MODEL", DEFAULT_MODEL)
     resp = await client.messages.create(
-        model=os.environ.get("PREFLIGHT_MODEL", DEFAULT_MODEL),
+        model=mid,
         max_tokens=1200,
         system=SYSTEM,
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": CLASSIFY_SCHEMA}},
         messages=[{"role": "user", "content": _prompt(goal, m, skim, prior)}],
         timeout=timeout,
     )
+    _record_cost(resp, mid)
     if getattr(resp, "stop_reason", None) == "refusal":
         raise RuntimeError("Claude declined")
     text = next((b.text for b in resp.content if getattr(b, "type", "") == "text"), "{}")

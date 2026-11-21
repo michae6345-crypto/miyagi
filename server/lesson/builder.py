@@ -105,20 +105,22 @@ async def build_lesson(
     from . import cost
 
     counter = cost.current() if _prebuild else None
-    counter = counter or cost.start()
+    counter = counter or cost.start("prebuild" if _prebuild else "lesson")
     qs = _QuickStart(on_update, vid, source_url, goal, workdir, video_meta) if (on_update and vid) else None
-    try:
-        g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
-                                     on_progress=on_progress, video_meta=video_meta, **kw)
-        if not g.get("build", {}).get("cost") and counter.get("tokens"):
-            g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens + dollars per model
-            cost.finish_build(counter, kind="prebuild" if _prebuild else "video", lesson_id=(g.get("lesson") or {}).get("id"))
-        if qs:
-            await qs.finish(g)
-        return g
-    finally:
-        if qs:
-            qs.stop()
+    # build_cost is emitted however the build ends (ok / failed / cancelled), so its dollars are never lost
+    with cost.build_scope(counter, kind="prebuild" if _prebuild else "video") as scope:
+        try:
+            g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
+                                         on_progress=on_progress, video_meta=video_meta, **kw)
+            if not g.get("build", {}).get("cost") and counter.get("tokens"):
+                g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens + dollars per model
+            scope["lesson_id"] = (g.get("lesson") or {}).get("id")
+            if qs:
+                await qs.finish(g)
+            return g
+        finally:
+            if qs:
+                qs.stop()
 
 
 class _QuickStart:

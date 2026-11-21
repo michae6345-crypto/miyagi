@@ -4,8 +4,10 @@ Per build: a build sets a fresh counter dict in its context (`start()`); asyncio
 the same dict. `add_tokens` / `record_usage` add to it, so `build.cost` in a graph carries calls, tokens
 per model, `cost_usd` and `cache_hit_rate`.
 
-Per session: every recorded call (lesson builds, coach, screen describe) also lands in one process-wide
-session tally. `session_start(lesson_id)` names it when a lesson loads (the build that made the lesson is
+Per session: every recorded call also lands in one process-wide session tally, by source: lesson (the
+learner's build), prebuild (speculative builds), coach (coach calls, screen looks, warm-up), screen (describe,
+target picks), diagrams, workspace (starter files, requirements), finder and preflight. A build that failed or
+was cancelled moves to "<source>_failed" / "<source>_cancelled". `session_start(lesson_id)` names it when a lesson loads (the build that made the lesson is
 already in it); `session_end(reason)` logs it, emits `session_cost` and starts a fresh tally.
 
 Prices are USD per 1M tokens, an estimate for logs and telemetry, never billing. Anthropic rows match the
@@ -14,12 +16,14 @@ or add rows with MIYAGI_PRICES_JSON='{"model": [input, output, cache_read]}' (ca
 
 Event hook: `emit_event(name, props)` calls whatever `register_event_handler` registered (the telemetry
 lane); with nothing registered it does nothing. A handler that raises is logged and never breaks a call.
-Events: `build_cost` {kind, cost_usd, calls, tokens, cache_hit_rate[, lesson_id]}, `session_cost` {lesson_id,
+Events: `build_cost` {kind, outcome, cost_usd, calls, tokens, cache_hit_rate[, lesson_id]}, `session_cost` {lesson_id,
 reason, cost_usd, calls, cache_hit_rate, by_model, by_source}.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import contextvars
 import json
 import logging
@@ -55,21 +59,30 @@ FAMILY_PRICES: list[tuple[str, tuple[float, float, float]]] = [
 ]
 DEFAULT_PRICE = (2.00, 10.00, 0.20)
 CACHE_WRITE_X = 1.25
+WEB_SEARCH_USD = 0.01  # Anthropic's server-side web_search tool: $10 per 1,000 searches, on top of tokens
+
+
+_overrides_memo: tuple[str, dict[str, tuple[float, float, float]]] = ("", {})
 
 
 def _overrides() -> dict[str, tuple[float, float, float]]:
-    raw = os.environ.get("MIYAGI_PRICES_JSON")
+    """MIYAGI_PRICES_JSON rows, model ids lowercased (price() lowercases too). Parsed once per distinct value."""
+    global _overrides_memo
+    raw = os.environ.get("MIYAGI_PRICES_JSON") or ""
     if not raw:
         return {}
+    if raw == _overrides_memo[0]:
+        return _overrides_memo[1]
+    out: dict[str, tuple[float, float, float]] = {}
     try:
-        out = {}
         for k, v in json.loads(raw).items():
             v = [float(x) for x in v]
-            out[k] = (v[0], v[1], v[2] if len(v) > 2 else v[0] * 0.1)
-        return out
+            out[str(k).strip().lower()] = (v[0], v[1], v[2] if len(v) > 2 else v[0] * 0.1)
     except (ValueError, TypeError, AttributeError, IndexError):
         log.warning("MIYAGI_PRICES_JSON is not {model: [input, output, cache_read]}; ignored")
-        return {}
+        out = {}
+    _overrides_memo = (raw, out)
+    return out
 
 
 def price(model: str | None) -> tuple[float, float, float]:
@@ -126,8 +139,10 @@ def emit_event(name: str, props: dict | None = None) -> None:
 
 # ---------------------------------------------------------------------------------------------- per build
 
-def start() -> dict:
-    c = {"gemini_calls": 0, "claude_calls": 0, "cost_usd": 0.0}
+def start(source: str = "lesson") -> dict:
+    """A fresh build counter in this context. `source` tags its calls in the session tally's `by_source`
+    ("lesson" for the learner's own build, "prebuild" for a speculative one)."""
+    c = {"gemini_calls": 0, "claude_calls": 0, "cost_usd": 0.0, "source": source}
     _counter.set(c)
     return c
 
@@ -152,16 +167,19 @@ def _add(bucket: dict, model: str, inp: int, out: int, cr: int, cw: int, dollars
 
 
 def add_tokens(model: str, input_tokens: int | None, output_tokens: int | None, *,
-               cache_read: int | None = 0, cache_write: int | None = 0, source: str = "lesson") -> float:
+               cache_read: int | None = 0, cache_write: int | None = 0, source: str | None = None,
+               extra_usd: float = 0.0) -> float:
     """Record one call: tokens and dollars per model in the build counter (if a build is running) and in
     the session tally. `input_tokens` is uncached input (output includes thinking where the API counts it
-    so). Returns the call's dollars."""
+    so). `source` (by_source in the tally) defaults to the running build's source, else "lesson".
+    `extra_usd`: per-call fees beyond tokens (web searches). Returns the call's dollars."""
     inp, out, cr, cw = int(input_tokens or 0), int(output_tokens or 0), int(cache_read or 0), int(cache_write or 0)
     model = model or "unknown"
-    dollars = usd(model, inp, out, cr, cw)
+    dollars = usd(model, inp, out, cr, cw) + max(0.0, float(extra_usd or 0.0))
     c = _counter.get()
     if c is not None:
         _add(c, model, inp, out, cr, cw, dollars)
+    source = source or (c or {}).get("source") or "lesson"
     with _lock:
         _add(_session, model, inp, out, cr, cw, dollars)
         _session.setdefault("by_source", {}).setdefault(source, 0.0)
@@ -169,19 +187,52 @@ def add_tokens(model: str, input_tokens: int | None, output_tokens: int | None, 
     return dollars
 
 
-def record_usage(model: str, usage: Any, *, source: str = "lesson", label: str = "") -> float:
+def record_usage(model: str, usage: Any, *, source: str | None = None, label: str = "") -> float:
     """Record an Anthropic `usage` (object or dict): input, output, cache reads and writes. Logs the
-    call's cache hit rate and dollars. Returns the dollars."""
+    call's cache hit rate and dollars. Returns the dollars. `source` as in add_tokens. Never raises."""
+    try:
+        return _record_usage(model, usage, source, label)
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a model call
+        log.debug("cost record failed", exc_info=True)
+        return 0.0
+
+
+def _record_usage(model: str, usage: Any, source: str | None, label: str) -> float:
     def g(k: str) -> int:
         v = usage.get(k, 0) if isinstance(usage, dict) else getattr(usage, k, 0)
         return int(v or 0) if isinstance(v, (int, float)) else 0
 
     inp, out = g("input_tokens"), g("output_tokens")
     cr, cw = g("cache_read_input_tokens"), g("cache_creation_input_tokens")
-    dollars = add_tokens(model, inp, out, cache_read=cr, cache_write=cw, source=source)
+    stu = usage.get("server_tool_use") if isinstance(usage, dict) else getattr(usage, "server_tool_use", None)
+    v = (stu.get("web_search_requests") if isinstance(stu, dict) else getattr(stu, "web_search_requests", 0)) or 0
+    searches = int(v) if isinstance(v, (int, float)) else 0
+    dollars = add_tokens(model, inp, out, cache_read=cr, cache_write=cw, source=source,
+                         extra_usd=searches * WEB_SEARCH_USD)
     rate = hit_rate(inp, cr, cw)
-    log.info("%s call: model=%s in=%s out=%s cache_read=%s cache_write=%s hit=%s usd=%.5f", label or source, model,
-             inp, out, cr, cw, "-" if rate is None else f"{rate:.0%}", dollars)
+    log.info("%s call: model=%s in=%s out=%s cache_read=%s cache_write=%s searches=%s hit=%s usd=%.5f",
+             label or source or "lesson", model, inp, out, cr, cw, searches, "-" if rate is None else f"{rate:.0%}",
+             dollars)
+    return dollars
+
+
+def record_gemini(model: str, usage_metadata: Any, *, source: str | None = None, label: str = "gemini") -> float:
+    """Record a Gemini `usage_metadata`. Its prompt count includes implicitly cached tokens, so those are split
+    out as cache reads; thinking tokens bill as output. Logs the hit rate; returns the dollars."""
+    def n(k: str) -> int:
+        v = getattr(usage_metadata, k, 0)
+        return int(v) if isinstance(v, (int, float)) else 0
+
+    prompt, cached = n("prompt_token_count"), n("cached_content_token_count")
+    out = n("candidates_token_count") + n("thoughts_token_count")
+    cached = min(cached, prompt)
+    try:
+        dollars = add_tokens(model, prompt - cached, out, cache_read=cached, source=source)
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a model call
+        log.debug("cost record failed", exc_info=True)
+        return 0.0
+    log.info("%s call: model=%s in=%s out=%s cached=%s hit=%s usd=%.5f", label, model, prompt, out, cached,
+             f"{cached / prompt:.0%}" if prompt else "-", dollars)
     return dollars
 
 
@@ -206,19 +257,50 @@ def count(kind: str) -> None:
         c[kind] = c.get(kind, 0) + 1
 
 
-def finish_build(c: dict | None, *, kind: str = "video", lesson_id: str | None = None) -> dict | None:
-    """Log a build's dollars and emit `build_cost`. Returns the props (None without a counter)."""
+def finish_build(c: dict | None, *, kind: str = "video", lesson_id: str | None = None,
+                 outcome: str = "ok") -> dict | None:
+    """Log a build's dollars and emit `build_cost` (`outcome`: ok, failed or cancelled). The spend of a build
+    that did not finish stays in the session tally (it was paid) but moves to by_source "<source>_<outcome>",
+    so the next lesson's own spend can be told apart. Returns the props (None without a counter)."""
     if not c:
         return None
-    props = {"kind": kind, "cost_usd": round(c.get("cost_usd", 0.0), 6),
+    if outcome != "ok":
+        src, amt = c.get("source") or "lesson", float(c.get("cost_usd", 0.0) or 0.0)
+        with _lock:
+            bs = _session.setdefault("by_source", {})
+            moved = min(amt, bs.get(src, 0.0))  # less when the tally was reset while the build ran
+            if moved > 0:
+                bs[src] = round(bs[src] - moved, 6)
+                bs[f"{src}_{outcome}"] = round(bs.get(f"{src}_{outcome}", 0.0) + moved, 6)
+    props = {"kind": kind, "outcome": outcome, "cost_usd": round(c.get("cost_usd", 0.0), 6),
              "calls": {k: c.get(k, 0) for k in ("gemini_calls", "claude_calls")},
              "tokens": json.loads(json.dumps(c.get("tokens") or {})), "cache_hit_rate": cache_hit_rate(c)}
     if lesson_id:
         props["lesson_id"] = lesson_id
-    log.info("build cost: %s lesson=%s usd=%.4f calls=%s cache_hit=%s", kind, lesson_id or "-", props["cost_usd"],
-             props["calls"], props["cache_hit_rate"])
+    log.info("build cost: %s %s lesson=%s usd=%.4f calls=%s cache_hit=%s", kind, outcome, lesson_id or "-",
+             props["cost_usd"], props["calls"], props["cache_hit_rate"])
     emit_event("build_cost", props)
     return props
+
+
+@contextlib.contextmanager
+def build_scope(c: dict | None, *, kind: str):
+    """Around one build: emits `build_cost` however it ends (ok, failed, or cancelled, e.g. a prebuild that
+    prebuild.cancel() stopped), once, when the counter saw any call. Yields a dict; set its "lesson_id"."""
+    info: dict[str, Any] = {"lesson_id": None}
+    outcome = "failed"
+    try:
+        yield info
+        outcome = "ok"
+    except BaseException as e:
+        outcome = "cancelled" if isinstance(e, asyncio.CancelledError) else "failed"
+        raise
+    finally:
+        if c and (c.get("tokens") or c.get("gemini_calls") or c.get("claude_calls")):
+            try:
+                finish_build(c, kind=kind, lesson_id=info.get("lesson_id"), outcome=outcome)
+            except Exception:  # noqa: BLE001 - cost accounting never breaks a build
+                log.debug("build cost failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------------------------- per session

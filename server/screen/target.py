@@ -59,7 +59,6 @@ from .types import Block, Rect, ScreenObservation
 log = logging.getLogger("server.screen.target")
 
 MODEL = os.environ.get("MIYAGI_VISION_MODEL", "claude-haiku-5-5")
-PRICE_IN, PRICE_OUT = 0.10, 0.50       # $ per MTok, Claude Haiku 5.5 (prompts <= 100K tokens)
 MAX_TOKENS = 160
 MAX_W = 1280
 EXTRA_ID = 500                         # our extra candidates; E6's ids (1-4, 10..) stay untouched
@@ -442,8 +441,17 @@ def _client_for(api_key: str | None):
     return c
 
 
-def _cost(inp: int, out: int) -> float:
-    return inp * PRICE_IN / 1e6 + out * PRICE_OUT / 1e6
+def _cost(resp, usage) -> float:
+    """Dollars of one pick from the shared price table, also recorded in the lesson's session tally (screen)."""
+    from server.lesson import cost as cost_mod
+
+    m = getattr(resp, "model", None)
+    m = m if isinstance(m, str) and m else MODEL
+    try:
+        return cost_mod.record_usage(m, usage or {}, source="screen", label="screen target")
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a pick
+        log.debug("pick_target: cost record failed", exc_info=True)
+        return 0.0
 
 
 # ---------------------------------------------------------------------- the pick
@@ -568,7 +576,7 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
     _LAT.append(api_ms)
     usage = getattr(resp, "usage", None)
     inp, out = int(getattr(usage, "input_tokens", 0) or 0), int(getattr(usage, "output_tokens", 0) or 0)
-    cost = _cost(inp, out)
+    cost = _cost(resp, usage)
     _STATS["input_tokens"] += inp
     _STATS["output_tokens"] += out
     _STATS["cost_usd"] += cost

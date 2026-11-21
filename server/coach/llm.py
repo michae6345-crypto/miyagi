@@ -55,17 +55,37 @@ def model_for(purpose: str) -> str:
     return guard(os.environ.get(f"COACH_MODEL_{purpose.upper()}") or MODELS.get(purpose, HAIKU))
 
 
-def _record_cost(model: str, usage: dict, purpose: str) -> None:
-    """Dollars and cache hit rate of one coach call into the session tally (server.lesson.cost). Skipped when
-    coach/ runs on its own."""
+def _cost_mod() -> Any:
     try:
         from server.lesson import cost
-    except Exception:  # noqa: BLE001
-        return
+    except Exception:  # noqa: BLE001 - coach/ running on its own
+        return None
+    return cost
+
+
+def record_cost(model: str, usage: Any, *, source: str = "coach", label: str = "") -> float:
+    """Dollars and cache hit rate of one call into the session tally (server.lesson.cost). Every billed call
+    counts, refused or cut short included. Returns the dollars (0.0 when coach/ runs on its own). Never raises."""
+    cost = _cost_mod()
+    if cost is None or usage is None:
+        return 0.0
     try:
-        cost.record_usage(model, usage, source="coach", label=f"coach {purpose}")
-    except Exception:  # noqa: BLE001 - cost accounting never breaks a coach call
-        log.debug("coach cost record failed", exc_info=True)
+        return cost.record_usage(model, usage, source=source, label=label or source)
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a call
+        log.debug("cost record failed", exc_info=True)
+        return 0.0
+
+
+def usd(model: str, input_tokens: int = 0, output_tokens: int = 0) -> float:
+    """One call's dollars from the shared price table (server.lesson.cost); Haiku's rate when coach/ runs alone."""
+    cost = _cost_mod()
+    if cost is not None:
+        return cost.usd(model, input_tokens, output_tokens)
+    return (input_tokens * 0.10 + output_tokens * 0.50) / 1e6
+
+
+def _record_cost(model: str, usage: dict, purpose: str) -> None:
+    record_cost(model, usage, source="coach", label=f"coach {purpose}")
 
 
 def cached_system(text: str) -> list[dict]:
@@ -309,6 +329,15 @@ async def structured_call(
         raise CoachLLMError(f"{purpose}: connection error", "connection") from e
     latency = time.monotonic() - t0
 
+    u = getattr(resp, "usage", None)
+    usage = {
+        "input_tokens": getattr(u, "input_tokens", 0) or 0,
+        "output_tokens": getattr(u, "output_tokens", 0) or 0,
+        "cache_read_input_tokens": getattr(u, "cache_read_input_tokens", 0) or 0,
+        "cache_creation_input_tokens": getattr(u, "cache_creation_input_tokens", 0) or 0,
+    }
+    _record_cost(resp.model or model, usage, purpose)  # billed even when refused, cut at max_tokens or bad JSON
+
     if resp.stop_reason in ("refusal", "max_tokens"):
         raise CoachLLMError(f"{purpose}: stop_reason={resp.stop_reason}", "refusal" if resp.stop_reason == "refusal" else "bad_output")
     text = next((b.text for b in resp.content if b.type == "text"), None)
@@ -319,18 +348,10 @@ async def structured_call(
     except json.JSONDecodeError as e:
         raise CoachLLMError(f"{purpose}: invalid JSON", "bad_output") from e
 
-    u = resp.usage
-    usage = {
-        "input_tokens": u.input_tokens,
-        "output_tokens": u.output_tokens,
-        "cache_read_input_tokens": getattr(u, "cache_read_input_tokens", 0) or 0,
-        "cache_creation_input_tokens": getattr(u, "cache_creation_input_tokens", 0) or 0,
-    }
     if ttft is not None:
         usage["first_text_s"] = round(ttft, 2)
     res = CallResult(data=data, model=resp.model, usage=usage, latency_s=latency, source="live")
     log.info("%s %s %.2fs usage=%s", purpose, resp.model, latency, usage)
-    _record_cost(resp.model or model, usage, purpose)
     record_dir = os.environ.get("COACH_RECORD_DIR")
     if record_dir:
         _record(Path(record_dir), purpose, model, user_text, text, res)
@@ -406,8 +427,11 @@ async def warm(requests: list[dict] | None = None) -> dict:
 
     async def one(r: dict) -> Any:
         # max_tokens=1: writes the cached prefix for one output token (0 is rejected with output_config.format)
-        api, kwargs = _request(client, guard(r.get("model") or model_for("diagnose")), r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
-        return await api.create(**kwargs)
+        mid = guard(r.get("model") or model_for("diagnose"))
+        api, kwargs = _request(client, mid, r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
+        resp = await api.create(**kwargs)
+        record_cost(getattr(resp, "model", None) or mid, getattr(resp, "usage", None), label="coach warm")  # cache writes
+        return resp
 
     t0 = time.monotonic()
     results = await asyncio.gather(*(one(r) for r in requests or []), return_exceptions=True)

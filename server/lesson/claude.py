@@ -226,7 +226,7 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
     except anthropic.APIConnectionError as e:
         raise RuntimeError(f"Claude unreachable: {e}") from e
     # tokens, cache reads/writes and dollars into the build + session tallies; logs the cache hit rate
-    cost.record_usage(getattr(msg, "model", None) or mid, getattr(msg, "usage", None) or {}, source="lesson",
+    cost.record_usage(getattr(msg, "model", None) or mid, getattr(msg, "usage", None) or {},
                       label="claude" + (" fast" if fast else ""))
     if msg.stop_reason == "refusal":
         raise RuntimeError(f"Claude declined: {getattr(msg, 'stop_details', None)}")

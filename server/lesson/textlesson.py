@@ -208,7 +208,7 @@ async def research(goal: str) -> dict:
         async with claude.client().messages.stream(model=mid, max_tokens=8000, messages=messages, tools=WEB_TOOLS,
                                                    thinking={"type": "adaptive"}, output_config={"effort": "low"}) as st:
             msg = await st.get_final_message()
-        cost.record_usage(getattr(msg, "model", None) or mid, getattr(msg, "usage", None) or {}, source="lesson",
+        cost.record_usage(getattr(msg, "model", None) or mid, getattr(msg, "usage", None) or {},
                           label="claude research")
         for b in msg.content:
             t = getattr(b, "type", "")
@@ -230,9 +230,17 @@ async def research(goal: str) -> dict:
 
 
 async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: bool = True, refresh: bool = False) -> dict:
-    """See module docstring. Returns the complete graph; on_update(graph, complete) gets step 1 first."""
+    """See module docstring. Returns the complete graph; on_update(graph, complete) gets step 1 first.
+    A fresh cost counter per build; build_cost is emitted however the build ends (ok / failed / cancelled)."""
+    counter = cost.start()
+    with cost.build_scope(counter, kind="text") as scope:
+        g = await _build_text_lesson(goal, workdir, on_update, counter, cache=cache, refresh=refresh)
+        scope["lesson_id"] = (g.get("lesson") or {}).get("id")
+        return g
+
+
+async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, *, cache: bool, refresh: bool) -> dict:
     t0 = time.time()
-    counter = cost.current() or cost.start()
     info = scan(workdir)
     key = _key(goal, workdir, info)
     path = builder.CACHE_DIR / f"{key}.json"
@@ -421,7 +429,6 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     link_run_steps(g["steps"])
     _finalize(g, info)
     g["build"]["cost"] = json.loads(json.dumps(counter))
-    cost.finish_build(counter, kind="text", lesson_id=g.get("lesson", {}).get("id"))
     errs = schema_errors(g)
     if errs:
         raise RuntimeError("text lesson failed contract validation:\n" + "\n".join(errs))

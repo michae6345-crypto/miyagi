@@ -60,9 +60,23 @@ def _note_cloud(e: BaseException) -> None:
     cloud_error(e)
 
 
+def _record_cost(resp, model_id: str) -> None:
+    """One finder call's dollars into the session tally (server.lesson.cost, source "finder")."""
+    try:
+        from server.lesson import cost
+
+        m = getattr(resp, "model", None)
+        cost.record_usage(m if isinstance(m, str) and m else model_id, getattr(resp, "usage", None) or {},
+                          source="finder", label="finder claude")
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a search
+        log.debug("finder cost record failed", exc_info=True)
+
+
 async def _create(key: str, **kw):
     try:
-        return await client(key).messages.create(**kw)
+        resp = await client(key).messages.create(**kw)
+        _record_cost(resp, str(kw.get("model") or ""))
+        return resp
     except anthropic.APIStatusError as e:
         _note_cloud(e)
         raise

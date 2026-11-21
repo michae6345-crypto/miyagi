@@ -102,19 +102,9 @@ def model(fast: bool = False) -> str:
 
 
 def record_usage(mid: str, um) -> float:
-    """Tokens and dollars of one Gemini call into the build + session tallies. Gemini's prompt count includes
-    the implicitly cached tokens, so those are split out as cache reads. Logs the hit rate; returns dollars."""
-    def n(k: str) -> int:
-        v = getattr(um, k, 0)
-        return int(v) if isinstance(v, (int, float)) else 0
-
-    prompt, cached = n("prompt_token_count"), n("cached_content_token_count")
-    out = n("candidates_token_count") + n("thoughts_token_count")
-    cached = min(cached, prompt)
-    dollars = cost.add_tokens(mid, prompt - cached, out, cache_read=cached, source="lesson")
-    log.info("gemini call: model=%s in=%s out=%s cached=%s hit=%s usd=%.5f", mid, prompt, out, cached,
-             f"{cached / prompt:.0%}" if prompt else "-", dollars)
-    return dollars
+    """Tokens and dollars of one Gemini call into the build + session tallies (cost.record_gemini: implicit cache
+    hits split out of the prompt count). Logs the hit rate; returns dollars."""
+    return cost.record_gemini(mid, um)
 
 
 YOUTUBE_ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/embed/|/live/)([\w-]{11})")

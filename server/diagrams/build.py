@@ -372,6 +372,18 @@ def _get_client():
     return _client
 
 
+def _record_cost(resp: Any, model: str) -> None:
+    """One diagram call's dollars into the lesson's session tally (server.lesson.cost, source "diagrams")."""
+    try:
+        from server.lesson import cost
+
+        m = getattr(resp, "model", None)
+        cost.record_usage(m if isinstance(m, str) and m else model, getattr(resp, "usage", None) or {},
+                          source="diagrams", label="diagrams")
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a diagram
+        log.debug("diagrams: cost record failed", exc_info=True)
+
+
 async def _call(client, step: dict, context: dict) -> tuple[dict, dict]:
     import anthropic
 
@@ -409,6 +421,7 @@ async def _call(client, step: dict, context: dict) -> tuple[dict, dict]:
     except anthropic.APIConnectionError as e:
         raise DiagramError("Could not reach Claude to draw the diagram") from e
     latency = time.monotonic() - t0
+    _record_cost(resp, model)  # billed even when refused or cut off, so it counts first
     if resp.stop_reason == "refusal":
         raise DiagramError("Claude declined to draw this diagram")
     if resp.stop_reason == "max_tokens":

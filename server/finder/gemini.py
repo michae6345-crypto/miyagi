@@ -52,6 +52,16 @@ def _mark(model: str, e: Exception, now: float) -> None:
         _exhausted[model], _why[model] = now + 3600, "unavailable"
 
 
+def _record_cost(model_id: str, resp) -> None:
+    """One answered finder call's dollars into the session tally (server.lesson.cost, source "finder")."""
+    try:
+        from server.lesson import cost
+
+        cost.record_gemini(model_id, getattr(resp, "usage_metadata", None), source="finder", label="finder gemini")
+    except Exception:  # noqa: BLE001 - cost accounting never breaks a search
+        log.debug("finder cost record failed", exc_info=True)
+
+
 async def _json(key: str, models: list[str], parts: list, schema: dict, *, system: str, timeout: float,
                 media_low: bool = False, hedge_after: float | None = 2.5) -> dict:
     """First good answer from the model chain within `timeout`. Models out of quota are skipped;
@@ -94,6 +104,7 @@ async def _json(key: str, models: list[str], parts: list, schema: dict, *, syste
                 m, t0 = running.pop(t)
                 try:
                     resp = t.result()
+                    _record_cost(m, resp)
                     out = json.loads(resp.text or "{}")
                     log.info("%s answered in %.1fs", m, loop.time() - t0)
                     return out
