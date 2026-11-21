@@ -9,12 +9,15 @@ Pipeline (target: first result ~4 s, done < 20 s):
      YouTube results page, web search (Bright Data SERP -> Google, else DuckDuckGo) for a
      tutorial and a notebook, GitHub repos, arXiv papers
   2. every candidate is verified (oEmbed for videos, an HTTP request for the rest) and
-     scored by Claude for the learner's goal (Gemini only if Claude fails); rows stream
-     through on_result as they land
+     scored by Claude for the learner's goal (Gemini only with FINDER_GEMINI_FALLBACK=1, if
+     Claude fails); rows stream through on_result as they land
   3. Gemini skims the top videos at low fps (+ Bright Data comments when configured);
      Claude reads the top non-video pages (teaches the goal? prerequisites? code?)
   4. the ranked list is returned (best video first, since build_lesson needs a video) and
      cached in demo/cache/search/.
+
+Bright Data is optional (claude/eng-drop-vendors): used only when BRIGHTDATA_API_KEY is in .env,
+never asked for by the app; without it every Bright Data step is skipped (DuckDuckGo, plain HTTP).
 """
 
 from __future__ import annotations
@@ -175,6 +178,18 @@ def heuristic_score(goal: str, c: dict) -> tuple[int, str]:
     return gemini.clamp(round(s)), reason
 
 
+def _gemini_text_ok() -> bool:
+    """False when Gemini goes through the miyagi cloud (server.config mode 'cloud': Gemini there watches videos only)."""
+    try:
+        from server.config import mode  # type: ignore[import-not-found]
+    except Exception:  # the finder run on its own: FINDER_GEMINI_FALLBACK alone decides
+        return True
+    try:
+        return mode("gemini") != "cloud"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _short_err(e: BaseException) -> str:
     msg = str(e)
     if isinstance(e, asyncio.TimeoutError) or "timed out" in msg.lower() or "ReadTimeout" in type(e).__name__:
@@ -225,7 +240,9 @@ class _Run:
         self.floor = env.min_score()     # FINDER_MIN_SCORE: rows the model scored below it are not sent
         self.dropped: list[dict] = []    # below the floor (kept for the cache file, never streamed)
         self.gemini_ok = bool(keys.gemini)  # for the video skim, only when skim_top > 0
-        self.gemini_fallback = self.gemini_ok and env.gemini_fallback()  # Gemini scoring if Claude fails (opt-in)
+        # FINDER_GEMINI_FALLBACK=0 by default (BUILD-PLAN E4): Claude scores. Gemini scores only when Claude fails AND
+        # FINDER_GEMINI_FALLBACK=1 AND the Gemini key may take text calls (never the miyagi cloud's video-only token).
+        self.gemini_fallback = self.gemini_ok and env.gemini_fallback() and _gemini_text_ok()
         self.video_top = 3  # top videos that get Bright Data comments
         self.watching = 0   # videos handed to Gemini so far
         self.plan_used: dict = {}

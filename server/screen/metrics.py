@@ -207,10 +207,29 @@ class TerminalMetricReader:
         return out
 
 
-# ---------------------------------------------------------------------- Tiger Data
+# ---------------------------------------------------------------------- Tiger Data (optional, dev only)
+
+_PSYCOPG: bool | None = None
+
+
+def _psycopg_installed() -> bool:
+    """psycopg is no longer an engine dependency (DISTRIBUTION-PLAN, claude/eng-drop-vendors). Without it the
+    Tiger writer below is a no-op even when TIGER_DATABASE_URL is set, instead of retrying a missing driver."""
+    global _PSYCOPG
+    if _PSYCOPG is None:
+        import importlib.util
+
+        try:
+            _PSYCOPG = importlib.util.find_spec("psycopg") is not None
+        except (ImportError, ValueError):
+            _PSYCOPG = False
+    return _PSYCOPG
+
 
 class TigerWriter:
-    """Writes metric points to Tiger Data `training_metrics` on one background worker.
+    """Writes metric points to Tiger Data `training_metrics` on one background worker. Optional: a no-op unless
+    TIGER_DATABASE_URL is set (in .env; the app no longer sends a Tiger URL) and psycopg is installed. The engine's
+    own learning events and run metrics go to the local store (server.checks.tiger), not here.
 
     Never raises into the caller. On failure it keeps the points (bounded buffer) and retries
     with exponential backoff (1s, 2s, 4s ... capped at 60s), so a DB blip loses nothing and a
@@ -248,6 +267,8 @@ class TigerWriter:
         self._wake.set()
 
     def _valid_url(self) -> bool:
+        if not _psycopg_installed():  # Tiger is optional now (claude/eng-drop-vendors): no driver, no writes
+            return False
         from urllib.parse import urlparse
         try:
             host = urlparse(self.url).hostname or ""
@@ -262,9 +283,9 @@ class TigerWriter:
     @property
     def status(self) -> str:
         """KeyState from events.ts: ok | missing | invalid | env.
-        missing = no URL; invalid = placeholder URL or the last attempt failed;
+        missing = no URL, or psycopg not installed; invalid = placeholder URL or the last attempt failed;
         ok = app-provided URL (and not failing); env = .env URL (and not failing)."""
-        if not self.url:
+        if not self.url or not _psycopg_installed():
             return "missing"
         if not self._valid_url() or self._failures > 0:
             return "invalid"
@@ -293,7 +314,7 @@ class TigerWriter:
     def write(self, run_id: str, points: list[tuple[str, int, float]]) -> None:
         if not self._valid_url():
             if not self._warned:
-                log.warning("Tiger URL missing or placeholder (status=%s); screen metrics not persisted", self.status)
+                log.info("Tiger off (status=%s); screen metrics are not sent to Tiger", self.status)
                 self._warned = True
             return
         t = time.time()
