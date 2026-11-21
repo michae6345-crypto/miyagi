@@ -7,7 +7,9 @@
  *    thinking / busy / watching statuses, video, spotlight) are dropped at launch, and the pill rests idle; hello,
  *    search, library, an answer card pass; a lesson started now (learn, library.start, Continue) passes; an
  *    interrupted lesson's replay passes again; an ended one stops; DEMO re-arms on dev.reset; a build's wait survives
- *    a reconnect, but only a fresh lesson.ready ends it.
+ *    a reconnect, but only a fresh lesson.ready ends it. While a start is on its way only its build traffic passes
+ *    (never the kept lesson's steps, cards, video, spotlight, checks); an abandoned start (search over, nothing
+ *    picked, a library.start error, a timeout) expires; only presses the engine answers keep the pill spinning.
  * 2. The real EngineLink (main/engine.ts, loaded through Vite SSR for its import.meta.glob) against a fake engine on
  *    127.0.0.1 that replays an old lesson on connect, like the engine after a restart: nothing of it reaches the
  *    listeners (what main relays to every window) or the replay log; after `learn` the new lesson does; a reconnect
@@ -22,7 +24,7 @@ import { createServer } from 'vite'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import type { Incoming, Outgoing } from '../common/wire'
-import { RunGuard } from './freshStart'
+import { OPEN_TTL_MS, PICK_TTL_MS, RunGuard } from './freshStart'
 
 let failed = 0
 let passed = 0
@@ -257,6 +259,160 @@ for (const start of [cmd('learn', { query: 'sin(x)' }), cmd('learn_url', { url: 
   ok(g.admit(ready('v')), 'preflight: the built lesson passes')
 }
 
+/** The kept lesson's events an engine may still send while this run's start is on its way (review round 3). */
+const OLD_DURING: Incoming[] = [
+  ev('step.started', { stepId: 's3', index: 2, title: 'Three', instructions: 'Type it' }),
+  ev('check.updated', { stepId: 's3', checkId: 'c1', label: 'Runs', status: 'pending' }),
+  ev('offtrack', { stepId: 's3', title: 'Not yet', body: 'Save the file' }),
+  ev('spotlight', { rect: { x: 1, y: 2, w: 3, h: 4 }, caption: 'Here' }),
+  ev('card', { kind: 'hint', stepId: 's3', title: 'Hint', body: 'Try this' }),
+  ev('card', { kind: 'hint', title: 'Hint', body: 'Try this' }),
+  ev('card', { kind: 'resume', title: 'Continue where you left off?', body: 'Lesson old · step 3', actions: ['resume', 'end_lesson'] }),
+  ev('card', { kind: 'step', stepId: 's3', title: 'Save calc.py', body: 'Save it' }),
+  ev('card', { kind: 'where', title: 'Where', body: 'Here' }),
+  ev('video.play'),
+  ev('video.seek', { t: 42, play: true }),
+  ev('diagram', { kind: 'network', caption: 'Net', stepId: 's3', data: { layers: [1, 4, 1], activation: 'tanh', derivatives: [], residual: '' } }),
+  ev('lesson.updated', { steps: [], complete: false }),
+  ev('lesson.paused', { reason: 'editor_closed' }),
+  ev('step.passed', { stepId: 's3' }),
+  ev('metric', { runId: 'r', step: 1, name: 'm', value: 1 })
+]
+const label = (e: Incoming): string => `${e.type}${e.type === 'card' ? ` (${(e.payload as { kind: string }).kind})` : ''}`
+const restsIdle = (g: RunGuard, e: Incoming): boolean => (g.filter(e)?.payload as { state?: string } | undefined)?.state === 'idle'
+
+{
+  // (a) A start on its way admits only its build traffic: the kept lesson's events stay out until this run's ready.
+  for (const start of [cmd('learn', { query: 'sin(x)' }), cmd('learn', { query: 'x', mode: 'lesson' }), cmd('learn_url', { url: 'https://youtu.be/x' }), cmd('build_lesson', { resultIds: ['r1'] }), cmd('library.start', { id: 'nn' }), cmd('action', { kind: 'resume' })]) {
+    const name = start.type === 'action' ? 'action resume' : start.type
+    const g = new RunGuard()
+    g.connected()
+    for (const e of LESSON_SNAPSHOT) g.filter(e)
+    g.command(start)
+    for (const e of OLD_DURING) ok(!g.admit(e), `${name} on its way: the kept lesson's ${label(e)} is dropped`)
+    ok(restsIdle(g, ev('status', { state: 'watching' })), `${name} on its way: the kept lesson's watching reaches the pill as idle`)
+    ok(restsIdle(g, ev('status', { state: 'offtrack' })), `${name} on its way: its offtrack status as idle`)
+    ok(!g.admit(ev('blocker', { kind: 'editor_closed', title: 'VS Code closed' })), `${name} on its way: a lesson blocker is dropped`)
+    ok(g.admit(ev('search.result', { id: 'r1', kind: 'video', title: 'A', meta: '', score: 1, reason: '' })), `${name} on its way: search rows pass`)
+    ok(g.admit(ev('card', { kind: 'preflight', title: 'What this video is', body: 'Build it?', actions: ['build', 'pick_another'] })), `${name} on its way: this run's preflight card passes`)
+    ok(g.admit(ev('status', { state: 'thinking', detail: 'Building your lesson' })), `${name} on its way: the build's thinking passes`)
+    ok(g.admit(ev('lesson.building', { message: 'Watching', progress: 0.3 })), `${name} on its way: lesson.building passes`)
+    ok(g.admit(ev('error', { message: 'x' })) && g.admit(ev('blocker', { kind: 'network', title: 'Offline' })), `${name} on its way: errors and network blockers pass`)
+    ok(g.state().pending && !g.state().lessonId, `${name} on its way: still waiting, no lesson`)
+    for (const e of OLD_DURING) ok(!g.admit(e), `${name} building: the kept lesson's ${label(e)} is still dropped`)
+    // (c) This run's lesson.ready: its own events pass from now on.
+    ok(g.admit(ready('new')), `${name}: this run's lesson.ready passes`)
+    for (const e of OLD_DURING) ok(g.admit(e), `${name} after its ready: the run's ${label(e)} passes`)
+    ok(g.admit(ev('status', { state: 'watching' })), `${name} after its ready: watching passes as sent`)
+  }
+}
+
+{
+  // (b) An abandoned start expires: the kept lesson stays out for the rest of the run.
+  const pre = ev('card', { kind: 'preflight', title: 'What this video is', body: 'Build it?', actions: ['build', 'pick_another'] })
+  // The search ends and nothing is picked (also: the search failed, an error then search.done).
+  for (const failedSearch of [false, true]) {
+    const name = failedSearch ? 'failed search' : 'nothing picked'
+    const g = new RunGuard()
+    g.command(cmd('learn', { query: 'sin(x)' }))
+    if (failedSearch) ok(g.admit(ev('error', { message: 'Search failed' })), `${name}: the error passes`)
+    else ok(g.admit(ev('search.result', { id: 'r1', kind: 'video', title: 'A', meta: '', score: 1, reason: '' })), `${name}: rows pass`)
+    ok(g.admit(ev('search.done', { total: failedSearch ? 0 : 1 })), `${name}: search.done passes`)
+    ok(!g.state().pending, `${name}: the search's wait is over`)
+    for (const e of OLD_DURING) ok(!g.admit(e), `${name}: the kept lesson's ${label(e)} is dropped`)
+    ok(!g.admit(ready('old')), `${name}: a later lesson.ready of the kept lesson is dropped`)
+    ok(!g.admit(ev('lesson.building', { message: 'x', progress: 0.1 })), `${name}: and no stray build`)
+    ok(!g.admit(pre), `${name}: an old preflight card is dropped`)
+  }
+  // The learner picks a row after all: that pick is its own start.
+  const p = new RunGuard()
+  p.command(cmd('learn', { query: 'sin(x)' }))
+  p.admit(ev('search.done', { total: 3 }))
+  p.command(cmd('build_lesson', { resultIds: ['r1'] }))
+  ok(p.admit(pre) && p.state().pending, 'a pick after search.done: its preflight passes, a lesson is on its way')
+  // Pick another: back to the rows (the engine re-sends them and search.done): nothing on its way any more.
+  p.command(cmd('action', { kind: 'pick_another' }))
+  ok(p.admit(ev('search.done', { total: 3 })) && !p.state().pending, "pick another: the re-sent search.done ends the pick's wait")
+  ok(!p.admit(ready('old')), 'pick another: a later old lesson.ready is dropped')
+  // A pick before search.done (the engine cancels the search, so no search.done comes): the build is not a search.
+  const q = new RunGuard()
+  q.command(cmd('learn', { query: 'sin(x)' }))
+  q.command(cmd('learn_url', { url: 'https://youtu.be/x' }))
+  ok(q.admit(ev('search.done', { total: 1 })) && q.state().pending, "a pick: a late search.done does not end the pick's wait")
+  // "Just teach me" builds at once: no search, search.done never ends it.
+  const j = new RunGuard()
+  j.command(cmd('learn', { query: 'x', mode: 'lesson' }))
+  j.admit(ev('search.done', { total: 0 }))
+  ok(j.state().pending, 'learn mode lesson: no search, the wait stays')
+  // A learn whose engine builds at once (MIYAGI_STAGE): its build progress makes it a build.
+  const s = new RunGuard()
+  s.command(cmd('learn', { query: 'x' }))
+  s.admit(ev('lesson.building', { message: 'x', progress: 0.1 }))
+  ok(!s.state().searching && (s.admit(ev('search.done', { total: 0 })), s.state().pending), 'learn that builds: its build progress keeps the wait past a search.done')
+  // library.start answered with an error.
+  const l = new RunGuard()
+  l.command(cmd('library.start', { id: 'gone' }))
+  ok(l.admit(ev('error', { message: 'no such lesson' })) && !l.state().pending, 'library.start error: the wait is over')
+  ok(!l.admit(ready('old')), 'library.start error: a later old lesson.ready is dropped')
+  // learn_url's preflight error is followed by its build: the wait stays.
+  const u = new RunGuard()
+  u.command(cmd('learn_url', { url: 'https://youtu.be/x' }))
+  ok(u.admit(ev('error', { message: "Couldn't check this video first; building it anyway." })) && u.state().pending, "learn_url: a preflight error keeps the build's wait")
+  // A timeout: no sign of life for OPEN_TTL_MS.
+  let t = 0
+  const clock = (): number => t
+  const o = new RunGuard(false, clock)
+  o.command(cmd('learn_url', { url: 'https://youtu.be/x' }))
+  t = OPEN_TTL_MS - 1
+  ok(o.state().pending, 'timeout: just before it the wait stays')
+  ok(o.admit(ev('lesson.building', { message: 'x', progress: 0.2 })), 'timeout: build progress passes')
+  t += OPEN_TTL_MS - 1
+  ok(o.state().pending, 'timeout: build progress kept it alive')
+  t += 2
+  ok(!o.state().pending, 'timeout: no sign of life for OPEN_TTL_MS ends the wait')
+  ok(!o.admit(ready('old')) && !o.admit(ev('lesson.building', { message: 'x', progress: 0.3 })), 'timeout: an old lesson.ready and a stray build are dropped')
+  // The preflight card waits for the learner (PICK_TTL_MS), then expires too.
+  t = 0
+  const w = new RunGuard(false, clock)
+  w.command(cmd('build_lesson', { resultIds: ['r1'] }))
+  w.admit(pre)
+  t = PICK_TTL_MS - 1
+  ok(w.state().pending, 'preflight: the learner may read the card for PICK_TTL_MS')
+  t = PICK_TTL_MS + 1
+  ok(!w.state().pending, 'preflight: after PICK_TTL_MS the wait is over')
+  w.command(cmd('action', { kind: 'build' }))
+  ok(w.state().pending && w.admit(ready('v')), 'preflight: Build later is a start of its own')
+  // A carried build: the socket was down for long; the reconnect gives it time again.
+  t = 0
+  const c = new RunGuard(false, clock)
+  c.command(cmd('build_lesson', { resultIds: ['r1'] }))
+  t = OPEN_TTL_MS - 10
+  c.connected()
+  t = OPEN_TTL_MS + 10
+  ok(c.admit(ev('lesson.building', { message: 'x', progress: 0.7 })) && c.state().pending, 'carried build: a reconnect gives it time to show its progress')
+  // Armed runs (DEMO) never expire.
+  t = 0
+  const d = new RunGuard(true, clock)
+  t = 10 * PICK_TTL_MS
+  ok(d.admit(ready('demo')), 'DEMO (armed): the wait never expires')
+}
+
+{
+  // asking: only presses the engine answers keep the pill's spinner; fire-and-forget ones rest it.
+  for (const kind of ['voice_toggle', 'pick_another', 'download', 'open_in_browser', 'install', 'install_all', 'skip_setup', 'open_editor', 'back', 'confirm', 'undo', 'card.closed']) {
+    const g = new RunGuard()
+    g.command(kind === 'card.closed' ? cmd('card.closed', { title: 'x', by: 'user' }) : cmd('action', { kind, text: 'python' }))
+    ok(!g.state().asking, `${kind}: waits for no answer`)
+    ok(!g.admit(ev('status', { state: 'thinking', detail: 'Looking at your code' })), `${kind}: an old lesson's thinking stays out`)
+    ok(restsIdle(g, ev('status', { state: 'watching' })), `${kind}: an old lesson's watching rests the pill`)
+  }
+  for (const kind of ['ask', 'explain', 'diagram', 'hint', 'show_me', 'retry', 'check_step']) {
+    const g = new RunGuard()
+    g.command(cmd('action', { kind, text: 'why' }))
+    ok(g.state().asking, `${kind}: waits for its answer`)
+  }
+}
+
 {
   // The pill never spins for an old lesson (Michael: "the top is not working"). Feed what passes into a pill the way
   // core/lesson.ts does (engineState = the last status) and check where it rests.
@@ -362,10 +518,53 @@ async function linkCheck(): Promise<void> {
 
   wss.close()
 
+  await openStartCheck(EngineLink)
   await offlineCheck(EngineLink)
   await carriedCheck(EngineLink)
   await replayEnvCheck(EngineLink)
   await vite.close()
+}
+
+/**
+ * Review round 3: an engine that replays an old lesson on connect and keeps emitting its step events after `learn`.
+ * None of them reach the listeners (every window) or engine.log before the new lesson's lesson.ready; the build's
+ * own traffic does; after the new lesson.ready its own steps do.
+ */
+async function openStartCheck(EngineLink: typeof import('./engine').EngineLink): Promise<void> {
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise<void>((r) => wss.once('listening', () => r()))
+  const port = (wss.address() as { port: number }).port
+  const NEW_STEP = ev('step.started', { stepId: 'n1', index: 0, title: 'New one', instructions: '' })
+  wss.on('connection', (ws) => {
+    for (const m of [HELLO, ...LESSON_SNAPSHOT, ANSWER]) ws.send(JSON.stringify(m))
+    ws.on('message', (raw) => {
+      if ((JSON.parse(String(raw)) as { type: string }).type !== 'learn') return
+      const during = [...OLD_DURING, ev('status', { state: 'watching' }), ev('lesson.building', { message: 'Watching', progress: 0.2 }), ev('status', { state: 'thinking', detail: 'Building your lesson' }), ...OLD_DURING]
+      for (const m of during) ws.send(JSON.stringify(m))
+      // The new lesson lands a moment later.
+      setTimeout(() => {
+        for (const m of [ready('new'), NEW_STEP]) ws.send(JSON.stringify(m))
+      }, 150)
+    })
+  })
+  const link = new EngineLink(`ws://127.0.0.1:${port}`)
+  const seen: Incoming[] = []
+  link.onEvent((e) => seen.push(e))
+  ok(await until(() => seen.some((e) => e.type === 'card')), 'open start: the engine connected')
+  link.send({ type: 'learn', payload: { query: 'sin(x)' } })
+  ok(await until(() => seen.some((e) => e.type === 'lesson.ready')), 'open start: the new lesson arrived')
+  ok(await until(() => seen.some((e) => JSON.stringify(e) === JSON.stringify(NEW_STEP))), 'open start: and its own step')
+  const at = seen.findIndex((e) => e.type === 'lesson.ready')
+  const OLD = new Set([...OLD_DURING, ...LESSON_SNAPSHOT].map((e) => JSON.stringify(e)))
+  const leaked = seen.slice(0, at).filter((e) => OLD.has(JSON.stringify(e)))
+  ok(!leaked.length, `open start: no kept-lesson event reaches the windows before the new lesson.ready (got ${leaked.map(label).join(', ')})`)
+  const logAt = link.log.findIndex((e) => e.type === 'lesson.ready')
+  ok(!link.log.slice(0, logAt).some((e) => OLD.has(JSON.stringify(e))), 'open start: nor the replay log')
+  ok(seen.slice(0, at).some((e) => e.type === 'lesson.building'), "open start: the build's progress reaches the windows")
+  ok(!seen.slice(0, at).some((e) => e.type === 'status' && (e.payload as { state: string }).state === 'watching'), 'open start: no watching before the new lesson')
+  ok((seen[at]?.payload as { lesson: { id: string } }).lesson.id === 'new', 'open start: the lesson that landed is the new one')
+  for (const ws of wss.clients) ws.terminate()
+  await new Promise<void>((r) => wss.close(() => r()))
 }
 
 /**
