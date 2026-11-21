@@ -122,3 +122,20 @@ export async function openSystemSettings(kind: unknown): Promise<boolean> {
     return false
   }
 }
+
+/** Push to talk's two Privacy panes (not PermissionKinds: the engine never asks for them). Fixed strings, like SETTINGS_URL. */
+export const PTT_SETTINGS_URL = {
+  mic: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+  input: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent'
+} as const
+
+/** Open the Microphone or Input Monitoring pane (macOS). false on other platforms or an unknown kind. */
+export async function openPttSettings(kind: unknown): Promise<boolean> {
+  if (process.platform !== 'darwin' || (kind !== 'mic' && kind !== 'input')) return false
+  try {
+    await shell.openExternal(PTT_SETTINGS_URL[kind])
+    return true
+  } catch {
+    return false
+  }
+}

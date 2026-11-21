@@ -7,6 +7,11 @@ export type CrashReports = 'ask' | 'always' | 'never'
 /** v2: the learner's own key for a shortcut, as an Electron accelerator ("Control+Alt+E"). Stored, not applied yet. */
 export type ShortcutPrefs = Partial<Record<ShortcutKind, string>>
 
+/** Push to talk (Settings > General): the hold-to-ask chord. fn+control is the default; control+option is for keyboards without Fn. */
+export type PttChord = 'fn+control' | 'control+option'
+export type PttPrefs = { enabled: boolean; chord: PttChord }
+export const PTT_CHORDS: readonly PttChord[] = ['fn+control', 'control+option']
+
 export type Prefs = {
   /** The glass panels (shortcut bar, player, drawer) follow this. The island and cards stay black. */
   appearance: Appearance
@@ -25,6 +30,8 @@ export type Prefs = {
   usageCounts: boolean
   /** Shortcut overrides (Settings → Shortcuts). Validated and stored; live rebinding comes in wave 2. */
   shortcuts: ShortcutPrefs
+  /** Push to talk: on by default (when PTT_ENABLED), and which chord. Send the whole object in a patch. */
+  ptt: PttPrefs
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -35,7 +42,8 @@ export const DEFAULT_PREFS: Prefs = {
   onboarded: false,
   crashReports: 'ask',
   usageCounts: false,
-  shortcuts: {}
+  shortcuts: {},
+  ptt: { enabled: true, chord: 'fn+control' }
 }
 
 const SHORTCUT_KINDS: readonly ShortcutKind[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
@@ -63,6 +71,13 @@ export function sanitizePrefs(raw: unknown): Partial<Prefs> {
   if (typeof r.onboarded === 'boolean') out.onboarded = r.onboarded
   if (r.crashReports === 'ask' || r.crashReports === 'always' || r.crashReports === 'never') out.crashReports = r.crashReports
   if (typeof r.usageCounts === 'boolean') out.usageCounts = r.usageCounts
+  if (r.ptt && typeof r.ptt === 'object' && !Array.isArray(r.ptt)) {
+    const p = r.ptt as Record<string, unknown>
+    out.ptt = {
+      enabled: typeof p.enabled === 'boolean' ? p.enabled : DEFAULT_PREFS.ptt.enabled,
+      chord: PTT_CHORDS.includes(p.chord as PttChord) ? (p.chord as PttChord) : DEFAULT_PREFS.ptt.chord
+    }
+  }
   if (r.shortcuts && typeof r.shortcuts === 'object' && !Array.isArray(r.shortcuts)) {
     const s: ShortcutPrefs = {}
     for (const k of SHORTCUT_KINDS) {
