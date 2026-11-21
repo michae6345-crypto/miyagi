@@ -795,7 +795,10 @@ def test_terminal_fix_travels_as_diff_command(monkeypatch):
 
     monkeypatch.setattr(llm, "structured_call", call)
     step = {"id": "p1", "title": "Run it", "instructions": "Run clean.py.", "checks": [{"id": "x", "type": "command_exit_ok", "label": "runs"}]}
-    card = run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "import pandas as pd", error_text="ModuleNotFoundError: No module named 'pandas'"))
+    # a pip install passes the command filter only for a library the lesson lists (server.untrusted.command_problem)
+    lesson = {"lesson": {"title": "Clean a CSV", "libraries": {"pandas": "2.x"}}, "steps": [step]}
+    card = run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "import pandas as pd", lesson=lesson,
+                              error_text="ModuleNotFoundError: No module named 'pandas'"))
     assert_offtrack(card)
     assert card["diff"] == {"expected": "", "yours": "", "command": "pip install pandas"} and "apply_fix" in card["actions"]
 
@@ -1036,7 +1039,8 @@ def test_explain_points_before_the_text_arrives(monkeypatch):
             return llm.CallResult(data={"box_ids": [box_id_containing(make_screen(), "lr=0.3")], "where": ""}, model="h")
         await asyncio.sleep(0.3)
         order.append("explain")
-        assert "user_content" not in kw  # Opus gets text only; pointing is Haiku's job
+        # Opus gets text only (one fenced text block, no screenshot); pointing is Haiku's job
+        assert all(b.get("type") == "text" for b in kw.get("user_content") or [])
         return llm.CallResult(data={"title": "Big steps overshoot", "body": "b", "explanation_index": -1, "citation_id": "none"}, model="o")
 
     monkeypatch.setattr(llm, "structured_call", call)
