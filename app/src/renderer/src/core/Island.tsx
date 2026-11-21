@@ -294,7 +294,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   }, [connected])
   // The display changed, or the page came back from hidden (sleep, a Space or full-screen switch): rAF springs may have
   // stalled mid-morph, so re-derive from rest.
+  const firstLayout = useRef(true)
   useEffect(() => {
+    // Not on mount: the island is already at rest, and a needless remeasure would churn its first morph.
+    if (firstLayout.current) return void (firstLayout.current = false)
     collapseRef.current()
   }, [layout.width, layout.height])
   useEffect(() => {
