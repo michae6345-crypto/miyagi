@@ -44,7 +44,7 @@ The product watches **your whole screen** during a lesson and teaches you, in an
 - `async def diagnose(step, failed_checks, metrics_summary, code_excerpt) -> dict`: returns an `offtrack` payload (see `events.ts`). Claude Opus (`claude-opus-5-5`), adaptive thinking, low/medium effort, prompt-cache the lesson context. Knows domain failure modes, e.g. PINN convection at large β → curriculum on β (Krishnapriyan et al., NeurIPS 2021).
 - `async def explain(step, question, context) -> dict`: returns a `card` payload, including a `videoJump` when the lesson's `explanations` cover the topic.
 - `def hint(step, level: int) -> dict`: walks the hint ladder (question → video timestamp → paper → diff). **Never auto-patches by default.**
-- `async def fix_outdated(error_text, libraries) -> dict | None`: Bright Data search of the docs/changelog → a suggested fix.
+- `async def fix_outdated(error_text, libraries) -> dict | None`: DuckDuckGo search of the docs/changelog (plain-HTTP page reads) → a suggested fix.
 
 ## server/orchestrator (E4)
 - FastAPI app `server.orchestrator.main:app`, served on :8787: WebSocket `/` (the events.ts protocol) + `POST /ingest`.
@@ -55,10 +55,10 @@ The product watches **your whole screen** during a lesson and teaches you, in an
 
 ## GENERALITY RULE (Sat ~1:40 PM, Michael): nothing is PINN-specific
 PINN-on-convection is only the demo lesson. Every module must work for ANY tutorial (web dev, React, data science, Blender, a CLI tool...).
-- **Bright Data = the live-web layer for every lesson:**
+- **The live-web layer (YouTube pages + DuckDuckGo, plain HTTP) serves every lesson:**
   - finder: real search for any query;
   - **docs grounding:** fetch the official docs/changelog page for each step's library or API;
-  - **community signals:** the tutorial's YouTube comments, plus Stack Overflow / Reddit / GitHub issues for "doesn't work anymore" and common mistakes at specific timestamps;
+  - **community signals:** Stack Overflow / Reddit / GitHub issues for "doesn't work anymore" and common mistakes at specific timestamps;
   - outdated-API fixes for any library error seen on screen.
 - **Tiger Data = the time-series memory of every session:**
   - `learning_events` for EVERY state transition (step_started, check_pass/fail, offtrack, fix_applied, question, step_passed) with `video_t`;
