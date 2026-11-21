@@ -16,6 +16,14 @@ const STATES = new Set<SkillProgressState>(['mastered', 'practicing', 'not_start
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {})
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 
+/** The engine's finishedAt (epoch seconds) as "YYYY-MM-DD" in the learner's time zone; '' when it isn't a time. */
+function isoDay(v: unknown): string {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return ''
+  const d = new Date(v > 1e12 ? v : v * 1000)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 /** The payload as a Progress, or undefined when it isn't one at all. */
 export function readProgress(raw: unknown): Progress | undefined {
   if (!raw || typeof raw !== 'object') return undefined
@@ -25,7 +33,8 @@ export function readProgress(raw: unknown): Progress | undefined {
     const o = rec(t)
     const track = str(o.track)
     if (!track) continue
-    const items = list(o.items)
+    // The engine (server/sessions/progress.py) sends `skills`; the contract says `items`. Read either one.
+    const items = list(Array.isArray(o.skills) ? o.skills : o.items)
       .map((x) => {
         const i = rec(x)
         return { label: str(i.label), state: (STATES.has(i.state as SkillProgressState) ? i.state : 'not_started') as SkillProgressState }
@@ -39,7 +48,7 @@ export function readProgress(raw: unknown): Progress | undefined {
   const completed = list(m.completed)
     .map((x) => {
       const c = rec(x)
-      return { lessonId: str(c.lessonId), title: str(c.title), at: str(c.at) }
+      return { lessonId: str(c.lessonId), title: str(c.title), at: str(c.at) || isoDay(c.finishedAt) }
     })
     .filter((c) => c.title)
   return { skills, completed, week: readWeek(m.week), review: readReview(m.review) }
