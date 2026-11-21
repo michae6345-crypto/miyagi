@@ -9,8 +9,11 @@
 #   scripts/miyagi-uninstall.sh --yes --keep-lessons
 #
 # What it never does:
-#   - kill a process. It asks miyagi to quit (like ⌥Q) and stops if miyagi or anything on
-#     port 8787 is still running, so a dev engine on 8787 is never touched.
+#   - kill a process. It asks miyagi to quit (like ⌥Q) and stops if miyagi, anything on
+#     port 8787, or anything with files open in an app data folder (the npm run dev app)
+#     is still running, so a dev engine or dev app is never touched.
+#   - remove an .app whose bundle id is not dev.sandhacks.miyagi (a dev launcher applet
+#     named miyagi.app, for example).
 #   - delete lessons. ~/miyagi/lessons is moved aside to ~/miyagi-lessons-<time> (or left
 #     in place with --keep-lessons).
 #   - touch ~/.cache/uv, ~/.local/share/uv, the Python or Jupyter VS Code extensions, or the
@@ -24,7 +27,7 @@ set -u
 BUNDLE_ID="dev.sandhacks.miyagi"
 ENGINE_PORT=8787
 EXT_ID="miyagi.companion"
-# Names the app has run under: "miyagi" (packaged, productName), "Miyagi" (older builds),
+# Names the app has run under: "Miyagi" (packaged: electron-builder productName), "miyagi",
 # "miyagi-overlay" (npm run dev: package.json name).
 APP_NAMES="miyagi Miyagi miyagi-overlay"
 TCC_SERVICES="ScreenCapture Accessibility AppleEvents Microphone"
@@ -129,6 +132,26 @@ remove() {
   fi
 }
 
+# bundle_id_of APP: the CFBundleIdentifier in APP's Info.plist, or nothing.
+bundle_id_of() {
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null
+}
+
+# remove_app PATH: remove an .app bundle only when it is the miyagi app ($BUNDLE_ID).
+# Anything else that happens to be called miyagi.app (a dev launcher applet, for
+# example) is kept.
+remove_app() {
+  p="$1"
+  [ -e "$p" ] || [ -L "$p" ] || return 0
+  id=$(bundle_id_of "$p")
+  if [ "$id" = "$BUNDLE_ID" ]; then
+    remove "$p"
+  else
+    first_sight "$p" || return 0
+    info "kept $(tilde "$p") (not the miyagi app: bundle id ${id:-none})"
+  fi
+}
+
 # rmdir_if_empty PATH: tidy a parent folder once its contents are gone.
 rmdir_if_empty() {
   [ "$MODE" = "act" ] || return 0
@@ -138,6 +161,13 @@ rmdir_if_empty() {
 
 app_pids() { pgrep -f '/[Mm]iyagi\.app/Contents/MacOS/' 2>/dev/null; }
 port_pids() { lsof -nP -iTCP:"$ENGINE_PORT" -sTCP:LISTEN -t 2>/dev/null | sort -u; }
+# userdata_pids NAME: pids with a file open in ~/Library/Application Support/NAME. This also
+# catches the dev app (npm run dev runs Electron.app, which app_pids does not match).
+userdata_pids() {
+  d="$HOME/Library/Application Support/$1"
+  [ -d "$d" ] || return 0
+  lsof -t +D "$d" 2>/dev/null | sort -u
+}
 show_pids() { for pid in "$@"; do info "pid $pid: $(ps -o command= -p "$pid" 2>/dev/null | cut -c1-140)"; done; }
 
 if [ "$MODE" = "dry" ]; then
@@ -190,6 +220,38 @@ else
   info "port $ENGINE_PORT is free"
 fi
 
+# Anything still using an app data folder (the dev app from npm run dev, for example) would
+# lose its keys.bin and its keychain key while running. Same rule as port 8787: never kill.
+ud_seen=""
+for name in $APP_NAMES; do
+  shown="~/Library/Application Support/$name"
+  # miyagi and Miyagi are one folder on a case-insensitive volume: check it once.
+  key=$(stat -f '%d:%i' "$HOME/Library/Application Support/$name" 2>/dev/null) || continue
+  case " $ud_seen " in *" $key "*) continue ;; esac
+  ud_seen="$ud_seen $key"
+  pids=$(userdata_pids "$name")
+  if [ -n "$pids" ] && [ "$MODE" = "act" ]; then
+    # Give an app that was just asked to quit a few seconds to close its files.
+    i=0
+    while [ -n "$(userdata_pids "$name")" ] && [ $i -lt 5 ]; do sleep 1; i=$((i + 1)); done
+    pids=$(userdata_pids "$name")
+  fi
+  if [ -z "$pids" ]; then
+    info "$shown is not in use"
+    continue
+  fi
+  if [ "$MODE" = "dry" ]; then
+    FOUND=$((FOUND + 1))
+    info "BLOCKER: $shown is in use, so --yes would remove it under a running app."
+    info "Quit miyagi (packaged or npm run dev) with ⌥Q first (this script never kills it):"
+    show_pids $pids
+  else
+    info "these processes still have files open in $shown:"
+    show_pids $pids
+    die "quit miyagi (packaged or npm run dev) with ⌥Q yourself (this script never kills processes), then run this again. Nothing was removed."
+  fi
+done
+
 # ---------------------------------------------------------------------------------------
 section "2. Permissions and login item (before the app goes, while macOS still knows its id)"
 for svc in $TCC_SERVICES; do
@@ -227,10 +289,11 @@ info "check System Settings > General > Login Items: no miyagi entry should rema
 
 # ---------------------------------------------------------------------------------------
 section "3. App"
-remove "/Applications/miyagi.app"
-remove "/Applications/Miyagi.app"
-remove "$HOME/Applications/miyagi.app"
-remove "$HOME/Applications/Miyagi.app"
+# Each .app goes only if its bundle id is $BUNDLE_ID (see remove_app).
+remove_app "/Applications/miyagi.app"
+remove_app "/Applications/Miyagi.app"
+remove_app "$HOME/Applications/miyagi.app"
+remove_app "$HOME/Applications/Miyagi.app"
 for vol in /Volumes/[Mm]iyagi*; do
   [ -d "$vol" ] || continue
   if [ "$MODE" = "dry" ]; then
@@ -242,7 +305,12 @@ for vol in /Volumes/[Mm]iyagi*; do
   fi
 done
 if [ -d "$HOME/Downloads" ]; then
-  while IFS= read -r f; do remove "$f"; done < <(
+  while IFS= read -r f; do
+    case "$f" in
+      *.[Aa][Pp][Pp]) remove_app "$f" ;;
+      *) remove "$f" ;;
+    esac
+  done < <(
     find "$HOME/Downloads" -maxdepth 1 -iname 'miyagi*' \
       \( -iname '*.zip' -o -iname '*.dmg' -o -iname '*.app' \) 2>/dev/null)
 fi
