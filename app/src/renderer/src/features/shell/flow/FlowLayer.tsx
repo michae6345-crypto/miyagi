@@ -15,7 +15,10 @@
  * plain paper; then the paper fades (layerOut) while the sidebar slides in over it, the bonsai glides from the strip
  * into the sidebar's logo and Home rises underneath. Two screens are never drawn over each other.
  * Again (store.ts reopenFlow, setup asked for from home): the layer fades in over home (layerIn) and the bonsai stays
- * in the sidebar (the strip shows no tree, its slot stays balanced); the end fades back to home.
+ * in the sidebar (the strip shows no tree, its slot stays balanced); the end fades back to home. Never a trap: a quiet
+ * "Back to home" with its Esc keycap sits at the strip's right in every phase (in place of "Set up later") and Esc
+ * does the same; You're ready / Review setup end on Done, which only hands back to home (store.ts leaveAgain: no
+ * lesson is started, nothing is put off).
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
@@ -23,6 +26,7 @@ import { cmd } from '../../../../../common/wire'
 import { bridge } from '../../../bridge'
 import { canSend } from '../../../core/lesson'
 import { color, type2 } from '../../../core/theme'
+import { Keycap } from '../../../core/ui/Keycap'
 import { Login } from '../../auth/Login'
 import { Checklist } from '../../onboarding/Checklist'
 import { Guided } from '../../onboarding/Guided'
@@ -34,7 +38,7 @@ import { markDone, useOnboarding } from '../../onboarding/store'
 import { arriveDelay, layerIn, layerOut, leave, screenOut } from './motion'
 import { Strip } from './Strip'
 import './web'
-import { backToSetup, endIntro, endLogin, finishFlow, flowCovers, toReady, useFlow } from './store'
+import { backToSetup, endIntro, endLogin, finishFlow, flowCovers, leaveAgain, toReady, useFlow } from './store'
 
 /** Below this window width the strip is compact (current label, ticks and dots). */
 const COMPACT_W = 760
@@ -47,6 +51,9 @@ function View({ id, children }: { id: string; children: ReactNode }): ReactNode 
     </motion.div>
   )
 }
+
+/** The strip's right-hand link: quiet text in the label gray, fading in a beat after the strip. */
+const linkIn = { duration: 0.18, delay: 0.3 }
 
 /** Start on You're ready: the lesson it shows (the engine's suggestion, zero model calls) when there is one, and home. */
 function start(): void {
@@ -76,7 +83,21 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
     if (sum.allOk) markDone()
   }, [sum.allOk])
 
+  // Setup again: Esc hands back to home, before anything under the layer (a preview, the search) sees the key.
+  useEffect(() => {
+    if (!again) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return
+      e.preventDefault()
+      e.stopPropagation()
+      leaveAgain()
+    }
+    addEventListener('keydown', onKey, true)
+    return () => removeEventListener('keydown', onKey, true)
+  }, [again])
+
   const intro = phase === 'intro'
+  const done = again ? () => leaveAgain(true) : start
   return (
     <motion.div
       data-flow={phase}
@@ -92,22 +113,41 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
         <header data-drag className="relative flex h-[64px] shrink-0 items-center justify-center">
           {!intro && <Strip phase={phase} step={phase === 'setup' ? step : undefined} rows={rows} skipped={skipped} mark={!leaving && !again} compact={width < COMPACT_W} />}
           <AnimatePresence>
-            {phase === 'setup' && (
+            {again ? (
               <motion.button
-                key="later"
+                key="home"
                 type="button"
                 data-no-drag
-                data-flow-later
-                className="absolute right-[24px] top-1/2 cursor-pointer"
+                data-flow-home
+                className="absolute right-[24px] top-1/2 flex cursor-pointer items-center gap-[8px]"
                 style={{ y: '-50%', fontSize: type2.xs, color: color.label }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.18, delay: 0.3 }}
-                onClick={() => finishFlow(false)}
+                transition={linkIn}
+                onClick={() => leaveAgain()}
               >
-                Set up later
+                Back to home
+                <Keycap k="dismiss" size="sm" />
               </motion.button>
+            ) : (
+              phase === 'setup' && (
+                <motion.button
+                  key="later"
+                  type="button"
+                  data-no-drag
+                  data-flow-later
+                  className="absolute right-[24px] top-1/2 cursor-pointer"
+                  style={{ y: '-50%', fontSize: type2.xs, color: color.label }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={linkIn}
+                  onClick={() => finishFlow(false)}
+                >
+                  Set up later
+                </motion.button>
+              )
             )}
           </AnimatePresence>
         </header>
@@ -126,7 +166,11 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             )}
             {phase === 'ready' && (
               <View key={sum.canStart ? 'ready' : 'checklist'} id={sum.canStart ? 'ready' : 'checklist'}>
-                {sum.canStart ? <Ready rows={rows} sum={sum} mark={false} onStart={start} /> : <Checklist rows={rows} sum={sum} mark={false} onGuide={backToSetup} onStart={start} />}
+                {sum.canStart ? (
+                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} />
+                ) : (
+                  <Checklist rows={rows} sum={sum} mark={false} again={again} onGuide={backToSetup} onStart={again ? () => leaveAgain() : start} />
+                )}
               </View>
             )}
           </AnimatePresence>

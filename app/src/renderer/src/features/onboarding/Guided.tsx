@@ -20,7 +20,7 @@
  * Getting miyagi ready shows a soft progress line in its status while the engine starts or access is set up.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AnimatePresence, motion, type Variants } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react'
 import { ChevronLeft } from 'lucide-react'
 import { useCapability } from '../../core/lesson'
 import { color, fill, font, radius2, spring, status as tone, surface, type2 } from '../../core/theme'
@@ -30,7 +30,6 @@ import { StatusGlyph } from '../../core/ui/status'
 import { Illustration } from './Illustration'
 import { MARK_ID } from './Intro'
 import { EASE_OUT, rise } from './parts'
-import { useReducedMotion } from 'motion/react'
 import { wordColor } from './Row'
 import type { Row } from './rows'
 import { canSkip, firstOpen, guidedRows, nextOpen, STEP_COPY, statusLine, type StepId } from './steps'
@@ -40,6 +39,9 @@ import { runAction, setGuidedStep, skipStep, useOnboarding } from './store'
 export const ADVANCE_MS = 1100
 /** How long the walk waits for the first permissions answer before it picks a step anyway. */
 const SETTLE_MS = 900
+/** In the flow, how long after enterDelay the loading shape may fade in (s): past the login's exit, and usually never
+ * seen at all, since the first answer lands before it (the strip and the gliding bonsai carry that beat). */
+const SKELETON_WAIT = 0.3
 /** Below this the picture goes under the copy, and away when the window is short too. */
 const WIDE_MIN = 820
 
@@ -395,12 +397,19 @@ export function Guided({
             </motion.section>
           </AnimatePresence>
         ) : (
-          // The first answer is on its way (under a second): the shape of a step, never a blank window.
-          <div aria-hidden className="mx-auto flex h-full w-full max-w-[860px] flex-col justify-center gap-[16px] px-[56px]" style={{ opacity: 0.6 }}>
+          // The first answer is on its way (under a second): the shape of a step, never a blank window. In the flow it
+          // fades in only after the screen before it (the login) is gone, so two screens are never drawn over each other.
+          <motion.div
+            aria-hidden
+            className="mx-auto flex h-full w-full max-w-[860px] flex-col justify-center gap-[16px] px-[56px]"
+            initial={chrome === 'flow' ? { opacity: 0 } : false}
+            animate={{ opacity: 0.6 }}
+            transition={{ duration: 0.25, delay: chrome === 'flow' ? enterDelay + SKELETON_WAIT : 0 }}
+          >
             <span className="block h-[56px] w-[56px]" style={{ borderRadius: radius2.group, background: fill.skeleton }} />
             <span className="mt-[8px] block h-[24px] w-[320px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
             <span className="block h-[14px] w-[260px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
-          </div>
+          </motion.div>
         )}
       </main>
 

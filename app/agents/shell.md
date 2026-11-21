@@ -7,8 +7,10 @@
 covers the shell, sidebar included (intro, Sign in, guided setup, You're ready), then hands over: its screen fades,
 then its paper while the sidebar slides in from the left, the bonsai lands in the sidebar's logo (`FlowMark`, layoutId
 shared with the flow) and the wordmark writes in after it, Home rises in. Shell.tsx mounts nothing of home under a first
-run, wraps everything in one `LayoutGroup`, and ignores ⌘1..⌘6 during the flow. Setup again (Finish setup, Settings'
-Open setup: `openSetup`) runs the flow over home, which stays mounted and inert under it. Spec and timeline:
+run, wraps everything in one `LayoutGroup`, and ignores ⌘1..⌘6 during the flow. Setup again (Finish setup, the sidebar's status
+rows, Settings' Open setup, anything calling `openOnboarding()`: `flow/store.ts` `requestSetup`) runs the flow over home,
+which stays mounted and inert under it, with "Back to home" / Esc in every phase. From another window it arrives as this
+window's `{setup}` arg (read once per value in Shell.tsx). Spec and timeline:
 agents/onboarding.md "One window". Sidebar.tsx: only the logo row changed (`SidebarBrand` in place of the mark and
 wordmark).
 

@@ -21,13 +21,16 @@
  * first (only its plain paper is left), then the paper fades while the sidebar slides in from the window's left edge,
  * the bonsai glides from the flow's step strip into the sidebar's logo (one LayoutGroup, layoutId MARK_ID; the
  * wordmark writes in once the tree has landed, flow/SidebarBrand.tsx) and Home rises in, its cards one after another.
- * Setup asked for again from home (Finish setup, Settings' Open setup: flow/store.ts reopenFlow) fades the flow in
- * over home, which stays mounted and inert underneath, and out again. Reduced motion: crossfades only.
+ * Setup asked for again (Finish setup, the sidebar's status rows, Settings' Open setup: flow/store.ts requestSetup)
+ * fades the flow in over home, which stays mounted and inert underneath, and out again. Asked for from another window
+ * (the tray's Settings), it arrives here as this window's {setup} arg (core/surfaces.ts openOnboarding), read below.
+ * Reduced motion: crossfades only.
  */
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion, type Variants } from 'motion/react'
 import { RotateCcw } from 'lucide-react'
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
+import { useWindowArgs } from '../../core/surfaces'
 import { color, duration, fill, highlight, radius2, spring, stagger, surface, type2 } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { riseIn } from '../../core/ui/motion'
@@ -43,7 +46,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { SkillsPage } from './pages/SkillsPage'
 import { FlowLayer } from './flow/FlowLayer'
 import { homeIn, sidebarIn } from './flow/motion'
-import { flowCovers, initFlow, useFlow } from './flow/store'
+import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_W } from './Sidebar'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
@@ -183,6 +186,20 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
   )
 }
 
+// ---- setup asked for from another window -------------------------------------------------------------------------
+
+const ASK_KEY = 'miyagi.flow.setupAsk'
+/** True once per {setup} value: remembered for this window's session, so a reload doesn't replay it. */
+function freshAsk(v: string): boolean {
+  try {
+    if (sessionStorage.getItem(ASK_KEY) === v) return false
+    sessionStorage.setItem(ASK_KEY, v)
+  } catch {
+    /* no storage: act on it; at worst a reload opens setup once more */
+  }
+  return true
+}
+
 // ---- the shell ------------------------------------------------------------------------------------------------------
 
 function useSize<T extends HTMLElement>(): [React.RefObject<T | null>, { w: number; h: number }] {
@@ -211,6 +228,16 @@ export function Shell(): ReactNode {
   const arriving = useRef(false)
   if (phase === 'leaving') arriving.current = true
   useEffect(() => initFlow(), [])
+
+  // Setup asked for from another window opens this one with {setup: <a fresh value>}: run it over home, once per ask
+  // (a reload of this window re-reads the same args and must not open it again).
+  const args = useWindowArgs('library')
+  useEffect(() => {
+    const ask = args?.setup
+    if (ask === undefined || ask === false) return
+    if (!freshAsk(String(ask))) return
+    requestSetup()
+  }, [args])
 
   // ⌘1..⌘6 (Ctrl+1..6 on Windows) pick a page. Typing in a field is left alone except for these chords.
   useEffect(() => {
@@ -252,7 +279,7 @@ export function Shell(): ReactNode {
           </motion.div>
         )}
         {home && (
-          <motion.main aria-hidden={covered || undefined} inert={covered} className="relative min-w-0 flex-1 overflow-hidden"initial={enter ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
+          <motion.main aria-hidden={covered || undefined} inert={covered} className="relative min-w-0 flex-1 overflow-hidden" initial={enter ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
             {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
               <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId} />
             ))}

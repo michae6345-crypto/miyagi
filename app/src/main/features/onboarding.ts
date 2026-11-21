@@ -9,11 +9,13 @@
  *     (launch.ts); a relaunch for Screen Recording comes back to the step it left (flag.step).
  *   - Flags: userData/onboarding.json {done, at, introSeen, step, later}. done: setup finished (no flow). introSeen:
  *     the intro played once. step: the guided step on screen (onboarding:step). later: "Set up later" (no flow on
- *     launch; home's Finish setup runs setup over home again and clears it: onboarding:resume).
+ *     launch; home's Finish setup runs setup over home again and clears it: onboarding:resume; leaving that before
+ *     it is done puts it back). With later, a start at login or MIYAGI_QUIET_LAUNCH=1 opens nothing (launch.ts).
  *     MIYAGI_SKIP_ONBOARDING=1 skips all of it (dev).
- *   - The standalone setup window (route `onboarding`) and login window (route `auth`) stay as fallbacks only: the
- *     setup window opens when setup is asked for from outside the home window (the home window's Finish setup and
- *     Settings' Open setup run it over home instead); the Account page's Sign in opens the login.
+ *   - The standalone setup window (route `onboarding`) and login window (route `auth`) stay as fallbacks only: every
+ *     ask for setup runs it over home in the home window (renderer core/surfaces.ts openOnboarding: from another
+ *     window it opens the home window with {setup}); the setup window opens only when the home window can't. The
+ *     Account page's Sign in opens the login.
  *   - Prompts happen ONLY here and ONLY on a click (BUILD-PLAN Section 6): onboarding:prompt(kind). Screen Recording:
  *     one tiny capture makes macOS ask; Accessibility: isTrustedAccessibilityClient(true). System Settings itself opens
  *     through core's permissions:open(kind) (fixed URLs in main/safeOpen.ts), never a URL from a renderer.
@@ -35,7 +37,7 @@
  *
  * UNVERIFIED in Electron (cost freeze; no live run in this package): the TCC prompts, the relaunch, the CLI install.
  */
-import { desktopCapturer, systemPreferences, type BrowserWindow } from 'electron'
+import { desktopCapturer, systemPreferences, type App, type BrowserWindow } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -52,6 +54,15 @@ const EXTENSIONS = ['ms-python.python', 'ms-toolsai.jupyter']
 const VSIX_RE = /^miyagi[A-Za-z0-9._-]*\.vsix$/
 
 type Flag = { done: boolean; at?: string; introSeen?: boolean; step?: Step; later?: boolean }
+
+/** Started by macOS at login (launch.ts reads it the same way). */
+function startedAtLogin(app: App): boolean {
+  try {
+    return process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin === true
+  } catch {
+    return false
+  }
+}
 
 /** VS Code's own CLI inside the app bundle: present even when `code` was never added to PATH. */
 function codeCli(): string | undefined {
@@ -150,7 +161,10 @@ export default defineMainFeature({
       return pinTitle(ctx.openWindow('library'))
     })
 
-    if (!flag.done && !skip) ctx.overlay.webContents.once('did-finish-load', startFirstRun)
+    // Setup put off ("Set up later") is home as usual, so it keeps launch.ts's quiet cold launches: nothing opens when
+    // miyagi starts at login or with MIYAGI_QUIET_LAUNCH=1 (recordings). A real first run always opens.
+    const quietLater = flag.later === true && (startedAtLogin(ctx.app) || process.env.MIYAGI_QUIET_LAUNCH === '1')
+    if (!flag.done && !skip && !quietLater) ctx.overlay.webContents.once('did-finish-load', startFirstRun)
 
     ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true, flow: flowOn(), login: flowOn() && needsLogin(), step: flag.step }))
     ctx.handle('onboarding:step', (step: unknown) => {

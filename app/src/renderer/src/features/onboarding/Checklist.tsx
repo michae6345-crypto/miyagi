@@ -46,7 +46,8 @@ export function SheetHeader({ title, rows, sum, brand, mark = true }: { title: s
   )
 }
 
-export function Checklist({ rows, sum, onGuide, onStart, mark }: { rows: RowData[]; sum: Summary; onGuide?: () => void; onStart?: () => void; mark?: boolean }): ReactNode {
+/** `again`: setup opened again over home (features/shell/flow); the primary is Done, which is always allowed (back to home). */
+export function Checklist({ rows, sum, onGuide, onStart, mark, again }: { rows: RowData[]; sum: Summary; onGuide?: () => void; onStart?: () => void; mark?: boolean; again?: boolean }): ReactNode {
   return (
     <div data-onb-view="checklist" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
       <SheetHeader title="Review setup" rows={rows} sum={sum} mark={mark} />
@@ -62,6 +63,7 @@ export function Checklist({ rows, sum, onGuide, onStart, mark }: { rows: RowData
         sum={sum}
         border={false}
         onStart={onStart}
+        {...(again ? { label: 'Done', always: true } : {})}
         left={
           <div className="flex min-w-0 items-center gap-[16px]">
             {onGuide && !sum.allOk && (

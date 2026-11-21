@@ -27,8 +27,11 @@ export function lessonMeta(item: LibraryItem): string {
     .join('  ·  ')
 }
 
-/** `onStart` / `mark`: the one-window flow (features/shell/flow) hands over to home and shows the bonsai in its strip. */
-export function Ready({ rows, sum, onStart, mark }: { rows: RowData[]; sum: Summary; onStart?: () => void; mark?: boolean }): ReactNode {
+/**
+ * `onStart` / `mark`: the one-window flow (features/shell/flow) hands over to home and shows the bonsai in its strip.
+ * `again`: setup opened again over home; the primary is Done (back to home, no lesson), so no first lesson is offered.
+ */
+export function Ready({ rows, sum, onStart, mark, again }: { rows: RowData[]; sum: Summary; onStart?: () => void; mark?: boolean; again?: boolean }): ReactNode {
   const suggestion = useOnboarding((s) => s.suggestion)
   useEffect(() => requestSuggestion(), [])
   return (
@@ -44,7 +47,7 @@ export function Ready({ rows, sum, onStart, mark }: { rows: RowData[]; sum: Summ
           </motion.div>
         ))}
       </motion.div>
-      {suggestion && (
+      {suggestion && !again && (
         <motion.div data-onb-lesson={suggestion.id} className="mt-[24px] flex flex-col gap-[8px]" variants={rise} initial="hidden" animate="shown">
           <span style={{ fontSize: type2.xs, letterSpacing: '0.2px', color: color.label }}>Your first lesson</span>
           <div className="flex items-center gap-[16px] p-[16px]" style={{ borderRadius: radius2.chip, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
@@ -63,7 +66,7 @@ export function Ready({ rows, sum, onStart, mark }: { rows: RowData[]; sum: Summ
         </motion.div>
       )}
       <div className="flex-1" />
-      <Footer sum={sum} label="Start" onStart={onStart} left={<LauncherHint lead="Open miyagi anytime" />} />
+      <Footer sum={sum} label={again ? 'Done' : 'Start'} onStart={onStart} left={<LauncherHint lead="Open miyagi anytime" />} />
     </div>
   )
 }

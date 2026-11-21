@@ -18,13 +18,16 @@
  * first run starts on 'off' and home is there in the first paint; main's answer still comes, and a flow that turns
  * out to be on (a late answer, or flags reset) still starts. Only a real first run waits on 'pending'.
  *
- * Again (reopenFlow): home's Finish setup and Settings' Open setup run guided setup over home, in this same window,
- * instead of opening the setup window (openSetup). Home stays mounted underneath; the flow fades in over it and out
- * again, and the bonsai stays in the sidebar.
+ * Again (reopenFlow): every ask for setup after the first run (home's Finish setup, the sidebar's Setup, Engine and
+ * Cloud rows, Settings' Open setup, here or from the tray's Settings) runs guided setup over home, in this same window:
+ * core/surfaces.ts openOnboarding calls requestSetup here (setSetupOpener), and from any other window it opens this
+ * one with {setup} (Shell.tsx). Home stays mounted underneath; the flow fades in over it and out again, and the bonsai
+ * stays in the sidebar. It is never a trap: "Back to home" (and Esc) in every phase, and You're ready's primary is
+ * Done (leaveAgain): back to home, no lesson started.
  */
 import { create } from 'zustand'
 import { bridge, isElectron } from '../../../bridge'
-import { openOnboarding } from '../../../core/surfaces'
+import { openOnboarding, setSetupOpener } from '../../../core/surfaces'
 import { markDone, markIntroSeen, useOnboarding, type GuidedStepId } from '../../onboarding/store'
 import { stageFlowStep } from '../../onboarding/web'
 import { ARRIVE_MS } from './motion'
@@ -85,6 +88,7 @@ let guessed = get().phase === 'off'
 export function initFlow(): void {
   if (started) return
   started = true
+  setSetupOpener(requestSetup)
   const fallback = setTimeout(() => {
     if (get().phase !== 'pending') return
     guessed = true
@@ -139,22 +143,62 @@ export function finishFlow(done: boolean): void {
   arriveTimer = setTimeout(() => set({ phase: 'off', again: false }), ARRIVE_MS)
 }
 
+/** Setup was put off ("Set up later") when it was opened again: leaving before it is done puts it off again. */
+let putOff = false
+
 /**
- * Guided setup again, over home in this window (home's Finish setup, Settings' Open setup): main forgets "Set up
- * later" (onboarding:resume), the walk opens on the first step not done (or You're ready when nothing is left).
+ * Guided setup again, over home in this window: main forgets "Set up later" (onboarding:resume, so a relaunch for
+ * Screen Recording comes back to the step), the walk opens on the first step not done (or You're ready).
  */
 export function reopenFlow(): void {
   if (get().phase !== 'off') return
   clearTimeout(arriveTimer)
+  putOff = !useOnboarding.getState().done
   bridge.invoke('onboarding:resume').catch(() => undefined)
   guessed = false
   writeOff(false)
   set({ phase: 'setup', resume: undefined, login: false, again: true })
 }
 
-/** Finish setup / Open setup: in the home window, the flow over home; from anywhere else, the setup window (fallback). */
+/** Setup asked for while the window is still deciding or handing over: run it once home is there. */
+let wanted = false
+/** Any ask for setup in this window (core/surfaces.ts openOnboarding, the {setup} window arg). */
+export function requestSetup(): void {
+  const p = get().phase
+  if (p === 'off') reopenFlow()
+  else if (p === 'pending' || p === 'leaving') wanted = true
+  // Otherwise the flow is on screen already.
+}
+useFlow.subscribe((s) => {
+  if (!wanted) return
+  if (flowCovers(s.phase)) wanted = false // the first run itself started: it is the setup asked for
+  else if (s.phase === 'off') {
+    wanted = false
+    reopenFlow()
+  }
+})
+
+/**
+ * Setup again, handed back to home ("Back to home", Esc, You're ready's Done): never a lesson (no library.start), never
+ * "Set up later" of its own. `done`: You're ready's Done (setup finished, as Start would mark it). Leaving before setup
+ * is done puts back only the learner's own earlier "Set up later" that reopenFlow cleared, so the next launch doesn't
+ * open on the first-run flow; setup that was done stays done.
+ */
+export function leaveAgain(done = false): void {
+  const s = get()
+  if (!s.again || !flowCovers(s.phase)) return
+  if (done) markDone()
+  else if (putOff && !useOnboarding.getState().done) bridge.invoke('onboarding:later').catch(() => undefined)
+  putOff = false
+  writeOff(true)
+  set({ phase: 'leaving' })
+  clearTimeout(arriveTimer)
+  arriveTimer = setTimeout(() => set({ phase: 'off', again: false }), ARRIVE_MS)
+}
+
+/** Finish setup / Open setup: in the home window, the flow over home; from anywhere else, the home window opens on it. */
 export function openSetup(): void {
-  if (started) reopenFlow()
+  if (started) requestSetup()
   else void openOnboarding()
 }
 

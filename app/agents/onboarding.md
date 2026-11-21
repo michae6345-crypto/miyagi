@@ -22,12 +22,21 @@ happens inside the home window (route `library`, the app shell): a full-window *
   every step glides to its new place (motion `layout="position"`), nothing jumps. An empty slot the width of the
   bonsai's balances it on the right, so the steps sit on the center line at login too. Below 760 px of window width
   (the minimum is 560) the strip is compact: the current step's label only, the others a green tick or a faint dot.
-- **Setup again, in the same window** (`flow/store.ts` `reopenFlow`, `openSetup`): home's Finish setup, Settings'
-  Open setup and Settings > Permissions' companion fix run guided setup over home in the home window (the flow fades
-  in over home, which stays mounted and inert underneath; the bonsai stays in the sidebar; the walk opens on the first
-  step not done, or You're ready). `onboarding:resume` clears "later" in main. From any other window `openSetup` falls
-  back to the setup window. The sidebar's Setup row (library/Status.tsx, calm-status lane) still calls
-  `openOnboarding()`: core request 7.
+- **Setup again, in the same window** (`flow/store.ts` `requestSetup`, `reopenFlow`, `leaveAgain`): every ask for
+  setup after the first run runs guided setup over home in the home window (the flow fades in over home, which stays
+  mounted and inert underneath; the bonsai stays in the sidebar; the walk opens on the first step not done, or You're
+  ready). `core/surfaces.ts` `openOnboarding()` routes it: in the home window it calls the flow (`setSetupOpener`,
+  registered by `initFlow`), so home's Finish setup, the sidebar's Setup / Engine / Cloud rows and Settings' Open setup
+  all land there; from any other renderer (Settings from the tray or the pill) it opens the home window with
+  `{setup: <fresh value>}`, which Shell.tsx reads once per value. The standalone setup window only opens when the home
+  window can't. An ask while the window is still deciding (`pending`) or handing over (`leaving`) runs once home is
+  there. `onboarding:resume` clears "later" in main.
+  Never a trap: a quiet "Back to home" with its Esc keycap sits at the strip's right in every phase (in place of "Set
+  up later"), and Esc does the same. You're ready's primary is **Done** (no first lesson card) and Review setup's is
+  Done too (always enabled): `leaveAgain` hands back to home and nothing else. It never sends `library.start` and never
+  sets "later" of its own; Done on You're ready marks setup done, as Start would. Leaving before setup is done puts
+  back only the learner's own earlier "Set up later" that the reopen cleared (so the next launch doesn't open on the
+  first-run flow).
 - **No blank first frame** (`flow/store.ts`): every `onboarding:get` answer is remembered in localStorage
   (`miyagi.flow.off`), so an open after the first run starts on `off` and home is in the first paint. Only a real first
   run waits on `pending`. A late answer (after the 1.5 s fallback) or a stale memory still starts the flow when main
@@ -38,8 +47,7 @@ happens inside the home window (route `library`, the app shell): a full-window *
   when it is green by now, then the walk moves on). The Dock click, the tray's Open miyagi and a second launch bring
   the same window forward as it is (no new args). `auth:continue` in the flow opens nothing (`onLoginDone` returns
   nothing while no login window is open).
-- **Fallbacks kept**: the standalone setup window (`openOnboarding()`: setup asked for from outside the home window,
-  and the sidebar's Setup row until core request 7) and the standalone login window (`openLogin()`: the Account page's
+- **Fallbacks kept**: the standalone setup window (only when the home window can't be opened) and the standalone login window (`openLogin()`: the Account page's
   Sign in). The login window shows the same lighter login. Esc, and leaving the login mid-wait, cancel a waiting
   Google sign-in in both hosts (Login.tsx `useCancelOnEsc`).
 
@@ -146,10 +154,9 @@ Not verified: Electron (`npm run dev`), real TCC prompts, the relaunch, the VS C
 - Stage only: `web.ts` selects the variant by sending `library.get {id:"onb_<variant>"}`, which the scenario maps to a `step_onb_*` segment so every later trigger is scoped to it (`health.get@step_onb_*`, `library.list@...`, `action:install@...`, `permission.open@...`). No unscoped trigger in `onboarding.json` except `connect` (blank in `full`), so `?scenario=full` is unchanged for other lanes.
 
 ## Core requests
-7. **library/Status.tsx (calm-status lane, oneflow fix round 1):** the sidebar's Setup row (and the Engine / Cloud
-   rows' retry) call `openOnboarding()`, which opens the setup window over home. Call `openSetup()` from
-   `features/shell/flow/store.ts` instead (one import, same signature): setup then runs over home in the same window,
-   and falls back to the setup window from anywhere else. Home's Finish setup and Settings already do.
+7. DONE without touching library/Status.tsx (oneflow fix round 2): `openOnboarding()` itself now routes to the flow
+   over home (core/surfaces.ts, additive: `setSetupOpener`), so the sidebar's Setup / Engine / Cloud rows land there
+   as they are. Status.tsx's header comment still says "opens guided setup (openOnboarding)", which stays true.
 0. **Intro-setup lane (Nov 20):**
    - **home (library/dashboard lane):** a "Review setup" entry on home that calls `openOnboarding()` (it opens the checklist once setup is done). Settings > General's button says "Open setup"; "Review setup" would match the window's title (settings lane).
    - **core/ui/motion.ts:** `rise` / `stagger` live in `features/onboarding/parts.tsx` until the polish lane's shared motion helpers land; swap then.
