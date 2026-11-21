@@ -1,47 +1,32 @@
 /**
- * The pill's small pieces, sized to mockup 01 (measured at 1×: ring 16px / 2.25 stroke, dot 7px).
- * Brand: the ring is the accent (white), green only for passed, amber only for off track, no glows.
+ * The pill's small pieces, sized to mockup 01 (measured at 1×: dot 7px; the step count is 13px text).
+ * Brand: green only for passed, no hue for off track (a white ring), gray watching, no glows.
  * The shared atoms in core/ui stay as they are for the cards; these are tuned for the 34px pill.
  */
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import treeSmall from '../../assets/brand/tree-small-dark.svg'
 import { useLesson, useThinking } from '../../core/lesson'
 import { color, spring } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
-import { pulsedOfftrack, ring } from './store'
+import { MiyagiMark } from '../../core/ui/Mark'
+import { pulsedOfftrack } from './store'
 
 /** offline: a hollow gray dot (no connection). pending: the next part is still building (spinner, no dot). */
 export type Mark = 'watching' | 'offtrack' | 'passed' | 'check' | 'done' | 'offline' | 'pending'
 
 /**
- * The bonsai as a one-color template glyph, like a menu-bar icon: white on the black pill. Adrian's call:
- * the tree is monochrome everywhere in the app (the green pads are for the app icon and external surfaces).
- * Same file and geometry as MiyagiMark's small cut (the SVG is the mask), so nothing is redrawn.
- * 16px: the art is ~10.5×12 inside the box, the optical size of mockup 01's icon.
- */
-export function MonoMark({ size = 16, tone = color.text, className = '' }: { size?: number; tone?: string; className?: string }): ReactNode {
-  const mask = `url("${treeSmall}") center / contain no-repeat`
-  return (
-    <span
-      aria-hidden
-      className={`inline-block shrink-0 ${className}`}
-      style={{ width: size, height: size, backgroundColor: tone, WebkitMask: mask, mask }}
-    />
-  )
-}
-
-/**
- * The lead glyph: the bonsai, or the small core Spinner while the engine is thinking (an explain, a hint,
+ * The lead glyph: the bonsai (in color, the brand's small cut in a 16px box: the art is ~10.5×12, the optical size of
+ * mockup 01's icon), or the small core Spinner while the engine is thinking (an explain, a hint,
  * a diagram: 2-5 s), so a shortcut never looks dead. Both sit in the same 16px box: no layout change,
- * a 150ms crossfade only when thinking actually starts or stops.
+ * a 150ms crossfade only when thinking actually starts or stops. `busy`: spin anyway (the pill sent something and
+ * waits for its answer, e.g. Undo / Continue resuming a saved lesson).
  */
-export function LeadMark(): ReactNode {
-  const thinking = useThinking()
+export function LeadMark({ busy = false }: { busy?: boolean }): ReactNode {
+  const thinking = useThinking() || busy
   return (
     <span className="relative mr-[8px] inline-block h-[16px] w-[16px] shrink-0" data-thinking={thinking || undefined}>
       <motion.span className="absolute inset-0" initial={false} animate={{ opacity: thinking ? 0 : 1 }} transition={{ duration: 0.15 }}>
-        <MonoMark />
+        <MiyagiMark size={16} className="block" />
       </motion.span>
       <AnimatePresence initial={false}>
         {thinking && (
@@ -61,43 +46,27 @@ export function LeadMark(): ReactNode {
   )
 }
 
-/** Lesson progress ring: completed steps / total. Advances on the spring when a step passes. */
-export function PillRing({
-  fraction,
-  complete = false,
-  size = 16,
-  stroke = 2.25
-}: {
-  fraction: number
-  /** The lesson is done: the closed ring turns green. */
-  complete?: boolean
-  size?: number
-  stroke?: number
-}): ReactNode {
-  const r = (size - stroke) / 2
-  // Start from what was last drawn (0 on a fresh lesson → the ring draws in on first appearance).
-  const from = useRef(ring.shown)
-  useEffect(() => {
-    ring.shown = fraction
-  }, [fraction])
-  const on = fraction > 0.001
+/**
+ * Where the learner is: "4/8" (this step / steps) in tabular figures, so the width holds as the digits change.
+ * It replaced the progress ring (Michael's audit A5): at 0 the ring was a hollow circle beside the status dot, and
+ * part-filled it read as a spinner. Muted like the "Step 4 ·" label; the number crossfades in place on a change.
+ */
+export function StepCount({ n, total }: { n: number; total: number }): ReactNode {
+  const label = `${n}/${total}`
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
-      {/* Track: the arc's own color, dimmed (like the Activity rings). */}
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color.accent} strokeOpacity={0.22} strokeWidth={stroke} />
-      <motion.circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        initial={{ pathLength: Math.max(0.001, from.current), opacity: from.current > 0.001 ? 1 : 0, stroke: complete ? color.green : color.accent }}
-        animate={{ pathLength: Math.max(0.001, fraction), opacity: on ? 1 : 0, stroke: complete ? color.green : color.accent }}
-        // A beat after the check pops, so the eye travels check → ring.
-        transition={{ pathLength: { ...spring, delay: 0.08 }, opacity: { duration: 0.15 }, stroke: { duration: 0.4, delay: 0.2 } }}
-      />
-    </svg>
+    <span className="inline-grid shrink-0 tabular-nums leading-[18px]" style={{ color: color.label }} aria-label={`Step ${n} of ${total}`} data-count={label}>
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={label}
+          style={{ gridArea: '1 / 1' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
+          exit={{ opacity: 0, transition: { duration: 0.1, ease: 'easeIn' } }}
+        >
+          {label}
+        </motion.span>
+      </AnimatePresence>
+    </span>
   )
 }
 
@@ -129,9 +98,9 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
         className="absolute inset-0 rounded-full"
         title={mark === 'offline' ? 'Offline' : undefined}
         style={{
-          // Offline: the same dot, hollow. Gray only, no icon.
-          backgroundColor: mark === 'offline' ? 'transparent' : tone,
-          boxShadow: `inset 0 0 0 ${mark === 'offline' ? 1.5 : 0}px ${color.gray}`,
+          // Offline: the same dot, hollow and gray. Off track: hollow and white (no hue, Adrian Sat 5 PM).
+          backgroundColor: mark === 'offline' || mark === 'offtrack' ? 'transparent' : tone,
+          boxShadow: `inset 0 0 0 ${mark === 'offline' || mark === 'offtrack' ? 1.5 : 0}px ${mark === 'offtrack' ? tone : color.gray}`,
           transition: 'background-color .3s ease, box-shadow .3s ease'
         }}
       />
@@ -168,7 +137,7 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
 
 /**
  * A text slot whose width springs between old and new text, so the island (which hugs its content)
- * grows smoothly and the icon / ring / dot glide instead of jumping. Old text leaves upward, new
+ * grows smoothly and the icon / count / dot glide instead of jumping. Old text leaves upward, new
  * text arrives from below, with almost no overlap (no doubled text mid-swap).
  */
 export function SwapText({ id, children, className = '' }: { id: string; children: ReactNode; className?: string }): ReactNode {
@@ -194,13 +163,15 @@ export function SwapText({ id, children, className = '' }: { id: string; childre
       animate={{ width: w?.px }}
       transition={w?.instant ? { duration: 0 } : spring}
     >
-      <span ref={measure} aria-hidden className={`invisible absolute left-0 top-0 whitespace-nowrap ${className}`}>
+      {/* w-max: an absolute box shrinks to its container, which is this slot's current (animated) width, so a
+          truncating title inside could never measure wider than the last one (Michael's test 8: "See what it learne"). */}
+      <span ref={measure} aria-hidden className={`invisible absolute left-0 top-0 w-max whitespace-nowrap ${className}`}>
         {children}
       </span>
       <AnimatePresence initial={false}>
         <motion.span
           key={id}
-          className={`absolute left-0 top-[8px] whitespace-nowrap leading-[18px] ${className}`}
+          className={`absolute left-0 top-[8px] w-max whitespace-nowrap leading-[18px] ${className}`}
           initial={{ opacity: 0, y: 7 }}
           animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
           exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
@@ -231,5 +202,31 @@ export function BuildLine({ progress }: { progress: number }): ReactNode {
         transition={spring}
       />
     </motion.span>
+  )
+}
+
+/**
+ * SwapText for the building pill (Michael's desktop test 3, item 9: "Setting up your project fo…"). Same crossfade
+ * (old text up and out, new text in from below), but the slot can never be narrower than the text it shows: old and
+ * new text stack in one grid cell, both in flow, so the slot is the wider of the two during the swap and then exactly
+ * the new text. No measured or animated width that can lag a stage behind and clip the label mid-word; the island
+ * (which hugs its content) springs its own width around it.
+ */
+export function FitSwap({ id, children }: { id: string; children: ReactNode }): ReactNode {
+  return (
+    <span className="grid h-[34px] shrink-0 overflow-hidden" data-fit>
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={id}
+          className="whitespace-nowrap pt-[8px] leading-[18px]"
+          style={{ gridArea: '1 / 1' }}
+          initial={{ opacity: 0, y: 7 }}
+          animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
+          exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
+        >
+          {children}
+        </motion.span>
+      </AnimatePresence>
+    </span>
   )
 }

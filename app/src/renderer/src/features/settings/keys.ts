@@ -12,7 +12,7 @@ export const KEY_NAMES = ['anthropic', 'gemini', 'brightdata', 'elevenlabs', 'ti
 export type KeyName = (typeof KEY_NAMES)[number]
 
 /** The app can't build a lesson without these. First run opens Settings if either is `missing`. */
-export const REQUIRED: readonly KeyName[] = ['anthropic', 'gemini']
+export const REQUIRED: readonly KeyName[] = ['anthropic'] // Gemini is off in this build (Michael, Sat)
 
 export type Keys = Partial<Record<KeyName, string>>
 export type KeyStatus = Record<KeyName, KeyState>

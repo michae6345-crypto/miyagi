@@ -12,7 +12,7 @@ export type ShortcutKind = 'launcher' | 'back' | 'explain' | 'diagram' | 'show_m
 
 export type PlatformInfo = {
   os: 'mac' | 'win'
-  /** Top of the pill, in px from the top of the display. Mac: inside the menu-bar band, around the notch. */
+  /** Top of the pill, in px from the top of the display. Mac: just under the notch / menu-bar band (see pillTopFor). */
   pillTop: number
   /** Labels shown in the UI (⌥E on Mac, Alt+E on Windows). */
   keys: Record<ShortcutKind, string>
@@ -20,25 +20,60 @@ export type PlatformInfo = {
   accelerators: Record<ShortcutKind, string>
 }
 
+/**
+ * Where the pill (and the launcher and every surface born from it) sits, in px from the top of the display.
+ *
+ * Mac: just UNDER the hardware notch (notch/menu bar is ~37pt on notched MacBook Pros), not behind it. Michael's review
+ * A20 asked to anchor it in the menu-bar band (it sits over title bars), but on a notched Mac the band's centre IS the
+ * notch: the pill's words would be hidden behind it, and that is exactly where notch apps live (desktop test 5:
+ * TheBoringNotch expands its panel over the notch on hover, so clicks near it can land on that app). So the default
+ * stays just below the band, and MIYAGI_PILL_TOP (main-process env, px, 0-200) moves it: down (e.g. 56) to keep clear
+ * of a notch app's hover zone, or up (e.g. 4) into the menu bar on a Mac without a notch.
+ * Read only in main; the browser stage (no `process`) always gets the default.
+ */
+function pillTopFor(mac: boolean): number {
+  const fallback = mac ? 40 : 8
+  let raw: string | undefined
+  try {
+    raw = typeof process !== 'undefined' ? process.env?.MIYAGI_PILL_TOP : undefined
+  } catch {
+    raw = undefined
+  }
+  const n = raw === undefined || raw.trim() === '' ? NaN : Number(raw)
+  return Number.isFinite(n) && n >= 0 && n <= 200 ? Math.round(n) : fallback
+}
+
 export function describePlatform(os: string): PlatformInfo {
   const mac = os === 'darwin' || os === 'mac'
   return {
     os: mac ? 'mac' : 'win',
-    // Mac: sit just UNDER the hardware notch (notch/menu bar is ~37pt on notched MacBook Pros), not behind it.
-    pillTop: mac ? 40 : 8,
+    pillTop: pillTopFor(mac),
+    // Mac lesson keys are ⌃⌥ (Control+Option), not ⌥ alone (Adrian, Sun 1 AM, after Michael's test): ⌥← is word-left
+    // in VS Code and ⌥E/D/S/H/V type characters (⌥E is the accent key), so global ⌥ shortcuts stole the learner's
+    // typing. ⌃⌥ combos type nothing. The launcher stays ⌥Space. Windows is unchanged (Ctrl+Alt is AltGr there).
     keys: mac
-      ? { launcher: '⌥Space', back: '⌥←', explain: '⌥E', diagram: '⌥D', show_me: '⌥S', hint: '⌥H', voice_toggle: '⌥V' }
+      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V' }
       : // Alt+Space is the Windows system menu: never bind it there.
         { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V' },
-    accelerators: {
-      launcher: mac ? 'Alt+Space' : 'Control+Shift+Space',
-      back: 'Alt+Left',
-      explain: 'Alt+E',
-      diagram: 'Alt+D',
-      show_me: 'Alt+S',
-      hint: 'Alt+H',
-      voice_toggle: 'Alt+V'
-    }
+    accelerators: mac
+      ? {
+          launcher: 'Alt+Space',
+          back: 'Control+Alt+Left',
+          explain: 'Control+Alt+E',
+          diagram: 'Control+Alt+D',
+          show_me: 'Control+Alt+S',
+          hint: 'Control+Alt+H',
+          voice_toggle: 'Control+Alt+V'
+        }
+      : {
+          launcher: 'Control+Shift+Space',
+          back: 'Alt+Left',
+          explain: 'Alt+E',
+          diagram: 'Alt+D',
+          show_me: 'Alt+S',
+          hint: 'Alt+H',
+          voice_toggle: 'Alt+V'
+        }
   }
 }
 
@@ -72,6 +107,9 @@ export function overlayWindowOptions(bounds: Rect): BrowserWindowConstructorOpti
     show: false,
     backgroundColor: '#00000000',
     enableLargerThanScreen: true,
+    // The overlay never becomes the active window, so without this macOS swallows the first click on the bar and
+    // cards (Michael's desktop test, item 1: Skip, Check and Diagram needed a second click).
+    acceptFirstMouse: true,
     ...(isMac() ? { type: 'panel' as const } : {})
   }
 }
@@ -98,6 +136,14 @@ export function raise(win: BrowserWindow, relativeLevel = 0): void {
   followSpaces(win)
 }
 
+/**
+ * A held key that means the learner is leaving the launcher: ⌘ or Ctrl (⌘Tab, ⌘Space, Ctrl+→) on macOS;
+ * on Windows also Alt (Alt+Tab) and the Win key (input.meta).
+ */
+export function isLeavingModifier(input: { meta: boolean; control: boolean; alt: boolean }): boolean {
+  return input.meta || input.control || (!isMac() && input.alt)
+}
+
 /** The overlay covers the whole display (including the Mac menu bar, so the pill can hug the notch). */
 export function overlayBounds(display: { bounds: Rect }): Rect {
   return display.bounds
@@ -110,11 +156,24 @@ export function setupApp(app: App): void {
 
 /**
  * After the launcher hides, hand keyboard focus back to the app the user was in (VS Code).
- * Windows does this by itself. On macOS, hiding the app returns focus; then re-show the overlay
- * without activating. VERIFY ON THE MAC: if the pill flickers, try removing app.hide().
+ * Windows does this by itself. On macOS, reactivate the app that was in front (`open -b <bundle>`, from
+ * features/front-app) and keep the overlay up without activating it. app.hide() is only the fallback when that app
+ * isn't known: in Michael's test 11 it hid the overlay with it, and showInactive didn't bring it back (Finder in front).
  */
-export function returnFocus(app: App, overlay: BrowserWindow): void {
+export function returnFocus(app: App, overlay: BrowserWindow, previousBundle?: string): void {
   if (!isMac()) return
+  if (previousBundle) {
+    // Loaded here, never at the top: the renderer imports this file (describePlatform), and a top-level
+    // node:child_process import crashed every window at load ("externalized for browser compatibility").
+    void import('node:child_process').then(({ execFile }) =>
+      execFile('open', ['-b', previousBundle], (err) => {
+        if (err) console.warn('[focus] could not reactivate', previousBundle, err.message)
+      })
+    )
+    overlay.showInactive()
+    raise(overlay)
+    return
+  }
   app.hide()
   setTimeout(() => {
     overlay.showInactive()

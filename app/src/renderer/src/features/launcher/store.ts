@@ -1,6 +1,11 @@
-/** Feature: launcher. Search state: results stream in from the engine; errors land here while a search is live. */
+/**
+ * Feature: launcher. Search state: results stream in from the engine; errors land here while a search is live.
+ * Videos only (Michael, Sat): a search offers YouTube tutorials or "Build a lesson from the internet", never
+ * repos, papers, blogs or notebooks. The engine stops sending those; any that still arrive are dropped here.
+ */
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
+import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 
 /**
@@ -23,11 +28,15 @@ type SearchState = {
   error?: string
   /** The launcher panel is showing (set by the component). */
   open: boolean
+  /** A question was sent and its answer card hasn't arrived yet: the launcher keeps the text (Michael, item 6). */
+  askPending: boolean
+  /** Counts answer cards; the launcher clears its question field when this changes. */
+  answered: number
 }
 
 const blank = { query: '', results: [], pending: false, done: false, total: undefined, error: undefined } satisfies Partial<SearchState>
 
-export const useSearch = create<SearchState>(() => ({ ...blank, open: false }))
+export const useSearch = create<SearchState>(() => ({ ...blank, open: false, askPending: false, answered: 0 }))
 const set = useSearch.setState
 const get = useSearch.getState
 
@@ -37,11 +46,17 @@ export const clearResults = (): void => set({ ...blank })
 export const setLauncherOpen = (open: boolean): void => {
   if (get().open !== open) set({ open })
 }
+/** The launcher sent a question (action ask). */
+export const markAsked = (): void => set({ askPending: true })
 
 // A lesson-only reset (engine `lesson.ended`) must not wipe a search the learner is typing.
 onUi('reset', (p) => {
   if ((p as { scope?: string } | undefined)?.scope === 'lesson') return
-  set({ ...blank })
+  set({ ...blank, askPending: false })
+})
+// The answer (or the engine's "couldn't answer, retry" answer card) arrived: the question can go.
+onMessage('card', (p) => {
+  if (p.kind === 'answer' && get().askPending) set({ askPending: false, answered: get().answered + 1 })
 })
 
 onMessage('search.result', (payload) => {
@@ -55,6 +70,7 @@ onMessage('search.result', (payload) => {
       return { results }
     }
     if (!p.title) return s // an update for a row we never received: nothing to show
+    if (p.kind !== 'video') return s // videos only: the list never shows repos, papers, blogs or notebooks
     return { results: [...s.results, p], pending: !s.done, error: undefined }
   })
 })
@@ -63,3 +79,17 @@ onMessage('error', (p) => {
   const s = get()
   if (s.pending || s.open) set({ error: p.message, pending: false })
 })
+
+/**
+ * The launcher is open, as any overlay feature sees it (the shortcut bar, the spotlight). In the browser stage it lives
+ * in this document, so its store says so; in Electron it's its own window (its store isn't the overlay's), so also
+ * follow main's launcher:open / launcher:closed signals to the overlay.
+ */
+const useLauncherSignal = create<{ open: boolean }>(() => ({ open: false }))
+bridge.on('launcher:open', () => useLauncherSignal.setState({ open: true }))
+bridge.on('launcher:closed', () => useLauncherSignal.setState({ open: false }))
+export function useLauncherOpen(): boolean {
+  const here = useSearch((s) => s.open)
+  const signal = useLauncherSignal((s) => s.open)
+  return here || signal
+}

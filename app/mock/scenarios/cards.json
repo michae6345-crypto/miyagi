@@ -7,7 +7,10 @@
     "action:download": "cards_download",
     "action:open_editor": "cards_open_editor",
     "action:install": "cards_install",
-    "action:show_me@step7": "cards_where_step7"
+    "action:show_me@step7": "cards_where_step7",
+    "connect": "wc_lesson",
+    "action:hint@step2_wc": "wc_level3",
+    "action:apply_fix@step2_wc": "wc_fix"
   },
   "segments": {
     "after_step5": [
@@ -737,17 +740,17 @@
           },
           "items": [
             {
-              "tool": "cursor",
-              "label": "Cursor",
+              "tool": "vscode",
+              "label": "VS Code",
               "kind": "editor",
               "why": "Where you write the code",
               "needed": true,
               "installed": true,
               "ok": true,
-              "version": "0.45",
+              "version": "1.95",
               "install": {
                 "method": "download",
-                "url": "https://cursor.com/download"
+                "url": "https://code.visualstudio.com/download"
               }
             },
             {
@@ -821,20 +824,20 @@
           "body": "One package to install. The video links two files.",
           "setup": {
             "editorNeeded": true,
-            "editorLabel": "Cursor",
+            "editorLabel": "VS Code",
             "items": [
               {
-                "tool": "cursor",
-                "label": "Cursor",
+                "tool": "vscode",
+                "label": "VS Code",
                 "kind": "editor",
                 "why": "Where you write the code",
                 "needed": true,
                 "installed": true,
                 "ok": true,
-                "version": "0.45",
+                "version": "1.95",
                 "install": {
                   "method": "download",
-                  "url": "https://cursor.com/download"
+                  "url": "https://code.visualstudio.com/download"
                 }
               },
               {
@@ -965,20 +968,20 @@
           "body": "Everything is installed. Grab the tutorial files.",
           "setup": {
             "editorNeeded": true,
-            "editorLabel": "Cursor",
+            "editorLabel": "VS Code",
             "items": [
               {
-                "tool": "cursor",
-                "label": "Cursor",
+                "tool": "vscode",
+                "label": "VS Code",
                 "kind": "editor",
                 "why": "Where you write the code",
                 "needed": true,
                 "installed": true,
                 "ok": true,
-                "version": "0.45",
+                "version": "1.95",
                 "install": {
                   "method": "download",
-                  "url": "https://cursor.com/download"
+                  "url": "https://code.visualstudio.com/download"
                 }
               },
               {
@@ -1050,7 +1053,7 @@
           "kind": "hint",
           "title": "Code not visible",
           "body": "The plotting code isn't on screen.",
-          "where": "Open plot_solution.py in Cursor",
+          "where": "Open plot_solution.py in VS Code",
           "guidingQuestion": "Which array holds the exact solution?",
           "actions": [
             "open_editor"
@@ -1062,6 +1065,191 @@
         "type": "status",
         "payload": {
           "state": "watching"
+        }
+      }
+    ],
+    "wc_lesson": [
+      {
+        "wait": 600,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "word-count",
+            "title": "Count words in a book",
+            "sources": []
+          },
+          "steps": [
+            {
+              "id": "wc1",
+              "index": 0,
+              "title": "Read the book into a string",
+              "video": null
+            },
+            {
+              "id": "wc2",
+              "index": 1,
+              "title": "Count every word",
+              "video": null
+            },
+            {
+              "id": "wc3",
+              "index": 2,
+              "title": "Print the 10 most common",
+              "video": null
+            }
+          ]
+        }
+      },
+      {
+        "wait": 0,
+        "goto": "step2_wc"
+      }
+    ],
+    "step2_wc": [
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "wc2",
+          "index": 1,
+          "title": "Count every word",
+          "instructions": "Add one to the count for each word",
+          "video": null
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "wc2",
+          "checkId": "c1",
+          "label": "Runs without errors",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "wc2",
+          "checkId": "c2",
+          "label": "\"the\" appears 1,804 times",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "wc2",
+          "checkId": "c1",
+          "label": "Runs without errors",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "wc2",
+          "checkId": "c2",
+          "label": "\"the\" appears 1,804 times",
+          "status": "fail",
+          "detail": "yours 1"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "offtrack",
+        "payload": {
+          "stepId": "wc2",
+          "severity": "fail",
+          "level": 2,
+          "title": "Every word counts as 1",
+          "body": "The count resets each time a word repeats.",
+          "guidingQuestion": "What should happen the second time you see \"the\"?",
+          "diff": {
+            "file": "wordcount.py",
+            "line": 10,
+            "yours": "counts[word] = 1",
+            "expected": "counts[word] = counts.get(word, 0) + 1"
+          },
+          "actions": [
+            "show_me",
+            "explain",
+            "hint"
+          ]
+        }
+      }
+    ],
+    "wc_level3": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "offtrack",
+        "payload": {
+          "stepId": "wc2",
+          "severity": "fail",
+          "level": 3,
+          "title": "Add one to the old count",
+          "body": "Use get() so a new word starts at 0.",
+          "diff": {
+            "file": "wordcount.py",
+            "line": 10,
+            "yours": "counts[word] = 1",
+            "expected": "counts[word] = counts.get(word, 0) + 1"
+          },
+          "actions": [
+            "show_me",
+            "explain",
+            "hint",
+            "apply_fix"
+          ]
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "wc_fix": [
+      {
+        "wait": 250,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "wc2",
+          "checkId": "c2",
+          "label": "\"the\" appears 1,804 times",
+          "status": "pending",
+          "detail": "rerunning"
+        }
+      },
+      {
+        "wait": 1600,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "wc2",
+          "checkId": "c2",
+          "label": "\"the\" appears 1,804 times",
+          "status": "pass",
+          "detail": "yours 1,804"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "wc2",
+          "summary": "\"the\" appears 1,804 times."
         }
       }
     ]

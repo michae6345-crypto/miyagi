@@ -1,5 +1,8 @@
 /**
- * Feature: settings. The Keys sheet, born from the notch island (its own focusable window, route `settings`).
+ * Feature: settings. The Settings sheet, born from the notch island (its own focusable window, route `settings`).
+ * Two sections: General (General.tsx: appearance, read aloud, open at login; applied at once through core
+ * prefs) and Keys (below; applied on Save). The sheet stays black in every appearance, like the island. It
+ * never grows past the screen: past that, the key rows scroll inside it.
  *
  * Opening: `settings:open {from}` (main) / requestOpen (browser stage) carries the island's current size. The
  * sheet starts on exactly that shape (top = platform.pillTop, centered, black, shadows.pill or .card) and
@@ -18,12 +21,14 @@ import { motion, useReducedMotion, type HTMLMotionProps, type TargetAndTransitio
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { WifiOff, X } from 'lucide-react'
 import type { KeyState } from '../../../../../../shared/contracts/events'
+import type { Layout } from '../../../../preload/api'
 import { bridge, isElectron } from '../../bridge'
 import { onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { PrimaryButton, Spinner } from '../../core/ui/atoms'
 import { color, fill, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
+import { General, SectionLabel } from './General'
 import { KEY_NAMES, REQUIRED, type KeyInfo, type KeyName, type KeysView, type SavePatch } from './keys'
 import { nextStatus, useSettings, type Size } from './store'
 
@@ -45,7 +50,7 @@ const isRequired = (k: KeyName): boolean => REQUIRED.includes(k)
 
 /** Rows shown in the sheet. ElevenLabs is hidden: voice speaks with the computer's own voice now (Adrian, Sat),
  * but the key name stays in storage and in config.keys so the engine contract is unchanged. */
-const SHOWN = KEY_NAMES.filter((k) => k !== 'elevenlabs')
+const SHOWN = KEY_NAMES.filter((k) => k !== 'elevenlabs') // Gemini is back on (Michael's test 10: config.status reports it); never ElevenLabs
 
 const isPillSized = (s: Size): boolean => s.h <= pill.height + 1
 /** The island's shape at a given size: a pill is fully round, a card uses the island's card radius. */
@@ -65,7 +70,9 @@ const contentOut: Transition = { duration: 0.08 }
 /** Test's spinner shows at least this long, so a fast answer still reads as "checked". */
 const MIN_SPIN = 450
 
-const NO_ANSWER = 'No answer from Miyagi'
+const NO_ANSWER = 'No answer from miyagi'
+/** Space kept free under the sheet when it would otherwise reach the bottom of the screen. */
+const BOTTOM_MARGIN = 24
 
 /** Which island mode the island is showing right now (core/Island's rule, without hover). */
 function useIslandMode(): IslandMode | undefined {
@@ -74,7 +81,7 @@ function useIslandMode(): IslandMode | undefined {
   return modes.find((_, i) => wanted[i])
 }
 
-export function Settings(): ReactNode {
+export function Settings({ layout }: { layout: Layout }): ReactNode {
   const [phase, setPhaseState] = useState<Phase>('closed')
   const phaseRef = useRef(phase)
   const setPhase = useCallback((p: Phase) => {
@@ -305,6 +312,8 @@ export function Settings(): ReactNode {
   const transition: Transition = exiting ? (reduce ? { duration: 0.2 } : { ...springOut, ...settle }) : spring
 
   const footNote = note ?? (view && !view.secure ? 'Not saved: no secure storage' : !connected ? 'Offline' : undefined)
+  /** The sheet never grows past the screen: below the pill, with a margin at the bottom. */
+  const maxHeight = Math.max(240, layout.height - bridge.platform.pillTop - BOTTOM_MARGIN)
 
   return (
     <div key={gen} className="absolute inset-0" data-settings={phase}>
@@ -320,7 +329,7 @@ export function Settings(): ReactNode {
 
       <motion.div
         role="dialog"
-        aria-label="Keys"
+        aria-label="Settings"
         className="absolute left-1/2 overflow-hidden text-white"
         style={{ top: bridge.platform.pillTop, x: '-50%', background: color.island, transformOrigin: '50% 0%' }}
         initial={reduce ? faded : { ...shapeOf(from), opacity: 1 }}
@@ -340,15 +349,15 @@ export function Settings(): ReactNode {
 
         <motion.div
           ref={content}
-          // flow-root: the first section's top margin must not collapse through the measured height.
-          className="flow-root"
-          style={{ width: WIDTH, marginLeft: `calc(50% - ${WIDTH / 2}px)` }}
+          // A column whose height never passes the screen: past maxHeight only the key rows shrink and scroll.
+          className="flex flex-col"
+          style={{ width: WIDTH, marginLeft: `calc(50% - ${WIDTH / 2}px)`, maxHeight }}
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
         >
-          <div className="flex h-[52px] items-center pl-[24px] pr-[14px]">
+          <div className="flex h-[52px] shrink-0 items-center pl-[24px] pr-[14px]">
             <span className="flex-1 text-[15px] font-semibold" style={{ color: color.text }}>
-              Keys
+              Settings
             </span>
             <button
               type="button"
@@ -362,7 +371,15 @@ export function Settings(): ReactNode {
             </button>
           </div>
 
-          <div className="pb-[6px]">
+          <div className="shrink-0 pb-[10px]">
+            <SectionLabel>General</SectionLabel>
+            <General />
+          </div>
+
+          <div className="shrink-0 pt-[8px]">
+            <SectionLabel>Keys</SectionLabel>
+          </div>
+          <div className="min-h-0 shrink overflow-y-auto pb-[6px]" style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
             {SHOWN.map((k) => (
               <KeyRow
                 key={k}
@@ -382,8 +399,8 @@ export function Settings(): ReactNode {
             ))}
           </div>
 
-          <div className="h-px" style={{ background: fill.rule }} />
-          <div className="flex h-[52px] items-center gap-[8px] pl-[24px] pr-[12px]">
+          <div className="h-px shrink-0" style={{ background: fill.rule }} />
+          <div className="flex h-[52px] shrink-0 items-center gap-[8px] pl-[24px] pr-[12px]">
             <span className="flex min-w-0 flex-1 items-center gap-[7px] text-[13px]" style={{ color: color.label }}>
               {!note && !connected && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
               {footNote && <span className="truncate">{footNote}</span>}

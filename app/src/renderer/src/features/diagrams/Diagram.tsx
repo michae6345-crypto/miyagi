@@ -1,6 +1,7 @@
 /**
  * Intuition diagrams (the server sends the data; we only render).
- *   network   : the real model's layers + autograd arrows to u_t, u_x → residual
+ *   network   : the real model's layers + autograd arrows to u_t, u_x → residual; with real weights (data.frames),
+ *               a live network whose neurons light up and fire (NeuralNet.tsx)
  *   gradients : gradient norm per layer over training (shows the PINN failure)
  *   heatmap   : predicted vs exact field on a canvas (Heatmap.tsx)
  *   graph     : any topic's nodes + edges, every layout family (Graph.tsx); tabs when a step has several kinds (Tabs.tsx)
@@ -13,8 +14,11 @@ import type { ReactNode } from 'react'
 import { Waypoints } from 'lucide-react'
 import { actionTone, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
-import { useDiagram } from './store'
+import { useDiagram, type DiagramPayload } from './store'
 import { Graph } from './Graph'
+import { NeuralNet, WEIGHT_NEG, WEIGHT_POS } from './NeuralNet'
+import { SafeDiagram } from './SafeDiagram'
+import { Firing, isFiringNetwork } from './Firing'
 import { Heatmap, type HeatmapData } from './Heatmap'
 import { DiagramTabs, titleOf } from './Tabs'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
@@ -34,20 +38,35 @@ export function DiagramView(): ReactNode {
         <CloseButton />
       </div>
       <div className="mt-[10px]">
-        {d.kind === 'network' && <Network data={d.data as Record<string, unknown>} />}
-        {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
-        {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
-        {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
+        <DiagramBody d={d} />
       </div>
+      {/* Left-aligned under the left-aligned title (audit A23). */}
       {d.caption && (
         <div
-          className="mt-[8px] overflow-hidden text-center text-[14px] leading-[20px]"
+          className="mt-[8px] overflow-hidden text-left text-[14px] leading-[20px]"
           style={{ color: color.label, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
         >
           {d.caption}
         </div>
       )}
     </div>
+  )
+}
+
+/** The drawing itself, at the island's 600 px content width, in island (dark) ink. The drawer's flyout reuses it. */
+export function DiagramBody({ d }: { d: DiagramPayload }): ReactNode {
+  return (
+    <SafeDiagram resetKey={d.data}>
+      {d.kind === 'network' &&
+        ((d.data as Record<string, unknown>).frames ? (
+          isFiringNetwork(d.data as Record<string, unknown>) ? <Firing data={d.data as Record<string, unknown>} /> : <NeuralNet data={d.data as Record<string, unknown>} />
+        ) : (
+          <Network data={d.data as Record<string, unknown>} />
+        ))}
+      {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
+      {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
+      {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
+    </SafeDiagram>
   )
 }
 
@@ -60,10 +79,25 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
   const inputs = (data.inputs as string[]) ?? []
   const derivs = (data.derivatives as string[]) ?? []
   const residual = (data.residual as string) ?? ''
-  const W = 600
+  const output = typeof data.output === 'string' ? data.output : ''
   const H = 196
   const netW = 420
-  const colX = layers.map((_, i) => 24 + (i * (netW - 48)) / (layers.length - 1))
+  // With nothing on the right (no autograd arrows, no combined output) the drawing ends at the output's name, written
+  // in full: no empty right third, so it sits centred (test 10 judge review: "softm…", network in the left 420 of 600).
+  const W = derivs.length || residual ? 600 : Math.round(netW - 24 + 19 + (output ? output.length * 6.6 + 4 : 0) + 16)
+  // Node names sit OUTSIDE the circles (inputs to the left, the output to the right): inside, "X" covered the first
+  // input and "output" overlapped its node (Michael's test 5). Room on the left grows with the longest input name.
+  const short = (t: string): string => (t.length > 12 ? `${t.slice(0, 11)}…` : t)
+  const left = 24 + Math.min(80, Math.max(0, ...inputs.map((t) => short(t).length * 6.6 + 8)))
+  const colX = layers.map((_, i) => left + (i * (netW - 24 - left)) / (layers.length - 1))
+  // Optional real weights (extra field, like NeuralNet's frames): W[l] is layer l → l+1, row-major (from i, to j at
+  // i*n+j). Thickness = |w|, hue = sign (the same blue / brown NeuralNet uses for weights only).
+  const weights = Array.isArray(data.W) ? (data.W as number[][]) : Array.isArray(data.weights) ? (data.weights as number[][]) : undefined
+  const wMax = Math.max(1e-9, ...(weights ?? []).flat().map((v) => Math.abs(Number(v) || 0)))
+  const weightOf = (li: number, i: number, j: number): number | undefined => {
+    const v = weights?.[li]?.[i * layers[li + 1] + j]
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+  }
   const nodesOf = (n: number): (number | 'dots')[] => (n <= 5 ? Array.from({ length: n }, (_, i) => i) : [0, 1, 2, 'dots', 4])
   const nodeY = (count: number, i: number): number => {
     const shown = Math.min(count, 5)
@@ -79,15 +113,19 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
         const a = nodesOf(n).filter((x) => x !== 'dots') as number[]
         const b = nodesOf(layers[li + 1]).filter((x) => x !== 'dots') as number[]
         return a.flatMap((i) =>
-          b.map((j) => (
-            <motion.path
-              key={`${li}-${i}-${j}`}
-              d={`M${colX[li]},${nodeY(n, i)} L${colX[li + 1]},${nodeY(layers[li + 1], j)}`}
-              stroke={color.hairline}
-              strokeWidth="1"
-              {...draw(li)}
-            />
-          ))
+          b.map((j) => {
+            const w = weightOf(li, i, j)
+            return (
+              <motion.path
+                key={`${li}-${i}-${j}`}
+                d={`M${colX[li]},${nodeY(n, i)} L${colX[li + 1]},${nodeY(layers[li + 1], j)}`}
+                stroke={w === undefined ? color.hairline : w >= 0 ? WEIGHT_POS : WEIGHT_NEG}
+                strokeWidth={w === undefined ? 1 : 0.6 + 2.6 * (Math.abs(w) / wMax)}
+                strokeOpacity={w === undefined ? 1 : 0.35 + 0.65 * (Math.abs(w) / wMax)}
+                {...draw(li)}
+              />
+            )
+          })
         )
       })}
       {/* nodes */}
@@ -113,14 +151,29 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
           )
         )
       )}
-      {inputs.map((name, i) => (
-        <text key={name} x={colX[0]} y={nodeY(layers[0], i) + 4} textAnchor="middle" fill={color.text} fontSize="12" fontStyle="italic">
-          {name}
+      {/* One name per input node; a single name for several inputs ("X") sits at the column's middle. */}
+      {inputs.map((name, i) => {
+        const y = inputs.length === 1 && layers[0] > 1 ? 82 : nodeY(layers[0], i)
+        return (
+          <text key={`${name}-${i}`} x={colX[0] - 19} y={y + 4} textAnchor="end" fill={color.text} fontSize="12" fontStyle="italic">
+            {short(name)}
+          </text>
+        )
+      })}
+      {output && (
+        // With autograd arrows on the right (derivatives), the short output name stays in its node, clear of them;
+        // without them it's written in full to the node's right (W makes room for it).
+        <text
+          x={colX[colX.length - 1] + (derivs.length ? 0 : 19)}
+          y={82 + 4}
+          textAnchor={derivs.length ? 'middle' : 'start'}
+          fill={color.text}
+          fontSize="12"
+          fontStyle="italic"
+        >
+          {derivs.length ? short(output) : output}
         </text>
-      ))}
-      <text x={colX[colX.length - 1]} y={nodeY(1, 0) + 4} textAnchor="middle" fill={color.text} fontSize="12" fontStyle="italic">
-        {(data.output as string) ?? ''}
-      </text>
+      )}
       {/* labels */}
       {layers.map((n, li) => (
         <g key={`l${li}`}>

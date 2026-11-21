@@ -4,9 +4,11 @@
  */
 import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { CircleAlert, CircleStop, FileCode2, FileText, FolderGit2, Newspaper, SearchX } from 'lucide-react'
+import { CircleAlert, CirclePlay, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
+import { MiyagiMark } from '../../core/ui/Mark'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, spring } from '../../core/theme'
+import { HOW_LABEL } from './parts'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { alpha, kindTone } from './tint'
@@ -119,14 +121,46 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
   )
 }
 
-/** During a lesson with nothing typed: ending it is the first row, highlighted (Enter ends it, Esc keeps the lesson). */
-export function EndRow({ lessonTitle, onPick }: { lessonTitle?: string; onPick: () => void }): ReactNode {
+/**
+ * The fixed first row of every search: a text lesson Claude researches from the web for what's typed (learn mode
+ * "lesson"), no video. A neutral tile with the bonsai: it's Miyagi's own option, not a source kind.
+ * Titled like the chip and the footer (review A18: one name for one action everywhere).
+ */
+export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: () => void }): ReactNode {
+  return (
+    <RowShell slot={0} onHover={onHover} onPick={onPick}>
+      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile }}>
+        <MiyagiMark size={18} />
+      </span>
+      <Text title={HOW_LABEL.lesson} meta="A lesson built from the internet, no video" />
+    </RowShell>
+  )
+}
+
+/**
+ * During a lesson with nothing typed, the only row (highlighted): back to the lesson where it was. Enter, or a click,
+ * closes the launcher into the island, so the lesson is one key away and never restarted by accident. Ending the
+ * lesson is not a row (desktop test 3, item 8): it's the quiet two-tap link in the footer (parts EndLink).
+ */
+export function ResumeRow({ lessonTitle, where, onPick }: { lessonTitle?: string; where: string; onPick: () => void }): ReactNode {
   return (
     <RowShell slot={0} onPick={onPick}>
       <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
-        <CircleStop size={16} strokeWidth={1.6} />
+        <CirclePlay size={16} strokeWidth={1.6} />
       </span>
-      <Text title="End lesson" meta={lessonTitle ?? 'Back to idle'} />
+      <Text title={lessonTitle ? `Continue ${lessonTitle}` : 'Continue the lesson'} meta={where} />
+    </RowShell>
+  )
+}
+
+/** Typing a settings word ("sett", "keys", "pref", "appear"…): the one way into Settings from the launcher. */
+export function SettingsRow({ onPick }: { onPick: () => void }): ReactNode {
+  return (
+    <RowShell slot={0} onPick={onPick}>
+      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
+        <Settings size={16} strokeWidth={1.6} />
+      </span>
+      <Text title="Settings" meta="Keys and appearance" />
     </RowShell>
   )
 }
@@ -162,12 +196,12 @@ export function SkeletonRow({ slot }: { slot: number }): ReactNode {
 }
 
 /** Empty / error: one quiet row with an icon, a title and a detail line. */
-export function MessageRow({ tone, title, detail }: { tone: 'empty' | 'error'; title: string; detail: string }): ReactNode {
+export function MessageRow({ tone, title, detail, slot = 0 }: { tone: 'empty' | 'error'; title: string; detail: string; slot?: number }): ReactNode {
   const I = tone === 'error' ? CircleAlert : SearchX
   return (
     <motion.div
       className="absolute inset-x-0 flex items-center gap-[14px] px-[10px]"
-      style={{ top: 0, height: ROW_H }}
+      style={{ top: slot * ROW_H, height: ROW_H }}
       initial={enter}
       animate={shown}
       exit={gone}

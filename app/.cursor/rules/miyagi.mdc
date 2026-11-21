@@ -1,0 +1,33 @@
+---
+description: miyagi app rules for every Cursor agent working in app/ (SanD Hacks 2026)
+alwaysApply: true
+---
+
+# miyagi app: rules for Cursor agents
+
+miyagi is a desktop overlay that turns any tutorial into a hands-on lesson whose steps are checked automatically. Several agents (Cursor and Claude Code) work in this repo in parallel, so these rules match `app/CLAUDE.md`. Read it, `app/README.md` and `shared/contracts/events.ts` before changing code.
+
+## Lanes
+- `app/` is Adrian's (Electron overlay: React, TypeScript, zustand). Edit only here.
+- `server/` and `cli/` are Michael's (Python engine). `shared/contracts/` is Michael's too and changes only in a PR titled `contract: ...`, adding fields only, never renaming or removing one.
+- Core files (`core/`, `bridge.ts`, `main.tsx`, `src/main/index.ts|engine.ts|platform.ts|context.ts`, `src/preload/`, `src/common/`, `package.json`, configs) belong to the integrator. Work inside a feature folder: `src/renderer/src/features/<feature>/` and `src/main/features/<feature>.ts`.
+
+## Contract
+- App and engine talk only through the WebSocket messages in `shared/contracts/events.ts`, `{type, payload}` both ways.
+- The app builds against the mock in `app/mock/`; the engine emits the same events.
+- Never hardcode lesson-specific names (metric names, 'loss', 'PINN'). Labels come from the data.
+
+## Brand (anything visible)
+- Read `app/brand/BRAND.md` first. Use `core/theme.ts` tokens only, no new hard-coded colors.
+- Green only means passed. Off track has no hue: a white ring and "Not yet". Pastels only for options.
+- No gradients, glows, neon, emoji or sparkles; the bonsai `MiyagiMark` replaces sparkle icons and is shown in color (green pads, brown trunk, clay pot), never as a white silhouette.
+- The brand is lowercase: "miyagi". Copy is short, 12 words or fewer per card.
+- Every surface grows out of the notch island and returns to it.
+
+## Before you commit
+- `npm run typecheck` in `app/` must pass.
+- One branch per agent session, `adrian/<area>`. PR into `adrian/shell`; a human merges.
+- No commits after Sun 15 Nov 12:00 PM Pacific.
+
+## Secrets
+- API keys live only in the settings feature (main process, safeStorage) or a local `.env`. Never commit, log or print a key.

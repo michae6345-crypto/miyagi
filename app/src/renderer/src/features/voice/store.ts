@@ -2,6 +2,7 @@
  * Feature: voice (⌥V). When it's on, Miyagi reads its own lines aloud with the computer's voice:
  *   cards and off-track notes (title, then body) · the step's task when the engine pauses the video for it
  *   (and right when voice turns on) · the passed line.
+ * With Settings → "Read lessons aloud" on, every new lesson starts with voice on.
  * The app owns this entirely: the engine's `speak` / ElevenLabs path isn't used, so there's no key and no state to sync.
  *
  *   useVoice(s => s.on)        voice is on
@@ -11,6 +12,7 @@
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
+import { usePrefs } from '../../core/prefs'
 import { triggerShortcut } from '../../core/shortcuts'
 import { copy } from '../../core/theme'
 import { createSpeech } from './speech'
@@ -40,15 +42,34 @@ onUi('shortcut', (kind) => {
   return true
 })
 
+// Settings → "Read lessons aloud" (pref voiceOnStart): a new lesson turns voice on and reads its first task once.
+// Read only here, so flipping the pref mid-lesson waits for the next lesson; ⌥V still toggles freely.
+let readFirstTask = false
+onMessage('lesson.ready', () => {
+  if (!usePrefs.getState().voiceOnStart) return
+  useVoice.setState({ on: true })
+  readFirstTask = true // lesson.ready has no step yet: the first step.started brings the task
+})
+onMessage('step.started', (p) => {
+  if (!readFirstTask) return
+  readFirstTask = false
+  say(p.instructions || p.title)
+})
+
 onMessage('card', (p) => say(titled(p.title, p.body)))
 onMessage('offtrack', (p) => say(titled(p.title, p.body)))
-onMessage('step.passed', () => say(copy.passed))
+onMessage('step.passed', (p) => {
+  if (!p.skipped && !(p as typeof p & { already?: boolean }).already) say(copy.passed)
+})
 // The engine stopped the video so the learner can work: say what to do.
 onMessage('video.pause', () => say(task()))
 
 // Esc, lesson ended, dev reset, reconnect: quiet. `on` stays as the learner set it.
 onUi('dismiss', () => speech.stop())
-onUi('reset', () => speech.stop())
+onUi('reset', () => {
+  readFirstTask = false
+  speech.stop()
+})
 useVoice.subscribe((s, prev) => {
   if (prev.on && !s.on) speech.stop()
 })

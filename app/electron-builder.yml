@@ -1,5 +1,5 @@
 appId: dev.sandhacks.miyagi
-productName: Miyagi
+productName: miyagi
 directories:
   output: dist
   buildResources: build
@@ -13,6 +13,24 @@ mac:
   identity: null
   extendInfo:
     LSUIElement: true
+    # macOS shows these in the permission prompts (the app starts the engine, so the prompts name miyagi).
+    NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
+    NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
+  # The engine travels inside the app (scripts/bundle-engine.mjs makes build/engine); on first launch
+  # main/localEngine.ts installs it to ~/miyagi/engine and starts it.
+  extraResources:
+    - from: build/engine
+      to: engine
 win:
-  target: dir
+  target: nsis
   icon: build/icon.ico
+# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts Miyagi when done.
+# Stable file name so the site can link straight to it. Unsigned: SmartScreen asks once (More info > Run anyway).
+nsis:
+  artifactName: Miyagi-Windows-Setup.${ext}
+  oneClick: true
+  perMachine: false
+  shortcutName: Miyagi
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: true

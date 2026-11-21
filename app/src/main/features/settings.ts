@@ -31,6 +31,10 @@ import { join } from 'node:path'
 import { cmd } from '../../common/wire'
 import { defineMainFeature } from '../context'
 import { returnFocus } from '../platform'
+import { previousApp } from './front-app'
+
+/** How long the closed sheet's window keeps catching clicks (see hide()). */
+const CATCH_MS = 400
 import { cleanKeys, fullPayload, mergeKeys, needsKeys, viewOf, type Keys, type KeyStatus, type KeysView } from '../../renderer/src/features/settings/keys'
 
 /** Linux can fall back to a hard-coded password ("basic_text"): that's not secure storage. */
@@ -89,12 +93,14 @@ export default defineMainFeature({
 
     let open = false
 
+    let hideTimer: ReturnType<typeof setTimeout> | undefined
     const show = (): void => {
       if (win.isDestroyed()) return
       if (open) {
         win.focus()
         return
       }
+      clearTimeout(hideTimer)
       open = true
       win.show()
       win.focus()
@@ -103,12 +109,19 @@ export default defineMainFeature({
       ctx.broadcast('settings:open', { from: ctx.islandSize() })
     }
 
+    // The sheet has already collapsed when this runs. The (transparent, full-screen) window stays up CATCH_MS longer, so
+    // a click aimed at the sheet's ✕ lands here instead of falling through the overlay to the wallpaper (Michael's
+    // test 11: macOS "click wallpaper to reveal desktop" took the whole screen away).
     const hide = (): void => {
       if (!open || win.isDestroyed()) return
       open = false
-      win.hide()
       ctx.yieldIsland(false) // in case the renderer's island:return didn't make it (reload mid-close)
-      returnFocus(ctx.app, ctx.overlay)
+      clearTimeout(hideTimer)
+      hideTimer = setTimeout(() => {
+        if (open || win.isDestroyed()) return
+        win.hide()
+        returnFocus(ctx.app, ctx.overlay, previousApp())
+      }, CATCH_MS)
     }
 
     // Clicking elsewhere: collapse back into the island (the renderer animates, then calls settings:hidden).
@@ -129,12 +142,7 @@ export default defineMainFeature({
     ctx.engine.onEvent((e) => {
       if (e.type !== 'config.status') return
       lastStatus = e.payload
-      if (!autoOpened && needsKeys(e.payload)) {
-        autoOpened = true
-        // The window may still be loading on the very first connect.
-        if (win.webContents.isLoading()) win.webContents.once('did-finish-load', () => setTimeout(show, 200))
-        else show()
-      }
+      // Never opens by itself (Adrian, Sat 5 PM): the learner opens Settings (gear, launcher, ⌘,).
     })
 
     // ---- IPC ----------------------------------------------------------------------------------

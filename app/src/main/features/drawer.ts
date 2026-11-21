@@ -1,33 +1,25 @@
 /**
  * Main-process side of the drawer (renderer: src/renderer/src/features/drawer/).
  *
- * Handles (bridge.invoke from any window):
- *   drawer:open-url  (url) a source row was clicked → the default browser. http(s) only.
+ * Handles (bridge.invoke):
+ *   drawer:copy  the current step's Copy button → the system clipboard. The overlay window is focusable: false, and
+ *                Chromium refuses both navigator.clipboard and execCommand('copy') in an unfocused document (checked
+ *                in headless Brave: "Document is not focused", execCommand → false), so the renderer can't copy alone.
  *
- * Why not window.open: the overlay window has no setWindowOpenHandler (only the player's window does),
- * so window.open from the overlay would open a bare Electron window. See Core requests in agents/drawer.md.
- *
- * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac.
+ * UNVERIFIED in Electron (typechecked only; the browser stage uses the web handler in features/drawer/plan.ts).
  */
-import { shell } from 'electron'
+import { clipboard } from 'electron'
 import { defineMainFeature } from '../context'
 
-function isWebLink(url: unknown): url is string {
-  if (typeof url !== 'string') return false
-  try {
-    const u = new URL(url)
-    return u.protocol === 'https:' || u.protocol === 'http:'
-  } catch {
-    return false
-  }
-}
+/** The full code of one step, never a whole file dump. */
+const MAX_CHARS = 100_000
 
 export default defineMainFeature({
   id: 'drawer',
   setup(ctx) {
-    ctx.handle('drawer:open-url', (url) => {
-      if (!isWebLink(url)) return false
-      void shell.openExternal(url)
+    ctx.handle('drawer:copy', (text) => {
+      if (typeof text !== 'string' || !text || text.length > MAX_CHARS) return false
+      clipboard.writeText(text)
       return true
     })
   }

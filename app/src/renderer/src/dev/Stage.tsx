@@ -5,6 +5,10 @@
  * Keys: Ctrl+K / Ctrl+Shift+Space / Alt+Space → launcher · Alt+E/D/S/H/V, Alt+← → shortcuts · Esc → dismiss
  * URL:  ?scenario=<name> (any mock/scenarios/*.json; default full) · ?engine=socket (use ws://localhost:8787,
  *       or ?engine=ws://host:port) · ?os=win · ?clean (hide the dev HUD) · #/launcher (open on load)
+ *
+ * Backdrop (audit A24): the mockup desktop has a Dock, so the overlay's work area ends above it (the bar sits 24px
+ * over the Dock, as on a Mac). A text lesson ("Just teach me", lesson.mode "lesson") is no video tutorial: the editor
+ * is full screen, so the stage drops the mockup's tutorial for a plain neutral backdrop with no Dock.
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { RotateCcw } from 'lucide-react'
@@ -13,14 +17,23 @@ import desktop from './desktop.png'
 import { bridge, engineMode, STAGE } from '../bridge'
 import { emitUi } from '../core/bus'
 import { useLesson } from '../core/lesson'
+import { brand, fill } from '../core/theme'
+import type { Layout } from '../../../preload/api'
 import { getFeatureWindows } from '../core/registry'
 import { triggerShortcut, type ActionShortcut } from '../core/shortcuts'
 import { Overlay } from '../core/Overlay'
 
 const KEYMAP: Record<string, ActionShortcut> = { ArrowLeft: 'back', KeyE: 'explain', KeyD: 'diagram', KeyS: 'show_me', KeyH: 'hint', KeyV: 'voice_toggle' }
 
+/** Top of the Dock in desktop.png (its tiles start at 921), less a few px of margin, like a Mac's workArea. */
+const DOCK_TOP = 916
+/** The overlay over the mockup desktop: its work area stops above the Dock. */
+const DESKTOP: Layout = { ...STAGE, workArea: { ...STAGE.workArea, height: DOCK_TOP - STAGE.workArea.y } }
+
 export function Stage({ openLauncher = false }: { openLauncher?: boolean }): ReactNode {
   const [scale, setScale] = useState(1)
+  // A text lesson isn't the mockup's video tutorial: neutral backdrop, full-screen editor (no Dock).
+  const neutral = useLesson((s) => s.lesson?.mode === 'lesson')
 
   useEffect(() => {
     const fit = (): void => setScale(Math.min(innerWidth / STAGE.width, innerHeight / STAGE.height))
@@ -56,8 +69,12 @@ export function Stage({ openLauncher = false }: { openLauncher?: boolean }): Rea
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#08080b]">
       <div className="absolute left-1/2 top-1/2 overflow-hidden" style={{ width: STAGE.width, height: STAGE.height, transform: `translate(-50%,-50%) scale(${scale})` }}>
-        <img src={desktop} draggable={false} className="absolute inset-0 h-full w-full select-none" />
-        <Overlay layout={STAGE} />
+        {neutral ? (
+          <div className="absolute inset-0" style={{ background: brand.ink }} data-backdrop="neutral" />
+        ) : (
+          <img src={desktop} draggable={false} className="absolute inset-0 h-full w-full select-none" data-backdrop="desktop" />
+        )}
+        <Overlay layout={neutral ? STAGE : DESKTOP} />
         {windows.map(({ route, Component, stage }) =>
           stage === 'fill' ? (
             <Component key={route} layout={STAGE} />
@@ -77,12 +94,14 @@ function DevHud(): ReactNode {
   const connected = useLesson((s) => s.connected)
   const seen = useLesson((s) => s.seen)
   const mode = engineMode()
+  const keys = bridge.platform.keys
   const label = mode === 'inline' ? `inline mock · ${new URLSearchParams(location.search).get('scenario') ?? 'full'}` : mode === 'socket' ? 'engine socket' : 'electron'
   return (
     <div className="fixed bottom-3 left-3 flex max-w-[calc(100vw-24px)] items-center gap-2 rounded-full border border-white/10 bg-black/70 py-1 pl-3 pr-1 text-[12px] text-white/70 backdrop-blur">
-      <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: connected ? '#30D158' : '#FFB020' }} />
+      {/* Gray, like the pill's watching dot (green only means passed): filled when connected, a ring when not. */}
+      <span className="h-[7px] w-[7px] shrink-0 rounded-full border" style={{ borderColor: brand.watching, background: connected ? brand.watching : fill.clear }} />
       <span className="shrink-0">{label}</span>
-      <span className="truncate text-white/35">{seen ? `· sees ${seen.app}: ${seen.summary}` : '· Ctrl+K launcher · Alt+D diagram · Esc'}</span>
+      <span className="truncate text-white/35">{seen ? `· sees ${seen.app}: ${seen.summary}` : `· ${keys.launcher} launcher · ${keys.diagram} diagram · Esc`}</span>
       <button
         className="ml-1 flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-white/10 px-2 py-[3px] hover:bg-white/20"
         onClick={() => {
