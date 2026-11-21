@@ -79,7 +79,7 @@ import { navKey } from './keys'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
 import { placeClear } from './place'
 import { parseYouTube } from './youtube'
-import { beat, ease, fade } from '../../core/ui/motion'
+import { beat, ease, fade, instant } from '../../core/ui/motion'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
 type Mode = 'search' | 'ask'
@@ -787,7 +787,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   /** Reduced motion: crossfade at full size. Exit targets keep every key (a dropped key ends the animation early). */
   const faded = { ...grown, opacity: 0 }
   let target: TargetAndTransition = { ...grown, opacity: 1 }
-  let transition: Transition = spring
+  // Reduce Motion: the open panel's height follows its rows at once (MotionConfig doesn't cover sizes); it fades.
+  let transition: Transition = reduce ? { ...instant, opacity: fade.in } : spring
   if (phase === 'closing' || phase === 'sending') {
     target = reduce ? faded : { ...shapeOf(from), opacity: 1 }
     transition = reduce ? fade.in : { ...springOut, ...settle }

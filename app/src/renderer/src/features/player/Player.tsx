@@ -23,7 +23,7 @@ import { usePill } from '../pill/store'
 import { dockRect } from './dock'
 import { GlassCheck, GlassDot, GlassPrimary, GlassQuiet, GlassSpinner } from './glass'
 import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
-import { beat, ease, enter, fade as fades, pressMotion } from '../../core/ui/motion'
+import { beat, ease, enter, fade as fades, prefersReduced, pressMotion } from '../../core/ui/motion'
 
 /** Frameless window: the header drags it; buttons inside opt out. */
 const drag = { WebkitAppRegion: 'drag' } as CSSProperties
@@ -432,7 +432,7 @@ function Volume(): ReactNode {
       <IconButton onClick={() => player.toggleMute()} label={level === 0 ? 'Unmute' : 'Mute'}>
         <Icon size={15} strokeWidth={1.8} />
       </IconButton>
-      <motion.div className="overflow-hidden" initial={false} animate={{ width: open ? 64 : 0, opacity: open ? 1 : 0 }} transition={fades.in}>
+      <motion.div className="overflow-hidden" initial={false} animate={{ width: open ? 64 : 0, opacity: open ? 1 : 0 }} transition={prefersReduced() ? fades.instant : fades.in}>
         <input
           type="range"
           min={0}
@@ -551,8 +551,8 @@ function Chapters(): ReactNode {
     const row = box?.querySelector<HTMLElement>(`[data-step="${CSS.escape(stepId ?? '')}"]`)
     if (!box || !row) return
     const top = row.offsetTop - box.offsetTop
-    if (top < box.scrollTop) box.scrollTo({ top, behavior: 'smooth' })
-    else if (top + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTo({ top: top + row.offsetHeight - box.clientHeight, behavior: 'smooth' })
+    if (top < box.scrollTop) box.scrollTo({ top, behavior: prefersReduced() ? 'auto' : 'smooth' })
+    else if (top + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTo({ top: top + row.offsetHeight - box.clientHeight, behavior: prefersReduced() ? 'auto' : 'smooth' })
   }, [stepId])
 
   return (

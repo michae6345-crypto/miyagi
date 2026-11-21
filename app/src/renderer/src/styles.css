@@ -349,4 +349,9 @@ input {
   .mg-press::after {
     transition-duration: 0ms;
   }
+  /* No smooth scrolling (a scroll that glides is motion too). JS scrolls check prefersReduced() (core/ui/motion). */
+  html,
+  * {
+    scroll-behavior: auto !important;
+  }
 }

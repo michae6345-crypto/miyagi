@@ -15,7 +15,7 @@ import { HOW_LABEL, NavKey, PRESS } from './parts'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { alpha, kindTone } from './tint'
-import { ease, fade } from '../../core/ui/motion'
+import { ease, fade, prefersReduced, sizeMove, springOut } from '../../core/ui/motion'
 
 /** Fixed, so a row that gains a learner line later never moves its neighbours or the highlight. */
 export const ROW_H = 64
@@ -105,8 +105,8 @@ function Text({ title, meta, extra, checked = false, warnings }: { title: string
             title={warnings?.join('\n\n')}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 16, opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={spring}
+            exit={{ height: 0, opacity: 0, transition: { ...sizeMove(prefersReduced(), springOut), opacity: fade.out } }}
+            transition={{ ...sizeMove(prefersReduced()), opacity: fade.in }}
           >
             <span className="truncate">A learner said: “{quote}”</span>
             {more > 0 && <span className="shrink-0 whitespace-pre">{` · +${more} more`}</span>}
