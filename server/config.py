@@ -40,20 +40,24 @@ from urllib.parse import urlsplit
 
 log = logging.getLogger("server.config")
 
-KEY_ENV = {  # what the app may send in config.keys, and what config.status reports
+KEY_ENV = {  # what the app may send in config.keys, and what config.status reports (ConfigStatus in events.ts)
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    "brightdata": "BRIGHTDATA_API_KEY",  # retired: .env only, see RETIRED_KEYS
+    "tigerUrl": "TIGER_DATABASE_URL",  # retired: always 'missing', see RETIRED_KEYS
     "elevenlabs": "ELEVENLABS_API_KEY",
     "miyagiToken": "MIYAGI_CLOUD_TOKEN",  # the app's anonymous install token for the miyagi cloud proxy
 }
 # Dropped vendors (DISTRIBUTION-PLAN, claude/eng-drop-vendors): miyagi no longer asks for Bright Data or Tiger
-# Data. A `brightdata` / `tigerUrl` value in config.keys is ignored and config.status leaves both out.
+# Data. Both names stay in KEY_ENV only because config.status must still carry them (ConfigStatus requires
+# `brightdata` and `tigerUrl` until the contract makes them optional). A value the app sends for either is
+# ignored: never stored, never exported to os.environ.
 # - Bright Data is an optional dev extra, read from .env only (BRIGHTDATA_API_KEY): the finder, the coach's web
 #   lookups and the transcript fetch use it when it is set and skip it otherwise (no key = no call).
+#   config.status.brightdata is 'env' or 'missing'.
 # - Tiger Data is replaced by the local SQLite store (server/checks/tiger.py, `metrics_db_path()`); the engine's
-#   writer no longer reads TIGER_DATABASE_URL and psycopg is no longer a dependency.
+#   writer no longer reads TIGER_DATABASE_URL, so config.status.tigerUrl is always 'missing'.
 # Full code removal is ROADMAP 3.6.
-ENV_ONLY_KEYS = {"brightdata": "BRIGHTDATA_API_KEY"}
 RETIRED_KEYS = ("brightdata", "tigerUrl")
 CLOUD_URL_ENV = "MIYAGI_CLOUD_URL"  # config.keys.miyagiCloud wins over it
 CLOUD_PROVIDERS = ("anthropic", "gemini")  # what the proxy forwards (Gemini: watching YouTube video only)
@@ -88,6 +92,9 @@ def set_app_keys(keys: dict) -> None:
     """Store keys from the app (empty / placeholder values are ignored), plus the cloud URL."""
     global _app_cloud_url
     for name in KEY_ENV:
+        if name in RETIRED_KEYS:  # the app can no longer supply these (Bright Data is .env only, Tiger is gone)
+            _app_keys.pop(name, None)
+            continue
         v = (keys.get(name) or "").strip()
         if usable(v):
             _app_keys[name] = v
@@ -100,7 +107,7 @@ def set_app_keys(keys: dict) -> None:
 
 
 def _env_key(name: str) -> str | None:
-    v = os.environ.get(KEY_ENV.get(name) or ENV_ONLY_KEYS.get(name) or name, "")
+    v = os.environ.get(KEY_ENV.get(name) or name, "")
     return v if usable(v) else None
 
 
@@ -154,7 +161,10 @@ def is_cloud_token(key: str | None) -> bool:
 
 
 def key_source(name: str) -> str:
-    """'ok' (from the app) | 'cloud' (the miyagi cloud) | 'env' | 'missing': the config.status value (never the key)."""
+    """'ok' (from the app) | 'cloud' (the miyagi cloud) | 'env' | 'missing': the config.status value (never the key).
+    tigerUrl is always 'missing': the engine no longer reads TIGER_DATABASE_URL (the local store replaced Tiger)."""
+    if name == "tigerUrl":
+        return "missing"
     m = mode(name) if name in CLOUD_PROVIDERS else ("byok" if name in _app_keys else ("env" if _env_key(name) else "missing"))
     return {"byok": "ok"}.get(m, m)
 
@@ -339,7 +349,7 @@ def safe_env(base: dict | None = None, **extra: str) -> dict[str, str]:
     """A copy of the environment (or `base`) for a learner's subprocess (their code, pip, a kernel, VS Code):
     every provider key, the cloud token and URL and any Bright Data / Tiger value removed, then `extra` added."""
     env = dict(os.environ if base is None else base)
-    secret = set(KEY_ENV.values()) | set(ENV_ONLY_KEYS.values()) | {
+    secret = set(KEY_ENV.values()) | {
         CLOUD_URL_ENV, "TIGER_DATABASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "GOOGLE_API_KEY", "ADMIN_PASSWORD"}
     for var in list(env):
         if var in secret or var.upper().startswith(_SECRET_PREFIXES):
