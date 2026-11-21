@@ -24,6 +24,34 @@ Rules for this pass: offline only, no lessons through miyagi-cloud, no paid call
 
 More rows (grading, first run, environment, latency) are being added.
 
+## Launch checklist items (area E)
+
+Everything here must be true before we post publicly.
+
+- [ ] Test 1 passed on a truly clean Mac (a new macOS VM or a borrowed Mac, not only a new user account), with every variant below recorded.
+- [ ] The renderer origin is the same across relaunches (E01): a dismissed tip stays dismissed after ⌘Q and reopen.
+- [ ] No spinner in the app can outlive 60 s without a message and a way out (E02, and the build pill, #202 R15).
+- [ ] Continue opens a saved lesson at its saved step with the learner's files in place, for the current save, an ended one and a recent one (E03).
+- [ ] A lesson keeps working after sleep and wake, and after the monthly Screen Recording re-prompt (E02, E05).
+- [ ] After installing an update over an old build, the first lesson either works or the app says exactly how to re-grant (E06).
+- [ ] The local setup funnel counts are on, so launch week tells us where people stop (E04).
+
+## Later (small UI things, one line each)
+
+- Double click or double Enter on Check my work sends two `check_step` (#202 R07); dedupe in `sendAction`.
+- Home shows a blank pending frame on every open in the built app until E01 is fixed (`features/shell/flow/store.ts:47-61`).
+- Skip step records "skipped" but gives no way to say "this check is wrong"; add a "Report this check" link once there is somewhere to send it.
+
+## Mac repros for Michael
+
+Each one is short and uses only local lessons or the Demo engine where possible (no paid calls needed except where marked).
+
+- **R-E01 storage reset (built app).** In the packaged app: set a daily goal in Progress, dismiss a tip, move the drawer to the other side, change the player volume. Quit with ⌘Q, reopen. Expected if E01 is real: all four are back to defaults, the dismissed tip shows again, and home flashes a blank frame before it draws. Then in DevTools on any window run `location.origin` on two launches: the port differs. Record: screenshots before and after, the two origins.
+- **R-E02 stuck Checking.** Start any lesson (Demo is fine), press Check my work, and within a second `kill -STOP <engine pid>` (the pid from `lsof -nP -iTCP:8787 -sTCP:LISTEN`). Expected if E02 is real: the button spins forever and Enter does nothing; after 2 minutes `kill -CONT` and see whether it recovers. Variant: press Check, close the lid for 1 minute, open it. Record: how long it spun, whether anything but quitting got it back.
+- **R-E03 Continue restarts at step 1.** (a) Start a lesson, pass steps 1 and 2, press End on the bar, quit, reopen, press Continue in Home. (b) Start lesson A, pass 2 steps, then type a new goal B in the launcher, then pick A's Continue row. Expected if E03 is real: A opens at step 1, and `ls -a ~/miyagi/lessons/<A's folder>/.miyagi-previous/` shows a new `YYYYmmdd-HHMMSS` folder holding the learner's files (moved, not deleted: `server/workspace/core.py:147-150`). Record: the step it opened on, the folder listing, `~/miyagi/state/current.json` and `recent.json` before and after.
+- **R-E05 monthly re-prompt.** On macOS 15 or 26, with a lesson running, wait for (or force with a clock change, then relaunch) the "requesting to bypass the system private window picker" prompt. Record: does the lesson pause with a clear card, or does the next Check say Not yet against a black frame?
+- **R-E06 grants after an update.** Grant both permissions on build N, install build N+1 over it (ad-hoc signed), start a lesson. Record: does System Settings still show the toggle on, does the engine get a black frame, and what does the app say.
+
 ## Notes: what churned users said
 
 ### AI tutors
