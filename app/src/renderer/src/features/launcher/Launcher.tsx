@@ -64,6 +64,7 @@ import { noteLearnMode, useCapability, useLesson, useProgress } from '../../core
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { sendAction } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { islandTop } from '../../core/islandEdge'
 import { Keycap } from '../../core/ui/Keycap'
 import { Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, radius2, scrim, shadows, spring, springOut } from '../../core/theme'
@@ -85,7 +86,8 @@ import { beat, ease, fade, instant } from '../../core/ui/motion'
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
 type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
-type Size = { w: number; h: number }
+/** `notch`: the island lives in the notch (place 'notch'): the shape starts flat on the display top with these radii. */
+type Size = { w: number; h: number; notch?: { top: number; bottom: number } }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
 type Act = 'settings' | 'resume' | 'open' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
 /** One line of the idle list (nothing typed): what ↑↓ walk and ↵ runs. */
@@ -168,7 +170,8 @@ const isPillSized = (s: Size): boolean => s.h <= pill.height + 1
 const shapeOf = (s: Size): TargetAndTransition => ({
   width: s.w,
   height: s.h,
-  borderRadius: isPillSized(s) ? s.h / 2 : radius.island,
+  // In the notch: flat on the display top, the notch's bottom radius (four values, so it interpolates to `grown`'s).
+  borderRadius: s.notch ? `0px 0px ${s.notch.bottom}px ${s.notch.bottom}px` : isPillSized(s) ? s.h / 2 : radius.island,
   boxShadow: isPillSized(s) ? shadows.pill : shadows.card,
   // At the notch: a panel moved clear of the spotlight (see placeClear) collapses back up into the island.
   y: 0,
@@ -285,9 +288,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   useEffect(
     () =>
       bridge.on('launcher:open', (payload) => {
-        const f = (payload as { from?: Size } | undefined)?.from
+        const f = (payload as { from?: Size & { place?: string; radii?: { top: number; bottom: number } } } | undefined)?.from
         openedAt.current = Date.now()
-        setFrom(f && f.w > 0 && f.h > 0 ? { w: Math.round(f.w), h: Math.round(f.h) } : PILL)
+        setFrom(f && f.w > 0 && f.h > 0 ? { w: Math.round(f.w), h: Math.round(f.h), ...(f.place === 'notch' ? { notch: f.radii ?? { top: 6, bottom: 14 } } : {}) } : PILL)
         const hasLesson = !!useLesson.getState().lesson
         setMode(hasLesson ? 'ask' : 'search')
         // A saved lesson is waiting to resume (item 10): the first decision is Continue, so an old search text left in
@@ -792,12 +795,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const bottom = layout.workArea.y + layout.workArea.height
   const grownH = contentH || from.h
   /** Below the editor's tabs and toolbar (EDITOR_CHROME), unless the panel would then run off the work area. */
-  const chromeDy = Math.max(0, Math.min(layout.workArea.y + EDITOR_CHROME - bridge.platform.pillTop, bottom - bridge.platform.pillTop - grownH))
+  const islandTopY = islandTop(layout)
+  const chromeDy = Math.max(0, Math.min(layout.workArea.y + EDITOR_CHROME - islandTopY, bottom - islandTopY - grownH))
   const place = placeClear({
     box,
     width: WIDTH,
     viewW: layout.width,
-    top: bridge.platform.pillTop + chromeDy,
+    top: islandTopY + chromeDy,
     height: grownH,
     bottom
   })
@@ -807,7 +811,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     height: grownH,
     y: chromeDy + place.dy,
     // Home-Launcher: radius 20 (the v2 panel radius).
-    borderRadius: radius2.panel,
+    borderRadius: from.notch ? `${radius2.panel}px ${radius2.panel}px ${radius2.panel}px ${radius2.panel}px` : radius2.panel,
     boxShadow: shadows.card,
     backgroundColor: color.glass
   }
@@ -820,7 +824,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     target = reduce ? faded : { ...shapeOf(from), opacity: 1 }
     transition = reduce ? fade.in : { ...springOut, ...settle }
   } else if (phase === 'building') {
-    target = reduce ? faded : { ...shapeOf(PILL), opacity: 1 }
+    target = reduce ? faded : { ...shapeOf(from.notch ? from : PILL), opacity: 1 }
     transition = reduce ? fade.in : { ...spring, ...settle }
   }
 
@@ -911,18 +915,18 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
       <motion.div
         className="absolute left-1/2 overflow-hidden text-white"
-        style={{ top: bridge.platform.pillTop, x: '-50%', transformOrigin: '50% 0%' }}
+        style={{ top: islandTopY, x: '-50%', transformOrigin: '50% 0%' }}
         initial={reduce ? faded : { ...shapeOf(from), opacity: 1 }}
         animate={target}
         transition={transition}
         onAnimationComplete={() => finish(phase)}
       >
         {/* The island's own content, handed over: fades out as the panel grows… */}
-        {handoff && phase === 'open' && !reduce && islandMode && (
+        {handoff && phase === 'open' && !reduce && islandMode && !from.notch && (
           <IslandContent mode={islandMode} initial={{ opacity: 1 }} animate={{ opacity: 0 }} transition={contentOut} />
         )}
         {/* …and fades back in as the panel collapses onto the island's shape. */}
-        {exiting && !reduce && returnTo && (
+        {exiting && !reduce && returnTo && !from.notch && (
           <IslandContent mode={returnTo} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay: 2 * beat }} />
         )}
 
