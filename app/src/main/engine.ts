@@ -10,6 +10,7 @@ import { parseEngineMessage, V2_COMMANDS, type Incoming, type Outgoing } from '.
 import { createMockEngine, type MockEngine } from '../../mock/engine'
 import { scenarios } from '../../mock/scenarios'
 import { RunGuard } from './freshStart'
+import { Heartbeat } from './heartbeat'
 
 type Listener = (m: Incoming) => void
 
@@ -71,6 +72,10 @@ export class EngineLink {
   private slow = 0
   private failures = 0
   private timer?: ReturnType<typeof setTimeout>
+  /** Protocol ping/pong (main/heartbeat.ts): a half-open socket (sleep, Wi-Fi change, hung engine) is dropped and redialled. */
+  private beat?: Heartbeat
+  /** The last overlay.bounds JSON that left, so an identical resend (a window move storm) is dropped. */
+  private lastBoundsJson = ''
   /** Re-sent on reconnect so the engine's OCR keeps ignoring our UI. */
   private lastBounds?: Outgoing
   /** v2: the per-launch engine token (main/localEngine.ts), sent as a header on every connect. Memory only. */
@@ -141,6 +146,16 @@ export class EngineLink {
   }
 
   /**
+   * The machine woke, unlocked, or the network came back. An open socket may be half open: ping it now and drop it if
+   * nothing answers in PROBE_MS; a closed one is redialled at once (fast retries again).
+   */
+  wake(): void {
+    if (this.demo) return
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) return this.beat?.probe()
+    this.reconnect()
+  }
+
+  /**
    * v2 (W0-5): the per-launch token the app passed to the engine it started (env MIYAGI_ENGINE_TOKEN). Sent as the
    * X-Miyagi-Token header from the next connect on; an engine started elsewhere without a token ignores it.
    */
@@ -190,6 +205,11 @@ export class EngineLink {
     }
     const msg = JSON.stringify(cmd)
     if (this.ws?.readyState === WebSocket.OPEN) {
+      // An overlay.bounds identical to the last one sent says nothing new to the engine (window move/resize storms).
+      if (cmd.type === 'overlay.bounds') {
+        if (msg === this.lastBoundsJson) return
+        this.lastBoundsJson = msg
+      }
       this.run.command(cmd)
       return this.ws.send(msg)
     }
@@ -254,11 +274,28 @@ export class EngineLink {
       // Fresh start: a wait from the old socket now needs a fresh lesson.ready; an old lesson's snapshot stays out.
       this.run.connected()
       this.setConnected(true)
+      this.lastBoundsJson = ''
+      this.beat?.stop()
+      this.beat = new Heartbeat({
+        ping: () => {
+          try {
+            ws.ping()
+          } catch {
+            /* a closing socket: close follows */
+          }
+        },
+        // Nothing came back: terminate() makes 'close' fire at once, which sets connected=false (every window drops its
+        // thinking / building state) and starts the fast reconnect.
+        dead: () => ws.terminate()
+      })
+      this.beat.start()
       for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
     })
+    ws.on('pong', () => this.beat?.alive())
     ws.on('message', (data) => {
       if (this.ws !== ws) return
+      this.beat?.alive()
       const text = String(data)
       if (this.cloudTokenInvalid(text)) return
       const e = parseEngineMessage(text)
@@ -267,6 +304,8 @@ export class EngineLink {
     ws.on('close', () => {
       // A newer attempt (Retry) took over: this socket's end means nothing.
       if (this.ws !== ws) return
+      this.beat?.stop()
+      this.beat = undefined
       if (opened) {
         // A drop: a fresh outage, so fast retries again. Not a failed attempt yet (the pill waits for one).
         this.downSince = Date.now()

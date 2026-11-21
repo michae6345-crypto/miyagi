@@ -127,14 +127,15 @@ export default defineMainFeature({
       if (!ctx.overlay.isVisible()) return
       if (Date.now() < passUntil) return
       const d = ctx.display().bounds
-      const { w, h, dx = 0, dy = 0 } = ctx.islandSize()
+      const { w, h, dx = 0, dy = 0, shown = true } = ctx.islandSize()
       // The island from its live size and place (the reported rects lag up to 300 ms while it grows into a card or
       // moves off the spotlight: core/islandPlace.ts), plus the rest.
-      const island = { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + ctx.platform.pillTop + dy, w, h }
+      // A hidden island (no mode, or the launcher has it) is not a click target: no ghost box eating clicks.
+      const island = shown ? { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + ctx.platform.pillTop + dy, w, h } : { x: -1e6, y: -1e6, w: 0, h: 0 }
       const p = screen.getCursorScreenPoint()
       if (away) {
         // Grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
-        if (!within(p, island)) restSince = 0
+        if (!shown || !within(p, island)) restSince = 0
         else if (!restSince) restSince = Date.now()
         else if (restSince > 0 && Date.now() - restSince >= REST_MS) {
           restSince = -1 // once per rest
@@ -142,7 +143,7 @@ export default defineMainFeature({
         }
         return
       }
-      const now = within(p, island) || (hits ?? ctx.overlayRects()).some((r) => within(p, r))
+      const now = (shown && within(p, island)) || (hits ?? ctx.overlayRects()).some((r) => within(p, r))
       if (now && !grabbed) {
         grabbed = true
         ctx.overlay.setIgnoreMouseEvents(false)

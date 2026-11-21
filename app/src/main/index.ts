@@ -8,7 +8,7 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
@@ -21,6 +21,7 @@ import { setupPermissions } from './permissions'
 import { openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
 import { gateCore, gateIsOpen } from './gate'
+import { coalesce } from './coalesce'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
@@ -53,13 +54,17 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
+/** Bumped on every close request and open: a stale close watchdog never hides a newer open. */
+let launcherGen = 0
 /** When the launcher last opened (ms): a second press of the key inside LAUNCHER_DOUBLE_MS is the same press twice, not a close. */
 let launcherOpenedAt = 0
 const LAUNCHER_DOUBLE_MS = 400
 /** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
 let launcherOrigin: BrowserWindow | undefined
+/** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
+let basePillTop = 0
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
-let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
+let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
@@ -243,7 +248,7 @@ function createCoreWindow(route: 'overlay' | 'launcher'): BrowserWindow {
 function layoutFor(win: BrowserWindow): Layout {
   const b = win.getBounds()
   const wa = screen.getDisplayMatching(b).workArea
-  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {
@@ -260,6 +265,7 @@ function openLauncher(): void {
   const front = BrowserWindow.getFocusedWindow()
   launcherOrigin = front && front !== overlay && front !== launcher && !front.isDestroyed() ? front : undefined
   launcherOpen = true
+  launcherGen++
   launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
@@ -280,7 +286,14 @@ function openLauncher(): void {
 }
 
 function closeLauncher(): void {
-  if (launcherOpen) send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  if (!launcherOpen) return
+  send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  // Watchdog: the launcher renderer is hung or gone and never says launcher:hidden: the island must not stay invisible.
+  // (Only if it is still the same open: a quick reopen has a newer generation.)
+  const gen = ++launcherGen
+  setTimeout(() => {
+    if (launcherOpen && gen === launcherGen && !launcher.isDestroyed()) hideLauncher()
+  }, 2500)
 }
 
 /** When blurs kept the launcher open (loop guard: an app that keeps grabbing focus wins after a few tries). */
@@ -352,7 +365,7 @@ function unregisterActionShortcuts(): void {
 }
 
 /** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
-function sendBounds(): void {
+function sendBoundsNow(): void {
   const extra = [...reported]
     .filter((w) => !w.isDestroyed() && w.isVisible())
     .map((w) => {
@@ -362,12 +375,24 @@ function sendBounds(): void {
   engine.send({ type: 'overlay.bounds', payload: { rects: [...overlayRects, ...extra] } })
 }
 
+/** Window move/resize fire per frame while dragging; the engine only needs the last one (50 ms trailing). */
+const boundsOut = coalesce<void>(sendBoundsNow, 50)
+function sendBounds(): void {
+  boundsOut.push()
+}
+/** A window hid or closed: the OCR mask must shrink now, not up to 50 ms later. */
+function sendBoundsFlushed(): void {
+  boundsOut.push()
+  boundsOut.flush()
+}
+
 function reportBounds(win: BrowserWindow): void {
   reported.add(win)
-  for (const ev of ['move', 'resize', 'show', 'hide'] as const) win.on(ev as 'move', sendBounds)
+  for (const ev of ['move', 'resize', 'show'] as const) win.on(ev as 'move', sendBounds)
+  win.on('hide', sendBoundsFlushed)
   win.on('closed', () => {
     reported.delete(win)
-    sendBounds()
+    sendBoundsFlushed()
   })
   sendBounds()
 }
@@ -414,7 +439,8 @@ app.whenReady().then(async () => {
   }
   // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
   // window exists: every renderer gets pillTop in its launch arguments.
-  platform.pillTop = fitPillTop(platform.pillTop, displayNow())
+  basePillTop = platform.pillTop
+  platform.pillTop = fitPillTop(basePillTop, displayNow())
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 
@@ -528,12 +554,58 @@ app.whenReady().then(async () => {
   const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
+  // Engine link health: after sleep, unlock or a network change the socket may be half open. Ping it (drop + redial
+  // when nothing answers) instead of showing a healthy pill that is deaf.
+  const wake = (): void => engine.wake()
+  // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
+  // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
+  // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
+  let refitTimer: ReturnType<typeof setTimeout> | undefined
+  const refit = (): void => {
+    clearTimeout(refitTimer)
+    refitTimer = setTimeout(() => {
+      platform.pillTop = fitPillTop(basePillTop, displayNow())
+      for (const w of [overlay, launcher]) {
+        if (w.isDestroyed()) continue
+        w.setBounds(overlayBounds(displayNow()))
+        raise(w)
+        send(w, 'layout', layoutFor(w))
+      }
+    }, 150)
+  }
+  // Every way the island can be left half-open by the system: collapse it to rest (core/Island.tsx collapseAll).
+  const collapseIsland = (): void => send(overlay, 'island:collapse')
+  overlay.webContents.on('responsive', collapseIsland)
   screen.on('display-metrics-changed', () => {
-    for (const w of [overlay, launcher]) {
-      w.setBounds(overlayBounds(screen.getDisplayMatching(w.getBounds())))
-      send(w, 'layout', layoutFor(w))
-    }
+    collapseIsland()
+    refit()
   })
+  screen.on('display-added', () => {
+    collapseIsland()
+    refit()
+  })
+  screen.on('display-removed', () => {
+    collapseIsland()
+    refit()
+  })
+  // Wake and unlock: macOS can drop the panels' level and the renderer's frames; re-raise and re-send the layout.
+  powerMonitor.on('resume', () => {
+    collapseIsland()
+    refit()
+    wake()
+  })
+  powerMonitor.on('unlock-screen', () => {
+    collapseIsland()
+    refit()
+    wake()
+  })
+  let wasOnline = net.isOnline()
+  const netTimer = setInterval(() => {
+    const on = net.isOnline()
+    if (on && !wasOnline) wake()
+    wasOnline = on
+  }, 3000)
+  netTimer.unref()
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
@@ -599,6 +671,7 @@ function setupMenu(): void {
   )
 }
 
+app.on('before-quit', () => boundsOut.flush())
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopLocalEngine()

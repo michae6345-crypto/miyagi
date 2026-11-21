@@ -12,7 +12,8 @@ import type { Layout } from '../../../preload/api'
 import { cmd } from '../../../common/wire'
 import { bridge } from '../bridge'
 import { gateIsOpen, useGateOpen } from './gate'
-import { Island } from './Island'
+import { Island, RestingIsland } from './Island'
+import { perf } from './perf'
 import { getOverlayLayers } from './registry'
 import { triggerShortcut, type ActionShortcut } from './shortcuts'
 import { Boundary } from './ui/Boundary'
@@ -37,7 +38,7 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
           </Boundary>
         ))}
       {/* Michael's 5 AM shoot: one bad Island render (a stale hot reload) wiped the overlay. Now it comes back in 1 s. */}
-      <Boundary name="island" retryMs={1000}>
+      <Boundary name="island" retryMs={1000} fallback={<RestingIsland top={bridge.platform.pillTop} />}>
         <Island top={bridge.platform.pillTop} layout={layout} />
       </Boundary>
       {overlayLayers
@@ -82,11 +83,16 @@ function canScroll(el: Element | null, dx: number, dy: number): boolean {
  * ignores it. Sampled every 100ms; sent only when it changes. Elements opt in with
  * data-hit (interactive: also stops click-through) or data-ui (display only).
  */
+/** A change key for a rect list: a joined string is several times cheaper than JSON.stringify of the objects. */
+const keyOf = (rs: { x: number; y: number; w: number; h: number }[]): string => rs.map((r) => `${r.x},${r.y},${r.w},${r.h}`).join(';')
+
 function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: Layout): void {
   useEffect(() => {
     let last = ''
     let lastHits = ''
     const tick = (): void => {
+      // A hidden window (the stage tab in the background) has nothing new to say.
+      if (typeof document !== 'undefined' && document.hidden) return
       const el = root.current
       if (!el) {
         // Nothing drawn (the sign-in gate closed again): clear what main and the engine last heard, once.
@@ -112,18 +118,21 @@ function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: L
       const nodes = Array.from(el.querySelectorAll<HTMLElement>('[data-hit],[data-ui]'))
         .map((n) => ({ n, r: n.getBoundingClientRect() }))
         .filter(({ r }) => r.width > 1 && r.height > 1)
+      perf.count('bounds.sampled')
       const rects = nodes.map(({ r }) => toScreen(r))
       // Desktop test 9, A1: main's click-catching poll grabs the mouse only over controls (data-hit). Passive UI
       // (data-ui: the spotlight caption, the loupe callout) stays click- and scroll-through.
       const hits = nodes.filter(({ n }) => n.hasAttribute('data-hit')).map(({ r }) => toScreen(r))
-      const hitKey = JSON.stringify(hits)
+      const hitKey = keyOf(hits)
       if (hitKey !== lastHits) {
         lastHits = hitKey
+        perf.count('hits.sent')
         tellMain('overlay:hits', hits)
       }
-      const key = JSON.stringify(rects)
+      const key = keyOf(rects)
       if (key === last) return
       last = key
+      perf.count('bounds.sent')
       bridge.send(cmd('overlay.bounds', { rects }))
     }
     // 100 ms, not 300: main's click-catching poll (main/features/overlay-raise.ts) reads these rects, and a card that had
