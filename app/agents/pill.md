@@ -17,9 +17,10 @@ Mockups: Les-Mini, the pill lines of Les-Working / Checking / NotYet / Passed, t
   - It's 380 wide (`dock.miniW`) and 34 tall, as decision 6 says.
   - It shows the bonsai or the phase glyph, then the title, then StepDots `bars` (passed green, this step white, the rest faint; past 10 steps it switches to one 96 px proportional track), then "2 of 6" and the dot.
   - The whole pill is a button that opens the panel. It asks through the core `panel` UI event first, then A1's `openPanel`, and with neither it just clears `collapsed`.
-  - It steps aside while the pill's own notice line shows.
+  - It steps aside while the pill's own notice line shows, and while A7's lines would show (engine disconnected or busy, lesson paused, a blocker), so "Reconnecting", "Lesson paused" or a kernel blocker is never hidden by it.
 - **Panel-routed cards:** while the panel is shown (open and not collapsed), the island skips the off-track card (including its "Waiting for the fix" view), the step-passed success card and the hint card. A1's `isPanelRouted` decides once it's there (`features/cards/panel.ts`), for the hint card and the off-track: an off-track that carries a fix (diff, level 3, apply_fix) stays on the island, where "Do it for me" lives. The success card stays routed either way (A1 doesn't model it; Les-Passed draws it). Before A1, a fallback list (offtrack, success, hint) stands in.
-  - The shots show this works: in `pill-cards-notyet-panel` and `pill-cards-hint-panel` there's no card on the island, and the pill reads "Not yet".
+  - The shots show the island side: in `pill-cards-notyet-panel` (after `check_step`: `lesson.offtrack` set) and `pill-cards-hint-panel` (after `pc_hint` fired: `useCards.getState().card.kind === 'hint'`) the panel is shown (`&pc=panel`), the only island layer is `compact`, and the pill reads "Not yet". The control `pill-cards-hint-nopanel` is the same hint state with no panel: the hint card is on the island.
+  - What they don't show: the panel drawing the hint. This branch has no A1, so the stage's panel is the old drawer, which has no Les-NotYet or Les-Hint view; that's why the two panel shots look alike. The panel half of "no double render" needs the A1 + A2 shared scenario.
   - Collapsed to Mini, those cards grow from the pill again, except success, which belongs to A8's step-passed card (priority 55) in Mini.
   - With the panel shown, the Hint key no longer "brings the off-track card back". It asks for a hint as usual.
 - **`card.waiting` (Err-KernelInContext):** a footer under a hairline, with the dashed gray watching ring (decision 5: never a spinner) and the engine's text at 12 px.
@@ -47,7 +48,7 @@ Mockups: Les-Mini, the pill lines of Les-Working / Checking / NotYet / Passed, t
 
 **Shots** (`agents/shots/`):
 - `pill-cards-working`, `-checking`, `-notyet-pill`
-- `-notyet-panel` and `-hint-panel` (panel shown, no card on the island)
+- `-notyet-panel` and `-hint-panel` (panel shown, no card on the island; the hint one was taken with `card.kind === 'hint'`), `-hint-nopanel` (control: the same hint state with no panel, the hint card on the island)
 - `-passed-panel` (still "Step 2 passed" 1.2 s after the pass)
 - `-mini`, `-mini-checking`, `-mini-passed`, `-mini-step3`
 - `-kernel-waiting`
@@ -63,7 +64,7 @@ Mockups: Les-Mini, the pill lines of Les-Working / Checking / NotYet / Passed, t
 ## Core requests (A2)
 1. **A1 (overview, drawer):** the overview hover card (priority 20) should stay off while core/dock is `open || collapsed`. Over Mini, hovering for 150 ms swaps the pill for the overview card, so the learner can't click Mini to open the panel.
 2. **A1:** please export `isPanelRouted` and either `openPanel` from any drawer module, or `useDrawer.getState().openPanel`. A2 finds them at runtime. `isPanelRouted` always gets an object: `isPanelRouted(card)` for an engine card (every `card.kind`), and `isPanelRouted({ kind: 'offtrack', ...offtrack })` with the live `lesson.offtrack` for Not yet and its Waiting for the fix view. A2 never asks about `'success'` (step passed): it stays routed while the panel shows, because Les-Passed draws it. Answering the `panel` UI event with `true` (core/bus `PanelRequest 'open'`) is enough for the Mini click.
-3. **Priority table (README):** Mini at 9 sits above A7's net-offline/busy (6) and reconnecting/blocker (7) lines. While the panel is collapsed those lines never show. Either Mini moves below 6, or A7's lines go above 9. Mini already yields to the pill's own notice line (5).
+3. ~~**Priority table (README):** Mini at 9 sits above A7's net-offline/busy (6) and reconnecting/blocker (7) lines.~~ Fixed in A2: Mini now steps aside while the engine is disconnected or busy, or the lesson is paused or has a blocker (as it already did for the pill's notice line), and comes back once they clear. No README change needed.
 4. **Contract:** `SetupItem.install.method` has no value for "a VS Code extension the engine installs through the code CLI". The mock uses `"none"`, and the sheet sends `action install {text: tool}` for any method except download and open. A method such as `"vscode_ext"` would make that explicit (contract PR, Michael).
 5. **Copy to confirm (Adrian):** "No terminal. VS Code reloads once, your files stay open." comes from the mockup. Check that E3's helper install really reloads VS Code once.
 
