@@ -8,4 +8,5 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export ORCH_HERO_WORKDIR="${ORCH_HERO_WORKDIR:-$ROOT/demo/pinn-lab}"   # only the hero lesson uses it
 export ORCH_LESSON_URL="${ORCH_LESSON_URL:-https://www.youtube.com/watch?v=AXXnSzmpyoI}"
 export ORCH_AUTOSTART=1
+export MIYAGI_DEBUG_ROUTES="${MIYAGI_DEBUG_ROUTES:-1}"  # DEMO.md: curl -X POST .../debug/goto/7 is the backup
 exec "$ROOT/scripts/miyagi-engine.sh" "$@"

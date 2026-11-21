@@ -24,6 +24,11 @@ Each VS Code window runs its own extension on the next free port from 8791 (MIYA
 
 Events: the extension posts editor / save / dirty / focus / terminal / command_start / command_end / action_done /
 ready to POST /vscode/event, which calls `record_event`. `subscribe(cb)` to react (sync or async callbacks).
+
+Token (ROADMAP 5.3): every call carries X-Miyagi-Token, the engine's per-launch token (`set_link_token`, from
+main.run(); in any other process, a live engine's token from server.engine_token). The companion (0.0.7+) requires it
+while a live engine has written one, so another local program can't drive VS Code through it; older companions
+ignore the header.
 """
 
 from __future__ import annotations
@@ -52,6 +57,32 @@ DEFAULT_PORTS = "8791-8799"
 MAX_RESPONSE = 8 * 1024 * 1024
 
 _POOL = ThreadPoolExecutor(max_workers=12, thread_name_prefix="vscode-ext")
+_link_token: str | None = None
+_disk_token: tuple[float, str | None] = (0.0, None)
+TOKEN_TTL_S = 2.0
+
+
+def set_link_token(token: str | None) -> None:
+    """The engine's own token (main.run() sets it once): sent on every call to the companion."""
+    global _link_token
+    _link_token = token or None
+
+
+def link_token() -> str | None:
+    """This engine's token, else (a test, a script) a live engine's from server.engine_token (re-read every 2 s)."""
+    global _disk_token
+    if _link_token:
+        return _link_token
+    now = time.monotonic()
+    if now - _disk_token[0] >= TOKEN_TTL_S:
+        try:
+            from server import engine_token
+
+            live = engine_token.live_tokens()
+        except Exception:  # noqa: BLE001 - no token: an older companion / no engine, the call goes without
+            live = []
+        _disk_token = (now, live[0] if live else None)
+    return _disk_token[1]
 
 
 # ------------------------------------------------------------------ transport
@@ -80,6 +111,8 @@ def _http(port: int, method: str, path: str, body: dict | None, timeout: float) 
     try:
         data = json.dumps(body).encode() if body is not None else None
         headers = {"Content-Type": "application/json"} if data is not None else {}
+        if tok := link_token():
+            headers["X-Miyagi-Token"] = tok
         conn.request(method, path, body=data, headers=headers)
         resp = conn.getresponse()
         raw = resp.read(MAX_RESPONSE)

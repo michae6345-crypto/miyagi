@@ -22,6 +22,19 @@ def _private_tiger_spool(tmp_path_factory):
         os.environ["TUT_SPOOL_DIR"] = old
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _private_engine_tokens(tmp_path_factory):
+    """Engine tokens (server/engine_token.py) go to a temp folder: a test never reads the live engine's token from
+    ~/.miyagi/engine-tokens, and a companion a test starts (vscode-ext/test/serve-fake.js) inherits this folder."""
+    old = os.environ.get("MIYAGI_ENGINE_TOKEN_DIR")
+    os.environ["MIYAGI_ENGINE_TOKEN_DIR"] = str(tmp_path_factory.mktemp("engine-tokens"))
+    yield
+    if old is None:
+        os.environ.pop("MIYAGI_ENGINE_TOKEN_DIR", None)
+    else:
+        os.environ["MIYAGI_ENGINE_TOKEN_DIR"] = old
+
+
 @pytest.fixture(autouse=True)
 def _no_live_web(monkeypatch):
     """The coach grounds fixes in DuckDuckGo + the docs pages (server/coach/web.py). Tests never reach them: a test

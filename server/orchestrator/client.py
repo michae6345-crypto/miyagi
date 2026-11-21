@@ -23,6 +23,7 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import random
 import sys
 import time
@@ -34,6 +35,27 @@ import websockets
 from . import bg
 
 MARKER = "# tut-autopilot"
+_HEADERS: dict[str, str] = {}  # X-Miyagi-Token for an engine that needs it (main() fills it from --url)
+
+
+def token_headers(url: str) -> dict[str, str]:
+    """X-Miyagi-Token: MIYAGI_ENGINE_TOKEN when exported here, else the live engine's on this Mac
+    (server/engine_token.py). Never for an engine on another machine unless exported by hand."""
+    from urllib.parse import urlsplit
+
+    from server import engine_token
+
+    if tok := os.environ.get("MIYAGI_ENGINE_TOKEN", "").strip():
+        return {engine_token.HEADER: tok}
+    try:
+        u = urlsplit(url)
+        host, port = (u.hostname or "").lower(), u.port or 8787
+    except ValueError:
+        return {}
+    if host not in ("localhost", "127.0.0.1", "::1"):
+        return {}
+    tok = engine_token.read(port)
+    return {engine_token.HEADER: tok} if tok else {}
 
 C = {"dim": "\033[2m", "g": "\033[32m", "y": "\033[33m", "r": "\033[31m", "b": "\033[34m", "c": "\033[36m", "x": "\033[0m"}
 if not sys.stdout.isatty():
@@ -144,11 +166,11 @@ class Autopilot:
         self.done = asyncio.Event()
 
     async def state(self) -> dict:
-        async with httpx.AsyncClient() as c:
+        async with httpx.AsyncClient(headers=_HEADERS) as c:
             return (await c.get(f"{self.http}/state")).json()
 
     async def post(self, events) -> None:
-        async with httpx.AsyncClient() as c:
+        async with httpx.AsyncClient(headers=_HEADERS) as c:
             await c.post(f"{self.http}/ingest", json=events)
 
     def file(self) -> Path:
@@ -214,7 +236,7 @@ class Autopilot:
             await self.run("run-beta30", "plateau", beta=30)
         elif sid not in SOLUTION:
             await asyncio.sleep(1.0 / self.speed)
-            async with httpx.AsyncClient() as c:  # unknown lesson: just force it
+            async with httpx.AsyncClient(headers=_HEADERS) as c:  # unknown lesson: just force it
                 await c.post(f"{self.http}/debug/pass")
 
     async def hero_fix(self) -> None:
@@ -230,7 +252,7 @@ class Autopilot:
 
 async def main_async(args) -> None:
     http = args.url.replace("ws://", "http://").replace("wss://", "https://").rstrip("/")
-    async with websockets.connect(args.url, max_size=None) as ws:
+    async with websockets.connect(args.url, max_size=None, additional_headers=_HEADERS or None) as ws:
         async def send(type_: str, payload: dict) -> None:
             await ws.send(json.dumps({"type": type_, "payload": payload}))
             print(f"{C['dim']}{time.strftime('%H:%M:%S')}{C['x']} {C['c']}<- {type_:13}{C['x']} {json.dumps(payload)}")
@@ -297,7 +319,7 @@ async def handle_line(line: str, send, http: str) -> None:
     elif cmd == "voice":
         await send("action", {"kind": "voice_toggle"})
     elif cmd in ("pass", "goto", "state", "lesson", "replay", "runs"):
-        async with httpx.AsyncClient() as c:
+        async with httpx.AsyncClient(headers=_HEADERS) as c:
             if cmd == "pass":
                 r = await c.post(f"{http}/debug/pass")
             elif cmd == "goto":
@@ -311,6 +333,8 @@ async def handle_line(line: str, send, http: str) -> None:
             else:
                 r = await c.get(f"{http}/state")
             print(json.dumps(r.json(), indent=2)[:3000])
+            if r.status_code == 404 and cmd != "state":
+                print(f"{C['y']}dev routes are off: start the engine with MIYAGI_DEBUG_ROUTES=1{C['x']}")
     elif cmd in ("quit", "exit"):
         raise SystemExit(0)
     else:
@@ -329,9 +353,10 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=180.0)
     ap.add_argument("--json", action="store_true", help="print raw JSON messages")
     args = ap.parse_args()
+    _HEADERS.update(token_headers(args.url))
     if args.command == "end":
         http = args.url.replace("ws://", "http://").replace("wss://", "https://").rstrip("/")
-        r = httpx.post(f"{http}/end", timeout=10)
+        r = httpx.post(f"{http}/end", timeout=10, headers=_HEADERS)
         print(json.dumps(r.json()))
         return
     try:

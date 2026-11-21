@@ -236,6 +236,7 @@ def engine_env(port: int, workdir: Path, *, demo: bool, offline: bool, extra: di
         "ORCH_AUTOSTART": "0",  # the launcher flow: learn -> pick -> build
         "DEMO": "1" if demo else "0",
         "MIYAGI_STATE_DIR": str(workdir.parent / "state"),
+        "MIYAGI_DEBUG_ROUTES": "1",  # 5.3: /debug/goto (the training step) is a dev route
         "PYTHONUNBUFFERED": "1",
     })
     env.pop("TUT_WORKDIR", None)  # it would override the hero folder

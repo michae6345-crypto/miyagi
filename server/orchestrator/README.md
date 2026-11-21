@@ -46,7 +46,10 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | var | default | meaning |
 |---|---|---|
 | `ENGINE_PORT` | 8787 | port |
-| `ENGINE_HOST` | 127.0.0.1 | bind address; `0.0.0.0` for LAN access |
+| `ENGINE_HOST` | 127.0.0.1 | bind address; `0.0.0.0` for LAN access (empty = 127.0.0.1) |
+| `MIYAGI_ENGINE_TOKEN` | (none) | the app's per-launch token: required on the WebSocket, every POST (also from this Mac) and any request from another machine |
+| `MIYAGI_ENGINE_TOKEN_DIR` | `~/.miyagi/engine-tokens` | where the engine publishes its token (`<port>.json`, 0600) for the companion, `tut run` and the dev CLI |
+| `MIYAGI_DEBUG_ROUTES` | 0 | `1` = serve `/debug/*` and `/demo/*` (also on with `DEMO=1`); off they answer 404. The app's engine never sets it |
 | `ORCH_LESSON` | (none) | DEMO only: step-graph JSON to use as the lesson |
 | `ORCH_AUTOSTART` | 0 | `1` = start a lesson at boot: `ORCH_LESSON_URL` via the real builder (LIVE) or `ORCH_LESSON` (DEMO) |
 | `ORCH_OPEN_WORKSPACE` | 0 | `1` = open the workdir in VS Code and jump to each step's target |
@@ -148,7 +151,7 @@ Also handled on the socket: `overlay.bounds` → screen reader (OCR ignores our 
 with `config.status` (`ok`/`env`/`missing`, never the keys).
 
 `POST /ingest` takes one event, a list of events, or `{"events":[...]}` in the engine-internal.md shapes. A `metric` event can also carry
-`"metrics":[{step,name,value},...]`. The reply carries `{lesson_id, step_id}` so `tut run` can tag its Tiger run. Debug routes: `GET /state`, `GET /events?since=N`, `POST /debug/pass`, `POST /debug/goto/{i}`, `POST /debug/lesson`.
+`"metrics":[{step,name,value},...]`. The reply carries `{lesson_id, step_id}` so `tut run` can tag its Tiger run. Debug routes: `GET /state`, `GET /events?since=N`, and (dev only, `MIYAGI_DEBUG_ROUTES=1` or `DEMO=1`) `POST /debug/pass`, `POST /debug/goto/{i}`, `POST /debug/lesson`.
 
 ## DEMO=1 cache layout (read from `demo/cache/`; any missing file falls back to the stub)
 

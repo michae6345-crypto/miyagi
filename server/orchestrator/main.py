@@ -9,9 +9,10 @@
   GET  /library/{id}     one lesson's preview {item, steps, overview}; 404 for a bad or unknown id
   GET  /progress         skills, finished and in-progress lessons (sessions/progress.py); null = nothing yet
   GET  /events?since=N   recent engine events (debugging)
-  POST /debug/pass       force-pass the active step
-  POST /debug/goto/{i}   jump to step i
-  POST /debug/lesson     DEMO only: load the cached/canned lesson without searching
+  POST /debug/pass       force-pass the active step            (dev only: MIYAGI_DEBUG_ROUTES=1 or DEMO=1, else 404)
+  POST /debug/goto/{i}   jump to step i                       (dev only)
+  POST /debug/lesson     DEMO only: load the cached/canned lesson without searching (dev only)
+  GET  /demo/runs, POST /demo/replay   recorded `tut run` replays (dev only)
   GET  /stage            is a Demo lesson running (launcher → Demo, or MIYAGI_STAGE=1; stage.py)
   POST /stage/{cmd}      presenter, Demo lessons only: next | back | restart
 
@@ -21,9 +22,15 @@ v2 (BUILD-PLAN E2): every WebSocket connect starts with `engine.hello {version, 
 the app sends a v2 command only when `capabilities` lists it. Security (BUILD-PLAN section 6):
   - Host: every HTTP request and WebSocket must name this Mac (localhost, 127.0.0.1, [::1]; when bound off loopback,
     also that host, <hostname>.local and MIYAGI_ALLOWED_HOSTS), else 403 / close 1008. Closes DNS rebinding.
+  - Bind: 127.0.0.1 unless ENGINE_HOST / --host says otherwise (an empty ENGINE_HOST is loopback too).
   - MIYAGI_ENGINE_TOKEN (the app's per-launch token): when set, a WebSocket must carry it in X-Miyagi-Token, or it is
-    refused before the handshake; so must any HTTP request from another machine (ENGINE_HOST=0.0.0.0). It is read
-    once and removed from os.environ, so no learner subprocess inherits it.
+    refused before the handshake; so must every POST/PUT/PATCH/DELETE (/ingest, /vscode/event, /end, /stage/*, ...),
+    from this Mac too, and any HTTP request from another machine (ENGINE_HOST=0.0.0.0). Loopback GETs (/health,
+    /state, /library) need none. It is read once and removed from os.environ, so no learner subprocess inherits it.
+    run() writes the token (or, with none set, a fresh random one) to ~/.miyagi/engine-tokens/<port>.json (0600,
+    server/engine_token.py) for the VS Code companion, `tut run` and the dev CLI, and removes it on exit.
+  - Dev routes (/debug/*, /demo/*) answer 404 unless MIYAGI_DEBUG_ROUTES=1 or DEMO=1: the app's engine (localEngine.ts)
+    sets neither, so a release build never serves them.
   - Origin: a request that carries an Origin header (a browser page) must come from this Mac (http(s)://localhost,
     127.0.0.1, [::1]) or MIYAGI_ALLOWED_ORIGINS; a POST/PUT/PATCH/DELETE carrying one only from MIYAGI_ALLOWED_ORIGINS.
     Native clients (the app's main process, the VS Code companion, `tut run`, curl) send none.
@@ -146,7 +153,21 @@ MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 REFUSED_PAGE = "This page may not call the miyagi engine."
 REFUSED_HOST = "This address may not call the miyagi engine."
 REFUSED_TOKEN = "Send the engine token (X-Miyagi-Token)."
+DEV_PREFIXES = ("/debug/", "/demo/")
+DEBUG_ENV = "MIYAGI_DEBUG_ROUTES"
 _bind_host: str | None = None  # run() sets it from --host; else ENGINE_HOST (uvicorn ... --host has no say)
+
+
+def debug_routes_on() -> bool:
+    """/debug/* and /demo/* (force-pass a step, jump, load a canned lesson, replay a recording) are for development:
+    MIYAGI_DEBUG_ROUTES=1, or a DEMO=1 engine. The app's own engine (main/localEngine.ts) sets neither."""
+    return os.environ.get(DEBUG_ENV, "").strip() == "1" or config.demo_mode()
+
+
+def needs_token(method: str, scope: dict) -> bool:
+    """With MIYAGI_ENGINE_TOKEN set: every write (from this Mac too: another local program or a learner's script could
+    otherwise end the lesson, fake runs into /ingest or fake editor events) and anything from another machine."""
+    return ENGINE_TOKEN is not None and (method in MUTATING or not client_is_loopback(scope))
 
 
 def _csv_env(name: str) -> set[str]:
@@ -251,8 +272,10 @@ def _refuse(error: str, status: int) -> JSONResponse:
 class RequestGuard:
     """HTTP only (the WebSocket runs the same checks before its handshake), in this order:
       - Host must name this Mac (host_allowed): 403. Closes DNS rebinding.
-      - With MIYAGI_ENGINE_TOKEN set, a client that is not on loopback (ENGINE_HOST=0.0.0.0) must send a matching
-        X-Miyagi-Token: 403. The app's main process, the companion and `tut run` stay on loopback and send none.
+      - Dev routes (/debug/*, /demo/*) without MIYAGI_DEBUG_ROUTES=1 / DEMO=1: 404, as if they did not exist.
+      - With MIYAGI_ENGINE_TOKEN set, every POST/PUT/PATCH/DELETE and every request from another machine
+        (ENGINE_HOST=0.0.0.0) must send a matching X-Miyagi-Token: 403 (needs_token). The companion (0.0.7+),
+        `tut run` and the dev CLI read it from ~/.miyagi/engine-tokens/<port>.json; loopback GETs need none.
       - Origin: any request carrying one must come from a page on this Mac (origin_allowed); a POST/PUT/PATCH/DELETE
         carrying one must be listed in MIYAGI_ALLOWED_ORIGINS (write_origin_allowed): 403.
       - A write's body must be JSON: 415 (a browser can't send JSON cross-site without a CORS preflight, which this
@@ -272,8 +295,11 @@ class RequestGuard:
         if not host_allowed(headers.get("host")):
             log.warning("refused %s %s for host %s", method, path, _shown(headers.get("host")))
             refused = _refuse(REFUSED_HOST, 403)
-        elif ENGINE_TOKEN is not None and not client_is_loopback(scope) and not token_ok(headers.get(TOKEN_HEADER)):
-            log.warning("refused %s %s from another machine without the engine token", method, path)
+        elif path.startswith(DEV_PREFIXES) and not debug_routes_on():
+            log.info("refused %s %s: dev route (set %s=1 to serve it)", method, path, DEBUG_ENV)
+            refused = _refuse("Not found.", 404)
+        elif needs_token(method, scope) and not token_ok(headers.get(TOKEN_HEADER)):
+            _log_token_refusal(method, path, scope, headers)
             refused = _refuse(REFUSED_TOKEN, 403)
         elif not origin_allowed(origin) or (method in MUTATING and not write_origin_allowed(origin)):
             log.warning("refused %s %s from origin %s", method, path, _shown(origin))
@@ -288,6 +314,23 @@ class RequestGuard:
             await refused(scope, receive, send)
             return
         await self.app(scope, receive, send)
+
+
+_warned_companion = False
+
+
+def _log_token_refusal(method: str, path: str, scope: dict, headers: dict) -> None:
+    """One line, never the token. A token-less /vscode/event is a VS Code companion older than 0.0.7: said once."""
+    global _warned_companion
+    why = "wrong token" if headers.get(TOKEN_HEADER) else "no token"
+    where = "this Mac" if client_is_loopback(scope) else "another machine"
+    if path == "/vscode/event" and not headers.get(TOKEN_HEADER):
+        if not _warned_companion:
+            _warned_companion = True
+            log.warning("refused POST /vscode/event without the engine token: the VS Code companion is older than "
+                        "0.0.7 (reinstall it from vscode-ext/); its editor events are ignored until then")
+        return
+    log.warning("refused %s %s from %s (%s)", method, path, where, why)
 
 
 def parse_command(raw: dict) -> Any:
@@ -1292,11 +1335,13 @@ def run() -> None:
 
     ap = argparse.ArgumentParser(description="sandhacks-tutor engine (WS + /ingest)")
     # ENGINE_HOST=0.0.0.0 / --host 0.0.0.0 lets Adrian's app reach this Mac over the LAN (ws://<mac>.local:8787)
-    ap.add_argument("--host", default=os.environ.get("ENGINE_HOST", "127.0.0.1"))
+    # 5.3: loopback unless asked; an empty ENGINE_HOST (`ENGINE_HOST= ...`) must not become "every interface"
+    ap.add_argument("--host", default=os.environ.get("ENGINE_HOST", "").strip() or "127.0.0.1")
     ap.add_argument("--port", type=int, default=config.port())
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     global _bind_host
+    args.host = args.host.strip() or "127.0.0.1"
     _bind_host = args.host
     if _host_name(args.host) not in _LOOPBACK:  # BUILD-PLAN section 6: say so when other machines can reach it
         if ENGINE_TOKEN:
@@ -1305,7 +1350,31 @@ def run() -> None:
         else:
             log.warning("listening on %s with no MIYAGI_ENGINE_TOKEN: every HTTP route and the WebSocket are open "
                         "to any machine on this network", args.host)
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    if debug_routes_on():
+        log.info("dev routes on (/debug/*, /demo/*): %s=1 or DEMO=1", DEBUG_ENV)
+    link = _publish_token(args.port)
+    try:
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    finally:
+        from server import engine_token
+
+        engine_token.remove(link, args.port)
+
+
+def _publish_token(port: int) -> str:
+    """The token beside-the-engine clients send (server/engine_token.py): the app's MIYAGI_ENGINE_TOKEN, else a fresh
+    random one for this launch (then it only guards the engine -> companion calls). Never logged."""
+    import secrets
+
+    from server import engine_token
+    from server.workspace import vscode_ext
+
+    link = ENGINE_TOKEN or secrets.token_urlsafe(32)
+    vscode_ext.set_link_token(link)
+    if engine_token.write(link, port) is None:
+        log.warning("could not write the engine token to %s: the VS Code companion and `tut run` go without it",
+                    engine_token.token_dir())
+    return link
 
 
 if __name__ == "__main__":
