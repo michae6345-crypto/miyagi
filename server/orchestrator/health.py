@@ -19,17 +19,19 @@ State: "ok" | "missing" | "unknown". unknown = the probe couldn't tell (not macO
 shows it gray ("watching"), never as missing. ready / total count the required rows only.
 
 Never prompts (BUILD-PLAN section 6): Screen Recording uses CGPreflightScreenCaptureAccess (never the Request call),
-Accessibility uses AXIsProcessTrusted (never the WithOptions prompt), the companion is a directory listing of VS Code's
-extensions folder plus the companion's own 0.3 s /state scan. No subprocess, no model call, no network beyond
-127.0.0.1. A permission probe answers for the process macOS holds responsible: the app when the engine is its child,
-Terminal when someone runs the engine by hand, so the app prefers its own permission probes (main/permissions.ts)
-and uses these rows for the companion and the engine.
+Accessibility uses AXIsProcessTrusted (never the WithOptions prompt), the companion is VS Code's extensions.json (or a
+directory listing of its extensions folder) minus its .obsolete list, plus the companion's own 0.3 s /state scan. No
+subprocess, no model call, no network beyond 127.0.0.1. A permission probe answers for the process macOS holds
+responsible: the app when the engine is its child, Terminal when someone runs the engine by hand, so the app prefers
+its own permission probes (main/permissions.ts) and uses these rows for the companion and the engine.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -135,19 +137,81 @@ def _extensions_dir() -> Path:
     return Path(env).expanduser() if env else Path.home() / ".vscode" / "extensions"
 
 
+_VERSION_RE = re.compile(r"\d+(?:\.\d+)*")
+MAX_INDEX_BYTES = 4 * 1024 * 1024
+
+
+def _version_key(v: str) -> tuple[int, ...]:
+    """"0.10.0" -> (0, 10, 0), so 0.10.0 ranks above 0.9.0 (a text sort gets that backwards). () when unparseable."""
+    m = _VERSION_RE.match(v or "")
+    return tuple(int(x) for x in m.group(0).split(".")) if m else ()
+
+
+def _read_json(p: Path) -> Any:
+    """A small JSON file VS Code keeps in its extensions folder, or None (missing, too big, unreadable)."""
+    try:
+        if not p.is_file() or p.stat().st_size > MAX_INDEX_BYTES:
+            return None
+        return json.loads(p.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _obsolete(d: Path) -> set[str]:
+    """Folder names VS Code marked for removal in <extensions>/.obsolete ({"<folder>": true}): uninstalled, not yet
+    pruned."""
+    data = _read_json(d / ".obsolete")
+    return {k for k, v in data.items() if v is True} if isinstance(data, dict) else set()
+
+
+def _from_index(d: Path, obsolete: set[str]) -> tuple[bool, str | None] | None:
+    """(installed, version) from <extensions>/extensions.json, VS Code's own list. None when there is no usable list
+    (older VS Code), so the caller falls back to the folder names."""
+    data = _read_json(d / "extensions.json")
+    if not isinstance(data, list):
+        return None
+    versions = []
+    for e in data:
+        if not isinstance(e, dict):
+            continue
+        ident = e.get("identifier")
+        if not isinstance(ident, dict) or str(ident.get("id") or "").lower() != COMPANION_ID:
+            continue
+        folder = e.get("relativeLocation")
+        if not isinstance(folder, str):
+            loc = e.get("location")
+            folder = Path(str(loc.get("path") or loc.get("fsPath") or "")).name if isinstance(loc, dict) else ""
+        if folder and folder in obsolete:
+            continue
+        v = e.get("version")
+        versions.append(v if isinstance(v, str) else "")
+    if not versions:
+        return False, None
+    newest = max(versions, key=_version_key)
+    return True, newest[:32] or None
+
+
 def companion_installed() -> tuple[bool | None, str | None]:
-    """(installed, version) from VS Code's extensions folder (no `code` subprocess). (None, None) if it can't read it."""
+    """(installed, version) from VS Code's extensions folder (no `code` subprocess): extensions.json when VS Code keeps
+    one, else the folder names; either way an uninstall still waiting in .obsolete doesn't count. (None, None) if it
+    can't read the folder."""
     d = _extensions_dir()
     try:
         if not d.is_dir():
             return False, None
-        names = [p.name for p in d.iterdir() if p.name.lower().startswith(COMPANION_ID + "-")]
+        obsolete = _obsolete(d)
+        indexed = _from_index(d, obsolete)
+        if indexed is not None:
+            return indexed
+        names = [p.name for p in d.iterdir()
+                 if p.name.lower().startswith(COMPANION_ID + "-") and p.name not in obsolete and p.is_dir()]
     except OSError:
         return None, None
     if not names:
         return False, None
-    newest = sorted(names)[-1]
-    return True, newest[len(COMPANION_ID) + 1:][:32] or None
+    versions = [n[len(COMPANION_ID) + 1:] for n in names]
+    newest = max(versions, key=_version_key)
+    return True, newest[:32] or None
 
 
 def vscode_installed() -> bool | None:
