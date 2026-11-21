@@ -1180,9 +1180,12 @@ export default defineFeature({
         // v2 (A2): the docked lesson panel draws Not yet itself (Les-NotYet); the pill says "Not yet". A1 sees the live
         // off-track, so one carrying a fix ("Do it for me") stays on the island.
         const routed = useRoutedAway('offtrack', o)
+        // Collapsed to the Mini pill, hovering it is how the learner reaches its click (open the panel): no peek there,
+        // or in Not yet, when they most want the panel back, the off-track card would cover Mini under the cursor.
+        const mini = useDock((d) => d.collapsed)
         // Hover peeks at the off-track card only when nothing else is open: with a card up, hovering it must not
         // swap it for the off-track card under the cursor (Michael couldn't click "Open" on a hint card).
-        return has && !routed && (open || (hover && !covered))
+        return has && !routed && (open || (hover && !covered && !mini))
       },
       Content: Offtrack
     },
@@ -1212,7 +1215,8 @@ export default defineFeature({
         useChip() // subscribes, so the island re-reads the width when the card folds or opens
         useCards((c) => isEditorSheet(c.card, c.installs)) // and when a setup card turns into the sheet or back
         const card = useCards((c) => c.card)
-        // A card the docked panel draws itself (Les-Hint) skips the island while the panel shows (no double render).
+        // A card the docked panel draws itself (Les-Hint) skips the island while the panel shows (no double render), and
+        // is spent there (store.ts consumeRouted), so collapsing to Mini doesn't replay it out of the pill.
         const routed = useRoutedAway(card?.kind, card)
         return !!card && !routed
       },

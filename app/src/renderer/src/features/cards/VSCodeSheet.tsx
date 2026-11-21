@@ -13,7 +13,8 @@
  * VS Code itself missing ("VS Code not found"): "miyagi needs VS Code to teach this." with Get VS Code (its download
  * page). VS Code copy only: every editor label goes through copy.editorName, which never names an unsupported editor.
  * The rows' rings carry no hue: a white ring missing, a ring with a white tick present (green stays for passed).
- * Anything else missing (Python, a package) keeps the regular setup card.
+ * Anything else missing (Python, a package), or a missing row with nothing to press (install.method "none"), keeps the
+ * regular setup card.
  */
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -22,7 +23,7 @@ import { bridge } from '../../bridge'
 import { color, copy, fill, radius2, status, type2 } from '../../core/theme'
 import { CloseButton, PrimaryButtonV2 } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { cardAct, itemDone, useCards, type Install } from './store'
+import { cardAct, engineInstalls, itemDone, useCards, type Install } from './store'
 
 type EngineCard = Payload<'card'>
 type SetupItem = NonNullable<EngineCard['setup']>['items'][number]
@@ -40,15 +41,23 @@ const isEditor = (x: SetupItem): boolean => x.kind === 'editor' && !isHelper(x)
 const SHEET_ACTIONS = new Set<string>(['install', 'install_all', 'skip_setup'])
 
 /**
- * Is this setup card the VS Code sheet? Only the editor and / or its helper are missing, and the card offers nothing
- * the sheet would drop: no where line, no tutorial files (setup.resources, Download), no action past install / Skip.
- * Anything more keeps the regular setup card (its labels go through copy.editorName too).
+ * What the sheet's one button can do for a missing row: open its download page, open it in the browser, or have the
+ * engine install it (pip / brew / brew_cask, the same rows the setup card's Install covers). Method "none" (or a
+ * download with no url) has nothing to press: sending `install` for it would spin "Installing helper" with no answer.
+ */
+const canAct = (x: SetupItem): boolean => (x.install.method === 'download' && !!x.install.url) || x.install.method === 'open' || engineInstalls(x)
+
+/**
+ * Is this setup card the VS Code sheet? Only the editor and / or its helper are missing, each with something the sheet's
+ * button can do (canAct), and the card offers nothing the sheet would drop: no where line, no tutorial files
+ * (setup.resources, Download), no action past install / Skip. Anything else keeps the regular setup card (its labels
+ * go through copy.editorName too), which never offers Install for a method-"none" row.
  */
 export function isEditorSheet(c: EngineCard | undefined, installs: Record<string, Install> = {}): boolean {
   if (!c || c.kind !== 'setup' || !c.setup) return false
   if (c.where || c.setup.resources?.length || !(c.actions ?? []).every((a) => SHEET_ACTIONS.has(a))) return false
   const missing = c.setup.items.filter((x) => x.needed && !itemDone(x, installs))
-  return missing.length > 0 && missing.every((x) => isEditor(x) || isHelper(x))
+  return missing.length > 0 && missing.every((x) => (isEditor(x) || isHelper(x)) && canAct(x))
 }
 
 /** A label we show: never an unsupported editor's name (copy.editorName). */
@@ -76,11 +85,15 @@ function rowDetail(x: SetupItem, done: boolean, run?: Install): string {
   return isEditor(x) ? 'Not found' : 'Not yet installed'
 }
 
-/** The row's button: a download page opens here; anything else is an install the engine runs (action install). */
+/**
+ * The row's button: a download page opens here, an "open" row opens in the browser, and only a row the engine installs
+ * (pip / brew / brew_cask) sends `install`. isEditorSheet keeps any other row off the sheet, so nothing here can spin
+ * with no answer coming.
+ */
 function act(x: SetupItem): void {
   if (x.install.method === 'download' && x.install.url) window.open(x.install.url, '_blank', 'noopener,noreferrer')
   else if (x.install.method === 'open') cardAct('open_in_browser', x.tool)
-  else cardAct('install', x.tool)
+  else if (engineInstalls(x)) cardAct('install', x.tool)
 }
 
 /**
