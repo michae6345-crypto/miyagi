@@ -6,7 +6,9 @@
  * what the bundle can't:
  *   - app.name 'miyagi' before ready, so the app menu says "Hide miyagi" / "Quit miyagi" and userData is
  *     ~/Library/Application Support/miyagi in dev too (package.json productName says the same; this is the backstop).
- *   - The About panel (app menu › About miyagi): name, app version, and which engine build is inside the app.
+ *   - The About panel (tray / pill menu > About miyagi): name, app version, and which engine build is inside the app.
+ *     The application menu (overlay-raise.ts) has only Hide / Quit, no About. The tray item lives in
+ *     features/launch.ts (launch-ease lane) and is a Core request in app/agents/real-app.md until that lane adds it.
  *   - `npm run dev` only: the Dock shows the bonsai instead of Electron's atom while an app window is open (the name
  *     there stays "Electron": it comes from Electron.app's own bundle, which only a built app replaces).
  */

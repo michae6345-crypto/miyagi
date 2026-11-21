@@ -17,7 +17,7 @@ Michael uses the real built miyagi every day, as its own app: "miyagi" in the me
 
 ## Core changes in this lane (core files, kept tiny and additive)
 - `src/main/index.ts`: `import { setupIdentity } from './identity'` and one `setupIdentity()` call at the top of `whenReady` (2 lines).
-- `src/main/features/launch.ts` (owned by the launch-ease lane, listed under Core requests in pass 1): the tray / pill menu gains "About miyagi" on macOS (focus, then `app.showAboutPanel()`), so About is reachable with no app window open. Needs that lane's OK. `overlay-raise.ts` is back to untouched.
+- None in `features/launch.ts` or `overlay-raise.ts`: both are untouched on this branch (fix round 2 dropped the tray edit; it is a Core request below).
 - `src/main/localEngine.ts`: `engineMode()` (exported), the pid file (removed again on a normal quit), `reclaimOwnLeftover()` with `isOwnEngineCommand()` and `startedWhenSaved()`, one extra condition in `wanted`. Existing behavior is unchanged when there's no pid file and no engine mode set.
 
 ## Verified (Nov 20)
@@ -30,11 +30,23 @@ Michael uses the real built miyagi every day, as its own app: "miyagi" in the me
 - `install-local.sh --dry-run --mode-only --engine dev --cloud off`, `--dry-run --skip-build --engine bundled` (mode only), `--dry-run --mode-only` (error), `--dry-run --skip-build` (full install) all behave; `bash -n` OK; `--help` prints the new header.
 - `npm run typecheck` passes. Info.plist strings checked by parsing the YAML (no `ship:mac` rebuild in this round).
 
+## Fix round 2 (Nov 20)
+- `install-local.sh`: backup pruning no longer aborts the install when `~/miyagi/app-backups.noindex` holds no `miyagi-*.app` (`ls` exit 1 under `pipefail`); `{ ls ... || true; }`. Sandbox: empty folder rc 0 and the next line runs; four backups with keep 2 prunes the two oldest; the old line gives rc 1.
+- About location fixed in `SHIP.md` and `identity.ts`: tray / pill menu > About miyagi, not the app menu (which has only Hide / Quit).
+- `features/launch.ts` restored to the launch-ease version (this lane's 13-line tray item removed) and filed under Core requests, so no merge conflict with that lane. Until it lands, the About panel is configured but has no menu entry.
+- `npm run typecheck` passes; `bash -n` and `--dry-run` OK.
+
 ## Not verified (needs Michael's Mac session)
-- Running `npm run install:local` for real, opening the installed app, the About panel, the Screen Recording prompt naming miyagi, and the pid-file reclaim after a force quit. None were run here (this lane must not touch /Applications or the running app).
+- Running `npm run install:local` for real, opening the installed app, the About panel (once the tray item lands), the Screen Recording prompt naming miyagi, and the pid-file reclaim after a force quit. None were run here (this lane must not touch /Applications or the running app).
 
 ## Core requests
-- Launch-ease lane owner: OK the "About miyagi" tray item added in `features/launch.ts` (fix round 1).
+- Launch-ease lane (`src/main/features/launch.ts`, tray / pill menu): add "About miyagi" on macOS, just above "Quit miyagi", so the About panel set up in `main/identity.ts` has a menu entry with no app window open (the accessory app's own menu shows only while an app window is in front). Suggested item, as dropped from this branch in fix round 2:
+  ```ts
+  ...(process.platform === 'darwin'
+    ? [{ label: 'About miyagi', click: (): void => { ctx.app.focus({ steal: true }); ctx.app.showAboutPanel() } } satisfies MenuItemConstructorOptions]
+    : []),
+  ```
+- Optional, core owner of `src/main/features/overlay-raise.ts`: the application menu is `{ label: 'miyagi', submenu: [{ role: 'hide' }, { role: 'quit' }] }`. Add `{ role: 'about' }` first if About should also live there (it shows only while an app window is in front).
 - `main/serve.ts` CSP allows only port 8787: an `ENGINE_URL` on another local port works for the WebSocket from main but not for renderer fetches / media. If a second local engine port is ever wanted, derive the CSP from `ENGINE_URL`.
 - `features/library.ts`, `overview.ts`, `presenter.ts` and `index.ts` each read `process.env.ENGINE_URL` with their own default; one shared `engineUrl()` in core would keep them in step.
 
