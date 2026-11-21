@@ -3,20 +3,24 @@
  *
  * At most ONE small coach mark at a time, only the first time its element appears, beside it (never over it):
  *   check     the panel's Check my work      "Press it when you think you're done. miyagi checks your real work."
- *   help      the panel's Need help row      "Try [Hint] first, then [Show me]." (first Not yet, or from step 2 on)
+ *   help      the panel's Need help row      "Try [Hint] first, then [Show me]." (first Not yet, or 20 s into step 2 on)
  *   mini      the Mini pill                  "It keeps your place. Click it to open the panel again."
  *   pill      the step pill on its own       "Point at it to see your step." (no panel, no video player)
  *   launcher  the idle pill                  "Press [⌥Space] in any app to start a lesson."
  *   menubar   the menu bar item              "Open it from the menu bar, even with every window closed."
- * Got it or Esc closes it for good; "..." > Don't show tips turns them all off (store.ts keeps both).
+ * Got it or Esc closes it for good, and so does doing what it says (checking, a Hint, opening the panel, pointing at
+ * the pill, opening the launcher: each Tip's done, or a press on the element it points at), however briefly it was up.
+ * "..." > Don't show tips turns them all off (store.ts keeps both).
  *
  * Calm by design: a tip waits until its element has held still for STABLE_MS (no tips mid-animation), the app has
  * been up for STARTUP_MS, and COOLDOWN_MS has passed since the last one closed. Nothing shows while another surface
  * has the floor (a card out of the island, the launcher or Settings, the spotlight, a diagram, the pill's menu). If
- * its element leaves, the tip goes too; it counts as seen only if it was up for READ_MS.
+ * its element leaves for any other reason, the tip goes too; it counts as seen only if it was up for READ_MS.
  *
- * An overlay layer (z 70, over the island): it reads the real elements from the overlay's DOM each frame and reserves
- * its rect (core/dock reserveRect) so the island's cards step around it.
+ * An overlay layer (z 70, over the island): it reads the real elements from the overlay's DOM (about 10 times a
+ * second while a tip is up, every frame only while its element moves, 4 times a second while none is, and not at all
+ * once every tip is seen or tips are off) and reserves its rect (core/dock reserveRect) so the island's cards step
+ * around it.
  */
 import { AnimatePresence } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
@@ -24,14 +28,16 @@ import type { Layout } from '../../../../preload/api'
 import { bridge, isElectron } from '../../bridge'
 import { reserveRect, useDock } from '../../core/dock'
 import { useIslandBox, type IslandBox } from '../../core/Island'
+import { onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
+import { usePressed } from '../../core/shortcuts'
 import { defineFeature } from '../../core/registry'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { usePill } from '../pill/store'
 import { CoachMark, MARK_W } from './CoachMark'
 import { place, sameRect, type Rect } from './place'
 import { stageTray, TRAY_CHANNEL } from './stage'
-import { dismissTip, markSeen, setTipMenu, showTip, tipsEnabled, turnTipsOff, useTips, withdrawTip } from './store'
+import { dismissTip, setTipMenu, showTip, tipsEnabled, turnTipsOff, useTips, withdrawTip } from './store'
 import { TIPS, type Anchor, type TipContext, type TipId } from './tips'
 
 /** The element must hold still this long before its tip shows. */
@@ -40,8 +46,12 @@ const STABLE_MS = 700
 const STARTUP_MS = 1500
 /** Air between one tip closing and the next one showing. */
 const COOLDOWN_MS = 1400
-/** How often to ask "can a tip show?" while none is up (while one is, it follows its element every frame). */
+/** How often to ask "can a tip show?" while none is up. */
 const IDLE_POLL_MS = 250
+/** How often to follow the tip on screen while its element holds still (about 10 Hz: an always-on overlay). */
+const TRACK_MS = 100
+/** After its element last moved, follow it every frame this long, so the mark never lags a moving element. */
+const MOVING_MS = 300
 /** How often to ask main where the menu bar item is (it can move when other items come and go). */
 const TRAY_POLL_MS = 5000
 /** How often to ask main whether first-run setup has finished, until it has (main does not announce it yet). */
@@ -67,6 +77,13 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
   const stepIndex = useLesson((s) => Math.max(0, s.steps.findIndex((x) => x.id === s.stepId)))
   const stepRef = useRef(stepIndex)
   stepRef.current = stepIndex
+  // When the current step began (TipContext.stepAge: Stuck? waits until the learner has been on a step a while).
+  const stepId = useLesson((s) => s.stepId)
+  const stepSince = useRef(Date.now())
+  useEffect(() => {
+    stepSince.current = Date.now()
+  }, [stepId])
+  const allSeen = useTips((s) => TIPS.every((t) => s.seen.includes(t.id)))
   // The video player docks beside every video lesson (the same test the island uses to clear it).
   const playerOpen = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
   const playerRef = useRef(playerOpen)
@@ -97,17 +114,37 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
   const plainStage = useLesson((s) => s.lesson?.mode === 'lesson')
 
   useEffect(() => {
-    if (!tipsEnabled || off) return
+    // Nothing left to teach (every tip seen, or tips off): no polling at all, the overlay stays quiet.
+    if (!tipsEnabled || off || allSeen) return
     let candidate: { id: TipId; target: Rect; since: number } | undefined
+    /** The anchor the mark is drawn at (mirrors `anchor`), for following it and for a press on its element. */
+    let shown: Anchor | undefined
+    /** When the shown anchor last moved: the layer follows it every frame for MOVING_MS after, then at TRACK_MS. */
+    let movedAt = 0
     let raf = 0
     let timer: ReturnType<typeof setTimeout> | undefined
+    /** What the learner did, and when (TipContext.did): sent actions and the launcher opening. */
+    const acts = new Map<string, number>()
+
+    const frame = (): { root: HTMLElement; box: DOMRect; k: number } | undefined => {
+      const root = holder.current?.parentElement
+      if (!root) return undefined
+      const box = root.getBoundingClientRect()
+      return { root, box, k: root.offsetWidth ? box.width / root.offsetWidth : 1 } // k: the stage's CSS scale (1 in Electron)
+    }
+
+    const close = (final: boolean): void => {
+      if (final) dismissTip()
+      else withdrawTip()
+      shown = undefined
+      setAnchor(undefined)
+    }
 
     const tick = (): void => {
-      const root = holder.current?.parentElement
+      const f = frame()
       const s = useTips.getState()
-      if (!root || s.off) return
-      const box = root.getBoundingClientRect()
-      const k = root.offsetWidth ? box.width / root.offsetWidth : 1 // the stage's CSS scale (1 in Electron)
+      if (!f || s.off) return
+      const { root, box, k } = f
       const toLocal = (r: DOMRect): Rect => ({ x: (r.left - box.left) / k, y: (r.top - box.top) / k, w: r.width / k, h: r.height / k })
       const ctx: TipContext = {
         rect: (sel) => {
@@ -122,6 +159,8 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
         playerOpen: playerRef.current,
         offline: offlineRef.current,
         stepIndex: stepRef.current,
+        stepAge: Date.now() - stepSince.current,
+        did: (what) => (acts.get(what) ?? -1) >= useTips.getState().shownAt,
         tray: trayRef.current,
         os: bridge.platform.os,
         seen: (id) => useTips.getState().seen.includes(id),
@@ -133,13 +172,17 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
       const now = Date.now()
 
       if (s.active) {
-        const a = busy ? undefined : TIP_BY_ID.get(s.active)?.anchor(ctx)
-        if (!a) {
-          withdrawTip()
-          setAnchor(undefined)
-          return
+        const tip = TIP_BY_ID.get(s.active)
+        // The learner did what it says: done for good, however briefly it was up (checked first, so a check, the
+        // launcher opening or the panel coming back never just withdraws it to come back later).
+        if (tip?.done?.(ctx)) return close(true)
+        const a = busy ? undefined : tip?.anchor(ctx)
+        if (!a) return close(false)
+        if (!(shown && shown.side === a.side && sameRect(shown.target, a.target, 0.5) && sameRect(shown.avoid, a.avoid, 0.5))) {
+          shown = a
+          movedAt = now
+          setAnchor(a)
         }
-        setAnchor((cur) => (cur && cur.side === a.side && sameRect(cur.target, a.target, 0.5) && sameRect(cur.avoid, a.avoid, 0.5) ? cur : a))
         return
       }
 
@@ -155,6 +198,8 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
           candidate = { id: tip.id, target: a.target, since: now }
         } else if (now - candidate.since >= STABLE_MS) {
           candidate = undefined
+          shown = a
+          movedAt = now
           setAnchor(a)
           showTip(tip.id)
         }
@@ -163,18 +208,57 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
       candidate = undefined
     }
 
-    // Every frame while a tip is up (it follows its element), a few times a second otherwise.
+    // Follows the tip on screen every frame only while its element moves, TRACK_MS otherwise; IDLE_POLL_MS while none
+    // is up. (The effect ends, and with it the loop, once every tip is seen or tips are off.)
     const loop = (): void => {
+      if (raf) cancelAnimationFrame(raf)
+      if (timer) clearTimeout(timer)
+      raf = 0
+      timer = undefined
       tick()
-      if (useTips.getState().active) raf = requestAnimationFrame(loop)
-      else timer = setTimeout(loop, IDLE_POLL_MS)
+      const s = useTips.getState()
+      if (s.off) return
+      // A hidden or throttled window may hold animation frames back: the timer keeps the layer following either way.
+      if (s.active && Date.now() - movedAt < MOVING_MS) raf = requestAnimationFrame(loop)
+      timer = setTimeout(loop, s.active ? TRACK_MS : IDLE_POLL_MS)
     }
+
+    // What the learner does is heard as it happens, so a tip closes the moment they act (not on the next poll, by
+    // which time its element may already have gone).
+    const act = (what: string): void => {
+      acts.set(what, Date.now())
+      if (useTips.getState().active) tick()
+    }
+    // A press on the element a tip points at is the learner doing what it says (the Check my work button, the help
+    // row, Mini, the pill): the tip is done, even before that press has any visible effect.
+    const onDown = (e: PointerEvent): void => {
+      const f = frame()
+      if (!f || !shown || !useTips.getState().active) return
+      if (e.target instanceof Element && e.target.closest('[data-part="tip"]')) return
+      const x = (e.clientX - f.box.left) / f.k
+      const y = (e.clientY - f.box.top) / f.k
+      const t = shown.target
+      if (x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h) close(true)
+    }
+    const offs = [
+      usePressed.subscribe((p, prev) => {
+        if (p.kind && (p.kind !== prev.kind || p.at !== prev.at)) act(p.kind)
+      }),
+      onUi('shortcut', (kind) => {
+        if (typeof kind === 'string') act(kind)
+      }),
+      bridge.on('launcher:open', () => act('launcher'))
+    ]
+    window.addEventListener('pointerdown', onDown, true)
+
     loop()
     return () => {
-      cancelAnimationFrame(raf)
+      if (raf) cancelAnimationFrame(raf)
       if (timer) clearTimeout(timer)
+      offs.forEach((o) => o())
+      window.removeEventListener('pointerdown', onDown, true)
     }
-  }, [off, layout.height])
+  }, [off, allSeen, layout.height])
 
   // The mark's real size, for placing it (its text wraps to 2 or 3 lines).
   useLayoutEffect(() => {
@@ -221,7 +305,6 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
   }, [menu])
 
   const gotIt = (): void => {
-    if (tip?.alsoSeen) tip.alsoSeen.forEach(markSeen)
     dismissTip()
     setAnchor(undefined)
   }

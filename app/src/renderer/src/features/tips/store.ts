@@ -1,7 +1,8 @@
 /**
  * Feature: tips. What the learner has already been shown, and the one coach mark on screen right now.
  *
- *   seen     tips dismissed once (Got it, Esc, or read long enough before their target left): never shown again
+ *   seen     tips dismissed once (Got it, Esc, the learner doing what it says, or read long enough before their target
+ *            left): never shown again. A tip's alsoSeen (the Mini tip's pill) is marked on every one of those paths.
  *   off      "Don't show tips": nothing is shown again until resetTips()
  *   active   the tip on screen (at most one)
  *
@@ -14,7 +15,7 @@ import { create } from 'zustand'
 import { isElectron } from '../../bridge'
 import { onUi } from '../../core/bus'
 import { setPrefs, usePrefs, type Prefs } from '../../core/prefs'
-import type { TipId } from './tips'
+import { TIPS, type TipId } from './tips'
 
 export type TipsSaved = { off: boolean; seen: TipId[] }
 
@@ -100,11 +101,18 @@ export function showTip(id: TipId): void {
   useTips.setState({ active: id, shownAt: Date.now(), menu: false })
 }
 
-/** The learner closed it (Got it, Esc): it never comes back. */
+const ALSO_SEEN = new Map(TIPS.map((t) => [t.id, t.alsoSeen ?? []]))
+
+/**
+ * The tip is done for good (Got it, its own Esc, the learner did what it says, or it was read READ_MS): it never comes
+ * back, and neither do the tips it also covers (alsoSeen: the Mini tip teaches the same click as the pill's).
+ */
 export function dismissTip(): void {
   const { active, seen } = useTips.getState()
   if (!active) return
-  useTips.setState({ active: undefined, menu: false, closedAt: Date.now(), seen: seen.includes(active) ? seen : [...seen, active] })
+  const next = [...seen]
+  for (const id of [active, ...(ALSO_SEEN.get(active) ?? [])]) if (!next.includes(id)) next.push(id)
+  useTips.setState({ active: undefined, menu: false, closedAt: Date.now(), seen: next })
   persist()
 }
 
@@ -117,14 +125,6 @@ export function withdrawTip(): void {
   if (!active) return
   if (Date.now() - shownAt >= READ_MS) return dismissTip()
   useTips.setState({ active: undefined, menu: false, closedAt: Date.now() })
-}
-
-/** Also mark another tip seen (the Mini tip teaches the same click as the pill's). */
-export function markSeen(id: TipId): void {
-  const { seen } = useTips.getState()
-  if (seen.includes(id)) return
-  useTips.setState({ seen: [...seen, id] })
-  persist()
 }
 
 /** "Don't show tips". */
@@ -160,4 +160,7 @@ if (typeof window !== 'undefined') {
 }
 // A dismiss from elsewhere (a card's ✕, a lesson completing, Electron's Esc path) also closes the tip, but only
 // withdraws it: a tip the learner never got to read is not lost for good. Got it and the tip's own Esc (above) dismiss.
+// Electron gap (Core request 6 in agents/tips.md): the overlay can't take focus, so its Esc arrives only as this
+// dismiss, which also hides the panel under the tip. Until main routes the dismiss key to an active tip first, Got it
+// (a click) is the way out there.
 onUi('dismiss', withdrawTip)

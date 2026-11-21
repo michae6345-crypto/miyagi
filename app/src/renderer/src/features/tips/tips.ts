@@ -41,6 +41,13 @@ export type TipContext = {
   offline: boolean
   /** Index of the current step (0-based). */
   stepIndex: number
+  /** How long the learner has been on the current step (ms). */
+  stepAge: number
+  /**
+   * The learner did this since the tip on screen appeared: an action they sent (`check_step`, `hint`, `show_me`, from
+   * a button, a tile or a key) or `launcher` (the launcher opened, from its key, the pill or the menu bar).
+   */
+  did: (what: string) => boolean
   /** The menu bar (or taskbar) item, in overlay coordinates, when main can tell (Core request 2). */
   tray?: Rect
   os: 'mac' | 'win'
@@ -54,9 +61,17 @@ export type Tip = {
   title: string
   body: (os: 'mac' | 'win') => BodyPart[]
   anchor: (c: TipContext) => Anchor | undefined
+  /**
+   * The learner just did what the tip teaches (checked, asked for a hint, opened the panel...). The tip closes for good
+   * at once, however briefly it was up: it never comes back to teach something already done.
+   */
+  done?: (c: TipContext) => boolean
   /** Dismissing this tip also counts these as seen (they teach the same thing). */
   alsoSeen?: TipId[]
 }
+
+/** How long the learner is on a step (with the panel's help row in view) before Stuck? shows outside a Not yet. */
+export const HELP_AFTER_MS = 20000
 
 /**
  * Selectors, newest first: `data-tip-anchor` is what Core request 4 asks the owning lanes to add (stable, meant for
@@ -68,6 +83,9 @@ const SEL = {
   help: '[data-tip-anchor="help"], [data-part="lesson-panel"] [data-part="panel-help"]',
   islandLayer: (mode: string) => `[data-island-layer="${mode}"]`
 } as const
+
+/** The lesson panel's view (working, checking, notyet, hint, passed), when it is on screen. */
+const panelView = (c: TipContext): string | undefined => c.el(SEL.panel)?.dataset.view
 
 /** The island's live layer for a mode, when that mode is the one on screen and nothing has borrowed the island. */
 function islandAnchor(c: TipContext, mode: string): Anchor | undefined {
@@ -88,30 +106,38 @@ export const TIPS: Tip[] = [
       const target = c.rect(SEL.check)
       const avoid = c.rect(SEL.panel)
       return target && avoid ? { target, avoid, side: 'left' } : undefined
+    },
+    // A check started (from the button or a key), or its answer is already in.
+    done: (c) => {
+      const view = panelView(c)
+      return c.did('check_step') || view === 'checking' || view === 'notyet' || view === 'passed'
     }
   },
   {
     id: 'help',
     title: 'Stuck?',
     body: () => ['Try ', { option: 'hint' }, ' first, then ', { option: 'show_me' }, '.'],
-    // When it matters: the first Not yet, or from the second step on (the learner has met the panel by then). Not while
-    // a hint is already on screen (the learner just did what it says), and only while the panel is docked open.
+    // When it matters: the first Not yet, or from the second step on once the learner has been on the step a while
+    // (HELP_AFTER_MS), so it never follows the Check my work tip straight onto the same panel. Not while a hint is
+    // already on screen (the learner just did what it says), and only while the panel is docked open.
     anchor: (c) => {
       if (!c.panelOpen) return undefined
-      const panel = c.el(SEL.panel)
-      const view = panel?.dataset.view
+      const view = panelView(c)
       if (!view || view === 'passed' || view === 'checking' || view === 'hint') return undefined
-      if (view !== 'notyet' && c.stepIndex < 1) return undefined
+      if (view !== 'notyet' && (c.stepIndex < 1 || c.stepAge < HELP_AFTER_MS)) return undefined
       const target = c.rect(SEL.help)
       const avoid = c.rect(SEL.panel)
       return target && avoid ? { target, avoid, side: 'left' } : undefined
-    }
+    },
+    done: (c) => c.did('hint') || c.did('show_me') || panelView(c) === 'hint'
   },
   {
     id: 'mini',
     title: 'Your lesson, tucked away',
     body: () => ['It keeps your place. Click it to open the panel again.'],
     anchor: (c) => islandAnchor(c, 'mini'),
+    // The panel is open again.
+    done: (c) => c.panelOpen,
     alsoSeen: ['pill']
   },
   {
@@ -120,14 +146,18 @@ export const TIPS: Tip[] = [
     body: () => ['Point at it to see your step.'],
     // The step pill on its own: no panel docked open and no video player beside it (both already show the step). The
     // pill takes no click; pointing at it opens the step card, so that is what the copy teaches.
-    anchor: (c) => (c.panelOpen || c.playerOpen ? undefined : islandAnchor(c, 'compact'))
+    anchor: (c) => (c.panelOpen || c.playerOpen ? undefined : islandAnchor(c, 'compact')),
+    // Pointing at it grew the step card (the overview card) out of the island.
+    done: (c) => c.island.visible && c.island.mode === 'overview'
   },
   {
     id: 'launcher',
     title: 'Ask miyagi anything',
     body: () => ['Press ', { key: 'launcher' }, ' in any app to start a lesson.'],
     // Not while the engine is offline or not installed: the idle pill then says so, and the key can't start anything.
-    anchor: (c) => (c.offline ? undefined : islandAnchor(c, 'idle'))
+    anchor: (c) => (c.offline ? undefined : islandAnchor(c, 'idle')),
+    // The launcher opened (its key, a press on the pill, the menu bar): it borrows the island.
+    done: (c) => c.did('launcher')
   },
   {
     id: 'menubar',
