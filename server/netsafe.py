@@ -12,9 +12,18 @@ fetch it and hand the answer to a model, a card or the lesson. Every outbound fe
   loopback, RFC 1918, link-local / 169.254.169.254, CGNAT 100.64/10, multicast, ULA fc00::/7, 0.0.0.0 / ::, and no
   IPv4-mapped, 6to4 or NAT64 spelling of one;
 - after connecting, the peer address the socket really reached (response.extensions['network_stream']
-  .get_extra_info('server_addr')) is checked too, which defeats DNS rebinding between the check and the connect;
+  .get_extra_info('server_addr')) is checked too, so when DNS rebinds between the check and the connect the
+  response is never read (nothing from a private address reaches a model, a card or the lesson). This does NOT stop
+  the request itself: the peer is only known after the request has been sent, so a rebinding host still gets one
+  blind GET to a LAN or loopback address. Our own engine and the VS Code companion check Host and their token, so
+  they are covered. Follow-up: an httpcore network backend that resolves, checks each address, then connects to the
+  checked IP;
 - the body is capped (MAX_BYTES, 2 MB, by default; decoded bytes, so a gzip bomb stops early), timeouts always,
   no cookie jar, no proxy or .netrc from the environment (trust_env=False).
+
+Known limits: trust_env=False also means HTTPS_PROXY / HTTP_PROXY are ignored, so a learner behind a mandatory
+proxy gets every guarded fetch refused as unreachable; and fake-IP DNS tools (Surge, Clash, some VPNs) answer with
+198.18.0.0/15, which is not global, so every guarded fetch is refused there too.
 
 `get` / `head` fetch one URL. `async_client` builds a client whose transport makes the same checks on every request
 and every redirect hop, for code that hands one client to many helpers (the finder). Refusals raise `BlockedURL`
@@ -150,8 +159,9 @@ async def acheck_url(url: str | httpx.URL, *, resolve: bool = True) -> httpx.URL
 
 
 def check_peer(response: httpx.Response) -> None:
-    """Refuse a response whose socket reached a non-public address (DNS rebinding after the check). Transports that
-    report no network stream (HTTP/2, test transports) are judged by the pre-connect check alone."""
+    """Refuse a response whose socket reached a non-public address (DNS rebinding after the check): its body is never
+    read. The request has already been sent by then (a blind GET; see the module docstring). Transports that report
+    no network stream (HTTP/2, test transports) are judged by the pre-connect check alone."""
     stream = response.extensions.get("network_stream")
     get = getattr(stream, "get_extra_info", None)
     if get is None:

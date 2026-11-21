@@ -64,6 +64,8 @@ def test_an_attacker_host_on_first_connect_leaves_the_cloud_off():
     "https://127.0.0.1:9000/v1",
     "http://[::1]:9000/v1",
     "https://10.0.0.5/v1",
+    "https://attacker.test/v1",                       # no .test wildcard: a LAN resolver + a MITM CA could answer
+    "https://miyagi-cloud.onrender.com.test/v1",
     "javascript:alert(1)",
     "file:///etc/passwd",
 ])
@@ -99,14 +101,18 @@ def test_local_proxy_only_with_dev_cloud(monkeypatch):
     assert config.cloud_url() == "http://localhost:9000/v1"  # dev mode does not open the door to other hosts
 
 
-def _engine_start(env_extra: dict, url: str) -> str:
-    """A fresh interpreter = a fresh engine start: MIYAGI_DEV_CLOUD / MIYAGI_CLOUD_HOSTS are read at import."""
+def _engine_start(env_extra: dict, url: str | None) -> str:
+    """A fresh interpreter = a fresh engine start: MIYAGI_DEV_CLOUD / MIYAGI_CLOUD_HOSTS / MIYAGI_CLOUD_URL are read at
+    import. With `url`, the app then sends it as miyagiCloud; with None it sends no keys (the env URL alone)."""
     code = ("import sys; from server import config; "
-            "config.set_app_keys({'miyagiCloud': sys.argv[1], 'miyagiToken': 'mi_x'}); print(config.cloud_url())")
+            "url = sys.argv[1] if len(sys.argv) > 1 else None; "
+            "config.set_app_keys({'miyagiCloud': url, 'miyagiToken': 'mi_x'}) if url else None; "
+            "print(config.cloud_url())")
     env = config.safe_env({k: v for k, v in os.environ.items()
-                           if k not in (config.DEV_CLOUD_ENV, config.CLOUD_HOSTS_ENV)}, **env_extra)
-    out = subprocess.run([sys.executable, "-c", code, url], cwd=REPO, env=env, capture_output=True, text=True,
-                         timeout=60, check=True)
+                           if k not in (config.DEV_CLOUD_ENV, config.CLOUD_HOSTS_ENV, config.CLOUD_URL_ENV)},
+                          **env_extra)
+    out = subprocess.run([sys.executable, "-c", code, *([url] if url else [])], cwd=REPO, env=env,
+                         capture_output=True, text=True, timeout=60, check=True)
     return out.stdout.strip()
 
 
@@ -123,6 +129,44 @@ def test_extra_hosts_come_from_miyagi_cloud_hosts_at_engine_start():
     assert _engine_start({"MIYAGI_CLOUD_HOSTS": hosts}, staging) == staging
     assert _engine_start({"MIYAGI_CLOUD_HOSTS": hosts}, "https://attacker.example/v1") == "None"
     assert _engine_start({"MIYAGI_CLOUD_HOSTS": hosts}, "http://other.example.org/v1") == "None"  # https only
+
+
+def test_the_start_time_cloud_url_is_trusted():
+    """The app's engine spawn (localEngine.ts, {...process.env}) passes a staging or dev MIYAGI_CLOUD_URL to the
+    engine at start, and features/cloud.ts sends the same host as miyagiCloud. Both must be accepted."""
+    staging = "https://miyagi-cloud-next.onrender.com/v1"
+    assert _engine_start({"MIYAGI_CLOUD_URL": staging}, None) == staging          # the env URL alone
+    assert _engine_start({"MIYAGI_CLOUD_URL": staging}, staging) == staging       # the app sends the same host
+    # the app may hold the bare host (it adds /v1 itself): the bare host at start trusts that host
+    assert _engine_start({"MIYAGI_CLOUD_URL": "https://miyagi-cloud-next.onrender.com"}, staging) == staging
+    assert _engine_start({"MIYAGI_CLOUD_URL": staging}, "https://attacker.example/v1") == staging  # refused: env URL
+    assert _engine_start({"MIYAGI_CLOUD_URL": staging}, "http://miyagi-cloud-next.onrender.com/v1") == staging
+    assert _engine_start({"MIYAGI_CLOUD_URL": "off"}, staging) == "None"
+    assert _engine_start({"MIYAGI_CLOUD_URL": staging}, PROD) == PROD            # production stays allowed
+
+
+def test_a_loopback_start_url_allows_the_local_proxy():
+    dev = "http://127.0.0.1:8000/v1"
+    assert _engine_start({}, dev) == "None"                                       # no dev flag, no start URL
+    assert _engine_start({"MIYAGI_CLOUD_URL": dev}, None) == dev
+    assert _engine_start({"MIYAGI_CLOUD_URL": dev}, dev) == dev
+    assert _engine_start({"MIYAGI_CLOUD_URL": dev}, "https://attacker.example/v1") == dev  # refused: env URL
+
+
+def test_a_runtime_env_url_widens_nothing(monkeypatch):
+    """Only the MIYAGI_CLOUD_URL present at engine start is trusted; one set later (a lazily loaded .env) is not."""
+    monkeypatch.setenv(config.CLOUD_URL_ENV, "https://miyagi-cloud-next.onrender.com/v1")
+    assert config.cloud_url() is None
+    config.set_app_keys({"miyagiCloud": "https://miyagi-cloud-next.onrender.com/v1", "miyagiToken": TOKEN})
+    assert config.cloud_url() is None
+
+
+def test_no_test_tld_wildcard_in_production(monkeypatch):
+    monkeypatch.setattr(config, "CLOUD_HOSTS", frozenset({config.DEFAULT_CLOUD_HOST}))  # drop the conftest host
+    assert not config.cloud_host_allowed("attacker.test")
+    assert not config.cloud_host_allowed("cloud.example.test")
+    config.set_app_keys({"miyagiCloud": "https://attacker.test/v1", "miyagiToken": TOKEN})
+    assert config.cloud_url() is None
 
 
 def test_the_app_sends_the_default_host():

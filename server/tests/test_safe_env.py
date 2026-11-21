@@ -48,7 +48,9 @@ def test_safe_env_drops_every_secret_and_keeps_the_basics(secret_env):
     "GOOGLE_GENAI_USE_VERTEXAI", "ELEVENLABS_API_KEY", "OPENAI_API_KEY", "OPENAI_ORG_ID", "SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY", "MIYAGI_ENGINE_TOKEN", "MIYAGI_TOKEN", "MIYAGI_TOKEN_FILE", "MIYAGI_CLOUD_TOKEN",
     "MIYAGI_CLOUD_URL", "MIYAGI_CLOUD_HOSTS", "TUT_ENV", "TIGER_DATABASE_URL", "GITHUB_TOKEN", "FOO_SECRET",
-    "STRIPE_API_KEY", "ADMIN_PASSWORD", "DB_PASSWORD", "anthropic_api_key",
+    "STRIPE_API_KEY", "ADMIN_PASSWORD", "DB_PASSWORD", "anthropic_api_key", "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN", "DJANGO_SECRET_KEY", "MINIO_ACCESS_KEY", "SSH_PRIVATE_KEY", "GOOGLE_APPLICATION_CREDENTIALS",
+    "DATABASE_URL", "POSTGRES_DATABASE_URL",
 ])
 def test_secret_names(name):
     assert config.SECRET_ENV_RE.search(name), name
@@ -58,6 +60,7 @@ def test_secret_names(name):
 @pytest.mark.parametrize("name", [
     "PATH", "HOME", "LANG", "LC_ALL", "USER", "SHELL", "TMPDIR", "VIRTUAL_ENV", "PYTHONPATH", "PYTHONUNBUFFERED",
     "MIYAGI_LESSONS_DIR", "MIYAGI_EDITOR", "MIYAGI_DEV_CLOUD", "TOKENIZERS_PARALLELISM", "SSH_AUTH_SOCK", "TERM",
+    "AWS_REGION", "DATABASE_NAME", "PRIVATE_KEY_DIR",
 ])
 def test_ordinary_names_survive(name):
     assert not config.SECRET_ENV_RE.search(name), name
@@ -124,6 +127,10 @@ def test_where_row_raise_gets_no_keys(secret_env, monkeypatch):
 # child environment copied from os.environ (dict(os.environ), {**os.environ}, os.environ.copy()). Any finding in
 # another file, or one more in these, fails. When a lane merges its fix, lower the count or delete the entry.
 # The counts hold on origin/integration/live and on origin/claude/eng-harden.
+# Limits of this scan: an entry caps a COUNT per file, so a fix in one place plus a new leak in another of the same
+# file goes unnoticed until the count is lowered; a call that passes `**kw` is trusted to carry env= (the caller is
+# not followed); and only names assigned in the same function are traced back to os.environ. env=None is a finding:
+# it inherits os.environ exactly like leaving env= out.
 PENDING: dict[str, tuple[int, str]] = {
     # claude/eng-harden (with the engine-agency lane) owns session.py: "run it for me" builds env = dict(os.environ)
     # for the learner's command, and the `pbcopy` clipboard helper passes no env.
@@ -265,6 +272,8 @@ def scan(src: str, rel: str) -> list[str]:
         env = next((k.value for k in node.keywords if k.arg == "env"), None)
         if not _has_env(node):
             out.append(f"{rel}:{node.lineno} {what} (no env=)")
+        elif isinstance(env, ast.Constant) and env.value is None:
+            out.append(f"{rel}:{node.lineno} {what} (env=None inherits os.environ)")
         elif env is not None and _inherits(env, scope):
             out.append(f"{rel}:{node.lineno} {what} (env from os.environ)")
     if rel not in _ENV_COPY_OK:
@@ -325,9 +334,10 @@ def test_the_scan_catches_each_kind_of_leak():
            "def g():\n"
            "    env = safe_env({'PATH': os.environ['PATH']})\n"
            "    subprocess.run(['x'], env=env)\n"                     # clean
-           "subprocess.run(['x'], env=safe_env())\n")                 # clean
+           "subprocess.run(['x'], env=safe_env())\n"                  # clean
+           "subprocess.run(['x'], env=None)\n")                       # 15: env=None inherits
     lines = sorted(int(h.split(":")[1].split()[0]) for h in scan(src, "x.py"))
-    assert lines == [3, 4, 5, 6, 7, 7, 9, 10]
+    assert lines == [3, 4, 5, 6, 7, 7, 9, 10, 15]
 
 
 def test_config_docstring_matches_safe_env():

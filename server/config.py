@@ -29,10 +29,13 @@ its terminals, pip, the learner's code, a kernel, screencapture) gets `env=safe_
 or .env) always goes to https://api.anthropic.com: ANTHROPIC_BASE_URL is ignored by every engine client.
 
 Where the cloud may be (claude/eng-keys-ssrf): config.keys.miyagiCloud and MIYAGI_CLOUD_URL are used only when
-their host is miyagi-cloud.onrender.com or one listed in MIYAGI_CLOUD_HOSTS (comma separated), both read once at
-engine start; http://127.0.0.1 / localhost only when the engine started with MIYAGI_DEV_CLOUD=1. Anything else
-is ignored with a warning naming only the host, so whoever can send config.keys cannot point the install token,
-the prompts and the learner's screen at their own server.
+their host is miyagi-cloud.onrender.com, one listed in MIYAGI_CLOUD_HOSTS (comma separated), or the host of the
+MIYAGI_CLOUD_URL the engine was started with (the app's engine spawn passes its own MIYAGI_CLOUD_URL down, and
+features/cloud.ts sends that same host as miyagiCloud, so a staging or dev cloud keeps working). All of these are
+read once at engine start. http(s)://127.0.0.1 / localhost only when the engine started with MIYAGI_DEV_CLOUD=1 or
+with a loopback MIYAGI_CLOUD_URL. Anything else is ignored with a warning naming only the host, so whoever can send
+config.keys cannot point the install token, the prompts and the learner's screen at their own server. A value put
+into os.environ later (a .env loaded lazily, a test) widens nothing.
 
 Cost guards (BUILD-PLAN E4): `guard_model()` turns any Opus / Fable / Mythos choice into Sonnet
 unless MIYAGI_ALLOW_OPUS=1 (and never through the cloud, which rejects them), and
@@ -85,30 +88,44 @@ DEFAULT_CLOUD_HOST = "miyagi-cloud.onrender.com"  # app/src/main/features/cloud.
 CLOUD_HOSTS_ENV = "MIYAGI_CLOUD_HOSTS"  # more allowed proxy hosts, comma separated (staging), read at engine start
 DEV_CLOUD_ENV = "MIYAGI_DEV_CLOUD"  # =1 at engine start: a local proxy on http://127.0.0.1 / localhost is allowed
 _LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
-# RFC 6761 reserves .test: public DNS never answers for it and no public CA can certify it, so an https URL there
-# reaches nothing outside this Mac's own test setup (the offline tests use https://cloud.example.test/v1).
-_RESERVED_TEST_SUFFIX = ".test"
+
+
+def _norm_host(host: str | None) -> str:
+    return (host or "").strip().lower().rstrip(".")
 
 
 def _hosts_from_env(raw: str | None) -> frozenset[str]:
-    return frozenset(h.strip().lower().rstrip(".") for h in (raw or "").split(",") if h.strip())
+    return frozenset(_norm_host(h) for h in (raw or "").split(",") if h.strip())
 
 
-CLOUD_HOSTS: frozenset[str] = frozenset({DEFAULT_CLOUD_HOST}) | _hosts_from_env(os.environ.get(CLOUD_HOSTS_ENV))
-DEV_CLOUD: bool = os.environ.get(DEV_CLOUD_ENV, "") == "1"
+def _start_url_host(raw: str | None) -> str:
+    """The host of the MIYAGI_CLOUD_URL the engine was started with ('' when unset, `off` or unparsable). The app
+    spawns the engine with its own environment, so this is the cloud the app itself talks to (staging, dev)."""
+    try:
+        return _norm_host(urlsplit((raw or "").strip()).hostname)
+    except ValueError:
+        return ""
+
+
+START_CLOUD_HOST: str = _start_url_host(os.environ.get(CLOUD_URL_ENV))  # read once, at engine start
+CLOUD_HOSTS: frozenset[str] = (frozenset({DEFAULT_CLOUD_HOST}) | _hosts_from_env(os.environ.get(CLOUD_HOSTS_ENV))
+                               | ({START_CLOUD_HOST} if START_CLOUD_HOST not in ("", *_LOOPBACK_HOSTS) else frozenset()))
+# This Mac's own proxy: MIYAGI_DEV_CLOUD=1, or the engine was started with a loopback MIYAGI_CLOUD_URL.
+DEV_CLOUD: bool = os.environ.get(DEV_CLOUD_ENV, "") == "1" or START_CLOUD_HOST in _LOOPBACK_HOSTS
 
 
 def cloud_host_allowed(host: str | None, scheme: str = "https") -> bool:
-    """May the install token and the prompts go to `host`? The pinned hosts over https; this Mac only with
-    MIYAGI_DEV_CLOUD=1 (http or https); a reserved .test name over https (tests)."""
-    h = (host or "").lower().rstrip(".")
+    """May the install token and the prompts go to `host`? CLOUD_HOSTS over https (the default, MIYAGI_CLOUD_HOSTS
+    and the start-time MIYAGI_CLOUD_URL host); this Mac (http or https) only when DEV_CLOUD. Nothing else: no
+    wildcard, not even a reserved TLD, since a LAN resolver plus a trusted MITM CA could answer for it."""
+    h = _norm_host(host)
     if not h:
         return False
     if h in _LOOPBACK_HOSTS:
         return DEV_CLOUD and scheme in ("http", "https")
     if scheme != "https":
         return False
-    return h in CLOUD_HOSTS or h.endswith(_RESERVED_TEST_SUFFIX)
+    return h in CLOUD_HOSTS
 
 
 def _clean_url(value: str | None) -> str | None:
@@ -142,11 +159,11 @@ def _warn_host(host: str, scheme: str) -> None:
         return
     _warned_hosts.add(key)
     if host.lower() in _LOOPBACK_HOSTS:
-        log.warning("miyagi cloud: ignoring the local proxy host %s (start the engine with %s=1 to allow it)",
-                    host, DEV_CLOUD_ENV)
+        log.warning("miyagi cloud: ignoring the local proxy host %s (start the engine with %s=1 or a local %s to "
+                    "allow it)", host, DEV_CLOUD_ENV, CLOUD_URL_ENV)
     else:
-        log.warning("miyagi cloud: ignoring %s proxy host %s (not %s or in %s)", scheme, host, DEFAULT_CLOUD_HOST,
-                    CLOUD_HOSTS_ENV)
+        log.warning("miyagi cloud: ignoring %s proxy host %s (not %s, in %s or the engine's start-time %s)", scheme,
+                    host, DEFAULT_CLOUD_HOST, CLOUD_HOSTS_ENV, CLOUD_URL_ENV)
 
 
 def set_app_keys(keys: dict) -> None:
@@ -551,11 +568,12 @@ def fallback_kwargs(model: str) -> dict:
 # ------------------------------------------------------------------ learner subprocesses
 
 # Names never handed to a subprocess: provider keys, the cloud's token and URL, the engine's own token, the app's
-# Supabase settings, TUT_ENV (the path of a .env file), and anything named like a credential. Other lanes import it.
+# Supabase settings, TUT_ENV (the path of a .env file), a database URL (it carries a password), and anything named
+# like a credential (AWS_SECRET_ACCESS_KEY, *_PRIVATE_KEY, GOOGLE_APPLICATION_CREDENTIALS ...). Other lanes import it.
 SECRET_ENV_RE = re.compile(
     r"^(?:ANTHROPIC_|GEMINI_|GOOGLE_API|GOOGLE_GENAI|ELEVENLABS_|OPENAI_|SUPABASE_|TIGER_|MIYAGI_TOKEN|MIYAGI_CLOUD)"
-    r"|^(?:MIYAGI_ENGINE_TOKEN|TUT_ENV)$"
-    r"|(?:_API_KEY|_SECRET|_TOKEN|_PASSWORD)$",
+    r"|^(?:MIYAGI_ENGINE_TOKEN|TUT_ENV|DATABASE_URL)$"
+    r"|(?:_API_KEY|_SECRET|_SECRET_KEY|_TOKEN|_PASSWORD|_ACCESS_KEY|_PRIVATE_KEY|_CREDENTIALS|_DATABASE_URL)$",
     re.IGNORECASE,
 )
 
@@ -567,7 +585,8 @@ def is_secret_env(name: str) -> bool:
 def safe_env(base: dict | None = None, **extra: str) -> dict[str, str]:
     """A copy of the environment (or `base`) for any subprocess the engine starts (the learner's code, pip, a kernel,
     the editor CLI and so VS Code and its terminals, system tools): every name matching SECRET_ENV_RE removed (provider
-    keys, the cloud token and URL, the engine token, Supabase, TUT_ENV, *_API_KEY / *_SECRET / *_TOKEN / *_PASSWORD),
+    keys, the cloud token and URL, the engine token, Supabase, TUT_ENV, DATABASE_URL, *_API_KEY / *_SECRET / *_TOKEN /
+    *_PASSWORD / *_ACCESS_KEY / *_PRIVATE_KEY / *_CREDENTIALS),
     then `extra` added. PATH, HOME, LANG, VIRTUAL_ENV and the rest are kept."""
     env = {k: v for k, v in dict(os.environ if base is None else base).items() if not is_secret_env(k)}
     env.update(extra)
