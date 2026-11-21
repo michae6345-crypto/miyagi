@@ -22,6 +22,12 @@ Michael can delete miyagi from his Mac, download it again, grant permissions and
 - Read-only dry run on the dev Mac: confirmed the keychain service names `miyagi Safe Storage` and `miyagi-overlay Safe Storage` exist (attribute lookup only), and the running dev engine on 8787 shows as a BLOCKER.
 - Never run with `--yes`.
 
+## Fix round 1
+- `.app` removal now checks `CFBundleIdentifier` (PlistBuddy) and keeps anything that is not `dev.sandhacks.miyagi`. On the dev Mac `~/Applications/miyagi.app` is Michael's AppleScript dev launcher (no bundle id): it is now kept and listed as "not the miyagi app: bundle id none". Same check for `miyagi*.app` in `~/Downloads`.
+- Section 1 now runs `lsof -t +D` on each existing userData folder (`miyagi`, `Miyagi`, `miyagi-overlay`, deduped by inode). Any pid is a BLOCKER in the dry run and a `die ... Nothing was removed.` under `--yes`. This catches the npm run dev app (Electron.app), which the `miyagi.app` pgrep pattern misses. Never kills.
+- CLEAN-TEST.md: onboarding copy matches Onb-Setup-Full/Ready ("Open System Settings", "Install in VS Code", "miyagi engine: Running" with no button, "Start learning"); keychain row lists `Miyagi`/`miyagi Safe Storage` (packaged, productName `Miyagi` on integration/live) and `miyagi-overlay Safe Storage` (dev); Option B warns that `--yes` on a dev Mac removes the dev app's `keys.bin` (BYOK keys), its keychain item and `~/miyagi/state`.
+- Tested: `/bin/bash -n`; fixture dry run (applet without id kept, other-id app kept, real-id app listed, held file in `miyagi-overlay` shows BLOCKER); `--yes` on a copy truncated after section 1 with the port moved off 8787 (dies with a held file, passes without). Read-only check: the real dev launcher has no `CFBundleIdentifier`. Still never run with `--yes` on the real HOME.
+
 ## Core requests
 - The distribution plan puts the script at `app/scripts/miyagi-uninstall.sh` and asks for a "Test before you publish" rewrite in `app/SHIP.md`. This package was scoped to new files only, so the script lives at `scripts/miyagi-uninstall.sh` and the procedure in `docs/CLEAN-TEST.md`. Whoever owns `app/SHIP.md` (adrian-ui) should replace its "Test before you publish" section with a link to `docs/CLEAN-TEST.md`, and `ship-mac.sh` could print that link at the end.
 - When `michael/app-cloud-token` lands, confirm `install.bin` stays under `userData` (the script removes the whole `Application Support/miyagi` folder, so any other location needs adding here).
