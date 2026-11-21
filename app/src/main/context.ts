@@ -34,7 +34,10 @@ export type MainContext = {
   createWindow(route: string, options: BrowserWindowConstructorOptions): BrowserWindow
   /** The flags every overlay-style window uses (frameless, transparent, always-on-top, no shadow…). */
   overlayOptions(bounds: Rect): BrowserWindowConstructorOptions
-  /** Handle bridge.invoke('<channel>', …args) from any window. */
+  /**
+   * Handle bridge.invoke('<channel>', …args) from any window. v2 (W0-6): only our own windows' main frames get
+   * through (sender check); anything else is rejected before `fn` runs.
+   */
   handle(channel: string, fn: (...args: unknown[]) => unknown): void
   /** Send to every window: bridge.onFeature('<channel>', cb). */
   broadcast(channel: string, payload?: unknown): void
@@ -66,6 +69,13 @@ export type MainContext = {
    * points, as the renderer last reported it for overlay.bounds (sampled every 300 ms). Feature windows not included.
    */
   overlayRects(): { x: number; y: number; w: number; h: number }[]
+  /**
+   * v2 (W0-4): open or focus an app window (Onboarding, Library, Progress, Account; main/appWindows.ts). Only the
+   * allowlisted routes open; anything else returns undefined. args: small view hints, delivered as window:args.
+   */
+  openWindow(route: string, args?: Record<string, string | number | boolean>): BrowserWindow | undefined
+  /** v2: that app window if it's open. */
+  appWindow(route: string): BrowserWindow | undefined
 }
 
 export type MainFeature = { id: string; setup(ctx: MainContext): void }

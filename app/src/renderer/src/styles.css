@@ -14,6 +14,11 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-brand: "Google Sans Flex", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* v2 (W0-2, core/theme.ts surface / paper): app windows and light surfaces. */
+  --color-window: rgb(28, 28, 30);
+  --color-sheet: #2C2C2E;
+  --color-paper-surface: #FFFFFF;
+  --color-pass-text: #1C8A3C;
 }
 
 /*
@@ -90,6 +95,29 @@ body,
 /* Overlay windows must be fully transparent; only the browser stage gets a backdrop. */
 html[data-route="stage"] body {
   background: #08080b;
+}
+
+/*
+ * v2 app windows (data-kind="app": Onboarding, Library, Progress, Account; main/appWindows.ts). Opaque, a normal
+ * macOS window (hiddenInset title bar), so the body paints the window color and text can be selected where the
+ * feature allows it. The 28 px strip under the traffic lights drags the window.
+ */
+html[data-kind="app"] body {
+  background: rgb(28, 28, 30);
+}
+html[data-kind="app"] [data-drag] {
+  -webkit-app-region: drag;
+}
+html[data-kind="app"] [data-drag] button,
+html[data-kind="app"] [data-drag] input,
+html[data-kind="app"] [data-no-drag] {
+  -webkit-app-region: no-drag;
+}
+
+/* Paper surfaces (Plan-Pricing, theme.paper) inside any window. */
+[data-surface="paper"] {
+  background: #F6F6F3;
+  color: #141414;
 }
 
 button {
