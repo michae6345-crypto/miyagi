@@ -2,6 +2,10 @@
 
 Piece 3 of Michael's Nov 21 email. Adrian owns it (branch `adrian/motion`, stacked on `michael/v2-integration`). The goal is every animation smooth and consistent: one set of springs, no dropped frames, no layout jumps, safe to interrupt, and Reduce Motion respected.
 
+**Status: parked (Nov 21, afternoon).** Michael's 12:04 PM brief moved animation polish to after miyagi is live. The branch holds the spec, the measurements and the changes made so far (all typechecked and built, `michael/v2-integration` merged in at 736479ba). Pick it up after launch: re-merge the base, re-run the bench (method below), then work down the follow-ups.
+
+New since this spec was written: Michael's `.mg-lift` (styles.css) lifts cards 1 px on hover over 160 ms and presses them to .985 in 60 ms, animating `box-shadow`. Align it with the tokens (fade.tint, press) when this resumes.
+
 This file is the spec. In code, the numbers live in `app/src/renderer/src/core/ui/motionTokens.ts` (plain values, so the main process can compile them) and the helpers in `core/ui/motion.ts`, which re-exports the tokens. Import from `core/ui/motion`. `core/theme.ts` re-exports the tokens too, so older imports keep working.
 
 ## The vocabulary
