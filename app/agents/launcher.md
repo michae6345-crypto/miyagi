@@ -1,6 +1,6 @@
 # launcher
 
-**Status:** v2 pass (A5, wave 1) done: Home-Launcher restyle, LauncherInContext, cached lessons; typecheck green, checked headless on the stage; draft PR #167 into `adrian/shell` · **Priority:** P0 · **Port:** 5190 (v2; was 5176) · **Branch:** `michael/app-launcher` (was `adrian/launcher`)
+**Status:** round 3 (launcher feel, persona QA) done on `michael/app-launcher-feel`: keyboard-navigable idle list, Demo behind a flag, way descriptions, link preview, platform keycaps, clear of the editor chrome; typecheck green, checked headless on the stage (port 5513) · earlier: v2 pass (A5, wave 1) done: Home-Launcher restyle, LauncherInContext, cached lessons; typecheck green, checked headless on the stage; draft PR #167 into `adrian/shell` · **Priority:** P0 · **Port:** 5190 (v2; was 5176) · **Branch:** `michael/app-launcher` (was `adrian/launcher`)
 
 ## Goal
 Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **Since Sat ~2 PM (Michael): the island expands down into the launcher and every exit collapses it back into the island; nothing opens mid-screen.** Type what you want to learn → results stream in (it grows down) → Build lesson → it collapses back up into the pill (the signature transition). Pasting a YouTube link skips search. **During a lesson** it becomes "Ask about this step": Enter sends `action {kind:"ask", text}` and the answer comes back as a card.
@@ -44,10 +44,22 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 - **States:** with `?scenario=launcher` a search only gets the mock's long-course row r4 after ~1.7s, so until then it stays in flight (skeletons). Answer it from the console: `(await import('/src/core/bus.ts')).dispatch({type:'search.done',payload:{total:0}})` (empty) or `{type:'error',payload:{message:'…'}}` (error).
 - Esc / click outside / Ctrl+K again collapse it back into whatever the island showed (pill or card); the HUD's Reset closes it and clears the field.
 
+**Round 3 (persona QA, port 5513):** `npm run dev:web -- --port 5513 --strictPort` → `http://localhost:5513/?scenario=home&size=1440x900&clean`
+- Ctrl+K with nothing typed: the first line is active (hover tint, ↵ on it). ↓/↑ walk Continue, Ready to run and Try asking; Enter runs the active line (Open / Continue / fills the topic). The footer says "Paste a YouTube link or type a goal ↵".
+- Type a topic: two chips (Watch a video, Just teach me) and one line under them saying what Enter does; Tab moves it. Add `&demo` to the URL (or `localStorage['miyagi.demo'] = '1'`) to get the Demo chip; the Electron dev build always has it.
+- Paste `https://www.youtube.com/watch?v=hOmEbUiLd01&t=1m30s`: one preview (thumbnail with 1:30, "starts at 1:30", "Builds a lesson that pauses at each step"), Enter builds.
+- In a lesson (Open "Code your first neural network…", then Ctrl+K): Continue (Step 4 of 7 · Build the model) is active; ↓ moves onto the suggested questions, the primary becomes Ask.
+- Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/launcher-*.jpg`.
+
 ## Adrian's spec
 **First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
 
 ## Core requests
+**Round 3 (launcher feel):**
+13. **`main/platform.ts`: navigation key names.** Add `enter`, `tab`, `arrows` (and `teach` for ⌘↵ / Ctrl+Enter) to `PlatformInfo.keys` (Mac `↵ ⇥ ↑↓ ⌘↵`, Windows `Enter Tab ↑↓ Ctrl+Enter`) so `core/ui/Keycap` can render them. Until then `features/launcher/keys.ts` `navKey()` reads those names off `bridge.platform.keys` first and falls back to one per-OS table; nothing else in the launcher types a key label.
+14. **Core (Island / app windows): stay clear of the editor's chrome.** The launcher now lands below VS Code's title bar, tabs and breadcrumbs (`EDITOR_CHROME` = 92 px under the work area's top), but the island cards it hands over to (the build card, answer cards) still grow at `pillTop` over the tabs and toolbar (shot `building-02-card-hold.jpg`, y 40 to 497). Persona QA also saw the Settings window (x 265-1175, y 40-615), the crash dialog (y 40-438) and the Home window over the tabs, and Home over the island pill. Suggest a shared `editorChromeTop(layout)` in core and keeping the island / pill window above every app window.
+15. **`core/ui/motion.ts` (polish lane):** when it lands, the launcher's local `PRESS` (parts.tsx) and the row stagger can move to `press` / `riseItem`.
+
 **v2 (A5):**
 8. **`mock/engine.ts` (integrator): the default `engine.hello` is lost in the browser stage.** `start()` emits it synchronously while bridge.ts is still being created, before `core/lesson.ts` subscribes, so `canSend()` / `useCapability()` are false in every scenario that doesn't send its own hello (checked: `?scenario=home` without its own hello had `hello` undefined and `library.list` never went out). Suggest emitting it from a `setTimeout(0)` (or queueing dispatches until the first subscriber). `home.json` sends its own hello at 30 ms meanwhile.
 9. ✅ **Done on `michael/v2-integration`** (the effect clears its timer). **`dev/Stage.tsx` (integrator): `#/launcher` doesn't open the launcher.** Under `<StrictMode>` the open-on-load effect runs twice and its `setTimeout` isn't cleared, so `launcher:toggle` fires twice (open, then close). Suggest clearing the timer in the effect's cleanup. Until then: load the page, then Ctrl+K.
@@ -140,3 +152,12 @@ Window show/hide/focus is core (`src/main/index.ts`); the shrink target comes fr
 - **Not checked:** Electron (separate windows): the swap timing, focus return and `TUT_NATIVE_GLASS` all need Michael's Mac. 
 - **How it was checked:** the Browser pane was hidden (0 frames), so every flow ran in headless Chrome over CDP against the stage: real frames, timings and DOM probes. Screenshots: `agents/shots/launcher-*.png`.
 - **Ideas for pass 2:** Tab to start a new lesson from ask mode; mic button (voice query) is decorative today; show the step count once the engine sends it with results ("7 steps" in the mockup).
+
+**Round 3 (persona QA, Nov 20, `michael/app-launcher-feel`).**
+- **Keyboard:** with nothing typed the launcher keeps one idle list (`idleItems`: Continue, the cached lessons when no lesson runs, then Try asking topics or the step's questions). Its first line starts active, so ↵ and ↑↓ always have a target; the pointer and the arrows move the same highlight (the hover tint, gliding on the house spring), and the active line shows ↵. Enter (or the footer primary) runs it: Continue, Open, Ask, or fills the topic. Ready rows during a lesson stay click-only, End lesson stays out of every key's reach.
+- **Ways:** Demo is behind a flag (`keys.demoEnabled`: the Electron dev build, `?demo` on the stage, or `localStorage['miyagi.demo'] = '1'`); a packaged app and the plain stage show only Watch a video and Just teach me. One line under the chips says what Enter will do (`HOW_DESC`), crossfading as Tab moves.
+- **Keycaps:** every ↵ ⇥ ↑↓ (footer, rows, ⌘↵) comes from `navKey()` (Core request 13).
+- **Placement:** the grown panel sits at least `EDITOR_CHROME` under the work area's top (y 124 on the 1440×900 stage, was 40), clear of the editor's tabs and breadcrumbs. It still grows out of the notch's shape and collapses back into it. The spotlight-clear logic (placeClear) runs from that lower top.
+- **Link:** a pasted YouTube link is one 92 px preview (128×72 thumbnail with the ?t= start, "starts at 1:30", "Builds a lesson that pauses at each step", ↵), active from the start; a thumbnail that can't load falls back to the generated tile. No title fetch: the built app's CSP has no connect-src for YouTube.
+- **Motion:** suggestion lines rise in 40 ms apart; every row, chip and footer button dips to 0.97 on the house spring when pressed. Reduced motion: opacity only.
+- **Deviation:** the persona QA asked for pastel suggestion chips; the lane's hard brand rule keeps pastels on Explain / Hint / Show me / Diagram / Watch only, so the Try asking lines stay neutral (Michael's audit A18 said the same).

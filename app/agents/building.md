@@ -1,6 +1,6 @@
 # building
 
-**Status:** v1 done (A5, wave 1): the Home-Building card; typecheck green, checked headless on the stage; draft PR #167 into `adrian/shell` · **Priority:** P1 · **Port:** 5190 · **Branch:** `michael/app-launcher`
+**Status:** round 3 (calm progress) on `michael/app-launcher-feel`: breathing active dot, phase crossfades, elapsed time when there is no eta; typecheck green, checked headless (port 5513) · earlier: v1 done (A5, wave 1): the Home-Building card; typecheck green, checked headless on the stage; draft PR #167 into `adrian/shell` · **Priority:** P1 · **Port:** 5190 · **Branch:** `michael/app-launcher`
 
 ## Goal
 Home-Building: while a lesson builds, a card grows out of the island (priority 45) and shows what it is built from,
@@ -44,3 +44,10 @@ islandModes: `build-card`, priority 45, width 560 (README island table: above th
 - `lengthLabel` / `etaLabel` (Card.tsx) never invent numbers: under a minute of video says nothing, no `etaS` says nothing.
 - Checked headless (Chrome headless shell over CDP): open on the first v2 build, phases update in place, hold, Stop two taps → `end_lesson` → idle, Keep working folds and stays folded, goal source, lesson.ready / failed / disconnect close it. No console errors.
 - Shots: `agents/shots/A5-05-building-card.png`, `A5-06-stop-armed.png`, `A5-09-building-goal.png`, `A5-10-folded-pill.png`.
+
+**Round 3 (Nov 20, `michael/app-launcher-feel`).** Calm, honest progress:
+- The active phase's gray dot breathes (opacity 1 to 0.4, 2.4 s, ease-in-out): the one moving element, never a spinner, no hue. It keeps going with reduced motion (opacity only), so waiting never looks frozen.
+- A phase changing state crossfades its glyph; a tick springs up from 0.6 on the house spring; the label's color eases; rows rise in 40 ms apart on first show.
+- Time: "About N min left" from `etaS`; without it, "Building for N min" from the engine's `elapsedS` (the 1 s heartbeat); with neither, nothing. Never a guess.
+- Cancel: Stop building (two taps, `end_lesson`) and Keep working are real buttons; Esc folds the card.
+- Not moved: the card grows at `pillTop` like every island card, so it covers the editor's tabs (y 40 to 497 on 1440×900). See launcher.md Core request 14.
