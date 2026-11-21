@@ -96,7 +96,7 @@ export function Stage({ openLauncher = false }: { openLauncher?: boolean }): Rea
             <Component key={route} layout={STAGE} />
           ) : (
             <div key={route} className="absolute overflow-hidden" style={{ left: stage!.x, top: stage!.y, width: stage!.w, height: stage!.h }}>
-              <Component layout={{ origin: { x: stage!.x, y: stage!.y }, width: stage!.w, height: stage!.h, workArea: { x: 0, y: 0, width: stage!.w, height: stage!.h } }} />
+              <Component layout={{ ...STAGE, origin: { x: stage!.x, y: stage!.y }, width: stage!.w, height: stage!.h, workArea: { x: 0, y: 0, width: stage!.w, height: stage!.h } }} />
             </div>
           )
         )}
@@ -149,7 +149,7 @@ function AppWindows(): ReactNode {
                 <span key={d} className="block h-[12px] w-[12px] rounded-full" style={{ background: fill.toggleOff }} />
               ))}
             </div>
-            <Component layout={{ origin: { x, y }, width: w, height: h, workArea: { x: 0, y: 0, width: w, height: h } }} />
+            <Component layout={{ ...STAGE, origin: { x, y }, width: w, height: h, workArea: { x: 0, y: 0, width: w, height: h } }} />
           </div>
         )
       })}

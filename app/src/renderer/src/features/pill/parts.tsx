@@ -80,10 +80,10 @@ export type Phase = 'checking' | 'notyet' | 'passed'
  *   notyet    a hollow white ring, no hue (Les-NotYet: 12 px, 2 px stroke)
  *   passed    the green circle with an ink tick that draws (Les-Passed); the ONLY green on the pill
  */
-export function PhaseLead({ phase }: { phase: Phase }): ReactNode {
+export function PhaseLead({ phase, flush = false }: { phase: Phase; flush?: boolean }): ReactNode {
   const reduced = useReducedMotion()
   return (
-    <span className="relative mr-[8px] grid h-[16px] w-[16px] shrink-0 place-items-center" data-phase={phase}>
+    <span className={`relative ${flush ? '' : 'mr-[8px]'} grid h-[16px] w-[16px] shrink-0 place-items-center`} data-phase={phase}>
       {phase === 'checking' && <Spinner size={14} />}
       {phase === 'notyet' && <span className="block h-[12px] w-[12px] rounded-full" style={{ boxShadow: `inset 0 0 0 2px ${status.notYet}` }} />}
       {phase === 'passed' && (

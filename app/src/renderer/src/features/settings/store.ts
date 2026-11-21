@@ -8,7 +8,8 @@ import { bridge } from '../../bridge'
 import { onMessage } from '../../core/bus'
 import { isSection, type SettingsSection } from './env'
 
-export type Size = { w: number; h: number }
+/** `place: 'notch'` + `radii`: the island lives in the notch (the sheet starts flat on the display top with the notch's radii). */
+export type Size = { w: number; h: number; place?: 'notch'; radii?: { top: number; bottom: number } }
 
 type SettingsState = {
   /** Bumped on every open request; `from` = the island's shape to grow out of. */

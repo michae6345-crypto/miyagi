@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 OUT="../../build/helpers"
 BIN="$OUT/miyagi-listen"
-SRC=(main.swift Session.swift KeyTap.swift Mic.swift Transcriber.swift Permissions.swift)
+SRC=(main.swift Session.swift KeyTap.swift Mic.swift Transcriber.swift Permissions.swift Screens.swift)
 ARCHS="${MIYAGI_LISTEN_ARCHS:-arm64 x86_64}"
 
 if [ "${1:-}" != "--force" ] && [ -f "$BIN" ]; then
@@ -25,7 +25,7 @@ built=()
 for arch in $ARCHS; do
   echo "[listen] swiftc $arch"
   if xcrun swiftc -O -swift-version 5 -target "$arch-apple-macos13.0" "${SRC[@]}" -o "$TMP/miyagi-listen-$arch" \
-       -framework Speech -framework AVFoundation -framework CoreGraphics -framework CoreMedia \
+       -framework Speech -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework AppKit \
        -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker Info.plist 2> "$TMP/err-$arch"; then
     built+=("$TMP/miyagi-listen-$arch")
   else

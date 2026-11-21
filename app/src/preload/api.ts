@@ -17,6 +17,7 @@
  */
 import type { Incoming, Outgoing } from '../common/wire'
 import type { PlatformInfo, Rect } from '../main/platform'
+import type { NotchLayout } from '../common/notch'
 
 export type UiSignal =
   | 'launcher:open'
@@ -46,6 +47,12 @@ export type Layout = {
   workArea: Rect
   /** Additive: the pill's top for this display now (main re-fits it when displays change). Absent in the browser stage. */
   pillTop?: number
+  /**
+   * The notch island's geometry (display-local points, y = 0 is the display top) and where the island lives now.
+   * `place` is the EFFECTIVE place: 'below' on Windows, when the pref says so, or while Boring Notch is running.
+   * Main re-sends the layout when any of it changes.
+   */
+  notch: NotchLayout
 }
 
 export type Unsub = () => void

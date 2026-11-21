@@ -15,6 +15,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Waypoints, X } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import { bridge } from '../../bridge'
+import { islandBottom } from '../../core/islandEdge'
 import { useLesson, type Rect } from '../../core/lesson'
 import { dockRect } from '../player/dock'
 import { actionTone, color, glass, radius, spring, springOut } from '../../core/theme'
@@ -41,9 +42,10 @@ const ISLAND_W = 600
 const RUN_TOP = 24
 /** Air between the box and the shortcut bar's top edge. */
 const BAR_GAP = 12
-/** The resting step pill: about this far either side of the screen's center, this tall, from platform.pillTop. */
+/** The resting step pill: about this far either side of the screen's center, this tall, from the island's top. */
 const PILL_HALF = 180
-const PILL_H = 36
+/** The old step pill was 36 tall against the island's 34: the flyout keeps those 2 px of air under it. */
+const PILL_SLACK = 2
 const PILL_GAP = 10
 
 /**
@@ -70,7 +72,7 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
   // Top-aligned with the drawer, unless that would put the header under the step pill (centered, at pillTop: on a
   // Mac the pill's band and the drawer's top overlap): then it starts just under the pill.
   const underPill = x0 < layout.width / 2 + PILL_HALF && x0 + Math.min(FLY_W, room) > layout.width / 2 - PILL_HALF
-  const pillClear = bridge.platform.pillTop + PILL_H + PILL_GAP
+  const pillClear = islandBottom(layout) + PILL_SLACK + PILL_GAP
   const top = run ? wa.y + RUN_TOP + RUN_DROP : underPill ? Math.max(anchor.y, pillClear) : anchor.y
   const bottom = run ? Math.min(wa.y + wa.height * RUN_SHARE, barTop - BAR_GAP) : anchor.y + anchor.h
   const maxH = Math.max(160, bottom - top)

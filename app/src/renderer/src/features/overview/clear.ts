@@ -13,6 +13,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Layout } from '../../../../preload/api'
 import { bridge } from '../../bridge'
 import { useDock } from '../../core/dock'
+import { islandTop } from '../../core/islandEdge'
 import { useLesson, type Rect } from '../../core/lesson'
 import { useDrawer } from '../drawer/store'
 import { hole, intersects, isUsableRect, toLocal } from '../spotlight/place'
@@ -46,7 +47,7 @@ function useCardOverHole(): boolean {
   const main = useSpotlight((s) => (s.target && isUsableRect(s.target.rect) ? s.target.rect : undefined))
   const others = useSpotlight((s) => s.targets)
   if (!layout || (!main && !others.length)) return false
-  const card: Rect = { x: (layout.width - CARD_W) / 2 - HOLE_MARGIN, y: bridge.platform.pillTop - HOLE_MARGIN, w: CARD_W + HOLE_MARGIN * 2, h: h + HOLE_MARGIN * 2 }
+  const card: Rect = { x: (layout.width - CARD_W) / 2 - HOLE_MARGIN, y: islandTop(layout) - HOLE_MARGIN, w: CARD_W + HOLE_MARGIN * 2, h: h + HOLE_MARGIN * 2 }
   // The coach's other targets are only drawn while the main spotlight is up.
   const rects = main ? [main, ...others.map((t) => t.rect)] : []
   return rects.some((r) => intersects(card, hole(toLocal(r, layout.origin))))

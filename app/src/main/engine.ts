@@ -79,6 +79,8 @@ export class EngineLink {
   private slow = 0
   private failures = 0
   private timer?: ReturnType<typeof setTimeout>
+  /** stop() was called: no more attempts (tests, and app quit). */
+  private stopped = false
   /** Protocol ping/pong (main/heartbeat.ts): a half-open socket (sleep, Wi-Fi change, hung engine) is dropped and redialled. */
   private beat?: Heartbeat
   /** The last overlay.bounds JSON that left, so an identical resend (a window move storm) is dropped. */
@@ -120,6 +122,20 @@ export class EngineLink {
       this.demo.start()
     } else {
       this.connect()
+    }
+  }
+
+  /** Stop the link for good: no retry timer, no heartbeat, the socket dropped. Main never needs it (the process ends); tests do. */
+  stop(): void {
+    this.stopped = true
+    clearTimeout(this.timer)
+    this.timer = undefined
+    this.beat?.stop()
+    this.beat = undefined
+    try {
+      this.ws?.terminate()
+    } catch {
+      /* already closed */
     }
   }
 
@@ -283,6 +299,7 @@ export class EngineLink {
   private connect(): void {
     clearTimeout(this.timer)
     this.timer = undefined
+    if (this.stopped) return
     let ws: WebSocket
     const header = this.token && this.allowSecrets() ? { headers: { [TOKEN_HEADER]: this.token } } : {}
     try {
@@ -359,6 +376,7 @@ export class EngineLink {
   /** The next attempt: every FAST_RETRY_MS early in an outage, then backing off to SLOW_RETRY_MAX_MS. */
   private schedule(): void {
     clearTimeout(this.timer)
+    if (this.stopped) return
     const fast = Date.now() - this.downSince < FAST_WINDOW_MS
     const delay = fast ? FAST_RETRY_MS : (this.slow = Math.min(SLOW_RETRY_MAX_MS, this.slow ? this.slow * 2 : 2000))
     this.timer = setTimeout(() => this.connect(), delay)

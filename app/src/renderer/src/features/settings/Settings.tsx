@@ -20,6 +20,8 @@ import { bridge, isElectron } from '../../bridge'
 import { onUi } from '../../core/bus'
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { color, fill, pill, radius, scrim, shadows, spring, springOut, surface, windowSize } from '../../core/theme'
+import { islandBottom, islandTop } from '../../core/islandEdge'
+import { notchOf } from '../../core/notchGeometry'
 import { Shell } from './Shell'
 import { useSettings, type Size } from './store'
 import { beat, ease, fade } from '../../core/ui/motion'
@@ -33,11 +35,20 @@ const isPillSized = (s: Size): boolean => s.h <= pill.height + 1
 const shapeOf = (s: Size): TargetAndTransition => ({
   width: s.w,
   height: s.h,
-  borderRadius: isPillSized(s) ? s.h / 2 : radius.island,
-  boxShadow: isPillSized(s) ? shadows.pill : shadows.card
+  // In the notch: flat on the display top, the notch's bottom radius (four values, so it interpolates to the sheet's).
+  borderRadius: s.place === 'notch' ? `0px 0px ${s.radii?.bottom ?? 14}px ${s.radii?.bottom ?? 14}px` : isPillSized(s) ? s.h / 2 : radius.island,
+  boxShadow: isPillSized(s) ? shadows.pill : shadows.card,
+  y: 0
 })
 const validSize = (s: unknown): s is Size => !!s && typeof s === 'object' && (s as Size).w > 0 && (s as Size).h > 0
-const round = (s: Size): Size => ({ w: Math.round(s.w), h: Math.round(s.h) })
+const round = (s: Size): Size => ({ w: Math.round(s.w), h: Math.round(s.h), ...(s.place === 'notch' ? { place: 'notch' as const, radii: s.radii } : {}) })
+
+/** Air between the notch's bottom and the sheet it grows into. */
+const NOTCH_GAP = 8
+/** How far the sheet lands below the island's top: in the notch, under its bottom edge; below the menu bar it grows in place. */
+export function sheetDrop(layout: Layout): number {
+  return notchOf(layout) ? islandBottom(layout) + NOTCH_GAP : 0
+}
 
 /** Exits hand the island back once the shape is within a pixel. */
 const settle = { restDelta: 1, restSpeed: 30 }
@@ -51,7 +62,7 @@ const SIDE_MARGIN = 24
 export function sheetSize(layout: Layout): Size {
   return {
     w: Math.max(480, Math.min(windowSize.settings.w, layout.width - 2 * SIDE_MARGIN)),
-    h: Math.max(320, Math.min(windowSize.settings.h, layout.height - bridge.platform.pillTop - BOTTOM_MARGIN))
+    h: Math.max(320, Math.min(windowSize.settings.h, layout.height - islandTop(layout) - sheetDrop(layout) - BOTTOM_MARGIN))
   }
 }
 
@@ -199,7 +210,14 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
 
   const size = sheetSize(layout)
   const exiting = phase === 'closing'
-  const grown: TargetAndTransition = { width: size.w, height: size.h, borderRadius: radius.island, boxShadow: shadows.card }
+  const inNotch = from.place === 'notch'
+  const grown: TargetAndTransition = {
+    width: size.w,
+    height: size.h,
+    borderRadius: inNotch ? `${radius.island}px ${radius.island}px ${radius.island}px ${radius.island}px` : radius.island,
+    boxShadow: shadows.card,
+    y: sheetDrop(layout)
+  }
   /** Reduced motion: crossfade at full size. Exit targets keep every key (a dropped key ends the animation early). */
   const faded = { ...grown, opacity: 0 }
   const target: TargetAndTransition = exiting ? (reduce ? faded : { ...shapeOf(to), opacity: 1 }) : { ...grown, opacity: 1 }
@@ -225,7 +243,7 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
         // --focus-ring, so no color is hard-coded here. The sidebar's tabs use this one ring too (after the first key press).
         className="absolute left-1/2 overflow-hidden [&_*:focus-visible]:outline-2 [&_*:focus-visible]:outline-offset-2 [&_*:focus-visible]:outline-[color:var(--focus-ring)]"
         style={{
-          top: bridge.platform.pillTop,
+          top: islandTop(layout),
           x: '-50%',
           background: color.island,
           color: color.text,

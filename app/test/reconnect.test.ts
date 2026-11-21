@@ -16,7 +16,11 @@ import { Heartbeat } from '../src/main/heartbeat'
 import { MAX_RESPAWNS, RespawnBudget, superviseEngine } from '../src/main/respawn'
 
 const servers: WebSocketServer[] = []
+/** Every link a test makes: stopped at the end, or its reconnect timer keeps the process alive after the last test. */
+const links: EngineLink[] = []
+const track = (l: EngineLink): EngineLink => (links.push(l), l)
 after(() => {
+  for (const l of links) l.stop()
   for (const s of servers) {
     for (const c of s.clients) c.terminate()
     s.close()
@@ -58,7 +62,7 @@ async function crash(e: Engine): Promise<void> {
   await new Promise<void>((r) => e.wss.close(() => r()))
 }
 
-const link = (url: string, timings = { heartbeatMs: 100, deadMs: 350, probeMs: 150 }): EngineLink => new EngineLink(url, undefined, undefined, timings)
+const link = (url: string, timings = { heartbeatMs: 100, deadMs: 350, probeMs: 150 }): EngineLink => track(new EngineLink(url, undefined, undefined, timings))
 
 // ---- the respawn budget and the supervisor ----------------------------------------------------------------------------
 
@@ -223,7 +227,7 @@ test('hung: a real link to an engine that accepts but never answers is restarted
     for (const s of sockets) s.destroy()
     tcp.close()
   })
-  const l = new EngineLink(`ws://127.0.0.1:${(tcp.address() as AddressInfo).port}`, undefined, undefined, { handshakeMs: 150 })
+  const l = track(new EngineLink(`ws://127.0.0.1:${(tcp.address() as AddressInfo).port}`, undefined, undefined, { handshakeMs: 150 }))
   let downs = 0
   l.onStatus((up) => void (up || downs++))
   let restarts = 0
