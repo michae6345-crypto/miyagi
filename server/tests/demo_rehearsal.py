@@ -53,9 +53,9 @@ RUNS_FILE = ROOT / "demo" / "cache" / "stage" / "nn-runs.json"
 DEFAULT_PORT = 8899
 LIVE_PORT = 8787
 BAD_PROXY = "http://127.0.0.1:9"  # the discard port: any proxied request fails at once, for free
-PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "ELEVENLABS_API_KEY",
+PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY",
              "TIGER_DATABASE_URL", "OPENAI_API_KEY", "YOUTUBE_API_KEY")
-KEY_NAMES = ("anthropic", "gemini", "brightdata", "elevenlabs", "tigerUrl")
+KEY_NAMES = ("anthropic", "gemini", "elevenlabs", "tigerUrl")
 DWELL_S = 2.5  # stage.DWELL_S: a save in a step's first seconds doesn't count
 SECTIONS = ("# The network", "# Backprop", "# Training", "# Test it")
 _W_RANDOM = {"W1": "np.random.randn(1, 4)", "W2": "np.random.randn(4, 4)", "W3": "np.random.randn(4, 1) * 0.1"}

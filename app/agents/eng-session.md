@@ -48,7 +48,7 @@ The engine sends what the v2 lesson panel, Home-Building, the error surfaces and
 
 ## Checks run
 - `python -m py_compile` on the 5 files: OK (run-live's venv interpreter, Python 3.12).
-- Import check with the keys empty (`ANTHROPIC_API_KEY= GEMINI_API_KEY= BRIGHTDATA_API_KEY= TIGER_DATABASE_URL=`) and `python -I`, with this worktree put first on `sys.path` (plain `-I` resolves `server` to run-live's tree through the venv's `.pth`): `server.orchestrator.session`, `curated`, `lesson_end`, `main`, `server.workspace.editor`, `server.sessions.store`, all from this worktree: OK.
+- Import check with the keys empty (`ANTHROPIC_API_KEY= GEMINI_API_KEY= TIGER_DATABASE_URL=`) and `python -I`, with this worktree put first on `sys.path` (plain `-I` resolves `server` to run-live's tree through the venv's `.pth`): `server.orchestrator.session`, `curated`, `lesson_end`, `main`, `server.workspace.editor`, `server.sessions.store`, all from this worktree: OK.
 - An offline script (scratchpad, not committed; temp state dir, no network, no model calls): 67 checks pass. It covers:
   - the pure helpers (stages, phases, fail codes, where/then, missing lines and captions, hint rungs, word caps, em-dash removal);
   - `fit_full` (1048 at 1440, a reported panel at 1000 → 984, the minimum fraction);

@@ -9,7 +9,7 @@
 
 On top of that, "Do it for me" breaks on git (multi-line edits, a `git-rebase-todo` that isn't in the workdir, OCR'd anchors) and needs an extra Opus call for every notebook fix.
 
-Run: 2026-11-14, `claude/coach-qa-42e015` at `148433b` (integration/live), live `claude-opus-5-5` / `claude-haiku-5-5`, Bright Data on. Lessons are snapshots in [`lessons/`](lessons/) of the cached graphs for `ZipmUa9N7Os`, `_zsKKcnX-qE` and `42392W7SgnE`. The cached builds were being regenerated while this ran.
+Run: 2026-11-14, `claude/coach-qa-42e015` at `148433b` (integration/live), live `claude-opus-5-5` / `claude-haiku-5-5`, live web lookups on. Lessons are snapshots in [`lessons/`](lessons/) of the cached graphs for `ZipmUa9N7Os`, `_zsKKcnX-qE` and `42392W7SgnE`. The cached builds were being regenerated while this ran.
 
 ## Pass/fail table
 

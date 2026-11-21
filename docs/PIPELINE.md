@@ -75,7 +75,7 @@ listed in `missing`, and if it lands later it arrives through `on_late`.
 
 | Field | Source |
 |---|---|
-| title, channel, duration, description, category, tags | oEmbed + the watch page (plain fetch ~1 s; Bright Data Unlocker as fallback) |
+| title, channel, duration, description, category, tags | oEmbed + the watch page (plain fetch ~1 s) |
 | chapters | YouTube's own chapter list (`chapterRenderer`), else description timestamps (YouTube's rules: from 0:00, ascending, ≥ 3) |
 | `style`: coding / no-code / conceptual (E7's vocabulary), `topic`, `goalMatch {score 0–1 \| null, note}`, first hands-on chapter | Claude `claude-haiku-5-5`, structured output, on that metadata plus the finder row's `style` (as a prior; it is also the fallback when Claude is late) and the finder's Gemini skim if it's cached (no new Gemini call) |
 | `items` ("Needs: VS Code ✓ Python 3 ✓ torch ✗") | S2's `server.workspace.requirements()` on a metadata-level step graph (lesson id `preflight-<videoId>`) |

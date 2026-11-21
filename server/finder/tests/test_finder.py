@@ -114,7 +114,7 @@ def _known_urls() -> set[str]:
 def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(env, "_loaded", True)
     monkeypatch.setattr(env, "_shared", lambda name: None)  # ignore server.config app keys
-    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "GITHUB_TOKEN", "ANTHROPIC_API_KEY"):
+    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GITHUB_TOKEN", "ANTHROPIC_API_KEY"):
         monkeypatch.setenv(k, "")
     monkeypatch.setattr(cache, "CACHE_DIR", tmp_path)
     monkeypatch.setenv("FINDER_KINDS", "all")  # most tests exercise every source; videos-only has its own tests
@@ -313,80 +313,6 @@ def test_claude_candidates_flow_into_results(offline, monkeypatch):
     assert by_url[REAL_CLAUDE_URL]["source"] == "claude" and by_url[REAL_CLAUDE_URL]["kind"] == "repo"
     assert INVENTED_URL not in by_url
     assert all(r["scoredBy"] == "keywords" for r in rows)  # both models down -> labelled keyword score
-
-
-# --------------------------------------------------------------------------- Bright Data
-
-from server.finder import brightdata  # noqa: E402
-
-
-def _bd_keys():
-    return env.Keys(gemini=None, brightdata="test-bd", anthropic=None, serp_zone="serp_api1",
-                    unlocker_zone="web_unlocker1", github=None)
-
-
-def test_brightdata_comments_fail_fast_and_labelled(monkeypatch):
-    monkeypatch.setattr(brightdata, "_off_until", 0.0)
-    monkeypatch.setattr(brightdata, "_comments_off_until", 0.0)
-    keys = _bd_keys()
-
-    def run(handler):
-        async def go():
-            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
-                return await brightdata.youtube_comments(c, keys, "https://www.youtube.com/watch?v=V8FvyuObouc")
-        return asyncio.run(go())
-
-    # a video without comments: the dataset answers 200 with an error record (real response shape)
-    dead = [{"input": {"url": "https://www.youtube.com/watch?v=V8FvyuObouc"}, "error": "No comments exists on the video", "error_code": "dead_page"}]
-    with pytest.raises(brightdata.BrightDataError, match="dead_page"):
-        run(lambda req: httpx.Response(200, json=dead))
-    assert brightdata.comments_available(keys)
-
-    # no dataset access: labelled, and only the comments breaker trips (SERP / Unlocker stay on)
-    with pytest.raises(brightdata.BrightDataError, match="HTTP 403"):
-        run(lambda req: httpx.Response(403, text="dataset not enabled for this account"))
-    assert not brightdata.comments_available(keys)
-    assert brightdata.available(keys)
-    assert search_mod._short_err(brightdata.BrightDataError("Bright Data comments -> HTTP 403: dataset not enabled")).startswith("Bright Data HTTP 403")
-
-
-def test_brightdata_serp_resolves_goto_and_keeps_videos():
-    serp = {"organic": [{"link": "https://www.sitepoint.com/git-interactive-rebase-guide/", "title": "A Guide", "description": "d"},
-                        {"link": "https://www.google.com/goto?url=CAES123&gsessionid=x", "title": "Git Tools", "description": ""}],
-            "videos": [{"link": "https://www.youtube.com/watch?v=H7RFt0Pxxp8", "title": "Git Rebase --interactive: EXPLAINED",
-                        "duration_sec": 294, "source": "YouTube · DevOps Toolbox"}]}
-
-    def handler(req):
-        if req.url.host == "api.brightdata.com":
-            return httpx.Response(200, json=serp, headers={"x-brd-status-code": "200"})
-        if "/goto" in req.url.path:
-            return httpx.Response(302, headers={"location": "https://git-scm.com/book/en/v2/Git-Tools-Rewriting-History"})
-        return httpx.Response(404)
-
-    async def go():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
-            return await brightdata.google(c, _bd_keys(), "git rebase interactive")
-
-    hits = asyncio.run(go())
-    urls = [h["url"] for h in hits]
-    assert "https://git-scm.com/book/en/v2/Git-Tools-Rewriting-History" in urls and not any("google.com" in u for u in urls)
-    vid = next(h for h in hits if h.get("kind") == "video")
-    assert vid["duration_s"] == 294 and vid["channel"] == "DevOps Toolbox"
-
-
-def test_brightdata_target_failure_is_an_error(monkeypatch):
-    monkeypatch.setattr(brightdata, "_off_until", 0.0)
-
-    def handler(req):  # what the SERP API really returns when the target fails: 200, empty body
-        return httpx.Response(200, content=b"", headers={"x-brd-status-code": "502", "x-brd-error-code": "captcha",
-                                                          "x-brd-error": "redirect location was rejected"})
-
-    async def go():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
-            return await brightdata.google(c, _bd_keys(), "q")
-
-    with pytest.raises(brightdata.BrightDataError, match="target HTTP 502"):
-        asyncio.run(go())
 
 
 def test_no_code_video_never_leads_a_coding_goal(offline, monkeypatch):

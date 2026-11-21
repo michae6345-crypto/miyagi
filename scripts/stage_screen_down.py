@@ -7,7 +7,7 @@ from stage_lifecycle import Client
 
 OFFLINE = ["DEMO=1", "ORCH_STUBS=coach,diagrams,finder,lesson", "ORCH_AUTOSTART=1",
            "ORCH_LESSON=demo/cache/lessons/8741b6aef237862a.json", "TUT_SCREEN_FIXTURE=",
-           "ANTHROPIC_API_KEY=", "GEMINI_API_KEY=", "BRIGHTDATA_API_KEY=", "ELEVENLABS_API_KEY=",
+           "ANTHROPIC_API_KEY=", "GEMINI_API_KEY=", "ELEVENLABS_API_KEY=",
            "HTTPS_PROXY=http://127.0.0.1:9", "HTTP_PROXY=http://127.0.0.1:9", "ALL_PROXY=http://127.0.0.1:9"]
 
 async def main():

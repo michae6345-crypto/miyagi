@@ -13,7 +13,7 @@
   },
   "path": "gemini",
   "fallback_notes": [],
-  "transcript_error": "no transcript for 5UA9UWWAagc: brightdata watch page: Bright Data returned an empty body; brightdata captions: Bright Data returned an empty body; timedtext: Client error '429 Too Many Requests' for url 'https://www.youtube.com/api/timedtext?v=5UA9UWWAagc&ei=MOD4ao3pFt7A-coPiZuQuQM&caps=asr&opi=1124"
+  "transcript_error": "no transcript for 5UA9UWWAagc: scraping-service watch page: empty body; scraping-service captions: empty body; timedtext: Client error '429 Too Many Requests' for url 'https://www.youtube.com/api/timedtext?v=5UA9UWWAagc&ei=MOD4ao3pFt7A-coPiZuQuQM&caps=asr&opi=1124"
  },
  "graph": {
   "lesson": {

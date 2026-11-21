@@ -20,7 +20,7 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 | `explain_selection(step, selection, context)` | `card` kind `explain` about text the learner selected (VS Code "Miyagi: Explain this", the drawer's "Explain more"); the step is context only. `selection` comes from `server/orchestrator/selection.py`, with the card's title | Sonnet 5.5 (`COACH_MODEL_EXPLAIN_SELECTION`) |
 | `hint(step, level, last_offtrack=None)` | `card` kind `hint` (+ `level`, `diff`, `citation`, `actions`). Follows the latest diagnosis: 0 = its `guidingQuestion`, 1 = the video moment about that issue (else the step segment), 2 = its source, 3 = its diff. Works with the public card too | none |
 | `apply_fix(diff, file_text)` | `{unified_diff, new_text, requires_confirmation: True}`; never writes | none |
-| `fix_outdated(error_text, libraries)` | offtrack-shaped fix with source URL, or `None` | known table → Bright Data SERP + Unlocker → Opus |
+| `fix_outdated(error_text, libraries)` | offtrack-shaped fix with source URL, or `None` | known table → DuckDuckGo search + page GET → Opus |
 | `triage(...)` | route `template` / `playbook` / `opus` | rules, then Haiku 5.5 for the ambiguous middle |
 
 `metrics_summary` accepts `RunContext.metrics` (`{name: [(step, value)]}`), a string, or a summary dict.
@@ -91,7 +91,7 @@ Copy rules: at most 12 words, name the file and VS Code (never Cursor), no glued
 `llm.offline_mode()` is true with `DEMO=1`, or with `ORCH_STUBS=all` or a list naming `coach` (e.g. `lesson,coach`). In that mode nothing paid leaves the coach. Recorded fixtures (`COACH_REPLAY_DIR`) still replay. S11 had counted 19 Claude calls in one DEMO rehearsal take.
 - **Claude:** `structured_call` refuses before any network call. `diagnose` and `explain` return their offline cards (playbook or template).
 - **Step judge:** `StepJudge.should_judge` is always false, so it never runs on a timer. `judge_step` (the Check button) returns `{offline: true}`: machine-passed checks are "done", the rest "unsure", and `done` is true only if every check already passed.
-- **Other calls:** `warm()` is skipped, `locate` uses exact text only, `point` falls back to `where`, and Bright Data is never called.
+- **Other calls:** `warm()` is skipped, `locate` uses exact text only, `point` falls back to `where`, and the live web is never called.
 - **Voice:** already-cached audio still plays; nothing new is synthesized.
 
 ## Cost gate for periodic calls (gate.py)
@@ -171,7 +171,7 @@ Every coach answer about the screen carries `targets` (`[{boxId, label, text, re
 - **Gate:** E4 owns it (voice toggled on, and no keystroke in the last 2 s).
 
 ## Orchestrator contract notes (E4)
-- **Latency.** Web grounding runs only when there is an error message to look up, capped at 4 s, and keeps whatever lookups finished in time. A metric-only failure like the hero goes straight to Opus. Live, with Bright Data configured: card in 3.4 s after `warm()`. Rehearsal had measured 7–8 s while it waited on unused searches.
+- **Latency.** Web grounding runs only when there is an error message to look up, capped at 4 s, and keeps whatever lookups finished in time. A metric-only failure like the hero goes straight to Opus. Live: card in 3.4 s after `warm()`. Rehearsal had measured 7–8 s while it waited on unused searches.
 - **Offline stage fallback (opt-in).** With `COACH_OFFLINE_FALLBACK=1`, if Opus is unreachable (network/proxy down) and the playbook matches the learner's code with confidence ≥ 0.6, `diagnose` returns that playbook card marked `offline: true` (and `_meta.route=playbook`, `fallback_reason`). API errors, refusals and weak matches still raise `CoachUnavailable`. It is off by default because of the no-fake rule.
 
 - `diagnose(..., cursor={"x", "y", "under": {"text", "app", "rect"}})` and `explain(..., {"cursor": ...})` tell the coach what the learner points at, when no full `screen` is attached.
@@ -181,7 +181,7 @@ Every coach answer about the screen carries `targets` (`[{boxId, label, text, re
 
 ## Design
 
-- **General, web-grounded** (GENERALITY RULE). `web.py` detects the library and symbol from any error on screen (Python tracebacks, eslint/React, Node, npm, CLI tools). It then fetches the official docs/changelog (`docs_for`) and Stack Overflow / GitHub / Reddit posts (`community_signals`) through Bright Data (SERP restricted to official domains, then Web Unlocker). This runs in parallel with triage and has a 6 s budget. The pages go into the Opus prompt as `[web:N]`, and the card cites the URL it used. When `server.finder.web` (E7) lands, its `docs_for` / `community_signals` are used instead. With no Bright Data keys or a timeout, the coach falls back to playbook and lesson sources.
+- **General, web-grounded** (GENERALITY RULE). `web.py` detects the library and symbol from any error on screen (Python tracebacks, eslint/React, Node, npm, CLI tools). It then fetches the official docs/changelog (`docs_for`) and Stack Overflow / GitHub / Reddit posts (`community_signals`) through DuckDuckGo's HTML search (restricted to official domains with `site:`), then a plain GET of the page. This runs in parallel with triage and has a 6 s budget. The pages go into the Opus prompt as `[web:N]`, and the card cites the URL it used. When `server.finder.web` (E7) lands, its `docs_for` / `community_signals` are used instead. With the web off (`COACH_WEB=0`, offline mode) or a timeout, the coach falls back to playbook and lesson sources.
 - **Metric flags work for any metric.** Direction comes from the step's checks (`op >` means higher is better). Without a check, names like acc/score/pass count as "up", everything else as "down".
 
 - **Triage first** (`triage.py`). Nothing run yet + only file checks failing → the step's own hint, no model. Exact error signature from the playbook (e.g. CUDA on a Mac) → curated card in milliseconds. Metric failures (the hero case) → Opus directly. Only the ambiguous middle pays for a Haiku call; any doubt goes to Opus.
@@ -205,4 +205,4 @@ rm server/coach/fixtures/*.json && .venv/bin/python -m server.coach.tests.record
 
 **Keys (BYOK):** `coach.set_keys(config_keys)` (delegates to `server.config` when present); otherwise env / `.env` found upward from cwd, plus `$TUT_ENV`.
 
-Fixtures in `server/coach/fixtures/` are recorded live responses: Opus 5.5 diagnose + explain for the PINN demo, Opus for a React hooks lint error and a removed pandas API (`tests/generic_cases.py`, with Bright Data replaced by excerpts of the real react.dev / pandas pages), and Haiku 5.5 triage, keyed by a hash of the request. Re-record with `--live --record` after changing the demo case. Env: `ANTHROPIC_API_KEY`, `BRIGHTDATA_API_KEY`, `BRIGHTDATA_SERP_ZONE`, `BRIGHTDATA_UNLOCKER_ZONE`; `COACH_REPLAY_DIR` / `COACH_RECORD_DIR` for fixtures.
+Fixtures in `server/coach/fixtures/` are recorded live responses: Opus 5.5 diagnose + explain for the PINN demo, Opus for a React hooks lint error and a removed pandas API (`tests/generic_cases.py`, with the web replaced by excerpts of the real react.dev / pandas pages), and Haiku 5.5 triage, keyed by a hash of the request. Re-record with `--live --record` after changing the demo case. Env: `ANTHROPIC_API_KEY`; `COACH_WEB=0` turns live web search off (tests set it); `COACH_REPLAY_DIR` / `COACH_RECORD_DIR` for fixtures.

@@ -3,7 +3,7 @@ Untitled.ipynb is the learner's mnist.ipynb (R2), a VS Code notebook lesson's ch
 ScreenCaptureKit TCC refusal was retried at once (R5). On the cached t10 lesson (test_video_replay's rig: real session +
 real checks, no Claude / Gemini, no network) and the learner's own notebook (fixtures/t10_mnist.ipynb, read only copy).
 
-    env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY -u BRIGHTDATA_API_KEY python -m pytest server/orchestrator/tests/test_t10_nbrun.py -q
+    env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY python -m pytest server/orchestrator/tests/test_t10_nbrun.py -q
 """
 
 from __future__ import annotations

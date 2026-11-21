@@ -1,5 +1,5 @@
 {"wait": 61, "type": "status", "payload": {"state": "idle"}}
-{"wait": 0, "type": "config.status", "payload": {"anthropic": "env", "gemini": "env", "brightdata": "missing", "elevenlabs": "missing", "tigerUrl": "missing"}}
+{"wait": 0, "type": "config.status", "payload": {"anthropic": "env", "gemini": "env", "elevenlabs": "missing", "tigerUrl": "missing"}}
 {"wait": 0, "type": "status", "payload": {"state": "thinking"}}
 {"wait": 0, "type": "search.result", "payload": {"id": "r1", "kind": "video", "title": "Physics-informed neural networks: convection in PyTorch", "meta": "YouTube · 9 min", "score": 0.94, "reason": "Codes the convection PINN step by step; matches your goal exactly.", "url": "https://www.youtube.com/watch?v=STUB_PINN_VID"}}
 {"wait": 61, "type": "search.result", "payload": {"id": "r2", "kind": "paper", "title": "Characterizing possible failure modes in PINNs", "meta": "NeurIPS 2021 · Krishnapriyan et al.", "score": 0.88, "reason": "Explains why convection at large β fails and how a curriculum fixes it.", "url": "https://arxiv.org/abs/2109.01050"}}

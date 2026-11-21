@@ -97,7 +97,7 @@ async def fix_outdated(error_text: str, libraries: dict | list | None = None, *,
     if hit := _known(error_text):
         return hit
     if not web.configured():
-        raise llm.OutdatedFixUnavailable("web search not configured (Bright Data key and SERP/Unlocker zones)")
+        raise llm.OutdatedFixUnavailable("web search not configured (the coach is offline or COACH_WEB=0)")
     lib, sym = web.detect(error_text, code, libraries, command)
     line = web.error_line(error_text)
     pages = await web.gather(lib, sym, f"{lib} {line}".strip(), error=line, timeout=12.0)

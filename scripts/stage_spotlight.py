@@ -14,7 +14,7 @@ from stage_actions import rect_ok  # noqa: E402
 from stage_lifecycle import Client  # noqa: E402
 
 OFFLINE = ["DEMO=1", "ORCH_STUBS=coach,diagrams,finder,lesson", "ORCH_AUTOSTART=1", "TUT_SCREEN_FIXTURE=",
-           "ANTHROPIC_API_KEY=", "GEMINI_API_KEY=", "BRIGHTDATA_API_KEY=", "ELEVENLABS_API_KEY=",
+           "ANTHROPIC_API_KEY=", "GEMINI_API_KEY=", "ELEVENLABS_API_KEY=",
            "HTTPS_PROXY=http://127.0.0.1:9", "HTTP_PROXY=http://127.0.0.1:9", "ALL_PROXY=http://127.0.0.1:9"]
 
 

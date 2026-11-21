@@ -49,7 +49,7 @@ SCRATCH = RUNS / "stage-lessonmode-work"
 OFFLINE_ENV = {
     "DEMO": "1", "ORCH_STUBS": "diagrams,finder,lesson", "ORCH_AUTOSTART": "0", "ORCH_SCREEN": "1", "TUT_AX": "0",
     "ORCH_OPEN_WORKSPACE": "1", "ORCH_RECORD": "0", "ORCH_DIAGRAM_PREFETCH": "0",
-    "ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": "", "BRIGHTDATA_API_KEY": "", "ELEVENLABS_API_KEY": "",
+    "ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": "", "ELEVENLABS_API_KEY": "",
     "TIGER_DATABASE_URL": "", "HTTPS_PROXY": "http://127.0.0.1:9", "HTTP_PROXY": "http://127.0.0.1:9",
     "ALL_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
 }

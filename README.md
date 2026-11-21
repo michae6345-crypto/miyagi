@@ -45,14 +45,13 @@ it has to.
 |---|---|
 | **Claude** (Anthropic: Sonnet and Haiku) | Writes the lessons ("Just teach me", the transcript draft of a video lesson, fitting each check to your folder), searches for and scores tutorials, reads your screen to place the spotlight, judges whether a step is done, coaches, explains, draws diagrams |
 | **Gemini** | Watches the videos, and nothing else. It watches the YouTube video at 0.5 fps (with its title, description and chapters) and drafts the steps with timestamps, the code typed on screen, checks and hints. Claude's transcript draft runs in parallel and is used if Gemini fails or takes over 75 s |
-| **Bright Data** | Finds the videos and sources: SERP API for Google's video results, the YouTube comments dataset (flags tutorials people say "doesn't work anymore"), Web Unlocker for transcripts, watch pages and the coach's docs |
 | **Tiger Data** | Stores check results and training metrics: `learning_events` and `training_metrics` hypertables with continuous aggregates (time per step, check fail rate, where learners get stuck). Every run the engine sees end (VS Code's ▷, the terminal, Run it for me) sends its loss values to `training_metrics`; Demo recordings are tagged `demo`. When Tiger can't be reached, rows wait in `~/.miyagi/tiger-spool/` and upload on reconnect. Live page at `localhost:8787/stats` |
 | Apple Vision + Accessibility (on the Mac) | Reads the whole screen with on-device OCR and gets exact editor line positions |
 
 ## Run it locally (macOS)
 
 You need macOS (the screen reader uses ScreenCaptureKit, Apple Vision and Accessibility), [uv](https://docs.astral.sh/uv/),
-Node 22+, VS Code, and an Anthropic API key. Gemini, Bright Data and Tiger Data keys are optional.
+Node 22+, VS Code, and an Anthropic API key. Gemini and Tiger Data keys are optional.
 
 ```bash
 git clone https://github.com/michae6345-crypto/miyagi.git
@@ -74,7 +73,6 @@ System Settings › Privacy & Security, then quit and reopen the terminal. The s
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Required | Everything Claude does (see the table above) |
 | `GEMINI_API_KEY` | Optional | Gemini watches the videos. Without it, video lessons are built from the transcript by Claude |
-| `BRIGHTDATA_API_KEY`, `BRIGHTDATA_SERP_ZONE`, `BRIGHTDATA_UNLOCKER_ZONE` | Optional | Google video results, comment warnings, transcripts and docs through Web Unlocker. Without it, search uses Claude's web search alone |
 | `TIGER_DATABASE_URL` | Optional | Stores check results and metrics. Create the tables once with `.venv/bin/tut db init` |
 
 [`.env.example`](.env.example) lists every key the engine reads. You can also enter keys in the app's Settings (⌘,); keys
@@ -168,7 +166,6 @@ flowchart LR
   Orch --> Coach["server/coach<br/>coach + step judge"]
   Orch --> Diag["server/diagrams"]
   Finder -- "web search, scoring" --> Claude[("Claude<br/>Sonnet / Haiku")]
-  Finder -- "SERP, YouTube comments" --> BD[("Bright Data")]
   Pre --> Claude
   Lesson -- "Just teach me, transcript draft,<br/>fitting checks to your folder" --> Claude
   Lesson -- "watches the video (0.5 fps)" --> Gemini[("Gemini")]
@@ -198,7 +195,7 @@ flowchart LR
 | `server/workspace/` | One folder per lesson with starter files that never pass a step on their own; opens it in VS Code |
 | `server/screen/` | The screen reader: capture, on-device Apple Vision OCR, terminal and editor regions for the spotlight, values read off the terminal |
 | `server/checks/` | Pure check evaluator (`screen_contains`, `metric_threshold`, `metric_trend`) and the Tiger Data writer with an offline spool |
-| `server/coach/` | Claude coach and step judge from your real screen and code, the hint ladder, docs grounding through Bright Data |
+| `server/coach/` | Claude coach and step judge from your real screen and code, the hint ladder, docs grounding through DuckDuckGo search |
 | `server/diagrams/` | A Claude-built diagram for the current step (network, flow, git graph, data, sequence) |
 | `server/sessions/` | Restart-safe lesson saves and the resume card |
 | `cli/` | `tut run <cmd>` (training scripts' `::metric::` lines → engine + Tiger), `tut db init`, `tut stats` |

@@ -85,12 +85,12 @@ class CoachUnavailable(RuntimeError):
 
 
 class OutdatedFixUnavailable(CoachUnavailable):
-    """fix_outdated() could not search or read the docs (no Bright Data config, fetch/model failure)."""
+    """fix_outdated() could not search or read the docs (web search off or empty, fetch/model failure)."""
 
 
 def offline_mode() -> bool:
     """Zero-cost mode: DEMO=1, or ORCH_STUBS names the coach ("all" / "lesson,coach,..."). No paid call
-    leaves the coach (Claude, Bright Data, ElevenLabs); recorded fixtures (COACH_REPLAY_DIR) still replay.
+    leaves the coach (Claude, the live web, ElevenLabs); recorded fixtures (COACH_REPLAY_DIR) still replay.
     S11: with DEMO=1 the coach still made 19 Claude calls in one rehearsal take."""
     if os.environ.get("DEMO", "").strip() == "1":
         return True
@@ -122,7 +122,7 @@ _client = None
 _client_key: str | None = None
 _local_keys: dict[str, str] = {}
 
-KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "brightdata": "BRIGHTDATA_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}
+KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}
 
 
 def _load_env() -> None:

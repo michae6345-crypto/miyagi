@@ -84,10 +84,8 @@ lesson, with the same folder, cards, hints and network panel, and stages it:
 
 ### Watch a video
 
-1. **Find.** The launcher shows YouTube videos only. Claude (with its web-search tool) looks for videos, one Bright Data SERP
-   query adds Google's video results, and Claude scores every candidate. Rows under 40/100 are never shown
-   (`FINDER_KINDS=video`, `FINDER_MIN_SCORE=40`, `server/finder/`). Bright Data also reads the YouTube comments of the top
-   videos, so a tutorial people say "doesn't work anymore" gets a warning.
+1. **Find.** The launcher shows YouTube videos only. Claude (with its web-search tool) and YouTube's own results page look for videos, and Claude scores every candidate. Rows under 40/100 are never shown
+   (`FINDER_KINDS=video`, `FINDER_MIN_SCORE=40`, `server/finder/`).
 2. **Preflight.** Within about 5 s of your pick, a card says what the video is: its style, length and chapters, whether it
    fits your goal, and which tools you're missing. Nothing is built until you say so (`server/preflight/`).
 3. **Build.** Gemini watches the YouTube video at 0.5 fps, with its title, description and chapters as text, and returns the
@@ -151,7 +149,7 @@ Electron overlay (app/: pill, launcher, drawer + network panel, spotlight, cards
         │  WebSocket :8787 · shared/contracts/events.ts
         ▼
 engine: server/orchestrator (FastAPI hub, lesson state machine, curated NN lesson, Demo staging, quiet save)
-  ├─ finder     Claude web search + scoring · Bright Data SERP (Google video results) + YouTube comments
+  ├─ finder     Claude web search + scoring · YouTube results page + DuckDuckGo
   ├─ preflight  ≤ 5 s card before any build
   ├─ lesson     Watch a video: Gemini watches the video ∥ Claude drafts from the transcript; Claude adapts the checks
   │             Just teach me: Claude plans, researches (web search/fetch) and writes the steps
@@ -206,8 +204,7 @@ React, TypeScript, Tailwind CSS, Motion; NumPy for the neural-network lesson.
   `402 "prepayment credits are depleted"` (commit `15f0efe`). We added a 402 fast-fail with a 5-minute breaker, Haiku and
   Sonnet tiers with Opus off by default, token accounting in every lesson's `build.cost` (commit `d500d03`), and paid keys
   blanked in tests.
-- **The venue Wi-Fi.** YouTube answered caption requests with `429`, so Bright Data's Web Unlocker is the alternate route for
-  watch pages and captions (`server/lesson/transcript.py`). The network also blocked our Tiger Cloud port, so writes go to an
+- **The venue Wi-Fi.** YouTube answered caption requests with `429`, so the transcript path falls back from the captions endpoint to the watch page and `youtube-transcript-api` (`server/lesson/transcript.py`). The network also blocked our Tiger Cloud port, so writes go to an
   offline spool (`~/.miyagi/tiger-spool/`) and upload on reconnect. For the stage, Demo mode makes no Claude call that can
   fail.
 - **Screen capture on macOS 26.** `replayd` kept dropping our ScreenCaptureKit connection and `CGDisplayCreateImage` blocked
@@ -255,14 +252,6 @@ React, TypeScript, Tailwind CSS, Motion; NumPy for the neural-network lesson.
 ---
 
 ## Sponsor tracks
-
-### Bright Data
-Bright Data is how Miyagi searches and reads the live web.
-- **SERP API:** Google's video results for every search (`server/finder/brightdata.py`, `server/finder/sources.py`).
-- **YouTube comments (Web Scraper API dataset):** the comments of the top videos, read in parallel under a 10 s cap.
-  "Outdated" and "doesn't work" comments become warnings on the result row (`server/finder/core.py`).
-- **Web Unlocker:** YouTube captions and watch pages when YouTube blocks the plain fetch (`server/lesson/transcript.py`), and
-  the docs pages the coach cites (`server/coach/web.py`).
 
 ### Tiger Data
 Tiger Data is the time-series record of every session.
@@ -315,7 +304,7 @@ card uses the real engine's "Neural networks" track with 8 skills.
 - `03-not-yet.png`: "Not yet. Loss is stuck at 0.49", yours 0.4900 against < 0.01, with Explain / Show me / Hint.
 - `05-diagram-flyout.png`: the Diagram flyout out of the drawer's edge: the trained network, epoch 20,000, loss 0.0008.
 - `06-skill-map.png`: the lesson-complete panel, "Neural networks · 8 skills mastered", loss 0.82 → 0.0009.
-- `07-search.png`: Watch a video results for "physics-informed neural networks" (mock results, not live Bright Data).
+- `07-search.png`: Watch a video results for "physics-informed neural networks" (mock results, not a live search).
 - `07b-video-checkpoint.png`: the video panel paused at the 9:48 checkpoint, "Waiting for your checks", 0 of 2 pass.
 - `08-stats.png`: "Step 4 done · Loss 0.82 to 9.0e-4" (now vs before the fix) and the plan at 4 of 6 done.
 - `09-setup-install-all.png`: "Set up this lesson" with VS Code and Python found, two packages and Install all.

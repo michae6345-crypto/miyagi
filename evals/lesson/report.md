@@ -288,7 +288,7 @@ Same setup as the second run below: Gemini at its daily quota and YouTube refusi
 The same 5 videos with the same goals, a fresh empty workdir and `cache=False`. Results are in `results-9d5fbb9/`.
 Two things outside the builder were down during this run:
 - **Gemini** was at its daily quota: 429 on all 4 models.
-- **YouTube** returned 429 on caption requests from this IP. `BRIGHTDATA_API_KEY` is set in `.env`, but `BRIGHTDATA_UNLOCKER_ZONE` is empty, so there was no fallback route.
+- **YouTube** returned 429 on caption requests from this IP. The run had no fallback route for captions.
 
 A strict live run therefore failed on both engines, and each failure was reported honestly; nothing was made up. To still measure the Claude path and the fixes, this run used `--saved-captions evals/lesson/results`.
 That option feeds the real captions fetched by the first run (same day), plus the live title, description and chapters from the watch page. Each graph records this in `meta.captions`. **The Gemini path at 9d5fbb9 is untested.**
@@ -318,9 +318,9 @@ All 5 builds are schema-valid and lint-clean, with no PINN leakage. All 5 of the
    - "Run the cell" isn't a shell command and shouldn't be treated as one.
 4. **Minimum specificity for generic checks.** Examples: `\*\s*\S+` (any `*`), `\|\s*/`, `\bmain\b` (git) and `\S+\s+0\.1\.0` (rust).
    - These are learner-generic but almost always true. Require ≥4 literal alphanumerics, or one real tool keyword, per screen pattern.
-5. **Ops, not E2: set `BRIGHTDATA_UNLOCKER_ZONE`.** With Gemini on a free-tier daily cap and YouTube rate-limiting caption requests, the Claude path has no captions and neither engine can build.
-   - The Bright Data key is already in `.env`; only the Unlocker zone name is missing.
-   - Until it's set, a fresh lesson on the demo machine can fail on both engines; cached lessons still work.
+5. **Ops, not E2: captions need another route.** With Gemini on a free-tier daily cap and YouTube rate-limiting caption requests, the Claude path has no captions and neither engine can build.
+   - (At the time a scraping service was the planned route; it has since been removed.)
+   - Until captions load, a fresh lesson on the demo machine can fail on both engines; cached lessons still work.
 
 ## Scores (first run, 47dba31)
 

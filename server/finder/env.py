@@ -37,15 +37,8 @@ def _usable(v: str | None) -> str | None:
 @dataclass(frozen=True)
 class Keys:
     gemini: str | None
-    brightdata: str | None
     anthropic: str | None
-    serp_zone: str
-    unlocker_zone: str
     github: str | None
-
-    @property
-    def has_brightdata(self) -> bool:
-        return bool(self.brightdata)
 
 
 def _shared(name: str) -> str | None:
@@ -72,10 +65,7 @@ def resolve_keys(api_keys: dict | None = None) -> Keys:
 
     return Keys(
         gemini=_no_cloud_gemini(pick("gemini", "GEMINI_API_KEY", "GOOGLE_API_KEY")),
-        brightdata=pick("brightdata", "BRIGHTDATA_API_KEY"),
         anthropic=pick("anthropic", "ANTHROPIC_API_KEY"),
-        serp_zone=_usable(os.environ.get("BRIGHTDATA_SERP_ZONE")) or "serp_api1",
-        unlocker_zone=_usable(os.environ.get("BRIGHTDATA_UNLOCKER_ZONE")) or "web_unlocker1",
         github=_usable(k.get("github")) or _usable(os.environ.get("GITHUB_TOKEN")),
     )
 

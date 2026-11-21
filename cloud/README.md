@@ -158,7 +158,7 @@ use `MIYAGI_CLOUD_URL` and the install token instead of a user's key:
 
 - `server/config.py` `get_key(name)`: when `MIYAGI_CLOUD_URL` is set, return the install
   token for `"anthropic"` and `"gemini"` (registering on first use), and have `key_source()`
-  report `cloud`. `KEY_ENV` and `set_app_keys()` keep working for Bright Data and ElevenLabs,
+  report `cloud`. `KEY_ENV` and `set_app_keys()` keep working for ElevenLabs,
   which the proxy does not cover.
 - Everything that already goes through `get_key` then gets the token for free:
   `server/orchestrator/main.py` `apply_keys()` (calls `set_app_keys`),

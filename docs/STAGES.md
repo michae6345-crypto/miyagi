@@ -5,7 +5,7 @@ VS Code and the companion saves the file when a step needs it, so learners never
 
 Three runs, newest first:
 - **Gemini paid** (14:23–14:29, integration/live 4ff1417: billing on, same key).
-- **after** (~14:15, 36eaf92: per-lesson workspaces, human build errors, Bright Data zones live).
+- **after** (~14:15, 36eaf92: per-lesson workspaces, human build errors, third-party scraping zones live).
 - **before** (~14:00, 2cc33e8).
 
 `scripts/stage.py` drives the **LIVE** engine (DEMO=0, ORCH_AUTOSTART=0, own port) over the real WebSocket
@@ -206,7 +206,7 @@ The first pass ran with ORCH_OPEN_WORKSPACE=0, so the engine sends no setup card
 **S1 · E2 lesson: any video Gemini can't finish in 75 s fails to build, and nothing falls back.**
 - Karpathy (1:56:20) and the rust pick (12:59, a dense code-along) both died at exactly 75.0 s, rust twice:
   - `gemini video pass failed: no answer within 75s`
-  - the transcript path had already failed: `brightdata captions: Bright Data returned an empty body; timedtext: Client error '429 Too Many Requests'`
+  - the transcript path had already failed: `scraping-service captions: empty body; timedtext: Client error '429 Too Many Requests'`
 - A 5:46 rust video built in 46.6 s, and a 20:37 CSS video in 57.4 s, so duration alone doesn't predict the failure.
 - Fix:
   - Once the Claude transcript draft has failed, let Gemini keep going up to `ORCH_BUILD_TIMEOUT_S` instead of the 75 s race cap
@@ -372,7 +372,7 @@ Setup:
 
 ### Gemini paid: per topic
 
-Every build that worked took the same path: **Gemini watched the video** (`gemini-4-hydrogen`) and **Claude fit the checks** (`claude-opus-5-5`, two passes). The Claude transcript path, which races Gemini, failed on every build within ~5 s: Bright Data returns an empty body for both the watch page and the captions, and `timedtext` returns 429.
+Every build that worked took the same path: **Gemini watched the video** (`gemini-4-hydrogen`) and **Claude fit the checks** (`claude-opus-5-5`, two passes). The Claude transcript path, which races Gemini, failed on every build within ~5 s: the (since removed) third-party scraping service returned an empty body for both the watch page and the captions, and `timedtext` returns 429.
 
 Per-stage seconds come from the `lesson.building` stage changes: *watching* → *fitting the checks* → *second pass* → *setting up the project folder* → *ready*.
 
@@ -386,7 +386,7 @@ Per-stage seconds come from the `lesson.building` stage changes: *watching* → 
 **Diffusion's exact error.**
 - App message: `error: "Building this lesson is taking too long. Try again, or pick another video."`, then
   `lesson.building {failed: true}`.
-- Engine log: `server.lesson WARNING claude video pass failed: no transcript for TgTQE_muXec: brightdata watch page: Bright Data returned an empty body; brightdata captions: Bright Data returned an empty body; timedtext: Client error '429 Too Many Requests'` (at 5 s),
+- Engine log: `server.lesson WARNING claude video pass failed: no transcript for TgTQE_muXec: scraping-service watch page: empty body; scraping-service captions: empty body; timedtext: Client error '429 Too Many Requests'` (at 5 s),
   then `server.lesson WARNING gemini video pass failed: no answer within 45s`.
 - Search's other video candidates for this topic are 22–224 min long, so on this network no diffusion lesson can be built
   right now.
@@ -404,7 +404,7 @@ Per-stage seconds come from the `lesson.building` stage changes: *watching* → 
   - Or lower `LESSON_GEMINI_FPS` further for long videos.
 - Owner: E2. The error message is fine (E4).
 
-**P2 · E2 lesson / Bright Data: the transcript path is dead on this network.** Every build: `Bright Data returned an empty body`
+**P2 · E2 lesson / scraping service: the transcript path is dead on this network.** Every build: the (since removed) scraping service returned an empty body
 (watch page and captions), then `timedtext` 429. The paid key makes Gemini carry every build alone. Fix: see A1 (log the
 unlocker's HTTP status; the zone may need YouTube or JS rendering enabled).
 
@@ -450,8 +450,8 @@ Setup:
 1. Gemini video pass: `gemini-4-hydrogen`, `gemini-3.7-flash`, `gemini-3.6-flash` and `gemini-3.5-flash` all return 429 RESOURCE_EXHAUSTED.
    From the second build on, the error is `Gemini call failed on []: None` (all marked exhausted in-process).
 2. Claude transcript path:
-   - `brightdata watch page: Bright Data returned an empty body`
-   - `brightdata captions: Bright Data returned an empty body`
+   - `scraping-service watch page: empty body`
+   - `scraping-service captions: empty body`
    - `timedtext: Client error '429 Too Many Requests' for url 'https://www.youtube.com/api/timedtext?...'`
 
 Progress is honest now: the stage names show ("Couldn't watch the video; reading the transcript instead"), and every failure ended
@@ -484,7 +484,7 @@ with `error` + `lesson.building {failed: true}` + idle in ≤ 6 s.
 ### Still broken after the fixes (owners)
 
 **A1 · E2 lesson (+ ops): no build can succeed on this network without Gemini quota.**
-- The transcript fallback's three sources all fail: Bright Data watch page = empty body, Bright Data captions = empty body,
+- The transcript fallback's three sources all fail: scraping-service watch page = empty body, scraping-service captions = empty body,
   direct timedtext = 429.
 - The video chain has no `gemini-3.1-flash-lite` / `gemini-3.5-flash-lite` (it worked at 14:07 today).
 - Once every model is exhausted the error is still `Gemini call failed on []: None`.
@@ -500,7 +500,7 @@ with `error` + `lesson.building {failed: true}` + idle in ≤ 6 s.
 `human_build_error` only matched the YouTube branch. Fix: once E2 names the exhausted models (A1), or if E4 also matches
 `failed on []`, say both causes.
 
-**A3 · E7 finder: YouTube search via Bright Data fails, with no direct fallback.**
+**A3 · E7 finder: YouTube search via the scraping service fails, with no direct fallback.**
 - Every search noted `youtube failed: RuntimeError: YouTube results page had no ytInitialData`, and the same for `youtube-2`.
 - A direct `httpx` GET of the same results URL from this network at 14:17 returned 200 with ytInitialData and 12 videos.
 - `sources.youtube_search` only falls back to a direct fetch when the unlocker *raises*, not when it returns a page without
@@ -519,12 +519,12 @@ with `error` + `lesson.building {failed: true}` + idle in ≤ 6 s.
 - Fix: add the lesson id (or the step title + instructions) to the cache key, and clear the cache on `load_graph`. Add `"graph"`
   to the contract.
 
-**A5 · E7 finder: unresolved Google redirect URLs reach the app.** Bright Data SERP rows come through as
+**A5 · E7 finder: unresolved Google redirect URLs reach the app.** The scraping service's SERP rows came through as
 `https://www.google.com/goto?url=CAES…` with `meta "Blog · google.com"` and `verified: True`. That happened in all 4 searches (3 rows
 in react). Fix: resolve the `goto` redirect (or decode `url=`) before verifying, and drop the row if it can't be resolved.
 
 **A6 · E7 finder: other degradation noted on each search.**
-- Bright Data comment fetches fail with empty messages (`comments for <vid> failed:`).
+- The scraping service's comment fetches fail with empty messages (`comments for <vid> failed:`).
 - Gemini skims time out at 6–7 s.
 - Claude triage got a 429 rate_limit_error on pandas, and the Gemini triage fallback a 503.
 - Scores fall back to keywords, which is fine, but rows reach the app with pre-skim scores (F3).
@@ -546,7 +546,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
 |---|---|---|---|---|---|---|---|---|
 | react useEffect cleanup | 3.4 s / 9.0 s, 28 rows | 1. Net Ninja "Full React Tutorial #24 - useEffect Cleanup" (96, video) · 2. learn-co react-hooks-use-effect-cleanup (95, repo) · 3. Codevolution "useEffect with cleanup" (94, video) · 4. "useEffect cleanUp functions" (93, video) · 5. dev.to cleanup guide (90, blog) | #1 Net Ninja (aKOQtGLT-Yk) | **OK 82.7 s**, Gemini watched (gemini-4-hydrogen), adapt gemini-3.6-flash (3.8/3.7 flash out of quota) | n/a | 5 | yes **only in the control run**: `screen_contains` regexes on Code (`new AbortController()`, `signal: abortCont.signal`, `err.name === 'AbortError'`) + Chrome console | **SEVERE**: step titles are React, but every instruction and check was rewritten for `pinn_diffusion.py` ("Import torch…", `def exact`, "Sample collocation points", `class PINN`, loss ≤ 1e-2). Engine workdir = `demo/pinn-lab` |
 | git rebase interactive | 3.7 s / 11.7 s, 30 rows | 1. "Module 11: Interactive Rebasing (git rebase -i)…" (98, video, **0 views, uploaded 1 day ago**) · 2. "git interactive rebase - Undo, Edit & Squash" (98, video) · 3. dmuth/git-rebase-i-playground (95, repo) · 4. davidboothe/git-rebase-example (95, repo) · 5. "Git Rebase --interactive: EXPLAINED" (91, video) | #1 Module 11 (6r4eLCEIBHk) | **OK 56.9 s**, Gemini watched (gemini-4-hydrogen), adapt gemini-3.6-flash. The retry adapt hit 429 and the Claude fallback hit 400 (see F5) | n/a | 10 | yes, Terminal OCR regexes (`ref: refs/heads/main`, `tree [0-9a-f]{40}`, `Switched to branch '…'`, `HEAD@{n}:`). A few are weak: `\btrue\b`, and `screen_absent Traceback\|Error\|fatal:` on every step. **But no step is about `rebase -i`**: the lesson covers .git internals, stash, rerere, reflog and plumbing (steps stop at 8:34 of a 13:08 video) | workdir only (`demo/pinn-lab`). The builder's validator asked for a loss metric check because the PINN workdir prints `loss` |
-| pandas groupby tutorial | 1st try 3.7 s / 5.3 s, 19 rows, **0 videos**. Retry 3.6 s / 18.3 s, 30 rows | 1. "Mastering Pandas .groupby() in 10 Minutes!" (95, video) · 2. learn-co dsc-pandas-groupby (95, notebook) · 3. QuantEcon groupby.ipynb Colab (95) · 4. GroupBy-Operations.ipynb Colab (95) · 5. realpython pandas-groupby (95, blog) | #1 (_zsKKcnX-qE) | **FAILED 3.2 s**: `gemini-4-hydrogen` 429 daily quota, fallback models already marked exhausted, Claude transcript path: YouTube blocks youtube-transcript-api from this IP, Bright Data unlocker zone not set | **OK 55.5 s**, video gemini-3.5-flash-lite, adapt gemini-3.1-flash-lite | 10 | yes, but brittle: exact-code regexes like `df\.groupby\("Department"\)\["Salary"\]\.mean\(\)` and `.mean\(\)\.sort_values\(ascending=True\)` fail on single quotes or a different column name. No output check | workdir only (`demo/pinn-lab`). Precision check s1p1 reported "groupby.ipynb not found" because it looked in pinn-lab. The adapt pass retried 3× for the PINN workdir's "no metric check" |
+| pandas groupby tutorial | 1st try 3.7 s / 5.3 s, 19 rows, **0 videos**. Retry 3.6 s / 18.3 s, 30 rows | 1. "Mastering Pandas .groupby() in 10 Minutes!" (95, video) · 2. learn-co dsc-pandas-groupby (95, notebook) · 3. QuantEcon groupby.ipynb Colab (95) · 4. GroupBy-Operations.ipynb Colab (95) · 5. realpython pandas-groupby (95, blog) | #1 (_zsKKcnX-qE) | **FAILED 3.2 s**: `gemini-4-hydrogen` 429 daily quota, fallback models already marked exhausted, Claude transcript path: YouTube blocks youtube-transcript-api from this IP, no scraping fallback configured | **OK 55.5 s**, video gemini-3.5-flash-lite, adapt gemini-3.1-flash-lite | 10 | yes, but brittle: exact-code regexes like `df\.groupby\("Department"\)\["Salary"\]\.mean\(\)` and `.mean\(\)\.sort_values\(ascending=True\)` fail on single quotes or a different column name. No output check | workdir only (`demo/pinn-lab`). Precision check s1p1 reported "groupby.ipynb not found" because it looked in pinn-lab. The adapt pass retried 3× for the PINN workdir's "no metric check" |
 | train a diffusion model in pytorch | 2.4 s / 16.7 s, 37 rows | 1. "Coding a Diffusion Model From Scratch in PyTorch (DDPM)" (98, video) · 2. lucidrains/denoising-diffusion-pytorch (95, repo) · 3. HF diffusers basic_training.ipynb (95) · 4. HF "Train a diffusion model" (95, blog) · 5. Jackson-Kang/Pytorch-Diffusion-Model-Tutorial (95, repo) | #1 (TgTQE_muXec) | **FAILED 2.1 s**: `Gemini call failed on []: None` (every model already marked exhausted in-process) + same transcript block | **OK 43.8 s**, video + adapt gemini-3.1-flash-lite | 4 | weak: 4 steps cover 0:16–9:45 of a 28-min video. **No training step and no loss metric check**, although the goal is "train". Checks: `import torch`, `BETA_START = 1e-4`, `def q_sample`, `DataLoader(train_set`; precision `EPOCHS\s*=\s*20` | **SEVERE**: the DDPM lesson was rewritten into the PINN code: "Import torch, numpy, and the **Latin-hypercube** sampler in **pinn_diffusion.py**", `def exact_solution`, "training data for **initial and boundary conditions**", `boundary_points`. No PINN leak in search |
 
 **Control run** (`--workdir <empty dir>`, flash-lite models, same cached video drafts, adapt pass only):
@@ -595,7 +595,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
 
 #### F2 · E2 lesson: the build dies once the free-tier Gemini models are out of quota (pandas, diffusion)
 - **Exact errors:**
-  - pandas: `Could not build the lesson: lesson.build_lesson failed: RuntimeError: no engine could build the lesson: gemini: Gemini call failed on ['gemini-4-hydrogen']: 429 RESOURCE_EXHAUSTED … claude: no transcript for _zsKKcnX-qE: brightdata: BRIGHTDATA_API_KEY/BRIGHTDATA_UNLOCKER_ZONE not set; youtube-transcript-api: Could not retrieve a transcript … YouTube is blocking requests from your IP.`
+  - pandas: `Could not build the lesson: lesson.build_lesson failed: RuntimeError: no engine could build the lesson: gemini: Gemini call failed on ['gemini-4-hydrogen']: 429 RESOURCE_EXHAUSTED … claude: no transcript for _zsKKcnX-qE: youtube-transcript-api: Could not retrieve a transcript … YouTube is blocking requests from your IP.`
   - diffusion, one minute later in the same process: `gemini: Gemini call failed on []: None` (3.8/3.7/3.6/3.5-flash were already in the in-process `_exhausted` set).
 - **Workaround that worked (env only, no code change):**
   `LESSON_MODEL=gemini-3.1-flash-lite LESSON_FAST_MODEL=gemini-3.1-flash-lite LESSON_FALLBACK_MODELS=gemini-3.5-flash-lite`.
@@ -604,7 +604,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
   - Append `gemini-3.1-flash-lite,gemini-3.5-flash-lite` to the default `LESSON_FALLBACK_MODELS`. The video pass then degrades
     instead of dying.
   - Make the error say "all Gemini models out of daily quota" instead of `failed on []: None`.
-  - For the transcript path without Bright Data, fetch the caption track's `baseUrl` (`&fmt=json3`) from the watch page's
+  - For the transcript path without a scraping service, fetch the caption track's `baseUrl` (`&fmt=json3`) from the watch page's
     `captionTracks` with plain httpx before trying youtube-transcript-api, which is IP-blocked here.
   - Longer term: a paid Gemini key for the demo.
 
@@ -695,7 +695,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
 - **E6 screen:** with the display asleep, the screen reader logs a full traceback every second
   (`ScreenUnavailableError: display returned no image (asleep, locked, or switching Spaces?)`). Log it once per state change.
 - **E4:** `diagrams: missing` in `/health` (no `server.diagrams` module on integration/live). The `diagram` action errors in LIVE: `diagram: server.diagrams.build isn't available yet` (verified with `stage run --send diagram`).
-- **E7:** Bright Data is still inactive (`zone "serp_api1" not found`, `zone "web_unlocker1" not found`), and Gemini Search
+- **E7:** the scraping service was still inactive (zones not found), and Gemini Search
   grounding returns 429 on every search. Both are noted per search, and the finder falls back fine.
 - **E5:** the offtrack card for a file-only failure is generic ("Define T, BETA_START, … EPOCHS"). It could quote the failing
   check's expected value (`EPOCHS = 20`).

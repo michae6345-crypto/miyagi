@@ -12,7 +12,7 @@ _pass_step, the real server.checks evaluator), with:
 
 Each test-9 finding still open is an xfail(strict=True) naming its V-number (scratchpad T9-BRIEF.md): the fix that
 lands flips it to XPASS, which fails the suite until the mark is removed. Run (well under a minute, no screen):
-    env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY -u BRIGHTDATA_API_KEY python -m pytest server/orchestrator/tests/test_video_replay.py -q
+    env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY python -m pytest server/orchestrator/tests/test_video_replay.py -q
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def _notebook(cells: list[dict]) -> str:
 @pytest.fixture(autouse=True)
 def _offline(monkeypatch):
     """Zero paid calls: no keys in the environment, and no socket may reach past this machine."""
-    for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "BRIGHTDATA_API_KEY", "ELEVENLABS_API_KEY"):
+    for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "ELEVENLABS_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     real = socket.socket.connect
 

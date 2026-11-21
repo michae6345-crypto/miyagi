@@ -36,7 +36,7 @@ def state_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path / "work"))
     (tmp_path / "work").mkdir()
     monkeypatch.delenv("DEMO", raising=False)
-    for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "ELEVENLABS_API_KEY",
+    for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY",
               "TIGER_DATABASE_URL"):  # cost freeze: an accidental live call fails at once, for free
         monkeypatch.setenv(k, "")
     return d

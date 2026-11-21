@@ -21,8 +21,8 @@ EVENT_ACTIONS = {"explain", "show_me", "apply_fix", "hint"}
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY", "COACH_MODEL_DIAGNOSE",
-              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK", "ORCH_STUBS"):
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "COACH_MODEL_DIAGNOSE",
+              "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK", "ORCH_STUBS"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(llm, "_load_env", lambda: None)
     monkeypatch.setattr(llm, "_local_keys", {})
@@ -290,7 +290,8 @@ def test_fix_outdated_known_offline():
     assert r["citation"]["url"].startswith("https://numpy.org/") and r["diff"]["yours"] == "np.float"
 
 
-def test_fix_outdated_without_brightdata_raises():
+def test_fix_outdated_with_web_off_raises(monkeypatch):
+    monkeypatch.setenv("COACH_WEB", "0")
     with pytest.raises(coach.OutdatedFixUnavailable, match="not configured") as e:
         run(coach.fix_outdated("TypeError: foo() got an unexpected keyword argument 'bar'", ["torch"]))
     assert e.value.reason
@@ -304,8 +305,8 @@ def test_fix_outdated_no_pages_raises(fake_web):
 def test_byok_keys_win_over_env(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
     assert llm.get_key("anthropic") == "from-env"
-    coach.set_keys({"anthropic": "from-app", "brightdata": "postgres://..."})  # placeholder ignored
-    assert llm.get_key("anthropic") == "from-app" and llm.get_key("brightdata") is None
+    coach.set_keys({"anthropic": "from-app", "elevenlabs": "postgres://..."})  # placeholder ignored
+    assert llm.get_key("anthropic") == "from-app" and llm.get_key("elevenlabs") is None
     assert llm.get_client().api_key == "from-app"
     coach.set_keys({"anthropic": ""})
     assert llm.get_key("anthropic") == "from-env" and llm.get_client().api_key == "from-env"
@@ -355,7 +356,7 @@ from server.coach.tests import generic_cases as g
 
 @pytest.fixture
 def fake_web(monkeypatch):
-    """Stand-in for Bright Data (SERP + Unlocker) with short excerpts of the real pages."""
+    """Stand-in for the web (DuckDuckGo search + page GET) with short excerpts of the real pages."""
     g.fake_fetch_log().clear()
     monkeypatch.setattr(web, "fetch", g.fake_fetch)
     monkeypatch.setattr(web, "configured", lambda: True)
@@ -426,7 +427,14 @@ def test_web_citations_are_whitelisted(fake_web, monkeypatch):
 
 
 def test_web_unavailable_degrades_quietly(monkeypatch):
-    monkeypatch.setattr(web, "_bd_config", lambda: None)
+    monkeypatch.setenv("COACH_WEB", "0")
+    assert run(web.gather("react", "useEffect", "hook error")) == []
+
+    async def down(kind, url):  # the search page does not load: still no error, just no sources
+        return None
+
+    monkeypatch.setenv("COACH_WEB", "1")
+    monkeypatch.setattr(web, "fetch", down)
     assert run(web.gather("react", "useEffect", "hook error")) == []
 
 
@@ -907,7 +915,7 @@ def test_metric_only_failure_never_waits_on_the_web(monkeypatch, replay):
     monkeypatch.setattr(web, "gather", gather)
     common.set_lesson(d.LESSON)
     run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
-    assert calls == []  # hero: no error text → no Bright Data round trips before Opus
+    assert calls == []  # hero: no error text → no web round trips before Opus
     run(coach.diagnose(d.STEP, d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, error_text=d.NO_GRAD_ERROR))
     assert len(calls) == 1  # an error message is still looked up in the docs
 
@@ -1386,5 +1394,58 @@ def test_passing_run_tail_is_not_an_error(monkeypatch):
     monkeypatch.setattr(llm, "structured_call", call)
     common.set_lesson(d.LESSON)
     run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, _flat_hero_loss(), d.HIGH_LR_CODE, error_text=HERO_TAIL))
-    assert calls == []  # no Bright Data round trips for metric lines
+    assert calls == []  # no web round trips for metric lines
     assert "THE ERROR MESSAGE" not in seen["diagnose"] and "step 2400 | loss 17.3204" in seen["diagnose"]  # still shown as context
+
+
+# --------------------------------------------------------------------------- web transport (DuckDuckGo + plain GET)
+
+def _mock_web(monkeypatch, handler):
+    """web.fetch builds its own httpx client: give it one that answers from `handler` (no network)."""
+    import httpx
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(web.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+
+
+def test_web_serp_url_and_ddg_parse_unwraps_redirect_links():
+    url = web.serp_url("pandas iteritems site:pandas.pydata.org")
+    assert url.startswith("https://html.duckduckgo.com/html/?q=pandas+iteritems+site%3Apandas.pydata.org")
+    page = g._ddg_html({"organic": [{"link": "https://pandas.pydata.org/docs/whatsnew/v2.0.0.html", "title": "What's new", "description": "iteritems removed"}]})
+    assert web.parse_serp(page) == [{"url": "https://pandas.pydata.org/docs/whatsnew/v2.0.0.html", "title": "What's new", "snippet": "iteritems removed"}]
+    ad = '<div class="result result--ad"><a class="result__a" href="https://ads.example/x">ad</a></div>'
+    assert web.parse_serp(ad + page)[0]["url"].startswith("https://pandas.pydata.org")
+
+
+def test_web_fetch_is_a_plain_get_with_a_browser_user_agent_and_records_then_replays(monkeypatch, tmp_path):
+    seen = []
+
+    def handler(req):
+        import httpx
+
+        seen.append((req.method, str(req.url), req.headers["user-agent"]))
+        return httpx.Response(200, text="<html><body>docs page</body></html>")
+
+    _mock_web(monkeypatch, handler)
+    monkeypatch.setenv("COACH_WEB", "1")
+    monkeypatch.setenv("COACH_RECORD_DIR", str(tmp_path))
+    body = run(web.fetch("unlock", "https://react.dev/x"))
+    assert "docs page" in body and seen == [("GET", "https://react.dev/x", web.BROWSER_UA)]
+    monkeypatch.delenv("COACH_RECORD_DIR")
+    monkeypatch.setenv("COACH_REPLAY_DIR", str(tmp_path))
+    seen.clear()
+    assert run(web.fetch("unlock", "https://react.dev/x")) == body and seen == []  # replayed, no request
+    assert run(web.fetch("unlock", "https://other.dev/")) is None
+
+
+def test_web_configured_follows_offline_mode_and_the_kill_switch(monkeypatch):
+    monkeypatch.setenv("COACH_WEB", "1")
+    assert web.configured()
+    monkeypatch.setenv("DEMO", "1")
+    assert not web.configured()
+    monkeypatch.setenv("COACH_REPLAY_DIR", "/nonexistent")
+    assert web.configured()
+    monkeypatch.delenv("COACH_REPLAY_DIR")
+    monkeypatch.delenv("DEMO")
+    monkeypatch.setenv("COACH_WEB", "0")
+    assert not web.configured()

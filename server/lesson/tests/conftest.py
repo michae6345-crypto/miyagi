@@ -2,7 +2,7 @@
 
 import pytest
 
-_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY")
+_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY")
 # Per test only (the autouse fixture below), so other modules' tests keep their own environment.
 # server.lesson loads .env lazily, at call time, so the fixture's LESSON_NO_DOTENV is always in effect.
 

@@ -20,3 +20,10 @@ def _private_tiger_spool(tmp_path_factory):
         os.environ.pop("TUT_SPOOL_DIR", None)
     else:
         os.environ["TUT_SPOOL_DIR"] = old
+
+
+@pytest.fixture(autouse=True)
+def _no_live_web(monkeypatch):
+    """The coach grounds fixes in DuckDuckGo + the docs pages (server/coach/web.py). Tests never reach them: a test
+    that needs the web fakes web.fetch, one that replays recordings sets COACH_REPLAY_DIR."""
+    monkeypatch.setenv("COACH_WEB", "0")

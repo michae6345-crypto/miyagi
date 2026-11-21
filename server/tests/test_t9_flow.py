@@ -10,7 +10,7 @@ import pytest
 from server.orchestrator import stubs
 from server.orchestrator.tests.test_session import Rig, run
 
-PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "ELEVENLABS_API_KEY",
+PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY",
              "TIGER_DATABASE_URL")
 
 
