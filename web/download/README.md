@@ -16,8 +16,8 @@ Near the top of `index.html`, `window.MIYAGI_DOWNLOAD` is the only thing to edit
 |---|---|
 | `version` | Shown as "Version 0.1.0". A version like `1.2.3` in the GitHub release name wins over it. |
 | `github.repo` | Where the live size, "Updated" date and SHA-256 come from (`api.github.com/repos/<repo>/releases/tags/<tag>`, no key needed, 60 lookups an hour per visitor). `null` skips the lookup. |
-| `mac.url`, `windows.url` | The download links. Defaults: the `mac` and `windows` release tags on GitHub. |
-| `mac.fallbackFile` | If the `mac` release has no `Miyagi-Mac.dmg` yet but has `Miyagi-Mac.zip`, the page links the zip and shows the unzip steps. Today's release is still the zip, so that's what visitors see until the DMG is uploaded. |
+| `mac.file`, `mac.url`, `windows.url` | The download links. They must point at files that exist on the release today, because the page uses them as they are when the GitHub lookup is skipped or fails (shared networks often hit its 60-an-hour limit). Today `mac.file`/`mac.url` are `Miyagi-Mac.zip`, the file on the `mac` release. |
+| `mac.fallbackFile` | `null` today. **When you upload `Miyagi-Mac.dmg`:** set `mac.file` and `mac.url` to the .dmg and `fallbackFile` to `"Miyagi-Mac.zip"`. The page then shows the DMG steps, and if a lookup finds no .dmg on the release it links the zip instead. If the lookup finds neither file, the button opens the releases page rather than a broken link. |
 | `mac.intelUrl` | `null` today (the build is Apple silicon only). Intel Macs then see a plain note instead of a download that won't open. Set it when an Intel or universal build exists. |
 | `mac.needs`, `windows.needs`, `*.chip` | The requirements line. Check `mac.needs` against the Electron version's minimum macOS. |
 | `sizeMB` | Shown only when the live lookup is off or fails. |
@@ -30,7 +30,7 @@ Set `mac.url` and `windows.url` to `https://downloads.miyagi.study/...`. Keep `g
 
 ## What the page does
 
-- Detects Mac, Windows or phone/tablet (iPads count as tablets) and shows the right button. On a Mac it checks the chip where the browser says (Chrome's client hints, else the WebGL renderer) and only warns about Intel when it's sure.
+- Detects Mac, Windows or phone/tablet (iPads count as tablets) and shows the right button. On a Mac it checks the chip where the browser says (Chrome's client hints, else the WebGL renderer) and only warns about Intel when it's sure; then the big button gives way to a quiet "Download anyway (Apple silicon only)" link. Anything else (Linux, ChromeOS) gets two equal choices, Mac and Windows, with no primary button.
 - After a click: "Your download has started", then it scrolls to the three install steps and outlines step 1.
 - Install steps for Mac (DMG or zip) and Windows, switchable, each with a small drawing in HTML/CSS/SVG. Step 3 on the Mac has an "Open Privacy & Security" link that opens System Settings.
 - What happens next, FAQ (safety with the live SHA-256, screen, cost, models, requirements, uninstall) and a privacy line.
@@ -42,9 +42,10 @@ Query parameters, for checking a variant from any computer:
 
 - `?os=mac|windows|phone|other` forces the platform.
 - `?chip=intel` or `?chip=arm` forces the Mac chip.
-- `?live=0` skips the GitHub lookup (shows the DMG steps and the config values).
+- `?live=0` skips the GitHub lookup (shows exactly what the config says, as visitors see it when the lookup fails).
 
 ## Before it goes live, please check
 
-- The FAQ answers match what the shipping build does: screenshots go through our proxy and aren't stored there; it's free with no account or key; Claude for lessons and checks, Gemini only to watch videos.
+- **Do not publish this page while the shipped build still needs an API key.** Two FAQ answers are only true once the miyagi-cloud proxy from `DISTRIBUTION-PLAN.md` is live and the build uses it: "Our server passes them along and doesn't keep them" (What does it read on my screen?) and "You don't need an account or an API key" (Does it cost money?). Until then, either hold the page or rewrite both answers to match the build.
+- The rest of the FAQ matches the build: Claude for lessons and checks, Gemini only to watch videos; the permissions (Screen Recording, Accessibility, and Apple Events to control VS Code).
 - `mac.needs` ("macOS 13 or later").
