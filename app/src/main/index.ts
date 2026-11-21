@@ -20,6 +20,7 @@ import { setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
 import { openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
+import { gateCore, gateIsOpen } from './gate'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
@@ -245,7 +246,8 @@ function forEachWindow(fn: (w: BrowserWindow) => void): void {
 }
 
 function openLauncher(): void {
-  if (launcherOpen) return
+  // Launch gate (main/gate.ts): no launcher before the login and setup are through.
+  if (launcherOpen || !gateIsOpen()) return
   launcherOpen = true
   keptBlurs = []
   launcherModifier = false
@@ -312,7 +314,7 @@ const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = (['back', 'explain', '
 
 /** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
 function registerActionShortcuts(): void {
-  if (actionsRegistered) return
+  if (actionsRegistered || !gateIsOpen()) return
   actionsRegistered = true
   for (const kind of ACTION_KINDS) {
     const ok = globalShortcut.register(platform.accelerators[kind], () => send(overlay, 'shortcut', kind))
@@ -395,13 +397,27 @@ app.whenReady().then(async () => {
   launcher = createCoreWindow('launcher')
 
   overlay.setIgnoreMouseEvents(true, { forward: true })
-  overlay.once('ready-to-show', () => overlay.showInactive())
+  // Launch gate (main/gate.ts, Michael Nov 21: launch = start from new): the overlay shows and the launcher key
+  // registers only once the login and setup are through, and both go away on a sign-out. Until then only the home
+  // window (its first-run flow) is on screen. showInactive before the first paint is held (showAfterFirstPaint).
+  gateCore({
+    overlay,
+    launcherKey: (on) => {
+      if (!on) return globalShortcut.unregister(platform.accelerators.launcher)
+      const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
+      if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
+    },
+    closed: () => {
+      if (launcherOpen) closeLauncher()
+      unregisterActionShortcuts()
+    }
+  })
   launcher.on('blur', onLauncherBlur)
   launcher.webContents.on('before-input-event', (_e, input) => (launcherModifier = isLeavingModifier(input)))
 
   engine.onEvent((e) => {
     forEachWindow((w) => w.webContents.send('engine:event', e))
-    if (e.type === 'lesson.ready') registerActionShortcuts()
+    if (e.type === 'lesson.ready' && gateIsOpen()) registerActionShortcuts()
     if (e.type === 'lesson.ended') unregisterActionShortcuts()
   })
   engine.onStatus((c) => forEachWindow((w) => w.webContents.send('engine:status', c)))
@@ -459,7 +475,9 @@ app.whenReady().then(async () => {
         send(overlay, signal, payload)
         break
       case 'launcher:toggle':
-        launcherOpen ? closeLauncher() : openLauncher()
+        // The pill can't open the launcher while the gate is closed (closing one that is open is always fine).
+        if (launcherOpen) closeLauncher()
+        else if (gateIsOpen()) openLauncher()
         break
       case 'shortcut':
         // A shortcut pressed in another window (the launcher's Explain / Hint chips): run it in the overlay, where
@@ -478,11 +496,8 @@ app.whenReady().then(async () => {
     signalListeners.get(signal)?.forEach((fn) => fn(payload))
   })
 
-  const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
-  if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
-  // Windows keeps one instance (features/windows.ts): opening miyagi again from the Start menu shows the launcher,
-  // instead of a second launch that silently exits.
-  app.on('second-instance', () => openLauncher())
+  // The launcher key follows the gate (gateCore above). A second launch opens home: features/launch.ts owns
+  // 'second-instance' (it used to open the launcher here too, over a closed gate).
 
   // Always-available kill switch: ⌃⌥Q (Mac; ⌥Q alone types "œ" in editors) / Alt+Q (Windows) quits the overlay.
   const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'

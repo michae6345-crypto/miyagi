@@ -26,12 +26,19 @@
  *                             message?} (message: the plain-words why, from Google's / Supabase's error_description or the
  *                             refused exchange; the renderer shows it as is)
  *   auth:cancel             stop waiting for the browser → true
- *   auth:continue           the learner is done with the login (signed in, or "Continue without an account"): it never
- *                           shows on launch again. In the one-window flow (the login is a screen of the home window)
- *                           nothing opens and nothing closes: the flow moves on to setup by itself. Only the
- *                           standalone login window (a fallback) hands over: home opens when setup isn't done, then
- *                           the login window closes
- *   auth:sign-out           revoke (best effort) and forget the session → true
+ *   auth:continue           the learner is done with the login (signed in, or "Continue without an account", which
+ *                           is always offered). The guest choice lasts for this run only (memory, never a file): every
+ *                           launch without a Google session starts at the login again. In the one-window flow (the
+ *                           login is a screen of the home window) nothing opens and nothing closes: the flow moves on
+ *                           by itself. Only the standalone login window (a fallback) hands over: home opens when setup
+ *                           isn't done, then the login window closes
+ *   auth:sign-out           revoke (best effort) and forget the session → true. The launch gate closes: the overlay
+ *                           goes away and home returns to the login
+ *
+ * Launch gate (main/gate.ts, part 'login'; Michael Nov 21: "allow me to log in first, like it's just starting from
+ * new"): open with a stored session, after a Google sign-in, after "Continue without an account" in this run, with
+ * login switched off, or with MIYAGI_SKIP_LOGIN=1 (dev, tests). Closed on sign-out. An old userData/login.json (the
+ * "decided" choice that used to skip the login forever) is ignored and never written.
  * Broadcast: feat:auth:changed  {name, email, avatarInitial} | null  (sign-in, refresh that changed the user, sign-out)
  *
  * Switch: LOGIN_ENABLED (common/flags.ts), off for one run with MIYAGI_LOGIN=0. Separate from v2Cloud (account.ts).
@@ -50,6 +57,7 @@ import { join } from 'node:path'
 import { LOGIN_ENABLED } from '../../common/flags'
 import { color } from '../../renderer/src/core/theme'
 import { defineMainFeature } from '../context'
+import { setGatePart } from '../gate'
 import { supabaseConfig } from '../publicConfig'
 import { isAllowedUrl, openLinkInBrowser, safeOpenExternal } from '../safeOpen'
 
@@ -76,6 +84,8 @@ type Result = { ok: true; user: PublicUser } | { ok: false; reason: string; mess
 
 /** First-run login is on (the build flag, and not switched off for this run). */
 export const loginEnabled = (): boolean => LOGIN_ENABLED && process.env.MIYAGI_LOGIN !== '0'
+/** Dev and tests: the login is skipped (the gate's login part is open). */
+const skipLogin = (): boolean => process.env.MIYAGI_SKIP_LOGIN === '1'
 
 function config(): Config | undefined {
   const { url, key } = supabaseConfig()
@@ -191,11 +201,15 @@ const PAGE_HEADERS = {
 // ---- what onboarding.ts reads (first-run order: intro → login → setup → home) ------------------------------------
 
 let signedIn = false
+/** "Continue without an account" (or Continue after a sign-in) in THIS run. Memory only: never saved. */
 let decided = false
 let afterLogin: (() => BrowserWindow | undefined) | undefined
 
-/** The first run should show the login: it is on, nobody is signed in, and the learner hasn't chosen yet. */
-export const needsLogin = (): boolean => loginEnabled() && !signedIn && !decided
+/** The login should show: it is on, not skipped, nobody is signed in, and the learner hasn't chosen in this run. */
+export const needsLogin = (): boolean => loginEnabled() && !skipLogin() && !signedIn && !decided
+
+/** Tell the launch gate whether the login is through. */
+const report = (): void => setGatePart('login', !needsLogin())
 
 /**
  * onboarding.ts: what opens when the learner is done with the login. In the one-window flow it returns undefined (no
@@ -227,18 +241,10 @@ export default defineMainFeature({
   id: 'auth',
   setup(ctx) {
     const file = join(ctx.app.getPath('userData'), 'auth.bin')
-    /** Non-secret: only that the learner made their choice at the login (signed in, or went on without an account). */
-    const choiceFile = join(ctx.app.getPath('userData'), 'login.json')
     const secure = safeStorage.isEncryptionAvailable() && !(process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')
     let session: Session | undefined
-
-    if (existsSync(choiceFile)) {
-      try {
-        decided = (JSON.parse(readFileSync(choiceFile, 'utf8')) as { decided?: unknown })?.decided === true
-      } catch {
-        console.warn('[auth] login.json could not be read')
-      }
-    }
+    // Every launch starts undecided (an old login.json is never read): only a stored session skips the login.
+    decided = false
     if (secure && existsSync(file)) {
       try {
         session = toSession(JSON.parse(safeStorage.decryptString(readFileSync(file))))
@@ -257,6 +263,7 @@ export default defineMainFeature({
       }
     }
     signedIn = !!session
+    report()
 
     const persist = (): void => {
       try {
@@ -274,16 +281,10 @@ export default defineMainFeature({
       }
     }
 
+    /** The learner is through the login for this run (memory only), and the gate hears it. */
     const decide = (): void => {
-      if (decided) return
       decided = true
-      try {
-        const tmp = `${choiceFile}.tmp`
-        writeFileSync(tmp, JSON.stringify({ decided: true, at: new Date().toISOString() }), { mode: 0o600 })
-        renameSync(tmp, choiceFile)
-      } catch {
-        console.warn('[auth] could not save login.json')
-      }
+      report()
     }
 
     const announce = (): void => ctx.broadcast('auth:changed', session ? publicUser(session.user) : null)
@@ -477,7 +478,7 @@ export default defineMainFeature({
             if (!('session' in r)) return f.finish({ ok: false, reason: 'failed', message: r.message })
             const s = r.session
             setSession(s)
-            decide()
+            decide() // the gate's login part opens
             signedInHook?.() // cloudLink.ts: link this Mac's install token to the learner (async, never in the way)
             f.finish({ ok: true, user: publicUser(s.user) })
           })
@@ -548,6 +549,9 @@ export default defineMainFeature({
       const cfg = config()
       const s = session
       setSession(undefined)
+      // Back to the login: the gate closes (the overlay goes, home shows the login), unless login is off or skipped.
+      decided = false
+      report()
       // Best effort: revoke this session server-side. Never blocks sign-out, never logs a token.
       if (cfg && s && s.project === cfg.url) void revoke(cfg, s).catch(() => undefined)
       return true

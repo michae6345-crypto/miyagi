@@ -58,7 +58,7 @@ describe('Google sign-in (PKCE, loopback)', () => {
     const saved = savedSession()
     assert.equal(saved.project, 'https://fake-project.supabase.test')
     assert.equal(typeof saved.access_token, 'string')
-    assert.ok(existsSync(join(h.dir, 'login.json')))
+    assert.ok(!existsSync(join(h.dir, 'login.json')), 'the login choice is never saved (login-first lane)')
     assert.equal(needsLogin(), false)
 
     // The renderer never sees a token.
