@@ -122,8 +122,6 @@ function continueLabel(o: SavedOffer): { id: string; title?: string; count?: { n
   }
 }
 
-const GETTING_READY = `${copy.name} is getting ready`
-
 function Idle(): ReactNode {
   const offline = usePill((s) => s.offline)
   const resuming = usePill((s) => s.resuming)
@@ -141,6 +139,8 @@ function Idle(): ReactNode {
   // "miyagi is getting ready": same button as "ask miyagi", so the words crossfade and the keycap rises in when it's up.
   const ready = !bootIn.connected && firstOrSetup && (boot.phase === 'starting' || boot.phase === 'reconnecting')
   const line = useLinePhase(ready, bootIn.connected)
+  // The same words as the home rail (startup.ts sets a line for starting and reconnecting), so they never disagree.
+  const readyText = boot.line || `${copy.name} is getting ready`
   if (!bootIn.connected && firstOrSetup && boot.phase === 'failed' && local?.state !== 'missing')
     return <Unreachable text={boot.line} onRetry={retryBoot} busy={retryHold} />
   if (offline && !off && !ready) return <Unreachable />
@@ -163,17 +163,17 @@ function Idle(): ReactNode {
       style={{ color: offline || ready ? color.label : color.text }}
       onClick={click}
       title={ready ? undefined : offline ? local?.line : cont?.full}
-      aria-label={ready ? GETTING_READY : offline && off ? `${off.text}: miyagi is not connected` : cont ? cont.aria : 'ask miyagi: open the launcher'}
+      aria-label={ready ? readyText : offline && off ? `${off.text}: miyagi is not connected` : cont ? cont.aria : 'ask miyagi: open the launcher'}
       data-offer={cont ? cont.id : undefined}
       data-getting-ready={ready || undefined}
     >
       <LeadMark busy={resuming} />
       <SwapText
-        id={ready ? 'getting-ready' : offline ? `offline-${local?.state ?? ''}` : cont ? cont.id : 'ask'}
+        id={ready ? `boot-${boot.phase}` : offline ? `offline-${local?.state ?? ''}` : cont ? cont.id : 'ask'}
         className="flex opacity-90 transition-opacity duration-150 group-hover:opacity-100"
       >
         {ready ? (
-          GETTING_READY
+          readyText
         ) : offline && off ? (
           off.text
         ) : cont ? (

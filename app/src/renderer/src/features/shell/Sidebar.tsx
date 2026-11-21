@@ -6,7 +6,8 @@
  *            on the house spring (layoutId). Arrow keys move along the list (and switch the page, like the macOS
  *            sidebar), Home / End jump to the ends. ⌘1..⌘6 are handled by Shell.tsx.
  *   status   is miyagi ready (one calm line: getting ready, Ready, or couldn't start with Retry) and Setup at a glance
- *            (features/library Status.tsx); a short window keeps only the ready line
+ *            (features/library Status.tsx), hidden when the window is short (the pill carries the status
+ *            then, and the account chip stays fully in view down to the 420 px minimum height)
  *   account  a chip at the foot: who is signed in and the plan, or how miyagi runs without an account. Opens Account.
  *
  * Compact (narrow window): icons only, 64 px, labels as tooltips. Navigation is chrome: neutral fills, never a hue.
@@ -183,7 +184,7 @@ export function Sidebar({ compact, short }: { compact: boolean; short: boolean }
       </div>
       <Nav compact={compact} />
       <div className="mt-auto flex flex-col gap-[10px]" style={{ paddingTop: 16 }}>
-        {!compact && <StatusArea plan={false} setup={!short} />}
+        {!compact && !short && <StatusArea plan={false} />}
         <AccountChip compact={compact} />
       </div>
     </aside>

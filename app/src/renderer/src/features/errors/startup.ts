@@ -11,6 +11,11 @@
  *   failed        only after a real failure (the engine failed or is missing, cloud access failed, five failed tries
  *                 after it was up) or BOOT_MS of waiting: "miyagi couldn't start" with Retry and Copy details
  *
+ * The wait never times out while main is still working on it: never while the app's own engine is installing (each new
+ * install line starts the wait over), and a local start gets LOCAL_START_MS, past main's own 60 s START_TIMEOUT_MS, so
+ * main reports the real failure first. Retry is only offered when it can do something (engine-local:restart does
+ * nothing while main is checking, installing or starting).
+ *
  * Retry restarts what failed: the bundled engine (engine-local:restart, or the link when it runs in Terminal: errors
  * store restartEngine) or the cloud access (cloud:retry). Then the wait starts over.
  *
@@ -31,6 +36,8 @@ import { restartEngine, TRIES, useErrors } from './store'
 
 /** How long a start may take before it counts as failed. */
 export const BOOT_MS = 45_000
+/** The app's own engine checking or starting: main fails it itself after 60 s (main/localEngine.ts START_TIMEOUT_MS). */
+export const LOCAL_START_MS = 70_000
 /** Grace before "getting ready" shows at all. */
 export const SHOW_MS = 700
 /** After Retry: how long a failure that hasn't changed yet is still read as "starting again". */
@@ -87,7 +94,8 @@ export function bootOf(i: BootInput): Boot {
       if (i.local === 'failed') return failed(i, 'engine', localDetail(i.localLine))
       if (i.local === 'missing') return failed(i, 'engine', "The engine isn't installed yet.")
       if (i.stopped) return failed(i, 'engine', 'It stopped answering.')
-      if (i.timedOut) return failed(i, 'engine', i.local === 'external' ? 'Start the engine in Terminal.' : 'It took too long to start.')
+      // Installing is never a timeout: main is working on it and says when it fails (the clock waits too).
+      if (i.timedOut && i.local !== 'installing') return failed(i, 'engine', i.local === 'external' ? 'Start the engine in Terminal.' : 'It took too long to start.')
     }
     if (!i.shown && !i.retryHold) return { phase: 'checking', line: '' }
     if (i.everOpen) return { phase: 'reconnecting', line: `${copy.name} is reconnecting`, detail: 'Picking up where it left off.' }
@@ -159,13 +167,40 @@ function liveUp(): boolean {
   return upNow(connected, cloud)
 }
 
+/** The app's own engine as main reports it (or the stage fixture). */
+function liveLocal(): string | undefined {
+  const st = clock().stage
+  return st && 'local' in st ? st.local : useLesson.getState().localEngine?.state
+}
+
+/** How long this wait may last: longer than main's own start timeout while main is checking or starting the engine. */
+function waitMs(): number {
+  const local = liveLocal()
+  const ms = clock().bootMs
+  return local === 'checking' || local === 'starting' ? Math.max(ms, LOCAL_START_MS) : ms
+}
+
+/** The timeout. While main is installing the engine it never fires: the next install line or state arms it again. */
+function armOut(): void {
+  clearTimeout(outTimer)
+  outTimer = setTimeout(() => {
+    if (liveLocal() !== 'installing') setClock({ timedOut: true })
+  }, waitMs())
+}
+
 /** A new wait: the grace, then the timeout. `show`: skip the grace (Retry: the learner just asked). */
 function startWait(show = false): void {
   clearTimeout(showTimer)
-  clearTimeout(outTimer)
   setClock({ since: Date.now(), timedOut: false, shown: show })
   if (!show) showTimer = setTimeout(() => setClock({ shown: true }), SHOW_MS)
-  outTimer = setTimeout(() => setClock({ timedOut: true }), clock().bootMs)
+  armOut()
+}
+
+/** Main moved on (a new engine state, or a new install line) while it's down: the timeout starts over from now. */
+function progressed(): void {
+  if (liveUp()) return
+  if (clock().timedOut) setClock({ timedOut: false })
+  armOut()
 }
 function endWait(): void {
   clearTimeout(showTimer)
@@ -184,8 +219,11 @@ function settle(): void {
 }
 useLesson.subscribe((s, p) => {
   if (s.connected !== p.connected) settle()
+  const state = s.localEngine?.state
+  const moved = state !== p.localEngine?.state || (state === 'installing' && s.localEngine?.line !== p.localEngine?.line)
+  if (moved && !clock().stage) progressed()
   // The failure the learner retried changed (starting again, or failed again): the hold is over.
-  if (s.localEngine?.state !== p.localEngine?.state && clock().retryHold) dropHold()
+  if (state !== p.localEngine?.state && clock().retryHold) dropHold()
 })
 useOnboarding.subscribe((s, p) => {
   if (s.cloud?.state !== p.cloud?.state) {
@@ -194,7 +232,9 @@ useOnboarding.subscribe((s, p) => {
   }
 })
 useBootClock.subscribe((s, p) => {
-  if (s.stage !== p.stage) settle()
+  if (s.stage === p.stage) return
+  settle()
+  if (s.stage?.local !== p.stage?.local || s.stage?.localLine !== p.stage?.localLine) progressed()
 })
 
 function dropHold(): void {
@@ -308,7 +348,8 @@ export function setBootStage(stage: BootStage | undefined, bootMs?: number): voi
 
 // ---- stage fixtures (?boot=, the browser stage only) ----------------------------------------------------------------
 /**
- *   starting      the engine starting, held                 installing   first-time setup, held
+ *   starting      the engine starting, held                 installing   first-time setup, held (never times out,
+ *                                                                        even with ?bootMs=)
  *   slow          starting for 3.5 s, then Ready            timeout      nothing answers: failed after ?bootMs= (4 s)
  *   failed        the engine failed (Retry: back in 1.6 s)  reconnecting it was up and went away, held
  *   cloud         cloud access setting up for 3.5 s, Ready  cloud-failed cloud access failed (Retry works)
@@ -320,7 +361,7 @@ if (!isElectron && typeof location !== 'undefined') {
   const down = { connected: false, everOpen: false } as const
   const fixtures: Record<string, { stage: BootStage; until?: number; bootMs?: number }> = {
     starting: { stage: { ...down, local: 'starting' } },
-    installing: { stage: { ...down, local: 'installing' } },
+    installing: { stage: { ...down, local: 'installing' }, bootMs: params.get('bootMs') ? ms : undefined },
     slow: { stage: { ...down, local: 'starting' }, until: 3500 },
     timeout: { stage: { ...down, local: 'off' }, bootMs: ms },
     failed: { stage: { ...down, local: 'failed', localLine: "Couldn't start the engine." } },
