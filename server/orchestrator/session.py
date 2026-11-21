@@ -946,6 +946,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         waits out typing, so it never steals focus mid-keystroke."""
         if self.workspace is None or self.editor_open or getattr(self, "_auto_opening", None) == folder:
             return  # (t10: an early open for a lesson built before is already on its way)
+        if self._editor_waits_for_learner():
+            return
         self._auto_opening = folder
         try:
             await self._auto_open_editor_now(folder)
@@ -977,6 +979,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._record("editor_opened", {"auto": True, "folder": Path(folder).name})
         if self.step is not None:
             await asyncio.to_thread(self.workspace.goto_target, self.workdir, self.step)
+
+    def _editor_waits_for_learner(self, note: bool = True) -> bool:
+        """Nov 21 (launch-quiet): "Before you start" is up and the learner has not asked for this lesson on this
+        connection (learn / pick / library.start / action start or resume: main.py sets learner_asked). Then VS Code
+        does not open by itself (a reloaded / replayed lesson used to open it on launch); Start opens it (_begin)."""
+        if self.learner_asked or not self.awaiting_start:
+            return False
+        if note:
+            self._editor_deferred = self.lesson_epoch
+            log.info("VS Code waits for Start (Before you start is up, nothing asked on this connection)")
+        return True
 
     async def _open_in_browser(self, tool: str) -> None:
         """Open a no-code lesson's web app (the learner pressed its button). Only the lesson's own https URLs."""
@@ -1218,7 +1231,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return v is not None and v < config.TYPING_GUARD_S
 
         def cancelled() -> bool:
-            return self.graph is None or (self.graph.get("lesson") or {}).get("id") != lid or self.workdir != wd
+            return (self.graph is None or (self.graph.get("lesson") or {}).get("id") != lid or self.workdir != wd
+                    or self._editor_waits_for_learner(note=False))  # Nov 21: a deferred open waits for Start too
 
         return {"busy": busy, "cancelled": cancelled}
 
@@ -1863,6 +1877,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.pending_pick is not pick:
             return
         card = self.m.preflight_card(res)
+        pick.pop("no_replay", None)  # a new card, sent now: a later quick reconnect may show it again
         self.reqs = list(card.get("items") or res.get("items") or []) or self.reqs  # Install on this card uses S2's flow
         pick["card"] = card
         await self._sync_row_captions(res)
@@ -2304,6 +2319,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _open_editor_full(self, folder: str) -> None:
         """Lesson mode: the editor IS the lesson, so it opens (full screen) without asking."""
         if self.workspace is None or getattr(self.workspace, "blocked", False):  # ORCH_OPEN_WORKSPACE=0: never on its own
+            return
+        if self._editor_waits_for_learner():
             return
         if await self._editor_missing():
             return
@@ -3412,7 +3429,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._spawn(self._segment_timer(self.step_gen, seg["end"] - carry), timer=True)
             elif not ahead or resuming:
                 t0 = float(seek_to) if resuming else seg["start"]
-                play = not self.typing()  # never start the video over the learner's typing
+                # never start the video over the learner's typing; Nov 21: a restored lesson waits paused at its place
+                play = not self.typing() and not self.restoring
                 await self.emit("video.seek", {"t": t0, "play": play})
                 if play:
                     await self.emit("video.play", {})
@@ -4363,6 +4381,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # ------------------------------------------------------------------ lesson lifecycle (E3 E4 E5 E7)
     has_clients: Callable[[], bool] | None = None  # main.py: is an app connected now? (None: tests / the CLI: yes)
+    # Nov 21: the learner asked for a lesson on this connection (learn, a pick, library.start, action start / resume).
+    # main.py sets it False at boot and on each first connection; True here (tests / the CLI: every load is asked for)
+    learner_asked = True
+    restoring = False  # sessions.Resumer is reloading a saved lesson (its start_step seeks paused, never plays)
+    _editor_deferred: int | None = None  # lesson epoch whose VS Code open waits for Start (_editor_waits_for_learner)
     app_left: Callable[[], bool] | None = None  # main.py: no app now, and one was connected before (None: no)
     _start_hold: int | None = None  # lesson epoch held by "Before you start" (E4)
     _hold_fresh = False  # the step began under the sheet: it starts (clock, grace) on Start
@@ -4427,6 +4450,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         elif (sig or "") != self._hold_sig:
             await self._begin("edited the step file")
             return
+        if not self.editor_open:  # Nov 21: a key / click in an editor Miyagi did not open is not the lesson's start
+            return
         v = self._work_since("input")
         if v is not None and v < self.clock() - self._hold_t and self._front_now():  # front app known: not a guess
             await self._begin("a key / click in the lesson's editor")
@@ -4441,6 +4466,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._start_hold = None
         self._began_epoch = self.lesson_epoch  # (_hold_for_sheet: never held again in this lesson)
         now = self.clock()
+        deferred = self._editor_deferred == self.lesson_epoch  # VS Code waited for this (_editor_waits_for_learner)
+        self._editor_deferred = None
         if self._hold_fresh:  # step 1 started under the sheet: it really starts now
             self.step_t0 = self.last_progress_t = now
             if self.segment_done:
@@ -4459,6 +4486,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spawn(asyncio.to_thread(self.workspace.open, self.workdir, True, True, explicit=True,
                                           file=self._editor_file(step)))
             self.editor_open = True
+        elif deferred and self.workdir and not self.editor_open:  # another control pressed: the held open goes now
+            if self.lesson_mode:
+                self._spawn(self._open_editor_full(self.workdir))
+            else:
+                self._spawn(self._auto_open_editor(self.workdir))
         await self.evaluate("start")
         if self.lesson_mode and not self.passed and self.step is step:
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
@@ -7058,6 +7090,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def _check_screen_health(self) -> None:
         """S1: a dead capture was silent (checks stuck on 'waiting for screen'). Tell the app once."""
+        if self._screen_off_reason() is not None or getattr(self.screen, "paused", False):
+            # Nov 21 (launch-quiet): no lesson step runs, so the reader is off on purpose: never a "Check Screen
+            # Recording" error before the learner picks a lesson (the setup step asks for it when it comes)
+            self._screen_down_since = None
+            return
         reason = self.screen_down_reason()
         if reason is None:
             if self._screen_notice_sent:
@@ -7995,12 +8032,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return {"kind": "resume", "title": "Continue where you left off?",
                 "body": f"{lesson.get('title', 'Your lesson')} · {where}", "actions": ["resume", "end_lesson"]}
 
-    def snapshot(self, ask_resume: bool = False) -> list[tuple[str, dict]]:
+    def snapshot(self, ask_resume: bool = False, returning: bool = False) -> list[tuple[str, dict]]:
         """Messages that bring a freshly connected client up to date. ask_resume (the app came back
-        after being away): pause and offer "Continue / Start new" instead of jumping back in."""
+        after being away): pause and offer "Continue / Start new" instead of jumping back in. returning (the app
+        relaunched after being away, lesson or not): an old preflight card is never sent again (Nov 21). The pick
+        itself is kept: the same app run (sleep / wake, a Wi-Fi drop) still shows that card, and its Build works."""
         from . import lesson_end
 
         out: list[tuple[str, dict]] = []
+        if (ask_resume or returning) and self.pending_pick is not None and not self.pending_pick.get("no_replay"):
+            log.info("app returning: the old preflight card is not sent again (the pick is kept for its Build)")
+            self.pending_pick["no_replay"] = True  # (_show_preflight sends a late, fresh card and clears this)
         done = lesson_end.finished(self)  # t5: a finished lesson is never "Continue where you left off?"
         if ask_resume and self.graph is not None and self.step is not None and not done:
             self.awaiting_resume = True
@@ -8008,7 +8050,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return [("spotlight", {"clear": True}), ("video.pause", {}), ("card", self.resume_card())]
         if self.awaiting_resume and self.graph is not None:  # still undecided: show the question again
             return [("spotlight", {"clear": True}), ("video.pause", {}), ("card", self.resume_card())]
-        if self.pending_pick is not None and self.pending_pick.get("card"):  # preflight card awaiting build / pick_another
+        if self.pending_pick is not None and self.pending_pick.get("card") and not self.pending_pick.get("no_replay"):
+            # preflight card awaiting build / pick_another (never replayed to an app that came back: Nov 21)
             return [("status", {"state": "idle"}), ("card", self.pending_pick["card"])]
         if self.phase == "building" and self.build_progress:  # reconnect mid-build: keep the spinner honest
             out.append(("status", {"state": "thinking", **({"detail": self.status_detail}
