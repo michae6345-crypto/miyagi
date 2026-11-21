@@ -6,13 +6,16 @@
  * the Mini pill, or with no panel at all, every card grows out of the pill as before.
  *
  * Who decides: A1's `isPanelRouted` (BUILD-PLAN A1 "isPanelRouted exported"), found at runtime in any drawer module so
- * this file compiles with or without A1. It's called both ways, `isPanelRouted(kind)` and `isPanelRouted(card)`, and a
- * card counts as routed if either says true, so either signature works. Until A1 lands, FALLBACK_ROUTED stands in:
- * the Not yet card (offtrack, its "Waiting for the fix" view), the step-passed card and the hint card, the three the
- * Les-NotYet / Les-Hint / Les-Passed panels draw.
+ * this file compiles with or without A1. It always gets an object, never a bare kind: the engine card itself
+ * (`isPanelRouted(card)`), or the live off-track as `isPanelRouted({ kind: 'offtrack', ...offtrack })`, so A1 can keep an
+ * off-track that carries a fix (diff, level 3, apply_fix) on the island, where "Do it for me" lives. The step-passed card
+ * ('success') is not one A1 models, so it stays routed whenever the panel shows (decision 7: Les-Passed draws it).
+ * Until A1 lands, FALLBACK_ROUTED stands in: the Not yet card (offtrack, its "Waiting for the fix" view), the
+ * step-passed card and the hint card, the three the Les-NotYet / Les-Hint / Les-Passed panels draw.
  */
 import type { Payload } from '../../../../common/wire'
 import { useDock } from '../../core/dock'
+import type { Offtrack } from '../../core/lesson'
 
 /** The island modes / card kinds this feature asks about: its three modes plus every engine card kind. */
 export type RoutedKind = 'offtrack' | 'success' | Payload<'card'>['kind'] | 'complete'
@@ -47,18 +50,20 @@ export function drawerExport(name: (typeof WANTED)[number]): AnyFn | undefined {
 /** The cards the panel draws itself when A1 doesn't say (Les-NotYet, Les-Hint, Les-Passed). */
 const FALLBACK_ROUTED = new Set<RoutedKind>(['offtrack', 'success', 'hint'])
 
+/** What isRouted asks about: the engine card, or the live off-track (lesson.offtrack). */
+export type RoutedSubject = Payload<'card'> | Offtrack
+
 /** Does the panel draw this card itself? (Only matters while it's shown: see usePanelShown.) */
-export function isRouted(kind: RoutedKind, card?: Payload<'card'>): boolean {
+export function isRouted(kind: RoutedKind, live?: RoutedSubject): boolean {
+  // A1 doesn't model the step-passed card; with the panel shown it's always Les-Passed's (decision 7).
+  if (kind === 'success') return true
   const fn = found.isPanelRouted
   if (!fn) return FALLBACK_ROUTED.has(kind)
-  const ask = (arg: unknown): boolean => {
-    try {
-      return fn(arg) === true
-    } catch {
-      return false
-    }
+  try {
+    return fn({ kind, ...live }) === true
+  } catch {
+    return false
   }
-  return ask(kind) || ask(card ?? { kind })
 }
 
 /** The lesson panel is on screen (docked open, not the Mini pill). */
@@ -71,7 +76,7 @@ export function usePanelShown(): boolean {
 }
 
 /** This card is drawn by the panel right now, so the island skips it. */
-export function useRoutedAway(kind: RoutedKind | undefined, card?: Payload<'card'>): boolean {
+export function useRoutedAway(kind: RoutedKind | undefined, live?: RoutedSubject): boolean {
   const shown = usePanelShown()
-  return shown && !!kind && isRouted(kind, card)
+  return shown && !!kind && isRouted(kind, live)
 }

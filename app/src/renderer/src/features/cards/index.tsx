@@ -1175,9 +1175,11 @@ export default defineFeature({
         useOverlayWidth((s) => s.w)
         const open = useCards((c) => c.offtrackOpen)
         const covered = useCards((c) => !!c.card || !!c.success || c.offtrackClosed)
-        const has = useLesson((s) => !!s.offtrack)
-        // v2 (A2): the docked lesson panel draws Not yet itself (Les-NotYet); the pill says "Not yet".
-        const routed = useRoutedAway('offtrack')
+        const o = useLesson((s) => s.offtrack)
+        const has = !!o
+        // v2 (A2): the docked lesson panel draws Not yet itself (Les-NotYet); the pill says "Not yet". A1 sees the live
+        // off-track, so one carrying a fix ("Do it for me") stays on the island.
+        const routed = useRoutedAway('offtrack', o)
         // Hover peeks at the off-track card only when nothing else is open: with a card up, hovering it must not
         // swap it for the off-track card under the cursor (Michael couldn't click "Open" on a hint card).
         return has && !routed && (open || (hover && !covered))
