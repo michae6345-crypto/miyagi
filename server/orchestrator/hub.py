@@ -22,6 +22,7 @@ log = logging.getLogger("orchestrator.hub")
 V2_EVENTS = frozenset({"engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item",
                        "progress"})
 _KNOWN_EVENTS = frozenset(getattr(_contract, "ENGINE_EVENTS", {}))
+PROGRESS_EVENTS = frozenset({"lesson.ready", "lesson.ended", "step.started", "check.updated", "lesson.complete"})
 SEND_TIMEOUT_S = 5.0  # a client that takes longer to accept one message is dropped: it must not stall every emitter
 _CLOSERS: set[asyncio.Task] = set()  # background closes of dropped sockets (kept referenced until done)
 QUIET_EVENTS = frozenset({"metric", "screen.seen"})  # several a second / OCR'd screen text: no line at all
@@ -76,6 +77,7 @@ class Hub:
         self.strict = os.environ.get("ORCH_STRICT") == "1" if strict is None else strict
         self.history: deque[dict] = deque(maxlen=history)  # recent messages, for /events and tests
         self._pending_noted: set[str] = set()
+        self.on_progress_event: Any = None  # called (sync) when a lesson starts, ends or a step is done
 
     def encode(self, type_: str, payload: dict) -> dict:
         if type_ in V2_EVENTS and type_ not in _KNOWN_EVENTS:
@@ -139,6 +141,8 @@ class Hub:
     async def emit(self, type_: str, payload: dict[str, Any] | None = None) -> None:
         msg = self.encode(type_, payload or {})
         self.history.append(msg)
+        if type_ in PROGRESS_EVENTS and self.on_progress_event is not None:
+            self.on_progress_event()  # the app's coalesced library / progress reads must not serve a stale answer
         if type_ not in QUIET_EVENTS:  # screen.seen carries OCR'd screen text: keep it out of logs
             # BUILD-PLAN section 6: payloads (learner code, card text, titles) only at DEBUG; INFO keeps the type, so a
             # desktop test still sees what went out and when

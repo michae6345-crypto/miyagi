@@ -51,7 +51,8 @@ class ScreenBridge:
     def active(self) -> bool:
         return self.reader is not None
 
-    def start(self, on_obs: Callable[[Any], Awaitable[None]]) -> bool:
+    def start(self, on_obs: Callable[[Any], Awaitable[None]], loop: asyncio.AbstractEventLoop | None = None) -> bool:
+        """`loop`: the engine's loop, when this runs in a worker thread (Engine.start does, so the port opens first)."""
         if not self.enabled:
             return False
         try:
@@ -64,7 +65,7 @@ class ScreenBridge:
             eager = env_flag("ORCH_SCREEN_EAGER", False)  # dev escape hatch: capture from boot, as before Nov 21
             if eager:
                 reader.start()
-            self._loop = asyncio.get_running_loop()
+            self._loop = loop or asyncio.get_running_loop()
             self._unsub = reader.subscribe(on_obs)
             self.reader = reader
             self.started = eager
@@ -234,7 +235,9 @@ class ScreenBridge:
         if self.reader is None or self.paused or not match or self._capture_down():
             return None  # capture is failing: a locate would block on a fresh capture for seconds (S1)
         try:
-            res = self.reader.locate_match(match, app)
+            fn = getattr(self.reader, "locate_match_cached", None) if perf.on_loop() else None
+            # the event loop: the latest frame only (a cold start's capture + OCR here blocked every event 1.5-7 s)
+            res = fn(match, app) if fn is not None else self.reader.locate_match(match, app)
         except Exception:  # noqa: BLE001
             log.exception("locate failed")
             return None

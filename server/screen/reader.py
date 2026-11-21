@@ -334,6 +334,11 @@ class ScreenReader:
         obs = self.latest() or self.observe_now(force=True)
         return M.locate_match(obs, match, app) if obs else None
 
+    def locate_match_cached(self, match: str, app: str | None = None) -> M.LocateResult | None:
+        """locate_match on the latest frame only: never a capture + OCR (for callers on the asyncio loop)."""
+        obs = self.latest()
+        return M.locate_match(obs, match, app) if obs else None
+
     def snap_rows(self, rect: Rect, app: str | None = None) -> Rect | None:
         """t8: `rect` (a text match's box) with the y / height of the editor rows it is on (the gutter's, as the
         full-line box has them) in the latest frame; None when it isn't on an editor's rows."""

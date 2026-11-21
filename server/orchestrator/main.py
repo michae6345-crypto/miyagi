@@ -494,6 +494,9 @@ def _library_folder(graph: dict) -> str:
     return str(path)
 
 
+READ_TTL_S = 1.0  # library.list / progress.get repeats inside this window share one disk read
+
+
 class Engine:
     def __init__(self) -> None:
         self.hub = Hub()
@@ -536,6 +539,11 @@ class Engine:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._cloud_off: Any = None  # removes the cloud verdict listener (watch_cloud)
         self._cloud_tasks: set[asyncio.Task] = set()
+        self._screen_boot: asyncio.Task | None = None
+        self.hub.on_progress_event = self.forget_reads
+        self._reads: dict[str, tuple[float, Any]] = {}  # coalesced app reads: key -> (when, result)
+        self._reads_inflight: dict[str, asyncio.Future] = {}
+        self._reads_gen = 0  # bumped by forget_reads: an older in-flight read must not cache its stale result
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -609,10 +617,13 @@ class Engine:
         self.watch_cloud()
         self.watcher.set_root(self.session.workdir)
         self.watcher.start()
-        if not self.screen.start(self.session.on_screen):
-            self.session.screen = None  # precision mode only (files + tut run)
-        else:  # E6: app switch / Space swipe within ~0.25 s -> clear (or re-place) the spotlight at once
-            self.screen.watch_frontmost(self.session.on_front_switch)  # (E5: also books the keys to the old app)
+        if getattr(self.screen, "enabled", False) and hasattr(self.screen, "down_reason"):
+            # The real bridge imports pyobjc / Vision / ScreenCaptureKit and waits up to 2 s for the event tap: all of
+            # that ran here, before uvicorn served, so the island's first connect waited ~1.4 s. Start it in a thread
+            # while the port opens; reads answer "nothing" until the reader is up (bridge.reader is None).
+            self._screen_boot = asyncio.create_task(self._start_screen(asyncio.get_running_loop()))
+        else:
+            self._screen_up(self.screen.start(self.session.on_screen))
         if config.env_flag("ORCH_AUTOSTART"):  # no launcher needed: the lesson is live from the start
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)
@@ -620,9 +631,25 @@ class Engine:
                 self._autostart = asyncio.create_task(self.session.learn_url(url, skip_preflight=True))
         self._ticker = asyncio.create_task(self._tick_loop())
         self._avoider = asyncio.create_task(self._avoid_loop())
-        log.info("engine up: demo=%s modules=%s workdir=%s screen=%s precision=%s", self.modules.demo,
-                 self.modules.describe(), self.session.workdir, self.session.screen_active(),
-                 config.precision_setting())
+        # screen state is logged by _start_screen: the bridge boots in a thread after this line
+        log.info("engine up: demo=%s modules=%s workdir=%s precision=%s", self.modules.demo,
+                 self.modules.describe(), self.session.workdir, config.precision_setting())
+
+    def _screen_up(self, ok: bool) -> None:
+        if not ok:
+            self.session.screen = None  # precision mode only (files + tut run)
+        else:  # E6: app switch / Space swipe within ~0.25 s -> clear (or re-place) the spotlight at once
+            self.screen.watch_frontmost(self.session.on_front_switch)  # (E5: also books the keys to the old app)
+
+    async def _start_screen(self, loop: asyncio.AbstractEventLoop) -> None:
+        t0 = time.monotonic()
+        try:
+            ok = await asyncio.to_thread(self.screen.start, self.session.on_screen, loop)
+        except Exception:  # noqa: BLE001 - never kill the engine
+            log.exception("screen start failed")
+            ok = False
+        self._screen_up(ok)
+        log.info("screen up in %.2f s (off the startup path): %s", time.monotonic() - t0, ok)
 
     async def auto_resume(self) -> bool:
         """The first app connection after an engine restart (or a deploy's POST /end) while a lesson was running: that
@@ -718,9 +745,52 @@ class Engine:
             h = await asyncio.to_thread(health_mod.snapshot)
         return contract_health(h)
 
+    async def _coalesced(self, key: str, make: Any, ttl: float = READ_TTL_S) -> Any:
+        """One file read per `ttl` for the app's burst of identical reads (log: library.list x3 and progress.get x3-4 on
+        every window open): concurrent askers share one in-flight read, and a repeat within `ttl` gets its result.
+        If the leader running make() is cancelled, waiters are not cancelled with it: they retry (one becomes leader)."""
+        while True:
+            hit = self._reads.get(key)
+            if hit is not None and time.monotonic() - hit[0] < ttl:
+                return hit[1]
+            fut = self._reads_inflight.get(key)
+            if fut is None:
+                break
+            try:
+                return await asyncio.shield(fut)
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise  # this waiter itself was cancelled
+                # the leader was cancelled: loop and retry
+        gen = self._reads_gen
+        fut = asyncio.get_running_loop().create_future()
+        self._reads_inflight[key] = fut
+        try:
+            res = await make()
+            if gen == self._reads_gen:  # a PROGRESS event during the read made this result stale: do not cache it
+                self._reads[key] = (time.monotonic(), res)
+            fut.set_result(res)
+            return res
+        except BaseException as e:
+            fut.set_exception(e) if not isinstance(e, asyncio.CancelledError) else fut.cancel()
+            fut.exception() if not fut.cancelled() else None  # mark retrieved (nobody else may await it)
+            raise
+        finally:
+            if self._reads_inflight.get(key) is fut:
+                self._reads_inflight.pop(key, None)
+
+    def forget_reads(self) -> None:
+        self._reads_gen += 1
+        self._reads.clear()
+
     async def library_payload(self) -> dict:
         if library_mod is None:
             return {"items": [], "continue": []}
+        return await self._coalesced(
+            "library", lambda: self._read_library())
+
+    async def _read_library(self) -> dict:
         return contract_library(await asyncio.to_thread(library_mod.listing))
 
     async def library_detail(self, lid: str) -> dict | None:
@@ -732,6 +802,9 @@ class Engine:
         """None: nothing recorded yet (GET /progress answers null, progress.get answers {})."""
         if progress_mod is None:
             return None
+        return await self._coalesced("progress", self._read_progress)
+
+    async def _read_progress(self) -> dict | None:
         p = await asyncio.to_thread(progress_mod.progress)
         return contract_progress(p) if p is not None else None
 
@@ -834,6 +907,9 @@ class Engine:
             self._cloud_off = None
         self.save_progress()
         await self.watcher.stop()
+        if self._screen_boot is not None:
+            with contextlib.suppress(Exception):
+                await self._screen_boot
         self.screen.stop()
         if self.status is not None:
             await self.status.stop()

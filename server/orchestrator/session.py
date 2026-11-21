@@ -527,6 +527,9 @@ def _use_lesson_venv(graph: dict) -> None:
 _PCT_LABEL = re.compile(r"\s*(?:reaches|is at least|at least|>=|≥|above|over)\s*(?P<v>\d+(?:\.\d+)?)\s*%?\s*$", re.I)
 
 
+METRIC_EMIT_CAP = 20  # live-curve points per metric name emitted per ingest batch (the run keeps them all)
+
+
 def _metric_labels(graph: dict) -> None:
     """t10: one style for an accuracy check's label: "Training accuracy reaches 0.95" / "Test accuracy at least 95" ->
     "… at least 95%". In place; only `>=` accuracy checks whose label ends in their own threshold."""
@@ -5533,6 +5536,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind in ("metric", "metrics"):
             items = ev.get("metrics") or ev.get("items") or [ev]
+            out: list[dict] = []  # live-curve points: one concurrent flush per batch, newest METRIC_EMIT_CAP per name
             for it in items:
                 try:
                     step_n, name = int(it["step"]), str(it["name"])
@@ -5545,7 +5549,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 # NaN/inf arrive as None and stay None: a NaN loss must FAIL its metric check, not vanish
                 run.add_metric(step_n, name, value)
                 if value is not None:  # the app's live curve only takes finite numbers
-                    await self.emit("metric", {"runId": run_id, "step": step_n, "name": name, "value": value})
+                    out.append({"runId": run_id, "step": step_n, "name": name, "value": value})
+            if out:
+                kept: dict[str, int] = {}
+                tail: list[dict] = []
+                for pt in reversed(out):  # every point is stored in the run (grading sees all); only the emit is capped
+                    if kept.get(pt["name"], 0) < METRIC_EMIT_CAP:
+                        kept[pt["name"]] = kept.get(pt["name"], 0) + 1
+                        tail.append(pt)
+                tail.reverse()
+                await asyncio.gather(*(self.emit("metric", pt) for pt in tail))
             if in_step:
                 self._schedule_metric_eval()
             return
