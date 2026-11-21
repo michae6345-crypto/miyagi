@@ -6,7 +6,7 @@
 #
 #   scripts/miyagi-uninstall.sh                  # dry run: show what would go
 #   scripts/miyagi-uninstall.sh --yes            # remove it
-#   scripts/miyagi-uninstall.sh --yes --keep-lessons
+#   scripts/miyagi-uninstall.sh --yes --keep-lessons --keep-state
 #
 # What it never does:
 #   - kill a process. It asks miyagi to quit (like ⌥Q) and stops if miyagi, anything on
@@ -16,6 +16,9 @@
 #     named miyagi.app, for example).
 #   - delete lessons. ~/miyagi/lessons is moved aside to ~/miyagi-lessons-<time> (or left
 #     in place with --keep-lessons).
+#   - delete ~/miyagi/state (lesson progress, history, mastery, the Continue list and
+#     gemini_usage.json, the daily Gemini video counter). It is moved aside to
+#     ~/miyagi-state-<time> (or left in place with --keep-state).
 #   - touch ~/.cache/uv, ~/.local/share/uv, the Python or Jupyter VS Code extensions, or the
 #     "Electron Safe Storage" keychain item (shared by every Electron app run from source).
 #   - print a keychain secret. Keychain lookups read attributes only and their output is dropped.
@@ -34,19 +37,24 @@ TCC_SERVICES="ScreenCapture Accessibility AppleEvents Microphone"
 
 MODE="dry"
 KEEP_LESSONS=0
+KEEP_STATE=0
 
 usage() {
   cat <<'EOF'
-usage: miyagi-uninstall.sh [--dry-run | --yes] [--keep-lessons]
+usage: miyagi-uninstall.sh [--dry-run | --yes] [--keep-lessons] [--keep-state]
 
 Removes miyagi from this Mac so the next download starts from nothing:
-the app, its data, its keychain item, the local engine and its state, the
-VS Code companion extension and the macOS permissions it was granted.
+the app, its data, its keychain item, the local engine, the VS Code
+companion extension and the macOS permissions it was granted. Lessons and
+engine state are moved aside, never deleted.
 
   --dry-run       list what would be removed and change nothing (default)
   --yes, -y       remove it
   --keep-lessons  leave ~/miyagi/lessons where it is (default: move it aside
                   to ~/miyagi-lessons-<time>, never delete it)
+  --keep-state    leave ~/miyagi/state where it is: lesson progress, history,
+                  mastery and today's Gemini usage (default: move it aside to
+                  ~/miyagi-state-<time>, never delete it)
   -h, --help      this text
 
 Full test procedure: docs/CLEAN-TEST.md
@@ -58,6 +66,7 @@ while [ $# -gt 0 ]; do
     --dry-run|-n) MODE="dry" ;;
     --yes|-y) MODE="act" ;;
     --keep-lessons) KEEP_LESSONS=1 ;;
+    --keep-state) KEEP_STATE=1 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'miyagi-uninstall: unknown option %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -133,8 +142,37 @@ remove() {
 }
 
 # bundle_id_of APP: the CFBundleIdentifier in APP's Info.plist, or nothing.
+# PlistBuddy prints "File Doesn't Exist, Will Create: ..." on stdout for a missing
+# plist, so its output is used only when it succeeds.
 bundle_id_of() {
-  /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null
+  [ -f "$1/Contents/Info.plist" ] || return 0
+  out=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null) \
+    && printf '%s' "$out"
+}
+
+# is_disk_image VOL: 0 when the mounted volume VOL comes from a disk image (hdiutil).
+# An external drive or other volume that happens to be called miyagi is not one.
+is_disk_image() {
+  hdiutil info 2>/dev/null | awk -F '\t' -v v="$1" '$NF == v { found = 1 } END { exit !found }'
+}
+
+# move_aside PATH NAME KEEP FLAG: move PATH to ~/miyagi-NAME-<time> (never delete it), or
+# leave it in place when KEEP is 1 (FLAG names the option that did that).
+move_aside() {
+  src="$1"; name="$2"; keep="$3"; flag="$4"
+  [ -d "$src" ] || return 0
+  if [ "$keep" -eq 1 ]; then
+    info "kept $(tilde "$src") in place ($flag)"
+    return 0
+  fi
+  dest="$HOME/miyagi-$name-$(date +%Y%m%d-%H%M%S)"
+  if [ "$MODE" = "dry" ]; then
+    would "move $(tilde "$src") aside to $(tilde "$dest") ($(size_of "$src"), not deleted)"
+  elif mv -- "$src" "$dest" 2>/dev/null; then
+    did "moved $(tilde "$src") to $(tilde "$dest")"
+  else
+    failed "could not move $(tilde "$src") aside"
+  fi
 }
 
 # remove_app PATH: remove an .app bundle only when it is the miyagi app ($BUNDLE_ID).
@@ -296,7 +334,9 @@ remove_app "$HOME/Applications/miyagi.app"
 remove_app "$HOME/Applications/Miyagi.app"
 for vol in /Volumes/[Mm]iyagi*; do
   [ -d "$vol" ] || continue
-  if [ "$MODE" = "dry" ]; then
+  if ! is_disk_image "$vol"; then
+    info "kept $vol mounted (not a disk image)"
+  elif [ "$MODE" = "dry" ]; then
     would "eject the mounted disk image $vol"
   elif hdiutil detach "$vol" -quiet 2>/dev/null; then
     did "ejected $vol"
@@ -369,23 +409,14 @@ info "kept \"Electron Safe Storage\" (shared by every Electron app run from sour
 # ---------------------------------------------------------------------------------------
 section "6. Engine and state"
 remove "$HOME/miyagi/engine"
-remove "$HOME/miyagi/state"
 remove "$HOME/.miyagi/tiger-spool"
 remove "$HOME/.cache/sandhacks-tutor/tts"
-lessons="$HOME/miyagi/lessons"
-if [ -d "$lessons" ]; then
-  if [ $KEEP_LESSONS -eq 1 ]; then
-    info "kept ~/miyagi/lessons in place (--keep-lessons)"
-  else
-    dest="$HOME/miyagi-lessons-$(date +%Y%m%d-%H%M%S)"
-    if [ "$MODE" = "dry" ]; then
-      would "move ~/miyagi/lessons aside to $(tilde "$dest") ($(size_of "$lessons"), not deleted)"
-    elif mv -- "$lessons" "$dest" 2>/dev/null; then
-      did "moved ~/miyagi/lessons to $(tilde "$dest")"
-    else
-      failed "could not move ~/miyagi/lessons aside"
-    fi
-  fi
+# state: lesson progress (current.json, graph-<lessonId>.json), history.json, mastery.json,
+# the Continue list (recent.json) and gemini_usage.json (the daily Gemini video cap).
+move_aside "$HOME/miyagi/state" state "$KEEP_STATE" --keep-state
+move_aside "$HOME/miyagi/lessons" lessons "$KEEP_LESSONS" --keep-lessons
+if [ -n "${MIYAGI_STATE_DIR:-}" ]; then
+  info "note: MIYAGI_STATE_DIR is set to $MIYAGI_STATE_DIR; that folder is left alone"
 fi
 if [ -n "${MIYAGI_LESSONS_DIR:-}" ]; then
   info "note: MIYAGI_LESSONS_DIR is set to $MIYAGI_LESSONS_DIR; that folder is left alone"
