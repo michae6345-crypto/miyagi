@@ -16,6 +16,8 @@
  *     errors, an answer to a typed question) always passes.
  *   - The run's lesson ends with lesson.ended (any reason but "interrupted": an engine deploy that comes back with the
  *     same lesson, whose replay then passes again because its id matches).
+ *   - A wait for a lesson ends with its lesson.ready, a failed build, end_lesson (command or action), dev.reset, or a
+ *     new engine connection (a start sent on the old socket is lost; the learner retries).
  *
  * Pure (no electron, no socket), so main/engine.ts runs it on every event and freshStart.check.ts tests it in Node.
  */
@@ -76,7 +78,18 @@ export class RunGuard {
     else if (cmd.type === 'dev.reset') {
       this.pending = false
       this.lessonId = undefined
+    } else if (cmd.type === 'end_lesson' || (cmd.type === 'action' && (cmd.payload as { kind?: unknown })?.kind === 'end_lesson')) {
+      // The learner stopped: a build or start still on its way is abandoned (lesson.ended clears the run's lesson).
+      this.pending = false
     }
+  }
+
+  /**
+   * A new engine connection (main/engine.ts ws 'open'). A start sent on the old socket is lost with it (the learner
+   * retries), so nothing is on its way any more: the new snapshot's lesson passes only if it is the run's own.
+   */
+  connected(): void {
+    this.pending = false
   }
 
   /** May this engine event reach the windows, main's features and the replay log? */

@@ -174,8 +174,6 @@ export class EngineLink {
     if (cmd.type === 'overlay.bounds') this.lastBounds = cmd
     // v2 commands only to an engine that announced them (an older engine answers an unknown type with an error).
     if (V2.has(cmd.type) && !this.demo && !this.caps.has(cmd.type)) return
-    // Fresh start: a lesson this run starts or chooses (learn, library.start, Continue) may reach the windows.
-    this.run.command(cmd)
     // The install token rides along with the BYOK keys the settings feature sends: a separate config.keys would
     // clear them (the engine's set_app_keys drops names that are missing). A BYOK key the learner set still wins
     // engine side for its provider.
@@ -183,9 +181,17 @@ export class EngineLink {
       this.lastKeys = cmd
       if (this.cloud && this.allowSecrets()) cmd = { ...cmd, payload: { ...cmd.payload, ...this.cloud } }
     }
-    if (this.demo) return this.demo.handle(cmd)
+    // Fresh start: a lesson this run starts or chooses (learn, library.start, Continue) may reach the windows, but
+    // only once the command really leaves (one dropped offline must not admit the next connect's old snapshot).
+    if (this.demo) {
+      this.run.command(cmd)
+      return this.demo.handle(cmd)
+    }
     const msg = JSON.stringify(cmd)
-    if (this.ws?.readyState === WebSocket.OPEN) return this.ws.send(msg)
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.run.command(cmd)
+      return this.ws.send(msg)
+    }
     // Offline (audit P1-3): never queue a learner command and replay it stale on reconnect (a build_lesson
     // whose resultIds a restarted engine doesn't know). Fail it visibly instead. overlay.bounds is re-sent
     // from lastBounds and config.keys from the onOpen hooks, so nothing else needs remembering.
@@ -244,6 +250,8 @@ export class EngineLink {
       // The engine sends a full snapshot on every connect: forget what the old connection said.
       this.log.length = 0
       this.caps.clear()
+      // Fresh start: a start that went out on the old socket is lost (the learner retries); only the run's lesson replays.
+      this.run.connected()
       this.setConnected(true)
       for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))

@@ -10,6 +10,8 @@
  *    127.0.0.1 that replays an old lesson on connect, like the engine after a restart: nothing of it reaches the
  *    listeners (what main relays to every window) or the replay log; after `learn` the new lesson does; a reconnect
  *    that replays the run's own lesson keeps it.
+ * 3. Starts sent while the engine is down (launch window, engine restart) never leave and let nothing in; a start
+ *    that went out but was never answered expires on the next connection.
  * Exits 1 on any failure.
  */
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -146,6 +148,38 @@ for (const start of [cmd('learn', { query: 'sin(x)' }), cmd('learn_url', { url: 
   ok(new RunGuard(true).admit(ready('demo')), "DEMO=1 (armed): the scripted run's lesson passes")
 }
 
+{
+  // The wait expires: end_lesson (command or the resume card's action) and a new engine connection.
+  for (const stop of [cmd('end_lesson'), cmd('action', { kind: 'end_lesson' })]) {
+    const name = stop.type === 'action' ? 'action end_lesson' : 'end_lesson'
+    const g = new RunGuard()
+    g.command(cmd('learn', { query: 'x' }))
+    g.command(stop)
+    ok(!g.state().pending, `${name} while building: nothing pending`)
+    ok(!g.admit(ready('old')), `${name} while building: a later replay of the old lesson is dropped`)
+  }
+  // A search the learner abandons, then the engine restarts (update-engine.sh) and replays its kept lesson.
+  const g = new RunGuard()
+  g.command(cmd('learn', { query: 'x' }))
+  ok(g.admit(ev('search.result', { id: 'r1', kind: 'video', title: 'A', meta: '', score: 1, reason: '' })), 'abandoned search: its rows pass')
+  g.connected()
+  ok(!g.state().pending, 'abandoned search: a new connection ends the wait')
+  ok(!g.admit(ready('old')), "abandoned search: the restarted engine's old lesson is dropped")
+  // A library.start the engine answers with an error, then a restart.
+  const h = new RunGuard()
+  h.command(cmd('library.start', { id: 'nn' }))
+  ok(h.admit(ev('error', { message: 'no such lesson' })), 'library.start error: the error passes')
+  h.connected()
+  ok(!h.admit(ready('old')), 'library.start error: the replay after a restart is dropped')
+  // The run's own lesson survives a new connection.
+  const k = new RunGuard()
+  k.command(cmd('learn', { query: 'x' }))
+  k.admit(ready('a'))
+  k.connected()
+  ok(k.admit(ready('a')) && k.state().lessonId === 'a', "a new connection keeps the run's lesson")
+  ok(!k.admit(ready('b')), 'a new connection admits no other lesson')
+}
+
 // ---- 2. EngineLink against a fake engine on loopback -----------------------------------------------------------------
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -207,7 +241,77 @@ async function linkCheck(): Promise<void> {
   ok(seen.some((e) => e.type === 'step.started'), 'link: and its step')
 
   wss.close()
+
+  await offlineCheck(EngineLink)
   await vite.close()
+}
+
+/**
+ * Starts sent while the engine is down never leave, so they must not let the next connect's old snapshot in:
+ * (a) the launch window (localEngine still starting, no engine yet) and (b) an engine restart (update-engine.sh).
+ * (c) A start that went out but was never answered expires on the next connection.
+ */
+async function offlineCheck(EngineLink: typeof import('./engine').EngineLink): Promise<void> {
+  // A free loopback port with nothing on it yet.
+  const probe = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise<void>((r) => probe.once('listening', () => r()))
+  const port = (probe.address() as { port: number }).port
+  await new Promise<void>((r) => probe.close(() => r()))
+
+  /** A fake engine with a kept lesson: replays it on every connect and never answers a start. */
+  const sockets = new Set<WebSocket>()
+  const up = async (): Promise<WebSocketServer> => {
+    const wss = new WebSocketServer({ host: '127.0.0.1', port })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    wss.on('connection', (ws) => {
+      sockets.add(ws)
+      ws.on('close', () => sockets.delete(ws))
+      for (const m of [NEUTRAL[0], ...OLD_SNAPSHOT, NEUTRAL[9]]) ws.send(JSON.stringify(m))
+    })
+    return wss
+  }
+  const down = async (wss: WebSocketServer): Promise<void> => {
+    for (const ws of sockets) ws.terminate()
+    await new Promise<void>((r) => wss.close(() => r()))
+  }
+
+  // Every event of the old snapshot, matched by value (card / status / diagram / blocker also have neutral forms).
+  const OLD = new Set(OLD_SNAPSHOT.map((e) => JSON.stringify(e)))
+  const lessonish = (list: Incoming[]): string[] => list.filter((e) => OLD.has(JSON.stringify(e))).map((e) => e.type)
+  const answered = (list: Incoming[]): boolean => list.some((e) => e.type === 'card' && (e.payload as { kind: string }).kind === 'answer')
+
+  // (a) Launch: the engine isn't up yet; the learner types a goal at once.
+  const link = new EngineLink(`ws://127.0.0.1:${port}`)
+  const seen: Incoming[] = []
+  link.onEvent((e) => seen.push(e))
+  link.send({ type: 'learn', payload: { query: 'sin(x)' } })
+  ok(seen.some((e) => e.type === 'error'), 'offline launch: learn fails visibly')
+  let wss = await up()
+  ok(await until(() => answered(seen), 9000), 'offline launch: the engine connected and sent its snapshot')
+  ok(!lessonish(seen).length, `offline launch: no old lesson event reaches the windows (got ${lessonish(seen).join(', ')})`)
+  ok(!lessonish(link.log).length, 'offline launch: the replay log holds no old lesson')
+
+  // (b) The engine restarts; while it is down the learner sends learn and library.start (the link knows its caps).
+  await down(wss)
+  ok(await until(() => !link.link().open), 'restart: the link sees the engine go')
+  seen.length = 0
+  link.send({ type: 'learn', payload: { query: 'sin(x)' } })
+  link.send({ type: 'library.start', payload: { id: 'nn' } })
+  wss = await up()
+  ok(await until(() => answered(seen), 9000), 'restart: the engine came back with its snapshot')
+  ok(!lessonish(seen).length, `restart: starts sent offline let no old lesson in (got ${lessonish(seen).join(', ')})`)
+  ok(!lessonish(link.log).length, 'restart: the replay log holds no old lesson')
+
+  // (c) A start that goes out but is never answered (a search the learner abandons), then another restart.
+  link.send({ type: 'learn', payload: { query: 'sin(x)' } })
+  await sleep(100)
+  await down(wss)
+  ok(await until(() => !link.link().open), 'abandoned: the link sees the engine go')
+  seen.length = 0
+  wss = await up()
+  ok(await until(() => answered(seen), 9000), 'abandoned: the engine came back with its snapshot')
+  ok(!lessonish(seen).length, `abandoned: the old lesson stays out after the restart (got ${lessonish(seen).join(', ')})`)
+  await down(wss)
 }
 
 void (async () => {
