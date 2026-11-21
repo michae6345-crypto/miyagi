@@ -17,7 +17,7 @@ import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
-import { isAllowedUrl, safeOpenExternal } from './safeOpen'
+import { openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
 import type { MainContext, MainFeature } from './context'
 import {
@@ -127,9 +127,10 @@ function hardenContents(wc: WebContents): void {
     if (isMainFrame) block(e, url)
   })
   wc.on('will-attach-webview', (e) => e.preventDefault())
-  // window.open / target=_blank: never a new Electron window; an allowlisted https URL goes to the default browser.
+  // window.open / target=_blank: never a new Electron window; any plain https link (setup downloads, citations,
+  // drawer sources) goes to the default browser. Other schemes are refused (safeOpen.isBrowserLink).
   wc.setWindowOpenHandler(({ url }) => {
-    if (isAllowedUrl(url)) void safeOpenExternal(url)
+    void openLinkInBrowser(url)
     return { action: 'deny' }
   })
 }

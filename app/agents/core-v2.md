@@ -23,6 +23,7 @@ The shared base for miyagi v2 (`miyagi-v2/BUILD-PLAN.md` section 2): the contrac
 - Mini pill priority 9 in the README table is a proposal for A2.
 - Scenario file is `mock/scenarios/core-v2.json`, not the plan's `v2-core.json` (see W0-7 above).
 - The engine token goes into the `EngineLink` constructor (`main/engine.ts`, third argument): the first WebSocket attempt starts inside the constructor, before `setupLocalEngine` runs, so a later `setToken` alone would leave that attempt without `X-Miyagi-Token`.
+- Two link rules in `main/safeOpen.ts`. `open:external` (IPC, `safeOpenExternal`) stays on the strict `ALLOWED_HOSTS` allowlist plus plain mailto. The window-open handler (`window.open` / `target=_blank`, `openLinkInBrowser`) accepts any https URL with no username, no password and no port other than 443 (plus a plain mailto); every other scheme is refused. Reason: setup download rows (`server/workspace/setup.py` TOOLS: python.org, nodejs.org, git-scm.com, rustup.rs, go.dev, ...), card and off-track citations and drawer sources link to arbitrary docs sites, and the pre-v2 handler sent every http(s) link to the browser; an allowlist there broke them. Plain http is no longer opened.
 
 ## Fix round 1 (review)
 - Buttons: rounded rectangles per the mockups. `lg` 44 high, radius 12, 15 px / 600, padding 0 24; `md` 36 high, radius 10, 13 px / 600, padding 0 16. QuietButton: same geometry on `surface.row` with an inset `surface.border` hairline, 13 px / 500.
@@ -32,6 +33,10 @@ The shared base for miyagi v2 (`miyagi-v2/BUILD-PLAN.md` section 2): the contrac
 - KeysFooter: `divider` defaults to false; padded 0 20 16, gap 16.
 - `safeOpen.isAllowedUrl`: a malformed `%` in a mailto returns false instead of throwing.
 - `prefs:*` and `engine-local:*` handlers take main's `trusted` predicate.
+
+## Fix round 2 (review)
+- Window-open handler: any plain https link opens in the default browser again (see Deviations); `open:external` stays allowlisted.
+- `feat:window:args` checks `deps.trusted(e)` like every other core handler.
 
 ## Test
 `npm run typecheck` (green). Python: `python -m py_compile shared/contracts/events.py` and an import + validate script with empty keys (green; library ids with a path are rejected).

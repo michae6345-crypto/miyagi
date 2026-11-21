@@ -140,6 +140,7 @@ export function setupAppWindows(deps: {
   })
   ipcMain.handle('feat:window:focus', (e, route: unknown) => (deps.trusted(e) && isRoute(route) ? api.focus(route) : false))
   ipcMain.handle('feat:window:args', (e) => {
+    if (!deps.trusted(e)) return null
     const r = routeOf(e.sender)
     return r ? (args.get(r) ?? null) : null
   })

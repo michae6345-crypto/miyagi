@@ -3,6 +3,7 @@
  * shell.openExternal goes through here (BUILD-PLAN Section 6).
  *
  *   safeOpenExternal(url)       https on an allowlisted host, or a plain mailto:; anything else is refused (false)
+ *   openLinkInBrowser(url)      the window-open handler only: any plain https link (no user, password or odd port)
  *   openSystemSettings(kind)    a fixed x-apple.systempreferences: URL from an enum, never a URL from a renderer
  *
  * Renderer: bridge.invoke('open:external', url) → boolean. System Settings only via permissions:open(kind)
@@ -34,7 +35,7 @@ export const SETTINGS_URL: Record<PermissionKind, string> = {
 const MAX_URL = 2048
 const EMAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/
 
-/** Is this a URL safeOpenExternal would open? (Also the window-open handler's test.) */
+/** Is this a URL safeOpenExternal (the open:external IPC) would open? */
 export function isAllowedUrl(raw: unknown): boolean {
   if (typeof raw !== 'string' || raw.length > MAX_URL) return false
   let u: URL
@@ -54,9 +55,45 @@ export function isAllowedUrl(raw: unknown): boolean {
       return false
     }
   }
-  if (u.protocol !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) return false
+  if (!isPlainHttps(u)) return false
   const host = u.hostname.toLowerCase()
   return ALLOWED_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))
+}
+
+function isPlainHttps(u: URL): boolean {
+  return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443')
+}
+
+/**
+ * The window-open handler's test (a learner clicking a link in our own page: setup download rows, card and
+ * off-track citations, drawer sources). Any plain https URL: no username, no password, no port other than 443.
+ * Every other scheme is refused, except a plain mailto that isAllowedUrl accepts. The open:external IPC stays on
+ * isAllowedUrl (strict allowlist): that channel takes a string from renderer code, not from a learner's click.
+ */
+export function isBrowserLink(raw: unknown): boolean {
+  if (typeof raw !== 'string' || raw.length > MAX_URL) return false
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return false
+  }
+  if (u.protocol === 'mailto:') return isAllowedUrl(raw)
+  return isPlainHttps(u)
+}
+
+/** Open a clicked link (window.open / target=_blank) in the default browser. false = refused or failed (never throws). */
+export async function openLinkInBrowser(raw: unknown): Promise<boolean> {
+  if (!isBrowserLink(raw)) {
+    console.warn('[safeOpen] refused a link that is not plain https')
+    return false
+  }
+  try {
+    await shell.openExternal(new URL(raw as string).href, { activate: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Open an allowlisted URL in the default browser / mail client. false = refused or failed (never throws). */
