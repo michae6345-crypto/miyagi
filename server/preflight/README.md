@@ -15,8 +15,7 @@ await emit("card", preflight_card(res))       # kind "preflight", actions build 
 
 ## What it does
 
-1. **Metadata (~1 s):** oEmbed and the watch page in parallel. The watch page is a plain fetch with the
-   Bright Data Unlocker as fallback. From these: title, channel, duration, full description, category, tags,
+1. **Metadata (~1 s):** oEmbed and the watch page in parallel. The watch page is a plain fetch. From these: title, channel, duration, full description, category, tags,
    and chapters (YouTube's own `chapterRenderer` list, else description timestamps; a "Corrections:" tail
    doesn't count).
 2. **In parallel:**

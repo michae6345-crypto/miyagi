@@ -48,22 +48,18 @@ log = logging.getLogger("server.config")
 KEY_ENV = {  # what the app may send in config.keys, and what config.status reports (ConfigStatus in events.ts)
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
-    "brightdata": "BRIGHTDATA_API_KEY",  # retired: .env only, see RETIRED_KEYS
     "tigerUrl": "TIGER_DATABASE_URL",  # retired: always 'missing', see RETIRED_KEYS
     "elevenlabs": "ELEVENLABS_API_KEY",
     "miyagiToken": "MIYAGI_CLOUD_TOKEN",  # the app's anonymous install token for the miyagi cloud proxy
 }
-# Dropped vendors (DISTRIBUTION-PLAN, claude/eng-drop-vendors): miyagi no longer asks for Bright Data or Tiger
-# Data. Both names stay in KEY_ENV only because config.status must still carry them (ConfigStatus requires
-# `brightdata` and `tigerUrl` until the contract makes them optional). A value the app sends for either is
-# ignored: never stored, never exported to os.environ.
-# - Bright Data is an optional dev extra, read from .env only (BRIGHTDATA_API_KEY): the finder, the coach's web
-#   lookups and the transcript fetch use it when it is set and skip it otherwise (no key = no call).
-#   config.status.brightdata is 'env' or 'missing'.
+# Dropped vendors (DISTRIBUTION-PLAN, claude/eng-drop-vendors): miyagi no longer asks for Tiger Data. Its name stays in
+# KEY_ENV only because config.status must still carry it (ConfigStatus requires `tigerUrl` until the contract makes
+# it optional). A value the app sends for it is ignored: never stored, never exported to os.environ.
 # - Tiger Data is replaced by the local SQLite store (server/checks/tiger.py, `metrics_db_path()`); the engine's
 #   writer no longer reads TIGER_DATABASE_URL, so config.status.tigerUrl is always 'missing'.
-# Full code removal is ROADMAP 3.6.
-RETIRED_KEYS = ("brightdata", "tigerUrl")
+# Names the app sends that are not in KEY_ENV (older builds, future ones) are ignored: set_app_keys only reads
+# the names it knows. Full code removal is ROADMAP 3.6.
+RETIRED_KEYS = ("tigerUrl",)
 CLOUD_URL_ENV = "MIYAGI_CLOUD_URL"  # config.keys.miyagiCloud wins over it
 CLOUD_PROVIDERS = ("anthropic", "gemini")  # what the proxy forwards (Gemini: watching YouTube video only)
 ANTHROPIC_DIRECT_URL = "https://api.anthropic.com"
@@ -98,7 +94,7 @@ def set_app_keys(keys: dict) -> None:
     global _app_cloud_url
     before = cloud_token()
     for name in KEY_ENV:
-        if name in RETIRED_KEYS:  # the app can no longer supply these (Bright Data is .env only, Tiger is gone)
+        if name in RETIRED_KEYS:  # the app can no longer supply these (Tiger is gone)
             _app_keys.pop(name, None)
             continue
         v = (keys.get(name) or "").strip()
@@ -489,13 +485,13 @@ def fallback_kwargs(model: str) -> dict:
 
 # ------------------------------------------------------------------ learner subprocesses
 
-_SECRET_PREFIXES = ("ANTHROPIC_", "GEMINI_", "GOOGLE_API", "GOOGLE_GENAI", "BRIGHTDATA_", "ELEVENLABS_", "TIGER_",
+_SECRET_PREFIXES = ("ANTHROPIC_", "GEMINI_", "GOOGLE_API", "GOOGLE_GENAI", "ELEVENLABS_", "TIGER_",
                     "MIYAGI_CLOUD")
 
 
 def safe_env(base: dict | None = None, **extra: str) -> dict[str, str]:
     """A copy of the environment (or `base`) for a learner's subprocess (their code, pip, a kernel, VS Code):
-    every provider key, the cloud token and URL and any Bright Data / Tiger value removed, then `extra` added."""
+    every provider key, the cloud token and URL and any Tiger value removed, then `extra` added."""
     env = dict(os.environ if base is None else base)
     secret = set(KEY_ENV.values()) | {
         CLOUD_URL_ENV, "TIGER_DATABASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "GOOGLE_API_KEY", "ADMIN_PASSWORD"}

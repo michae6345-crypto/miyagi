@@ -1,5 +1,5 @@
 """YouTube: parse the real search results page, verify with oEmbed, read a watch page
-(duration, description), and scan comments (fetched via Bright Data) for "outdated" warnings."""
+(duration, description)."""
 
 from __future__ import annotations
 
@@ -158,30 +158,3 @@ def human_count(n: int) -> str:
             v = n / div
             return f"{v:.1f}".rstrip("0").rstrip(".") + suf
     return str(n)
-
-
-def parse_comments(records: list | dict, limit: int = 40) -> list[dict]:
-    """Normalise comment records (Bright Data YouTube-comments dataset output) to {text, likes}."""
-    if isinstance(records, dict):
-        records = records.get("data") or records.get("comments") or []
-    out = []
-    for c in records or []:
-        if not isinstance(c, dict):
-            continue
-        text = str(c.get("comment_text") or c.get("text") or c.get("comment") or "").strip()
-        if text:
-            out.append({"text": text[:400], "likes": c.get("likes") or c.get("num_likes") or 0})
-        if len(out) >= limit:
-            break
-    return out
-
-
-WARNING_WORDS = re.compile(
-    r"outdated|deprecated|doesn'?t work|does not work|not working|broken|error|old version|no longer|"
-    r"attributeerror|modulenotfound|importerror|tf ?1\.|tensorflow 1|version",
-    re.I,
-)
-
-
-def warning_comments(comments: list[dict], limit: int = 5) -> list[str]:
-    return [c["text"][:200] for c in comments if WARNING_WORDS.search(c["text"])][:limit]

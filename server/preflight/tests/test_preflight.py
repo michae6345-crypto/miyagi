@@ -25,8 +25,7 @@ from server.preflight import (
     preflight_card,
 )
 
-KEYS = Keys(gemini=None, brightdata=None, anthropic="test", serp_zone="serp", unlocker_zone="unlock", github=None)
-KEYS_BD = Keys(gemini=None, brightdata="bd", anthropic="test", serp_zone="serp", unlocker_zone="unlock", github=None)
+KEYS = Keys(gemini=None, anthropic="test", github=None)
 
 KARPATHY_DESC = """We build a Generatively Pretrained Transformer (GPT).
 
@@ -76,16 +75,10 @@ VIDEOS = {
 }
 
 
-def transport(*, page_status: int = 200, unlocker: bool = False, calls: list | None = None):
+def transport(*, page_status: int = 200, calls: list | None = None):
     def handler(req: httpx.Request) -> httpx.Response:
         if calls is not None:
             calls.append(str(req.url))
-        if req.url.host == "api.brightdata.com":
-            body = json.loads(req.content)
-            vid = body["url"].split("v=")[1][:11]
-            if not unlocker:
-                return httpx.Response(502)
-            return httpx.Response(200, text=watch_html(*VIDEOS[vid]), headers={"x-brd-status-code": "200"})
         if req.url.path == "/oembed":
             vid = req.url.params["url"].split("v=")[1][:11]
             if vid not in VIDEOS:
@@ -344,14 +337,7 @@ def test_prefetch_then_pick_hits_memo():
     assert len(claude.calls) == 2
 
 
-def test_bright_data_fallback_when_watch_page_blocked():
-    calls: list[str] = []
-    res = run(_pf("kCc8FmEb1nY", "build an LLM", tr=transport(page_status=429, unlocker=True, calls=calls), keys=KEYS_BD))
-    assert res["durationS"] == 6980 and len(res["chapters"]) == 7
-    assert any("api.brightdata.com" in c for c in calls) and "watch page via Bright Data Unlocker" in res["notes"]
-
-
-def test_blocked_without_bright_data_still_has_oembed():
+def test_blocked_watch_page_still_has_oembed():
     res = run(_pf("kCc8FmEb1nY", "build an LLM", tr=transport(page_status=429)))
     assert res["title"].startswith("Let's build GPT") and "durationS" not in res and res["chapters"] == []
     assert any("HTTP 429" in n for n in res["notes"])

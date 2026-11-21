@@ -23,8 +23,8 @@ a short on-screen `match` ("def lossPDE"). Extra top-level `build` = models, tim
   S3's eval found Gemini's step boundaries and on-screen names clearly better (median start error 1 s vs 15 s).
 - **Claude** (`claude-opus-5-5`, adaptive thinking, server-side refusal fallback) starts in parallel at t=0 and is
   used when Gemini fails or runs out of time (quota, outage, missing key, > 75 s). It builds the same draft
-  from the video's **timestamped transcript + title, description and chapters** (`transcript.py`: Bright Data
-  Web Unlocker when `BRIGHTDATA_UNLOCKER_ZONE` is set, else the public watch page + `youtube-transcript-api`;
+  from the video's **timestamped transcript + title, description and chapters** (`transcript.py`: the public
+  watch page, then `youtube-transcript-api`;
   no frames). The adapt pass falls back the same way.
 - `build.model = {"video": "...", "adapt": "..."}` records which model did what. If both engines fail, the
   error (with both causes) is raised; nothing is made up.

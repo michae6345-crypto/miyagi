@@ -1,7 +1,7 @@
 """Real search sources. Each returns raw candidates: dicts with at least url/title/kind/via.
 
 Nothing here invents a URL: every candidate comes from a search index (YouTube's own
-results page, Google via Bright Data SERP, DuckDuckGo, GitHub, arXiv) or from the result
+results page, DuckDuckGo, GitHub, arXiv) or from the result
 blocks of Claude's web search tool (never from model-written text).
 """
 
@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 import httpx
 
-from . import brightdata, youtube
+from . import youtube
 from .env import Keys
 
 log = logging.getLogger("finder.sources")
@@ -78,7 +78,6 @@ def skip(url: str) -> bool:
 async def youtube_search(ctx: Ctx, query: str, limit: int = 10) -> list[dict]:
     params = {"search_query": query, "hl": "en"}  # (the "videos only" sp filter made relevance worse)
     url = "https://www.youtube.com/results?" + urlencode(params)
-    # Always direct: YouTube pages through the Web Unlocker hang (0 bytes at 60 s, measured Sat 15:10).
     vids: list[dict] = []
     for _attempt in range(2):  # YouTube now and then serves a results page without video rows
         r = await ctx.client.get(url, timeout=8)
@@ -153,26 +152,13 @@ def parse_ddg(page: str) -> list[dict]:
 
 
 async def web_search(ctx: Ctx, query: str, limit: int = 8) -> list[dict]:
-    """Google via Bright Data SERP when configured, else DuckDuckGo's HTML endpoint."""
-    hits: list[dict] = []
+    """DuckDuckGo's HTML endpoint."""
     via = "duckduckgo"
-    if brightdata.available(ctx.keys):
-        for attempt in range(2):  # the SERP target fails now and then (502 captcha); one retry usually works
-            try:
-                hits = await brightdata.google(ctx.client, ctx.keys, query, num=limit + 2)
-                via = "brightdata"
-                ctx.used.add("brightdata-serp")
-                break
-            except Exception as e:
-                ctx.note(f"bright data SERP failed (try {attempt + 1}): {e}")
-                if "target HTTP 5" not in str(e):
-                    break
-    if not hits:
-        r = await ctx.client.post("https://html.duckduckgo.com/html/", data={"q": query, "kl": "us-en"}, timeout=8)
-        if r.status_code != 200:
-            raise RuntimeError(f"DuckDuckGo HTTP {r.status_code}")
-        hits = parse_ddg(r.text)
-        ctx.used.add("duckduckgo")
+    r = await ctx.client.post("https://html.duckduckgo.com/html/", data={"q": query, "kl": "us-en"}, timeout=8)
+    if r.status_code != 200:
+        raise RuntimeError(f"DuckDuckGo HTTP {r.status_code}")
+    hits = parse_ddg(r.text)
+    ctx.used.add("duckduckgo")
     out = []
     for h in hits:
         m = _GH_README.match(h["url"])
@@ -185,7 +171,7 @@ async def web_search(ctx: Ctx, query: str, limit: int = 8) -> list[dict]:
             continue
         kind = classify(h["url"])
         if kind != "video" and sum(1 for o in out if o["kind"] != "video") >= limit:
-            continue  # Google's video results come after the organic ones; keep them
+            continue
         out.append({**h, "kind": kind, "via": via, "indexed": True})
     return out
 

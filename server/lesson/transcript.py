@@ -1,11 +1,10 @@
 """Video metadata + timestamped transcript for the transcript-based (Claude) build path.
 
 Sources, in order (first that works wins; the result is cached in demo/cache/transcripts/):
-1. Bright Data Web Unlocker (BRIGHTDATA_API_KEY + BRIGHTDATA_UNLOCKER_ZONE): the watch page
-   (title, description, caption tracks) and the caption track itself.
-2. The public watch page over plain HTTPS, then its caption track URL directly.
-3. youtube-transcript-api.
-YouTube rate-limits caption endpoints per IP (429 "Sorry..."), which is what (1) is for.
+1. The public watch page over plain HTTPS (title, description, caption tracks), then its caption
+   track URL directly.
+2. youtube-transcript-api.
+YouTube rate-limits caption endpoints per IP (429 "Sorry..."), which is what (2) is for.
 No frames: we only use what YouTube publishes as text (captions, title, description, chapters).
 """
 
@@ -14,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 
 import httpx
@@ -22,7 +20,6 @@ import httpx
 log = logging.getLogger("server.lesson")
 
 WATCH_URL = "https://www.youtube.com/watch?v={vid}&hl=en"
-BRIGHTDATA_ENDPOINT = "https://api.brightdata.com/request"
 _CHAPTER = re.compile(r"^\s*(?:\(|\[)?((?:\d{1,2}:)?\d{1,2}:\d{2})(?:\)|\])?\s*[-–:|]?\s*(.+?)\s*$", re.M)
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
             "Accept-Language": "en-US,en;q=0.9", "Cookie": "CONSENT=YES+1"}
@@ -62,8 +59,7 @@ async def _fetch_metadata(video_id: str) -> dict:
     info: dict = {"video_id": video_id, "title": "", "description": "", "length_s": None, "chapters": [], "transcript": [],
                   "sources": {}, "errors": [], "_tracks": []}
     page = None
-    # The plain watch page is fast and loads even while YouTube 429s caption endpoints; Bright Data is the
-    # fallback (its Unlocker has returned empty bodies for youtube.com, and each attempt costs up to 25 s).
+    # The plain watch page is fast and loads even while YouTube 429s caption endpoints.
     try:
         async with httpx.AsyncClient(headers=_HEADERS, timeout=10, follow_redirects=True) as c:
             r = await c.get(WATCH_URL.format(vid=video_id))
@@ -75,13 +71,6 @@ async def _fetch_metadata(video_id: str) -> dict:
                 info["errors"].append("watch page: no player data (consent/bot page?)")
     except Exception as e:  # noqa: BLE001
         info["errors"].append(f"watch page: {str(e)[:160]}")
-    bd = _brightdata_config()
-    if page is None and bd:
-        try:
-            page = await _brightdata_get(WATCH_URL.format(vid=video_id), *bd)
-            info["sources"]["metadata"] = "brightdata"
-        except Exception as e:  # noqa: BLE001
-            info["errors"].append(f"brightdata watch page: {str(e)[:160]}")
 
     player = _player_response(page) if page else None
     if player:
@@ -101,13 +90,6 @@ async def _fetch_video_info(video_id: str) -> dict:
     info["errors"] = list(info.get("errors") or [])
     info["sources"] = dict(info.get("sources") or {})
     tracks = info.pop("_tracks", [])
-    bd = _brightdata_config()
-    if bd and tracks:
-        try:
-            info["transcript"] = await _brightdata_captions(tracks, *bd)
-            info["sources"]["transcript"] = "brightdata"
-        except Exception as e:  # noqa: BLE001
-            info["errors"].append(f"brightdata captions: {str(e)[:160]}")
     if not info["transcript"] and tracks:
         try:
             info["transcript"] = await _direct_captions(tracks)
@@ -174,29 +156,6 @@ def _mmss(t: float) -> str:
     return f"{t // 3600}:{t % 3600 // 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60}:{t % 60:02d}"
 
 
-def _brightdata_config() -> tuple[str, str] | None:
-    from .gemini import _load_env
-
-    _load_env()
-    key, zone = os.environ.get("BRIGHTDATA_API_KEY"), os.environ.get("BRIGHTDATA_UNLOCKER_ZONE")
-    return (key, zone) if key and zone else None
-
-
-BRIGHTDATA_CAP_S = float(os.environ.get("LESSON_BRIGHTDATA_TIMEOUT", "25"))  # per attempt; YouTube via the Unlocker can hang ~60 s
-
-
-async def _brightdata_get(url: str, key: str, zone: str) -> str:
-    async with httpx.AsyncClient(timeout=BRIGHTDATA_CAP_S) as c:
-        r = await asyncio.wait_for(
-            c.post(BRIGHTDATA_ENDPOINT, headers={"Authorization": f"Bearer {key}"}, json={"zone": zone, "url": url, "format": "raw"}),
-            BRIGHTDATA_CAP_S,
-        )
-        r.raise_for_status()
-        if not r.content:  # observed: 200 with an empty body for youtube.com watch pages
-            raise RuntimeError("Bright Data returned an empty body")
-        return r.text
-
-
 def _best_track(tracks: list[dict]) -> str:
     def rank(tr: dict) -> tuple:
         lang = tr.get("languageCode", "")
@@ -210,10 +169,6 @@ async def _direct_captions(tracks: list[dict]) -> list[dict]:
         r = await c.get(_best_track(tracks))
         r.raise_for_status()
         return _parse_json3(r.text)
-
-
-async def _brightdata_captions(tracks: list[dict], key: str, zone: str) -> list[dict]:
-    return _parse_json3(await _brightdata_get(_best_track(tracks), key, zone))
 
 
 def _parse_json3(raw: str) -> list[dict]:

@@ -6,7 +6,7 @@ fast, with the right event, for the current step, on BOTH demo paths. Offline: c
   path 2  the cached TensorFlow video lesson (demo/cache/lessons/5c0ea8a49f419487.json): s2 fresh, s2 after a typo's
           Not yet (test_video_replay's rig)
 
-Run:  env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY -u BRIGHTDATA_API_KEY python -m pytest server/tests/test_demo_actions.py -q
+Run:  env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY python -m pytest server/tests/test_demo_actions.py -q
 """
 from __future__ import annotations
 

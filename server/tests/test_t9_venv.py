@@ -22,7 +22,7 @@ from server.lesson import gemini
 from server.lesson.venv_steps import rewrite_command, use_lesson_venv
 
 LESSON = json.loads((Path(__file__).parent / "fixtures" / "t9_lesson_5c0ea8a49f419487.json").read_text())
-PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "ELEVENLABS_API_KEY",
+PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY",
              "TIGER_DATABASE_URL")
 LIBS = {"tensorflow", "numpy", "matplotlib", "jupyter"}
 NEW_VENV = re.compile(r"-m\s+venv|virtualenv")

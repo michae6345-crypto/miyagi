@@ -1,4 +1,4 @@
-"""Two non-ML cases (GENERALITY RULE) plus a stand-in for the Bright Data web layer.
+"""Two non-ML cases (GENERALITY RULE) plus a stand-in for the web layer.
 
 The page text is a short excerpt of the real official pages, so the LLM responses
 recorded against it (fixtures/) are realistic. `fake_fetch` replaces `web.fetch`.
@@ -6,7 +6,7 @@ recorded against it (fixtures/) are realistic. `fake_fetch` replaces `web.fetch`
 
 from __future__ import annotations
 
-import json
+from urllib.parse import quote
 
 # ---------- case 1: React hooks error (JS, eslint via `npm run lint`) --------------------
 
@@ -61,7 +61,7 @@ for name, value in counts.iteritems():
 """
 PANDAS_LIBS = {"pandas": "1.3"}
 
-# ---------- fake Bright Data responses -----------------------------------------------------
+# ---------- fake web responses (DuckDuckGo-shaped results pages) -----------------------------------------------------
 
 _SERP = {
     "react": {"organic": [
@@ -98,6 +98,17 @@ _PAGES = {
 }
 
 
+def _ddg_html(serp: dict) -> str:
+    """The shape of html.duckduckgo.com/html/: result links wrapped as //duckduckgo.com/l/?uddg=<url>."""
+    rows = "".join(
+        f'<div class="result results_links results_links_deep web-result">'
+        f'<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg={quote(o["link"], safe="")}&amp;rut=x">{o["title"]}</a>'
+        f'<a class="result__snippet" href="//duckduckgo.com/l/?uddg={quote(o["link"], safe="")}">{o["description"]}</a></div>'
+        for o in serp["organic"]
+    )
+    return f"<html><body>{rows}</body></html>"
+
+
 def fake_fetch_log() -> list[tuple[str, str]]:
     return _LOG
 
@@ -111,7 +122,7 @@ async def fake_fetch(kind: str, url: str) -> str | None:
         return _PAGES.get(url)
     community = "site%3Astackoverflow.com" in url
     if "react" in url.lower():
-        return json.dumps(_SERP["react-community" if community else "react"])
+        return _ddg_html(_SERP["react-community" if community else "react"])
     if "pandas" in url.lower() or "iteritems" in url.lower():
-        return json.dumps(_SERP["pandas-community" if community else "pandas"])
-    return json.dumps({"organic": []})
+        return _ddg_html(_SERP["pandas-community" if community else "pandas"])
+    return _ddg_html({"organic": []})

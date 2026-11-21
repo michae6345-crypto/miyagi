@@ -2,7 +2,7 @@
 
 `docs_for(library, symbol)` → official docs/changelog pages; `community_signals(query)` →
 Stack Overflow / GitHub issues / Reddit snippets. Uses `server.finder.web` (E7) when it
-exists, else calls Bright Data directly (SERP API + Web Unlocker).
+exists, else searches DuckDuckGo's HTML endpoint and reads the pages with a plain GET (no API key).
 
 Each source is a dict: {"url", "title", "snippet", "kind": "docs" | "community"}.
 Every function degrades to [] (no keys, timeout, HTTP error) so the coach never blocks on the web.
@@ -19,7 +19,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import httpx
 
@@ -27,7 +27,10 @@ from . import llm
 
 log = logging.getLogger("coach.web")
 
-BRIGHTDATA_URL = "https://api.brightdata.com/request"
+DDG_URL = "https://html.duckduckgo.com/html/"
+BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/130.0 Safari/537.36")
+BROWSER_HEADERS = {"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.9"}
 
 # library -> official docs/changelog hosts (path prefix allowed: "github.com/pytorch")
 OFFICIAL_DOMAINS: dict[str, list[str]] = {
@@ -130,57 +133,43 @@ def error_line(error_text: str) -> str:
     return (lines[-1] if lines else "")[:200]
 
 
-# ---------- Bright Data transport ---------------------------------------------------
+# ---------- web transport (DuckDuckGo HTML search + plain GET) -----------------------
 
 def configured() -> bool:
+    """Live web grounding is on unless the coach is offline (DEMO / ORCH_STUBS) or COACH_WEB=0.
+    Recorded fixtures (COACH_REPLAY_DIR) always replay."""
     if os.environ.get("COACH_REPLAY_DIR"):
         return True
-    return not llm.offline_mode() and _bd_config() is not None
-
-
-def _bd_config() -> tuple[str, str, str] | None:
-    key = llm.get_key("brightdata")
-    serp = llm.get_key("BRIGHTDATA_SERP_ZONE")
-    unlocker = llm.get_key("BRIGHTDATA_UNLOCKER_ZONE")
-    return (key, serp, unlocker) if key and serp and unlocker else None
+    if os.environ.get("COACH_WEB", "").strip() == "0":
+        return False
+    return not llm.offline_mode()
 
 
 def _fixture(kind: str, url: str) -> str:
     return f"web-{kind}-{hashlib.sha256(url.encode()).hexdigest()[:10]}"
 
 
-async def _bd_request(client: httpx.AsyncClient, key: str, zone: str, url: str) -> str:
-    r = await client.post(
-        BRIGHTDATA_URL,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"zone": zone, "url": url, "format": "raw"},
-    )
-    r.raise_for_status()
-    return r.text
-
-
 async def fetch(kind: str, url: str) -> str | None:
-    """kind: "serp" | "unlock". Replays/records fixtures; None on any failure."""
+    """kind: "serp" (a DuckDuckGo results page) | "unlock" (any page, plain GET). Replays/records
+    fixtures; None on any failure."""
     if rd := os.environ.get("COACH_REPLAY_DIR"):
         p = Path(rd) / f"{_fixture(kind, url)}.json"
         return json.loads(p.read_text())["body"] if p.exists() else None
-    if llm.offline_mode():
+    if not configured():
         return None
-    cfg = _bd_config()
-    if not cfg:
-        return None
-    key, serp_zone, unlocker_zone = cfg
     body = ""
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for attempt in range(2):  # live: Bright Data sometimes answers 200 with an empty body; retry once
-                body = await _bd_request(client, key, serp_zone if kind == "serp" else unlocker_zone, url)
+        async with httpx.AsyncClient(timeout=15.0, headers=BROWSER_HEADERS, follow_redirects=True) as client:
+            for attempt in range(2):  # a search page sometimes comes back empty (rate limit); retry once
+                r = await client.get(url)
+                r.raise_for_status()
+                body = r.text
                 if _usable(kind, body):
                     break
-                log.info("bright data %s: empty/invalid body (attempt %d)", kind, attempt + 1)
+                log.info("web %s: empty/invalid body (attempt %d)", kind, attempt + 1)
                 await asyncio.sleep(0.2)
     except httpx.HTTPError as e:
-        log.info("bright data %s failed for %s: %s", kind, url, e)
+        log.info("web %s failed for %s: %s", kind, url, e)
         return None
     if not _usable(kind, body):
         return None
@@ -194,27 +183,49 @@ def _usable(kind: str, body: str) -> bool:
     if not body or not body.strip():
         return False
     if kind == "serp":
-        try:
-            json.loads(body)
-        except json.JSONDecodeError:
-            return "<html" in body[:2000].lower()  # HTML SERP is parsed by the link fallback
+        return "<html" in body[:2000].lower() or "result__a" in body
     return True
 
 
 def serp_url(query: str) -> str:
-    return f"https://www.google.com/search?q={quote_plus(query)}&brd_json=1&num=10"
+    return f"{DDG_URL}?q={quote_plus(query)}"
+
+
+_DDG_LINK = re.compile(r'<a\b[^>]*\bclass="[^"]*result__a[^"]*"[^>]*\bhref="([^"]+)"[^>]*>(.*?)</a>', re.S)
+_DDG_SNIPPET = re.compile(r'class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|td|div)>', re.S)
+
+
+def _unwrap(href: str) -> str:
+    """DuckDuckGo wraps result links as //duckduckgo.com/l/?uddg=<encoded url>."""
+    href = html.unescape(href)
+    if href.startswith("//"):
+        href = "https:" + href
+    u = urlparse(href)
+    if u.netloc.endswith("duckduckgo.com") and u.path.startswith("/l/"):
+        return unquote((parse_qs(u.query).get("uddg") or [""])[0])
+    return href
+
+
+def _strip(s: str) -> str:
+    return html.unescape(re.sub(r"(?s)<[^>]+>", "", s or "")).strip()
 
 
 def parse_serp(raw: str) -> list[dict]:
-    try:
-        data = json.loads(raw)
-        return [
-            {"url": o.get("link") or o.get("url"), "title": o.get("title", ""), "snippet": o.get("description", "") or o.get("snippet", "")}
-            for o in data.get("organic", [])
-            if o.get("link") or o.get("url")
-        ]
-    except (json.JSONDecodeError, AttributeError):
-        return [{"url": u, "title": "", "snippet": ""} for u in re.findall(r'href="(https?://[^"]+)"', raw or "")]
+    """[{url, title, snippet}] from a DuckDuckGo HTML results page (ads skipped). Falls back to
+    every absolute link on the page when the result markup is not recognised."""
+    out = []
+    for block in re.split(r'(?=<div[^>]+class="[^"]*\bresult\b)', raw or ""):
+        m = _DDG_LINK.search(block)
+        if not m or "result--ad" in block[:300]:
+            continue
+        url = _unwrap(m.group(1))
+        if url.startswith("http"):
+            sn = _DDG_SNIPPET.search(block)
+            out.append({"url": url, "title": _strip(m.group(2)), "snippet": _strip(sn.group(1)) if sn else ""})
+    if out:
+        return out
+    links = (_unwrap(u) for u in re.findall(r'href="((?:https?:)?//[^"]+)"', raw or ""))
+    return [{"url": u, "title": "", "snippet": ""} for u in links if u.startswith("http") and "duckduckgo.com" not in urlparse(u).netloc]
 
 
 def page_text(page: str, limit: int = 4000) -> str:

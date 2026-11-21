@@ -5,7 +5,7 @@
 
 Stages (one shared deadline, default 5 s; a stage that misses it is listed in `missing`, keeps running for
 up to LATE_S more seconds and, if it lands, the filled-in result goes to on_late so the card can be re-sent):
-  1. metadata  (~1 s)  oEmbed + watch page (plain fetch, Bright Data Unlocker fallback); chapters
+  1. metadata  (~1 s)  oEmbed + watch page (plain fetch); chapters
   2. in parallel:
      - Claude   (~2 s)  claude-haiku-5-5, structured output: style, topic, goalMatch, first hands-on chapter
      - tools    (~2-3 s) server.workspace.requirements() on a metadata-level graph (S2), checked locally

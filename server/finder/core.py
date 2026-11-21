@@ -6,18 +6,17 @@ Who does what (Michael's rule): Claude searches, scores and reads; Gemini only w
 
 Pipeline (target: first result ~4 s, done < 20 s):
   1. at t=0, in parallel: Claude + its web search tool (plans and runs 2-3 searches), the
-     YouTube results page, web search (Bright Data SERP -> Google, else DuckDuckGo) for a
+     YouTube results page, DuckDuckGo web search for a
      tutorial and a notebook, GitHub repos, arXiv papers
   2. every candidate is verified (oEmbed for videos, an HTTP request for the rest) and
      scored by Claude for the learner's goal (Gemini only with FINDER_GEMINI_FALLBACK=1, if
      Claude fails); rows stream through on_result as they land
-  3. Gemini skims the top videos at low fps (+ Bright Data comments when configured);
+  3. Gemini skims the top videos at low fps (opt-in);
      Claude reads the top non-video pages (teaches the goal? prerequisites? code?)
   4. the ranked list is returned (best video first, since build_lesson needs a video) and
      cached in demo/cache/search/.
 
-Bright Data is optional (claude/eng-drop-vendors): used only when BRIGHTDATA_API_KEY is in .env,
-never asked for by the app; without it every Bright Data step is skipped (DuckDuckGo, plain HTTP).
+The live-web layer is YouTube's own pages, DuckDuckGo and plain HTTP: no third-party scraping service.
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import brightdata, cache, claude, env, gemini, sources, youtube
+from . import cache, claude, env, gemini, sources, youtube
 from .env import Keys, resolve_keys
 from .verify import verify
 
@@ -190,14 +189,6 @@ def _gemini_text_ok() -> bool:
         return False
 
 
-def _short_err(e: BaseException) -> str:
-    msg = str(e)
-    if isinstance(e, asyncio.TimeoutError) or "timed out" in msg.lower() or "ReadTimeout" in type(e).__name__:
-        return "Bright Data timeout"
-    m = re.search(r"Bright Data comments(?: -> HTTP (\d+))?: ?(.*)", msg)
-    return (f"Bright Data HTTP {m.group(1)}: " if m and m.group(1) else "Bright Data: ") + (m.group(2) if m else msg)[:70]
-
-
 def video_fields(c: dict) -> None:
     """durationLabel ('1 h 56 min · 30 chapters') and the long flag for video rows. 'long' uses the
     lesson builder's own threshold (LESSON_LONG_VIDEO_S, 30 min), above which it builds progressively,
@@ -243,7 +234,7 @@ class _Run:
         # FINDER_GEMINI_FALLBACK=0 by default (BUILD-PLAN E4): Claude scores. Gemini scores only when Claude fails AND
         # FINDER_GEMINI_FALLBACK=1 AND the Gemini key may take text calls (never the miyagi cloud's video-only token).
         self.gemini_fallback = self.gemini_ok and env.gemini_fallback() and _gemini_text_ok()
-        self.video_top = 3  # top videos that get Bright Data comments
+        self.video_top = 3  # top videos considered for the Gemini skim
         self.watching = 0   # videos handed to Gemini so far
         self.plan_used: dict = {}
         self.timings: dict[str, float] = {}
@@ -261,8 +252,6 @@ class _Run:
     def info(self) -> dict:
         return {
             "providers": sorted(self.ctx.used) if self.ctx else [],
-            "brightdata": "used" if any(u.startswith("brightdata") for u in (self.ctx.used if self.ctx else ())) else
-                          ("no key" if not self.keys.has_brightdata else f"failed: {brightdata.last_error}"),
             "plan": self.plan_used,
             "timings": {k: round(v, 2) for k, v in self.timings.items()},
             "notes": (self.ctx.errors if self.ctx else [])[:20],
@@ -315,8 +304,6 @@ class _Run:
                 jobs["github"] = sources.github_search(self.ctx, plan["github_query"])
             if "paper" in want:
                 jobs["arxiv"] = sources.arxiv_search(self.ctx, plan["arxiv_terms"])
-        elif brightdata.available(self.keys):  # videos only: one Bright Data SERP for Google's video results
-            jobs["web-video"] = sources.web_search(self.ctx, f"{q} video tutorial", limit=4)
         if self.keys.anthropic:  # primary planner + searcher
             jobs["claude"] = sources.claude_search(self.ctx, q, timeout=max(4.0, SOURCES_BUDGET_S - 1.5),
                                                    videos_only=want == {"video"})
@@ -512,10 +499,10 @@ class _Run:
                 s += 1
         return max(0, min(100, s))
 
-    # ---- deep pass: skim the top videos (+ Bright Data comments), calibrate all scores
+    # ---- deep pass: skim the top videos, calibrate all scores
 
     def _start_skims(self) -> None:
-        """Bright Data reads the top videos' comments (and Gemini skims them when FINDER_SKIM_TOP > 0);
+        """Gemini skims the top videos (only when FINDER_SKIM_TOP > 0);
         Claude reads the top pages. All start as soon as rows are scored (alongside the other sources)."""
         if self.left(margin=2) < 3:
             return
@@ -535,7 +522,7 @@ class _Run:
         c["watched"] = f"not {'watched' if c['kind'] == 'video' else 'read'}: {why}"
 
     async def _read(self, c: dict) -> None:
-        """Claude reads the page (fetched via the Bright Data Unlocker when configured, else plain HTTP)."""
+        """Claude reads the page (plain HTTP fetch)."""
         if not self.keys.anthropic:
             return self._not_watched(c, "no Anthropic key")
         url = c["url"]
@@ -543,13 +530,9 @@ class _Run:
         if nb:  # Colab is a JS app; read the notebook it opens from GitHub instead
             url = f"https://raw.githubusercontent.com/{nb.group(1)}/{nb.group(2)}"
         try:
-            if brightdata.available(self.keys) and not nb:
-                html = await brightdata.unlock(self.ctx.client, self.keys, url, timeout=min(8.0, self.left(margin=6)))
-                self.ctx.used.add("brightdata-unlocker")
-            else:
-                r = await self.ctx.client.get(url, timeout=min(6.0, self.left(margin=6)))
-                r.raise_for_status()
-                html = r.text
+            r = await self.ctx.client.get(url, timeout=min(6.0, self.left(margin=6)))
+            r.raise_for_status()
+            html = r.text
         except Exception as e:
             self.ctx.note(f"read {c['id']}: fetch failed: {type(e).__name__}: {str(e)[:80]}")
             return self._not_watched(c, "page fetch failed")
@@ -564,25 +547,7 @@ class _Run:
             self._not_watched(c, f"Claude {claude.failure(e)}")
 
     async def _skim(self, v: dict) -> None:
-        """Gemini watches the video while Bright Data pulls its comments (in parallel: the
-        comments dataset takes 5-10 s, too slow to wait for before the skim)."""
-
-        async def comments() -> None:
-            if not brightdata.comments_available(self.keys):
-                if self.keys.has_brightdata:
-                    v["comments"] = "comments not read: " + (brightdata.comments_error or brightdata.last_error or "Bright Data unavailable")[:80]
-                return
-            try:
-                recs = await brightdata.youtube_comments(self.ctx.client, self.keys, v["url"], timeout=max(1.0, min(10.0, self.left(margin=1.0))))
-                parsed = youtube.parse_comments(recs)
-                warns = youtube.warning_comments(parsed)
-                self.ctx.used.add("brightdata-comments")
-                v["comments"] = f"{len(parsed)} comments read via Bright Data" + (f", {len(warns)} warn of problems" if warns else "")
-                if warns:
-                    v["warnings"] = warns[:3]
-            except Exception as e:
-                self.ctx.note(f"comments for {v['videoId']} failed: {type(e).__name__}: {str(e)[:100]}")
-                v["comments"] = "comments not read: " + _short_err(e)
+        """Gemini watches the video (opt-in, FINDER_SKIM_TOP)."""
 
         async def watch() -> None:
             if not v.get("_watch"):
@@ -596,7 +561,7 @@ class _Run:
                 self.ctx.note(f"skim {v['videoId']} failed: {type(e).__name__}: {str(e)[:80]}")
                 self._not_watched(v, f"Gemini {gemini.failure(e)}")
 
-        await asyncio.gather(comments(), watch())
+        await watch()
 
     async def _deep_pass(self, client: httpx.AsyncClient) -> None:
         if not self.cands:
@@ -621,8 +586,6 @@ class _Run:
                 t.cancel()
             for cid, t in deep.items():
                 c = self.cands.get(cid)
-                if t in late and c is not None and c["kind"] == "video" and not c.get("comments") and self.keys.has_brightdata:
-                    c["comments"] = "comments not read: Bright Data timeout"
                 if t in late and c is not None and not c.get("watched") and (c["kind"] != "video" or c.get("_watch")):
                     self._not_watched(c, f"{'Gemini' if c['kind'] == 'video' else 'Claude'} ran out of time")
         self.timings["deep"] = self.elapsed()

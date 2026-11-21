@@ -24,10 +24,9 @@ SCREEN = {"Code": ["calc.py — calculator", "1 def add(a, b):", "2     return a
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    # never reach a paid API from tests: no .env, no keys (the shared .env has real Bright Data keys)
+    # never reach a paid API from tests: no .env, no keys (the shared .env has real keys)
     monkeypatch.setattr(llm, "_load_env", lambda: None)
-    for k in ("COACH_REPLAY_DIR", "DEMO", "ORCH_STUBS", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "BRIGHTDATA_API_KEY",
-              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "TUT_ENV"):
+    for k in ("COACH_REPLAY_DIR", "DEMO", "ORCH_STUBS", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "TUT_ENV"):
         monkeypatch.delenv(k, raising=False)
     from server.coach.diagnose import LAST, reset_memo
 
@@ -462,7 +461,7 @@ from server.coach import voice, web
 def test_offline_mode_makes_no_paid_call(monkeypatch, tmp_path, env):
     for k, v in env.items():
         monkeypatch.setenv(k, v)
-    for k in ("ANTHROPIC_API_KEY", "BRIGHTDATA_API_KEY", "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"):
+    for k in ("ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"):
         monkeypatch.setenv(k, "real-looking")
     monkeypatch.setenv("COACH_TTS_DIR", str(tmp_path))
     monkeypatch.setattr(llm, "_load_env", lambda: None)
@@ -471,7 +470,7 @@ def test_offline_mode_makes_no_paid_call(monkeypatch, tmp_path, env):
         raise AssertionError("a paid call left the coach in offline mode")
 
     monkeypatch.setattr(llm, "get_client", no_network)
-    monkeypatch.setattr(web, "_bd_request", no_network)
+    monkeypatch.setattr(web.httpx.AsyncClient, "get", no_network)
     monkeypatch.setattr(voice, "_transport", httpx.MockTransport(no_network))
     monkeypatch.setattr(voice, "_client", None)
 

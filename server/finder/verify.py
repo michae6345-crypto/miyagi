@@ -7,7 +7,7 @@ import logging
 
 import httpx
 
-from . import brightdata, youtube
+from . import youtube
 from .env import Keys
 
 log = logging.getLogger("finder.verify")
@@ -36,15 +36,8 @@ async def verify(client: httpx.AsyncClient, keys: Keys, cand: dict) -> dict | No
     status, final = await check_url(client, cand["url"])
     if 200 <= status < 400:
         return {**cand, "url": final, "verified": True}
-    if status in BOT_BLOCKED and keys.has_brightdata:
-        try:
-            await brightdata.unlock(client, keys, cand["url"], timeout=10)
-            return {**cand, "verified": True}
-        except Exception as e:
-            log.info("unlocker could not open %s: %s", cand["url"], e)
-            return None
     if status in BOT_BLOCKED and cand.get("indexed"):
-        # The page is in a search engine's index (real) but refuses bots without Bright Data.
+        # The page is in a search engine's index (real) but refuses bots.
         return {**cand, "verified": "indexed"}
     log.info("dropping %s (HTTP %s)", cand["url"], status)
     return None
@@ -70,7 +63,7 @@ async def verify_video(client: httpx.AsyncClient, keys: Keys, cand: dict) -> dic
     }
     if not out.get("duration_s"):
         try:
-            page = (await client.get(url, timeout=6)).text  # direct: the Unlocker hangs on YouTube
+            page = (await client.get(url, timeout=6)).text
             out.update({k: v for k, v in youtube.parse_watch(page).items() if v and not out.get(k)})
         except Exception as e:
             log.info("watch page for %s failed: %s", vid, e)

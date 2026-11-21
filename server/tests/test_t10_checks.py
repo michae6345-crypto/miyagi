@@ -29,7 +29,7 @@ from server.checks.notebook import read_notebook
 ROOT = Path(__file__).resolve().parents[2]
 LESSON = json.loads((ROOT / "demo" / "cache" / "lessons" / "5c0ea8a49f419487.json").read_text())
 NOTEBOOK = json.loads((Path(__file__).parent / "fixtures" / "t10_mnist.ipynb").read_text())
-PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "ELEVENLABS_API_KEY",
+PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY",
              "TIGER_DATABASE_URL")
 # the editor scrolled to the top of the notebook (CP14: the screen showed the compile cell, not the plot)
 TOP = {"Code": ["model.compile(optimizer='adam',", "loss='sparse_categorical_crossentropy',", "metrics=['accuracy'])"]}

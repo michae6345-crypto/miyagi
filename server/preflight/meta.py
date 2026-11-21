@@ -1,5 +1,4 @@
-"""Video metadata for preflight: oEmbed + the watch page (plain fetch, Bright Data Unlocker as the
-fallback), and chapters (YouTube's own chapter list, else timestamps in the description).
+"""Video metadata for preflight: oEmbed + the watch page (plain fetch), and chapters (YouTube's own chapter list, else timestamps in the description).
 
 Everything here is parsed from what YouTube actually serves; nothing is guessed."""
 
@@ -11,7 +10,7 @@ import re
 
 import httpx
 
-from server.finder import brightdata, youtube
+from server.finder import youtube
 from server.finder.env import Keys
 
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -157,15 +156,6 @@ async def fetch(client: httpx.AsyncClient, url: str, keys: Keys, *, timeout: flo
             return await _direct(client, watch, timeout)
         except Exception as e:  # noqa: BLE001
             notes.append(f"watch page: {str(e)[:100]}")
-        if brightdata.available(keys):
-            try:
-                html = await brightdata.unlock(client, keys, watch, timeout=timeout)
-                if "lengthSeconds" in html:
-                    notes.append("watch page via Bright Data Unlocker")
-                    return html
-                notes.append("Bright Data Unlocker: no player data")
-            except Exception as e:  # noqa: BLE001
-                notes.append(f"Bright Data Unlocker: {str(e)[:100]}")
         return None
 
     async def oembed() -> dict | None:
