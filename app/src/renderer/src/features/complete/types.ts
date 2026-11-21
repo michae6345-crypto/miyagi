@@ -4,7 +4,11 @@
  * contract reaches adrian/shell.
  */
 export type SkillState = 'mastered' | 'learning' | 'next'
-export interface SkillNode { id: string; label: string; state: SkillState; detail?: string }
+/**
+ * lesson is not in the contract yet (Core request in agents/progress.md): true on the skills THIS lesson taught, so the
+ * completion card can say which skill leveled up. Read only when it is exactly true.
+ */
+export interface SkillNode { id: string; label: string; state: SkillState; detail?: string; lesson?: boolean }
 export interface SkillEdge { from: string; to: string }
 export interface SkillCross { track: string; label: string; to: string; note?: string }
 /**
@@ -33,7 +37,7 @@ export function readSkillMap(raw: unknown): SkillMap | undefined {
     seen.add(id)
     const state = STATES.has(o.state as SkillState) ? (o.state as SkillState) : 'next'
     const detail = str(o.detail)
-    nodes.push(detail ? { id, label, state, detail } : { id, label, state })
+    nodes.push({ id, label, state, ...(detail ? { detail } : {}), ...(o.lesson === true ? { lesson: true } : {}) })
   }
   if (!nodes.length) return undefined
   const edges: SkillEdge[] = (Array.isArray(m.edges) ? m.edges : [])

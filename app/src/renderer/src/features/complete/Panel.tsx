@@ -9,7 +9,8 @@
  *            (the newest metric series, else the trained network's loss). Left out when there's none.
  *   steps    "6 of 6 passed" / "5 of 6 passed, 1 skipped" from card.result, else counted from this lesson's
  *            step.passed events, and every step with its state
- *   skills   what this lesson grew: the track's mastered skills from skillMap (a green check is a mastered skill, the
+ *   skills   what this lesson grew: the track's mastered skills from skillMap, this lesson's first with a "new" tag
+ *            (node.lesson, when the engine sends it) (a green check is a mastered skill, the
  *            one place green is earned here besides the hero), up to four, then "and N more"
  *   next up  skillMap.next[0]
  * Motion: no confetti. The hero check springs in, then each block settles in turn (40 ms apart) and the step rows tick
@@ -183,7 +184,7 @@ function Steps({ counts, from = 0 }: { counts?: LessonResult; from?: number }): 
               data-complete-step={s.state}
               className="flex shrink-0 items-center gap-[12px]"
               style={{ height: 26, fontSize: type2.sm, color: s.state === 'passed' ? color.text : color.label }}
-              {...enter(from + Math.min(i, ROWS))}
+              {...enter(from + Math.min(i, ROWS - 1))}
             >
               <StatusGlyph state={s.state} size={16} />
               <span className="min-w-0 truncate">{s.title}</span>
@@ -195,13 +196,18 @@ function Steps({ counts, from = 0 }: { counts?: LessonResult; from?: number }): 
   )
 }
 
-/** The track's mastered skills (what this lesson added to), up to four chips, then "and N more". */
+/**
+ * The track's mastered skills, up to four chips, then "and N more". The skills THIS lesson taught (node.lesson, not in
+ * the contract yet: Core request in agents/progress.md) come first and carry a quiet "new" tag, so the card says which
+ * skill leveled up. Without the flag the order is the track's own and nothing is tagged (never a guess).
+ */
 const SKILL_CHIPS = 4
 function Skills({ card }: { card: CompleteCard }): ReactNode {
   const map = card.map
   if (!map) return null
-  const mastered = map.nodes.filter((n) => n.state === 'mastered')
-  if (!mastered.length) return null
+  const all = map.nodes.filter((n) => n.state === 'mastered')
+  if (!all.length) return null
+  const mastered = [...all.filter((n) => n.lesson), ...all.filter((n) => !n.lesson)]
   const shown = mastered.slice(0, SKILL_CHIPS)
   const more = mastered.length - shown.length
   return (
@@ -224,6 +230,11 @@ function Skills({ card }: { card: CompleteCard }): ReactNode {
           >
             <StatusGlyph state="passed" size={14} />
             <span className="truncate">{n.label}</span>
+            {n.lesson && (
+              <span className="shrink-0" style={{ fontSize: type2.micro, color: color.label }} data-complete-new>
+                new
+              </span>
+            )}
           </span>
         ))}
         {more > 0 && (
@@ -281,6 +292,9 @@ export function CompletePanel(): ReactNode {
   const counts = useCounts(card?.result)
   const w = panelWidth(useOverlayWidth((s) => s.w))
   const enter = useEnter()
+  // The blocks after the step rows wait for the last visible row, so the replay reads top to bottom.
+  const rows = useSteps().length
+  const after = 4 + Math.min(rows, ROWS)
   if (!card) return null
   // Green only when every counted step passed; no counts, a skip or a missed pass all get the plain ring.
   const clean = !!counts && counts.skipped === 0 && counts.passed >= counts.total
@@ -307,15 +321,15 @@ export function CompletePanel(): ReactNode {
       <motion.div className="empty:hidden" {...enter(3)}>
         <Steps counts={counts} from={4} />
       </motion.div>
-      <motion.div className="empty:hidden" {...enter(5)}>
+      <motion.div className="empty:hidden" {...enter(after)}>
         <Skills card={card} />
       </motion.div>
       {next && (
-        <motion.div {...enter(6)}>
+        <motion.div {...enter(after + 1)}>
           <NextUp next={next} />
         </motion.div>
       )}
-      <motion.div {...enter(7)}>
+      <motion.div {...enter(after + 2)}>
         <Actions next={next} />
       </motion.div>
     </section>
