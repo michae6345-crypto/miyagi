@@ -1,36 +1,75 @@
 appId: dev.sandhacks.miyagi
+# The app's name everywhere on the Mac: the .app folder, CFBundleName/CFBundleDisplayName (menu bar, Dock, ⌘Tab,
+# Activity Monitor, Spotlight) and the macOS permission prompts. Lowercase, like the brand (BRAND.md). The main
+# process says the same (src/main/identity.ts), and package.json productName keeps userData at .../miyagi.
 productName: miyagi
+copyright: © 2026 miyagi
 directories:
   output: dist
   buildResources: build
 files:
   - out/**
   - package.json
+# Chromium ships ~55 UI locales per platform (~9 MB on Mac); the app's copy is English only.
+electronLanguages: [en]
 mac:
-  target: dir
+  # scripts/ship-mac.sh builds the .app with --dir, signs it ad hoc, then makes this dmg from it (--prepackaged).
+  target: dmg
   icon: build/icon.png
   category: public.app-category.education
   identity: null
   extendInfo:
     LSUIElement: true
+    CFBundleName: miyagi
+    CFBundleDisplayName: miyagi
     # macOS shows these in the permission prompts (the app starts the engine, so the prompts name miyagi).
     NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
     NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
-  # The engine travels inside the app (scripts/bundle-engine.mjs makes build/engine); on first launch
-  # main/localEngine.ts installs it to ~/miyagi/engine and starts it.
+    # Electron's own Info.plist carries generic "This app needs access to ..." strings for these. miyagi uses none of
+    # them (voice is off), but if macOS ever asks, the prompt names miyagi and says so plainly.
+    NSMicrophoneUsageDescription: miyagi doesn't use the microphone.
+    NSCameraUsageDescription: miyagi doesn't use the camera.
+    NSBluetoothAlwaysUsageDescription: miyagi doesn't use Bluetooth.
+    NSBluetoothPeripheralUsageDescription: miyagi doesn't use Bluetooth.
+    NSAudioCaptureUsageDescription: miyagi doesn't record audio.
+  # The engine travels inside the app, ready to run offline (scripts/bundle-engine.mjs makes build/engine):
+  #   Resources/engine/src      engine source; first launch copies it to ~/miyagi/engine/src (main/localEngine.ts)
+  #   Resources/engine/python   standalone Python 3.12 with the engine's packages, precompiled; started directly
+  #   Resources/vscode          the VS Code companion .vsix + companion.json, installed with VS Code's `code` CLI
+  # extraResources copy everything as is (symlinks and __pycache__ included: electron-builder's default excludes
+  # apply to `files`, not here), so nothing is compiled or written inside the signed app at run time.
   extraResources:
     - from: build/engine
       to: engine
+      filter:
+        - "**/*"
+        - "!vscode{,/**/*}"
+    - from: build/engine/vscode
+      to: vscode
+# The Mac download (art and layout: agents/dmg-art.md). Finder draws both icons on the art; the art is 640x400 and
+# electron-builder sizes the window from it (background@2x.png next to it becomes the Retina half of a .tiff).
+# ULFO = lzfse, the strongest format electron-builder accepts; ship-mac.sh then recompresses to ULMO (lzma).
+dmg:
+  artifactName: Miyagi-Mac.${ext}
+  title: miyagi
+  background: build/dmg/background.png
+  iconSize: 112
+  iconTextSize: 13
+  format: ULFO
+  writeUpdateInfo: false
+  contents:
+    - { x: 168, y: 150, type: file }
+    - { x: 472, y: 150, type: link, path: /Applications }
 win:
   target: nsis
   icon: build/icon.ico
-# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts Miyagi when done.
+# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts miyagi when done.
 # Stable file name so the site can link straight to it. Unsigned: SmartScreen asks once (More info > Run anyway).
 nsis:
   artifactName: Miyagi-Windows-Setup.${ext}
   oneClick: true
   perMachine: false
-  shortcutName: Miyagi
+  shortcutName: miyagi
   createDesktopShortcut: true
   createStartMenuShortcut: true
   runAfterFinish: true
