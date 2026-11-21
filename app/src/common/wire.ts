@@ -45,11 +45,26 @@ const KNOWN = new Set<string>([
   'error',
   'screen.seen',
   'setup.progress',
-  'config.status'
+  'config.status',
+  // Michael's VS Code quick-pick rects (desktop test 9, A3 / A4; core/islandPlace.ts)
+  'screen.avoid',
+  // v2 (BUILD-PLAN W0-1): all optional; a feature that doesn't subscribe never sees them
+  'engine.hello',
+  'health',
+  'lesson.paused',
+  'lesson.resumed',
+  'blocker',
+  'library',
+  'library.item',
+  'progress'
 ] satisfies (keyof EngineEvents | 'config.status')[])
-// Michael's VS Code quick-pick rects (desktop test 9, A3 / A4; core/islandPlace.ts). TODO(contract): move into the list
-// above once adrian/shell's events.ts has "screen.avoid".
-KNOWN.add('screen.avoid')
+
+/**
+ * v2 commands the app may send only when the engine listed them in engine.hello.capabilities (core/lesson.ts
+ * `canSend`). An older engine would answer them with an error, so they are never sent blind.
+ */
+export const V2_COMMANDS = ['health.get', 'permission.open', 'library.list', 'library.get', 'library.start', 'progress.get', 'panel.state'] as const satisfies readonly (keyof AppCommands)[]
+export type V2Command = (typeof V2_COMMANDS)[number]
 
 /** Parse one WebSocket frame. Accepts `{type, payload}` (contract) and, leniently, flat `{type, ...fields}`. */
 export function parseEngineMessage(raw: unknown): Incoming | null {

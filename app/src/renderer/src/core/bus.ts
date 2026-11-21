@@ -49,7 +49,24 @@ export function dispatch(msg: Incoming): void {
  *              A handler returns true to "claim" it, which stops the action going to the engine
  *              (e.g. ⌥D while a diagram is open just closes it).
  */
-export type UiEvent = 'dismiss' | 'reset' | 'shortcut'
+export type UiEvent =
+  | 'dismiss'
+  | 'reset'
+  | 'shortcut'
+  /**
+   * v2 (W0-5). panel: open / collapse / toggle the lesson panel (payload PanelRequest). The drawer feature (A1) owns
+   * the panel and answers it; the Mini pill (A2), the recovery card (A3) and the keys ask through this, so no feature
+   * imports another's opener inside the overlay.
+   */
+  | 'panel'
+  /**
+   * v2. surface: an overlay surface opened or closed (payload SurfaceSignal: {id, open}), for surfaces that must
+   * yield to each other (the shortcut bar hides while the panel is open; a card stays off the recovery card).
+   */
+  | 'surface'
+
+export type PanelRequest = 'open' | 'collapse' | 'toggle'
+export type SurfaceSignal = { id: string; open: boolean }
 
 type UiHandler = (payload?: unknown) => boolean | void
 const uiHandlers = new Map<UiEvent, Set<UiHandler>>()
