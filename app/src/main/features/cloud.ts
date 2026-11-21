@@ -119,6 +119,10 @@ export function createHealer(heal: () => Promise<void>, opts: HealerOptions = {}
   }
 }
 
+/** The install token this run holds (main only: features/telemetry.ts authenticates its events with it). */
+let currentToken: string | undefined
+export const installToken = (): string | undefined => currentToken
+
 function secureStorage(): boolean {
   if (!safeStorage.isEncryptionAvailable()) return false
   if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') return false
@@ -140,6 +144,7 @@ export default defineMainFeature({
     const publish = (): void => ctx.broadcast('cloud', view())
     const apply = (): void => {
       ctx.engine.setCloud(stored && url ? { miyagiToken: stored.token, miyagiCloud: cloudApiRoot(url) } : undefined)
+      currentToken = stored && url ? stored.token : undefined
       state = !url ? 'off' : stored ? 'ok' : state
       publish()
     }

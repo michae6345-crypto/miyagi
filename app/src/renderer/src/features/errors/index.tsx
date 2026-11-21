@@ -26,6 +26,7 @@ import { BlockerLine, BusyLine, OfflineLine, ReconnectLine, StoppedLine } from '
 import { useQuietStart } from './startup'
 import { engineOffline, engineStopped, reconnectTry, useErrors, useNetOffline } from './store'
 import './gate'
+import './report'
 
 /** v2Cloud is off this push (BUILD-PLAN section 1): the limit card only shows in the stage with ?v2Cloud=1. */
 const V2_CLOUD = !isElectron && typeof location !== 'undefined' && new URLSearchParams(location.search).get('v2Cloud') === '1'

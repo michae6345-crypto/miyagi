@@ -25,6 +25,8 @@ export type Prefs = {
   usageCounts: boolean
   /** Shortcut overrides (Settings → Shortcuts). Validated and stored; live rebinding comes in wave 2. */
   shortcuts: ShortcutPrefs
+  /** Settings › Privacy "Share crash reports and usage" (main/features/telemetry.ts). Off by default, for everyone. */
+  shareTelemetry: boolean
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -35,7 +37,8 @@ export const DEFAULT_PREFS: Prefs = {
   onboarded: false,
   crashReports: 'ask',
   usageCounts: false,
-  shortcuts: {}
+  shortcuts: {},
+  shareTelemetry: false
 }
 
 const SHORTCUT_KINDS: readonly ShortcutKind[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
@@ -63,6 +66,7 @@ export function sanitizePrefs(raw: unknown): Partial<Prefs> {
   if (typeof r.onboarded === 'boolean') out.onboarded = r.onboarded
   if (r.crashReports === 'ask' || r.crashReports === 'always' || r.crashReports === 'never') out.crashReports = r.crashReports
   if (typeof r.usageCounts === 'boolean') out.usageCounts = r.usageCounts
+  if (typeof r.shareTelemetry === 'boolean') out.shareTelemetry = r.shareTelemetry
   if (r.shortcuts && typeof r.shortcuts === 'object' && !Array.isArray(r.shortcuts)) {
     const s: ShortcutPrefs = {}
     for (const k of SHORTCUT_KINDS) {
