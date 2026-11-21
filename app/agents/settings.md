@@ -1,6 +1,10 @@
 # settings
 
-**Status:** pass 2 done: General section (stage-verified; Electron side typechecked, unrun) · **Priority:** P1 · **Port:** 5183 · **Branch:** `adrian/settings`
+**Status:** v2 (A4) in progress on `michael/app-settings`: Settings window with sidebar (General, Permissions, Privacy, Account and plan, Shortcuts) · **Priority:** P1 · **Port:** 5189 · **Branch:** `michael/app-settings`
+
+## v2 (A4, miyagi-v2 BUILD-PLAN)
+Mockups: Set-General, Set-Permissions, Set-Privacy, Set-Account (BYOK), Set-Shortcuts, Plan-OwnKey.
+Scenario: `?scenario=settings&settings=<section>&perm=accessibility-off&record=hint&confirm=delete&clean`.
 
 ### Pass 2 (Sat Nov 14, Adrian: "basic settings with the other stuff like light mode / dark mode")
 The sheet is now **Settings**: a **General** section above **Keys** (keys unchanged, ElevenLabs still hidden). Shots: `shots/settings-general-*.png`.
