@@ -16,7 +16,7 @@ import { canSend } from '../../core/lesson'
 import { cleanDetail, cleanList, isLibraryId, type LibraryDetail } from './sanitize'
 
 const STAGE_ITEMS: LibraryItem[] = [
-  { id: 'stage_mnist', title: 'Code your first neural network with TensorFlow', by: '[CREATOR NAME]', steps: 7, estMinutes: 25, tools: ['jupyter', 'vscode'], ready: true, progress: { stepIndex: 3, stepTitle: 'Train it', total: 7 }, source: { kind: 'youtube', title: 'Code your first neural network with TensorFlow', channel: '[CREATOR NAME]' } },
+  { id: 'stage_mnist', title: 'Code your first neural network with TensorFlow', by: '[CREATOR NAME]', steps: 7, estMinutes: 25, tools: ['jupyter', 'vscode'], ready: true, progress: { stepIndex: 3, stepTitle: 'Train it', total: 7 }, source: { kind: 'youtube', title: 'Code your first neural network with TensorFlow', channel: '[CREATOR NAME]', durationS: 1420, url: 'https://www.youtube.com/watch?v=AXXnSzmpyoI' } },
   { id: 'stage_pandas', title: 'Clean a CSV with pandas', by: '[CREATOR NAME]', steps: 6, estMinutes: 20, tools: ['jupyter'], ready: true, progress: { stepIndex: 2, stepTitle: 'Drop the empty rows', total: 6 } },
   { id: 'stage_venv', title: 'Set up Python with a virtual environment', by: '[ORG NAME]', steps: 5, estMinutes: 10, tools: ['terminal', 'vscode'], ready: true },
   { id: 'stage_plot', title: 'Plot your data with matplotlib', by: '[CREATOR NAME]', steps: 6, estMinutes: 15, tools: ['jupyter'], ready: true },
