@@ -22,6 +22,15 @@ export type Link = { open: boolean; attempting: boolean; failures: number }
 export const TRIES = 5
 /** How long a recovery line stays on the pill. */
 const FLASH_MS = 3500
+/** Restart engine / Reopen in VS Code: how long a press may spin before the card says it did not work. */
+const WAIT_MS = 20_000
+
+/**
+ * The overlay window (index.html, #/overlay, as main.tsx routes it). Feature windows (library, progress, onboarding,
+ * account) load this module too, but only the overlay asks about a crash or reports the lesson for the marker: a
+ * window with another or partial lesson state must not overwrite it.
+ */
+const isOverlayWindow = typeof location === 'undefined' || /^#?\/?(overlay)?$/.test(location.hash)
 
 export type Flash = { id: 'back' | 'online' | 'in-place'; text: string; at: number }
 export type CardId = 'err-engine-offline' | 'err-build-failed' | 'err-editor-closed' | 'err-limit' | 'err-crash'
@@ -118,6 +127,21 @@ export function engineOffline(s: State): boolean {
   return s.everOpen && !!l && !l.open && l.failures >= TRIES && !s.offlineDismissed
 }
 
+// A restart the engine never answers (it runs but the link never opens) and an open_editor the engine ignores must
+// not spin forever: after WAIT_MS the restart says it did not work and the editor-closed card comes back.
+let restartTimer: ReturnType<typeof setTimeout> | undefined
+let reopenTimer: ReturnType<typeof setTimeout> | undefined
+useErrors.subscribe((s, prev) => {
+  if (s.restart !== prev.restart) {
+    clearTimeout(restartTimer)
+    if (s.restart === 'starting') restartTimer = setTimeout(() => get().restart === 'starting' && set({ restart: 'failed' }), WAIT_MS)
+  }
+  if (s.reopening !== prev.reopening) {
+    clearTimeout(reopenTimer)
+    if (s.reopening) reopenTimer = setTimeout(() => get().reopening && set({ reopening: false, editorDismissed: false }), WAIT_MS)
+  }
+})
+
 // ---- the network -------------------------------------------------------------------------------------------------
 if (typeof window !== 'undefined') {
   window.addEventListener('offline', () => set({ online: false, wasOffline: true }))
@@ -186,21 +210,22 @@ export function setVisible(id: CardId, on: boolean): void {
 }
 
 // ---- crash consent -----------------------------------------------------------------------------------------------
-/** Ask main once, at launch, for a report it kept ('ask' only: 'always' and 'never' are settled in main). */
-bridge
-  .invoke<{ report?: unknown } | null>('errors:crash-pending')
-  .then((p) => {
-    if (p && typeof p.report === 'string' && p.report.trim() && !useLesson.getState().lesson) set({ crash: { report: p.report } })
-  })
-  .catch(() => undefined)
+/** Ask main once, at launch, for a report it kept ('ask' only: 'always' and 'never' are settled in main). Overlay only. */
+if (isOverlayWindow)
+  bridge
+    .invoke<{ report?: unknown } | null>('errors:crash-pending')
+    .then((p) => {
+      if (p && typeof p.report === 'string' && p.report.trim() && !useLesson.getState().lesson) set({ crash: { report: p.report } })
+    })
+    .catch(() => undefined)
 
 export function decideCrash(save: boolean): void {
   set({ crash: undefined })
   bridge.invoke('errors:crash-decide', { save }).catch(() => undefined)
 }
 
-// ---- lesson context for a crash report (Electron only: main keeps it in this launch's marker) ---------------------
-if (isElectron) {
+// ---- lesson context for a crash report (Electron overlay only: main keeps it in this launch's marker) -------------
+if (isElectron && isOverlayWindow) {
   let last = ''
   let timer: ReturnType<typeof setTimeout> | undefined
   useLesson.subscribe((s) => {
