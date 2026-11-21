@@ -1,6 +1,9 @@
 # drawer
 
-**Status:** pass 3 done (Michael's side: "Just teach me" overview, plan and full code to type), PR into `adrian/shell` · **Priority:** P2 · **Port:** 5184 · **Branch:** `adrian/drawer` (pass 3: `michael/app-drawer-plan`)
+**Status:** v2 lesson panel (BUILD-PLAN A1) in progress on `michael/app-lesson-panel` (draft PR into `adrian/shell`) · **Priority:** P0 · **Port:** 5186 (v2; pass 1-3 used 5184) · **Branch:** `michael/app-lesson-panel`
+
+## v2: lesson panel (A1, Nov 20)
+Mockups: Les-Anatomy, Les-Working, Les-Checking, Les-NotYet, Les-Hint, Les-Passed. Owner of the docked lesson panel (`features/drawer/v2/*`), plus the shortcut bar and overview edits it needs. Work in progress; details land here as they do.
 
 ### Pass 3 (Sat Nov 14, night): "Just teach me" shows what to type
 Michael tried a "Just teach me" lesson: the instructions weren't clear and didn't show what to type. The drawer now reads, top to bottom:
