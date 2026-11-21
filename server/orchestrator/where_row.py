@@ -27,6 +27,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from server.config import safe_env
+
 log = logging.getLogger("orchestrator.where_row")
 
 CODE_APPS = {"code", "vs code", "vscode", "visual studio code"}
@@ -189,7 +191,7 @@ def _raise_window(folder: str, last_focused: bool) -> None:
         argv = [cli, folder] if cli else ["open", "-b", VSCODE_BUNDLE]
     try:
         subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False,
-                       start_new_session=True)
+                       start_new_session=True, env=safe_env())  # `code` may start VS Code: no keys in its env
     except (OSError, subprocess.TimeoutExpired) as e:
         log.info("where_row: raising the lesson window: %s", e)
 

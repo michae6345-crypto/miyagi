@@ -33,6 +33,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from server import netsafe
+
 from . import cache, claude, env, gemini, sources, youtube
 from .env import Keys, resolve_keys
 from .verify import verify
@@ -263,9 +265,13 @@ class _Run:
 
     async def go(self) -> list[dict]:
         limits = httpx.Limits(max_connections=40, max_keepalive_connections=20)
-        async with httpx.AsyncClient(headers=sources.BROWSER_HEADERS, follow_redirects=True, limits=limits,
-                                     cookies={"CONSENT": "YES+1"}, timeout=8,
-                                     transport=HTTP_TRANSPORT) as client:
+        # Search results and the pages they redirect to are chosen by whoever wrote them: netsafe checks every
+        # request and every redirect hop this client makes (public hosts only, at most 3 hops, the peer address
+        # after connecting), keeps no cookie jar and reads no proxy from the environment. The CONSENT cookie is a
+        # plain header (skips YouTube's consent page).
+        async with netsafe.async_client(headers={**sources.BROWSER_HEADERS, "Cookie": "CONSENT=YES+1"},
+                                        redirects=True, limits=limits, timeout=8,
+                                        transport=HTTP_TRANSPORT) as client:
             self.ctx = sources.Ctx(client=client, keys=self.keys)
             worker = asyncio.create_task(self._triage_worker())
             try:
@@ -530,7 +536,8 @@ class _Run:
         if nb:  # Colab is a JS app; read the notebook it opens from GitHub instead
             url = f"https://raw.githubusercontent.com/{nb.group(1)}/{nb.group(2)}"
         try:
-            r = await self.ctx.client.get(url, timeout=min(6.0, self.left(margin=6)))
+            r = await netsafe.get(url, client=self.ctx.client, timeout=min(6.0, self.left(margin=6)),
+                                  max_bytes=netsafe.PAGE_MAX_BYTES)
             r.raise_for_status()
             html = r.text
         except Exception as e:

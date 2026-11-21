@@ -10,6 +10,7 @@ import re
 
 import httpx
 
+from server import netsafe
 from server.finder import youtube
 from server.finder.env import Keys
 
@@ -133,7 +134,8 @@ def parse_watch_page(html: str) -> dict:
 
 
 async def _direct(client: httpx.AsyncClient, url: str, timeout: float) -> str:
-    r = await client.get(url, headers=HEADERS, timeout=timeout, follow_redirects=True)
+    """The watch page through netsafe on the caller's client: redirects by hand, each hop a public host, size capped."""
+    r = await netsafe.get(url, client=client, headers=HEADERS, timeout=timeout, max_bytes=netsafe.PAGE_MAX_BYTES)
     if r.status_code != 200:
         raise RuntimeError(f"watch page HTTP {r.status_code}")
     if "lengthSeconds" not in r.text:

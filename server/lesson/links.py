@@ -1,7 +1,11 @@
 """Links in lesson text must be real: a URL is kept only if the video's own page (description,
 chapters) or transcript mentions it, or it answers a live HEAD/GET with 2xx/3xx. Models invent
 plausible repo URLs (e.g. github.com/<real user>/<made-up repo>); a learner told to clone a 404
-is stuck at step 1."""
+is stuck at step 1.
+
+The check goes through server.netsafe (claude/eng-keys-ssrf): the model writes these URLs, so a link (or a redirect)
+to this Mac, the LAN or a cloud metadata address is never fetched; it counts as not resolving. The query string is
+dropped before the check, so nothing a URL carries in it (a token, the learner's text) is sent anywhere."""
 
 from __future__ import annotations
 
@@ -10,6 +14,8 @@ import logging
 import re
 
 import httpx
+
+from server import netsafe
 
 log = logging.getLogger("server.lesson")
 
@@ -26,7 +32,11 @@ def _norm(url: str) -> str:
 
 
 _BACKTICKED = re.compile(r"`[^`]*`")
-_LOCAL = re.compile(r"^https?://(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|[^/:]+\.localhost|[^/:]+\.local|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?(/|$)", re.I)
+_LOCAL = re.compile(
+    r"^https?://(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1?\]|[^/:]+\.localhost|[^/:]+\.local"
+    r"|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+"
+    r"|\[f[cd][0-9a-f]{0,2}:[0-9a-f:.]*\]|\[fe[89ab][0-9a-f]:[0-9a-f:.]*\])(:\d+)?([/?#]|$)", re.I)
+GET_PEEK_BYTES = 64 * 1024  # a GET fallback only needs the status
 
 
 def _checkable(text: str) -> set[str]:
@@ -48,13 +58,20 @@ def urls_in_steps(steps: list[dict]) -> set[str]:
     return out
 
 
+def _check_url(url: str) -> str:
+    """The URL without its query string or fragment: what the existence check fetches."""
+    return url.split("#", 1)[0].split("?", 1)[0]
+
+
 async def _resolves(client: httpx.AsyncClient, url: str) -> bool:
+    target = _check_url(url)
     try:
-        r = await client.head(url)
+        r = await netsafe.head(target, client=client, timeout=CHECK_TIMEOUT_S)
         if r.status_code in (403, 405, 501):  # some hosts refuse HEAD
-            r = await client.get(url)
+            r = await netsafe.get(target, client=client, timeout=CHECK_TIMEOUT_S, max_bytes=GET_PEEK_BYTES,
+                                  truncate=True)
         return r.status_code < 400
-    except Exception:  # noqa: BLE001  unreachable counts as bad
+    except Exception:  # noqa: BLE001  unreachable (or refused by netsafe) counts as bad
         return False
 
 
@@ -64,8 +81,8 @@ async def find_bad_urls(steps: list[dict], known_text: str, checked: dict[str, b
     known = known_text.lower()
     todo = [u for u in urls_in_steps(steps) if _norm(u) not in known and u not in checked]
     if todo:
-        async with httpx.AsyncClient(timeout=CHECK_TIMEOUT_S, follow_redirects=True,
-                                     headers={"User-Agent": "Mozilla/5.0 (lesson link check)"}) as c:
+        async with netsafe.async_client(timeout=CHECK_TIMEOUT_S,
+                                        headers={"User-Agent": "Mozilla/5.0 (lesson link check)"}) as c:
             results = await asyncio.gather(*(_resolves(c, u) for u in todo))
         checked.update(zip(todo, results))
     return {u for u in urls_in_steps(steps) if checked.get(u) is False}

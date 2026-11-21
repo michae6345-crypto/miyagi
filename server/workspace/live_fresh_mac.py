@@ -21,6 +21,7 @@ sys.path.insert(0, src)
 
 from server.workspace import editor as E  # noqa: E402
 from server.workspace import setup as S  # noqa: E402
+from server.config import safe_env  # noqa: E402
 
 ok = True
 
@@ -132,10 +133,12 @@ if do_install:
     check(str(Path(bundled).parent) in cfg, ".venv was made from the bundled Python")
     r = subprocess.run([str(vpy), "-c", "import ipykernel, numpy, matplotlib, tensorflow as tf; "
                         "print(ipykernel.__version__, numpy.__version__, tf.__version__)"],
-                       capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "HOME": os.environ["HOME"]})
+                       capture_output=True, text=True,
+                       env=safe_env({"PATH": "/usr/bin:/bin", "HOME": os.environ["HOME"]}))
     print("   .venv imports:", r.stdout.strip(), r.stderr.strip()[-300:])
     check(r.returncode == 0, ".venv imports ipykernel, numpy, matplotlib, tensorflow")
-    r = subprocess.run([str(vpy), "-m", "ipykernel_launcher", "--help"], capture_output=True, text=True)
+    r = subprocess.run([str(vpy), "-m", "ipykernel_launcher", "--help"], capture_output=True, text=True,
+                       env=safe_env())
     check(r.returncode == 0, "ipykernel_launcher runs (VS Code's kernel entry point)")
     after = S.requirements(graph, workdir=wd)
     check(not S.missing(after), f"setup check after install: nothing missing ({[it['tool'] for it in S.missing(after)]})")

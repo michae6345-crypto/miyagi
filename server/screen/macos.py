@@ -14,6 +14,8 @@ import objc
 import Quartz
 import Vision
 
+from server.config import safe_env
+
 from .types import PERMISSION_HELP, Block, Rect, ScreenPermissionError, Window
 
 # Apps whose windows are never "the learner's work" (menu bar extras etc.).
@@ -165,7 +167,7 @@ def capture_main_display_cli(timeout: float = 4.0, display_id: int | None = None
     try:
         try:
             r = subprocess.run([SCREENCAPTURE, "-x", "-t", "png", "-D", str(display_index(display_id) if display_id else 1), path], capture_output=True,
-                               timeout=timeout, check=False)
+                               timeout=timeout, check=False, env=safe_env())
         except subprocess.TimeoutExpired as e:
             raise ScreenUnavailableError(f"screencapture timed out after {timeout:.0f} s") from e
         if r.returncode != 0 or os.path.getsize(path) == 0:
