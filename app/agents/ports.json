@@ -10,5 +10,16 @@
   "player": 5182,
   "settings": 5183,
   "drawer": 5184,
-  "theme": 5185
+  "theme": 5185,
+  "lesson-panel": 5186,
+  "pill-cards": 5187,
+  "onboarding": 5188,
+  "settings-v2": 5189,
+  "home": 5190,
+  "library": 5191,
+  "errors": 5192,
+  "progress": 5193,
+  "account": 5194,
+  "dmg-art": 5195,
+  "studio": 5196
 }
