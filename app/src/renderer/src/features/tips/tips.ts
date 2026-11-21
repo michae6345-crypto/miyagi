@@ -33,8 +33,12 @@ export type TipContext = {
   /** The element itself (for reading its data-* state). */
   el: (selector: string) => HTMLElement | null
   island: IslandBox
-  /** The lesson panel is docked open. */
+  /** The lesson panel is docked open (false while it collapses to Mini, even though its exit animation is still drawn). */
   panelOpen: boolean
+  /** The lesson's video player is docked open (a video lesson). */
+  playerOpen: boolean
+  /** No engine answers (the idle pill says Can't reach miyagi, or what the app's own engine is doing): nothing to start. */
+  offline: boolean
   /** Index of the current step (0-based). */
   stepIndex: number
   /** The menu bar (or taskbar) item, in overlay coordinates, when main can tell (Core request 2). */
@@ -77,7 +81,10 @@ export const TIPS: Tip[] = [
     id: 'check',
     title: 'Check my work',
     body: () => ["Press it when you think you're done. miyagi checks your real work."],
+    // Only while the panel is docked open: while it collapses to Mini its exit animation still draws it, and the mark
+    // must not follow it away.
     anchor: (c) => {
+      if (!c.panelOpen) return undefined
       const target = c.rect(SEL.check)
       const avoid = c.rect(SEL.panel)
       return target && avoid ? { target, avoid, side: 'left' } : undefined
@@ -87,11 +94,13 @@ export const TIPS: Tip[] = [
     id: 'help',
     title: 'Stuck?',
     body: () => ['Try ', { option: 'hint' }, ' first, then ', { option: 'show_me' }, '.'],
-    // When it matters: the first Not yet, or from the second step on (the learner has met the panel by then).
+    // When it matters: the first Not yet, or from the second step on (the learner has met the panel by then). Not while
+    // a hint is already on screen (the learner just did what it says), and only while the panel is docked open.
     anchor: (c) => {
+      if (!c.panelOpen) return undefined
       const panel = c.el(SEL.panel)
       const view = panel?.dataset.view
-      if (!view || view === 'passed' || view === 'checking') return undefined
+      if (!view || view === 'passed' || view === 'checking' || view === 'hint') return undefined
       if (view !== 'notyet' && c.stepIndex < 1) return undefined
       const target = c.rect(SEL.help)
       const avoid = c.rect(SEL.panel)
@@ -108,16 +117,17 @@ export const TIPS: Tip[] = [
   {
     id: 'pill',
     title: 'This is miyagi',
-    body: () => ['Click it to open your lesson.'],
-    // The step pill with the panel closed (a video lesson, or before the panel docks). With the panel open the pill
-    // has nothing to open.
-    anchor: (c) => (c.panelOpen ? undefined : islandAnchor(c, 'compact'))
+    body: () => ['Point at it to see your step.'],
+    // The step pill on its own: no panel docked open and no video player beside it (both already show the step). The
+    // pill takes no click; pointing at it opens the step card, so that is what the copy teaches.
+    anchor: (c) => (c.panelOpen || c.playerOpen ? undefined : islandAnchor(c, 'compact'))
   },
   {
     id: 'launcher',
     title: 'Ask miyagi anything',
     body: () => ['Press ', { key: 'launcher' }, ' in any app to start a lesson.'],
-    anchor: (c) => islandAnchor(c, 'idle')
+    // Not while the engine is offline or not installed: the idle pill then says so, and the key can't start anything.
+    anchor: (c) => (c.offline ? undefined : islandAnchor(c, 'idle'))
   },
   {
     id: 'menubar',
@@ -126,7 +136,7 @@ export const TIPS: Tip[] = [
     // After the launcher's tip (the first thing to learn), only while the island is idle, and only when main knows
     // where its item is. A taskbar at the bottom of the screen gets the mark above it.
     anchor: (c) => {
-      if (!c.tray || !c.seen('launcher')) return undefined
+      if (!c.tray || !c.seen('launcher') || c.offline) return undefined
       if (!c.island.visible || !c.island.pill || c.island.mode !== 'idle') return undefined
       return { target: c.tray, side: c.tray.y > c.height / 2 ? 'above' : 'below' }
     }

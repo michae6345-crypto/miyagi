@@ -5,7 +5,7 @@
  *   check     the panel's Check my work      "Press it when you think you're done. miyagi checks your real work."
  *   help      the panel's Need help row      "Try [Hint] first, then [Show me]." (first Not yet, or from step 2 on)
  *   mini      the Mini pill                  "It keeps your place. Click it to open the panel again."
- *   pill      the step pill, panel closed    "Click it to open your lesson."
+ *   pill      the step pill on its own       "Point at it to see your step." (no panel, no video player)
  *   launcher  the idle pill                  "Press [⌥Space] in any app to start a lesson."
  *   menubar   the menu bar item              "Open it from the menu bar, even with every window closed."
  * Got it or Esc closes it for good; "..." > Don't show tips turns them all off (store.ts keeps both).
@@ -27,6 +27,7 @@ import { useIslandBox, type IslandBox } from '../../core/Island'
 import { useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { usePill } from '../pill/store'
 import { CoachMark, MARK_W } from './CoachMark'
 import { place, sameRect, type Rect } from './place'
 import { stageTray, TRAY_CHANNEL } from './stage'
@@ -66,6 +67,14 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
   const stepIndex = useLesson((s) => Math.max(0, s.steps.findIndex((x) => x.id === s.stepId)))
   const stepRef = useRef(stepIndex)
   stepRef.current = stepIndex
+  // The video player docks beside every video lesson (the same test the island uses to clear it).
+  const playerOpen = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
+  const playerRef = useRef(playerOpen)
+  playerRef.current = playerOpen
+  // Read only: the pill's own offline state (after its grace), so no tip promises a key that can't start anything.
+  const offline = usePill((s) => s.offline)
+  const offlineRef = useRef(offline)
+  offlineRef.current = offline
 
   const [anchor, setAnchor] = useState<Anchor | undefined>()
   const [size, setSize] = useState({ w: MARK_W, h: 128 })
@@ -110,6 +119,8 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
         el: (sel) => root.querySelector<HTMLElement>(sel),
         island: islandRef.current,
         panelOpen: panelRef.current,
+        playerOpen: playerRef.current,
+        offline: offlineRef.current,
         stepIndex: stepRef.current,
         tray: trayRef.current,
         os: bridge.platform.os,
