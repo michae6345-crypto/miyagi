@@ -205,20 +205,35 @@ class Engine:
 # config.keys -> server.config (get_key) + the env vars modules read. Memory only; never logged.
 KEY_ENV = server_config.KEY_ENV
 _ENV_AT_START = {name: os.environ.get(var, "") for name, var in KEY_ENV.items()}
+_BASE_URL_AT_START = os.environ.get("ANTHROPIC_BASE_URL", "")
 
 
 def apply_keys(keys: dict) -> dict:
-    """Use the app's keys over .env (bring-your-own-key); answer with presence only."""
+    """Use the app's keys over .env (bring-your-own-key), or the miyagi cloud token; answer with presence only.
+
+    Cloud mode (config.keys.miyagiCloud + miyagiToken, no Settings key for that provider): the provider's env var
+    holds the install token and ANTHROPIC_BASE_URL points at the proxy, a net for any client built without
+    server_config.anthropic_kwargs(). A key the learner typed in Settings never goes to the proxy."""
     server_config.set_app_keys(keys)
     for name, var in KEY_ENV.items():
         app_key = server_config._app_keys.get(name)
-        if app_key:
+        if name in server_config.CLOUD_PROVIDERS and server_config.mode(name) == "cloud":
+            os.environ[var] = server_config.cloud_token() or ""
+        elif app_key:
             os.environ[var] = app_key
         elif _ENV_AT_START[name]:
             os.environ[var] = _ENV_AT_START[name]
         else:
             os.environ.pop(var, None)
-    return {name: server_config.key_source(name) for name in KEY_ENV}
+    if server_config.mode("anthropic") == "cloud":
+        os.environ["ANTHROPIC_BASE_URL"] = f"{server_config.cloud_url()}/anthropic"
+    elif _BASE_URL_AT_START and server_config.mode("anthropic") == "env":
+        os.environ["ANTHROPIC_BASE_URL"] = _BASE_URL_AT_START
+    else:
+        os.environ.pop("ANTHROPIC_BASE_URL", None)
+    status = {name: server_config.key_source(name) for name in KEY_ENV}
+    status["cloud"] = server_config.cloud_status()
+    return status
 
 
 def _redact(raw: dict) -> dict:
