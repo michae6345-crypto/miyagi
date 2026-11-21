@@ -35,7 +35,6 @@ import { defineFeature } from '../../core/registry'
 import { color, copy, dock, fill } from '../../core/theme'
 import { Kbd, Spinner, StepDots } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { PillGear } from './Gear'
 import { openPanel } from './panel'
 import { BuildLine, FitSwap, LeadMark, PhaseLead, StatusMark, StepCount, SwapText, type Mark, type Phase } from './parts'
 import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, useHeldPass, usePill, type SavedOffer } from './store'
@@ -522,7 +521,8 @@ export default defineFeature({
       },
       Content: Mini
     }
-  ],
-  // The settings gear just right of the pill (./Gear.tsx): over the island (z 50) and under the shortcut bar (60).
-  overlayLayers: [{ id: 'pill-gear', z: 55, Component: PillGear }]
+  ]
+  // No gear beside the pill any more (launch-ease lane): glued to its right edge it covered the status dot and other
+  // top-of-screen UI on Michael's Mac. Settings: right-click the pill (features/launch), the menu bar item, the overview
+  // card's footer, the launcher, the Library's sidebar.
 })

@@ -5,7 +5,7 @@
  * engine's items don't say who built a lesson), and "Saved on this Mac" instead of "Built once, shared with everyone"
  * (A6: never claim cross-user sharing; the library is this Mac's cache).
  */
-import { Clock, LibraryBig, Play, Search } from 'lucide-react'
+import { ChartNoAxesColumn, Clock, LibraryBig, Play, Search, Settings } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { bridge } from '../../bridge'
@@ -13,6 +13,7 @@ import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { SidebarNav, type NavItem } from '../../core/ui/controls'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
+import { openProgress, openSettings } from '../../core/surfaces'
 import { color, fill, radius2, scrim, surface, type2 } from '../../core/theme'
 import { Chip, FILTER_TOOLS, Meter, Skeleton, TOOL_NAME, ToolTile, minutesLabel, progressLabel, soft, stepsLabel } from './parts'
 import { openDetail, setQuery, setSection, setTool, start, useLibrary, visible, type Section } from './store'
@@ -21,6 +22,19 @@ const NAV: NavItem[] = [
   { id: 'library', label: 'Library', icon: LibraryBig },
   { id: 'continue', label: 'Continue', icon: Clock }
 ]
+
+/**
+ * The sidebar's foot (launch-ease lane): the Library is home now (a click on the miyagi app opens it), so the lesson
+ * dashboard (the Progress window) and Settings are one click away from it. Navigation: neutral, never a primary.
+ */
+const MORE: NavItem[] = [
+  { id: 'progress', label: 'Your progress', icon: ChartNoAxesColumn },
+  { id: 'settings', label: 'Settings', icon: Settings }
+]
+const openMore = (id: string): void => {
+  if (id === 'progress') void openProgress()
+  else if (id === 'settings') void openSettings()
+}
 
 /** New lesson / Paste a link: the launcher takes a goal or a pasted YouTube link (it builds; the library never does). */
 const openLauncher = (): void => bridge.emit('launcher:toggle')
@@ -61,6 +75,9 @@ function Sidebar(): ReactNode {
             Soon
           </span>
         </div>
+      </div>
+      <div className="mt-auto" style={{ paddingTop: 16 }} data-home-more>
+        <SidebarNav title="More" items={MORE} active="" onSelect={openMore} />
       </div>
     </aside>
   )

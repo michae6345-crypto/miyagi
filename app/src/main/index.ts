@@ -22,6 +22,7 @@ import { previousApp } from './features/front-app'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
+  fitPillTop,
   followSpaces,
   isLeavingModifier,
   launcherGlassOptions,
@@ -385,6 +386,9 @@ app.whenReady().then(async () => {
       console.error('[tut] could not serve the renderer over http, falling back to file:// (YouTube may refuse embeds)', err)
     }
   }
+  // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
+  // window exists: every renderer gets pillTop in its launch arguments.
+  platform.pillTop = fitPillTop(platform.pillTop, displayNow())
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 

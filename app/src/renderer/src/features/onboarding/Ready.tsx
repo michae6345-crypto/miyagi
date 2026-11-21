@@ -1,7 +1,7 @@
 /**
  * Feature: onboarding (A3). Onb-Setup-Ready: every row green, "You're all set". The "Your first lesson" card shows only
  * when the engine offers one (a cached lesson from library.list); nothing is invented when it doesn't. Start learning
- * starts that lesson (library.start: zero model calls) or, without one, opens the launcher.
+ * starts that lesson (library.start: zero model calls) or, without one, opens the Library (home).
  */
 import { useEffect, type ReactNode } from 'react'
 import { NotebookText } from 'lucide-react'
