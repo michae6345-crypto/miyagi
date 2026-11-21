@@ -9,13 +9,17 @@ import type { App, BrowserWindow, BrowserWindowConstructorOptions } from 'electr
 export type Rect = { x: number; y: number; width: number; height: number }
 
 export type ShortcutKind = 'launcher' | 'back' | 'explain' | 'diagram' | 'show_me' | 'hint' | 'voice_toggle'
+/** v2 (W0-4): keys shown in the UI that are not global shortcuts: open Settings (in an app window's menu) and dismiss. */
+export type UiKeyKind = 'settings' | 'dismiss'
+/** Every label in PlatformInfo.keys: the ONLY source of keycaps (core/ui/Keycap.tsx). */
+export type KeyName = ShortcutKind | UiKeyKind
 
 export type PlatformInfo = {
   os: 'mac' | 'win'
   /** Top of the pill, in px from the top of the display. Mac: just under the notch / menu-bar band (see pillTopFor). */
   pillTop: number
-  /** Labels shown in the UI (⌥E on Mac, Alt+E on Windows). */
-  keys: Record<ShortcutKind, string>
+  /** Labels shown in the UI (⌥E on Mac, Alt+E on Windows), plus settings / dismiss (v2). */
+  keys: Record<KeyName, string>
   /** Electron accelerators for globalShortcut. */
   accelerators: Record<ShortcutKind, string>
 }
@@ -28,7 +32,8 @@ export type PlatformInfo = {
  * notch: the pill's words would be hidden behind it, and that is exactly where notch apps live (desktop test 5:
  * TheBoringNotch expands its panel over the notch on hover, so clicks near it can land on that app). So the default
  * stays just below the band, and MIYAGI_PILL_TOP (main-process env, px, 0-200) moves it: down (e.g. 56) to keep clear
- * of a notch app's hover zone, or up (e.g. 4) into the menu bar on a Mac without a notch.
+ * of a notch app's hover zone. Up into the menu bar is no longer possible: main moves any value above the menu bar
+ * (or the notch band) to just under it at launch (fitPillTop, launch-ease lane).
  * Read only in main; the browser stage (no `process`) always gets the default.
  */
 function pillTopFor(mac: boolean): number {
@@ -43,6 +48,22 @@ function pillTopFor(mac: boolean): number {
   return Number.isFinite(n) && n >= 0 && n <= 200 ? Math.round(n) : fallback
 }
 
+/** Air between the bottom of the menu bar (or the notch band) and the top of the pill. */
+const MENU_BAR_GAP = 4
+
+/**
+ * Launch-ease lane: the pill never covers the menu bar's items or the notch. The display's work area starts under the
+ * menu bar (macOS: about 24 pt, about 37 pt on a notched MacBook, where the band is the notch's height; Windows: a
+ * taskbar docked at the top), so the pill goes no higher than MENU_BAR_GAP under it. The default (or a
+ * MIYAGI_PILL_TOP) below that is kept as is; one above it is moved down. A menu bar that hides itself reports no band
+ * (work area at the very top): the default stays, which already clears a notch.
+ * Main only, once at launch for the primary display (renderers get pillTop in their launch arguments).
+ */
+export function fitPillTop(pillTop: number, display: { bounds: Rect; workArea: Rect }): number {
+  const band = Math.max(0, display.workArea.y - display.bounds.y)
+  return band > 0 ? Math.max(pillTop, Math.round(band + MENU_BAR_GAP)) : pillTop
+}
+
 export function describePlatform(os: string): PlatformInfo {
   const mac = os === 'darwin' || os === 'mac'
   return {
@@ -52,9 +73,9 @@ export function describePlatform(os: string): PlatformInfo {
     // in VS Code and ⌥E/D/S/H/V type characters (⌥E is the accent key), so global ⌥ shortcuts stole the learner's
     // typing. ⌃⌥ combos type nothing. The launcher stays ⌥Space. Windows is unchanged (Ctrl+Alt is AltGr there).
     keys: mac
-      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V' }
+      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V', settings: '⌘,', dismiss: 'Esc' }
       : // Alt+Space is the Windows system menu: never bind it there.
-        { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V' },
+        { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V', settings: 'Ctrl+,', dismiss: 'Esc' },
     accelerators: mac
       ? {
           launcher: 'Alt+Space',
@@ -152,6 +173,37 @@ export function overlayBounds(display: { bounds: Rect }): Rect {
 /** Behave like a system feature: no Dock icon on macOS. */
 export function setupApp(app: App): void {
   if (isMac()) app.dock?.hide()
+}
+
+/**
+ * v2 (decision 4): an app window (Onboarding, Library, Progress, Account; main/appWindows.ts) shows a Dock icon while
+ * it is open, so it can be found with ⌘Tab; the last one closing hides it again. Windows: taskbar entries are per
+ * window already, nothing to do.
+ */
+export function showInDock(app: App, on: boolean): void {
+  if (!isMac() || !app.dock) return
+  if (on) void app.dock.show()
+  else app.dock.hide()
+}
+
+/**
+ * v2: options for an app window: a normal titled window (hiddenInset traffic lights on macOS), opaque, NOT a panel,
+ * NOT always on top, sandboxed like every window. The caller adds bounds.
+ */
+export function appWindowOptions(background: string): BrowserWindowConstructorOptions {
+  return {
+    show: false,
+    frame: true,
+    transparent: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    backgroundColor: background,
+    ...(isMac() ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } } : { autoHideMenuBar: true })
+  }
 }
 
 /**
