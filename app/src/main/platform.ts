@@ -10,7 +10,7 @@ export type Rect = { x: number; y: number; width: number; height: number }
 
 export type ShortcutKind = 'launcher' | 'back' | 'explain' | 'diagram' | 'show_me' | 'hint' | 'voice_toggle'
 /** v2 (W0-4): keys shown in the UI that are not global shortcuts: open Settings (in an app window's menu) and dismiss. */
-export type UiKeyKind = 'settings' | 'dismiss'
+export type UiKeyKind = 'settings' | 'dismiss' | 'ptt' | 'ptt_alt'
 /** Every label in PlatformInfo.keys: the ONLY source of keycaps (core/ui/Keycap.tsx). */
 export type KeyName = ShortcutKind | UiKeyKind
 
@@ -73,9 +73,9 @@ export function describePlatform(os: string): PlatformInfo {
     // in VS Code and ⌥E/D/S/H/V type characters (⌥E is the accent key), so global ⌥ shortcuts stole the learner's
     // typing. ⌃⌥ combos type nothing. The launcher stays ⌥Space. Windows is unchanged (Ctrl+Alt is AltGr there).
     keys: mac
-      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V', settings: '⌘,', dismiss: 'Esc' }
+      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V', settings: '⌘,', dismiss: 'Esc', ptt: 'fn ⌃', ptt_alt: '⌃⌥' }
       : // Alt+Space is the Windows system menu: never bind it there.
-        { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V', settings: 'Ctrl+,', dismiss: 'Esc' },
+        { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V', settings: 'Ctrl+,', dismiss: 'Esc', ptt: 'Ctrl+Win', ptt_alt: 'Ctrl+Alt' },
     accelerators: mac
       ? {
           launcher: 'Alt+Space',
@@ -188,7 +188,8 @@ export function showInDock(app: App, on: boolean): void {
 
 /**
  * v2: options for an app window: a normal titled window (hiddenInset traffic lights on macOS), opaque, NOT a panel,
- * NOT always on top, sandboxed like every window. The caller adds bounds.
+ * NOT always on top, sandboxed like every window. The caller adds bounds. `background` is the first-paint color for the
+ * current theme (main/prefs.ts windowBackground()); trackWindowBackground keeps it in step when the theme changes.
  */
 export function appWindowOptions(background: string): BrowserWindowConstructorOptions {
   return {
@@ -197,8 +198,10 @@ export function appWindowOptions(background: string): BrowserWindowConstructorOp
     transparent: false,
     resizable: true,
     minimizable: true,
-    maximizable: false,
-    fullscreenable: false,
+    // Nov 21: app windows (home, settings, onboarding...) zoom and go full screen like any Mac window. The overlay, the
+    // pill and the panels stay non-fullscreenable (overlayWindowOptions, the launcher, the player).
+    maximizable: true,
+    fullscreenable: true,
     alwaysOnTop: false,
     skipTaskbar: false,
     backgroundColor: background,

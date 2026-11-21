@@ -37,6 +37,7 @@ import { holdWhile, pointerLeft, reveal, useFold } from './fold'
 import { useFront, wake } from './front'
 import { usePress } from './press'
 import { GlassKey, hoverCls, look, Tile } from './Tile'
+import { fade } from '../../core/ui/motion'
 
 type Btn = { kind: ActionShortcut; label: string; icon: LucideIcon }
 
@@ -262,7 +263,7 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
               <span className="flex shrink-0">
                 <MiyagiMark size={15} tone={appearance === 'light' ? 'light' : 'dark'} />
               </span>
-              <motion.span className="flex flex-1 items-center gap-[9px]" initial={false} animate={{ opacity: askCollapsed ? 0 : 1 }} transition={{ duration: 0.12 }} aria-hidden={askCollapsed || undefined}>
+              <motion.span className="flex flex-1 items-center gap-[9px]" initial={false} animate={{ opacity: askCollapsed ? 0 : 1 }} transition={fade.tint} aria-hidden={askCollapsed || undefined}>
                 <span className="flex-1 text-[14.5px]">{copy.ask}</span>
                 <GlassKey text={bridge.platform.keys.launcher} />
               </motion.span>

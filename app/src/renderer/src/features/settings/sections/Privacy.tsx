@@ -6,7 +6,9 @@
  *   - the Lesson progress sync and Anonymous usage counts switches are HIDDEN (nothing syncs or counts this push);
  *   - "See what was sent" is hidden (the privacy log is deferred);
  *   - "Share crash reports and usage" (prefs.shareTelemetry, ROADMAP 1.6 / 1.7): off by default for everyone, applies at
- *     once. On: main/features/telemetry.ts sends scrubbed crash lines and lesson counts (the engine its own counts).
+ *     once. On (and only once the login gate is open): main/features/telemetry.ts sends crash kinds and lesson counts
+ *     (numbers and enums only, a crash is just {kind, app_version}) to miyagi-cloud POST /v1/events; the error text
+ *     never leaves this Mac.
  *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin), the
  *     sign-in (main removes auth.bin and login.json, then auth:sign-out, awaited, forgets the session and revokes it)
  *     and the preferences. privacy/erase.ts picks the step: a sign-out that fails is "partial", never "Deleted".

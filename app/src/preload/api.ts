@@ -30,6 +30,8 @@ export type UiSignal =
   | 'video:intent'
   | 'island:yield'
   | 'island:return'
+  /** main -> overlay: wake, unlock, display change or a hung renderer: the island collapses to rest (core/Island.tsx). */
+  | 'island:collapse'
   | 'shortcut'
   | 'overlay:interactive'
   | 'layout'
@@ -42,6 +44,8 @@ export type Layout = {
   height: number
   /** Usable area (excludes menu bar / dock / taskbar). */
   workArea: Rect
+  /** Additive: the pill's top for this display now (main re-fits it when displays change). Absent in the browser stage. */
+  pillTop?: number
 }
 
 export type Unsub = () => void

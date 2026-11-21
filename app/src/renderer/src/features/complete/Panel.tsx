@@ -40,6 +40,7 @@ import { lossStat, plain } from './net'
 import { useRoom } from './room'
 import { endLesson, startCached, startLesson, useComplete, type CompleteCard, type LessonResult } from './store'
 import type { SkillNext } from './types'
+import { fade } from '../../core/ui/motion'
 
 export const COMPLETE_W = 408
 const PAD = 24
@@ -59,7 +60,7 @@ function useEnter(): (i: number) => Record<string, unknown> {
   return (i) => ({
     initial: reduce ? { opacity: 0 } : { opacity: 0, y: 8 },
     animate: { opacity: 1, y: 0 },
-    transition: { ...spring, delay: reduce ? 0 : 0.08 + i * STEP_S, opacity: { duration: 0.2, delay: reduce ? 0 : 0.08 + i * STEP_S } }
+    transition: { ...spring, delay: reduce ? 0 : 0.08 + i * STEP_S, opacity: { ...fade.in, delay: reduce ? 0 : 0.08 + i * STEP_S } }
   })
 }
 const caption = { fontSize: type2.xs, color: color.label } as const

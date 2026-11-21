@@ -25,15 +25,25 @@
  *     the renderer falls back to the engine's own fix. Never another editor.
  *
  * Handles (bridge.invoke; ctx.handle checks the sender):
- *   onboarding:get                  → { done, introSeen, flow, login, step }   flow: the home window runs the first run
+ *   onboarding:get                  → { done, introSeen, flow, login, step, gate }   flow: the home window runs the
+ *                                     first run; login: the login is needed (always, flow or not); gate: the launch
+ *                                     gate's view (common/gate.ts GateView)
  *   onboarding:step (step)          the guided step on screen, saved for a relaunch → true
  *   onboarding:later                "Set up later": home on launch from now on, setup still not done → true
  *   onboarding:resume               setup again over home (home's Finish setup, Settings' Open setup): forget "later" → true
  *   onboarding:done                 write the flag → true
  *   onboarding:intro-seen           the intro played (or was skipped) → true
  *   onboarding:prompt (kind)        the macOS prompt for 'screen' | 'accessibility' → boolean (asked)
- *   onboarding:relaunch             app.relaunch() + quit (macOS applies a Screen Recording grant after one)
+ *   onboarding:tour (what)          'start' | 'end' open or close the first-lesson walkthrough in the overlay (broadcast
+ *                                   feat:onboarding:tour {open}); 'seen' remembers it (onboarding.json tourSeen) → true
+ *   onboarding:relaunch            app.relaunch() + quit (macOS applies a Screen Recording grant after one)
  *   onboarding:install-companion    → { ok, reason? }; broadcasts feat:onboarding:companion {state}
+ *
+ * Broadcast: feat:onboarding:gate  GateView (cleanGate) on every change of the launch gate (main/gate.ts).
+ *
+ * Launch gate (main/gate.ts, part 'setup'): open once setup is done or put off ("Set up later"), closed again by
+ * onboarding:resume until it is done or put off again. A launch with the gate closed opens the home window (its flow
+ * starts at the login, then setup), whatever onboarding.json says.
  *
  * UNVERIFIED in Electron (cost freeze; no live run in this package): the TCC prompts, the relaunch, the CLI install.
  */
@@ -42,7 +52,9 @@ import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { cleanGate } from '../../common/gate'
 import { defineMainFeature } from '../context'
+import { gateIsOpen, gateView, onGate, setGatePart } from '../gate'
 import { needsLogin, onLoginDone } from './auth'
 
 /** The guided steps a relaunch may come back to (renderer onboarding/steps.ts STEP_ORDER). */
@@ -53,7 +65,7 @@ const INSTALL_TIMEOUT_MS = 180_000
 const EXTENSIONS = ['ms-python.python', 'ms-toolsai.jupyter']
 const VSIX_RE = /^miyagi[A-Za-z0-9._-]*\.vsix$/
 
-type Flag = { done: boolean; at?: string; introSeen?: boolean; step?: Step; later?: boolean }
+type Flag = { done: boolean; at?: string; introSeen?: boolean; step?: Step; later?: boolean; tourSeen?: boolean }
 
 /** Started by macOS at login (launch.ts reads it the same way). */
 function startedAtLogin(app: App): boolean {
@@ -109,7 +121,7 @@ export default defineMainFeature({
     if (existsSync(file)) {
       try {
         const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<Flag>
-        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true, step: isStep(raw.step) ? raw.step : undefined, later: raw.later === true }
+        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true, step: isStep(raw.step) ? raw.step : undefined, later: raw.later === true, tourSeen: raw.tourSeen === true }
       } catch {
         console.warn('[onboarding] onboarding.json could not be read; showing setup again')
       }
@@ -128,6 +140,11 @@ export default defineMainFeature({
     const skip = process.env.MIYAGI_SKIP_ONBOARDING === '1'
     /** The home window runs the first run (renderer features/shell/flow): setup not done and not put off. */
     const flowOn = (): boolean => !skip && !flag.done && !flag.later
+    /** The launch gate's setup part: done, put off, or skipped. Called after every change of the flag. */
+    const reportSetup = (): void => setGatePart('setup', skip || flag.done || flag.later === true)
+    reportSetup()
+    // Every window hears the gate (the home window's flow, the overlay's renderer store).
+    onGate((_open, view) => ctx.broadcast('onboarding:gate', cleanGate(view)))
 
     /** The product's name, lowercase, in the title bar and the Window menu (BRAND.md), whatever the page sets. */
     const pinned = new WeakSet<BrowserWindow>()
@@ -142,12 +159,14 @@ export default defineMainFeature({
     }
 
     /**
-     * The first launch: only the home window. Its flow layer plays the intro, Sign in, guided setup and You're ready
-     * in place, then home slides in (renderer features/shell/flow). A later launch with setup put off ("Set up later")
-     * opens home too, without the flow.
+     * A launch with the gate closed: only the home window. Its flow layer plays the intro (once), Sign in, guided setup
+     * and You're ready in place, then home slides in (renderer features/shell/flow). launch.ts may have opened the same
+     * window already: then it is only titled, never opened again with args.
      */
     const startFirstRun = (): void => {
-      pinTitle(ctx.openWindow('library'))
+      if (gateIsOpen()) return
+      const open = ctx.appWindow('library')
+      pinTitle(open && !open.isDestroyed() ? open : ctx.openWindow('library'))
     }
 
     /**
@@ -161,12 +180,24 @@ export default defineMainFeature({
       return pinTitle(ctx.openWindow('library'))
     })
 
-    // Setup put off ("Set up later") is home as usual, so it keeps launch.ts's quiet cold launches: nothing opens when
-    // miyagi starts at login or with MIYAGI_QUIET_LAUNCH=1 (recordings). A real first run always opens.
-    const quietLater = flag.later === true && (startedAtLogin(ctx.app) || process.env.MIYAGI_QUIET_LAUNCH === '1')
-    if (!flag.done && !skip && !quietLater) ctx.overlay.webContents.once('did-finish-load', startFirstRun)
+    // Setup done or put off keeps launch.ts's quiet cold launches: nothing opens when miyagi starts at login or with
+    // MIYAGI_QUIET_LAUNCH=1 (recordings). A real first run (setup never done or put off) always opens.
+    const quiet = (flag.done || flag.later === true) && (startedAtLogin(ctx.app) || process.env.MIYAGI_QUIET_LAUNCH === '1')
+    // Whenever the gate is closed at launch (login or setup ahead), not only on a first run: launch = start from new.
+    if (!skip && !quiet) ctx.overlay.webContents.once('did-finish-load', startFirstRun)
 
-    ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true, flow: flowOn(), login: flowOn() && needsLogin(), step: flag.step }))
+    // The first-lesson walkthrough (renderer features/tips TourLayer.tsx, drawn in the overlay): 'start' and 'end' reach every
+    // window (feat:onboarding:tour), so a start from the home window opens it in the overlay; 'seen' is remembered.
+    ctx.handle('onboarding:tour', (what: unknown) => {
+      if (what === 'seen') {
+        if (!flag.tourSeen) {
+          flag = { ...flag, tourSeen: true }
+          save()
+        }
+      } else if (what === 'start' || what === 'end') ctx.broadcast('onboarding:tour', { open: what === 'start' })
+      return true
+    })
+    ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true, tourSeen: flag.tourSeen === true, flow: flowOn(), login: needsLogin(), step: flag.step, gate: gateView() }))
     ctx.handle('onboarding:step', (step: unknown) => {
       if (isStep(step) && flag.step !== step && !flag.done) {
         flag = { ...flag, step }
@@ -179,6 +210,7 @@ export default defineMainFeature({
         flag = { ...flag, later: true, introSeen: true }
         save()
       }
+      reportSetup()
       return true
     })
     ctx.handle('onboarding:resume', () => {
@@ -186,6 +218,7 @@ export default defineMainFeature({
         flag = { ...flag, later: false }
         save()
       }
+      reportSetup()
       return true
     })
     ctx.handle('onboarding:done', () => {
@@ -193,6 +226,7 @@ export default defineMainFeature({
         flag = { ...flag, done: true, at: new Date().toISOString() }
         save()
       }
+      reportSetup()
       return true
     })
     ctx.handle('onboarding:intro-seen', () => {
@@ -227,12 +261,11 @@ export default defineMainFeature({
     })
 
     ctx.handle('onboarding:relaunch', () => {
-      // A dev copy (npm run dev) can't app.relaunch(): electron-vite owns the process. Hand the restart to the
-      // ~/Applications/miyagi.app launcher, which stops this copy and starts a fresh one (Michael, Nov 20: Relaunch did nothing).
-      const launcher = join(homedir(), 'Applications', 'miyagi.app')
-      if (!ctx.app.isPackaged && existsSync(launcher)) {
-        execFile('/usr/bin/open', ['-n', launcher], () => undefined)
-        return true
+      // A dev copy (npm run dev) can't app.relaunch(): electron-vite owns the process. It never starts another miyagi
+      // either (it used to `open -n ~/Applications/miyagi.app`, a second copy that fought this one): restart by hand.
+      if (!ctx.app.isPackaged) {
+        console.log('[onboarding] relaunch asked in a dev copy: restart npm run dev')
+        return false
       }
       ctx.app.relaunch()
       ctx.app.quit()

@@ -7,15 +7,17 @@
  * Neutral chrome only (Adrian): no pastel, no green. The selected segment and an "on" switch are white, never a hue.
  * Works with reads the engine's health rows when it has them; nothing is shown that the engine didn't say.
  */
-import { CodeXml, NotebookText, Wrench } from 'lucide-react'
+import { CodeXml, Compass, NotebookText, Wrench } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { VOICE_ENABLED } from '../../../../../common/flags'
 import { useLesson } from '../../../core/lesson'
 import { setPrefs, usePrefs, type Appearance } from '../../../core/prefs'
 import { openOnboarding } from '../../../core/surfaces'
+import { startTour } from '../../tips/tourStore'
 import { QuietButton, Segmented, StatusGlyph, Toggle } from '../../../core/ui/atoms'
 import { color, copy, type2 } from '../../../core/theme'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
+import { PushToTalk } from '../../ptt/SettingsRows'
 import { useHealth } from '../permissions'
 import { Group, OnWord, PageHeader, Row } from '../ui'
 
@@ -59,6 +61,8 @@ export function General({ live }: { live: boolean }): ReactNode {
         )}
       </Group>
 
+      <PushToTalk />
+
       <WorksWith health={health} inLesson={inLesson} />
 
       <Group label="Setup">
@@ -68,6 +72,7 @@ export function General({ live }: { live: boolean }): ReactNode {
           caption="Check permissions and VS Code again."
           right={<QuietButton label="Open setup" onClick={() => void openOnboarding()} />}
         />
+        <Row icon={Compass} label="Show me around" caption="A short tour of the pill and the launcher." right={<QuietButton label="Start" onClick={() => startTour()} />} />
       </Group>
     </>
   )

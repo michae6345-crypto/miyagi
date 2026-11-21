@@ -10,12 +10,17 @@
  * Prompts happen only in a click handler (onboarding:prompt in main/features/onboarding.ts). System Settings opens only
  * through core's permissions:open(kind), never a URL from here.
  *
+ * The launch gate (common/gate.ts): onboarding:get's `gate` and feat:onboarding:gate are kept here (`gate`), and
+ * `neededFirst()` names the part a closed gate starts on (login before setup), on every launch, not only a first run.
+ * Prefs.onboarded is set only once the setup walk really showed (setupShown), never from a login screen.
+ *
  * The recovery card (Onb-Permission-Recovery) opens on lesson.paused {reason: "permission"}, or when a permission this
  * window already watches goes from granted to denied during a lesson. It closes on lesson.resumed, when the grant is
  * back, on "Keep going without pointing" (Accessibility only), and when the lesson ends.
  */
 import { create } from 'zustand'
 import type { HealthItem, LibraryItem, PermissionKind } from '../../../../../../shared/contracts/events'
+import { cleanGate, firstNeeded, type GatePart, type GateView } from '../../../../common/gate'
 import { cmd, type Payload } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
 import { emitUi, onMessage, onUi } from '../../core/bus'
@@ -67,9 +72,11 @@ type State = {
   recovery?: Recovery
   /** Permissions the learner chose to go on without, for this lesson ("Keep going without pointing"). */
   skipped: RecoveryKind[]
+  /** The launch gate (main/gate.ts) as main last said. Closed until main answers. */
+  gate: GateView
 }
 
-export const useOnboarding = create<State>(() => ({ asked: {}, installing: false, done: false, introSeen: false, loaded: false, skipped: [], skippedSteps: [] }))
+export const useOnboarding = create<State>(() => ({ asked: {}, installing: false, done: false, introSeen: false, loaded: false, skipped: [], skippedSteps: [], gate: cleanGate(undefined) }))
 const set = useOnboarding.setState
 const get = useOnboarding.getState
 
@@ -174,9 +181,16 @@ export function requestSuggestion(): void {
 }
 
 bridge
-  .invoke<{ done?: boolean; introSeen?: boolean }>('onboarding:get')
-  .then((r) => set({ done: r?.done === true, introSeen: r?.introSeen === true, loaded: true }))
+  .invoke<{ done?: boolean; introSeen?: boolean; gate?: unknown }>('onboarding:get')
+  .then((r) => set({ done: r?.done === true, introSeen: r?.introSeen === true, loaded: true, ...(r?.gate === undefined ? {} : { gate: cleanGate(r.gate) }) }))
   .catch(() => set({ loaded: true }))
+bridge.onFeature('onboarding:gate', (g) => set({ gate: cleanGate(g) }))
+
+/** The part a closed launch gate starts on (login before setup), or undefined when it is open. */
+export function neededFirst(): GatePart | undefined {
+  const g = get().gate
+  return g.open ? undefined : firstNeeded(g)
+}
 refreshCloud()
 
 // ---- the row buttons (every prompt or System Settings pane opens only here, on a click) ----------------------------
@@ -263,7 +277,17 @@ export function markIntroSeen(): void {
 }
 
 export function setGuidedStep(step: GuidedStepId | undefined): void {
+  if (step) setupShown = true
   if (get().step !== step) set({ step })
+}
+
+/**
+ * The setup walk really showed in this window (the setup window, or the flow's setup / ready screens). Only then does
+ * markDone set Prefs.onboarded: a login screen alone never does.
+ */
+let setupShown = route() === 'onboarding'
+export function noteSetupShown(): void {
+  setupShown = true
 }
 
 /** "Skip for now" (the companion without VS Code): the walk moves on; the checklist still shows it as Not yet. */
@@ -273,12 +297,12 @@ export function skipStep(step: GuidedStepId): void {
 
 // ---- finishing -----------------------------------------------------------------------------------------------------
 
-/** Setup is done once on this Mac: onboarding.json in userData (main), and the shared pref. */
+/** Setup is done once on this Mac: onboarding.json in userData (main), and the shared pref once setup really ran. */
 export function markDone(): void {
   if (get().done) return
   set({ done: true })
   bridge.invoke('onboarding:done').catch(() => undefined)
-  setPrefs({ onboarded: true })
+  if (setupShown) setPrefs({ onboarded: true })
 }
 
 /**

@@ -22,7 +22,9 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { usePill } from '../pill/store'
 import { dockRect } from './dock'
 import { GlassCheck, GlassDot, GlassPrimary, GlassQuiet, GlassSpinner } from './glass'
+import { showsPlayGlyph } from './policy'
 import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
+import { beat, ease, enter, fade as fades, prefersReduced, pressMotion } from '../../core/ui/motion'
 
 /** Frameless window: the header drags it; buttons inside opt out. */
 const drag = { WebkitAppRegion: 'drag' } as CSSProperties
@@ -175,7 +177,7 @@ function Video(): ReactNode {
           ? 'setup'
           : !p.playing && stepOpen && (p.pausedBy === 'gate' || p.pausedBy === 'engine')
           ? 'waiting'
-          : !p.playing && p.pausedBy === 'user'
+          : !p.playing && showsPlayGlyph(p.pausedBy)
             ? 'paused'
             : undefined
 
@@ -208,7 +210,7 @@ function Video(): ReactNode {
   )
 }
 
-const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.28 } }
+const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0, transition: fades.out }, transition: fades.slow }
 
 /**
  * The waiting / building / passed states sit on the video as frosted glass in the panel's appearance
@@ -228,7 +230,7 @@ function GlassScrim({ children, strength = 0.8, cover = false }: { children: Rea
     </motion.div>
   )
 }
-const rise = { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, transition: { ...spring, delay: 0.06 } }
+const rise = { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, transition: enter(beat) }
 
 /** Calm "your turn" state: the clip is over, the step's checks decide when it continues. */
 function Waiting(): ReactNode {
@@ -258,7 +260,7 @@ function Waiting(): ReactNode {
                   className="h-[7px] w-[7px] rounded-full"
                   initial={false}
                   animate={{ background: c.status === 'pass' ? glass.pass : c.status === 'fail' ? glass.offTrack : glass.faint }}
-                  transition={{ duration: 0.25 }}
+                  transition={fades.slow}
                 />
               ))}
             </span>
@@ -362,8 +364,7 @@ function IconButton({ children, onClick, label, disabled }: { children: ReactNod
   return (
     <motion.button
       className="grid h-[30px] w-[30px] cursor-pointer place-items-center rounded-[9px] text-[var(--glass-text)] hover:bg-[var(--glass-field-hover)] disabled:cursor-default disabled:text-[var(--glass-faint)] disabled:hover:bg-transparent"
-      whileTap={disabled ? undefined : { scale: 0.94 }}
-      transition={{ duration: 0.09 }}
+      {...pressMotion(disabled)}
       onClick={onClick}
       disabled={disabled}
       title={label}
@@ -432,7 +433,7 @@ function Volume(): ReactNode {
       <IconButton onClick={() => player.toggleMute()} label={level === 0 ? 'Unmute' : 'Mute'}>
         <Icon size={15} strokeWidth={1.8} />
       </IconButton>
-      <motion.div className="overflow-hidden" initial={false} animate={{ width: open ? 64 : 0, opacity: open ? 1 : 0 }} transition={{ duration: 0.16 }}>
+      <motion.div className="overflow-hidden" initial={false} animate={{ width: open ? 64 : 0, opacity: open ? 1 : 0 }} transition={prefersReduced() ? fades.instant : fades.in}>
         <input
           type="range"
           min={0}
@@ -551,8 +552,8 @@ function Chapters(): ReactNode {
     const row = box?.querySelector<HTMLElement>(`[data-step="${CSS.escape(stepId ?? '')}"]`)
     if (!box || !row) return
     const top = row.offsetTop - box.offsetTop
-    if (top < box.scrollTop) box.scrollTo({ top, behavior: 'smooth' })
-    else if (top + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTo({ top: top + row.offsetHeight - box.clientHeight, behavior: 'smooth' })
+    if (top < box.scrollTop) box.scrollTo({ top, behavior: prefersReduced() ? 'auto' : 'smooth' })
+    else if (top + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTo({ top: top + row.offsetHeight - box.clientHeight, behavior: prefersReduced() ? 'auto' : 'smooth' })
   }, [stepId])
 
   return (
@@ -572,7 +573,7 @@ function Chapters(): ReactNode {
             )
           })}
           {!complete && (
-            <motion.div key="more" layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+            <motion.div key="more" layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fades.slow}>
               <MoreComing parts={parts} />
             </motion.div>
           )}
@@ -653,7 +654,7 @@ function NowGlyph({ playing }: { playing: boolean }): ReactNode {
           className="w-[3px] origin-bottom rounded-full"
           style={{ height: 14, background: glass.button }}
           animate={playing ? { scaleY: [0.35, 1, 0.5, 0.85, 0.35] } : { scaleY: [0.45, 0.8, 0.6][i] }}
-          transition={playing ? { duration: 1.1, repeat: Infinity, delay: i * 0.18, ease: 'easeInOut' } : spring}
+          transition={playing ? { duration: 1.1, repeat: Infinity, delay: i * 0.18, ease: ease.inOut } : spring}
         />
       ))}
     </span>

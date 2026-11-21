@@ -19,6 +19,7 @@ import { Gear } from './Gear'
 import { GoalNote, Instructions, Meta, StepSnippet } from './Lines'
 import { Stats } from './Stats'
 import './snippet'
+import { fade } from '../../core/ui/motion'
 
 /**
  * Done steps white, this step gray (watching; green once it passes), the rest a dim track. A skipped step is
@@ -42,7 +43,7 @@ function Segments({ total, index, status, skipped, passed }: { total: number; in
             data-segment={dashed ? 'skipped' : i < index ? 'done' : i === index ? 'current' : 'todo'}
             initial={{ opacity: 0, backgroundColor: bg }}
             animate={{ opacity: 1, backgroundColor: bg }}
-            transition={{ duration: 0.3 }}
+            transition={fade.slow}
           >
             {dashed && <Dashes />}
           </motion.div>

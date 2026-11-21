@@ -7,7 +7,9 @@
  */
 import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { actionTone, color, fill } from '../../core/theme'
+import { useAppearance } from '../../core/prefs'
+import { actionTone, color, rawThumb } from '../../core/theme'
+import { duration, ease, prefersReduced, stagger } from '../../core/ui/motion'
 
 export type HeatmapData = { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }
 
@@ -26,9 +28,13 @@ const hex = (h: string): [number, number, number] => {
   const m = h.replace('#', '')
   return [0, 2, 4].map((i) => parseInt(m.slice(i, i + 2), 16)) as [number, number, number]
 }
-const LOW = hex(fill.thumb)
+// Canvas and colour maths need raw hex: fill.thumb is a var() since the Nov 21 theme, so the low end comes from rawThumb.
+const LOW = { dark: hex(rawThumb.dark), light: hex(rawThumb.light) } as const
 const HIGH = hex(actionTone.diagram)
-const ramp = (f: number): [number, number, number] => [0, 1, 2].map((i) => Math.round(LOW[i] + (HIGH[i] - LOW[i]) * f)) as [number, number, number]
+type Ramp = (f: number) => [number, number, number]
+const rampFrom = (low: readonly number[]): Ramp => (f) => [0, 1, 2].map((i) => Math.round(low[i] + (HIGH[i] - low[i]) * f)) as [number, number, number]
+const RAMP = { dark: rampFrom(LOW.dark), light: rampFrom(LOW.light) } as const
+const useRamp = (): Ramp => RAMP[useAppearance()]
 
 const num = (v: number): string => {
   if (!Number.isFinite(v)) return '–'
@@ -76,9 +82,10 @@ export function Heatmap({ data }: { data: HeatmapData }): ReactNode {
             <motion.div
               className="overflow-hidden"
               style={{ width: pw, height: ph, borderRadius: 8 }}
-              initial={{ clipPath: 'inset(0 100% 0 0)' }}
-              animate={{ clipPath: 'inset(0 0% 0 0)' }}
-              transition={{ duration: 0.35, delay: k * 0.03, ease: 'easeOut' }}
+              // The panels sweep in left to right (clip-path); with Reduce Motion they fade.
+              initial={prefersReduced() ? { opacity: 0 } : { clipPath: 'inset(0 100% 0 0)' }}
+              animate={prefersReduced() ? { opacity: 1 } : { clipPath: 'inset(0 0% 0 0)' }}
+              transition={{ duration: duration.draw, delay: k * stagger.each, ease: ease.out }}
             >
               <Field grid={p.grid} lo={lo} hi={hi} w={pw} h={ph} onHover={setHover} />
             </motion.div>
@@ -110,6 +117,7 @@ export function Heatmap({ data }: { data: HeatmapData }): ReactNode {
 
 /** The value ramp in 8 steps (a scale, not decoration). */
 function Legend(): ReactNode {
+  const ramp = useRamp()
   return (
     <span className="flex h-[6px] w-[72px] overflow-hidden rounded-[3px]">
       {Array.from({ length: 8 }, (_, i) => (
@@ -121,6 +129,7 @@ function Legend(): ReactNode {
 
 function Field({ grid, lo, hi, w, h, onHover }: { grid: number[][]; lo: number; hi: number; w: number; h: number; onHover: (p?: { i: number; j: number }) => void }): ReactNode {
   const ref = useRef<HTMLCanvasElement>(null)
+  const ramp = useRamp()
   const nt = grid.length
   const nx = grid[0]?.length ?? 0
 
@@ -154,7 +163,7 @@ function Field({ grid, lo, hi, w, h, onHover }: { grid: number[][]; lo: number; 
     ctx.imageSmoothingQuality = 'high'
     ctx.clearRect(0, 0, cv.width, cv.height)
     ctx.drawImage(src, 0, 0, cv.width, cv.height)
-  }, [grid, lo, hi, w, h, nt, nx])
+  }, [grid, lo, hi, w, h, nt, nx, ramp])
 
   const pick = (e: React.PointerEvent<HTMLCanvasElement>): void => {
     const r = e.currentTarget.getBoundingClientRect()

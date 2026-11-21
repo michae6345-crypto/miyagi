@@ -37,6 +37,7 @@ import { useDock } from '../../core/dock'
 import { useRoutedAway } from './panel'
 import { act, cardAct, installAll, installable, itemDone, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 import { isEditorSheet, SHEET_W, VSCodeSheet } from './VSCodeSheet'
+import { beat, enter, fade, press, spring } from '../../core/ui/motion'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
 const OFFTRACK_MAX = 620
@@ -151,8 +152,8 @@ function QuietButton({ label, icon: I, onClick, compact }: { label: string; icon
       className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full text-[13px] font-medium ${iconOnly ? 'w-[30px] justify-center' : 'px-[13px]'}`}
       style={{ backgroundColor: fill.button, color: color.text }}
       whileHover={{ backgroundColor: fill.chipHover }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.12 }}
+      whileTap={{ scale: press.scale }}
+      transition={{ ...fade.tint, scale: spring }}
       title={iconOnly ? label : undefined}
       aria-label={iconOnly ? label : undefined}
       onMouseDown={(e) => e.preventDefault()}
@@ -206,7 +207,7 @@ function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: bo
  */
 function Swap({ id, children }: { id: string; children: ReactNode }): ReactNode {
   return (
-    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: 0.06, ease: 'easeOut' }}>
+    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={enter(beat)}>
       {children}
     </motion.div>
   )
@@ -1018,14 +1019,40 @@ function folds(c: EngineCard | undefined, cardFrom: string | undefined, shown: S
   return cardKey(c) !== opened
 }
 
-/** Is the card a chip right now? (The island reads it through the card mode's width.) */
-function isChip(): boolean {
+/** The step the open drawer shows, or undefined (the drawer is closed, on a concept, or there's no step). */
+function drawerShows(): Shown | undefined {
   const d = useDrawer.getState()
   const l = useLesson.getState()
-  const shown = d.open && !d.concept && l.lesson && l.stepId ? { id: l.stepId, title: l.stepTitle, instructions: l.instructions } : undefined
-  const s = useCards.getState()
-  return folds(s.card, s.cardFrom, shown, useOpened.getState().key)
+  return d.open && !d.concept && l.lesson && l.stepId ? { id: l.stepId, title: l.stepTitle, instructions: l.instructions } : undefined
 }
+
+/**
+ * The step the drawer showed when the card folded (its cardKey + that step). The card keeps folding against it when the
+ * drawer or the lesson panel closes: hiding the side surfaces (Esc, the panel's hide key, a click) must not grow the
+ * island into the full card (Michael, Nov 21: "the top island expands"). The learner's tap still opens it; a different
+ * card, or the same one re-sent with something the drawer doesn't say (a button, a diff), is judged afresh.
+ */
+const useFolded = create<{ key?: string; shown?: Shown }>(() => ({}))
+const stillFolded = (c: EngineCard | undefined, cardFrom: string | undefined, f: { key?: string; shown?: Shown }, opened: string | undefined): boolean =>
+  !!c && !!f.key && cardKey(c) === f.key && folds(c, cardFrom, f.shown, opened)
+
+/** Is the card a chip right now? (The island reads it through the card mode's width.) */
+function isChip(): boolean {
+  const s = useCards.getState()
+  const opened = useOpened.getState().key
+  return folds(s.card, s.cardFrom, drawerShows(), opened) || stillFolded(s.card, s.cardFrom, useFolded.getState(), opened)
+}
+
+// Remember the card the moment it folds (before anything closes the drawer), so it keeps folding without it.
+function noteFold(): void {
+  const s = useCards.getState()
+  const shown = drawerShows()
+  if (!s.card || !shown || !folds(s.card, s.cardFrom, shown, useOpened.getState().key)) return
+  const key = cardKey(s.card)
+  const f = useFolded.getState()
+  if (f.key !== key || f.shown?.id !== shown.id || f.shown.title !== shown.title || f.shown.instructions !== shown.instructions) useFolded.setState({ key, shown })
+}
+for (const st of [useCards, useDrawer, useLesson, useOpened] as { subscribe: (fn: () => void) => () => void }[]) st.subscribe(noteFold)
 
 /** isChip() as a hook: re-renders on every input (the card, the drawer, the step, a tap). */
 function useChip(): boolean {
@@ -1036,7 +1063,8 @@ function useChip(): boolean {
   const title = useLesson((l) => l.stepTitle)
   const instructions = useLesson((l) => l.instructions)
   const opened = useOpened((o) => o.key)
-  return folds(card, cardFrom, drawerOnStep && id ? { id, title, instructions } : undefined, opened)
+  const folded = useFolded()
+  return folds(card, cardFrom, drawerOnStep && id ? { id, title, instructions } : undefined, opened) || stillFolded(card, cardFrom, folded, opened)
 }
 
 /**

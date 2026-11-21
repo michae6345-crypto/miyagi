@@ -14,6 +14,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { MoreHorizontal } from 'lucide-react'
 import { forwardRef, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { actionTone, color, duration, elevation, fill, highlight, radius2, spring, surface, type2 } from '../../core/theme'
+import { PrimaryButton } from '../../core/ui/atoms'
 import { QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
 import { pressMotion } from '../../core/ui/motion'
@@ -22,7 +23,7 @@ import type { BodyPart } from './tips'
 
 export const MARK_W = 264
 const CARET = 10
-const LABEL: Record<'hint' | 'show_me', string> = { hint: 'Hint', show_me: 'Show me' }
+const LABEL: Record<'hint' | 'show_me' | 'explain', string> = { hint: 'Hint', show_me: 'Show me', explain: 'Explain' }
 
 type Props = {
   title: string
@@ -33,12 +34,14 @@ type Props = {
   onMenu: (open: boolean) => void
   onGotIt: () => void
   onOff: () => void
+  /** The first-lesson walkthrough (Tour.tsx): a step count with Skip and Next in place of the "..." menu and Got it. */
+  tour?: { progress: string; last: boolean; onNext: () => void; onSkip: () => void }
 }
 
 /** Where the mark starts its rise: 6 px away from what it points at. */
 const FROM: Record<CaretSide, { x: number; y: number }> = { top: { x: 0, y: 6 }, bottom: { x: 0, y: -6 }, left: { x: 6, y: 0 }, right: { x: -6, y: 0 } }
 
-export const CoachMark = forwardRef<HTMLDivElement, Props>(function CoachMark({ title, body, caret, caretAt, menu, onMenu, onGotIt, onOff }, ref) {
+export const CoachMark = forwardRef<HTMLDivElement, Props>(function CoachMark({ title, body, caret, caretAt, menu, onMenu, onGotIt, onOff, tour }, ref) {
   const reduced = useReducedMotion()
   const titleId = useId()
   const bodyId = useId()
@@ -87,7 +90,18 @@ export const CoachMark = forwardRef<HTMLDivElement, Props>(function CoachMark({ 
           <Part key={i} part={part} />
         ))}
       </div>
-      <div className="relative mt-[12px] flex items-center justify-between">
+      {tour && (
+        <div data-tour-footer className="relative mt-[12px] flex items-center justify-between gap-[8px]">
+          <span className="tabular-nums" style={{ fontSize: type2.xs, color: color.faint }}>
+            {tour.progress}
+          </span>
+          <span className="flex items-center gap-[4px]">
+            {!tour.last && <QuietButton label="Skip" onClick={tour.onSkip} />}
+            <PrimaryButton label={tour.last ? 'Done' : 'Next'} onClick={tour.onNext} />
+          </span>
+        </div>
+      )}
+      <div className="relative mt-[12px] flex items-center justify-between" style={tour ? { display: 'none' } : undefined}>
         <motion.button
           ref={trigger}
           type="button"

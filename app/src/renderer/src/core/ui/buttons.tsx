@@ -58,7 +58,7 @@ function Base({ label, onClick, icon: I, keyName, disabled, busy, size = 'md', b
       disabled={disabled}
       title={title}
       aria-busy={busy || undefined}
-      className={`mg-press ${light ? 'mg-press-light' : ''} flex shrink-0 cursor-pointer items-center justify-center gap-[8px] whitespace-nowrap disabled:cursor-default ${block ? 'w-full' : ''}`}
+      className={`mg-press ${light ? 'mg-press-light' : ''} ${light && kind === 'primary' ? 'mg-press-accent' : ''} flex shrink-0 cursor-pointer items-center justify-center gap-[8px] whitespace-nowrap disabled:cursor-default ${block ? 'w-full' : ''}`}
       style={{
         height: h,
         paddingLeft: PAD[size],

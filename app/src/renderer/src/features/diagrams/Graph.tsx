@@ -18,6 +18,7 @@ import { motion } from 'motion/react'
 import { useId, useMemo, type ReactNode } from 'react'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
 import { alpha, brand, color, fill, font } from '../../core/theme'
+import { draw, duration, ease, fade, prefersReduced, stagger } from '../../core/ui/motion'
 
 type Node = GraphDiagramData['nodes'][number]
 type Edge = GraphDiagramData['edges'][number]
@@ -26,8 +27,8 @@ type Edge = GraphDiagramData['edges'][number]
 const W = 600
 /** Taller graphs scale down to this. */
 const MAX_H = 380
-const DRAW = 0.35
-const STAGGER = 0.03
+const DRAW = duration.draw
+const STAGGER = stagger.each
 /** Mask luminance (not a visible color): white = show. */
 const MASK = 'white'
 const LABEL = 10.5
@@ -541,7 +542,7 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
   return (
     <svg key={sig} width={W * scale} height={H * scale} viewBox={`0 ${scene.minY} ${W} ${H}`} className="mx-auto block overflow-visible" style={{ fontFamily: font.ui }}>
       {scene.groups.map((g) => (
-        <motion.g key={`g-${g.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+        <motion.g key={`g-${g.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fade.in}>
           <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={12} fill={alpha(g.tone, 0.1)} />
           <text x={g.x + 10} y={g.y + 15} fill={alpha(g.tone, 0.85)} fontSize={LABEL}>
             {g.label}
@@ -549,13 +550,14 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
         </motion.g>
       ))}
       {scene.lifelines.map((l) => (
-        <motion.line key={`life-${l.x}`} x1={l.x} x2={l.x} y1={l.y1} y2={l.y2} stroke={fill.track} strokeDasharray="2 4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} />
+        <motion.line key={`life-${l.x}`} x1={l.x} x2={l.x} y1={l.y1} y2={l.y2} stroke={fill.track} strokeDasharray="2 4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fade.slow} />
       ))}
 
       {scene.lines.map((l) => {
         const stroke = lineStroke(l)
         const width = l.strong ? 1.6 : 1.25
-        const t = { duration: DRAW, delay: lineDelay(l), ease: 'easeOut' as const }
+        const t = { duration: DRAW, delay: lineDelay(l), ease: ease.out }
+        const reduced = prefersReduced()
         const mask = `${uid}-${l.key.replace(/[^a-zA-Z0-9-]/g, '')}`
         return (
           <g key={l.key}>
@@ -564,12 +566,12 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
               // pathLength can't animate a dashed stroke: draw a solid mask in instead
               <>
                 <mask id={mask} maskUnits="userSpaceOnUse" x={-40} y={scene.minY - 40} width={W + 80} height={H + 80}>
-                  <motion.path d={l.d} fill="none" stroke={MASK} strokeWidth={8} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={t} />
+                  <motion.path d={l.d} fill="none" stroke={MASK} strokeWidth={8} initial={reduced ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={t} />
                 </mask>
                 <path d={l.d} fill="none" stroke={stroke} strokeWidth={width} strokeDasharray="4 3" mask={`url(#${mask})`} />
               </>
             ) : (
-              <motion.path d={l.d} fill="none" stroke={stroke} strokeWidth={width} initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 1 }} transition={t} />
+              <motion.path d={l.d} fill="none" stroke={stroke} strokeWidth={width} {...draw(reduced, { delay: lineDelay(l), length: DRAW })} />
             )}
           </g>
         )
@@ -587,13 +589,13 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
               fill={lineStroke(l)}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: 0.12, delay: lineDelay(l) + DRAW * 0.85 }}
+              transition={{ ...fade.tint, delay: lineDelay(l) + DRAW * 0.85 }}
             />
           )
       )}
 
       {scene.boxes.map((b) => (
-        <motion.g key={b.n.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2, delay: b.rank * STAGGER }}>
+        <motion.g key={b.n.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay: b.rank * STAGGER }}>
           <title>{b.n.detail ? `${b.n.label} · ${b.n.detail}` : b.n.label}</title>
           {b.kind === 'commit' ? <Commit b={b} /> : <NodeBox b={b} />}
         </motion.g>
@@ -611,7 +613,7 @@ function EdgeLabel({ l, strong, delay }: { l: Label; strong: boolean; delay: num
   const h = l.lines.length * LH + 3 + PLATE_Y * 2
   const x0 = l.anchor === 'middle' ? l.x - w / 2 : l.x - PLATE_X
   return (
-    <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15, delay }}>
+    <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay }}>
       {l.bg && <rect x={x0} y={l.y - LH + 2 - PLATE_Y} width={w} height={h} rx={5} fill={color.island} />}
       {l.lines.map((s, i) => (
         <text

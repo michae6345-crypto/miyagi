@@ -13,6 +13,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { color, copy, fill, radius2, spring, type2 } from '../../core/theme'
 import type { SettingsSection } from './env'
 import { OWN_KEY } from './words'
+import { fade, press } from '../../core/ui/motion'
 
 export const NAV: readonly { id: SettingsSection; label: string; icon: LucideIcon }[] = [
   { id: 'general', label: 'General', icon: SlidersHorizontal },
@@ -105,8 +106,8 @@ function Nav({
             data-kbd={kbd || undefined}
             style={{ height: 30, padding: '0 10px', borderRadius: radius2.control, fontSize: type2.sm, color: on ? color.text : color.label, ...(kbd ? {} : { outlineStyle: 'none' }) }}
             whileHover={on ? undefined : { color: color.text }}
-            whileTap={{ scale: 0.98 }}
-            transition={{ duration: 0.12 }}
+            whileTap={{ scale: press.scale }}
+            transition={{ ...fade.tint, scale: spring }}
             onClick={() => go(id)}
           >
             {on && (

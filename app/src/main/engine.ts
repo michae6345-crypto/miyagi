@@ -9,6 +9,8 @@ import WebSocket from 'ws'
 import { parseEngineMessage, V2_COMMANDS, type Incoming, type Outgoing } from '../common/wire'
 import { createMockEngine, type MockEngine } from '../../mock/engine'
 import { scenarios } from '../../mock/scenarios'
+import { RunGuard } from './freshStart'
+import { Heartbeat } from './heartbeat'
 
 type Listener = (m: Incoming) => void
 
@@ -27,6 +29,13 @@ export const FAST_WINDOW_MS = 30_000
 export const SLOW_RETRY_MAX_MS = 5000
 /** An attempt the engine never answers (busy at startup, a half-open port) fails after this, so the next one can start. */
 export const HANDSHAKE_TIMEOUT_MS = 4000
+
+/**
+ * Timings, for tests only: heartbeatMs (ping interval), deadMs (silence that drops the socket), probeMs (the wake
+ * probe) and handshakeMs (an attempt nobody answers). Everywhere else main/heartbeat.ts's PING_MS, DEAD_MS and
+ * PROBE_MS, and HANDSHAKE_TIMEOUT_MS.
+ */
+export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number; handshakeMs?: number }
 
 /**
  * Where the socket is, for the pill (review A16: never say "can't reach" before an attempt has actually failed).
@@ -70,14 +79,16 @@ export class EngineLink {
   private slow = 0
   private failures = 0
   private timer?: ReturnType<typeof setTimeout>
+  /** Protocol ping/pong (main/heartbeat.ts): a half-open socket (sleep, Wi-Fi change, hung engine) is dropped and redialled. */
+  private beat?: Heartbeat
+  /** The last overlay.bounds JSON that left, so an identical resend (a window move storm) is dropped. */
+  private lastBoundsJson = ''
   /** Re-sent on reconnect so the engine's OCR keeps ignoring our UI. */
   private lastBounds?: Outgoing
   /** v2: the per-launch engine token (main/localEngine.ts), sent as a header on every connect. Memory only. */
   private token?: string
   /** v2: the install token + proxy URL, folded into every config.keys (never sent on its own: see send()). */
   private cloud?: CloudKeys
-  /** ROADMAP 1.7: the learner's "Share crash reports and usage" switch, folded into config.keys as telemetry "on". */
-  private telemetry = false
   /** v2: what the engine said it understands (engine.hello.capabilities); reset on every connect. */
   private caps = new Set<string>()
   /** v2: the last config.keys the settings feature sent (the full payload), so a later token can ride on it. */
@@ -85,14 +96,23 @@ export class EngineLink {
   /** v2: ENGINE_URL is loopback or wss: (secureEngineUrl). Otherwise no token header and no install token, ever. */
   private readonly secure: boolean
   private warnedInsecure = false
+  /** Fresh start (main/freshStart.ts): only a lesson started or chosen in this app run reaches the windows. */
+  private readonly run: RunGuard
+  /** Heartbeat timings (tests pass shorter ones; undefined = heartbeat.ts defaults). */
+  private readonly timings: LinkTimings
+  /** Main is starting the engine itself (localEngine: checking / installing / starting / a respawn): refused attempts are expected. */
+  private held = false
 
   /**
    * `token` (v2): the per-launch engine token (localEngine ENGINE_TOKEN). Given here, not later, because the first
    * WebSocket attempt starts inside this constructor and must already carry X-Miyagi-Token.
    */
-  constructor(private url: string, demoScenario?: string, token?: string) {
+  constructor(private url: string, demoScenario?: string, token?: string, timings: LinkTimings = {}) {
+    this.timings = timings
     this.token = token || undefined
     this.secure = secureEngineUrl(url)
+    // MIYAGI_REPLAY_ON_CONNECT=1 (dev only: `npm run dev:all`): the mock plays a lesson on every connect, on purpose.
+    this.run = new RunGuard(!!demoScenario || process.env.MIYAGI_REPLAY_ON_CONNECT === '1')
     if (demoScenario) {
       const scenario = scenarios[demoScenario] ?? scenarios.full
       this.demo = createMockEngine(scenario, (e) => this.dispatch(e))
@@ -122,7 +142,26 @@ export class EngineLink {
   }
 
   link(): LinkInfo {
-    return { open: this.connected, attempting: !this.demo && this.ws?.readyState === WebSocket.CONNECTING, failures: this.demo ? 0 : this.failures }
+    return { open: this.connected, attempting: !this.demo && this.ws?.readyState === WebSocket.CONNECTING, failures: this.demo || this.held ? 0 : this.failures }
+  }
+
+  /**
+   * Main is (re)starting the engine itself (localEngine.ts: checking, installing, starting, a respawn after a crash).
+   * While held, a refused attempt is expected and not counted, so the pill stays on its calm "reconnecting" line and
+   * never reaches the offline card (Retry only after a real failure: main says when the start failed). Fast retries
+   * start over, so the new engine is picked up within about a second of it listening.
+   */
+  holdFailures(on: boolean): void {
+    if (on === this.held) return
+    this.held = on
+    if (on) {
+      this.failures = 0
+      this.downSince = Date.now()
+      this.slow = 0
+      // A slow retry already waiting (up to SLOW_RETRY_MAX_MS) starts over on the fast one.
+      if (!this.demo && !this.connected && this.timer && this.ws?.readyState !== WebSocket.CONNECTING) this.schedule()
+    }
+    this.emitLink()
   }
 
   /**
@@ -138,6 +177,16 @@ export class EngineLink {
   }
 
   /**
+   * The machine woke, unlocked, or the network came back. An open socket may be half open: ping it now and drop it if
+   * nothing answers in PROBE_MS; a closed one is redialled at once (fast retries again).
+   */
+  wake(): void {
+    if (this.demo) return
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) return this.beat?.probe()
+    this.reconnect()
+  }
+
+  /**
    * v2 (W0-5): the per-launch token the app passed to the engine it started (env MIYAGI_ENGINE_TOKEN). Sent as the
    * X-Miyagi-Token header from the next connect on; an engine started elsewhere without a token ignores it.
    */
@@ -150,17 +199,6 @@ export class EngineLink {
     this.cloud = keys
     // Minted after the settings feature already sent this connect's keys: send the same full payload again, now
     // with the token (only ever the full payload, so nothing the learner saved is cleared).
-    if (this.lastKeys && this.connected) this.send(this.lastKeys)
-  }
-
-  /**
-   * ROADMAP 1.7 (features/telemetry.ts): the engine sends its usage events only while this is on. It rides in every
-   * config.keys as `telemetry: "on"` (an extra field the engine's ConfigKeys model allows); a change re-sends the last
-   * full payload, like setCloud.
-   */
-  setTelemetry(on: boolean): void {
-    if (this.telemetry === on) return
-    this.telemetry = on
     if (this.lastKeys && this.connected) this.send(this.lastKeys)
   }
 
@@ -189,11 +227,23 @@ export class EngineLink {
     if (cmd.type === 'config.keys') {
       this.lastKeys = cmd
       if (this.cloud && this.allowSecrets()) cmd = { ...cmd, payload: { ...cmd.payload, ...this.cloud } }
-      if (this.telemetry) cmd = { ...cmd, payload: { ...cmd.payload, telemetry: 'on' } as typeof cmd.payload }
     }
-    if (this.demo) return this.demo.handle(cmd)
+    // Fresh start: a lesson this run starts or chooses (learn, library.start, Continue) may reach the windows, but
+    // only once the command really leaves (one dropped offline must not admit the next connect's old snapshot).
+    if (this.demo) {
+      this.run.command(cmd)
+      return this.demo.handle(cmd)
+    }
     const msg = JSON.stringify(cmd)
-    if (this.ws?.readyState === WebSocket.OPEN) return this.ws.send(msg)
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      // An overlay.bounds identical to the last one sent says nothing new to the engine (window move/resize storms).
+      if (cmd.type === 'overlay.bounds') {
+        if (msg === this.lastBoundsJson) return
+        this.lastBoundsJson = msg
+      }
+      this.run.command(cmd)
+      return this.ws.send(msg)
+    }
     // Offline (audit P1-3): never queue a learner command and replay it stale on reconnect (a build_lesson
     // whose resultIds a restarted engine doesn't know). Fail it visibly instead. overlay.bounds is re-sent
     // from lastBounds and config.keys from the onOpen hooks, so nothing else needs remembering.
@@ -236,7 +286,7 @@ export class EngineLink {
     let ws: WebSocket
     const header = this.token && this.allowSecrets() ? { headers: { [TOKEN_HEADER]: this.token } } : {}
     try {
-      ws = new WebSocket(this.url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS, ...header })
+      ws = new WebSocket(this.url, { handshakeTimeout: this.timings.handshakeMs ?? HANDSHAKE_TIMEOUT_MS, ...header })
     } catch {
       // A malformed ENGINE_URL: count it as a failed attempt and keep the retry loop (never throw out of main).
       this.failures++
@@ -252,12 +302,36 @@ export class EngineLink {
       // The engine sends a full snapshot on every connect: forget what the old connection said.
       this.log.length = 0
       this.caps.clear()
+      // Fresh start: a wait from the old socket now needs a fresh lesson.ready; an old lesson's snapshot stays out.
+      this.run.connected()
       this.setConnected(true)
+      this.lastBoundsJson = ''
+      this.beat?.stop()
+      this.beat = new Heartbeat({
+        ping: () => {
+          try {
+            ws.ping()
+          } catch {
+            /* a closing socket: close follows */
+          }
+        },
+        // Nothing came back: terminate() makes 'close' fire at once, which sets connected=false (every window drops its
+        // thinking / building state) and starts the fast reconnect.
+        dead: () => {
+          console.warn('[engine] no answer from the engine; dropping the socket and reconnecting')
+          ws.terminate()
+        }
+      }, this.timings.heartbeatMs, this.timings.deadMs, this.timings.probeMs)
+      this.beat.start()
       for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
     })
+    ws.on('pong', () => {
+      if (this.ws === ws) this.beat?.alive()
+    })
     ws.on('message', (data) => {
       if (this.ws !== ws) return
+      this.beat?.alive()
       const text = String(data)
       if (this.cloudTokenInvalid(text)) return
       const e = parseEngineMessage(text)
@@ -266,11 +340,13 @@ export class EngineLink {
     ws.on('close', () => {
       // A newer attempt (Retry) took over: this socket's end means nothing.
       if (this.ws !== ws) return
+      this.beat?.stop()
+      this.beat = undefined
       if (opened) {
         // A drop: a fresh outage, so fast retries again. Not a failed attempt yet (the pill waits for one).
         this.downSince = Date.now()
         this.slow = 0
-      } else this.failures++
+      } else if (!this.held) this.failures++
       this.setConnected(false)
       this.schedule()
     })
@@ -305,6 +381,11 @@ export class EngineLink {
     if (e.type === 'speak' && e.payload.audioUrl && !/^(https?:|data:|blob:)/.test(e.payload.audioUrl)) {
       e = { ...e, payload: { ...e.payload, audioUrl: new URL(e.payload.audioUrl, this.url.replace(/^ws/, 'http')).href } }
     }
+    // A lesson this run never started (the engine's snapshot of an old one): not relayed, not logged, not replayed.
+    // An old lesson's watching reaches the pill as idle (RunGuard.filter).
+    const kept = this.run.filter(e)
+    if (!kept) return
+    e = kept
     if (e.type === 'lesson.ready') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
     // An ended lesson must not be replayed into a window that (re)loads: keep only the search rows.
     if (e.type === 'lesson.ended') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))

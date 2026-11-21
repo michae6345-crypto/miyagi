@@ -30,8 +30,13 @@ export const useDock = create<DockState>(() => ({ open: false, collapsed: false,
 
 let lastSent = ''
 export function setDock(patch: Partial<DockState>): void {
-  const next = { ...useDock.getState(), ...patch }
+  const cur = useDock.getState()
+  const next = { ...cur, ...patch }
   if (next.rect && !isUsableRect(next.rect)) next.rect = undefined
+  // Motion (docs/MOTION.md): nothing changed, nothing to tell. A new rect object with the same numbers used to
+  // re-render every reader (the panel itself, the island) on each frame of the panel's own height spring.
+  const sameBox = next.rect === cur.rect || (!!next.rect && !!cur.rect && sameRect(next.rect, cur.rect, 0))
+  if (next.open === cur.open && next.collapsed === cur.collapsed && sameBox) return
   useDock.setState(next)
   reserveRect('dock', next.open ? next.rect : undefined)
   // The engine keeps its boxes and VS Code clear of the panel (E2/E3), when it understands panel.state.

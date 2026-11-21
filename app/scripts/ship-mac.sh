@@ -33,6 +33,9 @@ DMG=dist/Miyagi-Mac.dmg
 echo "[ship] 1/5 engine → build/engine"
 node scripts/bundle-engine.mjs
 
+echo "[ship] 1b/5 push-to-talk helper → build/helpers/miyagi-listen (signed here, before electron-builder seals the app)"
+bash native/listen/build.sh
+
 echo "[ship] 2/5 app"
 # A stale .app from another arch would be picked up below.
 rm -rf dist/mac dist/mac-* dist/Miyagi-Mac.*
@@ -41,6 +44,7 @@ npx electron-builder --mac --dir "$ARCH" --publish never
 
 APP="$(find dist -maxdepth 2 -name '*.app' -type d | head -1)"
 [ -n "$APP" ] || { echo "[ship] no .app in dist/"; exit 1; }
+[ -x "$APP/Contents/Resources/helpers/miyagi-listen" ] || { echo "[ship] miyagi-listen isn't inside $APP (extraResources helpers?)"; exit 1; }
 [ -f "$APP/Contents/Resources/engine/install.sh" ] || { echo "[ship] the engine isn't inside $APP (extraResources?)"; exit 1; }
 
 echo "[ship] 3/5 ad-hoc sign $APP"

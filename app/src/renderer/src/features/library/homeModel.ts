@@ -17,10 +17,12 @@ import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { noteLearnMode } from '../../core/lesson'
 import { closeWindow } from '../../core/surfaces'
+import { contLine, type Cont } from '../dashboard/continue'
 import type { DashData } from '../dashboard/types'
 import { libraryMatch } from '../launcher/library'
 import { useSearch } from '../launcher/store'
 import { parseYouTube, type YouTubeLink } from '../launcher/youtube'
+import type { Row } from '../onboarding/rows'
 import { start, useLibrary } from './store'
 
 // ---- the hero ---------------------------------------------------------------------------------------------------
@@ -44,6 +46,7 @@ export type HeroInput = {
   dashLoading: boolean
   items: LibraryItem[]
   data?: DashData
+  cont: Cont[]
   canStart: boolean
   live?: { title: string; stepTitle?: string; index: number; total: number; fraction: number }
   building?: { title?: string; message?: string; progress?: number }
@@ -52,38 +55,32 @@ export type HeroInput = {
 /** Saved lessons already finished (engine progress): never offered as new, never "not started". */
 export const finishedIds = (data: DashData | undefined): Set<string> => new Set((data?.completed ?? []).flatMap((c) => (c.libraryId ? [c.libraryId] : [])))
 
-const stepLine = (index: number, total: number, title?: string): string => `Step ${Math.min(index + 1, total)} of ${total}${title ? `. ${title}` : ''}`
+const stepLine = (index: number, total: number, title?: string): string => contLine({ stepIndex: index, total, stepTitle: title })
 
 export function pickHero(i: HeroInput): Hero {
   if (i.building) return { kind: 'building', title: i.building.title, line: i.building.message || 'Finding the steps', fraction: i.building.progress }
   if (i.live) return { kind: 'live', title: i.live.title, line: stepLine(i.live.index, i.live.total, i.live.stepTitle), fraction: i.live.fraction }
   if (!i.loaded && i.dashLoading) return { kind: 'loading' }
-  // Newest saved lesson in progress: the engine's progress (it knows when) first, then the library's own rows.
-  const active = [...(i.data?.inProgress ?? [])].filter((a) => a.libraryId).sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0))
-  for (const a of active) {
-    const item = i.items.find((x) => x.id === a.libraryId)
-    const total = a.stepCount ?? item?.progress?.total ?? item?.steps ?? 0
-    const index = a.stepIndex ?? item?.progress?.stepIndex ?? 0
-    if (!total) continue
+  // The newest lesson left mid-way: the same list Lessons and Progress read (dashboard/continue.ts).
+  const c = i.cont[0]
+  if (c) {
+    const item = i.items.find((x) => x.id === c.libraryId)
     return {
       kind: 'resume',
-      id: a.libraryId!,
-      title: a.title || item?.title || 'Your lesson',
-      line: stepLine(index, total, a.stepTitle ?? item?.progress?.stepTitle),
-      fraction: Math.min(1, (a.passed ?? index) / total),
-      when: a.lastActiveAt,
+      id: c.libraryId,
+      title: c.title,
+      line: contLine(c),
+      fraction: Math.min(1, c.passed / c.total),
+      when: c.at,
       tools: item?.tools ?? [],
       canStart: i.canStart && (item ? item.ready : true)
     }
   }
-  const mid = i.items.find((x) => x.ready && x.progress && x.progress.stepIndex < x.progress.total)
-  if (mid?.progress)
-    return { kind: 'resume', id: mid.id, title: mid.title, line: stepLine(mid.progress.stepIndex, mid.progress.total, mid.progress.stepTitle), fraction: mid.progress.stepIndex / mid.progress.total, tools: mid.tools, canStart: i.canStart }
   if (!i.loaded) return { kind: 'loading' }
   const done = finishedIds(i.data)
   const ready = i.items.find((x) => x.ready && !x.progress && !done.has(x.id))
   if (ready)
-    return { kind: 'fresh', id: ready.id, title: ready.title, line: [`${ready.steps} ${ready.steps === 1 ? 'step' : 'steps'}`, ready.estMinutes ? `about ${ready.estMinutes} min` : ''].filter(Boolean).join(', '), tools: ready.tools, canStart: i.canStart }
+    return { kind: 'fresh', id: ready.id, title: ready.title, line: [`${ready.steps} ${ready.steps === 1 ? 'step' : 'steps'}`, ready.estMinutes ? `${ready.estMinutes} min` : ''].filter(Boolean).join(' · '), tools: ready.tools, canStart: i.canStart }
   return { kind: 'empty' }
 }
 
@@ -91,12 +88,14 @@ export function pickHero(i: HeroInput): Hero {
 
 export type Recent = { key: string; title: string; done: boolean; passed: number; total: number; skipped: number; at?: number; libraryId?: string }
 
-/** The last lessons, newest first: finished ones and ones in progress, with the steps passed and when. */
-export function recentActivity(data: DashData | undefined, max = 5): Recent[] {
+const lessonKey = (libraryId: string | undefined, title: string): string => libraryId ?? title.toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** The last lessons, newest first. One row per lesson, in its newest state (finished, or still going). */
+export function recentActivity(data: DashData | undefined, max = 4): Recent[] {
   if (!data) return []
   const rows: Recent[] = [
     ...data.inProgress.map((a) => ({
-      key: `p:${a.lessonId}`,
+      key: lessonKey(a.libraryId, a.title),
       title: a.title,
       done: false,
       passed: a.passed ?? a.stepIndex ?? 0,
@@ -106,7 +105,7 @@ export function recentActivity(data: DashData | undefined, max = 5): Recent[] {
       libraryId: a.libraryId
     })),
     ...data.completed.map((c) => ({
-      key: `c:${c.lessonId}`,
+      key: lessonKey(c.libraryId, c.title),
       title: c.title,
       done: true,
       passed: c.result?.passed ?? 0,
@@ -115,14 +114,28 @@ export function recentActivity(data: DashData | undefined, max = 5): Recent[] {
       at: c.finishedAt,
       libraryId: c.libraryId
     }))
-  ]
-  return rows.sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, max)
+  ].sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+  const seen = new Set<string>()
+  return rows.filter((r) => (seen.has(r.key) ? false : (seen.add(r.key), true))).slice(0, max)
 }
 
-/** "4 of 6 steps passed", "6 of 6 steps passed, 1 skipped". Never invents a number. */
-export function stepsPassed(r: Recent): string {
-  if (!r.total) return r.done ? 'Finished' : 'In progress'
-  return `${r.passed} of ${r.total} ${r.total === 1 ? 'step' : 'steps'} passed${r.skipped ? `, ${r.skipped} skipped` : ''}`
+/** "Finished", "Step 4 of 7". Says it once, never invents a number. */
+export function recentLine(r: Recent): string {
+  if (r.done) return r.skipped ? `Finished · ${r.skipped} skipped` : 'Finished'
+  return r.total ? `Step ${Math.min(r.passed + 1, r.total)} of ${r.total}` : 'In progress'
+}
+
+/** The one thing left to set up, as a button label and a short line. undefined = nothing to fix. */
+export function setupFix(rows: Row[]): { label: string; line: string } | undefined {
+  const r = rows.find((x) => x.state !== 'passed' && x.state !== 'unknown')
+  if (!r) return undefined
+  const L: Record<Row['id'], { label: string; line: string }> = {
+    screen: { label: 'Allow Screen Recording', line: 'Allow Screen Recording' },
+    accessibility: { label: 'Turn on Accessibility', line: 'Turn on Accessibility' },
+    companion: { label: 'Connect VS Code', line: 'Connect VS Code' },
+    engine: r.state === 'watching' ? { label: 'Starting miyagi', line: 'miyagi is starting' } : { label: 'Start miyagi', line: 'miyagi isn’t running' }
+  }
+  return L[r.id]
 }
 
 // ---- the ask field ----------------------------------------------------------------------------------------------

@@ -19,6 +19,9 @@
  *      "ok" cancels a heal still waiting (a late token_invalid about the token just replaced). A disabled install (403)
  *      sends no token_invalid: config.status.cloud says "unauthorized" and onboarding shows it.
  *
+ *   6. installToken() / onInstallToken(): the token for features/cloudLink.ts (POST /v1/link ties it to the signed-in
+ *      Supabase user). Main process only.
+ *
  * Handles: cloud:get → CloudView (no token), cloud:retry → CloudView. Broadcasts feat:cloud CloudView.
  */
 import { safeStorage } from 'electron'
@@ -119,9 +122,31 @@ export function createHealer(heal: () => Promise<void>, opts: HealerOptions = {}
   }
 }
 
-/** The install token this run holds (main only: features/telemetry.ts authenticates its events with it). */
-let currentToken: string | undefined
-export const installToken = (): string | undefined => currentToken
+/** The install token this Mac holds right now and the proxy that minted it. Main process only (features/cloudLink.ts). */
+export type InstallInfo = { token: string; tokenId?: string; host: string }
+let current: InstallInfo | undefined
+const installListeners = new Set<() => void>()
+
+/** The current install token, or undefined (off, not minted yet, or being replaced). Never to a renderer or a log. */
+export const installToken = (): InstallInfo | undefined => current
+
+/** Called whenever the install token appears or changes (first mint, self-heal). Returns what unsubscribes. */
+export function onInstallToken(fn: () => void): () => void {
+  installListeners.add(fn)
+  return () => installListeners.delete(fn)
+}
+
+function setInstall(next: InstallInfo | undefined): void {
+  if (next?.token === current?.token && next?.host === current?.host) return
+  current = next
+  for (const fn of installListeners) {
+    try {
+      fn()
+    } catch {
+      console.warn('[cloud] an install-token listener failed')
+    }
+  }
+}
 
 function secureStorage(): boolean {
   if (!safeStorage.isEncryptionAvailable()) return false
@@ -144,7 +169,7 @@ export default defineMainFeature({
     const publish = (): void => ctx.broadcast('cloud', view())
     const apply = (): void => {
       ctx.engine.setCloud(stored && url ? { miyagiToken: stored.token, miyagiCloud: cloudApiRoot(url) } : undefined)
-      currentToken = stored && url ? stored.token : undefined
+      setInstall(stored && url ? { token: stored.token, tokenId: stored.tokenId, host: url } : undefined)
       state = !url ? 'off' : stored ? 'ok' : state
       publish()
     }

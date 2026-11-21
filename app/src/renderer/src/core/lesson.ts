@@ -359,6 +359,47 @@ onMessage('status', (p) =>
   })
 )
 
+/**
+ * Nothing may spin forever (Michael: the island "stuck thinking"). An engine that said `status thinking` and then went
+ * quiet (a lost reply, a socket that died without closing) must not leave the spinner on: after THINKING_MAX_MS the
+ * state falls back to idle with one calm line, and the learner can press the key again. Any new status restarts the clock.
+ */
+export const THINKING_MAX_MS = 90_000
+let thinkingTimer: ReturnType<typeof setTimeout> | undefined
+useLesson.subscribe((s, prev) => {
+  const now = s.engineState === 'thinking'
+  if (now === (prev.engineState === 'thinking') && (!now || s.statusDetail === prev.statusDetail)) return
+  clearTimeout(thinkingTimer)
+  thinkingTimer = undefined
+  if (!now) return
+  thinkingTimer = setTimeout(() => {
+    thinkingTimer = undefined
+    if (get().engineState !== 'thinking') return
+    // Same set as setConnected(false): a stale busy/retry caption must not outlive the spinner.
+    set({ engineState: undefined, busy: undefined, statusDetail: undefined })
+    notify('That is taking too long. Try again.', 'info', { id: 'thinking-timeout' })
+  }, THINKING_MAX_MS)
+})
+
+/**
+ * Same for the build spinner: the engine sends lesson.building about once a second while it works, so 90 s with no
+ * change at all while `building` (and no step yet) means the reply is lost. Drop the spinner and say so, calmly.
+ */
+export const BUILD_STALL_MS = 90_000
+let buildTimer: ReturnType<typeof setTimeout> | undefined
+useLesson.subscribe((s) => {
+  clearTimeout(buildTimer)
+  buildTimer = undefined
+  if (!s.building || s.stepId) return
+  buildTimer = setTimeout(() => {
+    buildTimer = undefined
+    const c = get()
+    if (!c.building || c.stepId) return
+    stopBuild()
+    notify('That is taking too long. Try again.', 'info', { id: 'build-timeout' })
+  }, BUILD_STALL_MS)
+})
+
 // ---- v2 (W0-5) engine events ------------------------------------------------------------------------------------
 onMessage('engine.hello', (p) => set({ hello: { ...p, capabilities: Array.isArray(p.capabilities) ? p.capabilities.filter((c) => typeof c === 'string') : [] } }))
 onMessage('lesson.paused', (p) => set({ paused: p }))

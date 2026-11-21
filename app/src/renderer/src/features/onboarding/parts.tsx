@@ -2,7 +2,7 @@
  * Feature: onboarding. Small pieces the setup views share: the "N of M ready" count, the footer with the one primary,
  * the launcher hint (its keycap from bridge.platform.keys, never typed) and the enter motion every view uses.
  *
- * Motion (UI-POLISH-SPEC 5, kept local until core/ui/motion.ts lands): a 6 px rise on the house spring with a 180 ms
+ * Motion (UI-POLISH-SPEC 5, numbers from core/ui/motion, docs/MOTION.md): a 6 px rise on the house spring with a 180 ms
  * fade, 35 ms stagger, the first 8 children only. MotionConfig reducedMotion="user" (main.tsx) drops the rise and keeps
  * the fade. Transform and opacity only.
  */
@@ -13,13 +13,15 @@ import { PrimaryButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
 import type { Summary } from './rows'
 import { startLearning } from './store'
+import { ease, fade, stagger as motionStagger } from '../../core/ui/motion'
 
-const FADE: Transition = { duration: 0.18, ease: [0.23, 1, 0.32, 1] }
-export const EASE_OUT = [0.23, 1, 0.32, 1] as const
+const FADE: Transition = fade.in
+/** The house ease-out (core/ui/motion ease.out), kept under the name the onboarding files import. */
+export const EASE_OUT = ease.out
 
 /** A parent that staggers its `rise` children (35 ms apart, the first 8 only). */
 export function stagger(delay = 0): Variants {
-  return { hidden: {}, shown: { transition: { delayChildren: delay, staggerChildren: 0.035 } } }
+  return { hidden: {}, shown: { transition: { delayChildren: delay, staggerChildren: motionStagger.each } } }
 }
 
 /** One child that rises 6 px and fades in (a `stagger` parent sets when). */
@@ -56,7 +58,7 @@ export function Footer({ sum, left, border = true, label = 'Start learning', onS
 
 export function LauncherHint({ lead }: { lead?: string }): ReactNode {
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-[8px] whitespace-nowrap">
       {lead && <span style={{ fontSize: type2.sm, color: color.label }}>{lead}</span>}
       <Keycap k="launcher" />
       <span style={{ fontSize: type2.sm, color: color.label }}>{copy.launcherPlaceholder}</span>

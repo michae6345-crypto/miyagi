@@ -12,6 +12,7 @@ import { bridge } from '../../bridge'
 import { color, fill, radius2, spring } from '../../core/theme'
 import { Keycap as CoreKeycap, keyLabel as coreKeyLabel, type KeyName } from '../../core/ui/Keycap'
 import { demoEnabled, navKey } from './keys'
+import { ease, enter, fade, staggerDelay } from '../../core/ui/motion'
 
 /** One section of the panel settling into place a beat after the one above it. */
 export function Rise({ i, children, className = '' }: { i: number; children: ReactNode; className?: string }): ReactNode {
@@ -22,7 +23,7 @@ export function Rise({ i, children, className = '' }: { i: number; children: Rea
       className={className}
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ y: { ...spring, delay }, opacity: { duration: 0.2, delay, ease: 'easeOut' } }}
+      transition={enter(delay)}
     >
       {children}
     </motion.div>
@@ -127,7 +128,7 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
               }}
               whileHover={on ? undefined : { backgroundColor: fill.chipHover, color: color.text }}
               whileTap={PRESS}
-              transition={{ duration: 0.14, y: { ...spring, delay: i * 0.04 }, opacity: { duration: 0.18, delay: i * 0.04 } }}
+              transition={{ ...fade.tint, y: { ...spring, delay: staggerDelay(i) }, opacity: { ...fade.in, delay: staggerDelay(i) } }}
               {...press(id)}
             >
               <Icon size={13} strokeWidth={1.8} className="shrink-0" />
@@ -147,7 +148,7 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
             initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6 }}
-            transition={{ y: spring, opacity: { duration: 0.14 } }}
+            transition={{ y: spring, opacity: fade.in }}
           >
             {HOW_DESC[how]}
           </motion.div>
@@ -208,13 +209,13 @@ function AskLine({
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       whileTap={PRESS}
-      transition={{ y: { ...spring, delay }, opacity: { duration: 0.18, delay } }}
+      transition={enter(delay)}
       onMouseMove={onHover}
       {...rest}
     >
       <ArrowRight size={16} strokeWidth={1.8} className="shrink-0" style={{ color: active ? color.text : color.label }} />
       <span className="min-w-0 flex-1 truncate">{text}</span>
-      <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={{ duration: 0.12 }} aria-hidden>
+      <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
         <NavKey>{navKey('enter')}</NavKey>
       </motion.span>
     </motion.button>
@@ -231,7 +232,7 @@ export function ListHighlight({ at, count, h }: { at: number; count: number; h: 
       style={{ height: h, background: fill.highlight }}
       initial={false}
       animate={{ y: Math.max(0, Math.min(count - 1, at)) * h, opacity: on ? 1 : 0 }}
-      transition={{ y: spring, opacity: { duration: 0.12 } }}
+      transition={{ y: spring, opacity: fade.out }}
     />
   )
 }
@@ -375,7 +376,7 @@ export function Action({
       }}
       whileHover={enabled ? (solid ? { scale: 1.03 } : { backgroundColor: fill.chip, color: color.text }) : undefined}
       whileTap={enabled ? PRESS : undefined}
-      transition={{ duration: 0.14 }}
+      transition={{ ...fade.tint, scale: spring }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
@@ -410,7 +411,7 @@ export function EndLink({ armed, onClick }: { armed: boolean; onClick: () => voi
       animate={armed ? { backgroundColor: fill.chip, color: color.text } : { backgroundColor: fill.clear, color: color.faint }}
       whileHover={{ color: color.text }}
       whileTap={PRESS}
-      transition={{ duration: 0.14 }}
+      transition={{ ...fade.tint, scale: spring }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       title={armed ? 'Click again to end the lesson' : 'End this lesson'}

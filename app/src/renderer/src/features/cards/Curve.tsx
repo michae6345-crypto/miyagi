@@ -9,6 +9,7 @@ import { motion } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { color } from '../../core/theme'
 import type { Point } from './store'
+import { beat, draw, duration, ease, fade, prefersReduced } from '../../core/ui/motion'
 
 export type XY = [x: number, y: number]
 
@@ -109,7 +110,7 @@ export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width
             strokeLinecap="round"
             initial={{ opacity: 0 }}
             animate={{ opacity: 0.55 }}
-            transition={{ duration: 0.4 }}
+            transition={fade.slow}
           />
         ) : (
           <motion.path
@@ -120,10 +121,7 @@ export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width
             strokeWidth={1.5}
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity={0.7}
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: 0.6, ease: 'easeOut' }}
+            {...draw(prefersReduced(), { delay: 0, length: duration.draw, opacity: 0.7 })}
           />
         )
       )}
@@ -136,9 +134,7 @@ export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
-        initial={{ pathLength: 0 }}
-        animate={{ pathLength: 1 }}
-        transition={{ duration: 0.6, ease: 'easeOut', delay: 0.1 }}
+        {...draw(prefersReduced(), { delay: 2 * beat, length: duration.draw })}
       />
 
       {live && (
@@ -151,7 +147,7 @@ export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width
           r={3.5}
           initial={{ scale: 1, opacity: 0.6 }}
           animate={{ scale: 2.8, opacity: 0 }}
-          transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut' }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: ease.out }}
         />
       )}
       <circle cx={ex} cy={ey} r={3.5} fill={primary.stroke} />

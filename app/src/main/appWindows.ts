@@ -13,7 +13,8 @@
  * Only the routes in APP_ROUTES open (allowlist). A renderer can't pick a URL, size, or window option.
  */
 import { ipcMain, screen, type App, type BrowserWindow, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
-import { windowSize, color } from '../renderer/src/core/theme'
+import { windowSize } from '../renderer/src/core/theme'
+import { windowBackground } from './prefs'
 import { appWindowOptions, showInDock } from './platform'
 
 /** Route → size (points). The feature's FeatureWindow {kind:'app'} must use the same route. */
@@ -85,7 +86,7 @@ export function setupAppWindows(deps: {
       const w = Math.min(size.w, area.width - 32)
       const h = Math.min(size.h, area.height - 32)
       const win = deps.create(route, {
-        ...appWindowOptions(color.window),
+        ...appWindowOptions(windowBackground()),
         width: w,
         height: h,
         minWidth: Math.min(w, 560),
