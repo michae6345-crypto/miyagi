@@ -2,8 +2,9 @@
  * Prog-Completion: the lesson-complete card grown out of the notch island, 408 wide.
  *
  *   header   the bonsai and wordmark, the dismiss keycap and ✕
- *   hero     a green check and "Lesson complete" only when every counted step passed; with a skip it is "Lesson
- *            finished" under the skipped ring (green only means passed)
+ *   hero     a green check and "Lesson complete" only when every counted step passed; otherwise (a skip, a step
+ *            that never reported passed, or no counts at all) it is "Lesson finished" under the plain ring (green
+ *            only means passed)
  *   result   what the engine said the learner built (card title / body), and the number their own run printed
  *            (the newest metric series, else the trained network's loss). Left out when there's none.
  *   steps    "6 of 6 passed" / "5 of 6 passed, 1 skipped" from card.result, else counted from this lesson's
@@ -217,7 +218,8 @@ export function CompletePanel(): ReactNode {
   const counts = useCounts(card?.result)
   const w = panelWidth(useOverlayWidth((s) => s.w))
   if (!card) return null
-  const clean = !counts || counts.skipped === 0
+  // Green only when every counted step passed; no counts, a skip or a missed pass all get the plain ring.
+  const clean = !!counts && counts.skipped === 0 && counts.passed >= counts.total
   const subtitle = card.result?.title || lessonTitle || card.map?.track || ''
   const minutes = card.result?.minutes
   const next = readNext(card)
