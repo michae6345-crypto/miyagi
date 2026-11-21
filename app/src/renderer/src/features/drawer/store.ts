@@ -3,9 +3,16 @@
  * for a while (see index.tsx); that never changes `open`, so it slides back once the target moves on.
  */
 import { create } from 'zustand'
-import { onMessage, onUi } from '../../core/bus'
+import { onMessage, onUi, type PanelRequest } from '../../core/bus'
+import { setDock } from '../../core/dock'
+import { useLesson } from '../../core/lesson'
 import { usePressed } from '../../core/shortcuts'
+import { useBeforeStart } from '../before-start/store'
+import { useCards } from '../cards/store'
+import { useComplete } from '../complete/store'
 import { useDiagram } from '../diagrams/store'
+import { useSearch } from '../launcher/store'
+import { closeHint, usePanel } from './v2/panelStore'
 
 export type Side = 'left' | 'right'
 
@@ -99,6 +106,81 @@ onMessage('step.started', () => useDrawer.setState({ claimed: false }))
 usePressed.subscribe((s, prev) => {
   if (s.kind && s.kind !== 'diagram' && s.at !== prev.at && useDrawer.getState().claimed) useDrawer.setState({ claimed: false })
 })
+
+// ---------------------------------------------------------------------------------------------------------------
+// v2 lesson panel (BUILD-PLAN A1). In a "Just teach me" lesson (lesson.mode "lesson") the drawer is the docked lesson
+// panel (v2/LessonPanel.tsx); `open` still says whether it shows, so every reader of useDrawer keeps working. Video
+// lessons keep the drawer above unchanged.
+//   openPanel()       show it (the Mini pill's click, A2; the recovery card, A3; a `panel` UI event)
+//   collapsePanel()   collapse it to the Mini pill (its chevron, Esc hide, Esc when nothing else is open)
+//   isPanelRouted(x)  does the panel render this card / off-track right now (so the island must not)? See v2/route.ts.
+// ---------------------------------------------------------------------------------------------------------------
+
+export { isPanelRouted, usePanelRouted, panelShown, type Routable } from './v2/route'
+
+/** The v2 panel is this lesson's drawer ("Just teach me"). */
+export const isPanelLesson = (): boolean => useLesson.getState().lesson?.mode === 'lesson'
+
+export function openPanel(): void {
+  useDrawer.setState({ open: true, concept: undefined })
+  if (isPanelLesson()) setDock({ collapsed: false })
+}
+
+export function collapsePanel(): void {
+  useDrawer.setState({ open: false, concept: undefined, claimed: false })
+  if (isPanelLesson()) setDock({ open: false, collapsed: true, rect: undefined })
+}
+
+/** The Mini pill, the recovery card and the keys ask through core's `panel` UI event (no feature imports another's opener). */
+onUi('panel', (req) => {
+  const r = req as PanelRequest | undefined
+  if (r === 'open') openPanel()
+  else if (r === 'collapse') collapsePanel()
+  else if (r === 'toggle') (useDrawer.getState().open ? collapsePanel : openPanel)()
+  else return
+  return true
+})
+
+/**
+ * Esc collapses the panel only when nothing else is open (A1): a card, the off-track card, a diagram, the completion
+ * panel, the launcher, "Before you start", or the panel's own hint. Every `dismiss` handler runs on the same Esc, in
+ * feature order, so a surface that closed earlier in this same Esc counts as open (`closedNow`, cleared next tick).
+ */
+function othersOpen(): boolean {
+  const c = useCards.getState()
+  return (
+    !!c.card ||
+    c.offtrackOpen ||
+    !!c.success ||
+    useDiagram.getState().open ||
+    !!useComplete.getState().card ||
+    useBeforeStart.getState().open ||
+    useSearch.getState().open ||
+    !!usePanel.getState().hint
+  )
+}
+let closedNow = false
+let wasOpen = false
+function noteOthers(): void {
+  const now = othersOpen()
+  if (wasOpen && !now) {
+    closedNow = true
+    queueMicrotask(() => (closedNow = false))
+  }
+  wasOpen = now
+}
+for (const s of [useCards, useDiagram, useComplete, useBeforeStart, useSearch, usePanel] as { subscribe: (fn: () => void) => () => void }[]) s.subscribe(noteOthers)
+
+onUi('dismiss', () => {
+  if (!isPanelLesson() || !useDrawer.getState().open) return
+  // The panel's hint is its own "something open": Esc closes it first.
+  if (usePanel.getState().hint) return closeHint()
+  if (othersOpen() || closedNow) return
+  collapsePanel()
+})
+
+// A new lesson: the panel isn't collapsed (lesson.ready opens it above).
+onMessage('lesson.ready', () => setDock({ collapsed: false }))
 
 /** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */
 export function isWebLink(url: string): boolean {
