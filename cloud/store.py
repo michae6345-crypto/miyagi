@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS tokens (
     created_at  REAL NOT NULL,
     disabled    INTEGER NOT NULL DEFAULT 0
 );
+-- Which Supabase user an install belongs to (POST /v1/link). One row per install; sign-out never unlinks,
+-- and a later link from another account on the same install replaces the user.
+CREATE TABLE IF NOT EXISTS links (
+    token_hash  TEXT PRIMARY KEY,          -- the install (sha256 hex of its token)
+    user_id     TEXT NOT NULL,             -- the Supabase auth user id (the access token's sub)
+    linked_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS links_user ON links (user_id);
 -- One row per token, UTC day, provider and model. `requests` is also the per-token daily
 -- request counter that check_quota() will read.
 CREATE TABLE IF NOT EXISTS usage (
@@ -100,13 +108,25 @@ class Store:
         rows = self._q("SELECT COALESCE(SUM(requests), 0) AS n FROM usage WHERE token_hash = ? AND day = ?", (token_hash, today()))
         return int(rows[0]["n"])
 
+    # links ----------------------------------------------------------------
+    def link_user(self, token_hash: str, user_id: str) -> None:
+        """Link an install to a user. Re-linking the same pair keeps the first linked_at."""
+        self._q("INSERT INTO links (token_hash, user_id, linked_at) VALUES (?, ?, ?) "
+                "ON CONFLICT (token_hash) DO UPDATE SET user_id = excluded.user_id, linked_at = excluded.linked_at "
+                "WHERE links.user_id != excluded.user_id", (token_hash, user_id, time.time()))
+
+    def get_link(self, token_hash: str) -> dict | None:
+        rows = self._q("SELECT user_id, linked_at FROM links WHERE token_hash = ?", (token_hash,))
+        return dict(rows[0]) if rows else None
+
     def usage_report(self, days: int = 30) -> dict:
         """Totals per token-hash prefix, per day, and per (day, prefix, model) for the last `days` days."""
         since = datetime.fromtimestamp(time.time() - days * 86400, timezone.utc).strftime("%Y-%m-%d")
         sums = "SUM(requests) AS requests, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, ROUND(SUM(usd), 4) AS usd"
         by_token = self._q(
-            f"SELECT substr(u.token_hash, 1, {PREFIX_LEN}) AS token, MAX(COALESCE(t.disabled, 0)) AS disabled, {sums} "
-            "FROM usage u LEFT JOIN tokens t ON t.token_hash = u.token_hash WHERE day >= ? GROUP BY u.token_hash ORDER BY usd DESC", (since,))
+            f"SELECT substr(u.token_hash, 1, {PREFIX_LEN}) AS token, MAX(COALESCE(t.disabled, 0)) AS disabled, MAX(l.user_id) AS user_id, {sums} "
+            "FROM usage u LEFT JOIN tokens t ON t.token_hash = u.token_hash LEFT JOIN links l ON l.token_hash = u.token_hash "
+            "WHERE day >= ? GROUP BY u.token_hash ORDER BY usd DESC", (since,))
         by_day = self._q(f"SELECT day, COUNT(DISTINCT token_hash) AS tokens, {sums} FROM usage WHERE day >= ? GROUP BY day ORDER BY day DESC", (since,))
         rows = self._q(f"SELECT day, substr(token_hash, 1, {PREFIX_LEN}) AS token, provider, model, {sums} FROM usage "
                        "WHERE day >= ? GROUP BY day, token_hash, provider, model ORDER BY day DESC, usd DESC", (since,))
