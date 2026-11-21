@@ -6,6 +6,7 @@ import type { Layout } from '../../preload/api'
 import { bridge, isElectron } from './bridge'
 import { dispatch } from './core/bus'
 import { setConnected } from './core/lesson'
+import { setNotchInfo } from './core/notchInfo'
 import './core/prefs' // applies the appearance before the first paint
 import { getFeatureWindows } from './core/registry' // importing it loads features/* (their stores subscribe on import)
 import { Overlay, useClickThrough } from './core/Overlay'
@@ -23,6 +24,7 @@ function useEngineFeed(): Layout {
     const offs = [bridge.onEvent(dispatch), bridge.onStatus(setConnected), bridge.on('layout', (l) => {
         // Main re-fits the pill under the menu bar / notch when the displays change: every reader of platform.pillTop follows.
         const next = l as Layout
+        setNotchInfo(next.notch)
         if (typeof next.pillTop === 'number') (bridge.platform as { pillTop: number }).pillTop = next.pillTop
         setLayout(next)
       })]

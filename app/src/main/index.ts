@@ -572,7 +572,8 @@ app.whenReady().then(async () => {
   // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
   // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
   resendLayoutRef = (): void => {
-    for (const w of [overlay, launcher]) if (w && !w.isDestroyed()) send(w, 'layout', layoutFor(w))
+    // Every window: Settings (General > Island) shows whether Boring Notch is using the notch.
+    forEachWindow((w) => send(w, 'layout', layoutFor(w)))
   }
   onPrefsChange(() => resendLayout())
   let refitTimer: ReturnType<typeof setTimeout> | undefined
