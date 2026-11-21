@@ -38,6 +38,9 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
   const box = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
   const island = useIslandBox()
+  // Paused (a blocking card owns Esc and the primary): the keys line dims and goes inert with the body, so the card's
+  // own Esc keycap is the only live Esc hint on screen.
+  const paused = useLinkGate().kind === 'paused'
 
   // Tell core/dock where the panel is (screen points, its real height), and that it's gone when it unmounts.
   useLayoutEffect(() => {
@@ -77,7 +80,16 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
           <div className="min-h-0 flex-initial overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
             <Body m={m} />
           </div>
-          <KeysRow onHide={collapsePanel} backDisabled={m.step.index <= 0} />
+          <motion.div
+            className="shrink-0"
+            inert={paused || undefined}
+            aria-disabled={paused || undefined}
+            initial={false}
+            animate={{ opacity: paused ? 0.5 : 1 }}
+            transition={{ duration: 0.2 }}
+          >
+            <KeysRow onHide={collapsePanel} backDisabled={m.step.index <= 0} />
+          </motion.div>
         </aside>
       </GlassCard>
     </motion.div>
@@ -146,7 +158,7 @@ function GatedCheck({ gate, label }: { gate: Gate; label: string }): ReactNode {
   const queued = useQueuedCheck((q) => !!q.stepId && q.stepId === stepId)
   const reduced = useReducedMotion()
   const waiting = gate.kind === 'wait'
-  const caption = gate.kind === 'ok' ? undefined : queued && waiting ? 'Queued. It runs when miyagi is back.' : gate.caption
+  const caption = gate.kind === 'ok' ? undefined : queued && waiting ? gate.queued ?? gate.caption : gate.caption
   return (
     <>
       {gate.kind === 'ok' ? (

@@ -23,6 +23,10 @@ export type Gate = {
   caption?: string
   /** The primary's label while waiting. */
   label?: string
+  /** The "Need help" caption while help waits ("Help waits until you are back online"). */
+  help?: string
+  /** The caption under the queued Check, said once (the button already reads "Queued"). */
+  queued?: string
   /** The Watch tile needs the network too. */
   offline?: boolean
 }
@@ -39,12 +43,37 @@ type Snap = {
 }
 
 function gateOf(s: Snap): Gate {
-  if (s.stopped) return { kind: 'paused', caption: 'Paused until miyagi restarts' }
-  if (s.recovery) return { kind: 'paused', caption: 'Paused until the permission is back on' }
-  if (s.editorClosed) return { kind: 'paused', caption: 'Paused until VS Code is back' }
-  if (s.linkDown) return { kind: 'wait', label: 'Check when miyagi is back', caption: 'Reconnecting. Checks and help wait.' }
-  if (s.offline) return { kind: 'wait', label: 'Check when back online', caption: 'Offline. Checks and help wait.', offline: true }
-  if (s.busy) return { kind: 'wait', label: 'Check when miyagi is free', caption: 'miyagi is busy. Checks wait a moment.' }
+  if (s.stopped) return { kind: 'paused', caption: 'Paused until miyagi restarts', help: 'Help waits until miyagi restarts' }
+  if (s.recovery) return { kind: 'paused', caption: 'Paused until the permission is back on', help: 'Help waits until the permission is back on' }
+  if (s.editorClosed) return { kind: 'paused', caption: 'Paused until VS Code is back', help: 'Help waits until VS Code is back' }
+  if (s.linkDown) {
+    return {
+      kind: 'wait',
+      label: 'Check when miyagi is back',
+      caption: 'Reconnecting. Checks and help wait.',
+      help: 'Help waits until miyagi is back',
+      queued: 'Runs when miyagi is back'
+    }
+  }
+  if (s.offline) {
+    return {
+      kind: 'wait',
+      label: 'Check when back online',
+      caption: 'Offline. Checks and help wait.',
+      help: 'Help waits until you are back online',
+      queued: 'Runs when you are back online',
+      offline: true
+    }
+  }
+  if (s.busy) {
+    return {
+      kind: 'wait',
+      label: 'Check when miyagi is free',
+      caption: 'miyagi is busy. Checks wait a moment.',
+      help: 'Help waits a moment',
+      queued: 'Runs when miyagi is free'
+    }
+  }
   return OK
 }
 
@@ -89,7 +118,8 @@ export function queueCheck(): void {
   if (!stepId) return
   if (useQueuedCheck.getState().stepId === stepId) return
   useQueuedCheck.setState({ stepId })
-  notify('Queued. Your check runs when miyagi is back.', 'info', { id: 'err-queued-check' })
+  // One string for the queued state: the panel's caption and this pill line both come from the gate.
+  notify(`Check queued. ${gateNow().queued ?? 'Runs when miyagi is back'}.`, 'info', { id: 'err-queued-check' })
 }
 
 function settleQueue(): void {

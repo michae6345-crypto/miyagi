@@ -50,7 +50,7 @@ export function Help({ pressed, watchStart, gate }: { pressed?: OptionAction; wa
   const off = (a: OptionAction): boolean => waits && (a !== 'watch' || !!gate?.offline)
   return (
     <div data-part="panel-help" className="flex flex-col gap-[12px]" style={{ padding: '16px 20px 16px' }}>
-      <Caption>{waits ? 'Help waits until miyagi is back' : 'Need help'}</Caption>
+      <Caption>{waits ? gate?.help ?? 'Help waits a moment' : 'Need help'}</Caption>
       {/*
         Five tiles in 320 px leave each label ~50 px after core OptionTile's 4 px side padding, and "Show me" truncated.
         The mockup's tiles have no side padding: drop it here (Core request 2) and keep a 6 px gap.
