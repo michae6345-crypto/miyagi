@@ -21,7 +21,7 @@
     {"do": "write", "file": "notes/b.md", "text": "# b\n"},
     {"do": "write", "file": "notes/c.md", "text": "# c\n"},
     {"do": "write", "file": "backup.sh", "text": "#!/usr/bin/env bash\n\nmkdir -p backups\nOUT=\"backups/notes-$(date +%F).tar.gz\"\ntar -czf \"$OUT\" notes\necho \"Backed up notes to $OUT\"\n"},
-    {"do": "mistake", "note": "runs it before chmod +x", "actions": [
+    {"do": "mistake", "note": "runs it before chmod +x", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "run", "cmd": "./backup.sh", "exit": 126, "output": ["zsh: permission denied: ./backup.sh"]}
     ]},
     {"do": "run", "cmd": "chmod +x backup.sh", "output": []},
@@ -35,7 +35,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "^No such folder: docs$"}
    ],
    "actions": [
-    {"do": "mistake", "note": "no space after [ in the test: [!: command not found", "actions": [
+    {"do": "mistake", "note": "no space after [ in the test: [!: command not found", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "write", "file": "backup.sh", "text": "#!/usr/bin/env bash\n\nSRC=\"${1:-notes}\"\nif [! -d \"$SRC\" ]; then\n  echo \"No such folder: $SRC\" >&2\n  exit 1\nfi\nmkdir -p backups\nOUT=\"backups/$SRC-$(date +%F).tar.gz\"\ntar -czf \"$OUT\" \"$SRC\"\necho \"Backed up $SRC to $OUT\"\n"},
      {"do": "run", "cmd": "./backup.sh docs", "exit": 1, "output": ["./backup.sh: line 4: [!: command not found",
       "tar: docs: Cannot stat: No such file or directory", "tar: Error exit delayed from previous errors.", "Backed up docs to backups/docs-2026-11-21.tar.gz"]}

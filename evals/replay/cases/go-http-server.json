@@ -19,7 +19,7 @@
    "actions": [
     {"do": "run", "cmd": "go mod init example.com/hello", "output": ["go: creating new go.mod: module example.com/hello"],
      "creates": {"go.mod": "module example.com/hello\n\ngo 1.23.2\n"}},
-    {"do": "mistake", "note": "names the package hello instead of main", "actions": [
+    {"do": "mistake", "note": "names the package hello instead of main", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "write", "file": "main.go", "text": "package hello\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"Hello, Go!\")\n}\n"},
      {"do": "run", "cmd": "go run .", "exit": 1, "output": ["package example.com/hello is not a main package"]}
     ]},
@@ -34,7 +34,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "^Hello, Ada!$"}
    ],
    "actions": [
-    {"do": "mistake", "note": "leaves an unused import (os): the build fails", "actions": [
+    {"do": "mistake", "note": "leaves an unused import (os): the build fails", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "write", "file": "main.go", "text": "package main\n\nimport (\n\t\"fmt\"\n\t\"log\"\n\t\"net/http\"\n\t\"os\"\n)\n\nfunc hello(w http.ResponseWriter, r *http.Request) {\n\tfmt.Fprintf(w, \"Hello, %s!\\n\", r.URL.Query().Get(\"name\"))\n}\n\nfunc main() {\n\thttp.HandleFunc(\"/hello\", hello)\n\tlog.Println(\"listening on :8080\")\n\tlog.Fatal(http.ListenAndServe(\":8080\", nil))\n}\n"},
      {"do": "run", "cmd": "go run .", "exit": 1, "output": ["# example.com/hello", "./main.go:7:2: \"os\" imported and not used"]}
     ]},
@@ -50,7 +50,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "^\\[\\{\"id\":1,\"title\":\"learn go\",\"done\":false\\}\\]$"}
    ],
    "actions": [
-    {"do": "mistake", "note": "lowercase struct fields: encoding/json skips them and prints [{}]", "actions": [
+    {"do": "mistake", "note": "lowercase struct fields: encoding/json skips them and prints [{}]", "caught_by_spec_rows": ["x0", "x1"], "actions": [
      {"do": "edit", "file": "main.go", "find": "func main() {", "replace": "type Todo struct {\n\tid    int\n\ttitle string\n\tdone  bool\n}\n\nfunc todos(w http.ResponseWriter, r *http.Request) {\n\tw.Header().Set(\"Content-Type\", \"application/json\")\n\tjson.NewEncoder(w).Encode([]Todo{{1, \"learn go\", false}})\n}\n\nfunc main() {\n\thttp.HandleFunc(\"/todos\", todos)"},
      {"do": "edit", "file": "main.go", "find": "import (\n", "replace": "import (\n\t\"encoding/json\"\n"},
      {"do": "run", "cmd": "curl localhost:8080/todos", "output": ["[{}]"]}
@@ -66,7 +66,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "^ok\\s+example\\.com/hello\\s+[0-9.]+s$"}
    ],
    "actions": [
-    {"do": "mistake", "note": "the test wants \"Hello, Ada\" without the ! and newline", "actions": [
+    {"do": "mistake", "note": "the test wants \"Hello, Ada\" without the ! and newline", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "write", "file": "main_test.go", "text": "package main\n\nimport (\n\t\"net/http/httptest\"\n\t\"testing\"\n)\n\nfunc TestHello(t *testing.T) {\n\treq := httptest.NewRequest(\"GET\", \"/hello?name=Ada\", nil)\n\trec := httptest.NewRecorder()\n\thello(rec, req)\n\tif got, want := rec.Body.String(), \"Hello, Ada\"; got != want {\n\t\tt.Errorf(\"got %q, want %q\", got, want)\n\t}\n}\n"},
      {"do": "run", "cmd": "go test ./...", "exit": 1, "output": ["--- FAIL: TestHello (0.00s)", "    main_test.go:13: got \"Hello, Ada!\\n\", want \"Hello, Ada\"", "FAIL", "FAIL\texample.com/hello\t0.198s", "FAIL"]}
     ]},

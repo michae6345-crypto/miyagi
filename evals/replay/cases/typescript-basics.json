@@ -34,7 +34,7 @@
    ],
    "actions": [
     {"do": "edit", "file": "tsconfig.json", "find": "    // \"outDir\": \"./\",", "replace": "    \"outDir\": \"./dist\",\n    \"rootDir\": \"./src\","},
-    {"do": "mistake", "note": "calls greet with an object missing age (TS2345)", "actions": [
+    {"do": "mistake", "note": "calls greet with an object missing age (TS2345)", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "write", "file": "src/index.ts", "text": "interface User {\n  name: string;\n  age: number;\n}\n\nfunction greet(user: User): string {\n  return `Hello, ${user.name} (${user.age})`;\n}\n\nconsole.log(greet({ name: \"Ada\" }));\n"},
      {"do": "run", "cmd": "npx tsc", "exit": 2, "output": ["src/index.ts:10:19 - error TS2345: Argument of type '{ name: string; }' is not assignable to parameter of type 'User'.",
       "  Property 'age' is missing in type '{ name: string; }' but required in type 'User'.", "", "10 console.log(greet({ name: \"Ada\" }));",

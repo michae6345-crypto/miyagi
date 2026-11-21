@@ -20,7 +20,7 @@
     {"do": "write", "file": "calc.py", "text": "def add(a, b):\n    return a + b\n\n\ndef divide(a, b):\n    return a / b\n"},
     {"do": "run", "cmd": "python3 -m pip install pytest", "output": ["Collecting pytest", "  Using cached pytest-8.3.3-py3-none-any.whl (342 kB)",
      "Successfully installed iniconfig-2.0.0 packaging-24.1 pluggy-1.5.0 pytest-8.3.3"]},
-    {"do": "mistake", "note": "names the file calc_tests.py, so pytest collects nothing", "actions": [
+    {"do": "mistake", "note": "names the file calc_tests.py, so pytest collects nothing", "caught_by_spec_rows": ["x0", "x1"], "actions": [
      {"do": "write", "file": "calc_tests.py", "text": "from calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n"},
      {"do": "run", "cmd": "pytest", "exit": 5, "output": ["============================= test session starts ==============================",
       "platform darwin -- Python 3.12.7, pytest-8.3.3, pluggy-1.5.0", "rootdir: /Users/me/pytest-lab", "collected 0 items", "",
@@ -54,7 +54,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "=+ 4 passed in [0-9.]+s =+"}
    ],
    "actions": [
-    {"do": "mistake", "note": "one case expects 2 + 2 == 5", "actions": [
+    {"do": "mistake", "note": "one case expects 2 + 2 == 5", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "edit", "file": "test_calc.py", "find": "def test_add():\n    assert add(2, 3) == 5\n",
       "replace": "@pytest.mark.parametrize(\"a, b, expected\", [(2, 3, 5), (-1, 1, 0), (2, 2, 5)])\ndef test_add(a, b, expected):\n    assert add(a, b) == expected\n"},
      {"do": "run", "cmd": "pytest", "exit": 1, "output": ["============================= test session starts ==============================",

@@ -31,7 +31,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "\"title\": \"learn flask\""}
    ],
    "actions": [
-    {"do": "mistake", "note": "the route is /todo, so GET /todos is a 404", "actions": [
+    {"do": "mistake", "note": "the route is /todo, so GET /todos is a 404", "caught_by_spec_rows": ["x0", "x1"], "actions": [
      {"do": "write", "file": "app.py", "text": "from flask import Flask, jsonify\n\napp = Flask(__name__)\n\ntodos = [{\"id\": 1, \"title\": \"learn flask\", \"done\": False}]\n\n\n@app.get(\"/todo\")\ndef list_todos():\n    return jsonify(todos)\n"},
      {"do": "run", "cmd": "flask --app app run --debug", "running": true, "output": [" * Serving Flask app 'app'", " * Debug mode: on",
       "WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.",
@@ -52,7 +52,7 @@
    "actions": [
     {"do": "append", "file": "app.py", "text": "\n\n@app.post(\"/todos\")\ndef add_todo():\n    data = request.get_json()\n    todo = {\"id\": len(todos) + 1, \"title\": data[\"title\"], \"done\": False}\n    todos.append(todo)\n    return jsonify(todo), 201\n"},
     {"do": "edit", "file": "app.py", "find": "from flask import Flask, jsonify", "replace": "from flask import Flask, jsonify, request"},
-    {"do": "mistake", "note": "posts without -H Content-Type: application/json (415)", "actions": [
+    {"do": "mistake", "note": "posts without -H Content-Type: application/json (415)", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "run", "cmd": "curl -X POST -d '{\"title\": \"write tests\"}' http://127.0.0.1:5000/todos", "output": ["<!doctype html>", "<html lang=en>",
       "<title>415 Unsupported Media Type</title>", "<h1>Unsupported Media Type</h1>",
       "<p>Did not attempt to load JSON data because the request Content-Type was not &#39;application/json&#39;.</p>"]}

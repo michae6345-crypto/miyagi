@@ -75,6 +75,8 @@
   },
   {
    "step": "s5", "about": "commit, add my_function, commit the rest", "match": "commit",
+   "expect": "pass-precision",
+   "finding": "s5's only precision check is def my_function in learning.py, so a correct learner goes green as soon as the function is written (action 2 of 4), before `git add .` and the second commit",
    "expect_checks": [
     {"type": "screen_contains", "app": "Terminal", "pattern": "\\[main [0-9a-f]{7}\\] add waiting file"},
     {"type": "file_contains", "file": "project1/learning.py", "pattern": "def my_function\\(\\):"}
@@ -89,7 +91,7 @@
   {
    "step": "s6", "about": "clone GitGoing and cd into it", "match": "clone",
    "expect": ["fail", "pass-precision"],
-   "finding": "s6's screen check fails for a correct learner: `git clone .../GitGoing.git` makes GitGoing/ and tab completion types `cd GitGoing`, but s6c2's pattern cd\\s+.*gitgoing is case-sensitive (precision's gitgoing/index.html passes only on a case-insensitive disk)",
+   "finding": "s6's screen check fails for a correct learner: `git clone .../GitGoing.git` makes GitGoing/ and tab completion types `cd GitGoing`, but s6c2's pattern cd\\s+.*gitgoing is case-sensitive (precision's gitgoing/index.html passes only on a case-insensitive disk, and right after the clone, before the cd)",
    "expect_checks": [
     {"type": "screen_contains", "app": "Terminal", "pattern": "Cloning into 'GitGoing'"},
     {"type": "file_exists", "file": "GitGoing/index.html"}
@@ -120,6 +122,8 @@
   },
   {
    "step": "s8", "about": "edit the heading, commit on the branch, push it", "match": "push",
+   "expect": "pass-precision",
+   "finding": "s8's only precision check is the edited heading (Git Going in index.html), so a correct learner goes green right after the edit (action 1 of 4), before the add, the commit and the push",
    "expect_checks": [
     {"type": "file_contains", "file": "GitGoing/index.html", "pattern": "<h1>Git Going</h1>"},
     {"type": "screen_contains", "app": "Terminal", "pattern": "\\[new branch\\]\\s+update-name -> update-name"}
@@ -128,8 +132,8 @@
     {"do": "edit", "file": "GitGoing/index.html", "find": "<h1>GitGoing</h1>", "replace": "<h1>Git Going</h1>"},
     {"do": "run", "cmd": "git add index.html", "output": []},
     {"do": "run", "cmd": "git commit -m \"update name\"", "output": ["[update-name 5d6e7f8] update name", " 1 file changed, 1 insertion(+), 1 deletion(-)"]},
-    {"do": "mistake", "note": "pushes main instead of the branch", "caught": false,
-     "finding": "s8's only precision check is the edited heading, so precision mode passes the step before the branch is pushed",
+    {"do": "mistake", "note": "pushes main instead of the branch", "caught_by_spec_rows": ["x1"], "caught": false,
+     "finding": "pushing main instead of update-name does not fail s8: its one precision row (the edited heading) already passes",
      "actions": [
      {"do": "run", "cmd": "git push origin main", "output": ["Everything up-to-date"]}
     ]},
@@ -144,6 +148,8 @@
   },
   {
    "step": "s9", "about": "pull the merged PR on main and git show it", "match": "pull",
+   "expect": "pass-precision",
+   "finding": "s9's only precision check is command_exit_ok for `git --git-dir=gitgoing/.git show`, and _script_tokens keeps only `git`, so the first git command that exits 0 (`git checkout main`, action 1 of 3) passes the step before the pull or git show",
    "expect_checks": [
     {"type": "screen_contains", "app": "Terminal", "pattern": "Fast-forward"},
     {"type": "screen_contains", "app": "Terminal", "pattern": "^commit [0-9a-f]{40}"}
@@ -161,12 +167,14 @@
   },
   {
    "step": "s10", "about": "delete the branch locally and on origin", "match": "delete",
+   "expect": "pass-precision",
+   "finding": "s10's only precision check is command_exit_ok for `git --git-dir=gitgoing/.git branch`, and _script_tokens keeps only `git`, so `git checkout main` (action 1 of 3) passes the step before either branch is deleted",
    "expect_checks": [
     {"type": "screen_contains", "app": "Terminal", "pattern": "Deleted branch update-name \\(was [0-9a-f]{7}\\)\\."},
     {"type": "screen_contains", "app": "Terminal", "pattern": "- \\[deleted\\]\\s+update-name"}
    ],
    "actions": [
-    {"do": "mistake", "note": "deletes the branch while it is checked out", "actions": [
+    {"do": "mistake", "note": "deletes the branch while it is checked out", "caught_by": ["s10c1"], "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "run", "cmd": "git checkout update-name", "output": ["Switched to branch 'update-name'"]},
      {"do": "run", "cmd": "git branch -d update-name", "exit": 1, "output": ["error: Cannot delete branch 'update-name' checked out at '/Users/me/git-lab/GitGoing'"]}
     ]},

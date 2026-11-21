@@ -52,6 +52,12 @@
     {
      "do": "mistake",
      "note": "types the imports and seeds but not the device line",
+     "caught_by": [
+      "s1c2"
+     ],
+     "caught_by_spec_rows": [
+      "x1"
+     ],
      "actions": [
       {
        "do": "insert",
@@ -165,6 +171,9 @@
      "do": "mistake",
      "note": "no create_graph=True in either autograd.grad (the PDE loss can't train)",
      "caught": false,
+     "caught_by_spec_rows": [
+      "x0"
+     ],
      "finding": "s6's only precision check is class FCN(nn.Module), so precision mode passes lossPDE without create_graph=True",
      "actions": [
       {
@@ -237,6 +246,12 @@
     {
      "do": "mistake",
      "note": "lr = 0.3: the loss diverges and sits near 17 (the demo's hero failure)",
+     "caught_by": [
+      "s8c4"
+     ],
+     "caught_by_spec_rows": [
+      "x0"
+     ],
      "actions": [
       {
        "do": "edit",

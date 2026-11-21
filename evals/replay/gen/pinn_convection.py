@@ -119,7 +119,7 @@ case = {
         {"step": "s5", "about": "train with beta = -1", "match": "negative|beta -1",
          "expect_checks": [{"type": "screen_contains", "app": "Terminal", "pattern": "beta -1\\.0"}],
          "actions": [
-             {"do": "mistake", "note": "drops the minus sign and reruns beta 1.0", "caught": False,
+             {"do": "mistake", "note": "drops the minus sign and reruns beta 1.0", "caught": False, "caught_by_spec_rows": ["x0"],
               "finding": "s5's precision rows can't tell which beta ran (command_exit_ok drops the flags, the loss threshold is the same), so rerunning beta 1.0 passes in precision mode",
               "actions": [{"do": "run", "cmd": "python pinn_convection.py --beta 1.0 --epochs 500", "output": run(1.0, 500)}]},
              {"do": "run", "cmd": "python pinn_convection.py --beta -1.0 --epochs 500", "output": run(-1.0, 500)}]},
@@ -132,7 +132,8 @@ case = {
          "finding": "a correct learner can never pass s7: its metric_trend rows have window 5 (training steps), and a trend needs >= 8 points in the window, so even a metric logged every step gives 6 at most (also: the title says 'Compare with non-dimensionalized PINN' but the step only reruns 4000 epochs)",
          "expect_checks": [{"type": "screen_contains", "app": "Terminal", "pattern": "epoch 3900 \\| beta 1\\.0"}],
          "actions": [
-             {"do": "mistake", "note": "stops the run with Ctrl+C at epoch 1500 (KeyboardInterrupt traceback)", "actions": [
+             {"do": "mistake", "note": "stops the run with Ctrl+C at epoch 1500 (KeyboardInterrupt traceback)",
+              "caught_by": ["s7c1", "s7c2"], "caught_by_spec_rows": ["x0"], "actions": [
                  {"do": "run", "cmd": "python pinn_convection.py --epochs 4000", "exit": 130, "output": run(1.0, 4000, stop_at=1500)}]},
              {"do": "run", "cmd": "python pinn_convection.py --epochs 4000", "output": run(1.0, 4000)}]},
     ],

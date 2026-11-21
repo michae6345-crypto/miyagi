@@ -19,7 +19,7 @@
    "actions": [
     {"do": "write", "file": "index.html", "text": "<h1>Hello from Docker</h1>\n"},
     {"do": "write", "file": "Dockerfile", "text": "FROM python:3.12-slim\nWORKDIR /app\nCOPY index.html .\nEXPOSE 8000\nCMD [\"python\", \"-m\", \"http.server\", \"8000\"]\n"},
-    {"do": "mistake", "note": "forgets the build context (the final dot)", "actions": [
+    {"do": "mistake", "note": "forgets the build context (the final dot)", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "run", "cmd": "docker build -t hello-app", "exit": 1, "output": ["ERROR: \"docker buildx build\" requires exactly 1 argument.",
       "See 'docker buildx build --help'.", "", "Usage:  docker buildx build [OPTIONS] PATH | URL | -", "", "Start a build"]}
     ]},
@@ -39,7 +39,7 @@
     {"type": "screen_contains", "app": "Google Chrome", "pattern": "Hello from Docker"}
    ],
    "actions": [
-    {"do": "mistake", "note": "runs without -p, so localhost:8000 refuses to connect", "actions": [
+    {"do": "mistake", "note": "runs without -p, so localhost:8000 refuses to connect", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "run", "cmd": "docker run --rm hello-app", "running": true, "output": ["Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ..."]},
      {"do": "browser", "lines": ["localhost:8000", "This site can’t be reached", "localhost refused to connect.", "ERR_CONNECTION_REFUSED"]}
     ]},
@@ -55,7 +55,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "redis-1\\s+\\|.*Ready to accept connections"}
    ],
    "actions": [
-    {"do": "mistake", "note": "indents compose.yaml with a tab", "actions": [
+    {"do": "mistake", "note": "indents compose.yaml with a tab", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "write", "file": "compose.yaml", "text": "services:\n\tweb:\n    build: .\n    ports:\n      - \"8000:8000\"\n  redis:\n    image: redis:7-alpine\n"},
      {"do": "run", "cmd": "docker compose up", "exit": 15, "output": ["yaml: line 2: found character that cannot start any token"]}
     ]},

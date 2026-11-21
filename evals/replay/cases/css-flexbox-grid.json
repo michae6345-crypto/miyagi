@@ -28,7 +28,7 @@
     {"type": "file_contains", "file": "styles.css", "pattern": "nav ul \\{[^}]*display: flex;[^}]*justify-content: space-between;"}
    ],
    "actions": [
-    {"do": "mistake", "note": "writes display: flexbox (not a value), so nothing changes", "actions": [
+    {"do": "mistake", "note": "writes display: flexbox (not a value), so nothing changes", "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "append", "file": "styles.css", "text": "\nnav ul {\n  display: flexbox;\n  justify-content: space-between;\n  list-style: none;\n}\n"}
     ]},
     {"do": "edit", "file": "styles.css", "find": "display: flexbox;", "replace": "display: flex;"}
@@ -49,7 +49,7 @@
     {"type": "file_contains", "file": "styles.css", "pattern": "\\.hero \\{[^}]*align-items: center;[^}]*justify-content: center;"}
    ],
    "actions": [
-    {"do": "mistake", "note": "puts the centering on .card instead of its flex container", "actions": [
+    {"do": "mistake", "note": "puts the centering on .card instead of its flex container", "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "append", "file": "styles.css", "text": "\n.card {\n  align-items: center;\n  justify-content: center;\n}\n"}
     ]},
     {"do": "edit", "file": "styles.css", "find": ".card {\n  align-items: center;\n  justify-content: center;\n}\n", "replace": ".hero {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 60vh;\n}\n"}

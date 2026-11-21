@@ -11,6 +11,8 @@
  "outline": [
   {
    "step": "s1", "about": "venv, pip install, start Jupyter", "match": "venv|jupyter",
+   "expect": "pass-precision",
+   "finding": "s1's only precision check is venv/bin/activate, so a correct learner goes green right after `python3 -m venv venv` (action 1 of 4), before activate, pip install or Jupyter",
    "expect_checks": [
     {"type": "file_exists", "file": "venv/bin/activate"},
     {"type": "screen_contains", "app": "Terminal", "pattern": "Successfully installed .*tensorflow-2\\.15\\.0"}
@@ -18,7 +20,7 @@
    "actions": [
     {"do": "run", "cmd": "python3 -m venv venv", "output": [], "creates": {"venv/bin/activate": "# This file must be used with \"source bin/activate\"\n"}},
     {"do": "mistake", "note": "starts Jupyter before activating the venv: command not found", "caught": false,
-     "finding": "s1's only precision check is venv/bin/activate, so precision mode passes s1 as soon as the venv exists, before pip install or Jupyter",
+     "finding": "`zsh: command not found: jupyter` does not fail s1: its one precision row (venv/bin/activate) already passes",
      "actions": [
      {"do": "run", "cmd": "jupyter notebook", "exit": 127, "output": ["zsh: command not found: jupyter"]}
     ]},
@@ -40,7 +42,7 @@
     {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "mnist\\.npz"}
    ],
    "actions": [
-    {"do": "mistake", "note": "runs the cell on the system Python kernel, not the venv: ModuleNotFoundError", "actions": [
+    {"do": "mistake", "note": "runs the cell on the system Python kernel, not the venv: ModuleNotFoundError", "caught_by": ["s2c4"], "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "cell", "file": "Untitled.ipynb", "source": "import tensorflow as tf\nfrom tensorflow.keras import layers, models\nimport matplotlib.pyplot as plt\nimport numpy as np\n\n(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()\ntrain_images = train_images.astype('float32') / 255\ntest_images = test_images.astype('float32') / 255\n",
       "error": {"ename": "ModuleNotFoundError", "evalue": "No module named 'tensorflow'", "traceback": ["---------------------------------------------------------------------------", "ModuleNotFoundError                       Traceback (most recent call last)", "Cell In[1], line 1", "----> 1 import tensorflow as tf", "ModuleNotFoundError: No module named 'tensorflow'"]}}
     ]},
@@ -65,7 +67,7 @@
     {"type": "file_contains", "file": "Untitled.ipynb", "pattern": "layers\\.Dense\\(10, activation='softmax'\\)"}
    ],
    "actions": [
-    {"do": "mistake", "note": "the output layer has no softmax", "caught": false,
+    {"do": "mistake", "note": "the output layer has no softmax", "caught_by_spec_rows": ["x0"], "caught": false,
      "finding": "s4's precision check is only models.Sequential, so a model with no softmax passes in precision mode",
      "actions": [
      {"do": "cell", "file": "Untitled.ipynb", "source": "model = models.Sequential([\n    layers.Flatten(input_shape=(28, 28, 1)),\n    layers.Dense(128, activation='relu'),\n    layers.Dense(64, activation='relu'),\n    layers.Dense(10)\n])\n", "outputs": []}
@@ -80,7 +82,7 @@
     {"type": "metric_threshold", "metric": "acc", "metric_pattern": "accuracy:\\s*(?P<value>\\d+\\.\\d+)", "op": ">=", "value": 0.95}
    ],
    "actions": [
-    {"do": "mistake", "note": "trains a single epoch: accuracy 0.9296", "actions": [
+    {"do": "mistake", "note": "trains a single epoch: accuracy 0.9296", "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "cell", "file": "Untitled.ipynb", "source": "model.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=1\n)\n",
       "outputs": ["Epoch 1/1", "1875/1875 [==============================] - 4s 2ms/step - loss: 0.2398 - accuracy: 0.9296"]}
     ]},

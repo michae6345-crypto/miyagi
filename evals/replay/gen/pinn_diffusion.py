@@ -165,7 +165,7 @@ case = {
              {"do": "run", "cmd": "pip install pyDOE", "output": ["Collecting pyDOE", "  Downloading pyDOE-0.3.8.zip (22 kB)",
                                                                   "Building wheels for collected packages: pyDOE", "Successfully built pyDOE",
                                                                   "Installing collected packages: pyDOE", "Successfully installed pyDOE-0.3.8"]},
-             {"do": "mistake", "note": "types the imports and seeds but not the device line",
+             {"do": "mistake", "note": "types the imports and seeds but not the device line", "caught_by": ["s1c2"], "caught_by_spec_rows": ["x1"],
               "actions": [ins("# TODO: make 32-bit floats", SEC1.rsplit("\n", 1)[0])]},
              {"do": "insert", "file": F, "after": "np.random.seed(1234)", "text": SEC1.rsplit("\n", 1)[1]},
          ]},
@@ -184,7 +184,7 @@ case = {
         {"step": "s6", "about": "the FCN class with lossBC, lossPDE and loss", "match": "FCN|network",
          "expect_checks": [{"type": "file_contains", "file": F, "pattern": "f_xx_tt = autograd\\.grad\\(f_x_t, g, .*create_graph=True\\)"}],
          "actions": [
-             {"do": "mistake", "note": "no create_graph=True in either autograd.grad (the PDE loss can't train)", "caught": False,
+             {"do": "mistake", "note": "no create_graph=True in either autograd.grad (the PDE loss can't train)", "caught": False, "caught_by_spec_rows": ["x0"],
               "finding": "s6's only precision check is class FCN(nn.Module), so precision mode passes lossPDE without create_graph=True",
               "actions": [
                  ins("# TODO: a fully connected network class", SEC6.replace(", retain_graph=True, create_graph=True)", ", retain_graph=True)").replace(", create_graph=True)", ")"))]},
@@ -200,7 +200,8 @@ case = {
                            {"type": "screen_absent", "app": "Terminal", "pattern": "Traceback"}],
          "actions": [
              {"do": "insert", "file": F, "after": "optimizer = torch.optim.Adam(", "text": "\n" + LOOP},
-             {"do": "mistake", "note": "lr = 0.3: the loss diverges and sits near 17 (the demo's hero failure)", "actions": [
+             {"do": "mistake", "note": "lr = 0.3: the loss diverges and sits near 17 (the demo's hero failure)",
+              "caught_by": ["s8c4"], "caught_by_spec_rows": ["x0"], "actions": [
                  {"do": "edit", "file": F, "find": "lr = 1e-3", "replace": "lr = 0.3"},
                  {"do": "run", "cmd": "python pinn_diffusion.py", "output": diverged}]},
              {"do": "edit", "file": F, "find": "lr = 0.3", "replace": "lr = 1e-3"},

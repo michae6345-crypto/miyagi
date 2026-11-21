@@ -6,6 +6,7 @@ script satisfies its own expected checks (dry run), and the harness can fail.
 
 from __future__ import annotations
 
+import ast
 import copy
 import re
 import sys
@@ -94,6 +95,67 @@ def test_mistake_that_passes_is_reported(monkeypatch):
     assert any("mistake NOT caught" in p for p in harness.problems(result))
 
 
+def _step(result, sid):
+    return next(s for s in result["steps"] if s["step"] == sid)
+
+
+def test_status_is_the_first_passing_gate():
+    """The session moves on at the first green gate. git s9's precision row (command_exit_ok, which keeps only `git`)
+    goes green on `git checkout main`, before the pull and git show that its screen checks wait for."""
+    result = harness.run_case(next(c for c in CASES if c["id"] == "git-basics"))
+    s9 = _step(result, "s9")
+    assert s9["first_status"] == "pass-precision" and s9["status"] == "pass-precision"
+    assert s9["first_pass_after_action"] == 1 and s9["correct_actions"] == 3
+    assert s9["early_precision"] and s9["best_status"] == "pass"
+    s7 = _step(result, "s7")  # a step whose screen checks open the gate
+    assert s7["first_status"] == "pass" and not s7["early_precision"]
+
+
+def test_early_precision_needs_a_finding():
+    """A correct learner moved on by precision before the step's work is done is a problem until the case records it."""
+    case = copy.deepcopy(next(c for c in CASES if c["id"] == "git-basics"))
+    s9 = next(st for st in case["outline"] if st["step"] == "s9")
+    del s9["finding"]
+    assert any("git-basics/s9" in p and "via precision after action 1 of 3" in p for p in harness.problems(harness.run_case(case)))
+    s9["expect"] = "pass"
+    assert any("git-basics/s9: pass-precision (expected pass)" in p for p in harness.problems(harness.run_case(case)))
+
+
+def test_caught_by_names_the_row_that_fires():
+    """sql step 2: the Traceback row (x1) catches the bad insert; x0 (`customers: 3`) only fails because the mistake
+    never prints the count, so naming it as the catcher is a problem when it isn't failing for the mistake."""
+    case = next(c for c in CASES if c["id"] == "sql-sqlite-joins")
+    m = next(a for a in case["outline"][1]["actions"] if a.get("do") == "mistake")
+    assert m["caught_by_spec_rows"] == ["x1"]
+    result = harness.run_case(case, dry=True)
+    assert result["steps"][1]["mistakes"][0]["caught_by"] == {"x1": "fail"}
+    wrong = copy.deepcopy(case)
+    for a in wrong["outline"][2]["actions"]:  # the wrong-key join: x2 doesn't exist, x0 does fail
+        if a.get("do") == "mistake":
+            a["caught_by_spec_rows"] = ["x0", "x2"]
+    assert any("did not fail: x2 missing" in p for p in harness.problems(harness.run_case(wrong, dry=True)))
+
+
+def test_caught_by_row_that_passes_is_reported():
+    """react s2: the leftover useState is caught by s2c3 (screen_absent useState), not by s2c1, which passes."""
+    case = copy.deepcopy(next(c for c in CASES if c["id"] == "react-components"))
+    s2 = next(st for st in case["outline"] if st["step"] == "s2")
+    m = next(a for a in s2["actions"] if a.get("do") == "mistake")
+    assert m["caught_by"] == ["s2c3"]
+    m["caught_by"] = ["s2c1", "s2c3"]
+    assert any("did not fail: s2c1 pass" in p for p in harness.problems(harness.run_case(case)))
+
+
+def test_video_tutorial_accepts_video_query():
+    case = copy.deepcopy(next(c for c in CASES if c["id"] == "sql-sqlite-joins"))
+    case["tutorial"]["kind"] = "video"
+    case["tutorial"].pop("video_id", None)
+    assert case["tutorial"].get("video_query")
+    assert harness.validate_case(case) == []
+    del case["tutorial"]["video_query"]
+    assert "a video tutorial needs video_id or video_query" in harness.validate_case(case)
+
+
 def test_terminal_echoes_input_answers():
     out = harness._echo_input("First number: Operator (+, -, *, /): Second number: Result: 4.0\n", "8\n/\n2\n")
     assert out.splitlines() == ["First number: 8", "Operator (+, -, *, /): /", "Second number: 2", "Result: 4.0"]
@@ -105,3 +167,18 @@ def test_real_runs_are_limited_to_python_scripts(tmp_path):
         harness.apply(world, {"do": "run", "cmd": "rm -rf /", "real": True})
     with pytest.raises(harness.CaseError):
         harness.apply(world, {"do": "write", "file": "../outside.txt", "text": "x"})
+    for script in ("/tmp/x.py", "~/x.py"):  # the script itself must be inside the lesson folder, not only the cwd
+        with pytest.raises(harness.CaseError):
+            harness._real_run(f"python3 {script}", "", tmp_path)
+
+
+def test_real_runs_get_an_allowlisted_env(tmp_path, monkeypatch):
+    for name in ("SOME_API_KEY", "DB_PASSWORD", "SUPABASE_URL", "AWS_REGION", "DATABASE_URL"):
+        monkeypatch.setenv(name, "x")
+    monkeypatch.setenv("LC_ALL", "C")
+    (tmp_path / "env.py").write_text("import os\nprint(sorted(os.environ))\n", encoding="utf-8")
+    lines, code = harness._real_run("python3 env.py", "", tmp_path)
+    assert code == 0
+    names = set(ast.literal_eval(lines[0]))
+    assert names <= {"PATH", "HOME", "LANG", "TMPDIR", "LC_ALL", "LC_CTYPE", "__CF_USER_TEXT_ENCODING", "PYTHONHASHSEED"}
+    assert "LC_ALL" in names and "DB_PASSWORD" not in names

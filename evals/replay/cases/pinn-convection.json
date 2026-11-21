@@ -201,6 +201,9 @@
      "do": "mistake",
      "note": "drops the minus sign and reruns beta 1.0",
      "caught": false,
+     "caught_by_spec_rows": [
+      "x0"
+     ],
      "finding": "s5's precision rows can't tell which beta ran (command_exit_ok drops the flags, the loss threshold is the same), so rerunning beta 1.0 passes in precision mode",
      "actions": [
       {
@@ -287,6 +290,13 @@
     {
      "do": "mistake",
      "note": "stops the run with Ctrl+C at epoch 1500 (KeyboardInterrupt traceback)",
+     "caught_by": [
+      "s7c1",
+      "s7c2"
+     ],
+     "caught_by_spec_rows": [
+      "x0"
+     ],
      "actions": [
       {
        "do": "run",

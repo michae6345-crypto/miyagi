@@ -17,8 +17,11 @@ learner script of edits, commands and mistakes. The harness:
 * after every action asks the REAL checks module (server.checks.evaluate_gate) whether the step passes, as
   LessonSession does with a ScreenObservation + RunContext (precision mode on, a failing screen_absent vetoes the
   files-only route, screen_contains passes latch for the step), and records when it first passed,
-* reports each step's best status (pass on screen checks > pass-precision > fail / pending), whether each mistake was
-  caught (the step was not passing right after it), and the case's expected checks (`expect_checks`) as a spec.
+* reports each step's status at its FIRST passing gate, where the session moves on (pass on screen checks, or
+  pass-precision when only the files-only route is green; fail / pending when it never passes), flags a step that goes
+  green via precision before its actions are done (early_precision), reports whether each mistake was caught (the step
+  was not passing right after it, and the rows named in caught_by fail), and grades the case's expected checks
+  (`expect_checks`) as a spec.
 
 A dry run (--dry, or a case with no cached lesson) grades the learner on the expected checks alone: it proves the
 script produces what the lesson should check, before any paid build.
@@ -59,6 +62,7 @@ ACTIONS = ("write", "edit", "insert", "append", "open", "scroll", "run", "clear"
 PROMPT = "me@mac {dir} % "
 METRIC_LINE = re.compile(r"::metric::\s*(\{.*\})")
 _SAFE_REAL = re.compile(r"^python3?\s+[\w./-]+\.py(\s+[\w.=-]+)*$")
+_REAL_ENV = ("PATH", "HOME", "LANG", "TMPDIR")  # plus LC_*: all a learner's stdlib script needs
 
 
 class CaseError(ValueError):
@@ -108,8 +112,8 @@ def validate_case(case: dict) -> list[str]:
         errs.append("tutorial.kind must be video or text")
     if not t.get("goal"):
         errs.append("tutorial.goal missing")
-    if t.get("kind") == "video" and not (t.get("video_id") or t.get("find_query")):
-        errs.append("a video tutorial needs video_id or find_query")
+    if t.get("kind") == "video" and not (t.get("video_id") or t.get("video_query")):
+        errs.append("a video tutorial needs video_id or video_query")
     for i, st in enumerate(case.get("outline") or []):
         where = f"outline[{i}]"
         for k in ("about", "match", "expect_checks", "actions"):
@@ -153,6 +157,14 @@ def _validate_actions(actions: list[dict]) -> list[str]:
         if a.get("do") == "mistake":
             if not a.get("note"):
                 errs.append(f"action {j}: a mistake needs a note")
+            for k in ("caught_by", "caught_by_spec_rows"):
+                v = a.get(k, [])
+                if not isinstance(v, list) or not all(isinstance(x, str) and x for x in v):
+                    errs.append(f"action {j}: {k} must be a list of check ids")
+            if a.get("caught_by") and a.get("caught") is False:
+                errs.append(f"action {j}: caught_by names rows that catch a mistake marked caught: false")
+            if a.get("caught_by_spec_rows") and a.get("caught_by_spec") is False:
+                errs.append(f"action {j}: caught_by_spec_rows names rows that catch a mistake marked caught_by_spec: false")
             errs += [f"mistake {j}: {e}" for e in _validate_actions(a.get("actions") or [])]
     return errs
 
@@ -276,10 +288,10 @@ def _output_from_ref(ref: str) -> list[str]:
 
 def _real_run(cmd: str, stdin: str, cwd: Path) -> tuple[list[str], int]:
     """Really run a stdlib-only Python script of the learner's, inside the lesson folder: `python3 calculator.py`."""
-    if not _SAFE_REAL.match(cmd) or ".." in cmd:
-        raise CaseError(f"real runs are limited to `python3 <script>.py [args]`, not {cmd!r}")
+    if not _SAFE_REAL.match(cmd) or ".." in cmd or shlex.split(cmd)[1].startswith(("/", "~")):
+        raise CaseError(f"real runs are limited to `python3 <script>.py [args]` inside the lesson folder, not {cmd!r}")
     argv = [sys.executable, *shlex.split(cmd)[1:]]
-    env = {k: v for k, v in os.environ.items() if not re.search(r"API_KEY|TOKEN|SECRET", k)}
+    env = {k: v for k, v in os.environ.items() if k in _REAL_ENV or k.startswith("LC_")}  # an allowlist: no keys
     p = subprocess.run(argv, input=stdin, capture_output=True, text=True, cwd=cwd, timeout=20, env=env, check=False)
     return (_echo_input(p.stdout, stdin) + p.stderr).splitlines(), p.returncode
 
@@ -494,27 +506,36 @@ def run_case(case: dict, dry: bool = False) -> dict:
 
 
 _RANK = {"pass": 3, "pass-precision": 2, "fail": 1, "pending": 1}
+PASSING = ("pass", "pass-precision")
 
 
 def _play_step(world: World, st: dict, graded: dict, lesson_step: dict | None, dry: bool) -> dict:
-    """Play one step. The session advances on the first passing gate, so the step's status is the best one reached
-    after any of the learner's own actions (screen checks > precision route > the final fail / pending), and a check
-    that passed once stays passed for the report (the session latches screen passes). Mistake blocks are graded
-    right after they are played: caught = the step does not pass then."""
+    """Play one step as LessonSession grades it: the gate after every one of the learner's correct actions.
+
+    The session advances on the FIRST passing gate, so the step's `status` is the status at that gate, on the route
+    that opened it: screen checks (`pass`) or only the files-only precision route (`pass-precision`). The harness
+    still plays the rest of the step (the spec and the mistakes need it) and reports the best status reached as
+    `best_status`; the session never sees those later actions. A step that first goes green via precision before its
+    last correct action is `early_precision`: the learner is moved on before the step's own work is done. A step
+    that never passes reports its last fail / pending.
+
+    Mistake blocks are graded right after they are played (caught = the step does not pass then) and are reported
+    on their own; they don't count toward the first gate (a correct learner's run is what `status` grades)."""
     world.new_step()
     mistakes: list[dict] = []
-    first_pass: int | None = None
+    first: tuple[str, dict, int] | None = None  # (status, gate, correct actions played) at the first gate
     best: tuple[str, dict] | None = None
+    done = 0  # the learner's correct (non-mistake) actions played so far
     spec_step = _spec_step(st)
     spec_seen: dict[str, dict] = {}
     n = 0
 
     def grade() -> None:
-        nonlocal first_pass, best
+        nonlocal first, best
         status, gate = _status(graded, world)
-        if first_pass is None and status in ("pass", "pass-precision"):
-            first_pass = n
-        if best is None or _RANK[status] > _RANK[best[0]] or (_RANK[status] == _RANK[best[0]] and status not in ("pass", "pass-precision")):
+        if first is None and status in PASSING:
+            first = (status, gate, done)
+        if best is None or _RANK[status] > _RANK[best[0]] or (_RANK[status] == _RANK[best[0]] and status not in PASSING):
             best = (status, gate)
         absent = {c["id"] for c in spec_step["checks"] if c["type"] == "screen_absent"}
         for r in evaluate_step(spec_step, world.context()):  # a pass latches, except "nothing bad showing" (as now)
@@ -527,23 +548,29 @@ def _play_step(world: World, st: dict, graded: dict, lesson_step: dict | None, d
                 apply(world, m)
                 n += 1
             status, gate = _status(graded, world)
-            caught = status not in ("pass", "pass-precision")
+            caught = status not in PASSING
+            by = a.get("caught_by_spec_rows" if dry else "caught_by") or []
+            rows = {r["checkId"]: r for r in gate["checks"]}
             mistakes.append({"note": a["note"], "caught": caught, "expect_caught": a.get("caught_by_spec", True) if dry else a.get("caught", True), "status": status,
                              "finding": a.get("finding", ""),
+                             "caught_by": {cid: (rows[cid]["status"] if cid in rows else "missing") for cid in by},
                              "why": [f"{r['checkId']} {r['status']}: {r['detail']}" for r in gate["checks"] if r["status"] != "pass"]})
-            if not caught and first_pass is None:
-                first_pass = n
             continue
         apply(world, a)
         n += 1
+        done += 1
         grade()
     if best is None:  # a step with no actions of its own: graded as the learner left it
         grade()
-    status, gate = best  # type: ignore[misc]
+    best_status, best_gate = best  # type: ignore[misc]
+    status, gate, first_n = first if first else (best_status, best_gate, None)
     matched = bool(lesson_step and re.search(st["match"], f"{lesson_step.get('title', '')} {lesson_step.get('instructions', '')}", re.IGNORECASE))
     return {
-        "step": st.get("step"), "about": st["about"], "status": status, "expect": _expected(st, dry),
-        "note": st.get("note", ""), "finding": st.get("finding", ""), "first_pass_after_action": first_pass, "actions": n,
+        "step": st.get("step"), "about": st["about"], "status": status,
+        "first_status": first[0] if first else None, "best_status": best_status,
+        "expect": _expected(st, dry), "note": st.get("note", ""), "finding": st.get("finding", ""),
+        "first_pass_after_action": first_n, "actions": n, "correct_actions": done,
+        "early_precision": status == "pass-precision" and first_n is not None and first_n < done,
         "outline_match": matched if lesson_step else None,
         "checks": [{k: r[k] for k in ("checkId", "label", "status", "detail")} for r in gate["checks"]],
         "precision": [{k: r[k] for k in ("checkId", "status", "detail")} for r in gate["precision"]],
@@ -560,6 +587,10 @@ def problems(result: dict) -> list[str]:
         if s["status"] not in s["expect"]:
             bad = [f"{c['checkId']} {c['status']}: {c['detail']}" for c in s.get("checks", []) if c["status"] != "pass"]
             out.append(f"{tag}: {s['status']} (expected {'/'.join(s['expect'])}) {bad}")
+        if s["status"] == "pass-precision" and not s.get("finding"):
+            when = (f"after action {s['first_pass_after_action']} of {s['correct_actions']}, before its screen checks"
+                    if s.get("early_precision") else "and never on its screen checks")
+            out.append(f"{tag}: a correct learner first goes green via precision {when}, and the case records no finding")
         if s.get("outline_match") is False:
             out.append(f"{tag}: lesson step does not match the outline ({s['about']})")
         for c in s.get("spec", []):
@@ -568,6 +599,9 @@ def problems(result: dict) -> list[str]:
         for m in s.get("mistakes", []):
             if m["caught"] != m["expect_caught"]:
                 out.append(f"{tag}: mistake {'caught' if m['caught'] else 'NOT caught'} (expected {'caught' if m['expect_caught'] else 'not caught'}): {m['note']}")
+            quiet = [f"{cid} {st}" for cid, st in (m.get("caught_by") or {}).items() if st != "fail"]
+            if quiet:
+                out.append(f"{tag}: mistake {m['note']!r}: the row(s) meant to catch it did not fail: {', '.join(quiet)}")
     return out
 
 
@@ -596,6 +630,8 @@ def _report(result: dict, verbose: bool) -> str:
     for s in result["steps"]:
         mark = "ok " if s["status"] in s["expect"] else "XX "
         ms = "".join(" [mistake " + ("caught" if m["caught"] else f"missed: {m['status']}") + "]" for m in s.get("mistakes", []))
+        if s.get("early_precision"):
+            ms = f" [green via precision after action {s['first_pass_after_action']}/{s['correct_actions']}; later {s['best_status']}]" + ms
         lines.append(f"  {mark}{(s.get('step') or '-'):>5} {s['status']:<14} expect {'/'.join(s['expect']):<14} {s['about'][:52]}{ms}")
         if verbose or s["status"] not in s["expect"]:
             for c in s.get("checks", []):
@@ -630,9 +666,11 @@ def main(argv: list[str] | None = None) -> int:
     if a.json:
         Path(a.json).write_text(json.dumps(results, indent=1))
     steps = [s for r in results if r["mode"] == "replay" for s in r["steps"]]
-    print(f"\nreplayed {sum(r['mode'] == 'replay' for r in results)} cached lessons: "
-          f"{sum(s['status'] == 'pass' for s in steps)}/{len(steps)} steps pass on screen checks, "
-          f"{sum(s['status'] == 'pass-precision' for s in steps)} only via precision; "
+    print(f"\nreplayed {sum(r['mode'] == 'replay' for r in results)} cached lessons, by the route of each step's first "
+          f"passing gate: {sum(s['status'] == 'pass' for s in steps)}/{len(steps)} steps go green on screen checks, "
+          f"{sum(s['status'] == 'pass-precision' for s in steps)} via precision "
+          f"({sum(bool(s.get('early_precision')) for s in steps)} before the step's actions are done), "
+          f"{sum(s['status'] not in PASSING for s in steps)} never; "
           f"{len(needs_build(cases))} cases need one paid build")
     for r in results:
         for f in findings(r):

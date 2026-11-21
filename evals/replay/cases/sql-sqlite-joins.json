@@ -28,7 +28,7 @@
     {"type": "screen_absent", "app": "Terminal", "pattern": "Traceback"}
    ],
    "actions": [
-    {"do": "mistake", "note": "four values for three columns: sqlite3.ProgrammingError (real)", "actions": [
+    {"do": "mistake", "note": "four values for three columns: sqlite3.ProgrammingError (real)", "caught_by_spec_rows": ["x1"], "actions": [
      {"do": "append", "file": "shop.py", "text": "cur.executemany(\"INSERT INTO customers (id, name, city) VALUES (?, ?, ?)\", [(1, \"Ada\", \"London\", \"UK\"), (2, \"Grace\", \"New York\", \"US\"), (3, \"Linus\", \"Helsinki\", \"FI\")])\n"},
      {"do": "run", "cmd": "python3 shop.py", "real": true}
     ]},
@@ -46,7 +46,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "^\\('Grace', 12\\.0\\)$"}
    ],
    "actions": [
-    {"do": "mistake", "note": "joins on the wrong key (o.id = c.id): Grace gets Ada's order (real rows)", "actions": [
+    {"do": "mistake", "note": "joins on the wrong key (o.id = c.id): Grace gets Ada's order (real rows)", "caught_by_spec_rows": ["x0", "x1"], "actions": [
      {"do": "append", "file": "shop.py", "text": "for row in cur.execute(\"SELECT c.name, o.total FROM customers c JOIN orders o ON o.id = c.id ORDER BY o.id\"):\n    print(row)\n"},
      {"do": "run", "cmd": "python3 shop.py", "real": true}
     ]},
@@ -61,7 +61,7 @@
     {"type": "screen_contains", "app": "Terminal", "pattern": "^\\('Ada', 2, 65\\.5\\)$"}
    ],
    "actions": [
-    {"do": "mistake", "note": "uses an INNER JOIN, so Linus (no orders) disappears (real rows)", "actions": [
+    {"do": "mistake", "note": "uses an INNER JOIN, so Linus (no orders) disappears (real rows)", "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "append", "file": "shop.py", "text": "print(\"per customer:\")\nfor row in cur.execute(\"SELECT c.name, COUNT(o.id), COALESCE(SUM(o.total), 0) FROM customers c JOIN orders o ON o.customer_id = c.id GROUP BY c.id ORDER BY c.id\"):\n    print(row)\n"},
      {"do": "run", "cmd": "python3 shop.py", "real": true}
     ]},

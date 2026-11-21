@@ -17,7 +17,7 @@
     {"type": "file_contains", "file": "nn.py", "pattern": "return h1, h2, h2 @ W3 \\+ b3"}
    ],
    "actions": [
-    {"do": "mistake", "note": "leaves tanh off the second hidden layer", "actions": [
+    {"do": "mistake", "note": "leaves tanh off the second hidden layer", "caught_by": ["nn1c4"], "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "insert", "file": "nn.py", "after": "# The network", "text": "X = np.linspace(-np.pi, np.pi, 50).reshape(-1, 1)\ny = np.sin(X)\n\nnp.random.seed(0)\nW1 = np.random.randn(1, 4)\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 4)\nb2 = np.zeros((1, 4))\nW3 = np.random.randn(4, 1) * 0.1\nb3 = np.zeros((1, 1))\n\ndef forward(X):\n    h1 = np.tanh(X @ W1 + b1)\n    h2 = h1 @ W2 + b2\n    return h1, h2, h2 @ W3 + b3"}
     ]},
     {"do": "edit", "file": "nn.py", "find": "    h2 = h1 @ W2 + b2", "replace": "    h2 = np.tanh(h1 @ W2 + b2)"}
@@ -30,7 +30,7 @@
     {"type": "file_contains", "file": "nn.py", "pattern": "return h2\\.T @ d_out, d_out\\.sum\\(0\\), h1\\.T @ d_h2, d_h2\\.sum\\(0\\), X\\.T @ d_h1, d_h1\\.sum\\(0\\)"}
    ],
    "actions": [
-    {"do": "mistake", "note": "the tanh slope with the wrong sign: (1 + h2 ** 2) (desktop test 8)", "actions": [
+    {"do": "mistake", "note": "the tanh slope with the wrong sign: (1 + h2 ** 2) (desktop test 8)", "caught_by": ["nn2c4"], "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "insert", "file": "nn.py", "after": "# Backprop", "text": "def backward(X, y, h1, h2, out):\n    d_out = 2 * (out - y) / len(X)\n    d_h2 = d_out @ W3.T * (1 + h2 ** 2)\n    d_h1 = d_h2 @ W2.T * (1 - h1 ** 2)\n    return h2.T @ d_out, d_out.sum(0), h1.T @ d_h2, d_h2.sum(0), X.T @ d_h1, d_h1.sum(0)"}
     ]},
     {"do": "edit", "file": "nn.py", "find": "(1 + h2 ** 2)", "replace": "(1 - h2 ** 2)"}
@@ -43,7 +43,7 @@
     {"type": "file_contains", "file": "nn.py", "pattern": "print\\(f\"epoch \\{epoch:5d\\}  loss \\{loss:\\.4f\\}\"\\)"}
    ],
    "actions": [
-    {"do": "mistake", "note": "forgets to update b3", "actions": [
+    {"do": "mistake", "note": "forgets to update b3", "caught_by": ["nn3c2"], "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "insert", "file": "nn.py", "after": "# Training", "text": "lr = 0.1\nfor epoch in range(20000):\n    h1, h2, out = forward(X)\n    dW3, db3, dW2, db2, dW1, db1 = backward(X, y, h1, h2, out)\n    W3 -= lr * dW3\n    W2 -= lr * dW2\n    b2 -= lr * db2\n    W1 -= lr * dW1\n    b1 -= lr * db1\n    loss = np.mean((out - y) ** 2)\n    if epoch % 2000 == 0:\n        print(f\"epoch {epoch:5d}  loss {loss:.4f}\")"}
     ]},
     {"do": "edit", "file": "nn.py", "find": "    W3 -= lr * dW3\n", "replace": "    W3 -= lr * dW3\n    b3 -= lr * db3\n"}
@@ -56,7 +56,7 @@
     {"type": "command_exit_ok", "command": "python3 nn.py"}
    ],
    "actions": [
-    {"do": "mistake", "note": "all weights start at zero: loss sticks at 0.4900 (recorded run)", "actions": [
+    {"do": "mistake", "note": "all weights start at zero: loss sticks at 0.4900 (recorded run)", "caught_by": ["nn4c1"], "caught_by_spec_rows": ["x0"], "actions": [
      {"do": "edit", "file": "nn.py", "find": "W1 = np.random.randn(1, 4)", "replace": "W1 = np.zeros((1, 4))"},
      {"do": "edit", "file": "nn.py", "find": "W2 = np.random.randn(4, 4)", "replace": "W2 = np.zeros((4, 4))"},
      {"do": "edit", "file": "nn.py", "find": "W3 = np.random.randn(4, 1) * 0.1", "replace": "W3 = np.zeros((4, 1))"},
