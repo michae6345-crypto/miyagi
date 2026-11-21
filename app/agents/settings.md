@@ -1,6 +1,42 @@
 # settings
 
-**Status:** pass 2 done: General section (stage-verified; Electron side typechecked, unrun) · **Priority:** P1 · **Port:** 5183 · **Branch:** `adrian/settings`
+**Status:** v2 (A4) implemented on `michael/app-settings`, typecheck green, stage-verified (headless shots below); Electron unrun · **Priority:** P1 · **Port:** 5189 · **Branch:** `michael/app-settings` · **PR:** #164 (draft, into `adrian/shell`)
+
+## v2 (A4, miyagi-v2 BUILD-PLAN)
+Mockups: Set-General, Set-Permissions, Set-Privacy, Set-Account (BYOK), Set-Shortcuts, Plan-OwnKey.
+Scenario: `npm run dev:web -- --port 5189` then `http://localhost:5189/?scenario=settings&settings=<general|permissions|privacy|account|shortcuts>&size=1440x900&clean`, plus `&perm=accessibility-off`, `&record=hint` (Shortcuts), `&confirm=delete` (Privacy). Ctrl+, opens it too.
+
+**What it is now.** The same sheet, born from the island and collapsing back into it (morph, hand-over and reduced-motion crossfade untouched), now 912x576 clamped to the screen (`sheetSize`: 24 px sides, 24 px under it, never past the screen) with a sidebar: General, Permissions, Privacy, Your key, Shortcuts. It stays black (decision 9). The section pane scrolls inside the sheet.
+- **General:** Appearance (Match system / Dark / Light, caption `copy.appearanceCaption`), Launch at login, Voice (`voiceOnStart`), Works with (VS Code and Jupyter from the engine's `health` rows; "Watching" with the dashed gray ring during a lesson; nothing when the engine says nothing), and **Set up miyagi** (`openOnboarding()`).
+- **Permissions:** Screen Recording and Accessibility from `permissions:get`, live through `permissions:watch` only while the section is on show; the VS Code extension row only when `health` has a `companion` item (hidden without a probe). On = white tick (never green), Not yet = white ring with Turn on (`permissions:open(kind)`, no prompt), unknown = gray dashed ring "Not sure yet" with the Terminal note for an external engine. One primary: the first row that needs turning on; others are quiet. Caption counts ("Two of three are on.").
+- **Privacy (honest subset):** Screenshots and code/text "Sent to the AI provider" during lessons; keys "On this Mac" (memory-only wording without secure storage). Sync and usage switches HIDDEN, "See what was sent" hidden (log deferred). Delete my data: outline Delete → in-place confirm "Delete everything on this Mac?" (Cancel quiet, Delete the one primary; Esc backs out) → main `settings:delete` erases keys.bin and sends an all-empty `config.keys`, then the renderer resets prefs to defaults → "Deleted from this Mac". It says only what it can reach.
+- **Your key (Plan-OwnKey):** the key flow moved, not rewritten, into `account.ts` (`useKeyFlow`): `settings:get/save/test`, `{set,last4}` only, full `config.keys` from main, drafts cleared after Save and dropped with the sheet. Fields are `type=password`, autocomplete/spellcheck/autocorrect off. Save key is the primary, Test quiet, "Where do I find my key?" via `open:external` (console.anthropic.com is allowlisted). Keychain line only when `secure`. Plan card and meter never show (`v2Cloud=false`).
+- **Shortcuts:** keycaps from `bridge.platform.keys` via core `Keycap` (⌃⌥ on a Mac), pastel chips only on Explain / Hint / Show me / Diagram, Watch absent (decision 3), Dismiss fixed. Recorder in the browser stage only (`env.canRecord`): click a row, press keys; validated by `isAccelerator`, a bare key or Shift alone is refused, a clash names the other shortcut; stored in `prefs.shortcuts` (whole map) and shown as words with "Not active yet"; Restore defaults clears them. Esc cancels the recording without closing the sheet. Electron rows are read-only ("Changing shortcuts comes in a later update.").
+- **Opening:** `settings:open {section}` (core `openSettings(section)` or this feature's `open.ts`, which ignores a click event passed as the section). Already open: `settings:section` switches. `settings:about` gives the version for the sidebar foot (empty in the stage).
+
+**Files:** `Settings.tsx` (morph + clamp), `Shell.tsx`, `Sidebar.tsx`, `ui.tsx`, `env.ts`, `account.ts`, `permissions.ts`, `shortcuts.ts`, `sections/{General,Permissions,Privacy,Account,Shortcuts}.tsx` (General moved from the feature root), edits to `store.ts`, `open.ts`, `web.ts`, `keys.ts` (labels, `SHOWN`, `SECTIONS`, `AboutView`, `DeleteResult`), `index.tsx`; `src/main/features/settings.ts`; `mock/scenarios/settings.json` (segment renamed `settings_first_run`, adds a `health` reply; no `health.get` trigger so `full` keeps A3/core-v2's).
+
+**Checked in the stage (headless Chromium over CDP, real time):** each section renders; recorder refuses a bare J ("Add Control, Option or Command."), stores `Control+Alt+J` for Hint and shows "Not active yet"; Control+Alt+E is refused ("Explain already uses that."); Esc in the recorder cancels it and the sheet stays open; sidebar click switches section; Esc on the sheet collapses it; Delete → "Deleted from this Mac"; Save key clears the field, shows `•••• 1234`, nothing in localStorage. Typecheck green. Brand lint (hex, typed keycaps, Cursor, innerHTML, console.log, openExternal) clean on the package files.
+**Not verified:** Electron (`settings:delete` unlinking keys.bin, `settings:about`, section switch while open, permissions polling against real TCC), the reviewer agent round.
+
+**Fix round 1 (review):** Esc in the delete confirm is now a window capture-phase listener while `step === 'confirm'` (focus stays on the sidebar because the first Delete never takes it, so the old wrapper `onKeyDown` never fired and the sheet closed). `settings:delete` restores the old keys and skips `config.keys` when unlinking keys.bin fails, so "Couldn’t delete. Nothing was removed." stays true. Your key note now reads "Kept in your Mac’s Keychain, never on our servers." (keys do go to the local miyagi engine). Main header no longer claims a first-run auto-open. Typecheck green; not re-run in the stage or Electron.
+
+**Shots:** `shots/settings-v2-general.png`, `-permissions.png` (`perm=accessibility-off`), `-privacy-confirm.png`, `-account.png`, `-account-saved.png`, `-shortcuts-record.png`.
+
+**Deviations from the mockups (brand rules or plan):**
+- Sheet top is the pill's top (it grows out of the pill), not 48 px under a separate pill; one close dot instead of three traffic lights (the other two would be dead).
+- Pastels are BRAND.md's (sky `#C5E4F9`, pink, lilac), not the mockup's; keycaps are the platform's (⌃⌥E, ⌥Space), not ⌥E / ⌘K; Watch has no row (decision 3).
+- Nav reads "Your key", the section "Use your own key": no account or plan this push (`v2Cloud`). One row per key (Anthropic, Gemini, Bright Data, Tiger Data URL) instead of Plan-OwnKey's provider select, because the key flow is moved, not rewritten. Save key and Test sit under the rows; no Cancel button (Esc and the close dot close the sheet).
+- Privacy copy changed for honesty (screenshots are sent to the provider during lessons, not "Used only..."), sync/usage switches and the log row hidden, Delete erases keys and settings on this Mac only.
+- General: the "Works with" VS Code row shows the engine's version (no lesson file name in the app state); Voice caption describes `voiceOnStart`.
+
+### Core requests (v2)
+1. **core/surfaces.ts:** nothing needed; `openSettings(section)` already sends `{section}` and is handled.
+2. **Live shortcut rebinding (wave 2, main/index.ts):** read `prefs.shortcuts` and re-register globalShortcut; then Settings can drop "Not active yet" and enable the recorder in Electron (`env.canRecord`). The display should then read the applied accelerators (a `platform.keys` built from them).
+3. **Engine `data.delete` (deferred):** when it exists, Delete should also ask the engine to erase progress and history; until then the copy says "keys and settings on this Mac".
+4. **Privacy log (deferred):** "See what was sent" needs an engine log of help requests; hidden until then.
+5. **prefs reset from main:** Delete resets prefs from the renderer with `setPrefs(DEFAULT_PREFS)`; a main-side `prefs.reset()` would make it atomic with the keys erase.
+6. Not sent: the coordination email to Adrian (the lane is claimed by draft PR #164 only).
 
 ### Pass 2 (Sat Nov 14, Adrian: "basic settings with the other stuff like light mode / dark mode")
 The sheet is now **Settings**: a **General** section above **Keys** (keys unchanged, ElevenLabs still hidden). Shots: `shots/settings-general-*.png`.
@@ -74,3 +110,39 @@ The overlay window is not focusable, so Settings is its own window. Every `ctx.c
 - **Stage:** the sheet is a stage window at z 20 (above the launcher). In `full`, the engine's .env answers (`env` everywhere), so first run doesn't open.
 - **Mac checklist:** first-run open takes focus (or at least a click into a field works); Keychain prompt on first save, if any; keys.bin survives a restart and the dots come back white; blur closes it; focus returns to the editor; the sheet sits on the pill's exact pixels (pillTop 40).
 - **Shots script** (headless Chrome over CDP, screencast frame strips): `side-session-notes/…/settings-shots-cdp.mjs`.
+
+## Round 3 (surfaces lane, michael/app-surfaces-feel)
+
+**Landed**
+- Chrome: the three window lights like every other miyagi window (close live, ✕ on hover/focus, minimize/zoom drawn inactive) and the app window surface (`surface.window` + hairline) fading in over the island's black as the sheet grows (and out as it lands back on the pill). Neutral focus rings (no browser blue).
+- Sections: a vertical tablist. ↑ / ↓ / Home / End switch sections; the highlight slides on the house spring (`layoutId`); focus starts on the active section; Tab wraps inside the sheet (`aria-modal`). Section content crossfades (opacity only with reduced motion).
+- Your own key: one name everywhere (`words.ts` `OWN_KEY`), copy that matches this build (no "our cloud covers it"), status in words under each provider ("Works", "Saved", "Using miyagi's key", "Not set", "Not yet. Check the key.") instead of bare dots, Test disabled until a key is stored, "Saved to Keychain" after Save, the key help is an underlined link with the external glyph.
+- Privacy: values are plain secondary text. Delete confirm: Cancel is the focused white primary (Esc keycap), Delete is an outline.
+- Permissions: names and captions from `words.ts` ("VS Code companion"); the footnote shows only while a row is off and its button is on screen.
+- Shortcuts: read-only until live rebinding ships (`env.canRecord = false`): "Shortcuts work while miyagi is open, in any app."
+
+**Stage:** `?scenario=settings&settings=<section>&size=1440x900&clean` (+ `&perm=accessibility-off`, `&confirm=delete`). Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/surfaces-settings-*.jpg`.
+
+**Core requests (round 3)**
+1. `core/ui/controls` SidebarNav: adopt the tablist + sliding highlight from `Sidebar.tsx` so every sidebar behaves the same.
+2. Status rule for the onboarding lane: granted / running is a neutral check + white word everywhere (Settings already); green stays for passed steps and mastery. Onboarding's green "On / Running / Connected" should follow.
+3. Glossary for every lane (`features/settings/words.ts`): "Your own key" (account menu, upgrade, pricing say "Use your own key", "Use my own key", "Bring your own key"), "VS Code companion".
+4. `copy.appearanceCaption` (core) still says the sheet stays black; it now takes the window surface.
+
+**Fix round 1 (surfaces)**
+- Focus rings use the theme: `color.label` through a `--focus-ring` CSS variable on the sheet, which the sidebar tabs read too. No Tailwind `white/*`; the sheet's text is `color.text`, not `text-white` (same for the key field and the help link hover).
+- Your own key: the caret lands in the key field again when the sheet opens on this section (`openSettings('account')` from the limit card's "Your own key") or on a click. The store records how a section was reached (`via: 'keys'` from ↑ / ↓ / Home / End); only then does focus stay on the sidebar.
+
+**Decision for Michael: the sheet covers VS Code's Explorer and tabs**
+At 1440x900 the 912x576 sheet sits at x 264-1175, y 40-615, over the Explorer and the editor tabs, which the UX bar otherwise forbids ("never cover Explorer/tabs/toolbar"). This lane keeps it as an explicit exception:
+- Settings is a modal sheet the learner opened on purpose, with a scrim. Nothing in VS Code is needed while it is up, and Esc, the close light or a click outside collapses it into the island at once.
+- "Every surface is born from the notch island" (Michael, Sat): it starts on the pill's exact pixels at the top center, and a sheet this big can't clear the Explorer and tabs from there without leaving the island.
+- Clamping it to the editor's free area (right of the Explorer, under the tabs) would still cover code at 1440x900 and would detach it from the island.
+If Michael wants it clear anyway, the cheapest option is a compact sheet (about 720x520) moved down under the tab bar, keeping the island neck. That needs Core request 5.
+
+**Core requests (fix round 1)**
+5. Only if Michael rejects the exception above: expose the editor's chrome rect (Explorer width, tab bar and toolbar bottom) from core/dock or the layout, so the sheet can be placed clear of it.
+
+**Fix round 2 (surfaces)**
+- One focus ring on the sidebar tabs: the tab's own `ring-1` is gone, so only the sheet's outline (`--focus-ring`) draws, and it waits for the first key press (a mouse open shows only the active row's fill). The active tab still takes focus on open, so ↑ / ↓ work at once. Shot: `surfaces-set-general-kbd.jpg`.
+- Your own key: while Test is off the footer says why ("Save a key to test it.", beside "Where do I find my key?"); the tooltip moved to a wrapper, since a disabled button never shows its own. Shot: `surfaces-set-account-test.jpg`.
