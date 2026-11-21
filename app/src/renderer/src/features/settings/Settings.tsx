@@ -41,7 +41,6 @@ const PILL: Size = { w: pill.landingWidth, h: pill.height }
 const LABEL: Record<KeyName, string> = {
   anthropic: 'Anthropic',
   gemini: 'Gemini',
-  brightdata: 'Bright Data',
   elevenlabs: 'ElevenLabs',
   tigerUrl: 'Tiger Data URL'
 }

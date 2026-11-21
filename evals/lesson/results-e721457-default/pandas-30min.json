@@ -5,7 +5,7 @@
   "goal": "load a CSV with pandas, then select, filter, clean and group the data",
   "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src7",
   "engine_env": "auto",
-  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for EXIgjIBu4EU: brightdata captions: Bright Data returned an empty body; timedtext: Client error '429 Too Many Requests' for url 'https://www.you",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for EXIgjIBu4EU: scraping-service captions: empty body; timedtext: Client error '429 Too Many Requests' for url 'https://www.you",
   "wall_s": 64.6,
   "workdir": "(fresh empty temp dir)",
   "model": {

@@ -24,7 +24,7 @@ The sheet is now **Settings**: a **General** section above **Keys** (keys unchan
 **Left:** Electron check on the Mac (list below). `invalid` only shows once the engine produces it. A way to open Settings in Electron before the overview's gear lands (see Core requests 3).
 
 ## Goal
-Bring-your-own-keys. A small settings sheet **born from the notch island** (like the launcher): a focusable window whose panel starts at the island's exact rect and collapses back into it. Five keys: **Anthropic** and **Gemini** (required), **Bright Data** (optional: without it you paste a YouTube link), **ElevenLabs** (optional: voice), **Tiger Data URL** (optional). One status per key, a Test button, Save.
+Bring-your-own-keys. A small settings sheet **born from the notch island** (like the launcher): a focusable window whose panel starts at the island's exact rect and collapses back into it. Four keys: **Anthropic** and **Gemini** (required), **ElevenLabs** (optional: voice), **Tiger Data URL** (optional). One status per key, a Test button, Save.
 
 ## Owns
 - `app/src/renderer/src/features/settings/`: window route `settings`, the sheet, status dots

@@ -8,7 +8,7 @@
 import type { KeyState } from '../../../../../../shared/contracts/events'
 
 /** Same names as config.keys / config.status in shared/contracts/events.ts, in display order. */
-export const KEY_NAMES = ['anthropic', 'gemini', 'brightdata', 'elevenlabs', 'tigerUrl'] as const
+export const KEY_NAMES = ['anthropic', 'gemini', 'elevenlabs', 'tigerUrl'] as const
 export type KeyName = (typeof KEY_NAMES)[number]
 
 /** The app can't build a lesson without these. First run opens Settings if either is `missing`. */

@@ -58,7 +58,7 @@ write the real numbers in.**
 | Time | Do | Say |
 |---|---|---|
 | **0:00** | VS Code on screen, the island pill under the notch. | "YouTube tutorials can't tell whether you actually got it. Miyagi can. It turns any tutorial into an auto-graded lab, and there are two ways in." |
-| **0:07** | **⌥Space**. The launcher grows out of the island. Type **`learn physics informed machine learning with PINNs in PyTorch`**, then press **↵** (Watch a video). | "First way: watch a video. Claude searches YouTube with Bright Data's Google results, and Bright Data reads each video's comments, so a broken tutorial gets flagged." |
+| **0:07** | **⌥Space**. The launcher grows out of the island. Type **`learn physics informed machine learning with PINNs in PyTorch`**, then press **↵** (Watch a video). | "First way: watch a video. Claude searches YouTube, scores each result against your goal, and drops the ones that miss." |
 | **0:14** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** shows within 5 s. Click **Build**. | "Before building anything, Miyagi tells me what this video is and what I'm missing. Then Gemini watches the video and builds the lesson, with Claude reading the transcript as backup." |
 | **0:22** | The lesson loads (cached) and VS Code opens `demo/pinn-lab`. Switch to the second tab and press **↵** on `debug/goto/7`: the step's clip plays, then pauses. The screen dims to a **white box** on the code. | "Each step plays one clip and waits. Miyagi reads my whole screen on the device and boxes exactly where I work. Let's skip to training." |
 | **0:30** | In the VS Code terminal: **`tut run python pinn_diffusion.py`** ↵. The loss sits around 17. | "Learning rate 0.3." |
@@ -69,7 +69,7 @@ write the real numbers in.**
 | **1:18** | Bottom bar › **End lesson**, two taps (the first reads "Tap to end"). Then **⌥Space**, type **`build a calculator`**, press **⌘↵** (Just teach me). | "Second way: no video at all. Just teach me." |
 | **1:24** | The pill shows the build. VS Code opens **full screen**. Step 1 appears and the white box sits on the exact line, with the code to type under the caption. | "Claude researched the official docs with web search and wrote the lesson, and Miyagi boxes exactly where to type." |
 | **1:34** | Type the boxed line, then press **Check my work** (drawer or bar). No ⌘S: it grades the unsaved code. The step goes green and the box moves to the next line. | "Check runs the step's checks on my screen, then a Claude judge. Green." |
-| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Gemini, Bright Data and Tiger Data." |
+| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Gemini and Tiger Data." |
 
 **If something stalls:**
 - **Search is slow:** press Esc and run `ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-demo.sh`, which autostarts
@@ -161,9 +161,8 @@ live buffer and caret. The VS Code companion extension is an optional precision 
 **"How do you know the loss is flat, not noisy?"** A Mann-Kendall significance test plus a Theil-Sen effect size of at least 5%.
 Flat noisy curves pass ≤ 3/300 times (it was 61–136).
 
-**"What's Bright Data for?"** The SERP API supplies Google's video results for search, the YouTube comments dataset flags
-tutorials that no longer work (up to 36 comments read per video in our recorded live searches), the Web Unlocker is the first
-route for captions (and the backup for watch pages), and the coach looks up docs through SERP + Unlocker (`server/coach/web.py`).
+**"How does it search?"** Claude's web search tool and YouTube's own results page find the videos, DuckDuckGo covers the web, and
+the coach looks up docs pages through DuckDuckGo plus a plain fetch (`server/coach/web.py`). No scraping service is involved.
 
 **"What's in Tiger?"** `learning_events` and `training_metrics` hypertables plus five continuous aggregates: the live 1 s curve,
 time per step, fail rate per check, a stuck heatmap per 15 s of video, and learner progress. You can see them live at

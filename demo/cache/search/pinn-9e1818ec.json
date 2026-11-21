@@ -3,9 +3,6 @@
   "created": 1794698178,
   "providers": [
     "arxiv",
-    "brightdata-comments",
-    "brightdata-serp",
-    "brightdata-unlocker",
     "claude-read",
     "claude-search",
     "claude-triage",
@@ -13,7 +10,6 @@
     "github",
     "youtube"
   ],
-  "brightdata": "used",
   "plan": {
     "topic": "pinn",
     "youtube_query": "pinn",
@@ -39,7 +35,6 @@
     "done": 18.0
   },
   "notes": [
-    "bright data SERP failed: Bright Data serp_api1: target HTTP 502 (captcha: redirect location was rejected)",
     "gemini triage (4 items) failed: RuntimeError: Gemini failed: 402 RESOURCE_EXHAUSTED. {'error': {'code': 402, 'message': 'Your ",
     "gemini triage (4 items) failed: RuntimeError: Gemini failed: 402 RESOURCE_EXHAUSTED. {'error': {'code': 402, 'message': 'Your ",
     "gemini triage (4 items) failed: RuntimeError: Gemini failed: 402 RESOURCE_EXHAUSTED. {'error': {'code': 402, 'message': 'Your ",
@@ -80,7 +75,6 @@
       "verified": true,
       "scoredBy": "claude",
       "watched": "not watched: Gemini credits depleted",
-      "comments": "comments not read: Bright Data timeout",
       "style": "coding",
       "durationLabel": "57 min · 15 chapters, builds chapter by chapter",
       "long": true,
@@ -226,7 +220,7 @@
       "score": 72,
       "reason": "Python PINN library runnable on Colab; matches PINN goal, paper format",
       "url": "https://arxiv.org/html/2310.03755v1",
-      "source": "brightdata",
+      "source": "web",
       "verified": true,
       "scoredBy": "claude",
       "style": "coding"
@@ -247,7 +241,6 @@
       "verified": true,
       "scoredBy": "claude",
       "watched": "not watched: Gemini credits depleted",
-      "comments": "6 comments read via Bright Data",
       "style": "coding",
       "durationLabel": "45 min · no chapters, builds part by part",
       "long": true,
@@ -270,7 +263,6 @@
       "verified": true,
       "scoredBy": "claude",
       "watched": "not watched: Gemini credits depleted",
-      "comments": "comments not read: Bright Data timeout",
       "style": "coding",
       "durationLabel": "15 min",
       "long": false,
@@ -366,7 +358,6 @@
       "verified": true,
       "scoredBy": "claude",
       "watched": "not watched: Gemini credits depleted",
-      "comments": "40 comments read via Bright Data",
       "style": "conceptual",
       "durationLabel": "35 min · 10 chapters, builds chapter by chapter",
       "long": true,
@@ -382,7 +373,7 @@
       "reason": "Colab code walkthrough including PINN solutions; partly quantum-focused, 30-minute video",
       "thumbnail": "https://i.ytimg.com/vi/p9QwhTk0A60/hqdefault.jpg",
       "url": "https://www.youtube.com/watch?v=p9QwhTk0A60",
-      "source": "brightdata",
+      "source": "web",
       "videoId": "p9QwhTk0A60",
       "durationS": 1799,
       "channel": "Doctor No Does Science",
@@ -586,7 +577,7 @@
       "score": 40,
       "reason": "Paper page pointing to external PINN Colab code; not a tutorial itself",
       "url": "https://www.iccs-meeting.org/archive/iccs2025/papers/159040173.pdf",
-      "source": "brightdata",
+      "source": "web",
       "verified": true,
       "scoredBy": "claude",
       "style": "coding"
@@ -672,7 +663,7 @@
       "score": 10,
       "reason": "Neural Tangents for infinite-width networks, not physics-informed networks",
       "url": "https://colab.research.google.com/github/google/neural-tangents/blob/master/notebooks/neural_tangents_cookbook.ipynb",
-      "source": "brightdata",
+      "source": "web",
       "verified": true,
       "scoredBy": "claude",
       "style": "coding"
@@ -685,7 +676,7 @@
       "score": 8,
       "reason": "Generic Colab introduction; does not teach PINNs or any model",
       "url": "https://colab.research.google.com/notebook",
-      "source": "brightdata",
+      "source": "web",
       "verified": true,
       "scoredBy": "claude",
       "style": "no-code"
@@ -698,7 +689,7 @@
       "score": 5,
       "reason": "General Colab product overview; unrelated to PINNs",
       "url": "https://developers.google.com/colab",
-      "source": "brightdata",
+      "source": "web",
       "verified": true,
       "scoredBy": "claude",
       "style": "no-code"

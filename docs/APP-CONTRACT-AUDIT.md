@@ -167,7 +167,7 @@ Map `(col,row)` to pixels; `order` is sequence-layout only; `groups` is optional
 - `offtrack.level` (2 = concept, 3 = fix): optional "Hint 2 of 3" label. `severity` is ignored (fine: amber for both).
 - `offtrack.targets` / `card.targets`: `[{boxId, label, text, rect:{x,y,w,h}}]` in screen points. The engine already sends a `spotlight` for `targets[0]`, so this is only for multi-box highlights.
 - `citation.url`: make the label a link (`cards/index.tsx:189-196`; open with `shell.openExternal`).
-- `search.result`: `verified:"indexed"` mark; the `comments` status string (e.g. `"12 comments read via Bright Data, 2 warn of problems"`) as a tooltip.
+- `search.result`: `verified:"indexed"` mark; (YouTube comment warnings were removed with the scraping service; no `comments` string is sent.)
 - `screen.seen`: debug HUD (optional).
 - Add the launcher panel to `overlay.bounds` (`reportBounds` it while open).
 - `EngineLink.log` (`main/engine.ts:18`) grows without bound (every `metric` is kept for replay); cap it or skip `metric`.

@@ -7,7 +7,7 @@ first steps driven on rendered VS Code screens. Gemini is off; Michael's screen 
 
 Per topic (each in its own process; the round's spend is carried over and capped by --budget, default $1):
   * the real Engine in-process (also served on 127.0.0.1:8790), LESSON_ENGINE=claude, GEMINI/GOOGLE keys blanked,
-    finder/diagrams stubbed, Bright Data / ElevenLabs / Tiger off; the editor never opens (recorded); S2's
+    finder/diagrams stubbed, ElevenLabs / Tiger off; the editor never opens (recorded); S2's
     Accessibility snapshot stubbed; the screen is the real ScreenReader on rendered fixtures (local Vision OCR)
   * `learn {mode: "lesson"}` -> times to the first step and the full lesson, build stages, lesson.builtBy
   * E2's rules on the built steps (textlesson.py: step 1 types code, runs after their code, one short sentence,
@@ -227,7 +227,7 @@ async def run_topic(topic: str, hold: float, budget: float, spent: float, port: 
         os.environ.pop(k, None)
     os.environ.update({
         "DEMO": "0", "ORCH_STUBS": "finder,diagrams", "LESSON_ENGINE": "claude", "GEMINI_API_KEY": "",
-        "GOOGLE_API_KEY": "", "BRIGHTDATA_API_KEY": "", "ELEVENLABS_API_KEY": "", "TIGER_DATABASE_URL": "",
+        "GOOGLE_API_KEY": "", "ELEVENLABS_API_KEY": "", "TIGER_DATABASE_URL": "",
         "ORCH_SCREEN": "1", "TUT_AX": "0", "ORCH_OPEN_WORKSPACE": "1", "ORCH_RECORD": "0",
         "ORCH_DIAGRAM_PREFETCH": "0", "ORCH_AUTOSTART": "0", "TUT_WORKDIR": str(workdir), "TUT_SCREEN_FIXTURE": fx0["png"],
     })

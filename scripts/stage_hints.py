@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "BRIGHTDATA_API_KEY", "ELEVENLABS_API_KEY"):
+for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "ELEVENLABS_API_KEY"):
     os.environ[k] = ""  # load_dotenv never overrides an existing (even empty) variable
 os.environ["HTTPS_PROXY"] = os.environ["HTTP_PROXY"] = "http://127.0.0.1:9"
 os.environ["ALL_PROXY"] = "http://127.0.0.1:9"

@@ -13,7 +13,7 @@ The take follows docs/devpost/DEMO.md:
 Every beat is timed; the JSON report goes to --out (default: the scratch folder).
 
 It never touches demo/pinn-lab itself, never talks to another engine's port, and kills only the engine it spawned.
-Cost: a live take makes ~11 Anthropic calls and 3 Bright Data requests (no Gemini: the lesson is cached); --offline takes
+Cost: a live take makes ~11 Anthropic calls and a few docs-page web requests (no Gemini: the lesson is cached); --offline takes
 cost nothing (bogus keys behind a dead proxy).
 """
 
@@ -218,8 +218,6 @@ def offline_env() -> dict[str, str]:
         "ANTHROPIC_API_KEY": "sk-ant-offline-rehearsal",
         "GEMINI_API_KEY": "offline-rehearsal",
         "GOOGLE_API_KEY": "offline-rehearsal",
-        "BRIGHTDATA_API_KEY": "offline-rehearsal",
-        "BRIGHT_DATA_API_KEY": "offline-rehearsal",
         "ELEVENLABS_API_KEY": "offline-rehearsal",
         "HTTPS_PROXY": BAD_PROXY, "HTTP_PROXY": BAD_PROXY, "ALL_PROXY": BAD_PROXY,
         "https_proxy": BAD_PROXY, "http_proxy": BAD_PROXY, "all_proxy": BAD_PROXY,

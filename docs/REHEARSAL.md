@@ -31,7 +31,7 @@ Tiger data into the take's own folder, and turns off the engine's real-keyboard 
 ```
 
 **Cost:** one live take makes about 11 Anthropic calls (2 coach warm-up, 2 Sonnet diagrams, 1 Opus diagnosis, the rest
-preflight), 3 Bright Data requests and no Gemini calls (the lesson is cached). `--offline` takes cost nothing: the keys are
+preflight), a few docs-page web requests and no Gemini calls (the lesson is cached). `--offline` takes cost nothing: the keys are
 bogus and every request dies at the dead proxy. During the cost freeze, run only `--offline` takes (with or without
 `--demo`).
 
@@ -68,13 +68,13 @@ last column.
 Card texts (live Opus, all correct), e.g. take 1: "Learning rate 0.3 is too high: With lr = 0.3, Adam's steps overshoot
 and saturate the tanh units, so loss stalls near 17.35 with periodic spikes. Set lr to 1e-3, as the tutorial does."
 
-**Where the coach's time goes** (engine log, all 4 takes): run fails → ~1 s to the next tick → **two Bright Data
+**Where the coach's time goes** (engine log, all 4 takes): run fails → ~1 s to the next tick → **two web
 requests, 1.2–3.1 s** → **Opus 3.1–3.4 s** (prompt cache hit, 9658 tokens) → card. Every take logged `web=0`: none of
-the Bright Data results reached the card. DEMO.md's "about 3 s" is the Opus part only. E5 made the coach skip web
+the web results reached the card. DEMO.md's "about 3 s" is the Opus part only. E5 made the coach skip web
 lookups when there's no error text (96d12b8), but in the engine that didn't take effect. The engine passes the run's
 output tail as `error_text` even for a clean run, so the coach still searched, now on `::metric::` lines. E5's PR #1
 (8301c0c) treats a tail as an error only when it has an error signature (Traceback, `XxxError:`, …). On a throwaway merge,
-an offline take started **no** Bright Data lookup (0 log lines, versus 2 per diagnosis before), so the card should be
+an offline take started **no** web lookup (0 log lines, versus 2 per diagnosis before), so the card should be
 Opus time only (~3.4 s). **Not merged yet, and not re-measured live** (cost freeze).
 
 **Typing delays the card.** The engine reads the Mac's real keyboard idle time. It never speaks within 2 s of a

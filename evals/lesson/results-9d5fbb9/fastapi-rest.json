@@ -5,7 +5,7 @@
   "goal": "build a REST API with FastAPI: GET and POST endpoints with Pydantic models, run with uvicorn",
   "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src2",
   "engine_env": "auto",
-  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for iWS9ogMPOI0: brightdata: BRIGHTDATA_API_KEY/BRIGHTDATA_UNLOCKER_ZONE not set; timedtext: Client error '429 Too Many Requests' for url 'https:/",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for iWS9ogMPOI0: timedtext: Client error '429 Too Many Requests' for url 'https:/",
   "wall_s": 22.3,
   "workdir": "(fresh empty temp dir)",
   "model": {

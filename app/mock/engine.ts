@@ -88,7 +88,7 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
       if (cmd.type === 'config.keys') {
         const st = (k?: string) => (k ? 'ok' : 'env') as 'ok' | 'env'
         const p = cmd.payload
-        emit({ type: 'config.status', payload: { anthropic: st(p.anthropic), gemini: st(p.gemini), brightdata: st(p.brightdata), elevenlabs: st(p.elevenlabs), tigerUrl: st(p.tigerUrl) } })
+        emit({ type: 'config.status', payload: { anthropic: st(p.anthropic), gemini: st(p.gemini), elevenlabs: st(p.elevenlabs), tigerUrl: st(p.tigerUrl) } })
         return
       }
       if (log) console.log(`[mock] ← ${JSON.stringify(cmd)}`)

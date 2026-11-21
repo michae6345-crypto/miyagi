@@ -5,7 +5,7 @@
   "goal": "build a command-line tool in Rust with cargo that parses arguments",
   "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src4",
   "engine_env": "auto",
-  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for 5UA9UWWAagc: brightdata watch page: Bright Data returned an empty body; brightdata captions: Bright Data returned an empty body; timedtext: Cl",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for 5UA9UWWAagc: scraping-service watch page: empty body; scraping-service captions: empty body; timedtext: Cl",
   "wall_s": 47.1,
   "workdir": "(fresh empty temp dir)",
   "model": {
