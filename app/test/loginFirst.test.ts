@@ -210,7 +210,7 @@ describe('a launch starts from new: login first, nothing else', () => {
     assert.equal(gateIsOpen(), true)
     assert.equal(l.overlayShown(), 1, 'the overlay shows once the gate opens')
     assert.equal(shortcuts.has(LAUNCHER_KEY), true, 'the launcher key registers')
-    assert.deepEqual(l.trayLabels(), ['Open miyagi', 'Start a lesson', 'Settings…', 'Quit miyagi'])
+    assert.deepEqual(l.trayLabels(), ['Open miyagi', 'Start a lesson', 'Show me around', 'Settings…', 'Quit miyagi'])
     const gates = l.broadcasts.filter(([c]) => c === 'onboarding:gate').map(([, v]) => v)
     assert.deepEqual(gates.at(-1), { login: true, setup: true, open: true }, 'feat:onboarding:gate carries the clean view')
 

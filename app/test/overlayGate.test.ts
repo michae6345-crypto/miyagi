@@ -101,7 +101,7 @@ const broadcast = (channel: string, payload?: unknown): void => feature.get(chan
 const g = globalThis as Record<string, unknown>
 g.window = { tut, addEventListener: () => {}, removeEventListener: () => {}, matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }) }
 // The overlay window: progress/store.ts looks for a due review only in the window that draws the island.
-g.document = { documentElement: { dataset: { route: 'overlay' } } }
+g.document = { documentElement: { dataset: { route: 'overlay' } }, getElementById: () => ({}), createElement: () => ({}), head: { prepend: () => undefined } }
 g.location = { hash: '#/overlay', search: '', pathname: '/' }
 // tsx compiles the renderer's JSX in classic mode here (app/tsconfig.json only lists references): React.createElement.
 g.React = require('react')
