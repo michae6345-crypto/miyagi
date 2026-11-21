@@ -444,7 +444,9 @@ def test_config_keys_status_never_echoes_keys(monkeypatch):
     for name in main.KEY_ENV:
         monkeypatch.setitem(main._ENV_AT_START, name, "g-from-env" if name == "gemini" else "")
     st = main.apply_keys({"anthropic": "sk-test-123", "tigerUrl": "postgres://...", "someRetiredKey": "from-an-older-build"})
-    assert st == {"anthropic": "ok", "gemini": "env", "elevenlabs": "missing", "tigerUrl": "missing"}  # unknown names are ignored
+    want = {"anthropic": "ok", "gemini": "env", "elevenlabs": "missing", "tigerUrl": "missing"}
+    assert {k: st[k] for k in want} == want  # unknown names are ignored (st also carries the cloud fields)
+    assert "someRetiredKey" not in st
     from server.config import get_key, set_app_keys
 
     assert get_key("anthropic") == "sk-test-123" and get_key("gemini") == "g-from-env"
