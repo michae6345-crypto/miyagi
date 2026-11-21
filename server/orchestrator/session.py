@@ -1043,11 +1043,22 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return True
 
     async def _open_in_browser(self, tool: str) -> None:
-        """Open a no-code lesson's web app (the learner pressed its button). Only the lesson's own https URLs."""
+        """Open a no-code lesson's web app (the learner pressed its button). Only https URLs on a host the setup
+        catalog or the docs allowlist knows (server.safety.browser_url_allowed); any other link is shown as text."""
         item = next((it for it in self.reqs or [] if it.get("tool") == tool), None)
         url = ((item or {}).get("install") or {}).get("url") or ""
         if not url.startswith("https://"):
             await self.emit("error", {"message": f"No link to open for {tool or 'that app'}."})
+            return
+        from server.safety import browser_url_allowed
+
+        if not browser_url_allowed(url):  # a model-made link to an unknown site: shown, never opened for them
+            log.info("open_in_browser: %s is not a known host; shown as text", url[:120])
+            await self.emit("card", {**({"stepId": self.step["id"]} if self.step else {}), "kind": "answer",
+                                     "title": "From the tutorial: check it before opening",
+                                     "body": "I only open sites I know. If this is the right page for "
+                                             f"{(item or {}).get('label') or tool or 'the app'}, copy the link into "
+                                             "your browser yourself.", "output": url})
             return
         if self.workspace is not None:
             self.workspace.run(["open", url])  # macOS: the default browser
@@ -6420,9 +6431,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if await stale_advice.line_fix(self, step, diff):  # a line to delete from the file (02:59:22: the `python3
             return  # nn.py` typed into nn.py went to the clipboard): the previewed deletion, never "Command copied"
         if command:  # terminal fix: stage it on the clipboard, the learner presses Enter (never sent for them)
-            ok = await self._clipboard(command)
+            ok = await self._clipboard(command)  # the card always shows exactly what went on the clipboard
             await self._card(step, "Command copied" if ok else "Run this command",
-                             "Paste it in your terminal (⌘V) and press Enter." if ok else command)
+                             "Check it, then paste it in your terminal (⌘V) and press Enter." if ok
+                             else "Check it, then type it in your terminal.", output=str(command))
             if not (file and yours and expected):
                 return  # command-only fix; otherwise continue with the code part below
         if self.lesson_mode and self._run_command(step):
@@ -6438,9 +6450,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         from . import workspace as wsmod
         from .inputs import dirty_files
 
+        from server.safety.paths import lesson_file
+
         titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
-        path = wsmod.resolve_file(self.workdir, file, titles) or (Path(file) if Path(file).is_absolute()
-                                                                    else Path(self.workdir) / file)
+        path, rel = lesson_file(self.workdir, wsmod.resolve_file(self.workdir, file, titles) or file, write=True)
+        if path is None:  # LLM06: a coach diff naming ~/.zshrc, ../../x or .git/hooks/...: never read or written
+            log.warning("Do it for me: %r is outside the lesson folder or a protected file", str(file)[:120])
+            await self._card(step, "I can't change that file", f"{file} isn't a file in your lesson folder that I "
+                             "may change. Make the change yourself.", kind="answer")
+            return
 
         if path.name in dirty_files(self.last_obs):  # VS Code has unsaved edits: writing would clobber them
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
@@ -6474,8 +6492,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
             self.pending_patch = {"path": path, "old": text, "new": p["new_text"], "line": p.get("line") or 1,
                                   "first": (expected or "").strip().splitlines()[:1], "step_code": step.get("code")}
-            await self._card(step, "Apply this fix?", p.get("summary") or "Here's the change.", kind="answer",
-                             diff=p.get("unified_diff", ""), actions=["confirm"])
+            await self._card(step, "Apply this fix?", f"In {rel}: {p.get('summary') or 'here is the change.'}",
+                             kind="answer", diff=p.get("unified_diff", ""), actions=["confirm"])
             await self._status("offtrack" if self.last_offtrack else "watching")
             return
         new_text = self.m.propose_fix(diff, text)
@@ -7688,9 +7706,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not file:
             await self._card(step, "Type it yourself", step["code"], kind="answer")
             return
+        from server.safety.paths import lesson_file
+
         titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
-        path = wsmod.resolve_file(self.workdir, file, titles) or (Path(file) if Path(file).is_absolute()
-                                                                    else Path(self.workdir) / file)
+        path, rel = lesson_file(self.workdir, wsmod.resolve_file(self.workdir, file, titles) or file, write=True)
+        if path is None:  # LLM06: a lesson's step.file of ../../../.zshrc, ~/.ssh/..., .vscode/tasks.json: nothing
+            log.warning("Do it for me: step file %r is outside the lesson folder or protected", str(file)[:120])
+            await self._card(step, "Type it yourself", step["code"], kind="answer")
+            return
         if path.name in dirty_files(self.last_obs):  # unsaved edits in VS Code: writing the file would fight them
             ext = self._vscode_ext()
             if ext is not None and hasattr(ext, "apply") and hasattr(ext, "buffer_text"):
@@ -7723,12 +7746,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
         code = step["code"].rstrip("\n") + "\n"
-        new_text, summary, line = None, f"Adds this step's code to {path.name}.", 1
+        new_text, summary, line = None, f"Adds this step's code to {rel}.", 1
         thinking = False  # E12: "thinking" only while a model really runs; the card goes out BEFORE the status
         if not text.strip():
             new_text = code
         elif (hit := self._by_name(step, path, text)) is not None:  # T5: the step's defs are in the file: its code
-            (new_text, line), summary = hit, f"Puts this step's code in {path.name} in place of yours."  # in place
+            (new_text, line), summary = hit, f"Puts this step's code in {rel} in place of yours."  # in place
         elif self.m.has_do_it_for_me() and not stage.on(self):  # a Demo lesson: the step's own code, no model
             thinking = True
             await self._status("thinking", detail="Typing the step for you")
@@ -7753,8 +7776,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
             new_text, line, replaced = step_code.place_step(code, text, step_code.anchors(step), path.suffix == ".py",
                                                             self._other_codes(step))
-            summary = (f"Puts this step's code in {path.name} in place of yours." if replaced  # not the rejected
-                       else f"Adds this step's code to {path.name}.")  # coach patch's description
+            summary = (f"Puts this step's code in {rel} in place of yours." if replaced  # not the rejected
+                       else f"Adds this step's code to {rel}.")  # coach patch's description
             if bad := self._syntax_error_line(new_text or text, path):  # the file still has a mistake: say where
                 summary += f" Also fix line {bad} yourself: it doesn't run yet."
         if new_text and new_text != text and (why := self._patch_unsafe(step, path, new_text, text)):
@@ -7767,10 +7790,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             import difflib
 
             diff = "".join(difflib.unified_diff(text.splitlines(True), new_text.splitlines(True),
-                                                f"a/{path.name}", f"b/{path.name}"))
+                                                f"a/{rel}", f"b/{rel}"))
             self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
                                   "first": code.strip().splitlines()[:1], "step_code": code,
-                                  "result": f"Added {self._code_head(step)} to {path.name}."}
+                                  "result": f"Added {self._code_head(step)} to {rel}."}
             await self._card(step, "Type this for you?", summary, kind="answer", diff=diff, actions=["confirm"])
         if thinking:
             await self._status("offtrack" if self.last_offtrack else "watching")
@@ -7920,7 +7943,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _run_for_me(self, step: dict) -> None:
         """"Run it for me": the step's command in the lesson folder (VS Code's terminal via the companion extension
         when it's up; else a subprocess, 10 s, stdin closed, the lesson's .venv first on PATH). The output goes in a
-        card and the run feeds the step's checks with its real exit code / output."""
+        card and the run feeds the step's checks with its real exit code / output.
+        LLM06: the command comes from a model or a stored lesson, so it is parsed first (server.safety.commands): only
+        an Allowed argv runs, without a shell; anything else is shown "From the tutorial: check it before running"
+        and never run. The first run of each distinct command in a session shows the exact command and waits for
+        Yes (the same preview -> confirm as Do it for me: pending_patch {"run": ...} -> _apply_patch)."""
         if stage.on(self):  # a Demo lesson: the recorded run of the lesson's own code (stage.py)
             await stage.run(self, step)
             return
@@ -7930,6 +7957,32 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not cmd:
             await self._card(step, "Nothing to run", "This step has no command.", kind="answer")
             return
+        from server.safety import child_env
+        from server.safety.commands import Manual, parse_run_command
+
+        verdict = parse_run_command(cmd, self.workdir)
+        mark = step.get("run_command_manual")  # validate_untrusted_lesson's mark, while run_command is still that one
+        if (not isinstance(verdict, Manual) and isinstance(mark, dict)
+                and str(mark.get("command") or "").strip() == str(step.get("run_command") or "").strip()):
+            verdict = Manual(str(mark.get("reason") or "the lesson marked it"), command=cmd)
+        if isinstance(verdict, Manual):  # shown, never run: the learner reads it and runs it themselves
+            log.info("run it for me: not running %r: %s", cmd[:120], verdict.reason)
+            self._record("run_manual", {"command": cmd[:200], "reason": verdict.reason[:200]}, step)
+            await self._card(step, "From the tutorial: check it before running",
+                             f"I don't run this one for you ({verdict.reason}). Read it, and if it's what the "
+                             "tutorial means, copy it into VS Code's terminal and run it there.", kind="answer",
+                             output=cmd)
+            return
+        cmd = verdict.command  # what runs, exactly: shlex-quoted, one command
+        seen = self.__dict__.setdefault("_run_confirmed", set())
+        if (str(self.workdir), cmd) not in seen:  # its first run this session: the exact command, then Yes
+            self.pending_patch = {"run": True, "command": cmd, "step": step.get("id"), "workdir": str(self.workdir)}
+            await self._card(step, "Run this command?",
+                             f"It runs in the lesson folder ({Path(str(self.workdir)).name}). Check it, then press "
+                             "Yes.", kind="answer", output=cmd + (f"\n{verdict.details}" if verdict.details else ""),
+                             actions=["confirm"])
+            return
+        argv = list(verdict.argv)
         await self._save_step_file(step)  # the fix in the editor is what runs (Nov 15: the old file ran twice)
         ext = self._vscode_ext()
         if ext is not None and hasattr(ext, "run_in_terminal"):
@@ -7953,14 +8006,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._status("thinking", detail="Running it for you")
         run_id = f"run-for-me-{int(time.time() * 1000)}"
         await self.ingest({"kind": "run_started", "run_id": run_id, "command": cmd, "cwd": self.workdir})
-        env = dict(os.environ)
+        extra: dict[str, str] = {}
         venv = Path(self.workdir) / ".venv" / "bin"
         if venv.is_dir():
-            env["PATH"] = f"{venv}{os.pathsep}{env.get('PATH', '')}"
-            env["VIRTUAL_ENV"] = str(venv.parent)
+            extra = {"PATH": f"{venv}{os.pathsep}{os.environ.get('PATH', '')}", "VIRTUAL_ENV": str(venv.parent)}
+        env = child_env(**extra)  # no provider key, cloud token or engine token reaches the learner's program
         timed_out = False
         try:
-            proc = await asyncio.create_subprocess_exec("/bin/sh", "-c", cmd, cwd=self.workdir, env=env,
+            proc = await asyncio.create_subprocess_exec(*argv, cwd=self.workdir, env=env,  # never a shell
                                                         stdin=asyncio.subprocess.DEVNULL,
                                                         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         except OSError as e:
@@ -8106,11 +8159,28 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._spawn(self._coach(gen, step, failed, self.context(), 2))
 
     async def _apply_patch(self, step: dict) -> None:
-        """Confirmed preview: re-check (unsaved edits? file changed since the preview?), back up, write."""
+        """Confirmed preview: re-check (unsaved edits? file changed since the preview?), back up, write.
+        A "Run this command?" preview (_run_for_me) confirmed: that exact command is now allowed this session, and
+        it runs. The file is checked again against the lesson-folder rules right before it is written."""
+        from server.safety.paths import lesson_rel, safe_lesson_path
+
         from .inputs import dirty_files
 
         pp, self.pending_patch = self.pending_patch, None
+        if pp.get("run"):  # Yes on "Run this command?": the same step, the same folder, then it runs
+            if pp.get("step") != step.get("id") or pp.get("workdir") != str(self.workdir):
+                await self._card(step, "That command is out of date", "Press Run it for me again.", kind="answer")
+                return
+            self.__dict__.setdefault("_run_confirmed", set()).add((str(self.workdir), pp["command"]))
+            await self._run_for_me(step)
+            return
         path: Path = pp["path"]
+        rel = lesson_rel(self.workdir, path)
+        if not rel or safe_lesson_path(self.workdir, rel, write=True) is None:  # LLM06: never outside the folder
+            log.warning("Do it for me: refusing to write %s (outside the lesson folder or a protected file)", path)
+            await self._card(step, "I can't change that file", f"{path.name} isn't a file in your lesson folder that "
+                             "I may change. Make the change yourself.", kind="answer")
+            return
         if path.name in dirty_files(self.last_obs):
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
             return
@@ -8157,6 +8227,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         path, text = self.undo
         self.undo = None
+        from server.safety.paths import lesson_rel, safe_lesson_path
+
+        rel = lesson_rel(self.workdir, path)
+        if not rel or safe_lesson_path(self.workdir, rel, write=True) is None:  # LLM06: the lesson folder only
+            log.warning("undo: refusing to write %s (outside the lesson folder or a protected file)", path)
+            await self._card(step, "I can't undo that", f"{path.name} isn't a file in your lesson folder.")
+            return
         path.write_text(text)
         if step["id"] in self.assisted_steps:  # their own version again: no longer Do it for me's
             self.assisted_steps.remove(step["id"])

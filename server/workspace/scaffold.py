@@ -38,7 +38,13 @@ TEXT_EXT = {
     ".csv", ".tsv", ".r", ".jl", ".lua", ".env.example", ".gitignore", ".xml", ".svg", ".mod", ".lock",
 }
 TEXT_NAMES = {"Makefile", "Dockerfile", "Cargo.toml", "Gemfile", ".gitignore", ".gitattributes", ".editorconfig", ".nvmrc", ".python-version"}
-FORBIDDEN_PARTS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".miyagi-state"}
+# LLM06: a starter file never configures the editor, CI, a dev container or the shell (.vscode/tasks.json runs on
+# folder open, .envrc on cd, .github/workflows on push); dotfiles are refused except DOTFILE_ALLOW (server.safety.paths).
+FORBIDDEN_PARTS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".miyagi-state", ".vscode", ".idea",
+                   ".github", ".devcontainer", ".envrc", ".tool-versions"}
+# npm runs these on `npm install` / `npm ci` / publish: a scaffolded package.json never has them
+NPM_LIFECYCLE = {"preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare", "prepublish",
+                 "prepublishOnly", "prepack", "postpack", "preuninstall", "uninstall", "postuninstall", "dependencies"}
 # Screen checks in these apps read terminal/browser output, not files: starter files can't satisfy them.
 NON_EDITOR_APPS = {"terminal", "iterm", "iterm2", "warp", "ghostty", "kitty", "alacritty", "hyper",
                    "safari", "google chrome", "chrome", "firefox", "arc", "microsoft edge", "brave browser"}
@@ -211,7 +217,32 @@ def _safe_rel(path: str) -> str | None:
     parts = PurePosixPath(p).parts
     if ".." in parts or any(x in FORBIDDEN_PARTS for x in parts):
         return None
+    from server.safety.paths import rel_problem
+
+    if rel_problem(p, write=True) is not None:  # dotfiles (bar .gitignore, .editorconfig, .nvmrc, .python-version)
+        return None
     return p
+
+
+def content_problem(path: str, content: str) -> str | None:
+    """Why a starter file's content is refused (None: fine): a package.json with install-time scripts (or that
+    doesn't parse), a requirements file with option lines (-i, --index-url, -e ...), VCS or URL requirements."""
+    name = PurePosixPath(path).name
+    if name == "package.json":
+        try:
+            data = json.loads(content or "{}")
+        except ValueError:
+            return "package.json doesn't parse"
+        scripts = data.get("scripts") if isinstance(data, dict) else None
+        if isinstance(scripts, dict) and (bad := sorted(set(scripts) & NPM_LIFECYCLE)):
+            return f"package.json runs code on install ({', '.join(bad)})"
+        return None
+    if name.startswith("requirements") and name.endswith(".txt"):
+        for raw in (content or "").splitlines():
+            line = raw.strip()
+            if line.startswith("-") or line.lower().startswith("git+") or "://" in line:
+                return f"requirements line {line[:60]!r} installs from outside PyPI or changes pip's options"
+    return None
 
 
 def _is_text_name(p: str) -> bool:
@@ -274,6 +305,9 @@ def vet(raw: dict, graph: dict) -> tuple[Scaffold, list[str]]:
             return None
         if not _is_text_name(p):
             sc.dropped.append(f"{p}: not a text file type")
+            return None
+        if why := content_problem(p, content):
+            sc.dropped.append(f"{p}: {why}")
             return None
         size = len(content.encode())
         if size > MAX_FILE_BYTES or total + size > MAX_TOTAL_BYTES:

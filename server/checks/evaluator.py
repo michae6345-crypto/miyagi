@@ -141,11 +141,162 @@ def _fmt(v: float) -> str:
 
 
 def _resolve(workdir: str, rel: str) -> str:
-    return rel if os.path.isabs(rel) else os.path.normpath(os.path.join(workdir, rel))
+    """workdir/rel when it stays in the lesson folder (server.safety.paths: relative, no `..` / `~`, symlinks
+    followed), else "": a lesson's check never reads ~/.aws/credentials or ../../.ssh/id_rsa."""
+    from server.safety.paths import safe_lesson_path
+
+    if not rel or os.path.isabs(rel) or safe_lesson_path(workdir or ".", rel) is None:
+        return ""
+    return os.path.normpath(os.path.join(workdir, rel))
 
 
 def _compile(pattern: str) -> re.Pattern[str]:
+    if (why := pattern_problem(pattern)) is not None:
+        raise re.error(why)
     return re.compile(pattern, re.MULTILINE)
+
+
+# ---------------------------------------------------------------- regex safety (ReDoS)
+# A lesson's patterns come from a model (or a stored / shared lesson) and run on every screen frame and file save.
+# Without the `regex` module there is no timeout, so a catastrophic pattern is refused before it ever runs.
+# The brief asked for 200; the shipped "neural network from scratch" demo lesson grades whole statements with 225-320
+# character code patterns (nn1c4, nn2c4, nn3c2), so the cap is 400. The shape check below is the ReDoS guard.
+MAX_PATTERN_LEN = 400
+SCREEN_SCAN_CHARS = 4096  # a screen pattern sees at most the last 4 KB of a window's text
+
+
+def pattern_problem(pattern: Any) -> str | None:
+    """Why `pattern` may not run (too long, does not compile, nested or ambiguous repetition such as (x+)+, (x*)*,
+    (a|aa)+), else None."""
+    if not isinstance(pattern, str):
+        return "not a pattern"
+    if len(pattern) > MAX_PATTERN_LEN:
+        return f"pattern longer than {MAX_PATTERN_LEN} characters"
+    return _pattern_shape(pattern)
+
+
+_SHAPES: dict[str, str | None] = {}
+
+
+def _pattern_shape(pattern: str) -> str | None:
+    if pattern in _SHAPES:
+        return _SHAPES[pattern]
+    try:
+        import re._parser as sre  # type: ignore[import-not-found]
+    except ImportError:  # Python < 3.11
+        import sre_parse as sre  # type: ignore[no-redef]
+    try:
+        tree = sre.parse(pattern, re.MULTILINE)
+    except (re.error, RecursionError, OverflowError) as exc:
+        why: str | None = f"invalid pattern: {exc}"
+    else:
+        why = "nested or ambiguous repetition (catastrophic backtracking)" if _risky(list(tree), None) else None
+    if len(_SHAPES) < 4096:
+        _SHAPES[pattern] = why
+    return why
+
+
+def _sre_consts():
+    try:
+        import re._constants as c  # type: ignore[import-not-found]
+    except ImportError:
+        import sre_constants as c  # type: ignore[no-redef]
+    return c
+
+
+def _risky(items: list, outer: str | None) -> bool:
+    """outer: the repetition around these items: None, "bounded" ({2,32}) or "unbounded" (+, *, {n,} or > 32)."""
+    c = _sre_consts()
+    repeats = {c.MAX_REPEAT, c.MIN_REPEAT} | ({c.POSSESSIVE_REPEAT} if hasattr(c, "POSSESSIVE_REPEAT") else set())
+    for op, av in items:
+        if op in repeats:
+            lo, hi, sub = av
+            kind = None if hi is not c.MAXREPEAT and hi <= 1 else (
+                "unbounded" if hi is c.MAXREPEAT or hi > 32 else "bounded")
+            if kind and (outer == "unbounded" or (outer == "bounded" and kind == "unbounded")):
+                return True  # (x+)+, (x*)*, (\w+\s*)+, (x{1,3})+, (\d+){3}
+            if kind == "unbounded" and _nullable(list(sub)):
+                return True  # (a?)*, (x*|y)+: an empty match repeated
+            inner = "unbounded" if "unbounded" in (outer, kind) else (kind or outer)
+            if _risky(list(sub), inner):
+                return True
+        elif op is c.SUBPATTERN:
+            if _risky(list(av[-1]), outer):
+                return True
+        elif op is c.BRANCH:
+            alts = [list(a) for a in av[1]]
+            if outer == "unbounded" and _overlapping(alts):
+                return True  # (a|aa)+, (a|a?)+
+            if any(_risky(a, outer) for a in alts):
+                return True
+        elif op in (c.ASSERT, c.ASSERT_NOT) or (hasattr(c, "ATOMIC_GROUP") and op is c.ATOMIC_GROUP):
+            sub = av[-1] if isinstance(av, tuple) else av
+            if _risky(list(sub), outer):
+                return True
+        elif op is c.GROUPREF_EXISTS:
+            for sub in av[1:]:
+                if sub is not None and _risky(list(sub), outer):
+                    return True
+    return False
+
+
+def _nullable(items: list) -> bool:
+    """Can this sequence match the empty string (roughly: every element optional)?"""
+    c = _sre_consts()
+    for op, av in items:
+        if op in (c.AT, c.ASSERT, c.ASSERT_NOT):
+            continue
+        if op in (c.MAX_REPEAT, c.MIN_REPEAT) and av[0] == 0:
+            continue
+        if op is c.SUBPATTERN and _nullable(list(av[-1])):
+            continue
+        if op is c.BRANCH and any(_nullable(list(a)) for a in av[1]):
+            continue
+        return False
+    return True
+
+
+def _first(items: list) -> set | None:
+    """The literal characters this sequence can start with; None = anything (a class, a dot, unknown)."""
+    c = _sre_consts()
+    for op, av in items:
+        if op is c.AT:
+            continue
+        if op is c.LITERAL:
+            return {av}
+        if op is c.SUBPATTERN:
+            return _first(list(av[-1]))
+        if op in (c.MAX_REPEAT, c.MIN_REPEAT) and av[0] > 0:
+            return _first(list(av[2]))
+        return None
+    return None
+
+
+def _overlapping(alts: list[list]) -> bool:
+    """Two alternatives that can start on the same character (or one that matches nothing): backtracking in a loop."""
+    firsts = []
+    for a in alts:
+        if not a or _nullable(a):
+            return True
+        f = _first(a)
+        if f is None:
+            return True
+        firsts.append(f)
+    seen: set = set()
+    for f in firsts:
+        if seen & f:
+            return True
+        seen |= f
+    return False
+
+
+def unsafe_patterns(check: dict) -> str | None:
+    """Why one of a check's regexes (pattern, metric_pattern) may not run, else None."""
+    for key in ("pattern", "metric_pattern"):
+        p = check.get(key)
+        if p is not None and (why := pattern_problem(p)) is not None:
+            return f"{key}: {why}"
+    return None
 
 
 # ---------------------------------------------------------------- per type
@@ -153,6 +304,8 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
     rel = check.get("file")
     if not rel:
         return _result(check, "fail", "check has no 'file'")
+    if not _resolve(ctx.workdir, rel):
+        return _result(check, "fail", f"{rel} is outside the lesson folder")
     if os.path.exists(_resolve(ctx.workdir, rel)):
         return _result(check, "pass", f"{rel} exists")
     return _result(check, "fail", f"{rel} not found")
@@ -163,6 +316,8 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
     if not rel or not pattern:
         return _result(check, "fail", "check needs 'file' and 'pattern'")
     path = _resolve(ctx.workdir, rel)
+    if not path:
+        return _result(check, "fail", f"{rel} is outside the lesson folder")
     if rel.strip().lower().endswith(".ipynb") and not os.path.exists(path) and os.path.isabs(str(ctx.workdir or "")):
         # t10: the video's Untitled.ipynb is the learner's mnist.ipynb ("Still to do: evaluate saved in notebook")
         if (found := find_notebook(ctx.workdir, [rel])) is not None:
@@ -536,6 +691,7 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         return _not_visible(check, ctx, absent)
     if output:  # t9 V3: the print() line on screen is code, never the output it promises
         text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code")))
+    text = text[-SCREEN_SCAN_CHARS:]  # the newest 4 KB of the window(s): a pattern never scans a whole scrollback
     try:
         m = search_screen(pattern, text) if absent else search_wrapped(pattern, text)
     except re.error as exc:
@@ -692,6 +848,8 @@ def evaluate_check(check: dict, ctx: RunContext) -> CheckResult:
     handler = _HANDLERS.get(check.get("type", ""))
     if handler is None:
         return _result(check, "fail", f"unsupported check type {check.get('type')!r}")
+    if why := unsafe_patterns(check):  # a lesson that skipped validation still never runs a catastrophic regex
+        return _result(check, "fail", f"invalid pattern: {why}")
     try:
         return handler(check, ctx)
     except Exception as exc:  # noqa: BLE001 — a malformed check must never crash the engine

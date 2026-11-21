@@ -37,6 +37,143 @@ def _validator() -> Draft202012Validator:
     return Draft202012Validator(graph, registry=registry)
 
 
+def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> list[str]:
+    """Make a step graph from a model, a cache, a saved session or a shared library safe to run (OWASP LLM06).
+    In place; returns what it changed (for logs). Called by the lesson build (builder.build_lesson: every graph it
+    returns or streams, cache hits included) and on every stored / cached graph load (sessions.store.load_graph,
+    lesson.library.load_graph).
+
+    THE FUTURE CLOUD-CACHE CONSUMER (shared lessons from miyagi-cloud /v1/lessons/*) MUST CALL THIS on every graph it
+    downloads, before the graph reaches LessonSession.load_graph.
+
+      * lesson.workdir: a home folder, an ancestor of it, a dot-folder (~/.ssh), ~/Library or a system folder is
+        replaced by `workdir_hint` (or removed: the engine's default folder)
+      * step / target / check files that fail the lesson-folder path rules (server.safety.paths: absolute, `~`,
+        `..`, NUL) are dropped; a check reading such a file is dropped
+      * a run_command that can never run (server.safety.commands: shell syntax, a URL, curl / bash / npx ..., a path
+        out of the folder) is marked step["run_command_manual"] = {command, reason}: Run it for me shows that command, never runs it
+      * checks whose regex is too long or catastrophic ((x+)+, (a|aa)+) are dropped; a target's bad `match` too
+      * sources whose url is not https are removed
+    The sinks check again at run time (parse_run_command, safe_lesson_path, the evaluator's regex guard)."""
+    from server.checks.evaluator import pattern_problem
+    from server.safety.commands import is_structural_manual
+    from server.safety.paths import rel_problem
+
+    notes: list[str] = []
+    if not isinstance(graph, dict):
+        return ["not a lesson graph"]
+    les = graph.get("lesson")
+    if isinstance(les, dict) and les.get("workdir") not in (None, ""):
+        if why := _workdir_problem(les.get("workdir")):
+            notes.append(f"lesson.workdir {str(les.get('workdir'))[:80]!r}: {why}")
+            if workdir_hint and not _workdir_problem(workdir_hint):
+                les["workdir"] = str(workdir_hint)
+            else:
+                les.pop("workdir", None)
+    if isinstance(graph.get("sources"), list):
+        keep = []
+        for s in graph["sources"]:
+            url = s.get("url") if isinstance(s, dict) else None
+            if not isinstance(s, dict) or (url not in (None, "") and not str(url).startswith("https://")):
+                notes.append(f"source {str(url)[:80]!r}: not https")
+                continue
+            keep.append(s)
+        graph["sources"] = keep
+    for step in graph.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        sid = step.get("id") or "?"
+        for key in ("file", "notebook"):  # the files Miyagi creates and Do it for me writes
+            f = step.get(key)
+            why = rel_problem(str(f)) or _protected_dir(str(f)) if f not in (None, "") else None
+            if why:
+                notes.append(f"{sid}.{key} {str(f)[:80]!r}: {why}")
+                step.pop(key, None)
+        if isinstance(step.get("files"), list):
+            ok = [f for f in step["files"] if isinstance(f, str) and rel_problem(f) is None]
+            if len(ok) != len(step["files"]):
+                notes.append(f"{sid}.files: {len(step['files']) - len(ok)} unsafe path(s) dropped")
+            step["files"] = ok
+        if isinstance(step.get("targets"), list):
+            targets = []
+            for t in step["targets"]:
+                if not isinstance(t, dict):
+                    continue
+                f = t.get("file")
+                if f not in (None, "") and rel_problem(str(f)) is not None:
+                    notes.append(f"{sid} target {str(f)[:80]!r}: {rel_problem(str(f))}")
+                    continue
+                m = t.get("match")  # literal text first, a regex only when it compiles (workspace.anchor_line)
+                if isinstance(m, str) and m and (why := pattern_problem(m)) and not why.startswith("invalid pattern"):
+                    notes.append(f"{sid} target match: {why}")
+                    t = {k: v for k, v in t.items() if k != "match"}
+                targets.append(t)
+            step["targets"] = targets
+        for key in ("checks", "precision_checks"):
+            if not isinstance(step.get(key), list):
+                continue
+            kept = []
+            for c in step[key]:
+                if not isinstance(c, dict):
+                    continue
+                f = c.get("file")
+                if f not in (None, "") and rel_problem(str(f)) is not None:
+                    notes.append(f"{sid} check {c.get('id')}: file {str(f)[:80]!r}: {rel_problem(str(f))}")
+                    continue
+                bad = next((f"{k}: {why}" for k in ("pattern", "metric_pattern")
+                            if c.get(k) is not None and (why := pattern_problem(c.get(k)))), None)
+                if bad:
+                    notes.append(f"{sid} check {c.get('id')}: {bad}")
+                    continue
+                kept.append(c)
+            step[key] = kept
+        rc = step.get("run_command")
+        if isinstance(rc, str) and rc.strip():
+            manual = is_structural_manual(rc)
+            if manual is not None:
+                step["run_command_manual"] = {"command": rc, "reason": manual.reason}
+                notes.append(f"{sid} run_command {rc[:80]!r}: shown, never run ({manual.reason})")
+            else:
+                step.pop("run_command_manual", None)
+    return notes
+
+
+def _protected_dir(rel: str) -> str | None:
+    """A step file inside .git/, .vscode/, .venv/, node_modules/, .github/ ...: never one the lesson creates or writes
+    (a plain dotfile such as .env stays: Do it for me's own write rules refuse it at the sink)."""
+    from pathlib import PurePosixPath
+
+    from server.safety.paths import WRITE_DENY_DIRS
+
+    hit = next((p for p in PurePosixPath(rel).parts[:-1] if p in WRITE_DENY_DIRS), None)
+    return f"{hit}/ is never a step file" if hit else None
+
+
+def _workdir_problem(workdir) -> str | None:
+    """Why a lesson's workdir may not be used as a lesson folder (None: fine)."""
+    if not isinstance(workdir, str) or not workdir.strip() or "\x00" in workdir:
+        return "not a folder path"
+    p = Path(workdir).expanduser()
+    if not p.is_absolute():
+        return "goes up out of the repo" if ".." in p.parts else None  # repo-relative (curated / demo lessons)
+    try:
+        p, home = p.resolve(), Path.home().resolve()
+    except (OSError, RuntimeError):
+        return "not a folder path"
+    if p == home or p in home.parents or p == Path("/"):
+        return "a home or system root, not a lesson folder"
+    try:
+        inside = p.relative_to(home).parts
+    except ValueError:
+        inside = ()
+    if inside and (inside[0].startswith(".") or inside[0] == "Library"):
+        return f"~/{inside[0]} is never a lesson folder"
+    for root in ("/System", "/usr", "/bin", "/sbin", "/etc", "/private/etc", "/Library", "/Applications", "/cores"):
+        if p == Path(root) or Path(root) in p.parents:
+            return f"{root} is never a lesson folder"
+    return None
+
+
 def schema_errors(graph: dict) -> list[str]:
     """Contract violations, as short human-readable strings (empty = valid)."""
     out = []

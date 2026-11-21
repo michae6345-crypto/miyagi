@@ -3186,6 +3186,12 @@ def test_run_it_for_me_runs_the_command_shows_output_and_passes_the_run_check(tm
         assert [c for c in rig.of("card") if c["title"] == "Run it"][-1]["actions"] == ["run_command"]
         await rig.s.action("run_command")
         await rig.settle()
+        ask = rig.of("card")[-1]  # LLM06: its first run shows the exact command and waits for Yes
+        assert ask["title"] == "Run this command?" and ask["actions"] == ["confirm"]
+        assert ask["output"].splitlines()[0] in ("python calc.py", "python3 calc.py")
+        assert not [c for c in rig.of("card") if c["title"].startswith("Ran ")]
+        await rig.s.action("confirm")
+        await rig.settle()
 
     run(go())
     ran = [c for c in rig.of("card") if c["title"].startswith("Ran ")][-1]
@@ -3202,12 +3208,15 @@ def test_run_it_for_me_reports_a_failure_and_a_hang(tmp_path, monkeypatch):
     rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
     rig.s.RUN_TIMEOUT_S = 1.0
     (tmp_path / "calc.py").write_text("x = 1\n")
-    step = {"id": "s2", "title": "Run", "code": "python3 -c 'import sys; print(\"boom\"); sys.exit(3)'\n"}
-    hang = {"id": "s2", "title": "Run", "code": "python3 -c 'import time; time.sleep(5)'\n"}
+    (tmp_path / "boom.py").write_text("import sys\nprint('boom')\nsys.exit(3)\n")
+    (tmp_path / "hang.py").write_text("import time\ntime.sleep(5)\n")
+    step = {"id": "s2", "title": "Run", "code": "python3 boom.py\n"}
+    hang = {"id": "s2", "title": "Run", "code": "python3 hang.py\n"}
 
     async def go():
         await rig.s.learn("calc", mode="lesson")
         await rig.settle()
+        rig.s._run_confirmed = {(str(rig.s.workdir), "python3 boom.py"), (str(rig.s.workdir), "python3 hang.py")}
         await rig.s._run_for_me(step)
         await rig.s._run_for_me(hang)
 

@@ -449,11 +449,14 @@ async def line_fix(s: Any, step: dict, diff: dict) -> bool:
                       actions=["show_me"])
         await s._status("offtrack" if s.last_offtrack else "watching")
         return True
+    from server.safety.paths import relative_to_lesson
+
+    rel = relative_to_lesson(getattr(s, "workdir", None), path)  # the confirm card names the file as the folder does
     s.pending_patch = {"path": path, "old": cur, "new": new_text, "line": max(1, n - 1), "first": [],
-                       "result": f"Deleted {what} from {path.name}."}
-    udiff = "".join(difflib.unified_diff(old, new_lines, f"a/{path.name}", f"b/{path.name}"))
-    log.info("Do it for me: delete %s (%r) of %s, previewed", what, shown, path.name)
-    await s._card(step, "Type this for you?", f"Deletes {what} ({shown}) from {path.name}.", kind="answer",
+                       "result": f"Deleted {what} from {rel}."}  # (_apply_patch checks the path again)
+    udiff = "".join(difflib.unified_diff(old, new_lines, f"a/{rel}", f"b/{rel}"))
+    log.info("Do it for me: delete %s (%r) of %s, previewed", what, shown, rel)
+    await s._card(step, "Type this for you?", f"Deletes {what} ({shown}) from {rel}.", kind="answer",
                   diff=udiff, actions=["confirm"])
     await s._status("offtrack" if s.last_offtrack else "watching")
     return True

@@ -150,9 +150,18 @@ TIMEOUT = 124  # _run's exit code for "timed out" (the output so far is returned
 PY_CHECK_TIMEOUT = float(os.environ.get("MIYAGI_PY_CHECK_TIMEOUT", "45"))  # cold torch/matplotlib imports: 5-20 s
 
 
+def _child_env(**extra: str) -> dict[str, str]:
+    """The environment of every process setup starts (checks, venv, pip, brew): config.safe_env() via
+    server.safety.child_env (no provider key, cloud token or engine token)."""
+    from server.safety import child_env
+
+    return child_env(**extra)
+
+
 def _run(argv: list[str], timeout: float = 8.0) -> tuple[int, str]:
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, stdin=subprocess.DEVNULL)
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, stdin=subprocess.DEVNULL,
+                           env=_child_env())  # `import torch` in the lesson's .venv never sees a provider key
     except subprocess.TimeoutExpired as e:
         partial = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
         return TIMEOUT, partial
@@ -382,7 +391,13 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
 # --------------------------------------------------------------------------- install recipes
 
 def recipe(item: dict, brew: str | None) -> dict:
-    """{method, package, command, url}: Homebrew when it exists, pip for Python packages, else the download page."""
+    """{method, package, command, url}: Homebrew when it exists, pip for Python packages, else the download page.
+    LLM06 / A08 (the tool list comes from Claude): pip names go through server.safety.packages (a likely typosquat
+    gets no installer; a name off the curated list says so with its pypi.org page and needs its own confirm, see
+    install()); a model's Homebrew name must be a plain core formula / cask (no `org/tap/name`); a download page
+    comes from the catalog only, never from the model."""
+    from server.safety import packages
+
     cat = CATALOG.get(item["tool"], {})
     url = cat.get("url") or _https(item.get("url", ""))
     if item["kind"] == "web_app":
@@ -390,14 +405,29 @@ def recipe(item: dict, brew: str | None) -> dict:
     if item["kind"] == "python_package":
         pkg = pip_requirement(item.get("pip_name") or cat.get("pip") or item["tool"])
         if pkg:
+            v = packages.verdict(pkg)
+            if v.kind in (packages.REFUSE, packages.INVALID):
+                return {"method": "none", "package": "", "command": "", "url": "", "refused": v.reason}
+            if v.kind == packages.CONFIRM:
+                return {"method": "pip", "package": pkg, "url": v.url, "confirm": v.name,
+                        "command": f"pip install {pkg}  (not on miyagi's list: check {v.url} first)"}
             return {"method": "pip", "package": pkg, "command": f"pip install {pkg}  (in the lesson's .venv)", "url": url}
     cask = cat.get("cask") or (item.get("brew") if item.get("brew_cask") else "")
     formula = cat.get("formula") or (item.get("brew") if not item.get("brew_cask") else "")
-    if brew and cask and _PKG.match(cask):
+    if brew and cask and (cat.get("cask") or brew_name_ok(cask)) and _PKG.match(cask):
         return {"method": "brew_cask", "package": cask, "command": f"brew install --cask {cask}", "url": url}
-    if brew and formula and _PKG.match(formula):
+    if brew and formula and (cat.get("formula") or brew_name_ok(formula)) and _PKG.match(formula):
         return {"method": "brew", "package": formula, "command": f"brew install {formula}", "url": url}
+    url = cat.get("url") or ""  # a model's download link is never offered: the learner gets it from the official site
     return {"method": "download" if url else "none", "package": "", "command": "", "url": url}
+
+
+_BREW_NAME = re.compile(r"^[a-z0-9][a-z0-9@.+_-]*$")  # core formulae / casks only: no '/', so no third-party taps
+
+
+def brew_name_ok(name: str) -> bool:
+    """A Homebrew name the engine may install when it isn't the catalog's own: a plain core formula / cask."""
+    return bool(_BREW_NAME.match(name or "")) and len(name) <= 80
 
 
 def pip_requirement(spec: str) -> str:
@@ -648,6 +678,8 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
             f.result()
     for it in items:
         it["install"] = {k: v for k, v in recipe(it, brew).items() if k != "package"}
+        if why := it["install"].get("refused"):  # a likely typosquat: the row says why there's no Install
+            it["why"] = f"{it.get('why') or ''} (miyagi won't install it: {why})".strip()
     return items
 
 
@@ -777,7 +809,7 @@ def _ensure_venv(workdir, emit, env, timeout, popen) -> tuple[str | None, str]:
             emit(f"(the old .venv no longer runs: moved to {aside})")
         except OSError as e:
             return None, f"could not move the broken .venv aside: {e}"
-    env = dict(env if env is not None else os.environ)
+    env = dict(env) if env is not None else _child_env()
     for k in _ENGINE_PY_ENV:
         env.pop(k, None)
     argv = [base, "-m", "venv", str(venv)]
@@ -796,6 +828,10 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
     brew / brew cask (HOMEBREW_NO_AUTO_UPDATE), or pip into `<workdir>/.venv` (created with the newest
     python3 if missing). Streams output lines to on_line. Without Homebrew, returns the download URL and
     installs nothing (never installs Homebrew itself). Returns {ok, tool, method, error?, url?, version?}.
+    A pip package off the curated list (server.safety.packages) installs only with item["confirmed"] set by its own
+    row's second press (missing_module.install), never from Install all: otherwise {needs_confirm: True} and an error
+    naming the exact package and its pypi.org page. A likely typosquat never installs. Every process gets
+    server.safety.child_env() (config.safe_env: no provider key, cloud token or engine token).
     """
     emit = on_line or (lambda _line: None)
     brew = brew_path()
@@ -804,11 +840,19 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
     if r["method"] == "open":
         out.update(error="a web app: nothing to install, open it in the browser", url=r["url"])
         return out
-    if r["method"] in ("download", "none"):
-        out.update(error="Homebrew isn't installed; download it from the official page" if r["url"] else "no installer known",
-                   url=r["url"])
+    if r.get("refused"):
+        out.update(error=f"miyagi won't install it: {r['refused']}")
         return out
-    env = {**os.environ, "HOMEBREW_NO_AUTO_UPDATE": "1", "HOMEBREW_NO_ENV_HINTS": "1", "NONINTERACTIVE": "1"}
+    if r["method"] in ("download", "none"):
+        out.update(error="Homebrew isn't installed; download it from the official page" if r["url"]
+                   else "no installer known: get it from its official site", url=r["url"])
+        return out
+    if r.get("confirm") and item.get("confirmed") != r["confirm"]:  # its own confirm, never Install all
+        out.update(error=f"{r['confirm']} isn't on miyagi's list of common packages. Check it's the one the tutorial "
+                         f"means ({r['url']}), then press its Install again.", url=r["url"], needs_confirm=True,
+                   package=r["confirm"])
+        return out
+    env = _child_env(HOMEBREW_NO_AUTO_UPDATE="1", HOMEBREW_NO_ENV_HINTS="1", NONINTERACTIVE="1")
     for k in _ENGINE_PY_ENV:  # the engine's own Python setup never reaches the lesson's .venv / pip
         env.pop(k, None)
     reachable = net or (online if popen is subprocess.Popen else (lambda _host: True))  # tests inject popen: no network

@@ -14,6 +14,10 @@ Now the run's failure itself brings up the one-press Install (the setup card's o
   in the .venv already the learner's terminal isn't the .venv's (opened before it existed): "Open a new terminal", or
                        the exact `python3 -m pip install numpy` for that terminal's Python
   add_command          any other card that says "install" for a missing module carries the exact command
+
+Nothing here installs by itself (LLM06): only the learner's Install press does, through setup.install's pip policy
+(server.safety.packages): a likely typosquat gets no Install card at all, and a package off the curated list needs a
+second press of its own row (the first shows its exact name and pypi.org page).
 """
 from __future__ import annotations
 
@@ -149,6 +153,9 @@ async def offer(session: Any, step: dict, mod: str, *, rerun: bool = False, from
     from . import workspace as wsmod
 
     item = await asyncio.to_thread(lesson_item, session, mod)
+    if item is not None and (why := refused(item)):  # a likely typosquat: no Install card, the coach explains
+        log.info("missing %s: not offering an install (%s)", mod, why)
+        item = None
     if item is None or session.step is not step or session.passed:
         if key is not None:  # the coach may explain this run after all (the next trigger)
             session.__dict__.setdefault("_mm_seen", {})[key] = False
@@ -235,8 +242,38 @@ async def install(session: Any, text: str | None) -> None:
     item = next((it for it in getattr(session, "reqs", None) or [] if it.get("tool") == tool), None)
     if item is None and tool:
         item = await asyncio.to_thread(lesson_item, session, tool)
+    if item is not None and (name := needs_confirm(item)):
+        # A package off the curated list (server.safety.packages): the first press of ITS row shows the exact name
+        # and its pypi.org page (setup.install refuses it with that message); the next press of that row installs.
+        # Install all never sets `confirmed`, so it never installs one.
+        asked = session.__dict__.setdefault("_pip_confirm_asked", set())
+        if name in asked:
+            item = {**item, "confirmed": name}
+        else:
+            asked.add(name)
     log.info("install %r (pressed: %r)%s", tool, text, "" if item else ": no setup item")
     await session._install(tool, item=item)
+
+
+def needs_confirm(item: dict) -> str | None:
+    """The pip package name when `item` installs one that is not on the curated list (it needs its own confirm),
+    else None. Never installs anything."""
+    try:
+        from server.workspace.setup import recipe
+
+        return recipe(item, None).get("confirm") or None
+    except Exception:  # noqa: BLE001 - an item setup can't read: the installer decides (and refuses)
+        return None
+
+
+def refused(item: dict) -> str | None:
+    """Why the engine will never install `item` (a likely typosquat), else None."""
+    try:
+        from server.workspace.setup import recipe
+
+        return recipe(item, None).get("refused") or None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def setup_without_open(session: Any, payload: dict) -> dict:

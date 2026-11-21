@@ -139,6 +139,10 @@ def load_graph(state: dict | None = None) -> dict | None:
         return None
     if state is not None and (g.get("lesson") or {}).get("id") != state.get("lessonId"):
         return None
+    from server.lesson.schema import validate_untrusted_lesson
+
+    for note in validate_untrusted_lesson(g, (state or {}).get("workdir")):  # LLM06: a stored graph is untrusted
+        log.warning("saved lesson %s: %s", (g.get("lesson") or {}).get("id"), note)
     return g
 
 

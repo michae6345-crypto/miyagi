@@ -29,6 +29,7 @@ from .schema import (
     spans_lines,
     standard_output_check,
     step_check_problems,
+    validate_untrusted_lesson,
     value_line,
 )
 from .notebook_steps import use_lesson_notebook
@@ -96,12 +97,13 @@ async def build_lesson(
       =True); the real steps replace it via on_update (same ids s1, s2, ...), ending with complete=True."""
     from . import prebuild
 
+    on_update = _validated_updates(on_update, workdir)  # LLM06: every graph streamed to the session is checked too
     vid = gemini.youtube_id(source_url)
     if vid and not _prebuild:
         prebuild.cancel(except_vid=vid)  # a lesson is starting: stop speculating on the other results
         attached = await prebuild.attach(vid, workdir, on_update, on_progress)
         if attached is not None:
-            return attached
+            return _untrusted(attached, workdir)
     from . import cost
 
     counter = cost.current() if _prebuild else None
@@ -115,12 +117,32 @@ async def build_lesson(
             if not g.get("build", {}).get("cost") and counter.get("tokens"):
                 g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens + dollars per model
             scope["lesson_id"] = (g.get("lesson") or {}).get("id")
+            _untrusted(g, workdir)  # a model's (or the cache's) graph: paths, commands, regexes, sources checked
             if qs:
                 await qs.finish(g)
             return g
         finally:
             if qs:
                 qs.stop()
+
+
+def _untrusted(graph: dict, workdir: str | None) -> dict:
+    """schema.validate_untrusted_lesson on a built or cached graph (in place); logs what it changed."""
+    if isinstance(graph, dict):
+        for note in validate_untrusted_lesson(graph, workdir):
+            log.warning("lesson %s: %s", (graph.get("lesson") or {}).get("id"), note)
+    return graph
+
+
+def _validated_updates(on_update, workdir: str | None):
+    """on_update(graph, complete) with each streamed graph validated first (None stays None)."""
+    if on_update is None:
+        return None
+
+    def wrapped(graph: dict, complete: bool):
+        return on_update(_untrusted(graph, workdir), complete)
+
+    return wrapped
 
 
 class _QuickStart:

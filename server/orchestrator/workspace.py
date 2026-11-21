@@ -60,11 +60,30 @@ def resolve_file(workdir: str | Path, rel: str, open_titles: list[str] | None = 
     """The real path of a lesson file: workdir/<rel>; git's rebase todo under .git/rebase-merge/; the same
     file nested one level down (create-react-app's demo-app/src/...); a file the editor has open (its window
     title) with the same name. None if nothing matches."""
+    found = _resolve_file(workdir, rel, open_titles)
+    if found is None:
+        return None
+    from server.safety.paths import lesson_rel, safe_lesson_path
+
+    try:  # every hit is checked again (resolved): a symlink out of the lesson folder is never read
+        inside = Path(found).relative_to(Path(workdir)).as_posix()
+    except ValueError:
+        inside = lesson_rel(workdir, found)
+    return found if inside and safe_lesson_path(workdir, inside) is not None else None
+
+
+def _resolve_file(workdir: str | Path, rel: str, open_titles: list[str] | None = None) -> Path | None:
+    from server.safety.paths import lesson_rel, rel_problem
+
     wd = Path(workdir)
     rel = (rel or "").strip()
     if not rel:
         return None
-    p = Path(rel) if Path(rel).is_absolute() else wd / rel
+    if Path(rel).is_absolute():  # VS Code / the coach may name a lesson file by its absolute path: inside only
+        rel = lesson_rel(workdir, rel) or ""
+    if not rel or rel_problem(rel) is not None:  # `..`, `~`, NUL, an absolute path elsewhere: never
+        return None
+    p = wd / rel
     if p.is_file():
         return p
     name = Path(rel).name
@@ -145,6 +164,10 @@ def anchor_line(text: str, match: str) -> int | None:
     for i, ln in enumerate(lines, start=1):
         if match in ln:
             return i
+    from server.checks.evaluator import pattern_problem
+
+    if (why := pattern_problem(match)) and not why.startswith("invalid pattern"):
+        return None  # a lesson's catastrophic regex ((x+)+, (a|aa)+) never runs on the learner's file
     try:
         rx = re.compile(match)
     except re.error:
@@ -547,7 +570,10 @@ class Workspace:
     @staticmethod
     def _spawn(argv: list[str]) -> bool:
         try:
-            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            from server.safety import child_env
+
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                             env=child_env())  # VS Code / open never inherit a provider key or the engine token
             return True
         except OSError as e:
             log.warning("could not run %s: %s", argv[0], e)
