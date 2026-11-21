@@ -10,9 +10,11 @@
  *             sent until the engine's first lesson.building (review A20: it was blank), then its message + spinner + progress line
  *             (the stage's words always in full, at most STAGE_MAX characters, never cut mid-word: desktop test 3, item 9);
  *             once the lesson is set (lesson.ready, before the first step.started) it's static: "Lesson ready ●", no spinner, no line
- *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status;
- *             the step's title from lesson.steps, the same title the drawer has: review A20);
+ *   compact   during a lesson (v2 Les-Working): "[bonsai] Normalize the pixels  2 of 6 ●" (count = this step of the
+ *             lesson's steps, dot = status; the step's title from lesson.steps, the same title the drawer has: review A20);
+ *             v2 phase lines (A2): "[spinner] Checking your work 2 of 6", "[ring] Not yet 2 of 6", "[✓] Step 2 passed 2 of 6";
  *             "Next part is still building" after a pass while a long video's next part builds
+ *   mini      v2 Les-Mini (priority 9): the lesson panel collapsed to the pill, 380 wide, with step bars; click opens it
  *   saved     after End (lesson.ended "stopped"): "[bonsai] Lesson saved · [Undo]" for ~8 s, then idle (review A3)
  *   notice    one line for ~5 s over any of them (engine errors, a failed build, notify()), then back
  * While the engine is thinking, the bonsai becomes the small spinner (LeadMark). Offline mid-lesson: hollow dot.
@@ -23,18 +25,21 @@
  * 13px medium · "Step 4 ·" in the muted label color, title in the text color.
  * The step-pass moment (check → flash → crossfade) is driven by ./store.ts.
  */
-import { AnimatePresence, motion } from 'motion/react'
-import { useRef, useState, type ReactNode } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
-import { notify, useLesson } from '../../core/lesson'
+import { useDock } from '../../core/dock'
+import { notify, useCurrentStep, useLesson, useStepPhase } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { color, copy, fill } from '../../core/theme'
-import { Kbd, Spinner } from '../../core/ui/atoms'
+import { color, copy, dock, fill } from '../../core/theme'
+import { Kbd, Spinner, StepDots } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { PillGear } from './Gear'
-import { BuildLine, FitSwap, LeadMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
-import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, usePill, type SavedOffer } from './store'
+import { useChecking } from '../drawer/v2/view'
+import { openPanel } from './panel'
+import { BuildLine, FitSwap, LeadMark, PhaseLead, StatusMark, StepCount, SwapText, type Mark, type Phase } from './parts'
+import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, useHeldPass, usePill, type SavedOffer } from './store'
 
 /**
  * Offline, but the app is bringing its own engine up (main/localEngine.ts, built Mac app): say what's happening.
@@ -250,9 +255,21 @@ function Building(): ReactNode {
   )
 }
 
-type Shown = { key: string; index: number; title: string; mark: Mark }
+/**
+ * What a lesson pill line shows. `phase` set = a v2 phase line (Les-Checking / Les-NotYet / Les-Passed): its glyph leads
+ * instead of the bonsai and there's no status dot; otherwise the step's title with the dot on the right (Les-Working).
+ */
+type Shown = { key: string; index: number; title: string; mark: Mark; phase?: Phase }
 
 const NEXT_PART = 'Next part is still building'
+/** The pill beside the open lesson panel, Les-Working: only the status. */
+const WATCHING = 'Watching'
+/** Les-Checking's line while a check the learner asked for is in flight. */
+export const CHECKING = 'Checking your work'
+/** Les-NotYet: no hue, the white ring and these words. */
+export const NOT_YET = 'Not yet'
+/** Les-Passed: "Step 2 passed" (the green check leads). */
+export const passedLine = (n: number): string => `Step ${n} passed`
 
 /** What the pill shows: the engine's step, except during/after a pass, where the pill runs ahead. */
 function useShown(): Shown & { total: number } {
@@ -261,76 +278,238 @@ function useShown(): Shown & { total: number } {
       stepId: s.stepId,
       title: s.stepTitle,
       steps: s.steps,
-      passed: s.passed,
-      offtrack: !!s.offtrack,
+      // v2: the outline's count when the engine sends it, so "2 of 6" never jumps while later steps are still written.
+      outline: s.lesson?.outline?.count ?? 0,
+      complete: s.complete,
       // A long video still building: after its last known step there is a next part coming, not the end.
       morePending: s.pendingNext || !s.complete
     }))
   )
+  const phase = useStepPhase()
+  // The lesson panel's own "checking" rule (a fresh Check press, or the stage's &panel=checking): when the panel says
+  // Checking, the pill must too, not "Watching" with a spinner (lane QA).
+  const panelChecking = useChecking()
+  const held = useHeldPass()
   const { celebrating, advanced, offline } = usePill(
     useShallow((s) => ({ celebrating: s.celebrating, advanced: s.advanced, offline: s.offline }))
   )
-  const total = Math.max(1, l.steps.length)
+  const total = Math.max(1, l.steps.length, l.outline)
   const at = (id?: string): number => l.steps.findIndex((x) => x.id === id)
   const titleOf = (i: number, fallback = ''): string => l.steps[i]?.title ?? fallback
 
-  // 1) The check is showing: hold the passed step on screen (even if step.started already moved on).
+  // 1) The check is drawing: hold the passed step on screen (even if step.started already moved on).
   if (celebrating) {
-    const i = at(celebrating)
-    return { key: celebrating, index: Math.max(0, i), title: titleOf(i, l.title), mark: 'check', total }
+    const i = Math.max(0, at(celebrating))
+    return { key: `${celebrating}:passed`, index: i, title: passedLine(i + 1), mark: 'watching', phase: 'passed', total }
+  }
+  // 1b) With the lesson panel in play: the panel still shows Les-Passed for the held step (until Next step), so the pill
+  //     says the same, even though the engine already started the next one. (Held on the step on screen: case 3.)
+  if (held && held !== l.stepId && at(held) >= 0) {
+    const i = at(held)
+    return { key: `${held}:passed`, index: i, title: passedLine(i + 1), mark: offline ? 'offline' : 'watching', phase: 'passed', total }
   }
   // 2) After a pass, before the engine's step.started: the next step, the next part still building, or the end.
+  //    (Only without the lesson panel: with it, the pill holds the passed line, cases 1b and 3.)
   if (advanced && advanced.from === l.stepId) {
     // lesson.updated may have appended the next step since the pass: look it up now, not at pass time.
     const to = advanced.to ?? l.steps[at(advanced.from) + 1]?.id
     if (!to || at(to) < 0) {
       const i = at(advanced.from)
       if (l.morePending) return { key: 'pending', index: i + 1, title: NEXT_PART, mark: offline ? 'offline' : 'pending', total }
-      return { key: 'complete', index: total, title: 'Lesson complete', mark: 'done', total }
+      return { key: 'complete', index: total - 1, title: 'Lesson complete', mark: 'done', total }
     }
     const j = at(to)
     return { key: to, index: j, title: titleOf(j), mark: offline ? 'offline' : 'watching', total }
   }
   // 3) Normal: the engine's current step, titled from lesson.steps like the drawer and cases 1-2 (review A20: the pill
   // named steps differently from the drawer); step.started's title only for a step the list doesn't have.
-  const i = Math.max(0, at(l.stepId))
-  const passed = !!l.stepId && l.passed.includes(l.stepId)
-  return {
-    key: l.stepId ?? '',
-    index: i,
-    title: at(l.stepId) >= 0 ? titleOf(i, l.title) : l.title,
-    mark: offline ? 'offline' : l.offtrack ? 'offtrack' : passed ? 'passed' : 'watching',
-    total
+  const found = at(l.stepId)
+  const i = Math.max(0, found)
+  const id = l.stepId ?? ''
+  const mark: Mark = offline ? 'offline' : 'watching'
+  if (phase === 'passed') {
+    const lastKnown = found === l.steps.length - 1
+    if (lastKnown && l.morePending) return { key: 'pending', index: i + 1, title: NEXT_PART, mark: offline ? 'offline' : 'pending', total }
+    if (lastKnown && i === total - 1 && l.complete) return { key: 'complete', index: total - 1, title: 'Lesson complete', mark: 'done', total }
+    return { key: `${id}:passed`, index: i, title: passedLine(i + 1), mark, phase: 'passed', total }
   }
+  if (phase === 'checking' || panelChecking) return { key: `${id}:checking`, index: i, title: CHECKING, mark, phase: 'checking', total }
+  if (phase === 'notyet') return { key: `${id}:notyet`, index: i, title: NOT_YET, mark, phase: 'notyet', total }
+  return { key: id, index: i, title: found >= 0 ? titleOf(i, l.title) : l.title, mark, total }
 }
 
+/** The right end of a lesson line: "2 of 6" and the status dot (no dot on a phase line), or the spinner of a part still building. */
+function LineEnd({ s, gap = 15 }: { s: Shown & { total: number }; gap?: number }): ReactNode {
+  if (s.mark === 'pending')
+    // Same shape as the building pill: a part is building, so the spinner sits where the count was.
+    return (
+      <span className="flex shrink-0 items-center" style={{ marginLeft: gap }}>
+        <Spinner size={16} />
+      </span>
+    )
+  return (
+    <span className="flex shrink-0 items-center gap-[9px]" style={{ marginLeft: gap }}>
+      <StepCount n={Math.min(s.total, s.index + 1)} total={s.total} />
+      {!s.phase && <StatusMark mark={s.mark} />}
+    </span>
+  )
+}
+
+/**
+ * The step pill (Les-Working and the pill lines of Les-Checking / NotYet / Passed): "[bonsai] Normalize the pixels
+ * 2 of 6 ●", "[spinner] Checking your work 2 of 6", "[ring] Not yet 2 of 6", "[✓] Step 2 passed 2 of 6". No "Step N ·"
+ * lead-in: the count on the right says which step (Michael, test 10).
+ */
 function Compact(): ReactNode {
   const s = useShown()
-  return (
-    <div className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }} data-step={s.key}>
-      <LeadMark />
-      <SwapText id={s.key} className="flex">
-        {s.mark === 'done' || s.mark === 'pending' ? (
-          <span>{s.title}</span>
-        ) : (
-          // The count on the right says which step (Michael, test 10: "Step 4 · … 4/7" said it twice).
-          <span className="max-w-[360px] truncate">{s.title}</span>
+  // The lesson panel is open and already shows the step's title and "Step N of M" (persona QA: the pill repeated it).
+  // The pill keeps only the status: "Watching" and the dot, or the phase line without the count.
+  const docked = useDock((d) => d.open)
+  const textLesson = useLesson((l) => l.lesson?.mode === 'lesson')
+  const panelOpen = docked && textLesson
+  const label = s.phase ? `${s.title}, step ${Math.min(s.total, s.index + 1)} of ${s.total}` : `miyagi is watching step ${Math.min(s.total, s.index + 1)} of ${s.total}`
+  if (panelOpen && s.mark !== 'done' && s.mark !== 'pending')
+    return (
+      <div
+        role="status"
+        aria-label={label}
+        className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
+        style={{ color: s.phase ? color.text : color.label }}
+        data-step={s.key}
+        data-line={s.phase ?? 'working'}
+        data-panel-open
+      >
+        {s.phase ? <PhaseLead phase={s.phase} /> : <LeadMark />}
+        <SwapText id={s.phase ? s.key : 'watching'} className="flex">
+          <span>{s.phase ? s.title : WATCHING}</span>
+        </SwapText>
+        {!s.phase && (
+          <span className="ml-[12px] flex items-center">
+            <StatusMark mark={s.mark} />
+          </span>
         )}
+      </div>
+    )
+  return (
+    <div
+      role="status"
+      aria-label={label}
+      className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
+      style={{ color: color.text }}
+      data-step={s.key}
+      data-line={s.phase ?? 'working'}
+    >
+      {s.phase ? <PhaseLead phase={s.phase} /> : <LeadMark />}
+      <SwapText id={s.key} className="flex">
+        {s.mark === 'done' || s.mark === 'pending' ? <span>{s.title}</span> : <span className="max-w-[360px] truncate">{s.title}</span>}
       </SwapText>
-      {s.mark === 'pending' ? (
-        // Same shape as the building pill: a part is building, so the spinner sits where the count was.
-        <span className="ml-[15px]">
-          <Spinner size={16} />
-        </span>
-      ) : (
-        <span className="ml-[15px] flex items-center gap-[9px]">
-          <StepCount n={s.mark === 'done' ? s.total : Math.min(s.total, s.index + 1)} total={s.total} />
-          <StatusMark mark={s.mark} />
-        </span>
-      )}
+      <LineEnd s={s} />
     </div>
   )
 }
+
+/**
+ * Les-Mini: the lesson panel collapsed to the pill (core/dock `collapsed`, A1 sets it). dock.miniW wide (380), 34 tall
+ * until wave 2: the bonsai (or the phase glyph), the step's title, one bar per step (StepDots 'bars': passed green, this
+ * step white, the rest faint; past 10 steps one proportional track), "2 of 6" and the status dot. The whole pill is
+ * the button that opens the panel again: a hover tint, a chevron that brightens, and on the very first collapse the title
+ * reads "Click to reopen" for a moment.
+ */
+function Mini(): ReactNode {
+  const s = useShown()
+  const cur = useCurrentStep()
+  const coach = useCoach()
+  const [hot, setHot] = useState(false)
+  const reduced = useReducedMotion()
+  const n = Math.min(s.total, s.index + 1)
+  const label = s.phase ? `${s.title}, step ${n} of ${s.total}. Click to open.` : `miyagi is watching step ${n} of ${s.total}, ${s.title}. Click to open.`
+  // The first collapse ever says how to get back, in the title's place, for a moment (persona QA: Mini gave no hint).
+  const line = coach ? { key: 'coach', text: REOPEN } : { key: s.key, text: s.title }
+  return (
+    <motion.button
+      type="button"
+      data-mini
+      data-line={s.phase ?? 'working'}
+      data-step={s.key}
+      data-coach={coach || undefined}
+      className="flex h-[34px] cursor-pointer items-center whitespace-nowrap rounded-full pl-[13px] pr-[10px] text-left text-[13px] font-medium"
+      style={{ width: dock.miniW, color: color.text }}
+      animate={{ backgroundColor: hot ? fill.chipHover : fill.clear }}
+      whileTap={reduced ? undefined : { scale: 0.98 }}
+      transition={{ duration: 0.12 }}
+      onHoverStart={() => setHot(true)}
+      onHoverEnd={() => setHot(false)}
+      onFocus={() => setHot(true)}
+      onBlur={() => setHot(false)}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={openPanel}
+      aria-label={label}
+      title={OPEN_LESSON}
+    >
+      {s.phase ? <PhaseLead phase={s.phase} /> : <LeadMark />}
+      <span className="relative min-w-0 flex-1 overflow-hidden">
+        <AnimatePresence initial={false} mode="popLayout">
+          <motion.span
+            key={line.key}
+            className="block truncate leading-[18px]"
+            style={{ color: coach ? color.label : undefined }}
+            initial={{ opacity: 0, y: 7 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
+            exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
+          >
+            {line.text}
+          </motion.span>
+        </AnimatePresence>
+      </span>
+      <span className="ml-[8px] flex shrink-0 items-center" aria-hidden>
+        <StepDots variant="bars" total={s.total} current={s.index} passed={cur.passed} skipped={cur.skipped} cap={MINI_BARS_CAP} width={MINI_TRACK_W} />
+      </span>
+      <LineEnd s={s} gap={8} />
+      {/* The way back: a chevron that points down into where the panel opens, brighter on hover. */}
+      <motion.span
+        className="ml-[6px] flex shrink-0 items-center"
+        aria-hidden
+        initial={false}
+        animate={{ opacity: hot || coach ? 1 : 0.45, y: hot && !reduced ? 1 : 0 }}
+        transition={{ duration: 0.14 }}
+        style={{ color: color.text }}
+      >
+        <ChevronDown size={14} strokeWidth={2} />
+      </motion.span>
+    </motion.button>
+  )
+}
+
+const OPEN_LESSON = 'Open the lesson panel'
+const REOPEN = 'Click to reopen'
+const COACH_KEY = 'miyagi.mini.coached'
+const COACH_MS = 2600
+
+/** True for COACH_MS the first time the Mini pill ever shows (remembered; a fresh profile sees it once). */
+function useCoach(): boolean {
+  const [on, setOn] = useState(() => {
+    try {
+      return localStorage.getItem(COACH_KEY) !== '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    if (!on) return
+    try {
+      localStorage.setItem(COACH_KEY, '1')
+    } catch {
+      // storage unavailable: the coach line may show again next time, which is harmless
+    }
+    const id = setTimeout(() => setOn(false), COACH_MS)
+    return () => clearTimeout(id)
+  }, [on])
+  return on
+}
+
+/** Les-Mini: one bar per step up to 10, then one proportional track this wide. */
+const MINI_BARS_CAP = 10
+const MINI_TRACK_W = 96
 
 /** The notice line: the bonsai and one line of text. White for errors too: nothing red, no extra icon. */
 function NoticeLine(): ReactNode {
@@ -412,8 +591,25 @@ export default defineFeature({
       Content: SavedLine
     },
     // Above the pill states, below hover (20) and cards (40+): a card the learner opened stays in front.
-    { id: 'notice', priority: 5, useActive: () => usePill((s) => !!s.notice), Content: NoticeLine }
-  ],
-  // The settings gear just right of the pill (./Gear.tsx): over the island (z 50) and under the shortcut bar (60).
-  overlayLayers: [{ id: 'pill-gear', z: 55, Component: PillGear }]
+    { id: 'notice', priority: 5, useActive: () => usePill((s) => !!s.notice), Content: NoticeLine },
+    // v2 Les-Mini (README priority table: 9): the lesson panel collapsed to the pill. It steps aside for the pill's own
+    // notice line (5) while that shows, and for A7's lines while the engine is offline or busy (6) or the lesson is
+    // paused or blocked (7), so 'Reconnecting', 'Lesson paused' or a kernel blocker is never hidden for the whole
+    // collapsed lesson. Mini comes back as soon as they clear.
+    {
+      id: 'mini',
+      priority: 9,
+      useActive: () => {
+        const collapsed = useDock((d) => d.collapsed)
+        const step = useLesson((s) => !!s.stepId)
+        const engineLine = useLesson((s) => !s.connected || !!s.busy || !!s.paused || Object.keys(s.blockers).length > 0)
+        const notice = usePill((s) => !!s.notice)
+        return collapsed && step && !notice && !engineLine
+      },
+      Content: Mini
+    }
+  ]
+  // No gear beside the pill any more (launch-ease lane): glued to its right edge it covered the status dot and other
+  // top-of-screen UI on Michael's Mac. Settings: right-click the pill (features/launch), the menu bar item, the overview
+  // card's footer, the launcher, the Library's sidebar.
 })
