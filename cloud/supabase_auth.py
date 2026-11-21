@@ -3,7 +3,8 @@
 Asymmetric tokens (ES256, RS256) are checked against the project's JWKS at
 ${SUPABASE_URL}/auth/v1/.well-known/jwks.json, fetched at most every 10 minutes. Legacy HS256 tokens are
 checked with SUPABASE_JWT_SECRET only when it is set. Every token must have aud "authenticated",
-iss ${SUPABASE_URL}/auth/v1, a future exp and a non-empty sub.
+iss ${SUPABASE_URL}/auth/v1, a future exp and a non-empty sub. exp, iat and nbf get LEEWAY_S of clock
+skew, so a token minted seconds ago by a clock slightly ahead of ours still links.
 
 Nothing here logs or stores the token. The JWKS fetcher is injectable so tests never touch the network.
 """
@@ -27,6 +28,7 @@ JWKS_TTL_S = 600.0        # reuse a fetched key set for 10 minutes
 RETRY_AFTER_FAIL_S = 30.0  # after a failed fetch, wait this long before asking again
 REFRESH_FOR_KID_S = 60.0   # an unknown kid may mean a key rotation: refetch, but not more often than this
 MAX_TOKEN_CHARS = 8192
+LEEWAY_S = 30              # clock skew allowed between Supabase and this server on exp, iat and nbf
 
 Fetcher = Callable[[str], dict]
 
@@ -141,7 +143,7 @@ class SupabaseVerifier:
         for key in keys:
             try:
                 claims = jwt.decode(token, key.key if isinstance(key, jwt.PyJWK) else key, algorithms=[alg],
-                                    audience=AUDIENCE, issuer=self.issuer,
+                                    audience=AUDIENCE, issuer=self.issuer, leeway=LEEWAY_S,
                                     options={"require": ["exp", "aud", "iss", "sub"]})
             except jwt.InvalidSignatureError:
                 continue  # without a kid several keys may match; try the next one

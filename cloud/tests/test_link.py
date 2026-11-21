@@ -126,8 +126,34 @@ def test_valid_rs256_links(cloud):
 def test_expired_token(cloud):
     client, _, _ = cloud
     _, h = install(client)
-    r = link(client, h, make_token(exp=int(time.time()) - 5))
+    r = link(client, h, make_token(exp=int(time.time()) - 120))  # well outside the 30 s clock-skew leeway
     assert r.status_code == 403 and r.json() == {"error": "bad_access_token"}
+
+
+def test_fresh_token_from_a_clock_slightly_ahead_links(cloud):
+    # The app links right after sign-in. If Supabase's clock is a few seconds ahead of ours,
+    # iat and nbf are in our future; that is clock skew and must not fail the link.
+    client, _, _ = cloud
+    _, h = install(client)
+    now = int(time.time())
+    r = link(client, h, make_token(iat=now + 5, nbf=now + 5))
+    assert r.status_code == 200 and r.json() == {"ok": True, "user_id": USER}
+
+
+def test_token_not_valid_for_minutes_is_rejected(cloud):
+    client, _, _ = cloud
+    _, h = install(client)
+    now = int(time.time())
+    assert link(client, h, make_token(nbf=now + 600)).status_code == 403
+
+
+def test_just_expired_token_inside_leeway_links(cloud):
+    # exp a few seconds past is within the clock-skew leeway, so it still links.
+    client, app_mod, _ = cloud
+    assert app_mod.supabase_auth.LEEWAY_S == 30
+    _, h = install(client)
+    r = link(client, h, make_token(exp=int(time.time()) - 5))
+    assert r.status_code == 200 and r.json()["user_id"] == USER
 
 
 def test_missing_exp(cloud):

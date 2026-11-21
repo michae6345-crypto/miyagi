@@ -75,6 +75,8 @@ Verification (`supabase_auth.py`, PyJWT with the `cryptography` backend):
   minute) in case Supabase rotated its signing key.
 - Legacy HS256 tokens are checked with `SUPABASE_JWT_SECRET` when it is set, else 503.
 - Every token needs `aud == "authenticated"`, `iss == ${SUPABASE_URL}/auth/v1`, a future `exp` and a `sub`.
+- `exp`, `iat` and `nbf` allow 30 s of clock skew (`LEEWAY_S`). The app links seconds after sign-in, so
+  without it a Render clock slightly behind Supabase's would reject a fresh token as issued in the future.
 - The access token is never logged or stored. The table `links (token_hash, user_id, linked_at)` holds
   the result; the request log line gains `user=<user_id>` for linked installs, and
   `/admin/usage` `by_token` rows carry `user_id` (null when unlinked).
