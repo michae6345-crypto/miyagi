@@ -1,5 +1,5 @@
 {
-  "name": "v2-core",
+  "name": "core-v2",
   "on": {
     "connect": "v2core_connect",
     "health.get": "v2core_health",

@@ -41,7 +41,7 @@ Wave 0 (`michael/app-core-v2`, brief `core-v2.md`) lands first: contract sync, t
 | A10 | **dmg-art** | `michael/app-dmg-art` | Onb-Install-Dmg | 5195 |
 | A11 | **studio** (wave 2 optional, stage only) | `michael/app-studio` | Biz-Import, Building, StepEditor | 5196 |
 
-Stage: `npm run dev:web -- --port <port>` then `?scenario=<name>&size=1440x900&clean` (v2 mockups are 1440×900); app windows open with `&window=<route>` (onboarding, library, progress, account). `?scenario=v2-core` plays the v2 events (engine.hello, health, building phases, blocker, library, progress) and a fake reconnect (`_link`).
+Stage: `npm run dev:web -- --port <port>` then `?scenario=<name>&size=1440x900&clean` (v2 mockups are 1440×900); app windows open with `&window=<route>` (onboarding, library, progress, account). `?scenario=core-v2` plays the v2 events (engine.hello, health, building phases, blocker, library, progress) and a fake reconnect (`_link`).
 
 ## Island priority table (v2)
 
