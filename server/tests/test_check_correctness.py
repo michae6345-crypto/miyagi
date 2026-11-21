@@ -89,14 +89,17 @@ def test_t11_cp4_no_workdir_keeps_the_old_screen_rule():
 
 
 # ------------------------------------------------------------------ T5-CP12: a ^C'd run is not a run
-def test_t5_cp12_a_command_cancelled_by_ctrl_c_is_not_a_run():
+@pytest.mark.parametrize("rows", [
+    [PROMPT + "python3 main.py", "^C", PROMPT + "source .venv/bin/activate", "(.venv) " + PROMPT],
+    [PROMPT + "python3 main.py", PROMPT + "source .venv/bin/activate", "(.venv) " + PROMPT],
+    # a folder path with a space: VS Code quotes it
+    [PROMPT + "python3 main.py", PROMPT + 'source "/Users/a b/.venv/bin/activate"', "(.venv) " + PROMPT],
+    [PROMPT + "python3 main.py", "^CTraceback (most recent call last):", "KeyboardInterrupt", PROMPT],
+])
+def test_t5_cp12_a_command_cancelled_by_ctrl_c_is_not_a_run(rows):
     """Run it for me typed `python3 main.py`; the venv activation sent ^C and ran `source .venv/bin/activate`.
     The terminal shows the command, then ^C (or straight away the activation): nothing ran."""
-    expect = [r"Predictions"]
-    for rows in ([PROMPT + "python3 main.py", "^C", PROMPT + "source .venv/bin/activate", "(.venv) " + PROMPT],
-                 [PROMPT + "python3 main.py", PROMPT + "source .venv/bin/activate", "(.venv) " + PROMPT],
-                 [PROMPT + "python3 main.py", "^CTraceback (most recent call last):", "KeyboardInterrupt", PROMPT]):
-        assert terminal_runs("python3 main.py", rows, expect) == (0, False, False), rows
+    assert terminal_runs("python3 main.py", rows, [r"Predictions"]) == (0, False, False)
 
 
 def test_t5_cp12_a_keyboard_interrupt_is_not_read_as_a_crash():
@@ -119,6 +122,18 @@ def test_t5_cp12_real_runs_still_count():
     # ...nor its "Traceback … KeyboardInterrupt" read as the good run crashing
     stopped = good[:-1] + [PROMPT + "python3 main.py", "Traceback (most recent call last):", "KeyboardInterrupt", PROMPT]
     assert terminal_runs("python3 main.py", stopped, [r"Predictions"]) == (1, False, False)
+    # another program's ^C (a script, or a REPL) after the good run never cancels it nor reads as its crash; the
+    # good run's output isn't claimed as shown once a later program ran (the same rule as `stopped`)
+    other = good[:-1] + [PROMPT + "python3 other.py", "Traceback (most recent call last):", "KeyboardInterrupt", PROMPT]
+    assert terminal_runs("python3 main.py", other, [r"Predictions"]) == (1, False, False)
+    repl = good[:-1] + [PROMPT + "python3", ">>> ", "KeyboardInterrupt", PROMPT]
+    assert terminal_runs("python3 main.py", repl, [r"Predictions"]) == (1, False, False)
+    # ...and a new real run after them counts as one more (session._need_run's `n > base`)
+    rerun = repl[:-1] + [PROMPT + "python3 main.py", "Predictions:", "[[0.47437206]", PROMPT]
+    assert terminal_runs("python3 main.py", rerun, [r"Predictions"]) == (2, False, True)
+    # a KeyboardInterrupt the program printed and then kept going past is not the end of the run
+    caught = [PROMPT + "python3 main.py", "KeyboardInterrupt", "Predictions:", "[0.5]", "done", PROMPT]
+    assert terminal_runs("python3 main.py", caught, [r"Predictions"]) == (1, False, True)
 
 
 @pytest.mark.parametrize("code,lines,status", [

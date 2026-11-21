@@ -1053,18 +1053,21 @@ def run_output(lines: Iterable[str], expect: Iterable[str] = ()) -> tuple[bool, 
 _CTRL_C_ROW = re.compile(r"^\s*\^C")
 _KEYBOARD_INTERRUPT = re.compile(r"^\s*KeyboardInterrupt\b")
 # VS Code's Python extension activating the venv in a new terminal: it sends ^C (no echo in zsh), then this line
-_ACTIVATION_ROW = re.compile(r"(?:^|\s)(?:source|\.)\s+\S*bin/activate(?:\.\w+)?\s*$|(?:^|\s)conda\s+activate\s+\S+\s*$")
+# (a path with a space comes quoted: source "/Users/a b/.venv/bin/activate")
+_ACTIVATION_ROW = re.compile(r"""(?:^|\s)(?:source|\.)\s+(?:\S*|"[^"]*|'[^']*)bin/activate(?:\.\w+)?["']?\s*$"""
+                             r"|(?:^|\s)conda\s+activate\s+\S+\s*$")
 
 
 def _interrupted_rows(out: list[str]) -> bool:
-    """A run's output rows (up to the next run of the command) show it stopped by Ctrl+C: the first row is ^C (the
-    shell cancelled it at once) or the venv activation that sent that ^C (t5: the command swallowed, nothing printed),
-    or Python ended it with KeyboardInterrupt."""
+    """A run's output rows (up to the next row that runs a program) show it stopped by Ctrl+C: the first row is ^C
+    (the shell cancelled it at once) or the venv activation that sent that ^C (t5: the command swallowed, nothing
+    printed), or Python ended it with KeyboardInterrupt in its last 3 rows (terminal_run.interrupted's rule)."""
     if not out:
         return False
     first = str(out[0])
+    tail = [str(r) for r in out if str(r).strip()][-3:]
     return bool(_CTRL_C_ROW.match(first) or _ACTIVATION_ROW.search(first)) \
-        or any(_KEYBOARD_INTERRUPT.match(str(r)) for r in out)
+        or any(_KEYBOARD_INTERRUPT.match(r) for r in tail)
 
 
 def terminal_runs(command: str, rows: list[str], expect: Iterable[str] = ()) -> tuple[int, bool, bool]:
@@ -1097,13 +1100,17 @@ def terminal_runs(command: str, rows: list[str], expect: Iterable[str] = ()) -> 
     starts = [i for i, row in enumerate(rows[:-1]) if is_run(row)]
     # t5 (CP12): `python3 main.py` then a "^C" row (the venv activation cancelled it) passed "Ran python3 main.py"
     # with nothing run. A run stopped by ^C / KeyboardInterrupt never counts (terminal_run.verdict's rule for VS
-    # Code's own reports): its output, up to the next run of the command, starts with ^C or ends the program that way.
-    ends = [*starts[1:], len(rows)]
-    kept = [i for i, j in zip(starts, ends) if not _interrupted_rows(rows[i + 1:j])]
+    # Code's own reports): its output starts with ^C or ends the program that way. A run's output ends at the next
+    # row that runs any program (not the next run of this command): another script's or a REPL's ^C /
+    # KeyboardInterrupt in between never cancels an earlier good run, nor reads as its crash.
+    def end_of(i: int) -> int:
+        return next((k for k in range(i + 1, len(rows)) if runs_program(rows[k])), len(rows))
+
+    kept = [i for i in starts if not _interrupted_rows(rows[i + 1:end_of(i)])]
     n, last = len(kept), (kept[-1] if kept else None)
     if last is None:
         return 0, False, False
-    err, shows = run_output(rows[last + 1:ends[starts.index(last)]], expect)  # never a later ^C'd run's traceback
+    err, shows = run_output(rows[last + 1:end_of(last)], expect)  # never a later run's traceback
     if shows and any(runs_program(r) for r in rows[last + 1:-1]):
         shows = False
     return n, err, shows

@@ -67,7 +67,8 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
   file on disk doesn't confirm keeps the row green but never passes the step (gate or judge route): the save does.
 - `terminal_runs(command, rows, expect)` -> `(runs, error, shows)`: how often terminal rows show `command` run (followed
   by another row, so a typed-but-unrun command never counts; nor does one stopped by Ctrl+C: its next row is `^C` or
-  the venv activation that sent it, or it ended in `KeyboardInterrupt`, t5), and `run_output`'s verdict on the output under the last
+  the venv activation that sent it, or it ended in `KeyboardInterrupt`, t5; a run's output ends at the next row that
+  runs a program, so another script's or a REPL's ^C never cancels it), and `run_output`'s verdict on the output under the last
   run (not "shown" when a later row runs the same program: it may be a misread newer run). With
   `command_matches(expected, actual)` for `tut run` / Run it for me / VS Code `command_end` runs, this is the run
   evidence a run step needs: its code being on screen is not enough. A command with no script (`python3 --version`,
