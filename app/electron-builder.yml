@@ -25,6 +25,13 @@ mac:
     # macOS shows these in the permission prompts (the app starts the engine, so the prompts name miyagi).
     NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
     NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
+    # Electron's own Info.plist carries generic "This app needs access to ..." strings for these. miyagi uses none of
+    # them (voice is off), but if macOS ever asks, the prompt names miyagi and says so plainly.
+    NSMicrophoneUsageDescription: miyagi doesn't use the microphone.
+    NSCameraUsageDescription: miyagi doesn't use the camera.
+    NSBluetoothAlwaysUsageDescription: miyagi doesn't use Bluetooth.
+    NSBluetoothPeripheralUsageDescription: miyagi doesn't use Bluetooth.
+    NSAudioCaptureUsageDescription: miyagi doesn't record audio.
   # The engine travels inside the app, ready to run offline (scripts/bundle-engine.mjs makes build/engine):
   #   Resources/engine/src      engine source; first launch copies it to ~/miyagi/engine/src (main/localEngine.ts)
   #   Resources/engine/python   standalone Python 3.12 with the engine's packages, precompiled; started directly
