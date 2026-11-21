@@ -15,6 +15,7 @@
  * The rows' rings carry no hue: a white ring missing, a ring with a white tick present (green stays for passed).
  * Anything else missing (Python, a package) keeps the regular setup card.
  */
+import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -35,9 +36,17 @@ const isHelper = (x: SetupItem): boolean => HELPER.test(x.tool) || HELPER.test(x
 /** The editor itself (VS Code), never its helper even when the engine files the helper under kind "editor". */
 const isEditor = (x: SetupItem): boolean => x.kind === 'editor' && !isHelper(x)
 
-/** Is this setup card the VS Code sheet? Only the editor and / or its helper are missing, nothing else. */
+/** The card actions the sheet itself covers: its install button and its ✕ (Skip). */
+const SHEET_ACTIONS = new Set<string>(['install', 'install_all', 'skip_setup'])
+
+/**
+ * Is this setup card the VS Code sheet? Only the editor and / or its helper are missing, and the card offers nothing
+ * the sheet would drop: no where line, no tutorial files (setup.resources, Download), no action past install / Skip.
+ * Anything more keeps the regular setup card (its labels go through copy.editorName too).
+ */
 export function isEditorSheet(c: EngineCard | undefined, installs: Record<string, Install> = {}): boolean {
   if (!c || c.kind !== 'setup' || !c.setup) return false
+  if (c.where || c.setup.resources?.length || !(c.actions ?? []).every((a) => SHEET_ACTIONS.has(a))) return false
   const missing = c.setup.items.filter((x) => x.needed && !itemDone(x, installs))
   return missing.length > 0 && missing.every((x) => isEditor(x) || isHelper(x))
 }
@@ -74,6 +83,25 @@ function act(x: SetupItem): void {
   else cardAct('install', x.tool)
 }
 
+/**
+ * The sheet's ✕. When the card lists skip_setup it is the old card's Skip: the engine hears skip_setup (clears its
+ * setup card so the Start card may go out, releases the start hold) and the card closes. Otherwise a plain dismiss.
+ */
+function SheetClose({ skip }: { skip: boolean }): ReactNode {
+  if (!skip) return <CloseButton />
+  return (
+    <button
+      className="grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
+      style={{ background: fill.key }}
+      onClick={() => cardAct('skip_setup')}
+      aria-label="Skip setup"
+      title="Skip setup"
+    >
+      <X size={12} strokeWidth={2.2} />
+    </button>
+  )
+}
+
 export function VSCodeSheet({ card }: { card: EngineCard }): ReactNode {
   const installs = useCards((s) => s.installs)
   const items = (card.setup?.items ?? []).filter((x) => x.needed && (isEditor(x) || isHelper(x)))
@@ -94,7 +122,7 @@ export function VSCodeSheet({ card }: { card: EngineCard }): ReactNode {
           {copy.name}
         </span>
         <span className="flex-1" />
-        <CloseButton />
+        <SheetClose skip={(card.actions ?? []).includes('skip_setup')} />
       </div>
       <div className="flex flex-col gap-[6px]">
         <h2 id="miyagi-vscode-sheet" className="m-0 font-semibold leading-[22px]" style={{ fontSize: type2.lg, color: color.text }}>
