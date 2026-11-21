@@ -321,14 +321,16 @@ def _classify_cloud(exc: BaseException, provider: str, status) -> str | None:
 # `cloud.token_invalid` once per token and the app mints a new one. A 403 means an operator disabled this install:
 # no token_invalid (a new token would dodge the switch), config.status.cloud is 'unauthorized'. Paused and over quota
 # are transient: they expire on their own (the next refused call sets them again). A new token from the app
-# (set_app_keys) clears the verdict. Only a short sha256 of the token is kept here; the token is never logged.
+# (set_app_keys) clears the verdict. "Unknown" is also kept per token on its own (_unknown), so a later paused or quota
+# verdict for the same token neither hides it from config.status nor stops the repeat on a reconnect. Only a short
+# sha256 of the token is kept here; the token is never logged.
 
 PAUSED_TTL_S = 120.0
 CloudListener = Callable[[dict], None]
 
 _verdict_lock = threading.Lock()
 _verdict: dict | None = None  # {"token": token id, "state": CloudState, "reason": str, "until": monotonic | None}
-_announced: set[str] = set()  # token ids a cloud.token_invalid went out for (once per token)
+_unknown: set[str] = set()  # token ids the proxy said it does not know (a 401): one cloud.token_invalid each
 _listeners: list[CloudListener] = []
 
 
@@ -360,7 +362,10 @@ def cloud_verdict() -> dict | None:
     """The live verdict about the current install token ({state, reason}), or None."""
     with _verdict_lock:
         v = _verdict
-    if v is None or v["token"] != _token_id(cloud_token()):
+    tid = _token_id(cloud_token())
+    if tid in _unknown:  # dead for good, whatever came after (paused, quota)
+        return {"state": "unauthorized", "reason": "unknown_token"}
+    if v is None or v["token"] != tid:
         return None
     if v["until"] is not None and time.monotonic() >= v["until"]:
         return None
@@ -369,8 +374,8 @@ def cloud_verdict() -> dict | None:
 
 def token_invalid_pending() -> bool:
     """The proxy does not know the current token (a 401): the app should mint a new one."""
-    v = cloud_verdict()
-    return bool(v) and v["reason"] == "unknown_token"
+    token = cloud_token()
+    return bool(token) and _token_id(token) in _unknown
 
 
 def _seconds_to_utc_midnight() -> float:
@@ -420,9 +425,9 @@ def _record_verdict(code: str, status, exc: BaseException, provider: str) -> Non
             return  # already known: one event per verdict, not one per refused call
         _verdict = {"token": tid, "state": state, "reason": reason,
                     "until": None if ttl is None else time.monotonic() + ttl}
-        first_invalid = reason == "unknown_token" and tid not in _announced
+        first_invalid = reason == "unknown_token" and tid not in _unknown
         if first_invalid:
-            _announced.add(tid)
+            _unknown.add(tid)
     log.warning("miyagi cloud: %s (config.status.cloud=%s)", reason, state)
     event = {"state": state, "reason": reason, "token_invalid": first_invalid, "ttl": ttl}
     for fn in [*_listeners]:

@@ -26,10 +26,10 @@ def _clean(monkeypatch):
     for var in (*config.KEY_ENV.values(), config.CLOUD_URL_ENV):
         monkeypatch.delenv(var, raising=False)
     config.set_app_keys({})
-    config._announced.clear()
+    config._unknown.clear()
     yield
     config.set_app_keys({})
-    config._announced.clear()
+    config._unknown.clear()
 
 
 @pytest.fixture
@@ -86,6 +86,15 @@ def test_the_same_token_sent_again_keeps_its_verdict(heard):
     assert config.cloud_status() == "unauthorized" and config.token_invalid_pending()
     config.cloud_error(_proxy(401, "authentication_error"))
     assert len(heard) == 1
+
+
+def test_unknown_outlives_a_later_paused_verdict(heard):
+    config.set_app_keys({"miyagiCloud": CLOUD, "miyagiToken": TOKEN})
+    config.cloud_error(_proxy(401, "authentication_error"))
+    config.cloud_error(_proxy(503, "proxy_disabled"))  # the kill switch answers before the token check
+    assert config.cloud_status() == "unauthorized" and config.token_invalid_pending()
+    config.cloud_error(_proxy(401, "authentication_error"))
+    assert [e["token_invalid"] for e in heard].count(True) == 1
 
 
 def test_disabled_install_is_unauthorized_without_token_invalid(heard):

@@ -572,7 +572,7 @@ class Engine:
         if here:
             self._cloud_task(self._announce_cloud(event))
         else:  # a worker thread (sync clients, to_thread): hop onto the engine's loop
-            asyncio.run_coroutine_threadsafe(self._announce_cloud(event), loop)
+            asyncio.run_coroutine_threadsafe(self._announce_cloud(event), loop).add_done_callback(_log_cloud_failure)
 
     async def _announce_cloud(self, event: dict) -> None:
         if event.get("token_invalid"):
@@ -586,6 +586,7 @@ class Engine:
         task = asyncio.get_running_loop().create_task(coro)
         self._cloud_tasks.add(task)  # keep a reference until it is done
         task.add_done_callback(self._cloud_tasks.discard)
+        task.add_done_callback(_log_cloud_failure)
 
     async def start(self) -> None:
         self.watch_cloud()
@@ -901,6 +902,14 @@ def apply_keys(keys: dict) -> dict:
         else:
             os.environ.pop(var, None)
     return key_status()
+
+
+def _log_cloud_failure(fut: Any) -> None:
+    """Done-callback for the cloud announcements (a task, or a run_coroutine_threadsafe future): log what failed."""
+    if fut.cancelled():
+        return
+    if (exc := fut.exception()) is not None:
+        log.error("announcing the miyagi cloud verdict failed: %s", type(exc).__name__, exc_info=exc)
 
 
 def key_status() -> dict:
