@@ -19,11 +19,14 @@ Run:  python -m server.orchestrator.main      (or uvicorn server.orchestrator.ma
 
 v2 (BUILD-PLAN E2): every WebSocket connect starts with `engine.hello {version, contract, capabilities, restored?}`;
 the app sends a v2 command only when `capabilities` lists it. Security (BUILD-PLAN section 6):
+  - Host: every HTTP request and WebSocket must name this Mac (localhost, 127.0.0.1, [::1]; when bound off loopback,
+    also that host, <hostname>.local and MIYAGI_ALLOWED_HOSTS), else 403 / close 1008. Closes DNS rebinding.
   - MIYAGI_ENGINE_TOKEN (the app's per-launch token): when set, a WebSocket must carry it in X-Miyagi-Token, or it is
-    refused before the handshake. It is read once and removed from os.environ, so no learner subprocess inherits it.
+    refused before the handshake; so must any HTTP request from another machine (ENGINE_HOST=0.0.0.0). It is read
+    once and removed from os.environ, so no learner subprocess inherits it.
   - Origin: a request that carries an Origin header (a browser page) must come from this Mac (http(s)://localhost,
-    127.0.0.1, [::1]) or MIYAGI_ALLOWED_ORIGINS; native clients (the app's main process, the VS Code companion,
-    `tut run`, curl) send none.
+    127.0.0.1, [::1]) or MIYAGI_ALLOWED_ORIGINS; a POST/PUT/PATCH/DELETE carrying one only from MIYAGI_ALLOWED_ORIGINS.
+    Native clients (the app's main process, the VS Code companion, `tut run`, curl) send none.
   - POST bodies are JSON only (415 otherwise); a POST with no body (curl -X POST .../end) still works.
 """
 
@@ -31,11 +34,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import hmac
+import ipaddress
 import logging
 import math
 import os
 import re
+import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -136,17 +142,77 @@ def token_ok(given: str | None) -> bool:
 
 
 _LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+REFUSED_PAGE = "This page may not call the miyagi engine."
+REFUSED_HOST = "This address may not call the miyagi engine."
+REFUSED_TOKEN = "Send the engine token (X-Miyagi-Token)."
+_bind_host: str | None = None  # run() sets it from --host; else ENGINE_HOST (uvicorn ... --host has no say)
+
+
+def _csv_env(name: str) -> set[str]:
+    return {v.strip().lower().rstrip("/") for v in os.environ.get(name, "").split(",") if v.strip()}
 
 
 def _extra_origins() -> set[str]:
-    raw = os.environ.get("MIYAGI_ALLOWED_ORIGINS", "")
-    return {o.strip().lower().rstrip("/") for o in raw.split(",") if o.strip()}
+    return _csv_env("MIYAGI_ALLOWED_ORIGINS")
+
+
+def _host_name(value: str | None) -> str:
+    """The host part of a Host header, lowercased, port and IPv6 brackets dropped ("[::1]:8787" -> "::1")."""
+    h = (value or "").strip().lower()
+    if h.startswith("["):
+        h = h[1:].split("]", 1)[0]
+    elif h.count(":") == 1:
+        h = h.split(":", 1)[0]
+    return h.rstrip(".")
+
+
+@functools.lru_cache(maxsize=1)
+def _mac_names() -> frozenset[str]:
+    name = _host_name(socket.gethostname())
+    if not name:
+        return frozenset()
+    base = name[: -len(".local")] if name.endswith(".local") else name
+    return frozenset({name, base + ".local"})
+
+
+def allowed_hosts() -> set[str]:
+    """Loopback always. Bound to the LAN (ENGINE_HOST / --host not on loopback): also that host, <this Mac>.local and
+    MIYAGI_ALLOWED_HOSTS (comma-separated, e.g. the Mac's LAN IP)."""
+    hosts = set(_LOOPBACK)
+    bind = _host_name(_bind_host if _bind_host is not None else os.environ.get("ENGINE_HOST", ""))
+    if bind and bind not in _LOOPBACK:
+        hosts.add(bind)
+        hosts |= _mac_names()
+        hosts |= {_host_name(h) for h in _csv_env("MIYAGI_ALLOWED_HOSTS")}
+    return hosts
+
+
+def host_allowed(host: str | None) -> bool:
+    """DNS rebinding: after a rebind the attacker's page is same-origin and sends no Origin on a GET, but its Host
+    header still names the attacker's domain. Only this Mac's own names pass. No Host at all (HTTP/1.0, a raw
+    socket) is never a browser, so it passes."""
+    if host is None or not host.strip():
+        return True
+    return _host_name(host) in allowed_hosts()
+
+
+def client_is_loopback(scope: dict) -> bool:
+    client = scope.get("client")
+    if not client:
+        return False
+    try:
+        ip = ipaddress.ip_address(str(client[0]).split("%", 1)[0])
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return (mapped or ip).is_loopback
 
 
 def origin_allowed(origin: str | None) -> bool:
-    """A browser always sends Origin on a WebSocket and on a cross-site POST; native clients send none. Only pages
-    served from this Mac (the app's own renderer, the dev stage) or MIYAGI_ALLOWED_ORIGINS may talk to the engine,
-    so a web page can't drive it (cross-site WebSocket hijacking, DNS rebinding)."""
+    """A browser always sends Origin on a WebSocket and on a cross-site request; native clients send none. Only pages
+    served from this Mac (the app's own renderer, the dev stage) or MIYAGI_ALLOWED_ORIGINS may read from the engine,
+    so a web page elsewhere can't drive it (cross-site WebSocket hijacking). DNS rebinding is host_allowed's job."""
     if origin is None:
         return True
     o = origin.strip().lower().rstrip("/")
@@ -160,6 +226,15 @@ def origin_allowed(origin: str | None) -> bool:
     return u.scheme in ("http", "https") and host in _LOOPBACK
 
 
+def write_origin_allowed(origin: str | None) -> bool:
+    """POST/PUT/PATCH/DELETE: a bodyless cross-origin POST is a CORS simple request (no preflight), so any page on
+    localhost:<any port> (a dev server, Jupyter, a lesson's web project) could end a lesson. Native clients never
+    send Origin; a browser page may write only when MIYAGI_ALLOWED_ORIGINS lists it."""
+    if origin is None:
+        return True
+    return origin.strip().lower().rstrip("/") in _extra_origins()
+
+
 def _shown(origin: str | None) -> str:
     return repr(str(origin)[:80])
 
@@ -169,10 +244,19 @@ def _is_json(content_type: str | None) -> bool:
     return media == "application/json" or (media.startswith("application/") and media.endswith("+json"))
 
 
+def _refuse(error: str, status: int) -> JSONResponse:
+    return JSONResponse({"ok": False, "error": error}, status_code=status)
+
+
 class RequestGuard:
-    """HTTP only (the WebSocket checks its Origin and token before the handshake): a refused Origin is a 403, and a
-    POST/PUT/PATCH/DELETE body that isn't JSON is a 415 (a browser can't send JSON cross-site without a CORS
-    preflight, which this engine never answers). A POST with no body (curl -X POST localhost:8787/end) passes."""
+    """HTTP only (the WebSocket runs the same checks before its handshake), in this order:
+      - Host must name this Mac (host_allowed): 403. Closes DNS rebinding.
+      - With MIYAGI_ENGINE_TOKEN set, a client that is not on loopback (ENGINE_HOST=0.0.0.0) must send a matching
+        X-Miyagi-Token: 403. The app's main process, the companion and `tut run` stay on loopback and send none.
+      - Origin: any request carrying one must come from a page on this Mac (origin_allowed); a POST/PUT/PATCH/DELETE
+        carrying one must be listed in MIYAGI_ALLOWED_ORIGINS (write_origin_allowed): 403.
+      - A write's body must be JSON: 415 (a browser can't send JSON cross-site without a CORS preflight, which this
+        engine never answers). A native POST with no body (curl -X POST localhost:8787/end) passes."""
 
     def __init__(self, app: Any) -> None:
         self.app = app
@@ -183,17 +267,23 @@ class RequestGuard:
             return
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
         method, path = scope.get("method", "GET"), scope.get("path", "")
+        origin = headers.get("origin")
         refused: JSONResponse | None = None
-        if not origin_allowed(headers.get("origin")):
-            log.warning("refused %s %s from origin %s", method, path, _shown(headers.get("origin")))
-            refused = JSONResponse({"ok": False, "error": "This page may not call the miyagi engine."}, status_code=403)
-        elif method in ("POST", "PUT", "PATCH", "DELETE"):
+        if not host_allowed(headers.get("host")):
+            log.warning("refused %s %s for host %s", method, path, _shown(headers.get("host")))
+            refused = _refuse(REFUSED_HOST, 403)
+        elif ENGINE_TOKEN is not None and not client_is_loopback(scope) and not token_ok(headers.get(TOKEN_HEADER)):
+            log.warning("refused %s %s from another machine without the engine token", method, path)
+            refused = _refuse(REFUSED_TOKEN, 403)
+        elif not origin_allowed(origin) or (method in MUTATING and not write_origin_allowed(origin)):
+            log.warning("refused %s %s from origin %s", method, path, _shown(origin))
+            refused = _refuse(REFUSED_PAGE, 403)
+        elif method in MUTATING:
             length = headers.get("content-length", "").strip()
             has_body = "transfer-encoding" in headers or length not in ("", "0")
             if has_body and not _is_json(headers.get("content-type")):
                 log.warning("refused %s %s: the body is not JSON", method, path)
-                refused = JSONResponse({"ok": False, "error": "Send JSON (Content-Type: application/json)."},
-                                       status_code=415)
+                refused = _refuse("Send JSON (Content-Type: application/json).", 415)
         if refused is not None:
             await refused(scope, receive, send)
             return
@@ -827,7 +917,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="sandhacks-tutor engine", lifespan=lifespan)
-app.add_middleware(RequestGuard)  # Origin + JSON-only bodies on every HTTP route (BUILD-PLAN section 6)
+app.add_middleware(RequestGuard)  # Host, LAN token, Origin, JSON-only bodies on every HTTP route (BUILD-PLAN 6)
 
 try:  # E5 voice: GET /tts/<hash>.mp3 for `speak.audioUrl` (relative: the app prefixes ENGINE_HTTP)
     from server.coach import voice as _voice
@@ -847,7 +937,12 @@ except Exception as _e:  # noqa: BLE001
 @app.websocket("/")
 async def ws_endpoint(ws: WebSocket) -> None:
     # Before the handshake (a refusal is an HTTP 403): a browser page from elsewhere, or a client without the app's
-    # per-launch token when the engine has one. Neither the Origin's page nor the token is ever echoed in full.
+    # per-launch token when the engine has one, or a Host that isn't this Mac (DNS rebinding). Neither the Origin's
+    # page nor the token is ever echoed in full.
+    if not host_allowed(ws.headers.get("host")):
+        log.warning("refused a WebSocket for host %s", _shown(ws.headers.get("host")))
+        await ws.close(code=1008)
+        return
     origin = ws.headers.get("origin")
     if not origin_allowed(origin):
         log.warning("refused a WebSocket from origin %s", _shown(origin))
@@ -1138,9 +1233,15 @@ def run() -> None:
     ap.add_argument("--port", type=int, default=config.port())
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    if args.host.strip("[]") not in _LOOPBACK:  # BUILD-PLAN section 6: say so when other machines can reach it
-        log.warning("listening on %s: other machines on this network can reach the engine%s", args.host,
-                    "" if ENGINE_TOKEN else " (no MIYAGI_ENGINE_TOKEN set, so any of them can connect)")
+    global _bind_host
+    _bind_host = args.host
+    if _host_name(args.host) not in _LOOPBACK:  # BUILD-PLAN section 6: say so when other machines can reach it
+        if ENGINE_TOKEN:
+            log.warning("listening on %s: other machines on this network reach the engine only with the engine "
+                        "token (X-Miyagi-Token), on HTTP and the WebSocket", args.host)
+        else:
+            log.warning("listening on %s with no MIYAGI_ENGINE_TOKEN: every HTTP route and the WebSocket are open "
+                        "to any machine on this network", args.host)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
