@@ -7,13 +7,18 @@
  *
  * Side effects in main: appearance → nativeTheme.themeSource (so vibrancy and prefers-color-scheme follow),
  * launchAtLogin → app.setLoginItemSettings.
+ *
+ * v2 (W0-5): panelCollapsed, onboarded, crashReports ('ask' by default), usageCounts (off), shortcuts. They are only
+ * stored here (no side effect yet): `shortcuts` is validated as Electron accelerators and kept for wave 2's live
+ * rebinding; a patch's `shortcuts` replaces the whole map, so send all of it.
  */
-import { app, ipcMain, nativeTheme } from 'electron'
+import { app, ipcMain, nativeTheme, type IpcMainInvokeEvent } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_PREFS, sanitizePrefs, type Prefs } from '../common/prefs'
 
-export function setupPrefs(broadcast: (channel: string, payload: unknown) => void): void {
+/** `trusted`: main's sender check (index.ts trustedSender); an untrusted sender reads nothing and changes nothing. */
+export function setupPrefs(broadcast: (channel: string, payload: unknown) => void, trusted: (e: IpcMainInvokeEvent) => boolean): void {
   const file = join(app.getPath('userData'), 'prefs.json')
   let prefs: Prefs = DEFAULT_PREFS
   try {
@@ -32,8 +37,9 @@ export function setupPrefs(broadcast: (channel: string, payload: unknown) => voi
   }
   apply()
 
-  ipcMain.handle('feat:prefs:get', () => prefs)
-  ipcMain.handle('feat:prefs:set', (_e, patch: unknown) => {
+  ipcMain.handle('feat:prefs:get', (e) => (trusted(e) ? prefs : undefined))
+  ipcMain.handle('feat:prefs:set', (e, patch: unknown) => {
+    if (!trusted(e)) return undefined
     prefs = { ...prefs, ...sanitizePrefs(patch) }
     try {
       writeFileSync(file, JSON.stringify(prefs, null, 2))

@@ -6,7 +6,7 @@
  *   DEMO=1                                     -> no network: the scripted run plays in-process
  */
 import WebSocket from 'ws'
-import { parseEngineMessage, type Incoming, type Outgoing } from '../common/wire'
+import { parseEngineMessage, V2_COMMANDS, type Incoming, type Outgoing } from '../common/wire'
 import { createMockEngine, type MockEngine } from '../../mock/engine'
 import { scenarios } from '../../mock/scenarios'
 
@@ -36,6 +36,21 @@ export const HANDSHAKE_TIMEOUT_MS = 4000
 export type LinkInfo = { open: boolean; attempting: boolean; failures: number }
 type LinkListener = (l: LinkInfo) => void
 
+/** The header that carries the per-launch engine token (W0-5; the engine checks it in E2 when MIYAGI_ENGINE_TOKEN is set). */
+export const TOKEN_HEADER = 'X-Miyagi-Token'
+const V2 = new Set<string>(V2_COMMANDS)
+/** The anonymous install token for the hosted proxy (main/features/cloud.ts): folded into config.keys, nowhere else. */
+export type CloudKeys = { miyagiToken: string; miyagiCloud: string }
+/** This Mac (the same test as localEngine.ts `local`). */
+const LOOPBACK = /^wss?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i
+/**
+ * May secrets travel to this ENGINE_URL? Only to this Mac or over TLS: the engine token and the install token (which
+ * can spend money at the proxy) must never cross the network in cleartext ws://.
+ */
+export function secureEngineUrl(url: string): boolean {
+  return LOOPBACK.test(url) || /^wss:\/\//i.test(url)
+}
+
 export class EngineLink {
   /** Every event since the last learn/build, replayed to a window that reloads. */
   readonly log: Incoming[] = []
@@ -54,8 +69,25 @@ export class EngineLink {
   private timer?: ReturnType<typeof setTimeout>
   /** Re-sent on reconnect so the engine's OCR keeps ignoring our UI. */
   private lastBounds?: Outgoing
+  /** v2: the per-launch engine token (main/localEngine.ts), sent as a header on every connect. Memory only. */
+  private token?: string
+  /** v2: the install token + proxy URL, folded into every config.keys (never sent on its own: see send()). */
+  private cloud?: CloudKeys
+  /** v2: what the engine said it understands (engine.hello.capabilities); reset on every connect. */
+  private caps = new Set<string>()
+  /** v2: the last config.keys the settings feature sent (the full payload), so a later token can ride on it. */
+  private lastKeys?: Extract<Outgoing, { type: 'config.keys' }>
+  /** v2: ENGINE_URL is loopback or wss: (secureEngineUrl). Otherwise no token header and no install token, ever. */
+  private readonly secure: boolean
+  private warnedInsecure = false
 
-  constructor(private url: string, demoScenario?: string) {
+  /**
+   * `token` (v2): the per-launch engine token (localEngine ENGINE_TOKEN). Given here, not later, because the first
+   * WebSocket attempt starts inside this constructor and must already carry X-Miyagi-Token.
+   */
+  constructor(private url: string, demoScenario?: string, token?: string) {
+    this.token = token || undefined
+    this.secure = secureEngineUrl(url)
     if (demoScenario) {
       const scenario = scenarios[demoScenario] ?? scenarios.full
       this.demo = createMockEngine(scenario, (e) => this.dispatch(e))
@@ -100,9 +132,39 @@ export class EngineLink {
     this.connect()
   }
 
+  /**
+   * v2 (W0-5): the per-launch token the app passed to the engine it started (env MIYAGI_ENGINE_TOKEN). Sent as the
+   * X-Miyagi-Token header from the next connect on; an engine started elsewhere without a token ignores it.
+   */
+  setToken(token: string | undefined): void {
+    this.token = token || undefined
+  }
+
+  /** v2: the anonymous install token for the proxy. Every later config.keys carries it (memory only, never logged). */
+  setCloud(keys: CloudKeys | undefined): void {
+    this.cloud = keys
+    // Minted after the settings feature already sent this connect's keys: send the same full payload again, now
+    // with the token (only ever the full payload, so nothing the learner saved is cleared).
+    if (this.lastKeys && this.connected) this.send(this.lastKeys)
+  }
+
+  /** v2: did the engine list this command type in engine.hello.capabilities? */
+  can(type: string): boolean {
+    return this.caps.has(type)
+  }
+
   send(cmd: Outgoing): void {
     if (cmd.type === 'learn' || cmd.type === 'learn_url' || cmd.type === 'dev.reset') this.log.length = 0
     if (cmd.type === 'overlay.bounds') this.lastBounds = cmd
+    // v2 commands only to an engine that announced them (an older engine answers an unknown type with an error).
+    if (V2.has(cmd.type) && !this.demo && !this.caps.has(cmd.type)) return
+    // The install token rides along with the BYOK keys the settings feature sends: a separate config.keys would
+    // clear them (the engine's set_app_keys drops names that are missing). A BYOK key the learner set still wins
+    // engine side for its provider.
+    if (cmd.type === 'config.keys') {
+      this.lastKeys = cmd
+      if (this.cloud && this.allowSecrets()) cmd = { ...cmd, payload: { ...cmd.payload, ...this.cloud } }
+    }
     if (this.demo) return this.demo.handle(cmd)
     const msg = JSON.stringify(cmd)
     if (this.ws?.readyState === WebSocket.OPEN) return this.ws.send(msg)
@@ -117,12 +179,26 @@ export class EngineLink {
     for (const l of this.listeners) l(e)
   }
 
+  /**
+   * Secrets (the engine token header, the install token in config.keys) only to a loopback or wss: engine. Warns once
+   * when one is held back, naming neither the value nor the URL's credentials.
+   */
+  private allowSecrets(): boolean {
+    if (this.secure) return true
+    if (!this.warnedInsecure) {
+      this.warnedInsecure = true
+      console.warn('[engine] ENGINE_URL is neither this Mac nor wss:, so the engine token and install token are not sent')
+    }
+    return false
+  }
+
   private connect(): void {
     clearTimeout(this.timer)
     this.timer = undefined
     let ws: WebSocket
+    const header = this.token && this.allowSecrets() ? { headers: { [TOKEN_HEADER]: this.token } } : {}
     try {
-      ws = new WebSocket(this.url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS })
+      ws = new WebSocket(this.url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS, ...header })
     } catch {
       // A malformed ENGINE_URL: count it as a failed attempt and keep the retry loop (never throw out of main).
       this.failures++
@@ -137,6 +213,7 @@ export class EngineLink {
       this.slow = 0
       // The engine sends a full snapshot on every connect: forget what the old connection said.
       this.log.length = 0
+      this.caps.clear()
       this.setConnected(true)
       for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
@@ -182,6 +259,7 @@ export class EngineLink {
   }
 
   private dispatch(e: Incoming): void {
+    if (e.type === 'engine.hello') this.caps = new Set(Array.isArray(e.payload.capabilities) ? e.payload.capabilities.filter((c) => typeof c === 'string') : [])
     // speak.audioUrl is relative (/tts/<hash>.mp3): make it absolute against the engine's http origin once,
     // here, so every window can play it (audit P1-1).
     if (e.type === 'speak' && e.payload.audioUrl && !/^(https?:|data:|blob:)/.test(e.payload.audioUrl)) {
