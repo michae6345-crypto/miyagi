@@ -39,10 +39,12 @@
       { "wait": 900, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 0 } },
       { "wait": 700, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 1 } },
       { "wait": 1200, "type": "_link", "payload": { "open": true, "attempting": false, "failures": 0 } },
-      { "wait": 50, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"], "restored": true } }
+      { "wait": 50, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"], "restored": true } },
+      { "wait": 60, "goto": "err_lesson" }
     ],
     "err_recover": [
-      { "wait": 200, "type": "_link", "payload": { "open": true, "attempting": false, "failures": 0 } }
+      { "wait": 200, "type": "_link", "payload": { "open": true, "attempting": false, "failures": 0 } },
+      { "wait": 60, "goto": "err_lesson" }
     ],
     "err_engine_offline": [
       { "wait": 0, "goto": "err_lesson" },

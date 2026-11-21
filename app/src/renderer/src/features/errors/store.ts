@@ -101,6 +101,11 @@ useLesson.subscribe((s, prev) => {
   if (s.connected && !prev.connected && !get().everOpen) set({ everOpen: true })
 })
 if (useLesson.getState().connected) set({ everOpen: true })
+// A restart that ends in a failed engine (main/localEngine.ts) says so on the card instead of spinning.
+useLesson.subscribe((s, prev) => {
+  const st = s.localEngine?.state
+  if (st !== prev.localEngine?.state && get().restart === 'starting' && (st === 'failed' || st === 'missing')) set({ restart: 'failed' })
+})
 
 /** Reconnecting: the try in progress ("2 of 5"), or undefined when the link is fine or past the threshold. */
 export function reconnectTry(s: State): number | undefined {
