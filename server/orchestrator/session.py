@@ -70,6 +70,12 @@ DIAGRAM_KINDS = ("network", "gradients", "heatmap")
 # diagram that finishes after end_lesson). Unset (None) = not tied to a lesson (end_lesson itself, search...).
 _EPOCH: contextvars.ContextVar[int | None] = contextvars.ContextVar("lesson_epoch", default=None)
 ALWAYS_SENT = {"lesson.ended"}
+# The step generation an app action started under. An answer card (explain / hint / answer) that lands after the learner
+# moved on to another step belongs to the old step and is dropped, never shown as the current one.
+_GEN: contextvars.ContextVar[int | None] = contextvars.ContextVar("action_gen", default=None)
+TAGGED_EVENTS = {"status", "error", "card", "offtrack", "check.updated"}  # carry optional epoch / gen (contract: additive)
+ANSWER_CARD_KINDS = {"explain", "hint", "answer"}
+THINKING_MAX_S = 60.0  # a "thinking" status that nothing resolved by then is ended with an error (never an endless spinner)
 # The event types an app action has sent so far (set by action(); None outside one). An action that ends without
 # any ANSWER_EVENTS looks dead on screen (status / check.updated alone), so it gets a short notice card instead.
 _ANSWERED: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("action_answered", default=None)
@@ -762,6 +768,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
             return
+        g = _GEN.get()
+        if (g is not None and g != self.step_gen and type_ == "card"
+                and (payload or {}).get("kind") in ANSWER_CARD_KINDS):
+            log.info("dropped stale %s card (step gen %s, now %s)", (payload or {}).get("kind"), g, self.step_gen)
+            return
         if type_ in ("lesson.ready", "lesson.ended"):  # a new / ended lesson: nothing waits, nothing blocks
             if getattr(self, "app_v2", False):  # the v2 app drops each blocker it shows (raw: no re-entry here)
                 for kind in list(getattr(self, "blockers", None) or {}):
@@ -803,6 +814,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             except Exception:  # noqa: BLE001
                 log.exception("v2 fields for %s failed; sending it without them", type_)
         await self._emit_raw(type_, payload or {})
+
+    def _tagged(self, type_: str, payload: dict) -> dict:
+        """Optional epoch / gen on the events the island and cards act on: the app can tell which lesson and step a
+        reply was made for. Never overrides a field the payload already carries."""
+        if type_ not in TAGGED_EVENTS:
+            return payload
+        ep = _EPOCH.get()
+        g = _GEN.get()
+        return {"epoch": self.lesson_epoch if ep is None else ep,
+                "gen": self.step_gen if g is None else g, **payload}
 
     def _bind_epoch(self) -> None:
         """Tie the current task's later emits to the current lesson."""
@@ -1337,11 +1358,59 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if getattr(self, "_checking", 0) and not check and state not in ("thinking", "passed", "idle"):
             self._status_after_check = state
             return
+        ep = _EPOCH.get()
+        if ep is not None and ep != self.lesson_epoch:
+            return  # work of an ended lesson: emit would drop it, so it must not be recorded as sent either
         detail = words_ok(detail, STATUS_DETAIL_WORDS) if detail else None
         if state == self.status and detail == getattr(self, "status_detail", None):
+            if state == "thinking":
+                self._arm_thinking_watchdog()  # still busy: the clock runs from the latest thinking
             return
         self.status, self.status_detail = state, detail
+        if state == "thinking":
+            self._arm_thinking_watchdog()
+        else:
+            self._disarm_thinking_watchdog()
         await self.emit("status", {"state": state, **({"detail": detail} if detail else {})})
+
+    def _disarm_thinking_watchdog(self) -> None:
+        t = getattr(self, "_think_task", None)
+        self._think_task = None
+        if t is not None and not t.done() and t is not asyncio.current_task():
+            t.cancel()
+
+    def _arm_thinking_watchdog(self) -> None:
+        """Every "thinking" ends: a verdict / answer / error resolves it, and if none does within THINKING_MAX_S the
+        watchdog sends an error and puts the pill back, so the app never spins forever."""
+        self._disarm_thinking_watchdog()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        ep = self.lesson_epoch
+        self._think_seq = getattr(self, "_think_seq", 0) + 1
+        seq = self._think_seq
+        limit = self.THINKING_MAX_S
+
+        async def watch() -> None:
+            await asyncio.sleep(limit)
+            for _ in range(4):  # a lesson build / search legitimately runs long (it reports its own errors): wait it out
+                if self.status == "thinking" and (self.building() or self.phase == "searching"):
+                    await asyncio.sleep(limit)
+            if self.status != "thinking" or getattr(self, "_think_seq", 0) != seq or ep != self.lesson_epoch:
+                return
+            log.warning("status 'thinking' unresolved after %.0f s: ending it", limit)
+            self._think_task = None
+            self._checking, self._status_after_check = 0, None
+            self.status = ""  # force the next state through the dedupe
+            to = ("offtrack" if self.last_offtrack and not self.passed else
+                  "passed" if self.passed else "watching" if self.step is not None else "idle")
+            await self._status(to)
+            await self.emit("error", {"message": "That's taking too long. Try again."})
+
+        self._think_task = loop.create_task(watch())
+
+    THINKING_MAX_S = THINKING_MAX_S
 
     # ------------------------------------------------------------------ v2 (BUILD-PLAN E3)
     def note_app_v2(self, type_: str | None = None) -> None:
@@ -5612,6 +5681,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._asks_in_flight += 1
         gen = self.step_gen
         token = _EPOCH.set(self.lesson_epoch)  # a card that finishes after end_lesson is dropped
+        gen_token = _GEN.set(gen)  # an answer that finishes after the learner changed step is dropped
         answered: set[str] = set()
         answered_token = _ANSWERED.set(answered)
         gen = self.step_gen
@@ -5634,7 +5704,23 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._asks_in_flight = max(0, self._asks_in_flight - 1)
                 self._ask_hold_until = self.clock() + self.ASK_HOLD_S
             _EPOCH.reset(token)
+            _GEN.reset(gen_token)
             _ANSWERED.reset(answered_token)
+            await self._resolve_thinking_after_action()
+
+    async def _resolve_thinking_after_action(self) -> None:
+        """An action that was cancelled (the app left, a newer request replaced it) or that returned without setting a
+        verdict must not leave the pill on "thinking": nothing is running that would ever clear it."""
+        if self.status != "thinking" or getattr(self, "_checking", 0) or self._asks_in_flight:
+            return
+        if self.building() or self.phase == "searching" or self._tasks:  # background work still owns the pill
+            return
+        try:
+            to = ("offtrack" if self.last_offtrack and not self.passed else
+                  "passed" if self.passed else "watching" if self.step is not None else "idle")
+            await self._status(to)
+        except Exception:  # noqa: BLE001
+            log.exception("could not resolve the thinking status")
 
     NOTICES = {  # action -> (title, body) when it had nothing to do; check_step's body is the off-track title
         "back": ("This is the first step", "There's no step before this one."),
