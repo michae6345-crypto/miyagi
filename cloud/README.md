@@ -8,8 +8,8 @@ Each install registers once and gets an anonymous install token. The server stor
 token's sha256 hash, checks the model allowlists and caps, forwards the call, and counts
 requests and tokens per token per day.
 
-Stack: Python 3.12, FastAPI, uvicorn, httpx, SQLite (stdlib). Two files: `app.py` (routes,
-auth, forwarding, admin) and `store.py` (the database seam).
+Stack: Python 3.12, FastAPI, uvicorn, httpx, PyJWT, SQLite (stdlib). `app.py` (routes,
+auth, forwarding, admin), `store.py` (the database seam) and `supabase_auth.py` (account links).
 
 ## Endpoints
 
@@ -46,6 +46,47 @@ key itself.
 - `{model}` must be in `ALLOWED_GEMINI_MODELS`; any other model gets a 404. The engine sends YouTube URLs as `file_uri`
   and never uploads files, so there is no upload endpoint.
 - `?alt=sse` is passed through for streaming.
+
+## Accounts: `POST /v1/link`
+
+Links an install to the signed-in miyagi account so usage can be counted per user. Installs that never
+link keep using the proxy exactly as before, and signing out in the app never unlinks.
+
+```
+POST /v1/link
+Authorization: Bearer <mi_ install token from /v1/install>
+{"access_token": "<Supabase user access token (JWT)>"}
+
+200 {"ok": true, "user_id": "<jwt sub>"}   linked; re-linking the same pair is 200 and keeps the first linked_at
+401 {"error": "bad_install_token"}         missing, unknown or disabled install token (checked first)
+403 {"error": "bad_access_token"}          bad signature, expired, wrong aud or iss, unknown key, any other alg
+503 {"error": "link_unavailable"}          the cloud cannot verify: no JWKS (and, for HS256, no secret)
+```
+
+The errors are the flat `{"error": kind}` shape, not the proxy's `{type, error: {...}}` shape. A link
+from a different account on the same install replaces the user (one user per install). Like every `/v1`
+route it answers 503 `proxy_disabled` while `PROXY_ENABLED=false`.
+
+Verification (`supabase_auth.py`, PyJWT with the `cryptography` backend):
+
+- ES256 and RS256 tokens are checked against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`, fetched
+  at most every 10 minutes. A failed refresh keeps the last good key set; with none at all the route
+  answers 503 and retries the fetch after 30 s. An unknown `kid` triggers one refetch (at most once a
+  minute) in case Supabase rotated its signing key.
+- Legacy HS256 tokens are checked with `SUPABASE_JWT_SECRET` when it is set, else 503.
+- Every token needs `aud == "authenticated"`, `iss == ${SUPABASE_URL}/auth/v1`, a future `exp` and a `sub`.
+- `exp`, `iat` and `nbf` allow 30 s of clock skew (`LEEWAY_S`). The app links seconds after sign-in, so
+  without it a Render clock slightly behind Supabase's would reject a fresh token as issued in the future.
+- The access token is never logged or stored. The table `links (token_hash, user_id, linked_at)` holds
+  the result; the request log line gains `user=<user_id>` for linked installs, and
+  `/admin/usage` `by_token` rows carry `user_id` (null when unlinked).
+
+Render env for this route (also in `render.yaml`):
+
+| Name | Default | Notes |
+|---|---|---|
+| `SUPABASE_URL` | `https://wssdpsdbaqtnfhoyimit.supabase.co` | The Supabase project. JWKS URL and expected `iss` derive from it. |
+| `SUPABASE_JWT_SECRET` | empty | Optional. Only for legacy HS256 access tokens; set it in the dashboard (`sync: false`). |
 
 ## Security
 
