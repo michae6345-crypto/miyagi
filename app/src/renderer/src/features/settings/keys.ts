@@ -7,11 +7,15 @@
  */
 import type { KeyState } from '../../../../../../shared/contracts/events'
 
-/** Same names as config.keys / config.status in shared/contracts/events.ts, in display order. */
-export const KEY_NAMES = ['anthropic', 'gemini', 'brightdata', 'elevenlabs', 'tigerUrl'] as const
+/**
+ * The keys miyagi keeps, in display order (names as in config.keys / config.status, shared/contracts/events.ts).
+ * Bright Data and Tiger Data are dropped (v2): the contract still lists brightdata / tigerUrl as optional, but the
+ * app no longer stores, shows or sends them, and a stored value from an older build is ignored on the next read.
+ */
+export const KEY_NAMES = ['anthropic', 'gemini', 'elevenlabs'] as const
 export type KeyName = (typeof KEY_NAMES)[number]
 
-/** The app can't build a lesson without these. First run opens Settings if either is `missing`. */
+/** The app can't build a lesson without one of these or the miyagi cloud (needsKeys). Settings never opens by itself. */
 export const REQUIRED: readonly KeyName[] = ['anthropic'] // Gemini is off in this build (Michael, Sat)
 
 export type Keys = Partial<Record<KeyName, string>>
@@ -66,7 +70,7 @@ export function cleanKeys(raw: unknown): Keys {
 }
 
 /**
- * The full config.keys payload: EVERY name, '' when unset. The engine's set_app_keys drops any key missing
+ * The full config.keys payload: every name in KEY_NAMES, '' when unset. The engine's set_app_keys drops any key missing
  * from the payload, so a partial send would clear the others.
  */
 export function fullPayload(keys: Keys): Record<KeyName, string> {
@@ -75,7 +79,44 @@ export function fullPayload(keys: Keys): Record<KeyName, string> {
   return out
 }
 
-/** First run: a required key the engine has no source for at all (not even its .env). */
-export function needsKeys(status: Partial<KeyStatus> | undefined): boolean {
+/** The sidebar's sections (core/surfaces SettingsSection), in order. Here so main can check `settings:open {section}`. */
+export const SECTIONS = ['general', 'permissions', 'privacy', 'account', 'shortcuts'] as const
+export type Section = (typeof SECTIONS)[number]
+export const isSection = (s: unknown): s is Section => typeof s === 'string' && (SECTIONS as readonly string[]).includes(s)
+
+/** What each key is called in the sheet. */
+export const KEY_LABEL: Record<KeyName, string> = {
+  anthropic: 'Anthropic',
+  gemini: 'Gemini',
+  elevenlabs: 'ElevenLabs'
+}
+
+/** Rows shown in the sheet. ElevenLabs is hidden: voice speaks with the computer's own voice now (Adrian, Sat),
+ * but the key name stays in storage and in config.keys so the engine contract is unchanged. */
+export const SHOWN: readonly KeyName[] = KEY_NAMES.filter((k) => k !== 'elevenlabs')
+
+/** settings:about: what the sidebar footer shows. */
+export type AboutView = { version?: string }
+
+/** settings:delete (Privacy › Delete my data): what was erased on this Mac. */
+export type DeleteResult = { ok: boolean; keys: KeysView }
+
+/** A patch that removes every stored key. */
+export function clearAll(): SavePatch {
+  const out: SavePatch = {}
+  for (const k of KEY_NAMES) out[k] = null
+  return out
+}
+
+/** The cloud install token's phase (main/features/cloud.ts CloudView, the fields this check reads). */
+export type CloudPhaseView = { configured: boolean; state: 'off' | 'minting' | 'ok' | 'failed' }
+
+/**
+ * A required key the engine has no source for at all (not even its .env), and no miyagi cloud to cover it. With the
+ * cloud configured and its token minted or still minting, no key is needed: never ask for one (bring-your-own-key
+ * stays in Settings › Account).
+ */
+export function needsKeys(status: Partial<KeyStatus> | undefined, cloud?: CloudPhaseView): boolean {
+  if (cloud?.configured && (cloud.state === 'ok' || cloud.state === 'minting')) return false
   return !!status && REQUIRED.some((k) => status[k] === 'missing')
 }

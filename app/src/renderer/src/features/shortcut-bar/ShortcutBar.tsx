@@ -19,6 +19,7 @@ import { ArrowLeft, AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, 
 import { cmd } from '../../../../common/wire'
 import { bridge, registerWebHandler } from '../../bridge'
 import { emitUi } from '../../core/bus'
+import { useDock } from '../../core/dock'
 import { useLesson, useProgress } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
@@ -27,6 +28,7 @@ import { actionTone, copy, glass, spring, type OptionAction } from '../../core/t
 import { useCards } from '../cards/store'
 import { useComplete } from '../complete/store'
 import { useDiagram, useUnseen } from '../diagrams/store'
+import { LESSON_PANEL_V2 } from '../drawer/geometry'
 import { useLauncherOpen } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
@@ -191,7 +193,12 @@ function Handle({ bottom, height, onReach }: { bottom: number; height: number; o
 export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; dock?: number; lift?: number }): ReactNode {
   // Michael's test 8: no Hint / Skip / Check my work under the lesson-complete panel (it has its own End lesson).
   const completing = useComplete((c) => !!c.card)
-  const on = useLesson((x) => !!x.lesson) && !completing
+  // v2 (A1): the lesson panel carries Check, the help row, Back and Voice; the bar steps away while it is open.
+  // A "Just teach me" lesson (v2 panel) keeps it away in Mini too (Les-Mini: only the pill; clicking it reopens the
+  // panel, and the keys still work through core/shortcuts). Video lessons keep the bar as before.
+  const panelOpen = useDock((d) => d.open)
+  const v2Lesson = useLesson((x) => x.lesson?.mode === 'lesson') && LESSON_PANEL_V2
+  const on = useLesson((x) => !!x.lesson) && !completing && !panelOpen && !v2Lesson
   const hasStep = useLesson((x) => !!x.stepId)
   const diagramOpen = useDiagram((d) => d.open)
   // The step has a diagram the learner hasn't opened: a small neutral dot on the Diagram tile (nothing opens by itself).
