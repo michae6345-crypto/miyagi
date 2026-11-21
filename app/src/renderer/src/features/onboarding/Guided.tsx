@@ -35,6 +35,7 @@ import { wordColor } from './Row'
 import type { Row } from './rows'
 import { canSkip, firstOpen, guidedRows, nextOpen, STEP_COPY, statusLine, type StepId } from './steps'
 import { runAction, setGuidedStep, skipStep, useOnboarding } from './store'
+import { ease, fade, stagger as motionStagger } from '../../core/ui/motion'
 
 /** How long a step that just turned green stays up before the walk moves on. */
 export const ADVANCE_MS = 1100
@@ -57,9 +58,9 @@ const slide: Variants = {
   shown: ({ delay }: Slide) => ({
     opacity: 1,
     x: 0,
-    transition: { x: { ...spring, delay }, opacity: { duration: 0.18, delay, ease: EASE_OUT }, staggerChildren: 0.035, delayChildren: delay + 0.02 }
+    transition: { x: { ...spring, delay }, opacity: { ...fade.in, delay }, staggerChildren: motionStagger.each, delayChildren: delay + 0.02 }
   }),
-  exit: ({ d }: Slide) => ({ opacity: 0, x: d * -16, transition: { duration: 0.12, ease: EASE_OUT } })
+  exit: ({ d }: Slide) => ({ opacity: 0, x: d * -16, transition: fade.out })
 }
 
 /** Still on its way by itself (the engine starting, access being set up): no button to press, so the line moves. */
@@ -78,7 +79,7 @@ function SoftProgress(): ReactNode {
         style={{ background: fill.practicing, borderRadius: radius2.round }}
         initial={reduce ? { opacity: 0.35, x: '130%' } : { x: '-100%' }}
         animate={reduce ? { opacity: [0.35, 0.9, 0.35] } : { x: '360%' }}
-        transition={reduce ? { duration: 2, ease: 'easeInOut', repeat: Infinity } : { duration: 1.6, ease: [0.77, 0, 0.175, 1], repeat: Infinity, repeatDelay: 0.2 }}
+        transition={reduce ? { duration: 2, ease: ease.inOut, repeat: Infinity } : { duration: 1.6, ease: ease.inOut, repeat: Infinity, repeatDelay: 0.2 }}
       />
     </span>
   )
@@ -93,7 +94,7 @@ function Status({ row, advancing }: { row: Row; advancing: boolean }): ReactNode
       style={{ borderRadius: radius2.chip, background: surface.row, boxShadow: `inset 0 1px 0 ${fill.highlight}, inset 0 0 0 1px ${fill.hairline}` }}
     >
       <AnimatePresence mode="wait" initial={false}>
-        <motion.span key={row.state} className="flex" initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, transition: { duration: 0.08 } }} transition={spring}>
+        <motion.span key={row.state} className="flex" initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, transition: fade.instant }} transition={spring}>
           <StatusGlyph state={row.state} size={20} />
         </motion.span>
       </AnimatePresence>
@@ -357,12 +358,12 @@ export function Guided({
           <motion.div layoutId={MARK_ID} className="relative" style={{ width: 22, height: 22 }} transition={{ layout: spring }}>
             <MiyagiMark size={22} />
           </motion.div>
-          <motion.span className="flex" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25, delay: enterDelay }}>
+          <motion.span className="flex" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.slow, delay: enterDelay }}>
             <MiyagiWordmark height={15} className="block h-[15px] w-auto" />
           </motion.span>
         </div>
         {row && idx !== undefined && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25, delay: enterDelay }}>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.slow, delay: enterDelay }}>
             <Dots items={steps.map((s, i) => ({ id: s.id, label: STEP_COPY[s.id].short, state: i === idx ? "current" : s.state === "passed" || done.has(s.id) ? "done" : "next" }))} />
           </motion.div>
         )}
@@ -392,7 +393,7 @@ export function Guided({
             className="mx-auto flex h-full w-full max-w-[860px] flex-col justify-center gap-[16px] px-[56px]"
             initial={chrome === 'flow' ? { opacity: 0 } : false}
             animate={{ opacity: 0.6 }}
-            transition={{ duration: 0.25, delay: chrome === 'flow' ? enterDelay + SKELETON_WAIT : 0 }}
+            transition={{ ...fade.slow, delay: chrome === 'flow' ? enterDelay + SKELETON_WAIT : 0 }}
           >
             <span className="block h-[56px] w-[56px]" style={{ borderRadius: radius2.group, background: fill.skeleton }} />
             <span className="mt-[8px] block h-[24px] w-[320px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
@@ -406,7 +407,7 @@ export function Guided({
 
         initial={{ opacity: 0 }}
         animate={{ opacity: row ? 1 : 0 }}
-        transition={{ duration: 0.25, delay: enterDelay }}
+        transition={{ ...fade.slow, delay: enterDelay }}
       >
         <div data-onb-back>{idx !== undefined && idx > 0 && <QuietButton size="lg" icon={ChevronLeft} label="Back" onClick={back} />}</div>
         <div className="flex items-center gap-[12px]">

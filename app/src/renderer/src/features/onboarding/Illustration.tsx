@@ -18,6 +18,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
 import type { Row } from './rows'
 import { useOnboarding } from './store'
+import { fade } from '../../core/ui/motion'
 
 /** A raised card: lighter step, a brighter top edge, a hairline, a soft two-layer lift (UI-POLISH-SPEC 2). */
 export const raisedCard = {
@@ -30,7 +31,7 @@ function Switch({ on }: { on: boolean }): ReactNode {
   return (
     <span aria-hidden className="relative block shrink-0 overflow-hidden" style={{ width: 34, height: 20, borderRadius: radius2.round, background: fill.toggleOff }}>
       {/* The on track fades over the off one (opacity), the knob slides (x). */}
-      <motion.span className="absolute inset-0 block" style={{ background: color.accent }} initial={false} animate={{ opacity: on ? 1 : 0 }} transition={{ duration: 0.18 }} />
+      <motion.span className="absolute inset-0 block" style={{ background: color.accent }} initial={false} animate={{ opacity: on ? 1 : 0 }} transition={fade.in} />
       <motion.span
         className="absolute left-[2px] top-[2px] block"
         style={{ width: 16, height: 16, borderRadius: radius2.round, background: on ? color.onAccent : color.text }}
@@ -80,7 +81,7 @@ function SettingsPane({ row, pane }: { row: Row; pane: string }): ReactNode {
             style={{ borderRadius: radius2.row, boxShadow: `inset 0 0 0 1px ${color.label}` }}
             initial={false}
             animate={{ opacity: focus ? 1 : 0 }}
-            transition={{ duration: 0.2 }}
+            transition={fade.in}
           />
           <MiyagiMark size={22} />
           <span style={{ fontSize: type2.sm, fontWeight: 500, color: color.text }}>miyagi</span>
@@ -169,8 +170,8 @@ function EngineCard({ row }: { row: Row }): ReactNode {
                 style={{ fontSize: type2.xs, color: p.state === 'passed' ? color.green : color.label }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                exit={{ opacity: 0, transition: { duration: 0.08 } }}
-                transition={{ duration: 0.16 }}
+                exit={{ opacity: 0, transition: fade.instant }}
+                transition={fade.in}
               >
                 {p.word}
               </motion.span>

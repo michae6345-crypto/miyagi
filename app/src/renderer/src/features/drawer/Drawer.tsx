@@ -31,6 +31,7 @@ import { HANDLE, TAB } from './geometry'
 import { count, lessonOutline, planTotal, useJustEnded, useStepDetail, useStepStatuses, type StepStatus } from './plan'
 import { closeDrawer, isWebLink, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
+import { enter, fade } from '../../core/ui/motion'
 
 /**
  * Row geometry: icon column, gap, time column. The current step's checks line up with its title. A plan row with no
@@ -70,7 +71,7 @@ export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; show
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
+          transition={fade.in}
           onHoverStart={() => setHover(true)}
           onHoverEnd={() => setHover(false)}
           onMouseDown={(e) => e.preventDefault()}
@@ -122,7 +123,7 @@ function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOp
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: out }}
           whileHover={{ x: left ? 2 : -2 }}
-          transition={{ ...spring, opacity: { duration: 0.18 } }}
+          transition={{ ...spring, opacity: fade.in }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={onOpen ?? toggleDrawer}
         >
@@ -187,8 +188,8 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
       }}
       initial={{ x: away, opacity: 0 }}
       animate={{ x: drag.dx, opacity: 1 }}
-      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: { duration: 0.18 } } }}
-      transition={{ ...spring, opacity: { duration: 0.18 } }}
+      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: fade.in } }}
+      transition={{ ...spring, opacity: fade.in }}
     >
       <div
         data-part="drawer-header"
@@ -633,7 +634,7 @@ function StepRow({
       style={{ background: open ? glass.fieldHover : 'transparent' }}
       initial={enterDelay === undefined ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ ...spring, delay: enterDelay ?? 0, opacity: { duration: 0.25, delay: enterDelay ?? 0 } }}
+      transition={enter(enterDelay ?? 0, fade.slow)}
     >
       <button
         type="button"
@@ -652,8 +653,8 @@ function StepRow({
               className="grid place-items-center"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0, transition: { duration: 0.08 } }}
-              transition={{ duration: 0.15 }}
+              exit={{ opacity: 0, transition: fade.instant }}
+              transition={fade.in}
             >
               <StepIcon status={status} n={n} />
             </motion.span>
@@ -686,7 +687,7 @@ function StepRow({
           style={{ paddingLeft: indent, paddingRight: ROW.padX }}
           initial={mounted ? { opacity: 0 } : false}
           animate={{ opacity: 1 }}
-          transition={{ duration: 0.2 }}
+          transition={fade.in}
         >
           <CheckList checks={checks} surface="glass" />
         </motion.div>
@@ -747,8 +748,8 @@ function PendingRow({ waiting, part, more, timeW }: { waiting: boolean; part?: s
       style={{ height: timeW ? ROW.h : ROW.wrapH, paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap }}
       initial={mounted ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.18 } }}
-      transition={{ duration: 0.25 }}
+      exit={{ opacity: 0, transition: fade.in }}
+      transition={fade.slow}
     >
       <span className="grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon }}>
         {waiting ? (

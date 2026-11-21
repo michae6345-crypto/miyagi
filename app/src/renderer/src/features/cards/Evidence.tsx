@@ -21,6 +21,7 @@ import { diffLines, fitRows, isProse, LITERAL, NUMBER, readingValue, readsAsCode
 import { Curve, fmt, plotArray, plotPoints, type Line, type XY } from './Curve'
 import { useSeries } from './store'
 import { onMessage } from '../../core/bus'
+import { fade } from '../../core/ui/motion'
 
 /** When the current off-track arrived: a live series that stopped well before it is an earlier run's, not this error's. */
 let offtrackAt = 0
@@ -232,7 +233,7 @@ function Chevron({ side, bar, onClick }: { side: 'left' | 'right'; bar: number; 
       className="absolute top-0 flex cursor-pointer items-center justify-center"
       style={{ ...(side === 'left' ? { left: 0 } : { right: 0 }), bottom: bar, width: CUE, color: color.faint }}
       whileHover={{ color: color.text }}
-      transition={{ duration: 0.12 }}
+      transition={fade.tint}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >

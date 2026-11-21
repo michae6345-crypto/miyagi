@@ -18,8 +18,8 @@
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { RotateCw } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { color, duration, ease, fill, focus, highlight, radius2, spring, stagger, surface, type2 } from '../../core/theme'
-import { pressMotion, riseIn } from '../../core/ui/motion'
+import { color, duration, fill, focus, highlight, radius2, spring, stagger, surface, type2 } from '../../core/theme'
+import { ease, pressMotion, riseIn } from '../../core/ui/motion'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
 import { Skeleton } from '../../core/ui/Thinking'
 import { copyBootDetails, retryBoot, useBoot, useBootClock, type BootPhase } from './startup'
@@ -53,7 +53,7 @@ export function BootLine({ done = false, inset = TEXT_X, right = 10, bottom = 5 
       return () => c.stop()
     }
     const c = reduce
-      ? animate(seg.current, { opacity: [0.22, 0.6, 0.22] }, { duration: 2.4, repeat: Infinity, ease: 'easeInOut' })
+      ? animate(seg.current, { opacity: [0.22, 0.6, 0.22] }, { duration: 2.4, repeat: Infinity, ease: ease.inOut })
       : animate(seg.current, { x: ['-34%', '100%'] }, { duration: 1.7, repeat: Infinity, repeatDelay: 0.3, ease: ease.inOut })
     return () => c.stop()
   }, [done, reduce, animate, seg])

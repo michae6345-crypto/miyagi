@@ -6,7 +6,7 @@
  *
  * Owner: core. Features add modes; they don't edit this file.
  */
-import { AnimatePresence, motion, useIsPresent } from 'motion/react'
+import { AnimatePresence, motion, useIsPresent, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
@@ -20,7 +20,8 @@ import { MiyagiMark } from './ui/Mark'
 import { getIslandModes } from './registry'
 import { perf } from './perf'
 import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
-import { color, duration, ease, pill, shadows, spring, springOut } from './theme'
+import { color, pill, shadows } from './theme'
+import { beat, ease, fade, instant, sizeMove, spring, springOut } from './ui/motion'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
 const PRESS_HOLD_MS = 1500
@@ -32,12 +33,19 @@ const PRESS_HOLD_MS = 1500
  */
 export type IslandBox = { x: number; y: number; w: number; h: number; mode?: string; pill: boolean; visible: boolean }
 const useIslandBoxStore = create<IslandBox>(() => ({ x: 0, y: 0, w: 0, h: 0, mode: undefined, pill: true, visible: false }))
-export function useIslandBox(): IslandBox {
-  return useIslandBoxStore()
+/** The whole box, or one value of it (`useIslandBox((b) => b.mode)`: re-renders only when that value changes). */
+export function useIslandBox(): IslandBox
+export function useIslandBox<T>(select: (b: IslandBox) => T): T
+export function useIslandBox<T>(select?: (b: IslandBox) => T): T | IslandBox {
+  return useIslandBoxStore((select ?? ((b: IslandBox) => b)) as (b: IslandBox) => T | IslandBox)
 }
+/** The box right now, without subscribing: for an animation target read when the animation starts. */
+export const islandBoxNow = (): IslandBox => useIslandBoxStore.getState()
 
 export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
   const [hover, setHover] = useState(false)
+  // Reduce Motion: the shape snaps to its new size (MotionConfig drops transforms, not sizes); the content still fades.
+  const reduced = useReducedMotion()
   const [landing, setLanding] = useState(false)
   /** The first spring after a landing must start from rest: the one-frame snap leaves a big velocity that made the pill balloon (~540–830px) before settling. */
   const [justLanded, setJustLanded] = useState(false)
@@ -53,6 +61,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const [pointerIn, setPointerIn] = useState(false)
   const [pressHold, setPressHold] = useState(false)
   const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const landedTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Ask every registered mode whether it wants the island. (Stable array → stable hook order.)
   const islandModes = getIslandModes()
@@ -105,7 +114,8 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         setLanding(true)
         setJustLanded(true)
         requestAnimationFrame(() => requestAnimationFrame(() => setLanding(false)))
-        setTimeout(() => setJustLanded(false), 700)
+        clearTimeout(landedTimer.current)
+        landedTimer.current = setTimeout(() => setJustLanded(false), 700)
       }),
       bridge.on('launcher:open', () => setYielded(true)),
       bridge.on('launcher:closed', () => setYielded(false)),
@@ -115,7 +125,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       // Main: wake from sleep, unlock, a display change, a hung overlay renderer.
       bridge.on('island:collapse', () => collapseRef.current())
     ]
-    return () => offs.forEach((off) => off())
+    return () => {
+      offs.forEach((off) => off())
+      clearTimeout(landedTimer.current)
+    }
   }, [])
 
   // Measure the active mode's live layer; the container springs to its size (Michael's review A1). The layer is found
@@ -147,7 +160,14 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       setSize((s) => (s.w === next.w && s.h === next.h ? s : next))
       setSized(true)
     }
-    const measure = (el: HTMLElement): void => apply({ w: el.offsetWidth, h: el.offsetHeight })
+    const measure = (el: HTMLElement): void => {
+      // Motion (docs/MOTION.md): a text slot inside a pill (pill/parts SwapText) springs its own width and says where it
+      // is going (data-swap-w). Measure the layer at that width, so the island springs once, in step with the slot,
+      // instead of re-measuring, re-rendering and re-aiming on every frame of the slot's spring. A card's width is fixed.
+      let grow = 0
+      if (fixed === undefined || layerEmpty) for (const slot of el.querySelectorAll<HTMLElement>('[data-swap-w]')) grow += Number(slot.dataset.swapW) - slot.offsetWidth
+      apply({ w: el.offsetWidth + (Number.isFinite(grow) ? grow : 0), h: el.offsetHeight })
+    }
     const bind = (): void => {
       const el = root.querySelector<HTMLElement>(`[data-island-layer="${CSS.escape(modeId)}"]`)
       if (!el) {
@@ -355,7 +375,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           height: landing ? pill.height : size.h,
           borderRadius: isPill ? pill.height / 2 : 24
         }}
-        transition={landing || !sized ? { duration: 0 } : { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) }}
+        transition={landing || !sized ? instant : sizeMove(reduced, { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) })}
         onMouseEnter={enter}
         onMouseLeave={leave}
         onPointerDownCapture={press}
@@ -367,7 +387,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           style={{ background: color.green }}
           initial={{ opacity: 0 }}
           animate={{ opacity: passFlash ? [0, 0.25, 0] : 0 }}
-          transition={{ duration: 0.6, ease: 'easeInOut' }}
+          transition={{ duration: 0.6, ease: ease.inOut }}
         />
         <AnimatePresence initial={false}>
           <Layer key={mode.id} id={mode.id} width={mode.width} onEmpty={setLayerEmpty}>
@@ -434,7 +454,7 @@ function Layer({ id, width, onEmpty, children }: { id: string; width?: number; o
     const ro = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
     if (body.current) ro?.observe(body.current)
     const born = Date.now()
-    const fade = (): void => {
+    const unstick = (): void => {
       const el = layer.current
       if (!el || Date.now() - born < FADE_GRACE_MS) return
       if (Number(getComputedStyle(el).opacity) < 0.99) el.style.opacity = '1'
@@ -442,9 +462,9 @@ function Layer({ id, width, onEmpty, children }: { id: string; width?: number; o
     }
     const t = setTimeout(() => {
       measure()
-      fade()
+      unstick()
     }, FADE_GRACE_MS)
-    const iv = setInterval(fade, 500)
+    const iv = setInterval(unstick, 500)
     return () => {
       clearTimeout(zeroTimer.current)
       clearTimeout(t)
@@ -459,8 +479,8 @@ function Layer({ id, width, onEmpty, children }: { id: string; width?: number; o
       className="absolute left-1/2 top-0"
       style={{ x: '-50%', width: empty && present ? 'max-content' : (width ?? 'max-content'), transformOrigin: '50% 0%' }}
       initial={{ opacity: 0, y: 4, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { duration: duration.base, delay: 0.06, ease: ease.out } } }}
-      exit={{ opacity: 0, scale: 0.98, transition: { duration: duration.instant } }}
+      animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { ...fade.in, delay: beat } } }}
+      exit={{ opacity: 0, scale: 0.98, transition: fade.instant }}
     >
       <div ref={body}>{children}</div>
       {empty && present && !bodyResting && <RestingPill />}
