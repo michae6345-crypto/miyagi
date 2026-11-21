@@ -19,7 +19,7 @@
  * Settings) are activated by the press instead, and nothing is dropped there, so they aren't hooked.
  * Checked on Windows 11 (installed build, raw mouse input): gear → Settings → ✕, again and again, presses held 0-150 ms.
  */
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, Menu, screen } from 'electron'
 import { defineMainFeature } from '../context'
 
 /** electron-builder.yml appId: the AppUserModelID the installer gives miyagi's shortcuts. */
@@ -85,6 +85,14 @@ export default defineMainFeature({
 
     if (!ctx.app.isPackaged) return
     // Runs before the core windows' ready-to-show, so a second instance exits before anything appears.
-    if (!ctx.app.requestSingleInstanceLock()) ctx.app.exit(0)
+    if (!ctx.app.requestSingleInstanceLock()) {
+      ctx.app.exit(0)
+      return
+    }
+    // No menu bar. main/index.ts sets the one app menu on macOS only, so Windows kept Electron's default (File, Edit,
+    // View, Window): Alt showed it on every app window (home, setup), and it shipped Reload (Ctrl+R) and Toggle
+    // Developer Tools (Ctrl+Shift+I) to learners. Text fields keep Ctrl+C / Ctrl+V / Ctrl+A / Ctrl+Z without it (only
+    // macOS needs the Edit menu for those); Alt+F4 and the title bar still close, minimize and maximize.
+    Menu.setApplicationMenu(null)
   }
 })
