@@ -1,17 +1,19 @@
 /**
  * Feature: errors. The pill lines (pill-sized island modes, no card, no sound):
  *
- *   err-reconnecting (7)  "Reconnecting to engine  2 of 5", then "Back. Picking up where you were."   Err-EngineReconnect
+ *   err-stopped (7)       "miyagi stopped responding  [Restart]": the engine-offline card folded by Esc (never lost)
+ *   err-reconnecting (7)  "Reconnecting to miyagi  try 2 of 5", then "Back. Picking up where you were."   Err-EngineReconnect
+ *                         (the try count is in the body font: "N of M" in mono is the step counter's form only)
  *   err-blocker (7)       "VS Code closed. Lesson paused.  Step 3 of 6", "Opening VS Code", "Back on Build the model",
  *                         "Pick a kernel so your cells can run  [Select Kernel ▷]"                  Err-VSCodeClosed, Err-KernelInContext
  *   err-net-offline (6)   "Offline. Steps work, checks wait.", then "Online. Checking your work now." Err-OfflineAndLimits
- *   err-busy (6)          "Busy right now. Retrying in  20s"                                         Err-OfflineAndLimits
+ *   err-busy (6)          "miyagi is busy. Trying again in 20 s"                                     Err-OfflineAndLimits
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { copy } from '../../core/theme'
 import { useCurrentStep, useLesson } from '../../core/lesson'
 import { PillLine } from './parts'
-import { reconnectTry, TRIES, useErrors, useNetOffline } from './store'
+import { reconnectTry, restartFromPill, TRIES, useErrors, useNetOffline } from './store'
 
 /** Engine copy goes through the editor-name guard: a line naming an unsupported editor falls back to ours. */
 export function guard(text: string | undefined, fallback: string): string {
@@ -22,7 +24,7 @@ export function guard(text: string | undefined, fallback: string): string {
 export function ReconnectLine(): ReactNode {
   const n = useErrors(reconnectTry)
   const back = useErrors((s) => (s.flash?.id === 'back' ? s.flash.text : undefined))
-  if (n) return <PillLine id="reconnecting" glyph="arc" text="Reconnecting to engine" mono={`${n} of ${TRIES}`} />
+  if (n) return <PillLine id="reconnecting" glyph="arc" text="Reconnecting to miyagi" meta={`try ${n} of ${TRIES}`} />
   return <PillLine id="back" glyph="tick" text={back ?? 'Back. Picking up where you were.'} />
 }
 
@@ -65,6 +67,18 @@ export function BusyLine(): ReactNode {
     return () => clearInterval(t)
   }, [counting, busy?.at])
   const left = busy?.retryInS !== undefined ? Math.max(0, Math.ceil(busy.retryInS - (now - busy.at) / 1000)) : undefined
-  if (left === undefined || left === 0) return <PillLine id="busy" glyph="arc" text="Busy right now. Retrying" />
-  return <PillLine id="busy" glyph="arc" text="Busy right now. Retrying in" mono={`${left}s`} monoHidden />
+  if (left === undefined || left === 0) return <PillLine id="busy" glyph="arc" text="miyagi is busy. Trying again" />
+  return <PillLine id="busy" glyph="arc" text="miyagi is busy. Trying again in" meta={`${left} s`} metaHidden />
+}
+
+/**
+ * The engine-offline card, folded by Esc: the outage stays on the pill. Its button does what the card's primary does
+ * (restart the bundled engine, or retry the link when it runs in Terminal) and unfolds the card to show it working,
+ * so one press is enough.
+ */
+export function StoppedLine(): ReactNode {
+  const outside = useLesson((s) => s.localEngine?.state === 'external' || s.localEngine?.state === 'off')
+  const refused = useErrors((s) => s.restart === 'external')
+  const external = outside || refused
+  return <PillLine id="stopped" glyph="ring" text={`${copy.name} stopped responding`} action={{ label: external ? 'Try again' : 'Restart', onClick: restartFromPill }} />
 }

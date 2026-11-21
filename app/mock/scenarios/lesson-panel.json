@@ -12,7 +12,13 @@
     "stage.panel:checking": "lp_stage_checking",
     "stage.panel:notyet": "lp_stage_notyet",
     "stage.panel:hint": "lp_hint",
-    "stage.panel:passed": "lp_pass"
+    "stage.panel:passed": "lp_pass",
+    "action:hint@step_lp_hint1": "lp_hint2",
+    "action:check_step@step_lp_hint1": "lp_check2",
+    "action:explain@step_lp_hint1": "lp_explain",
+    "action:hint@step_lp_hint2": "lp_hint2",
+    "action:check_step@step_lp_hint2": "lp_check2",
+    "action:explain@step_lp_hint2": "lp_explain"
   },
   "segments": {
     "lp_connect": [
@@ -318,7 +324,7 @@
           "stepId": "lp-2",
           "kind": "hint",
           "title": "Hint",
-          "body": "Divide each array by the largest pixel value, `255.0`.\nDo it for `x_train` and `x_test`.",
+          "body": "Pixels run from 0 to 255.\nDividing by `255.0` puts every value between 0 and 1.",
           "hintStep": {
             "n": 1,
             "of": 2
@@ -331,6 +337,10 @@
         "payload": {
           "state": "watching"
         }
+      },
+      {
+        "wait": 0,
+        "goto": "step_lp_hint1"
       }
     ],
     "lp_explain": [
@@ -482,6 +492,43 @@
           "code": "model.compile(optimizer=\"adam\", loss=\"sparse_categorical_crossentropy\", metrics=[\"accuracy\"])",
           "where": "Type this in a new cell"
         }
+      }
+    ],
+    "step_lp_hint1": [],
+    "step_lp_hint2": [],
+    "lp_hint2": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking",
+          "detail": "Writing the next hint"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "lp-2",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "Line 1 is the one to type first.\nThen the same for `x_test` on line 2.",
+          "hintStep": {
+            "n": 2,
+            "of": 2
+          }
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 0,
+        "goto": "step_lp_hint2"
       }
     ]
   }

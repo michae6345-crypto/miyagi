@@ -6,7 +6,7 @@
  * section's local state (a recording, a delete confirm) are dropped with the sheet. `live` is false while the sheet
  * collapses: no Save, no Test, no permission polling.
  */
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { fill } from '../../core/theme'
@@ -26,9 +26,6 @@ export function Shell({ live, onClose }: { live: boolean; onClose: () => void })
   const section = useSettings((s) => s.section)
   const flow = useKeyFlow(live)
   const [about, setAbout] = useState<AboutView>()
-  // Polish: Settings.tsx already fades and lifts the whole sheet on open, so the first section skips its own rise.
-  // The section the sheet opened on (state, not a ref read in render): only a later section rises.
-  const [first] = useState(section)
 
   useEffect(() => {
     let on = true
@@ -43,23 +40,26 @@ export function Shell({ live, onClose }: { live: boolean; onClose: () => void })
 
   return (
     <div className="flex h-full w-full">
-      <Sidebar section={section} onSelect={(s) => isSection(s) && setSection(s)} onClose={onClose} version={about?.version} />
-      {/* Polish: a new section rises 6 px and fades in on the spring (keyed on the section; opacity only with reduced
-          motion). Not on open: the sheet's own entrance covers the first section. */}
-      <motion.main
-        key={section}
-        initial={section === first ? false : riseIn.initial}
-        animate={riseIn.animate}
-        transition={riseIn.transition}
-        className="flex min-w-0 flex-1 flex-col gap-[24px] overflow-y-auto px-[40px] py-[32px]"
+      <Sidebar section={section} onSelect={(s, via) => isSection(s) && setSection(s, via)} onClose={onClose} version={about?.version} />
+      <main
+        id="settings-panel"
+        role="tabpanel"
+        aria-labelledby={`settings-tab-${section}`}
+        className="relative min-w-0 flex-1 overflow-y-auto"
         style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
       >
-        {section === 'general' && <General live={live} />}
-        {section === 'permissions' && <Permissions live={live} />}
-        {section === 'privacy' && <Privacy secure={flow.view?.secure} onDeleted={flow.replaceView} />}
-        {section === 'account' && <Account flow={flow} live={live} />}
-        {section === 'shortcuts' && <Shortcuts />}
-      </motion.main>
+        {/* Section switch: the old one fades out fast, the new one rises in on the core riseIn spring (opacity only
+            with reduced motion, via MotionConfig). Not on open: the sheet's own entrance covers the first section. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div key={section} className="flex flex-col gap-[24px] px-[40px] py-[32px]" {...riseIn}>
+            {section === 'general' && <General live={live} />}
+            {section === 'permissions' && <Permissions live={live} />}
+            {section === 'privacy' && <Privacy secure={flow.view?.secure} onDeleted={flow.replaceView} />}
+            {section === 'account' && <Account flow={flow} live={live} />}
+            {section === 'shortcuts' && <Shortcuts />}
+          </motion.div>
+        </AnimatePresence>
+      </main>
     </div>
   )
 }

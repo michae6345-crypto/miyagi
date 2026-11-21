@@ -6,7 +6,8 @@
  *   66 err-editor-closed   VS Code closed: "Your place is saved." (Esc folds it into the blocker line)
  *   62 err-build-failed    the build stopped: transcript only, or a cached library lesson
  *   58 err-limit           free checks used up (v2Cloud only: off in Electron, ?v2Cloud=1 in the stage)
- *    7 err-reconnecting    "Reconnecting to engine  N of 5", then "Back."
+ *    7 err-stopped         the engine-offline card folded by Esc: "miyagi stopped responding [Restart]"
+ *    7 err-reconnecting    "Reconnecting to miyagi  try N of 5", then "Back."
  *    7 err-blocker         VS Code closed / opening / back in place, no kernel
  *    6 err-net-offline     offline, then "Online."
  *    6 err-busy            the AI provider is busy, retrying in N s
@@ -16,8 +17,9 @@ import { useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { pill } from '../../core/theme'
 import { BuildFailedCard, CrashCard, EditorClosedCard, EngineOfflineCard, LimitCard } from './cards'
-import { BlockerLine, BusyLine, OfflineLine, ReconnectLine } from './lines'
-import { engineOffline, reconnectTry, useErrors, useNetOffline } from './store'
+import { BlockerLine, BusyLine, OfflineLine, ReconnectLine, StoppedLine } from './lines'
+import { engineOffline, engineStopped, reconnectTry, useErrors, useNetOffline } from './store'
+import './gate'
 
 /** v2Cloud is off this push (BUILD-PLAN section 1): the limit card only shows in the stage with ?v2Cloud=1. */
 const V2_CLOUD = !isElectron && typeof location !== 'undefined' && new URLSearchParams(location.search).get('v2Cloud') === '1'
@@ -72,6 +74,7 @@ export default defineFeature({
       Content: LimitCard
     },
     // Pill lines. Same priority: the first listed wins (the registry's sort is stable).
+    { id: 'err-stopped', priority: 7, useActive: () => useErrors(engineStopped), Content: StoppedLine },
     { id: 'err-reconnecting', priority: 7, useActive: () => useErrors((s) => reconnectTry(s) !== undefined || s.flash?.id === 'back'), Content: ReconnectLine },
     {
       id: 'err-blocker',

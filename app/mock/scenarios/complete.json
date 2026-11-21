@@ -3376,13 +3376,15 @@
                 "id": "backpropagation",
                 "label": "Backpropagation",
                 "state": "mastered",
-                "detail": "the chain rule, one layer at a time"
+                "detail": "the chain rule, one layer at a time",
+                "lesson": true
               },
               {
                 "id": "training-loop",
                 "label": "Training loop (gradient descent)",
                 "state": "mastered",
-                "detail": "W -= lr * dW, epoch after epoch"
+                "detail": "W -= lr * dW, epoch after epoch",
+                "lesson": true
               },
               {
                 "id": "symmetry-breaking",

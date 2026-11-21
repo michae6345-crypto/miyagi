@@ -9,7 +9,7 @@ import { copy, font, radius2, type2 } from '../../../core/theme'
 import { pressMotion } from '../../../core/ui/motion'
 import { MiyagiMark } from '../../../core/ui/Mark'
 import { StepDots } from '../../../core/ui/StepDots'
-import { tone } from './ui'
+import { Tip, tone } from './ui'
 
 export function Header({
   lessonTitle,
@@ -34,19 +34,21 @@ export function Header({
         <span className="flex-1 truncate" style={{ fontFamily: font.brand, fontSize: type2.body, fontWeight: 600, letterSpacing: '-0.02em' }}>
           {copy.name}
         </span>
-        <motion.button
-          type="button"
-          data-part="panel-collapse"
-          aria-label="Collapse to the pill"
-          title="Collapse to the pill"
-          className="mg-press grid h-[32px] w-[32px] shrink-0 cursor-pointer place-items-center"
-          style={{ borderRadius: radius2.control, color: tone.label }}
-          {...pressMotion()}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onCollapse}
-        >
-          <ChevronUp size={16} strokeWidth={1.6} aria-hidden />
-        </motion.button>
+        <Tip label="Collapse to the pill" k="dismiss">
+          <motion.button
+            type="button"
+            data-part="panel-collapse"
+            aria-label="Collapse to the pill"
+            className="mg-press grid h-[32px] w-[32px] shrink-0 cursor-pointer place-items-center"
+            style={{ borderRadius: radius2.control, color: tone.label }}
+            whileHover={{ color: tone.text }}
+            {...pressMotion()}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onCollapse}
+          >
+            <ChevronUp size={16} strokeWidth={1.6} aria-hidden />
+          </motion.button>
+        </Tip>
       </div>
       <div className="flex flex-col gap-[8px]" style={{ padding: '8px 20px 16px' }}>
         {lessonTitle && (

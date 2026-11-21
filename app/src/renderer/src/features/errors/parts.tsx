@@ -3,10 +3,11 @@
  * mono count or chip), the glyphs (no hue: a white ring, a gray arc, the wifi marks), and the card frame that grows
  * out of the island (header with the Esc keycap, title, body).
  */
-import { useEffect, type ReactNode } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
+import { Children, isValidElement, useEffect, type ReactNode } from 'react'
 import { Spinner } from '../../core/ui/atoms'
 import { Keycap } from '../../core/ui/Keycap'
-import { color, fill, font, radius2, status, type2 } from '../../core/theme'
+import { color, fill, font, radius2, spring, status, type2 } from '../../core/theme'
 import { setVisible, type CardId } from './store'
 
 export type Glyph = 'ring' | 'arc' | 'tick' | 'wifi-off' | 'wifi'
@@ -36,38 +37,54 @@ export function ErrGlyph({ g, size = 16 }: { g: Glyph; size?: number }): ReactNo
   )
 }
 
-/** The pill line: pill-sized (34 high, width hugs the text). `mono` = a count ("2 of 5", "20s"); `chip` = the control to find. */
+/**
+ * The pill line: pill-sized (34 high, width hugs the text). `mono` = the step counter only ("Step 3 of 6"); `meta` = a
+ * quiet count in the body font ("try 2 of 5", "18 s"); `chip` = the control to find; `action` = a small real button.
+ */
 export function PillLine({
   id,
   glyph,
   text,
   mono,
+  meta,
   chip,
+  action,
   live = 'polite',
-  monoHidden
+  metaHidden
 }: {
   id: string
   glyph: Glyph
   text: string
   mono?: string
+  meta?: string
   chip?: string
+  action?: { label: string; onClick: () => void }
   live?: 'polite' | 'off'
-  /** A count that ticks every second (20s, 19s): kept out of the live region so it is not read out each tick. */
-  monoHidden?: boolean
+  /** A count that ticks every second (20 s, 19 s): kept out of the live region so it is not read out each tick. */
+  metaHidden?: boolean
 }): ReactNode {
+  const reduce = useReducedMotion()
   return (
-    <div
+    <motion.div
       data-err-line={id}
       role="status"
       aria-live={live}
       className="flex h-[34px] items-center whitespace-nowrap"
-      style={{ paddingLeft: 12, paddingRight: chip ? 6 : 16, gap: 10, fontSize: type2.sm, fontWeight: 500, color: color.text }}
+      style={{ paddingLeft: 12, paddingRight: chip || action ? 5 : 16, gap: 10, fontSize: type2.sm, fontWeight: 500, color: color.text }}
+      initial={reduce ? { opacity: 0 } : { opacity: 0, y: 3 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...spring, opacity: { duration: 0.18 } }}
     >
       <ErrGlyph g={glyph} />
       <span>{text}</span>
       {mono && (
-        <span aria-hidden={monoHidden || undefined} className="tabular-nums" style={{ fontFamily: font.mono, fontSize: type2.micro, color: color.label }}>
+        <span className="tabular-nums" style={{ fontFamily: font.mono, fontSize: type2.micro, color: color.label }}>
           {mono}
+        </span>
+      )}
+      {meta && (
+        <span aria-hidden={metaHidden || undefined} className="tabular-nums" style={{ fontSize: type2.xs, fontWeight: 400, color: color.label }}>
+          {meta}
         </span>
       )}
       {chip && (
@@ -75,7 +92,21 @@ export function PillLine({
           {chip}
         </span>
       )}
-    </div>
+      {action && (
+        <motion.button
+          type="button"
+          className="flex h-[24px] cursor-pointer items-center"
+          style={{ padding: '0 10px', borderRadius: radius2.round, background: color.accent, color: color.onAccent, fontSize: type2.xs, fontWeight: 600, border: 'none' }}
+          whileHover={{ filter: 'brightness(0.94)' }}
+          whileTap={{ scale: 0.96 }}
+          transition={{ duration: 0.12 }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={action.onClick}
+        >
+          {action.label}
+        </motion.button>
+      )}
+    </motion.div>
   )
 }
 
@@ -109,15 +140,23 @@ export function CardFrame({
   role?: 'dialog' | 'alertdialog'
 }): ReactNode {
   useVisible(id)
+  const reduce = useReducedMotion()
+  // Enter calmly: the card grows out of the island (core), then its parts settle in one after another, 40 ms apart.
+  const part = (i: number): Record<string, unknown> => ({
+    initial: reduce ? { opacity: 0 } : { opacity: 0, y: 6 },
+    animate: { opacity: 1, y: 0 },
+    transition: { ...spring, delay: reduce ? 0 : 0.05 + i * 0.04, opacity: { duration: 0.2, delay: reduce ? 0 : 0.05 + i * 0.04 } }
+  })
+  let n = 0
   return (
     <div data-err-card={id} role={role} aria-labelledby={`${id}-title`} className="flex flex-col" style={{ padding: 20, gap: 16, color: color.text }}>
       {(head || esc) && (
-        <div className="flex min-h-[22px] items-center justify-between gap-3">
+        <motion.div {...part(n++)} className="flex min-h-[22px] items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">{head}</div>
           {esc && <Keycap k="dismiss" />}
-        </div>
+        </motion.div>
       )}
-      <div className="flex flex-col" style={{ gap: 6 }}>
+      <motion.div {...part(n++)} className="flex flex-col" style={{ gap: 6 }}>
         <h2 id={`${id}-title`} className="m-0" style={{ fontSize: type2.lg, lineHeight: '22px', fontWeight: 600 }}>
           {title}
         </h2>
@@ -127,8 +166,17 @@ export function CardFrame({
             {body}
           </p>
         )}
-      </div>
-      {children}
+      </motion.div>
+      {/*
+        Key each block by its child's own key. Children.toArray keys by original slot (".0", ".2", or the child's own
+        key), so a block that appears or goes away (View report / Hide report) doesn't shift and remount the ones
+        after it, which would replay their entrance.
+      */}
+      {Children.toArray(children).map((c, i) => (
+        <motion.div key={isValidElement(c) && c.key != null ? c.key : i} {...part(n + i)} className="flex flex-col" style={{ gap: 16 }}>
+          {c}
+        </motion.div>
+      ))}
     </div>
   )
 }

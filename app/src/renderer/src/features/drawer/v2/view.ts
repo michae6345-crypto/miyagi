@@ -29,7 +29,11 @@ export function pickView(f: { passed: boolean; checking: boolean; notyet: boolea
   return 'working'
 }
 
-function useChecking(): boolean {
+/**
+ * Les-Checking's input: the learner's Check press while the engine thinks (or just after, before it answers), or the
+ * stage's &panel=checking. Exported so the pill beside the panel says the same thing ("Checking", never "Watching").
+ */
+export function useChecking(): boolean {
   const thinking = useThinking()
   const press = usePressed(useShallow((p) => ({ kind: p.kind, at: p.at })))
   const stage = usePanel((s) => !!s.stageChecking)

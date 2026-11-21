@@ -5,7 +5,7 @@
  * Explain, Hint, Show me and Diagram wear their pastel chip (theme.actionTone, options only); the rest are plain.
  * Watch has no shortcut this push (decision 3). Dismiss is fixed.
  *
- * The recorder runs in the browser stage only (env.canRecord; live rebinding is wave 2): click a row, press new keys,
+ * The recorder is off (env.canRecord) until live rebinding ships (wave 2); the rows are read-only. When on: click a row, press new keys,
  * and the accelerator is validated (common/prefs isAccelerator, never a bare key, no clash with another shortcut) and
  * stored in prefs.shortcuts. A stored key shows as words with "Not active yet", since the app doesn't listen to it
  * yet. Esc cancels the recording before it closes the sheet. In Electron the rows are read-only.
@@ -51,7 +51,7 @@ export function Shortcuts(): ReactNode {
     <>
       <PageHeader
         title="Shortcuts"
-        caption={canRecord ? 'Click a shortcut, then press the new keys.' : 'Changing shortcuts comes in a later update.'}
+        caption={canRecord ? 'Click a shortcut, then press the new keys.' : 'Shortcuts work while miyagi is open, in any app.'}
         right={canRecord && any ? <TextButton label="Restore defaults" onClick={() => (cancel(), setPrefs({ shortcuts: {} }))} /> : undefined}
       />
       <Group label="Keyboard shortcuts">
@@ -73,7 +73,7 @@ export function Shortcuts(): ReactNode {
         })}
       </Group>
       <p className="m-0" style={{ fontSize: type2.xs, color: color.label }}>
-        {any && canRecord ? 'New shortcuts take effect in a later update.' : 'Shortcuts work while miyagi is open, in any app.'}
+        {canRecord ? (any ? 'New shortcuts take effect in a later update.' : 'Shortcuts work while miyagi is open, in any app.') : 'Changing them comes in a later update.'}
       </p>
     </>
   )

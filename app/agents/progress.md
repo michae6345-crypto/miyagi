@@ -66,3 +66,33 @@ Not verified: Electron (`npm run dev`), the window's `data-drag` title bar, `pro
 ## Notes
 - `SHOW_ON_VIDEO` lives in `features/progress/index.tsx` (false).
 - `STAGE_HOLD` (`?hold`) and the `?review` launch check are browser-stage only (`engineMode() === 'inline'`).
+
+## Round 3 (surfaces lane, michael/app-surfaces-feel)
+
+**Landed**
+- `mock/scenarios/progress.json` now answers `progress.get` with the dashboard fixture's full shape (`stageAnchor`, per-day `activity`, per-skill `reps`, `inProgress`, `next`, `settings`) and a review list of mastered skills only (`due: 2`, `when` filled for the reminder card). The stage window no longer shows "6 of 13 mastered" beside "Not tracked yet". **This is the stage only:** `activity`, `stageAnchor` and per-skill `reps` are not in `shared/contracts/events.ts` (only `week` is, and the real engine sends `week: null`), so the real app still shows the persona blocker.
+- Completion card (features/complete): no confetti; the hero check springs in, then the result, the steps (ticking in one by one), "Skills in <track>" with the mastered skills as chips ("and N more") and Next up settle in 40 ms apart. Opacity only with reduced motion.
+
+**Stage:** `?scenario=progress&window=progress&clean&size=1440x900`, `?scenario=complete&clean&size=1440x900` (press Next step). Shots: `surfaces-progress-window.jpg`, `surfaces-complete.jpg` in `/Users/tripi/sand hacks/miyagi-v2/screens/round3/`.
+
+**Requests to the home lane (features/dashboard owns the Progress window body)**
+1. Hide Today / This week / Rhythm (or one line) when `activity` is null; remove the Goal stepper until daily reps exist; derive reps from passed steps.
+2. Start review: the card's white primary when due > 0, or say why it is off ("Review opens after this lesson"); split Review into "Due now" and "Coming up"; list mastered skills only.
+3. Skill-node tooltips in a portal (they clip under the row); Skills scroller with a bottom fade and padding; Practicing as a half-filled ring, Locked dashed or with a lock glyph, Review due as a neutral "due" chip, not a dot on the green check.
+4. Engine: `review.items` only for mastered skills; `progress.week` / `activity` from passed steps.
+
+**Fix round 1 (surfaces)**
+- Contract-faithful stage: `?scenario=progress-contract&window=progress&clean&size=1440x900` answers `progress.get` with the contract's shape only (`skills[].items`, `completed[].at`, `review`) and `week: null`, as the real engine does. It shows the real state ("6 of 13 mastered" beside "Not tracked yet"), so the home lane and QA see what learners see. Its trigger is step-scoped (`progress.get@step_progress_contract`), so `full` keeps the rich payload.
+- **The "Not tracked yet" blocker stays open** until the home lane's request 1 (hide the activity blocks when there is no activity) and engine request 4 (`week` / `activity` from passed steps, plus a `contract:` PR for `activity`, `stageAnchor` and `reps`) land.
+- Completion card: Skills, Next up and the actions wait for the last visible step row (`after = 4 + min(steps, ROWS)`), so the replay reads top to bottom. This lesson's skills come first with a quiet "new" tag when a node carries `lesson: true`; without it the track order stays and nothing is tagged. The `complete` scenario marks Backpropagation and Training loop.
+
+**Contract request (fix round 1)**
+5. `SkillNode.lesson?: boolean` on `card.skillMap.nodes` (server/lesson/skillmap.py): true on the skills this lesson taught, so the completion card can name the skill that leveled up. `features/complete/types.ts` already reads it when it is exactly `true`.
+
+**Fix round 2 (surfaces)**
+- Completion card fits the screen (round 3 review blocker: the Skills block pushed it to 906 px on a 900 px screen and an 8-step lesson clipped Start next lesson). `complete/room.ts` reports the room (pillTop to the work area's bottom, less 16 px) from an invisible overlay layer; the card caps there. The hero and the actions stay put and the middle (result, steps, skills, next up) scrolls on its own with a faded edge (top or bottom, whichever hides more; focusable while it scrolls). When the full middle doesn't fit, Skills folds to one row (the first chip, this lesson's own when tagged, then "and N more"), which is enough for a 6-step lesson at 1440x900. The step list no longer has its own scroller (one scroll, not two).
+- Shots: `surfaces-complete-fit.jpg` (1440x900, fits, no scroll), `surfaces-complete-short-scrolled.jpg` (1440x700, middle scrolled to the end, actions visible).
+
+**Still open, tracked for the home lane (not this lane's files)**
+- The Progress window persona blocker is unchanged in the real app: with `?scenario=progress-contract` (what the real engine sends) the window still shows "Not tracked yet" on four cards, the Goal stepper, a disabled "Start review" beside "3 due", Review listing Practicing skills (groupby, broadcasting), and the keras row clipped at the bottom of the Skills card (`review-surfaces-progress-contract.jpg`). Requests 1 to 4 above are the fix and must land before learners see this window.
+- The rich stage mock (`mock/scenarios/progress.json`) also clips the numpy row and the Review list ("Arrays" is cut off) in `review-surfaces-progress.jpg`: the Skills and Review cards need a scroller with padding (request 3).

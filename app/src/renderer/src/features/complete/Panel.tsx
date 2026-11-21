@@ -9,14 +9,23 @@
  *            (the newest metric series, else the trained network's loss). Left out when there's none.
  *   steps    "6 of 6 passed" / "5 of 6 passed, 1 skipped" from card.result, else counted from this lesson's
  *            step.passed events, and every step with its state
+ *   skills   what this lesson grew: the track's mastered skills from skillMap, this lesson's first with a "new" tag
+ *            (node.lesson, when the engine sends it) (a green check is a mastered skill, the
+ *            one place green is earned here besides the hero), up to four, then "and N more"
  *   next up  skillMap.next[0]
+ * Fit: the card never grows past the screen (complete/room.ts: pillTop to the work area's bottom, less 16 px). When the
+ * middle (result to next up) doesn't fit, Skills folds to one row (one chip, then "and N more") and the middle
+ * scrolls with a faded edge, while the hero and the actions stay put: Done / Start next lesson are always on screen.
+ * Motion: no confetti. The hero check springs in, then each block settles in turn (40 ms apart) and the step rows tick
+ * in one after another, so the card reads as a short replay of what was built. Opacity only with reduced motion.
  *   actions  Done (quiet) and the one primary, Start next lesson. Start next lesson needs a way to start: a cached
  *            lesson (next.id + library.start, zero model calls), or the goal outside the browser stage. Otherwise it
  *            is shown disabled. With no next lesson, Done is the primary.
  * Every number on the card comes from the engine's card, its metric lines or its network diagrams.
  */
 import { BookOpen } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { engineMode } from '../../bridge'
 import { useCapability, useLesson } from '../../core/lesson'
@@ -25,15 +34,16 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
-import { color, fill, font, radius2, surface, type2 } from '../../core/theme'
+import { color, fill, font, radius2, spring, surface, type2 } from '../../core/theme'
 import { useOverlayWidth, useSeries } from '../cards/store'
 import { lossStat, plain } from './net'
+import { useRoom } from './room'
 import { endLesson, startCached, startLesson, useComplete, type CompleteCard, type LessonResult } from './store'
 import type { SkillNext } from './types'
 
 export const COMPLETE_W = 408
 const PAD = 24
-/** Step rows shown before the list scrolls (26 px each). */
+/** Step rows that tick in one after another (26 px each); any later rows arrive with the last of them. */
 const ROWS = 8
 
 /** The overlay keeps 16 px from each edge. */
@@ -42,6 +52,16 @@ export function panelWidth(overlay: number): number {
 }
 
 const tab = { fontVariantNumeric: 'tabular-nums' } as const
+/** Each block's entrance: up and in on the house spring, `i` blocks after the hero. */
+const STEP_S = 0.04
+function useEnter(): (i: number) => Record<string, unknown> {
+  const reduce = useReducedMotion()
+  return (i) => ({
+    initial: reduce ? { opacity: 0 } : { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0 },
+    transition: { ...spring, delay: reduce ? 0 : 0.08 + i * STEP_S, opacity: { duration: 0.2, delay: reduce ? 0 : 0.08 + i * STEP_S } }
+  })
+}
 const caption = { fontSize: type2.xs, color: color.label } as const
 
 /** The first up-next lesson (readSkillMap already checked its optional cached id and minutes). */
@@ -144,8 +164,9 @@ function Result({ card }: { card: CompleteCard }): ReactNode {
   )
 }
 
-function Steps({ counts }: { counts?: LessonResult }): ReactNode {
+function Steps({ counts, from = 0 }: { counts?: LessonResult; from?: number }): ReactNode {
   const steps = useSteps()
+  const enter = useEnter()
   if (!steps.length && !counts) return null
   return (
     <div className="flex flex-col gap-[4px]" data-complete-steps>
@@ -160,15 +181,75 @@ function Steps({ counts }: { counts?: LessonResult }): ReactNode {
         )}
       </div>
       {steps.length > 0 && (
-        <ol className="m-0 flex list-none flex-col overflow-y-auto p-0" style={{ maxHeight: ROWS * 26 }}>
-          {steps.map((s) => (
-            <li key={s.id} data-complete-step={s.state} className="flex shrink-0 items-center gap-[12px]" style={{ height: 26, fontSize: type2.sm, color: s.state === 'passed' ? color.text : color.label }}>
+        <ol className="m-0 flex list-none flex-col p-0">
+          {steps.map((s, i) => (
+            <motion.li
+              key={s.id}
+              data-complete-step={s.state}
+              className="flex shrink-0 items-center gap-[12px]"
+              style={{ height: 26, fontSize: type2.sm, color: s.state === 'passed' ? color.text : color.label }}
+              {...enter(from + Math.min(i, ROWS - 1))}
+            >
               <StatusGlyph state={s.state} size={16} still />
               <span className="min-w-0 truncate">{s.title}</span>
-            </li>
+            </motion.li>
           ))}
         </ol>
       )}
+    </div>
+  )
+}
+
+/**
+ * The track's mastered skills, up to four chips, then "and N more". The skills THIS lesson taught (node.lesson, not in
+ * the contract yet: Core request in agents/progress.md) come first and carry a quiet "new" tag, so the card says which
+ * skill leveled up. Without the flag the order is the track's own and nothing is tagged (never a guess).
+ */
+const SKILL_CHIPS = 4
+/** On a short screen (the middle would scroll): one row, the first chip (this lesson's own when tagged) and "and N more". */
+const TIGHT_CHIPS = 1
+function Skills({ card }: { card: CompleteCard }): ReactNode {
+  const tight = useContext(Tight)
+  const map = card.map
+  if (!map) return null
+  const all = map.nodes.filter((n) => n.state === 'mastered')
+  if (!all.length) return null
+  const mastered = [...all.filter((n) => n.lesson), ...all.filter((n) => !n.lesson)]
+  const shown = mastered.slice(0, tight ? TIGHT_CHIPS : SKILL_CHIPS)
+  const more = mastered.length - shown.length
+  return (
+    <div className="flex flex-col gap-[8px]" data-complete-skills>
+      <div className="flex items-baseline justify-between gap-[12px]">
+        <span className="min-w-0 truncate font-semibold" style={caption}>
+          {map.track ? `Skills in ${map.track}` : 'Skills'}
+        </span>
+        <span className="shrink-0" style={{ ...caption, ...tab }}>
+          {mastered.length} of {map.nodes.length} mastered
+        </span>
+      </div>
+      <div className={tight ? 'flex min-w-0 flex-nowrap gap-[6px]' : 'flex flex-wrap gap-[6px]'} data-complete-skills-tight={tight || undefined}>
+        {shown.map((n) => (
+          <span
+            key={n.id}
+            title={tight ? `${n.label}${n.detail ? `: ${n.detail}` : ''}` : n.detail}
+            className={tight ? 'flex h-[26px] min-w-0 shrink items-center gap-[6px]' : 'flex h-[26px] max-w-full items-center gap-[6px]'}
+            style={{ padding: '0 10px 0 6px', borderRadius: radius2.round, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, fontSize: type2.xs, color: color.text }}
+          >
+            <StatusGlyph state="passed" size={14} />
+            <span className="truncate">{n.label}</span>
+            {n.lesson && (
+              <span className="shrink-0" style={{ fontSize: type2.micro, color: color.label }} data-complete-new>
+                new
+              </span>
+            )}
+          </span>
+        ))}
+        {more > 0 && (
+          <span className="flex h-[26px] shrink-0 items-center whitespace-nowrap" style={{ padding: '0 4px', fontSize: type2.xs, color: color.label }}>
+            and {more} more
+          </span>
+        )}
+      </div>
     </div>
   )
 }
@@ -217,6 +298,11 @@ export function CompletePanel(): ReactNode {
   const lessonTitle = useLesson((s) => s.lesson?.title)
   const counts = useCounts(card?.result)
   const w = panelWidth(useOverlayWidth((s) => s.w))
+  const enter = useEnter()
+  // The blocks after the step rows wait for the last visible row, so the replay reads top to bottom.
+  const rows = useSteps().length
+  const after = 4 + Math.min(rows, ROWS)
+  const room = useRoom((s) => s.h)
   if (!card) return null
   // Green only when every counted step passed; no counts, a skip or a missed pass all get the plain ring.
   const clean = !!counts && counts.skipped === 0 && counts.passed >= counts.total
@@ -224,23 +310,116 @@ export function CompletePanel(): ReactNode {
   const minutes = card.result?.minutes
   const next = readNext(card)
   return (
-    <section aria-label="Lesson complete" data-complete="panel" className="flex flex-col" style={{ width: w, padding: PAD, gap: 20 }}>
-      <Header />
-      <div className="flex flex-col gap-[8px]">
-        <StatusGlyph state={clean ? 'passed' : 'skipped'} size={40} />
-        <h1 className="m-0 mt-[8px] font-semibold" style={{ fontSize: 24, lineHeight: '30px', letterSpacing: '-0.01em', color: color.text }} data-complete-head>
-          {clean ? 'Lesson complete' : 'Lesson finished'}
-        </h1>
-        {(subtitle || minutes) && (
-          <p className="m-0" style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label, ...tab }}>
-            {[subtitle, minutes ? `${minutes} min` : ''].filter(Boolean).join(' · ')}
-          </p>
-        )}
+    <section aria-label="Lesson complete" data-complete="panel" className="flex flex-col" style={{ width: w, maxHeight: room, padding: PAD, gap: 20 }}>
+      <div className="flex shrink-0 flex-col" style={{ gap: 20 }}>
+        <Header />
+        <div className="flex flex-col gap-[8px]">
+          <StatusGlyph state={clean ? 'passed' : 'skipped'} size={40} />
+          <motion.h1 className="m-0 mt-[8px] font-semibold" style={{ fontSize: 24, lineHeight: '30px', letterSpacing: '-0.01em', color: color.text }} data-complete-head {...enter(0)}>
+            {clean ? 'Lesson complete' : 'Lesson finished'}
+          </motion.h1>
+          {(subtitle || minutes) && (
+            <motion.p className="m-0" style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label, ...tab }} {...enter(1)}>
+              {[subtitle, minutes ? `${minutes} min` : ''].filter(Boolean).join(' · ')}
+            </motion.p>
+          )}
+        </div>
       </div>
-      <Result card={card} />
-      <Steps counts={counts} />
-      {next && <NextUp next={next} />}
-      <Actions next={next} />
+      <Middle room={room}>
+        <motion.div className="empty:hidden" {...enter(2)}>
+          <Result card={card} />
+        </motion.div>
+        <motion.div className="empty:hidden" {...enter(3)}>
+          <Steps counts={counts} from={4} />
+        </motion.div>
+        <motion.div className="empty:hidden" {...enter(after)}>
+          <Skills card={card} />
+        </motion.div>
+        {next && (
+          <motion.div {...enter(after + 1)}>
+            <NextUp next={next} />
+          </motion.div>
+        )}
+      </Middle>
+      <motion.div className="shrink-0" {...enter(after + 2)}>
+        <Actions next={next} />
+      </motion.div>
     </section>
+  )
+}
+
+/** The middle is short on room: blocks show their compact form. */
+const Tight = createContext(false)
+
+/** The entrance replay is over by then (the last block starts at 0.08 + (6 + ROWS) * STEP_S s, then springs in). */
+const SETTLE_MS = 1400
+
+/** How far the edge fade reaches when the middle scrolls. */
+const FADE = 28
+const thinScroll = { scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` } as CSSProperties
+/** A mask (alpha only, no color): the edge that hides more fades out. */
+function fadeMask(top: boolean, bottom: boolean): string | undefined {
+  if (!top && !bottom) return undefined
+  const start = top ? `transparent 0, black ${FADE}px` : 'black 0'
+  const end = bottom ? `black calc(100% - ${FADE}px), transparent 100%` : 'black 100%'
+  return `linear-gradient(to bottom, ${start}, ${end})`
+}
+
+/**
+ * The card's middle (result, steps, skills, next up). On a short screen it scrolls on its own, between the hero and the
+ * actions, so Done / Start next lesson never leave the screen (round 3 review: an 8-step lesson with skills ran past
+ * 900 px and the overlay clipped the primary).
+ */
+function Middle({ room, children }: { room: number; children: ReactNode }): ReactNode {
+  const ref = useRef<HTMLDivElement>(null)
+  const [edges, setEdges] = useState({ top: false, bottom: false })
+  // Tight: the full middle didn't fit, so Skills folds to one row. Sticky until the room changes, so folding (which
+  // makes it fit) never unfolds it again in a loop.
+  const [tight, setTight] = useState(false)
+  useEffect(() => setTight(false), [room])
+  const measure = useCallback((): void => {
+    const el = ref.current
+    if (!el) return
+    const top = el.scrollTop > 1
+    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1
+    if (el.scrollHeight > el.clientHeight + 1) setTight(true)
+    setEdges((e) => (e.top === top && e.bottom === bottom ? e : { top, bottom }))
+  }, [])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    for (const c of Array.from(el.children)) ro.observe(c)
+    return () => ro.disconnect()
+  }, [measure])
+  // Folding Skills changes the middle's height after the observers above fired, and the entrance's y offsets add
+  // overflow that no resize reports when they settle: look again next frame and once the replay is over.
+  useLayoutEffect(() => {
+    measure()
+    const raf = requestAnimationFrame(measure)
+    const late = setTimeout(measure, SETTLE_MS)
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(late)
+    }
+  }, [tight, measure])
+  const scrolls = edges.top || edges.bottom
+  const mask = fadeMask(edges.top, edges.bottom)
+  return (
+    <div
+      ref={ref}
+      data-complete-middle
+      data-overflow={scrolls ? [edges.top && 'top', edges.bottom && 'bottom'].filter(Boolean).join(' ') : undefined}
+      // Focusable only while it scrolls, so a keyboard learner can read the rest with the arrow keys.
+      tabIndex={scrolls ? 0 : undefined}
+      aria-label={scrolls ? 'Lesson summary' : undefined}
+      className="flex min-h-0 flex-col overflow-y-auto"
+      style={{ gap: 20, ...thinScroll, maskImage: mask, WebkitMaskImage: mask }}
+      onScroll={measure}
+    >
+      <Tight.Provider value={tight}>{children}</Tight.Provider>
+    </div>
   )
 }

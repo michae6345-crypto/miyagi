@@ -19,20 +19,25 @@ type SettingsState = {
   statusSeq: number
   /** The sidebar section on show. An open request with a section switches to it; without one, the last stays. */
   section: SettingsSection
+  /**
+   * How the section was reached: 'keys' = ↑ / ↓ / Home / End in the sidebar (focus stays on the section list so the
+   * arrows keep working); undefined = opened from outside (openSettings) or clicked, so the section may take focus.
+   */
+  via?: 'keys'
 }
 
 export const useSettings = create<SettingsState>(() => ({ open: { seq: 0 }, close: 0, statusSeq: 0, section: 'general' }))
 
 export function requestOpen(from?: Size, section?: unknown): void {
-  useSettings.setState((s) => ({ open: { seq: s.open.seq + 1, from }, section: isSection(section) ? section : s.section }))
+  useSettings.setState((s) => ({ open: { seq: s.open.seq + 1, from }, section: isSection(section) ? section : s.section, via: undefined }))
 }
 
 export function requestClose(): void {
   useSettings.setState((s) => ({ close: s.close + 1 }))
 }
 
-export function setSection(section: unknown): void {
-  if (isSection(section)) useSettings.setState({ section })
+export function setSection(section: unknown, via?: 'keys'): void {
+  if (isSection(section)) useSettings.setState({ section, via })
 }
 
 onMessage('config.status', () => useSettings.setState((s) => ({ statusSeq: s.statusSeq + 1 })))
