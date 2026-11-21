@@ -6,12 +6,13 @@ were dropped from this list and are named at the bottom.
 
 ## Register rows that wait
 
-- Capture only the editor and tutorial windows instead of the whole display (R17, D8). [B]
+- Capture only the editor and tutorial windows instead of the whole display (R18, D8). [B]
 - The false passes after E18: stale output passes (E19), commented-out code and `def` without a call pass (E21),
-  text from any VS Code window latches a pass (E22), "Looks done?" skips the code gate (E23) (R27). [E]
-- Licenses and third-party notices in every build (R43). [B]
-- Site polish: words before 3D, contrast, skip link, a download block after the story (R44). [D]
-- Hint ladder in lesson mode: a question or pointer first, "Do it for me" only after a real attempt (E26, R31). [E]
+  text from any VS Code window latches a pass (E22), "Looks done?" skips the code gate (E23) (R32). [E]
+- A signed update manifest on miyagi.study with a minimum version (R26). [C]
+- Licenses and third-party notices in every build (R48). [B]
+- Site polish: words before 3D, contrast, skip link, a download block after the story (R49). [D]
+- Hint ladder in lesson mode: a question or pointer first, "Do it for me" only after a real attempt (E26, R36). [E]
 - GitHub Pages terms don't allow an "online business": move the site (Cloudflare Pages, Netlify or Vercel) before
   charging (C43). [C]
 - The engine reinstall marker is compared with `!==`, so a rollback re-copies an older engine; cached lessons have no
@@ -116,10 +117,10 @@ were dropped from this list and are named at the bottom.
 - Before electron-builder 27: its defaults drop library-validation relief and unsigned memory, and `notarize: true`
   fails without credentials, so keep explicit plists. [C]
 - Evaluate `SCContentSharingPicker` to avoid the recurring screen-recording alert. [C]
-- An engine port chosen at launch instead of a fixed 8787, and fallback ports for the 47217 sign-in loopback (R42
+- An engine port chosen at launch instead of a fixed 8787, and fallback ports for the 47217 sign-in loopback (R47
   step 2). [C]
 - Windows: a screen-less engine first, then the Microsoft Store (MSIX), then a signed direct download built in CI
-  (R13). [C]
+  (R19). [C]
 - Windows: no app menu, so Electron's default menu (and probably DevTools on Ctrl+Shift+I) is reachable (inferred);
   Alt+F4 closes the launcher or player for good and `display-metrics-changed` then throws (`main/index.ts:491-496`);
   Alt+Q quits instantly (`main/index.ts:488-489`). [A]
@@ -137,6 +138,15 @@ were dropped from this list and are named at the bottom.
 - A "for schools" page with the Google admin setting and, after signing, the PPPC payload. [C]
 - WCAG 2.1 AA on miyagi.study, keyboard support in the overlay, and an accessibility contact. [B]
 
+## Company upkeep (from `lawsuit-protection.md` steps 16-18)
+
+- Join LOT Network once the LLC exists (free under $25M revenue). [B]
+- Pay the $800 California LLC tax on time and file the Statement of Information every two years; no wages without a
+  payroll service. [B]
+- Each founder signs a ratification of the operating agreement and IP assignment within days of turning 18, and asks
+  the lawyer about AI-tool accounts with 18+ terms. [B]
+- When investors get close: consider a Delaware C-corp and D&O insurance. [B]
+
 ## Law and policy to watch
 
 - California AB 1043 / AB 1856: from 2027-01-01 desktop apps must request the OS age signal; check whether direct
@@ -145,7 +155,7 @@ were dropped from this list and are named at the bottom.
   private defaults, no profiling. [B]
 - SB 243 / SB 1119 companion-chatbot rules: stay out by keeping the coach task-focused (no friend persona, no
   relationship memory). [B]
-- EU AI Act Art. 50: machine-readable marking of AI text if EU use grows (the disclosure itself is R03); Annex III
+- EU AI Act Art. 50: machine-readable marking of AI text if EU use grows (the disclosure itself is R05); Annex III
   high-risk only with credentials or school grading. [B]
 - UK Data (Use and Access) Act 2025: a complaints process with a 30-day acknowledgement if UK users are served; the
   ICO fee question. [B]
@@ -166,19 +176,19 @@ were dropped from this list and are named at the bottom.
 
 | Later item | Covered by |
 |---|---|
-| Fixed loopback port 47217 (A) | R42 |
-| Cloud log lines carry the user id; tables never pruned (A) | R23 |
-| `access_denied` always reads "account isn't allowed" (A) | R18 |
+| Fixed loopback port 47217 (A) | R47 |
+| Cloud log lines carry the user id; tables never pruned (A) | R28 |
+| `access_denied` always reads "account isn't allowed" (A) | R20 |
 | `tips` prefs dropped by `sanitizePrefs` (A); Home's blank frame on every open (E) | R14 |
-| Team member's macOS username in fixture paths (B) | R36 |
+| Team member's macOS username in fixture paths (B) | R41 |
 | Developer ID signing lane, notarize and staple the DMG (C) | R15 |
 | `cloud/app.py:295` "the operators have been notified" (C) | R01 |
-| The paused verdict's 120 s TTL (C) | R25 |
-| Every build mints with `app: "0.1.0"` (C) | R10 |
-| The update check's unauthenticated GitHub API limit (D) | R10 |
-| Delete my data removes keys and settings only (D) | R23 |
-| `engine.log` rotation at 5 MB (D) | R40 |
+| The paused verdict's 120 s TTL (C) | R30 |
+| Every build mints with `app: "0.1.0"` (C) | R08 |
+| The update check's unauthenticated GitHub API limit (D) | R08 |
+| Delete my data removes keys and settings only (D) | R28 |
+| `engine.log` rotation at 5 MB (D) | R45 |
 | Gemini Flash list prices double on 2027-01-01 (D) | R02 |
-| Anything else on port 8787 reads as an external engine (E) | R42 |
-| SHIP.md says ⌥Q instead of ⌃⌥Q (E) | R06 |
+| Anything else on port 8787 reads as an external engine (E) | R47 |
+| SHIP.md says ⌥Q instead of ⌃⌥Q (E) | R04 |
 | Unfinished lessons that can never be continued from Home (E) | R14 |
