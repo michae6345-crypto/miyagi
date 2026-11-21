@@ -1,9 +1,50 @@
 # drawer
 
-**Status:** v2 lesson panel (BUILD-PLAN A1) in progress on `michael/app-lesson-panel` (draft PR into `adrian/shell`) · **Priority:** P0 · **Port:** 5186 (v2; pass 1-3 used 5184) · **Branch:** `michael/app-lesson-panel`
+**Status:** v2 lesson panel (BUILD-PLAN A1) built, typecheck green, stage-checked in headless Brave; draft PR #174 into `adrian/shell` · **Priority:** P0 · **Port:** 5186 (v2; passes 1-3 used 5184) · **Branch:** `michael/app-lesson-panel`
 
 ## v2: lesson panel (A1, Nov 20)
-Mockups: Les-Anatomy, Les-Working, Les-Checking, Les-NotYet, Les-Hint, Les-Passed. Owner of the docked lesson panel (`features/drawer/v2/*`), plus the shortcut bar and overview edits it needs. Work in progress; details land here as they do.
+Mockups: Les-Anatomy, Les-Working, Les-Checking, Les-NotYet, Les-Hint, Les-Passed. In a "Just teach me" lesson (`lesson.mode "lesson"`) the drawer is now the docked lesson panel; a video lesson keeps the drawer below (passes 1-3) unchanged. `geometry.ts` `LESSON_PANEL_V2 = false` is a one-line rollback.
+
+### What landed
+| Piece | File | Notes |
+|---|---|---|
+| Panel | `v2/LessonPanel.tsx` | core `GlassCard` surface `panel`, 360 wide at core/dock `panelRect` (x 1064, y 52 at 1440x900), hugs its content up to the dock's height, then the middle scrolls (header and keys stay). Grows out of the island's box (`useIslandBox`) and collapses back into it (the one spring; opacity only with reduced motion). While shown it calls `setDock({open, rect})` with its real height (screen points), so `panel.state` goes out when the engine lists it and the island's cards step around it. |
+| View | `v2/view.ts` | `pickView` (pure): passed > checking > notyet > hint > working. `usePanelModel` builds what each state shows. |
+| State | `v2/panelStore.ts` | the hint card, the latest judge "Not yet" card and when the latest diagnosis came (card, offtrack, failed check), and the held pass. A hint asked for after a "Not yet" shows the hint; a newer diagnosis shows "Not yet" again. step.passed (not skipped, not already) holds Les-Passed although the engine starts the next step at once (decision 7) until "Next step", an action press, or a pass/fail on the next step. |
+| Header | `v2/Header.tsx` | tree, `copy.name`, collapse chevron ("Collapse to the pill"), lesson title, core `StepDots` (current pill white, green once passed), "Step N of M". |
+| Step | `v2/StepBody.tsx` | title 20/600, instruction 14 at .78, `where` caption ("Type this" / "Run this" when the engine sends none), the code in full (mono 13/20, scrolls sideways, never truncated), `then` with the play mark. `MissingBlock` for Les-NotYet (`card.missingLines`, `card.fixCaption`). |
+| States | `v2/states.tsx` | NotYetBox (white ring, "Not yet", no hue), HintBox (pink Hint chip, "1 of 2" from `hintStep`, ✕), PassedBody (core passed glyph 48, `copy.passed`, `step.passed.summary`, Up next from the next step's title and `what`), CheckingCaption (`status.detail`). Backticks render as mono (React text only). |
+| Help | `v2/Help.tsx` | core `OptionTile`s: Explain, Hint, Show me, Diagram via `triggerShortcut`, Watch opens the lesson video at the step's start in the browser (hidden when the step has no clip). Open hint = Hint tile pressed. Spinner on the pressed tile while thinking. |
+| Keys | `v2/KeysRow.tsx` | Esc hide, launcher key + "ask miyagi anything" ("ask miyagi" beside a long key such as ⌥Space), Back and Voice as icon buttons on the right (keys in their tooltips), all from `bridge.platform.keys`. |
+| Routing | `v2/route.ts`, re-exported by `store.ts` | `isPanelRouted(card \| {kind:'offtrack', ...})` and `usePanelRouted`: true for a hint card, a judge not_done card or a card with `missingLines` for the current step, and for an offtrack without a fix (no diff, not level 3, no apply_fix), only while the panel is open in a lesson-mode lesson. Cards with a diff or output stay on the island. |
+| Store | `store.ts` | `openPanel()`, `collapsePanel()` (also on the store: `useDrawer.getState().openPanel()`), `panel` UI event (open / collapse / toggle, claimed), Esc rule below. `useDrawer.open` keeps meaning "the drawer/panel shows", so every reader still works. |
+| Layer | `index.tsx` | `PanelLayer` (lesson mode) vs `LegacyLayer` (video lessons, unchanged). The panel shows from the first step.started. It never yields, flips or tucks (the engine fits VS Code beside it); the Diagram flyout still slides out of its inner edge. `runTuck.ts` never tucks with the v2 panel. |
+| Shortcut bar | `shortcut-bar/ShortcutBar.tsx` | hidden while `useDock.open`; back when the panel collapses. |
+| Overview | `overview/clear.ts` | the hover card never opens while the panel is docked. |
+| Stage | `v2/stage.ts`, `mock/scenarios/lesson-panel.json` | `?panel=` asks the inline mock for the scenario's own `stage.panel:<state>` segment once the first step starts (checking is held). |
+
+**Esc** collapses the panel only when nothing else is open: a card, the off-track card, "Back on track", a diagram, the completion panel, "Before you start", the launcher, or the panel's hint (Esc closes the hint first). All `dismiss` handlers run on the same Esc, so a surface that another handler closed during this Esc still counts (`closedNow`, cleared on the next microtask). Electron: the overlay doesn't take focus, so Esc reaches it only where it did before; the panel's "Esc hide" and chevron work everywhere.
+
+**Collapse:** `collapsePanel()` sets `useDock {open:false, collapsed:true}` for A2's Mini pill. Until A2 lands, the labeled "Steps" handle on the right edge stays as the way back (`STEPS_HANDLE_WHEN_COLLAPSED` in `index.tsx`: set it false when A2 merges).
+
+### See it
+`npm run dev:web -- --port 5186`, then `http://localhost:5186/?scenario=lesson-panel&panel=working|checking|notyet|hint|passed|mini&os=mac&size=1440x900&clean` (`&os=win` for the Windows keys). Without `panel=` the scenario plays for real: Check my work (1.8 s Checking) → Not yet with the missing line → Hint 1 of 2 → Check again → Les-Passed → Next step → step 3 → Check → step 4. Esc closes the hint, then collapses; the Steps handle reopens.
+Shots (headless Brave over CDP, 1440x900): `agents/shots/lesson-panel-{working,checking,notyet,hint,passed,mini,win}.png`. Scripted flow checked: working → checking → notyet → hint → Esc (hint closed, back to notyet) → Esc (collapsed, shortcut bar back) → handle (open, bar hidden) → Check again → passed → Next step → "Build the model". `?scenario=drawer` (a lesson-mode lesson with no video) shows the panel with four help tiles; `?scenario=full` loads with no errors.
+
+### Deviations (brand rules and core limits)
+- Help row gap 6 (mockup 8) and core OptionTile's 4 px side padding removed locally (`[&_button[data-option]]:!px-0`): "Show me" truncated at 12/600 in a 58 px tile. Core request 2.
+- Body text at white .78 uses `fill.keycapText` (same value; no text token). Core request 1.
+- Mockup keycaps (⌥E, ⌘K) replaced by `bridge.platform.keys` (⌃⌥E, ⌥Space on a Mac); Watch has no key (decision 3). Pastels are BRAND.md's (sky #C5E4F9 etc.), not the mockup's #BFE3F5.
+- Les-Passed headline is `copy.passed` ("Step done.") per decision 8, not the mockup's literal.
+- Back and Voice are 28 px icon buttons with their keys in tooltips: four keycaps plus labels don't fit 320 px.
+- No Skip step / End lesson in the panel (not in the mockups) and the shortcut bar hides while it's open: they are reachable when the panel is collapsed. Flag for Adrian.
+- Pre-A2 the island still draws the judge "Not yet" and hint cards too (visible in the notyet / hint shots); A2 drops them with `isPanelRouted`.
+- The old lesson-mode drawer's overview, "Before you start", plan list, sources, concept chips and the code Copy button are not in the v2 panel (not in the mockups).
+- Not verified: Electron (`npm run dev`), the engine's real `where`/`then`/`hintStep`/`missingLines` (E3), `panel.state` on a real engine (E2).
+
+### Notes for A2 (pill-cards)
+- `import { isPanelRouted, usePanelRouted, openPanel } from '../drawer/store'`. Skip a card (or the offtrack card) when `usePanelRouted(card)` / `usePanelRouted({ kind: 'offtrack', ...offtrack })` is true. Reading it never imports the panel UI.
+- Mini pill: show while `useDock(s => s.collapsed)`; click = `openPanel()` (or `emitUi('panel', 'open')`). Then flip `STEPS_HANDLE_WHEN_COLLAPSED` off in `drawer/index.tsx`.
 
 ### Pass 3 (Sat Nov 14, night): "Just teach me" shows what to type
 Michael tried a "Just teach me" lesson: the instructions weren't clear and didn't show what to type. The drawer now reads, top to bottom:
@@ -79,6 +120,14 @@ A slim tab on the right edge (vertically centered, 6px from the edge). Click →
 `npm run dev:web -- --port 5184` → `http://localhost:5184/?scenario=drawer`. Restart the dev server after adding the folder and the scenario.
 
 ## Core requests
+**v2 (A1):**
+- **1. A body text token** (`color.body` = white .78, Les-* instructions and Up next): the panel uses `fill.keycapText`, which has that value.
+- **2. OptionTile side padding 0** (core/ui/HelpRow.tsx), as in the Les-* mockups: five tiles in a 360 panel leave "Show me" ~50 px and it truncates. Workaround: `[&_button[data-option]]:!px-0` on the panel's row (v2/Help.tsx).
+- **3. OptionTile `pressed`** (Les-Hint: an ink ring inside, the pastel ring outside, `aria-pressed`): built as a wrapper in v2/Help.tsx.
+- **4. Esc in Electron**: the overlay is `focusable: false`, so Esc never reaches it; if "Esc hide" should work while the editor has focus it needs a main-side shortcut while the panel is open (main/index.ts).
+- **5. `step.passed.summary` and a "next step started" hint**: the panel holds Les-Passed locally because the engine starts the next step at once; if the engine (E3) waits for the learner (a `next` action), the hold can go.
+
+**Earlier passes:**
 1. **A shared step-state icon** (`StepIcon {status: 'done' | 'current' | 'locked'}` in `core/ui/atoms.tsx`, on glass tokens), used by the player's Chapters and the drawer, so both show a step the same way. *Workaround:* `StepIcon` / `Tick` / `Ring` in `Drawer.tsx`.
 2. ~~`clock()` with hours~~ done in core.
 3. ~~`setWindowOpenHandler` on every window~~ done in core; the drawer's main-process workaround is gone.
