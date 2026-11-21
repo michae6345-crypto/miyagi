@@ -684,6 +684,88 @@ async def put_lesson(video_id: str, request: Request):
     return JSONResponse({"stored": True, "video_id": video_id, "schema": schema}, status_code=201)
 
 
+# --------------------------------------------------------------------------- product events: POST /v1/events
+#
+# The app (main/features/telemetry.ts, only while "Share crash reports and usage" is on) and the engine send
+#   Authorization: Bearer <mi_ install token>
+#   {"events": [{"name": "step_passed", "at": "<ISO time>", "props": {...}}, ...]}   (extra top-level fields ignored)
+# at most EVENTS_MAX per request and EVENTS_MAX_BYTES of body. We keep counts only: per install, UTC day and event
+# name, plus allowlisted scalar props (EVENT_PROP_KEYS) as counts per value or sums. Unknown names, other props
+# (a crash's message included) and malformed events are dropped, never stored. 202 {"ok": true}; 401 bad token;
+# 413 too big; 400 when the body is not that shape.
+
+EVENTS_MAX = 50
+EVENTS_MAX_BYTES = 32 * 1024
+EVENTS_PER_DAY = int(os.environ.get("EVENTS_PER_DAY_PER_INSTALL", "2000"))  # beyond it events are dropped (still 202)
+# The app's list (app/src/main/features/telemetry/core.ts EVENT_NAMES).
+EVENT_NAMES = frozenset(_env_list("EVENT_NAMES", "app_installed,onboarding_done,lesson_search,lesson_built,step_passed,"
+                                  "step_failed_check,hint_used,lesson_completed,lesson_abandoned,cost_usd,crash"))
+EVENT_PROP_KEYS = frozenset(_env_list("EVENT_PROP_KEYS", "kind,mode,reason,source,built_by,step_kind,level,cached,"
+                                      "provider,model,usd,steps,minutes,seconds"))
+_EVENT_WORD = re.compile(r"[A-Za-z0-9_.\- ]{1,40}")  # enum-like values only: never sentences, paths or quotes
+_EVENT_DAYS_BACK = 2  # an event's own day is kept when it is this recent; older or future times count as today
+
+
+def _event_day(at) -> str:
+    today = datetime.now(UTC).date()
+    try:
+        t = datetime.fromisoformat(at) if isinstance(at, str) and len(at) <= 40 else None
+    except ValueError:
+        t = None
+    if t is not None:
+        d = (t if t.tzinfo else t.replace(tzinfo=UTC)).astimezone(UTC).date()
+        if today - timedelta(days=_EVENT_DAYS_BACK) <= d <= today:
+            return d.isoformat()
+    return today.isoformat()
+
+
+def _event_props(raw) -> dict:
+    """Only allowlisted keys with a boolean, a finite number or a short enum-like string."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        if k not in EVENT_PROP_KEYS:
+            continue
+        if isinstance(v, bool):
+            out[k] = v
+        elif isinstance(v, (int, float)) and abs(v) < 1e9:  # NaN and inf fail this too
+            out[k] = v
+        elif isinstance(v, str) and _EVENT_WORD.fullmatch(v.strip()):
+            out[k] = v.strip()
+    return out
+
+
+@app.post("/v1/events")
+async def events(request: Request):
+    token = presented_token(request)
+    h = hash_token(token) if token and len(token) <= 200 else None
+    row = store.get_token(h) if h else None
+    if row is None or row["disabled"]:
+        return error(401, "authentication_error", "Missing or invalid install token.")
+    request.state.tok = h[:PREFIX_LEN]
+    too_big = error(413, "request_too_large", f"At most {EVENTS_MAX} events and {EVENTS_MAX_BYTES // 1024} KB per request.")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > EVENTS_MAX_BYTES:
+        return too_big
+    raw = await request.body()
+    if len(raw) > EVENTS_MAX_BYTES:
+        return too_big
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        data = None
+    items = data.get("events") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return error(400, "invalid_request_error", 'Body must be {"events": [{"name", "at", "props"}, ...]}.')
+    if len(items) > EVENTS_MAX:
+        return too_big
+    kept = [(_event_day(e.get("at")), e["name"], _event_props(e.get("props")))
+            for e in items if isinstance(e, dict) and isinstance(e.get("name"), str) and e["name"] in EVENT_NAMES]
+    store.add_events(h, kept, EVENTS_PER_DAY)
+    return JSONResponse({"ok": True}, status_code=202)
+
+
 # --------------------------------------------------------------------------- admin
 
 def admin_ok(token: str | None) -> bool:
@@ -788,9 +870,12 @@ async def admin_page_post(request: Request):
                f"{t['output_tokens']} output tokens, est. <b>${t['usd']}</b>. Tokens registered: {r['registered_tokens']} "
                f"({r['disabled_tokens']} disabled). Proxy enabled: {PROXY_ENABLED}.</p>"
                f"<p>Shared lessons: {r['lessons']['cached']} cached, {r['lessons']['hits']} cache hits, "
-               f"{r['lessons']['builds_this_month']} new builds this month.</p>")
+               f"{r['lessons']['builds_this_month']} new builds this month.</p>"
+               f"<p>Est. spend today (UTC): <b>${r['usd_today']}</b>; daily cap: "
+               f"{'$' + str(DAILY_USD_CAP) if DAILY_USD_CAP > 0 else 'off'}.</p>")
     cols = ["requests", "input_tokens", "output_tokens", "usd"]
     return _page(summary + "<h2>Per day</h2>" + _table(r["by_day"], ["day", "tokens", *cols])
+                 + "<h2>Events per day</h2>" + _table(r["events"], ["day", "name", "count", "installs"])
                  + "<h2>Per install token (hash prefix)</h2>" + _table(r["by_token"], ["token", "disabled", *cols])
                  + "<h2>Per day, token and model</h2>" + _table(r["by_day_token_model"], ["day", "token", "provider", "model", *cols])
                  + "<p>Disable a token: <code>curl -X POST -H 'X-Admin-Token: …' $URL/admin/tokens/&lt;prefix&gt;/disable</code></p>")

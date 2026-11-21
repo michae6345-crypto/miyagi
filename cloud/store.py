@@ -74,6 +74,34 @@ CREATE TABLE IF NOT EXISTS role_usage (
     requests   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (token_hash, day, role)
 );
+-- Product events (POST /v1/events): counts only, per install, UTC day and event name. No event bodies.
+CREATE TABLE IF NOT EXISTS events (
+    token_hash TEXT NOT NULL,
+    day        TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    count      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (token_hash, day, name)
+);
+CREATE INDEX IF NOT EXISTS events_day ON events (day);
+-- Allowlisted scalar props of those events, also as counts: a string or boolean value is counted per value,
+-- a number is summed (value '' holds its count and total). Every other prop is dropped before it gets here.
+CREATE TABLE IF NOT EXISTS event_props (
+    token_hash TEXT NOT NULL,
+    day        TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,              -- '' for a number
+    count      INTEGER NOT NULL DEFAULT 0,
+    total      REAL NOT NULL DEFAULT 0,    -- the sum of a number's values
+    PRIMARY KEY (token_hash, day, name, key, value)
+);
+-- Events taken per install and UTC receive day: the EVENTS_PER_DAY cap reads it.
+CREATE TABLE IF NOT EXISTS event_intake (
+    token_hash TEXT NOT NULL,
+    day        TEXT NOT NULL,
+    taken      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (token_hash, day)
+);
 """
 
 PLANS = ("free", "pro")  # free: the caps in app.py apply; pro: no caps
@@ -253,6 +281,59 @@ class Store:
         rows = self._q("SELECT COALESCE(SUM(requests), 0) AS n FROM usage WHERE token_hash = ? AND day = ?", (token_hash, today()))
         return int(rows[0]["n"])
 
+    # product events (POST /v1/events) --------------------------------------
+    def add_events(self, token_hash: str, events: list[tuple[str, str, dict]], daily_cap: int) -> int:
+        """Count `events` ([(day, name, props)], props already cut down to allowlisted scalars) for one install.
+        At most `daily_cap` events per install and UTC receive day are kept (0 = no cap); the rest are dropped.
+        Returns how many were counted."""
+        if not events:
+            return 0
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                room = len(events)
+                if daily_cap > 0:
+                    # the per-day cap counts what arrived today, whatever day each event says it happened
+                    taken = self._db.execute("SELECT taken FROM event_intake WHERE token_hash = ? AND day = ?",
+                                             (token_hash, today())).fetchone()
+                    room = max(0, min(room, daily_cap - (int(taken[0]) if taken else 0)))
+                if room:
+                    self._db.execute("INSERT INTO event_intake (token_hash, day, taken) VALUES (?, ?, ?) "
+                                     "ON CONFLICT (token_hash, day) DO UPDATE SET taken = taken + excluded.taken",
+                                     (token_hash, today(), room))
+                for day, name, props in events[:room]:
+                    self._db.execute("INSERT INTO events (token_hash, day, name, count) VALUES (?, ?, ?, 1) "
+                                     "ON CONFLICT (token_hash, day, name) DO UPDATE SET count = count + 1",
+                                     (token_hash, day, name))
+                    for key, value in props.items():
+                        if isinstance(value, bool):
+                            v, total = ("true" if value else "false"), 0.0
+                        elif isinstance(value, (int, float)):
+                            v, total = "", float(value)
+                        else:
+                            v, total = str(value), 0.0
+                        self._db.execute("INSERT INTO event_props (token_hash, day, name, key, value, count, total) "
+                                         "VALUES (?, ?, ?, ?, ?, 1, ?) ON CONFLICT (token_hash, day, name, key, value) "
+                                         "DO UPDATE SET count = count + 1, total = total + excluded.total",
+                                         (token_hash, day, name, key, v, total))
+                self._db.execute("COMMIT")
+                return room
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
+
+    def event_counts(self, token_hash: str | None = None, day: str | None = None) -> dict[str, int]:
+        """{event name: count} for one UTC day (default today), for one install or all of them."""
+        sql, args = "SELECT name, SUM(count) AS n FROM events WHERE day = ?", [day or today()]
+        if token_hash:
+            sql, args = sql + " AND token_hash = ?", [*args, token_hash]
+        return {r["name"]: int(r["n"]) for r in self._q(sql + " GROUP BY name", tuple(args))}
+
+    def event_props_rows(self, token_hash: str, day: str | None = None) -> list[dict]:
+        return [dict(r) for r in self._q("SELECT name, key, value, count, total FROM event_props WHERE token_hash = ? AND day = ? "
+                                         "ORDER BY name, key, value", (token_hash, day or today()))]
+
     # links ----------------------------------------------------------------
     def link_user(self, token_hash: str, user_id: str) -> None:
         """Link an install to a user. Re-linking the same pair keeps the first linked_at."""
@@ -279,6 +360,8 @@ class Store:
         n_tokens = self._q("SELECT COUNT(*) AS n, COALESCE(SUM(disabled), 0) AS disabled FROM tokens")[0]
         lessons = self._q("SELECT COUNT(*) AS cached, COALESCE(SUM(hits), 0) AS hits, COALESCE(SUM(bytes), 0) AS bytes FROM lessons")[0]
         builds = self._q("SELECT COUNT(*) AS n FROM builds WHERE month = ?", (this_month(),))[0]
+        events = self._q("SELECT day, name, SUM(count) AS count, COUNT(DISTINCT token_hash) AS installs FROM events "
+                         "WHERE day >= ? GROUP BY day, name ORDER BY day DESC, count DESC", (since,))
         return {
             "since": since,
             "total": {k: (total[k] or 0) for k in total.keys()},
@@ -288,6 +371,8 @@ class Store:
             "by_day": [dict(r) for r in by_day],
             "by_day_token_model": [dict(r) for r in rows],
             "lessons": {**dict(lessons), "builds_this_month": builds["n"]},
+            "usd_today": round(self.usd_today(), 4),
+            "events": [dict(r) for r in events],
         }
 
 
