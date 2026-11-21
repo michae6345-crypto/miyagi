@@ -1173,3 +1173,45 @@ def explain_card(session: Any, step: dict) -> dict | None:
     card = dict(card)
     card["stepId"] = sid
     return card
+
+
+# ------------------------------------------------------------------------------------------------ v2 panel copy
+# BUILD-PLAN E3 (Les-Hint, Les-Working): the lesson panel shows "Hint 1 of 2" and a line under the code. The hint ladder
+# is the cached cards (instant, the same every time); its length is how many there are for the step.
+
+RUN_THEN = "Or click ▷ at the top right of nn.py."  # VS Code's own Run button runs nn.py too (the session boxes it)
+
+
+def hint_count(session: Any, step: dict) -> int | None:
+    """How many cached hints the step's ladder has (the stuck ladder while the training loss is stuck), None when the
+    lesson isn't the curated one or the step has none: the live coach's ladder then says how long it is."""
+    if not active(session):
+        return None
+    sid = step.get("id")
+    prefix = f"{sid}-stuck-hint" if _stuck_here(session, step) else f"{sid}-hint"
+    n = 0
+    while n < 10 and config.DEMO_CACHE.joinpath("cards", f"{prefix}{n}.json").is_file():
+        n += 1
+    return n or None
+
+
+def hint_rung(session: Any, step: dict) -> tuple[int, int] | None:
+    """(n, of) of the cached hint just sent ("Hint 1 of 2"): session.hint_level counts the hints asked on this step
+    (it is raised before the card goes out); the stuck ladder counts from when the loss got stuck, as hint_card does.
+    None for any other lesson, or past the cached ladder (the live coach's card says its own level)."""
+    of = hint_count(session, step)
+    if not of:
+        return None
+    level = int(getattr(session, "hint_level", 0) or 0)
+    n = level - int(_state(session).get("stuck_hints_from") or 0) if _stuck_here(session, step) else level
+    return (n, of) if 1 <= n <= of else None
+
+
+def step_copy(session: Any, step: dict) -> dict:
+    """The curated lesson's own panel lines for a step ({where?, then?}) over the generic ones: a run step can also be
+    run with VS Code's ▷ (the engine boxes it), so its `then` says so. {} for any other lesson."""
+    if not active(session):
+        return {}
+    if (step.get("run_command") or "").strip() and step.get("kind") == "run":
+        return {"then": RUN_THEN}
+    return {}

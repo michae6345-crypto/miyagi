@@ -73,7 +73,7 @@ ALWAYS_SENT = {"lesson.ended"}
 # any ANSWER_EVENTS looks dead on screen (status / check.updated alone), so it gets a short notice card instead.
 _ANSWERED: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("action_answered", default=None)
 ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "video.play", "step.started", "step.passed",
-                 "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress"}
+                 "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress", "lesson.paused", "blocker"}
 # their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
 QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser"}
 # t10: an off-track box is placed from a screen read at most this old (a repeat warning's box went to the line's
@@ -207,6 +207,204 @@ def human_build_error(e: BaseException) -> str:
     if "transcript" in low:
         return "Couldn't get this video's transcript. Try another video."
     return f"Couldn't build this lesson: {raw[:160]}"
+
+
+# ================================================================================ v2 lesson panel (BUILD-PLAN E3)
+# Pure helpers for the v2 fields (shared/contracts events.py, W0-1). Every field is optional and additive: an app that
+# ignores them keeps today's behaviour. New event types (lesson.paused / lesson.resumed / blocker) and card kind
+# "complete" go out only once the app has sent a v2 command (LessonSession.app_v2), so an older app never sees them.
+# Copy rules (app/brand/BRAND.md): plain sentences, lowercase miyagi, no em dashes, no keycaps.
+
+V2_COMMANDS = frozenset({"health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
+                         "panel.state"})
+STATUS_DETAIL_WORDS = 6  # status.detail: what the engine does right now, <= 6 words
+SUMMARY_WORDS = 12  # step.passed.summary, <= 12 words
+MAX_MISSING_LINES = 8  # a Not yet lists the step's lines only when they fit the panel
+EDITOR_POLL_S = 3.0  # lesson.paused "editor_closed": how often the lesson's VS Code window is looked for
+EDITOR_GONE_POLLS = 2  # ... and how many sure misses in a row pause the lesson (one closed-and-reopened tab: no pause)
+KERNEL_POLL_S = 2.0  # blocker "kernel": how often the frame is read for VS Code's "Select Kernel"
+KERNEL_CLEAR_POLLS = 2  # ... and how many frames without it clear the blocker
+_SELECT_KERNEL = re.compile(r"^\W{0,3}select\s+kernel\W{0,3}$", re.I)
+PAUSED_ANSWERS = frozenset({"check_step", "confirm", "hint", "show_me"})  # while paused: lesson.paused again
+
+BUILD_PHASES_VIDEO = (("watching", "Watching the video"), ("steps", "Finding the steps"),
+                      ("checks", "Writing the checks"), ("ready", "Ready to start"))
+BUILD_PHASES_TEXT = (("steps", "Planning the steps"), ("checks", "Writing the checks"), ("ready", "Ready to start"))
+_BUILD_STAGE_WORDS = (  # lesson.building.message (BuildStage / the text build's labels) -> its v2 stage
+    ("ready", ("setting up your project folder", "lesson ready", "first steps ready", "loading the lesson")),
+    ("checks", ("fitting the checks", "writing the next steps", "finishing up", "writing the checks")),
+    ("steps", ("writing the steps", "writing the first step", "planning your lesson", "loading the saved lesson")),
+    ("watching", ("watching", "transcript", "gemini", "switching", "starting the lesson builder", "couldn't watch")),
+)
+
+
+def words_ok(text: Any, limit: int) -> str | None:
+    """`text` as one line when it has at most `limit` words (and no em dash: BRAND.md), else None."""
+    t = " ".join(str(text or "").split())
+    if not t or len(t.split()) > limit:
+        return None
+    return t.replace(" — ", ", ").replace("—", ", ")
+
+
+def build_stage_of(message: str | None, progress: float | None = None, text_lesson: bool = False) -> str:
+    """The v2 build stage (watching / steps / checks / ready) a lesson.building message stands for."""
+    low = str(message or "").lower()
+    stage_id = next((sid for sid, keys in _BUILD_STAGE_WORDS if any(k in low for k in keys)), None)
+    if stage_id is None:
+        stage_id = "ready" if (progress or 0) >= 0.97 else ("steps" if text_lesson else "watching")
+    if text_lesson and stage_id == "watching":
+        stage_id = "steps"  # a "Just teach me" lesson has no video to watch
+    return stage_id
+
+
+def build_phases(stage_id: str, text_lesson: bool = False, done: bool = False, watch_label: str | None = None) -> list[dict]:
+    """Home-Building's checklist: the phases before `stage_id` done, it active, the rest next (all done when done)."""
+    rows = BUILD_PHASES_TEXT if text_lesson else BUILD_PHASES_VIDEO
+    ids = [r[0] for r in rows]
+    at = ids.index(stage_id) if stage_id in ids else 0
+    out = []
+    for i, (pid, label) in enumerate(rows):
+        if pid == "watching" and watch_label:
+            label = watch_label
+        state = "done" if done or i < at else ("active" if i == at else "next")
+        out.append({"id": pid, "label": label, "state": state})
+    return out
+
+
+def build_fail_code(error: BaseException | str | None) -> str:
+    """lesson.building.failCode (v2 BuildFailCode) from the builder's error (or its human message)."""
+    low = str(error or "").lower()
+    if isinstance(error, TimeoutError) or "took over" in low or "no answer within" in low or "taking too long" in low \
+            or "too long" in low:
+        return "too_long"
+    if any(k in low for k in ("connection", "network", "offline", "getaddrinfo", "name resolution", "unreachable",
+                              "timed out connecting", "ssl")):
+        return "network"
+    if any(k in low for k in ("quota", "resource_exhausted", "rate-limit", "rate limit", "429", "too many requests",
+                              "overloaded", "budget", "api key", "api_key", "authentication", "401", "credits")):
+        if ("transcript" in low or "caption" in low) and not any(k in low for k in ("gemini", "quota", "budget", "api key")):
+            return "no_captions"
+        return "provider"
+    if "transcript" in low or "caption" in low:
+        return "no_captions"
+    if any(k in low for k in ("no steps", "couldn't find any steps", "no hands-on", "nothing to build", "empty lesson")):
+        return "no_steps"
+    if any(k in low for k in ("couldn't read this video", "unreadable", "too small to read", "can't read the code",
+                              "couldn't read the code")):
+        return "unreadable_code"
+    return "unknown"
+
+
+def fail_reason(message: str | None) -> str | None:
+    """lesson.building.failReason: the human message's first sentence (one plain sentence)."""
+    t = " ".join(str(message or "").split())
+    if not t:
+        return None
+    first = re.split(r"(?<=[.!?])\s+", t, maxsplit=1)[0]
+    return first.replace(" — ", ", ").replace("—", ", ")[:200]
+
+
+def library_alternatives(exclude_ids: set[str] | None = None, limit: int = 2) -> list[dict]:
+    """Err-LessonBuildFailed's "Or start a library lesson": up to `limit` ready lessons already built on this Mac
+    (server.lesson.library, E1; [] until it is there). Started with library.start: zero model calls. Blocking (reads
+    the cache): call it in a thread."""
+    try:
+        from server.lesson import library  # E1 (claude/eng-modules)
+    except Exception:  # noqa: BLE001
+        return []
+    try:
+        items = library.items()
+    except Exception:  # noqa: BLE001
+        log.exception("library listing failed")
+        return []
+    out = []
+    for it in items or []:
+        if not isinstance(it, dict) or not it.get("id") or not it.get("title") or it.get("ready") is False:
+            continue
+        if exclude_ids and it["id"] in exclude_ids:
+            continue
+        tools = it.get("tools") or []
+        where = "Jupyter in VS Code" if "jupyter" in tools else ("VS Code" if "vscode" in tools else None)
+        steps = it.get("steps") if isinstance(it.get("steps"), int) else None
+        meta = ", ".join(x for x in (where, f"{steps} steps" if steps else None) if x) or None
+        out.append({"kind": "library", "title": str(it["title"]), "id": str(it["id"]), **({"meta": meta} if meta else {})})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def where_then(*, code: str | None, run_command: bool, notebook: bool, file: str | None) -> dict:
+    """step.started.where / then (Les-Working): the line above the step's code and the one under it. {} when the step
+    has nothing to type or run."""
+    if not (code or "").strip():
+        return {}
+    if run_command:
+        return {"where": "Run this in the terminal"}
+    if notebook:
+        return {"where": "Type this in a new cell", "then": "Then run it with the arrow beside the cell."}
+    name = Path(file).name if file else None
+    return {"where": f"Type this in {name}" if name else "Type this"}
+
+
+def _norm_line(line: str) -> str:
+    return re.sub(r"\s+", "", line)
+
+
+def code_lines(code: str | None) -> list[str]:
+    """The step's lines that count (no blanks, no comment-only lines), as written."""
+    out = []
+    for ln in str(code or "").splitlines():
+        s = ln.strip()
+        if s and not s.startswith("#"):
+            out.append(ln.rstrip())
+    return out
+
+
+def missing_lines(code: str | None, have: str | None) -> list[dict] | None:
+    """card.missingLines (Les-NotYet): the step's lines in order, each "ok" when the learner's text has it (spaces
+    ignored) or "missing". None when it can't say (no code, no text, too many lines) or nothing is missing."""
+    lines = code_lines(code)
+    if not lines or have is None or len(lines) > MAX_MISSING_LINES:
+        return None
+    present = {_norm_line(x) for x in str(have).splitlines() if x.strip()}
+    rows = [{"text": ln.strip(), "state": "ok" if _norm_line(ln) in present else "missing"} for ln in lines]
+    return rows if any(r["state"] == "missing" for r in rows) else None
+
+
+_ORDINALS = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth")
+
+
+def fix_caption(rows: list[dict] | None, *, notebook: bool = False) -> str | None:
+    """card.fixCaption: what to do about the missing lines ("Add the first line, then run the cell")."""
+    if not rows:
+        return None
+    miss = [i for i, r in enumerate(rows) if r.get("state") == "missing"]
+    if not miss:
+        return None
+    if len(miss) == 1:
+        what = f"Add the {_ORDINALS[miss[0]]} line" if miss[0] < len(_ORDINALS) else f"Add line {miss[0] + 1}"
+    elif len(miss) == len(rows):
+        what = "Add these lines"
+    else:
+        what = "Add the missing lines"
+    return f"{what}, then run the cell" if notebook else f"{what}, then check again"
+
+
+def hint_step(card: dict, *, curated_of: int | None = None, curated_n: int | None = None) -> dict | None:
+    """card.hintStep {n, of} (Les-Hint "Hint 1 of 2") for a hint card, from the ladder that made it: the curated
+    lesson's cached ladder, the diagnosed two-rung hint (card_copy: look, then fix), or the coach's four levels
+    (coach/hints.py LEVELS). None when the rung can't be told."""
+    if isinstance(card.get("hintStep"), dict):
+        return card["hintStep"]
+    title = str(card.get("title") or "")
+    if card.get("levelName") in ("question", "diff") and re.match(r"^(Look at|Fix) line \d+$", title):
+        return {"n": 1 if title.startswith("Look") else 2, "of": 2}
+    if curated_of and curated_n and 1 <= curated_n <= curated_of:
+        return {"n": curated_n, "of": curated_of}
+    level = card.get("level")
+    if isinstance(level, int) and not isinstance(level, bool) and 0 <= level <= 3:
+        return {"n": level + 1, "of": 4}
+    return None  # (hint_level alone can't say how long the ladder is: no "of" rather than a wrong one)
 
 
 def notebook_sources(text: str) -> str | None:
@@ -406,6 +604,19 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._screen_notice_sent = False
         self.voice = False
         self.status = "idle"
+        self.status_detail: str | None = None  # v2 status.detail (<= 6 words), sent with the state
+        # v2 (BUILD-PLAN E3): the app said it is a v2 app (it sent a v2 command: panel.state, health.get, ...): only
+        # then lesson.paused / lesson.resumed / blocker and card kind "complete" go out. MIYAGI_APP_V2=1 forces it.
+        self.app_v2 = os.environ.get("MIYAGI_APP_V2", "").strip() == "1"
+        self.paused: dict | None = None  # the lesson.paused payload while the lesson waits (VS Code closed)
+        self.blockers: dict[str, dict] = {}  # kind -> the blocker payload on screen (kernel / editor_closed)
+        self._editor_poll_t = -1e9
+        self._editor_misses = 0
+        self._kernel_poll_t = -1e9
+        self._kernel_misses = 0
+        self._build_v2: dict | None = None  # the build in progress: {text, t0, source, expected, url}
+        self.lesson_wall_t0: float | None = None  # wall clock of step 1's start (0.0: started later; no minutes)
+        self._panel_x: float | None = None  # the last panel.state left edge the editor was fitted to
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
         self._timers: set[asyncio.Task] = set()
@@ -504,6 +715,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
             return
+        if type_ in ("lesson.ready", "lesson.ended"):  # a new / ended lesson: nothing waits, nothing blocks
+            self.paused, self.blockers, self._editor_misses, self._kernel_misses = None, {}, 0, 0
+        elif getattr(self, "paused", None) is not None and self._held_by_pause(type_, payload or {}):
+            log.info("lesson paused (%s): no %s %r", self.paused.get("reason"), type_, (payload or {}).get("title"))
+            return
         if type_ == "lesson.ready" and self._ask_hook(self.has_clients, True):  # no app gets it: no sheet, no hold
             self._hold_for_sheet((payload or {}).get("lesson"))  # E4: the app opens "Before you start" on it
         elif type_ in ("card", "offtrack"):
@@ -531,6 +747,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             offtrack_targets.carded(self)  # it takes the off-track card's place: no off-track re-send on top of it
         if type_ in ("card", "offtrack", "diagram"):
             self._slot_n += 1
+        if type_ in ("card", "step.passed", "lesson.building"):
+            try:  # v2 fields (optional, additive); a failure here never costs the event itself
+                payload = await self._v2_shape(type_, dict(payload or {}))
+            except Exception:  # noqa: BLE001
+                log.exception("v2 fields for %s failed; sending it without them", type_)
         await self._emit_raw(type_, payload or {})
 
     def _bind_epoch(self) -> None:
@@ -916,7 +1137,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         to go"'s Open spun ~10 s with VS Code already in front, because nothing came back). The app ends a pressed
         button on thinking -> not thinking (store.ts), which closes the card; a setup card that still has Install
         rows comes back without Open instead."""
-        await self._status("thinking")
+        await self._status("thinking", detail="Opening VS Code")
         try:
             await self._open_editor()
         finally:
@@ -1029,7 +1250,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
         self._spawn(go(), timer=True)
 
-    async def _status(self, state: str, *, check: bool = False) -> None:
+    async def _status(self, state: str, *, check: bool = False, detail: str | None = None) -> None:
         """The app's status pill, sent only when it changes (live test 3: "watching" x16 in 22 s). While Check runs
         (_check_step: fresh frame, checks, judge) "thinking" stays up until its verdict lands: a cancelled diagnosis
         or a tick can't flip it to "watching" mid-check (01:20:45: thinking -> watching 1 ms later, the card 4.5 s
@@ -1038,10 +1259,278 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if getattr(self, "_checking", 0) and not check and state not in ("thinking", "passed", "idle"):
             self._status_after_check = state
             return
-        if state == self.status:
+        detail = words_ok(detail, STATUS_DETAIL_WORDS) if detail else None
+        if state == self.status and detail == getattr(self, "status_detail", None):
             return
-        self.status = state
-        await self.emit("status", {"state": state})
+        self.status, self.status_detail = state, detail
+        await self.emit("status", {"state": state, **({"detail": detail} if detail else {})})
+
+    # ------------------------------------------------------------------ v2 (BUILD-PLAN E3)
+    def note_app_v2(self, type_: str | None = None) -> None:
+        """The app sent a v2 command (E2's dispatch calls this for each V2_COMMANDS type it receives; None = told
+        another way): it draws the v2 surfaces, so lesson.paused / lesson.resumed / blocker and card kind "complete"
+        go out from now on."""
+        if type_ is not None and type_ not in V2_COMMANDS:
+            return
+        if not self.app_v2:
+            log.info("v2 app (%s): lesson.paused, blocker and the complete card are on", type_ or "told")
+        self.app_v2 = True
+
+    async def panel_state(self, open_: bool, rect: dict | None = None) -> None:
+        """panel.state {open, rect} (v2): where the lesson panel is docked. The editor's room follows a moved panel
+        (fit_full: PANEL_GAP left of its left edge); a collapsed panel keeps the room as it was (no window jumps).
+        Only with the real screen reader (never in tests) and Accessibility; never raises."""
+        self.note_app_v2("panel.state")
+        try:
+            from server.workspace import editor as editor_mod
+
+            if not editor_mod.note_panel(bool(open_), rect if isinstance(rect, dict) else None):
+                return
+            if (not open_ or self.graph is None or self.workspace is None or not self.editor_open
+                    or getattr(self.screen, "reader", None) is None):
+                return
+            res = await asyncio.to_thread(editor_mod.fit_beside_drawer, self.workdir)
+            log.info("panel.state: lesson window beside the panel: %s", res)
+        except Exception:  # noqa: BLE001 - a layout refinement: the lesson runs without it
+            log.exception("panel.state failed")
+
+    def _held_by_pause(self, type_: str, payload: dict) -> bool:
+        """While the lesson is paused (VS Code closed) the app shows its own paused surface: the engine's screen
+        cards about the missing editor ("Open nn.py", a judge's step card), off-tracks and boxes would duplicate it
+        or point at nothing. What the learner asked for (Explain, Hint, an answer) still goes out."""
+        if type_ == "offtrack":
+            return True
+        if type_ == "spotlight":
+            return not payload.get("clear")
+        if type_ == "card":
+            return payload.get("kind") in ("where", "step")
+        return False
+
+    async def _v2_shape(self, type_: str, payload: dict) -> dict:
+        """The v2 fields on an outgoing event (all optional): hint rung and Not yet lines on cards, the step's summary
+        on step.passed, the build checklist on lesson.building."""
+        if type_ == "card":
+            step = self.step
+            if step is None or payload.get("stepId") not in (None, step.get("id")):
+                return payload
+            if payload.get("kind") == "hint" and "hintStep" not in payload:
+                rung = curated.hint_rung(self, step)
+                hs = hint_step(payload, curated_n=rung[0] if rung else None, curated_of=rung[1] if rung else None)
+                if hs:
+                    payload["hintStep"] = hs
+            elif (payload.get("title") == "Not yet" or payload.get("verdict") == "not_done") \
+                    and "missingLines" not in payload and not self._run_command(step):
+                rows = missing_lines(step.get("code"), await asyncio.to_thread(self._learner_text, step))
+                if rows:
+                    payload["missingLines"] = rows
+                    if cap := fix_caption(rows, notebook=bool(self.notebook_lesson)):
+                        payload.setdefault("fixCaption", cap)
+            if "kernel" in self.blockers and payload.get("kind") in ("step", "hint", "where") \
+                    and "waiting" not in payload:
+                payload["waiting"] = "Watching for a kernel to start"
+            return payload
+        if type_ == "step.passed":
+            if payload.get("skipped") or payload.get("summary"):
+                return payload  # a skip is not a pass: nothing to sum up
+            st = next((x for x in self.steps if x.get("id") == payload.get("stepId")), None)
+            if st is not None and (summary := self._passed_summary(st)):
+                payload["summary"] = summary
+            return payload
+        if type_ == "lesson.building":
+            return await self._building_v2(payload)
+        return payload
+
+    def _passed_summary(self, step: dict) -> str | None:
+        """step.passed.summary (<= 12 words): a run step's real numbers from the learner's own run ("Loss 0.49 → 0.0009
+        in your last run."), else what the step built, in the lesson's words. None rather than an invented line."""
+        if self._run_command(step):
+            from . import lesson_end
+
+            try:
+                if (line := words_ok(lesson_end.metric_line(self), SUMMARY_WORDS)) is not None:
+                    return line
+            except Exception:  # noqa: BLE001
+                log.exception("summary from the run failed")
+        for key in ("summary", "what"):
+            if (text := words_ok(step.get(key), SUMMARY_WORDS)) is not None:
+                return text[:1].upper() + text[1:]
+        return None
+
+    def _learner_text(self, step: dict) -> str | None:
+        """The learner's code for the step now: the notebook's cells, else VS Code's live buffer of the step's file,
+        else the file on disk. None when there is none to read. Blocking (disk): call it in a thread."""
+        file = self._step_file(step)
+        try:
+            if self.notebook_lesson or (file or "").lower().endswith(".ipynb"):
+                from server.checks.notebook import find_notebook, read_notebook
+
+                nb = read_notebook(find_notebook(self.workdir, [file] if file else []))
+                return "\n".join(nb.sources) if nb is not None else None
+            if not file or not self.workdir:
+                return None
+            path = Path(file) if Path(file).is_absolute() else Path(self.workdir) / file
+            live = self._buffers.text(path)
+            if live is not None:
+                return live
+            if path.is_file() and path.stat().st_size < 1_000_000:
+                return path.read_text(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 - no lines rather than no card
+            log.debug("learner text for %s failed", step.get("id"), exc_info=True)
+        return None
+
+    def _build_start(self, *, text: bool, url: str = "", title: str | None = None) -> None:
+        """A build began: what Home-Building's card shows for it (source, phases, about how long)."""
+        src: dict[str, Any] | None = None
+        if text:
+            if t := " ".join(str(title or "").split()):
+                src = {"kind": "goal", "title": t[:200]}
+        elif url:
+            row = (self.pending_pick or {}).get("row") or next(
+                (r for r in self.results.values() if r.get("url") == url), None) or {}
+            src = {"kind": "youtube" if video_id_from_url(url) else "goal",
+                   "title": " ".join(str(row.get("title") or title or "YouTube video").split())[:200], "url": url}
+            if isinstance(row.get("durationS"), (int, float)) and row["durationS"] > 0:
+                src["durationS"] = float(row["durationS"])
+        self._build_v2 = {"text": text, "t0": self.clock(), "url": url, "source": src,
+                          "expected": float(os.environ.get("ORCH_BUILD_EXPECTED_S", "45"))}
+
+    async def _building_v2(self, payload: dict) -> dict:
+        """lesson.building's v2 fields: stage + phases (+ etaS, source) while it builds; failCode / failReason /
+        alternatives once it failed (set by _build_failed)."""
+        info = getattr(self, "_build_v2", None)
+        if info is None or payload.get("failed"):
+            return payload
+        msg = str(payload.get("message") or "")
+        progress = payload.get("progress") if isinstance(payload.get("progress"), (int, float)) else None
+        stage_id = build_stage_of(msg, progress, info["text"])
+        done = bool(progress is not None and progress >= 1.0)
+        watch = "Reading the transcript" if "transcript" in msg.lower() else None
+        payload.setdefault("stage", stage_id)
+        payload.setdefault("phases", build_phases(stage_id, info["text"], done=done, watch_label=watch))
+        if info.get("source"):
+            payload.setdefault("source", dict(info["source"]))
+        if not done and stage_id != "ready" and not info["text"]:
+            left = info["expected"] - (self.clock() - info["t0"])
+            if left >= 30:  # "About N min left" only while the estimate still says something
+                payload.setdefault("etaS", float(round(left)))
+        return payload
+
+    async def _pause(self, reason: str) -> None:
+        """The lesson waits for something outside it (v2 app only): no checks, judge or coach run, nothing counts as
+        Not yet. lesson.paused + the matching blocker; the place is kept (the step, its passed checks)."""
+        if self.paused is not None or not self.app_v2:
+            return
+        step = self.step
+        nb = lesson_notebook.name(self) if self.notebook_lesson else None
+        file = self._step_file(step) if step else None
+        what = "the notebook" if self.notebook_lesson else (Path(file).name if file else "the lesson folder")
+        title = "VS Code closed. Lesson paused."
+        body = f"Your place is saved. Reopen {what}" + (f" and pick up at {step['title']}." if step else ".")
+        self.paused = {"reason": reason, "title": title, "body": body, **({"stepId": step["id"]} if step else {})}
+        log.info("lesson paused: %s (%s)", reason, nb or file or self.workdir)
+        await self.emit("spotlight", {"clear": True})
+        await self.emit("lesson.paused", dict(self.paused))
+        await self._set_blocker({"kind": reason, "title": title, "body": body, "action": "open_editor"})
+
+    async def _unpause(self) -> None:
+        if self.paused is None:
+            return
+        reason, self.paused = self.paused.get("reason"), None
+        step = self.step
+        log.info("lesson resumed: %s", reason)
+        await self.emit("lesson.resumed", {"reason": reason, **({"stepId": step["id"]} if step else {})})
+        if reason in self.blockers:
+            await self._set_blocker({"kind": reason, "clear": True})
+        self._sync_screen_soon()
+        if step is not None and not self.passed:
+            self.spot_rect, self._spot_caption = None, None  # the step's box goes out again on the reopened window
+            self._spawn(self._show_where(step))
+
+    async def _set_blocker(self, payload: dict) -> None:
+        """blocker (v2 app only): one thing in the learner's way, or {kind, clear: true} once it is gone."""
+        if not self.app_v2:
+            return
+        kind = payload.get("kind")
+        if payload.get("clear"):
+            if self.blockers.pop(kind, None) is None:
+                return
+        elif self.blockers.get(kind) == payload:
+            return
+        else:
+            self.blockers[kind] = payload
+        await self.emit("blocker", payload)
+
+    async def _v2_tick(self) -> bool:
+        """~1/s (tick): VS Code's lesson window gone -> pause; back -> resume. A notebook step and VS Code shows
+        "Select Kernel" -> the kernel blocker (cleared once it's gone). v2 app, a running lesson and the real screen
+        reader only (never in tests). -> True while the lesson is paused (tick holds everything else)."""
+        if not self.app_v2 or self.graph is None or self.phase != "active" or self.step is None:
+            return self.paused is not None
+        if getattr(self.screen, "reader", None) is None:
+            return self.paused is not None
+        now = self.clock()
+        if self.editor_open and self.workspace is not None and self.workdir and now - self._editor_poll_t >= EDITOR_POLL_S:
+            self._editor_poll_t = now
+            from server.workspace import editor as editor_mod
+
+            alive = await asyncio.to_thread(editor_mod.lesson_window_state, self.workdir)
+            if alive is False:
+                self._editor_misses += 1
+                if self._editor_misses >= EDITOR_GONE_POLLS and self.paused is None:
+                    await self._pause("editor_closed")
+            elif alive is True:
+                self._editor_misses = 0
+                if self.paused is not None and self.paused.get("reason") == "editor_closed":
+                    await self._unpause()
+        if self.paused is not None:
+            return True
+        if self.notebook_lesson and now - self._kernel_poll_t >= KERNEL_POLL_S:
+            self._kernel_poll_t = now
+            await self._kernel_check()
+        return False
+
+    def _select_kernel_rect(self) -> dict | None:
+        """VS Code's own "Select Kernel" control in the latest frame (screen points), when it shows one."""
+        for b in getattr(self.last_obs, "blocks", None) or []:
+            if (getattr(b, "app", "") or "").lower() not in CODE_APP_NAMES:
+                continue
+            if not _SELECT_KERNEL.match(str(getattr(b, "text", "") or "").strip()):
+                continue
+            r = b.rect.to_dict() if hasattr(b.rect, "to_dict") else (b.rect if isinstance(b.rect, dict) else vars(b.rect))
+            try:
+                return {k: float(r[k]) for k in ("x", "y", "w", "h")}
+            except (KeyError, TypeError, ValueError):
+                return None
+        return None
+
+    async def _kernel_check(self) -> None:
+        step = self.step
+        if step is None or self.passed or not (step.get("code") or "").strip() or self.last_obs is None:
+            return
+        rect = self._select_kernel_rect()
+        if rect is not None:
+            self._kernel_misses = 0
+            old = (self.blockers.get("kernel") or {}).get("rect")
+            if old and all(abs(old[k] - rect[k]) < 4 for k in ("x", "y", "w", "h")):
+                return  # the same control (OCR boxes move a point or two between frames): no re-send
+            rect = {k: float(round(v)) for k, v in rect.items()}
+            await self._set_blocker({"kind": "kernel", "title": "Pick a kernel so your cells can run",
+                                     "body": "No kernel is running, so I cannot check this cell.", "rect": rect})
+        elif "kernel" in self.blockers and self._editor_window() is not None:
+            self._kernel_misses += 1
+            if self._kernel_misses >= KERNEL_CLEAR_POLLS:
+                self._kernel_misses = 0
+                await self._set_blocker({"kind": "kernel", "clear": True})
+
+    def v2_snapshot(self) -> list[tuple[str, dict]]:
+        """A reconnecting v2 app gets the pause and the blockers again (after the step it belongs to)."""
+        if not self.app_v2 or self.graph is None:
+            return []
+        out: list[tuple[str, dict]] = []
+        if self.paused is not None:
+            out.append(("lesson.paused", dict(self.paused)))
+        out += [("blocker", dict(b)) for b in self.blockers.values()]
+        return out
 
     @property
     def steps(self) -> list[dict]:
@@ -1158,7 +1647,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.end_lesson("new lesson")  # a new search cleanly ends the current lesson
         self.phase = "searching"
         self.query = query
-        await self._status("thinking")
+        await self._status("thinking", detail="Finding a lesson")
         self.results = {}
         early: set[str] = set()
         try:
@@ -1220,7 +1709,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.end_lesson("new lesson")
         self.pending_pick = {"url": url, "row": row}
         self.phase = "preflight"
-        await self._status("thinking")
+        await self._status("thinking", detail="Looking at the video")
         pick = self.pending_pick
 
         def on_late(res: dict) -> None:  # the full answer after a partial card: replace it while still pending
@@ -1373,7 +1862,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         events). Any failure, timeout or cancellation ends with `error` (human wording), a final
         `lesson.building {failed: true}` and `status idle`, so the app never stays on "building"."""
         self.phase = "building"
-        await self._status("thinking")
+        self._build_start(text=False, url=url)  # v2: Home-Building's source and checklist
+        await self._status("thinking", detail="Building your lesson")
         done = asyncio.Event()
         t0 = self._build_t0 = self.clock()  # t10: the learner's Build click (_auto_open_editor skips its grace)
         stage = BuildStage()
@@ -1473,7 +1963,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
             if isinstance(e, Exception):
                 log.exception("build_lesson failed")
-                await self._build_failed(human_build_error(e))
+                await self._build_failed(human_build_error(e), e)
                 return
             if self._quiet_cancel:  # end_lesson / a new learn: they report what happens next
                 raise
@@ -1554,7 +2044,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _load_curated(self, goal: str, graph: dict, fresh: bool = False) -> None:
         """A curated "Just teach me" lesson: no build, its folder with a clean starter, then the lesson."""
         self.phase = "building"
-        await self._status("thinking")
+        self._build_start(text=True, title=((graph.get("lesson") or {}).get("title") or goal))
+        await self._status("thinking", detail="Loading the lesson")
         ok = False
         try:
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
@@ -1598,7 +2089,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """E2's build_text_lesson: step 1 arrives first (on_update) and the lesson starts on it; the rest are
         appended (lesson.updated). Same progress / failure handling as a video build, minus the player."""
         self.phase = "building"
-        await self._status("thinking")
+        self._build_start(text=True, title=goal)  # v2: Home-Building's source and checklist
+        await self._status("thinking", detail="Writing your lesson")
         t0 = self.clock()
         state = {"text": "Planning your lesson", "loaded": False}
         done = asyncio.Event()
@@ -1670,7 +2162,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
             if isinstance(e, Exception):
                 log.exception("build_text_lesson failed")
-                await self._build_failed(human_build_error(e).replace("this video", "this lesson"))
+                await self._build_failed(human_build_error(e).replace("this video", "this lesson"), e)
                 return
             if self._quiet_cancel:
                 raise
@@ -2507,11 +2999,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("video.play", {})
                 self._spawn_lesson_end()
 
-    async def _build_failed(self, message: str) -> None:
+    async def _build_failed(self, message: str, error: BaseException | None = None) -> None:
         self.build_progress = None
         self.phase = "idle" if self.graph is None else "active"
         await self.emit("error", {"message": message})
-        await self.emit("lesson.building", {"message": message, "progress": 0.0, "failed": True})
+        payload: dict[str, Any] = {"message": message, "progress": 0.0, "failed": True}
+        info, self._build_v2 = getattr(self, "_build_v2", None), None
+        try:  # v2 (Err-LessonBuildFailed): why, in one plain sentence, and lessons that start with no build
+            payload["failCode"] = build_fail_code(error if error is not None else message)
+            if reason := fail_reason(message):
+                payload["failReason"] = reason
+            if info and info.get("source"):
+                payload["source"] = dict(info["source"])
+            alts = await asyncio.to_thread(library_alternatives)
+            if alts:
+                payload["alternatives"] = alts
+        except Exception:  # noqa: BLE001 - the failure itself must reach the app
+            log.exception("v2 build-failed fields failed")
+        await self.emit("lesson.building", payload)
         await self._status("idle" if self.graph is None else "watching")
 
     async def load_graph(self, graph: dict) -> None:
@@ -2523,6 +3028,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
         _metric_labels(graph)  # t10: "at least 95%", never "reaches 0.95" beside "at least 95"
         self.graph = graph
+        self.lesson_wall_t0 = None  # v2: set by the first start_step (minutes only from step 1)
+        self._build_v2 = None
         self.runs = {}
         self._extend_failed = False
         self.skipped_steps = []  # ids the learner skipped (S7 saves them apart from passed steps)
@@ -2696,6 +3203,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         exact = rc or (step.get("code") or "").strip()  # the full thing to type / run, never cut
         if exact:
             p["code"] = exact
+            # v2 (Les-Working): the line above the code and the one under it; the curated lesson's own lines win
+            lines = where_then(code=exact, run_command=bool(rc), notebook=bool(self.notebook_lesson),
+                               file=self._step_file(step))
+            lines.update(curated.step_copy(self, step))
+            p.update({k: v for k, v in lines.items() if v})
         if isinstance(step.get("estMinutes"), int) and step["estMinutes"] > 0:
             p["estMinutes"] = step["estMinutes"]
         seg = self._segment(step)
@@ -2711,6 +3223,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if back is not None:  # "run calculator.py" while calculator.py is still empty: type it first
             idx, empty = back
         carry = self._clip_runs_into(idx) if seek_to is None and idx == self.idx + 1 else None  # t10: before reset
+        if getattr(self, "lesson_wall_t0", None) is None:  # v2 card.result.minutes: only from step 1 seen here
+            self.lesson_wall_t0 = time.time() if idx == 0 and seek_to is None else 0.0
         self.idx = idx
         self.phase = "active"
         self._reset_step_state()
@@ -3327,7 +3841,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             # clip we hold quietly until the real lesson replaces it (_replace_provisional starts the real s1).
             if not self._placeholder_hold:
                 self._placeholder_hold = True
-                await self._status("thinking")
+                await self._status("thinking", detail="Building the next steps")
             return
         self.passed = True
         self._passed_t = self.clock()  # t10: the cue guard (a Check my work aimed at this step lands on the next)
@@ -3358,7 +3872,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._finish_partial(step)  # nothing can build the rest (DEMO / extend failed): finish here
         elif more_coming:
             self.waiting_more = True  # _extend_lesson starts the next step when it arrives
-            await self._status("thinking")
+            await self._status("thinking", detail="Building the next steps")
             parts = (self.graph or {}).get("lesson", {}).get("parts") or {}
             if parts.get("total") or parts.get("list"):  # only a real long-video part build gets this card
                 done, total = int(parts.get("done") or 0), int(parts.get("total") or 0)
@@ -3677,6 +4191,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._check_screen_health()
         if not self._clients_ok():
             return  # E7: the app left: no scene look, judge, stuck card or coach for nobody
+        if await self._v2_tick():
+            return  # v2: VS Code is closed: the lesson waits (no look, judge, stuck card or coach) until it's back
         if self.awaiting_start:
             await self._maybe_begin()  # E4: an edit of the step file / typing in the editor starts the held step
             if self.awaiting_start:
@@ -4168,7 +4684,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         comes back in milliseconds and never flips the status."""
         await asyncio.sleep(delay)
         if gen == self.step_gen and self.coaching:
-            await self._status("thinking")
+            await self._status("thinking", detail="Looking at your code")
 
     def _target_spot(self, target: dict) -> dict | None:
         r = target.get("rect")
@@ -4882,6 +5398,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if kind == "resume":
             await self.resume()
             return
+        if getattr(self, "paused", None) is not None and kind in PAUSED_ANSWERS:  # v2: VS Code is closed: nothing to
+            await self.emit("lesson.paused", dict(self.paused))  # check or point at; the paused surface again
+            return
         if kind == "end_lesson":  # the resume card's "Start a new lesson"
             await self.end_lesson("end_lesson")
             return
@@ -4992,7 +5511,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             elif step is not None and (self.confirm_pending or self.confirm_check_ids) and not self.passed:
                 # confirm_check_ids: the judge's "Looks done?" stays armed until the step changes or Claude
                 # stops seeing it done (evaluate() only clears confirm_pending, the checks-pass card's flag)
-                await self._status("thinking")  # the app's Yes spinner ends on thinking -> passed, even on the last step
+                await self._status("thinking", detail="Checking your work")  # the app's Yes spinner ends on thinking -> passed, even on the last step
                 self.confirm_pending = False
                 if await self._dup_blocks_pass(step):  # T5: a later copy of the step's def overrides it: no pass
                     self.confirm_check_ids = []
@@ -5099,7 +5618,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind in ("explain", "ask"):
             self._record("question", {"kind": kind, "text": (text or "")[:300]}, step)
-            await self._status("thinking")  # visible at once; the spotlight follows, the card after
+            await self._status("thinking", detail="Writing an answer" if kind == "ask" else "Writing an explanation")
             gen = self.step_gen
             placed = await self._show_where(step)
             if kind == "explain" and not text and (card := curated.explain_card(self, step)) is not None:
@@ -5141,7 +5660,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind == "hint":
             gen = self.step_gen
-            await self._status("thinking")
+            await self._status("thinking", detail="Writing a hint")
             if self._lesson_window_hidden():  # another project's window is in front: say where (+ Open), quote nothing
                 await self._emit_card(self._where_card(step))
                 await self._status("offtrack" if self.last_offtrack else "watching")
@@ -5189,7 +5708,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                   {c["id"] for c in step.get("checks", []) if c.get("type", "").startswith("metric")}
                                   for r in self.last_results)
                 want = "gradients" if metric_fail or self.last_offtrack else "network"
-            await self._status("thinking")
+            await self._status("thinking", detail="Drawing a diagram")
             gen, graph = self.step_gen, self.graph
             d = await self.m.diagram(want if want in DIAGRAM_KINDS else None, self._diagram_step(step), self.context(),
                                      self._diagram_context(step, None if want in DIAGRAM_KINDS else (text or None)))
@@ -5215,7 +5734,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if kind == "download":  # S2: the video's linked code / notebooks -> <lesson folder>/tutorial/ (never run)
             from . import workspace as wsmod
 
-            await self._status("thinking")
+            await self._status("thinking", detail="Downloading the files")
             res, summary = await asyncio.to_thread(wsmod.download_resources, self.graph or {}, self.workdir)
             await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Tutorial files", "body": summary})
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
@@ -5633,7 +6152,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._fix_by_hand(step, path, text, diff)  # place (previewed), no model call, no second copies
             return
         if self.m.has_do_it_for_me() and not stage.on(self):  # E5: a minimal, compiling patch -> preview -> confirm -> apply
-            await self._status("thinking")
+            await self._status("thinking", detail="Writing the fix")
             try:
                 p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack)
             except Exception as e:
@@ -5790,7 +6309,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _check_step_now(self, step: dict) -> None:
         gen = self.step_gen
         self._check_asked_t = self.clock()  # T11: they asked: off-track cards may speak before the video's gate
-        await self._status("thinking")
+        await self._status("thinking", detail="Checking your work")
         if self.lesson_mode and self._run_command(step):  # a run step checks the code that will run: saved first
             await self._save_step_file(step)
         if self.screen is not None:  # a new frame, not one from before their last keystroke
@@ -6893,7 +7412,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             (new_text, line), summary = hit, f"Puts this step's code in {path.name} in place of yours."  # in place
         elif self.m.has_do_it_for_me() and not stage.on(self):  # a Demo lesson: the step's own code, no model
             thinking = True
-            await self._status("thinking")
+            await self._status("thinking", detail="Typing the step for you")
             try:  # a patch that ADDS the step's code (never the last diagnosis's cached diff, which only fixed a
                 # comma); the diagnosis rides along as context so the file also compiles
                 p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack or self.full_card,
@@ -7112,7 +7631,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     return
             except Exception:  # noqa: BLE001
                 log.exception("run_in_terminal failed; running it here")
-        await self._status("thinking")
+        await self._status("thinking", detail="Running it for you")
         run_id = f"run-for-me-{int(time.time() * 1000)}"
         await self.ingest({"kind": "run_started", "run_id": run_id, "command": cmd, "cwd": self.workdir})
         env = dict(os.environ)
@@ -7358,8 +7877,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.pending_pick is not None and self.pending_pick.get("card"):  # preflight card awaiting build / pick_another
             return [("status", {"state": "idle"}), ("card", self.pending_pick["card"])]
         if self.phase == "building" and self.build_progress:  # reconnect mid-build: keep the spinner honest
-            out.append(("status", {"state": "thinking"}))
-            out.append(("lesson.building", dict(self.build_progress)))
+            out.append(("status", {"state": "thinking", **({"detail": self.status_detail}
+                                                           if getattr(self, "status_detail", None) else {})}))
+            p = dict(self.build_progress)
+            info = getattr(self, "_build_v2", None)
+            if info is not None and not p.get("failed"):  # v2: the same checklist the live ticks carry
+                stage_id = build_stage_of(p.get("message"), p.get("progress"), info["text"])
+                p.setdefault("stage", stage_id)
+                p.setdefault("phases", build_phases(stage_id, info["text"]))
+                if info.get("source"):
+                    p.setdefault("source", dict(info["source"]))
+            out.append(("lesson.building", p))
             return out
         if self.graph is None:
             out.append(("status", {"state": "idle" if self.phase != "searching" else self.status}))
@@ -7381,10 +7909,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 elif st.get("detail"):
                     p["detail"] = st["detail"]
                 out.append(("check.updated", p))
-            if self.last_offtrack and not self.passed and not held:
+            if self.last_offtrack and not self.passed and not held and getattr(self, "paused", None) is None:
                 out.append(("offtrack", {k: v for k, v in self.last_offtrack.items() if k != "targets"}))  # no stale box on reconnect
         if done:  # a reconnecting app gets the ending again (its End lesson closes the lesson)
             out.append(("card", lesson_end.card(self)))
+        out += self.v2_snapshot()  # v2: the pause (VS Code closed) and the blockers on screen
         out.append(("status", {"state": "watching" if held and self.status == "offtrack" else self.status}))
         return out
 
