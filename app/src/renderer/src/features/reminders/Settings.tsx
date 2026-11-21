@@ -3,47 +3,51 @@
  * requests): `<RemindersGroup />`. Built from the settings feature's own rows, so it reads as part of that page.
  *
  *   Reminders     on / off; the caption says exactly what will happen ("Next: today at 6:00 PM, if something is due")
- *   Time          a stepper in 30-minute steps, local time
- *   Quiet hours   on / off, with its start and end; a time inside them says plainly that no reminder will come
+ *   Time          a native picker of half-hour slots, local time
+ *   Quiet hours   on / off, and under it its start and end (same pickers); a time inside them says plainly that no
+ *                 reminder will come
  *   Pause         Not today / For a week, or Resume while paused
  *
  * Neutral chrome only: an "on" switch is white, never green.
  */
-import { Minus, Plus } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Toggle } from '../../core/ui/controls'
 import { QuietButton } from '../../core/ui/buttons'
 import { color, fill, radius2, type2 } from '../../core/theme'
 import { Group, Note, PageHeader, Row, TextButton } from '../settings/ui'
-import { fmtDay, fmtTime, nextLook, snoozed, stepTime, type Minute, type ReminderState } from './logic'
+import { SLOTS, fmtDay, fmtTime, nextLook, snoozed, type Minute, type ReminderState } from './logic'
 import { patchReminders, snooze, useReminders } from './store'
 
-function Stepper({ label, value, onChange }: { label: string; value: Minute; onChange: (m: Minute) => void }): ReactNode {
-  const btn = (dir: 1 | -1): ReactNode => (
-    <button
-      type="button"
-      aria-label={`${dir < 0 ? 'Earlier' : 'Later'} ${label.toLowerCase()}`}
-      className="mg-press grid h-[28px] w-[28px] shrink-0 cursor-pointer place-items-center"
-      style={{ borderRadius: radius2.keycap, color: color.text }}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => onChange(stepTime(value, dir))}
-    >
-      {dir < 0 ? <Minus size={13} strokeWidth={1.8} aria-hidden /> : <Plus size={13} strokeWidth={1.8} aria-hidden />}
-    </button>
-  )
+/** A native picker of half-hour slots: one click and the Mac's own menu, any time reachable at once (type to jump). */
+function TimeSelect({ label, value, onChange }: { label: string; value: Minute; onChange: (m: Minute) => void }): ReactNode {
   return (
-    <div
-      role="group"
-      aria-label={label}
-      className="flex shrink-0 items-center p-[2px]"
-      style={{ borderRadius: radius2.control, background: fill.segmentTrack, border: `1px solid ${fill.hairline}` }}
-    >
-      {btn(-1)}
-      <span className="tabular-nums text-center font-medium" aria-live="polite" style={{ minWidth: 72, fontSize: type2.xs, color: color.text }}>
-        {fmtTime(value)}
-      </span>
-      {btn(1)}
-    </div>
+    <span className="relative inline-flex shrink-0 items-center">
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="mg-press cursor-pointer appearance-none tabular-nums font-medium outline-none"
+        style={{
+          height: 32,
+          minWidth: 112,
+          padding: '0 30px 0 12px',
+          borderRadius: radius2.control,
+          background: fill.segmentTrack,
+          border: `1px solid ${fill.hairline}`,
+          color: color.text,
+          fontSize: type2.xs,
+          fontFamily: 'inherit'
+        }}
+      >
+        {SLOTS.map((m) => (
+          <option key={m} value={m}>
+            {fmtTime(m)}
+          </option>
+        ))}
+      </select>
+      <ChevronDown aria-hidden size={13} strokeWidth={1.8} className="pointer-events-none absolute" style={{ right: 10, color: color.label }} />
+    </span>
   )
 }
 
@@ -71,26 +75,23 @@ export function RemindersGroup(): ReactNode {
           caption={caption(s, now)}
           right={<Toggle label="Review reminders" on={s.enabled} onChange={(v) => void patchReminders({ enabled: v, offered: true })} />}
         />
-        {s.enabled && <Row label="Time" caption="Your local time." right={<Stepper label="Time" value={s.time} onChange={(time) => void patchReminders({ time })} />} />}
+        {s.enabled && <Row label="Time" caption="Your local time." right={<TimeSelect label="Reminder time" value={s.time} onChange={(time) => void patchReminders({ time })} />} />}
         {s.enabled && (
-          <Row
-            tight
-            label="Quiet hours"
-            caption={s.quiet.on ? `Nothing from ${fmtTime(s.quiet.from)} to ${fmtTime(s.quiet.to)}.` : 'Off.'}
-            right={<Toggle label="Quiet hours" on={s.quiet.on} onChange={(on) => void patchReminders({ quiet: { ...s.quiet, on } })} />}
-          />
-        )}
-        {s.enabled && s.quiet.on && (
-          <Row
-            label="Quiet from"
-            right={
-              <div className="flex items-center gap-[8px]">
-                <Stepper label="Quiet start" value={s.quiet.from} onChange={(from) => void patchReminders({ quiet: { ...s.quiet, from } })} />
+          <div>
+            <Row
+              tight
+              label="Quiet hours"
+              caption={s.quiet.on ? 'No reminder between these times.' : 'Off.'}
+              right={<Toggle label="Quiet hours" on={s.quiet.on} onChange={(on) => void patchReminders({ quiet: { ...s.quiet, on } })} />}
+            />
+            {s.quiet.on && (
+              <div role="group" aria-label="Quiet hours" className="flex items-center gap-[8px]" style={{ padding: '0 16px 14px' }}>
+                <TimeSelect label="Quiet hours start" value={s.quiet.from} onChange={(from) => void patchReminders({ quiet: { ...s.quiet, from } })} />
                 <span style={{ fontSize: type2.xs, color: color.label }}>to</span>
-                <Stepper label="Quiet end" value={s.quiet.to} onChange={(to) => void patchReminders({ quiet: { ...s.quiet, to } })} />
+                <TimeSelect label="Quiet hours end" value={s.quiet.to} onChange={(to) => void patchReminders({ quiet: { ...s.quiet, to } })} />
               </div>
-            }
-          />
+            )}
+          </div>
         )}
         {s.enabled && (
           <Row
