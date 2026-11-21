@@ -16,9 +16,9 @@ Each person is a **lead** who runs 2–3 Claude Code sessions in parallel, each 
 
 | Lead | Claude sessions (folder they own) |
 |---|---|
-| **A — Engine (you)** | **A1 Lesson Builder** (`server/lesson/`): YouTube URL → Gemini → step graph + machine-checkable checks. **A2 Runner & Checks** (`cli/` + `server/checks/`): `tut run <cmd>` wrapper, metric parser, check evaluator, Tiger ingest. **A3 Coach** (`server/coach/`): Claude Opus diagnosis, hint ladder, outdated-code fixer via Bright Data. |
+| **A — Engine (you)** | **A1 Lesson Builder** (`server/lesson/`): YouTube URL → Gemini → step graph + machine-checkable checks. **A2 Runner & Checks** (`cli/` + `server/checks/`): `tut run <cmd>` wrapper, metric parser, check evaluator, Tiger ingest. **A3 Coach** (`server/coach/`): Claude Opus diagnosis, hint ladder, outdated-code fixer via DuckDuckGo web search. |
 | **B — Overlay (Apple UI): Adrian, see FRONTEND-HANDOFF.md** | **B1 Shell** (`app/`): Electron, top-center pill (Dynamic-Island style), Spotlight launcher, lesson drawer, shortcut bar, native vibrancy. **B2 Spotlight** (`app/spotlight/` + `vscode-ext/`): dim overlay with cut-out, VS Code extension that reports exact line rects. **B3 Video + Voice** (`app/player/`): YouTube IFrame player with gating (pause / seek / resume on step pass), ElevenLabs TTS toggle. |
-| **C — Finder, Diagrams, Demo (third teammate)** | **C1 Finder** (`server/finder/`): Bright Data search (YouTube + web + papers) + Gemini triage → ranked candidates. **C2 Diagrams** (`server/diagrams/` + `app/diagrams/`): 3 templates from real run data (network graph, per-layer gradient flow, solution heatmap) + Claude one-line intuition. **C3 Demo content** (`demo/`): the PINN repo, chosen tutorial, cached search results + step graph, demo-mode switch, backup video, Devpost. |
+| **C — Finder, Diagrams, Demo (third teammate)** | **C1 Finder** (`server/finder/`): YouTube + DuckDuckGo search (web + papers) + Gemini triage → ranked candidates. **C2 Diagrams** (`server/diagrams/` + `app/diagrams/`): 3 templates from real run data (network graph, per-layer gradient flow, solution heatmap) + Claude one-line intuition. **C3 Demo content** (`demo/`): the PINN repo, chosen tutorial, cached search results + step graph, demo-mode switch, backup video, Devpost. |
 
 **Background agents** (fire-and-forget, any lead can launch): pick & verify the real public PINN YouTube tutorial · write seed/demo data · README + architecture diagram · Devpost draft · test scripts · landing page on the GoDaddy domain.
 
@@ -33,7 +33,7 @@ Put these in `shared/contracts/` and don't change them without telling the other
 3. **Metric line protocol** (stdout from the user's run): `::metric:: {"step":1200,"name":"loss","value":0.25}`
 4. **App ↔ server WebSocket events**: `step.started`, `check.updated`, `step.passed`, `offtrack {reason, card}`, `spotlight {file, lines}`, `video.seek {t}`, `diagram {kind, data, caption}`
 5. **Tiger schema**: `training_metrics` + `learning_events` hypertables, `runs`, `lessons`, `steps`; continuous aggregate `metrics_1s`
-6. Repo skeleton, `.env.example`, and all API keys working: Gemini, Anthropic, Bright Data, Tiger Data, ElevenLabs (+ Vultr box).
+6. Repo skeleton, `.env.example`, and all API keys working: Gemini, Anthropic, Tiger Data, ElevenLabs (+ Vultr box).
 
 **Also in hour 1 (C3 + a background agent):** choose the actual YouTube tutorial and confirm the PINN code trains in about 60 s on a laptop. The whole demo depends on this.
 
@@ -81,7 +81,6 @@ Put these in `shared/contracts/` and don't change them without telling the other
 |---|---|---|
 | Claude API | Your $200 credits; about $2–6 per session-hour | Set a spend limit in the Console; share one key via `.env` (never commit it) |
 | Gemini API | Free AI Studio key; YouTube input is free in preview (8h of video/day on the free tier) | Get the key now. Turn on billing only if you hit rate limits (cents) |
-| Bright Data | $100 team credits from the hackathon + free tier | Redeem the team credits; create a Web Unlocker + SERP zone |
 | Tiger Data | Free cloud service | Create the service; save the connection string |
 | ElevenLabs | Creator credits for everyone | Redeem; pick 1 voice |
 | Vultr | Check MLH's prize/credit page; otherwise about $6/mo VM, or run the backend locally | Only needed for the Vultr track |
@@ -98,7 +97,7 @@ Put these in `shared/contracts/` and don't change them without telling the other
 
 ## Sponsor map (say these words in the pitch)
 - **Gemini:** watches the YouTube video → step graph with timestamps; triages candidate tutorials.
-- **Bright Data:** finds and ranks tutorials across YouTube, blogs, notebooks, papers; pulls current docs for outdated code.
+- **YouTube pages + DuckDuckGo:** find and rank tutorials across YouTube, blogs, notebooks, papers; pull current docs for outdated code.
 - **Tiger Data:** every training metric streams into hypertables; continuous aggregates power the live curve comparison and the check that grades your step.
 - **ElevenLabs:** optional voice explanations.
 - **Vultr:** backend hosting. **GoDaddy:** domain. **Claude:** coach and diagnosis.
@@ -108,7 +107,7 @@ Put these in `shared/contracts/` and don't change them without telling the other
 2. **Launcher (25s):** ⌥Space → "train a PINN on the convection equation" → best tutorial found → lesson built.
 3. **Gating (40s):** the video plays step 4 and pauses; the screen dims onto `pde_residual`; you type; checks tick; the step goes green and the video resumes.
 4. **Hero (60s):** training at β=30, loss flat → step red → card: known PINN failure mode + paper → gradient-flow diagram shows why → add the β curriculum → loss drops → green → video resumes.
-5. **Close (20s):** "Any tutorial becomes an auto-graded lab. Built on Gemini, Bright Data, Tiger Data, ElevenLabs."
+5. **Close (20s):** "Any tutorial becomes an auto-graded lab. Built on Gemini, Tiger Data, ElevenLabs."
 
 ## Kickoff prompt for each Claude session
 > We're building [NAME] at a 24h hackathon. Read `PLAN.md` and everything in `shared/contracts/`. You own `<folder>` only; build against the contracts exactly and mock what other sessions own. Get a runnable slice in 90 minutes, then deepen. Secrets in `.env` only. Commit to your branch often with clear messages; don't touch other folders.
