@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>dev.sandhacks.miyagi.listen</string>
+  <key>CFBundleName</key><string>miyagi</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>NSMicrophoneUsageDescription</key><string>miyagi listens only while you hold Fn+Control, to hear your question. Speech is turned into text on this Mac.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>miyagi turns your spoken question into text on this Mac.</string>
+</dict>
+</plist>

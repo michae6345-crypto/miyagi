@@ -310,6 +310,27 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       }),
     [setPhase, disarmEnd]
   )
+  // Push to talk with no lesson (features/ptt): the words heard wait in main and fill the search field. The learner
+  // confirms with Enter; nothing is built or searched by surprise.
+  useEffect(() => {
+    const fill = (text: unknown): void => {
+      if (typeof text !== 'string' || !text.trim()) return
+      setMode('search')
+      setQuery(text.trim())
+      setHowPicked(undefined)
+      setIdleSel(0)
+    }
+    const offs = [
+      bridge.on('launcher:open', () => void bridge.invoke<string | null>('ptt:prefill-take').then(fill).catch(() => undefined)),
+      bridge.onFeature('ptt:prefill', (t) => {
+        if (phaseRef.current !== 'open') return
+        fill(t)
+        // Taken here, so closing and reopening the launcher doesn't refill it with the same words.
+        void bridge.invoke('ptt:prefill-take').catch(() => undefined)
+      })
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
   useEffect(
     () =>
       bridge.on('launcher:close', () => {
