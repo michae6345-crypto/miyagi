@@ -408,11 +408,24 @@ def _extract_json(text: str) -> dict:
     return obj
 
 
+def record_cost(msg, model_id: str, label: str) -> None:
+    """One workspace call's dollars into the lesson's session tally (server.lesson.cost, source "workspace")."""
+    try:
+        from server.lesson import cost
+
+        m = getattr(msg, "model", None)
+        cost.record_usage(m if isinstance(m, str) and m else model_id, getattr(msg, "usage", None) or {},
+                          source="workspace", label=label)
+    except Exception:  # noqa: BLE001 - cost accounting never breaks setup
+        log.debug("workspace cost record failed", exc_info=True)
+
+
 def _ask(client, messages: list[dict]) -> dict:
     """One Claude call with structured output; falls back to schema-in-prompt if the API rejects it."""
     kw = dict(model=model(), max_tokens=16000, system=SYSTEM, messages=messages)
     try:
         msg = client.messages.create(**kw, output_config={"format": {"type": "json_schema", "schema": SCAFFOLD_SCHEMA}})
+        record_cost(msg, kw["model"], "workspace scaffold")
     except Exception as e:  # BadRequest on schema support -> prompt-described JSON
         if "schema" not in str(e).lower() and "output_config" not in str(e).lower():
             raise
@@ -420,6 +433,7 @@ def _ask(client, messages: list[dict]) -> dict:
         msgs = [*messages[:-1], {"role": "user", "content": messages[-1]["content"]
                 + "\n\nReply with ONE JSON object (no prose) matching this JSON Schema:\n" + json.dumps(SCAFFOLD_SCHEMA)}]
         msg = client.messages.create(**{**kw, "messages": msgs})
+        record_cost(msg, kw["model"], "workspace scaffold")
     if getattr(msg, "stop_reason", None) == "max_tokens":
         raise RuntimeError("Claude's starter-file reply was cut off (max_tokens)")
     if getattr(msg, "stop_reason", None) == "refusal":

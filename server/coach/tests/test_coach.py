@@ -1152,7 +1152,12 @@ def test_models_by_purpose(monkeypatch):
     assert llm.model_for("diagnose") == "claude-sonnet-5-5"  # never Opus by default (spend cap)
     for purpose in ("triage", "point", "locate", "explain", "do_it_for_me", "fix_outdated"):
         assert llm.model_for(purpose) == "claude-haiku-5-5"
+    monkeypatch.delenv("MIYAGI_ALLOW_OPUS", raising=False)
     monkeypatch.setenv("COACH_MODEL_EXPLAIN", "claude-opus-5-5")
+    assert llm.model_for("explain") == "claude-sonnet-5-5"  # an Opus override without the opt-in runs on Sonnet
+    monkeypatch.setenv("MIYAGI_ALLOW_OPUS", "1")
+    if llm._cfg is not None:
+        monkeypatch.setattr(llm._cfg, "mode", lambda provider: "byok")  # the cloud never takes Opus
     assert llm.model_for("explain") == "claude-opus-5-5"
     monkeypatch.setenv("COACH_MODEL_DIAGNOSE", "claude-opus-5-5")
     assert llm.model_for("diagnose") == "claude-opus-5-5"  # Opus only when asked for explicitly

@@ -40,7 +40,6 @@ from . import llm
 log = logging.getLogger("coach.scene")
 
 MODEL = os.environ.get("MIYAGI_SCENE_MODEL") or llm.HAIKU
-PRICE_IN, PRICE_OUT = 0.10, 0.50  # $ per MTok, Claude Haiku 5.5 (prompts <= 100K tokens)
 MAX_W = 1280
 MAX_TOKENS = 400  # the answer is ~50-160 tokens; room so strict JSON never hits max_tokens
 FRESH_S = 8.0  # judge / explain / hint use a look at most this old
@@ -297,8 +296,16 @@ def stats() -> dict:
     return {**_STATS, "cost_usd": round(_STATS["cost_usd"], 6)}
 
 
-def _cost(inp: int, out: int) -> float:
-    return inp * PRICE_IN / 1e6 + out * PRICE_OUT / 1e6
+def _cost(resp: Any, usage: Any) -> float:
+    """Dollars of one look from the shared price table (server.lesson.cost), also recorded in the lesson's
+    session tally (source "coach"). A refused or unusable look is billed too, so it counts."""
+    m = getattr(resp, "model", None)
+    m = m if isinstance(m, str) and m else MODEL
+    if usage is None:
+        return 0.0
+    if llm._cost_mod() is None:
+        return llm.usd(m, int(getattr(usage, "input_tokens", 0) or 0), int(getattr(usage, "output_tokens", 0) or 0))
+    return llm.record_cost(m, usage, source="coach", label="coach scene")
 
 
 async def look(image: Any, step: dict, *, step_file: str | None = None, run: str | None = None,
@@ -345,7 +352,7 @@ async def look(image: Any, step: dict, *, step_file: str | None = None, run: str
     ms = (time.perf_counter() - t0) * 1000
     usage = getattr(resp, "usage", None)
     inp, out = int(getattr(usage, "input_tokens", 0) or 0), int(getattr(usage, "output_tokens", 0) or 0)
-    cost = _cost(inp, out)
+    cost = _cost(resp, usage)
     _STATS["looks"] += 1
     _STATS["input_tokens"] += inp
     _STATS["output_tokens"] += out

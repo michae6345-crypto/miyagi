@@ -40,7 +40,7 @@ class Job:
         from . import builder
         from .workdir import scan
 
-        self.cost = cost.start()
+        self.cost = cost.start("prebuild")  # its spend shows as by_source "prebuild" in the session tally
         self.workdir_fp = builder.workdir_fingerprint(self.workdir, scan(self.workdir))
         try:
             g = await builder.build_lesson(self.url, self.goal, self.workdir, on_update=self._on_update,

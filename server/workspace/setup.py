@@ -31,7 +31,7 @@ from jsonschema import Draft202012Validator
 
 from . import editor as _editor
 from . import paths
-from .scaffold import _extract_json, _reply_text, make_client
+from .scaffold import _extract_json, _reply_text, make_client, record_cost
 
 log = logging.getLogger("server.workspace")
 
@@ -462,11 +462,13 @@ def _ask_claude(graph: dict, client) -> dict:
     kw = dict(model=model, max_tokens=4000, system=SYSTEM, messages=msgs)  # noqa: C408
     try:
         msg = client.messages.create(**kw, output_config={"format": {"type": "json_schema", "schema": REQ_SCHEMA}})
+        record_cost(msg, model, "workspace requirements")
     except Exception as e:
         if "schema" not in str(e).lower() and "output_config" not in str(e).lower():
             raise
         msgs = [{"role": "user", "content": msgs[0]["content"] + "\n\nReply with ONE JSON object matching:\n" + json.dumps(REQ_SCHEMA)}]
         msg = client.messages.create(**{**kw, "messages": msgs})
+        record_cost(msg, model, "workspace requirements")
     obj = _extract_json(_reply_text(msg))
     errs = [e.message for e in Draft202012Validator(REQ_SCHEMA).iter_errors(obj)]
     if errs:

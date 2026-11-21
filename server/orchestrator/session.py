@@ -554,6 +554,24 @@ def unscope_editor_apps(graph: dict) -> None:
                 x.pop("app", None)
 
 
+def _session_cost_start(graph: dict) -> None:
+    try:
+        from server.lesson import cost
+
+        cost.session_start(str((graph.get("lesson") or {}).get("id") or "") or None)
+    except Exception:  # noqa: BLE001 - cost accounting never blocks a lesson
+        log.debug("session cost start failed", exc_info=True)
+
+
+def _session_cost_end(reason: str) -> None:
+    try:
+        from server.lesson import cost
+
+        cost.session_end(reason)
+    except Exception:  # noqa: BLE001
+        log.debug("session cost end failed", exc_info=True)
+
+
 class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line that matters
     def __init__(
         self,
@@ -1973,6 +1991,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if had_lesson:
             self._record("lesson_ended", {"reason": reason})
             self.m.clear_diagrams()  # no diagram (or prefetch) may leak into the next lesson
+            _session_cost_end(reason)  # roadmap 3.8: log + emit this session's dollars, start a fresh tally
         self.lesson_epoch += 1  # anything still running for the old lesson can no longer emit
         me = asyncio.current_task()
         for t in list(self._timers) + list(self._tasks):
@@ -3174,6 +3193,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
         _metric_labels(graph)  # t10: "at least 95%", never "reaches 0.95" beside "at least 95"
         self.graph = graph
+        _session_cost_start(graph)  # roadmap 3.8: the running cost tally (build included) belongs to this lesson
         self.lesson_wall_t0 = None  # v2: set by the first start_step (minutes only from step 1)
         self._build_v2 = None
         self.runs = {}

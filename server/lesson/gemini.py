@@ -101,6 +101,12 @@ def model(fast: bool = False) -> str:
     return os.environ.get("LESSON_MODEL", DEFAULT_MODEL)
 
 
+def record_usage(mid: str, um) -> float:
+    """Tokens and dollars of one Gemini call into the build + session tallies (cost.record_gemini: implicit cache
+    hits split out of the prompt count). Logs the hit rate; returns dollars."""
+    return cost.record_gemini(mid, um)
+
+
 YOUTUBE_ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/embed/|/live/)([\w-]{11})")
 
 
@@ -205,10 +211,7 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
                 if mid != model_id:
                     log.warning("used fallback model %s (wanted %s)", mid, model_id)
                 um = getattr(resp, "usage_metadata", None)
-                cost.add_tokens(mid, getattr(um, "prompt_token_count", 0),
-                                (getattr(um, "candidates_token_count", 0) or 0) + (getattr(um, "thoughts_token_count", 0) or 0))
-                log.info("gemini call: model=%s in=%s out=%s", mid, getattr(um, "prompt_token_count", "?"),
-                         (getattr(um, "candidates_token_count", 0) or 0) + (getattr(um, "thoughts_token_count", 0) or 0))
+                record_usage(mid, um)
                 out = json.loads(resp.text or "")
                 global last_model
                 last_model = mid

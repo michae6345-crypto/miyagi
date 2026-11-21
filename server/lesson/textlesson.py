@@ -208,9 +208,8 @@ async def research(goal: str) -> dict:
         async with claude.client().messages.stream(model=mid, max_tokens=8000, messages=messages, tools=WEB_TOOLS,
                                                    thinking={"type": "adaptive"}, output_config={"effort": "low"}) as st:
             msg = await st.get_final_message()
-        u = getattr(msg, "usage", None)
-        cost.add_tokens(mid, getattr(u, "input_tokens", 0), getattr(u, "output_tokens", 0))
-        log.info("claude research call: model=%s in=%s out=%s", mid, getattr(u, "input_tokens", "?"), getattr(u, "output_tokens", "?"))
+        cost.record_usage(getattr(msg, "model", None) or mid, getattr(msg, "usage", None) or {},
+                          label="claude research")
         for b in msg.content:
             t = getattr(b, "type", "")
             if t == "web_search_tool_result" and isinstance(getattr(b, "content", None), list):  # an error is an object, not a list
@@ -231,9 +230,17 @@ async def research(goal: str) -> dict:
 
 
 async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: bool = True, refresh: bool = False) -> dict:
-    """See module docstring. Returns the complete graph; on_update(graph, complete) gets step 1 first."""
+    """See module docstring. Returns the complete graph; on_update(graph, complete) gets step 1 first.
+    A fresh cost counter per build; build_cost is emitted however the build ends (ok / failed / cancelled)."""
+    counter = cost.start()
+    with cost.build_scope(counter, kind="text") as scope:
+        g = await _build_text_lesson(goal, workdir, on_update, counter, cache=cache, refresh=refresh)
+        scope["lesson_id"] = (g.get("lesson") or {}).get("id")
+        return g
+
+
+async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, *, cache: bool, refresh: bool) -> dict:
     t0 = time.time()
-    counter = cost.current() or cost.start()
     info = scan(workdir)
     key = _key(goal, workdir, info)
     path = builder.CACHE_DIR / f"{key}.json"
