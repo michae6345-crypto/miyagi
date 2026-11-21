@@ -1,6 +1,6 @@
 # privacy (ROADMAP 5.4)
 
-**Status:** claimed, not started (builds on `claude/telemetry`, which edits `settings/sections/Privacy.tsx`) · **Priority:** P1 (before strangers install) · **Port:** 5615 · **Branch:** `michael/app-privacy` (from `michael/v2-integration`) · **PR:** draft into `adrian/shell`
+**Status:** first pass done (on top of `claude/telemetry`; its switch is unchanged) · **Priority:** P1 (before strangers install) · **Port:** 5615 · **Branch:** `michael/app-privacy` (from `michael/v2-integration`) · **PR:** draft into `adrian/shell`
 
 ## Goal
 Settings > Privacy tells the learner, plainly and honestly, what miyagi sees, what leaves the Mac and where it goes,
@@ -34,8 +34,26 @@ line each. A link opens the privacy policy. Delete my data erases everything miy
 - "See what was sent" log (needs engine support).
 
 ## Test
-`npm run dev:web -- --port 5615 --strictPort` → `http://localhost:5615/?scenario=full&settings=privacy`
-(adjust to the settings stage params in `features/settings/env.ts`)
+`npm run dev:web -- --port 5615 --strictPort` → `http://localhost:5615/?scenario=settings&settings=privacy`
+(`&confirm=delete` opens on the delete confirm). Use the `settings` scenario, not `full`: `full` merges the player.
+Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/privacy/facts.test.ts src/main/features/settings/erase.test.ts`
+
+## Notes (first pass)
+- `privacy/facts.ts` is the one list (screen, code, editor, searches, videos, sign-in, keys, progress, crash, usage).
+  Its header names the engine file behind every line (engine read from `origin/integration/live`; the server/ folder
+  on this branch is a stub). `facts.test.ts` checks the copy rules and that `web/privacy.md` quotes every line.
+- `privacy/Sees.tsx` renders it; Privacy.tsx keeps the telemetry switch as merged, adds the policy row (auth
+  `openLegal('privacy')`, the existing allowlisted external-link path) and the new delete copy.
+- Delete my data: main `settings:delete` removes keys.bin, then auth.bin and login.json (`settings/erase.ts`);
+  the renderer resets prefs and calls `auth:sign-out` (auth.ts owns the session in memory and revokes it).
+  `signIn: false` (a sign-in file stayed) shows "Keys and settings deleted. Couldn't clear sign-in." with Delete again.
+- `web/privacy.md`: DRAFT with [TBD] for retention on miyagi-cloud, contact address, last-updated date.
+- Stage shots: `shots/privacy-panel.png`, `privacy-data.png`, `privacy-confirm.png` (headless, no window).
+
+## Open
+- Not deleted by Delete my data (said so in the confirm and policy): ~/miyagi (lessons, progress: engine side),
+  the anonymous install token (install.bin), the local error log and saved crash reports, onboarding.json.
+- auth.ts keeps `decided` in memory, so the login shows again on the next launch, not right away.
 
 ## Core requests
 _None expected._
