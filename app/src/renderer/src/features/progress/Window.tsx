@@ -164,7 +164,7 @@ function Skills({ data, loading }: { data?: Progress; loading: boolean }): React
   )
 }
 
-function ThisWeek({ week }: { week?: Week | null }): ReactNode {
+function ThisWeek({ week, loading }: { week?: Week | null; loading: boolean }): ReactNode {
   // days[0] is Monday (the mockup's M T W T F S S); today is the learner's weekday.
   const today = (new Date().getDay() + 6) % 7
   return (
@@ -180,7 +180,7 @@ function ThisWeek({ week }: { week?: Week | null }): ReactNode {
             </span>
           )}
         </div>
-        {!week ? (
+        {loading ? null : !week ? (
           <Empty title="Not tracked yet" body="miyagi doesn’t keep activity yet. Lessons still count." />
         ) : (
           <>
@@ -217,7 +217,7 @@ function ThisWeek({ week }: { week?: Week | null }): ReactNode {
   )
 }
 
-function Review({ review, canStart }: { review?: Progress['review']; canStart: boolean }): ReactNode {
+function Review({ review, canStart, loading }: { review?: Progress['review']; canStart: boolean; loading: boolean }): ReactNode {
   const items = review?.items ?? []
   const due = Math.min(review?.due ?? 0, items.length)
   return (
@@ -238,7 +238,7 @@ function Review({ review, canStart }: { review?: Progress['review']; canStart: b
             Short checks in your own work, spaced so they stick.
           </p>
         </div>
-        {!items.length ? (
+        {loading ? null : !items.length ? (
           <Empty title="Nothing to review yet" body="Reviews show up here once miyagi schedules them." />
         ) : (
           <ul className="m-0 flex min-h-0 list-none flex-col overflow-y-auto p-0">
@@ -301,8 +301,8 @@ export function ProgressWindow(_: { layout: Layout }): ReactNode {
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: '1fr 320px', gap: 24, padding: 32 }}>
         <Skills data={data} loading={loading} />
         <div className="flex min-h-0 flex-col gap-[16px]">
-          <ThisWeek week={loading ? undefined : data?.week} />
-          <Review review={data?.review} canStart={canStart} />
+          <ThisWeek week={loading ? undefined : data?.week} loading={loading} />
+          <Review review={data?.review} canStart={canStart} loading={loading} />
         </div>
       </div>
     </div>
