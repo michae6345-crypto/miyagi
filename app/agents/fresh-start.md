@@ -132,3 +132,30 @@ The app now ignores a replayed lesson it did not start, but the engine should al
   dropped; the build panel shows progress and the next thinking tick passes.
 - A non-start press whose answer never comes (engine crash mid-ask) keeps letting thinking through until the next
   card, error, idle status or connection; the next connection always clears it.
+
+## Review leftovers (round 3, not yet fixed)
+1. **Blocking: the old lesson leaks between a start and this run's `lesson.ready`.** In `freshStart.ts`, `live()`
+   is true whenever `pending && !carried`, and `filter()` passes every event (`if (this.live()) return e`) before
+   any lesson check. After `learn` / `learn_url`, the kept lesson's `step.started`, offtrack, spotlight, hint / step /
+   resume cards, `video.play`/`seek`, status watching and `check.updated` reach every window and the replay log, for
+   the whole search, preflight and build. If the search is abandoned (launcher closed, nothing picked, search
+   failed), `pending` stays true for the rest of the connection. Probe: `new RunGuard(); connected();
+   command(learn)`, then spotlight, offtrack, hint card, resume card, video.play and step.started all pass; state
+   stays `{pending:true, lessonId:undefined}`. Fix: split `live()` into "has this run's lesson" (lessonId set) and
+   "start on its way" (pending, no lessonId). In the second state admit only pre-lesson traffic: `lesson.ready`,
+   `lesson.building`, `search.*`, the preflight card, non-lesson cards, status thinking/busy/idle, error, and
+   network/clear blockers. Keep dropping `step.*`, `check.updated`, offtrack, spotlight, `video.*`, metric,
+   `screen.seen`, `lesson.paused/resumed`, `lesson.updated`, cards of kind resume/step/where/hint/complete or with a
+   stepId, step diagrams, and old watching/offtrack/passed (rewritten to idle) until the run's own `lesson.ready`.
+2. **Tests for 1** in `freshStart.check.ts`: (a) learn, then old step.started, offtrack, spotlight, hint card, resume
+   card, video.play and status watching are dropped (watching becomes idle) while preflight, lesson.building and
+   search rows pass; (b) abandoned learn, same events still dropped; (c) learn, new lesson.ready, then step.started
+   passes. Plus one EngineLink case: the fake engine replays an old lesson on connect and keeps emitting its step
+   events after `learn`; none reach listeners or engine.log before the new `lesson.ready`.
+3. **Minor:** `RunGuard.command` sets `asking=true` for every non-start kind, including ones with no answer
+   (voice_toggle, pick_another, download, open_in_browser, install). Then the old lesson's thinking passes and its
+   watching is dropped instead of rewritten to idle: the round 2 stale spinner returns. Limit asking to ask,
+   explain, diagram, hint, show_me, retry, check_step (or add a short timeout), with one case.
+4. **Brief:** in Fix, explain the pre-ready window (only build and preflight traffic passes until this run's
+   `lesson.ready`). Engine lane ask: stop the kept lesson's checks, timers and cards once `learn` / `learn_url`
+   arrives, not only when the new `lesson.ready` lands.
