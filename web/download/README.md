@@ -22,7 +22,7 @@ Near the top of `index.html`, `window.MIYAGI_DOWNLOAD` is the only thing to edit
 | `mac.needs`, `windows.needs`, `*.chip` | The requirements line. Check `mac.needs` against the Electron version's minimum macOS. |
 | `sizeMB` | Shown only when the live lookup is off or fails. |
 | `pageUrl` | The link phones copy or share. |
-| `cloud` | `false` today: the FAQ and setup card say setup asks for your own Anthropic key and screenshots go straight to Anthropic. `true` once the miyagi-cloud proxy is live: "no account or API key". See below. |
+| `cloud` | `false` = the own-key build: the setup card and FAQ say to add your Anthropic key in Settings after setup, and screenshots go straight to Anthropic. `true` = the miyagi-cloud proxy build: "no account or API key". Must match the build on the `mac` release; see below. |
 | `remindEndpoint` | `null` = phones get Copy link (and Share where the phone has it). Set it to a form endpoint (Formspree, Buttondown, a Worker) and phones also get an "Email me the link" field; it POSTs `{ "email", "url" }` as JSON. GitHub Pages can't send mail on its own, so the page doesn't promise an email until this is set. |
 
 ### Moving downloads to Cloudflare R2 later
@@ -33,7 +33,7 @@ Set `mac.url` and `windows.url` to `https://downloads.miyagi.study/...`. Keep `g
 
 - Detects Mac, Windows or phone/tablet (iPads count as tablets) and shows the right button. On a Mac it checks the chip where the browser says (Chrome's client hints, else the WebGL renderer) and only warns about Intel when it's sure; then the big button gives way to a quiet "Download anyway (Apple silicon only)" link. Anything else (Linux, ChromeOS) gets two equal choices, Mac and Windows, with no primary button.
 - After a click: "Your download has started", then it scrolls to the three install steps and outlines step 1.
-- Install steps for Mac (DMG or zip) and Windows, switchable, each with a small drawing in HTML/CSS/SVG. Step 3 on the Mac has an "Open Privacy & Security" link that opens System Settings.
+- Install steps for Mac (DMG or zip) and Windows, switchable, each with a small drawing in HTML/CSS/SVG. Step 3 on the Mac has an "Open Privacy & Security" link that opens System Settings; it shows only when the visitor is on a Mac, since the link does nothing elsewhere.
 - What happens next, FAQ (safety with the live SHA-256, screen, cost, models, requirements, uninstall) and a privacy line.
 - No cookies, no analytics, no external fonts or scripts.
 
@@ -48,6 +48,9 @@ Query parameters, for checking a variant from any computer:
 
 ## Before it goes live, please check
 
-- **`cloud` stays `false` until the miyagi-cloud proxy ships.** With `false` (today) the page matches the shipped build: screenshots go straight from the computer to Anthropic, miyagi is free, and setup asks for the visitor's own Anthropic key (Gemini optional, for video lessons). Flip `cloud` to `true` when the proxy from `DISTRIBUTION-PLAN.md` is live and the build uses it; the FAQ and the setup card then say "no account or API key" and "our server passes screenshots along and doesn't keep them". The page is safe to publish with either value as long as it matches the build people download.
+- **Set `cloud` to match the build on the `mac` release, and confirm which build that is with Michael before publishing.** The page can't tell on its own. Onboarding has no key step in either build (Screen Recording, Accessibility, VS Code, engine), and newer builds (`main/features/cloud.ts` on `v2-integration`) default to the hosted proxy.
+  - `false`, the own-key build: screenshots go straight from the computer to Anthropic, miyagi is free, and the visitor adds their own Anthropic key in Settings after setup (Gemini optional, for video lessons). Nothing on the page calls the key a setup step.
+  - `true`, the proxy build: the FAQ and the setup card say "no account or API key" and "our server passes screenshots along and doesn't keep them".
+  - Preview either one with `?cloud=0` or `?cloud=1` before you pick.
 - The rest of the FAQ matches the build: Claude for lessons and checks, Gemini only to watch videos; the permissions (Screen Recording, Accessibility, and Apple Events to control VS Code).
 - `mac.needs` ("macOS 13 or later").

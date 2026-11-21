@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-os="mac" data-steps="mac" data-pkg="zip" data-cloud="0">
+<html lang="en" data-os="mac" data-host="mac" data-steps="mac" data-pkg="zip" data-cloud="0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -112,6 +112,9 @@ code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
 [data-os="other"] #dl-mac, [data-os="other"] #dl-win, [data-os="other"] .meta.h-mac, [data-os="other"] .meta.h-win { display: none !important; }
 html:not([data-intel="1"]) .intel-note, html:not([data-intel="1"]) .intel-anyway { display: none !important; }
 html[data-intel="1"] #dl-mac { display: none !important; }
+/* Links that only work on a Mac (x-apple.systempreferences:). data-host is the detected computer and never changes,
+   so a Windows visitor who switches to the Mac steps doesn't get a link that does nothing. */
+html:not([data-host="mac"]) .host-mac { display: none !important; }
 
 /* ---------- top bar ---------- */
 .top { display: flex; align-items: center; justify-content: space-between; height: 64px; }
@@ -147,7 +150,7 @@ html[data-intel="1"] #dl-mac { display: none !important; }
 .pick > div { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .pick .btn-quiet { width: 100%; height: 52px; font-size: 16px; }
 .pick .btn-quiet svg { width: 18px; height: 18px; }
-@media (max-width: 480px) { .pick { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .pick { grid-template-columns: 1fr; } }
 .started:empty { display: none; }
 .started { font-size: 14px; color: var(--text); }
 .note { display: flex; gap: 12px; align-items: flex-start; text-align: left; max-width: 520px; margin: 0 auto; padding: 14px 16px; border-radius: var(--r-card); background: var(--group); box-shadow: inset 0 0 0 1px var(--hairline); font-size: 14px; color: var(--label); }
@@ -157,7 +160,7 @@ html[data-intel="1"] #dl-mac { display: none !important; }
 /* phone */
 .phone-card { max-width: 440px; margin: 28px auto 0; text-align: left; padding: 18px; border-radius: var(--r-panel); background: var(--window); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--hairline), var(--shadow); }
 .linkbox { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: var(--r-chip); background: rgba(0,0,0,.35); box-shadow: inset 0 0 0 1px var(--hairline); }
-.linkbox .url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.linkbox .url { flex: 1; min-width: 0; color: var(--text); text-decoration: none; -webkit-touch-callout: default; -webkit-user-select: text; user-select: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
 .linkbox .btn-primary { height: 44px; min-width: 0; padding: 0 16px; font-size: 15px; border-radius: var(--r-row); box-shadow: none; }
 .phone-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .phone-row .btn { margin-top: 12px; }
@@ -277,7 +280,7 @@ section.block { padding: 64px 0; border-top: 1px solid var(--hairline); }
 .faq summary svg { width: 18px; height: 18px; flex: none; color: var(--label); transition: transform .2s ease; }
 .faq details[open] summary svg { transform: rotate(45deg); }
 .faq .a { padding: 0 2px 20px; color: var(--label); font-size: 15.5px; max-width: 660px; }
-.faq .a p + p { margin-top: 10px; }
+.faq .a p + p, .faq .a .sha-wrap { margin-top: 10px; }
 .faq .a b { color: var(--text); font-weight: 500; }
 .sha { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .sha code { word-break: break-all; color: var(--text); background: rgba(0,0,0,.35); padding: 6px 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--hairline); }
@@ -369,11 +372,11 @@ footer a:hover { color: var(--text); }
         <div class="pick h-other">
           <div>
             <a class="btn btn-quiet" data-dl="mac" href="https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span>Mac</span></a>
-            <p class="meta" data-slot="mac-meta"><span class="nb">Version 0.1.0</span> <span class="nb"><span class="dot">·</span>Apple silicon</span> <span class="nb"><span class="dot">·</span>macOS 13 or later</span></p>
+            <p class="meta" data-slot="mac-meta" data-short><span class="nb">Version 0.1.0</span> <span class="nb"><span class="dot">·</span>Apple silicon</span></p>
           </div>
           <div>
             <a class="btn btn-quiet" data-dl="win" href="https://github.com/adrian-erlikhman/miyagi/releases/download/windows/Miyagi-Windows-Setup.exe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span>Windows</span></a>
-            <p class="meta" data-slot="win-meta"><span class="nb">Version 0.1.0</span> <span class="nb"><span class="dot">·</span>64-bit</span> <span class="nb"><span class="dot">·</span>Windows 10 or 11</span></p>
+            <p class="meta" data-slot="win-meta" data-short><span class="nb">Version 0.1.0</span> <span class="nb"><span class="dot">·</span>64-bit</span></p>
           </div>
         </div>
 
@@ -389,7 +392,7 @@ footer a:hover { color: var(--text); }
       <p class="lede">Windows too. Open this page on your computer to download it.</p>
       <div class="phone-card">
         <div class="linkbox">
-          <span class="url" data-slot="page-url">miyagi.study/download</span>
+          <a class="url" data-slot="page-url" href="https://miyagi.study/download/">miyagi.study/download</a>
           <button type="button" class="btn btn-primary" id="copy-link">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
             Copy link
@@ -515,7 +518,7 @@ footer a:hover { color: var(--text); }
             <span class="num" aria-hidden="true">3</span>
             <h3>Open it, then Open Anyway</h3>
             <p>Open miyagi from Applications. When macOS stops it, click <b>Done</b> (or <b>Cancel</b>), not Move to Trash. Then go to <span class="path">System Settings &gt; Privacy &amp; Security</span>, scroll down and click <b>Open Anyway</b>. Enter your password, then click <b>Open Anyway</b> once more.</p>
-            <a class="link" href="x-apple.systempreferences:com.apple.preference.security?General">Open Privacy &amp; Security</a>
+            <a class="link host-mac" href="x-apple.systempreferences:com.apple.preference.security?General">Open Privacy &amp; Security</a>
           </div>
         </li>
       </ol>
@@ -598,8 +601,8 @@ footer a:hover { color: var(--text); }
           <h3>Setup</h3>
           <p class="v-mac cl-on">Let miyagi see your screen, point at buttons and connect to VS Code. One button each.</p>
           <p class="v-win cl-on">Connect miyagi to VS Code and check it's ready. One button each.</p>
-          <p class="v-mac cl-off">Paste your Anthropic key, then let miyagi see your screen, point at buttons and connect to VS Code.</p>
-          <p class="v-win cl-off">Paste your Anthropic key, then connect miyagi to VS Code and check it's ready.</p>
+          <p class="v-mac cl-off">Let miyagi see your screen, point at buttons and connect to VS Code. After setup, add your Anthropic key in Settings.</p>
+          <p class="v-win cl-off">Connect miyagi to VS Code and check it's ready. After setup, add your Anthropic key in Settings.</p>
         </li>
         <li>
           <div class="ico" aria-hidden="true"><svg aria-hidden="true"><use href="#m-tree-small"/></svg></div>
@@ -631,15 +634,15 @@ footer a:hover { color: var(--text); }
           <summary>What does it read on my screen?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
           <div class="a">
             <p>During a lesson, miyagi looks at your screen to see which step you're on, read your code and its output, and point at the right button.</p>
-            <p class="cl-off">Screenshots go straight from your computer to the AI provider, Anthropic, only to check your step. There's no miyagi server in between.</p>
-            <p class="cl-on">Screenshots go to the AI model only to check your step. Our server passes them along and doesn't keep them.</p>
+            <p class="cl-off">Screenshots go straight from your computer to the AI provider, Anthropic, and are used only to guide your lesson. There's no miyagi server in between.</p>
+            <p class="cl-on">Screenshots go to the AI model and are used only to guide your lesson. Our server passes them along and doesn't keep them.</p>
           </div>
         </details>
         <details>
           <summary>Does it cost money?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
           <div class="a">
-            <p class="cl-off">miyagi itself is free. For now, setup asks for your own <b>Anthropic API key</b>, and Anthropic bills its use to your account. A <b>Gemini key</b> is optional; add one to learn from video tutorials.</p>
-            <p class="cl-off">You can change either key later in Settings.</p>
+            <p class="cl-off">miyagi itself is free. For now it uses your own <b>Anthropic API key</b>, and Anthropic bills its use to your account.</p>
+            <p class="cl-off">After setup, add your key in miyagi's <b>Settings</b>. A <b>Gemini key</b> is optional; add it there too to learn from video tutorials.</p>
             <p class="cl-on">No. miyagi is free right now. You don't need an account or an API key.</p>
             <p class="cl-on">If you'd rather use your own Anthropic key, you can add it in Settings.</p>
           </div>
@@ -669,7 +672,7 @@ footer a:hover { color: var(--text); }
 
       <div class="privacy">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/></svg>
-        <p><b>Privacy.</b> miyagi doesn't sell your data or show ads, and screenshots are used only to check your step. This page has no cookies and no trackers.</p>
+        <p><b>Privacy.</b> miyagi doesn't sell your data or show ads, and screenshots are used only to guide your lesson. This page has no cookies and no trackers.</p>
       </div>
     </div>
   </section>
@@ -749,19 +752,30 @@ footer a:hover { color: var(--text); }
     try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch (e) { return ""; }
   }
   function metaHTML(parts) {
-    // The dot sits inside the next item's nowrap span, so a wrapped line never ends on a hanging dot.
+    // The dot sits inside the next item's nowrap span, so a line never ends on a dot. Lines are kept short enough not to
+    // wrap at all: the narrow "pick yours" columns (data-short) leave out the requirements, which the FAQ lists.
     return parts.filter(Boolean).map(function (p, i) {
       return '<span class="nb">' + (i ? '<span class="dot">·</span>' : "") + p.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }) + "</span>";
     }).join(" ");
   }
+  // The Clipboard API first; when it's missing or refused (in-app browsers often deny it), the old textarea copy.
   function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).catch(function () { return legacyCopy(text); });
+    }
+    return legacyCopy(text);
+  }
+  function legacyCopy(text) {
     return new Promise(function (resolve, reject) {
       var ta = document.createElement("textarea");
-      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.select();
-      try { document.execCommand("copy") ? resolve() : reject(); } catch (e) { reject(e); }
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.top = "0"; ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      try { ta.setSelectionRange(0, text.length); } catch (e) {}
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
       document.body.removeChild(ta);
+      if (ok) resolve(); else reject(new Error("copy failed"));
     });
   }
 
@@ -773,9 +787,12 @@ footer a:hover { color: var(--text); }
       if (k === "mac" && root.getAttribute("data-intel") === "x") { info = {}; chip = "Intel"; }
       var version = info.version || C.version;
       var size = info.size ? mb(info.size) : (cfg.sizeMB ? cfg.sizeMB + " MB" : "");
-      var line = metaHTML([version ? "Version " + version : "", size, chip, cfg.needs]);
-      if (info.updated) line += '<br><span>Updated ' + dateText(info.updated) + "</span>";
-      $all('[data-slot="' + (k === "mac" ? "mac" : "win") + '-meta"]').forEach(function (el) { el.innerHTML = line; });
+      var updated = info.updated ? '<br><span>Updated ' + dateText(info.updated) + "</span>" : "";
+      var full = metaHTML([version ? "Version " + version : "", size, chip, cfg.needs]) + updated;
+      var short = metaHTML([version ? "Version " + version : "", size, chip]) + updated;
+      $all('[data-slot="' + (k === "mac" ? "mac" : "win") + '-meta"]').forEach(function (el) {
+        el.innerHTML = el.hasAttribute("data-short") ? short : full;
+      });
     });
     var mac = C.mac || {}, macInfo = live.mac || {};
     var intelBuild = root.getAttribute("data-intel") === "x";
@@ -877,6 +894,7 @@ footer a:hover { color: var(--text); }
   // Phones: copy or share the link to open on the computer.
   var pageUrl = C.pageUrl || (location.origin + location.pathname);
   setSlot("page-url", pageUrl.replace(/^https?:\/\//, "").replace(/\/$/, ""));
+  $all('[data-slot="page-url"]').forEach(function (a) { a.href = pageUrl; });
   var status = document.getElementById("phone-status");
   var copyBtn = document.getElementById("copy-link");
   if (copyBtn) copyBtn.addEventListener("click", function () {
@@ -911,6 +929,10 @@ footer a:hover { color: var(--text); }
   /* ---------- start ---------- */
   var os = detectOS();
   root.setAttribute("data-os", os);
+  root.setAttribute("data-host", os);
+  // Name the hero after the heading people can see (the phone hero has its own).
+  var hero = document.querySelector(".hero");
+  if (hero) hero.setAttribute("aria-labelledby", os === "phone" ? "hero-title-phone" : "hero-title");
   setSteps(os === "windows" ? "windows" : "mac");
   // Intel Mac: with no Intel build, say so plainly (data-intel 1 shows the note); with one, link it (data-intel x).
   if (os === "mac") detectIntel().then(function (intel) {
