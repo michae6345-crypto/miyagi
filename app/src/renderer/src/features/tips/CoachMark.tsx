@@ -12,7 +12,7 @@
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { MoreHorizontal } from 'lucide-react'
-import { forwardRef, useEffect, useId, useRef, type ReactNode } from 'react'
+import { forwardRef, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { actionTone, color, duration, elevation, fill, highlight, radius2, spring, surface, type2 } from '../../core/theme'
 import { QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
@@ -43,17 +43,19 @@ export const CoachMark = forwardRef<HTMLDivElement, Props>(function CoachMark({ 
   const titleId = useId()
   const bodyId = useId()
   const from = reduced ? { x: 0, y: 0 } : FROM[caret]
-  // Focus goes back to "..." when its menu closes (Esc, a pick, a second press), if it was in the menu: a keyboard
-  // user lands where they were. A press elsewhere moves focus there itself, so focus on anything else is left alone.
+  // Opened from the keyboard (Enter or Space on "...": a click with detail 0), the menu's item takes focus, and focus
+  // goes back to "..." when it closes (Esc, a second press): a keyboard user lands where they were. Opened with the
+  // mouse, focus is left alone both ways, so no focus ring appears on anything the pointer didn't ask for.
   const trigger = useRef<HTMLButtonElement>(null)
+  const [byKey, setByKey] = useState(false)
   const wasOpen = useRef(menu)
   useEffect(() => {
-    if (wasOpen.current && !menu) {
+    if (wasOpen.current && !menu && byKey) {
       const a = document.activeElement
       if (!a || a === document.body || a.closest('[data-part="tip"] [role="menu"]')) trigger.current?.focus({ preventScroll: true })
     }
     wasOpen.current = menu
-  }, [menu])
+  }, [menu, byKey])
   return (
     <motion.div
       ref={ref}
@@ -97,12 +99,15 @@ export const CoachMark = forwardRef<HTMLDivElement, Props>(function CoachMark({ 
           style={{ borderRadius: radius2.control, color: fill.keyText, background: menu ? fill.chipHover : fill.clear }}
           {...pressMotion()}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onMenu(!menu)}
+          onClick={(e) => {
+            setByKey(e.detail === 0)
+            onMenu(!menu)
+          }}
         >
           <MoreHorizontal size={16} strokeWidth={1.8} />
         </motion.button>
         <QuietButton label="Got it" onClick={onGotIt} />
-        <AnimatePresence>{menu && <Menu onOff={onOff} />}</AnimatePresence>
+        <AnimatePresence>{menu && <Menu onOff={onOff} focusItem={byKey} />}</AnimatePresence>
       </div>
     </motion.div>
   )
@@ -157,10 +162,12 @@ function Caret({ side, at }: { side: CaretSide; at: number }): ReactNode {
   )
 }
 
-function Menu({ onOff }: { onOff: () => void }): ReactNode {
-  // Its one item takes focus as it opens, so a keyboard user reaches it straight from "...".
+function Menu({ onOff, focusItem }: { onOff: () => void; focusItem: boolean }): ReactNode {
+  // Opened from the keyboard, its one item takes focus as it opens, so a keyboard user reaches it straight from "...".
   const item = useRef<HTMLButtonElement>(null)
-  useEffect(() => item.current?.focus({ preventScroll: true }), [])
+  useEffect(() => {
+    if (focusItem) item.current?.focus({ preventScroll: true })
+  }, [])
   return (
     <motion.div
       role="menu"
