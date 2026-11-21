@@ -3,53 +3,67 @@
  *
  * While the panel is SHOWN (core/dock `open`, not collapsed to the Mini pill), a card the panel renders itself is
  * "panel-routed" and the island skips it (BUILD-PLAN A2: no double render in the notyet and hint shots). Collapsed to
- * the Mini pill, or with no panel at all, every card grows out of the pill as before.
+ * the Mini pill, or with no panel at all, a card that is new since the panel last showed grows out of the pill as before
+ * (one the panel already showed is spent: cards/store.ts consumeRouted).
  *
- * Who decides: A1's `isPanelRouted` (BUILD-PLAN A1 "isPanelRouted exported"), found at runtime in any drawer module so
- * this file compiles with or without A1. It always gets an object, never a bare kind: the engine card itself
- * (`isPanelRouted(card)`), or the live off-track as `isPanelRouted({ kind: 'offtrack', ...offtrack })`, so A1 can keep an
- * off-track that carries a fix (diff, level 3, apply_fix) on the island, where "Do it for me" lives. The step-passed card
- * ('success') is not one A1 models, so it stays routed whenever the panel shows (decision 7: Les-Passed draws it).
+ * Who decides: A1's `isPanelRouted` (BUILD-PLAN A1 "isPanelRouted exported"), read off features/drawer/store.ts at call
+ * time through a namespace import, so this file compiles and runs with or without A1. It always gets an object, never a
+ * bare kind: the engine card itself (`isPanelRouted(card)`), or the live off-track as
+ * `isPanelRouted({ kind: 'offtrack', ...offtrack })`, so A1 can keep an off-track that carries a fix (diff, level 3,
+ * apply_fix) on the island, where "Do it for me" lives. The step-passed card ('success') is not one A1 models, so it
+ * stays routed whenever the panel shows (decision 7: Les-Passed draws it).
  * Until A1 lands, FALLBACK_ROUTED stands in: the Not yet card (offtrack, its "Waiting for the fix" view), the
  * step-passed card and the hint card, the three the Les-NotYet / Les-Hint / Les-Passed panels draw.
+ *
+ * Also here: A1's panel store (`usePanel` and its `heldPass`: Les-Passed stays up until the learner presses Next step),
+ * read only, so the pill says "Step N passed" exactly as long as the panel does (pill/store.ts useHeldPass).
  */
-import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { useDock } from '../../core/dock'
 import { useLesson, type Offtrack } from '../../core/lesson'
+import * as drawerStore from '../drawer/store'
 
 /** The island modes / card kinds this feature asks about: its three modes plus every engine card kind. */
 export type RoutedKind = 'offtrack' | 'success' | Payload<'card'>['kind'] | 'complete'
 
 type AnyFn = (...args: unknown[]) => unknown
 
-/** What A1 exports, once its modules have loaded (they are already in the bundle; this only reads their exports). */
-const found: Record<string, AnyFn | undefined> = {}
-const WANTED = ['isPanelRouted', 'openPanel'] as const
-/** Bumped when the drawer modules have loaded, so hooks that read `found` re-render with A1's answer. */
-const useScanned = create<{ n: number }>(() => ({ n: 0 }))
-const drawerModules = import.meta.glob('../drawer/**/*.{ts,tsx}')
+/**
+ * features/drawer/store.ts as a plain record, read by name at call time, never while modules load (once A1 lands the
+ * drawer store and this module import each other through cards/store). A name A1 doesn't export yet is just undefined.
+ */
+const drawer: Record<string, unknown> = drawerStore
+type DrawerName = 'isPanelRouted' | 'openPanel'
 
-function scan(mod: unknown): void {
-  if (!mod || typeof mod !== 'object') return
-  const m = mod as Record<string, unknown>
-  for (const name of WANTED) {
-    if (typeof m[name] === 'function') found[name] ??= m[name] as AnyFn
-    // `useDrawer.openPanel` (the plan's wording): a method on the drawer store's state.
-    const store = m.useDrawer as { getState?: () => Record<string, unknown> } | undefined
-    const viaStore = typeof store?.getState === 'function' ? store.getState()[name] : undefined
-    if (!found[name] && typeof viaStore === 'function') found[name] = (...a: unknown[]) => (store!.getState!()[name] as AnyFn)(...a)
-  }
+/** A1's export by name (`isPanelRouted`, `openPanel`, or `useDrawer.getState().openPanel`), or undefined while A1 isn't there. */
+export function drawerExport(name: DrawerName): AnyFn | undefined {
+  const direct = drawer[name]
+  if (typeof direct === 'function') return direct as AnyFn
+  // `useDrawer.openPanel` (the plan's wording): a method on the drawer store's state.
+  const store = drawer.useDrawer as { getState?: () => Record<string, unknown> } | undefined
+  const viaStore = typeof store?.getState === 'function' ? store.getState()[name] : undefined
+  return typeof viaStore === 'function' ? (...a: unknown[]) => (store!.getState!()[name] as AnyFn)(...a) : undefined
 }
 
-// Read after this module has finished loading (dynamic imports never re-enter a module mid-evaluation).
-void Promise.all(Object.values(drawerModules).map((load) => load().then(scan, () => undefined))).then(() =>
-  useScanned.setState((s) => ({ n: s.n + 1 }))
-)
+/** The slice of A1's panel store (drawer/v2/panelStore.ts `usePanel`) the pill reads. */
+export type HeldPassStore = {
+  getState: () => { heldPass?: { stepId: string } }
+  subscribe: (fn: () => void) => () => void
+}
+/**
+ * drawer/store.ts doesn't re-export A1's panel store yet (pill.md Core request 6), so that one module is also looked up by
+ * its exact path: eager (evaluated with the bundle like a static import, no async scan) and nothing else under drawer/.
+ * Before A1 lands the map is empty.
+ */
+const panelStoreModule = Object.values(import.meta.glob<Record<string, unknown>>('../drawer/v2/panelStore.ts', { eager: true }))[0]
+const isStore = (x: unknown): x is HeldPassStore =>
+  typeof x === 'function' && typeof (x as Partial<HeldPassStore>).getState === 'function' && typeof (x as Partial<HeldPassStore>).subscribe === 'function'
 
-/** A1's export by name (`isPanelRouted`, `openPanel`), or undefined while A1 isn't there. */
-export function drawerExport(name: (typeof WANTED)[number]): AnyFn | undefined {
-  return found[name]
+/** A1's panel store (`usePanel`): drawer/store.ts's re-export when there is one, else its own module; undefined before A1. */
+export function panelStore(): HeldPassStore | undefined {
+  if (isStore(drawer.usePanel)) return drawer.usePanel
+  const own = panelStoreModule?.usePanel
+  return isStore(own) ? own : undefined
 }
 
 /** The cards the panel draws itself when A1 doesn't say (Les-NotYet, Les-Hint, Les-Passed). */
@@ -62,7 +76,7 @@ export type RoutedSubject = Payload<'card'> | Offtrack
 export function isRouted(kind: RoutedKind, live?: RoutedSubject): boolean {
   // A1 doesn't model the step-passed card; with the panel shown it's always Les-Passed's (decision 7).
   if (kind === 'success') return true
-  const fn = found.isPanelRouted
+  const fn = drawerExport('isPanelRouted')
   if (!fn) return FALLBACK_ROUTED.has(kind)
   try {
     return fn({ kind, ...live }) === true
@@ -82,14 +96,13 @@ export function usePanelShown(): boolean {
 
 /**
  * This card is drawn by the panel right now, so the island skips it. Subscribes to everything A1's answer reads (the
- * dock, the current step, the lesson mode) and to the drawer scan, so a card for a step that moved on, a mode change or
- * A1 loading after the first render is re-asked at once. (A1's own `usePanelRouted` hook isn't called here: it only
- * turns up after the first render, and a hook that appears later would change this hook's call order.)
+ * dock, the current step, the lesson mode), so a card for a step that moved on or a mode change is re-asked at once.
+ * (A1's own `usePanelRouted` hook isn't called: it isn't there before A1 lands, and a hook that is sometimes there and
+ * sometimes not can't keep a stable call order.)
  */
 export function useRoutedAway(kind: RoutedKind | undefined, live?: RoutedSubject): boolean {
   const shown = usePanelShown()
   useLesson((s) => s.stepId)
   useLesson((s) => s.lesson?.mode)
-  useScanned((s) => s.n)
   return shown && !!kind && isRouted(kind, live)
 }
