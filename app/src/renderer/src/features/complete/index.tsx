@@ -7,6 +7,7 @@
 import { defineFeature } from '../../core/registry'
 import { useOverlayWidth } from '../cards/store'
 import { CompletePanel, panelWidth } from './Panel'
+import { RoomProbe } from './room'
 import { useComplete } from './store'
 
 export default defineFeature({
@@ -25,5 +26,7 @@ export default defineFeature({
       },
       Content: CompletePanel
     }
-  ]
+  ],
+  // Reports how tall the card may grow, so Done / Start next lesson always stay on screen.
+  overlayLayers: [{ id: 'complete-room', z: 1, Component: RoomProbe }]
 })
