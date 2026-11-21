@@ -14,7 +14,7 @@ import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import type { Status } from '../lesson'
 import { color, duration, ease, glass, highlight, spring } from '../theme'
-import { pressMotion, twoBeats } from './motion'
+import { draw, pressMotion, twoBeats } from './motion'
 
 /** Status on glass: gray watching, apricot off track, green passed (both deeper on light). */
 export function GlassDot({ status, size = 7 }: { status: Status; size?: number }): ReactNode {
@@ -46,9 +46,7 @@ export function GlassCheck({ size = 18 }: { size?: number }): ReactNode {
         strokeLinecap="round"
         strokeLinejoin="round"
         // Polish: pathLength is a stroke-dash draw MotionConfig cannot turn off, so reduced motion fades the tick in instead (as StatusGlyph).
-        initial={reduce ? { opacity: 0 } : { pathLength: 0, opacity: 0 }}
-        animate={reduce ? { opacity: 1 } : { pathLength: 1, opacity: 1 }}
-        transition={{ duration: duration.slow, ease: ease.out, delay: 0.08, opacity: { duration: duration.instant, delay: 0.08 } }}
+        {...draw(reduce)}
       />
     </motion.svg>
   )

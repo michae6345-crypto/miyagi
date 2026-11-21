@@ -18,6 +18,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Spinner } from './atoms'
 import { color, duration, ease, fill, paper, spring, status as tone, type2 } from '../theme'
+import { draw } from './motion'
 
 export type StatusState = 'passed' | 'notyet' | 'watching' | 'checking' | 'next' | 'skipped' | 'unknown'
 export type StatusSurface = 'dark' | 'paper'
@@ -73,9 +74,8 @@ export function StatusGlyph({
           strokeLinecap="round"
           strokeLinejoin="round"
           // Polish: opacity rides with the draw, so the round cap of a zero-length path never shows as a dot during the delay.
-          initial={still ? false : reduce ? { opacity: 0 } : { pathLength: 0, opacity: 0 }}
-          animate={reduce ? { opacity: 1 } : { pathLength: 1, opacity: 1 }}
-          transition={{ duration: duration.slow, ease: ease.out, delay: 0.08, opacity: { duration: duration.instant, delay: 0.08 } }}
+          {...draw(reduce)}
+          initial={still ? false : draw(reduce).initial}
         />
       </motion.svg>
     )
