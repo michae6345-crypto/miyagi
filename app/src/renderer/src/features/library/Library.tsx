@@ -132,7 +132,7 @@ function ContinueCard({ item }: { item: LibraryItem }): ReactNode {
         disabled={!canStart || !!starting}
         onClick={() => void start(item.id)}
         className="flex shrink-0 cursor-pointer items-center justify-center disabled:cursor-default"
-        style={{ width: 44, height: 44, borderRadius: 22, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, color: color.text, opacity: canStart || busy ? 1 : 0.4 }}
+        style={{ width: 44, height: 44, borderRadius: radius2.round, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, color: color.text, opacity: canStart || busy ? 1 : 0.4 }}
       >
         {busy ? <Spinner size={14} c={color.text} /> : <Play aria-hidden size={14} fill="currentColor" strokeWidth={0} />}
       </button>

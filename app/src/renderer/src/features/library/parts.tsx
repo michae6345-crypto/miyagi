@@ -23,11 +23,11 @@ export function ToolTile({ tool, size = 32, muted }: { tool: LessonTool; size?: 
       style={{
         width: size,
         height: size,
-        borderRadius: size <= 20 ? 5 : size >= 48 ? radius2.card : radius2.control,
+        borderRadius: size <= 20 ? radius2.keycap : size >= 48 ? radius2.card : radius2.control,
         background: surface.row,
         boxShadow: `inset 0 0 0 1px ${surface.border}`,
         fontFamily: font.mono,
-        fontSize: size <= 20 ? 9 : size >= 48 ? type2.sm : type2.micro,
+        fontSize: size >= 48 ? type2.sm : type2.micro,
         color: muted ? color.label : soft
       }}
     >
@@ -49,8 +49,8 @@ export function progressLabel(p: NonNullable<LibraryItem['progress']>): string {
 export function Meter({ fraction, label }: { fraction: number; label: string }): ReactNode {
   const f = Math.max(0, Math.min(1, fraction))
   return (
-    <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(f * 100)} style={{ height: 4, borderRadius: 2, background: fill.hairline }}>
-      <div style={{ width: `${f * 100}%`, height: 4, borderRadius: 2, background: color.text }} />
+    <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(f * 100)} style={{ height: 4, borderRadius: radius2.round, background: fill.hairline }}>
+      <div style={{ width: `${f * 100}%`, height: 4, borderRadius: radius2.round, background: color.text }} />
     </div>
   )
 }
@@ -67,7 +67,7 @@ export function Chip({ label, on, onClick, disabled }: { label: string; on?: boo
       style={{
         height: 32,
         padding: '0 12px',
-        borderRadius: 16,
+        borderRadius: radius2.group,
         fontSize: type2.sm,
         background: on ? fill.trackSoft : 'transparent',
         color: on ? color.text : disabled ? color.label : soft,

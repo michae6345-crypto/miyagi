@@ -46,14 +46,19 @@ export function youtubeId(url: string | undefined): string | undefined {
   return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : undefined
 }
 
+/** The canonical watch link for a checked id. The only YouTube URL the app ever opens (no redirect paths, no extras). */
+export const youtubeWatchUrl = (id: string): string => `https://www.youtube.com/watch?v=${id}`
+
 function source(v: unknown): LibraryItem['source'] {
   const s = obj(v)
   if (!s) return undefined
   const kind = s.kind === 'youtube' || s.kind === 'goal' || s.kind === 'library' ? s.kind : undefined
   const title = str(s.title)
   if (!kind || !title) return undefined
-  // Only a YouTube https link survives (it opens through the open:external allowlist); anything else is dropped.
-  const url = typeof s.url === 'string' && youtubeId(s.url) ? s.url : undefined
+  // Only a YouTube video survives, rebuilt as its canonical watch link from the checked id (the engine's own URL could
+  // be a youtube.com/redirect?v=…&q=… that passes the id check); anything else is dropped.
+  const vid = typeof s.url === 'string' ? youtubeId(s.url) : undefined
+  const url = vid ? youtubeWatchUrl(vid) : undefined
   return { kind, title, channel: str(s.channel, 80), durationS: int(s.durationS, 0, 86_400), url }
 }
 

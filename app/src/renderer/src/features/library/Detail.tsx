@@ -11,25 +11,25 @@ import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { color, fill, font, radius2, scrim, surface, type2 } from '../../core/theme'
-import { youtubeId } from './sanitize'
+import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, ToolTile, minutesLabel, soft, stepsLabel } from './parts'
 import { closeDetail, itemFor, start, useLibrary } from './store'
 
 const KICKER = { youtube: 'Lesson from a YouTube tutorial', goal: 'Lesson built for a goal', library: 'Lesson from the library' } as const
 
-function Video({ url, by }: { url: string; by?: string }): ReactNode {
-  const vid = youtubeId(url)
+/** `vid`: a checked 11-character YouTube id. Only the canonical watch link built from it is opened, never the engine's URL. */
+function Video({ vid, by }: { vid: string; by?: string }): ReactNode {
   return (
     <div className="flex flex-col gap-[8px]">
       <button
         type="button"
         aria-label="Open the original video in your browser"
-        onClick={() => void bridge.invoke('open:external', url).catch(() => undefined)}
+        onClick={() => void bridge.invoke('open:external', youtubeWatchUrl(vid)).catch(() => undefined)}
         className="relative flex cursor-pointer items-center justify-center overflow-hidden"
         style={{ height: 152, borderRadius: radius2.card, background: fill.thumb, boxShadow: `inset 0 0 0 1px ${surface.border}` }}
       >
-        {vid && <img src={`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`} alt="" draggable={false} referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" />}
-        <span className="relative flex items-center justify-center" style={{ width: 44, height: 44, borderRadius: 22, background: fill.thumbArt, color: color.text }}>
+        <img src={`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`} alt="" draggable={false} referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" />
+        <span className="relative flex items-center justify-center" style={{ width: 44, height: 44, borderRadius: radius2.round, background: fill.thumbArt, color: color.text }}>
           <Play aria-hidden size={16} fill="currentColor" strokeWidth={0} />
         </span>
       </button>
@@ -42,6 +42,8 @@ export function Detail({ id }: { id: string }): ReactNode {
   const item = useLibrary((s) => itemFor(s, id))
   const detail = useLibrary((s) => s.details[id])
   const canStart = useLibrary((s) => s.caps.start)
+  const capsKnown = useLibrary((s) => s.capsKnown)
+  const failed = useLibrary((s) => !!s.detailFailed[id])
   const starting = useLibrary((s) => s.starting)
   const err = useLibrary((s) => (s.startError?.id === id ? s.startError.text : undefined))
   const loaded = useLibrary((s) => s.loaded)
@@ -90,11 +92,25 @@ export function Detail({ id }: { id: string }): ReactNode {
     )
 
   const steps = detail?.steps ?? []
+  // Once a step list came back, its length is the count (the page never says 7 steps above 3 rows).
+  const stepCount = steps.length || item.steps
   const mins = minutesLabel(item.estMinutes)
   const src = item.source
   const by = src?.channel ?? item.by
+  const vid = src?.kind === 'youtube' ? youtubeId(src.url) : undefined
   const editorNear = item.tools.includes('vscode') || item.tools.includes('jupyter')
-  const caption = err ?? (!canStart ? 'This engine can’t start saved lessons yet.' : !item.ready ? 'Not ready on this Mac yet.' : editorNear ? 'Sits beside VS Code. Never covers your files.' : 'Sits beside your work. Never covers your files.')
+  // Nothing says "can't start" until library:caps has answered; the line keeps its height meanwhile.
+  const caption =
+    err ??
+    (capsKnown && !canStart
+      ? 'This engine can’t start saved lessons yet.'
+      : !item.ready
+        ? 'Not ready on this Mac yet.'
+        : !capsKnown
+          ? ' '
+          : editorNear
+            ? 'Sits beside VS Code. Never covers your files.'
+            : 'Sits beside your work. Never covers your files.')
 
   return (
     <div className="flex h-full w-full flex-col" style={{ color: color.text }}>
@@ -102,7 +118,7 @@ export function Detail({ id }: { id: string }): ReactNode {
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: '1fr 320px' }}>
         <section aria-labelledby="lib-title" className="flex min-h-0 flex-col overflow-y-auto" style={{ padding: '32px 40px' }}>
           <div style={{ fontSize: type2.xs, color: color.label }}>{KICKER[src?.kind ?? 'library']}</div>
-          <h1 id="lib-title" className="m-0 font-semibold" style={{ marginTop: 8, fontSize: 26, lineHeight: 1.2, letterSpacing: '-0.015em' }}>
+          <h1 id="lib-title" className="m-0 font-semibold" style={{ marginTop: 8, fontSize: type2.xxl, lineHeight: 1.2, letterSpacing: '-0.015em' }}>
             {item.title}
           </h1>
           {detail?.overview && (
@@ -111,7 +127,7 @@ export function Detail({ id }: { id: string }): ReactNode {
             </p>
           )}
           <h2 className="m-0 font-semibold uppercase" style={{ margin: '32px 0 8px', fontSize: type2.micro, letterSpacing: '0.04em', color: color.label }}>
-            {stepsLabel(item.steps || steps.length)}
+            {stepsLabel(stepCount)}
           </h2>
           {steps.length > 0 ? (
             <ol className="m-0 list-none p-0" style={{ borderTop: `1px solid ${surface.border}` }}>
@@ -119,7 +135,7 @@ export function Detail({ id }: { id: string }): ReactNode {
                 <li key={`${st.index}-${i}`} className="flex items-center gap-[16px]" style={{ height: 52, borderBottom: i === steps.length - 1 ? 'none' : `1px solid ${surface.border}` }}>
                   <span
                     className="flex shrink-0 items-center justify-center tabular-nums"
-                    style={{ width: 28, height: 28, borderRadius: 14, boxShadow: `inset 0 0 0 1px ${fill.trackNextMini}`, fontSize: type2.xs, color: soft }}
+                    style={{ width: 28, height: 28, borderRadius: radius2.round, boxShadow: `inset 0 0 0 1px ${fill.trackNextMini}`, fontSize: type2.xs, color: soft }}
                   >
                     {i + 1}
                   </span>
@@ -131,12 +147,12 @@ export function Detail({ id }: { id: string }): ReactNode {
               ))}
             </ol>
           ) : (
-            <div style={{ fontSize: type2.sm, color: color.label }}>{detail === undefined ? 'Loading the steps…' : 'The steps show once the lesson starts.'}</div>
+            <div style={{ fontSize: type2.sm, color: color.label }}>{detail === undefined ? (failed ? 'The steps show once the engine answers.' : 'Loading the steps…') : 'The steps show once the lesson starts.'}</div>
           )}
         </section>
 
         <aside className="flex min-h-0 flex-col gap-[24px] overflow-y-auto" style={{ padding: '32px 24px', borderLeft: `1px solid ${surface.border}`, background: scrim.launcher }}>
-          {src?.kind === 'youtube' && src.url && <Video url={src.url} by={by} />}
+          {vid && <Video vid={vid} by={by} />}
 
           <dl className="m-0 grid gap-x-[16px] gap-y-[12px]" style={{ gridTemplateColumns: 'auto 1fr', fontSize: type2.sm }}>
             {mins && (
@@ -146,7 +162,7 @@ export function Detail({ id }: { id: string }): ReactNode {
               </>
             )}
             <dt style={{ color: color.label }}>Steps</dt>
-            <dd className="m-0">{item.steps || steps.length}</dd>
+            <dd className="m-0">{stepCount}</dd>
             {item.by && (
               <>
                 <dt style={{ color: color.label }}>Made by</dt>
