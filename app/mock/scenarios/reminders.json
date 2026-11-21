@@ -1,0 +1,224 @@
+{
+  "name": "reminders",
+  "on": {
+    "connect": "step_rem_done",
+    "action:end_lesson@step_rem_done": "rem_end"
+  },
+  "segments": {
+    "step_rem_done": [
+      {
+        "wait": 50,
+        "type": "engine.hello",
+        "payload": {
+          "version": "mock",
+          "contract": "2026-11-20",
+          "capabilities": [
+            "health.get",
+            "permission.open",
+            "library.list",
+            "library.get",
+            "library.start",
+            "progress.get",
+            "panel.state"
+          ]
+        }
+      },
+      {
+        "wait": 50,
+        "type": "progress",
+        "payload": {
+          "stageAnchor": "2026-11-20",
+          "skills": [
+            {
+              "track": "Data analysis",
+              "skills": [
+                {
+                  "id": "pandas-groupby",
+                  "label": "pandas groupby",
+                  "state": "mastered"
+                },
+                {
+                  "id": "numpy-arrays",
+                  "label": "numpy arrays",
+                  "state": "mastered"
+                },
+                {
+                  "id": "merging-tables",
+                  "label": "merging tables",
+                  "state": "practicing"
+                }
+              ]
+            }
+          ],
+          "completed": [
+            {
+              "lessonId": "rem-pandas-intro",
+              "title": "Group and summarize with pandas",
+              "finishedAt": 1795136400
+            }
+          ],
+          "activity": [
+            {
+              "date": "2026-11-19",
+              "reps": 4,
+              "assisted": 0,
+              "hints": 1
+            },
+            {
+              "date": "2026-11-20",
+              "reps": 1,
+              "assisted": 0,
+              "hints": 0
+            }
+          ],
+          "review": {
+            "due": 2,
+            "items": [
+              {
+                "skillId": "pandas-groupby",
+                "label": "pandas groupby",
+                "track": "Data analysis",
+                "dueAt": 1795194000,
+                "interval": 3,
+                "when": "Today",
+                "file": "sales.ipynb"
+              },
+              {
+                "skillId": "numpy-arrays",
+                "label": "numpy arrays",
+                "track": "Data analysis",
+                "dueAt": 1795197600,
+                "interval": 7,
+                "when": "Today"
+              },
+              {
+                "skillId": "merging-tables",
+                "label": "merging tables",
+                "track": "Data analysis",
+                "dueAt": 1795453200,
+                "interval": 3,
+                "when": "Monday"
+              }
+            ]
+          },
+          "settings": {
+            "dailyGoal": 3
+          }
+        }
+      },
+      {
+        "wait": 100,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "rem-pandas-groupby",
+            "title": "Group and summarize with pandas",
+            "sources": [],
+            "complete": true,
+            "builtBy": "curated",
+            "mode": "lesson"
+          },
+          "steps": [
+            {
+              "id": "rg1",
+              "index": 1,
+              "title": "Load the sales data",
+              "kind": "code",
+              "estMinutes": 2
+            },
+            {
+              "id": "rg2",
+              "index": 2,
+              "title": "Total sales by region",
+              "kind": "code",
+              "estMinutes": 3
+            }
+          ]
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "rg1",
+          "index": 1,
+          "title": "Load the sales data",
+          "instructions": "In sales.ipynb, read sales.csv into df",
+          "kind": "code"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "rg1",
+          "summary": "Your data frame has every sale"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "rg2",
+          "index": 2,
+          "title": "Total sales by region",
+          "instructions": "Group df by region and sum the amount",
+          "kind": "code"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "rg2",
+          "summary": "One total per region"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "card",
+        "payload": {
+          "stepId": "rg2",
+          "kind": "complete",
+          "title": "You grouped and summarized a table",
+          "body": "df.groupby('region')['amount'].sum() gives one total per region.",
+          "actions": [
+            "end_lesson"
+          ],
+          "setup": {
+            "editorNeeded": false,
+            "items": [],
+            "actionLabels": {
+              "end_lesson": "End lesson"
+            }
+          },
+          "result": {
+            "passed": 2,
+            "skipped": 0,
+            "total": 2,
+            "minutes": 6,
+            "lessonId": "rem-pandas-groupby",
+            "title": "Group and summarize with pandas"
+          }
+        }
+      }
+    ],
+    "rem_end": [
+      {
+        "wait": 150,
+        "type": "lesson.ended",
+        "payload": {
+          "lessonId": "rem-pandas-groupby",
+          "reason": "completed"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "idle"
+        }
+      }
+    ]
+  }
+}
