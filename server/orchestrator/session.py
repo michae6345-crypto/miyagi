@@ -351,8 +351,28 @@ def where_then(*, code: str | None, run_command: bool, notebook: bool, file: str
     return {"where": f"Type this in {name}" if name else "Type this"}
 
 
+def _strip_comment(line: str) -> str:
+    """The line without a trailing `# ...` comment: cut at the first `#` outside quotes that follows whitespace.
+    `"a # b"`, `'#'` and `x#y` stay as they are; a backslash escapes the next character inside a string."""
+    quote, i = None, 0
+    while i < len(line):
+        c = line[i]
+        if quote:
+            if c == "\\":
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and i > 0 and line[i - 1].isspace():
+            return line[:i]
+        i += 1
+    return line
+
+
 def _norm_line(line: str) -> str:
-    return re.sub(r"\s+", "", line)
+    """Compare form: trailing comment dropped, all whitespace removed (the displayed text stays as written)."""
+    return re.sub(r"\s+", "", _strip_comment(line))
 
 
 def code_lines(code: str | None) -> list[str]:
@@ -367,8 +387,9 @@ def code_lines(code: str | None) -> list[str]:
 
 
 def missing_lines(code: str | None, have: str | None) -> list[dict] | None:
-    """card.missingLines (Les-NotYet): the step's lines in order, each "ok" when the learner's text has it (spaces
-    ignored) or "missing". None when it can't say (no code, no text, too many lines) or nothing is missing."""
+    """card.missingLines (Les-NotYet): the step's lines in order, each "ok" when the learner's text has it (spaces and
+    trailing comments ignored, on both sides) or "missing". None when it can't say (no code, no text, too many
+    lines) or nothing is missing."""
     lines = code_lines(code)
     if not lines or have is None or len(lines) > MAX_MISSING_LINES:
         return None
@@ -7943,7 +7964,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if done:  # a reconnecting app gets the ending again (its End lesson closes the lesson)
             out.append(("card", lesson_end.card(self)))
         out += self.v2_snapshot()  # v2: the pause (VS Code closed) and the blockers on screen
-        out.append(("status", {"state": "watching" if held and self.status == "offtrack" else self.status}))
+        out.append(("status", {"state": "watching" if held and self.status == "offtrack" else self.status,
+                               **({"detail": self.status_detail}  # "Checking your work" survives a reconnect
+                                  if getattr(self, "status_detail", None) and self.status == "thinking" else {})}))
         return out
 
     def state(self) -> dict:

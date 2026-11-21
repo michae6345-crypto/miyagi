@@ -80,7 +80,9 @@ The engine sends what the v2 lesson panel, Home-Building, the error surfaces and
    - failed `lesson.building` payloads gain `failCode` / `failReason` (and `source`);
    - `step.started` payloads with code gain `where` (and `then`);
    - history entries gain `skillMap` and `result`;
-   - `DRAWER_W` constant 436 → 392, but `fit_full` still reserves 436 until a v2 app is known (`test_workspace` frame math unchanged for v1; v2 tests call `editor.note_app_v2()`).
+   - `DRAWER_W` constant 436 → 392, but `fit_full` still reserves 436 (`DRAWER_W_V1`) until a v2 app is known. One assertion breaks on merge: `server/orchestrator/tests/test_t10_layout.py:51` (`test_full_screen_layout_starts_below_the_pill`) checks `w == 1728 - E.DRAWER_W` (now 1336) while the v1 frame is 1292. New expectation: `w == 1728 - E.drawer_reserve()` (or `1728 - E.DRAWER_W_V1`).
+   - `server/orchestrator/tests/test_session.py:1035`: the mid-build snapshot status is now `{"state": "thinking", "detail": "Building your lesson"}`, not `{"state": "thinking"}`.
+   - `server/workspace/editor.py` keeps `_app_v2` and `_panel_rect` as module globals that stay set. A test that calls `note_app_v2()` or `panel_state()` leaks the 392 reserve into every later layout test, so those tests need a reset fixture (`monkeypatch.setattr(E, "_app_v2", False)` and `monkeypatch.setattr(E, "_panel_rect", None)`, autouse in the layout test modules).
    - Worth adding: the offline script's cases (scratchpad `e3_check.py`).
 8. **Wave 2 integrator**: once the shortcut bar is off in lesson mode (`Feature.enabled`), `MIYAGI_BAR_CLEARANCE` can drop to 0 so the editor uses the full height beside the panel.
 
@@ -97,4 +99,9 @@ The engine sends what the v2 lesson panel, Home-Building, the error surfaces and
 ## Notes
 - The editor_closed poll catches VS Code quit, or the lesson's window closed while other VS Code windows stay open. It does not catch the last window closed while VS Code keeps running: titles alone can't tell that from "titles unreadable", and a false pause is worse than a missed one.
 - `card.hintStep` for the live coach reads the card's own `level` (0..3 of 4). If a level is skipped (no video timestamp), the rung follows the level, not the press count.
-- `missingLines` compares whole lines with whitespace removed. A line typed with a different variable name counts as missing, which is the point of the Not yet.
+- `missingLines` compares whole lines with whitespace and a trailing `# comment` (outside quotes, after a space) removed, on both the step's and the learner's side; the shown `text` stays as written. A line typed with a different variable name counts as missing, which is the point of the Not yet.
+
+## Fix round 2
+- `snapshot`: the final reconnect status keeps `detail` while thinking ("Checking your work", "Writing a hint", "Drawing a diagram"), like the mid-build branch.
+- `missing_lines`: a trailing comment outside quotes is dropped from both sides before comparing (`x = x / 255.0  # scale` matches `x = x / 255.0`); `"a # b"` and `x#y` are left alone.
+- Core request 7 now names the two assertions that change on merge and the editor globals that need a reset fixture.
