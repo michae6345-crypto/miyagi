@@ -25,9 +25,9 @@ npm run install:local -- --dry-run     # see every step first; changes nothing
 
 Then open miyagi from Spotlight (⌘Space, "miyagi") or Applications. After a code change, run `npm run install:local` again.
 
-`scripts/install-local.sh` builds the dmg (`ship:mac`), copies miyagi.app out of it (exactly what users download), checks the signature, quits a running miyagi (a normal quit, so its engine stops) and a dev copy of this app (`npm run dev` Electron), then swaps the app into /Applications with two renames on one volume. The previous app goes to `~/miyagi/app-backups.noindex/` (the last 2 are kept; `.noindex` keeps them out of Spotlight). It strips quarantine (your own build) and registers the app with Launch Services so Spotlight and the Dock pick up the name and icon at once. It never touches `~/Applications`, VS Code or an engine you started.
+`scripts/install-local.sh` builds the dmg (`ship:mac`), copies miyagi.app out of it (exactly what users download), checks the signature, quits a running miyagi and a dev copy of this app (`npm run dev` Electron) with SIGTERM (Electron makes that a normal quit, so the app's engine stops; no AppleScript, so no "wants access to control miyagi" Automation prompt), then swaps the app into /Applications with two renames on one volume. The previous app goes to `~/miyagi/app-backups.noindex/` (the last 2 are kept; `.noindex` keeps them out of Spotlight). It strips quarantine (your own build) and registers the app with Launch Services so Spotlight and the Dock pick up the name and icon at once. It never touches `~/Applications`, VS Code or an engine you started.
 
-Options: `--skip-build` (install the dmg already in `dist/`), `--open`, `--engine dev|bundled` and `--cloud off` (next section), `--ship <ship:mac options>`.
+Options: `--skip-build` (install the dmg already in `dist/`), `--open`, `--mode-only --engine dev|bundled` and `--cloud off` (next section), `--ship <ship:mac options>`.
 
 **Permissions after a reinstall.** The app is signed ad hoc, so macOS treats every rebuild as a new app. A Screen Recording or Accessibility switch can look on and still belong to the old build. Fix: System Settings › Privacy & Security › Screen & System Audio Recording (macOS 15; "Screen Recording" on 14), select miyagi, press −, open miyagi again and allow it. Same under Accessibility. Or reset only miyagi's grants and let it ask again:
 
@@ -49,12 +49,12 @@ tccutil reset AppleEvents dev.sandhacks.miyagi
 Switch it, for an app opened from Spotlight (no shell environment):
 
 ```bash
-npm run install:local -- --skip-build --engine dev               # writes ~/Library/Application Support/miyagi/engine.json
-npm run install:local -- --skip-build --engine dev --cloud off   # also no cloud token, so your engine uses .env keys
-npm run install:local -- --skip-build --engine bundled           # back to what users get (removes engine.json)
+npm run install:local -- --mode-only --engine dev               # writes ~/Library/Application Support/miyagi/engine.json
+npm run install:local -- --mode-only --engine dev --cloud off   # also no cloud token, so your engine uses .env keys
+npm run install:local -- --mode-only --engine bundled           # back to what users get (removes engine.json)
 ```
 
-Quit and reopen miyagi after switching. The file is `{"engine": "dev"}`, plus `"cloud": "off"` if asked. From Terminal, env wins over the file: `MIYAGI_ENGINE=dev|bundled`, `MIYAGI_CLOUD_URL=off`, and `ENGINE_URL` for an engine elsewhere (the built app's page policy only allows port 8787 on this Mac, so keep a local engine on 8787). Example: `open -a miyagi --env MIYAGI_ENGINE=dev`.
+`--mode-only` only writes or removes that file and prints the mode: no build, no dmg needed, miyagi isn't quit or reinstalled, and the backups in `~/miyagi/app-backups.noindex/` stay as they are. (`--skip-build --engine …` does the same; add `--reinstall` to also install the dmg in `dist/`.) Quit and reopen miyagi after switching. The file is `{"engine": "dev"}`, plus `"cloud": "off"` if asked. From Terminal, env wins over the file: `MIYAGI_ENGINE=dev|bundled`, `MIYAGI_CLOUD_URL=off`, and `ENGINE_URL` for an engine elsewhere (the built app's page policy only allows port 8787 on this Mac, so keep a local engine on 8787). Example: `open -a miyagi --env MIYAGI_ENGINE=dev`.
 
 Why dev mode exists: in bundled mode, if miyagi opens while your engine is restarting (`update-engine.sh`), the app starts its own engine on 8787 and your restart then fails on a busy port. Dev mode never takes the port.
 
@@ -100,7 +100,7 @@ This uploads `dist/Miyagi-Mac.dmg` to the **`mac`** release on `adrian-erlikhman
 
 - `app/src/main/localEngine.ts` runs it, and the pill shows its state (`core/lesson` `localEngine`).
 - It only runs in a built app on macOS. In dev, set `MIYAGI_AUTOSTART=1` to try it. `DEMO=1`, engine mode dev (`MIYAGI_ENGINE=dev` or `engine.json`), or an `ENGINE_URL` that points at another machine, turns it off.
-- The app writes the pid of the engine it started to `~/miyagi/engine/run/app-engine.json`. If miyagi was force-quit, that engine keeps running and still expects the old launch's token, so the next launch would never connect. On launch, when :8787 is busy, the app checks that pid file: a live process whose command line is the engine (`server.orchestrator.main` or `miyagi-engine`) is its own leftover, so it stops it (SIGTERM, SIGKILL after 5 s) and starts a fresh one. Anything else on the port is left alone. `engine.log` notes which one happened.
+- The app writes the pid of the engine it started to `~/miyagi/engine/run/app-engine.json`. If miyagi was force-quit, that engine keeps running and still expects the old launch's token, so the next launch would never connect. On launch, when :8787 is busy, the app checks that pid file: a live process is its own leftover only when its command line starts with this app's exact Python (`Resources/engine/python/bin/python3`) or launcher (`~/miyagi/engine/bin/miyagi-engine`, or an interpreter under `~/miyagi/engine` running the engine module), and it started within a few seconds of the time in the pid file. Then it stops it (SIGTERM, SIGKILL after 5 s) and starts a fresh one. Anything else on the port, a dev engine from a repo checkout included, is left alone. A normal quit removes the pid file. `engine.log` notes which one happened.
 - About miyagi (app menu, when an app window is in front) shows the app version and the engine commit inside the app.
 - Engine files live in `~/miyagi/engine`: `src/`, `venv/`, `bin/miyagi-engine`, `logs/engine.log`. `MIYAGI_HOME` moves them.
 - An app update carrying a newer engine reinstalls it on the next launch, but only if the app installed it (the `BUNDLED` marker). An engine someone installed with the one-liner is never touched. Built lessons in `src/demo/cache` are kept either way.

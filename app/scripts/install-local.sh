@@ -6,17 +6,22 @@
 #   npm run install:local -- --dry-run         # print every step, change nothing (no build, no quit, no copy)
 #   npm run install:local -- --skip-build      # install the dist/Miyagi-Mac.dmg that's already there
 #   npm run install:local -- --open            # open miyagi when it's in place
-#   npm run install:local -- --engine dev      # this Mac's miyagi uses YOUR engine on :8787 (Terminal, .env), never its own
-#   npm run install:local -- --engine dev --cloud off   # ...and sends no cloud token, so that engine uses its .env keys
-#   npm run install:local -- --engine bundled  # back to what every user gets: the engine inside the app + the cloud
 #
-# What it does:
+# Switch the engine mode only (no build, no quit, no install, no backups touched; then quit and reopen miyagi):
+#   npm run install:local -- --mode-only --engine dev              # YOUR engine on :8787 (Terminal, .env), never its own
+#   npm run install:local -- --mode-only --engine dev --cloud off  # ...and no cloud token, so that engine uses .env keys
+#   npm run install:local -- --mode-only --engine bundled          # back to what every user gets: inside engine + cloud
+# (--skip-build with --engine or --cloud also only switches the mode; add --reinstall to install the dmg as well.)
+# With a build (`npm run install:local -- --engine dev`) the mode is set after the install.
+#
+# What a full install does:
 #   1. npm run ship:mac (bundle the engine, build, ad-hoc sign, dmg). Any extra ship option goes after --ship, e.g.
 #      `-- --ship --universal`.
 #   2. Copies miyagi.app out of the dmg (so you install exactly what users download) into /Applications/.miyagi.app.new
 #      and checks its signature.
-#   3. Quits miyagi: the installed app (AppleScript quit, so it stops the engine it started) and a dev copy
-#      (`npm run dev` Electron running this repo's app: SIGTERM, which Electron turns into a normal quit).
+#   3. Quits miyagi: the installed app's main process and a dev copy (`npm run dev` Electron running this repo's app),
+#      both with SIGTERM, which Electron turns into a normal quit (so the app stops the engine it started). No
+#      AppleScript: no "wants access to control miyagi" Automation prompt, nothing that can hang a non-interactive shell.
 #   4. Swaps it in with two renames on the same volume (never a half-copied app): the old one moves to
 #      ~/miyagi/app-backups.noindex/miyagi-<date>.app (.noindex: Spotlight doesn't list backups). Keeps the last 2.
 #   5. Strips quarantine (your own build) and registers it with Launch Services, so Spotlight and the Dock show the
@@ -27,18 +32,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DRY=0; BUILD=1; OPEN=0; ENGINE=""; CLOUD=""; SHIP_ARGS=()
+DRY=0; BUILD=1; OPEN=0; ENGINE=""; CLOUD=""; SHIP_ARGS=(); MODE_ONLY=0; REINSTALL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     --skip-build) BUILD=0 ;;
     --open) OPEN=1 ;;
+    --mode-only) MODE_ONLY=1 ;;
+    --reinstall) REINSTALL=1 ;;
     --engine) shift; ENGINE="${1:-}" ;;
     --engine=*) ENGINE="${1#--engine=}" ;;
     --cloud) shift; CLOUD="${1:-}" ;;
     --cloud=*) CLOUD="${1#--cloud=}" ;;
     --ship) shift; SHIP_ARGS=("$@"); break ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "[install] unknown option: $1 (see --help)"; exit 1 ;;
   esac
   shift
@@ -46,6 +53,14 @@ done
 case "$ENGINE" in ""|dev|bundled) ;; *) echo "[install] --engine dev | bundled"; exit 1 ;; esac
 case "$CLOUD" in ""|on|off) ;; *) echo "[install] --cloud on | off"; exit 1 ;; esac
 [ -z "$CLOUD" ] || [ "$ENGINE" = dev ] || [ "$CLOUD" = on ] || { echo "[install] --cloud off goes with --engine dev"; exit 1; }
+# Switching the mode with --skip-build used to reinstall the same dmg and push a real backup out (KEEP=2): now it only
+# switches the mode, unless --reinstall asks for the install too.
+if [ "$MODE_ONLY" = 0 ] && [ "$BUILD" = 0 ] && [ "$REINSTALL" = 0 ] && { [ -n "$ENGINE" ] || [ -n "$CLOUD" ]; }; then MODE_ONLY=1; fi
+if [ "$MODE_ONLY" = 1 ]; then
+  [ -n "$ENGINE" ] || { echo "[install] switching the mode needs --engine dev | bundled (--cloud off goes with --engine dev)"; exit 1; }
+  [ "$REINSTALL" = 0 ] || { echo "[install] --mode-only and --reinstall don't go together"; exit 1; }
+  [ ${#SHIP_ARGS[@]} -eq 0 ] || { echo "[install] --mode-only builds nothing: drop --ship"; exit 1; }
+fi
 
 [ "$(uname)" = "Darwin" ] || { echo "[install] run this on a Mac"; exit 1; }
 
@@ -67,6 +82,62 @@ act() {
 }
 
 [ "$DRY" = 1 ] && say "dry run: nothing is built, quit, copied or deleted"
+
+# --- engine mode (userData/engine.json, read by src/main/localEngine.ts on launch) ------------------------------------
+write_mode() {
+  local json="$1"
+  if [ "$DRY" = 1 ]; then say "[dry-run] would write $USER_DATA/engine.json: $json"; return; fi
+  mkdir -p "$USER_DATA"
+  printf '%s\n' "$json" > "$USER_DATA/engine.json"
+}
+apply_mode() {
+  case "$ENGINE" in
+    dev)
+      if [ "$CLOUD" = off ]; then write_mode '{"engine": "dev", "cloud": "off"}'; else write_mode '{"engine": "dev"}'; fi ;;
+    bundled)
+      if [ -f "$USER_DATA/engine.json" ]; then act rm -f "$USER_DATA/engine.json"; else say "  no engine.json: already bundled"; fi ;;
+  esac
+}
+mode_report() {
+  local mode="bundled" listener
+  if [ "$ENGINE" = dev ]; then mode="dev"
+  elif [ -z "$ENGINE" ] && [ -f "$USER_DATA/engine.json" ] && grep -q '"dev"' "$USER_DATA/engine.json"; then mode="dev"; fi
+  listener="$(lsof -nP -iTCP:8787 -sTCP:LISTEN -Fp 2>/dev/null | sed -n 's/^p//p' | head -1 || true)"
+  echo
+  echo "Engine"
+  if [ "$mode" = dev ]; then
+    echo "  Mode: dev ($USER_DATA/engine.json$([ "$CLOUD" = off ] && echo ', cloud off')). miyagi only connects to the engine on :8787 and never starts its own."
+    if [ -n "$listener" ]; then echo "  :8787 now: pid $listener, $(ps -o command= -p "$listener" | cut -c1-100)"
+    else echo "  :8787 now: nothing. Start your dev engine in Terminal; the pill waits for it."; fi
+    echo "  Back to what users get: npm run install:local -- --mode-only --engine bundled"
+  else
+    echo "  Mode: bundled (what every user gets): the engine inside the app, AI calls through the miyagi cloud."
+    if [ -n "$listener" ]; then
+      echo "  Note: :8787 is taken right now (pid $listener, $(ps -o command= -p "$listener" | cut -c1-80))."
+      echo "  miyagi will use THAT engine and leave it running. To test what users get, stop it first."
+    fi
+    echo "  Use your dev engine instead: npm run install:local -- --mode-only --engine dev"
+  fi
+}
+# The installed app's main process only: never a helper (Contents/Frameworks/...), the dev launcher in ~/Applications
+# (also named miyagi) or a dev copy (Electron).
+MAIN_RE='^/Applications/miyagi\.app/Contents/MacOS/miyagi( |$)'
+running() { pgrep -f "$MAIN_RE" >/dev/null 2>&1; }
+
+# --- mode only: no build, no quit, no install, the backups untouched ------------------------------------------------
+if [ "$MODE_ONLY" = 1 ]; then
+  say "switching the engine mode only (nothing is built, quit or installed; the backups stay as they are)"
+  apply_mode
+  mode_report
+  echo
+  if running; then
+    echo "miyagi is running: quit it (menu bar tree > Quit miyagi, or Control-Option-Q) and reopen it to use the new mode."
+  else
+    echo "Open miyagi to use the new mode (if it was open, quit and reopen it)."
+    if [ "$OPEN" = 1 ] && [ -d "$DEST" ]; then act open "$DEST"; fi
+  fi
+  exit 0
+fi
 
 # --- 1. build -------------------------------------------------------------------------------------------------------
 if [ "$BUILD" = 1 ]; then
@@ -104,17 +175,17 @@ fi
 
 # --- 3. quit miyagi ----------------------------------------------------------------------------------------------------
 say "3/6 quit miyagi (installed app and any dev copy of this repo's app)"
-# "is running" never launches the app (a bare `tell application ... to quit` can).
-running() { [ "$(osascript -e "application id \"$BUNDLE_ID\" is running" 2>/dev/null)" = true ]; }
+# SIGTERM to the main process: Electron turns it into a normal quit, so will-quit stops the engine the app started
+# (never one you started in Terminal). No AppleScript, so no one-time Automation prompt for Terminal / VS Code.
 if running; then
-  # A normal quit: will-quit stops the engine the app started (never one you started in Terminal).
-  act osascript -e "tell application id \"$BUNDLE_ID\" to quit"
+  act pkill -TERM -f "$MAIN_RE"
   if [ "$DRY" = 0 ]; then
     for _ in $(seq 1 20); do running || break; sleep 0.5; done
     if running; then
-      say "  miyagi didn't quit in 10 s: sending SIGTERM (Electron still quits normally on it)"
-      pkill -TERM -f '^/Applications/miyagi\.app/Contents/MacOS/miyagi' || true
-      sleep 2
+      # Its engine keeps running; the next launch recognizes it from the pid file and replaces it (localEngine step 7).
+      say "  miyagi didn't quit in 10 s: stopping it (SIGKILL); the next launch replaces the engine it left"
+      pkill -KILL -f "$MAIN_RE" || true
+      sleep 1
     fi
   fi
 else
@@ -179,19 +250,8 @@ say "5/6 strip quarantine, register with Launch Services"
 act xattr -dr com.apple.quarantine "$DEST"
 [ -x "$LSREGISTER" ] && act "$LSREGISTER" -f "$DEST"
 
-# --- engine mode -------------------------------------------------------------------------------------------------------
-write_mode() {
-  local json="$1"
-  if [ "$DRY" = 1 ]; then say "[dry-run] would write $USER_DATA/engine.json: $json"; return; fi
-  mkdir -p "$USER_DATA"
-  printf '%s\n' "$json" > "$USER_DATA/engine.json"
-}
-case "$ENGINE" in
-  dev)
-    if [ "$CLOUD" = off ]; then write_mode '{"engine": "dev", "cloud": "off"}'; else write_mode '{"engine": "dev"}'; fi ;;
-  bundled)
-    if [ -f "$USER_DATA/engine.json" ]; then act rm -f "$USER_DATA/engine.json"; fi ;;
-esac
+# --- engine mode (only when --engine was given) ------------------------------------------------------------------------
+[ -z "$ENGINE" ] || apply_mode
 
 # --- 6. report ---------------------------------------------------------------------------------------------------------
 say "6/6 done$([ "$DRY" = 1 ] && echo ' (dry run)')"
@@ -200,25 +260,7 @@ if [ "$DRY" = 0 ]; then
   say "  $(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist"), $BUNDLE_ID, engine $(cat "$DEST/Contents/Resources/engine/VERSION" 2>/dev/null || echo '?')"
 fi
 
-MODE="bundled"
-if [ "$ENGINE" = dev ]; then MODE="dev"
-elif [ -z "$ENGINE" ] && [ -f "$USER_DATA/engine.json" ] && grep -q '"dev"' "$USER_DATA/engine.json"; then MODE="dev"; fi
-LISTENER="$(lsof -nP -iTCP:8787 -sTCP:LISTEN -Fp 2>/dev/null | sed -n 's/^p//p' | head -1 || true)"
-echo
-echo "Engine"
-if [ "$MODE" = dev ]; then
-  echo "  Mode: dev ($USER_DATA/engine.json). miyagi only connects to the engine on :8787 and never starts its own."
-  if [ -n "$LISTENER" ]; then echo "  :8787 now: pid $LISTENER, $(ps -o command= -p "$LISTENER" | cut -c1-100)"
-  else echo "  :8787 now: nothing. Start your dev engine in Terminal; the pill waits for it."; fi
-  echo "  Back to what users get: npm run install:local -- --skip-build --engine bundled"
-else
-  echo "  Mode: bundled (what every user gets): the engine inside the app, AI calls through the miyagi cloud."
-  if [ -n "$LISTENER" ]; then
-    echo "  Note: :8787 is taken right now (pid $LISTENER, $(ps -o command= -p "$LISTENER" | cut -c1-80))."
-    echo "  miyagi will use THAT engine and leave it running. To test what users get, stop it first."
-  fi
-  echo "  Use your dev engine instead: npm run install:local -- --skip-build --engine dev"
-fi
+mode_report
 if [ -d "$HOME/Applications/miyagi.app" ]; then
   echo
   echo "Spotlight: ~/Applications/miyagi.app (your dev launcher) is also called miyagi. Spotlight lists both;"
