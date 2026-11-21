@@ -34,6 +34,8 @@ export function AccountWindow({ layout }: { layout: Layout }): ReactNode {
   useEffect(() => {
     const v = args?.view
     setStack([isView(v) ? v : 'menu'])
+    // Not loaded until the fresh data is in, so the first view mounts without a cross-fade from the last one.
+    useAccount.setState({ loaded: false })
     void loadAccount()
   }, [args])
 
@@ -60,23 +62,24 @@ export function AccountWindow({ layout }: { layout: Layout }): ReactNode {
   const paper = view === 'pricing'
 
   return (
-    <div data-account-view={view} className="relative h-full w-full overflow-y-auto" style={{ background: paper ? undefined : surface.sheet }}>
+    <div data-account-view={view} className="relative h-full w-full" style={{ background: paper ? undefined : surface.sheet }}>
       <div data-drag className="absolute inset-x-0 top-0 z-10" style={{ height: 28 }} />
-      {!loaded ? null : paper ? (
-        <Pricing account={account} width={layout.width} />
-      ) : (
-        <div className="flex min-h-full flex-col items-center justify-center gap-[12px]" style={{ padding: '44px 16px 24px' }}>
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div key={view} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={spring}>
-              {view === 'menu' && account ? <Menu account={account} go={go} /> : view === 'upgrade' ? <Upgrade account={account} go={go} close={close} /> : <SignIn />}
-            </motion.div>
-          </AnimatePresence>
-          <Note text={note} />
-        </div>
-      )}
-      {paper && note && (
-        <div className="sticky bottom-0 pb-[12px]">
-          <Note text={note} tone="paper" />
+      <div className="h-full w-full overflow-y-auto">
+        {!loaded ? null : paper ? (
+          <Pricing account={account} width={layout.width} />
+        ) : (
+          <div className="flex min-h-full flex-col items-center justify-center" style={{ padding: 16 }}>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div key={view} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={spring}>
+                {view === 'menu' && account ? <Menu account={account} go={go} /> : view === 'upgrade' ? <Upgrade account={account} go={go} close={close} /> : <SignIn />}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+      {note && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[8px] z-10">
+          <Note text={note} tone={paper ? 'paper' : 'dark'} />
         </div>
       )}
     </div>

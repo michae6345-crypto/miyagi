@@ -14,7 +14,7 @@ import { Segmented } from '../../core/ui/controls'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { openSettings } from '../../core/surfaces'
 import { paper, radius2, type2 } from '../../core/theme'
-import type { Account, PlanId } from './model'
+import { resetDay, type Account, type PlanId } from './model'
 import { openLink } from './store'
 import { Chip, Meter, Rule, TextLink } from './ui'
 
@@ -91,17 +91,19 @@ export function Pricing({ account, width }: { account: Account | null; width: nu
 
   const save = cat?.yearlySavePct
   return (
-    <div data-surface="paper" className="flex min-h-full w-full flex-col" style={{ background: paper.bg, color: paper.ink, padding: `${pad}px ${pad}px 32px`, gap: wide ? 32 : 24 }}>
+    <div data-surface="paper" className="flex min-h-full w-full flex-col [&>*]:shrink-0" style={{ background: paper.bg, color: paper.ink, padding: `${pad}px ${pad}px 32px`, gap: wide ? 32 : 24 }}>
       <header className="flex items-center justify-between gap-[16px]" style={{ minHeight: 28 }}>
         <div className="flex items-center gap-[8px]">
           <MiyagiMark size={28} tone="light" />
-          <MiyagiWordmark height={22} tone="light" />
+          <MiyagiWordmark height={22} tone="light" className="h-[22px] w-auto" />
         </div>
         <div className="flex min-w-0 items-center gap-[24px]" style={{ fontSize: type2.sm, color: paper.muted }}>
           {account?.signedIn && account.email && <span className="truncate">{`Signed in as ${account.email}`}</span>}
-          <TextLink tone="paper" weight={500} onClick={() => openLink('restore')}>
-            Restore a purchase
-          </TextLink>
+          <span className="shrink-0 whitespace-nowrap">
+            <TextLink tone="paper" weight={500} onClick={() => openLink('restore')}>
+              Restore a purchase
+            </TextLink>
+          </span>
         </div>
       </header>
 
@@ -139,8 +141,11 @@ export function Pricing({ account, width }: { account: Account | null; width: nu
         >
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-[16px] gap-y-[6px]">
             <span className="whitespace-nowrap font-semibold">This month</span>
-            <Meter help={help} tone="paper" width={wide ? 200 : 140} label="Free help requests used" />
+            <Meter help={help} tone="paper" width={wide ? 200 : 140} label={current === 'free' ? 'Free help requests used' : 'Help requests used'} />
             <span className="whitespace-nowrap" style={{ color: paper.muted }}>{`${help.used} of ${help.limit} ${current === 'free' ? 'free ' : ''}help requests used`}</span>
+            {resetDay(help.resetsAt) && (
+              <span className="whitespace-nowrap" style={{ color: paper.muted }}>{`Resets ${resetDay(help.resetsAt)}`}</span>
+            )}
           </div>
           <span className="whitespace-nowrap" style={{ color: paper.label }}>
             Checks on your work never count. Cancel anytime.
