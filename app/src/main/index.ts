@@ -8,12 +8,12 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
-import { setupPrefs } from './prefs'
+import { setupPrefs, trackWindowBackground, windowBackground } from './prefs'
 import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { setupAppWindows, type AppWindows } from './appWindows'
@@ -162,6 +162,10 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions, k
   })
   windows.add(win)
   win.on('closed', () => windows.delete(win))
+  if (kind === 'app') {
+    win.setBackgroundColor(windowBackground())
+    trackWindowBackground(win)
+  }
   showAfterFirstPaint(win)
   // Every overlay window follows the learner across Spaces and over full-screen apps (Michael, Sat). App windows
   // (v2) stay on their own Space like any Mac window.
@@ -553,7 +557,26 @@ app.whenReady().then(async () => {
     openWindow: (route, args) => appWindows?.open(route, args),
     appWindow: (route) => appWindows?.get(route)
   })
+  setupMenu()
 })
+
+/**
+ * The standard macOS app menu (Nov 21: the test found only "Edit"): miyagi, Edit, View (Enter Full Screen), Window
+ * (Minimize, Zoom). Set after the features load so it replaces the minimal menu overlay-raise.ts sets first. Full screen
+ * and zoom act on the focused window; only app windows are fullscreenable (platform.ts appWindowOptions), so for the
+ * overlay, pill and panels those items stay disabled by Electron.
+ */
+function setupMenu(): void {
+  if (platform.os !== 'mac') return
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      { label: 'miyagi', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { role: 'editMenu' },
+      { label: 'View', submenu: [{ role: 'togglefullscreen' }] },
+      { label: 'Window', role: 'windowMenu', submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }] }
+    ])
+  )
+}
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()

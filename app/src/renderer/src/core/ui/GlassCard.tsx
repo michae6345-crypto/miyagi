@@ -1,5 +1,5 @@
 /**
- * Core (v2, W0-3): the dark card every v2 surface sits on (the lesson panel, onboarding sheets, the recovery card,
+ * Core (v2, W0-3): the card every v2 surface sits on (dark or light with Settings > Appearance) (the lesson panel, onboarding sheets, the recovery card,
  * the progress window's groups). Not the island: island cards stay black and morph out of the pill (Island.tsx).
  *
  *   surface 'panel'  the docked lesson panel (Les-*: rgba 28,28,30 at .96, hairline, radius 20, the card shadow)
@@ -20,7 +20,8 @@ export type GlassSurface = 'panel' | 'sheet' | 'group'
 const LOOK: Record<GlassSurface, CSSProperties> = {
   panel: { background: s.panel, boxShadow: `${highlight.top}, inset 0 0 0 1px ${s.border}, ${elevation.panel}`, borderRadius: radius2.panel },
   sheet: { background: s.sheet, boxShadow: `${highlight.top}, inset 0 0 0 1px ${s.border}, ${elevation.overlay}`, borderRadius: radius2.sheet },
-  group: { background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${fill.hairline}`, borderRadius: radius2.card }
+  // A group is a raised layer: it lifts off the window with a soft shadow and a faint top edge (core/theme.ts `layer`).
+  group: { background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${fill.hairline}, ${elevation.raised}`, borderRadius: radius2.card }
 }
 
 type Props = {
@@ -35,17 +36,21 @@ type Props = {
   id?: string
   /** The grain on panel and sheet (default on); groups never have it. */
   grain?: boolean
+  /** Interactive: moves one elevation level on hover and settles on press (.mg-lift). */
+  lift?: boolean
 }
 
-export const GlassCard = forwardRef<HTMLDivElement, Props>(function GlassCard({ children, surface = 'panel', width, padding, className = '', style, hit, ui, id, grain = true }, ref) {
+export const GlassCard = forwardRef<HTMLDivElement, Props>(function GlassCard({ children, surface = 'panel', width, padding, className = '', style, hit, ui, id, grain = true, lift }, ref) {
   return (
     <div
       ref={ref}
       id={id}
       data-glass-card={surface}
+      // Follows Settings > Appearance even inside the always-dark overlay (the lesson panel, account sheets).
+      data-theme="auto"
       data-hit={hit || undefined}
       data-ui={!hit && ui ? true : undefined}
-      className={`relative overflow-hidden text-white ${grain && surface !== 'group' ? 'mg-grain' : ''} ${className}`}
+      className={`relative overflow-hidden text-white ${lift ? 'mg-lift' : ''} ${grain && surface !== 'group' ? 'mg-grain' : ''} ${className}`}
       style={{ ...LOOK[surface], width, padding, ...style }}
     >
       {children}
