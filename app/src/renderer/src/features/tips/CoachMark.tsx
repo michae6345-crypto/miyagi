@@ -3,7 +3,8 @@
  *
  *   [title]                      13 semibold, text
  *   [body]                       13, label; keys as platform Keycaps, Hint / Show me as their pastel chips
- *   [...]              [Got it]  the "..." menu holds "Don't show tips"; Got it is the ONE primary here
+ *   [...]              [Got it]  the "..." menu holds "Don't show tips"; Got it is quiet, so the element the tip
+ *                                 teaches (Check my work, the pill) stays the one primary on screen
  *
  * The sheet (surface.sheet, a step lighter than the island and the panel) reads as its own thing next to both. It
  * rises 6 px toward what it points at and fades in on the house spring; reduced motion: the fade only. data-hit, so
@@ -13,7 +14,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { MoreHorizontal } from 'lucide-react'
 import { forwardRef, useId, type ReactNode } from 'react'
 import { actionTone, color, duration, elevation, fill, highlight, radius2, spring, surface, type2 } from '../../core/theme'
-import { PrimaryButton } from '../../core/ui/buttons'
+import { QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
 import { pressMotion } from '../../core/ui/motion'
 import type { CaretSide } from './place'
@@ -88,7 +89,7 @@ export const CoachMark = forwardRef<HTMLDivElement, Props>(function CoachMark({ 
         >
           <MoreHorizontal size={16} strokeWidth={1.8} />
         </motion.button>
-        <PrimaryButton label="Got it" onClick={onGotIt} />
+        <QuietButton label="Got it" onClick={onGotIt} />
         <AnimatePresence>{menu && <Menu onOff={onOff} />}</AnimatePresence>
       </div>
     </motion.div>
