@@ -1,0 +1,82 @@
+{
+  "name": "home",
+  "on": {
+    "connect": "step_home",
+    "library.list@step_home": "home_library",
+    "library.list@step_home_lesson": "home_library",
+    "library.list@step_home_teach": "home_library",
+    "library.list@step_home_lesson_pandas": "home_library",
+    "learn_url@step_home": "home_build",
+    "learn@step_home": "home_teach",
+    "library.start:home_mnist": "home_start_mnist",
+    "library.start:home_pandas": "home_start_pandas",
+    "library.start:home_plot": "home_start_plot",
+    "library.start:home_venv": "home_start_venv",
+    "end_lesson": "step_home_ended"
+  },
+  "segments": {
+    "step_home": [
+      { "wait": 30, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"] } },
+      { "wait": 20, "type": "status", "payload": { "state": "idle" } }
+    ],
+    "step_home_ended": [
+      { "wait": 0, "type": "lesson.ended", "payload": { "reason": "end_lesson" } },
+      { "wait": 0, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 0, "goto": "step_home" }
+    ],
+    "home_library": [
+      { "wait": 150, "type": "library", "payload": { "items": [
+        { "id": "home_pandas", "title": "Clean a CSV with pandas", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "progress": { "stepIndex": 2, "stepTitle": "Drop the empty rows", "total": 6 } },
+        { "id": "home_mnist", "title": "Code your first neural network with TensorFlow", "steps": 7, "estMinutes": 25, "tools": ["jupyter", "vscode"], "ready": true, "source": { "kind": "youtube", "title": "Code your first neural network with TensorFlow", "url": "https://www.youtube.com/watch?v=mNiStCaCh3d" } },
+        { "id": "home_plot", "title": "Plot your data with matplotlib", "steps": 6, "estMinutes": 15, "tools": ["jupyter"], "ready": true },
+        { "id": "home_venv", "title": "Set up a Python virtual environment", "steps": 5, "estMinutes": 10, "tools": ["terminal", "vscode"], "ready": true }
+      ] } }
+    ],
+    "home_build": [
+      { "wait": 300, "type": "lesson.building", "payload": { "message": "Watching the video", "progress": 0.08, "elapsedS": 2, "stage": "watching", "etaS": 300, "source": { "kind": "youtube", "title": "Pandas groupby and pivot tables explained", "channel": "Example Channel", "durationS": 1260, "url": "https://www.youtube.com/watch?v=hOmEbUiLd01" }, "phases": [ { "id": "watching", "label": "Watching the video", "state": "active" }, { "id": "steps", "label": "Finding the steps", "state": "next" }, { "id": "checks", "label": "Writing the checks", "state": "next" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } },
+      { "wait": 1200, "type": "lesson.building", "payload": { "message": "Finding the steps", "progress": 0.36, "elapsedS": 45, "stage": "steps", "etaS": 240, "phases": [ { "id": "watching", "label": "Watching the video", "state": "done", "detail": "Done" }, { "id": "steps", "label": "Finding the steps", "state": "active" }, { "id": "checks", "label": "Writing the checks", "state": "next" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } },
+      { "wait": 1200, "goto": "home_hold" }
+    ],
+    "home_hold": [
+      { "wait": 0, "type": "lesson.building", "payload": { "message": "Writing the checks", "progress": 0.68, "elapsedS": 95, "stage": "checks", "etaS": 180, "phases": [ { "id": "watching", "label": "Watching the video", "state": "done", "detail": "Done" }, { "id": "steps", "label": "Finding the steps", "state": "done", "detail": "6 steps found" }, { "id": "checks", "label": "Writing the checks", "state": "active", "detail": "Step 4 of 6" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } }
+    ],
+    "home_teach": [
+      { "wait": 300, "type": "lesson.building", "payload": { "message": "Finding the steps", "progress": 0.3, "elapsedS": 3, "stage": "steps", "etaS": 90, "source": { "kind": "goal", "title": "Build a ray tracer" }, "phases": [ { "id": "steps", "label": "Finding the steps", "state": "active" }, { "id": "checks", "label": "Writing the checks", "state": "next" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } },
+      { "wait": 1500, "type": "lesson.building", "payload": { "message": "Writing the checks", "progress": 0.7, "elapsedS": 40, "stage": "checks", "etaS": 30, "phases": [ { "id": "steps", "label": "Finding the steps", "state": "done", "detail": "5 steps found" }, { "id": "checks", "label": "Writing the checks", "state": "active", "detail": "Step 2 of 5" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } },
+      { "wait": 1500, "goto": "step_home_teach" }
+    ],
+    "step_home_teach": [
+      { "wait": 0, "type": "lesson.ready", "payload": { "lesson": { "id": "home-raytracer", "title": "Build a ray tracer", "sources": [], "mode": "lesson", "builtBy": "curated" }, "steps": [ { "id": "ht-1", "index": 0, "title": "Draw an empty image", "kind": "code" }, { "id": "ht-2", "index": 1, "title": "Cast one ray", "kind": "code" } ] } },
+      { "wait": 200, "type": "step.started", "payload": { "stepId": "ht-1", "index": 0, "title": "Draw an empty image", "instructions": "Write a 200 by 100 image of black pixels to a file.", "kind": "code" } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching" } }
+    ],
+    "home_start_mnist": [
+      { "wait": 150, "goto": "step_home_lesson" }
+    ],
+    "step_home_lesson": [
+      { "wait": 0, "type": "lesson.ready", "payload": { "lesson": { "id": "home_mnist", "title": "Code your first neural network with TensorFlow", "sources": [], "mode": "lesson", "builtBy": "curated" }, "steps": [ { "id": "hm-1", "index": 0, "title": "Load the data", "kind": "code" }, { "id": "hm-2", "index": 1, "title": "Normalize the pixels", "kind": "code" }, { "id": "hm-3", "index": 2, "title": "Look at one digit", "kind": "code" }, { "id": "hm-4", "index": 3, "title": "Build the model", "kind": "code" }, { "id": "hm-5", "index": 4, "title": "Compile it", "kind": "code" }, { "id": "hm-6", "index": 5, "title": "Train it", "kind": "code" }, { "id": "hm-7", "index": 6, "title": "Check the accuracy", "kind": "code" } ] } },
+      { "wait": 100, "type": "step.passed", "payload": { "stepId": "hm-1", "nextStepId": "hm-2", "already": true } },
+      { "wait": 0, "type": "step.passed", "payload": { "stepId": "hm-2", "nextStepId": "hm-3", "already": true } },
+      { "wait": 0, "type": "step.passed", "payload": { "stepId": "hm-3", "nextStepId": "hm-4", "already": true } },
+      { "wait": 100, "type": "step.started", "payload": { "stepId": "hm-4", "index": 3, "title": "Build the model", "instructions": "Stack a Flatten layer and two Dense layers in a Sequential model.", "kind": "code" } },
+      { "wait": 100, "type": "check.updated", "payload": { "stepId": "hm-4", "checkId": "hm4c1", "label": "model has three layers", "status": "pending" } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching" } }
+    ],
+    "home_start_pandas": [
+      { "wait": 150, "type": "lesson.ready", "payload": { "lesson": { "id": "home_pandas", "title": "Clean a CSV with pandas", "sources": [], "mode": "lesson", "builtBy": "curated" }, "steps": [ { "id": "hp-3", "index": 2, "title": "Drop the empty rows", "kind": "code" } ] } },
+      { "wait": 100, "goto": "step_home_lesson_pandas" }
+    ],
+    "step_home_lesson_pandas": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "hp-3", "index": 2, "title": "Drop the empty rows", "instructions": "Remove every row that has no values.", "kind": "code" } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching" } }
+    ],
+    "home_start_plot": [
+      { "wait": 150, "type": "lesson.ready", "payload": { "lesson": { "id": "home_plot", "title": "Plot your data with matplotlib", "sources": [], "mode": "lesson", "builtBy": "curated" }, "steps": [ { "id": "hl-1", "index": 0, "title": "Import matplotlib", "kind": "code" } ] } },
+      { "wait": 100, "type": "step.started", "payload": { "stepId": "hl-1", "index": 0, "title": "Import matplotlib", "instructions": "Import pyplot as plt.", "kind": "code" } }
+    ],
+    "home_start_venv": [
+      { "wait": 150, "type": "lesson.ready", "payload": { "lesson": { "id": "home_venv", "title": "Set up a Python virtual environment", "sources": [], "mode": "lesson", "builtBy": "curated" }, "steps": [ { "id": "hv-1", "index": 0, "title": "Make the environment", "kind": "code" } ] } },
+      { "wait": 100, "type": "step.started", "payload": { "stepId": "hv-1", "index": 0, "title": "Make the environment", "instructions": "Run python -m venv .venv in the terminal.", "kind": "code" } }
+    ]
+  }
+}

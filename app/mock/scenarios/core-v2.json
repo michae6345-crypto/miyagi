@@ -1,0 +1,63 @@
+{
+  "name": "core-v2",
+  "on": {
+    "connect": "v2core_connect",
+    "health.get": "v2core_health",
+    "library.list": "v2core_library",
+    "library.get": "v2core_library_item",
+    "library.start": "v2core_lesson",
+    "progress.get": "v2core_progress",
+    "action:check_step@step_v2core": "v2core_pass1"
+  },
+  "segments": {
+    "v2core_connect": [
+      { "wait": 100, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"] } },
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 600, "goto": "v2core_building" }
+    ],
+    "v2core_building": [
+      { "wait": 0, "type": "lesson.building", "payload": { "message": "Watching the video", "progress": 0.1, "elapsedS": 2, "stage": "watching", "etaS": 240, "source": { "kind": "youtube", "title": "Code your first neural network with TensorFlow", "channel": "[CHANNEL NAME]", "durationS": 1420 }, "phases": [ { "id": "watching", "label": "Watching the video", "state": "active" }, { "id": "steps", "label": "Finding the steps", "state": "next" }, { "id": "checks", "label": "Writing the checks", "state": "next" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } },
+      { "wait": 900, "type": "lesson.building", "payload": { "message": "Finding the steps", "progress": 0.4, "elapsedS": 40, "stage": "steps", "etaS": 150, "phases": [ { "id": "watching", "label": "Watching the video", "state": "done", "detail": "Done" }, { "id": "steps", "label": "Finding the steps", "state": "active" }, { "id": "checks", "label": "Writing the checks", "state": "next" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } },
+      { "wait": 900, "type": "lesson.building", "payload": { "message": "Writing the checks", "progress": 0.75, "elapsedS": 90, "stage": "checks", "etaS": 60, "phases": [ { "id": "watching", "label": "Watching the video", "state": "done", "detail": "Done" }, { "id": "steps", "label": "Finding the steps", "state": "done", "detail": "6 steps found" }, { "id": "checks", "label": "Writing the checks", "state": "active", "detail": "Step 4 of 6" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } },
+      { "wait": 900, "goto": "v2core_lesson" }
+    ],
+    "v2core_lesson": [
+      { "wait": 0, "type": "lesson.ready", "payload": { "lesson": { "id": "v2core-mnist", "title": "Code your first neural network with TensorFlow", "sources": [], "mode": "lesson", "builtBy": "curated", "outline": { "count": 6, "steps": [ { "index": 0, "title": "Load the data" }, { "index": 1, "title": "Normalize the pixels" }, { "index": 2, "title": "Build the model" }, { "index": 3, "title": "Compile it" }, { "index": 4, "title": "Train it" }, { "index": 5, "title": "Check the accuracy" } ] } }, "steps": [ { "id": "v2c-1", "index": 0, "title": "Load the data", "kind": "code" }, { "id": "v2c-2", "index": 1, "title": "Normalize the pixels", "kind": "code" } ] } },
+      { "wait": 200, "type": "step.passed", "payload": { "stepId": "v2c-1", "nextStepId": "v2c-2", "already": true } },
+      { "wait": 100, "goto": "step_v2core" }
+    ],
+    "step_v2core": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "v2c-2", "index": 1, "title": "Normalize the pixels", "instructions": "Scale both image sets to values between 0 and 1.", "kind": "code", "where": "Type this in the new cell", "code": "x_train = x_train / 255.0\nx_test = x_test / 255.0", "then": "Then run it with the arrow beside the cell.", "estMinutes": 3 } },
+      { "wait": 100, "type": "check.updated", "payload": { "stepId": "v2c-2", "checkId": "c1", "label": "x_train is scaled", "status": "pending" } },
+      { "wait": 50, "type": "check.updated", "payload": { "stepId": "v2c-2", "checkId": "c2", "label": "x_test is scaled", "status": "pending" } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching", "detail": "Watching your notebook" } },
+      { "wait": 1500, "type": "blocker", "payload": { "kind": "kernel", "title": "Pick a kernel so your cells can run", "body": "No kernel is running, so I cannot check this cell.", "action": "Select Kernel" } },
+      { "wait": 1500, "type": "blocker", "payload": { "kind": "kernel", "clear": true } },
+      { "wait": 800, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 1 } },
+      { "wait": 800, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 2 } },
+      { "wait": 800, "type": "_link", "payload": { "open": true, "attempting": false, "failures": 0 } },
+      { "wait": 50, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"], "restored": true } },
+      { "wait": 600, "type": "status", "payload": { "state": "busy", "retryInS": 20 } },
+      { "wait": 1200, "type": "status", "payload": { "state": "watching", "detail": "Watching your notebook" } }
+    ],
+    "v2core_pass1": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking", "detail": "Checking your cell" } },
+      { "wait": 700, "type": "check.updated", "payload": { "stepId": "v2c-2", "checkId": "c1", "label": "x_train is scaled", "status": "pass" } },
+      { "wait": 100, "type": "check.updated", "payload": { "stepId": "v2c-2", "checkId": "c2", "label": "x_test is scaled", "status": "pass" } },
+      { "wait": 100, "type": "step.passed", "payload": { "stepId": "v2c-2", "summary": "Both image sets now run from 0 to 1." } },
+      { "wait": 50, "type": "status", "payload": { "state": "passed" } }
+    ],
+    "v2core_health": [
+      { "wait": 150, "type": "health", "payload": { "ready": 3, "total": 4, "items": [ { "id": "engine", "label": "miyagi engine", "state": "ok" }, { "id": "vscode", "label": "VS Code", "state": "ok", "detail": "1.96" }, { "id": "python", "label": "Python", "state": "ok", "detail": "3.11.6" }, { "id": "companion", "label": "VS Code helper", "state": "missing", "fix": "install" } ] } }
+    ],
+    "v2core_library": [
+      { "wait": 150, "type": "library", "payload": { "items": [ { "id": "mnist_intro", "title": "Code your first neural network with TensorFlow", "by": "[CREATOR NAME]", "steps": 7, "estMinutes": 25, "tools": ["jupyter", "vscode"], "ready": true, "progress": { "stepIndex": 3, "stepTitle": "Train it", "total": 7 } }, { "id": "pandas_csv", "title": "Clean a CSV with pandas", "by": "[CREATOR NAME]", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true }, { "id": "py_venv", "title": "Set up Python with a virtual environment", "by": "[ORG NAME]", "steps": 5, "estMinutes": 10, "tools": ["terminal", "vscode"], "ready": true } ] } }
+    ],
+    "v2core_library_item": [
+      { "wait": 150, "type": "library.item", "payload": { "item": { "id": "mnist_intro", "title": "Code your first neural network with TensorFlow", "by": "[CREATOR NAME]", "steps": 7, "estMinutes": 25, "tools": ["jupyter", "vscode"], "ready": true }, "overview": "A small network that reads handwritten digits.", "steps": [ { "index": 0, "title": "Load the data" }, { "index": 1, "title": "Normalize the pixels" }, { "index": 2, "title": "Build the model" } ] } }
+    ],
+    "v2core_progress": [
+      { "wait": 150, "type": "progress", "payload": { "skills": [ { "track": "numpy", "mastered": 2, "total": 3, "items": [ { "label": "Arrays", "state": "mastered" }, { "label": "Indexing and slicing", "state": "mastered" }, { "label": "Broadcasting", "state": "practicing" } ] } ], "completed": [ { "lessonId": "mnist_intro", "title": "Code your first neural network with TensorFlow", "at": "2026-11-18" } ], "week": null, "review": null } }
+    ]
+  }
+}
