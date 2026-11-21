@@ -356,14 +356,34 @@ def _restarted_engine(monkeypatch):
             raise AssertionError(_n)
         setattr(eng.session.m, name, boom)
     monkeypatch.setattr(main, "engine", eng)
+    monkeypatch.setattr(main, "host_allowed", lambda _h: True)  # TestClient's Host is "testserver"
     return main, eng, calls
 
 
-def test_restart_connect_auto_resumes_the_saved_step(monkeypatch, state_dir):
-    """Nov 15: save at s2 -> engine restart -> the first app connection continues at s2 by itself (no resume card,
-    no rebuild), and a second connection replays s2."""
+def test_restart_connect_never_auto_resumes_by_default(monkeypatch, state_dir):
+    """Nov 21: every launch is a fresh start. save at s2 -> engine restart -> the app connects: no lesson comes back by
+    itself (no lesson.ready, no step.started, no video play, no editor), the save stays on disk for Continue."""
     from fastapi.testclient import TestClient
 
+    monkeypatch.delenv("ORCH_AUTO_RESUME", raising=False)
+    _save_text_lesson_at_step_2()
+    main, eng, calls = _restarted_engine(monkeypatch)
+    with TestClient(main.app) as client:
+        with client.websocket_connect("/") as ws:
+            hello = ws.receive_json()
+            assert hello["type"] == "engine.hello" and not hello["payload"].get("restored")
+        assert client.get("/state").json()["phase"] != "active"  # at most the resume offer, never the lesson itself
+    assert eng.session.graph is None
+    assert calls == []
+    assert sessions.load()["stepIndex"] == 1  # kept for Continue
+
+
+def test_restart_connect_auto_resumes_the_saved_step(monkeypatch, state_dir):
+    """Opt-in (ORCH_AUTO_RESUME=1, Nov 15 behaviour): save at s2 -> engine restart -> the first app connection
+    continues at s2 by itself (no resume card, no rebuild), and a second connection replays s2."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("ORCH_AUTO_RESUME", "1")
     lesson, _ = _save_text_lesson_at_step_2()
     main, eng, calls = _restarted_engine(monkeypatch)
     s2 = lesson["steps"][1]["id"]
@@ -395,6 +415,7 @@ def test_restart_connect_state_then_resume_starts_the_saved_step(tmp_path, monke
     with TestClient(main.app) as client:
         for _ in range(2):  # connect, leave, connect again: nothing is answered yet
             with client.websocket_connect("/") as ws:
+                assert ws.receive_json()["type"] == "engine.hello"  # v2: always the first message
                 msgs = [ws.receive_json() for _ in range(4)]
                 assert [m["type"] for m in msgs] == ["spotlight", "video.pause", "status", "card"]
                 assert " · step 2 of 7" in msgs[3]["payload"]["body"]

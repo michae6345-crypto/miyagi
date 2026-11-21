@@ -222,6 +222,7 @@ def engine_env(port: int, base: Path, companion_port: int, extra: dict[str, str]
         "ORCH_SCREEN": "0",  # no screen reader, no AX tree
         "ORCH_OPEN_WORKSPACE": "1",  # as scripts/miyagi-engine.sh; rehearsal_engine records the opens instead
         "ORCH_AUTOSTART": "0",
+        "ORCH_AUTO_RESUME": "1",  # T5.3 rehearses a deploy restart mid-lesson (opt-in since Nov 21; app launches start fresh)
         "MIYAGI_ARRANGE": "0", "MIYAGI_EDITOR": "vscode", "MIYAGI_CURATED": "1",
         "MIYAGI_VSCODE_PORTS": str(companion_port),  # the fake companion only, never VS Code's real 8791+
         "DEMO": "0",
