@@ -1,4 +1,9 @@
-"""prepare(): one folder per lesson under ~/miyagi/lessons, scaffolded from the lesson itself."""
+"""prepare(): one folder per lesson under ~/miyagi/lessons, scaffolded from the lesson itself.
+
+text_for_model(path, text): a workspace file's text made safe to send to a model or a log (ROADMAP 5.2): .env and
+other secret files keep their names with every value hidden (a key file is withheld whole), and key- or token-shaped
+text anywhere else is redacted (server/redact.py). Grading keeps reading the real text; only what leaves is redacted.
+"""
 
 from __future__ import annotations
 
@@ -9,9 +14,15 @@ import subprocess
 import time
 from pathlib import Path
 
+from server.redact import redact_file_text
+
 from . import paths, scaffold
 
 log = logging.getLogger("server.workspace")
+
+def text_for_model(path: str | os.PathLike[str] | None, text: str) -> str:
+    """`text` read from the workspace file `path` (or a selection in it), safe to send out: see the module doc."""
+    return redact_file_text(path, text)
 
 STATE_DIR = ".miyagi-state"  # under lessons_root(): one JSON per folder (keeps the learner's folder clean)
 # .vscode/settings.json in each code lesson folder (workspace settings; the learner's own VS Code settings stay as is).

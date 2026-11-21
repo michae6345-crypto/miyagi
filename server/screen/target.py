@@ -52,6 +52,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from server.redact import redact_secrets
+
 from . import marks as MK
 from . import match as M
 from .types import Block, Rect, ScreenObservation
@@ -510,7 +512,7 @@ async def pick_with_outcome(frame, ocr_boxes, intent: str, *, app: str | None = 
     fut = asyncio.get_running_loop().create_future()
     _INFLIGHT[qkey] = fut
     out: tuple[dict | None, str, float] = (None, "error", 0.0)
-    mask = [*exclude, *(c.rect for c in ours)]
+    mask = [*exclude, *(c.rect for c in ours), *_secret_rects(obs)]  # 5.2: rows that held a key are blacked out
     try:
         out = await _ask(frame, obs, cands, intent, key, client, api_key, mask, timeout, min_conf, t0, app)
         _remember(qkey, cands, *out)
@@ -519,6 +521,13 @@ async def pick_with_outcome(frame, ocr_boxes, intent: str, *, app: str | None = 
         _INFLIGHT.pop(qkey, None)
         if not fut.done():
             fut.set_result(out)
+
+
+def _secret_rects(obs) -> list:
+    """OCR rows whose (already redacted) text held a secret: masked in the image like our own overlay."""
+    from .privacy import holds_secret
+
+    return [b.rect for b in getattr(obs, "blocks", None) or [] if holds_secret(getattr(b, "text", None))]
 
 
 async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout, min_conf, t0,
@@ -536,7 +545,7 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
         return None, "no_key", 0.0
     global _FORMAT_OK
     jpeg, size = await asyncio.to_thread(render_marks, frame, cands, obs, exclude, MAX_W, app)
-    text = f"Request: {intent}\n\nTags (id [kind] OCR text):\n{listing(cands)}"
+    text = redact_secrets(f"Request: {intent}\n\nTags (id [kind] OCR text):\n{listing(cands)}")
     fmt = {"format": {"type": "json_schema", "schema": SCHEMA}} if _FORMAT_OK else {}
     kwargs = {"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM,
               "thinking": {"type": "disabled"}, "output_config": {"effort": "low", **fmt},

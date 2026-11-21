@@ -10,6 +10,9 @@ Every call sends a 1280-wide JPEG with the cursor marked, plus the cursor positi
 it. Rate-limited (one call per `min_interval` s; same question within `cache_ttl` is cached).
 Failures raise `DescribeError`; nothing is ever returned as a fake answer, and there is no
 fallback to another provider.
+
+Never sends secrets (ROADMAP 5.2): the text part goes through server.redact.redact_secrets, and the screenshot has
+the rows whose OCR text held a secret blacked out (`to_jpeg(mask=...)`, the reader passes them).
 """
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ import re
 import time
 
 from server import config as server_config
+from server.redact import redact_secrets
 
 log = logging.getLogger("server.screen.describe")
 
@@ -98,6 +102,7 @@ class Describer:
                    max_tokens: int, timeout: float) -> str:
         import anthropic
         client = self._get_client()
+        text = redact_secrets(text)
         content = [
             {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                          "data": base64.standard_b64encode(image_jpeg).decode("ascii")}},
@@ -177,10 +182,17 @@ def parse_ids(text: str, n: int) -> list[int]:
 
 
 def to_jpeg(pil_image, max_w: int = 1280, quality: int = 80, cursor: tuple[float, float] | None = None,
-            scale: float = 1.0, origin: tuple[float, float] = (0.0, 0.0)) -> bytes:
-    """Downscale to `max_w` and (optionally) draw a red ring at the cursor (points -> pixels)."""
+            scale: float = 1.0, origin: tuple[float, float] = (0.0, 0.0),
+            mask: list[tuple[float, float, float, float]] | None = None) -> bytes:
+    """Downscale to `max_w` and (optionally) draw a red ring at the cursor (points -> pixels). `mask`: rects in
+    points (x, y, w, h) painted solid black first, e.g. the rows whose OCR text held an API key."""
     from PIL import ImageDraw
     img = pil_image.convert("RGB")
+    if mask:
+        d = ImageDraw.Draw(img)
+        for x, y, w, h in mask:
+            x0, y0 = (x - origin[0]) * scale - 2, (y - origin[1]) * scale - 2
+            d.rectangle([x0, y0, x0 + w * scale + 4, y0 + h * scale + 4], fill=(0, 0, 0))
     if cursor is not None:
         d = ImageDraw.Draw(img)
         cx, cy = (cursor[0] - origin[0]) * scale, (cursor[1] - origin[1]) * scale

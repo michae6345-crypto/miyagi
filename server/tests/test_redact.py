@@ -1,0 +1,159 @@
+"""ROADMAP 5.2, never send secrets (offline): server/redact.py and the boundaries that use it (screen OCR / AX text,
+coach requests, screen describe, VS Code selections). Every key below is fake."""
+
+from __future__ import annotations
+
+import io
+
+import pytest
+
+from server import config as cfg
+from server.redact import (
+    SECRET_MARK,
+    is_secret_file,
+    redact_file_text,
+    redact_secrets,
+    scrub_secrets,
+)
+
+ANT = "sk-ant-api03-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+OPENAI = "sk-proj-" + "Zz9Yy8Xx7Ww6Vv5Uu4Tt3Ss2Rr1Qq0Pp"
+GOOGLE = "AIza" + "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
+GITHUB = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+SLACK = "xoxb-" + "123456789012-abcdefghijKLMN"
+JWT = "eyJhbGciOiJIUzI1NiJ9." + "eyJzdWIiOiIxMjM0NTY3ODkwIn0." + "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+B64 = "c2VjcmV0LXZhbHVlLWZvci10ZXN0cw1234"
+
+
+@pytest.mark.parametrize("secret", [ANT, OPENAI, GOOGLE, GITHUB, SLACK, JWT, "AKIA" + "IOSFODNN7EXAMPLE",
+                                    "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc", "github_pat_" + "11ABCDEFG0" * 4])
+def test_known_token_formats_are_redacted_anywhere_in_a_line(secret):
+    out = redact_secrets(f"client = make(key='{secret}')  # mine")
+    assert secret not in out and SECRET_MARK in out and out.endswith("# mine")
+
+
+@pytest.mark.parametrize("line", [
+    f"API_KEY={B64}", f"export TOKEN={B64}", f'SECRET = "{B64}"', f"'auth_token': '{B64}'",
+    f'"client_secret": "{B64}"', f"password: {B64}",
+])
+def test_long_values_after_key_token_secret_names(line):
+    out = redact_secrets(line)
+    assert B64 not in out and SECRET_MARK in out
+
+
+def test_urls_with_a_password_and_bearer_headers():
+    assert redact_secrets("DATABASE_URL=postgres://me:hunter2pass@db.example.com/x") == \
+        f"DATABASE_URL=postgres://me:{SECRET_MARK}@db.example.com/x"
+    assert redact_secrets("Authorization: Bearer abcdefghijklmnop1234") == f"Authorization: Bearer {SECRET_MARK}"
+
+
+def test_pem_private_keys_are_redacted_whole():
+    pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nAAAA\n-----END RSA PRIVATE KEY-----"
+    assert redact_secrets(f"key:\n{pem}\ndone") == f"key:\n{SECRET_MARK}\ndone"
+
+
+@pytest.mark.parametrize("line", [
+    "max_tokens=8000", "tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')",
+    'api_key = os.environ["ANTHROPIC_API_KEY"]', 'TOKEN_HEADER = "x-miyagi-token"', "loss = 0.0123 at step 1000",
+    "def get_key(name):", "keyboard_layout = 'qwerty'", "https://github.com/pytorch/pytorch", "task: ask the desk",
+    "API_KEY=your-api-key-here", "SECRET_KEY = '<your secret>'", "", "x",
+])
+def test_ordinary_code_and_placeholders_pass_untouched(line):
+    assert redact_secrets(line) == line
+
+
+def test_the_keys_this_engine_holds_are_redacted_whatever_their_shape(monkeypatch):
+    monkeypatch.setattr(cfg, "_app_keys", {"miyagiToken": "plain-install-token-0000"})
+    monkeypatch.setattr("server.redact._known_cache", (0.0, ()))
+    assert redact_secrets("token plain-install-token-0000 here") == f"token {SECRET_MARK} here"
+
+
+def test_secret_files():
+    for name in (".env", ".env.local", ".env.production", ".envrc", "id_rsa", "id_ed25519", "server.pem", "tls.key",
+                 ".netrc", ".npmrc", ".pypirc", "credentials.json", "service-account-prod.json", "/a/b/.ENV"):
+        assert is_secret_file(name), name
+    for name in (".env.example", ".env.sample", ".env.template", "main.py", "env.py", "keys.md", "", None):
+        assert not is_secret_file(name), name
+
+
+def test_env_file_text_keeps_names_and_hides_values():
+    text = "# keys\nOPENAI_API_KEY=abc\nexport NAME=bob\nPORT=8080\nDEBUG=true\nEMPTY=\nURL=${BASE}/x\n"
+    out = redact_file_text("/proj/.env", text)
+    assert out.splitlines() == ["# keys", f"OPENAI_API_KEY={SECRET_MARK}", f"export NAME={SECRET_MARK}", "PORT=8080",
+                                "DEBUG=true", "EMPTY=", f"URL={SECRET_MARK}"]
+    assert redact_file_text("~/.ssh/id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\nabc").startswith(SECRET_MARK)
+    assert "abc" not in redact_file_text("~/.ssh/id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\nabc")
+    code = f"import os\nKEY = '{ANT}'\nprint(1)\n"
+    assert redact_file_text("main.py", code) == f"import os\nKEY = '{SECRET_MARK}'\nprint(1)\n"
+
+
+def test_scrub_walks_payloads():
+    out = scrub_secrets({"code": f"k={GITHUB}", "lines": [GOOGLE, 3], "n": 1, "t": (SLACK,)})
+    assert out == {"code": f"k={SECRET_MARK}", "lines": [SECRET_MARK, 3], "n": 1, "t": (SECRET_MARK,)}
+
+
+# ------------------------------------------------------------------ boundaries
+
+def test_screen_ocr_and_ax_text_is_redacted():
+    from server.screen.privacy import holds_secret, redact
+
+    out = redact(f"OPENAI_API_KEY={OPENAI}  mail jane@example.com")
+    assert OPENAI not in out and "[email]" in out and holds_secret(out)
+    assert not holds_secret("print('hello')")
+
+
+def test_coach_requests_are_redacted_but_fixture_keys_are_not_changed():
+    from server.coach import llm
+    from server.coach.common import number_lines
+
+    assert ANT not in number_lines(f"key = '{ANT}'\nprint(1)")
+    blocks = [{"type": "image", "source": {"data": "xx"}}, {"type": "text", "text": f"code: {GITHUB}"}]
+    out = llm.redact_user_content(blocks)
+    assert out[0] is blocks[0] and out[1]["text"] == f"code: {SECRET_MARK}" and GITHUB in blocks[1]["text"]
+
+    class Api:  # the shaped request, never sent
+        messages = object()
+        beta = type("B", (), {"messages": object()})()
+
+    _, kwargs = llm._request(Api(), llm.SONNET, [], f"LEARNER CODE:\nKEY = '{ANT}'", {}, "low", 100)
+    assert ANT not in json_dump(kwargs)
+
+
+def json_dump(v) -> str:
+    import json
+
+    return json.dumps(v, default=str)
+
+
+def test_screen_describe_masks_secret_rows_and_redacts_its_text():
+    from PIL import Image
+
+    from server.screen.describe import to_jpeg
+
+    img = Image.new("RGB", (200, 100), (255, 255, 255))
+    raw = to_jpeg(img, mask=[(10, 10, 50, 20)])
+    back = Image.open(io.BytesIO(raw)).convert("RGB")
+    assert back.getpixel((35, 20))[0] < 40  # blacked out
+    assert back.getpixel((150, 80))[0] > 215  # the rest is untouched
+
+
+def test_target_picker_masks_rows_that_held_a_secret():
+    from server.screen.target import _secret_rects
+    from server.screen.types import Block, Rect, ScreenObservation
+
+    obs = ScreenObservation(t=0.0, app="Code", blocks=[Block(f"KEY={SECRET_MARK}", Rect(1, 2, 3, 4), 1.0, "Code"),
+                                                       Block("print(1)", Rect(5, 6, 7, 8), 1.0, "Code")],
+                            screen=Rect(0, 0, 100, 100), scale=1.0)
+    assert _secret_rects(obs) == [Rect(1, 2, 3, 4)]
+
+
+def test_vscode_selections_are_redacted_before_the_card_and_the_coach():
+    from server.orchestrator.selection import from_drawer, from_vscode
+
+    sel = from_vscode({"type": "explain_selection", "file": "/l/.env", "text": f"OPENAI_API_KEY={OPENAI}",
+                       "around": {"startLine": 1, "text": f"OPENAI_API_KEY={OPENAI}\nPORT=8080"}})
+    assert OPENAI not in sel["text"] and OPENAI not in sel["title"] and OPENAI not in sel["around"]["text"]
+    assert sel["text"] == f"OPENAI_API_KEY={SECRET_MARK}"
+    sel = from_vscode({"file": "/l/main.py", "text": f"client = Client('{ANT}')"})
+    assert ANT not in sel["text"]
+    assert GITHUB not in from_drawer(f"use {GITHUB}")["text"]

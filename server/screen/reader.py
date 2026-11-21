@@ -18,7 +18,7 @@ from . import match as M
 from . import regions as R
 from .describe import DescribeError, Describer, to_jpeg
 from .metrics import TerminalMetricReader, TigerWriter
-from .privacy import is_private_app, redact
+from .privacy import holds_secret, is_private_app, redact
 from .types import Block, Rect, ScreenObservation, ScreenPermissionError, Window
 
 log = logging.getLogger("server.screen")
@@ -673,7 +673,8 @@ class ScreenReader:
         if region is not None:
             r = Rect.from_any(region).clamp(obs.screen)
             origin = (r.x, r.y)
-        jpeg = to_jpeg(img, cursor=(ctx["x"], ctx["y"]) if live else None, scale=obs.scale, origin=origin)
+        mask = [(b.rect.x, b.rect.y, b.rect.w, b.rect.h) for b in obs.blocks if holds_secret(b.text)]  # 5.2
+        jpeg = to_jpeg(img, cursor=(ctx["x"], ctx["y"]) if live else None, scale=obs.scale, origin=origin, mask=mask)
         lines = [f"Frontmost app: {obs.app}."]
         if live:
             lines.append(f"Cursor at ({ctx['x']:.0f}, {ctx['y']:.0f}) points, over app {ctx.get('app')!r}.")
