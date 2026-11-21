@@ -3,8 +3,9 @@
  *
  * One instance. macOS gives an app one instance for free: opening Miyagi again just focuses the running one.
  * Windows starts a second process, which would stack a second overlay and lose every global shortcut
- * to the first. So the installed Windows build keeps one instance and a second launch exits; main/index.ts
- * opens the launcher in the running one ('second-instance'), so opening Miyagi from the Start menu again shows it.
+ * to the first. So the installed Windows build keeps one instance and a second launch exits; features/launch.ts
+ * opens home in the running one ('second-instance'), so opening miyagi from the Start menu again shows it.
+ * Checked again on Nov 21 (v2 UI, packaged dir build): the second process exits, the running one brings home forward.
  * No-op on the Mac and in `npm run dev` (dev restarts must never be blocked by a stale process).
  * Checked on Windows 11 (packaged build): a second launch exits, the first keeps running.
  *
