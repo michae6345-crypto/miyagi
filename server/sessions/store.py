@@ -7,7 +7,8 @@ graph file is written first, then current.json (the commit point) is replaced to
 graph files are removed only after that. clear() removes current.json first. So a reader never sees
 progress without its graph. A missing, unreadable or corrupt file reads as "none".
 history.json lists the lessons finished on this Mac (what each covered): a later lesson's prerequisites read
-"passed" from it (prerequisite_status). recent.json lists the last RECENT_MAX unfinished lessons a newer one replaced
+"passed" from it (prerequisite_status). v2: each entry also keeps its skillMap and result {passed, skipped, total}
+(the Progress window, server/sessions/progress.py). recent.json lists the last RECENT_MAX unfinished lessons a newer one replaced
 (the launcher's "Continue: Build a tiny weather CLI · 2/7", E11). Override the folder with MIYAGI_STATE_DIR (tests do).
 """
 
@@ -194,10 +195,37 @@ def completed() -> list[dict]:
     return [e for e in data if isinstance(e, dict) and e.get("lessonId")] if isinstance(data, list) else []
 
 
-def record_completed(graph: dict, skipped: set[str] | frozenset[str] = frozenset()) -> dict | None:
+def lesson_result(graph: dict, skipped: set[str] | frozenset[str] | list[str] = frozenset()) -> dict:
+    """{passed, skipped, total} for a finished lesson: every step counts once, a skipped step is a skip, never a pass
+    (BUILD-PLAN E3 / A8: the completion and the Progress window count skips honestly)."""
+    ids = [st.get("id") for st in graph.get("steps") or [] if isinstance(st, dict) and st.get("id")]
+    skip = set(skipped or ())
+    n_skipped = sum(1 for i in ids if i in skip)
+    return {"passed": len(ids) - n_skipped, "skipped": n_skipped, "total": len(ids)}
+
+
+def _skill_map_for(graph: dict, skipped: set[str] | frozenset[str]) -> dict | None:
+    """The lesson's skill map from the steps it passed / skipped (server.lesson.skillmap: pure, no model call).
+    None when it can't be made: a history entry is never lost over its map."""
+    try:
+        from server.lesson.skillmap import skill_map
+
+        ids = [st.get("id") for st in graph.get("steps") or [] if isinstance(st, dict) and st.get("id")]
+        return skill_map(graph, {"passed": [i for i in ids if i not in skipped], "skipped": [i for i in ids if i in skipped]})
+    except Exception as e:  # noqa: BLE001
+        log.warning("no skill map for the finished lesson: %s", e)
+        return None
+
+
+def record_completed(graph: dict, skipped: set[str] | frozenset[str] = frozenset(), *, skill_map: dict | None = None,
+                     result: dict | None = None) -> dict | None:
     """The lesson's last step passed: remember what it covered (title, goal, concept titles, the steps the learner
-    passed; skipped steps don't count) so a later lesson can mark its prerequisites passed."""
+    passed; skipped steps don't count) so a later lesson can mark its prerequisites passed.
+    v2 (BUILD-PLAN E3): the entry also keeps the lesson's `skillMap` (the SkillMap its completion card drew; made from
+    the passed / skipped steps when not given) and `result` {passed, skipped, total}, which the Progress window
+    (server.sessions.progress) reads. Nothing is invented: no map when none could be made."""
     les = graph.get("lesson") or {}
+    skipped = frozenset(skipped or ())
     passed = [st for st in graph.get("steps") or [] if isinstance(st, dict) and st.get("id") not in skipped]
     if not les.get("id") or not passed:
         return None
@@ -205,8 +233,46 @@ def record_completed(graph: dict, skipped: set[str] | frozenset[str] = frozenset
     covered += [st.get(k) for st in passed for k in ("title", "what")]
     entry = {"lessonId": les["id"], "title": les.get("title") or "a lesson",
              "covered": [c.strip() for c in covered if isinstance(c, str) and c.strip()], "finishedAt": time.time()}
+    smap = skill_map if isinstance(skill_map, dict) else _skill_map_for(graph, skipped)
+    if smap:
+        entry["skillMap"] = smap
+    entry["result"] = _clean_result(result) or lesson_result(graph, skipped)
     _write_atomic(_history(), ([e for e in completed() if e["lessonId"] != entry["lessonId"]] + [entry])[-HISTORY_MAX:])
     return entry
+
+
+def _clean_result(result: Any) -> dict | None:
+    """{passed, skipped, total} (+ minutes when known) with whole, non-negative counts; None when it isn't one."""
+    if not isinstance(result, dict):
+        return None
+    out = {}
+    for k in ("passed", "skipped", "total", "minutes"):
+        v = result.get(k)
+        if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+            out[k] = v
+    return out if all(k in out for k in ("passed", "skipped", "total")) else None
+
+
+def attach_completion(lesson_id: str | None, skill_map: dict | None = None, result: dict | None = None) -> bool:
+    """The completion card went out: put the skill map it drew (assisted steps shown as practiced, its proof in the
+    headline) and its result on the lesson's newest history entry, so the Progress window shows exactly what the card
+    did. Only an entry finished in the last hour is updated (never an older run of the same lesson). -> updated."""
+    if not lesson_id or not (isinstance(skill_map, dict) or isinstance(result, dict)):
+        return False
+    rows = completed()
+    for e in reversed(rows):
+        if e.get("lessonId") != lesson_id:
+            continue
+        t = e.get("finishedAt")
+        if not isinstance(t, (int, float)) or time.time() - t > 3600:
+            return False
+        if isinstance(skill_map, dict) and skill_map:
+            e["skillMap"] = skill_map
+        if (r := _clean_result(result)) is not None:
+            e["result"] = r
+        _write_atomic(_history(), rows)
+        return True
+    return False
 
 
 def _stems(text: str) -> set[str]:

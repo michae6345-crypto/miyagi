@@ -11,6 +11,13 @@
                                (labelled "End lesson"), card.skillMap (node details and cross notes: the app shows
                                them on click)
     send_later(session, gen)   that card, a moment after the last step's own result card (the run's output) went out
+    result(session)            v2: what the lesson counted, {passed, skipped, total, minutes?, lessonId, title}: skips
+                               are skips, never passes; minutes only when this engine saw the lesson from step 1
+
+v2 (BUILD-PLAN E3, Prog-Completion): the card always carries `result`; its kind is "complete" when the app said it
+draws one (session.app_v2: it sent a v2 command), else "step" as before (an older app's exhaustive per-kind table has
+no "complete"). Once it went out, the history entry (sessions/store.attach_completion) keeps the same skillMap and
+result for the Progress window.
 
 No model call: everything comes from the lesson graph and the runs the engine already holds.
 """
@@ -21,6 +28,7 @@ import asyncio
 import logging
 import math
 import re
+import time
 from typing import Any
 
 from server.lesson.skillmap import attach_skill_map
@@ -262,6 +270,27 @@ def _what(lesson: dict) -> str | None:
 # ------------------------------------------------------------------------------------------------ the card
 
 
+def result(s: Any) -> dict:
+    """card.result (v2 LessonResult): every step once; skipped steps are skips. minutes: whole minutes since the lesson
+    started, only when this engine ran it from its first step (a restored lesson's earlier time is unknown: no number
+    rather than a wrong one)."""
+    lesson = (getattr(s, "graph", None) or {}).get("lesson") or {}
+    steps = [st for st in getattr(s, "steps", None) or [] if isinstance(st, dict) and st.get("id")]
+    skipped = set(getattr(s, "skipped_steps", None) or [])
+    n_skipped = sum(1 for st in steps if st["id"] in skipped)
+    out: dict[str, Any] = {"passed": len(steps) - n_skipped, "skipped": n_skipped, "total": len(steps)}
+    t0 = getattr(s, "lesson_wall_t0", None)
+    if isinstance(t0, (int, float)) and not isinstance(t0, bool) and t0 > 0:
+        mins = int((time.time() - t0) // 60)
+        if 0 <= mins < 24 * 60:
+            out["minutes"] = max(1, mins)
+    if lesson.get("id"):
+        out["lessonId"] = str(lesson["id"])
+    if lesson.get("title") or lesson.get("goal"):
+        out["title"] = title(lesson)
+    return out
+
+
 def card(s: Any) -> dict:
     lesson = (getattr(s, "graph", None) or {}).get("lesson") or {}
     steps = getattr(s, "steps", None) or []
@@ -282,6 +311,9 @@ def card(s: Any) -> dict:
     out = attach_skill_map(out, s, evidence=proof)
     if head := mastery_title(out.get("skillMap")):  # the header the app's complete panel draws from the same map
         out["title"] = head
+    out["result"] = result(s)  # v2: what the lesson counted (an older app ignores the field)
+    if getattr(s, "app_v2", False) is True:  # a v2 app draws its own completion panel (Prog-Completion)
+        out["kind"] = "complete"
     return out
 
 
@@ -294,3 +326,11 @@ async def send_later(s: Any, gen: int, delay_s: float | None = None) -> None:
     c = card(s)
     log.info("lesson complete: %r | %s", c["title"], c["body"])
     await s._emit_card(c, window_s=0.0)
+    lid = (c.get("result") or {}).get("lessonId")
+    if lid:  # only an entry sessions/resume.py just wrote (store.record_completed, the last step.passed) is updated
+        try:  # the Progress window shows what this card drew (assisted steps as practiced, the real proof)
+            from server.sessions import store
+
+            await asyncio.to_thread(store.attach_completion, lid, c.get("skillMap"), c.get("result"))
+        except Exception:  # noqa: BLE001 - a progress record must never break the ending
+            log.exception("could not add the completion to the lesson history")
