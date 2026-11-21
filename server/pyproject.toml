@@ -12,6 +12,7 @@ dependencies = [
 ]
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+tiger = ["psycopg[binary]>=3.2"]  # dev only (`uv sync --extra tiger`): --tiger checks, /stats, the psycopg tests. Never bundled.
 [build-system]
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"

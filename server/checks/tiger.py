@@ -98,6 +98,8 @@ METRIC_COPY = "COPY training_metrics (time, run_id, step, name, value) FROM STDI
 
 # ---------------------------------------------------------------- the local store (SQLite)
 METRICS_DB_ENV = "MIYAGI_METRICS_DB"
+RETENTION_ENV = "MIYAGI_METRICS_RETENTION_DAYS"
+DEFAULT_RETENTION_DAYS = 90
 LOCAL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS learning_events (
   time REAL NOT NULL, lesson_id TEXT, step_id TEXT, source_id TEXT, video_t REAL, kind TEXT NOT NULL,
@@ -190,6 +192,35 @@ def _write_local(conn: sqlite3.Connection, events: list[tuple], metrics: list[tu
         if metrics:
             conn.executemany(LOCAL_INSERT_METRIC, [(_epoch(r[0]), *(_cell(x) for x in r[1:])) for r in metrics])
     return len(events) + len(metrics) + len(runs)
+
+
+def retention_days() -> float:
+    """How long the local store keeps rows: $MIYAGI_METRICS_RETENTION_DAYS (0 = forever), default 90."""
+    try:
+        return max(0.0, float(os.environ.get(RETENTION_ENV, "") or DEFAULT_RETENTION_DAYS))
+    except ValueError:
+        return float(DEFAULT_RETENTION_DAYS)
+
+
+def prune_local(conn: sqlite3.Connection, days: float | None = None, now: float | None = None) -> int:
+    """Delete local-store rows older than `days` (default `retention_days()`), so metrics.sqlite on the learner's
+    Mac does not grow without limit (Tiger's retention used to do this). Runs go by their end, else their start.
+    Returns rows deleted. Never raises: a failed prune is logged and the writer carries on."""
+    days = retention_days() if days is None else days
+    if days <= 0:
+        return 0
+    cutoff = (time.time() if now is None else now) - days * 86400
+    try:
+        with conn:
+            n = conn.execute("DELETE FROM training_metrics WHERE time < ?", (cutoff,)).rowcount
+            n += conn.execute("DELETE FROM learning_events WHERE time < ?", (cutoff,)).rowcount
+            n += conn.execute("DELETE FROM runs WHERE COALESCE(ended_at, started_at) < ?", (cutoff,)).rowcount
+    except sqlite3.Error as exc:
+        log.info("local metrics store: prune skipped (%s)", str(exc)[:160])
+        return 0
+    if n:
+        log.info("local metrics store: pruned %d rows older than %g days", n, days)
+    return n
 
 
 def local_summary(path: str | Path | None = None) -> dict:
@@ -457,6 +488,8 @@ class TigerWriter:
             self._close(conn)
             self._go_offline(f"spool load failed: {_redact(str(exc).strip()[:160], self.dsn)}")
             return None
+        if isinstance(conn, sqlite3.Connection):
+            prune_local(conn)
         return conn
 
     @staticmethod
