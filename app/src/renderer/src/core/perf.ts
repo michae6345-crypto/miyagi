@@ -1,6 +1,6 @@
 /**
  * Tiny counters for "is this chatty?" questions. `perf.count('bounds.sampled')` costs one add; read them in the stage
- * console with `__miyagiPerf()` (or add `?perf=1` to the URL to log them every 5 s). No timers run without ?perf=1.
+ * console with `__miyagiPerf()` (or add `?perf=1` to the URL to mirror them into <html data-perf> every second). No timers run without ?perf=1.
  */
 const counts: Record<string, number> = {}
 export const perf = {
@@ -13,5 +13,5 @@ export const perf = {
 }
 if (typeof window !== 'undefined') {
   ;(window as unknown as { __miyagiPerf: () => Record<string, number> }).__miyagiPerf = perf.snapshot
-  if (/[?&]perf=1/.test(location.search)) setInterval(() => console.info('[perf]', JSON.stringify(counts)), 5000)
+  if (/[?&]perf=1/.test(location.search)) setInterval(() => (document.documentElement.dataset.perf = JSON.stringify(counts)), 1000)
 }
