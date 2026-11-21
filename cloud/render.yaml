@@ -34,3 +34,9 @@ services:
         value: "4096"
       - key: DB_PATH
         value: /var/data/miyagi.db
+      - key: FREE_LESSON_BUILDS_PER_MONTH
+        value: "3"
+      - key: FREE_COACH_CALLS_PER_DAY
+        value: "60"
+      - key: DAILY_USD_CAP         # spend kill switch in dollars per UTC day, every install together; empty = off
+        sync: false

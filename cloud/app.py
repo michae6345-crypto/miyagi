@@ -21,6 +21,7 @@ import sys
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs
 
 import httpx
@@ -28,7 +29,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from store import PREFIX_LEN, Store, open_store
+from store import PLANS, PREFIX_LEN, Store, open_store, this_month
 
 VERSION = "0.1.0"
 # Overridable only so local tests can point at a mock upstream.
@@ -67,6 +68,17 @@ MAX_BODY = int(float(os.environ.get("MAX_BODY_MB", "2")) * 1024 * 1024)
 MAX_GEMINI_BODY = int(float(os.environ.get("MAX_GEMINI_BODY_MB", "20")) * 1024 * 1024)
 REGISTER_PER_HOUR = int(os.environ.get("REGISTER_LIMIT_PER_HOUR", "10"))
 PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "1"))  # Render's load balancer appends the client IP
+# Free tier (ROADMAP 3.7). 0 turns a cap off. Installs on the "pro" plan (admin: /admin/tokens/{prefix}/plan) have none.
+FREE_LESSON_BUILDS_PER_MONTH = int(os.environ.get("FREE_LESSON_BUILDS_PER_MONTH", "3"))  # new videos; cache hits are free
+FREE_COACH_CALLS_PER_DAY = int(os.environ.get("FREE_COACH_CALLS_PER_DAY", "60"))  # AI calls with x-miyagi-role: coach
+FREE_DAILY_REQUESTS = int(os.environ.get("FREE_DAILY_REQUESTS", "0"))  # every forwarded AI call; off by default
+# Kill switch on spend: once the estimated USD of every install together reaches this today (UTC), every forwarded
+# AI call gets a 429 until UTC midnight, pro installs included. Cache hits and events still work. Empty or 0: off.
+DAILY_USD_CAP = float(os.environ.get("DAILY_USD_CAP", "0") or 0)
+# Shared lesson cache (ROADMAP 3.1)
+MAX_LESSON_BYTES = int(float(os.environ.get("MAX_LESSON_KB", "512")) * 1024)
+MIN_LESSON_SCHEMA = int(os.environ.get("MIN_LESSON_SCHEMA", "1"))  # raise it to retire drafts older engines wrote
+MAX_LESSON_SCHEMA = int(os.environ.get("MAX_LESSON_SCHEMA", "99"))
 TIMEOUT = httpx.Timeout(connect=10.0, read=float(os.environ.get("UPSTREAM_READ_TIMEOUT_S", "300")), write=60.0, pool=10.0)
 
 if not ANTHROPIC_KEY or not GEMINI_KEY:
@@ -201,20 +213,68 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     return h, None
 
 
-def check_quota(token_hash: str) -> tuple[bool, str]:
-    """Hook for per-token limits. Always allows for now.
+def _next_utc_midnight() -> datetime:
+    now = datetime.now(UTC)
+    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    TODO: read store.requests_today(token_hash) (and usd) and return (False, reason) over a daily cap.
-    """
-    return True, ""
+
+def _next_utc_month() -> datetime:
+    now = datetime.now(UTC)
+    return (now.replace(day=28) + timedelta(days=4)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _iso(t: datetime) -> str:
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def quota_error(kind: str, limit: str, used: int | float, cap: int | float, resets: datetime, message: str) -> JSONResponse:
+    """429 in error()'s shape plus what the app needs to show it: `limit` (lesson_builds | coach_calls |
+    daily_requests | daily_usd), `used`, `cap` and `resets_at`. `x-should-retry: false` stops the SDKs' automatic retries.
+    The engine reads type `miyagi_quota` (server/config.py CLOUD_ERRORS) and `miyagi_lesson_quota` (lesson cache)."""
+    body = {"type": "error", "error": {"type": kind, "status": kind.upper(), "code": 429, "message": message,
+                                       "limit": limit, "used": used, "cap": cap, "resets_at": _iso(resets)}}
+    retry = max(60, int((resets - datetime.now(UTC)).total_seconds()))
+    return JSONResponse(body, status_code=429, headers={"retry-after": str(retry), "x-should-retry": "false"})
+
+
+ROLE_RE = re.compile(r"[a-z][a-z0-9_-]{0,23}")
+
+
+def request_role(request: Request) -> str | None:
+    """The engine's x-miyagi-role (coach, lesson, scene, finder, diagram, workspace), when it is well formed."""
+    role = request.headers.get("x-miyagi-role", "").strip().lower()
+    return role if ROLE_RE.fullmatch(role) else None
+
+
+def check_quota(token_hash: str, role: str | None, provider: str, model: str) -> JSONResponse | None:
+    """Every cap on one forwarded AI call. None means allowed, and the call is then already counted: the
+    per-install caps are checked and counted in one store transaction, so parallel calls cannot overshoot them.
+
+    1. DAILY_USD_CAP, the spend kill switch: every install together, pro included.
+    2. Free plan: FREE_COACH_CALLS_PER_DAY on x-miyagi-role: coach, and FREE_DAILY_REQUESTS on every call.
+       Pro: no per-install caps (still counted).
+    The lesson build cap lives on POST /v1/lessons/{id}/build."""
+    if DAILY_USD_CAP > 0:
+        spent = store.usd_today()
+        if spent >= DAILY_USD_CAP:
+            log.warning("daily USD cap reached: est. $%.2f of $%.2f", spent, DAILY_USD_CAP)
+            return quota_error("miyagi_quota", "daily_usd", round(spent, 2), DAILY_USD_CAP, _next_utc_midnight(),
+                               "miyagi has used today's cloud budget. Back tomorrow.")
+    pro = (store.get_token(token_hash) or {}).get("plan") == "pro"
+    role_caps = {} if pro else {"coach": FREE_COACH_CALLS_PER_DAY}
+    daily = 0 if pro else FREE_DAILY_REQUESTS
+    hit, used, cap = store.admit_call(token_hash, provider, model, role, role_caps, daily)
+    if hit == "role":
+        return quota_error("miyagi_quota", "coach_calls", used, cap, _next_utc_midnight(),
+                           "That's all the coach help for today. It comes back tomorrow.")
+    if hit == "daily":
+        return quota_error("miyagi_quota", "daily_requests", used, cap, _next_utc_midnight(),
+                           "You've reached today's limit. It resets tomorrow.")
+    return None
 
 
 def admit(request: Request, token_hash: str, provider: str, model: str) -> JSONResponse | None:
-    ok, why = check_quota(token_hash)
-    if not ok:
-        return error(429, "rate_limit_error", why or "Daily limit reached for this install.")
-    store.count_request(token_hash, provider, model)
-    return None
+    return check_quota(token_hash, request_role(request), provider, model)
 
 
 _register_hits: dict[str, deque] = defaultdict(deque)
@@ -523,6 +583,189 @@ async def gemini(target: str, request: Request):
                          headers, params, raw, stream=GEMINI_METHODS[method])
 
 
+# --------------------------------------------------------------------------- shared lesson cache (ROADMAP 3.1)
+#
+# The engine (server/lesson/cloud_cache.py) asks GET /v1/lessons/{video_id}?schema=N before it watches a video.
+# On a miss it claims one of the install's builds (POST /v1/lessons/{video_id}/build; the free tier gets
+# FREE_LESSON_BUILDS_PER_MONTH new videos a month), builds, and uploads the result (PUT). Cache hits are free.
+
+VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}")  # YouTube video ids: the only lesson source the engine builds from
+_BAD_VIDEO_ID = "video_id must be an 11-character YouTube video id."
+
+
+def _lesson_schema(schema) -> JSONResponse | int:
+    """The schema version as an int, or the 400 to send."""
+    if isinstance(schema, bool) or not isinstance(schema, (int, str)) or not str(schema).isdigit() or len(str(schema)) > 6:
+        return error(400, "invalid_request_error", "schema must be a positive integer.")
+    n = int(schema)
+    if not MIN_LESSON_SCHEMA <= n <= MAX_LESSON_SCHEMA:
+        return error(400, "schema_unsupported",
+                     f"Lesson schema {n} is not supported here (supported: {MIN_LESSON_SCHEMA} to {MAX_LESSON_SCHEMA}).")
+    return n
+
+
+def _build_quota(token_hash: str) -> dict:
+    """This install's new-lesson builds this month. cap 0 means no cap (the pro plan, or the cap turned off)."""
+    row = store.get_token(token_hash) or {}
+    cap = 0 if row.get("plan") == "pro" else max(FREE_LESSON_BUILDS_PER_MONTH, 0)
+    return {"used": store.builds_in_month(token_hash), "cap": cap, "month": this_month(), "resets_at": _iso(_next_utc_month())}
+
+
+@app.get("/v1/lessons/{video_id}")
+async def get_lesson(video_id: str, request: Request):
+    token_hash, denied = authenticate(request)
+    if denied:
+        return denied
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    schema = _lesson_schema(request.query_params.get("schema", ""))
+    if isinstance(schema, JSONResponse):
+        return schema
+    row = store.get_lesson(video_id, schema)
+    if row is None:
+        body = {"type": "error", "error": {"type": "lesson_not_cached", "status": "LESSON_NOT_CACHED", "code": 404,
+                                           "message": "No shared lesson for this video yet.",
+                                           "builds": _build_quota(token_hash)}}  # so the app can say how many are left
+        return JSONResponse(body, status_code=404)
+    request.state.model = "lesson-cache"
+    # the stored body is a validated JSON object: splice it in rather than parse and re-encode it
+    head = json.dumps({"video_id": video_id, "schema": schema, "created_at": round(row["created_at"])})[:-1]
+    return Response(f'{head}, "lesson": {row["body"]}}}', media_type="application/json")
+
+
+@app.post("/v1/lessons/{video_id}/build")
+async def claim_lesson_build(video_id: str, request: Request):
+    """Use one of this month's new-lesson builds for `video_id` (free for a video already claimed this month)."""
+    token_hash, denied = authenticate(request)
+    if denied:
+        return denied
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    quota = _build_quota(token_hash)
+    ok, used = store.claim_build(token_hash, video_id, quota["cap"])
+    if not ok:
+        return quota_error("miyagi_lesson_quota", "lesson_builds", used, quota["cap"], _next_utc_month(),
+                           f"You've built your {quota['cap']} free lessons this month. "
+                           "Lessons someone already built still open for free.")
+    return {"ok": True, "builds": {**quota, "used": used}}
+
+
+@app.put("/v1/lessons/{video_id}")
+async def put_lesson(video_id: str, request: Request):
+    token_hash, denied = authenticate(request)
+    if denied:
+        return denied
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    too_big = error(413, "request_too_large", f"Lesson over {MAX_LESSON_BYTES // 1024} KB.")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_LESSON_BYTES:
+        return too_big
+    raw = await request.body()
+    if len(raw) > MAX_LESSON_BYTES:
+        return too_big
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        data = None
+    if not isinstance(data, dict):
+        return error(400, "invalid_request_error", 'Body must be {"schema": N, "lesson": {...}}.')
+    schema = _lesson_schema(data.get("schema"))
+    if isinstance(schema, JSONResponse):
+        return schema
+    lesson = data.get("lesson")
+    steps = lesson.get("steps") if isinstance(lesson, dict) else None
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 300 or not all(isinstance(s, dict) for s in steps):
+        return error(400, "invalid_request_error", "lesson must be an object with 1 to 300 steps.")
+    if not store.has_build(token_hash, video_id):  # only an install that built this video may share it
+        return error(403, "build_not_claimed", "Claim a build of this video (POST /v1/lessons/{video_id}/build) before sharing it.")
+    if not store.put_lesson(video_id, schema, json.dumps(lesson, separators=(",", ":")), token_hash):
+        return error(409, "lesson_exists", "A shared lesson for this video and schema already exists.")
+    return JSONResponse({"stored": True, "video_id": video_id, "schema": schema}, status_code=201)
+
+
+# --------------------------------------------------------------------------- product events: POST /v1/events
+#
+# The app (main/features/telemetry.ts, only while "Share crash reports and usage" is on) and the engine send
+#   Authorization: Bearer <mi_ install token>
+#   {"events": [{"name": "step_passed", "at": "<ISO time>", "props": {...}}, ...]}   (extra top-level fields ignored)
+# at most EVENTS_MAX per request and EVENTS_MAX_BYTES of body. We keep counts only: per install, UTC day and event
+# name, plus allowlisted scalar props (EVENT_PROP_KEYS) as counts per value or sums. Unknown names, other props
+# (a crash's message included) and malformed events are dropped, never stored. 202 {"ok": true}; 401 bad token;
+# 413 too big; 400 when the body is not that shape.
+
+EVENTS_MAX = 50
+EVENTS_MAX_BYTES = 32 * 1024
+EVENTS_PER_DAY = int(os.environ.get("EVENTS_PER_DAY_PER_INSTALL", "2000"))  # beyond it events are dropped (still 202)
+# The app's list (app/src/main/features/telemetry/core.ts EVENT_NAMES).
+EVENT_NAMES = frozenset(_env_list("EVENT_NAMES", "app_installed,onboarding_done,lesson_search,lesson_built,step_passed,"
+                                  "step_failed_check,hint_used,lesson_completed,lesson_abandoned,cost_usd,crash"))
+EVENT_PROP_KEYS = frozenset(_env_list("EVENT_PROP_KEYS", "kind,mode,reason,source,built_by,step_kind,level,cached,"
+                                      "provider,model,usd,steps,minutes,seconds"))
+_EVENT_WORD = re.compile(r"[A-Za-z0-9_.\- ]{1,40}")  # enum-like values only: never sentences, paths or quotes
+_EVENT_DAYS_BACK = 2  # an event's own day is kept when it is this recent; older or future times count as today
+
+
+def _event_day(at) -> str:
+    today = datetime.now(UTC).date()
+    try:
+        t = datetime.fromisoformat(at) if isinstance(at, str) and len(at) <= 40 else None
+    except ValueError:
+        t = None
+    if t is not None:
+        d = (t if t.tzinfo else t.replace(tzinfo=UTC)).astimezone(UTC).date()
+        if today - timedelta(days=_EVENT_DAYS_BACK) <= d <= today:
+            return d.isoformat()
+    return today.isoformat()
+
+
+def _event_props(raw) -> dict:
+    """Only allowlisted keys with a boolean, a finite number or a short enum-like string."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        if k not in EVENT_PROP_KEYS:
+            continue
+        if isinstance(v, bool):
+            out[k] = v
+        elif isinstance(v, (int, float)) and abs(v) < 1e9:  # NaN and inf fail this too
+            out[k] = v
+        elif isinstance(v, str) and _EVENT_WORD.fullmatch(v.strip()):
+            out[k] = v.strip()
+    return out
+
+
+@app.post("/v1/events")
+async def events(request: Request):
+    token = presented_token(request)
+    h = hash_token(token) if token and len(token) <= 200 else None
+    row = store.get_token(h) if h else None
+    if row is None or row["disabled"]:
+        return error(401, "authentication_error", "Missing or invalid install token.")
+    request.state.tok = h[:PREFIX_LEN]
+    too_big = error(413, "request_too_large", f"At most {EVENTS_MAX} events and {EVENTS_MAX_BYTES // 1024} KB per request.")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > EVENTS_MAX_BYTES:
+        return too_big
+    raw = await request.body()
+    if len(raw) > EVENTS_MAX_BYTES:
+        return too_big
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        data = None
+    items = data.get("events") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return error(400, "invalid_request_error", 'Body must be {"events": [{"name", "at", "props"}, ...]}.')
+    if len(items) > EVENTS_MAX:
+        return too_big
+    kept = [(_event_day(e.get("at")), e["name"], _event_props(e.get("props")))
+            for e in items if isinstance(e, dict) and isinstance(e.get("name"), str) and e["name"] in EVENT_NAMES]
+    store.add_events(h, kept, EVENTS_PER_DAY)
+    return JSONResponse({"ok": True}, status_code=202)
+
+
 # --------------------------------------------------------------------------- admin
 
 def admin_ok(token: str | None) -> bool:
@@ -551,6 +794,40 @@ async def admin_set_disabled(prefix: str, request: Request):
         return error(409, "conflict", f"{len(matched)} tokens match; use a longer prefix.")
     log.info("admin: token %s %s", prefix[:PREFIX_LEN], "disabled" if disable else "enabled")
     return {"token": matched[0][:PREFIX_LEN], "disabled": disable}
+
+
+class PlanBody(BaseModel):
+    plan: str = Field(min_length=1, max_length=16)
+
+
+@app.post("/admin/tokens/{prefix}/plan")
+async def admin_set_plan(prefix: str, body: PlanBody, request: Request):
+    """Move one install between the free tier (caps apply) and pro (no caps)."""
+    if not admin_ok(request.headers.get("x-admin-token")):
+        return error(401, "authentication_error", "Admin token required (X-Admin-Token header).")
+    if not re.fullmatch(r"[0-9a-f]{8,64}", prefix):
+        return error(400, "invalid_request_error", "Prefix must be 8-64 lowercase hex characters of the token hash.")
+    if body.plan not in PLANS:
+        return error(400, "invalid_request_error", f"plan must be one of: {', '.join(PLANS)}.")
+    matched = store.set_plan(prefix, body.plan)
+    if not matched:
+        return error(404, "not_found_error", "No token hash starts with that prefix.")
+    if len(matched) > 1:
+        return error(409, "conflict", f"{len(matched)} tokens match; use a longer prefix.")
+    log.info("admin: token %s plan=%s", prefix[:PREFIX_LEN], body.plan)
+    return {"token": matched[0][:PREFIX_LEN], "plan": body.plan}
+
+
+@app.delete("/admin/lessons/{video_id}")
+async def admin_delete_lesson(video_id: str, request: Request):
+    """Drop a bad shared lesson (every schema) so the next install to open the video builds it again."""
+    if not admin_ok(request.headers.get("x-admin-token")):
+        return error(401, "authentication_error", "Admin token required (X-Admin-Token header).")
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    n = store.delete_lessons(video_id)
+    log.info("admin: deleted %d shared lesson(s)", n)
+    return {"video_id": video_id, "deleted": n}
 
 
 _ADMIN_HEADERS = {"cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer",
@@ -591,9 +868,14 @@ async def admin_page_post(request: Request):
     t = r["total"]
     summary = (f"<p>Since {html.escape(r['since'])}: <b>{t['requests']}</b> requests, {t['input_tokens']} input / "
                f"{t['output_tokens']} output tokens, est. <b>${t['usd']}</b>. Tokens registered: {r['registered_tokens']} "
-               f"({r['disabled_tokens']} disabled). Proxy enabled: {PROXY_ENABLED}.</p>")
+               f"({r['disabled_tokens']} disabled). Proxy enabled: {PROXY_ENABLED}.</p>"
+               f"<p>Shared lessons: {r['lessons']['cached']} cached, {r['lessons']['hits']} cache hits, "
+               f"{r['lessons']['builds_this_month']} new builds this month.</p>"
+               f"<p>Est. spend today (UTC): <b>${r['usd_today']}</b>; daily cap: "
+               f"{'$' + str(DAILY_USD_CAP) if DAILY_USD_CAP > 0 else 'off'}.</p>")
     cols = ["requests", "input_tokens", "output_tokens", "usd"]
     return _page(summary + "<h2>Per day</h2>" + _table(r["by_day"], ["day", "tokens", *cols])
+                 + "<h2>Events per day</h2>" + _table(r["events"], ["day", "name", "count", "installs"])
                  + "<h2>Per install token (hash prefix)</h2>" + _table(r["by_token"], ["token", "disabled", *cols])
                  + "<h2>Per day, token and model</h2>" + _table(r["by_day_token_model"], ["day", "token", "provider", "model", *cols])
                  + "<p>Disable a token: <code>curl -X POST -H 'X-Admin-Token: …' $URL/admin/tokens/&lt;prefix&gt;/disable</code></p>")
