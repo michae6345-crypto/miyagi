@@ -285,6 +285,9 @@ export const shadows = {
   card: 'var(--e-card)'
 } as const
 
+/** The open notch island's shadow (a CSS filter on the shape's wrapper, because the shape itself is clipped): none at rest, so it fuses with the hardware notch. */
+export const notchDrop = 'drop-shadow(0 10px 18px rgba(0,0,0,.4))'
+
 /** Neutral fills on the black island / dark HUD: white at low alphas, nothing else (brand: no extra hues). */
 export const fill = {
   field: 'var(--f-field)',

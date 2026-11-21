@@ -21,11 +21,18 @@ import { requestOpen, setSection, type Size } from './store'
 function islandSize(): Size | undefined {
   const top = `${bridge.platform.pillTop}px`
   for (const el of document.querySelectorAll<HTMLElement>('[data-hit]')) {
+    // In the notch the data-hit shape sits in the hover zone, inside the positioned wrapper (top 0).
+    const wrap = el.parentElement?.parentElement?.parentElement
+    if (el.offsetWidth > 0 && wrap && wrap.style.top === '0px' && getComputedStyle(wrap).justifyContent === 'center' && notchPlace())
+      return { w: el.offsetWidth, h: el.offsetHeight - 1, place: 'notch', radii: { top: 6, bottom: 14 } }
     const p = el.parentElement
     if (p && p.style.top === top && getComputedStyle(p).justifyContent === 'center' && el.offsetWidth > 0) return { w: el.offsetWidth, h: el.offsetHeight }
   }
   return undefined
 }
+
+/** The stage is in the notch unless ?notch=below. */
+const notchPlace = (): boolean => new URLSearchParams(location.search).get('notch') !== 'below'
 
 function setupWeb(): void {
   const secure = !new URLSearchParams(location.search).has('nosecure')

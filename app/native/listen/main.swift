@@ -7,6 +7,7 @@ import AVFoundation
 //   miyagi-listen --stdin-only            no key tap, no mic; sessions are driven by {"cmd":"_simulate",...}
 //   miyagi-listen --transcribe-file F [--terms a,b] [--locale en-US]
 //                                         transcribe an audio file with the same Transcriber and print the final JSON
+//   miyagi-listen --screens               print the displays' geometry (notch, safe area) as one JSON line and exit 0
 
 setvbuf(stdout, nil, _IOLBF, 0)
 signal(SIGPIPE, SIG_IGN)
@@ -19,6 +20,9 @@ func argValue(_ name: String) -> String? {
 let termsArg = (argValue("--terms") ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
 let localeArg = argValue("--locale") ?? "en-US"
 Transcriber.forceModule = argValue("--module")
+
+// MARK: --screens (NSScreen geometry only: no permissions, no tap, no mic)
+if args.contains("--screens") { Screens.run() }
 
 // MARK: --transcribe-file (offline self-test: no mic, no key tap, no prompts)
 

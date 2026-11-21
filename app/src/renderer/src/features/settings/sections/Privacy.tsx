@@ -3,16 +3,20 @@
  *   - what leaves this Mac, said plainly: screenshots and code go to the AI provider during lessons;
  *   - the Lesson progress sync and Anonymous usage counts switches are HIDDEN (nothing syncs or counts this push);
  *   - "See what was sent" is hidden (the privacy log is deferred);
+ *   - "Share crash reports and usage" (prefs.shareTelemetry, ROADMAP 1.6 / 1.7): off by default for everyone, applies at
+ *     once. On (and only once the login gate is open): main/features/telemetry.ts sends crash kinds and lesson counts
+ *     (numbers and enums only, a crash is just {kind, app_version}) to miyagi-cloud POST /v1/events; the error text
+ *     never leaves this Mac.
  *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin) and
  *     the preferences. It says "on this Mac" because that is all it can reach.
  */
 import { motion } from 'motion/react'
-import { Camera, CodeXml, KeyRound } from 'lucide-react'
+import { Activity, Camera, CodeXml, KeyRound } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_PREFS } from '../../../../../common/prefs'
 import { bridge } from '../../../bridge'
-import { setPrefs } from '../../../core/prefs'
-import { PrimaryButtonV2, QuietButton } from '../../../core/ui/atoms'
+import { setPrefs, usePrefs } from '../../../core/prefs'
+import { PrimaryButtonV2, QuietButton, Toggle } from '../../../core/ui/atoms'
 import { color, type2 } from '../../../core/theme'
 import { pressMotion } from '../../../core/ui/motion'
 import { stage } from '../env'
@@ -24,6 +28,7 @@ type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'failed'
 export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v: KeysView) => void }): ReactNode {
   const [step, setStep] = useState<Step>(stage.confirm === 'delete' ? 'confirm' : 'idle')
   const cancelBox = useRef<HTMLSpanElement>(null)
+  const share = usePrefs((s) => s.shareTelemetry)
   // The confirm opens with focus on Cancel (the safe default): Enter or Space backs out, Esc too.
   useEffect(() => {
     if (step === 'confirm') cancelBox.current?.querySelector('button')?.focus({ preventScroll: true })
@@ -70,6 +75,16 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
           label="Your API keys"
           caption={secure === false ? 'Kept in memory for this run, sent only to their provider.' : 'Kept in your Mac’s Keychain, sent only to their provider.'}
           right={<Plain>On this Mac</Plain>}
+        />
+      </Group>
+
+      <Group label="Help improve miyagi">
+        <Row
+          minH={64}
+          icon={Activity}
+          label="Share crash reports and usage"
+          caption="Errors and lesson counts. Never your code or screen."
+          right={<Toggle label="Share crash reports and usage" on={share === true} onChange={(v) => setPrefs({ shareTelemetry: v })} />}
         />
       </Group>
 

@@ -12,6 +12,7 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
+import { useInNotch } from '../../core/notchContext'
 import { usePrefs } from '../../core/prefs'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
@@ -22,6 +23,12 @@ import { closeCard, usePtt } from './store'
 /** Fixed, so the pill doesn't change width with every partial. */
 export const PILL_W = 300
 export const CARD_W = 340
+
+/** The notch's right ear while listening: the same ring, or the spinner once sent. */
+export function NotchRing(): ReactNode {
+  const sending = usePtt((s) => s.ptt.phase === 'sending')
+  return <Ring live={!sending} />
+}
 
 function Ring({ live }: { live: boolean }): ReactNode {
   const reduce = useReducedMotion()
@@ -49,9 +56,11 @@ export function ListeningPill(): ReactNode {
   const { phase, text } = usePtt((s) => s.ptt)
   const sending = phase === 'sending'
   const words = text.trim()
+  // In the notch the ears carry the ring: the line under it is just the words.
+  const inNotch = useInNotch()
   return (
     <div data-ui data-ptt={phase} className="flex items-center gap-[10px]" style={{ width: PILL_W, height: pill.height, padding: '0 16px' }} role="status" aria-live="polite">
-      <Ring live={!sending} />
+      {!inNotch && <Ring live={!sending} />}
       {/* Newest words stay in view: the line is laid out right-to-left so the ellipsis lands on the left; the text itself reads left-to-right. */}
       <span className="block min-w-0 flex-1 overflow-hidden whitespace-nowrap" style={{ direction: 'rtl', textAlign: 'left', textOverflow: 'ellipsis', fontSize: type2.sm, color: words ? color.text : color.label }}>
         <span style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{words || (sending ? 'Sending' : 'Listening')}</span>

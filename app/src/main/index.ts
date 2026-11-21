@@ -38,6 +38,9 @@ import {
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
 import { VOICE_ENABLED } from '../common/flags'
+import { notchFor, startNotch, type NotchService } from './notch'
+import { helperPath } from './features/ptt'
+import { getPrefs, onPrefsChange } from './prefs'
 
 // A built app never starts under a debugger (app-harden): --inspect*, --remote-debugging-* or --js-flags in argv quits
 // before any window, engine or key exists. The fuses already make Node ignore --inspect; Chromium's remote debugging has
@@ -56,6 +59,10 @@ const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
 // The token goes in with the constructor: the first connect starts there, before setupLocalEngine runs.
 const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined, ENGINE_TOKEN)
 let stopLocalEngine: () => void = () => undefined
+/** Notch geometry + Boring Notch state (main/notch.ts); started at launch. */
+let notchService: NotchService | undefined
+/** Every window gets its layout again (Settings > General shows whether Boring Notch is using the notch). Module level: the first notch read can land before whenReady has finished. */
+const resendLayout = (): void => forEachWindow((w) => send(w, 'layout', layoutFor(w)))
 
 const windows = new Set<BrowserWindow>()
 /** Feature windows whose rects join the overlay's overlay.bounds report (ctx.reportBounds). */
@@ -76,7 +83,7 @@ let launcherOrigin: BrowserWindow | undefined
 /** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
 let basePillTop = 0
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
-let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean } = { w: 300, h: 34 }
+let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean; top?: number; place?: 'notch'; radii?: { top: number; bottom: number } } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
@@ -261,8 +268,10 @@ function createCoreWindow(route: 'overlay' | 'launcher'): BrowserWindow {
 
 function layoutFor(win: BrowserWindow): Layout {
   const b = win.getBounds()
-  const wa = screen.getDisplayMatching(b).workArea
-  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+  const display = screen.getDisplayMatching(b)
+  const wa = display.workArea
+  const notch = notchService?.layoutFor(display, getPrefs().island.place) ?? { ...notchFor(display), place: 'below' as const, boringNotch: false }
+  return { notch, origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {
@@ -455,6 +464,8 @@ app.whenReady().then(async () => {
   // window exists: every renderer gets pillTop in its launch arguments.
   basePillTop = platform.pillTop
   platform.pillTop = fitPillTop(basePillTop, displayNow())
+  // The notch geometry (miyagi-listen --screens) and Boring Notch detection; a change re-sends the layout to every core window.
+  notchService = startNotch({ helperBin: helperPath(), mac: platform.os === 'mac', onChange: () => resendLayout() })
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 
@@ -574,9 +585,11 @@ app.whenReady().then(async () => {
   // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
   // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
   // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
+  onPrefsChange(() => resendLayout())
   let refitTimer: ReturnType<typeof setTimeout> | undefined
   const refit = (): void => {
     clearTimeout(refitTimer)
+    notchService?.refresh()
     refitTimer = setTimeout(() => {
       platform.pillTop = fitPillTop(basePillTop, displayNow())
       for (const w of [overlay, launcher]) {

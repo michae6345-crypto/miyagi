@@ -7,6 +7,7 @@
  *   bridge.invoke('errors:crash-pending')          { report } when the last launch ended without a clean quit and
  *                                                  crashReports is 'ask'; null otherwise
  *   bridge.invoke('errors:crash-decide', {save})   save: the report goes to userData/crash-reports/ (this Mac only)
+ *   bridge.invoke('errors:renderer', {message, stack})  a window's uncaught error / unhandled rejection, into the log
  *
  * How a crash is noticed: a marker file (userData/errors/session.json) is written at launch and removed on a clean
  * quit. Found at the next launch = the app did not quit cleanly. The report is built from allowlisted fields only
@@ -29,6 +30,8 @@ type Marker = { startedAt: string; version: string; pid?: number; context: Conte
 type LogLine = { at: string; text: string }
 
 const MAX_LOG = 30
+/** Renderer errors logged per launch at most. */
+const RENDERER_MAX = 20
 
 function readJson<T>(file: string): T | undefined {
   try {
@@ -167,6 +170,19 @@ export default defineMainFeature({
       app.on('will-quit', () => remove(markerFile))
     }
 
+    // A window's uncaught errors (features/errors/report.ts): into the same log, at most RENDERER_MAX per launch so a
+    // render loop cannot flood it. features/telemetry.ts sends new log lines when the learner allows it.
+    let fromRenderer = 0
+    ctx.handle('errors:renderer', (raw) => {
+      if (!raw || typeof raw !== 'object' || fromRenderer >= RENDERER_MAX) return false
+      const r = raw as { message?: unknown; stack?: unknown }
+      const message = typeof r.message === 'string' ? r.message.slice(0, 300) : ''
+      if (!message) return false
+      const frames = typeof r.stack === 'string' ? r.stack.split('\n').slice(1, 3).join(' ').slice(0, 300) : ''
+      fromRenderer++
+      record(`renderer error: ${message} ${frames}`.trim())
+      return true
+    })
     ctx.handle('errors:info', () => ({ version: app.getVersion(), system: systemLabel() }))
     ctx.handle('errors:context', (raw) => {
       const context = sanitizeContext(raw)

@@ -10,8 +10,11 @@
 import { CodeXml, Compass, NotebookText, Wrench } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { VOICE_ENABLED } from '../../../../../common/flags'
+import type { IslandPlace } from '../../../../../common/notch'
 import { useLesson } from '../../../core/lesson'
 import { setPrefs, usePrefs, type Appearance } from '../../../core/prefs'
+import { bridge } from '../../../bridge'
+import { useNotchInfo } from '../../../core/notchInfo'
 import { openOnboarding } from '../../../core/surfaces'
 import { startTour } from '../../tips/tourStore'
 import { QuietButton, Segmented, StatusGlyph, Toggle } from '../../../core/ui/atoms'
@@ -26,6 +29,25 @@ const APPEARANCES: { value: Appearance; label: string }[] = [
   { value: 'dark', label: 'Dark' },
   { value: 'light', label: 'Light' }
 ]
+
+const PLACES: { value: IslandPlace; label: string }[] = [
+  { value: 'notch', label: 'In the notch' },
+  { value: 'below', label: 'Below the menu bar' }
+]
+
+/** Where the island lives. macOS only; while Boring Notch is running it has the notch, so the pill sits below the bar. */
+function IslandRow(): ReactNode {
+  const place = usePrefs((s) => s.island?.place ?? 'notch')
+  const boring = useNotchInfo((s) => !!s.notch?.boringNotch)
+  if (bridge.platform.os !== 'mac') return null
+  return (
+    <Row
+      label="Island"
+      caption={boring ? 'Boring Notch is using the notch. Quit it to put miyagi there.' : 'Where miyagi sits at the top of the screen.'}
+      right={<Segmented label="Island" options={PLACES} value={place} onChange={(p) => setPrefs({ island: { place: p } })} />}
+    />
+  )
+}
 
 export function General({ live }: { live: boolean }): ReactNode {
   const appearance = usePrefs((s) => s.appearance)
@@ -44,6 +66,7 @@ export function General({ live }: { live: boolean }): ReactNode {
           caption={copy.appearanceCaption}
           right={<Segmented label="Appearance" options={APPEARANCES} value={appearance} onChange={(a) => setPrefs({ appearance: a })} />}
         />
+        <IslandRow />
         <Row
           tight
           label="Launch at login"

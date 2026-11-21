@@ -29,6 +29,7 @@
  */
 import { app, screen } from 'electron'
 import { defineMainFeature } from '../context'
+import { withinGrab } from '../../renderer/src/core/notchGeometry'
 
 const isMac = process.platform === 'darwin'
 const accessory = isMac && process.env.MIYAGI_REGULAR_APP !== '1'
@@ -45,8 +46,12 @@ const MARGIN = 12
 const REST_MS = 500
 
 type Box = { x: number; y: number; w: number; h: number }
-const within = (p: { x: number; y: number }, r: Box): boolean =>
-  p.x >= r.x - MARGIN && p.x <= r.x + r.w + MARGIN && p.y >= r.y - MARGIN && p.y <= r.y + r.h + MARGIN
+/**
+ * The grab zone around a UI rect. In the notch (`notch` true: the island sits at the display top) a rect touching the
+ * display top is grabbed only +-6 pt sideways and 12 pt below, never into the menu bar beside the notch, so the menu
+ * items next to it stay clickable. Below the menu bar it is MARGIN all round, as ever (core/notchGeometry.ts withinGrab).
+ */
+const within = (p: { x: number; y: number }, r: Box, notch = false, displayTop = 0): boolean => withinGrab(p, r, { notch, displayTop, margin: MARGIN })
 
 export default defineMainFeature({
   id: 'overlay-raise',
@@ -127,15 +132,17 @@ export default defineMainFeature({
       if (!ctx.overlay.isVisible()) return
       if (Date.now() < passUntil) return
       const d = ctx.display().bounds
-      const { w, h, dx = 0, dy = 0, shown = true } = ctx.islandSize()
+      const { w, h, dx = 0, dy = 0, shown = true, top, place } = ctx.islandSize()
+      // The notch island (renderer 'island:size' says so): its rect starts at the display top, not at pillTop.
+      const inNotch = place === 'notch'
       // The island from its live size and place (the reported rects lag up to 300 ms while it grows into a card or
       // moves off the spotlight: core/islandPlace.ts), plus the rest.
       // A hidden island (no mode, or the launcher has it) is not a click target: no ghost box eating clicks.
-      const island = shown ? { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + ctx.platform.pillTop + dy, w, h } : { x: -1e6, y: -1e6, w: 0, h: 0 }
+      const island = shown ? { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + (inNotch ? (top ?? 0) : ctx.platform.pillTop) + dy, w, h } : { x: -1e6, y: -1e6, w: 0, h: 0 }
       const p = screen.getCursorScreenPoint()
       if (away) {
         // Grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
-        if (!shown || !within(p, island)) restSince = 0
+        if (!shown || !within(p, island, inNotch, d.y)) restSince = 0
         else if (!restSince) restSince = Date.now()
         else if (restSince > 0 && Date.now() - restSince >= REST_MS) {
           restSince = -1 // once per rest
@@ -143,7 +150,7 @@ export default defineMainFeature({
         }
         return
       }
-      const now = (shown && within(p, island)) || (hits ?? ctx.overlayRects()).some((r) => within(p, r))
+      const now = (shown && within(p, island, inNotch, d.y)) || (hits ?? ctx.overlayRects()).some((r) => within(p, r, inNotch, d.y))
       if (now && !grabbed) {
         grabbed = true
         ctx.overlay.setIgnoreMouseEvents(false)

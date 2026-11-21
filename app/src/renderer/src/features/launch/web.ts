@@ -7,7 +7,7 @@
  */
 import { create } from 'zustand'
 import { STAGE, bridge, isElectron, registerWebHandler } from '../../bridge'
-import { pill } from '../../core/theme'
+import { islandBottomAt } from '../../core/notchGeometry'
 
 export type MenuAt = { x: number; y: number }
 export const useStageMenu = create<{ at?: MenuAt }>(() => ({}))
@@ -22,7 +22,7 @@ function setupWeb(): void {
   })
   if (new URLSearchParams(location.search).has('menu')) {
     // Under the pill's right half, where a right-click on it opens it.
-    setTimeout(() => useStageMenu.setState({ at: { x: Math.round(STAGE.width / 2) + 40, y: bridge.platform.pillTop + pill.height + 6 } }), 1200)
+    setTimeout(() => useStageMenu.setState({ at: { x: Math.round(STAGE.width / 2) + 40, y: islandBottomAt(STAGE, bridge.platform.pillTop) + 6 } }), 1200)
   }
 }
 

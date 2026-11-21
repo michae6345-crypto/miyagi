@@ -1,5 +1,6 @@
 /** General preferences (Settings → General), shared by main (src/main/prefs.ts) and the renderer (core/prefs.ts). */
 import type { ShortcutKind } from '../main/platform'
+import type { IslandPlace } from './notch'
 
 export type Appearance = 'system' | 'light' | 'dark'
 /** v2: what to do with a crash report (Err-CrashConsent). Local only either way; nothing is uploaded this push. */
@@ -10,6 +11,10 @@ export type ShortcutPrefs = Partial<Record<ShortcutKind, string>>
 /** Push to talk (Settings > General): the hold-to-ask chord. fn+control is the default; control+option is for keyboards without Fn. */
 export type PttChord = 'fn+control' | 'control+option'
 export type PttPrefs = { enabled: boolean; chord: PttChord }
+/** Where the island lives (Settings > General). Notch is the default; it only takes effect on a Mac without Boring Notch running (common/notch.ts effectivePlace). */
+export type IslandPrefs = { place: IslandPlace }
+export const ISLAND_PLACES: readonly IslandPlace[] = ['notch', 'below']
+
 export const PTT_CHORDS: readonly PttChord[] = ['fn+control', 'control+option']
 
 export type Prefs = {
@@ -30,8 +35,12 @@ export type Prefs = {
   usageCounts: boolean
   /** Shortcut overrides (Settings → Shortcuts). Validated and stored; live rebinding comes in wave 2. */
   shortcuts: ShortcutPrefs
+  /** Settings › Privacy "Share crash reports and usage" (main/features/telemetry.ts). Off by default, for everyone. */
+  shareTelemetry: boolean
   /** Push to talk: on by default (when PTT_ENABLED), and which chord. Send the whole object in a patch. */
   ptt: PttPrefs
+  /** The island in the notch or below the menu bar. Send the whole object in a patch. */
+  island: IslandPrefs
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -43,7 +52,9 @@ export const DEFAULT_PREFS: Prefs = {
   crashReports: 'ask',
   usageCounts: false,
   shortcuts: {},
-  ptt: { enabled: true, chord: 'fn+control' }
+  shareTelemetry: false,
+  ptt: { enabled: true, chord: 'fn+control' },
+  island: { place: 'notch' }
 }
 
 const SHORTCUT_KINDS: readonly ShortcutKind[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
@@ -71,12 +82,17 @@ export function sanitizePrefs(raw: unknown): Partial<Prefs> {
   if (typeof r.onboarded === 'boolean') out.onboarded = r.onboarded
   if (r.crashReports === 'ask' || r.crashReports === 'always' || r.crashReports === 'never') out.crashReports = r.crashReports
   if (typeof r.usageCounts === 'boolean') out.usageCounts = r.usageCounts
+  if (typeof r.shareTelemetry === 'boolean') out.shareTelemetry = r.shareTelemetry
   if (r.ptt && typeof r.ptt === 'object' && !Array.isArray(r.ptt)) {
     const p = r.ptt as Record<string, unknown>
     out.ptt = {
       enabled: typeof p.enabled === 'boolean' ? p.enabled : DEFAULT_PREFS.ptt.enabled,
       chord: PTT_CHORDS.includes(p.chord as PttChord) ? (p.chord as PttChord) : DEFAULT_PREFS.ptt.chord
     }
+  }
+  if (r.island && typeof r.island === 'object' && !Array.isArray(r.island)) {
+    const p = (r.island as Record<string, unknown>).place
+    out.island = { place: ISLAND_PLACES.includes(p as IslandPlace) ? (p as IslandPlace) : DEFAULT_PREFS.island.place }
   }
   if (r.shortcuts && typeof r.shortcuts === 'object' && !Array.isArray(r.shortcuts)) {
     const s: ShortcutPrefs = {}

@@ -26,8 +26,8 @@ export function isPillMode(mode: Modeish | undefined): boolean {
 }
 
 /** Taller than the pill: extended (a card). */
-export function isExtendedSize(size: { w: number; h: number }): boolean {
-  return size.h > pill.height
+export function isExtendedSize(size: { w: number; h: number }, restH: number = pill.height): boolean {
+  return size.h > restH
 }
 
 export const WATCHDOG_TICK_MS = 500
@@ -47,6 +47,10 @@ export type WatchInput = {
   /** ms timestamp of the last pointer move / press seen on the island or the window. */
   lastActivity: number
   now: number
+  /** In the notch: the notch's height (the island's resting height). Default: the pill's. */
+  restH?: number
+  /** In the notch: a pill-sized mode is showing a drop (a peek or its content line): taller than rest, legitimately. */
+  dropOk?: boolean
 }
 
 export type WatchState = { ownerlessSince: number; orphanSince: number }
@@ -60,7 +64,7 @@ export function watchdogStep(state: WatchState, input: WatchInput): { state: Wat
   const { mode, size, hover, pointerIn, lastActivity, now } = input
 
   // Extended, but no card mode is winning: the black box has no owner.
-  const ownerless = isExtendedSize(size) && isPillMode(mode)
+  const ownerless = isExtendedSize(size, input.restH) && isPillMode(mode) && !input.dropOk
   const ownerlessSince = ownerless ? state.ownerlessSince || now : 0
   const resetSize = ownerless && now - ownerlessSince >= OWNERLESS_GRACE_MS
 

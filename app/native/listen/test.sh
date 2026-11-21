@@ -55,3 +55,23 @@ if [ "${1:-}" != "--accuracy-only" ]; then
   echo "== protocol (--stdin-only) =="
   python3 -I test-protocol.py "$BIN"
 fi
+
+if [ "${1:-}" != "--accuracy-only" ]; then
+  # --screens only reads NSScreen (no permissions, no prompts, no tap, no mic).
+  echo "== screens (--screens) =="
+  "$BIN" --screens | python3 -I -c '
+import json, sys
+s = json.loads(sys.stdin.readline())["screens"]
+assert isinstance(s, list) and s, "no screens"
+def rect(r): return all(isinstance(r[k], (int, float)) for k in ("x", "y", "w", "h"))
+for e in s:
+    assert isinstance(e["id"], int), "id"
+    assert rect(e["frame"]) and rect(e["visible"]), "rects"
+    assert isinstance(e["safeTop"], (int, float)) and e["safeTop"] >= 0, "safeTop"
+    for k in ("auxLeft", "auxRight"):
+        assert e[k] is None or isinstance(e[k], (int, float)), k
+    assert isinstance(e["scale"], (int, float)) and e["scale"] > 0, "scale"
+    assert isinstance(e["builtin"], bool), "builtin"
+print("screens ok:", len(s), "display(s)")
+'
+fi

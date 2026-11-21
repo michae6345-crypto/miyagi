@@ -38,6 +38,16 @@ export function trackWindowBackground(win: BrowserWindow): void {
   win.on('leave-full-screen', fs(false))
 }
 
+let current: Prefs = DEFAULT_PREFS
+const listeners = new Set<(p: Prefs) => void>()
+/** The prefs in effect now (defaults before setupPrefs runs). */
+export const getPrefs = (): Prefs => current
+/** Called after every change (and once after the file loads). Returns the unsubscribe. */
+export function onPrefsChange(fn: (p: Prefs) => void): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
 /** `trusted`: main's sender check (index.ts trustedSender); an untrusted sender reads nothing and changes nothing. */
 export function setupPrefs(broadcast: (channel: string, payload: unknown) => void, trusted: (e: IpcMainInvokeEvent) => boolean): void {
   const file = join(app.getPath('userData'), 'prefs.json')
@@ -56,6 +66,7 @@ export function setupPrefs(broadcast: (channel: string, payload: unknown) => voi
       console.warn('[prefs] launch at login not available here', err)
     }
   }
+  current = prefs
   apply()
 
   ipcMain.handle('feat:prefs:get', (e) => (trusted(e) ? prefs : undefined))
@@ -67,8 +78,10 @@ export function setupPrefs(broadcast: (channel: string, payload: unknown) => voi
     } catch (err) {
       console.warn('[prefs] could not save', err)
     }
+    current = prefs
     apply()
     broadcast('prefs', prefs)
+    listeners.forEach((fn) => fn(prefs))
     return prefs
   })
 }
