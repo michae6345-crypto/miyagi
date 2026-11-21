@@ -3,7 +3,7 @@
  *
  *   err-engine-offline (72)  "The engine stopped responding."  Restart engine / Copy details     Err-EngineReconnect 02
  *   err-editor-closed (66)   "Your place is saved."  Reopen in VS Code / End lesson for now      Err-VSCodeClosed
- *   err-build-failed (62)    "This video could not become a lesson."  Try transcript only, library  Err-LessonBuildFailed
+ *   err-build-failed (62)    "This video could not become a lesson."  Transcript (if offered), library Err-LessonBuildFailed
  *   err-limit (58)           "You have used today's free checks." (v2Cloud only, flagged)          Err-OfflineAndLimits
  *   err-crash (90)           "miyagi closed unexpectedly last time." (launch only, local only)     Err-CrashConsent
  */
@@ -165,9 +165,9 @@ export function EditorClosedCard(): ReactNode {
           <span className="truncate" style={{ fontSize: type2.sm, fontWeight: 500 }}>
             {guard(blocker?.title ?? paused?.title, `${name} closed. Lesson paused.`)}
           </span>
-          {count && <span style={{ fontFamily: font.mono, fontSize: type2.micro, color: color.label, whiteSpace: 'nowrap' }}>{count}</span>}
         </>
       }
+      sub={count}
       title="Your place is saved."
       body={guard(paused?.body ?? blocker?.body, fallback)}
     >
@@ -177,6 +177,14 @@ export function EditorClosedCard(): ReactNode {
       </div>
     </CardFrame>
   )
+}
+
+/** The launcher is open (main's signals); main takes only launcher:toggle, so toggle only while it is closed. */
+let launcherShown = false
+bridge.on('launcher:open', () => void (launcherShown = true))
+bridge.on('launcher:closed', () => void (launcherShown = false))
+function openLauncher(): void {
+  if (!launcherShown) bridge.emit('launcher:toggle')
 }
 
 // ---- build failed (62) -------------------------------------------------------------------------------------------
@@ -210,11 +218,9 @@ export function BuildFailedCard(): ReactNode {
   const src = bf.source
   const alts = bf.alternatives ?? []
   const transcript = alts.find((a) => a.kind === 'transcript')
-  // An engine that sends `alternatives` says what it can offer: no transcript option = "Find another video".
-  // Only an older engine (no `alternatives` at all) gets the source link as a guess, and never for a video
-  // that has no captions to build from.
-  const legacyGuess = bf.alternatives === undefined && bf.failCode !== 'no_captions' && src?.kind === 'youtube' ? src.url : undefined
-  const transcriptUrl = transcript ? transcript.url ?? (src?.kind === 'youtube' ? src.url : undefined) : legacyGuess
+  // Only an engine that offers a transcript alternative gets "Try transcript only". No `alternatives`, or none of kind
+  // 'transcript', = "Find another video": no engine reads a transcriptOnly flag on its own, so we never guess one.
+  const transcriptUrl = transcript ? transcript.url ?? (src?.kind === 'youtube' ? src.url : undefined) : undefined
   const library = libraryOk ? alts.filter((a) => a.kind === 'library' && !!a.id && LIBRARY_ID.test(a.id)).slice(0, 3) : []
   const video = src?.kind === 'youtube' || !src
   const fallbackReason = FAIL_REASON[bf.failCode ?? 'unknown'] || FAIL_REASON.unknown
@@ -234,7 +240,7 @@ export function BuildFailedCard(): ReactNode {
   }
   const findAnother = (): void => {
     closeCard('err-build-failed')
-    bridge.emit('launcher:toggle')
+    openLauncher()
   }
 
   return (

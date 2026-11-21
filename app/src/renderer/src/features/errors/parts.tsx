@@ -37,7 +37,24 @@ export function ErrGlyph({ g, size = 16 }: { g: Glyph; size?: number }): ReactNo
 }
 
 /** The pill line: pill-sized (34 high, width hugs the text). `mono` = a count ("2 of 5", "20s"); `chip` = the control to find. */
-export function PillLine({ id, glyph, text, mono, chip, live = 'polite' }: { id: string; glyph: Glyph; text: string; mono?: string; chip?: string; live?: 'polite' | 'off' }): ReactNode {
+export function PillLine({
+  id,
+  glyph,
+  text,
+  mono,
+  chip,
+  live = 'polite',
+  monoHidden
+}: {
+  id: string
+  glyph: Glyph
+  text: string
+  mono?: string
+  chip?: string
+  live?: 'polite' | 'off'
+  /** A count that ticks every second (20s, 19s): kept out of the live region so it is not read out each tick. */
+  monoHidden?: boolean
+}): ReactNode {
   return (
     <div
       data-err-line={id}
@@ -49,7 +66,7 @@ export function PillLine({ id, glyph, text, mono, chip, live = 'polite' }: { id:
       <ErrGlyph g={glyph} />
       <span>{text}</span>
       {mono && (
-        <span className="tabular-nums" style={{ fontFamily: font.mono, fontSize: type2.micro, color: color.label }}>
+        <span aria-hidden={monoHidden || undefined} className="tabular-nums" style={{ fontFamily: font.mono, fontSize: type2.micro, color: color.label }}>
           {mono}
         </span>
       )}
@@ -76,6 +93,7 @@ export function CardFrame({
   head,
   title,
   body,
+  sub,
   esc = true,
   children,
   role = 'dialog'
@@ -83,6 +101,8 @@ export function CardFrame({
   id: CardId
   head?: ReactNode
   title: string
+  /** A mono line under the title (Step 3 of 6), so the header row never has to cut its text. */
+  sub?: string
   body?: ReactNode
   esc?: boolean
   children?: ReactNode
@@ -101,6 +121,7 @@ export function CardFrame({
         <h2 id={`${id}-title`} className="m-0" style={{ fontSize: type2.lg, lineHeight: '22px', fontWeight: 600 }}>
           {title}
         </h2>
+        {sub && <span style={{ fontFamily: font.mono, fontSize: type2.micro, lineHeight: '16px', color: color.label }}>{sub}</span>}
         {body && (
           <p className="m-0" style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label }}>
             {body}

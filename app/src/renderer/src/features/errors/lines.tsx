@@ -56,12 +56,15 @@ export function OfflineLine(): ReactNode {
 
 export function BusyLine(): ReactNode {
   const busy = useLesson((s) => s.busy)
+  const counting = busy?.retryInS !== undefined
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
+    if (!counting) return
+    setNow(Date.now())
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [])
+  }, [counting, busy?.at])
   const left = busy?.retryInS !== undefined ? Math.max(0, Math.ceil(busy.retryInS - (now - busy.at) / 1000)) : undefined
   if (left === undefined || left === 0) return <PillLine id="busy" glyph="arc" text="Busy right now. Retrying" />
-  return <PillLine id="busy" glyph="arc" text="Busy right now. Retrying in" mono={`${left}s`} />
+  return <PillLine id="busy" glyph="arc" text="Busy right now. Retrying in" mono={`${left}s`} monoHidden />
 }
