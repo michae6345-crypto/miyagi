@@ -7,9 +7,10 @@
  */
 import { motion, useReducedMotion, type HTMLMotionProps } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
-import { GraduationCap, MessageCircleQuestion, Play, Presentation, Square, type LucideIcon } from 'lucide-react'
+import { ArrowRight, GraduationCap, Play, Presentation, Square, type LucideIcon } from 'lucide-react'
 import { bridge } from '../../bridge'
-import { color, fill, spring } from '../../core/theme'
+import { color, fill, radius2, spring } from '../../core/theme'
+import { Keycap as CoreKeycap, keyLabel as coreKeyLabel, type KeyName } from '../../core/ui/Keycap'
 
 /** One section of the panel settling into place a beat after the one above it. */
 export function Rise({ i, children, className = '' }: { i: number; children: ReactNode; className?: string }): ReactNode {
@@ -145,57 +146,111 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
 }
 
 /**
- * The ask panel's suggested questions about the current step (Michael's review A11; see questions.ts). The same model
- * as the two ways: a question is a whole request, so a click (its press, usePress) asks it at once; the field shows it
- * until the answer card arrives. Quiet neutral chips like the topics: the white "Ask" stays the one primary, and the
- * pastel options (Explain / Hint …) stay in the bar.
+ * Home-Launcher's section label ("From your link", "Continue", "Try asking", "Ready to run"): 11 px, semibold,
+ * uppercase, the label gray. Words only where the mockup has them; the rows under it carry the rest.
  */
-export function QuestionChips({ questions, onPick }: { questions: string[]; onPick: (q: string) => void }): ReactNode {
-  const press = usePress(onPick)
+export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }): ReactNode {
   return (
-    <div className="flex flex-wrap gap-[8px]" role="group" aria-label="Suggested questions">
-      {questions.map((q) => (
-        <motion.button
-          key={q}
-          type="button"
-          tabIndex={-1}
-          data-question
-          title={q}
-          className="flex h-[30px] min-w-0 max-w-full cursor-pointer items-center gap-[7px] rounded-full border pl-[11px] pr-[13px] text-[13px]"
-          style={{ backgroundColor: fill.chip, borderColor: fill.chipBorder, color: fill.chipText }}
-          whileHover={{ backgroundColor: fill.chipHover, color: color.text }}
-          whileTap={{ scale: 0.97 }}
-          transition={{ duration: 0.12 }}
-          {...press(q)}
-        >
-          <MessageCircleQuestion size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.faint }} />
-          <span className="truncate">{q}</span>
-        </motion.button>
+    <div
+      data-section-label
+      className={`px-[24px] pb-[8px] text-[11px] font-semibold uppercase tracking-[0.04em] ${first ? 'pt-[8px]' : 'pt-[16px]'}`}
+      style={{ color: color.label }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** One "Try asking" line (Home-Launcher): an arrow and the words, 44 high, a soft fill on hover. */
+function AskLine({ text, data, ...rest }: { text: string; data?: Record<string, true> } & Pick<HTMLMotionProps<'button'>, 'onPointerDown' | 'onMouseDown' | 'onClick'>): ReactNode {
+  return (
+    <motion.button
+      type="button"
+      tabIndex={-1}
+      title={text}
+      {...data}
+      className="flex min-h-[44px] w-full min-w-0 cursor-pointer items-center gap-[16px] rounded-[12px] px-[16px] text-left text-[14px]"
+      style={{ backgroundColor: fill.clear, color: color.text }}
+      whileHover={{ backgroundColor: fill.highlight }}
+      whileTap={{ scale: 0.99 }}
+      transition={{ duration: 0.12 }}
+      {...rest}
+    >
+      <ArrowRight size={16} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
+      <span className="truncate">{text}</span>
+    </motion.button>
+  )
+}
+
+/**
+ * Idle "Try asking" (Home-Launcher): example goals, one per line. A topic is only the "what" (review A18): a click puts
+ * it in the field, where the ways to learn it come up with the default highlighted. Never starts anything by itself.
+ */
+export function SuggestionRows({ items, onPick }: { items: string[]; onPick: (text: string) => void }): ReactNode {
+  return (
+    <div className="flex flex-col" role="group" aria-label="Try asking">
+      {items.map((t) => (
+        <AskLine key={t} text={t} data={{ 'data-suggestion': true }} onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(t)} />
       ))}
     </div>
   )
 }
 
 /**
- * The launcher's one keycap (Michael's audit A20): 22px tall, round, 12px glyph, in every footer item. On the dark
- * panel it is the core keycap's look (fill.key / fill.keyText); on the white primary, ink at 10% (brand).
+ * The ask panel's suggested questions about the current step (Michael's review A11; see questions.ts), as "Try asking"
+ * lines. A question is a whole request, so a click (its press, usePress) asks it at once; the field shows it until the
+ * answer card arrives. Neutral lines: the white "Ask" stays the one primary, and the pastel options (Explain / Hint …)
+ * stay in the bar.
  */
-function Keycap({ children, onAccent = false }: { children: ReactNode; onAccent?: boolean }): ReactNode {
+export function QuestionChips({ questions, onPick }: { questions: string[]; onPick: (q: string) => void }): ReactNode {
+  const press = usePress(onPick)
+  return (
+    <div className="flex flex-col" role="group" aria-label="Suggested questions">
+      {questions.map((q) => (
+        <AskLine key={q} text={q} data={{ 'data-question': true }} {...press(q)} />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The launcher's keycap for navigation glyphs (↵, ↑↓, ⇥), drawn like core/ui/Keycap (Home-Launcher .kc: 20 high,
+ * radius 6, 11 px, a hairline). Global shortcuts and Esc never come through here: they are core Keycaps with the
+ * platform's own label (bridge.platform.keys). On the white primary, ink at 10% (brand).
+ */
+export function NavKey({ children, onAccent = false }: { children: ReactNode; onAccent?: boolean }): ReactNode {
   return (
     <span
-      className="inline-flex h-[22px] min-w-[24px] shrink-0 items-center justify-center rounded-full px-[6px] text-[12px] font-medium"
-      style={onAccent ? { background: fill.onAccentKey, color: color.onAccent } : { background: fill.key, color: fill.keyText }}
+      className="inline-flex h-[20px] min-w-[20px] shrink-0 items-center justify-center whitespace-nowrap px-[6px] text-[11px] font-medium"
+      style={
+        onAccent
+          ? { background: fill.onAccentKey, color: color.onAccent, borderRadius: radius2.round }
+          : { background: fill.keycap, color: fill.keycapText, boxShadow: `inset 0 0 0 1px ${fill.keycapBorder}`, borderRadius: radius2.keycap }
+      }
     >
       {children}
     </span>
   )
 }
+const Keycap = NavKey
 
-/** A passive key hint in the footer, keycap first: "↑↓ Choose", "esc Close". Not clickable. color.label, so it reads (A19). */
-export function Hint({ label, keycap }: { label: string; keycap: string }): ReactNode {
+/**
+ * The platform's modifier for ⌘↵ / Ctrl↵ ("Just teach me"), read off its own Settings key (⌘, on a Mac, Ctrl+, on
+ * Windows) so no key label is typed by hand. Core request: a `teach` key name in platform.keys.
+ */
+export function modKey(): string {
+  const s = coreKeyLabel('settings') ?? ''
+  return s.replace(/\+?,$/, '')
+}
+
+/**
+ * A passive key hint in the footer, keycap first: "↑↓ Move", "Esc Close". Not clickable. color.label, so it reads
+ * (A19). `keyName` renders the platform's own keycap (Esc); `keycap` a navigation glyph.
+ */
+export function Hint({ label, keycap, keyName }: { label: string; keycap?: string; keyName?: KeyName }): ReactNode {
   return (
-    <span className="flex h-[30px] shrink-0 items-center gap-[7px] whitespace-nowrap pl-[4px] pr-[10px] text-[13px]" style={{ color: color.label }}>
-      <Keycap>{keycap}</Keycap>
+    <span className="flex h-[30px] shrink-0 items-center gap-[8px] whitespace-nowrap pl-[4px] pr-[10px] text-[12px]" style={{ color: color.label }}>
+      {keyName ? <CoreKeycap k={keyName} size="sm" /> : <Keycap>{keycap}</Keycap>}
       {label}
     </span>
   )
