@@ -1,6 +1,7 @@
 /**
  * Feature: reminders. The Settings entry: one group the settings lane mounts in General (agents/reminders.md, Core
- * requests): `<RemindersGroup />`. Built from the settings feature's own rows, so it reads as part of that page.
+ * requests): `<RemindersGroup />`, plus one top-level `reachableInSettings()` call (store.ts) that lets the
+ * one-time offer show. Built from the settings feature's own rows, so it reads as part of that page.
  *
  *   Reminders     on / off; the caption says exactly what will happen ("Next: today at 6:00 PM, if something is due")
  *   Time          a native picker of half-hour slots, local time
@@ -110,7 +111,7 @@ export function RemindersGroup(): ReactNode {
           />
         )}
       </Group>
-      {s.enabled && s.preview && <Note>This build shows reminders inside miyagi, not as Mac notifications.</Note>}
+      {s.enabled && s.preview && <Note>This build shows reminders inside miyagi, not as system notifications.</Note>}
     </>
   )
 }

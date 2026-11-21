@@ -51,7 +51,7 @@ export function ReminderToast({ layout }: { layout: Layout }): ReactNode {
                   <span style={{ fontSize: type2.micro, color: color.faint }}>now</span>
                 </span>
                 <span style={{ fontSize: type2.sm, lineHeight: '18px', color: color.text }}>{toast.body}</span>
-                <span style={{ fontSize: type2.micro, color: color.faint, marginTop: 2 }}>Preview of the Mac notification</span>
+                <span style={{ fontSize: type2.micro, color: color.faint, marginTop: 2 }}>Preview of the notification</span>
               </span>
             </button>
             <button
