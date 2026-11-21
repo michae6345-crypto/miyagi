@@ -15,6 +15,7 @@
  *     reachable with every window closed (the overlay app has no Dock icon until an app window opens, appWindows.ts).
  *     While the launch gate is closed (main/gate.ts: login and setup not through yet) it shows only Open miyagi and
  *     Quit miyagi, and nothing asks the overlay for the launcher or Settings.
+ *   - "Show me around" re-opens the first-lesson walkthrough (features/tips TourLayer.tsx) from the menu bar, the Help entry.
  *   - Right-click on the pill: the same menu, at the pointer (launch:menu). Settings lives there now instead of a gear
  *     glued to the pill's edge (Michael's Mac: the gear covered the pill's status dot).
  *
@@ -114,7 +115,7 @@ export default defineMainFeature({
     }
 
     /** The overlay's renderer opens the launcher (its toggle) and Settings (grown from the pill). */
-    const askOverlay = (what: 'launcher' | 'settings'): void => {
+    const askOverlay = (what: 'launcher' | 'settings' | 'tour'): void => {
       if (ctx.overlay.isDestroyed() || !gateIsOpen()) return
       if (what === 'launcher' && !ctx.launcher.isDestroyed() && ctx.launcher.isVisible()) return // already open: a toggle would close it
       ctx.overlay.webContents.send('feat:launch:open', what)
@@ -126,6 +127,7 @@ export default defineMainFeature({
       { label: 'Open miyagi', click: openHome },
       // The launcher's own global key, shown (not registered twice).
       { label: 'Start a lesson', accelerator: ctx.platform.accelerators.launcher, registerAccelerator: false, click: () => askOverlay('launcher') },
+      { label: 'Show me around', click: () => askOverlay('tour') },
       { label: 'Settings…', click: () => askOverlay('settings') },
       { type: 'separator' },
       { label: 'Quit miyagi', click: () => ctx.app.quit() }

@@ -1,72 +1,93 @@
 /**
- * Feature: onboarding. Onb-Setup-Ready, the end of setup: "You're ready", every row green, Start. The "Your first
- * lesson" card shows only when the engine offers one (a cached lesson from library.list); nothing is invented when it
- * doesn't. Start starts that lesson (library.start: zero model calls) or, without one, opens home (the Library). The
- * rows rise in one after another; the launcher hint says how to open miyagi from now on.
+ * Feature: onboarding. The end of setup: "You're ready". One calm screen: the bonsai on a soft floor, one line, and a
+ * sample lesson card that offers a short tour (features/tips TourLayer.tsx: five coach marks over a sample panel, nothing
+ * real starts, no engine needed). The primary is "Show me around"; "Skip" goes straight to home. Either way setup is
+ * finished and the learner lands on Home: no lesson is ever started from here.
+ * `again`: setup opened again over home; the primary is Done (back to home, no tour offered).
  */
 import { motion } from 'motion/react'
-import { useEffect, type ReactNode } from 'react'
 import { NotebookText } from 'lucide-react'
-import type { LessonTool, LibraryItem } from '../../../../../../shared/contracts/events'
-import { color, radius2, surface, type2 } from '../../core/theme'
-import { staggerList } from '../../core/ui/motion'
-import { Row } from './Row'
+import type { ReactNode } from 'react'
+import { brand, color, elevation, fill, font, highlight, radius2, surface, type2 } from '../../core/theme'
+import { PrimaryButton } from '../../core/ui/buttons'
+import { QuietButton } from '../../core/ui/buttons'
+import { MiyagiMark } from '../../core/ui/Mark'
+import { startTour } from '../tips/tourStore'
+import { LauncherHint, rise, stagger } from './parts'
 import type { Row as RowData, Summary } from './rows'
-import { SheetHeader } from './Checklist'
-import { Footer, LauncherHint, rise, stagger } from './parts'
-import { requestSuggestion, useOnboarding } from './store'
-
-const TOOL: Record<LessonTool, string> = { vscode: 'VS Code', jupyter: 'Jupyter', terminal: 'Terminal', excel: 'Excel' }
-
-/** "6 steps · Jupyter in VS Code · 25 min": only what the item says. */
-export function lessonMeta(item: LibraryItem): string {
-  const tools = item.tools.filter((t) => TOOL[t])
-  const where = tools.includes('jupyter') && tools.includes('vscode') ? 'Jupyter in VS Code' : tools.map((t) => TOOL[t]).join(', ')
-  return [`${item.steps} ${item.steps === 1 ? 'step' : 'steps'}`, where, item.estMinutes ? `${item.estMinutes} min` : '']
-    .filter(Boolean)
-    .join('  ·  ')
-}
+import { startLearning } from './store'
 
 /**
- * `onStart` / `mark`: the one-window flow (features/shell/flow) hands over to home and shows the bonsai in its strip.
- * `again`: setup opened again over home; the primary is Done (back to home, no lesson), so no first lesson is offered.
+ * `onStart`: home (the one-window flow hands over to it; the setup window opens the Library). `onTour`: the same, after
+ * starting the walkthrough (the flow passes finishFlow). `rows`, `sum`, `mark` are kept for the callers.
  */
-export function Ready({ rows, sum, onStart, mark, again }: { rows: RowData[]; sum: Summary; onStart?: () => void; mark?: boolean; again?: boolean }): ReactNode {
-  const suggestion = useOnboarding((s) => s.suggestion)
-  useEffect(() => requestSuggestion(), [])
+export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summary; onStart?: () => void; onTour?: () => void; mark?: boolean; again?: boolean }): ReactNode {
+  const home = onStart ?? startLearning
+  const tour = (): void => {
+    startTour()
+    ;(onTour ?? home)()
+  }
   return (
-    <div data-onb-view="ready" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
-      <SheetHeader title="You're ready" rows={rows} sum={sum} brand mark={mark} />
-      <motion.p className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-        miyagi is set up on this Mac.
-      </motion.p>
-      <motion.div role="list" className="mt-[24px] grid grid-cols-2 gap-[8px]" variants={stagger(0.06)} initial="hidden" animate="shown">
-        {rows.map((r) => (
-          <motion.div key={r.id} role="none" variants={rise}>
-            <Row row={r} variant="compact" />
-          </motion.div>
-        ))}
-      </motion.div>
-      {suggestion && !again && (
-        <motion.div data-onb-lesson={suggestion.id} className="mt-[24px] flex flex-col gap-[8px]" variants={rise} initial="hidden" animate="shown">
-          <span style={{ fontSize: type2.xs, letterSpacing: '0.2px', color: color.label }}>Your first lesson</span>
-          <div className="flex items-center gap-[16px] p-[16px]" style={{ borderRadius: radius2.chip, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
-            <div className="grid h-[48px] w-[48px] shrink-0 place-items-center" style={{ borderRadius: radius2.card, background: surface.row }}>
+    <div data-onb-view="ready" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[560px] flex-col px-[32px]">
+      <motion.div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center" variants={stagger(0.05)} initial="hidden" animate="shown">
+        <motion.div
+          variants={rise}
+          data-onb-stage
+          className="grid w-full place-items-center"
+          style={{
+            height: 168,
+            borderRadius: radius2.sheet,
+            background: `color-mix(in srgb, ${brand.pastel.lilac} 24%, ${surface.sheet})`,
+            boxShadow: `${highlight.top}, inset 0 0 0 1px ${fill.hairline}, ${elevation.overlay}`
+          }}
+        >
+          <MiyagiMark size={96} />
+        </motion.div>
+        <motion.h1 id="onb-title" variants={rise} className="m-0 mt-[28px]" style={{ fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '34px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
+          You&apos;re ready
+        </motion.h1>
+        <motion.p variants={rise} className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }}>
+          miyagi is set up on this Mac.
+        </motion.p>
+        {!again && (
+          <motion.button
+            variants={rise}
+            type="button"
+            data-onb-lesson="sample"
+            className="mg-press mt-[24px] flex w-full cursor-pointer items-center gap-[16px] p-[14px] text-left"
+            style={{ borderRadius: radius2.group, background: surface.sheet, boxShadow: `${highlight.top}, inset 0 0 0 1px ${fill.hairline}, ${elevation.raised}` }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={tour}
+          >
+            <span className="grid h-[44px] w-[44px] shrink-0 place-items-center" style={{ borderRadius: radius2.card, background: `color-mix(in srgb, ${brand.pastel.sky} 22%, transparent)` }}>
               <NotebookText size={22} strokeWidth={1.5} color={color.text} />
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col gap-[2px]">
               <span className="truncate" style={{ fontSize: type2.body, fontWeight: 600, color: color.text }}>
-                {suggestion.title}
+                Sample lesson
               </span>
               <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
-                {lessonMeta(suggestion)}
+                A one-minute tour. Nothing real starts.
               </span>
-            </div>
-          </div>
-        </motion.div>
-      )}
-      <div className="flex-1" />
-      <Footer sum={sum} label={again ? 'Done' : 'Start'} onStart={onStart} left={<LauncherHint lead="Open miyagi anytime" />} />
+            </span>
+          </motion.button>
+        )}
+      </motion.div>
+      <div className="flex h-[84px] shrink-0 items-center justify-between gap-[16px]">
+        <LauncherHint lead="Open miyagi anytime" />
+        <span data-onb-primary className="flex items-center gap-[8px]">
+          {again ? (
+            <PrimaryButton size="lg" label="Done" onClick={home} />
+          ) : (
+            <>
+              <span data-onb-secondary>
+                <QuietButton size="lg" label="Skip" onClick={home} />
+              </span>
+              <PrimaryButton size="lg" label="Show me around" onClick={tour} />
+            </>
+          )}
+        </span>
+      </div>
     </div>
   )
 }

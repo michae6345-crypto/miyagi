@@ -39,6 +39,7 @@ import { CoachMark, MARK_W } from './CoachMark'
 import { floorFree, tipsRunning } from './gate'
 import { place, sameRect, type Rect } from './place'
 import { stageTray, TRAY_CHANNEL } from './stage'
+import { TourLayer } from './TourLayer'
 import { dismissTip, setTipMenu, showTip, tipsEnabled, turnTipsOff, useTips, withdrawTip } from './store'
 import { TIPS, type Anchor, type TipContext, type TipId } from './tips'
 
@@ -432,4 +433,7 @@ function StageTray({ x, y, w, h }: { x: number; y: number; w: number; h: number 
   )
 }
 
-export default defineFeature({ id: 'tips', overlayLayers: [{ id: 'tips', z: 70, Component: TipsLayer }] })
+export default defineFeature({ id: 'tips', overlayLayers: [
+    { id: 'tips', z: 70, Component: TipsLayer },
+    { id: 'tour', z: 72, Component: TourLayer }
+  ] })
