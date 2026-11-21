@@ -8,7 +8,7 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
@@ -21,6 +21,7 @@ import { setupPermissions } from './permissions'
 import { openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
 import { gateCore, gateIsOpen } from './gate'
+import { coalesce } from './coalesce'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
@@ -54,7 +55,7 @@ let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
-let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
+let islandSize: { w: number; h: number; dx?: number; dy?: number; off?: boolean } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
@@ -334,7 +335,7 @@ function unregisterActionShortcuts(): void {
 }
 
 /** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
-function sendBounds(): void {
+function sendBoundsNow(): void {
   const extra = [...reported]
     .filter((w) => !w.isDestroyed() && w.isVisible())
     .map((w) => {
@@ -342,6 +343,12 @@ function sendBounds(): void {
       return { x: b.x, y: b.y, w: b.width, h: b.height }
     })
   engine.send({ type: 'overlay.bounds', payload: { rects: [...overlayRects, ...extra] } })
+}
+
+/** Window move/resize fire per frame while dragging; the engine only needs the last one (50 ms trailing). */
+const boundsOut = coalesce<void>(sendBoundsNow, 50)
+function sendBounds(): void {
+  boundsOut.push()
 }
 
 function reportBounds(win: BrowserWindow): void {
@@ -507,12 +514,29 @@ app.whenReady().then(async () => {
   const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
-  screen.on('display-metrics-changed', () => {
+  // display-metrics-changed fires several times per plug / resolution change: refit once, and only when the bounds moved.
+  const refit = coalesce<void>(() => {
     for (const w of [overlay, launcher]) {
-      w.setBounds(overlayBounds(screen.getDisplayMatching(w.getBounds())))
+      if (w.isDestroyed()) continue
+      const next = overlayBounds(screen.getDisplayMatching(w.getBounds()))
+      const cur = w.getBounds()
+      if (cur.x !== next.x || cur.y !== next.y || cur.width !== next.width || cur.height !== next.height) w.setBounds(next)
       send(w, 'layout', layoutFor(w))
     }
-  })
+  }, 150)
+  screen.on('display-metrics-changed', () => refit.push())
+  // Engine link health: after sleep, unlock or a network change the socket may be half open. Ping it (drop + redial
+  // when nothing answers) instead of showing a healthy pill that is deaf.
+  const wake = (): void => engine.wake()
+  powerMonitor.on('resume', wake)
+  powerMonitor.on('unlock-screen', wake)
+  let wasOnline = net.isOnline()
+  const netTimer = setInterval(() => {
+    const on = net.isOnline()
+    if (on && !wasOnline) wake()
+    wasOnline = on
+  }, 3000)
+  netTimer.unref()
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
