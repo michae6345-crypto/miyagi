@@ -210,10 +210,15 @@ export function BuildFailedCard(): ReactNode {
   const src = bf.source
   const alts = bf.alternatives ?? []
   const transcript = alts.find((a) => a.kind === 'transcript')
-  const transcriptUrl = transcript?.url ?? (src?.kind === 'youtube' ? src.url : undefined)
+  // An engine that sends `alternatives` says what it can offer: no transcript option = "Find another video".
+  // Only an older engine (no `alternatives` at all) gets the source link as a guess, and never for a video
+  // that has no captions to build from.
+  const legacyGuess = bf.alternatives === undefined && bf.failCode !== 'no_captions' && src?.kind === 'youtube' ? src.url : undefined
+  const transcriptUrl = transcript ? transcript.url ?? (src?.kind === 'youtube' ? src.url : undefined) : legacyGuess
   const library = libraryOk ? alts.filter((a) => a.kind === 'library' && !!a.id && LIBRARY_ID.test(a.id)).slice(0, 3) : []
   const video = src?.kind === 'youtube' || !src
-  const reason = bf.failReason?.trim() || FAIL_REASON[bf.failCode ?? 'unknown'] || FAIL_REASON.unknown
+  const fallbackReason = FAIL_REASON[bf.failCode ?? 'unknown'] || FAIL_REASON.unknown
+  const reason = guard(bf.failReason?.trim(), fallbackReason)
 
   const tryTranscript = (): void => {
     if (!transcriptUrl) return
@@ -260,8 +265,8 @@ export function BuildFailedCard(): ReactNode {
       )}
       {transcriptUrl ? (
         <div className="flex flex-col gap-2">
-          <PrimaryButton size="lg" block label={transcript?.title?.trim() || 'Try transcript only'} onClick={tryTranscript} />
-          <Caption>{transcript?.meta?.trim() || 'Builds steps from what the teacher says. Checks may be looser.'}</Caption>
+          <PrimaryButton size="lg" block label={guard(transcript?.title?.trim(), 'Try transcript only')} onClick={tryTranscript} />
+          <Caption>{guard(transcript?.meta?.trim(), 'Builds steps from what the teacher says. Checks may be looser.')}</Caption>
         </div>
       ) : (
         <PrimaryButton size="lg" block label="Find another video" onClick={findAnother} />
@@ -281,7 +286,7 @@ export function BuildFailedCard(): ReactNode {
               >
                 <span className="flex min-w-0 flex-1 flex-col gap-[2px]">
                   <span className="truncate" style={{ fontSize: type2.sm, fontWeight: 500 }}>
-                    {a.title}
+                    {guard(a.title, 'Library lesson')}
                   </span>
                   {a.meta && (
                     <span className="truncate" style={{ fontSize: type2.xs, color: color.label }}>
@@ -380,7 +385,7 @@ export function CrashCard(): ReactNode {
         <QuietButton size="lg" label="Don't save" onClick={() => decideCrash(false)} />
         <PrimaryButton size="lg" label="Save report" onClick={save} />
       </div>
-      <Caption>Asked once. Change it later in Settings, Privacy.</Caption>
+      <Caption>Saved on this Mac only.</Caption>
     </CardFrame>
   )
 }
