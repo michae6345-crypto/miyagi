@@ -8,15 +8,24 @@ import sys
 BLANK_MAX_LEVEL = 6      # a gray thumbnail whose brightest pixel is this dark is a black frame
 BLANK_MAX_SPREAD = 2     # ... or one flat colour (max - min), e.g. a lock-screen blank or a cleared buffer
 BLANK_STREAK = 3         # consecutive blank frames before the reader calls the capture broken
+FLAT_STREAK = 10         # ... for a flat but NOT black frame (a real solid-colour slide / video): wait much longer
 
 
 def is_blank_thumb(thumb: bytes | None) -> bool:
-    """True for an all-black or single-colour 8-bit gray thumbnail. A screen that is really black (a dark
-    full-screen app with no text) is also flat, which is why callers wait for BLANK_STREAK frames in a row."""
+    """True for an all-black or single-colour 8-bit gray thumbnail (see `blank_kind` for which)."""
+    return blank_kind(thumb) is not None
+
+
+def blank_kind(thumb: bytes | None) -> str | None:
+    """'black' (brightest pixel <= BLANK_MAX_LEVEL), 'flat' (one non-black colour) or None. A really black or
+    solid-colour screen (a dark video, a slide) looks the same, so callers wait for a streak: BLANK_STREAK for
+    black, the longer FLAT_STREAK for flat."""
     if not thumb:
-        return False
+        return None
     hi, lo = max(thumb), min(thumb)
-    return hi <= BLANK_MAX_LEVEL or (hi - lo) <= BLANK_MAX_SPREAD
+    if hi <= BLANK_MAX_LEVEL:
+        return "black"
+    return "flat" if (hi - lo) <= BLANK_MAX_SPREAD else None
 
 
 def engine_binary() -> str:
@@ -31,5 +40,6 @@ def permission_hint() -> str:
 
 
 def display_changed(prev: tuple[float, float, float, float] | None, cur: tuple[float, float, float, float]) -> bool:
-    """The primary display's frame moved or resized (monitor plugged / unplugged, resolution switch, rotate)."""
+    """The captured display's frame moved or resized: the learner's window changed monitors, a monitor was plugged /
+    unplugged, the resolution switched, or the screen rotated."""
     return prev is not None and any(abs(a - b) > 0.5 for a, b in zip(prev, cur))

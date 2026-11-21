@@ -26,7 +26,7 @@ def test_display_changed():
 
 
 def test_permission_hint_names_the_python_binary():
-    assert sys.executable.split("/")[-1][:6] in health.permission_hint() or "python" in health.permission_hint()
+    assert health.engine_binary() in health.permission_hint()
 
 
 def _reader(monkeypatch, thumbs, screens=None):
@@ -99,3 +99,137 @@ def test_bridge_stays_paused_when_resume_cannot_start_the_reader(monkeypatch):
     assert b.paused is True
     b.paused = False
     assert b.down_reason() == "capture thread stopped"
+
+
+# ---- multi-display, AX revocation, flat frames, wake gap (all offline: fake displays / fake clocks)
+
+def test_pick_display_prefers_the_window_then_the_cursor_then_main():
+    from server.screen import macos
+    left, right = (1, Rect(0, 0, 1440, 900)), (2, Rect(1440, 0, 1920, 1080))
+    both = [left, right]
+    assert macos.pick_display(both, Rect(1600, 100, 800, 600)) == 2                      # window on the second monitor
+    assert macos.pick_display(both, Rect(1300, 100, 400, 400)) == 2                      # straddles: 140 px left, 260 right
+    assert macos.pick_display(both, Rect(1000, 100, 800, 400)) == 1                      # 440 px on left, 360 on right
+    assert macos.pick_display(both, None, (1500.0, 50.0)) == 2                           # no window: the cursor
+    assert macos.pick_display(both, Rect(9000, 9000, 100, 100), None, main_id=1) == 1    # off every display: main
+    assert macos.pick_display([], Rect(0, 0, 1, 1)) is None
+
+
+@mac
+def test_overlay_mask_lands_on_the_second_displays_pixels(monkeypatch):
+    from server.screen import macos
+    from server.screen.reader import _mask_thumb
+    screen = Rect(1440, 0, 1920, 1080)                      # second display, global origin (1440, 0)
+    flat = bytes([200]) * (macos.THUMB_W * macos.THUMB_H)
+    out = _mask_thumb(flat, [Rect(1440 + 960, 540, 192, 108)], screen)   # a box at the display's centre (global coords)
+    sx, sy = macos.THUMB_W / 1920, macos.THUMB_H / 1080
+    x0, y0 = int(960 * sx), int(540 * sy)
+    assert out[(y0 + 2) * macos.THUMB_W + x0 + 2] == 0     # masked at display-local pixels
+    assert out[2 * macos.THUMB_W + 2] == 200               # untouched elsewhere
+    assert _mask_thumb(flat, [Rect(0, 0, 400, 400)], screen) == flat  # a box on the OTHER display masks nothing
+
+
+@mac
+def test_grab_captures_the_display_holding_the_window(monkeypatch):
+    from server.screen import macos
+    from server.screen.reader import ScreenReader
+    displays = [(1, Rect(0, 0, 1440, 900)), (2, Rect(1440, 0, 1920, 1080))]
+    monkeypatch.setattr(macos, "has_permission", lambda: True)
+    monkeypatch.setattr(macos, "active_displays", lambda: displays)
+    monkeypatch.setattr(macos, "frontmost_window", lambda: {"rect": {"x": 1600.0, "y": 100.0, "w": 900.0, "h": 700.0}})
+    monkeypatch.setattr(macos.Quartz, "CGMainDisplayID", lambda: 1)
+    monkeypatch.setattr(macos.Quartz, "CGEventCreate", lambda x: None)
+    monkeypatch.setattr(macos.Quartz, "CGEventGetLocation", lambda e: types.SimpleNamespace(x=10.0, y=10.0))
+    assert macos.target_display_id() == 2                   # the cursor is on display 1, the VS Code window on 2
+    seen = {}
+    r = ScreenReader(use_ax=False, use_events=False)
+    r.fixture, r.use_sck = None, True
+    img, scr = object(), displays[1][1]
+
+    def fake_sck(display_id=None):
+        seen["id"] = display_id
+        return img, scr, 2.0, set()
+
+    monkeypatch.setattr(r, "_sck_capture", fake_sck)
+    monkeypatch.setattr(macos, "list_windows", lambda screen: [])
+    out = r._grab()
+    assert seen["id"] == 2 and out[1] == scr
+
+
+def test_accessibility_revocation_is_reported_apart_from_screen_recording():
+    from server.orchestrator.screen_bridge import ScreenBridge
+    from server.orchestrator.session import LessonSession as Session
+    from server.screen.reader import ScreenReader
+    trusted = {"v": True}
+    r = ScreenReader(use_ax=False, use_events=False)
+    r._ax_check = lambda: trusted["v"]
+    r._thread = types.SimpleNamespace(is_alive=lambda: True)
+    assert r.check_accessibility() is True and r.ax_trusted is True
+    b = ScreenBridge.__new__(ScreenBridge)
+    b.reader, b.paused = r, False
+    assert b.down_reason() is None
+    trusted["v"] = False
+    assert r.check_accessibility() is False
+    assert b.down_reason() == "no_accessibility"            # reported ...
+    assert b.down_reason(include_ax=False) is None          # ... but the OCR path is not paused
+    assert r.status in ("idle", "ok") and r.last_error is None
+    r.last_error = "no_permission: x"
+    assert b.down_reason() == "no_permission"               # Screen Recording stays its own reason
+    r.last_error = None
+    trusted["v"] = True
+    r.check_accessibility()
+    assert b.down_reason() is None
+    msg = Session.screen_down_message("no_accessibility")
+    assert "Accessibility" in msg and "Screen Recording" not in msg
+
+
+def test_session_words_a_blank_frame_as_blank_not_as_a_permission_problem():
+    from server.orchestrator.session import LessonSession as Session
+    msg = Session.screen_down_message("ScreenUnavailableError: blank frame (one flat colour): the screen shows no content")
+    assert "blank" in msg and "Screen Recording" not in msg
+
+
+@mac
+def test_a_flat_non_black_screen_needs_a_much_longer_streak_than_a_black_one(monkeypatch):
+    flat = bytes([128]) * N
+    r = _reader(monkeypatch, [flat] * (health.FLAT_STREAK + 1))
+    for _ in range(health.FLAT_STREAK - 1):                 # a solid-colour slide: no error for many frames
+        assert r.observe_now() is None and r.last_error is None
+    with pytest.raises(Exception, match="blank frame"):
+        r.observe_now()
+    assert "Screen Recording" not in r.last_error
+
+
+@mac
+def test_run_loop_resets_capture_after_a_sleep_gap(monkeypatch):
+    from server.screen.reader import ScreenReader
+    import server.screen.reader as rd
+    r = ScreenReader(use_ax=False, use_events=False)
+    r.fixture, r.debounce = None, 0.0
+    calls = []
+    monkeypatch.setattr(r, "reset_capture", lambda why="": calls.append(why))
+    monkeypatch.setattr(r, "observe_now", lambda force=True, trigger="": r._stop.set())
+    monkeypatch.setattr(r, "check_accessibility", lambda: None)
+    r.interval = 0.01
+    r._last_tick = 1000.0
+    monkeypatch.setattr(rd.time, "time", lambda: 1000.0 + 3600)   # the Mac slept for an hour
+    r._run()
+    assert calls == ["wake"]
+    calls.clear()
+    r._stop.clear()
+    r._last_tick = 1000.0 + 3600 - 1.0                            # a normal 1 s gap: no reset
+    r._run()
+    assert calls == []
+
+
+@mac
+def test_reset_capture_waits_for_an_in_flight_capture(monkeypatch):
+    import threading
+    r = _reader(monkeypatch, [GOOD])
+    r._sck = types.SimpleNamespace(_filter="x")
+    done = threading.Event()
+    with r._capture_lock:                                         # observe_now is mid-capture
+        t = threading.Thread(target=lambda: (r.reset_capture("wake"), done.set()))
+        t.start()
+        assert not done.wait(0.2) and r._sck._filter == "x"       # blocked: the filter isn't pulled from under it
+    assert done.wait(2) and r._sck._filter is None

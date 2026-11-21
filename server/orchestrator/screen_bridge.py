@@ -149,8 +149,11 @@ class ScreenBridge:
         except Exception:  # noqa: BLE001
             log.exception("on_frontmost_change failed")
 
-    def down_reason(self) -> str | None:
-        """Why the reader can't see the screen right now (E6: status error / no_permission), else None."""
+    def down_reason(self, include_ax: bool = True) -> str | None:
+        """Why the reader can't see the screen right now (E6: status error / no_permission), else None.
+
+        With include_ax, a revoked Accessibility grant reads "no_accessibility" once capture itself is fine. It is a
+        report-only reason: OCR keeps working without AX, so the gates below ask with include_ax=False."""
         r = self.reader
         if r is None:
             return None
@@ -160,9 +163,14 @@ class ScreenBridge:
             return None
         if not self.paused and not getattr(r, "thread_alive", True):
             return "capture thread stopped"  # a dead reader serves its last frame forever: say so, don't look fine
-        if status not in ("error", "no_permission"):
-            return None
-        return "no_permission" if status == "no_permission" else str(getattr(r, "last_error", "") or "capture failed")
+        if status in ("error", "no_permission"):
+            return "no_permission" if status == "no_permission" else str(getattr(r, "last_error", "") or "capture failed")
+        if include_ax and getattr(r, "ax_trusted", None) is False:
+            return "no_accessibility"
+        return None
+
+    def _capture_down(self) -> str | None:
+        return self.down_reason(include_ax=False)
 
     # -- reads
     def latest(self) -> Any:
@@ -186,7 +194,7 @@ class ScreenBridge:
     def fresh(self, max_age: float = 1.0) -> Any:
         """t10: the latest frame when it is at most max_age s old, else a new capture + OCR (blocking: call it in a
         thread), so locate() / snap_rows() read what is on screen now. None: paused / capture failing / no reader."""
-        if self.reader is None or self.paused or self.down_reason():
+        if self.reader is None or self.paused or self._capture_down():
             return None
         try:
             fn = getattr(self.reader, "_fresh_obs", None)
@@ -197,7 +205,7 @@ class ScreenBridge:
 
     def locate(self, match: str, app: str | None = None) -> dict | None:
         """-> {rect:{x,y,w,h}, app, matched} or None."""
-        if self.reader is None or self.paused or not match or self.down_reason():
+        if self.reader is None or self.paused or not match or self._capture_down():
             return None  # capture is failing: a locate would block on a fresh capture for seconds (S1)
         try:
             res = self.reader.locate_match(match, app)
@@ -231,7 +239,7 @@ class ScreenBridge:
     def region(self, name: str, app: str | None = None) -> dict | None:
         """E6: a VS Code region's rect {x, y, w, h} ("terminal" | "editor" | "explorer" | "run_button"), stabilized
         (4-pt grid, kept while edges move < 12 pt), or None when it isn't on screen."""
-        if self.reader is None or self.paused or self.down_reason() or not hasattr(self.reader, "locate_region"):
+        if self.reader is None or self.paused or self._capture_down() or not hasattr(self.reader, "locate_region"):
             return None
         try:
             if perf.on_loop():  # the event loop: the latest frame's region, never a blocking capture + OCR (~0.2-0.5 s
@@ -255,7 +263,7 @@ class ScreenBridge:
     async def pick(self, intent: str, app: str | None = "Code") -> dict | None:
         """Haiku set-of-marks pick (server.screen.target): {rect, box_ids, label, confidence, reason, ...} or None
         (low confidence / nothing matches / timeout / budget / no key). Off with MIYAGI_VISION_TARGET=0."""
-        if self.reader is None or self.paused or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+        if self.reader is None or self.paused or self._capture_down() or not env_flag("MIYAGI_VISION_TARGET", True):
             return None  # paused: no lesson step / no app to show a box to, so no Haiku call either (E7)
         try:
             from server.screen.target import pick_on_screen
@@ -277,7 +285,7 @@ class ScreenBridge:
         Haiku off / unavailable (no key, timeout, budget): the box unchanged. move_conf (t5): a box the engine took
         from the file moves only on a pick at least this sure."""
         mc = {"move_conf": move_conf} if move_conf is not None else {}
-        if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+        if self.reader is None or self._capture_down() or not env_flag("MIYAGI_VISION_TARGET", True):
             return rect
         if self.paused:  # E7: no lesson step / no app: no Haiku call (no box goes out anyway)
             return rect
@@ -364,7 +372,7 @@ class ScreenBridge:
         r = self.reader
         if r is None or self.paused:
             return False
-        if not hasattr(r, "observe_now") or self.down_reason():
+        if not hasattr(r, "observe_now") or self._capture_down():
             if hasattr(r, "poke"):
                 r.poke()
             await asyncio.sleep(timeout)
@@ -414,6 +422,7 @@ class FakeScreen:
         self.watched: dict[str, str] = {}
         self.active = True
         self.down: str | None = None  # tests: what down_reason() reports
+        self.ax_down = False          # tests: Accessibility revoked
         self.paused = False  # tests: what the session asked for (pause / resume); reads are unchanged
 
     def pause(self, why: str = "") -> None:
@@ -446,8 +455,8 @@ class FakeScreen:
     def set_overlay(self, rects: list[dict]) -> None:
         self.overlay = rects
 
-    def down_reason(self) -> str | None:
-        return self.down
+    def down_reason(self, include_ax: bool = True) -> str | None:
+        return self.down or ("no_accessibility" if include_ax and self.ax_down else None)
 
     def region(self, name: str, app: str | None = None) -> dict | None:
         return getattr(self, "regions", {}).get(name)

@@ -5706,7 +5706,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("video.seek", {"t": seg["start"], "play": True})
                 await self.emit("video.play", {})
             gen = self.step_gen
-            if reason := self.screen_down_reason():  # say at once why there's no spotlight (no capture attempt)
+            if reason := self.screen_down_reason(include_ax=False):  # say at once why there's no spotlight (no capture attempt)
                 await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "I can't see your screen",
                                        "body": self.screen_down_message(reason)})
                 return
@@ -7038,10 +7038,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     SCREEN_PERMISSION_DOWN_S = 3.0  # a missing grant is not transient: say so within a tick or two
     SCREEN_DOWN_S = 15.0  # a Space switch / screen lock is brief: only a lasting failure is reported
 
-    def screen_down_reason(self) -> str | None:
+    def screen_down_reason(self, include_ax: bool = True) -> str | None:
+        """Why the screen can't be read. "no_accessibility" (AX revoked) is reported apart from Screen Recording and
+        only when include_ax: OCR still works without AX, so gates that decide whether to look ask include_ax=False."""
         fn = getattr(self.screen, "down_reason", None) if self.screen is not None else None
         try:
-            return fn() if fn else None
+            return (fn(include_ax=include_ax) if include_ax is False else fn()) if fn else None
         except Exception:  # noqa: BLE001
             return None
 
@@ -7058,6 +7060,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if reason == "no_permission":
             from server.screen import health
             return "Miyagi can't see your screen. " + health.permission_hint()
+        if reason == "no_accessibility":
+            return ("Miyagi lost Accessibility access, so it can't read your cursor or the open file. "
+                    "Turn it back on in System Settings > Privacy & Security > Accessibility. Screen reading still works.")
+        if "blank frame" in reason:
+            return "Your screen looks blank. Miyagi keeps watching."
         return "Miyagi can't see your screen. Check Screen Recording in System Settings."
 
     async def _check_screen_health(self) -> None:
@@ -7070,7 +7077,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if self._screen_down_since is None:
             self._screen_down_since = self.clock()
-        wait = self.SCREEN_PERMISSION_DOWN_S if reason == "no_permission" else self.SCREEN_DOWN_S
+        wait = self.SCREEN_PERMISSION_DOWN_S if reason in ("no_permission", "no_accessibility") else self.SCREEN_DOWN_S
         if not self._screen_notice_sent and self.clock() - self._screen_down_since >= wait:
             if self.screen_asleep(reason):  # learner away: an error toast would only mislead ("Check Screen Recording")
                 return
@@ -7272,7 +7279,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """E5's cost gate: is the reader alive, is the display asleep / locked, the step files' mtimes."""
         from . import workspace as wsmod
 
-        down = self.screen_down_reason() or ""
+        down = self.screen_down_reason(include_ax=False) or ""
         mtimes: dict[str, float] = {}
         names = {self._step_file(step)} | {t.get("file") for t in step.get("targets") or []}
         for f in names:
@@ -8081,7 +8088,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             "modules": self.m.describe(),
             "precisionMode": self.precision_mode(),
             "screen": bool(self.screen is not None and getattr(self.screen, "active", False))
-            and not self.screen_down_reason(),  # false while frames fail (E6 status error / no_permission)
+            and not self.screen_down_reason(include_ax=False),  # false while frames fail (E6 status error / no_permission)
             "screenDown": self.screen_down_reason(),  # S1: E6 status error / no_permission
             "screenPaused": bool(getattr(self.screen, "paused", False)),  # E3: no capture while no lesson step runs
             "voice": self.voice,

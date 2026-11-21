@@ -203,7 +203,7 @@ def test_a_tcc_refusal_is_not_retried_and_backs_off_300s():
     cap = object.__new__(sck.SCKCapturer)
     calls = []
 
-    def once():
+    def once(*_a):
         calls.append(1)
         raise sck.SCKDeclined(f"SCShareableContent failed: {err}")
 

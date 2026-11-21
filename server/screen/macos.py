@@ -33,7 +33,7 @@ SCREENCAPTURE = "/usr/sbin/screencapture"
 @dataclass
 class Frame:
     image: object          # CGImageRef
-    screen: Rect           # primary display bounds in points
+    screen: Rect           # captured display bounds in global points
     scale: float           # pixels per point
     t: float
 
@@ -57,17 +57,86 @@ def main_display_bounds() -> Rect:
     return Rect(b.origin.x, b.origin.y, b.size.width, b.size.height)
 
 
-def capture_main_display() -> Frame:
-    """Grab the whole primary display (all windows composited, including our overlay)."""
+def display_bounds(display_id: int | None = None) -> Rect:
+    b = Quartz.CGDisplayBounds(display_id if display_id else Quartz.CGMainDisplayID())
+    return Rect(b.origin.x, b.origin.y, b.size.width, b.size.height)
+
+
+def active_displays() -> list[tuple[int, Rect]]:
+    """[(display id, bounds in global points)], the main display first (the order `screencapture -D` counts)."""
+    try:
+        err, ids, _n = Quartz.CGGetActiveDisplayList(16, None, None)
+    except Exception:  # noqa: BLE001
+        return []
+    main = Quartz.CGMainDisplayID()
+    ids = sorted(list(ids or []), key=lambda d: d != main)
+    return [(int(d), display_bounds(int(d))) for d in ids]
+
+
+def pick_display(displays: list[tuple[int, Rect]], window: Rect | None = None, point: tuple[float, float] | None = None,
+                 main_id: int | None = None) -> int | None:
+    """Pure. The display holding most of `window` (the learner's frontmost window); else the one under `point`
+    (the cursor); else the main display / first listed. Rects are global points, top-left origin."""
+    if not displays:
+        return None
+    if window is not None and window.w > 0 and window.h > 0:
+        best, area = None, 0.0
+        for did, b in displays:
+            ix = min(window.x2, b.x2) - max(window.x, b.x)
+            iy = min(window.y2, b.y2) - max(window.y, b.y)
+            if ix > 0 and iy > 0 and ix * iy > area:
+                best, area = did, ix * iy
+        if best is not None:
+            return best
+    if point is not None:
+        for did, b in displays:
+            if b.x <= point[0] < b.x2 and b.y <= point[1] < b.y2:
+                return did
+    if main_id is not None and any(d == main_id for d, _ in displays):
+        return main_id
+    return displays[0][0]
+
+
+def target_display_id() -> int:
+    """Which display to read: where the learner's frontmost window is, else under the cursor, else main."""
+    main = int(Quartz.CGMainDisplayID())
+    try:
+        displays = active_displays()
+        if len(displays) < 2:
+            return main
+        front = frontmost_window()
+        win = Rect(**front["rect"]) if front else None
+        pt = None
+        try:
+            loc = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+            pt = (float(loc.x), float(loc.y))
+        except Exception:  # noqa: BLE001
+            pass
+        return pick_display(displays, win, pt, main) or main
+    except Exception:  # noqa: BLE001
+        return main
+
+
+def display_index(display_id: int) -> int:
+    """1-based number `screencapture -D` uses for this display (main first)."""
+    for i, (d, _) in enumerate(active_displays(), 1):
+        if d == display_id:
+            return i
+    return 1
+
+
+def capture_main_display(display_id: int | None = None) -> Frame:
+    """Grab one whole display (default: primary; all windows composited, including our overlay)."""
     t = time.time()
     if display_asleep():
         raise ScreenUnavailableError("display asleep")
-    img = Quartz.CGDisplayCreateImage(Quartz.CGMainDisplayID())
+    did = display_id or Quartz.CGMainDisplayID()
+    img = Quartz.CGDisplayCreateImage(did)
     if img is None:
         if not has_permission():
             raise ScreenPermissionError(PERMISSION_HELP)
         raise ScreenUnavailableError("display returned no image (asleep, locked, or switching Spaces?)")
-    screen = main_display_bounds()
+    screen = display_bounds(did)
     scale = Quartz.CGImageGetWidth(img) / screen.w if screen.w else 1.0
     return Frame(img, screen, scale, t)
 
@@ -79,7 +148,7 @@ def display_asleep() -> bool:
         return False
 
 
-def capture_main_display_cli(timeout: float = 4.0) -> Frame:
+def capture_main_display_cli(timeout: float = 4.0, display_id: int | None = None) -> Frame:
     """Grab the primary display with Apple's `screencapture` tool (overlay included: mask it).
 
     A different capture path from ScreenCaptureKit / CGDisplayCreateImage. On macOS 26, replayd
@@ -95,7 +164,7 @@ def capture_main_display_cli(timeout: float = 4.0) -> Frame:
     os.close(fd)
     try:
         try:
-            r = subprocess.run([SCREENCAPTURE, "-x", "-t", "png", "-D", "1", path], capture_output=True,
+            r = subprocess.run([SCREENCAPTURE, "-x", "-t", "png", "-D", str(display_index(display_id) if display_id else 1), path], capture_output=True,
                                timeout=timeout, check=False)
         except subprocess.TimeoutExpired as e:
             raise ScreenUnavailableError(f"screencapture timed out after {timeout:.0f} s") from e
@@ -112,7 +181,7 @@ def capture_main_display_cli(timeout: float = 4.0) -> Frame:
             pass
     if img is None:
         raise ScreenUnavailableError("screencapture wrote an unreadable image")
-    screen = main_display_bounds()
+    screen = display_bounds(display_id)
     scale = Quartz.CGImageGetWidth(img) / screen.w if screen.w else 1.0
     return Frame(img, screen, scale, t)
 

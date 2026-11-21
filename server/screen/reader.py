@@ -98,8 +98,11 @@ class ScreenReader:
         self._frame = 0
         self._permission_warned = False
         self._blank_streak = 0         # consecutive black / flat frames (a locked or revoked capture)
-        self._screen_key: tuple | None = None  # primary display frame at the last capture (change detection)
+        self._screen_key: tuple | None = None  # captured display frame at the last capture (change detection)
         self._last_tick = time.time()  # wall clock of the last loop turn (a big gap = the Mac slept)
+        self.ax_trusted: bool | None = None   # Accessibility grant at the last check (None = not checked / n.a.)
+        self._ax_check = None                  # tests: replaces ax.trusted()
+        self._ticks = 0
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -170,6 +173,9 @@ class ScreenReader:
                 self.reset_capture("wake")
                 woke = True
             self._last_tick = now_t
+            self._ticks += 1
+            if self._ticks % self.AX_CHECK_EVERY == 1:
+                self.check_accessibility()
             wait = self.debounce - (time.time() - self._last_capture)
             if woke and wait > 0:
                 self._stop.wait(wait)
@@ -187,15 +193,37 @@ class ScreenReader:
                 elif not isinstance(e, ScreenPermissionError):
                     log.exception("screen capture/OCR failed")
 
+    AX_CHECK_EVERY = 3  # loop turns between AXIsProcessTrusted() checks (a cheap call; revocation is rare)
+
+    def check_accessibility(self) -> bool | None:
+        """Is the Accessibility grant still there? Revoking it mid-session silently blinds the AX sensors (cursor,
+        active file, run button) while OCR keeps working, so it is tracked apart from Screen Recording: it sets
+        `ax_trusted` only and never touches `status` / `last_error` (the OCR path is not paused)."""
+        if self._ax_check is None and (sys.platform != "darwin" or self.fixture or not self.use_ax):
+            return None
+        try:
+            if self._ax_check is not None:
+                ok = bool(self._ax_check())
+            else:
+                from . import ax
+                ok = bool(ax.trusted())
+        except Exception:  # noqa: BLE001
+            return self.ax_trusted
+        if ok != self.ax_trusted and self.ax_trusted is not None:
+            log.warning("Accessibility permission %s", "granted" if ok else "REVOKED")
+        self.ax_trusted = ok
+        return ok
+
     def reset_capture(self, why: str = "") -> None:
         """Forget capture state that sleep/wake, a display change or a blank frame can leave stale: the SCK filter and
         its backoff, the last thumbnail (so the next frame is OCR'd) and the blank streak. The next capture is forced."""
         log.info("screen capture reset (%s)", why or "manual")
-        sck = self._sck
-        if sck is not None:
-            sck._filter = None
-        self._sck_retry_at, self._sck_streak = 0.0, 0
-        self._prev_thumb, self._blank_streak = None, 0
+        with self._capture_lock:  # not mid-capture: observe_now holds this while it uses the filter
+            sck = self._sck
+            if sck is not None:
+                sck._filter = None
+            self._sck_retry_at, self._sck_streak = 0.0, 0
+            self._prev_thumb, self._blank_streak = None, 0
         self.poke("reset", force=True)
 
     @property
@@ -751,14 +779,15 @@ class ScreenReader:
         try:
             if not macos.has_permission():
                 raise macos.ScreenPermissionError(macos.PERMISSION_HELP)
-            sck = self._sck_capture()
+            display_id = macos.target_display_id()  # the display holding the learner's window, not always the primary
+            sck = self._sck_capture(display_id)
             if sck is not None:
                 img, screen, scale, excluded = sck
                 windows = [w for w in macos.list_windows(screen) if w.app not in excluded]
                 self.backend = "sck"
                 # left out only if SCK found our overlay app to exclude; else its pixels are in: mask by overlay.bounds
                 return img, screen, scale, windows, None, "live", bool(getattr(self._sck, "overlay_apps", True))
-            f = self._fallback_capture()
+            f = self._fallback_capture(display_id)
         except macos.ScreenPermissionError:
             if not self._permission_warned:
                 print(macos.PERMISSION_HELP, file=sys.stderr)
@@ -771,21 +800,21 @@ class ScreenReader:
             raise
         return f.image, f.screen, f.scale, macos.list_windows(f.screen), None, "live", False
 
-    def _fallback_capture(self):
+    def _fallback_capture(self, display_id: int | None = None):
         """`screencapture` (works when replayd stalls SCK + CG), then CGDisplayCreateImage."""
         from . import macos
         if self.capture_mode != "cg":
             try:
-                f = macos.capture_main_display_cli()
+                f = macos.capture_main_display_cli(display_id=display_id)
                 self.backend = "cli"
                 return f
             except FileNotFoundError:
                 pass  # no screencapture binary: CG below
-        f = macos.capture_main_display()
+        f = macos.capture_main_display(display_id)
         self.backend = "cg"
         return f
 
-    def _sck_capture(self):
+    def _sck_capture(self, display_id: int | None = None):
         """ScreenCaptureKit with our overlay excluded; None -> use the fallback capture.
 
         A failure (replayd stall, Space switch, sleep) is never permanent: SCK is skipped for 10 s,
@@ -797,7 +826,7 @@ class ScreenReader:
             if self._sck is None:
                 from .sck import SCKCapturer
                 self._sck = SCKCapturer()
-            img, screen, scale = self._sck.capture()
+            img, screen, scale = self._sck.capture(display_id)
             if self._sck_streak:
                 log.info("ScreenCaptureKit recovered after %d failure(s)", self._sck_streak)
             self._sck_retry_at, self._sck_streak = 0.0, 0
@@ -827,19 +856,22 @@ class ScreenReader:
                 raise
             key = (screen.x, screen.y, screen.w, screen.h)
             if health.display_changed(self._screen_key, key):  # monitor (un)plugged / resolution switched
-                log.info("primary display changed %s -> %s: capture state reset", self._screen_key, key)
+                log.info("captured display changed %s -> %s: capture state reset", self._screen_key, key)
                 self._prev_thumb, self._sck_retry_at = None, 0.0
                 if self._sck is not None:
                     self._sck._filter = None
                 force = True
             self._screen_key = key
             thumb = macos.thumbnail(img)
-            if source == "live" and health.is_blank_thumb(thumb):
+            kind = health.blank_kind(thumb) if source == "live" else None
+            if kind:
                 self._blank_streak += 1
                 if self._blank_streak == 1 and self._sck is not None:
                     self._sck._filter = None  # a stale filter (Space / display swap) can return empty frames
-                if self._blank_streak >= health.BLANK_STREAK:
-                    err = macos.ScreenUnavailableError("blank frame (all black): capture returns no pixels")
+                # a flat NON-black frame is far more often a real solid-colour screen (slide, video): wait longer
+                if self._blank_streak >= (health.BLANK_STREAK if kind == "black" else health.FLAT_STREAK):
+                    err = macos.ScreenUnavailableError(
+                        f"blank frame ({'all black' if kind == 'black' else 'one flat colour'}): the screen shows no content")
                     self._set_error(err)
                     raise err
                 return None  # one black frame is usually a transition: the next tick looks again
@@ -1050,6 +1082,8 @@ def _mask_thumb(thumb: bytes, rects: list[Rect], screen: Rect) -> bytes:
     sx, sy = THUMB_W / screen.w, THUMB_H / screen.h
     for r in rects:
         r = r.clamp(screen)
+        if r.w <= 0 or r.h <= 0:  # on another display: nothing of it is in this frame
+            continue
         x0, x1 = int((r.x - screen.x) * sx), min(THUMB_W, int((r.x2 - screen.x) * sx) + 1)
         y0, y1 = int((r.y - screen.y) * sy), min(THUMB_H, int((r.y2 - screen.y) * sy) + 1)
         for y in range(max(0, y0), y1):

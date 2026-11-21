@@ -195,7 +195,7 @@ class SceneWatch:
         now = s.clock()
         if now < self._retry_at or (s.video_playing and not s.segment_done):
             return
-        if s.screen_down_reason() or self._typing_in_miyagi():
+        if s.screen_down_reason(include_ax=False) or self._typing_in_miyagi():
             return  # asleep / locked / capture failing; or the learner is typing into Miyagi
         obs = s.last_obs
         if obs is None or self._private_front(obs):
