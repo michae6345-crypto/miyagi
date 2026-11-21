@@ -12,7 +12,7 @@
 import { useEffect, type ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import { bridge } from '../../bridge'
-import { Spinner } from '../../core/ui/atoms'
+import { CodeText, Spinner } from '../../core/ui/atoms'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { GlassCard } from '../../core/ui/GlassCard'
 import { Keycap } from '../../core/ui/Keycap'
@@ -73,7 +73,9 @@ function Track({ t }: { t: SkillTrack }): ReactNode {
           return (
             <div key={`${i.label}-${k}`} data-skill-state={i.state} className="flex flex-col gap-[6px]">
               <div className="flex justify-between gap-[12px]" style={{ fontSize: type2.sm, color: color.text }}>
-                <span className="min-w-0 truncate">{i.label}</span>
+                <span className="min-w-0 truncate">
+                  <CodeText text={i.label} />
+                </span>
                 <span className="shrink-0" style={{ fontSize: type2.xs, fontWeight: i.state === 'mastered' ? 500 : 400, color: i.state === 'mastered' ? status.passed : color.label }}>
                   {STATE_WORD[i.state]}
                 </span>
@@ -245,7 +247,7 @@ function Review({ review, canStart }: { review?: Progress['review']; canStart: b
                 <li key={`${it.label}-${i}`} data-review-item="due" className="flex shrink-0 items-center justify-between gap-[12px]" style={{ height: 48, borderTop: `1px solid ${fill.hairline}` }}>
                   <div className="flex min-w-0 flex-col gap-[2px]">
                     <span className="truncate" style={{ fontSize: type2.sm, color: color.text }}>
-                      {it.label}
+                      <CodeText text={it.label} />
                     </span>
                     <span className="truncate" style={{ fontSize: type2.micro, color: color.label }}>
                       {[it.file, it.checks > 0 ? `${it.checks} check${it.checks === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}
@@ -257,7 +259,9 @@ function Review({ review, canStart }: { review?: Progress['review']; canStart: b
                 </li>
               ) : (
                 <li key={`${it.label}-${i}`} data-review-item="later" className="flex shrink-0 items-center justify-between gap-[12px]" style={{ height: 40, borderTop: `1px solid ${fill.hairline}`, ...caption }}>
-                  <span className="truncate">{it.label}</span>
+                  <span className="truncate">
+                    <CodeText text={it.label} />
+                  </span>
                   <span className="shrink-0">{it.when}</span>
                 </li>
               )
@@ -271,7 +275,7 @@ function Review({ review, canStart }: { review?: Progress['review']; canStart: b
             size="lg"
             block
             disabled={!canStart || due === 0}
-            title={canStart ? (due ? `Review ${items[0].label}, due ${whenWord(items[0].when)}` : undefined) : 'miyagi can’t start reviews yet'}
+            title={canStart ? (due ? `Review ${items[0].label.split(String.fromCharCode(96)).join('')}, due ${whenWord(items[0].when)}` : undefined) : 'miyagi can’t start reviews yet'}
             onClick={() => startReview(items[0])}
           />
         )}

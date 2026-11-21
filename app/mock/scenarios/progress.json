@@ -1,0 +1,128 @@
+{
+  "name": "progress",
+  "on": {
+    "connect": "prog_lesson",
+    "progress.get": "prog_data"
+  },
+  "segments": {
+    "prog_lesson": [
+      {
+        "wait": 150,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "prog-mnist-intro",
+            "title": "Code your first neural network with TensorFlow",
+            "sources": [],
+            "complete": true,
+            "builtBy": "curated",
+            "mode": "lesson"
+          },
+          "steps": [
+            { "id": "pg1", "index": 1, "title": "Load the MNIST data", "kind": "code", "estMinutes": 2 },
+            { "id": "pg2", "index": 2, "title": "Normalize the pixels", "kind": "code", "estMinutes": 1 },
+            { "id": "pg3", "index": 3, "title": "Build the model", "kind": "code", "estMinutes": 3 },
+            { "id": "pg4", "index": 4, "title": "Compile it", "kind": "code", "estMinutes": 2 },
+            { "id": "pg5", "index": 5, "title": "Train it", "kind": "run", "estMinutes": 3 },
+            { "id": "pg6", "index": 6, "title": "Evaluate on the test set", "kind": "code", "estMinutes": 2 }
+          ]
+        }
+      },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": { "stepId": "pg1", "index": 1, "title": "Load the MNIST data", "instructions": "In mnist.ipynb, load the data in cell 1", "kind": "code" }
+      },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "pg1", "checkId": "pg1c1", "label": "`x_train` and `y_train` are loaded", "status": "pending" } },
+      { "wait": 150, "type": "check.updated", "payload": { "stepId": "pg1", "checkId": "pg1c1", "label": "`x_train` and `y_train` are loaded", "status": "pass" } },
+      { "wait": 100, "type": "step.passed", "payload": { "stepId": "pg1", "nextStepId": "pg2", "summary": "The MNIST data is in your notebook" } },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": { "stepId": "pg2", "index": 2, "title": "Normalize the pixels", "instructions": "Scale the pixels to 0..1 in cell 2", "kind": "code" }
+      },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "pg2", "checkId": "pg2c1", "label": "Pixels are divided by 255", "status": "pending" } },
+      { "wait": 150, "type": "check.updated", "payload": { "stepId": "pg2", "checkId": "pg2c1", "label": "Pixels are divided by 255", "status": "pass" } },
+      { "wait": 100, "type": "step.passed", "payload": { "stepId": "pg2", "nextStepId": "pg3", "summary": "Every pixel is between 0 and 1" } },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": { "stepId": "pg3", "index": 3, "title": "Build the model", "instructions": "Build a Sequential model in cell 3", "kind": "code" }
+      },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "pg3", "checkId": "pg3c1", "label": "`model` is a Sequential with 4 layers", "status": "pending" } },
+      { "wait": 150, "type": "check.updated", "payload": { "stepId": "pg3", "checkId": "pg3c1", "label": "`model` is a Sequential with 4 layers", "status": "pass" } },
+      { "wait": 100, "type": "step.passed", "payload": { "stepId": "pg3", "nextStepId": "pg4" } },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": { "stepId": "pg4", "index": 4, "title": "Compile it", "instructions": "Compile the model with adam in cell 4", "kind": "code" }
+      },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "pg4", "checkId": "pg4c1", "label": "`model.compile` uses adam", "status": "pending" } }
+    ],
+    "prog_data": [
+      {
+        "wait": 200,
+        "type": "progress",
+        "payload": {
+          "skills": [
+            {
+              "track": "numpy",
+              "mastered": 2,
+              "total": 3,
+              "items": [
+                { "label": "Arrays", "state": "mastered" },
+                { "label": "Indexing and slicing", "state": "mastered" },
+                { "label": "Broadcasting", "state": "practicing" }
+              ]
+            },
+            {
+              "track": "pandas",
+              "mastered": 1,
+              "total": 3,
+              "items": [
+                { "label": "DataFrames", "state": "mastered" },
+                { "label": "`groupby`", "state": "practicing" },
+                { "label": "Merge and join", "state": "not_started" }
+              ]
+            },
+            {
+              "track": "keras",
+              "mastered": 3,
+              "total": 4,
+              "items": [
+                { "label": "Sequential models", "state": "mastered" },
+                { "label": "Keras layers", "state": "mastered" },
+                { "label": "Training with `fit`", "state": "mastered" },
+                { "label": "Convolutional layers", "state": "not_started" }
+              ]
+            },
+            {
+              "track": "matplotlib",
+              "mastered": 0,
+              "total": 3,
+              "items": [
+                { "label": "Showing images", "state": "practicing" },
+                { "label": "Line plots", "state": "practicing" },
+                { "label": "Subplots", "state": "not_started" }
+              ]
+            }
+          ],
+          "completed": [
+            { "lessonId": "pandas_intro", "title": "Group and summarize sales with pandas", "at": "2026-11-12" },
+            { "lessonId": "mnist_intro", "title": "Code your first neural network with TensorFlow", "at": "2026-11-18" }
+          ],
+          "week": { "minutes": 95, "streak": 3, "days": [true, true, false, true, false, false, false] },
+          "review": {
+            "due": 3,
+            "items": [
+              { "label": "pandas `groupby`", "file": "sales.ipynb", "checks": 3, "when": "Today" },
+              { "label": "numpy broadcasting", "file": "arrays.ipynb", "checks": 2, "when": "Today" },
+              { "label": "Keras layers", "file": "mnist.ipynb", "checks": 2, "when": "Today" },
+              { "label": "Showing images", "file": "mnist.ipynb", "checks": 1, "when": "Saturday" }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

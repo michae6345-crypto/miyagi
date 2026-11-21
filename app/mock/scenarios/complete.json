@@ -3,7 +3,8 @@
   "on": {
     "connect": "step_nn_done",
     "action:end_lesson@step_nn_done": "complete_end",
-    "learn@step_nn_done": "complete_learn"
+    "learn@step_nn_done": "complete_learn",
+    "library.start:nn_optimizers": "complete_next"
   },
   "segments": {
     "step_nn_done": [
@@ -180,7 +181,8 @@
         "wait": 100,
         "type": "step.passed",
         "payload": {
-          "stepId": "nn1"
+          "stepId": "nn1",
+          "summary": "Your network runs a forward pass"
         }
       },
       {
@@ -244,7 +246,8 @@
         "wait": 100,
         "type": "step.passed",
         "payload": {
-          "stepId": "nn2"
+          "stepId": "nn2",
+          "summary": "Every weight has a gradient now"
         }
       },
       {
@@ -328,7 +331,8 @@
         "wait": 100,
         "type": "step.passed",
         "payload": {
-          "stepId": "nn3"
+          "stepId": "nn3",
+          "summary": "The loop steps every weight downhill"
         }
       },
       {
@@ -2472,7 +2476,8 @@
         "wait": 100,
         "type": "step.passed",
         "payload": {
-          "stepId": "nn4"
+          "stepId": "nn4",
+          "summary": "Your loss fell below 0.01"
         }
       },
       {
@@ -2536,7 +2541,8 @@
         "wait": 100,
         "type": "step.passed",
         "payload": {
-          "stepId": "nn5"
+          "stepId": "nn5",
+          "summary": "It prints its answers and weights"
         }
       },
       {
@@ -2580,7 +2586,8 @@
         "wait": 100,
         "type": "step.passed",
         "payload": {
-          "stepId": "nn6"
+          "stepId": "nn6",
+          "summary": "It answers -1, 0, 1"
         }
       },
       {
@@ -3460,7 +3467,9 @@
             "next": [
               {
                 "title": "Learning rate & optimizers (Adam)",
-                "goal": "implement gradient descent with momentum and Adam from scratch in NumPy"
+                "goal": "implement gradient descent with momentum and Adam from scratch in NumPy",
+                "id": "nn_optimizers",
+                "estMinutes": 12
               },
               {
                 "title": "Mini-batches",
@@ -3479,6 +3488,14 @@
                 "goal": "build a CNN that classifies MNIST digits in PyTorch"
               }
             ]
+          },
+          "result": {
+            "passed": 6,
+            "skipped": 0,
+            "total": 6,
+            "minutes": 14,
+            "lessonId": "lesson-nn-from-scratch",
+            "title": "A neural net from scratch"
           }
         }
       }
@@ -3522,6 +3539,31 @@
         "payload": {
           "message": "Claude is writing your lesson",
           "progress": 0.3
+        }
+      }
+    ],
+    "complete_next": [
+      {
+        "wait": 100,
+        "type": "lesson.ended",
+        "payload": {
+          "lessonId": "lesson-nn-from-scratch",
+          "reason": "new lesson"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Opening your next lesson",
+          "progress": 0.5
         }
       }
     ]
