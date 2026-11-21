@@ -27,7 +27,8 @@ def _cloud(tmp_path, monkeypatch, unset=(), **env):
             "UPSTREAM_ANTHROPIC_URL": "http://127.0.0.1:9/v1/messages",  # closed port: never a real call
             "UPSTREAM_GEMINI_URL": "http://127.0.0.1:9/{model}:{method}",
             "FREE_COACH_CALLS_PER_DAY": "60", "FREE_DAILY_REQUESTS": "0", "DAILY_USD_CAP": "0",
-            "FREE_DAILY_USD": "0", "LINKED_DAILY_REQUESTS": "0", "LINKED_DAILY_USD": "0"}
+            "FREE_DAILY_USD": "0", "LINKED_DAILY_REQUESTS": "0", "LINKED_DAILY_USD": "0",
+            "ANON_DAILY_USD_PER_NETWORK": "0"}
     for k, v in {**base, **env}.items():
         monkeypatch.setenv(k, v)
     for k in unset:  # back to the default in app.py

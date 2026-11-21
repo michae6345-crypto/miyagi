@@ -180,6 +180,9 @@ class Store:
         cols = {r["name"] for r in self._db.execute("PRAGMA table_info(tokens)")}
         if "plan" not in cols:  # databases from before the free tier
             self._db.execute("ALTER TABLE tokens ADD COLUMN plan TEXT NOT NULL DEFAULT 'free'")
+        if "mint_net" not in cols:  # the network a token was minted from (NULL for older tokens: no network cap)
+            self._db.execute("ALTER TABLE tokens ADD COLUMN mint_net TEXT")
+        self._db.execute("CREATE INDEX IF NOT EXISTS tokens_mint_net ON tokens (mint_net)")
         self._migrate_first_writer_lessons()
         self._pruned_hour = -1
 
@@ -202,12 +205,13 @@ class Store:
             return self._db.execute(sql, args).fetchall()
 
     # tokens ---------------------------------------------------------------
-    def add_token(self, token_hash: str, install_id: str, app_version: str, platform: str) -> None:
-        self._q("INSERT INTO tokens (token_hash, install_id, app_version, platform, created_at) VALUES (?, ?, ?, ?, ?)",
-                (token_hash, install_id, app_version, platform, time.time()))
+    def add_token(self, token_hash: str, install_id: str, app_version: str, platform: str, mint_net: str | None = None) -> None:
+        """mint_net: the client network it was minted from (IPv4 address or IPv6 /48), for the anonymous per-network cap."""
+        self._q("INSERT INTO tokens (token_hash, install_id, app_version, platform, created_at, mint_net) VALUES (?, ?, ?, ?, ?, ?)",
+                (token_hash, install_id, app_version, platform, time.time(), mint_net))
 
     def get_token(self, token_hash: str) -> dict | None:
-        rows = self._q("SELECT token_hash, disabled, plan FROM tokens WHERE token_hash = ?", (token_hash,))
+        rows = self._q("SELECT token_hash, disabled, plan, mint_net FROM tokens WHERE token_hash = ?", (token_hash,))
         return dict(rows[0]) if rows else None
 
     def set_disabled(self, prefix: str, disabled: bool) -> list[str]:
@@ -290,8 +294,10 @@ class Store:
             return True
 
     def pending_lessons(self, limit: int = 200) -> list[dict]:
+        """Pending candidates, newest first, with their body (the admin view shows what it installs and runs)."""
         rows = self._q(f"SELECT video_id, schema, substr(body_hash, 1, 16) AS hash, substr(uploader, 1, {PREFIX_LEN}) AS uploader, "
-                       "bytes, created_at FROM lesson_candidates WHERE status = 'pending' ORDER BY created_at DESC LIMIT ?", (limit,))
+                       "bytes, created_at, body FROM lesson_candidates WHERE status = 'pending' ORDER BY created_at DESC LIMIT ?",
+                       (limit,))
         return [dict(r) for r in rows]
 
     def delete_lessons(self, video_id: str) -> int:
@@ -396,7 +402,8 @@ class Store:
     # admission: caps checked and counted in one step -------------------------
     def admit_call(self, token_hash: str, provider: str, model: str, role: str | None,
                    role_caps: dict[str, int], daily_cap: int, *, usd_cap: float = 0.0, user_id: str | None = None,
-                   global_usd_cap: float = 0.0, reserve_usd: float = 0.0, dry_run: bool = False) -> tuple[str | None, float, float]:
+                   global_usd_cap: float = 0.0, reserve_usd: float = 0.0, net: str | None = None, net_usd_cap: float = 0.0,
+                   dry_run: bool = False) -> tuple[str | None, float, float]:
         """Count one forwarded AI call unless a cap is reached, and reserve its estimated cost. Check, count and
         reserve happen under one lock and one transaction, so parallel calls cannot all slip in under a cap.
 
@@ -404,9 +411,11 @@ class Store:
         role_caps: {role: calls per UTC day} for this install (0 or absent = no cap).
         daily_cap / usd_cap: calls / estimated USD per UTC day (0 = none), for this install, or with `user_id` for
         every install linked to that user together.
+        net / net_usd_cap: estimated USD per UTC day of every unlinked install minted from network `net` together
+        (0 or no net = none); the caller passes them for anonymous installs only.
         reserve_usd is added to this call's usage row now; settle() swaps it for the real cost when the call ends.
         dry_run: check only, count nothing.
-        Returns (None, 0, 0) when admitted, else (the cap hit: "global_usd" | "role" | "daily" | "usd", used, cap)
+        Returns (None, 0, 0) when admitted, else (the cap hit: "global_usd" | "role" | "daily" | "usd" | "net_usd", used, cap)
         with nothing counted."""
         day = today()
         reserve_usd = max(float(reserve_usd), 0.0)
@@ -439,6 +448,14 @@ class Store:
                     if usd_cap > 0 and (float(usd) >= usd_cap or float(usd) + reserve_usd > usd_cap):
                         self._db.execute("ROLLBACK")
                         return "usd", float(usd), usd_cap
+                if net and net_usd_cap > 0:
+                    net_usd = float(self._db.execute(
+                        "SELECT COALESCE(SUM(u.usd), 0) FROM usage u JOIN tokens t ON t.token_hash = u.token_hash "
+                        "WHERE u.day = ? AND t.mint_net = ? AND u.token_hash NOT IN (SELECT token_hash FROM links)",
+                        (day, net)).fetchone()[0])
+                    if net_usd >= net_usd_cap or net_usd + reserve_usd > net_usd_cap:
+                        self._db.execute("ROLLBACK")
+                        return "net_usd", net_usd, net_usd_cap
                 if dry_run:
                     self._db.execute("ROLLBACK")
                     return None, 0, 0

@@ -414,12 +414,13 @@ async def _asgi(app, path: str, headers: dict, body: dict, disconnect: asyncio.E
     return status, b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
 
 
-def test_fifth_concurrent_call_is_429_and_slots_come_back(make_cloud):
+def test_eleventh_concurrent_call_is_429_and_slots_come_back(make_cloud):
     client, app_mod = make_cloud(FREE_DAILY_USD="5")
     a, _ = install(client)
     b, _ = install(client)
     tha = app_mod.hash_token(a["Authorization"][7:])
-    assert app_mod.PER_TOKEN_INFLIGHT == 4 and app_mod.GLOBAL_INFLIGHT == 80
+    n = app_mod.PER_TOKEN_INFLIGHT
+    assert n == 10 and app_mod.GLOBAL_INFLIGHT == 80  # the engine runs ~10 at once (README, Calls in flight)
 
     async def scenario():
         gate = asyncio.Event()
@@ -434,36 +435,36 @@ def test_fifth_concurrent_call_is_429_and_slots_come_back(make_cloud):
         app_mod.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         stream_body = {"model": HAIKU, "max_tokens": 1000, "messages": msg(), "stream": True}
         path = "/v1/anthropic/v1/messages"
-        hangups = [asyncio.Event() for _ in range(4)]
-        tasks = [asyncio.create_task(_asgi(app_mod.app, path, a, stream_body, hangups[i])) for i in range(4)]
+        hangups = [asyncio.Event() for _ in range(n)]
+        tasks = [asyncio.create_task(_asgi(app_mod.app, path, a, stream_body, hangups[i])) for i in range(n)]
         for _ in range(200):
-            if len(calls) == 4:
+            if len(calls) == n:
                 break
             await asyncio.sleep(0.01)
-        assert len(calls) == 4 and app_mod.inflight.per[tha] == 4
-        # the fifth concurrent call from the same install is refused before its body is read
+        assert len(calls) == n and app_mod.inflight.per[tha] == n and app_mod.inflight.total == n
+        # the 11th concurrent call from the same install is refused before its body is read
         status, raw = await _asgi(app_mod.app, path, a, {"model": HAIKU, "max_tokens": 10, "messages": msg()}, asyncio.Event())
         err = json.loads(raw)["error"]
         assert status == 429 and err["limit"] == "inflight_token" and err["type"] == "concurrency_limit_error"
-        assert len(calls) == 4
+        assert len(calls) == n
         # another install is not blocked by it
         status, _ = await _asgi(app_mod.app, path, b, {**stream_body, "stream": False}, asyncio.Event())
         assert status == 200
-        # two clients hang up mid-stream, two streams finish normally
+        # two clients hang up mid-stream, the other streams finish normally
         hangups[0].set()
         hangups[1].set()
         await asyncio.sleep(0.05)
         gate.set()
         results = await asyncio.wait_for(asyncio.gather(*tasks), 5)
-        assert [s for s, _ in results] == [200] * 4
-        assert b"message_delta" in results[2][1] and b"message_delta" in results[3][1]
+        assert [s for s, _ in results] == [200] * n
+        assert all(b"message_delta" in raw for _, raw in results[2:])
         await app_mod.http.aclose()
 
     asyncio.run(scenario())
     assert app_mod.inflight.total == 0 and app_mod.inflight.per == {}
-    # every reservation was settled: two finished streams at their real cost, two hung-up ones at what they used
-    assert app_mod.store.usd_today_for(tha) == pytest.approx(2 * app_mod.estimate_usd(HAIKU, 100, 20))
-    assert app_mod.store.requests_today(tha) == 4
+    # every reservation was settled: the finished streams at their real cost, the two hung-up ones at what they used
+    assert app_mod.store.usd_today_for(tha) == pytest.approx((n - 2) * app_mod.estimate_usd(HAIKU, 100, 20))
+    assert app_mod.store.requests_today(tha) == n
 
 
 def test_global_inflight_limit(make_cloud):
@@ -473,9 +474,106 @@ def test_global_inflight_limit(make_cloud):
     assert app_mod.inflight.acquire("someone-else") is None
     r = anthropic(client, h)
     assert r.status_code == 429 and r.json()["error"]["limit"] == "inflight_global" and r.headers["retry-after"] == "1"
+    assert app_mod.store.requests_today(tok) == 0  # refused before admission: not counted
     app_mod.inflight.release("someone-else")
     assert anthropic(client, h).status_code == 502
     assert app_mod.inflight.total == 0 and tok not in app_mod.inflight.per
+
+
+async def _asgi_slow(app, path: str, headers: dict, started: asyncio.Event, release: asyncio.Event, length: int = 100_000):
+    """A request whose body never finishes arriving until `release` (the slow-body probe). Returns the status."""
+    sent: list[dict] = []
+    calls = [0]
+
+    async def receive():
+        calls[0] += 1
+        if calls[0] == 1:
+            started.set()
+            return {"type": "http.request", "body": b'{"model": "claude-haiku-5-5", ', "more_body": True}
+        await release.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(m):
+        sent.append(m)
+
+    hs = [(k.lower().encode(), v.encode()) for k, v in {**headers, "content-type": "application/json",
+                                                         "content-length": str(length)}.items()]
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http",
+             "path": path, "raw_path": path.encode(), "query_string": b"", "root_path": "", "headers": hs,
+             "client": ("127.0.0.1", 40001), "server": ("testserver", 80)}
+    try:
+        await app(scope, receive, send)
+    except Exception:  # a disconnect mid-body may end in an exception: the status below is what matters
+        pass
+    return next((m["status"] for m in sent if m["type"] == "http.response.start"), None)
+
+
+def test_slow_bodies_cannot_take_the_global_slots(make_cloud):
+    """The probe: GLOBAL_INFLIGHT=3 and three slow-body POSTs held open. Before the fix a normal call from another
+    install got 429 inflight_global; the global slot is now taken only once a body has arrived."""
+    client, app_mod = make_cloud(GLOBAL_INFLIGHT="3")
+    Upstream(app_mod)
+    slow = [install(client)[0] for _ in range(3)]
+    normal, _ = install(client)
+
+    async def scenario():
+        release = asyncio.Event()
+        starts = [asyncio.Event() for _ in slow]
+        path = "/v1/anthropic/v1/messages"
+        tasks = [asyncio.create_task(_asgi_slow(app_mod.app, path, h, starts[i], release)) for i, h in enumerate(slow)]
+        await asyncio.wait_for(asyncio.gather(*(s.wait() for s in starts)), 5)
+        assert app_mod.inflight.total == 0 and len(app_mod.inflight.per) == 3  # per-token slots only
+        status, raw = await _asgi(app_mod.app, path, normal, {"model": HAIKU, "max_tokens": 10, "messages": msg()}, asyncio.Event())
+        assert status == 200, raw
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 5)
+
+    asyncio.run(scenario())
+    assert app_mod.inflight.total == 0 and app_mod.inflight.per == {}
+
+
+def test_body_read_timeout_is_408_and_frees_the_slot(make_cloud):
+    client, app_mod = make_cloud(BODY_READ_TIMEOUT_S="0.2", FREE_DAILY_REQUESTS="5")
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    th = app_mod.hash_token(h["Authorization"][7:])
+    assert app_mod.BODY_READ_TIMEOUT_S == 0.2
+
+    async def scenario():
+        started, release = asyncio.Event(), asyncio.Event()
+        for path in ("/v1/anthropic/v1/messages", "/v1/gemini/gemini-3.8-flash:generateContent"):
+            status = await asyncio.wait_for(_asgi_slow(app_mod.app, path, h, started, release), 5)
+            assert status == 408
+            assert app_mod.inflight.total == 0 and app_mod.inflight.per == {}
+        status = await asyncio.wait_for(_asgi_slow(app_mod.app, "/v1/events", h, started, release, length=1000), 5)
+        assert status == 408
+        release.set()
+
+    asyncio.run(scenario())
+    assert up.requests == [] and app_mod.store.requests_today(th) == 0  # never forwarded, never counted
+    _, app_mod = make_cloud(unset=("BODY_READ_TIMEOUT_S",))
+    assert app_mod.BODY_READ_TIMEOUT_S == 20
+
+
+class BrokenBody(httpx.AsyncByteStream):
+    """A response body that fails mid-read with something that is not an httpx error (as a cancellation would)."""
+
+    async def __aiter__(self):
+        yield b'{"type": "message", '
+        raise RuntimeError("cancelled mid-read")
+
+
+def test_non_stream_read_failure_releases_the_slot(make_cloud):
+    """A CancelledError (or any non-httpx exception) during the non-stream read used to skip call.finish(): the
+    in-flight slot stayed taken until a restart."""
+    client, app_mod = make_cloud()
+    app_mod.http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, stream=BrokenBody())))
+    h, _ = install(client)
+    th = app_mod.hash_token(h["Authorization"][7:])
+    with pytest.raises(RuntimeError):
+        post_anthropic(client, h, {"model": HAIKU, "max_tokens": 10, "messages": msg()})
+    assert app_mod.inflight.total == 0 and th not in app_mod.inflight.per
+    assert app_mod.store.usd_today_for(th) == 0  # the reservation was settled too
 
 
 def test_over_cap_call_is_refused_before_its_body_is_read(make_cloud):
@@ -484,6 +582,137 @@ def test_over_cap_call_is_refused_before_its_body_is_read(make_cloud):
     assert anthropic(client, h).status_code == 502
     r = client.post("/v1/anthropic/v1/messages", headers=h, content=b"not even json")
     assert r.status_code == 429 and r.json()["error"]["limit"] == "daily_requests"
+
+
+# --------------------------------------------------------------------------- reservations count input (fix 5, 12)
+
+def test_reservation_counts_input_tokens(make_cloud):
+    _, app_mod = make_cloud()
+    big = {"model": SONNET, "max_tokens": 1, "messages": msg("x" * 1_800_000)}
+    clean, uses, tokens = app_mod.sanitize_anthropic(big)
+    payload = len(json.dumps(clean).encode())
+    reserve = app_mod.anthropic_reserve(clean, payload, uses, tokens)
+    assert reserve == pytest.approx(payload // 3 * 2.0 / 1e6 + 10.0 / 1e6)  # ~$1.20, not $0.00001
+    assert reserve > 1.0
+    # images are held at IMAGE_RESERVE_TOKENS each, not at their base64 size
+    img = {"model": HAIKU, "max_tokens": 10, "messages": [{"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A" * 600_000}}]}]}
+    clean, uses, tokens = app_mod.sanitize_anthropic(img)
+    est = app_mod.input_tokens_estimate(len(json.dumps(clean).encode()), clean)
+    assert app_mod.IMAGE_RESERVE_TOKENS <= est < app_mod.IMAGE_RESERVE_TOKENS + 200
+
+
+def test_web_fetch_always_bounded_and_reserved(make_cloud):
+    client, app_mod = make_cloud(ANTHROPIC_SERVER_TOOLS="web_search,web_fetch", SERVER_TOOL_MAX_USES="3")
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    assert app_mod.WEB_FETCH_MAX_CONTENT_TOKENS == 20_000
+    for tool, want in (({"type": "web_fetch_20260209", "name": "web_fetch"}, 20_000),
+                       ({"type": "web_fetch_20260209", "name": "web_fetch", "max_content_tokens": 500_000}, 20_000),
+                       ({"type": "web_fetch_20260209", "name": "web_fetch", "max_content_tokens": 5_000}, 5_000)):
+        assert post_anthropic(client, h, {"model": HAIKU, "max_tokens": 10, "messages": msg(), "tools": [tool]}).status_code == 200
+        assert up.last["tools"][0]["max_content_tokens"] == want
+    clean, uses, tokens = app_mod.sanitize_anthropic({"model": SONNET, "max_tokens": 10, "messages": msg(), "tools": [
+        {"type": "web_fetch_20260209", "name": "web_fetch"}, {"type": "web_search_20250305", "name": "web_search"}]})
+    assert uses == 6 and tokens == 3 * 20_000 + 3 * app_mod.WEB_SEARCH_RESERVE_TOKENS
+    assert app_mod.anthropic_reserve(clean, 100, uses, tokens) > 0.06 + tokens * 2.0 / 1e6 - 1e-9
+
+
+def test_parallel_large_prompts_cannot_pass_the_caps_by_more_than_one_call(make_cloud):
+    """Every call reserves its input too, so a wave of large prompts in flight at once stops at the cap: the real
+    spend of everything admitted stays within the cap plus about one call."""
+    client, app_mod = make_cloud(DAILY_USD_CAP="2", FREE_DAILY_USD="0")
+    tokens = [install(client)[0] for _ in range(8)]
+    prompt = "x" * 1_000_000  # ~333k tokens by bytes / 3; the mock bills it at 250k (bytes / 4)
+    real = app_mod.estimate_usd(SONNET, 250_000, 1)
+
+    async def scenario():
+        gate = asyncio.Event()
+        calls = []
+
+        async def handler(request):
+            calls.append(request)
+            await gate.wait()
+            return httpx.Response(200, json={"type": "message", "model": SONNET, "content": [],
+                                             "usage": {"input_tokens": 250_000, "output_tokens": 1}})
+
+        app_mod.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        body = {"model": SONNET, "max_tokens": 1, "messages": msg(prompt)}
+        tasks = [asyncio.create_task(_asgi(app_mod.app, "/v1/anthropic/v1/messages", h, body, asyncio.Event())) for h in tokens]
+        for _ in range(300):
+            if len(calls) + sum(t.done() for t in tasks) == len(tasks):
+                break
+            await asyncio.sleep(0.01)
+        admitted = len(calls)
+        gate.set()
+        results = await asyncio.wait_for(asyncio.gather(*tasks), 10)
+        await app_mod.http.aclose()
+        return admitted, [s for s, _ in results]
+
+    admitted, statuses = asyncio.run(scenario())
+    assert 1 <= admitted < len(tokens) and statuses.count(200) == admitted
+    assert statuses.count(429) == len(tokens) - admitted
+    assert app_mod.store.usd_today() <= 2 + real + 1e-9
+    assert admitted * real <= 2 + real
+
+    # the per-install USD cap the same way: one install, calls in parallel
+    client, app_mod = make_cloud(FREE_DAILY_USD="1.50")
+    h, _ = install(client)
+    tokens = [h] * 6
+
+    async def one_install():
+        gate = asyncio.Event()
+        calls = []
+
+        async def handler(request):
+            calls.append(request)
+            await gate.wait()
+            return httpx.Response(200, json={"type": "message", "model": SONNET, "content": [],
+                                             "usage": {"input_tokens": 250_000, "output_tokens": 1}})
+
+        app_mod.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        body = {"model": SONNET, "max_tokens": 1, "messages": msg(prompt)}
+        tasks = [asyncio.create_task(_asgi(app_mod.app, "/v1/anthropic/v1/messages", t, body, asyncio.Event())) for t in tokens]
+        for _ in range(300):
+            if len(calls) + sum(t.done() for t in tasks) == len(tasks):
+                break
+            await asyncio.sleep(0.01)
+        admitted = len(calls)
+        gate.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 10)
+        await app_mod.http.aclose()
+        return admitted
+
+    admitted = asyncio.run(one_install())
+    assert 1 <= admitted < 6
+    assert app_mod.store.usd_today_for(app_mod.hash_token(h["Authorization"][7:])) <= 1.50 + real + 1e-9
+
+
+def test_gemini_reservation_counts_video_and_thinking(make_cloud):
+    _, app_mod = make_cloud()
+    price_in, price_out = app_mod.input_price(GEM), app_mod.output_price(GEM)
+    # the engine's window: 600 s at 0.5 fps, no thinkingConfig
+    window = {"contents": [{"parts": [{"fileData": {"fileUri": YT}, "videoMetadata": {"startOffset": "600s", "endOffset": "1200s",
+                                                                                        "fps": 0.5}}, {"text": "watch"}]}]}
+    clean, max_out = app_mod.sanitize_gemini(window)
+    payload = len(json.dumps(clean).encode())
+    video = int(600 * (0.5 * 258 + 32))
+    want = (payload // 3 + video) * price_in + (8192 + app_mod.GEMINI_THINKING_RESERVE_TOKENS) * price_out
+    assert app_mod.gemini_reserve(clean, GEM, payload) == pytest.approx(want)
+    assert app_mod.GEMINI_THINKING_RESERVE_TOKENS == 24_576 and app_mod.GEMINI_VIDEO_RESERVE_TOKENS == 300_000
+    # a whole video (no end offset) is held at GEMINI_VIDEO_RESERVE_TOKENS; LOW resolution frames are cheaper
+    whole = {"contents": [{"parts": [{"fileData": {"fileUri": YT}}]}]}
+    clean, _ = app_mod.sanitize_gemini(whole)
+    assert app_mod.gemini_reserve(clean, GEM, 0) >= 300_000 * price_in
+    low = {**window, "generationConfig": {"mediaResolution": "MEDIA_RESOLUTION_LOW"}}
+    clean, _ = app_mod.sanitize_gemini(low)
+    assert app_mod._video_tokens(clean["contents"][0]["parts"][0], True) == int(600 * (0.5 * 70 + 32))
+    # an explicit thinking budget (clamped) replaces the dynamic-thinking reserve
+    capped = {**window, "generationConfig": {"thinkingConfig": {"thinkingBudget": 100_000}}}
+    clean, _ = app_mod.sanitize_gemini(capped)
+    payload = len(json.dumps(clean).encode())
+    assert app_mod.gemini_reserve(clean, GEM, payload) == pytest.approx(
+        (payload // 3 + video) * price_in + (8192 + 2048) * price_out)
 
 
 # --------------------------------------------------------------------------- A08: lesson cache
@@ -559,12 +788,95 @@ def test_lesson_validation_accepts_normal_steps(make_cloud):
     h = claimed(client)
     lesson = {"title": "CNN", "files": ["train.py", "src/model.py"], "sources": ["https://pytorch.org/docs"],
               "steps": [{"title": "Train", "file": "train.py", "run_command": "python3 train.py --epochs 3",
-                         "checks": [{"type": "command", "label": "tests", "command": "pytest tests/ -q"},
+                         "checks": [{"type": "command_exit_ok", "label": "tests", "command": "pytest tests/ -q"},
                                     {"type": "file_contains", "label": "imports", "file": "src/model.py"}],
                          "targets": [{"file": "train.py", "match": "def train", "caption": "here"}]},
                         {"title": "Serve", "run_command": "npm run dev"}, {"title": "Test", "run_command": "pytest"},
                         {"title": "Node", "run_command": "node server.js"}]}
     assert put(client, h, lesson).status_code == 201
+
+
+# What the engine makes: VIDEO_DRAFT_SCHEMA (libraries as a list) and builder.assemble()'s graph (a dict).
+DRAFT = {"title": "PINN", "summary": "s", "libraries": [{"name": "torch", "version": "1.x"}, {"name": "pyDOE", "version": ""},
+                                                       {"name": "scikit-learn", "version": ">=1.3,<2"}],
+         "files": ["pinn.py"], "steps": [{
+             "start": "01:00", "end": "02:00", "title": "Train", "instructions": "Run it.", "file": "pinn.py", "code": "x = 1",
+             "run_command": "python3 -u pinn.py --steps 1", "expected_output": "loss 0.1",
+             "checks": [{"type": "screen_contains", "label": "loss", "app": "Terminal", "pattern": "loss"}],
+             "targets": [{"app": "Code", "file": "pinn.py", "match": "x = 1", "caption": "c"}],
+             "explanations": [{"topic": "loss", "t": "01:30"}], "hints": ["h"], "common_mistakes": ["m"]}]}
+GRAPH = {"lesson": {"id": "", "title": "React", "goal": "g", "libraries": {"react": "18.x", "vite": "4.x", "@types/node": "20.x"}},
+         "sources": [], "steps": [{
+             "id": "s1", "index": 1, "title": "Start", "instructions": "i", "video": {"sourceId": "src1", "start": "00:10", "end": "00:20"},
+             "checks": [{"id": "s1c1", "type": "screen_contains", "label": "l", "pattern": "Vite"}],
+             "precision_checks": [{"id": "s1p1", "type": "command_exit_ok", "label": "runs", "command": "python -m pytest -q"}],
+             "targets": [], "explanations": [{"topic": "t", "t": "00:12", "sourceId": "src1"}], "hints": [], "common_mistakes": [],
+             "run_command": "Run the cell (Shift+Enter)", "setup": True, "requires": ["node", "vscode"], "sample_output": "ok",
+             "solution": "s"}]}
+
+
+def test_lesson_validation_accepts_what_the_engine_makes(make_cloud):
+    client, app_mod = lesson_client(make_cloud, MAX_LESSON_KB="64")
+    for lesson in (DRAFT, GRAPH):
+        assert app_mod.validate_lesson(lesson) is None, lesson
+    h = claimed(client)
+    assert put(client, h, DRAFT).status_code == 201
+
+
+@pytest.mark.parametrize("patch, needle", [
+    ({"libraries": [{"name": "git+https://evil.example/x.git", "version": ""}]}, "libraries"),
+    ({"libraries": [{"name": "torch", "version": "https://evil.example/torch.whl"}]}, "libraries"),
+    ({"libraries": [{"name": "./evil", "version": ""}]}, "libraries"),
+    ({"libraries": [{"name": "torch", "version": "1.0 --index-url=x"}]}, "libraries"),
+    ({"libraries": [{"name": "--extra-index-url", "version": ""}]}, "libraries"),
+    ({"libraries": [{"name": "torch", "version": "1", "url": "x"}]}, "libraries"),
+    ({"lesson": {"libraries": {"evil @ file:///tmp/x": ""}}}, "libraries"),
+    ({"lesson": {"workdir": "/tmp"}}, "lesson.lesson"),
+    ({"precision": []}, "unknown lesson key"),
+    ({"steps": [{"title": "t", "precision_checks": [{"type": "command_exit_ok", "label": "l",
+                                                      "command": "python -m pip install evil"}]}]}, "check commands"),
+    ({"steps": [{"title": "t", "precision_checks": [{"type": "shell", "label": "l"}]}]}, "check type"),
+    ({"steps": [{"title": "t", "checks": [{"type": "command_exit_ok", "label": "l", "command": "node x.js", "cwd": "/"}]}]}, "check key"),
+    ({"steps": [{"title": "t", "workdir": "/tmp"}]}, "unknown step key"),
+    ({"steps": [{"title": "t", "targets": [{"match": "m", "caption": "c", "command": "x"}]}]}, "targets"),
+    ({"steps": [{"title": "t", "requires": ["node; rm -rf ~"]}]}, "requires"),
+])
+def test_lesson_validation_refuses_what_could_run_on_learners_macs(make_cloud, patch, needle):
+    _, app_mod = lesson_client(make_cloud)
+    lesson = {**DRAFT, **patch}
+    why = app_mod.validate_lesson(lesson)
+    assert why and needle in why, why
+
+
+@pytest.mark.parametrize("cmd", ["python -m pip install requests", "python3 -m http.server 8000", "python -c print",
+                                 "node -e process.exit", "node --require ./x.js app.js", "node --import x app.js",
+                                 "npx create-react-app x", "npm run -s dev", "pytest -p evil", "python -m pytest -p evil",
+                                 "pytest -c other.ini", "python -m ensurepip", "python -m webbrowser x", "python -m",
+                                 "python", "python -u", "node --inspect app.js", "python3 -m site"])
+def test_run_commands_that_run_or_install_code_are_refused(make_cloud, cmd):
+    _, app_mod = lesson_client(make_cloud)
+    assert app_mod._ok_command(cmd) is False
+    assert "step 1" in app_mod.validate_lesson({"steps": [{"title": "t", "run_command": cmd}]})
+
+
+@pytest.mark.parametrize("cmd", ["python3 train.py --epochs 3", "python -u train.py", "python3 -m venv venv", "python -m pytest -q",
+                                 "python -m unittest", "python -m flask run", "python -m streamlit run app.py", "pytest tests/ -q",
+                                 "pytest", "node server.js", "node server.js -e x", "npm run dev", "Run the cell (Shift+Enter)"])
+def test_plain_run_commands_still_pass(make_cloud, cmd):
+    _, app_mod = lesson_client(make_cloud)
+    assert app_mod._ok_command(cmd) is True
+
+
+def test_pending_view_shows_libraries_and_commands(make_cloud):
+    client, _ = lesson_client(make_cloud, MAX_LESSON_KB="64")
+    h = claimed(client)
+    assert put(client, h, DRAFT).status_code == 201
+    pending = client.get("/admin/lessons/pending", headers=ADMIN).json()["pending"]
+    assert len(pending) == 1
+    p = pending[0]
+    assert p["libraries"] == ["torch 1.x", "pyDOE", "scikit-learn >=1.3,<2"]
+    assert p["commands"] == ["python3 -u pinn.py --steps 1"] and p["files"] == ["pinn.py"]
+    assert "body" not in p
 
 
 def test_lesson_pending_until_approved_and_purge_by_uploader(make_cloud):

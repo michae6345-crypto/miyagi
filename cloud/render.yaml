@@ -42,10 +42,17 @@ services:
         value: web_search,web_fetch
       - key: SERVER_TOOL_MAX_USES
         value: "5"
+      - key: WEB_FETCH_MAX_CONTENT_TOKENS  # every web_fetch goes upstream with at most this max_content_tokens
+        value: "20000"
       - key: GEMINI_MAX_OUTPUT_TOKENS
         value: "8192"
       - key: GEMINI_MAX_THINKING_TOKENS
         value: "2048"
+      # Cost reservations (README, Reservations): held while a call is in flight, settled to the real usage
+      - key: GEMINI_THINKING_RESERVE_TOKENS  # thinking held for a Gemini call without a thinkingBudget
+        value: "24576"
+      - key: GEMINI_VIDEO_RESERVE_TOKENS     # input held for a YouTube part without an end offset
+        value: "300000"
       - key: MAX_BODY_MB
         value: "2"
       - key: MAX_GEMINI_BODY_MB
@@ -65,9 +72,12 @@ services:
         value: "5"
       - key: RATE_LIMIT_MAX_KEYS
         value: "200000"
+      - key: ADMIN_FAILURE_MAX_KEYS
+        value: "20000"
       - key: TRUSTED_PROXY_HOPS    # check the "X-Forwarded-For entries" log line on staging (README, Rate limits)
         value: "1"
-      # CLIENT_IP_HEADER: unset (X-Forwarded-For). Set it, e.g. to cf-connecting-ip, only behind such a proxy.
+      # CLIENT_IP_HEADER: unset (X-Forwarded-For). Set it, e.g. to cf-connecting-ip, only behind such a proxy, and
+      # only once the onrender.com origin cannot be reached directly: anyone who reaches it can forge that header.
       # Install minting (SQLite, survives deploys)
       - key: REGISTER_LIMIT_PER_HOUR
         value: "20"
@@ -77,16 +87,22 @@ services:
         value: "500"
       - key: GLOBAL_MINTS_PER_HOUR
         value: "2000"
+      - key: MINT_IPV6_PREFIX      # mints (and the per-network spend ceiling) count IPv6 by this prefix
+        value: "48"
       # Calls in flight
-      - key: PER_TOKEN_INFLIGHT
-        value: "4"
+      - key: PER_TOKEN_INFLIGHT    # the engine runs up to ~10 calls at once (README, Calls in flight)
+        value: "10"
       - key: GLOBAL_INFLIGHT
         value: "80"
+      - key: BODY_READ_TIMEOUT_S   # a request body must arrive within this (408 after)
+        value: "20"
       # Caps for every role (README, Free tier caps: why these numbers)
       - key: FREE_DAILY_REQUESTS
         value: "300"
       - key: FREE_DAILY_USD
         value: "1.00"
+      - key: ANON_DAILY_USD_PER_NETWORK  # every anonymous install minted from one network together, per UTC day
+        value: "5.00"
       - key: LINKED_DAILY_REQUESTS
         value: "1000"
       - key: LINKED_DAILY_USD

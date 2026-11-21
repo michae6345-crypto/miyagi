@@ -30,7 +30,7 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `GET /admin`, `POST /admin` | admin token typed into a form | The same report as HTML. The token is posted in the form body, never in the URL. |
 | `POST /admin/tokens/{prefix}/disable` and `/enable` | `X-Admin-Token` | Turn one install token off or on, by the first 8+ hex characters of its hash. |
 | `POST /admin/tokens/{prefix}/plan` | `X-Admin-Token` | Body `{"plan": "free"}` or `{"plan": "pro"}`. Pro installs skip the per-install caps. |
-| `GET /admin/lessons/pending` | `X-Admin-Token` | Uploaded lessons waiting for review: video, schema, 16-hex body hash, uploader prefix, size. |
+| `GET /admin/lessons/pending` | `X-Admin-Token` | Uploaded lessons waiting for review: video, schema, 16-hex body hash, uploader prefix, size, and what to read before approving: the `libraries` it installs, every `commands` entry it suggests or runs, its `files`. |
 | `POST /admin/lessons/{video_id}/approve` | `X-Admin-Token` | Body `{"hash": "<8+ hex of the body hash>", "schema": N?}`. Serve that candidate (replaces any approved one). |
 | `DELETE /admin/lessons/by-uploader/{prefix}` | `X-Admin-Token` | Drop every lesson one install uploaded (approved or pending). |
 | `DELETE /admin/lessons/{video_id}` | `X-Admin-Token` | Drop every candidate of a video (every schema). |
@@ -57,9 +57,13 @@ key (`metadata`, `inference_geo`, `task_budget`, ...) is dropped. Refused with 4
   `input_schema`, `strict`, `cache_control`): `web_search_*`, `web_fetch_*`, `code_execution_*`, `bash_*`,
   `computer_*`, `text_editor_*`, `memory_*`, `mcp_toolset`, advisor and the rest. `ANTHROPIC_SERVER_TOOLS`
   (`web_search`, `web_fetch`) re-allows the two web tools, with `max_uses` capped at `SERVER_TOOL_MAX_USES` and
-  every use counted at $0.01 in the caps.
-- Content blocks whose `source.type` is `url` or `file` (in messages, tool results or system), and
-  `container_upload` blocks: Anthropic would fetch them on our account. Base64 images and documents are fine.
+  every use counted at $0.01 in the caps. `web_fetch` always goes upstream with a `max_content_tokens` of at most
+  `WEB_FETCH_MAX_CONTENT_TOKENS` (20000), sent even when the client sends none: a fetched page is billed as input.
+- A `source` whose `type` is `url` or `file`, and `container_upload` blocks, anywhere under `messages` or `system`:
+  every nested object and list is walked (a tool result's content, a document's `source.content`, a search
+  result's content), only a `tool_use` block's `input` (the model's own JSON) is skipped, and content nested
+  deeper than 32 levels is refused rather than left unchecked. Anthropic would fetch those on our account. Base64
+  images and documents are fine.
 - `anthropic-beta` values outside `ANTHROPIC_BETAS` (default `server-side-fallback-2026-07-01`, the only one
   the engine sends).
 - `speed: "fast"` unless `ALLOW_FAST_MODE=true` (fast mode bills 2x; the engine retries at standard speed).
@@ -78,6 +82,11 @@ fallback may answer on Sonnet 5), never an Opus id.
   `maxOutputTokens` clamped to `GEMINI_MAX_OUTPUT_TOKENS` and sent even when the client sends none,
   `thinkingConfig.thinkingBudget` clamped to `GEMINI_MAX_THINKING_TOKENS`). Parts keep `text`, `inlineData`,
   `fileData`, `videoMetadata`, function calls and responses.
+- Thinking: the engine sends no `thinkingConfig`, so the model's default dynamic thinking applies and is not
+  clamped (no budget is injected: nobody has checked offline that video lessons stay as good with one). Instead
+  the reservation holds `GEMINI_THINKING_RESERVE_TOKENS` (24576, dynamic thinking's ceiling) at the output price
+  for any call without a `thinkingBudget`, and the real thinking tokens (`thoughtsTokenCount`) are billed when it
+  settles. Set `GEMINI_MAX_THINKING_TOKENS` and have the engine send a budget to bound it outright.
 - `cachedContent` is refused.
 - `fileData.fileUri` must be `https://www.youtube.com/watch?v=<11 chars>` or `https://youtu.be/<11 chars>`
   (extra query parameters such as `&t=42s` are dropped; the canonical watch URL is forwarded). Files API
@@ -132,13 +141,22 @@ how much of it still overlaps: O(1) per key):
 `install_global` from the install limit below). `Retry-After` is in seconds (at least 1), and
 `x-should-retry: false` is added when the wait is over 60 s so the SDKs do not retry on their own. The engine
 (`server/config.py` `cloud_error()`) reads a proxy-shaped 429 `rate_limit_error` as `miyagi_quota` and shows
-its card ("You've reached today's limit. It resets tomorrow.") instead of retrying in a loop.
+its card instead of retrying in a loop.
+
+**Known engine gap (follow-up, does not block this PR).** On `integration/live`, `_classify_cloud` maps *every*
+proxy-shaped 429 `rate_limit_error` to `miyagi_quota` with a TTL until UTC midnight. So an hourly `ip_hourly` or
+`token_hourly` 429 makes the app say "You've reached today's limit. It resets tomorrow." until midnight, although
+it clears within the hour. The engine should read `error.limit`: `ip_hourly`, `token_hourly` and `install_*` are
+transient (TTL = `Retry-After`); only the daily caps (`type: miyagi_quota`) last until midnight. Engine ticket to
+open: "cloud_error: treat error.limit ip_hourly / token_hourly / install_* as transient (TTL retry-after)".
 
 The client IP is the `X-Forwarded-For` entry at position `-TRUSTED_PROXY_HOPS` (1: Render's load balancer
 appends the address it saw). Entries further left are whatever the client wrote and are never trusted; with
 fewer entries than hops, or an invalid entry, the socket peer is used. Ports are stripped and addresses are
 validated. `CLIENT_IP_HEADER` (for example `cf-connecting-ip` behind Cloudflare) is used instead, only when
-set. IPv6 clients are counted by their /64 (one home or phone gets a whole /64); IPv4 by the full address.
+set. **Warning:** anyone who can reach the `onrender.com` origin directly can send that header with any value
+they like, so set it only once the origin accepts traffic from that proxy alone. IPv6 clients are counted by
+their /64 (one home or phone gets a whole /64); IPv4 by the full address.
 
 Memory is bounded: at most `RATE_LIMIT_MAX_KEYS` (200000) keys. Expired keys are swept at most once a
 minute, and when the table is still full a new key evicts the key with the oldest window.
@@ -148,12 +166,23 @@ instances would each allow the full amount. Today the service is one Render star
 a disk runs one instance), so that is the real limit. The install limit and every cap below live in SQLite and
 survive deploys.
 
-**Check the hop count on staging.** On its first request after a start the service logs, at INFO, how many
-`X-Forwarded-For` entries it saw (the count only, never the addresses):
-`first request: 1 X-Forwarded-For entry (TRUSTED_PROXY_HOPS=1)`. Hit `/v1/install` once on staging and read
-the Render log. 1 entry with `TRUSTED_PROXY_HOPS=1` is right. If a CDN or a second proxy sits in front and
-the count is 2, set `TRUSTED_PROXY_HOPS=2` (or `CLIENT_IP_HEADER`). If `curl -H 'X-Forwarded-For: 1.2.3.4'`
-raises the count by one, the left entries are the client's, as expected.
+**Release gate: check the hop count on staging before this reaches production.** If Render (or Cloudflare in
+front of it) adds more than one entry, `TRUSTED_PROXY_HOPS=1` picks a proxy's address: every learner lands in a
+few proxy buckets, and the 100/h IP limit then blocks `/v1/install` and `/v1/link` for everyone. On its first
+request after a start (and once more on the first request that carries the header, if the first had none) the
+service logs at INFO how many `X-Forwarded-For` entries it saw and what kind of address the chosen entry is, never
+the addresses themselves:
+
+    first request: 1 X-Forwarded-For entry (TRUSTED_PROXY_HOPS=1); the chosen entry is a global address
+
+Steps: deploy to staging, call `/v1/install` once from a normal connection, and read the Render log.
+
+- `a global address` with 1 entry: right. Ship.
+- `a Cloudflare address (wrong hop count)` or `a private or reserved address (likely a proxy: wrong hop count)`,
+  or a count of 2 or more from a plain request: a proxy sits in front. Set `TRUSTED_PROXY_HOPS` to the count (or
+  `CLIENT_IP_HEADER`, with the warning above) and check again.
+- Then restart and repeat with `curl -H 'X-Forwarded-For: 1.2.3.4' .../v1/install`: the count must go up by one
+  and the kind must stay `a global address` (the client's own entries are on the left and never used).
 
 ### Install minting
 
@@ -162,19 +191,39 @@ and clock hour, rows older than two days pruned), so a deploy does not reset it:
 
 | Env | Default | |
 |---|---|---|
-| `REGISTER_LIMIT_PER_HOUR` | 20 | Per client IP (IPv6 /64) per clock hour. Schools and offices share one IP. |
-| `REGISTER_LIMIT_PER_DAY` | 60 | Per client IP over the last 24 clock hours. |
+| `REGISTER_LIMIT_PER_HOUR` | 20 | Per client network per clock hour: IPv4 the address, IPv6 its `/MINT_IPV6_PREFIX` (48). Schools and offices share one IP. |
+| `REGISTER_LIMIT_PER_DAY` | 60 | Per client network over the last 24 clock hours. |
+| `MINT_IPV6_PREFIX` | 48 | ISPs hand one home a /56 or a /48, so counting mints by /64 would give one user 256 to 65536 buckets. |
 | `GLOBAL_MINTS_WARN_PER_HOUR` | 500 | Every network together: a WARNING once an hour from here on. |
 | `GLOBAL_MINTS_PER_HOUR` | 2000 | Every network together: new installs get 429 `install_global` until the next hour. |
 
+Each token row keeps the network it was minted from (`tokens.mint_net`), and `ANON_DAILY_USD_PER_NETWORK` (5.00)
+caps the estimated spend of every *unlinked* install minted from one network together per UTC day (429
+`miyagi_quota`, `limit: daily_spend`, `scope: network`). Without it one IPv4 address could mint 60 installs a day
+x `FREE_DAILY_USD` = $60, past the $25 `DAILY_USD_CAP` that stops everyone. A school behind one address shares
+those $5 while anonymous; signed-in learners count per account instead. Tokens minted before this version have
+no network and only their own caps.
+
 ## Calls in flight
 
-`PER_TOKEN_INFLIGHT` (4) calls per install token and `GLOBAL_INFLIGHT` (80) in total may be with a provider
+`PER_TOKEN_INFLIGHT` (10) calls per install token and `GLOBAL_INFLIGHT` (80) in total may be with a provider
 at once. One more gets a 429 with type `concurrency_limit_error` (not `rate_limit_error`, so the engine treats
-it as transient), `limit: inflight_token | inflight_global` and `Retry-After: 1`; the SDKs retry it. The slot is
-taken after authentication and a read-only check of the caps, before the request body is read, and released in a
-`finally` when the response ends: a JSON response, an upstream error, the end of a stream, or a client that
-hangs up mid-stream. Oversized bodies are refused on `Content-Length` before any of this (`Guard`).
+it as transient), `limit: inflight_token | inflight_global` and `Retry-After: 1`.
+
+**Why 10 per install, and not 4.** Counted from the engine on `integration/live`: `server/lesson/claude.py` runs
+up to 4 Claude calls at once (`CONCURRENCY`), `server/lesson/progressive.py` watches 3 Gemini windows in parallel
+(`PARALLEL_WINDOWS`) while the learner already works, and the coach's scene looks, judge, screen picks and
+diagrams run alongside: about 9-10 at the peak. Several of those never retry a 429 (the scene look and diagrams
+use `max_retries=0`, the finder's Gemini `attempts=1`), and a 429 on a Gemini window makes `builder.py` treat it as
+"quota" and fall back to the transcript, so long-video lessons get worse. 4 would cut real lessons; 10 does not.
+
+The two slots are taken at different times. The per-install slot is taken after authentication and a read-only
+check of the caps, before the request body is read, so one install cannot open more bodies than its slots. The
+global slot is taken only once the body has arrived and passed the allowlist, so slow uploads cannot hold the
+slots every other install needs. The body must arrive within `BODY_READ_TIMEOUT_S` (20 s; every route that reads a
+body), else 408 `request_timeout` and the slot is released. Both slots are released in a `finally` when the call
+ends: a JSON response, an upstream error, a cancelled read, the end of a stream, or a client that hangs up
+mid-stream. Oversized bodies are refused on `Content-Length` before any of this (`Guard`).
 
 ## Accounts: `POST /v1/link`
 
@@ -224,6 +273,7 @@ the same. Installs start on the `free` plan. A cap set to 0 is off.
 |---|---|---|---|
 | All AI calls, anonymous install, per UTC day | `FREE_DAILY_REQUESTS` | 300 | Every forwarded call of an unlinked install. |
 | Estimated USD, anonymous install, per UTC day | `FREE_DAILY_USD` | 1.00 | The same calls' estimated cost. |
+| Estimated USD, every anonymous install of one network, per UTC day | `ANON_DAILY_USD_PER_NETWORK` | 5.00 | See "Install minting". |
 | All AI calls, linked user, per UTC day | `LINKED_DAILY_REQUESTS` | 1000 | Every install linked to the same Supabase user, together. |
 | Estimated USD, linked user, per UTC day | `LINKED_DAILY_USD` | 3.00 | The same, in dollars. |
 | Coach calls per UTC day | `FREE_COACH_CALLS_PER_DAY` | 60 | An extra cap on `x-miyagi-role: coach`, anonymous and linked installs. |
@@ -241,11 +291,22 @@ target picks (up to 6 a minute, role screen) and coach cards. So one normal less
 $0.30-0.60: 100 calls or $0.25 would stop a learner in the middle of their first lesson. 300 / $1.00 covers one
 full lesson with room for retries; 1000 / $3.00 covers three or four lessons a day for a signed-in learner.
 
-**Reservations.** When a call is admitted, its worst-case cost is reserved in the same transaction that checks
-and counts it: `max_tokens` (after the cap) times the model's output price, plus $0.01 per allowed server-tool
-use, for Anthropic; the clamped `maxOutputTokens` times the output price for Gemini. When the call ends (or
-fails, or the client hangs up) the reservation is swapped for the real cost read from the response. Parallel
-calls therefore cannot all slip under a USD cap, and a refused call is not counted.
+**Reservations.** When a call is admitted, its likely worst-case cost is reserved in the same transaction that
+checks and counts it, input included (a large prompt with `max_tokens: 1` is not free):
+
+- Input: the forwarded JSON's bytes / 3 at the input price (real text is nearer 4 bytes a token, so this errs
+  high), with each base64 image at 5000 tokens instead of its bytes. Anthropic adds what the allowed server tools
+  may pull in: `max_content_tokens` per `web_fetch` use and 8000 tokens per `web_search` use. Gemini adds each
+  YouTube part: with an end offset (the engine's windows), its seconds x (fps x 258 tokens a frame, 70 at
+  `MEDIA_RESOLUTION_LOW`, + 32 audio tokens); without one, `GEMINI_VIDEO_RESERVE_TOKENS` (300000, about 30 minutes
+  at the engine's 0.5 fps).
+- Output: Anthropic `max_tokens` (after the cap; thinking is inside it); Gemini the clamped `maxOutputTokens` plus
+  the thinking the call may do (its clamped `thinkingBudget`, else `GEMINI_THINKING_RESERVE_TOKENS`), at the
+  output price. Plus $0.01 per allowed server-tool use.
+
+When the call ends (or fails, or the client hangs up) the reservation is swapped for the real cost read from the
+response. Parallel calls therefore cannot all slip under a USD cap: with 80 calls in flight, the caps are passed
+by at most about one call's estimation error, not by a whole wave. A refused call is not counted.
 
 Over a cap the proxy answers 429 with `x-should-retry: false`, `retry-after`, and:
 
@@ -308,11 +369,25 @@ Rules:
   uploads lessons yet, so 1 is the only draft version in use. Add the next version there when the engine ships it.
 - `MAX_LESSON_KB` (128): the lesson is stored as UTF-8 JSON (`ensure_ascii=False`) and its size is checked after
   encoding, so `\uXXXX` escapes on the wire neither dodge the limit nor inflate what is stored.
-- Validation: 1 to 300 steps, all objects; every string at most 20000 characters, nesting at most 12 deep.
-  `run_command` (and a check's `command`) must match `^(python3?|pytest|node|npm run) [A-Za-z0-9_./ -]+$` (or be
-  `pytest` alone): no shell metacharacters, no URLs, no `..`. `file`, `files`, `targets[].file` and
-  `checks[].file` must be relative paths inside the project (no `..`, not absolute, no `~`, no drive letter).
-  `sources` must be `https://` URLs.
+- Validation (engines pip-install a lesson's libraries, run its commands and open its files on learners' Macs; do
+  this before `LESSON_AUTO_APPROVE_N` is ever turned on, and it backs up admin review):
+  - 1 to 300 steps, all objects; every string at most 20000 characters, nesting at most 12 deep.
+  - Only the keys of the engine's video draft (`server/lesson/schema.py` `VIDEO_DRAFT_SCHEMA`) and the step graph
+    `builder.assemble()` makes from it. Top level: `title`, `summary`, `libraries`, `files`, `steps`, `lesson`
+    (`id`, `title`, `goal`, `summary`, `libraries`), `sources`. Steps: the draft's step keys plus `id`, `index`,
+    `video`, `precision_checks`, `sample_output`, `solution`, `setup`, `requires`. Checks (`checks` and
+    `precision_checks`): the draft's check keys plus `id`, and `type` one of the engine's check types. Any other key
+    is refused, so nothing an engine acts on passes unchecked.
+  - `libraries` (`[{name, version}]` or `{name: version}`): plain package names (`[A-Za-z0-9._-]`, an optional
+    `@scope/` and `[extras]`) and plain versions (`18.x`, `>=1.3,<2`): no URLs, `git+`, paths, spaces or options.
+  - `run_command` and every check `command`: `^(python3?|pytest|node|npm run) [A-Za-z0-9_./ -]+$` (or `pytest`
+    alone, or the engine's notebook text `Run the cell (Shift+Enter)`), with no `//`, `www.` or `..`, and nothing
+    that runs code written on the command line or installs or serves anything: python takes a script first
+    (after `-u`/`-B`/`-O`) or `-m` with only `pytest`, `unittest`, `venv`, `flask` or `streamlit` (no `-c`,
+    `-m pip`, `-m http.server`); node takes a script first (no `-e`, `--require`, `--import`, `--inspect`); `npm run`
+    a script name; no `npx`; pytest without `-p`, `-c`, `--pyargs` or `--rootdir`.
+  - `file`, `files`, `targets[].file` and check files: relative paths inside the project (no `..`, not absolute,
+    no `~`, no drive letter). `sources`: `https://` URLs.
 - Only an install that claimed a build of the video may upload it, at most `LESSON_PUTS_PER_DAY` (10) uploads per
   install per UTC day (429 `lesson_uploads`).
 - Uploads stop with 507 `insufficient_storage` while the database disk is over `LESSON_DISK_MAX_PCT` (85) percent
@@ -382,8 +457,11 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `ANTHROPIC_BETAS` | `server-side-fallback-2026-07-01` | `anthropic-beta` values forwarded; any other is refused. |
 | `ANTHROPIC_SERVER_TOOLS` | empty | `web_search` and/or `web_fetch` to allow those server tools (see below). |
 | `SERVER_TOOL_MAX_USES` | `5` | Cap on an allowed server tool's `max_uses`. |
+| `WEB_FETCH_MAX_CONTENT_TOKENS` | `20000` | `max_content_tokens` sent with every `web_fetch` (the client's, at most this). |
 | `GEMINI_MAX_OUTPUT_TOKENS` | `8192` | Clamp on (and default for) `generationConfig.maxOutputTokens`. |
 | `GEMINI_MAX_THINKING_TOKENS` | `2048` | Clamp on `thinkingConfig.thinkingBudget`. |
+| `GEMINI_THINKING_RESERVE_TOKENS` | `24576` | Thinking held in the reservation for a Gemini call without a `thinkingBudget`. |
+| `GEMINI_VIDEO_RESERVE_TOKENS` | `300000` | Input held for a YouTube part without an end offset. |
 | `ALLOW_FAST_MODE` | `false` | Allow Anthropic `speed: "fast"`. |
 | `ANTHROPIC_VERSION` | `2023-06-01` | Used when the client sends no `anthropic-version`. |
 | `MAX_BODY_MB` / `MAX_GEMINI_BODY_MB` | `2` / `8` | Request size limits. |
@@ -393,12 +471,16 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `ADMIN_RATE_LIMIT_PER_IP_PER_HOUR` | `20` | `/admin*` requests per client IP. |
 | `ADMIN_LOCKOUT_FAILURES` | `5` | Wrong admin tokens per IP per hour before the lockout. |
 | `RATE_LIMIT_MAX_KEYS` | `200000` | Bound on the limiter's memory. |
+| `ADMIN_FAILURE_MAX_KEYS` | `20000` | Bound on the admin-failure table (a tuple of at most 5 times per IP bucket: a few MB). |
 | `TRUSTED_PROXY_HOPS` | `1` | Which `X-Forwarded-For` entry (from the right) is the client IP. |
-| `CLIENT_IP_HEADER` | empty | A header to read the client IP from instead (for example `cf-connecting-ip`). |
-| `REGISTER_LIMIT_PER_HOUR` / `REGISTER_LIMIT_PER_DAY` | `20` / `60` | Installs minted per client IP (SQLite). |
+| `CLIENT_IP_HEADER` | empty | A header to read the client IP from instead (for example `cf-connecting-ip`). Forgeable by anyone who reaches the origin directly. |
+| `REGISTER_LIMIT_PER_HOUR` / `REGISTER_LIMIT_PER_DAY` | `20` / `60` | Installs minted per client network (SQLite). |
+| `MINT_IPV6_PREFIX` | `48` | The IPv6 prefix mints and the per-network spend ceiling count by. |
 | `GLOBAL_MINTS_WARN_PER_HOUR` / `GLOBAL_MINTS_PER_HOUR` | `500` / `2000` | Installs minted per hour, every client together: warn / refuse. |
-| `PER_TOKEN_INFLIGHT` / `GLOBAL_INFLIGHT` | `4` / `80` | AI calls in flight per install / in total. |
+| `PER_TOKEN_INFLIGHT` / `GLOBAL_INFLIGHT` | `10` / `80` | AI calls in flight per install / in total. |
+| `BODY_READ_TIMEOUT_S` | `20` | Seconds a request body may take to arrive (408 after). |
 | `FREE_DAILY_REQUESTS` / `FREE_DAILY_USD` | `300` / `1.00` | Anonymous install caps per UTC day. 0 = off. |
+| `ANON_DAILY_USD_PER_NETWORK` | `5.00` | Every anonymous install minted from one network together, per UTC day. 0 = off. |
 | `LINKED_DAILY_REQUESTS` / `LINKED_DAILY_USD` | `1000` / `3.00` | Linked user caps per UTC day, all their installs. 0 = off. |
 | `FREE_COACH_CALLS_PER_DAY` | `60` | Coach calls per install per UTC day. 0 = off. |
 | `FREE_LESSON_BUILDS_PER_MONTH` | `3` | New lesson builds per free install per UTC month. 0 = off. |
@@ -452,8 +534,9 @@ Check `ADMIN_TOKEN`: Render generates a long random value (`generateValue: true`
 by hand to something short, `/admin` now answers 503 and the log says why; replace it with the output of
 `python -c 'import secrets;print(secrets.token_urlsafe(32))'`.
 
-Before the first deploy of this version, on staging: check the `X-Forwarded-For` count line in the log (see
-"Rate limits"), and that the defaults in "Free tier caps" fit what you want to give away.
+Before this version reaches production (`claude/eng-proxy`), on staging: pass the release gate in "Rate limits"
+(the `X-Forwarded-For` count and kind line), and check that the defaults in "Free tier caps" fit what you want to
+give away. Merging into `claude/eng-proxy-next` does not need it.
 
 ## Run locally
 

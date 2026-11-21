@@ -13,6 +13,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 
 from test_caps import ADMIN, ADMIN_TOKEN, CLOUD, install, make_cloud  # noqa: F401  (make_cloud is a fixture)
 
@@ -137,6 +139,27 @@ def test_unknown_token_counts_against_the_ip(make_cloud):
     assert client.post("/v1/anthropic/v1/messages", headers={**h, **ip}, json=body).status_code == 502  # closed upstream
 
 
+def test_duplicated_auth_header_cannot_move_guesses_to_a_valid_tokens_budget(make_cloud):
+    """[Bearer <guess>, Bearer <valid>]: authenticate() checks the first (the guess), so the limiter must count the
+    first too. Counted against the valid token, every guess got a 401 and none a 429."""
+    client, app_mod = make_cloud(RATE_LIMIT_PER_IP_PER_HOUR="5")
+    valid, _ = install(client)
+    body = {"model": "claude-haiku-5-5", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]}
+    statuses = []
+    for i in range(20):
+        headers = [("Authorization", f"Bearer mi_guess{i:04d}"), ("Authorization", valid["Authorization"]),
+                   ("X-Forwarded-For", "100.64.0.9")]
+        statuses.append(client.post("/v1/anthropic/v1/messages", headers=headers, json=body).status_code)
+    assert statuses[:5] == [401] * 5 and statuses[5:] == [429] * 15
+    # the other order is the valid token first: counted against it, and it works
+    headers = [("Authorization", valid["Authorization"]), ("Authorization", "Bearer mi_guess"), ("X-Forwarded-For", "100.64.0.9")]
+    assert client.post("/v1/anthropic/v1/messages", headers=headers, json=body).status_code == 502  # closed upstream
+    # same for x-api-key and x-goog-api-key
+    for name in ("x-api-key", "x-goog-api-key"):
+        headers = [(name, "mi_guess"), (name, valid["Authorization"][7:]), ("X-Forwarded-For", "100.64.0.9")]
+        assert client.post("/v1/anthropic/v1/messages", headers=headers, json=body).status_code == 429
+
+
 def test_disabled_token_counts_against_the_ip(make_cloud):
     client, _ = make_cloud(RATE_LIMIT_PER_IP_PER_HOUR="3")
     h, token_id = install(client)
@@ -185,6 +208,24 @@ def test_admin_lockout_after_five_wrong_tokens(make_cloud, caplog, monkeypatch):
     assert_rate_limited(client.get("/admin/usage", headers={**ADMIN, **ip}), "admin_lockout")
     monkeypatch.setattr(app_mod, "_now", lambda: t0 + 3601)
     assert client.get("/admin/usage", headers={**ADMIN, **ip}).status_code == 200
+
+
+def test_admin_failure_memory_is_small_and_bounded(make_cloud):
+    """Its own bound (20000, not the limiter's 200000) and a tuple of a few floats per bucket, not a deque."""
+    _, app_mod = make_cloud()
+    fails = app_mod.admin_failures
+    assert fails.max_keys == app_mod.ADMIN_FAILURE_MAX_KEYS == 20_000
+    for i in range(30_000):
+        fails.record(f"2001:db8:{i >> 16 & 0xffff:x}:{i & 0xffff:x}::/64")
+    assert len(fails) == 20_000
+    rec = next(iter(fails._d.values()))
+    assert isinstance(rec, tuple) and len(rec) <= app_mod.ADMIN_LOCKOUT_FAILURES
+    # five failures still lock, and only the last ADMIN_LOCKOUT_FAILURES times are kept
+    for _ in range(7):
+        n = fails.record("192.0.2.99")
+    assert n == 5 and len(fails._d["192.0.2.99"]) == 5 and fails.locked("192.0.2.99") > 0
+    _, app_mod = make_cloud(ADMIN_FAILURE_MAX_KEYS="10")
+    assert app_mod.admin_failures.max_keys == 10
 
 
 def test_admin_lockout_holds_with_rate_limits_off(make_cloud):
@@ -259,11 +300,30 @@ def test_ipv6_is_bucketed_by_64(make_cloud):
 def test_xff_count_logged_once_without_addresses(make_cloud, caplog):
     client, _ = make_cloud()
     with caplog.at_level(logging.INFO, logger="miyagi.cloud"):
-        client.post("/v1/install", headers=xff("6.6.6.6, 198.51.100.200"), json={})
-        client.post("/v1/install", headers=xff("198.51.100.201"), json={})
+        client.post("/v1/install", headers=xff("6.6.6.6, 81.2.69.160"), json={})
+        client.post("/v1/install", headers=xff("81.2.69.161"), json={})
     lines = [r.getMessage() for r in caplog.records if "X-Forwarded-For" in r.getMessage()]
-    assert lines == ["first request: 2 X-Forwarded-For entries (TRUSTED_PROXY_HOPS=1)"]
-    assert "198.51.100.20" not in caplog.text and "6.6.6.6" not in caplog.text
+    assert lines == ["first request: 2 X-Forwarded-For entries (TRUSTED_PROXY_HOPS=1); the chosen entry is a global address"]
+    assert "81.2.69.16" not in caplog.text and "6.6.6.6" not in caplog.text
+
+
+def test_xff_log_says_when_the_chosen_entry_is_a_proxy(make_cloud, caplog):
+    """The staging release gate: a Cloudflare or private chosen entry means TRUSTED_PROXY_HOPS is wrong."""
+    client, app_mod = make_cloud()
+    with caplog.at_level(logging.INFO, logger="miyagi.cloud"):
+        client.post("/v1/install", json={})  # no X-Forwarded-For (an internal check): logged, then one more chance
+        client.post("/v1/install", headers=xff("81.2.69.160, 104.16.1.1"), json={})
+        client.post("/v1/install", headers=xff("10.0.0.7"), json={})
+    lines = [r.getMessage() for r in caplog.records if "X-Forwarded-For" in r.getMessage()]
+    assert lines == ["first request: 0 X-Forwarded-For entries (TRUSTED_PROXY_HOPS=1); the chosen entry is none "
+                     "(the socket peer is used)",
+                     "first request: 2 X-Forwarded-For entries (TRUSTED_PROXY_HOPS=1); the chosen entry is a Cloudflare "
+                     "address (wrong hop count)"]
+    assert "104.16.1.1" not in caplog.text and "81.2.69.160" not in caplog.text
+    kind = app_mod._ip_kind
+    ip = app_mod.ipaddress.ip_address
+    assert kind(ip("10.1.2.3")).startswith("a private") and kind(ip("2606:4700::1")).startswith("a Cloudflare")
+    assert kind(ip("2a00:1450::1")) == "a global address" and kind(None).startswith("not a valid")
 
 
 # --------------------------------------------------------------------------- the limiter itself
@@ -372,6 +432,63 @@ def test_install_daily_limit_default_and_ipv6_buckets(make_cloud):
     assert_rate_limited(client.post("/v1/install", headers=xff("2001:db8:9:9:1::c"), json={}), "install_hourly")
 
 
+def test_install_mints_count_ipv6_by_48(make_cloud):
+    """One home gets a /56 or a /48: rotating /64s inside it must not multiply the mint limit."""
+    client, app_mod = make_cloud(REGISTER_LIMIT_PER_HOUR="3")
+    assert app_mod.MINT_IPV6_PREFIX == 48
+    assert app_mod.mint_bucket("2001:db8:aa:1::1") == app_mod.mint_bucket("2001:db8:aa:ff00::1") == "2001:db8:aa::/48"
+    assert app_mod.mint_bucket("198.51.100.3") == "198.51.100.3" and app_mod.mint_bucket("::ffff:198.51.100.3") == "198.51.100.3"
+    for i in range(3):  # three different /64s of one /48
+        assert client.post("/v1/install", headers=xff(f"2001:db8:aa:{i}::1"), json={}).status_code == 200
+    assert_rate_limited(client.post("/v1/install", headers=xff("2001:db8:aa:9999::1"), json={}), "install_hourly")
+    assert client.post("/v1/install", headers=xff("2001:db8:ab::1"), json={}).status_code == 200  # another /48
+    # the per-IP request limiter still counts IPv6 by /64
+    assert app_mod.ip_bucket("2001:db8:aa:1::1") == "2001:db8:aa:1::/64"
+
+
+def test_anonymous_spend_is_capped_per_minting_network(make_cloud):
+    """Minting many installs from one network cannot multiply FREE_DAILY_USD (nor trip DAILY_USD_CAP for everyone)."""
+    client, app_mod = make_cloud(ANON_DAILY_USD_PER_NETWORK="0.50", FREE_DAILY_USD="1.00", REGISTER_LIMIT_PER_HOUR="100")
+    hashes = []
+    for i in range(3):
+        r = client.post("/v1/install", headers=xff(f"2001:db8:cc:{i}::1"), json={})  # three /64s of one /48
+        hashes.append((r.json()["token"], app_mod.hash_token(r.json()["token"])))
+    assert {app_mod.store.get_token(h)["mint_net"] for _, h in hashes} == {"2001:db8:cc::/48"}
+    for _, h in hashes[:2]:
+        app_mod.store.add_tokens(h, "anthropic", "claude-haiku-5-5", 10, 10, 0.25)  # $0.50 from that network today
+    body = {"model": "claude-haiku-5-5", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]}
+    r = client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {hashes[2][0]}"}, json=body)
+    assert r.status_code == 429, r.text
+    err = r.json()["error"]
+    assert err["type"] == "miyagi_quota" and err["limit"] == "daily_spend" and err["scope"] == "network"
+    assert err["cap"] == 0.5 and r.headers["x-should-retry"] == "false"
+    # another network is not affected
+    other = client.post("/v1/install", headers=xff("2001:db8:cd::1"), json={}).json()["token"]
+    assert client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {other}"}, json=body).status_code == 502
+    # a linked install from that network counts per user instead, and its usage leaves the network's sum
+    app_mod.store.link_user(hashes[0][1], "user-1")
+    r = client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {hashes[0][0]}"}, json=body)
+    assert r.status_code == 502
+    assert client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {hashes[2][0]}"},
+                       json=body).status_code == 502  # the network is at $0.25 now (only unlinked installs count)
+    _, app_mod = make_cloud(unset=("ANON_DAILY_USD_PER_NETWORK",))
+    assert app_mod.ANON_DAILY_USD_PER_NETWORK == 5.0
+
+
+def test_one_ipv4_cannot_mint_past_the_kill_switch(make_cloud):
+    """60 installs a day x FREE_DAILY_USD would be $60 > DAILY_USD_CAP 25: the network ceiling stops it at $5."""
+    client, app_mod = make_cloud(unset=("ANON_DAILY_USD_PER_NETWORK",), FREE_DAILY_USD="1.00", DAILY_USD_CAP="25",
+                                 REGISTER_LIMIT_PER_HOUR="60")
+    tokens = [client.post("/v1/install", headers=xff("81.2.69.200"), json={}).json()["token"] for _ in range(10)]
+    for t in tokens[:5]:
+        app_mod.store.add_tokens(app_mod.hash_token(t), "anthropic", "claude-haiku-5-5", 10, 10, 1.0)
+    body = {"model": "claude-haiku-5-5", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]}
+    for t in tokens[5:]:
+        r = client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {t}"}, json=body)
+        assert r.status_code == 429 and r.json()["error"]["scope"] == "network"
+    assert app_mod.store.usd_today() == pytest.approx(5.0)
+
+
 def test_register_limit_defaults(make_cloud):
     _, app_mod = make_cloud(unset=("REGISTER_LIMIT_PER_HOUR", "REGISTER_LIMIT_PER_DAY"))
     assert app_mod.REGISTER_PER_HOUR == 20 and app_mod.REGISTER_PER_DAY == 60
@@ -390,7 +507,9 @@ def test_every_setting_is_documented_and_the_new_ones_are_in_render_yaml():
            "FREE_DAILY_REQUESTS", "FREE_DAILY_USD", "LINKED_DAILY_REQUESTS", "LINKED_DAILY_USD", "DAILY_USD_CAP",
            "MAX_GEMINI_BODY_MB", "ANTHROPIC_BETAS", "ANTHROPIC_SERVER_TOOLS", "SERVER_TOOL_MAX_USES", "GEMINI_MAX_OUTPUT_TOKENS",
            "GEMINI_MAX_THINKING_TOKENS", "LESSON_SCHEMAS", "MAX_LESSON_KB", "LESSON_PUTS_PER_DAY", "LESSON_AUTO_APPROVE_N",
-           "LESSON_DISK_MAX_PCT", "SUPABASE_ALLOW_HS256", "LINK_MAX_INSTALLS_PER_USER"]
+           "LESSON_DISK_MAX_PCT", "SUPABASE_ALLOW_HS256", "LINK_MAX_INSTALLS_PER_USER", "ADMIN_FAILURE_MAX_KEYS",
+           "ANON_DAILY_USD_PER_NETWORK", "BODY_READ_TIMEOUT_S", "GEMINI_THINKING_RESERVE_TOKENS", "GEMINI_VIDEO_RESERVE_TOKENS",
+           "MINT_IPV6_PREFIX", "WEB_FETCH_MAX_CONTENT_TOKENS"]
     assert not [n for n in new if n not in render]
     assert "key: DAILY_USD_CAP" in render and "sync: false" in render.split("key: DAILY_USD_CAP", 1)[1].split("- key:", 1)[0]
     assert "ADMIN_TOKEN=test" not in readme and "secrets.token_urlsafe(32)" in readme

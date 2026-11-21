@@ -23,7 +23,7 @@ import secrets
 import shutil
 import sys
 import time
-from collections import OrderedDict, deque
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs
@@ -33,6 +33,7 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.datastructures import Headers
 
 from store import PLANS, PREFIX_LEN, Store, lesson_hash, open_store, this_month, today
 
@@ -110,8 +111,18 @@ ANTHROPIC_BETAS = frozenset(_env_list("ANTHROPIC_BETAS", "server-side-fallback-2
 # text lessons search; every use is counted at SERVER_TOOL_USD and max_uses is capped at SERVER_TOOL_MAX_USES.
 ANTHROPIC_SERVER_TOOLS = frozenset(t for t in _env_list("ANTHROPIC_SERVER_TOOLS", "") if t in ("web_search", "web_fetch"))
 SERVER_TOOL_MAX_USES = _env_int("SERVER_TOOL_MAX_USES", 5)
+# web_fetch always goes upstream with a max_content_tokens (a fetched page is billed as input), at most this many.
+WEB_FETCH_MAX_CONTENT_TOKENS = max(_env_int("WEB_FETCH_MAX_CONTENT_TOKENS", 20_000), 1)
 GEMINI_MAX_OUTPUT_TOKENS = _env_int("GEMINI_MAX_OUTPUT_TOKENS", 8192)
 GEMINI_MAX_THINKING_TOKENS = _env_int("GEMINI_MAX_THINKING_TOKENS", 2048)
+# Reservation estimates (the cost held while a call is in flight; settled to the real usage when it ends).
+# Thinking a Gemini call may do when it sends no thinkingBudget (the engine sends none): dynamic thinking's ceiling.
+GEMINI_THINKING_RESERVE_TOKENS = _env_int("GEMINI_THINKING_RESERVE_TOKENS", 24_576)
+# Input tokens held for a YouTube fileData part without both offsets (about 30 minutes at the engine's 0.5 fps).
+GEMINI_VIDEO_RESERVE_TOKENS = _env_int("GEMINI_VIDEO_RESERVE_TOKENS", 300_000)
+IMAGE_RESERVE_TOKENS = 5_000  # one base64 image (a screenshot is ~1.6k tokens on Claude; held high on purpose)
+WEB_SEARCH_RESERVE_TOKENS = 8_000  # the result blocks one web search adds to the input
+CHARS_PER_TOKEN = 3  # the input estimate: forwarded JSON bytes / 3 (real text is ~4 per token: errs high)
 MAX_BODY = int(_env_float("MAX_BODY_MB", 2) * 1024 * 1024)
 # The engine sends Gemini a YouTube fileData part and a prompt (no inline video or screenshots): well under 1 MB.
 MAX_GEMINI_BODY = int(_env_float("MAX_GEMINI_BODY_MB", 8) * 1024 * 1024)
@@ -125,14 +136,19 @@ RATE_LIMIT_PER_TOKEN_PER_HOUR = _env_int("RATE_LIMIT_PER_TOKEN_PER_HOUR", 600)
 ADMIN_RATE_LIMIT_PER_IP_PER_HOUR = _env_int("ADMIN_RATE_LIMIT_PER_IP_PER_HOUR", 20)
 ADMIN_LOCKOUT_FAILURES = _env_int("ADMIN_LOCKOUT_FAILURES", 5)
 RATE_LIMIT_MAX_KEYS = _env_int("RATE_LIMIT_MAX_KEYS", 200_000)
+ADMIN_FAILURE_MAX_KEYS = _env_int("ADMIN_FAILURE_MAX_KEYS", 20_000)  # its own, smaller bound (a few MB at most)
 # Install token minting (/v1/install, /v1/register), in SQLite so a deploy does not reset it. Schools share one IP.
 REGISTER_PER_HOUR = _env_int("REGISTER_LIMIT_PER_HOUR", 20)
 REGISTER_PER_DAY = _env_int("REGISTER_LIMIT_PER_DAY", 60)
 GLOBAL_MINTS_WARN = _env_int("GLOBAL_MINTS_WARN_PER_HOUR", 500)
 GLOBAL_MINTS_MAX = _env_int("GLOBAL_MINTS_PER_HOUR", 2000)
-# Concurrency (A23): forwarded AI calls in flight.
-PER_TOKEN_INFLIGHT = _env_int("PER_TOKEN_INFLIGHT", 4)
+# Mints count per network: IPv4 the address, IPv6 this prefix (ISPs hand one home a /56 or a /48, not one /64).
+MINT_IPV6_PREFIX = min(max(_env_int("MINT_IPV6_PREFIX", 48), 16), 64)
+# Concurrency (A23): forwarded AI calls in flight. The engine alone runs up to ~10 at once (README, Calls in flight).
+PER_TOKEN_INFLIGHT = _env_int("PER_TOKEN_INFLIGHT", 10)
 GLOBAL_INFLIGHT = _env_int("GLOBAL_INFLIGHT", 80)
+# A request body must arrive within this many seconds (408 after), so slow uploads cannot hold slots or memory.
+BODY_READ_TIMEOUT_S = _env_float("BODY_READ_TIMEOUT_S", 20)
 
 # Caps for every install whatever its x-miyagi-role (A01). 0 turns a cap off. "pro" installs skip the per-install caps.
 FREE_LESSON_BUILDS_PER_MONTH = _env_int("FREE_LESSON_BUILDS_PER_MONTH", 3)  # new videos; cache hits are free
@@ -144,6 +160,9 @@ FREE_DAILY_USD = _env_float("FREE_DAILY_USD", 1.00)
 LINKED_DAILY_REQUESTS = _env_int("LINKED_DAILY_REQUESTS", 1000)
 LINKED_DAILY_USD = _env_float("LINKED_DAILY_USD", 3.00)
 LINK_MAX_INSTALLS_PER_USER = _env_int("LINK_MAX_INSTALLS_PER_USER", 10)
+# Every anonymous install minted from one network (mint bucket: IPv4 address or IPv6 /48) together, per UTC day,
+# so minting many installs cannot multiply FREE_DAILY_USD (nor trip DAILY_USD_CAP for everyone). 0 = off.
+ANON_DAILY_USD_PER_NETWORK = _env_float("ANON_DAILY_USD_PER_NETWORK", 5.0)
 # Kill switch on spend: once the estimated USD of every install together (in-flight reservations included) reaches
 # this today (UTC), every forwarded AI call gets a 429 until UTC midnight, pro installs included. Unset or empty: 25
 # (fail closed). Only an explicit 0 turns it off.
@@ -187,6 +206,10 @@ def output_price(model: str) -> float:
     return PRICES.get(model, DEFAULT_PRICE)[1] / 1_000_000
 
 
+def input_price(model: str) -> float:
+    return PRICES.get(model, DEFAULT_PRICE)[0] / 1_000_000
+
+
 # --------------------------------------------------------------------------- app + middleware
 
 store: Store
@@ -206,7 +229,38 @@ async def lifespan(_app: FastAPI):
 
 # --------------------------------------------------------------------------- client IP
 
-_xff_logged = False
+_xff_logged: set[str] = set()  # "any" once the first request is logged, "entries" once one with entries is
+
+# Cloudflare's published edge ranges (https://www.cloudflare.com/ips/): a chosen X-Forwarded-For entry in one of
+# these is Cloudflare, not the learner, and TRUSTED_PROXY_HOPS (or CLIENT_IP_HEADER) is wrong.
+CLOUDFLARE_NETS = tuple(ipaddress.ip_network(n) for n in (
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+    "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+    "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22", "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+    "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32"))
+
+
+def _ip_kind(ip) -> str:
+    """What kind of address the chosen entry is, for the staging check: never the address itself."""
+    if ip is None:
+        return "not a valid address (the socket peer is used)"
+    if any(ip.version == n.version and ip in n for n in CLOUDFLARE_NETS):
+        return "a Cloudflare address (wrong hop count)"
+    if ip.is_global:
+        return "a global address"
+    return "a private or reserved address (likely a proxy: wrong hop count)"
+
+
+def _log_xff(entries: list[str], chosen) -> None:
+    """At INFO, once per process (plus once more when the first request had no entries): the NUMBER of
+    X-Forwarded-For entries and what kind of address the chosen one is. Never the values."""
+    key = "entries" if entries else "any"
+    if key in _xff_logged or (not entries and _xff_logged):
+        return
+    _xff_logged.update({"any", key})
+    kind = _ip_kind(chosen) if entries and PROXY_HOPS > 0 and len(entries) >= PROXY_HOPS else "none (the socket peer is used)"
+    log.info("first request: %d X-Forwarded-For entr%s (TRUSTED_PROXY_HOPS=%d); the chosen entry is %s", len(entries),
+             "y" if len(entries) == 1 else "ies", PROXY_HOPS, kind)
 
 
 def _parse_ip(raw: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
@@ -233,7 +287,6 @@ def client_ip_scope(scope) -> str:
     CLIENT_IP_HEADER (when set and valid) wins. Else the X-Forwarded-For entry at position -TRUSTED_PROXY_HOPS:
     each trusted proxy appends the address it saw, so entries further left are whatever the client wrote and are
     never trusted. Fewer entries than hops, an invalid entry or hops 0: the socket peer."""
-    global _xff_logged
     headers = scope.get("headers") or []
     if CLIENT_IP_HEADER:
         for k, v in headers:
@@ -245,13 +298,11 @@ def client_ip_scope(scope) -> str:
     for k, v in headers:
         if k.lower() == b"x-forwarded-for":
             entries += [e for e in v.decode("latin-1").split(",") if e.strip()]
-    if not _xff_logged:
-        _xff_logged = True  # the count only, never the addresses: enough to check TRUSTED_PROXY_HOPS on staging
-        log.info("first request: %d X-Forwarded-For entr%s (TRUSTED_PROXY_HOPS=%d)", len(entries),
-                 "y" if len(entries) == 1 else "ies", PROXY_HOPS)
-    if PROXY_HOPS > 0 and len(entries) >= PROXY_HOPS:
-        if ip := _parse_ip(entries[-PROXY_HOPS]):
-            return str(ip)
+    chosen = _parse_ip(entries[-PROXY_HOPS]) if PROXY_HOPS > 0 and len(entries) >= PROXY_HOPS else None
+    if len(_xff_logged) < 2:
+        _log_xff(entries, chosen)  # the count and kind only, never the addresses: the staging check
+    if chosen is not None:
+        return str(chosen)
     peer = str((scope.get("client") or ("", 0))[0] or "")
     ip = _parse_ip(peer)
     return str(ip) if ip else (peer[:64] or "unknown")
@@ -268,6 +319,20 @@ def ip_bucket(ip: str) -> str:
             return str(a.ipv4_mapped)
         return str(ipaddress.ip_network(f"{a}/64", strict=False))
     return str(a)
+
+
+def mint_bucket(ip: str) -> str:
+    """The network install minting (and the anonymous per-network spend ceiling) counts by: IPv4 the full address,
+    IPv6 its /MINT_IPV6_PREFIX (48), since one home or phone line routinely gets a /56 or a /48 to pick /64s from."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if a.version == 6 and a.ipv4_mapped:
+        a = a.ipv4_mapped
+    if a.version == 4:
+        return str(a)
+    return str(ipaddress.ip_network(f"{a}/{MINT_IPV6_PREFIX}", strict=False))
 
 
 def ip_net(ip: str) -> str:
@@ -308,7 +373,7 @@ class SlidingWindowLimiter:
     def _sweep(self, w: int) -> None:
         d = self._d
         while d:
-            k, entry = next(iter(d.items()))
+            _k, entry = next(iter(d.items()))
             if entry[0] >= w - 1:
                 break
             d.popitem(last=False)
@@ -356,35 +421,39 @@ class SlidingWindowLimiter:
 
 
 class AdminFailures:
-    """Failed admin authentications per IP bucket: the last ADMIN_LOCKOUT_FAILURES times. That many within an hour
-    lock the bucket out of /admin until the oldest of them is an hour old. Bounded like the limiter."""
+    """Failed admin authentications per IP bucket: a tuple of the last ADMIN_LOCKOUT_FAILURES times (a few floats,
+    no deque). That many within an hour lock the bucket out of /admin until the oldest of them is an hour old.
+    Bounded by its own ADMIN_FAILURE_MAX_KEYS (20000, a few MB): the least recently failing bucket goes first."""
 
     def __init__(self, max_keys: int, window: float = 3600.0) -> None:
         self.max_keys, self.window = max(1, max_keys), window
-        self._d: OrderedDict[str, deque] = OrderedDict()
+        self._d: OrderedDict[str, tuple[float, ...]] = OrderedDict()
+
+    def __len__(self) -> int:
+        return len(self._d)
 
     def record(self, bucket: str) -> int:
         n = max(ADMIN_LOCKOUT_FAILURES, 1)
-        dq = self._d.pop(bucket, None) or deque(maxlen=n)
-        dq.append(_now())
+        now = _now()
+        times = (*self._d.pop(bucket, ()), now)[-n:]
         while len(self._d) >= self.max_keys:
             self._d.popitem(last=False)
-        self._d[bucket] = dq
-        return sum(1 for t in dq if _now() - t < self.window)
+        self._d[bucket] = times
+        return sum(1 for t in times if now - t < self.window)
 
     def locked(self, bucket: str) -> float:
         """Seconds until `bucket` may try /admin again, 0.0 when it is not locked out."""
         if ADMIN_LOCKOUT_FAILURES <= 0:
             return 0.0
-        dq = self._d.get(bucket)
-        if not dq or len(dq) < ADMIN_LOCKOUT_FAILURES:
+        times = self._d.get(bucket)
+        if not times or len(times) < ADMIN_LOCKOUT_FAILURES:
             return 0.0
-        left = dq[-ADMIN_LOCKOUT_FAILURES] + self.window - _now()
+        left = times[-ADMIN_LOCKOUT_FAILURES] + self.window - _now()
         return max(left, 1.0) if left > 0 else 0.0
 
 
 limiter = SlidingWindowLimiter(RATE_LIMIT_MAX_KEYS)
-admin_failures = AdminFailures(RATE_LIMIT_MAX_KEYS)
+admin_failures = AdminFailures(ADMIN_FAILURE_MAX_KEYS)
 
 TOKEN_COUNTED = ("/v1/anthropic/", "/v1/gemini/", "/v1/lessons/")
 RATE_MESSAGES = {
@@ -420,9 +489,12 @@ def token_from_headers(get) -> str:
 
 
 def _known_token(scope) -> str | None:
-    """The hash of the presented install token when it is a known, enabled one; else None."""
-    headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
-    token = token_from_headers(headers.get)
+    """The hash of the presented install token when it is a known, enabled one; else None.
+
+    Read through Starlette's Headers, exactly as authenticate() reads it (request.headers.get: the FIRST of a
+    repeated header). A plain dict would keep the last one, so [Bearer <guess>, Bearer <valid>] would check the
+    guess but count it against the valid token's budget instead of the IP's."""
+    token = token_from_headers(Headers(scope=scope).get)
     if not token or len(token) > 200:
         return None
     h = hash_token(token)
@@ -456,7 +528,7 @@ class Guard:
             return await self.app(scope, receive, send)
         start, path, status = time.monotonic(), scope["path"], [0]
         state = scope.setdefault("state", {})
-        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+        headers = Headers(scope=scope)  # a repeated header reads as its first value, as everywhere else
 
         async def send_logged(msg):
             if msg["type"] == "http.response.start":
@@ -630,13 +702,16 @@ def request_role(request: Request) -> str | None:
 def _caps(token_hash: str) -> dict:
     """The per-install caps for this token: pro none, linked per user, anonymous per install."""
     row = store.get_token(token_hash) or {}
+    none = {"net": None, "net_usd_cap": 0.0}
     if row.get("plan") == "pro":
-        return {"role_caps": {}, "daily_cap": 0, "usd_cap": 0.0, "user_id": None}
+        return {"role_caps": {}, "daily_cap": 0, "usd_cap": 0.0, "user_id": None, **none}
     link = store.get_link(token_hash)
     role_caps = {"coach": FREE_COACH_CALLS_PER_DAY}
     if link:
-        return {"role_caps": role_caps, "daily_cap": LINKED_DAILY_REQUESTS, "usd_cap": LINKED_DAILY_USD, "user_id": link["user_id"]}
-    return {"role_caps": role_caps, "daily_cap": FREE_DAILY_REQUESTS, "usd_cap": FREE_DAILY_USD, "user_id": None}
+        return {"role_caps": role_caps, "daily_cap": LINKED_DAILY_REQUESTS, "usd_cap": LINKED_DAILY_USD,
+                "user_id": link["user_id"], **none}
+    return {"role_caps": role_caps, "daily_cap": FREE_DAILY_REQUESTS, "usd_cap": FREE_DAILY_USD, "user_id": None,
+            "net": row.get("mint_net"), "net_usd_cap": ANON_DAILY_USD_PER_NETWORK}
 
 
 def check_quota(token_hash: str, role: str | None, provider: str, model: str, reserve_usd: float = 0.0,
@@ -649,11 +724,12 @@ def check_quota(token_hash: str, role: str | None, provider: str, model: str, re
     2. The coach cap (FREE_COACH_CALLS_PER_DAY on x-miyagi-role: coach), free and linked installs.
     3. Every call whatever its role: anonymous installs FREE_DAILY_REQUESTS / FREE_DAILY_USD each; linked installs
        LINKED_DAILY_REQUESTS / LINKED_DAILY_USD per Supabase user, all their installs together. Pro: none.
+    4. Anonymous installs: ANON_DAILY_USD_PER_NETWORK for every unlinked install minted from the same network.
     The lesson build cap lives on POST /v1/lessons/{id}/build."""
     c = _caps(token_hash)
     hit, used, cap = store.admit_call(token_hash, provider, model, role, c["role_caps"], c["daily_cap"], usd_cap=c["usd_cap"],
                                       user_id=c["user_id"], global_usd_cap=DAILY_USD_CAP, reserve_usd=reserve_usd,
-                                      dry_run=dry_run)
+                                      net=c["net"], net_usd_cap=c["net_usd_cap"], dry_run=dry_run)
     scope = "account" if c["user_id"] else "install"
     if hit == "global_usd":
         log.warning("daily USD cap reached: est. $%.2f of $%.2f", used, DAILY_USD_CAP)
@@ -668,35 +744,60 @@ def check_quota(token_hash: str, role: str | None, provider: str, model: str, re
     if hit == "usd":
         return quota_error("miyagi_quota", "daily_spend", round(used, 4), cap, _next_utc_midnight(),
                            "You've reached today's limit. It resets tomorrow.", scope=scope)
+    if hit == "net_usd":
+        return quota_error("miyagi_quota", "daily_spend", round(used, 4), cap, _next_utc_midnight(),
+                           "Free use from this network is used up for today. Sign in to keep going, or come back tomorrow.",
+                           scope="network")
     return None
 
 
 # --------------------------------------------------------------------------- calls in flight (A23)
 
 class Inflight:
-    """Forwarded AI calls in flight, per install token and in total. One event loop: no lock needed."""
+    """Forwarded AI calls in flight, per install token (`per`) and in total (`total`). One event loop: no lock.
+
+    The two slots are taken at different times: the per-token slot before the request body is read (so one install
+    cannot open more than PER_TOKEN_INFLIGHT bodies at once), the global slot only once the body has arrived (so
+    slow bodies cannot hold the slots every other install needs)."""
 
     def __init__(self) -> None:
         self.per: dict[str, int] = {}
         self.total = 0
 
-    def acquire(self, key: str) -> str | None:
-        """Take a slot; None when taken, else which limit is full ("token" | "global")."""
-        if GLOBAL_INFLIGHT > 0 and self.total >= GLOBAL_INFLIGHT:
-            return "global"
+    def acquire_token(self, key: str) -> bool:
         if PER_TOKEN_INFLIGHT > 0 and self.per.get(key, 0) >= PER_TOKEN_INFLIGHT:
-            return "token"
+            return False
         self.per[key] = self.per.get(key, 0) + 1
-        self.total += 1
-        return None
+        return True
 
-    def release(self, key: str) -> None:
+    def release_token(self, key: str) -> None:
         n = self.per.get(key, 0)
         if n <= 1:
             self.per.pop(key, None)
         else:
             self.per[key] = n - 1
+
+    def acquire_global(self) -> bool:
+        if GLOBAL_INFLIGHT > 0 and self.total >= GLOBAL_INFLIGHT:
+            return False
+        self.total += 1
+        return True
+
+    def release_global(self) -> None:
         self.total = max(self.total - 1, 0)
+
+    def acquire(self, key: str) -> str | None:
+        """Both slots at once; None when taken, else which limit is full ("token" | "global")."""
+        if not self.acquire_global():
+            return "global"
+        if not self.acquire_token(key):
+            self.release_global()
+            return "token"
+        return None
+
+    def release(self, key: str) -> None:
+        self.release_token(key)
+        self.release_global()
 
 
 inflight = Inflight()
@@ -724,6 +825,13 @@ class Call:
         self.day = today()
         self.admitted = False
         self.done = False
+        self.global_slot = False  # the per-token slot is held from open_call(); the global one from take_global()
+
+    def take_global(self) -> bool:
+        """The global in-flight slot, taken once the body has been read. False: the service is full."""
+        if not self.global_slot and inflight.acquire_global():
+            self.global_slot = True
+        return self.global_slot
 
     def admit(self, reserve_usd: float) -> JSONResponse | None:
         denied = check_quota(self.token_hash, request_role(self.request), self.provider, self.model, reserve_usd)
@@ -735,7 +843,10 @@ class Call:
         if self.done:
             return
         self.done = True
-        inflight.release(self.token_hash)
+        inflight.release_token(self.token_hash)
+        if self.global_slot:
+            self.global_slot = False
+            inflight.release_global()
         if not self.admitted:
             return
         model, inp, out, usd = (usage or Usage()).totals(self.request, self.provider, self.model)
@@ -746,22 +857,38 @@ class Call:
 
 
 def open_call(request: Request, token_hash: str, provider: str, model: str) -> Call | JSONResponse:
-    """Check the caps without counting (so a call that is already over a cap never reads its body), then take an
-    in-flight slot. Returns the Call holding the slot, or the 429 to send."""
+    """Check the caps without counting (so a call that is already over a cap never reads its body), then take the
+    per-token in-flight slot. Returns the Call holding it, or the 429 to send. The global slot comes later
+    (Call.take_global, after the body is read)."""
     if denied := check_quota(token_hash, request_role(request), provider, model, dry_run=True):
         return denied
-    if which := inflight.acquire(token_hash):
-        return too_many_inflight(which)
+    if not inflight.acquire_token(token_hash):
+        return too_many_inflight("token")
     return Call(request, token_hash, provider, model)
 
 
+def request_timeout() -> JSONResponse:
+    return error(408, "request_timeout", f"The request body did not arrive within {BODY_READ_TIMEOUT_S:g} s.")
+
+
+async def read_body(request: Request) -> bytes | None:
+    """The request body, or None when it did not arrive within BODY_READ_TIMEOUT_S (send request_timeout())."""
+    try:
+        with anyio.fail_after(BODY_READ_TIMEOUT_S):
+            return await request.body()
+    except TimeoutError:
+        return None
+
+
 def mint_token(request: Request, install_id: str | None, app_version: str, platform: str) -> tuple[str, str] | JSONResponse:
-    """One new install token, rate limited per client network in SQLite (Store.mint_check). Returns (token, token_id);
-    only the token's hash is stored.
+    """One new install token, rate limited per client network (mint_bucket: IPv4 address, IPv6 /48) in SQLite
+    (Store.mint_check). Returns (token, token_id); only the token's hash is stored, with that network, which
+    ANON_DAILY_USD_PER_NETWORK sums over.
 
     token_id is the first PREFIX_LEN hex characters of that hash: public, the same id the admin views and
     /admin/tokens/{prefix}/disable use, and useless for calling the proxy."""
-    r = store.mint_check(ip_bucket(client_ip(request)), REGISTER_PER_HOUR, REGISTER_PER_DAY, GLOBAL_MINTS_MAX)
+    net = mint_bucket(client_ip(request))
+    r = store.mint_check(net, REGISTER_PER_HOUR, REGISTER_PER_DAY, GLOBAL_MINTS_MAX)
     if r["hit"]:
         if r["hit"] == "global":
             log.error("install mint ceiling reached: %d this hour (GLOBAL_MINTS_PER_HOUR=%d); new installs refused",
@@ -771,7 +898,7 @@ def mint_token(request: Request, install_id: str | None, app_version: str, platf
     token = TOKEN_PREFIX + secrets.token_urlsafe(32)  # 43 urlsafe characters after the prefix
     h = hash_token(token)
     token_id = h[:PREFIX_LEN]
-    store.add_token(h, install_id or token_id, app_version or "unknown", platform or "unknown")
+    store.add_token(h, install_id or token_id, app_version or "unknown", platform or "unknown", mint_net=net)
     request.state.tok = token_id
     return token, token_id
 
@@ -918,13 +1045,18 @@ async def forward(call: Call, url: str, headers: dict, params: dict, body: bytes
 
     if resp.status_code != 200 or not stream:
         try:
-            content = await resp.aread()
+            try:
+                content = await resp.aread()
+            finally:
+                with anyio.CancelScope(shield=True):
+                    await resp.aclose()
         except httpx.HTTPError as e:
             log.warning("upstream %s read failed: %s", provider, type(e).__name__)
             call.finish()
             return error(502, "upstream_unreachable", f"The {provider} API connection dropped. Try again.")
-        finally:
-            await resp.aclose()
+        except BaseException:  # cancelled (the client hung up) or anything else: the slot must still come back
+            call.finish()
+            raise
         if resp.status_code != 200:
             request.state.model = model
             call.finish()
@@ -957,11 +1089,6 @@ def _json_object(raw: bytes) -> dict | None:
     except (ValueError, UnicodeDecodeError):
         return None
     return data if isinstance(data, dict) else None
-
-
-async def read_json(request: Request) -> tuple[dict | None, bytes]:
-    raw = await request.body()
-    return _json_object(raw), raw
 
 
 def _opus(model) -> bool:
@@ -1010,24 +1137,36 @@ def _no_opus_anywhere(value, depth: int = 0) -> None:
             _no_opus_anywhere(v, depth + 1)
 
 
+_MAX_BLOCK_DEPTH = 32
+_MODEL_DATA_BLOCKS = ("tool_use", "server_tool_use")  # their `input` is the model's own JSON, not content blocks
+
+
 def _check_blocks(content, depth: int = 0) -> None:
-    """Content blocks may not make Anthropic fetch a URL or read an uploaded file, or mount a container upload."""
-    if depth > 6 or not isinstance(content, list):
+    """Content may not make Anthropic fetch a URL or read an uploaded file, or mount a container upload, at any
+    depth: every object and list under the content is walked (a document's source.content, a tool result's
+    content, a search result's content, ...), not only the `content` keys. Nesting deeper than _MAX_BLOCK_DEPTH
+    is refused rather than left unchecked."""
+    if depth > _MAX_BLOCK_DEPTH:
+        raise BadBody("Message content is nested too deep.")
+    if isinstance(content, list):
+        for v in content:
+            _check_blocks(v, depth + 1)
         return
-    for b in content:
-        if not isinstance(b, dict):
-            continue
-        if b.get("type") == "container_upload":
-            raise BadBody("container_upload blocks are not allowed on this proxy.")
-        src = b.get("source")
-        if isinstance(src, dict) and src.get("type") in ("url", "file"):
-            raise BadBody(f"{src.get('type')} sources are not allowed on this proxy; send base64 data.")
-        if isinstance(b.get("content"), list):
-            _check_blocks(b["content"], depth + 1)
+    if not isinstance(content, dict):
+        return
+    if content.get("type") == "container_upload":
+        raise BadBody("container_upload blocks are not allowed on this proxy.")
+    src = content.get("source")
+    if isinstance(src, dict) and src.get("type") in ("url", "file"):
+        raise BadBody(f"{src.get('type')} sources are not allowed on this proxy; send base64 data.")
+    skip = "input" if content.get("type") in _MODEL_DATA_BLOCKS else None
+    for k, v in content.items():
+        if k != skip and isinstance(v, (dict, list)):
+            _check_blocks(v, depth + 1)
 
 
-def _clean_tool(t: dict) -> tuple[dict, int]:
-    """(the tool as forwarded, how many server-tool uses it may make)."""
+def _clean_tool(t: dict) -> tuple[dict, int, int]:
+    """(the tool as forwarded, how many server-tool uses it may make, the input tokens those uses may add)."""
     kind = t.get("type")
     if kind in (None, "custom"):
         if not isinstance(t.get("name"), str) or not t["name"] or len(t["name"]) > 128 or not isinstance(t.get("input_schema"), dict):
@@ -1041,7 +1180,7 @@ def _clean_tool(t: dict) -> tuple[dict, int]:
             out["strict"] = t["strict"]
         if isinstance(t.get("cache_control"), dict):
             out["cache_control"] = t["cache_control"]
-        return out, 0
+        return out, 0, 0
     m = _WEB_TOOL_RE.fullmatch(kind) if isinstance(kind, str) else None
     if m and m.group(1) in ANTHROPIC_SERVER_TOOLS:
         cap = max(SERVER_TOOL_MAX_USES, 1)
@@ -1054,15 +1193,18 @@ def _clean_tool(t: dict) -> tuple[dict, int]:
         for key in ("user_location", "citations", "cache_control"):
             if isinstance(t.get(key), dict):
                 out[key] = t[key]
-        if _is_int(t.get("max_content_tokens")) and t["max_content_tokens"] > 0:
-            out["max_content_tokens"] = min(t["max_content_tokens"], 100_000)
-        return out, uses
+        if m.group(1) == "web_fetch":  # always bounded: without it one fetch may pull a whole page in as input
+            mct = t.get("max_content_tokens")
+            out["max_content_tokens"] = (min(mct, WEB_FETCH_MAX_CONTENT_TOKENS) if _is_int(mct) and mct > 0
+                                         else WEB_FETCH_MAX_CONTENT_TOKENS)
+            return out, uses, uses * out["max_content_tokens"]
+        return out, uses, uses * WEB_SEARCH_RESERVE_TOKENS
     raise BadBody(f"Tool type {str(kind)[:40]!r} is not allowed on this proxy (client tools only).")
 
 
-def sanitize_anthropic(body: dict) -> tuple[dict, int]:
-    """The Messages API body to forward, rebuilt from allowlisted keys, and the most server-tool uses it may make.
-    Raises BadBody."""
+def sanitize_anthropic(body: dict) -> tuple[dict, int, int]:
+    """The Messages API body to forward, rebuilt from allowlisted keys, the most server-tool uses it may make, and
+    the input tokens those uses may add (fetched pages, search results). Raises BadBody."""
     model = body.get("model")
     if not _anthropic_model_ok(model):
         raise BadBody(f"Model not allowed on this proxy. Allowed: {', '.join(ALLOWED_ANTHROPIC)}.")
@@ -1139,16 +1281,17 @@ def sanitize_anthropic(body: dict) -> tuple[dict, int]:
         if clean_oc:
             out["output_config"] = clean_oc
 
-    server_uses = 0
+    server_uses = server_tokens = 0
     tools = body.get("tools")
     if tools is not None:
         if not isinstance(tools, list) or len(tools) > 64 or not all(isinstance(t, dict) for t in tools):
             raise BadBody("tools must be a list of at most 64 tool objects.")
         clean_tools = []
         for t in tools:
-            ct, uses = _clean_tool(t)
+            ct, uses, tokens = _clean_tool(t)
             clean_tools.append(ct)
             server_uses += uses
+            server_tokens += tokens
         out["tools"] = clean_tools
     tc = body.get("tool_choice")
     if isinstance(tc, dict) and tc.get("type") in ("auto", "any", "tool", "none"):
@@ -1167,7 +1310,7 @@ def sanitize_anthropic(body: dict) -> tuple[dict, int]:
             out["fallbacks"] = [{"model": f["model"]} for f in fb]
         else:
             raise BadBody("fallbacks must be \"default\" or a list of allowed (non-Opus) models.")
-    return out, server_uses
+    return out, server_uses, server_tokens
 
 
 def check_betas(header: str) -> str | None:
@@ -1177,6 +1320,84 @@ def check_betas(header: str) -> str | None:
         allowed = ", ".join(sorted(ANTHROPIC_BETAS)) or "none"
         raise BadBody(f"An anthropic-beta value is not allowed on this proxy. Allowed: {allowed}.")
     return ",".join(values) or None
+
+
+# --------------------------------------------------------------------------- cost reservations
+#
+# What a call may cost, held against the USD caps while it is in flight (Call.admit), then settled to the real
+# usage. Input counts too: a large prompt with max_tokens=1 is not free, and 80 of them in flight at once must not
+# pass DAILY_USD_CAP by more than about one call.
+
+def _images(value, depth: int = 0) -> tuple[int, int]:
+    """(characters of base64 image data, number of images) under an Anthropic or Gemini body. Images are billed by
+    their pixels, not their bytes, so they are reserved at IMAGE_RESERVE_TOKENS each instead of bytes / 3."""
+    if depth > 40:
+        return 0, 0
+    if isinstance(value, list):
+        sums = [_images(v, depth + 1) for v in value]
+        return sum(s[0] for s in sums), sum(s[1] for s in sums)
+    if not isinstance(value, dict):
+        return 0, 0
+    src = value.get("source")
+    if value.get("type") == "image" and isinstance(src, dict) and src.get("type") == "base64" and isinstance(src.get("data"), str):
+        return len(src["data"]), 1
+    inline = value.get("inlineData")
+    if (isinstance(inline, dict) and isinstance(inline.get("data"), str)
+            and str(inline.get("mimeType", "")).startswith("image/")):
+        return len(inline["data"]), 1
+    sums = [_images(v, depth + 1) for v in value.values() if isinstance(v, (dict, list))]
+    return sum(s[0] for s in sums), sum(s[1] for s in sums)
+
+
+def input_tokens_estimate(payload_len: int, clean: dict) -> int:
+    """The forwarded body's input tokens, erring high: bytes / CHARS_PER_TOKEN, images at IMAGE_RESERVE_TOKENS."""
+    b64, n = _images(clean)
+    return max(payload_len - b64, 0) // CHARS_PER_TOKEN + n * IMAGE_RESERVE_TOKENS
+
+
+def anthropic_reserve(clean: dict, payload_len: int, server_uses: int, server_tokens: int) -> float:
+    """Input (the body, plus what the allowed server tools may add) at the input price, max_tokens (thinking
+    included) at the output price, and $0.01 per allowed server-tool use."""
+    model = clean["model"]
+    inp = input_tokens_estimate(payload_len, clean) + server_tokens
+    return inp * input_price(model) + clean["max_tokens"] * output_price(model) + server_uses * SERVER_TOOL_USD
+
+
+_OFFSET_RE = re.compile(r"\s*(\d{1,6}(?:\.\d{1,9})?)s\s*")
+
+
+def _offset_s(v) -> float | None:
+    if _is_num(v):
+        return float(v)
+    m = _OFFSET_RE.fullmatch(v) if isinstance(v, str) else None
+    return float(m.group(1)) if m else None
+
+
+def _video_tokens(part: dict, low: bool) -> int:
+    """Input tokens one YouTube fileData part may cost. With an end offset (the engine's windows): its seconds x
+    (fps x frame tokens + 32 audio tokens a second), frames at 258 tokens (70 at MEDIA_RESOLUTION_LOW). Without
+    one (a whole video): GEMINI_VIDEO_RESERVE_TOKENS."""
+    vm = part.get("videoMetadata") if isinstance(part.get("videoMetadata"), dict) else {}
+    start, end = _offset_s(vm.get("startOffset", 0)), _offset_s(vm.get("endOffset"))
+    if start is None or end is None:
+        return GEMINI_VIDEO_RESERVE_TOKENS
+    fps = float(vm["fps"]) if _is_num(vm.get("fps")) and vm["fps"] > 0 else 1.0
+    return int(max(end - start, 0) * (fps * (70 if low else 258) + 32))
+
+
+def gemini_reserve(clean: dict, model: str, payload_len: int) -> float:
+    """Input (the body, every video part) at the input price; maxOutputTokens plus the thinking the call may do
+    (its clamped thinkingBudget, else GEMINI_THINKING_RESERVE_TOKENS: the engine sends no thinkingConfig, and
+    Gemini's dynamic thinking is otherwise unbounded here) at the output price."""
+    gen = clean.get("generationConfig") or {}
+    low = gen.get("mediaResolution") == "MEDIA_RESOLUTION_LOW"
+    parts = [p for c in clean.get("contents", []) for p in c.get("parts", [])]
+    parts += (clean.get("systemInstruction") or {}).get("parts", [])
+    video = sum(_video_tokens(p, low) for p in parts if "fileData" in p)
+    budget = (gen.get("thinkingConfig") or {}).get("thinkingBudget")
+    thinking = budget if _is_int(budget) and budget >= 0 else GEMINI_THINKING_RESERVE_TOKENS
+    inp = input_tokens_estimate(payload_len, clean) + video
+    return inp * input_price(model) + (gen.get("maxOutputTokens", GEMINI_MAX_OUTPUT_TOKENS) + thinking) * output_price(model)
 
 
 GEMINI_PART_KEYS = ("text", "inlineData", "fileData", "videoMetadata", "functionCall", "functionResponse", "thought",
@@ -1347,7 +1568,10 @@ async def link(request: Request):
     if row is None or row["disabled"]:
         return link_error(401, "bad_install_token")
     request.state.tok = h[:PREFIX_LEN]
-    body, _ = await read_json(request)
+    raw = await read_body(request)
+    if raw is None:
+        return request_timeout()
+    body = _json_object(raw)
     try:  # the first call (and one every 10 minutes) fetches the JWKS: keep it off the event loop
         claims = await run_in_threadpool(verifier.verify, (body or {}).get("access_token"))
     except supabase_auth.AuthUnavailable:
@@ -1374,24 +1598,32 @@ async def anthropic_messages(request: Request):
         beta = check_betas(request.headers.get("anthropic-beta", ""))
     except BadBody as e:
         return error(400, "invalid_request_error", str(e))
-    call = open_call(request, token_hash, "anthropic", "pending")  # caps checked and a slot taken before the body
+    call = open_call(request, token_hash, "anthropic", "pending")  # caps checked, per-token slot taken before the body
     if isinstance(call, JSONResponse):
         return call
     try:
-        body, _ = await read_json(request)
+        raw = await read_body(request)  # bounded in time: a slow body holds only this install's own slot
+        if raw is None:
+            call.finish()
+            return request_timeout()
+        body = _json_object(raw)
         if body is None:
             call.finish()
             return error(400, "invalid_request_error", "Body must be a JSON object.")
         model = body.get("model")
         request.state.model = model if isinstance(model, str) and len(model) <= 80 else None
         try:
-            clean, server_uses = sanitize_anthropic(body)
+            clean, server_uses, server_tokens = sanitize_anthropic(body)
         except BadBody as e:
             call.finish()
             return error(400, "invalid_request_error", str(e))
+        del raw, body
         call.model = clean["model"]
-        reserve = clean["max_tokens"] * output_price(call.model) + server_uses * SERVER_TOOL_USD
-        if denied := call.admit(reserve):
+        payload = json.dumps(clean).encode()
+        if not call.take_global():  # the global slot only once the body is here
+            call.finish()
+            return too_many_inflight("global")
+        if denied := call.admit(anthropic_reserve(clean, len(payload), server_uses, server_tokens)):
             call.finish()
             return denied
     except BaseException:
@@ -1406,7 +1638,7 @@ async def anthropic_messages(request: Request):
     if beta:
         headers["anthropic-beta"] = beta
     params = {"beta": "true"} if request.query_params.get("beta") == "true" else {}
-    return await forward(call, ANTHROPIC_URL, headers, params, json.dumps(clean).encode(), stream=clean.get("stream") is True)
+    return await forward(call, ANTHROPIC_URL, headers, params, payload, stream=clean.get("stream") is True)
 
 
 GEMINI_METHODS = {"generateContent": False, "streamGenerateContent": True}
@@ -1429,20 +1661,29 @@ async def gemini(target: str, request: Request):
         # 404 like Google's own unknown-model reply, so the engine skips to its next fallback model at once
         return error(404, "not_found", f"Model not available on this proxy. Allowed: {', '.join(ALLOWED_GEMINI)}.")
     request.state.model = model
-    call = open_call(request, token_hash, "gemini", model)  # caps checked and a slot taken before the body
+    call = open_call(request, token_hash, "gemini", model)  # caps checked, per-token slot taken before the body
     if isinstance(call, JSONResponse):
         return call
     try:
-        body, _ = await read_json(request)
+        raw = await read_body(request)  # bounded in time: a slow body holds only this install's own slot
+        if raw is None:
+            call.finish()
+            return request_timeout()
+        body = _json_object(raw)
         if body is None:
             call.finish()
             return error(400, "invalid_request_error", "Body must be a JSON object.")
         try:
-            clean, max_out = sanitize_gemini(body)
+            clean, _ = sanitize_gemini(body)
         except BadBody as e:
             call.finish()
             return error(400, "invalid_request_error", str(e))
-        if denied := call.admit(max_out * output_price(model)):
+        del raw, body
+        payload = json.dumps(clean).encode()
+        if not call.take_global():  # the global slot only once the body is here
+            call.finish()
+            return too_many_inflight("global")
+        if denied := call.admit(gemini_reserve(clean, model, len(payload))):
             call.finish()
             return denied
     except BaseException:
@@ -1450,8 +1691,8 @@ async def gemini(target: str, request: Request):
         raise
     params = {"alt": "sse"} if request.query_params.get("alt") == "sse" else {}
     headers = {"x-goog-api-key": GEMINI_KEY, "content-type": "application/json", "accept-encoding": "identity"}
-    return await forward(call, GEMINI_URL.format(model=model, method=method), headers, params,
-                         json.dumps(clean).encode(), stream=GEMINI_METHODS[method])
+    return await forward(call, GEMINI_URL.format(model=model, method=method), headers, params, payload,
+                         stream=GEMINI_METHODS[method])
 
 
 # --------------------------------------------------------------------------- shared lesson cache (ROADMAP 3.1, A08)
@@ -1465,8 +1706,34 @@ async def gemini(target: str, request: Request):
 VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}")  # YouTube video ids: the only lesson source the engine builds from
 _BAD_VIDEO_ID = "video_id must be an 11-character YouTube video id."
 RUN_COMMAND_RE = re.compile(r"(?:python3?|pytest|node|npm run) [A-Za-z0-9_./ -]+")
+NOTEBOOK_RUN = "Run the cell (Shift+Enter)"  # what the engine writes as a notebook step's run_command: never run
+PYTHON_MODULES_OK = frozenset({"pytest", "unittest", "venv", "flask", "streamlit"})  # python -m <one of these>
+PYTHON_FLAGS_OK = frozenset({"-u", "-B", "-O"})
+_REFUSED_ANYWHERE = ("--require", "--import", "--eval", "--print", "--loader", "--experimental-loader", "--inspect")
+_PYTEST_REFUSED = ("-p", "-c", "--pyargs", "--rootdir", "--confcutdir")  # load plugins / config from elsewhere
+_LIB_NAME_RE = re.compile(r"(?:@[a-z0-9][a-z0-9._-]{0,60}/)?[A-Za-z0-9][A-Za-z0-9._-]{0,80}(?:\[[A-Za-z0-9_,-]{1,80}\])?")
+_LIB_VERSION_PART = r"[<>=!~^]{0,3}[0-9A-Za-z*][0-9A-Za-z.*+-]{0,30}"
+_LIB_VERSION_RE = re.compile(rf"{_LIB_VERSION_PART}(?:,{_LIB_VERSION_PART}){{0,3}}")
+_TOOL_ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 _MAX_LESSON_STR = 20_000
 _MAX_LESSON_DEPTH = 12
+
+# The keys a shared lesson may carry: the engine's video draft (server/lesson/schema.py VIDEO_DRAFT_SCHEMA) and the
+# step graph builder.assemble() makes from it. Anything else is refused, so nothing an engine might act on
+# (a precision check's command, a workdir) passes unchecked.
+LESSON_KEYS = frozenset({"title", "summary", "libraries", "files", "steps", "lesson", "sources"})
+LESSON_META_KEYS = frozenset({"id", "title", "goal", "summary", "libraries"})
+STEP_KEYS = frozenset({"start", "end", "title", "instructions", "file", "code", "run_command", "expected_output", "checks",
+                       "targets", "explanations", "hints", "common_mistakes", "id", "index", "video", "precision_checks",
+                       "sample_output", "solution", "setup", "requires"})
+CHECK_KEYS = frozenset({"id", "type", "label", "app", "metric_pattern", "file", "pattern", "command", "metric", "op", "value",
+                        "by_step", "trend", "window"})
+CHECK_TYPES = frozenset({"screen_contains", "screen_absent", "metric_threshold", "metric_trend", "file_exists",
+                         "file_contains", "command_exit_ok", "output_contains"})
+TARGET_KEYS = frozenset({"app", "file", "match", "caption"})
+EXPLANATION_KEYS = frozenset({"topic", "t", "sourceId"})
+VIDEO_KEYS = frozenset({"sourceId", "start", "end"})
+SOURCE_KEYS = frozenset({"id", "type", "url", "title"})
 
 
 def _lesson_schema(schema) -> JSONResponse | int:
@@ -1481,16 +1748,39 @@ def _lesson_schema(schema) -> JSONResponse | int:
 
 
 def _ok_command(cmd) -> bool:
-    """A run command a lesson may suggest: python/pytest/node/npm run plus plain arguments. No shell metacharacters,
-    no URLs (':' is not allowed at all), no parent directories."""
+    """A command a lesson may suggest or a check may run: python, pytest, node or npm run with plain arguments.
+    No shell metacharacters, no URLs (':' is not allowed at all), no parent directories, and nothing that runs code
+    written on the command line itself or installs or serves anything: no python -c / -m pip / -m http.server (only
+    -m pytest, unittest, venv, flask, streamlit), no node -e / --require / --import, no npx, no pytest -p / -c."""
     if cmd is None or cmd == "":
         return True
     if not isinstance(cmd, str) or len(cmd) > 300:
         return False
     cmd = cmd.strip()
-    if cmd == "pytest":
+    if cmd in ("pytest", NOTEBOOK_RUN):
         return True
-    return bool(RUN_COMMAND_RE.fullmatch(cmd)) and "//" not in cmd and "www." not in cmd.lower() and ".." not in cmd
+    if not RUN_COMMAND_RE.fullmatch(cmd) or "//" in cmd or "www." in cmd.lower() or ".." in cmd:
+        return False
+    words = cmd.split()
+    if "npx" in words or any(w.startswith(_REFUSED_ANYWHERE) for w in words):
+        return False
+    prog, args = words[0], words[1:]
+    if prog == "npm":  # npm run <script>: a package.json script, by name
+        return len(args) >= 2 and not args[1].startswith("-")
+    if prog == "pytest":
+        return _ok_pytest_args(args)
+    i = 0
+    if prog.startswith("python"):
+        while i < len(args) and args[i] in PYTHON_FLAGS_OK:
+            i += 1
+        if i < len(args) and args[i] == "-m":
+            module = args[i + 1] if i + 1 < len(args) else ""
+            return module in PYTHON_MODULES_OK and (module != "pytest" or _ok_pytest_args(args[i + 2:]))
+    return i < len(args) and not args[i].startswith("-")  # a script first: options after it are the script's own
+
+
+def _ok_pytest_args(args: list[str]) -> bool:
+    return not any(a.startswith(_PYTEST_REFUSED) for a in args)
 
 
 def _ok_path(p) -> bool:
@@ -1505,8 +1795,35 @@ def _ok_path(p) -> bool:
 
 
 def _ok_source(s) -> bool:
+    if isinstance(s, dict) and set(s) - SOURCE_KEYS:
+        return False
     url = s.get("url") if isinstance(s, dict) else s
     return isinstance(url, str) and url.startswith("https://") and len(url) <= 2000 and not re.search(r"\s", url)
+
+
+def _library_pairs(libs) -> list[tuple] | None:
+    """[(name, version)] from the draft's [{name, version}] or the graph's {name: version}; None when malformed."""
+    if libs is None:
+        return []
+    if isinstance(libs, dict):
+        return list(libs.items())
+    if isinstance(libs, list) and all(isinstance(x, dict) and not set(x) - {"name", "version"} for x in libs):
+        return [(x.get("name"), x.get("version")) for x in libs]
+    return None
+
+
+def _ok_libraries(libs) -> bool:
+    """The engine pip-installs lesson libraries (server/workspace/setup.py): plain package names and versions
+    only. No URLs, no git+, no paths, no options."""
+    pairs = _library_pairs(libs)
+    if pairs is None or len(pairs) > 100:
+        return False
+    for name, version in pairs:
+        if not isinstance(name, str) or not _LIB_NAME_RE.fullmatch(name):
+            return False
+        if version not in (None, "") and not (isinstance(version, str) and _LIB_VERSION_RE.fullmatch(version)):
+            return False
+    return True
 
 
 def _walk_bounded(v, depth: int = 0) -> bool:
@@ -1526,9 +1843,51 @@ def _items(v) -> list:
     return v if isinstance(v, list) else []
 
 
+def _extra(d: dict, allowed: frozenset) -> str | None:
+    extra = sorted(k for k in d if k not in allowed)
+    return extra[0][:40] if extra else None
+
+
+def _check_problem(c) -> str | None:
+    if not isinstance(c, dict):
+        return "checks must be objects"
+    if key := _extra(c, CHECK_KEYS):
+        return f"unknown check key {key!r}"
+    if "type" in c and c["type"] not in CHECK_TYPES:
+        return f"unknown check type {str(c['type'])[:40]!r}"
+    if not _ok_path(c.get("file")):
+        return "check files must be relative paths inside the project"
+    if not _ok_command(c.get("command")):
+        return "check commands must be plain python, pytest, node or npm run"
+    return None
+
+
+def _step_problem(s: dict) -> str | None:
+    if key := _extra(s, STEP_KEYS):
+        return f"unknown step key {key!r}"
+    if not _ok_command(s.get("run_command")):
+        return "run_command must be python, pytest, node or npm run with plain arguments"
+    if not _ok_path(s.get("file")):
+        return "file must be a relative path inside the project"
+    for c in _items(s.get("checks")) + _items(s.get("precision_checks")):
+        if why := _check_problem(c):
+            return why
+    for t in _items(s.get("targets")):
+        if not isinstance(t, dict) or _extra(t, TARGET_KEYS) or not _ok_path(t.get("file")):
+            return "targets must be {app, file, match, caption} with relative files"
+    for e in _items(s.get("explanations")):
+        if not isinstance(e, dict) or _extra(e, EXPLANATION_KEYS):
+            return "explanations must be {topic, t, sourceId}"
+    if "video" in s and (not isinstance(s["video"], dict) or _extra(s["video"], VIDEO_KEYS)):
+        return "video must be {sourceId, start, end}"
+    if not all(isinstance(r, str) and _TOOL_ID_RE.fullmatch(r) for r in _items(s.get("requires"))):
+        return "requires must be tool ids"
+    return None
+
+
 def validate_lesson(lesson) -> str | None:
-    """Why this uploaded lesson is refused, or None. Engines run its commands and open its files on learners'
-    Macs, so the shape matters as much as the size."""
+    """Why this uploaded lesson is refused, or None. Engines pip-install its libraries, run its commands and open
+    its files on learners' Macs, so the shape matters as much as the size."""
     if not isinstance(lesson, dict):
         return "lesson must be an object with 1 to 300 steps."
     steps = lesson.get("steps")
@@ -1536,24 +1895,43 @@ def validate_lesson(lesson) -> str | None:
         return "lesson must be an object with 1 to 300 steps."
     if not _walk_bounded(lesson):
         return f"lesson has a string over {_MAX_LESSON_STR} characters or is nested too deep."
+    if key := _extra(lesson, LESSON_KEYS):
+        return f"unknown lesson key {key!r}."
+    meta = lesson.get("lesson")
+    if meta is not None and (not isinstance(meta, dict) or _extra(meta, LESSON_META_KEYS)):
+        return f"lesson.lesson may only hold {', '.join(sorted(LESSON_META_KEYS))}."
+    if not _ok_libraries(lesson.get("libraries")) or not _ok_libraries((meta or {}).get("libraries")):
+        return "libraries must be plain package names with plain versions (no URLs, git+, paths or options)."
     if not all(_ok_path(f) for f in _items(lesson.get("files"))):
         return "lesson files must be relative paths inside the project (no '..', not absolute)."
     if not all(_ok_source(s) for s in _items(lesson.get("sources"))):
         return "lesson sources must be https URLs."
     for i, s in enumerate(steps, 1):
-        if not _ok_command(s.get("run_command")):
-            return f"step {i}: run_command must be python, pytest, node or npm run with plain arguments."
-        if not _ok_path(s.get("file")):
-            return f"step {i}: file must be a relative path inside the project."
-        for t in _items(s.get("targets")):
-            if isinstance(t, dict) and not _ok_path(t.get("file")):
-                return f"step {i}: target files must be relative paths inside the project."
-        for c in _items(s.get("checks")):
-            if isinstance(c, dict) and not (_ok_path(c.get("file")) and _ok_command(c.get("command"))):
-                return f"step {i}: check files must be relative paths and check commands plain python/pytest/node/npm run."
-        if not all(_ok_source(x) for x in _items(s.get("sources"))):
-            return f"step {i}: sources must be https URLs."
+        if why := _step_problem(s):
+            return f"step {i}: {why}."
     return None
+
+
+def lesson_review(lesson) -> dict:
+    """What a reviewer must see before approving a lesson: the libraries it installs, every command it suggests or
+    runs, and the files it touches."""
+    if not isinstance(lesson, dict):
+        return {"libraries": [], "commands": [], "files": []}
+    libs = (_library_pairs(lesson.get("libraries")) or []) + (_library_pairs((lesson.get("lesson") or {}).get("libraries")) or [])
+    commands, files = [], list(_items(lesson.get("files")))
+    for s in _items(lesson.get("steps")):
+        if not isinstance(s, dict):
+            continue
+        commands.append(s.get("run_command"))
+        files.append(s.get("file"))
+        for c in _items(s.get("checks")) + _items(s.get("precision_checks")):
+            if isinstance(c, dict):
+                commands.append(c.get("command"))
+                files.append(c.get("file"))
+    def uniq(xs):
+        return list(dict.fromkeys(x for x in xs if isinstance(x, str) and x))[:100]
+    return {"libraries": uniq(f"{n} {v or ''}".strip() for n, v in libs if isinstance(n, str)),
+            "commands": uniq(commands), "files": uniq(files)}
 
 
 def lesson_disk_full() -> bool:
@@ -1626,7 +2004,9 @@ async def put_lesson(video_id: str, request: Request):
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > raw_cap:
         return too_big
-    raw = await request.body()
+    raw = await read_body(request)
+    if raw is None:
+        return request_timeout()
     if len(raw) > raw_cap:
         return too_big
     data = _json_object(raw)
@@ -1720,7 +2100,9 @@ async def events(request: Request):
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > EVENTS_MAX_BYTES:
         return too_big
-    raw = await request.body()
+    raw = await read_body(request)
+    if raw is None:
+        return request_timeout()
     if len(raw) > EVENTS_MAX_BYTES:
         return too_big
     try:
@@ -1810,10 +2192,18 @@ async def admin_set_plan(prefix: str, body: PlanBody, request: Request):
 
 @app.get("/admin/lessons/pending")
 async def admin_pending_lessons(request: Request):
-    """Uploaded lessons nobody approved yet: video, schema, body hash (16 hex), uploader token prefix, size."""
+    """Uploaded lessons nobody approved yet: video, schema, body hash (16 hex), uploader token prefix, size, and what
+    a reviewer must read before approving: the libraries it installs, its commands and its files."""
     if denied := require_admin(request):
         return denied
-    return {"pending": store.pending_lessons()}
+    out = []
+    for p in store.pending_lessons():
+        try:
+            review = lesson_review(json.loads(p.pop("body")))
+        except ValueError:
+            review = {"libraries": [], "commands": [], "files": [], "unreadable": True}
+        out.append({**p, **review})
+    return {"pending": out}
 
 
 class ApproveBody(BaseModel):
@@ -1892,7 +2282,10 @@ async def admin_page():
 
 @app.post("/admin")
 async def admin_page_post(request: Request):
-    form = parse_qs((await request.body()).decode("utf-8", "replace"))  # urlencoded form, no multipart dependency
+    raw = await read_body(request)
+    if raw is None:
+        return request_timeout()
+    form = parse_qs(raw.decode("utf-8", "replace"))  # urlencoded form, no multipart dependency
     if not admin_ok(request, (form.get("admin_token") or [""])[0]):
         return _page("<p>Wrong token.</p>" + _LOGIN)
     r = store.usage_report(30)
