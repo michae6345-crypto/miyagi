@@ -484,7 +484,7 @@ def test_actions_route(rig):
     seeks = [e["payload"] for e in ev if e["type"] == "video.seek"]
     # 14f55e7: Back opens the previous step (s5, 310-380 s) and plays its clip from its start; Show me then replays it
     assert seeks == [{"t": 310.0, "play": True}, {"t": 310.0, "play": True}]
-    assert rig.s.voice is True
+    assert rig.s.voice is False  # voice is off for now (MIYAGI_VOICE unset): the toggle is ignored
 
 
 def test_apply_fix_edits_the_file(rig):
@@ -1106,6 +1106,7 @@ def test_build_stage_labels_come_from_on_progress(tmp_path, monkeypatch):
 
 def test_voice_speaks_step_offtrack_and_pass_only_when_on_and_not_typing(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.setenv("MIYAGI_VOICE", "1")  # voice is off by default (config.voice_enabled)
     rig = Rig(tmp_path, with_inputs=True)
     said, prefetched = [], []
 
@@ -1137,6 +1138,37 @@ def test_voice_speaks_step_offtrack_and_pass_only_when_on_and_not_typing(tmp_pat
     run(go())
     assert said == ["step.passed", "step.started"]
     assert [p["audioUrl"] for p in rig.of("speak")] == ["/tts/step.passed.mp3", "/tts/step.started.mp3"]
+
+
+def test_voice_off_by_default_never_speaks_or_prefetches(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("MIYAGI_VOICE", raising=False)
+    rig = Rig(tmp_path, with_inputs=True)
+    said, prefetched = [], []
+
+    async def speak_event(kind, payload):
+        said.append(kind)
+        return {"audioUrl": f"/tts/{kind}.mp3", "text": kind}
+
+    async def prefetch(lines):
+        prefetched.extend(lines)
+
+    rig.s.m.speak_event = speak_event
+    rig.s.m.prefetch_voice = prefetch
+
+    async def go():
+        await rig.start_lesson()
+        await rig.s.action("voice_toggle")
+        await rig.settle()
+        rig.clock.t += 5
+        await rig.save("# s1\n")
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert rig.s.voice is False and not said and not prefetched and not rig.of("speak")
+    from server.orchestrator import config as orch_config
+
+    assert orch_config.voice_enabled() is False  # Modules._voice() then hands out no ElevenLabs module at all
 
 
 def test_learning_events_are_recorded_for_tiger_stats(rig):

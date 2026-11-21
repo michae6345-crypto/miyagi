@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import bg, stubs
-from .config import DEMO_CACHE, demo_mode
+from .config import DEMO_CACHE, demo_mode, voice_enabled
 from .context import RunContext
 
 log = logging.getLogger("orchestrator.modules")
@@ -575,7 +575,8 @@ class Modules:
 
     # -- voice (E5: ElevenLabs behind server.coach.voice; fills the existing `speak` event)
     def _voice(self) -> Any:
-        if self.demo or "coach" in self.forced:
+        # Voice is off unless MIYAGI_VOICE=1 (config.voice_enabled): no ElevenLabs call, no line, no prefetch.
+        if not voice_enabled() or self.demo or "coach" in self.forced:
             return None
         return getattr(self.real.get("coach"), "voice", None)
 

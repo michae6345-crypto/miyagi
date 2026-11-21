@@ -51,6 +51,13 @@ def demo_mode() -> bool:
     return env_flag("DEMO")
 
 
+def voice_enabled() -> bool:
+    """MIYAGI_VOICE=1 turns spoken lines (ElevenLabs `speak` events) back on. Off by default (Michael, Nov 20: the
+    voice is off for now, the app hides it too). While off the engine ignores voice_toggle, never synthesizes or
+    prefetches a line, and never emits `speak`. Read on every call so tests and a restarted engine can flip it."""
+    return env_flag("MIYAGI_VOICE")
+
+
 def port() -> int:
     return int(os.environ.get("ENGINE_PORT", "8787"))
 

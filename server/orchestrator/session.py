@@ -1253,7 +1253,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     def _prefetch_voice(self) -> None:
         """Synthesize every step's spoken line ahead of time (only while voice is on: it costs TTS credits)."""
-        if not self.graph:
+        if not self.graph or not config.voice_enabled():
             return
         lines = [self.m.voice_line("step.started", self._step_started_payload(st)) for st in self.steps]
         self._spawn(self.m.prefetch_voice([ln for ln in lines if ln]), timer=True)
@@ -1269,7 +1269,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.exception("record %s failed", kind)
 
     def _say(self, kind: str, payload: dict) -> None:
-        """Voice (when toggled on): speak this event in the background, never over the learner's typing."""
+        """Voice (when toggled on): speak this event in the background, never over the learner's typing.
+        Never while voice is off for the engine (config.voice_enabled, MIYAGI_VOICE; off by default)."""
+        if not config.voice_enabled():
+            return
         if not self.voice or self.typing():
             if self.voice:
                 log.info("voice: held %s (typing)", kind)
@@ -5799,6 +5802,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._open_in_browser((text or "").strip())
             return
         if kind == "voice_toggle":
+            if not config.voice_enabled():  # voice is off for now (MIYAGI_VOICE): the toggle does nothing
+                log.info("voice: off (set MIYAGI_VOICE=1 to turn it on); voice_toggle ignored")
+                self.voice = False
+                return
             self.voice = not self.voice
             if self.voice:
                 self._prefetch_voice()
