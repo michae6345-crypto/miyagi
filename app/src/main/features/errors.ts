@@ -25,7 +25,7 @@ import { MAX_TEXT, scrub } from '../../renderer/src/features/errors/scrub'
 import { defineMainFeature } from '../context'
 
 type Context = { lesson?: string; step?: number; total?: number }
-type Marker = { startedAt: string; version: string; context: Context }
+type Marker = { startedAt: string; version: string; pid?: number; context: Context }
 type LogLine = { at: string; text: string }
 
 const MAX_LOG = 30
@@ -49,6 +49,17 @@ function remove(file: string): void {
     if (existsSync(file)) unlinkSync(file)
   } catch {
     /* gone already */
+  }
+}
+
+/** The process that wrote a marker is still running (a live instance, not a crash). EPERM still means it exists. */
+function alive(pid: unknown): boolean {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException | undefined)?.code === 'EPERM'
   }
 }
 
@@ -108,8 +119,11 @@ export default defineMainFeature({
     })
 
     // ---- last launch: a marker still there = it did not quit cleanly ----
+    // Unless its process still runs: this is a second instance (Windows packaged exits in windows.ts right after this
+    // setup, or a second copy opened from the dmg). It must not call the live one a crash, nor take over its marker.
     const prev = readJson<Marker>(markerFile)
-    if (prev && typeof prev === 'object') write(pendingFile, buildReport(prev, log))
+    const second = !!prev && typeof prev === 'object' && alive(prev.pid)
+    if (prev && typeof prev === 'object' && !second) write(pendingFile, buildReport(prev, log))
 
     const prefs = sanitizePrefs(readJson<unknown>(join(app.getPath('userData'), 'prefs.json')))
     const choice = (): 'ask' | 'always' | 'never' => {
@@ -141,16 +155,18 @@ export default defineMainFeature({
     }
 
     // ---- this launch ----
-    let marker: Marker = { startedAt: new Date().toISOString(), version: app.getVersion(), context: {} }
-    write(markerFile, JSON.stringify(marker))
-    app.on('will-quit', () => remove(markerFile))
+    let marker: Marker = { startedAt: new Date().toISOString(), version: app.getVersion(), pid: process.pid, context: {} }
+    if (!second) {
+      write(markerFile, JSON.stringify(marker))
+      app.on('will-quit', () => remove(markerFile))
+    }
 
     ctx.handle('errors:info', () => ({ version: app.getVersion(), system: systemLabel() }))
     ctx.handle('errors:context', (raw) => {
       const context = sanitizeContext(raw)
       if (JSON.stringify(context) === JSON.stringify(marker.context)) return true
       marker = { ...marker, context }
-      write(markerFile, JSON.stringify(marker))
+      if (!second) write(markerFile, JSON.stringify(marker))
       return true
     })
     ctx.handle('diagnostics:copy', (text) => {
@@ -159,7 +175,8 @@ export default defineMainFeature({
       return true
     })
     ctx.handle('errors:crash-pending', () => {
-      const report = pending()
+      // A second instance leaves the question to the live one.
+      const report = second ? undefined : pending()
       return report && choice() === 'ask' ? { report: scrub(report) } : null
     })
     ctx.handle('errors:crash-decide', (raw) => {
