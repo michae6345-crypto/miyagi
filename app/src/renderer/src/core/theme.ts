@@ -212,6 +212,8 @@ export function themeCss(): string {
 
 /** Raw window colors for main (a window paints before any CSS loads): opaque. Same values as `l-base` in `palette`. */
 export const rawBg = { dark: palette['l-base'][0], light: palette['l-base'][1] } as const
+/** fill.thumb as raw hex per theme, for colour maths and canvas (fill.thumb itself is a var()). */
+export const rawThumb = { dark: palette['f-thumb'][0], light: palette['f-thumb'][1] } as const
 
 /**
  * What components use (dark HUD). `accent` is the "active / interactive" color and is WHITE
