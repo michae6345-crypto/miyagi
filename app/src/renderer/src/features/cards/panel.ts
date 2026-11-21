@@ -13,9 +13,10 @@
  * Until A1 lands, FALLBACK_ROUTED stands in: the Not yet card (offtrack, its "Waiting for the fix" view), the
  * step-passed card and the hint card, the three the Les-NotYet / Les-Hint / Les-Passed panels draw.
  */
+import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { useDock } from '../../core/dock'
-import type { Offtrack } from '../../core/lesson'
+import { useLesson, type Offtrack } from '../../core/lesson'
 
 /** The island modes / card kinds this feature asks about: its three modes plus every engine card kind. */
 export type RoutedKind = 'offtrack' | 'success' | Payload<'card'>['kind'] | 'complete'
@@ -25,6 +26,8 @@ type AnyFn = (...args: unknown[]) => unknown
 /** What A1 exports, once its modules have loaded (they are already in the bundle; this only reads their exports). */
 const found: Record<string, AnyFn | undefined> = {}
 const WANTED = ['isPanelRouted', 'openPanel'] as const
+/** Bumped when the drawer modules have loaded, so hooks that read `found` re-render with A1's answer. */
+const useScanned = create<{ n: number }>(() => ({ n: 0 }))
 const drawerModules = import.meta.glob('../drawer/**/*.{ts,tsx}')
 
 function scan(mod: unknown): void {
@@ -40,7 +43,9 @@ function scan(mod: unknown): void {
 }
 
 // Read after this module has finished loading (dynamic imports never re-enter a module mid-evaluation).
-void Promise.all(Object.values(drawerModules).map((load) => load().then(scan, () => undefined)))
+void Promise.all(Object.values(drawerModules).map((load) => load().then(scan, () => undefined))).then(() =>
+  useScanned.setState((s) => ({ n: s.n + 1 }))
+)
 
 /** A1's export by name (`isPanelRouted`, `openPanel`), or undefined while A1 isn't there. */
 export function drawerExport(name: (typeof WANTED)[number]): AnyFn | undefined {
@@ -75,8 +80,16 @@ export function usePanelShown(): boolean {
   return useDock((d) => d.open && !d.collapsed)
 }
 
-/** This card is drawn by the panel right now, so the island skips it. */
+/**
+ * This card is drawn by the panel right now, so the island skips it. Subscribes to everything A1's answer reads (the
+ * dock, the current step, the lesson mode) and to the drawer scan, so a card for a step that moved on, a mode change or
+ * A1 loading after the first render is re-asked at once. (A1's own `usePanelRouted` hook isn't called here: it only
+ * turns up after the first render, and a hook that appears later would change this hook's call order.)
+ */
 export function useRoutedAway(kind: RoutedKind | undefined, live?: RoutedSubject): boolean {
   const shown = usePanelShown()
+  useLesson((s) => s.stepId)
+  useLesson((s) => s.lesson?.mode)
+  useScanned((s) => s.n)
   return shown && !!kind && isRouted(kind, live)
 }

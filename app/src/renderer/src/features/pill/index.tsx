@@ -500,15 +500,18 @@ export default defineFeature({
     // Above the pill states, below hover (20) and cards (40+): a card the learner opened stays in front.
     { id: 'notice', priority: 5, useActive: () => usePill((s) => !!s.notice), Content: NoticeLine },
     // v2 Les-Mini (README priority table: 9): the lesson panel collapsed to the pill. It steps aside for the pill's own
-    // notice line (5) while that shows, so a notify() line is never hidden for the whole collapsed lesson.
+    // notice line (5) while that shows, and for A7's lines while the engine is offline or busy (6) or the lesson is
+    // paused or blocked (7), so 'Reconnecting', 'Lesson paused' or a kernel blocker is never hidden for the whole
+    // collapsed lesson. Mini comes back as soon as they clear.
     {
       id: 'mini',
       priority: 9,
       useActive: () => {
         const collapsed = useDock((d) => d.collapsed)
         const step = useLesson((s) => !!s.stepId)
+        const engineLine = useLesson((s) => !s.connected || !!s.busy || !!s.paused || Object.keys(s.blockers).length > 0)
         const notice = usePill((s) => !!s.notice)
-        return collapsed && step && !notice
+        return collapsed && step && !notice && !engineLine
       },
       Content: Mini
     }
