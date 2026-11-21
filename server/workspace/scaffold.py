@@ -334,21 +334,29 @@ def _branch(name) -> str:
 # --------------------------------------------------------------------------- Claude
 
 def model() -> str:
-    return os.environ.get("WORKSPACE_CLAUDE_MODEL", DEFAULT_MODEL)
+    """WORKSPACE_CLAUDE_MODEL, through the shared Opus guard (Opus only with MIYAGI_ALLOW_OPUS=1)."""
+    m = os.environ.get("WORKSPACE_CLAUDE_MODEL", DEFAULT_MODEL)
+    try:
+        from server.config import guard_model
+    except Exception:  # pragma: no cover
+        return m
+    return guard_model(m)
 
 
 def make_client():
-    """A sync Anthropic client with the app's key (server.config.get_key) or the env, else None."""
+    """A sync Anthropic client with the app's key, the miyagi cloud's install token (through the proxy) or the env,
+    else None (server.config.anthropic_kwargs)."""
     try:
-        from server.config import get_key
-        key = get_key("anthropic")
+        from server.config import anthropic_kwargs
+        kw = anthropic_kwargs("workspace")
     except Exception:  # pragma: no cover - server.config always importable in the engine
         key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
+        kw = {"api_key": key} if key else {}
+    if not kw.get("api_key"):
         return None
     import anthropic
 
-    return anthropic.Anthropic(api_key=key, timeout=90.0, max_retries=1)
+    return anthropic.Anthropic(timeout=90.0, max_retries=1, **kw)
 
 
 def _lesson_for_prompt(graph: dict) -> str:

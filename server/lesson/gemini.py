@@ -53,14 +53,45 @@ def set_api_key(key: str | None) -> None:
     _override_key = key or None
 
 
+def _shared_key() -> str | None:
+    """server.config's Gemini key: Settings key > the miyagi cloud's install token > .env."""
+    try:
+        from server.config import get_key
+    except ImportError:  # pragma: no cover - server.lesson run on its own
+        return None
+    return get_key("gemini")
+
+
+def _client_kwargs(key: str) -> dict:
+    """{api_key[, http_options]}: the miyagi cloud's install token goes to the proxy (video calls only), any other
+    key straight to Google."""
+    try:
+        from server.config import gemini_kwargs
+    except ImportError:  # pragma: no cover
+        return {"api_key": key}
+    return gemini_kwargs("lesson", key=key) or {"api_key": key}
+
+
+def cloud_mode() -> bool:
+    """Gemini goes through the miyagi cloud: only video calls are allowed there (text-only calls get 403)."""
+    try:
+        from server.config import is_cloud_token
+    except ImportError:  # pragma: no cover
+        return False
+    return is_cloud_token(_override_key or _shared_key())
+
+
 def client() -> genai.Client:
     _load_env()
-    key = _override_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    key = _override_key or _shared_key() or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not set (app settings, or .env at the repo root / $TUT_ENV)")
-    if key not in _clients:
-        _clients[key] = genai.Client(api_key=key)
-    return _clients[key]
+    kw = _client_kwargs(key)
+    opts = kw.get("http_options")
+    sig = f"{key}\n{getattr(opts, 'base_url', None)}"
+    if sig not in _clients:
+        _clients[sig] = genai.Client(**kw)
+    return _clients[sig]
 
 
 def model(fast: bool = False) -> str:
@@ -373,5 +404,9 @@ def adapt_prompt(goal: str, draft_steps: list[dict], workdir_summary: str, feedb
 
 
 async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> dict:
+    if cloud_mode():  # text only: the miyagi cloud lets Gemini watch videos and nothing else, so Claude Haiku adapts
+        from . import claude
+
+        return await claude.adapt_checks(goal, draft_steps, workdir_summary, feedback)
     prompt = adapt_prompt(goal, draft_steps, workdir_summary, feedback)
     return await _generate_json(model(fast=True), [types.Part(text=prompt)], ADAPTED_SCHEMA, system=ADAPT_SYSTEM)

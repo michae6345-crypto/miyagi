@@ -1,7 +1,8 @@
 """Screen questions answered by Claude vision (model rule: reading the screen/code = Claude only;
 Gemini is only for YouTube in server/lesson).
 
-- `describe(question)`  -> claude-opus-5-5: semantic/coaching questions ("is this loss converging?")
+- `describe(question)`  -> claude-sonnet-5-5: semantic/coaching questions ("is this loss converging?").
+  Opus only with MIYAGI_ALLOW_OPUS=1 (server.config.guard_model); the miyagi cloud never takes it.
 - `where(target)`       -> claude-haiku-5-5: quick "where is X". Set-of-mark: the OCR lines are
   numbered in the prompt and Claude answers with line numbers, which map back to exact rects.
 
@@ -20,9 +21,11 @@ import os
 import re
 import time
 
+from server import config as server_config
+
 log = logging.getLogger("server.screen.describe")
 
-COACH_MODEL = os.environ.get("TUT_SCREEN_COACH_MODEL", "claude-opus-5-5")
+COACH_MODEL = os.environ.get("TUT_SCREEN_COACH_MODEL", "claude-sonnet-5-5")  # cost: never Opus by default
 QUICK_MODEL = os.environ.get("TUT_SCREEN_QUICK_MODEL", "claude-haiku-5-5")
 COACH_TIMEOUT = float(os.environ.get("TUT_SCREEN_COACH_TIMEOUT", "30"))
 QUICK_TIMEOUT = float(os.environ.get("TUT_SCREEN_QUICK_TIMEOUT", "12"))
@@ -66,24 +69,27 @@ class Describer:
         self._cache.clear()
 
     def _key(self) -> str:
-        return self._byok or os.environ.get("ANTHROPIC_API_KEY", "")
+        """The key handed over by set_key, else server.config's (Settings key > miyagi cloud token > .env)."""
+        return self._byok or server_config.get_key("anthropic") or ""
 
     @property
     def key_status(self) -> str:
-        """KeyState from events.ts: ok | missing | invalid | env."""
+        """KeyState from events.ts: ok | missing | invalid | env | cloud."""
         if not self._key():
             return "missing"
         if self._key_invalid:
             return "invalid"
-        return "ok" if self._byok else "env"
+        return "ok" if self._byok else server_config.key_source("anthropic")
 
     def _get_client(self):
-        if self._client is None:
-            key = self._key()
+        key = self._key()
+        if self._client is None or getattr(self, "_client_for", None) != key:
             if not key:
                 raise DescribeError("missing_key", "no Anthropic key (config.keys.anthropic or ANTHROPIC_API_KEY)")
             import anthropic
-            self._client = anthropic.AsyncAnthropic(api_key=key, max_retries=1)
+            # a cloud token goes to the miyagi cloud, any other key straight to Anthropic
+            self._client = anthropic.AsyncAnthropic(max_retries=1, **server_config.anthropic_kwargs("screen", key=key))
+            self._client_for = key
         return self._client
 
     # ------------------------------------------------------------------ calls
@@ -97,6 +103,7 @@ class Describer:
                                          "data": base64.standard_b64encode(image_jpeg).decode("ascii")}},
             {"type": "text", "text": text},
         ]
+        model = server_config.guard_model(model)
         kwargs = {"model": model, "max_tokens": max_tokens, "system": system,
                       "output_config": {"effort": effort}, "messages": [{"role": "user", "content": content}]}
         async with self._lock:
@@ -106,18 +113,21 @@ class Describer:
             self._last_call = time.time()
             try:
                 c = client.with_options(timeout=timeout)
-                if model.startswith(("claude-opus-5", "claude-fable-5", "claude-sonnet-5-5")):
-                    # server-side refusal fallback (re-runs a declined request on a fallback model)
-                    resp = await c.beta.messages.create(betas=["server-side-fallback-2026-07-01"],
-                                                        fallbacks="default", **kwargs)
+                # server-side refusal fallback (re-runs a declined request on a fallback model), never onto Opus
+                fb = server_config.fallback_kwargs(model)
+                if fb:
+                    resp = await c.beta.messages.create(**fb, **kwargs)
                 else:
                     resp = await c.messages.create(**kwargs)
-            except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
-                self._key_invalid = True
-                raise DescribeError("invalid_key", getattr(e, "message", str(e))[:200]) from e
-            except anthropic.RateLimitError as e:
-                raise DescribeError("unavailable", f"rate limited: {getattr(e, 'message', e)}"[:200]) from e
             except anthropic.APIStatusError as e:
+                code = server_config.cloud_error(e)
+                if code:  # the miyagi cloud: paused / over today's limit / token refused
+                    raise DescribeError(code, server_config.CLOUD_ERRORS[code]) from e
+                if isinstance(e, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+                    self._key_invalid = True
+                    raise DescribeError("invalid_key", getattr(e, "message", str(e))[:200]) from e
+                if isinstance(e, anthropic.RateLimitError):
+                    raise DescribeError("unavailable", f"rate limited: {getattr(e, 'message', e)}"[:200]) from e
                 raise DescribeError("unavailable", f"{e.status_code}: {getattr(e, 'message', e)}"[:200]) from e
             except (anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
                 raise DescribeError("unavailable", f"{e.__class__.__name__}: {e}"[:200]) from e

@@ -425,14 +425,19 @@ def stats() -> dict:
 
 
 def _client_for(api_key: str | None):
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    """A client for `api_key`, else server.config's key (Settings key > miyagi cloud token > .env). A cloud token
+    goes to the miyagi cloud, any other key straight to Anthropic (server.config.anthropic_kwargs)."""
+    from server import config as server_config
+
+    key = api_key or server_config.get_key("anthropic") or ""
     if not key:
         return None
-    h = hashlib.sha256(key.encode()).hexdigest()
+    kw = server_config.anthropic_kwargs("screen", key=key)
+    h = hashlib.sha256(f"{key}\n{kw.get('base_url')}".encode()).hexdigest()
     c = _CLIENTS.get(h)
     if c is None:
         import anthropic
-        c = anthropic.AsyncAnthropic(api_key=key, max_retries=0)
+        c = anthropic.AsyncAnthropic(max_retries=0, **kw)
         _CLIENTS[h] = c
     return c
 

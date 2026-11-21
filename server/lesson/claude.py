@@ -14,6 +14,8 @@ import os
 import anthropic
 from jsonschema import Draft202012Validator
 
+from server import config as server_config
+
 from . import cost, gemini
 from .schema import ADAPTED_SCHEMA, VIDEO_DRAFT_SCHEMA
 from .transcript import format_for_prompt
@@ -38,16 +40,14 @@ def set_api_key(key: str | None) -> None:
 
 
 def opus_allowed() -> bool:
-    """Opus is opt-in only: LESSON_ALLOW_OPUS=1."""
+    """Opus is opt-in only: LESSON_ALLOW_OPUS=1, and never through the miyagi cloud (it rejects Opus)."""
     gemini._load_env()
-    return os.environ.get("LESSON_ALLOW_OPUS", "0") == "1"
+    return os.environ.get("LESSON_ALLOW_OPUS", "0") == "1" and server_config.mode("anthropic") != "cloud"
 
 
 def _guard(mid: str) -> str:
-    if "opus" in mid and not opus_allowed():
-        log.warning("%s requested without LESSON_ALLOW_OPUS=1; using %s", mid, DEFAULT_MODEL)
-        return DEFAULT_MODEL
-    return mid
+    """The shared Opus guard (server.config.guard_model) with the lesson's own opt-in, LESSON_ALLOW_OPUS=1."""
+    return server_config.guard_model(mid, DEFAULT_MODEL, allow=opus_allowed())
 
 
 def model(role: str | None = None) -> str:
@@ -69,12 +69,28 @@ def escalation_model() -> str:
     return _guard(os.environ.get("LESSON_CLAUDE_MODEL_ESCALATE", default))
 
 
+_client_sig: str | None = None
+
+
 def client() -> anthropic.AsyncAnthropic:
-    global _client
-    if _client is None:
-        gemini._load_env()
-        _client = anthropic.AsyncAnthropic(api_key=_override_key) if _override_key else anthropic.AsyncAnthropic()
+    """The key from set_api_key, else server.config's (Settings key > miyagi cloud token > .env). A cloud token goes
+    to the miyagi cloud, any other key straight to Anthropic (server.config.anthropic_kwargs)."""
+    global _client, _client_sig
+    gemini._load_env()
+    kw = server_config.anthropic_kwargs("lesson", key=_override_key) if _override_key else server_config.anthropic_kwargs("lesson")
+    sig = f"{kw.get('api_key')}\n{kw.get('base_url')}"
+    if _client is None or sig != _client_sig:
+        _client = anthropic.AsyncAnthropic(**kw)
+        _client_sig = sig
     return _client
+
+
+def _cloud_fail(e: Exception) -> None:
+    """The miyagi cloud turned the call away (paused, over today's limit, install not verified): stop with the
+    plain card text instead of retrying it as a rate limit or reporting a bad key."""
+    code = server_config.cloud_error(e)
+    if code:
+        raise RuntimeError(f"{code}: {server_config.CLOUD_ERRORS[code]}") from e
 
 
 def strict_schema(schema: dict) -> dict:
@@ -160,9 +176,12 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
         thinking={"type": "adaptive"},
         output_config=output_config,
     )
-    # server-side refusal fallback: Opus/Sonnet only (Haiku 5.5 has none); fast mode: Opus 5.5 only
-    if "haiku" not in mid:
-        kwargs.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+    # server-side refusal fallback (Haiku 5.5 has none) that can't reach Opus: "default" sends Sonnet 5.5 to Sonnet 5 only;
+    # "default" only for an Opus the learner opted into (LESSON_ALLOW_OPUS=1). Fast mode: Opus 5.5 only
+    fb = server_config.fallback_kwargs(mid)
+    if not fb and "opus" in mid and opus_allowed():
+        fb = {"betas": [server_config.FALLBACK_BETA], "fallbacks": "default"}
+    kwargs.update(fb)
     fast = _use_fast() and mid.startswith("claude-opus-5-5")
     api = client().beta.messages if "betas" in kwargs else client().messages
     try:
@@ -177,6 +196,7 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
             async with api.stream(**kwargs) as stream:
                 msg = await stream.get_final_message()
     except anthropic.RateLimitError as e:
+        _cloud_fail(e)
         ra = None
         try:
             ra = float(e.response.headers.get("retry-after"))
@@ -184,6 +204,7 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
             pass
         raise _RateLimited(str(e)[:200], ra) from e
     except anthropic.AuthenticationError as e:
+        _cloud_fail(e)
         raise RuntimeError(f"Anthropic rejected the API key: {e}") from e
     except anthropic.BadRequestError as e:
         msg_l = str(e).lower()
@@ -191,6 +212,7 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
             raise _SchemaTooComplex from e
         raise RuntimeError(f"Claude call failed (400): {str(e)[:300]}") from e
     except anthropic.APIStatusError as e:  # 4xx/5xx after the SDK's own retries
+        _cloud_fail(e)
         raise RuntimeError(f"Claude call failed ({e.status_code}): {str(e)[:300]}") from e
     except anthropic.APIConnectionError as e:
         raise RuntimeError(f"Claude unreachable: {e}") from e

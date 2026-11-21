@@ -33,11 +33,22 @@ def search_tool() -> str:
     return os.environ.get("FINDER_CLAUDE_SEARCH_TOOL", "web_search_20250305")
 
 
+def _route(key: str) -> dict:
+    """{api_key, base_url}: the miyagi cloud for its install token, Anthropic direct for any other key."""
+    try:
+        from server.config import anthropic_kwargs  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover - the finder run on its own
+        return {"api_key": key}
+    return anthropic_kwargs("finder", key=key)
+
+
 def client(key: str) -> anthropic.AsyncAnthropic:
-    if key not in _clients:
+    kw = _route(key)
+    sig = f"{key}\n{kw.get('base_url')}"
+    if sig not in _clients:
         # no SDK retries: a retried timeout doubles the wait; the finder has its own fallbacks
-        _clients[key] = anthropic.AsyncAnthropic(api_key=key, max_retries=0, timeout=30)
-    return _clients[key]
+        _clients[sig] = anthropic.AsyncAnthropic(max_retries=0, timeout=30, **kw)
+    return _clients[sig]
 
 
 # --------------------------------------------------------------------------- search

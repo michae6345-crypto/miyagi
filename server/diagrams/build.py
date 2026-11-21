@@ -32,6 +32,34 @@ log = logging.getLogger("diagrams")
 
 MODEL = os.environ.get("DIAGRAMS_MODEL", "claude-sonnet-5-5")  # steadier than Haiku 5.5 here: 3-5 s vs 2-8 s
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+def _model() -> str:
+    """MODEL through the shared Opus guard: an Opus / Fable DIAGRAMS_MODEL runs on Sonnet unless MIYAGI_ALLOW_OPUS=1."""
+    try:
+        from server.config import guard_model
+    except ImportError:  # pragma: no cover
+        return MODEL
+    return guard_model(MODEL)
+
+
+def _fallback(model: str) -> dict[str, Any]:
+    """The refusal fallback kwargs (server.config.fallback_kwargs: Sonnet 5.5 -> Sonnet 5 only, never Opus)."""
+    try:
+        from server.config import fallback_kwargs
+    except ImportError:  # pragma: no cover
+        return {"betas": [FALLBACK_BETA], "fallbacks": "default"} if model == "claude-sonnet-5-5" else {}
+    return fallback_kwargs(model)
+
+
+def _cloud_message(e: Exception) -> str | None:
+    """Card text when the miyagi cloud turned the call away (paused, over today's limit, install not verified)."""
+    try:
+        from server.config import CLOUD_ERRORS, cloud_error
+    except ImportError:  # pragma: no cover
+        return None
+    code = cloud_error(e)
+    return CLOUD_ERRORS[code] if code else None
 EFFORT = os.environ.get("DIAGRAMS_EFFORT", "low")
 TIMEOUT_S = float(os.environ.get("DIAGRAMS_TIMEOUT", "15"))
 MAX_NODES = 12
@@ -325,17 +353,17 @@ _client_key: str | None = None
 def _get_client():
     """AsyncAnthropic bound to the current key (app key > env); rebuilt when the key changes."""
     global _client, _client_key
-    try:
-        from server.config import get_key
-        key = get_key("anthropic")
+    route: dict[str, Any]
+    try:  # Settings key direct, the miyagi cloud's install token through the proxy, else .env
+        from server.config import anthropic_kwargs
+        route = anthropic_kwargs("diagram")
     except ImportError:  # pragma: no cover
-        key = os.environ.get("ANTHROPIC_API_KEY")
+        route = {"api_key": os.environ["ANTHROPIC_API_KEY"]} if os.environ.get("ANTHROPIC_API_KEY") else {}
+    key = hashlib.sha256(repr((route.get("api_key"), route.get("base_url"))).encode()).hexdigest()
     if _client is None or key != _client_key:
         import anthropic
 
-        kw: dict[str, Any] = {"max_retries": 0, "timeout": TIMEOUT_S}
-        if key:
-            kw["api_key"] = key
+        kw: dict[str, Any] = {"max_retries": 0, "timeout": TIMEOUT_S, **route}
         try:
             _client = anthropic.AsyncAnthropic(**kw)
         except anthropic.AnthropicError as e:
@@ -350,18 +378,26 @@ async def _call(client, step: dict, context: dict) -> tuple[dict, dict]:
     prompt = user_prompt(step, context)
     t0 = time.monotonic()
     try:
+        model = _model()
         kwargs: dict[str, Any] = {
-            "model": MODEL,
+            "model": model,
             "max_tokens": 4000,
             "system": SYSTEM,
             "messages": [{"role": "user", "content": prompt}],
             "output_config": {"effort": EFFORT, "format": {"type": "json_schema", "schema": SCHEMA}},
         }
-        if MODEL.startswith(("claude-sonnet-5-5", "claude-opus-5")):
-            # server-side refusal fallback (routes a policy decline to a fallback model)
-            resp = await client.beta.messages.create(betas=[FALLBACK_BETA], fallbacks="default", **kwargs)
-        else:
-            resp = await client.messages.create(**kwargs)
+        # server-side refusal fallback (routes a policy decline to a fallback model), never onto Opus
+        fb = _fallback(model)
+        try:
+            if fb:
+                resp = await client.beta.messages.create(**fb, **kwargs)
+            else:
+                resp = await client.messages.create(**kwargs)
+        except anthropic.APIStatusError as e:
+            msg = _cloud_message(e)
+            if msg:  # the miyagi cloud turned it away: paused / over today's limit / install not verified
+                raise DiagramError(msg) from e
+            raise
     except anthropic.AuthenticationError as e:
         raise DiagramError("Anthropic key was rejected (check Settings)") from e
     except anthropic.RateLimitError as e:

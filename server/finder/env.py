@@ -71,13 +71,25 @@ def resolve_keys(api_keys: dict | None = None) -> Keys:
         return _shared(name) or next((v for v in (_usable(os.environ.get(e)) for e in envs) if v), None)
 
     return Keys(
-        gemini=pick("gemini", "GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        gemini=_no_cloud_gemini(pick("gemini", "GEMINI_API_KEY", "GOOGLE_API_KEY")),
         brightdata=pick("brightdata", "BRIGHTDATA_API_KEY"),
         anthropic=pick("anthropic", "ANTHROPIC_API_KEY"),
         serp_zone=_usable(os.environ.get("BRIGHTDATA_SERP_ZONE")) or "serp_api1",
         unlocker_zone=_usable(os.environ.get("BRIGHTDATA_UNLOCKER_ZONE")) or "web_unlocker1",
         github=_usable(k.get("github")) or _usable(os.environ.get("GITHUB_TOKEN")),
     )
+
+
+def _no_cloud_gemini(key: str | None) -> str | None:
+    """None for the miyagi cloud's install token: the cloud lets Gemini watch lesson videos only, so the finder's
+    Gemini (text scoring, the skim) stays off and Claude scores (sources.py). A Settings / .env key still works."""
+    try:
+        from server.config import is_cloud_token  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover - the finder run on its own
+        return key
+    if is_cloud_token(key):
+        return None
+    return key
 
 
 def _chain(var: str, default: str) -> list[str]:

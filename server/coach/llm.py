@@ -26,6 +26,11 @@ from typing import Any
 
 log = logging.getLogger("coach.llm")
 
+try:  # the shared key store, miyagi cloud routing and Opus guard (absent only when coach/ runs on its own)
+    from server import config as _cfg
+except ImportError:  # pragma: no cover
+    _cfg = None  # type: ignore[assignment]
+
 OPUS = "claude-opus-5-5"
 SONNET = "claude-sonnet-5-5"
 HAIKU = "claude-haiku-5-5"
@@ -33,13 +38,21 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
-# Cost policy (Michael): Sonnet writes the diagnosis card (Opus only via COACH_MODEL_DIAGNOSE); everything else is Haiku.
-# Override per purpose with COACH_MODEL_<PURPOSE>, e.g. COACH_MODEL_EXPLAIN=claude-opus-5-5.
-MODELS = {"diagnose": SONNET}  # spend cap (Michael, $84/$100): never Opus by default; COACH_MODEL_DIAGNOSE overrides
+# Cost policy (Michael): Sonnet writes the diagnosis card; everything else is Haiku.
+# Override per purpose with COACH_MODEL_<PURPOSE>, e.g. COACH_MODEL_EXPLAIN=claude-sonnet-5-5. An Opus override
+# (COACH_MODEL_DIAGNOSE=claude-opus-5-5) also needs MIYAGI_ALLOW_OPUS=1 and no miyagi cloud, else it runs on Sonnet.
+MODELS = {"diagnose": SONNET}  # spend cap (Michael, $84/$100): never Opus by default
+
+
+def guard(model: str) -> str:
+    """The shared Opus guard (server.config.guard_model): Opus / Fable / Mythos become Sonnet unless opted in."""
+    if _cfg is not None:
+        return _cfg.guard_model(model, SONNET)
+    return SONNET if any(p in (model or "") for p in ("opus", "fable", "mythos")) else model
 
 
 def model_for(purpose: str) -> str:
-    return os.environ.get(f"COACH_MODEL_{purpose.upper()}") or MODELS.get(purpose, HAIKU)
+    return guard(os.environ.get(f"COACH_MODEL_{purpose.upper()}") or MODELS.get(purpose, HAIKU))
 
 
 def cached_system(text: str) -> list[dict]:
@@ -51,7 +64,8 @@ class CoachLLMError(RuntimeError):
     """Any failure to get a usable structured answer from the model.
 
     `kind`: "connection" (network/proxy down, timeout) | "api" (HTTP error) | "refusal" | "no_key"
-    | "replay" | "bad_output".
+    | "replay" | "bad_output" | "cloud" (the miyagi cloud refused: the message holds miyagi_paused / miyagi_quota /
+    miyagi_auth and the card text from server.config.CLOUD_ERRORS).
     """
 
     def __init__(self, msg: str, kind: str = "api"):
@@ -158,20 +172,35 @@ def get_key(name: str) -> str | None:
     return v if v and "..." not in v else None
 
 
-def get_client():
-    """AsyncAnthropic bound to the current key; rebuilt when the app sends a new key."""
-    global _client, _client_key
+def _client_kwargs() -> dict:
+    """{api_key, base_url, ...}: the Settings key direct, the install token through the miyagi cloud, or .env."""
+    if _cfg is not None:
+        return _cfg.anthropic_kwargs("coach")
     key = get_key("anthropic")
-    if _client is None or key != _client_key:
+    return {"api_key": key} if key else {}
+
+
+def get_client():
+    """AsyncAnthropic bound to the current key / route; rebuilt when the app sends a new key."""
+    global _client, _client_key
+    kw = _client_kwargs()
+    sig = hashlib.sha256(repr((kw.get("api_key"), kw.get("base_url"))).encode()).hexdigest()
+    if _client is None or sig != _client_key:
         import anthropic
 
-        _client = anthropic.AsyncAnthropic(api_key=key, max_retries=1, timeout=45.0) if key else anthropic.AsyncAnthropic(max_retries=1, timeout=45.0)
-        _client_key = key
+        _client = anthropic.AsyncAnthropic(max_retries=1, timeout=45.0, **kw)
+        _client_key = sig
     return _client
 
 
 def has_credentials() -> bool:
+    if _cfg is not None and _cfg.has_anthropic():
+        return True
     return bool(get_key("anthropic") or get_key("ANTHROPIC_AUTH_TOKEN"))
+
+
+def cloud_mode() -> bool:
+    return _cfg is not None and _cfg.mode("anthropic") == "cloud"
 
 
 def _key(purpose: str, user_text: str) -> str:
@@ -243,6 +272,7 @@ async def structured_call(
 
     import anthropic
 
+    model = guard(model)
     client = get_client().with_options(timeout=timeout)
     api, kwargs = _request(client, model, system, user_content or user_text, schema, effort, max_tokens, thinking)
     t0 = time.monotonic()
@@ -259,6 +289,8 @@ async def structured_call(
                         await _maybe_await(on_text(event.text, event.snapshot))
                 resp = await stream.get_final_message()
     except anthropic.APIStatusError as e:
+        if _cfg is not None and (code := _cfg.cloud_error(e)):  # the miyagi cloud turned it away: paused / quota / auth
+            raise CoachLLMError(f"{purpose}: {code}: {_cfg.CLOUD_ERRORS[code]}", "cloud") from e
         raise CoachLLMError(f"{purpose}: API {e.status_code}: {e.message}") from e
     except anthropic.APIConnectionError as e:
         raise CoachLLMError(f"{purpose}: connection error", "connection") from e
@@ -322,8 +354,14 @@ def _request(client, model: str, system: list[dict], content: Any, schema: dict,
         "thinking": thinking or {"type": "adaptive"},  # Haiku pointing passes {"type": "disabled"} for speed
         "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
     }
-    if model in (OPUS, SONNET):  # server-side refusal fallback: on a policy decline the API reruns on a fallback model
-        return client.beta.messages, {"betas": [FALLBACK_BETA], "fallbacks": "default", **kwargs}
+    # server-side refusal fallback: on a policy decline the API reruns on a fallback model. Only in a form that
+    # cannot reach an Opus nobody opted into (server.config.fallback_kwargs: Sonnet 5.5 -> Sonnet 5 only); none for Haiku.
+    if _cfg is not None:
+        fb = _cfg.fallback_kwargs(model)
+    else:
+        fb = {"betas": [FALLBACK_BETA], "fallbacks": "default"} if model == SONNET else {}
+    if fb:
+        return client.beta.messages, {**fb, **kwargs}
     return client.messages, kwargs
 
 
@@ -345,15 +383,16 @@ async def warm(requests: list[dict] | None = None) -> dict:
         return {"skipped": "no key"}
     client = get_client()
     t0 = time.monotonic()
-    try:
-        await client.models.retrieve(model_for("diagnose"))
-        out["tls_s"] = round(time.monotonic() - t0, 2)
-    except Exception as e:  # noqa: BLE001 - warm-up is best effort
-        out["tls_error"] = type(e).__name__
+    if not cloud_mode():  # the miyagi cloud forwards /v1/messages only (no models endpoint)
+        try:
+            await client.models.retrieve(model_for("diagnose"))
+            out["tls_s"] = round(time.monotonic() - t0, 2)
+        except Exception as e:  # noqa: BLE001 - warm-up is best effort
+            out["tls_error"] = type(e).__name__
 
     async def one(r: dict) -> Any:
         # max_tokens=1: writes the cached prefix for one output token (0 is rejected with output_config.format)
-        api, kwargs = _request(client, r.get("model") or model_for("diagnose"), r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
+        api, kwargs = _request(client, guard(r.get("model") or model_for("diagnose")), r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
         return await api.create(**kwargs)
 
     t0 = time.monotonic()
