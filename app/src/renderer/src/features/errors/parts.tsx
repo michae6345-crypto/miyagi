@@ -4,7 +4,7 @@
  * out of the island (header with the Esc keycap, title, body).
  */
 import { motion, useReducedMotion } from 'motion/react'
-import { Children, useEffect, type ReactNode } from 'react'
+import { Children, isValidElement, useEffect, type ReactNode } from 'react'
 import { Spinner } from '../../core/ui/atoms'
 import { Keycap } from '../../core/ui/Keycap'
 import { color, fill, font, radius2, spring, status, type2 } from '../../core/theme'
@@ -167,8 +167,13 @@ export function CardFrame({
           </p>
         )}
       </motion.div>
+      {/*
+        Key each block by its child's own key. Children.toArray keys by original slot (".0", ".2", or the child's own
+        key), so a block that appears or goes away (View report / Hide report) doesn't shift and remount the ones
+        after it, which would replay their entrance.
+      */}
       {Children.toArray(children).map((c, i) => (
-        <motion.div key={i} {...part(n + i)} className="flex flex-col" style={{ gap: 16 }}>
+        <motion.div key={isValidElement(c) && c.key != null ? c.key : i} {...part(n + i)} className="flex flex-col" style={{ gap: 16 }}>
           {c}
         </motion.div>
       ))}
