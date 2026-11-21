@@ -4,6 +4,10 @@
   POST /ingest           `tut run` events (one object, a list, or {"events": [...]})
   POST /end              end the current lesson (curl -X POST localhost:8787/end)
   GET  /state            session state (debugging, the CLI client's simulator)
+  GET  /health           liveness; ?checks=1 adds the setup checklist {items, ready, total} (health.py, never prompts)
+  GET  /library          lessons cached on this Mac {items, continue} (lesson/library.py)
+  GET  /library/{id}     one lesson's preview {item, steps, overview}; 404 for a bad or unknown id
+  GET  /progress         skills, finished and in-progress lessons (sessions/progress.py); null = nothing yet
   GET  /events?since=N   recent engine events (debugging)
   POST /debug/pass       force-pass the active step
   POST /debug/goto/{i}   jump to step i
@@ -12,19 +16,37 @@
   POST /stage/{cmd}      presenter, Demo lessons only: next | back | restart
 
 Run:  python -m server.orchestrator.main      (or uvicorn server.orchestrator.main:app --port 8787)
+
+v2 (BUILD-PLAN E2): every WebSocket connect starts with `engine.hello {version, contract, capabilities, restored?}`;
+the app sends a v2 command only when `capabilities` lists it. Security (BUILD-PLAN section 6):
+  - MIYAGI_ENGINE_TOKEN (the app's per-launch token): when set, a WebSocket must carry it in X-Miyagi-Token, or it is
+    refused before the handshake. It is read once and removed from os.environ, so no learner subprocess inherits it.
+  - Origin: a request that carries an Origin header (a browser page) must come from this Mac (http(s)://localhost,
+    127.0.0.1, [::1]) or MIYAGI_ALLOWED_ORIGINS; native clients (the app's main process, the VS Code companion,
+    `tut run`, curl) send none.
+  - POST bodies are JSON only (415 otherwise); a POST with no body (curl -X POST .../end) still works.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import logging
+import math
 import os
+import re
 import time
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 
+from shared.contracts import events as contract
 from shared.contracts.events import parse_app_message
 
 from server import config as server_config
@@ -39,6 +61,344 @@ from .inputs import Inputs
 from .workspace import Workspace
 
 log = logging.getLogger("orchestrator")
+
+# E1's modules (pure reads, no model calls). Each is optional: an engine without one doesn't list its commands.
+try:
+    from . import health as health_mod
+except Exception as _e:  # noqa: BLE001
+    log.warning("health checks unavailable: %s", _e)
+    health_mod = None  # type: ignore[assignment]
+try:
+    from . import system_status as status_mod
+except Exception as _e:  # noqa: BLE001
+    log.warning("system status unavailable: %s", _e)
+    status_mod = None  # type: ignore[assignment]
+try:
+    from server.lesson import library as library_mod
+except Exception as _e:  # noqa: BLE001
+    log.warning("lesson library unavailable: %s", _e)
+    library_mod = None  # type: ignore[assignment]
+try:
+    from server.sessions import progress as progress_mod
+except Exception as _e:  # noqa: BLE001
+    log.warning("progress unavailable: %s", _e)
+    progress_mod = None  # type: ignore[assignment]
+
+
+# ============================================================================ v2 wire (BUILD-PLAN E2)
+def _engine_version() -> str:
+    try:
+        text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+        m = re.search(r'^version\s*=\s*"([^"]{1,32})"', text, re.M)
+        return m.group(1) if m else "dev"
+    except OSError:
+        return "dev"
+
+
+ENGINE_VERSION = _engine_version()
+CONTRACT_VERSION = getattr(contract, "CONTRACT_VERSION", None) or "2026-11-20"  # W0-1: the shapes this engine sends
+V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
+               "panel.state")
+# answered at once, beside the command queue (reads, a layout note); library.start changes the lesson, so it queues
+V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start"}
+INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"})
+LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start"})  # each replaces a running build
+SECRET_COMMANDS = frozenset({"config.keys", "config.validate"})  # payloads hold keys: never logged, never echoed
+PERMISSION_KINDS = ("screen", "accessibility", "automation")
+LIBRARY_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+TOKEN_HEADER = "x-miyagi-token"
+TOKEN_ENV = "MIYAGI_ENGINE_TOKEN"
+_CONTRACT_COMMANDS: dict = getattr(contract, "APP_COMMANDS", {})
+
+# fixed copy: no input echoed back, no em dashes
+KEYS_FAILED = "Couldn't read those keys. Check them and try again."
+V2_FAILED = "Couldn't answer that just now. Try again."
+LIBRARY_GONE = "That lesson isn't on this Mac any more."
+LIBRARY_FAILED = "Couldn't start this lesson. Try again."
+
+
+def _take_token() -> str | None:
+    """The app's per-launch engine token (main/localEngine.ts passes it in the environment). Read once, then removed
+    from os.environ: kernels, "Run it for me", pip and VS Code terminals start from os.environ and never see it."""
+    tok = os.environ.pop(TOKEN_ENV, "").strip()
+    return tok or None
+
+
+ENGINE_TOKEN = _take_token()
+
+
+def token_ok(given: str | None) -> bool:
+    """No token configured (an engine started by hand, tests): any local client may connect. Otherwise the header
+    must match exactly (constant-time compare; the token is never logged)."""
+    if ENGINE_TOKEN is None:
+        return True
+    return bool(given) and hmac.compare_digest(given.strip().encode(), ENGINE_TOKEN.encode())
+
+
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _extra_origins() -> set[str]:
+    raw = os.environ.get("MIYAGI_ALLOWED_ORIGINS", "")
+    return {o.strip().lower().rstrip("/") for o in raw.split(",") if o.strip()}
+
+
+def origin_allowed(origin: str | None) -> bool:
+    """A browser always sends Origin on a WebSocket and on a cross-site POST; native clients send none. Only pages
+    served from this Mac (the app's own renderer, the dev stage) or MIYAGI_ALLOWED_ORIGINS may talk to the engine,
+    so a web page can't drive it (cross-site WebSocket hijacking, DNS rebinding)."""
+    if origin is None:
+        return True
+    o = origin.strip().lower().rstrip("/")
+    if o in _extra_origins():
+        return True
+    try:
+        u = urlsplit(o)
+        host = u.hostname or ""
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and host in _LOOPBACK
+
+
+def _shown(origin: str | None) -> str:
+    return repr(str(origin)[:80])
+
+
+def _is_json(content_type: str | None) -> bool:
+    media = (content_type or "").split(";", 1)[0].strip().lower()
+    return media == "application/json" or (media.startswith("application/") and media.endswith("+json"))
+
+
+class RequestGuard:
+    """HTTP only (the WebSocket checks its Origin and token before the handshake): a refused Origin is a 403, and a
+    POST/PUT/PATCH/DELETE body that isn't JSON is a 415 (a browser can't send JSON cross-site without a CORS
+    preflight, which this engine never answers). A POST with no body (curl -X POST localhost:8787/end) passes."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
+        method, path = scope.get("method", "GET"), scope.get("path", "")
+        refused: JSONResponse | None = None
+        if not origin_allowed(headers.get("origin")):
+            log.warning("refused %s %s from origin %s", method, path, _shown(headers.get("origin")))
+            refused = JSONResponse({"ok": False, "error": "This page may not call the miyagi engine."}, status_code=403)
+        elif method in ("POST", "PUT", "PATCH", "DELETE"):
+            length = headers.get("content-length", "").strip()
+            has_body = "transfer-encoding" in headers or length not in ("", "0")
+            if has_body and not _is_json(headers.get("content-type")):
+                log.warning("refused %s %s: the body is not JSON", method, path)
+                refused = JSONResponse({"ok": False, "error": "Send JSON (Content-Type: application/json)."},
+                                       status_code=415)
+        if refused is not None:
+            await refused(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+def parse_command(raw: dict) -> Any:
+    """parse_app_message, plus the v2 commands while this tree's contract (shared/contracts/events.py) predates W0-1.
+    Once W0-1 lands, its models parse them (same names, same id pattern) and this fallback is unused."""
+    type_ = raw.get("type")
+    if type_ in V2_COMMANDS and type_ not in _CONTRACT_COMMANDS:
+        return SimpleNamespace(type=type_, payload=_parse_v2(type_, raw.get("payload")))
+    return parse_app_message(raw)
+
+
+def _parse_v2(type_: str, payload: Any) -> SimpleNamespace:
+    p = payload if isinstance(payload, dict) else {}
+    if type_ == "permission.open":
+        if p.get("kind") not in PERMISSION_KINDS:
+            raise ValueError("permission.open: unknown kind")
+        return SimpleNamespace(kind=p["kind"])
+    if type_ in ("library.get", "library.start"):
+        lid = p.get("id")
+        if not isinstance(lid, str) or not LIBRARY_ID_RE.fullmatch(lid):
+            raise ValueError(f"{type_}: not a library id")
+        return SimpleNamespace(id=lid)
+    if type_ == "panel.state":
+        if not isinstance(p.get("open"), bool):
+            raise ValueError("panel.state: open must be true or false")
+        return SimpleNamespace(open=p["open"], rect=_rect(p.get("rect")))
+    return SimpleNamespace()
+
+
+def _rect(v: Any) -> dict | None:
+    if hasattr(v, "model_dump"):
+        v = v.model_dump()
+    if v is None:
+        return None
+    if not isinstance(v, dict):
+        raise ValueError("panel.state: rect must be {x, y, w, h}")
+    out = {}
+    for k in ("x", "y", "w", "h"):
+        n = v.get(k)
+        if isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n):
+            raise ValueError("panel.state: rect must be {x, y, w, h}")
+        out[k] = float(n)
+    return out
+
+
+# ---- E1 payloads -> the W0-1 contract shapes (app-core-v2 shared/contracts/events.py). E1's own fields stay as
+# extras (the contract models allow them); only what the contract requires, or names differently, is added.
+HEALTH_LABELS = {"screen": "Screen Recording", "accessibility": "Accessibility", "companion": "VS Code companion",
+                 "engine": "miyagi engine", "keys": "AI key", "vscode": "VS Code"}
+
+
+def _num(v: Any) -> float | None:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+
+
+def contract_health(h: dict | None) -> dict:
+    """health {items: [{id, label, state, detail?, fix?, required, ...}], ready, total}. A `vscode` row is added only
+    when E1 knows VS Code is missing (the companion's fix is get_vscode), so the app can offer Get VS Code."""
+    h = h if isinstance(h, dict) else {}
+    items: list[dict] = []
+    for it in h.get("items") or []:
+        if not isinstance(it, dict) or not isinstance(it.get("id"), str):
+            continue
+        row = dict(it)
+        row.setdefault("label", HEALTH_LABELS.get(row["id"], row["id"]))
+        if isinstance(row.get("version"), str) and "detail" not in row:
+            row["detail"] = row["version"]
+        items.append(row)
+    if (any(r["id"] == "companion" and r.get("fix") == "get_vscode" for r in items)
+            and not any(r["id"] == "vscode" for r in items)):
+        items.append({"id": "vscode", "label": HEALTH_LABELS["vscode"], "state": "missing", "required": False,
+                      "fix": "get_vscode"})
+    return {"items": items, "ready": int(_num(h.get("ready")) or 0), "total": int(_num(h.get("total")) or 0)}
+
+
+def _iso(ts: Any) -> str | None:
+    if (t := _num(ts)) is None or t <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _local_date(ts: Any) -> str | None:
+    if (t := _num(ts)) is None or t <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(t).date().isoformat()  # the learner's own calendar day
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _progress_of(row: dict) -> dict | None:
+    """ContinueItem -> LibraryProgress {stepIndex, stepTitle, total}, only when both numbers are known."""
+    i, n = row.get("stepIndex"), row.get("stepCount")
+    if not isinstance(i, int) or not isinstance(n, int) or isinstance(i, bool) or isinstance(n, bool):
+        return None
+    if n <= 0 or not 0 <= i < n:
+        return None
+    title = row.get("stepTitle")
+    return {"stepIndex": i, "stepTitle": title if isinstance(title, str) else "", "total": n}
+
+
+def contract_library_item(it: dict, progress: dict | None = None) -> dict:
+    """LibraryItem {id, title, by?, steps, estMinutes?, tools, ready, progress?, source?, updatedAt? (ISO)}."""
+    out = dict(it)
+    title = it.get("title") if isinstance(it.get("title"), str) else "Lesson"
+    src = it.get("source") if isinstance(it.get("source"), dict) else {}
+    if src.get("kind") == "video":
+        source: dict[str, Any] = {"kind": "youtube", "title": src.get("title") or title}
+        for k, to in (("url", "url"), ("creator", "channel"), ("videoId", "videoId")):
+            if isinstance(src.get(k), str):
+                source[to] = src[k]
+    else:
+        source = {"kind": "goal", "title": title}
+    out["source"] = source
+    if isinstance(src.get("creator"), str) and "by" not in out:
+        out["by"] = src["creator"]  # never invented: only when the cache names the channel
+    out["ready"] = True  # in the cache: starts with no build
+    if (iso := _iso(it.get("updatedAt"))) is not None:
+        out["updatedAt"] = iso
+    else:
+        out.pop("updatedAt", None)
+    if progress is not None:
+        out["progress"] = progress
+    return out
+
+
+def contract_library(listing: dict | None) -> dict:
+    """library {items, continue}: each row in the contract's shape, with its Continue place as `progress`."""
+    listing = listing if isinstance(listing, dict) else {}
+    cont = [c for c in listing.get("continue") or [] if isinstance(c, dict)]
+    by_id = {c["libraryId"]: p for c in cont if isinstance(c.get("libraryId"), str) and (p := _progress_of(c))}
+    items = [contract_library_item(it, by_id.get(it["id"])) for it in listing.get("items") or []
+             if isinstance(it, dict) and isinstance(it.get("id"), str)]
+    return {"items": items, "continue": cont}
+
+
+def contract_library_detail(found: dict | None) -> dict | None:
+    """library.item {item, steps: [OutlineStep {index, title}], overview?}. A step's first check label stays as
+    `check` (it is not the step's plan line, so it never poses as `what`)."""
+    if not isinstance(found, dict) or not isinstance(found.get("item"), dict):
+        return None
+    d = dict(found["item"])
+    rows = d.pop("stepList", None) or []
+    out: dict[str, Any] = {"item": contract_library_item(d)}
+    steps = []
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict) or not isinstance(r.get("title"), str):
+            continue
+        n = r.get("n")
+        step: dict[str, Any] = {"index": n - 1 if isinstance(n, int) and not isinstance(n, bool) and n >= 1 else i,
+                                "title": r["title"]}
+        if isinstance(r.get("check"), str):
+            step["check"] = r["check"]
+        steps.append(step)
+    out["steps"] = steps
+    if isinstance(d.get("overview"), str):
+        out["overview"] = d["overview"]
+    return out
+
+
+def contract_progress(p: dict | None) -> dict:
+    """progress {skills: [{track, mastered, total, items: [{label, state}]}], completed: [{lessonId, title, at}]}.
+    Nothing recorded yet: {} (the app's empty states). No week or review fields: no scheduler records them."""
+    if not isinstance(p, dict):
+        return {}
+    skills = []
+    for t in p.get("skills") or []:
+        if not isinstance(t, dict):
+            continue
+        row = {k: v for k, v in t.items() if k != "skills"}
+        row["items"] = [dict(s) for s in t.get("skills") or t.get("items") or [] if isinstance(s, dict)]
+        skills.append(row)
+    completed = []
+    for c in p.get("completed") or []:
+        if not isinstance(c, dict):
+            continue
+        row = dict(c)
+        row["at"] = _local_date(c.get("finishedAt")) or ""  # "": finished, day unknown (never a made-up date)
+        completed.append(row)
+    out: dict[str, Any] = {"skills": skills, "completed": completed}
+    if isinstance(p.get("inProgress"), list):
+        out["inProgress"] = p["inProgress"]
+    return out
+
+
+def _library_folder(graph: dict) -> str:
+    """The lesson folder for a library start, made with no model call: S2's folder for this lesson (found without
+    writing, as the preflight card finds it), else ~/miyagi/lessons/<slug>. The cached graph's own workdir is a path
+    from the Mac that built it and is never used. Blocking: run it in a thread."""
+    from . import workspace as wsmod
+
+    lesson = graph.get("lesson") or {}
+    if os.environ.get("TUT_WORKDIR"):
+        return str(config.default_workdir())
+    folder = wsmod.lesson_folder(graph)
+    path = Path(folder) if folder else config.lesson_workdir("", str(lesson.get("title") or lesson.get("id") or ""))
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 class Engine:
@@ -69,6 +429,9 @@ class Engine:
         self._replays: set[asyncio.Task] = set()
         self.last_client_gone: float | None = None
         self.seen_lesson: str | None = None  # lesson id an app has already been shown
+        # E1's poller (network / AI busy / health, sent on change only). Started by the first v2 command, so an older
+        # app (or a test) never makes it probe; its events go out only to a v2 app.
+        self.status: Any = None
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -115,31 +478,195 @@ class Engine:
                  self.modules.describe(), self.session.workdir, self.session.screen_active(),
                  config.precision_setting())
 
-    async def auto_resume(self) -> None:
+    async def auto_resume(self) -> bool:
         """The first app connection after an engine restart (or a deploy's POST /end) while a lesson was running: that
         lesson continues at its saved step, as if nothing happened (Michael, Nov 15: restarts sent him back to "begin
         project"). Not a lesson the learner ended (End / Start new: `stopped`, offered by the resume card as before),
         not one finished, not one idle longer than ORCH_AUTO_RESUME_S (default 3 h), never a Demo take (each Demo
-        start is a fresh take at step 1: stage.py)."""
+        start is a fresh take at step 1: stage.py). True when it restored one (engine.hello.restored)."""
         s = self.session
         if self.resumer is None or self.hub.clients or s.graph is not None or s.phase != "idle":
-            return
+            return False
         try:
             from server.sessions import store
             from server.sessions.resume import is_demo
 
             saved = store.load()
             if not saved or saved.get("stopped") or (graph := store.load_graph(saved)) is None or is_demo(graph):
-                return
+                return False
             idle = time.time() - float(saved.get("lastActiveAt") or saved.get("startedAt") or 0)
             if idle > float(os.environ.get("ORCH_AUTO_RESUME_S", str(3 * 3600))):
-                return
+                return False
             log.info("auto-resume: %s at step %s (%s) after an engine restart", saved.get("lessonId"),
                      int(saved.get("stepIndex") or 0) + 1, saved.get("stepId"))
             await self.resumer.resume()
             self.seen_lesson = self._lesson_id()  # the app sees it in this connection's snapshot
+            return self.session.graph is not None
         except Exception:  # noqa: BLE001 - never blocks the connection: the resume card is still there
             log.exception("auto-resume failed")
+            return False
+
+    # ------------------------------------------------------------------ v2 (BUILD-PLAN E2)
+    def capabilities(self) -> list[str]:
+        """The v2 commands this engine answers (engine.hello.capabilities): only those whose module loaded."""
+        caps: list[str] = []
+        if health_mod is not None:
+            caps += ["health.get", "permission.open"]
+        if library_mod is not None:
+            caps += ["library.list", "library.get", "library.start"]
+        if progress_mod is not None:
+            caps.append("progress.get")
+        if hasattr(self.session, "panel_state"):
+            caps.append("panel.state")
+        return caps
+
+    def hello(self, restored: bool = False) -> dict:
+        out: dict[str, Any] = {"version": ENGINE_VERSION, "contract": CONTRACT_VERSION,
+                               "capabilities": self.capabilities()}
+        if restored:
+            out["restored"] = True
+        return out
+
+    def ensure_status(self) -> None:
+        """Start E1's system-status poller once a v2 app is here (MIYAGI_SYSTEM_STATUS=0 keeps it off)."""
+        if self.status is not None or status_mod is None or os.environ.get("MIYAGI_SYSTEM_STATUS", "1").strip() == "0":
+            return
+        try:
+            self.status = status_mod.SystemStatus(self._emit_status, restore_status=self._restore_status)
+            self.session.system_status = self.status  # for E4: mark_busy / clear_busy / note_network
+            self.status.start()
+            log.info("system status poller on (network, AI busy, setup health; sent on change only)")
+        except Exception:  # noqa: BLE001 - the lesson runs without it
+            log.exception("system status poller failed to start")
+            self.status = None
+
+    def _restore_status(self) -> dict:
+        """AI busy is over: the session's own status again (with its detail while thinking)."""
+        s = self.session
+        state = getattr(s, "status", "") or "idle"
+        detail = getattr(s, "status_detail", None)
+        return {"state": state, **({"detail": detail} if detail and state == "thinking" else {})}
+
+    async def _emit_status(self, type_: str, payload: dict) -> None:
+        if not getattr(self.session, "app_v2", False):
+            return  # an older app has no surface for blocker / busy / health
+        await self._emit(type_, contract_health(payload) if type_ == "health" else payload)
+
+    def status_replay(self) -> list[tuple[str, dict]]:
+        """What a reconnecting v2 app needs from the poller: offline blocker, busy, the last health."""
+        if self.status is None or not getattr(self.session, "app_v2", False):
+            return []
+        return [(t, contract_health(p) if t == "health" else p) for t, p in self.status.replay()]
+
+    async def health_payload(self) -> dict:
+        """The setup checklist in the contract's shape, sampled now. Probes never prompt and run in a thread; with the
+        poller on, its snapshot moves too, so it doesn't send the same rows again."""
+        h = await self.status.refresh_health() if self.status is not None else None
+        if h is None and health_mod is not None:
+            h = await asyncio.to_thread(health_mod.snapshot)
+        return contract_health(h)
+
+    async def library_payload(self) -> dict:
+        if library_mod is None:
+            return {"items": [], "continue": []}
+        return contract_library(await asyncio.to_thread(library_mod.listing))
+
+    async def library_detail(self, lid: str) -> dict | None:
+        if library_mod is None or not isinstance(lid, str) or not LIBRARY_ID_RE.fullmatch(lid):
+            return None
+        return contract_library_detail(await asyncio.to_thread(library_mod.item, lid))
+
+    async def progress_payload(self) -> dict | None:
+        """None: nothing recorded yet (GET /progress answers null, progress.get answers {})."""
+        if progress_mod is None:
+            return None
+        p = await asyncio.to_thread(progress_mod.progress)
+        return contract_progress(p) if p is not None else None
+
+    async def handle_v2(self, type_: str, p: Any, reply: Any) -> None:
+        """health.get, permission.open, library.list, library.get, progress.get, panel.state. Every blocking read runs
+        in a thread; replies go to the app that asked."""
+        s = self.session
+        s.note_app_v2(type_)  # E3: lesson.paused / blocker / the complete card go out from now on
+        self.ensure_status()
+        if type_ == "health.get":
+            await reply("health", await self.health_payload())
+        elif type_ == "permission.open":
+            # The app opens System Settings itself (fixed URLs); nothing prompts here. The learner is fixing a grant:
+            # health sampling stays on, so the row flips by itself once the switch is on.
+            log.info("permission.open %s: the app opened System Settings; watching for the grant", p.kind)
+            if self.status is not None:
+                self.status.watch_health(True)
+            await reply("health", await self.health_payload())
+        elif type_ == "library.list":
+            await reply("library", await self.library_payload())
+        elif type_ == "library.get":
+            found = await self.library_detail(p.id)
+            if found is None:  # no reply (contract): the app's ask ends on its own timeout
+                log.info("library.get: no lesson %s on this Mac", p.id)
+                return
+            await reply("library.item", found)
+        elif type_ == "progress.get":
+            await reply("progress", await self.progress_payload() or {})
+        elif type_ == "panel.state":
+            await s.panel_state(p.open, _rect(p.rect))
+
+    async def library_start(self, lid: str) -> None:
+        """library.start: a cached lesson, with no build and no lesson-writing model call. The cached graph's workdir is
+        another Mac's path: the lesson gets its own folder here (_library_folder)."""
+        s = self.session
+        s.note_app_v2("library.start")
+        self.ensure_status()
+        graph = await asyncio.to_thread(library_mod.load_graph, lid) if library_mod is not None else None
+        if not isinstance(graph, dict) or not graph.get("steps"):
+            log.info("library.start: no lesson %s on this Mac", lid)
+            await self._emit("error", {"message": LIBRARY_GONE})
+            return
+        lesson = graph.setdefault("lesson", {})
+        lesson.pop("workdir", None)
+        title = str(lesson.get("title") or lesson.get("goal") or "Lesson")
+        if s._same_lesson_running(graph):  # a re-sent start never restarts it
+            log.info("library.start: %s is already running: continuing", lid)
+            for type_, payload in s.snapshot():
+                await s.emit(type_, payload)
+            return
+        if s.graph is not None or s.phase in ("building", "searching"):
+            await s.end_lesson("new lesson")
+        s.query = title
+        s.results, s.pending_pick = {}, None
+        log.info("library.start: %s (lesson %s)", lid, lesson.get("id"))
+        await s._run_build("", title, factory=lambda: self._load_library(graph, title))
+
+    async def _load_library(self, graph: dict, title: str) -> None:
+        """Mirrors the curated start (session._load_curated): the folder, the last run's files set aside on a fresh
+        start, "Lesson ready", then the lesson."""
+        from . import workspace as wsmod
+
+        s = self.session
+        s.phase = "building"
+        s._build_start(text=True, title=title)
+        if isinstance(getattr(s, "_build_v2", None), dict):
+            s._build_v2["source"] = {"kind": "library", "title": title[:200]}
+        await s._status("thinking", detail="Loading the lesson")
+        ok = False
+        try:
+            s.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
+            await s.emit("lesson.building", s.build_progress)
+            folder = await asyncio.to_thread(_library_folder, graph)
+            if not s._continues_save(graph):  # a fresh start: no step passes on the last run's files
+                await asyncio.to_thread(wsmod.set_aside_previous, folder, graph)
+            graph["lesson"]["workdir"] = folder
+            s.build_progress = None
+            await s.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            await asyncio.sleep(min(s.ready_hold_s, 0.6))
+            await s.load_graph(graph)
+            ok = True
+        except Exception:
+            log.exception("starting the library lesson failed")
+            await s._build_failed(LIBRARY_FAILED)
+        finally:
+            if not ok:
+                s.phase = "idle" if s.graph is None else s.phase
 
     def save_progress(self) -> None:
         if self.resumer is not None and self.session.graph is not None and not self.session.awaiting_resume:
@@ -152,6 +679,8 @@ class Engine:
         self.save_progress()
         await self.watcher.stop()
         self.screen.stop()
+        if self.status is not None:
+            await self.status.stop()
         for task in (self._ticker, self._avoider):
             if task:
                 task.cancel()
@@ -177,12 +706,23 @@ class Engine:
             except Exception:
                 log.exception("screen.avoid poll failed")
 
-    async def dispatch(self, raw: dict) -> None:
-        msg = parse_app_message(raw)
+    async def dispatch(self, raw: dict, ws: WebSocket | None = None) -> None:
+        """One App->Engine command. `ws`: the socket it came on (v2 replies go to that app only; None: to every app)."""
+        msg = parse_command(raw)
         p = msg.payload
         s = self.session
         log_received(msg.type, p)
-        if msg.type == "learn":
+        if msg.type in V2_INSTANT:
+            async def reply(type_: str, payload: dict) -> None:
+                if ws is None:
+                    await self.hub.emit(type_, payload)
+                else:
+                    await self.hub.send_to(ws, type_, payload)
+
+            await self.handle_v2(msg.type, p, reply)
+        elif msg.type == "library.start":
+            await self.library_start(p.id)
+        elif msg.type == "learn":
             await s.learn(p.query, getattr(p, "mode", None))
         elif msg.type == "learn_url":
             await s.learn_url(p.url)
@@ -232,8 +772,35 @@ def apply_keys(keys: dict) -> dict:
     return status
 
 
-def _redact(raw: dict) -> dict:
-    return {"type": raw.get("type"), "payload": "<redacted>"} if raw.get("type") == "config.keys" else raw
+def _redact(raw: Any) -> Any:
+    """For logs: a command that holds keys (config.keys, config.validate) by name only; anything else as sent, with an
+    over-long payload clipped (v2 commands are short: ids, kinds, a rect)."""
+    if not isinstance(raw, dict):
+        return "<not an object>"
+    if raw.get("type") in SECRET_COMMANDS:
+        return {"type": raw.get("type"), "payload": "<redacted>"}
+    text = repr(raw.get("payload"))
+    return raw if len(text) <= 300 else {"type": raw.get("type"), "payload": text[:300] + "…"}
+
+
+def _failure_text(raw: dict, e: Exception) -> str:
+    """The `error` message for a command that failed. Fixed copy for key commands (the exception can quote a key)
+    and for v2 commands (no internals on a v2 surface)."""
+    type_ = raw.get("type")
+    if type_ in SECRET_COMMANDS:
+        return KEYS_FAILED
+    if type_ in V2_COMMANDS:
+        return V2_FAILED
+    return f"{type_}: {e}"
+
+
+def _log_failure(raw: dict, e: Exception) -> None:
+    if raw.get("type") in SECRET_COMMANDS:  # no traceback: a validation error prints the input (the keys)
+        log.error("command failed: %s (%s)", _redact(raw), type(e).__name__)
+    elif raw.get("type") in V2_COMMANDS and isinstance(e, ValueError):  # a malformed v2 command: one line
+        log.warning("command refused: %s", e)
+    else:
+        log.exception("command failed: %s", _redact(raw))
 
 
 def _searching(running: dict, session: Any) -> bool:
@@ -260,6 +827,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="sandhacks-tutor engine", lifespan=lifespan)
+app.add_middleware(RequestGuard)  # Origin + JSON-only bodies on every HTTP route (BUILD-PLAN section 6)
 
 try:  # E5 voice: GET /tts/<hash>.mp3 for `speak.audioUrl` (relative: the app prefixes ENGINE_HTTP)
     from server.coach import voice as _voice
@@ -278,21 +846,42 @@ except Exception as _e:  # noqa: BLE001
 
 @app.websocket("/")
 async def ws_endpoint(ws: WebSocket) -> None:
+    # Before the handshake (a refusal is an HTTP 403): a browser page from elsewhere, or a client without the app's
+    # per-launch token when the engine has one. Neither the Origin's page nor the token is ever echoed in full.
+    origin = ws.headers.get("origin")
+    if not origin_allowed(origin):
+        log.warning("refused a WebSocket from origin %s", _shown(origin))
+        await ws.close(code=1008)
+        return
+    if not token_ok(ws.headers.get(TOKEN_HEADER)):
+        log.warning("refused a WebSocket without the engine token (%s)",
+                    "wrong token" if ws.headers.get(TOKEN_HEADER) else "no X-Miyagi-Token header")
+        await ws.close(code=1008)
+        return
     await ws.accept()
-    await engine.auto_resume()  # Nov 15: an engine restart mid-lesson: back at that exact step, not the start sheet
+    restored = await engine.auto_resume()  # Nov 15: an engine restart mid-lesson: back at that exact step
+    await engine.hub.send_to(ws, "engine.hello", engine.hello(restored))  # v2: always the first message
     for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning()):
+        await engine.hub.send_to(ws, type_, payload)
+    for type_, payload in engine.status_replay():  # a v2 app coming back: offline / busy / the last health
         await engine.hub.send_to(ws, type_, payload)
     engine.hub.join(ws)
     engine.mark_lesson_seen()
     queue: asyncio.Queue[dict] = asyncio.Queue()
     running: dict[str, dict] = {}  # the command the worker is on (a press queued behind it is logged on arrival)
+    side: set[asyncio.Task] = set()  # v2 reads answered beside the queue (health.get, library.list, ...)
+
+    async def report(raw: dict, e: Exception) -> None:
+        _log_failure(raw, e)
+        with contextlib.suppress(Exception):
+            await engine.hub.send_to(ws, "error", {"message": _failure_text(raw, e)})
 
     async def worker() -> None:
         # commands run in order, off the receive loop, so video.state keeps flowing
         while True:
             raw = await queue.get()
             running["cmd"] = raw
-            job = running["job"] = asyncio.ensure_future(engine.dispatch(raw))  # cancellable: a new learn ends a search
+            job = running["job"] = asyncio.ensure_future(engine.dispatch(raw, ws))  # cancellable: a new learn ends a search
             try:
                 await job
             except asyncio.CancelledError:
@@ -301,12 +890,18 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     raise  # the app left: the worker (and its command) stop
                 log.info("%s cancelled: a newer request replaced it", _brief(raw))
             except Exception as e:
-                log.exception("command failed: %s", _redact(raw))
-                with contextlib.suppress(Exception):
-                    await engine.hub.send_to(ws, "error", {"message": f"{raw.get('type')}: {e}"})
+                await report(raw, e)
             finally:
                 running.pop("cmd", None)
                 running.pop("job", None)
+
+    async def answer(raw: dict) -> None:
+        try:
+            await engine.dispatch(raw, ws)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            await report(raw, e)
 
     task = asyncio.create_task(worker())
     why = "cancelled"  # how the socket ended (E14: the hub logs every close)
@@ -315,16 +910,20 @@ async def ws_endpoint(ws: WebSocket) -> None:
             raw = await ws.receive_json()
             if not isinstance(raw, dict):
                 continue
-            if raw.get("type") in ("learn", "learn_url", "build_lesson") and engine.session.building():
+            if raw.get("type") in LESSON_STARTS and engine.session.building():
                 await engine.session.cancel_build()  # unblock the queue: the new request replaces the build
-            elif raw.get("type") in ("learn", "learn_url", "build_lesson") and _searching(running, engine.session):
+            elif raw.get("type") in LESSON_STARTS and _searching(running, engine.session):
                 running["job"].cancel()  # "Just teach me" / a pick / a new query while the search still runs: it
                 # replaces the search (rows so far stay pickable) instead of waiting out its tail (live: 15 s)
-            if raw.get("type") in ("video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"):  # instant
+            if raw.get("type") in INSTANT:
                 try:
-                    await engine.dispatch(raw)
+                    await engine.dispatch(raw, ws)
                 except Exception:
-                    log.exception("bad video.state: %s", raw)
+                    log.exception("bad %s: %s", _brief(raw), _redact(raw))
+            elif raw.get("type") in V2_INSTANT:  # a read never waits behind a build or an answer being written
+                t = asyncio.create_task(answer(raw))
+                side.add(t)
+                t.add_done_callback(side.discard)
             else:
                 if (cur := running.get("cmd")) is not None:  # '<- …' is logged when it runs; this says it waited
                     log.info("<- %s queued behind %s (%d waiting)", _brief(raw), _brief(cur), queue.qsize())
@@ -342,6 +941,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
             engine.last_client_gone = time.monotonic()
             engine.save_progress()  # the app left: keep the exact video position (autosave is throttled)
         task.cancel()
+        for t in list(side):
+            t.cancel()
 
 
 @app.post("/ingest")
@@ -430,9 +1031,34 @@ async def state() -> dict:
 
 
 @app.get("/health")
-async def health() -> dict:
-    return {"ok": True, "clients": len(engine.hub.clients), "demo": engine.modules.demo,
-            "modules": engine.modules.describe()}
+async def health(checks: int = 0) -> dict:
+    """Liveness (scripts poll it every 0.25 s, so it stays instant). ?checks=1 adds the setup checklist
+    {items, ready, total}: the same rows as health.get, probed in a thread, never prompting."""
+    out: dict[str, Any] = {"ok": True, "clients": len(engine.hub.clients), "demo": engine.modules.demo,
+                           "modules": engine.modules.describe()}
+    if checks and health_mod is not None:
+        out.update(await engine.health_payload())
+    return out
+
+
+@app.get("/library")
+async def library_list() -> dict:
+    """Lessons cached on this Mac, ready to start with no build: {items, continue}."""
+    return await engine.library_payload()
+
+
+@app.get("/library/{lid}")
+async def library_get(lid: str) -> Any:
+    found = await engine.library_detail(lid)  # the id is checked (pattern + inside the cache dir) before any read
+    if found is None:
+        return JSONResponse({"ok": False, "error": "No such lesson on this Mac."}, status_code=404)
+    return found
+
+
+@app.get("/progress")
+async def progress_get() -> dict | None:
+    """Skills, finished and in-progress lessons. null: nothing recorded yet (the app shows its empty states)."""
+    return await engine.progress_payload()
 
 
 @app.get("/events")
@@ -512,6 +1138,9 @@ def run() -> None:
     ap.add_argument("--port", type=int, default=config.port())
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    if args.host.strip("[]") not in _LOOPBACK:  # BUILD-PLAN section 6: say so when other machines can reach it
+        log.warning("listening on %s: other machines on this network can reach the engine%s", args.host,
+                    "" if ENGINE_TOKEN else " (no MIYAGI_ENGINE_TOKEN set, so any of them can connect)")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
