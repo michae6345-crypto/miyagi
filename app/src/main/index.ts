@@ -480,6 +480,9 @@ app.whenReady().then(async () => {
 
   const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
   if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
+  // Windows keeps one instance (features/windows.ts): opening miyagi again from the Start menu shows the launcher,
+  // instead of a second launch that silently exits.
+  app.on('second-instance', () => openLauncher())
 
   // Always-available kill switch: ⌃⌥Q (Mac; ⌥Q alone types "œ" in editors) / Alt+Q (Windows) quits the overlay.
   const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
