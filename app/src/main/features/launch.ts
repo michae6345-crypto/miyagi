@@ -115,6 +115,19 @@ export default defineMainFeature({
       { label: 'Start a lesson', accelerator: ctx.platform.accelerators.launcher, registerAccelerator: false, click: () => askOverlay('launcher') },
       { label: 'Settings…', click: () => askOverlay('settings') },
       { type: 'separator' },
+      // Lane realapp: About (app version + the engine inside, main/identity.ts) with no app window open. macOS only:
+      // the accessory app's own menu shows only while an app window is in front. Activate first so the panel is on top.
+      ...(process.platform === 'darwin'
+        ? [
+            {
+              label: 'About miyagi',
+              click: (): void => {
+                ctx.app.focus({ steal: true })
+                ctx.app.showAboutPanel()
+              }
+            } satisfies MenuItemConstructorOptions
+          ]
+        : []),
       { label: 'Quit miyagi', click: () => ctx.app.quit() }
     ]
 
