@@ -21,6 +21,7 @@ import sys
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs
 
 import httpx
@@ -28,7 +29,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from store import PREFIX_LEN, Store, open_store
+from store import PLANS, PREFIX_LEN, Store, open_store, this_month
 
 VERSION = "0.1.0"
 # Overridable only so local tests can point at a mock upstream.
@@ -67,6 +68,14 @@ MAX_BODY = int(float(os.environ.get("MAX_BODY_MB", "2")) * 1024 * 1024)
 MAX_GEMINI_BODY = int(float(os.environ.get("MAX_GEMINI_BODY_MB", "20")) * 1024 * 1024)
 REGISTER_PER_HOUR = int(os.environ.get("REGISTER_LIMIT_PER_HOUR", "10"))
 PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "1"))  # Render's load balancer appends the client IP
+# Free tier (ROADMAP 3.7). 0 turns a cap off. Installs on the "pro" plan (admin: /admin/tokens/{prefix}/plan) have none.
+FREE_LESSON_BUILDS_PER_MONTH = int(os.environ.get("FREE_LESSON_BUILDS_PER_MONTH", "3"))  # new videos; cache hits are free
+FREE_COACH_CALLS_PER_DAY = int(os.environ.get("FREE_COACH_CALLS_PER_DAY", "60"))  # AI calls with x-miyagi-role: coach
+FREE_DAILY_REQUESTS = int(os.environ.get("FREE_DAILY_REQUESTS", "0"))  # every forwarded AI call; off by default
+# Shared lesson cache (ROADMAP 3.1)
+MAX_LESSON_BYTES = int(float(os.environ.get("MAX_LESSON_KB", "512")) * 1024)
+MIN_LESSON_SCHEMA = int(os.environ.get("MIN_LESSON_SCHEMA", "1"))  # raise it to retire drafts older engines wrote
+MAX_LESSON_SCHEMA = int(os.environ.get("MAX_LESSON_SCHEMA", "99"))
 TIMEOUT = httpx.Timeout(connect=10.0, read=float(os.environ.get("UPSTREAM_READ_TIMEOUT_S", "300")), write=60.0, pool=10.0)
 
 if not ANTHROPIC_KEY or not GEMINI_KEY:
@@ -200,19 +209,63 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     return h, None
 
 
-def check_quota(token_hash: str) -> tuple[bool, str]:
-    """Hook for per-token limits. Always allows for now.
+def _next_utc_midnight() -> datetime:
+    now = datetime.now(UTC)
+    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    TODO: read store.requests_today(token_hash) (and usd) and return (False, reason) over a daily cap.
-    """
-    return True, ""
+
+def _next_utc_month() -> datetime:
+    now = datetime.now(UTC)
+    return (now.replace(day=28) + timedelta(days=4)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _iso(t: datetime) -> str:
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def quota_error(kind: str, limit: str, used: int, cap: int, resets: datetime, message: str) -> JSONResponse:
+    """429 in error()'s shape plus what the app needs to show it: `limit` (lesson_builds | coach_calls |
+    daily_requests), `used`, `cap` and `resets_at`. `x-should-retry: false` stops the SDKs' automatic retries.
+    The engine reads type `miyagi_quota` (server/config.py CLOUD_ERRORS) and `miyagi_lesson_quota` (lesson cache)."""
+    body = {"type": "error", "error": {"type": kind, "status": kind.upper(), "code": 429, "message": message,
+                                       "limit": limit, "used": used, "cap": cap, "resets_at": _iso(resets)}}
+    retry = max(60, int((resets - datetime.now(UTC)).total_seconds()))
+    return JSONResponse(body, status_code=429, headers={"retry-after": str(retry), "x-should-retry": "false"})
+
+
+ROLE_RE = re.compile(r"[a-z][a-z0-9_-]{0,23}")
+
+
+def request_role(request: Request) -> str | None:
+    """The engine's x-miyagi-role (coach, lesson, scene, finder, diagram, workspace), when it is well formed."""
+    role = request.headers.get("x-miyagi-role", "").strip().lower()
+    return role if ROLE_RE.fullmatch(role) else None
+
+
+def check_quota(token_hash: str, role: str | None) -> JSONResponse | None:
+    """Free tier caps on forwarded AI calls; None to allow. The lesson build cap lives on /v1/lessons/{id}/build."""
+    if (store.get_token(token_hash) or {}).get("plan") == "pro":
+        return None
+    if role == "coach" and FREE_COACH_CALLS_PER_DAY > 0:
+        used = store.role_requests_today(token_hash, "coach")
+        if used >= FREE_COACH_CALLS_PER_DAY:
+            return quota_error("miyagi_quota", "coach_calls", used, FREE_COACH_CALLS_PER_DAY, _next_utc_midnight(),
+                               "That's all the coach help for today. It comes back tomorrow.")
+    if FREE_DAILY_REQUESTS > 0:
+        used = store.requests_today(token_hash)
+        if used >= FREE_DAILY_REQUESTS:
+            return quota_error("miyagi_quota", "daily_requests", used, FREE_DAILY_REQUESTS, _next_utc_midnight(),
+                               "You've reached today's limit. It resets tomorrow.")
+    return None
 
 
 def admit(request: Request, token_hash: str, provider: str, model: str) -> JSONResponse | None:
-    ok, why = check_quota(token_hash)
-    if not ok:
-        return error(429, "rate_limit_error", why or "Daily limit reached for this install.")
+    role = request_role(request)
+    if denied := check_quota(token_hash, role):
+        return denied
     store.count_request(token_hash, provider, model)
+    if role:
+        store.count_role(token_hash, role)
     return None
 
 
@@ -485,6 +538,107 @@ async def gemini(target: str, request: Request):
                          headers, params, raw, stream=GEMINI_METHODS[method])
 
 
+# --------------------------------------------------------------------------- shared lesson cache (ROADMAP 3.1)
+#
+# The engine (server/lesson/cloud_cache.py) asks GET /v1/lessons/{video_id}?schema=N before it watches a video.
+# On a miss it claims one of the install's builds (POST /v1/lessons/{video_id}/build; the free tier gets
+# FREE_LESSON_BUILDS_PER_MONTH new videos a month), builds, and uploads the result (PUT). Cache hits are free.
+
+VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}")  # YouTube video ids: the only lesson source the engine builds from
+_BAD_VIDEO_ID = "video_id must be an 11-character YouTube video id."
+
+
+def _lesson_schema(schema) -> JSONResponse | int:
+    """The schema version as an int, or the 400 to send."""
+    if isinstance(schema, bool) or not isinstance(schema, (int, str)) or not str(schema).isdigit() or len(str(schema)) > 6:
+        return error(400, "invalid_request_error", "schema must be a positive integer.")
+    n = int(schema)
+    if not MIN_LESSON_SCHEMA <= n <= MAX_LESSON_SCHEMA:
+        return error(400, "schema_unsupported",
+                     f"Lesson schema {n} is not supported here (supported: {MIN_LESSON_SCHEMA} to {MAX_LESSON_SCHEMA}).")
+    return n
+
+
+def _build_quota(token_hash: str) -> dict:
+    """This install's new-lesson builds this month. cap 0 means no cap (the pro plan, or the cap turned off)."""
+    row = store.get_token(token_hash) or {}
+    cap = 0 if row.get("plan") == "pro" else max(FREE_LESSON_BUILDS_PER_MONTH, 0)
+    return {"used": store.builds_in_month(token_hash), "cap": cap, "month": this_month(), "resets_at": _iso(_next_utc_month())}
+
+
+@app.get("/v1/lessons/{video_id}")
+async def get_lesson(video_id: str, request: Request):
+    token_hash, denied = authenticate(request)
+    if denied:
+        return denied
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    schema = _lesson_schema(request.query_params.get("schema", ""))
+    if isinstance(schema, JSONResponse):
+        return schema
+    row = store.get_lesson(video_id, schema)
+    if row is None:
+        body = {"type": "error", "error": {"type": "lesson_not_cached", "status": "LESSON_NOT_CACHED", "code": 404,
+                                           "message": "No shared lesson for this video yet.",
+                                           "builds": _build_quota(token_hash)}}  # so the app can say how many are left
+        return JSONResponse(body, status_code=404)
+    request.state.model = "lesson-cache"
+    # the stored body is a validated JSON object: splice it in rather than parse and re-encode it
+    head = json.dumps({"video_id": video_id, "schema": schema, "created_at": round(row["created_at"])})[:-1]
+    return Response(f'{head}, "lesson": {row["body"]}}}', media_type="application/json")
+
+
+@app.post("/v1/lessons/{video_id}/build")
+async def claim_lesson_build(video_id: str, request: Request):
+    """Use one of this month's new-lesson builds for `video_id` (free for a video already claimed this month)."""
+    token_hash, denied = authenticate(request)
+    if denied:
+        return denied
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    quota = _build_quota(token_hash)
+    ok, used = store.claim_build(token_hash, video_id, quota["cap"])
+    if not ok:
+        return quota_error("miyagi_lesson_quota", "lesson_builds", used, quota["cap"], _next_utc_month(),
+                           f"You've built your {quota['cap']} free lessons this month. "
+                           "Lessons someone already built still open for free.")
+    return {"ok": True, "builds": {**quota, "used": used}}
+
+
+@app.put("/v1/lessons/{video_id}")
+async def put_lesson(video_id: str, request: Request):
+    token_hash, denied = authenticate(request)
+    if denied:
+        return denied
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    too_big = error(413, "request_too_large", f"Lesson over {MAX_LESSON_BYTES // 1024} KB.")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_LESSON_BYTES:
+        return too_big
+    raw = await request.body()
+    if len(raw) > MAX_LESSON_BYTES:
+        return too_big
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        data = None
+    if not isinstance(data, dict):
+        return error(400, "invalid_request_error", 'Body must be {"schema": N, "lesson": {...}}.')
+    schema = _lesson_schema(data.get("schema"))
+    if isinstance(schema, JSONResponse):
+        return schema
+    lesson = data.get("lesson")
+    steps = lesson.get("steps") if isinstance(lesson, dict) else None
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 300 or not all(isinstance(s, dict) for s in steps):
+        return error(400, "invalid_request_error", "lesson must be an object with 1 to 300 steps.")
+    if not store.has_build(token_hash, video_id):  # only an install that built this video may share it
+        return error(403, "build_not_claimed", "Claim a build of this video (POST /v1/lessons/{video_id}/build) before sharing it.")
+    if not store.put_lesson(video_id, schema, json.dumps(lesson, separators=(",", ":")), token_hash):
+        return error(409, "lesson_exists", "A shared lesson for this video and schema already exists.")
+    return JSONResponse({"stored": True, "video_id": video_id, "schema": schema}, status_code=201)
+
+
 # --------------------------------------------------------------------------- admin
 
 def admin_ok(token: str | None) -> bool:
@@ -513,6 +667,40 @@ async def admin_set_disabled(prefix: str, request: Request):
         return error(409, "conflict", f"{len(matched)} tokens match; use a longer prefix.")
     log.info("admin: token %s %s", prefix[:PREFIX_LEN], "disabled" if disable else "enabled")
     return {"token": matched[0][:PREFIX_LEN], "disabled": disable}
+
+
+class PlanBody(BaseModel):
+    plan: str = Field(min_length=1, max_length=16)
+
+
+@app.post("/admin/tokens/{prefix}/plan")
+async def admin_set_plan(prefix: str, body: PlanBody, request: Request):
+    """Move one install between the free tier (caps apply) and pro (no caps)."""
+    if not admin_ok(request.headers.get("x-admin-token")):
+        return error(401, "authentication_error", "Admin token required (X-Admin-Token header).")
+    if not re.fullmatch(r"[0-9a-f]{8,64}", prefix):
+        return error(400, "invalid_request_error", "Prefix must be 8-64 lowercase hex characters of the token hash.")
+    if body.plan not in PLANS:
+        return error(400, "invalid_request_error", f"plan must be one of: {', '.join(PLANS)}.")
+    matched = store.set_plan(prefix, body.plan)
+    if not matched:
+        return error(404, "not_found_error", "No token hash starts with that prefix.")
+    if len(matched) > 1:
+        return error(409, "conflict", f"{len(matched)} tokens match; use a longer prefix.")
+    log.info("admin: token %s plan=%s", prefix[:PREFIX_LEN], body.plan)
+    return {"token": matched[0][:PREFIX_LEN], "plan": body.plan}
+
+
+@app.delete("/admin/lessons/{video_id}")
+async def admin_delete_lesson(video_id: str, request: Request):
+    """Drop a bad shared lesson (every schema) so the next install to open the video builds it again."""
+    if not admin_ok(request.headers.get("x-admin-token")):
+        return error(401, "authentication_error", "Admin token required (X-Admin-Token header).")
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    n = store.delete_lessons(video_id)
+    log.info("admin: deleted %d shared lesson(s)", n)
+    return {"video_id": video_id, "deleted": n}
 
 
 _ADMIN_HEADERS = {"cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer",
@@ -553,7 +741,9 @@ async def admin_page_post(request: Request):
     t = r["total"]
     summary = (f"<p>Since {html.escape(r['since'])}: <b>{t['requests']}</b> requests, {t['input_tokens']} input / "
                f"{t['output_tokens']} output tokens, est. <b>${t['usd']}</b>. Tokens registered: {r['registered_tokens']} "
-               f"({r['disabled_tokens']} disabled). Proxy enabled: {PROXY_ENABLED}.</p>")
+               f"({r['disabled_tokens']} disabled). Proxy enabled: {PROXY_ENABLED}.</p>"
+               f"<p>Shared lessons: {r['lessons']['cached']} cached, {r['lessons']['hits']} cache hits, "
+               f"{r['lessons']['builds_this_month']} new builds this month.</p>")
     cols = ["requests", "input_tokens", "output_tokens", "usd"]
     return _page(summary + "<h2>Per day</h2>" + _table(r["by_day"], ["day", "tokens", *cols])
                  + "<h2>Per install token (hash prefix)</h2>" + _table(r["by_token"], ["token", "disabled", *cols])

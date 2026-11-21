@@ -37,13 +37,48 @@ CREATE TABLE IF NOT EXISTS usage (
     PRIMARY KEY (token_hash, day, provider, model)
 );
 CREATE INDEX IF NOT EXISTS usage_day ON usage (day);
+-- Shared lesson cache (ROADMAP 3.1): one video draft per YouTube video id and draft schema version, shared
+-- by every install. First upload wins; operators remove a bad one with DELETE /admin/lessons/{video_id}.
+CREATE TABLE IF NOT EXISTS lessons (
+    video_id   TEXT NOT NULL,
+    schema     INTEGER NOT NULL,
+    body       TEXT NOT NULL,              -- the lesson JSON as uploaded (validated as a JSON object)
+    bytes      INTEGER NOT NULL,
+    uploader   TEXT NOT NULL,              -- token hash of the install that built it
+    created_at REAL NOT NULL,
+    hits       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (video_id, schema)
+);
+-- New lesson builds per install per UTC month (ROADMAP 3.7 free tier). One row per video: building the same
+-- video again in the same month (a retry, a refresh) does not use another build.
+CREATE TABLE IF NOT EXISTS builds (
+    token_hash TEXT NOT NULL,
+    month      TEXT NOT NULL,              -- YYYY-MM, UTC
+    video_id   TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (token_hash, month, video_id)
+);
+-- Requests per install, UTC day and x-miyagi-role (coach, lesson, scene, ...): the coach's daily cap reads it.
+CREATE TABLE IF NOT EXISTS role_usage (
+    token_hash TEXT NOT NULL,
+    day        TEXT NOT NULL,
+    role       TEXT NOT NULL,
+    requests   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (token_hash, day, role)
+);
 """
+
+PLANS = ("free", "pro")  # free: the caps in app.py apply; pro: no caps
 
 PREFIX_LEN = 12  # how much of the token hash the admin views show
 
 
 def today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def this_month() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
 def default_db_path() -> str:
@@ -62,6 +97,9 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(SCHEMA)
+        cols = {r["name"] for r in self._db.execute("PRAGMA table_info(tokens)")}
+        if "plan" not in cols:  # databases from before the free tier
+            self._db.execute("ALTER TABLE tokens ADD COLUMN plan TEXT NOT NULL DEFAULT 'free'")
 
     def _q(self, sql: str, args: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:
@@ -73,7 +111,7 @@ class Store:
                 (token_hash, install_id, app_version, platform, time.time()))
 
     def get_token(self, token_hash: str) -> dict | None:
-        rows = self._q("SELECT token_hash, disabled FROM tokens WHERE token_hash = ?", (token_hash,))
+        rows = self._q("SELECT token_hash, disabled, plan FROM tokens WHERE token_hash = ?", (token_hash,))
         return dict(rows[0]) if rows else None
 
     def set_disabled(self, prefix: str, disabled: bool) -> list[str]:
@@ -83,6 +121,69 @@ class Store:
         if len(hashes) == 1:
             self._q("UPDATE tokens SET disabled = ? WHERE token_hash = ?", (int(disabled), hashes[0]))
         return hashes
+
+    def set_plan(self, prefix: str, plan: str) -> list[str]:
+        """Set the plan of the token whose hash starts with `prefix` (when exactly one matches); returns the matches."""
+        rows = self._q("SELECT token_hash FROM tokens WHERE substr(token_hash, 1, ?) = ?", (len(prefix), prefix))
+        hashes = [r["token_hash"] for r in rows]
+        if len(hashes) == 1:
+            self._q("UPDATE tokens SET plan = ? WHERE token_hash = ?", (plan, hashes[0]))
+        return hashes
+
+    # lesson cache ----------------------------------------------------------
+    def get_lesson(self, video_id: str, schema: int) -> dict | None:
+        """The cached lesson ({body, created_at}) for this video and schema, counting a hit; None on a miss."""
+        with self._lock:
+            row = self._db.execute("SELECT body, created_at FROM lessons WHERE video_id = ? AND schema = ?",
+                                   (video_id, schema)).fetchone()
+            if row is None:
+                return None
+            self._db.execute("UPDATE lessons SET hits = hits + 1 WHERE video_id = ? AND schema = ?", (video_id, schema))
+            return dict(row)
+
+    def put_lesson(self, video_id: str, schema: int, body: str, uploader: str) -> bool:
+        """Store a lesson unless one is already cached for this video and schema (first upload wins)."""
+        with self._lock:
+            cur = self._db.execute("INSERT OR IGNORE INTO lessons (video_id, schema, body, bytes, uploader, created_at) "
+                                   "VALUES (?, ?, ?, ?, ?, ?)", (video_id, schema, body, len(body.encode()), uploader, time.time()))
+            return cur.rowcount == 1
+
+    def delete_lessons(self, video_id: str) -> int:
+        with self._lock:
+            return self._db.execute("DELETE FROM lessons WHERE video_id = ?", (video_id,)).rowcount
+
+    # lesson build quota ----------------------------------------------------
+    def builds_in_month(self, token_hash: str, month: str | None = None) -> int:
+        rows = self._q("SELECT COUNT(*) AS n FROM builds WHERE token_hash = ? AND month = ?", (token_hash, month or this_month()))
+        return int(rows[0]["n"])
+
+    def has_build(self, token_hash: str, video_id: str) -> bool:
+        """This install claimed a build of this video (any month)."""
+        return bool(self._q("SELECT 1 FROM builds WHERE token_hash = ? AND video_id = ? LIMIT 1", (token_hash, video_id)))
+
+    def claim_build(self, token_hash: str, video_id: str, cap: int) -> tuple[bool, int]:
+        """Use one of this month's builds for `video_id`, atomically. A video already claimed this month is free.
+        cap <= 0 means no cap. Returns (allowed, builds used this month after the call)."""
+        month = this_month()
+        with self._lock:
+            n = self._db.execute("SELECT COUNT(*) FROM builds WHERE token_hash = ? AND month = ?", (token_hash, month)).fetchone()[0]
+            if self._db.execute("SELECT 1 FROM builds WHERE token_hash = ? AND month = ? AND video_id = ?",
+                                (token_hash, month, video_id)).fetchone():
+                return True, n
+            if cap > 0 and n >= cap:
+                return False, n
+            self._db.execute("INSERT INTO builds (token_hash, month, video_id, created_at) VALUES (?, ?, ?, ?)",
+                             (token_hash, month, video_id, time.time()))
+            return True, n + 1
+
+    # per-role daily requests ------------------------------------------------
+    def count_role(self, token_hash: str, role: str) -> None:
+        self._q("INSERT INTO role_usage (token_hash, day, role, requests) VALUES (?, ?, ?, 1) "
+                "ON CONFLICT (token_hash, day, role) DO UPDATE SET requests = requests + 1", (token_hash, today(), role))
+
+    def role_requests_today(self, token_hash: str, role: str) -> int:
+        rows = self._q("SELECT requests FROM role_usage WHERE token_hash = ? AND day = ? AND role = ?", (token_hash, today(), role))
+        return int(rows[0]["requests"]) if rows else 0
 
     # usage ----------------------------------------------------------------
     def count_request(self, token_hash: str, provider: str, model: str) -> None:
@@ -112,6 +213,8 @@ class Store:
                        "WHERE day >= ? GROUP BY day, token_hash, provider, model ORDER BY day DESC, usd DESC", (since,))
         total = self._q(f"SELECT {sums} FROM usage WHERE day >= ?", (since,))[0]
         n_tokens = self._q("SELECT COUNT(*) AS n, COALESCE(SUM(disabled), 0) AS disabled FROM tokens")[0]
+        lessons = self._q("SELECT COUNT(*) AS cached, COALESCE(SUM(hits), 0) AS hits, COALESCE(SUM(bytes), 0) AS bytes FROM lessons")[0]
+        builds = self._q("SELECT COUNT(*) AS n FROM builds WHERE month = ?", (this_month(),))[0]
         return {
             "since": since,
             "total": {k: (total[k] or 0) for k in total.keys()},
@@ -120,6 +223,7 @@ class Store:
             "by_token": [dict(r) | {"disabled": bool(r["disabled"])} for r in by_token],
             "by_day": [dict(r) for r in by_day],
             "by_day_token_model": [dict(r) for r in rows],
+            "lessons": {**dict(lessons), "builds_this_month": builds["n"]},
         }
 
 
