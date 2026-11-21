@@ -19,7 +19,7 @@ import { ArrowRight, ChevronRight, CloudOff, Play, RotateCcw, Settings2 } from '
 import { useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
-import { closeWindow, openOnboarding } from '../../core/surfaces'
+import { closeWindow } from '../../core/surfaces'
 import { color, copy, fill, radius2, scrim, spring, surface, type2 } from '../../core/theme'
 import { ProgressRing, Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
@@ -36,6 +36,7 @@ import { useDash } from '../dashboard/store'
 import type { DashData } from '../dashboard/types'
 import { thumbnailFor } from '../launcher/youtube'
 import { summarize, useRows } from '../onboarding/rows'
+import { openSetup } from '../shell/flow/store'
 import { finishedIds, pickHero, pickVideo, readAsk, recentActivity, setAskText, stepsPassed, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
 import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, ToolTile, minutesLabel, soft, stepsLabel } from './parts'
@@ -139,7 +140,7 @@ function HeroCard({ hero, setupLeft, setupHint }: { hero: Hero; setupLeft: boole
         <div className="mt-auto flex flex-wrap items-center gap-[12px]" style={{ paddingTop: 20 }}>
           {(blocked || (hero.kind === 'empty' && setupLeft)) && (
             <Ring>
-              <PrimaryButton label="Finish setup" icon={Settings2} size="lg" onClick={() => void openOnboarding()} />
+              <PrimaryButton label="Finish setup" icon={Settings2} size="lg" onClick={openSetup} />
             </Ring>
           )}
           {blocked && (

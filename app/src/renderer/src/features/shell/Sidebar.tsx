@@ -14,14 +14,13 @@ import { motion } from 'motion/react'
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { color, fill, focus, highlight, radius2, spring, surface, type2 } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
-import { MiyagiWordmark } from '../../core/ui/Mark'
 import { planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { Avatar } from '../auth/Avatar'
 import { authOn } from '../auth/model'
 import { loadAuth, useAuth } from '../auth/store'
 import { StatusArea } from '../library/Status'
-import { FlowMark } from './flow/FlowMark'
+import { SidebarBrand } from './flow/SidebarBrand'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 export const SIDEBAR_W = 224
@@ -178,8 +177,7 @@ export function Sidebar({ compact, short }: { compact: boolean; short: boolean }
       {/* The window's own traffic lights sit here (hiddenInset); this strip drags the window. */}
       <div data-drag className="shrink-0" style={{ height: 40 }} />
       <div data-drag className="flex shrink-0 items-center gap-[8px]" style={{ padding: compact ? '4px 0 20px' : '4px 10px 20px', justifyContent: compact ? 'center' : undefined }}>
-        <FlowMark size={compact ? 22 : 20} />
-        {!compact && <MiyagiWordmark height={16} className="h-[16px] w-auto" />}
+        <SidebarBrand compact={compact} />
       </div>
       <Nav compact={compact} />
       <div className="mt-auto flex flex-col gap-[10px]" style={{ paddingTop: 16 }}>

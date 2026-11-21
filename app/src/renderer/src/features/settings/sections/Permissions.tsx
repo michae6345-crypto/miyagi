@@ -8,13 +8,13 @@
  *   unknown        the gray dashed ring and "Not sure yet" (an engine started in Terminal: macOS asks Terminal)
  *
  * One primary per surface: the first row that needs turning on gets the white button, any other a quiet one. The
- * extension row's fix is the setup checklist (openOnboarding), which installs it.
+ * extension row's fix is guided setup (openSetup: over home in the home window, else the setup window), which installs it.
  */
 import { Monitor, MousePointer2, Puzzle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { HealthItem, PermissionKind } from '../../../../../../../shared/contracts/events'
-import { openOnboarding } from '../../../core/surfaces'
+import { openSetup } from '../../shell/flow/store'
 import { PrimaryButtonV2, QuietButton, StatusGlyph, StatusWord } from '../../../core/ui/atoms'
 import { color, copy, type2 } from '../../../core/theme'
 import { openPermission, useHealth, usePermissions, type PermissionState } from '../permissions'
@@ -39,7 +39,7 @@ export function Permissions({ live }: { live: boolean }): ReactNode {
   // Hidden without a probe: only an engine that reports the companion can say whether it's on.
   const companion = health.companion
   if (companion)
-    items.push({ id: 'companion', icon: Puzzle, ...PERMISSION_COPY.companion, state: fromHealth(companion), fix: () => void openOnboarding() })
+    items.push({ id: 'companion', icon: Puzzle, ...PERMISSION_COPY.companion, state: fromHealth(companion), fix: openSetup })
 
   const known = items.filter((i) => i.state === 'on' || i.state === 'off')
   const on = known.filter((i) => i.state === 'on').length

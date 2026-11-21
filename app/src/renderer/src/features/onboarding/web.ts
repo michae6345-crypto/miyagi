@@ -25,7 +25,7 @@
  *   intro   the intro, then Sign in        login   Sign in (intro seen)       screen  Screen Recording (signed out
  *   access  Accessibility (Screen on)      vscode  VS Code (both grants on)   engine  Getting miyagi ready (access 2.5 s)
  *   ready   You're ready                   done    You're ready, then Start by itself (the hand-off to home)
- * onboarding:step / onboarding:later stand in for main (memory only).
+ * onboarding:step / onboarding:later / onboarding:resume stand in for main (memory only).
  */
 import { cmd } from '../../../../common/wire'
 import { bridge, isElectron, registerWebHandler } from '../../bridge'
@@ -75,6 +75,10 @@ function setupWeb(): void {
   })
   registerWebHandler('onboarding:later', () => {
     later = true
+    return true
+  })
+  registerWebHandler('onboarding:resume', () => {
+    later = false
     return true
   })
   registerWebHandler('onboarding:done', () => {

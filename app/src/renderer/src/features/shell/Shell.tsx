@@ -17,9 +17,12 @@
  * other pages keep working.
  *
  * The first run happens in this same window (flow/: one window from start to finish). Until setup is over, the flow
- * layer covers everything, sidebar included; nothing of home mounts under it. At the end the layer fades, the sidebar
- * slides in from the window's left edge over it, the bonsai glides from the flow's step strip into the sidebar's logo
- * (one LayoutGroup, layoutId MARK_ID) and Home rises in, its cards one after another. Reduced motion: crossfades only.
+ * layer covers everything, sidebar included; nothing of home mounts under it. At the end the layer's screen fades
+ * first (only its plain paper is left), then the paper fades while the sidebar slides in from the window's left edge,
+ * the bonsai glides from the flow's step strip into the sidebar's logo (one LayoutGroup, layoutId MARK_ID; the
+ * wordmark writes in once the tree has landed, flow/SidebarBrand.tsx) and Home rises in, its cards one after another.
+ * Setup asked for again from home (Finish setup, Settings' Open setup: flow/store.ts reopenFlow) fades the flow in
+ * over home, which stays mounted and inert underneath, and out again. Reduced motion: crossfades only.
  */
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion, type Variants } from 'motion/react'
 import { RotateCcw } from 'lucide-react'
@@ -225,7 +228,10 @@ export function Shell(): ReactNode {
   }, [])
 
   const backLabel = PAGES.find((p) => p.id === page)?.label
-  const home = phase === 'off' || phase === 'leaving'
+  const again = useFlow((s) => s.again)
+  // Setup again (reopenFlow): home stays mounted under the flow, inert, the sidebar under the layer too.
+  const home = phase === 'off' || phase === 'leaving' || again
+  const covered = flowCovers(phase)
   const compact = size.w < COMPACT_W
   const enter = arriving.current
   return (
@@ -234,7 +240,9 @@ export function Shell(): ReactNode {
         {home && (
           <motion.div
             data-shell-sidebar-wrap
-            className="relative z-[3] flex h-full shrink-0"
+            aria-hidden={covered || undefined}
+            inert={covered}
+            className={`relative ${again ? 'z-[1]' : 'z-[3]'} flex h-full shrink-0`}
             // From the window's left edge, its own width (reduced motion: a fade, nothing slides).
             initial={enter ? (reduce ? { opacity: 0 } : { x: -(compact ? SIDEBAR_COMPACT_W : SIDEBAR_W) }) : false}
             animate={{ x: 0, opacity: 1 }}
@@ -244,7 +252,7 @@ export function Shell(): ReactNode {
           </motion.div>
         )}
         {home && (
-          <motion.main className="relative min-w-0 flex-1 overflow-hidden" initial={enter ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
+          <motion.main aria-hidden={covered || undefined} inert={covered} className="relative min-w-0 flex-1 overflow-hidden"initial={enter ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
             {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
               <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId} />
             ))}
@@ -257,7 +265,7 @@ export function Shell(): ReactNode {
             </AnimatePresence>
           </motion.main>
         )}
-        <AnimatePresence>{flowCovers(phase) && <FlowLayer key="flow" width={size.w} height={size.h} />}</AnimatePresence>
+        <AnimatePresence>{covered && <FlowLayer key="flow" width={size.w} height={size.h} />}</AnimatePresence>
       </div>
     </LayoutGroup>
   )

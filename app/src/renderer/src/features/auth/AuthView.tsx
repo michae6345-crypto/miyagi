@@ -12,7 +12,7 @@ import { useWindowArgs } from '../../core/surfaces'
 import { color, copy, font } from '../../core/theme'
 import { Intro } from '../onboarding/Intro'
 import { Login } from './Login'
-import { cancelSignIn, endIntro, loadAuth, useAuth } from './store'
+import { endIntro, loadAuth, useAuth } from './store'
 
 /** How long the window waits for its open args before it opens on the login. */
 const ARGS_WAIT_MS = 250
@@ -39,20 +39,7 @@ export function AuthView(): ReactNode {
     void loadAuth()
   }, [view, args])
 
-  // Esc while the browser sign-in runs cancels it (main closes its loopback listener) instead of leaving a flow that
-  // keeps waiting. Leaving the window mid-flow cancels it too.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape' || !useAuth.getState().pending) return
-      e.preventDefault()
-      cancelSignIn()
-    }
-    addEventListener('keydown', onKey, true)
-    return () => {
-      removeEventListener('keydown', onKey, true)
-      if (useAuth.getState().pending) cancelSignIn()
-    }
-  }, [])
+  // Esc and leaving mid-wait cancel a waiting sign-in: Login does that itself (useCancelOnEsc), in every host.
 
   return (
     <div data-window="auth" data-auth-phase={view ? phase : 'loading'} className="relative h-full w-full select-none overflow-hidden" style={{ background: color.window, color: color.text, fontFamily: font.ui }}>

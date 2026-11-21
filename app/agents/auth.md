@@ -23,6 +23,8 @@ returns nothing while no login window is open).
   loopback redirect `http://127.0.0.1:47217/auth/callback?state=<random>`. A callback whose state does not match is
   ignored (404) and cannot end or hijack the flow. The browser opens through `safeOpenExternal` (the project host is on
   the allowlist). No webview, no secret. Esc, Cancel or closing the window cancels, also during the code exchange.
+  Esc and leaving the login mid-wait are handled in Login.tsx itself (`useCancelOnEsc`), so the home window's flow
+  and the standalone login window behave the same.
 - **Session**: only in `userData/auth.bin`, encrypted with safeStorage (Keychain), with an absolute expiry and the
   project URL it belongs to (a session for another project is dropped unsent). The access token is refreshed ~5 min
   before it expires (`grant_type=refresh_token`, one at a time because Supabase rotates the refresh token), on launch

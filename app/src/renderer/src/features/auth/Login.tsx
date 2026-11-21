@@ -15,7 +15,7 @@
  * Neutral only (BRAND.md): white on dark, no provider brand colors, no hue for status. Copy stays short.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { color, copy, duration, ease, elevation, fill, font, highlight, radius2, spring, surface, tint, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton } from '../../core/ui/buttons'
@@ -146,7 +146,29 @@ function Failure({ text }: { text: string }): ReactNode {
   )
 }
 
+/**
+ * Esc while the browser sign-in runs cancels it (main closes its loopback listener) instead of leaving a sign-in that
+ * keeps waiting; leaving this screen mid-wait (the flow moving on, the window closing) cancels it too. Here, in the
+ * login itself, so both hosts (the home window's flow and the standalone login window) behave the same.
+ */
+function useCancelOnEsc(): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || !useAuth.getState().pending) return
+      e.preventDefault()
+      e.stopPropagation()
+      cancelSignIn()
+    }
+    addEventListener('keydown', onKey, true)
+    return () => {
+      removeEventListener('keydown', onKey, true)
+      if (useAuth.getState().pending) cancelSignIn()
+    }
+  }, [])
+}
+
 export function Login({ onContinue }: { onContinue?: () => void } = {}): ReactNode {
+  useCancelOnEsc()
   const pending = useAuth((s) => s.pending)
   const user = useAuth((s) => s.user)
   const note = useAuth((s) => s.note)

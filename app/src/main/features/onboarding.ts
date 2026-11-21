@@ -9,9 +9,11 @@
  *     (launch.ts); a relaunch for Screen Recording comes back to the step it left (flag.step).
  *   - Flags: userData/onboarding.json {done, at, introSeen, step, later}. done: setup finished (no flow). introSeen:
  *     the intro played once. step: the guided step on screen (onboarding:step). later: "Set up later" (no flow on
- *     launch; home's Finish setup opens the setup window). MIYAGI_SKIP_ONBOARDING=1 skips all of it (dev).
- *   - The standalone setup window (route `onboarding`) and login window (route `auth`) stay as fallbacks only:
- *     Settings' Open setup and home's Finish setup open the setup window; the Account page's Sign in opens the login.
+ *     launch; home's Finish setup runs setup over home again and clears it: onboarding:resume).
+ *     MIYAGI_SKIP_ONBOARDING=1 skips all of it (dev).
+ *   - The standalone setup window (route `onboarding`) and login window (route `auth`) stay as fallbacks only: the
+ *     setup window opens when setup is asked for from outside the home window (the home window's Finish setup and
+ *     Settings' Open setup run it over home instead); the Account page's Sign in opens the login.
  *   - Prompts happen ONLY here and ONLY on a click (BUILD-PLAN Section 6): onboarding:prompt(kind). Screen Recording:
  *     one tiny capture makes macOS ask; Accessibility: isTrustedAccessibilityClient(true). System Settings itself opens
  *     through core's permissions:open(kind) (fixed URLs in main/safeOpen.ts), never a URL from a renderer.
@@ -24,6 +26,7 @@
  *   onboarding:get                  → { done, introSeen, flow, login, step }   flow: the home window runs the first run
  *   onboarding:step (step)          the guided step on screen, saved for a relaunch → true
  *   onboarding:later                "Set up later": home on launch from now on, setup still not done → true
+ *   onboarding:resume               setup again over home (home's Finish setup, Settings' Open setup): forget "later" → true
  *   onboarding:done                 write the flag → true
  *   onboarding:intro-seen           the intro played (or was skipped) → true
  *   onboarding:prompt (kind)        the macOS prompt for 'screen' | 'accessibility' → boolean (asked)
@@ -160,6 +163,13 @@ export default defineMainFeature({
     ctx.handle('onboarding:later', () => {
       if (!flag.later && !flag.done) {
         flag = { ...flag, later: true, introSeen: true }
+        save()
+      }
+      return true
+    })
+    ctx.handle('onboarding:resume', () => {
+      if (flag.later) {
+        flag = { ...flag, later: false }
         save()
       }
       return true

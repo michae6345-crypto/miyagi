@@ -13,21 +13,35 @@ happens inside the home window (route `library`, the app shell): a full-window *
 | login | "Sign in to miyagi" (features/auth Login.tsx): one big white Continue with Google, a quiet "Apple · GitHub · coming soon", "Continue without an account" under it. Only while main says the login is needed. |
 | setup | guided setup (Guided.tsx, `chrome="flow"`: no header of its own): Screen Recording, Accessibility, VS Code companion, Getting miyagi ready (engine + cloud access, with a soft progress line; Retry and Copy details on a real failure: `engine-local:restart` / `engine-local:details`) |
 | ready | You're ready (Ready.tsx, `onStart`), or Review setup when something the learner can fix is left |
-| leaving | the hand-off: the layer fades, the sidebar slides in from the left over it, the bonsai lands in the sidebar's logo, Home rises in |
+| leaving | the hand-off: the layer's screen fades first, then its paper fades while the sidebar slides in from the left over it, the bonsai lands in the sidebar's logo (the wordmark writes in beside it after), Home rises in |
 
 - **Strip** (Strip.tsx): `[bonsai] Sign in · Screen · Accessibility · VS Code · Ready` at the top. Current step white on a
   raised pill that slides between steps; done steps get the green tick (green = done only), the rest are faint.
   "Ready" covers Getting miyagi ready and You're ready. "Set up later" (top right, setup only) hands over to home
-  without finishing setup (`onboarding:later`: home on launch from then on; home's Finish setup opens the setup window).
+  without finishing setup (`onboarding:later`: home on launch from then on). A tick arriving makes its step wider:
+  every step glides to its new place (motion `layout="position"`), nothing jumps. An empty slot the width of the
+  bonsai's balances it on the right, so the steps sit on the center line at login too. Below 760 px of window width
+  (the minimum is 560) the strip is compact: the current step's label only, the others a green tick or a faint dot.
+- **Setup again, in the same window** (`flow/store.ts` `reopenFlow`, `openSetup`): home's Finish setup, Settings'
+  Open setup and Settings > Permissions' companion fix run guided setup over home in the home window (the flow fades
+  in over home, which stays mounted and inert underneath; the bonsai stays in the sidebar; the walk opens on the first
+  step not done, or You're ready). `onboarding:resume` clears "later" in main. From any other window `openSetup` falls
+  back to the setup window. The sidebar's Setup row (library/Status.tsx, calm-status lane) still calls
+  `openOnboarding()`: core request 7.
+- **No blank first frame** (`flow/store.ts`): every `onboarding:get` answer is remembered in localStorage
+  (`miyagi.flow.off`), so an open after the first run starts on `off` and home is in the first paint. Only a real first
+  run waits on `pending`. A late answer (after the 1.5 s fallback) or a stale memory still starts the flow when main
+  says it is on.
 - **Main** (`main/features/onboarding.ts`, `launch.ts`): a first launch opens ONLY the home window; no login window,
   no setup window, nothing behind them. `onboarding:get` answers `{done, introSeen, flow, login, step}`; the guided step
   on screen is saved (`onboarding:step`) so a relaunch for Screen Recording returns to it (shown Done for a moment
   when it is green by now, then the walk moves on). The Dock click, the tray's Open miyagi and a second launch bring
   the same window forward as it is (no new args). `auth:continue` in the flow opens nothing (`onLoginDone` returns
   nothing while no login window is open).
-- **Fallbacks kept**: the standalone setup window (`openOnboarding()`: Settings' Open setup, home's Finish setup, the
-  sidebar's Setup row) and the standalone login window (`openLogin()`: the Account page's Sign in). The login window
-  now shows the same lighter login.
+- **Fallbacks kept**: the standalone setup window (`openOnboarding()`: setup asked for from outside the home window,
+  and the sidebar's Setup row until core request 7) and the standalone login window (`openLogin()`: the Account page's
+  Sign in). The login window shows the same lighter login. Esc, and leaving the login mid-wait, cancel a waiting
+  Google sign-in in both hosts (Login.tsx `useCancelOnEsc`).
 
 ### One window: motion spec
 All moves use the house spring `{stiffness 420, damping 34, mass 0.9}`; fades are tweens on `ease.out`
@@ -37,7 +51,7 @@ All moves use the house spring `{stiffness 420, damping 34, mass 0.9}`; fades ar
 **Shared elements** (motion `layoutId`, one `LayoutGroup id="shell"` around the shell):
 | layoutId | Where it lives, in order |
 |---|---|
-| `onb-mark` (MARK_ID) | Intro, 148 px, center → Login header, 56 px → the strip's step indicator, 18 px (setup and ready) → the sidebar's top-left logo, 20 px (`FlowMark`, Sidebar.tsx). Only one is mounted at a time; motion glides the new one from the last one's box. |
+| `onb-mark` (MARK_ID) | Intro, 148 px, center → Login header, 56 px → the strip's step indicator, 18 px (setup and ready) → the sidebar's top-left logo, 20 px (`FlowMark` in `flow/SidebarBrand.tsx`). Only one is mounted at a time; motion glides the new one from the last one's box. Setup again: the strip shows no tree, it stays in the sidebar. |
 | `flow-strip-current` | the strip's current-step pill, from step to step |
 | `shell-nav-selection` | (the sidebar's own, unchanged) |
 
@@ -50,7 +64,8 @@ All moves use the house spring `{stiffness 420, damping 34, mass 0.9}`; fades ar
 | step → step | Done for 1.1 s (a green hairline fills under the status, linear), then the step slides 24 px (spring) with a 180 ms fade; exit 16 px / 120 ms; the pill slides along |
 | Getting miyagi ready | a soft progress line: one 28 % neutral segment crossing the status's bottom edge, 1.6 s `ease.inOut`, 0.2 s rest, looping, transform only |
 | setup → ready | the step fades 120 ms; Ready's rows rise 35 ms apart |
-| ready → home | the strip drops the tree; the layer fades 220 ms; the sidebar slides in from x = -its width (spring, 40 ms late) over the fading layer; the tree glides into the sidebar logo; home fades in 240 ms and rises 8 px (spring), 120 ms late, then its cards rise one after another (library/motion.tsx); the layer is gone after 900 ms |
+| ready → home | two beats, never two screens over each other: the layer's screen (strip, You're ready, Start) fades out alone, 120 ms; then its plain paper fades 220 ms (100 ms late) while the sidebar slides in from x = -its width (spring, 40 ms late) over it; the tree glides from the strip to its final spot in the sidebar's logo row and the sidebar slides in under it; the wordmark writes in beside the tree only once it has landed (fade 240 ms + 6 px on the spring, 320 ms late), so the tree is never drawn over it; home fades in 240 ms and rises 8 px (spring), 140 ms late, then its cards rise one after another (library/motion.tsx); the layer is gone after 900 ms |
+| home → setup again | the flow's paper and screen fade in over home, 240 ms; home stays put underneath (inert); the end fades back the same two beats, the tree never leaves the sidebar |
 | login: waiting | the button's glyph swaps to the spinner (scale .7 → 1, spring), the label slides 6 px up into "Waiting for Google…" (spring + 180 ms fade); one faint ink band (`tint.hoverOnLight`, no gradient) crosses the button, 1.8 s `ease.inOut`, 0.4 s rest; "Finish in your browser · Cancel" fades in under it |
 | login: failed | the reason fades in under the button (240 ms), with Try again. No shake, no hue. |
 
@@ -64,7 +79,9 @@ intro is one static frame (as before).
 (`done`: You're ready, then Start by itself, so the hand-off plays; `&auth=fail` for the failure line). Frame sequences
 (headless, 1440x900): `miyagi-v2/screens/round5/oneflow-*.jpg` (sheets: `oneflow-sheet-a-intro-to-login`,
 `-b-login-to-setup`, `-c-google-wait-fail`, `-d-engine-to-ready`, `-e-ready-to-home`, `-f-reduced-motion-handoff`,
-`-g-screen-to-accessibility`).
+`-g-screen-to-accessibility`). Fix round 1: `oneflow-fix1-handoff-*` (the hand-off, the tree and wordmark
+never overlap: checked every frame, `overlap: false`), `-strip-*` (ticks glide), `-small640-*` (compact strip),
+`-again-*` / `-later-*` (setup again over home), `-reduced-*`.
 Not verified in Electron (no live run in this lane): the first launch opening only home, the Dock / tray / second
 launch bringing it forward, the relaunch landing back on the step, the traffic lights over the strip.
 
@@ -129,6 +146,10 @@ Not verified: Electron (`npm run dev`), real TCC prompts, the relaunch, the VS C
 - Stage only: `web.ts` selects the variant by sending `library.get {id:"onb_<variant>"}`, which the scenario maps to a `step_onb_*` segment so every later trigger is scoped to it (`health.get@step_onb_*`, `library.list@...`, `action:install@...`, `permission.open@...`). No unscoped trigger in `onboarding.json` except `connect` (blank in `full`), so `?scenario=full` is unchanged for other lanes.
 
 ## Core requests
+7. **library/Status.tsx (calm-status lane, oneflow fix round 1):** the sidebar's Setup row (and the Engine / Cloud
+   rows' retry) call `openOnboarding()`, which opens the setup window over home. Call `openSetup()` from
+   `features/shell/flow/store.ts` instead (one import, same signature): setup then runs over home in the same window,
+   and falls back to the setup window from anywhere else. Home's Finish setup and Settings already do.
 0. **Intro-setup lane (Nov 20):**
    - **home (library/dashboard lane):** a "Review setup" entry on home that calls `openOnboarding()` (it opens the checklist once setup is done). Settings > General's button says "Open setup"; "Review setup" would match the window's title (settings lane).
    - **core/ui/motion.ts:** `rise` / `stagger` live in `features/onboarding/parts.tsx` until the polish lane's shared motion helpers land; swap then.

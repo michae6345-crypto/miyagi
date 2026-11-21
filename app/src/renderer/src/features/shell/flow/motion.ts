@@ -25,9 +25,19 @@ export const arriveDelay = 0.16
 /** The strip fading in under the window's top edge once the intro is over. */
 export const stripIn: Transition = { y: spring, opacity: { duration: duration.slow, ease: ease.out } }
 
-/** The flow layer handing the window to home: its paper fades while the sidebar slides in over it. */
-export const layerOut: Transition = { duration: 0.22, ease: ease.out }
+/**
+ * The hand-off to home, in two beats so two screens are never drawn over each other:
+ *   1. screenOut  the flow's screen (strip, You're ready, its rows, Start) fades out on its own (0 to 120 ms), the
+ *                 layer's plain paper stays;
+ *   2. layerOut   then the paper fades (from 100 ms) while the sidebar slides in over it and Home rises under it.
+ */
+export const screenOut: Transition = { duration: duration.fast, ease: ease.out }
+export const layerOut: Transition = { duration: 0.22, delay: 0.1, ease: ease.out }
+/** Setup again (reopenFlow): the flow's paper fading in over home, its screen arriving a beat later. */
+export const layerIn: Transition = { duration: duration.slow, ease: ease.out }
 /** The sidebar sliding in from the window's left edge (its own width, on the house spring). */
 export const sidebarIn: Transition = { x: { ...spring, delay: 0.04 }, opacity: { duration: duration.base, ease: ease.out } }
-/** Home's content arriving a beat after the sidebar (its cards then rise one after another: library/motion.tsx). */
-export const homeIn: Transition = { opacity: { duration: duration.slow, delay: 0.12, ease: ease.out }, y: { ...spring, delay: 0.12 } }
+/** Home's content arriving once the flow's screen is gone (its cards then rise one after another: library/motion.tsx). */
+export const homeIn: Transition = { opacity: { duration: duration.slow, delay: 0.14, ease: ease.out }, y: { ...spring, delay: 0.14 } }
+/** The sidebar's wordmark writing in once the bonsai has landed beside it (flow/SidebarBrand.tsx). */
+export const wordIn: Transition = { opacity: { duration: duration.slow, delay: 0.32, ease: ease.out }, x: { ...spring, delay: 0.32 } }
