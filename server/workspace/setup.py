@@ -648,7 +648,7 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
     raw = None
     if use_cache and cache.exists():
         try:
-            raw = json.loads(cache.read_text())
+            raw = json.loads(cache.read_text(encoding="utf-8"))
         except ValueError:
             raw = None
     if raw is None:
@@ -664,7 +664,7 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
                 raw = local_requirements(lesson)
             else:
                 cache.parent.mkdir(parents=True, exist_ok=True)
-                cache.write_text(json.dumps(raw, indent=1))
+                cache.write_text(json.dumps(raw, indent=1), encoding="utf-8")
         if not raw.get("tools") and not (raw.get("editor") or {}).get("needed"):
             return []  # nothing known: no card (as before)
     items = _items(raw, lesson)

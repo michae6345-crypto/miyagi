@@ -52,7 +52,7 @@ def _state_file(folder: Path) -> Path:
 def read_state(folder: Path) -> dict | None:
     """What prepare() did for this folder (stack, files, open_file, model, dropped...), or None."""
     try:
-        return json.loads(_state_file(folder).read_text())
+        return json.loads(_state_file(folder).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -134,7 +134,7 @@ def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=No
     }
     sf = _state_file(folder)
     sf.parent.mkdir(parents=True, exist_ok=True)
-    sf.write_text(json.dumps(st, indent=1))
+    sf.write_text(json.dumps(st, indent=1), encoding="utf-8")
     log.info("prepared %s: %d file(s), git=%s, dropped=%d%s", folder, len(written), sc.git_init,
              len(sc.dropped), f", error: {sc.error}" if sc.error else "")
     return folder
@@ -146,7 +146,7 @@ def set_redirect(lesson_folder: Path, to: Path) -> None:
     st["redirect"] = str(to)
     sf = _state_file(lesson_folder)
     sf.parent.mkdir(parents=True, exist_ok=True)
-    sf.write_text(json.dumps(st, indent=1))
+    sf.write_text(json.dumps(st, indent=1), encoding="utf-8")
 
 
 PREVIOUS_DIR = ".miyagi-previous"
@@ -205,7 +205,7 @@ def _write(folder: Path, rel: str, content: str, *, overwrite: bool = False) -> 
     if p.exists() and not overwrite:
         return False
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content if content.endswith("\n") or not content else content + "\n")
+    p.write_text(content if content.endswith("\n") or not content else content + "\n", encoding="utf-8")
     return True
 
 
@@ -222,7 +222,7 @@ def _write_vscode_settings(folder: Path) -> None:
     JSON (VS Code allows comments) is left alone. A lesson git repo ignores .vscode/ locally (.git/info/exclude)."""
     p = folder / ".vscode" / "settings.json"
     try:
-        cur = json.loads(p.read_text()) if p.exists() else {}
+        cur = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     except (OSError, ValueError):
         return
     if not isinstance(cur, dict):
@@ -250,12 +250,12 @@ def _write_vscode_settings(folder: Path) -> None:
     try:
         if {**want, **cur} != cur:
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps({**want, **cur}, indent=2) + "\n")
+            p.write_text(json.dumps({**want, **cur}, indent=2) + "\n", encoding="utf-8")
         excl = folder / ".git" / "info" / "exclude"
         if excl.parent.is_dir():
             text = excl.read_text(errors="replace") if excl.exists() else ""
             if ".vscode/" not in text.splitlines():
-                excl.write_text(text + ("\n" if text and not text.endswith("\n") else "") + ".vscode/\n")
+                excl.write_text(text + ("\n" if text and not text.endswith("\n") else "") + ".vscode/\n", encoding="utf-8")
     except OSError as e:
         log.warning("could not write VS Code settings for %s: %s", folder.name, e)
 
@@ -303,11 +303,11 @@ def ensure_python_terminal(folder: Path | str) -> bool:
         return False
     p = folder / ".vscode" / "settings.json"
     try:
-        cur = json.loads(p.read_text()) if p.exists() else {}
+        cur = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
         if not isinstance(cur, dict) or {**want, **cur} == cur:
             return False
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({**cur, **{k: v for k, v in want.items() if k not in cur}}, indent=2) + "\n")
+        p.write_text(json.dumps({**cur, **{k: v for k, v in want.items() if k not in cur}}, indent=2) + "\n", encoding="utf-8")
         log.info("VS Code terminal settings for %s: the .venv without activation", folder.name)
         return True
     except (OSError, ValueError) as e:
@@ -321,11 +321,11 @@ def ensure_notebook_autosave(folder: Path | str) -> bool:
     JSON is left alone. True when the file changed (VS Code picks workspace settings up live)."""
     p = Path(folder) / ".vscode" / "settings.json"
     try:
-        cur = json.loads(p.read_text()) if p.exists() else {}
+        cur = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
         if not isinstance(cur, dict) or "files.autoSave" in cur:
             return False
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({**cur, "files.autoSave": "afterDelay"}, indent=2) + "\n")
+        p.write_text(json.dumps({**cur, "files.autoSave": "afterDelay"}, indent=2) + "\n", encoding="utf-8")
         return True
     except (OSError, ValueError) as e:
         log.warning("could not turn on autosave for %s: %s", Path(folder).name, e)

@@ -6464,7 +6464,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
             return
         try:
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
@@ -6509,11 +6509,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
         try:
             backup_dir.mkdir(parents=True, exist_ok=True)
-            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(text)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(text, encoding="utf-8")
         except OSError:
             log.warning("could not write a backup of %s", path)
         self.undo = (path, text)
-        path.write_text(new_text)
+        path.write_text(new_text, encoding="utf-8")
         line = next((i for i, (a, b) in enumerate(zip(text.splitlines(), new_text.splitlines()), 1) if a != b), 1)
         if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), line, explicit=True)  # Do it for me: a learner action
@@ -7741,7 +7741,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                              kind="answer", actions=["apply_fix"])
             return
         try:
-            text = path.read_text() if path.exists() else ""
+            text = path.read_text(encoding="utf-8") if path.exists() else ""
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
@@ -8203,7 +8203,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
             return
         try:
-            current = path.read_text() if (path.exists() or pp["old"]) else ""
+            current = path.read_text(encoding="utf-8") if (path.exists() or pp["old"]) else ""
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {path}: {e}"})
             return
@@ -8217,12 +8217,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
         try:
             backup_dir.mkdir(parents=True, exist_ok=True)
-            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(current)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(current, encoding="utf-8")
         except OSError:
             log.warning("could not write a backup of %s", path)
         self.undo = (path, current)
         path.parent.mkdir(parents=True, exist_ok=True)  # lesson mode: a step may create its file
-        path.write_text(pp["new"])
+        path.write_text(pp["new"], encoding="utf-8")
         if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), int(pp["line"]), explicit=True)  # Do it for me: a learner action
         if pp["first"]:
@@ -8252,7 +8252,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.warning("undo: refusing to write %s (outside the lesson folder or a protected file)", path)
             await self._card(step, "I can't undo that", f"{path.name} isn't a file in your lesson folder.")
             return
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
         if step["id"] in self.assisted_steps:  # their own version again: no longer Do it for me's
             self.assisted_steps.remove(step["id"])
         await self._card(step, "Undone", "Your version is back.")

@@ -64,7 +64,7 @@ def _video_id(url: str) -> str | None:
 
 def _read_json(path: Path) -> Any | None:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 

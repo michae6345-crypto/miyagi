@@ -1127,7 +1127,7 @@ def load_fixture(path: str):
     from .macos import Quartz
     img = macos.load_cgimage(str(path))
     side = Path(path).with_suffix(".json")
-    meta = json.loads(side.read_text()) if side.exists() else {}
+    meta = json.loads(side.read_text(encoding="utf-8")) if side.exists() else {}
     scale = float(meta.get("scale", 2.0))
     screen = Rect.from_any(meta["screen"]) if "screen" in meta else Rect(
         0, 0, Quartz.CGImageGetWidth(img) / scale, Quartz.CGImageGetHeight(img) / scale)

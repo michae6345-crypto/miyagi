@@ -61,9 +61,9 @@ summary
 
 
 def _hero():
-    graph = json.loads((ROOT / "demo/cache/lessons/aebc6b8fba02dac5.json").read_text())
+    graph = json.loads((ROOT / "demo/cache/lessons/aebc6b8fba02dac5.json").read_text(encoding="utf-8"))
     step = next(s for s in graph["steps"] if s["id"] == "s6")
-    code = (ROOT / "server/lesson/fixtures/diffusion_workdir/pinn_diffusion.py").read_text()
+    code = (ROOT / "server/lesson/fixtures/diffusion_workdir/pinn_diffusion.py").read_text(encoding="utf-8")
     return step, {"lesson": graph["lesson"], "code": code, "file": "pinn_diffusion.py"}
 
 
@@ -128,8 +128,8 @@ async def main(names: list[str]) -> int:
         t0 = time.monotonic()
         payload = await build(step, ctx)
         wall = time.monotonic() - t0
-        (OUT / f"{name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-        (OUT / f"{name}.svg").write_text(to_svg(payload))
+        (OUT / f"{name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (OUT / f"{name}.svg").write_text(to_svg(payload), encoding="utf-8")
         meta = dict(last_meta)
         kind = payload["kind"] + (f"/{payload['data']['layout']}" if payload["kind"] == "graph" else "")
         rows.append((name, kind, f"{wall:.2f}", meta.get("model", ""), meta.get("output_tokens", ""), payload["caption"]))
@@ -140,7 +140,7 @@ async def main(names: list[str]) -> int:
                  "Each `<name>.json` is the exact `diagram` payload; `<name>.svg` is the reference render (render_svg.py).", "",
                  "| example | kind | latency (s) | model | output tokens | caption |", "|---|---|---|---|---|---|"]
         lines += [f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} | {r[5]} |" for r in rows]
-        (OUT / "RESULTS.md").write_text("\n".join(lines) + "\n")
+        (OUT / "RESULTS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return 0
 
 

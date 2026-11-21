@@ -156,7 +156,7 @@ async def fetch(kind: str, url: str) -> str | None:
     fixtures; None on any failure."""
     if rd := os.environ.get("COACH_REPLAY_DIR"):
         p = Path(rd) / f"{_fixture(kind, url)}.json"
-        return json.loads(p.read_text())["body"] if p.exists() else None
+        return json.loads(p.read_text(encoding="utf-8"))["body"] if p.exists() else None
     if not configured():
         return None
     body = ""
@@ -177,7 +177,7 @@ async def fetch(kind: str, url: str) -> str | None:
         return None
     if wd := os.environ.get("COACH_RECORD_DIR"):
         Path(wd).mkdir(parents=True, exist_ok=True)
-        (Path(wd) / f"{_fixture(kind, url)}.json").write_text(json.dumps({"url": url, "body": body[:200_000]}, ensure_ascii=False) + "\n")
+        (Path(wd) / f"{_fixture(kind, url)}.json").write_text(json.dumps({"url": url, "body": body[:200_000]}, ensure_ascii=False) + "\n", encoding="utf-8")
     return body
 
 

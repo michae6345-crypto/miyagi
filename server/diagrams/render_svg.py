@@ -201,6 +201,6 @@ def _wrap(s: str, n: int) -> list[str]:
 if __name__ == "__main__":
     for arg in sys.argv[1:]:
         p = Path(arg)
-        rec = json.loads(p.read_text())
-        p.with_suffix(".svg").write_text(to_svg(rec.get("payload", rec)))
+        rec = json.loads(p.read_text(encoding="utf-8"))
+        p.with_suffix(".svg").write_text(to_svg(rec.get("payload", rec)), encoding="utf-8")
         print(p.with_suffix(".svg"))

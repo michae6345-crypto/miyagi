@@ -42,7 +42,7 @@ class Recorder:
         t0 = self._t0.setdefault(run_id, now)
         try:
             self.out_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.out_dir / f"{_safe(run_id)}.jsonl", "a") as f:
+            with open(self.out_dir / f"{_safe(run_id)}.jsonl", "a", encoding="utf-8") as f:
                 f.write(json.dumps({"dt": round(now - t0, 3), "event": ev}) + "\n")
         except OSError as e:
             log.warning("could not record run %s: %s", run_id, e)
@@ -68,7 +68,7 @@ def find_recording(name: str | None) -> Path | None:
 
 def load(path: Path) -> list[tuple[float, dict]]:
     items = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue

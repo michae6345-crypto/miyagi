@@ -51,7 +51,7 @@ def compare_to_reference(conn: Any, learner_run_id: str, metric: str = "loss",
     if not tutorial_run_id:
         return {"tutorial_run_id": None, "metric": metric, "points": [], "latest": None,
                 "summary": "no tutorial reference curve for this lesson"}
-    rows = conn.execute(SQL_PATH.read_text(), {"learner": learner_run_id, "tutorial": tutorial_run_id,
+    rows = conn.execute(SQL_PATH.read_text(encoding="utf-8"), {"learner": learner_run_id, "tutorial": tutorial_run_id,
                                                "metric": metric}).fetchall()
     points = [{"step": r[1], "learner": r[2], "tutorial": r[3], "tutorial_step": r[4],
                "gap_decades": float(r[5]) if r[5] is not None else None} for r in rows]

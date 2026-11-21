@@ -152,7 +152,7 @@ def _read_json(p: Path) -> Any:
     try:
         if not p.is_file() or p.stat().st_size > MAX_INDEX_BYTES:
             return None
-        return json.loads(p.read_text())
+        return json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 

@@ -40,7 +40,7 @@ print("python3 on PATH:", shutil.which("python3"), "| python3.12 on PATH:", shut
 check(S.best_python() == bundled, f"best_python() is the bundled Python ({S.best_python()})")
 check(S.is_bundled(S.best_python()), "is_bundled(best_python())")
 
-graph = json.loads(Path(graph_path).read_text())
+graph = json.loads(Path(graph_path).read_text(encoding="utf-8"))
 root = Path(os.environ["HOME"]) / "Miyagi" / "lessons"
 wd = root / "mnist-smoke"
 wd.mkdir(parents=True, exist_ok=True)
@@ -129,7 +129,7 @@ if do_install:
               + ("" if res["ok"] else f" error={res.get('error')!r} last={lines[-3:]}"), flush=True)
         check(res["ok"], f"installed {it['tool']}")
     vpy = wd / ".venv" / "bin" / "python"
-    cfg = (wd / ".venv" / "pyvenv.cfg").read_text()
+    cfg = (wd / ".venv" / "pyvenv.cfg").read_text(encoding="utf-8")
     check(str(Path(bundled).parent) in cfg, ".venv was made from the bundled Python")
     r = subprocess.run([str(vpy), "-c", "import ipykernel, numpy, matplotlib, tensorflow as tf; "
                         "print(ipykernel.__version__, numpy.__version__, tf.__version__)"],

@@ -29,7 +29,7 @@ def _obs(args):
     from .reader import ScreenReader, observe_image
     if args.image and args.image.endswith(".json"):
         from .types import ScreenObservation
-        return ScreenObservation.from_dict(json.loads(Path(args.image).read_text())), None
+        return ScreenObservation.from_dict(json.loads(Path(args.image).read_text(encoding="utf-8"))), None
     if args.image:
         return observe_image(args.image), None
     r = ScreenReader()
@@ -184,7 +184,7 @@ def cmd_fixture(args) -> None:
     canvas.save(png)
     (out_dir / f"{args.name}.json").write_text(json.dumps(
         {"screen": screen.to_dict(), "scale": scale, "app": wins[0].app if wins else "", "windows": meta_w},
-        indent=2) + "\n")
+        indent=2) + "\n", encoding="utf-8")
     print(f"saved {png} with {len(wins)} windows")
 
 

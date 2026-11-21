@@ -695,7 +695,7 @@ def load_env() -> str | None:
         cands.append(root.parent.parent.parent / ".env")
     for p in cands:
         if p.is_file():
-            for raw in p.read_text().splitlines():
+            for raw in p.read_text(encoding="utf-8").splitlines():
                 line = raw.strip().removeprefix("export ").strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)

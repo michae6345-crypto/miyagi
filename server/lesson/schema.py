@@ -32,8 +32,8 @@ MAX_SCREEN_PATTERN = 80  # long regexes break on OCR noise
 
 @lru_cache(maxsize=1)
 def _validator() -> Draft202012Validator:
-    graph = json.loads((CONTRACTS / "step-graph.schema.json").read_text())
-    check = json.loads((CONTRACTS / "check.schema.json").read_text())
+    graph = json.loads((CONTRACTS / "step-graph.schema.json").read_text(encoding="utf-8"))
+    check = json.loads((CONTRACTS / "check.schema.json").read_text(encoding="utf-8"))
     registry = Registry().with_resource("check.schema.json", Resource.from_contents(check))
     return Draft202012Validator(graph, registry=registry)
 
