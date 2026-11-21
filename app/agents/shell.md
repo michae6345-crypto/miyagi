@@ -21,7 +21,7 @@ Michael, after trying the app: "It should be like a dashboard on the left. I sho
 | Skills (⌘3) | the full constellation, plus a side panel: the selected skill's card (SkillCard), else each track's headline and share mastered | constellation's loading / "No skills yet"; panel skeleton; offline line |
 | Progress (⌘4) | the Progress window's body (`Dashboard`) inline, never the separate window | dashboard's own per part; offline note above it |
 | Settings (⌘5) | General, Permissions, Privacy, Your key, Shortcuts (the sheet's section components) under a Segmented | sections' own; `live` only while the page is on show |
-| Account (⌘6) | v2Cloud: who, plan, help meter, Upgrade (primary, Free only), Use your own key, Sign out. Signed out: one calm card, Sign in opens the login view (`account` window, view `login`). Normal build: "No account needed" | skeleton card while loading; account:get with no answer reads as signed out |
+| Account (⌘6) | Shipped (LOGIN_ENABLED, see agents/auth.md): signed in, avatar initial, name, email, Sign out, Use your own key; signed out, "Sign in to sync your progress across Macs" whose Sign in opens the login window (`openLogin()`). v2Cloud (mock): who, plan, help meter, Upgrade (primary, Free only), Use your own key, Sign out. Login off: "No account needed" | skeleton card until auth:get answers; no answer reads as signed out |
 
 Every page sits in its own error boundary: a crash shows "This page didn't load." with Try again; the other pages keep working.
 
@@ -40,8 +40,8 @@ Shots: `miyagi-v2/screens/round4/shell-*.jpg` (home, lessons, skills, skills-dat
 Checked in the stage (DOM): a skill click opens its card in the panel; ⌘2 / ⌘1 / ⌘2 keeps the Lessons scroll; the skill card survives a trip to Lessons; ArrowDown from Skills selects Progress and keeps focus on it; Esc leaves the window open; a lesson card opens the preview with "Back to Lessons", Esc closes it; Settings segment switch; Account › Use your own key lands on Settings › Your key; `openWindow('library', {page})`, `{page:'settings', section:'privacy'}`, `openLibrary(id)` and `openLibrary()` all land right; `setSection('library')` goes to Lessons twice in a row; no console errors.
 
 ## Core requests
-1. `core/surfaces.ts`: `openLibrary(id?)` could take `{page?, section?}` so other features can deep link without importing `features/shell/store.ts` (`openPage`). Workaround: `openWindow('library', {page})`, which core already exports.
-2. `core/surfaces.ts` `AccountView`: add `'login'` (features/auth hosts the login view in the account window as view `login`). Workaround: `openWindow('account', {view: 'login'})`.
+1. DONE (`michael/app-login-wire`): `openLibrary({page, section?})` in `core/surfaces.ts`; `openPage` now calls it.
+2. DONE (`michael/app-login-wire`), differently: the login has its own `auth` app route, opened with `openLogin()`; the account window's `login` view is gone.
 3. Tray / Dock / setup's Start could pass `{page: 'home'}` once (1) exists; today they open the window on whatever page it was left on, Home when new.
 4. Settings sheet: `permissions:watch` is one switch in main; the sheet and this page both toggle it while on show. Harmless today (both stop on hide), but a counter in main would be cleaner.
 

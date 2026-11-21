@@ -11,6 +11,7 @@
  */
 import { shell } from 'electron'
 import type { PermissionKind } from '../../../shared/contracts/events'
+import { SUPABASE_HOST } from './publicConfig'
 
 /** https hosts the app may open (exact host or a subdomain of one). Keep it short; add a host with a reason. */
 export const ALLOWED_HOSTS = [
@@ -23,7 +24,7 @@ export const ALLOWED_HOSTS = [
   'aistudio.google.com',
   'elevenlabs.io',
   'github.com', // the engine's install notes
-  'wssdpsdbaqtnfhoyimit.supabase.co' // Google sign-in's start page (features/auth.ts; the exact project, main/publicConfig.ts)
+  SUPABASE_HOST // Google sign-in's start page (features/auth.ts): the committed project only (main/publicConfig.ts)
 ] as const
 
 /** System Settings panes, by kind. Fixed strings: nothing from a renderer is ever appended. */

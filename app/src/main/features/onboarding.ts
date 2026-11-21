@@ -126,19 +126,33 @@ export default defineMainFeature({
      * intro itself; when the learner is done there (signed in, or "Continue without an account"), auth.ts asks for
      * setup, which opens without the intro (it already played).
      */
+    let quitting = false
+    ctx.app.on('before-quit', () => (quitting = true))
+    let loginDone = false
+    const introPlayed = (): void => {
+      if (flag.introSeen) return
+      flag = { ...flag, introSeen: true }
+      save()
+    }
+
     const startFirstRun = (): void => {
       if (!needsLogin()) {
         openFirstRun()
         return
       }
-      place(ctx.openWindow('auth', { view: flag.introSeen ? 'login' : 'intro' }))
+      const login = place(ctx.openWindow('auth', { view: flag.introSeen ? 'login' : 'intro' }))
+      // Closed with the red button, no choice made: setup still opens (nobody is left with only the pill), and the
+      // intro won't play again. The login itself shows again next launch, since nothing was chosen.
+      login?.once('closed', () => {
+        if (quitting || loginDone || flag.done) return
+        introPlayed()
+        openFirstRun()
+      })
     }
     onLoginDone(() => {
+      loginDone = true
       if (flag.done) return undefined // a later sign-in (Account page): no setup to open
-      if (!flag.introSeen) {
-        flag = { ...flag, introSeen: true }
-        save()
-      }
+      introPlayed()
       return openFirstRun()
     })
 

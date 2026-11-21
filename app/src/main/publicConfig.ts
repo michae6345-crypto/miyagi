@@ -10,14 +10,22 @@
  * Google client secret, and the app has no use for a service key.
  *
  * Override (another project, a local Supabase): MAIN_VITE_SUPABASE_URL / MAIN_VITE_SUPABASE_ANON_KEY at build time
- * (electron-vite hands MAIN_VITE_* to the main bundle), or the same names in the environment of a dev run.
+ * (electron-vite hands MAIN_VITE_* to the main bundle). The same names in the process environment count only for an
+ * unpackaged dev run: a shipped app never lets an environment variable (launchctl setenv) send the sign-in or the
+ * stored refresh token to another host.
  */
+import { app } from 'electron'
+
 export const SUPABASE_URL = 'https://wssdpsdbaqtnfhoyimit.supabase.co'
 export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_ZWGvj_p4OtGo34Itmh9lOQ_XeGi4F2v'
 
-/** The Supabase project this build talks to: an env override when one is set, else the committed values above. */
+/** The committed project's host (safeOpen's allowlist entry for Google sign-in's start page). */
+export const SUPABASE_HOST = new URL(SUPABASE_URL).hostname
+
+/** The Supabase project this build talks to: a build-time override, a dev-run env override, else the values above. */
 export function supabaseConfig(): { url: string; key: string } {
   const env = import.meta.env as Record<string, string | undefined>
-  const pick = (name: string, fallback: string): string => (env[name] || process.env[name] || fallback).trim()
+  const runtime = !app.isPackaged
+  const pick = (name: string, fallback: string): string => (env[name] || (runtime ? process.env[name] : undefined) || fallback).trim()
   return { url: pick('MAIN_VITE_SUPABASE_URL', SUPABASE_URL).replace(/\/+$/, ''), key: pick('MAIN_VITE_SUPABASE_ANON_KEY', SUPABASE_PUBLISHABLE_KEY) }
 }

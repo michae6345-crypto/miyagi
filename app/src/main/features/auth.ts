@@ -43,6 +43,7 @@ import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 
 import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
 import { LOGIN_ENABLED } from '../../common/flags'
+import { color } from '../../renderer/src/core/theme'
 import { defineMainFeature } from '../context'
 import { supabaseConfig } from '../publicConfig'
 import { isAllowedUrl, openLinkInBrowser, safeOpenExternal } from '../safeOpen'
@@ -59,7 +60,10 @@ const RETRY_MS = [30_000, 60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000]
 
 type Config = { url: string; key: string }
 type User = { name?: string; email?: string }
-type Session = { access: string; refresh: string; expiresAt: number; user: User }
+/** project: the Supabase URL the session belongs to (a session is never sent to any other host). */
+type Session = { access: string; refresh: string; expiresAt: number; project?: string; user: User }
+/** A finished request: the body is read inside the timeout too (a stalled body can't hang a refresh). */
+type Answer = { ok: boolean; status: number; body: unknown }
 /** All the renderer ever gets about the learner. */
 type PublicUser = { name?: string; email?: string; avatarInitial: string }
 type Result = { ok: true; user: PublicUser } | { ok: false; reason: string }
@@ -101,13 +105,18 @@ function toSession(raw: unknown): Session | undefined {
   const access = str(r.access_token, 8192)
   const refresh = str(r.refresh_token, 1024)
   if (!access || !refresh) return undefined
-  const expiresIn = typeof r.expires_in === 'number' && Number.isFinite(r.expires_in) ? r.expires_in : 3600
+  // Absolute expiry: Supabase's expires_at (epoch seconds) when it is there, else now + expires_in. Saved absolute too,
+  // so a relaunch hours later sees an expired token as expired (and refreshes it at once).
+  const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  const at = num(r.expires_at)
+  const expiresIn = num(r.expires_in) ?? 3600
   const u = (r.user && typeof r.user === 'object' ? r.user : {}) as Record<string, unknown>
   const meta = (u.user_metadata && typeof u.user_metadata === 'object' ? u.user_metadata : {}) as Record<string, unknown>
   return {
     access,
     refresh,
-    expiresAt: Date.now() + expiresIn * 1000,
+    expiresAt: at !== undefined ? at * 1000 : Date.now() + expiresIn * 1000,
+    project: str(r.project, 256),
     user: { name: str(meta.full_name, 80) ?? str(meta.name, 80), email: str(u.email, 254) }
   }
 }
@@ -119,8 +128,17 @@ function initialOf(u: User): string {
 }
 const publicUser = (u: User): PublicUser => ({ name: u.name, email: u.email, avatarInitial: initialOf(u) })
 
+/** The "back to miyagi" tab in the system browser. Fixed strings only; the app window's theme colors. */
 const PAGE = (title: string, line: string): string =>
-  `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="margin:0;height:100vh;display:grid;place-items:center;background:#1c1c1e;color:#fff;font:15px -apple-system,system-ui,sans-serif"><div style="text-align:center"><h1 style="font-size:22px;font-weight:600;margin:0 0 8px">${title}</h1><p style="margin:0;color:rgba(255,255,255,.6)">${line}</p></div>`
+  `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="margin:0;height:100vh;display:grid;place-items:center;background:${color.window};color:${color.text};font:15px -apple-system,system-ui,sans-serif"><div style="text-align:center"><h1 style="font-size:22px;font-weight:600;margin:0 0 8px">${title}</h1><p style="margin:0;color:${color.label}">${line}</p></div>`
+/** Callback answers close their connection, so a quick retry never reuses a socket to the last flow's listener. */
+const PAGE_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+  Connection: 'close'
+} as const
 
 // ---- what onboarding.ts reads (first-run order: intro → login → setup → home) ------------------------------------
 
@@ -177,6 +195,16 @@ export default defineMainFeature({
       } catch {
         console.warn('[auth] auth.bin could not be read; signed out') // never the error itself
       }
+      // A session made for another Supabase project (or saved without one) is never sent anywhere: dropped, unsent.
+      if (session && session.project !== config()?.url) {
+        console.warn('[auth] saved session is for another project; signed out')
+        session = undefined
+        try {
+          unlinkSync(file)
+        } catch {
+          /* gone already */
+        }
+      }
     }
     signedIn = !!session
 
@@ -187,7 +215,7 @@ export default defineMainFeature({
           return
         }
         if (!secure) return // kept for this run only
-        const raw = { access_token: session.access, refresh_token: session.refresh, expires_in: Math.max(0, Math.round((session.expiresAt - Date.now()) / 1000)), user: { email: session.user.email, user_metadata: { full_name: session.user.name } } }
+        const raw = { access_token: session.access, refresh_token: session.refresh, expires_at: Math.floor(session.expiresAt / 1000), project: session.project, user: { email: session.user.email, user_metadata: { full_name: session.user.name } } }
         const tmp = `${file}.tmp`
         writeFileSync(tmp, safeStorage.encryptString(JSON.stringify(raw)), { mode: 0o600 })
         renameSync(tmp, file)
@@ -233,16 +261,16 @@ export default defineMainFeature({
       if ((s ? JSON.stringify(publicUser(s.user)) : '') !== before) announce()
     }
 
-    async function post(cfg: Config, path: string, body: unknown): Promise<Response | undefined> {
+    /** POST to the project; headers AND body within FETCH_MS. undefined = network failure or timeout. */
+    async function post(cfg: Config, path: string, body?: unknown, bearer?: string): Promise<Answer | undefined> {
       const ctl = new AbortController()
       const t = setTimeout(() => ctl.abort(), FETCH_MS)
       try {
-        return await fetch(`${cfg.url}${path}`, {
-          method: 'POST',
-          headers: { apikey: cfg.key, 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: ctl.signal
-        })
+        const headers: Record<string, string> = { apikey: cfg.key, 'Content-Type': 'application/json' }
+        if (bearer) headers.Authorization = `Bearer ${bearer}`
+        const res = await fetch(`${cfg.url}${path}`, { method: 'POST', headers, body: body === undefined ? undefined : JSON.stringify(body), signal: ctl.signal })
+        const json: unknown = await res.json().catch(() => undefined)
+        return { ok: res.ok, status: res.status, body: json }
       } catch {
         return undefined
       } finally {
@@ -250,17 +278,21 @@ export default defineMainFeature({
       }
     }
 
+    /** A new session from a refresh token (the project's own URL kept on it). */
+    const viaRefresh = (cfg: Config, token: string): Promise<Answer | undefined> => post(cfg, '/auth/v1/token?grant_type=refresh_token', { refresh_token: token })
+    const withProject = (s: Session | undefined, cfg: Config): Session | undefined => (s ? { ...s, project: cfg.url } : undefined)
+
     /** One refresh at a time (the refresh token rotates). true = the session is fresh. */
     function refresh(): Promise<boolean> {
       if (refreshing) return refreshing
       const s = session
       const cfg = config()
-      if (!s || !cfg) return Promise.resolve(false)
+      if (!s || !cfg || s.project !== cfg.url) return Promise.resolve(false)
       refreshing = (async () => {
-        const res = await post(cfg, '/auth/v1/token?grant_type=refresh_token', { refresh_token: s.refresh })
+        const res = await viaRefresh(cfg, s.refresh)
         if (session !== s) return !!session // signed out (or in again) meanwhile: that wins
         if (res?.ok) {
-          const next = await res.json().then(toSession, () => undefined)
+          const next = withProject(toSession(res.body), cfg)
           if (next) {
             // The refresh answer carries the user too; keep what we had if it doesn't.
             setSession({ ...next, user: next.user.name || next.user.email ? next.user : s.user })
@@ -300,13 +332,24 @@ export default defineMainFeature({
     })
 
     // ---- one browser round trip at a time --------------------------------------------------------------------
-    let flow: { server: Server; finish: (r: Result) => void } | undefined
+    /**
+     * The running sign-in. Set BEFORE the listener is up, so a cancel right after the click is never lost, and kept
+     * while the code is exchanged, so Cancel / Esc / closing the window still win then (the answer is dropped unused).
+     */
+    type Flow = { server: Server; finish: (r: Result) => void; aborted: boolean; exchanging: boolean }
+    let flow: Flow | undefined
+
+    const closeServer = (server: Server): void => {
+      if (server.listening) server.close()
+      server.closeAllConnections()
+    }
 
     const stopFlow = (r: Result): void => {
       const f = flow
       flow = undefined
       if (!f) return
-      f.server.close()
+      f.aborted = true
+      closeServer(f.server)
       f.finish(r)
     }
 
@@ -320,10 +363,10 @@ export default defineMainFeature({
         console.warn('[auth] token exchange failed:', res.status)
         return undefined
       }
-      return res.json().then(toSession, () => undefined)
+      return withProject(toSession(res.body), cfg)
     }
 
-    /** The sign-in page, through the strict allowlist for our own project; an overridden project still gets the https gate. */
+    /** The sign-in page, through the strict allowlist for our own project; a dev-run override still gets the https gate. */
     const openAuthorize = (url: string): Promise<boolean> => (isAllowedUrl(url) ? safeOpenExternal(url) : openLinkInBrowser(url))
 
     function google(): Promise<Result> {
@@ -340,65 +383,80 @@ export default defineMainFeature({
 
       return new Promise<Result>((resolve) => {
         let timer: ReturnType<typeof setTimeout> | undefined
-        const finish = (r: Result): void => {
-          clearTimeout(timer)
-          resolve(r)
-        }
-
         const server = createServer((req, res) => {
           let u: URL
           try {
             u = new URL(req.url ?? '/', REDIRECT)
           } catch {
-            res.writeHead(400).end() // a malformed request line must never throw in main
+            res.writeHead(400, { Connection: 'close' }).end() // a malformed request line must never throw in main
             return
           }
-          if (req.method !== 'GET' || u.pathname !== CALLBACK_PATH || flow?.server !== server || !sameState(u.searchParams.get('state'), state)) {
-            res.writeHead(404).end()
+          if (req.method !== 'GET' || u.pathname !== CALLBACK_PATH || flow !== f || f.exchanging || !sameState(u.searchParams.get('state'), state)) {
+            res.writeHead(404, { Connection: 'close' }).end()
             return
           }
           const code = u.searchParams.get('code')
           const error = u.searchParams.get('error')
-          res.writeHead(200, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-store',
-            'Referrer-Policy': 'no-referrer',
-            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'"
-          })
+          res.writeHead(200, PAGE_HEADERS)
           if (!code) {
             res.end(PAGE('Sign-in did not finish', 'You can close this tab and try again in miyagi.'))
             stopFlow({ ok: false, reason: error === 'access_denied' ? 'denied' : 'failed' })
             return
           }
           // Not "signed in" yet: the code is exchanged after this page is sent, and miyagi shows the result.
-          res.end(PAGE('Back to miyagi', 'You can close this tab. miyagi finishes signing you in.'))
-          const f = flow
-          flow = undefined
-          server.close()
+          f.exchanging = true
+          res.end(PAGE('Back to miyagi', 'You can close this tab. miyagi finishes signing you in.'), () => closeServer(server))
           void exchange(cfg, code, verifier).then((s) => {
-            if (!s) return f?.finish({ ok: false, reason: 'failed' })
+            if (f.aborted || flow !== f) return // cancelled meanwhile: the answer is dropped, nothing is stored
+            flow = undefined
+            if (!s) return f.finish({ ok: false, reason: 'failed' })
             setSession(s)
             decide()
             // TODO(cloud-link): link the install token to this user here (see accessToken() above). Not implemented.
             if (process.platform === 'darwin') ctx.app.focus({ steal: true })
-            f?.finish({ ok: true, user: publicUser(s.user) })
+            f.finish({ ok: true, user: publicUser(s.user) })
           })
         })
+        const f: Flow = {
+          server,
+          aborted: false,
+          exchanging: false,
+          finish: (r) => {
+            clearTimeout(timer)
+            resolve(r)
+          }
+        }
+        flow = f
 
         server.once('error', () => {
-          if (flow?.server === server) flow = undefined
-          finish({ ok: false, reason: 'port' })
+          if (flow === f) flow = undefined
+          f.aborted = true
+          f.finish({ ok: false, reason: 'port' })
         })
         server.listen(PORT, '127.0.0.1', () => {
-          flow = { server, finish }
-          timer = setTimeout(() => stopFlow({ ok: false, reason: 'timeout' }), WAIT_MS)
+          if (f.aborted) return closeServer(server) // cancelled before the listener was up: nothing opens
+          timer = setTimeout(() => {
+            if (flow === f) stopFlow({ ok: false, reason: 'timeout' })
+          }, WAIT_MS)
           const q = new URLSearchParams({ provider: 'google', redirect_to: `${REDIRECT}?state=${state}`, code_challenge: challenge, code_challenge_method: 's256' })
           // Built here from config only; nothing from a renderer is appended.
           void openAuthorize(`${cfg.url}/auth/v1/authorize?${q.toString()}`).then((ok) => {
-            if (!ok && flow?.server === server) stopFlow({ ok: false, reason: 'failed' })
+            if (!ok && flow === f) stopFlow({ ok: false, reason: 'failed' })
           })
         })
       })
+    }
+
+    /** Best effort, after a sign-out: revoke this session on Supabase (an expired access token is refreshed first). */
+    async function revoke(cfg: Config, s: Session): Promise<void> {
+      let access = s.access
+      if (s.expiresAt - Date.now() < 30_000) {
+        const r = await viaRefresh(cfg, s.refresh)
+        const fresh = r?.ok ? toSession(r.body) : undefined
+        if (!fresh) return // refused already: nothing left to revoke
+        access = fresh.access
+      }
+      await post(cfg, '/auth/v1/logout?scope=local', undefined, access)
     }
 
     ctx.handle('auth:get', () => (loginEnabled() && session ? { signedIn: true, ...publicUser(session.user) } : null))
@@ -425,10 +483,8 @@ export default defineMainFeature({
       const cfg = config()
       const s = session
       setSession(undefined)
-      if (cfg && s) {
-        // Best effort: revoke this session's refresh token server-side. Never blocks sign-out, never logs a token.
-        fetch(`${cfg.url}/auth/v1/logout?scope=local`, { method: 'POST', headers: { apikey: cfg.key, Authorization: `Bearer ${s.access}` } }).catch(() => undefined)
-      }
+      // Best effort: revoke this session server-side. Never blocks sign-out, never logs a token.
+      if (cfg && s && s.project === cfg.url) void revoke(cfg, s).catch(() => undefined)
       return true
     })
     ctx.app.on('before-quit', () => {

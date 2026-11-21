@@ -1,66 +1,100 @@
-# auth: first-run login (branch `michael/app-login`)
+# auth: first-run login (branches `michael/app-login`, then `michael/app-login-wire`)
 
-Flow: **intro** (the bonsai grows up out of its pot in the middle of the window, the wordmark settles under it) →
-**miyagi login** (New user / Returning user, three sign-on boxes at the bottom) → **guided setup** (onboarding) → home.
+Flow: **branded intro** (the bonsai grows up out of its pot in the middle of the window, the wordmark settles under it)
+→ **miyagi login** (New user / Returning user, three sign-on boxes at the bottom) → **guided setup** (onboarding) → home.
 
-- Google: live, through the main process. System browser + OAuth 2.0 PKCE via **Supabase Auth**, one-shot loopback
-  redirect `http://127.0.0.1:47217/auth/callback?state=<random>`. A callback whose state does not match is ignored
-  (404) and cannot end or hijack the flow. The browser is opened through `safeOpen` (`openLinkInBrowser`, plain https
-  only). No webview (Google blocks embedded sign-in), no client secret in the app: Supabase holds it. The session is
-  kept in `userData/auth.bin`, encrypted with safeStorage (Keychain), like the BYOK keys. The renderer only ever sees
-  `{name, email}`. Esc while waiting on the browser cancels the sign-in.
+- **On by default**: `LOGIN_ENABLED = true` in `src/common/flags.ts`, separate from v2Cloud. `MIYAGI_LOGIN=0` turns it
+  off for one run. The plans, pricing and usage mock stays behind v2Cloud=false.
+- **Backend config is committed** (`src/main/publicConfig.ts`): the Supabase project URL and its publishable key, both
+  public by design. A packaged build needs no `.env`. Override at build time with `MAIN_VITE_SUPABASE_URL` /
+  `MAIN_VITE_SUPABASE_ANON_KEY`; the same names in the process environment count only for an unpackaged dev run (a
+  shipped app never lets an env var send the sign-in or the refresh token to another host). No client secret or service
+  key anywhere in the app: Supabase holds the Google secret.
+- **Google**: live, through the main process. System browser + OAuth 2.0 PKCE (S256) via **Supabase Auth**, one-shot
+  loopback redirect `http://127.0.0.1:47217/auth/callback?state=<random>`. A callback whose state does not match is
+  ignored (404) and cannot end or hijack the flow. The browser opens through `safeOpenExternal` (the project host is on
+  the allowlist). No webview, no secret. Esc, Cancel or closing the window cancels, also during the code exchange.
+- **Session**: only in `userData/auth.bin`, encrypted with safeStorage (Keychain), with an absolute expiry and the
+  project URL it belongs to (a session for another project is dropped unsent). The access token is refreshed ~5 min
+  before it expires (`grant_type=refresh_token`, one at a time because Supabase rotates the refresh token), on launch
+  when due, and on wake. A refused refresh (400/401) signs out; a network failure retries with a backoff. Sign-out
+  forgets it at once and revokes it best effort (`/logout?scope=local`).
+- **The renderer only ever sees `{name, email, avatarInitial}`** (plus `signedIn`), from `auth:get` and the
+  `feat:auth:changed` broadcast. Never a token, code, verifier or URL.
+- **Continue without an account** is always there (Cancel takes its place only while a browser sign-in is pending). It
+  goes straight to setup. Signed in, or continued without one: the choice is saved (`userData/login.json`, non-secret)
+  and the login never shows on launch again. Closing the login with the red button opens setup too (the login shows
+  again next launch, since nothing was chosen).
 - Apple and GitHub: placeholders. A click says "<Provider> sign-in is coming soon. Nothing was sent."
-- "Continue without an account" goes straight to setup (the app stays local-first).
-- Behind the same switch as the account sheet: v2Cloud (`VITE_MIYAGI_V2_CLOUD=1` build + `MIYAGI_V2_CLOUD=1` run).
+- **Account page (shell)**: signed in: avatar initial, name, email, Sign out, Use your own key. Signed out: "Sign in to
+  sync your progress across Macs" with Sign in (opens the login window). The sidebar chip follows: initial + name +
+  email, or "Not signed in / Sign in to sync".
 
 ## Files
-- `src/renderer/src/features/auth/`: `AuthView` (LayoutGroup: intro → login), `Intro`, `Login`, `store`, `model`,
-  `web` (stage stand-ins), `index` (registers the feature, no window of its own yet).
-- `src/main/features/auth.ts`: `auth:get`, `auth:google`, `auth:cancel`, `auth:sign-out`.
-- `features/account/AccountWindow.tsx`: one early return mounts `AuthView` for view `login` / `login-now`.
+- `src/renderer/src/features/auth/`: `AuthView` (the `auth` window: onboarding's branded `Intro`, then `Login`, in one
+  LayoutGroup so the tree flies into the header), `Login`, `Avatar`, `store` (also the signed-in user for the shell),
+  `model`, `web` (stage stand-ins), `index` (registers the `auth` window). The placeholder `Intro.tsx` is gone.
+- `src/main/features/auth.ts`: `auth:get`, `auth:google`, `auth:cancel`, `auth:continue`, `auth:sign-out`; broadcast
+  `feat:auth:changed`; exports `loginEnabled`, `needsLogin`, `onLoginDone`, `accessToken` for main.
+- `src/main/publicConfig.ts`: the public Supabase config.
+- Also touched (other lanes, small): `main/features/onboarding.ts` (first-run order), `main/features/launch.ts` (a Dock
+  click brings the login forward), `features/shell/pages/AccountPage.tsx`, `features/shell/Sidebar.tsx`,
+  `features/shell/Shell.tsx` (Account caption), `features/shell/store.ts` (`openPage` via `openLibrary`),
+  `features/account/AccountWindow.tsx` (the `login` early return removed), `features/account/model.ts` (stage
+  `?v2Cloud=0`).
+
+## Core changes made (minimal, additive; Michael's go-ahead, Nov 20)
+1. **`auth` app route**: `theme.windowSize.auth = { w: 944, h: 640 }` (the first-run size, so intro → login → setup stays
+   in one spot), `'auth'` in `core/surfaces.ts` `AppRoute`, in `main/appWindows.ts` `APP_ROUTES` and in `bridge.ts`'s
+   stage `APP_ROUTES`. The account window's `login` view is gone.
+2. **`openLogin(view?)`** in `core/surfaces.ts` (`'intro'` | `'login'`).
+3. **`openLibrary(target?)`** in `core/surfaces.ts` now also takes `{id?, page?, section?}` (shell core request 1).
+   `openLibrary()` and `openLibrary(id)` work as before.
+4. **First-run order** in `main/features/onboarding.ts` (auth core request 2): while `needsLogin()`, the login window opens
+   first (view `intro`, or `login` if the intro already played) at the first-run size and spot; `onLoginDone` opens
+   setup without the intro and marks it seen. The intro hands off to login inside the login window.
+5. **safeOpen allowlist**: the committed Supabase project host (`SUPABASE_HOST` from `publicConfig.ts`, the exact
+   project, not all of `supabase.co`), so the sign-in uses the strict `safeOpenExternal`.
+6. **`LOGIN_ENABLED`** in `src/common/flags.ts`.
+7. `main/publicConfig.ts` (new file, main only).
 
 ## See it (stage)
-`npm run dev:web -- --port 5700`, then:
-- `http://localhost:5700/?window=account&view=login`: intro, then login
-- `…&view=login-now`: login without the intro
-- `&auth=signedin` (already signed in), `&auth=fail` (timeout line), `&auth=unset` (not configured line)
+`npm run dev:web -- --port 5951`, then (`&v2Cloud=0` shows the shipped Account page instead of the plans mock):
+- `http://localhost:5951/?window=auth&view=intro&size=1440x900&clean&v2Cloud=0`: intro, then login. Continue without an
+  account opens setup; walk it to Start, which opens home.
+- `…?window=auth&view=login…`: the login without the intro
+- `…?scenario=home&window=library&page=account&size=1440x900&clean&v2Cloud=0`: Account signed out; add `&auth=signedin`
+  for signed in
+- `&auth=fail` (timeout line), `&auth=unset` (not configured line)
 
-The stage's Google box "signs in" a fixture after ~1.6 s. Shots: `agents/shots/auth-1-intro.png`, `auth-2-login.png`,
-`auth-3-signed-in.png`.
+The stage's Google box "signs in" a fixture after ~1.6 s. Shots: `miyagi-v2/screens/login/login-*.png`. In the stage the
+setup window opens at the stage's onboarding size (720×560); Electron opens it at the first-run size (944×640).
 
 ## Status
-- Done: intro placeholder, login UI, New/Returning switch, three provider boxes, waiting + Cancel, signed-in card,
-  Continue → onboarding, main-side PKCE flow and encrypted session. `npm run typecheck` green. Checked on the stage.
-- UNVERIFIED in Electron: the real browser round trip and token exchange (needs the Supabase project below).
-- Intro is a placeholder: swap in the intro lane's animated miyagi intro (features/onboarding) once it merges.
+- Done: login wired to the real Supabase project, on by default; first-run order; Account page and chip; session in
+  safeStorage with refresh and sign-out; `npm run typecheck` green; walked in the stage (headless).
+- UNVERIFIED in Electron: the real browser round trip, token exchange, refresh, sign-out revoke, the window hand-offs
+  (login → setup with no gap), and the Dock click during the login. Google OAuth is in testing mode: only test users
+  can sign in.
 
-## One-time setup (Michael does the account steps and pastes any secret himself)
-1. Redeem the YC Supabase deal ($300 / 12 months) on deals.ycombinator.com, then create a Supabase project.
-2. Google Cloud Console → APIs & Services → OAuth consent screen (External, app name miyagi, support email),
-   then Credentials → Create OAuth client ID → **Web application**:
-   Authorized redirect URI = `https://<project-ref>.supabase.co/auth/v1/callback`.
-3. Supabase → Authentication → Providers → Google: on, paste the client ID and secret (in the dashboard only).
-4. Supabase → Authentication → URL Configuration → Redirect URLs: add `http://127.0.0.1:47217/auth/callback**`
-   (with the `**`, so the `?state=…` query matches; an exact entry makes Supabase fall back to the Site URL and the
-   sign-in times out).
-5. Build/run config (public values, not secrets): `MAIN_VITE_SUPABASE_URL=https://<project-ref>.supabase.co`,
-   `MAIN_VITE_SUPABASE_ANON_KEY=<publishable key>` (or `MIYAGI_SUPABASE_URL` / `MIYAGI_SUPABASE_ANON_KEY` for a dev run).
+## For Michael to test (real app)
+1. Fresh first run (move `~/Library/Application Support/miyagi/{onboarding.json,login.json,auth.bin}` aside): the intro
+   plays in the login window, the tree flies into "miyagi login".
+2. Continue without an account → setup opens in the same spot, no intro; finish → home. Relaunch: no login.
+3. Fresh again, Google (a test user): browser opens on Supabase/Google, the tab says "Back to miyagi", the app shows
+   "Signed in as …", Continue → setup. Home's Account page and chip show the initial, name, email.
+4. Esc / Cancel while the browser is open; try again (the second try must work).
+5. Leave it over an hour (or sleep the Mac), then quit and relaunch: still signed in (refresh). Sign out: the page and
+   chip flip to signed out; relaunch: still signed out, no login on launch.
+6. Account page signed out → Sign in → the login window (no intro) → Google → Continue closes it.
 
-## Core requests
-1. **An `auth` app route** so the login has its own window instead of the account window's `login` view:
-   `theme.windowSize.auth = { w: 720, h: 560 }`, `'auth'` in `core/surfaces.ts` `AppRoute`, in `main/appWindows.ts`
-   `APP_ROUTES` and in `bridge.ts`'s stage `APP_ROUTES`. Then drop the early return in `AccountWindow.tsx`.
-2. **First-run order**: `main/features/onboarding.ts` should open the login first when v2Cloud is on and nobody is
-   signed in (and the learner hasn't chosen "Continue without an account"), then onboarding after `continueToSetup`.
-   Today the login is reached with `openWindow('account', {view: 'login'})`.
-3. **safeOpen allowlist**: add `supabase.co` to `ALLOWED_HOSTS` (reason: Google sign-in start page) so `auth.ts` can
-   use the strict `safeOpenExternal` instead of `openLinkInBrowser` (plain-https gate) it uses today.
-4. Note for core: `MiyagiWordmark`'s `height` prop loses to the preflight's `img { height: auto }`; the intro pins it
-   with a class. Worth fixing in `core/ui/Mark.tsx` (`style={{ height }}`).
+## Core requests (still open)
+- `MiyagiWordmark`'s `height` prop loses to the preflight's `img { height: auto }`; callers pin it with a class. Worth
+  fixing in `core/ui/Mark.tsx` (`style={{ height }}`).
 
-## Follow-up (not in this branch)
-Tie the anonymous install token (`main/features/cloud.ts`, `POST /v1/install`) to the signed-in Supabase user on
-miyagi-cloud (verify the Supabase JWT there), so quotas and history follow the account.
-
-Token refresh is not done yet: the access token lasts about an hour, and `auth:get` still reports signed in after
-that. Refresh with `grant_type=refresh_token` in main before the first cloud call that needs the JWT.
+## TODO seam (not implemented)
+**Link the anonymous miyagi-cloud install token to the user** (`TODO(cloud-link)` in `main/features/auth.ts`, at
+`accessToken()` and at the sign-in success point): after a sign-in (and once per launch while signed in), `cloud.ts`
+calls `accessToken()` and sends `POST /v1/install/link` with the install token and the Supabase JWT; miyagi-cloud
+verifies the JWT against the project's JWKS and attaches the install to the user, so quotas and history follow the
+account across Macs. Sign-out does not unlink. The JWT never goes to the engine or a renderer, and is never logged.
