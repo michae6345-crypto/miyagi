@@ -13,13 +13,17 @@
  *   - First run: opens once if Anthropic or Gemini is `missing` (not `env`) in config.status.
  *
  * Handles (bridge.invoke from any window):
- *   settings:open     grow the sheet out of the island (the overview's gear; openSettings() in the renderer)
+ *   settings:open     ({section}?) grow the sheet out of the island on that section (openSettings(section) in the
+ *                     renderer, core/surfaces); already open: switch to the section
+ *   settings:about    → {version} for the sidebar's foot
+ *   settings:delete   Privacy › Delete my data: erase the keys on this Mac (keys.bin), send the empty config.keys
+ *                     → {ok, keys: KeysView}. The renderer then resets the prefs.
  *   settings:get      → KeysView
  *   settings:save     (SavePatch) merge, encrypt, write, send config.keys → KeysView
  *   settings:test     re-send config.keys (the engine answers config.status)
  *   settings:island   → the island's current size (the sheet collapses onto it)
  *   settings:hidden   the sheet finished collapsing: hide the window, hand focus back
- * Broadcasts: settings:open {from}, settings:close (blur).
+ * Broadcasts: settings:open {from, section}, settings:section {section}, settings:close (blur).
  *
  * UNVERIFIED: written and typechecked on Windows, where Smart App Control blocks electron.exe.
  * Check on the Mac: Keychain prompt (if any), keys.bin survives a restart, focus on open, blur closes,
@@ -35,7 +39,19 @@ import { previousApp } from './front-app'
 
 /** How long the closed sheet's window keeps catching clicks (see hide()). */
 const CATCH_MS = 400
-import { cleanKeys, fullPayload, mergeKeys, needsKeys, viewOf, type Keys, type KeyStatus, type KeysView } from '../../renderer/src/features/settings/keys'
+import {
+  cleanKeys,
+  fullPayload,
+  isSection,
+  mergeKeys,
+  viewOf,
+  type AboutView,
+  type DeleteResult,
+  type Keys,
+  type KeyStatus,
+  type KeysView,
+  type Section
+} from '../../renderer/src/features/settings/keys'
 
 /** Linux can fall back to a hard-coded password ("basic_text"): that's not secure storage. */
 function secureStorage(): boolean {
@@ -94,9 +110,10 @@ export default defineMainFeature({
     let open = false
 
     let hideTimer: ReturnType<typeof setTimeout> | undefined
-    const show = (): void => {
+    const show = (section?: Section): void => {
       if (win.isDestroyed()) return
       if (open) {
+        if (section) ctx.broadcast('settings:section', { section })
         win.focus()
         return
       }
@@ -106,7 +123,7 @@ export default defineMainFeature({
       win.focus()
       ctx.raise(win)
       // The renderer starts the sheet on this exact shape, then yields the island once it has painted.
-      ctx.broadcast('settings:open', { from: ctx.islandSize() })
+      ctx.broadcast('settings:open', { from: ctx.islandSize(), section })
     }
 
     // The sheet has already collapsed when this runs. The (transparent, full-screen) window stays up CATCH_MS longer, so
@@ -138,7 +155,6 @@ export default defineMainFeature({
 
     ctx.engine.onOpen(sendKeys)
 
-    let autoOpened = false
     ctx.engine.onEvent((e) => {
       if (e.type !== 'config.status') return
       lastStatus = e.payload
@@ -147,7 +163,14 @@ export default defineMainFeature({
 
     // ---- IPC ----------------------------------------------------------------------------------
 
-    ctx.handle('settings:open', () => show())
+    ctx.handle('settings:open', (p) => show(isSection((p as { section?: unknown } | undefined)?.section) ? (p as { section: Section }).section : undefined))
+    ctx.handle('settings:about', (): AboutView => ({ version: ctx.app.getVersion() }))
+    ctx.handle('settings:delete', (): DeleteResult => {
+      keys = {}
+      persist() // removes keys.bin
+      sendKeys() // every name, all empty: the engine drops the app's keys
+      return { ok: !error, keys: view() }
+    })
     ctx.handle('settings:get', () => view())
     ctx.handle('settings:save', (patch) => {
       keys = mergeKeys(keys, patch)

@@ -75,6 +75,37 @@ export function fullPayload(keys: Keys): Record<KeyName, string> {
   return out
 }
 
+/** The sidebar's sections (core/surfaces SettingsSection), in order. Here so main can check `settings:open {section}`. */
+export const SECTIONS = ['general', 'permissions', 'privacy', 'account', 'shortcuts'] as const
+export type Section = (typeof SECTIONS)[number]
+export const isSection = (s: unknown): s is Section => typeof s === 'string' && (SECTIONS as readonly string[]).includes(s)
+
+/** What each key is called in the sheet. */
+export const KEY_LABEL: Record<KeyName, string> = {
+  anthropic: 'Anthropic',
+  gemini: 'Gemini',
+  brightdata: 'Bright Data',
+  elevenlabs: 'ElevenLabs',
+  tigerUrl: 'Tiger Data URL'
+}
+
+/** Rows shown in the sheet. ElevenLabs is hidden: voice speaks with the computer's own voice now (Adrian, Sat),
+ * but the key name stays in storage and in config.keys so the engine contract is unchanged. */
+export const SHOWN: readonly KeyName[] = KEY_NAMES.filter((k) => k !== 'elevenlabs')
+
+/** settings:about: what the sidebar footer shows. */
+export type AboutView = { version?: string }
+
+/** settings:delete (Privacy › Delete my data): what was erased on this Mac. */
+export type DeleteResult = { ok: boolean; keys: KeysView }
+
+/** A patch that removes every stored key. */
+export function clearAll(): SavePatch {
+  const out: SavePatch = {}
+  for (const k of KEY_NAMES) out[k] = null
+  return out
+}
+
 /** First run: a required key the engine has no source for at all (not even its .env). */
 export function needsKeys(status: Partial<KeyStatus> | undefined): boolean {
   return !!status && REQUIRED.some((k) => status[k] === 'missing')
