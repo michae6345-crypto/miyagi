@@ -13,12 +13,11 @@
 import type { ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { X } from 'lucide-react'
-import { actionTone, color, copy, highlight, radius2, spring, status, surface, type2 } from '../../../core/theme'
+import { actionTone, color, copy, highlight, radius2, status, surface, type2 } from '../../../core/theme'
 import { Spinner } from '../../../core/ui/atoms'
 import { Keycap } from '../../../core/ui/Keycap'
-import { pressMotion } from '../../../core/ui/motion'
+import { beat, draw, pop, pressMotion, rise } from '../../../core/ui/motion'
 import { ThinkingDots } from '../../../core/ui/Thinking'
-import { rise } from './motion'
 import { Caption, Inline, Tip, tone } from './ui'
 
 export function NotYetBox({ lines }: { lines: string[] }): ReactNode {
@@ -37,9 +36,7 @@ export function NotYetBox({ lines }: { lines: string[] }): ReactNode {
             aria-hidden
             className="block h-[12px] w-[12px] shrink-0 rounded-full"
             style={{ border: `2px solid ${status.notYet}` }}
-            initial={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ ...spring, opacity: { duration: 0.18 } }}
+            {...pop(reduced, 0.85)}
           />
           <span style={{ fontSize: type2.md, fontWeight: 600, color: tone.text }}>Not yet</span>
         </div>
@@ -148,8 +145,8 @@ export function HintBox({
 }
 
 /**
- * The passed circle (UI-POLISH-SPEC 7): green springs up from 0.6 (never from 0), the ink tick draws in 80 ms after
- * it, over 240 ms. Reduced motion: both fade in.
+ * The passed circle (UI-POLISH-SPEC 7): green springs up from 0.6 (never from 0), the ink tick draws in a beat after
+ * it, over 240 ms (core/ui/motion pop and draw). Reduced motion: both fade in.
  */
 export function PassedCheck({ size = 48 }: { size?: number }): ReactNode {
   const reduced = useReducedMotion()
@@ -160,9 +157,7 @@ export function PassedCheck({ size = 48 }: { size?: number }): ReactNode {
       height={size}
       viewBox="0 0 18 18"
       className="shrink-0"
-      initial={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.6 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ ...spring, opacity: { duration: 0.12 } }}
+      {...pop(reduced)}
       aria-hidden
     >
       <circle cx="9" cy="9" r="9" fill={status.passed} />
@@ -173,9 +168,7 @@ export function PassedCheck({ size = 48 }: { size?: number }): ReactNode {
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
-        initial={reduced ? { opacity: 0 } : { pathLength: 0 }}
-        animate={reduced ? { opacity: 1 } : { pathLength: 1 }}
-        transition={{ duration: 0.24, ease: [0.23, 1, 0.32, 1], delay: 0.08 }}
+        {...draw(reduced)}
       />
     </motion.svg>
   )
@@ -183,12 +176,14 @@ export function PassedCheck({ size = 48 }: { size?: number }): ReactNode {
 
 export function PassedBody({ summary, upNext, total }: { summary?: string; upNext?: { index: number; title: string; what?: string }; total: number }): ReactNode {
   const reduced = useReducedMotion()
-  const r = rise(reduced)
+  // The circle, then the words a beat after its tick starts, then Up next a beat after that.
+  const words = rise(reduced, { delay: 2 * beat })
+  const next = rise(reduced, { delay: 3 * beat })
   return (
     <>
       <div role="status" data-part="panel-passed" className="flex flex-col items-center gap-[16px] text-center" style={{ padding: '32px 20px 0' }}>
         <PassedCheck size={48} />
-        <motion.div className="flex flex-col gap-[8px]" initial={r.initial} animate={r.animate} transition={{ ...spring, opacity: { duration: 0.18, delay: 0.1 }, y: { ...spring, delay: 0.1 } }}>
+        <motion.div className="flex flex-col gap-[8px]" initial={words.initial} animate={words.animate} transition={words.transition}>
           <h2 className="m-0" style={{ fontSize: type2.xl, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.01em', color: tone.text }}>
             {copy.passed}
           </h2>
@@ -200,7 +195,7 @@ export function PassedBody({ summary, upNext, total }: { summary?: string; upNex
         </motion.div>
       </div>
       {upNext && (
-        <motion.div style={{ padding: '24px 20px 0' }} initial={r.initial} animate={r.animate} transition={{ ...spring, opacity: { duration: 0.18, delay: 0.16 }, y: { ...spring, delay: 0.16 } }}>
+        <motion.div style={{ padding: '24px 20px 0' }} initial={next.initial} animate={next.animate} transition={next.transition}>
           <div
             data-part="panel-upnext"
             className="flex flex-col gap-[4px]"
