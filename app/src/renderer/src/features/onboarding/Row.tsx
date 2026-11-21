@@ -38,8 +38,14 @@ function Word({ row }: { row: RowData }): ReactNode {
 function Action({ row, tall }: { row: RowData; tall?: boolean }): ReactNode {
   const a = row.action
   if (!a) return null
+  const alt = row.alt
   return (
-    <span data-onb-action={a.id} style={tall ? undefined : { height: 32 }} className="flex items-center">
+    <span data-onb-action={a.id} style={tall ? undefined : { height: 32 }} className="flex items-center gap-[8px]">
+      {alt && (
+        <span data-onb-alt={alt.id} className="flex items-center">
+          <QuietButton size="md" label={alt.label} onClick={() => void runAction(alt.id)} />
+        </span>
+      )}
       <QuietButton size="md" label={a.label} busy={row.state === 'checking'} disabled={row.state === 'checking'} onClick={() => void runAction(a.id, a.item)} />
     </span>
   )

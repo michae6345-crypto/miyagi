@@ -494,7 +494,12 @@ app.whenReady().then(async () => {
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
-  stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
+  // Never let the engine's start-up stop the rest of the app (Home, setup, the features below): log it and carry on.
+  try {
+    stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
+  } catch (err) {
+    console.error('[tut] engine start-up threw', err)
+  }
 
   // v2 (W0-4 / W0-5 / W0-6): app windows, permission probes, the one way out to a browser.
   const broadcastAll = (channel: string, payload: unknown): void => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload))

@@ -70,7 +70,7 @@ type LessonState = {
   /** One short line for the pill (~5 s): engine errors, offline, an off-screen spotlight caption. See notify(). */
   notice?: Notice
   /** The engine this app starts on a Mac (main/localEngine.ts): installing, starting, missing, failed… */
-  localEngine?: { state: string; line?: string; logs?: string }
+  localEngine?: { state: string; line?: string; logs?: string; reason?: string }
   /** This lesson came from the launcher's Demo option (the curated lesson): no "Claude wrote this lesson" line. */
   demo: boolean
   // ---- v2 (W0-5) ----

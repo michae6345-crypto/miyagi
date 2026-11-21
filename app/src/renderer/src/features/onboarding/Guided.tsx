@@ -259,6 +259,9 @@ export function Guided({ rows, width, height, enterDelay = 0, onFinish }: { rows
 
   const secondary: Button | undefined = useMemo(() => {
     if (!row) return undefined
+    // The engine didn't come up: Retry is the primary, "Copy details" sits beside it.
+    const alt = row.alt
+    if (alt) return { label: alt.label, onClick: () => void runAction(alt.id) }
     if (canSkip(row))
       return {
         label: 'Skip for now',
