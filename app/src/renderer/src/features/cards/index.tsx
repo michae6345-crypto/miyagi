@@ -1018,14 +1018,40 @@ function folds(c: EngineCard | undefined, cardFrom: string | undefined, shown: S
   return cardKey(c) !== opened
 }
 
-/** Is the card a chip right now? (The island reads it through the card mode's width.) */
-function isChip(): boolean {
+/** The step the open drawer shows, or undefined (the drawer is closed, on a concept, or there's no step). */
+function drawerShows(): Shown | undefined {
   const d = useDrawer.getState()
   const l = useLesson.getState()
-  const shown = d.open && !d.concept && l.lesson && l.stepId ? { id: l.stepId, title: l.stepTitle, instructions: l.instructions } : undefined
-  const s = useCards.getState()
-  return folds(s.card, s.cardFrom, shown, useOpened.getState().key)
+  return d.open && !d.concept && l.lesson && l.stepId ? { id: l.stepId, title: l.stepTitle, instructions: l.instructions } : undefined
 }
+
+/**
+ * The step the drawer showed when the card folded (its cardKey + that step). The card keeps folding against it when the
+ * drawer or the lesson panel closes: hiding the side surfaces (Esc, the panel's hide key, a click) must not grow the
+ * island into the full card (Michael, Nov 21: "the top island expands"). The learner's tap still opens it; a different
+ * card, or the same one re-sent with something the drawer doesn't say (a button, a diff), is judged afresh.
+ */
+const useFolded = create<{ key?: string; shown?: Shown }>(() => ({}))
+const stillFolded = (c: EngineCard | undefined, cardFrom: string | undefined, f: { key?: string; shown?: Shown }, opened: string | undefined): boolean =>
+  !!c && !!f.key && cardKey(c) === f.key && folds(c, cardFrom, f.shown, opened)
+
+/** Is the card a chip right now? (The island reads it through the card mode's width.) */
+function isChip(): boolean {
+  const s = useCards.getState()
+  const opened = useOpened.getState().key
+  return folds(s.card, s.cardFrom, drawerShows(), opened) || stillFolded(s.card, s.cardFrom, useFolded.getState(), opened)
+}
+
+// Remember the card the moment it folds (before anything closes the drawer), so it keeps folding without it.
+function noteFold(): void {
+  const s = useCards.getState()
+  const shown = drawerShows()
+  if (!s.card || !shown || !folds(s.card, s.cardFrom, shown, useOpened.getState().key)) return
+  const key = cardKey(s.card)
+  const f = useFolded.getState()
+  if (f.key !== key || f.shown?.id !== shown.id || f.shown.title !== shown.title || f.shown.instructions !== shown.instructions) useFolded.setState({ key, shown })
+}
+for (const st of [useCards, useDrawer, useLesson, useOpened] as { subscribe: (fn: () => void) => () => void }[]) st.subscribe(noteFold)
 
 /** isChip() as a hook: re-renders on every input (the card, the drawer, the step, a tap). */
 function useChip(): boolean {
@@ -1036,7 +1062,8 @@ function useChip(): boolean {
   const title = useLesson((l) => l.stepTitle)
   const instructions = useLesson((l) => l.instructions)
   const opened = useOpened((o) => o.key)
-  return folds(card, cardFrom, drawerOnStep && id ? { id, title, instructions } : undefined, opened)
+  const folded = useFolded()
+  return folds(card, cardFrom, drawerOnStep && id ? { id, title, instructions } : undefined, opened) || stillFolded(card, cardFrom, folded, opened)
 }
 
 /**
