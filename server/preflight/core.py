@@ -360,14 +360,16 @@ def _venv_mark(folder: str | None) -> str | None:
     to it), so it is checked again."""
     if not folder:
         return None
+    from server.workspace import paths
+
     venv = Path(folder) / ".venv"
     try:
-        if not (venv / "bin" / "python").exists():
+        if not paths.venv_python(venv).exists():
             return None
-        mtimes = [p.stat().st_mtime for p in (venv / "lib").glob("python*/site-packages")]
+        mtimes = [p.stat().st_mtime for p in paths.venv_site_packages(venv)]
     except OSError:
         return None
-    return f"{venv / 'bin' / 'python'}@{max(mtimes, default=0.0):.3f}"
+    return f"{paths.venv_python(venv)}@{max(mtimes, default=0.0):.3f}"
 
 
 def _call_req(req: Callable, graph: dict, workdir: str | None):

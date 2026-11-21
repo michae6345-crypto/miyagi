@@ -444,7 +444,7 @@ def pip_requirement(spec: str) -> str:
 def venv_python(workdir: Path | str | None) -> str | None:
     if not workdir:
         return None
-    p = Path(workdir) / ".venv" / "bin" / "python"
+    p = paths.venv_python(Path(workdir) / ".venv")
     return str(p) if p.exists() else None
 
 

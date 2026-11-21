@@ -2546,7 +2546,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         import shutil
 
         has = self.has_python if self.has_python is not None else bool(shutil.which("python"))
-        if has or (Path(self.workdir) / ".venv" / "bin" / "python").exists():
+        from server.workspace import paths
+
+        if has or paths.venv_python(Path(self.workdir) / ".venv").exists():
             return cmd
         return re.sub(r"(^|\n|&&\s*|;\s*)python(?=\s)", r"\1python3", cmd)
 
@@ -8016,7 +8018,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         run_id = f"run-for-me-{int(time.time() * 1000)}"
         await self.ingest({"kind": "run_started", "run_id": run_id, "command": cmd, "cwd": self.workdir})
         extra: dict[str, str] = {}
-        venv = Path(self.workdir) / ".venv" / "bin"
+        from server.workspace import paths
+
+        venv = paths.venv_bin(Path(self.workdir) / ".venv")
         if venv.is_dir():
             extra = {"PATH": f"{venv}{os.pathsep}{os.environ.get('PATH', '')}", "VIRTUAL_ENV": str(venv.parent)}
         env = child_env(**extra)  # no provider key, cloud token or engine token reaches the learner's program

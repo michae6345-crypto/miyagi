@@ -68,10 +68,11 @@ def lessons(tmp_path, monkeypatch):
 
 
 def make_venv(folder: Path) -> str:
-    py = folder / ".venv" / "bin" / "python"
+    py = paths.venv_python(folder / ".venv")  # bin/python; Scripts\python.exe on Windows
     py.parent.mkdir(parents=True)
     py.write_text("", encoding="utf-8")
-    (folder / ".venv" / "lib" / "python3.12" / "site-packages").mkdir(parents=True)
+    site = folder / ".venv" / ("Lib" if paths._windows() else "lib/python3.12") / "site-packages"
+    site.mkdir(parents=True)
     return str(py)
 
 

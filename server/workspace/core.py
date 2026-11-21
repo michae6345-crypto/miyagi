@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -288,9 +289,19 @@ def is_python_folder(folder: Path) -> bool:
         return False
 
 
+# Windows: the .venv's scripts are in Scripts\, and PATH is ;-separated (VS Code reads env.windows there, never env.osx).
+_PYTHON_TERMINAL_WINDOWS = {"PATH": f"{_VENV}/Scripts;${{env:PATH}}", "VIRTUAL_ENV": _VENV,
+                            "VSCODE_PATH_PREFIX": f"{_VENV}/Scripts;"}
+
+
 def python_terminal_settings(folder: Path) -> dict:
-    """PYTHON_TERMINAL for a Python lesson folder, else {}."""
-    return json.loads(json.dumps(PYTHON_TERMINAL)) if is_python_folder(folder) else {}
+    """PYTHON_TERMINAL for a Python lesson folder, else {}. On Windows also terminal.integrated.env.windows."""
+    if not is_python_folder(folder):
+        return {}
+    out = json.loads(json.dumps(PYTHON_TERMINAL))
+    if sys.platform == "win32":
+        out["terminal.integrated.env.windows"] = dict(_PYTHON_TERMINAL_WINDOWS)
+    return out
 
 
 def ensure_python_terminal(folder: Path | str) -> bool:

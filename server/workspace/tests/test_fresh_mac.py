@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from server.workspace import paths
 from server.workspace import setup as S
 
 
@@ -52,8 +53,8 @@ def test_ensure_venv_sets_a_broken_venv_aside_and_never_empties_a_symlinked_one(
 
     def popen(argv, **kw):
         ran.append(argv)
-        (Path(argv[-1]) / "bin").mkdir(parents=True)
-        (Path(argv[-1]) / "bin" / "python").write_text("", encoding="utf-8")
+        paths.venv_bin(argv[-1]).mkdir(parents=True)
+        paths.venv_python(argv[-1]).write_text("", encoding="utf-8")
         return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
 
     py, err = S.ensure_venv(wd, popen=popen)
@@ -118,8 +119,8 @@ def test_one_venv_build_per_folder_at_a_time(monkeypatch, tmp_path):
 
     def popen(argv, **kw):  # a slow build: python appears first, "pip" a moment later
         builds.append(argv)
-        (Path(argv[-1]) / "bin").mkdir(parents=True)
-        (Path(argv[-1]) / "bin" / "python").write_text("", encoding="utf-8")
+        paths.venv_bin(argv[-1]).mkdir(parents=True)
+        paths.venv_python(argv[-1]).write_text("", encoding="utf-8")
         time.sleep(0.3)
         return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
 
@@ -137,11 +138,11 @@ def test_a_broken_venv_goes_outside_the_lesson_folder(monkeypatch, tmp_path):
     monkeypatch.setattr(S, "best_python", lambda: sys.executable)
     monkeypatch.setattr(S.paths, "lessons_root", lambda: tmp_path)
     wd = tmp_path / "lesson"
-    (wd / ".venv" / "bin").mkdir(parents=True)  # no python in it: broken
+    paths.venv_bin(wd / ".venv").mkdir(parents=True)  # no python in it: broken
 
     def popen(argv, **kw):
-        (Path(argv[-1]) / "bin").mkdir(parents=True)
-        (Path(argv[-1]) / "bin" / "python").write_text("", encoding="utf-8")
+        paths.venv_bin(argv[-1]).mkdir(parents=True)
+        paths.venv_python(argv[-1]).write_text("", encoding="utf-8")
         return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
 
     py, _ = S.ensure_venv(wd, popen=popen)
