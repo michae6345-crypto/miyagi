@@ -59,6 +59,24 @@ from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lin
 from . import setup_rows  # t9 V12: the setup card's rows stay put while it installs; Install all
 from . import nb_coach  # T11: a notebook run still going keeps its output rows pending and the coach quiet
 
+
+async def _kill_shell(proc: asyncio.subprocess.Process) -> None:
+    """Stop a timed-out Run it for me. On Windows a kill leaves anything the program started running and holding the
+    output pipe, so the read after it would wait for that child: taskkill /T stops the whole tree first."""
+    if os.name == "nt":
+        import subprocess
+
+        try:
+            await asyncio.to_thread(subprocess.run, ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+
+
 log = logging.getLogger("orchestrator.session")
 
 Emit = Callable[[str, dict], Awaitable[None]]
@@ -2545,9 +2563,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         lesson's .venv."""
         import shutil
 
-        has = self.has_python if self.has_python is not None else bool(shutil.which("python"))
         from server.workspace import paths
 
+        if os.name == "nt":  # the other way round: a Windows .venv has no python3.exe, and python3 on PATH is often
+            py3 = shutil.which("python3")  # only the Microsoft Store's stub (WindowsApps), which opens the Store
+            if not py3 or "windowsapps" in py3.lower() or paths.venv_python(Path(self.workdir) / ".venv").exists():
+                return re.sub(r"(^|\n|&&\s*|;\s*)python3(?=\s)", r"\1python", cmd)
+            return cmd
+        has = self.has_python if self.has_python is not None else bool(shutil.which("python"))
         if has or paths.venv_python(Path(self.workdir) / ".venv").exists():
             return cmd
         return re.sub(r"(^|\n|&&\s*|;\s*)python(?=\s)", r"\1python3", cmd)
@@ -8038,7 +8061,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             code = proc.returncode or 0
         except TimeoutError:
             timed_out = True
-            proc.kill()
+            await _kill_shell(proc)
             out = (await proc.stdout.read()) if proc.stdout else b""
             await proc.wait()
             code = 124
