@@ -28,7 +28,8 @@
  *                         the failure and the learner gets Retry). Meanwhile the link holds its failures, so the
  *                         surfaces stay on "reconnecting" instead of the offline card.
  *   engine hung           ours, alive, but the link has been down 30 s (respawn.ts HUNG_MS) while awake → restart it
- *                         (same budget). respawn.ts superviseEngine, tested offline in test/reconnect.test.ts.
+ *                         (same budget; the clock starts when the link goes down, not on each failed retry). respawn.ts
+ *                         superviseEngine, tested offline in test/reconnect.test.ts (with a real link too).
  *   Mac sleep / unlock    index.ts calls engine.wake() (probe an open socket, redial a closed one); here a sleep only
  *                         pauses the hung verdict.
  *   lost socket           engine.ts + heartbeat.ts: protocol pings, a late tick after a sleep probes instead of dropping.

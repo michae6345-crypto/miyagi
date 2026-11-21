@@ -31,10 +31,11 @@ export const SLOW_RETRY_MAX_MS = 5000
 export const HANDSHAKE_TIMEOUT_MS = 4000
 
 /**
- * Timings, for tests only: heartbeatMs (ping interval), deadMs (silence that drops the socket) and probeMs (the wake
- * probe). Everywhere else main/heartbeat.ts's PING_MS, DEAD_MS and PROBE_MS.
+ * Timings, for tests only: heartbeatMs (ping interval), deadMs (silence that drops the socket), probeMs (the wake
+ * probe) and handshakeMs (an attempt nobody answers). Everywhere else main/heartbeat.ts's PING_MS, DEAD_MS and
+ * PROBE_MS, and HANDSHAKE_TIMEOUT_MS.
  */
-export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number }
+export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number; handshakeMs?: number }
 
 /**
  * Where the socket is, for the pill (review A16: never say "can't reach" before an attempt has actually failed).
@@ -285,7 +286,7 @@ export class EngineLink {
     let ws: WebSocket
     const header = this.token && this.allowSecrets() ? { headers: { [TOKEN_HEADER]: this.token } } : {}
     try {
-      ws = new WebSocket(this.url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS, ...header })
+      ws = new WebSocket(this.url, { handshakeTimeout: this.timings.handshakeMs ?? HANDSHAKE_TIMEOUT_MS, ...header })
     } catch {
       // A malformed ENGINE_URL: count it as a failed attempt and keep the retry loop (never throw out of main).
       this.failures++

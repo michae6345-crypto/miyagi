@@ -7,7 +7,7 @@
  *   cd app && node --import tsx --import ./test/setup.mjs --test --test-force-exit test/reconnect.test.ts
  */
 import assert from 'node:assert/strict'
-import type { AddressInfo } from 'node:net'
+import { createServer, type AddressInfo, type Socket } from 'node:net'
 import { after, describe, test } from 'node:test'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { Incoming } from '../src/common/wire'
@@ -102,7 +102,11 @@ describe('superviseEngine: crash policy and hung restart share one budget', () =
         connected: () => f.up,
         onStatus: (fn) => f.status.push(fn),
         ownEngineAlive: () => f.alive,
-        restart: () => void f.restarts++,
+        // localEngine restarts it: 'starting' until the new one answers, so not "running" (ownEngineAlive) meanwhile.
+        restart: () => {
+          f.restarts++
+          f.alive = false
+        },
         setPolicy: (p) => void (f.policy = p),
         warn: () => undefined,
         error: () => undefined
@@ -117,13 +121,38 @@ describe('superviseEngine: crash policy and hung restart share one budget', () =
     assert.deepEqual([f.policy?.('exited'), f.policy?.('exited'), f.policy?.('exited'), f.policy?.('exited')], [500, 2000, 5000, undefined])
   })
 
-  test('answering again after a spent budget earns a fresh one', () => {
+  test('answering again after a spent, reported budget earns a fresh one (Retry)', () => {
     const f = fake()
     supervise(f)
     for (let i = 0; i < 3; i++) f.policy?.('exited')
-    assert.equal(f.policy?.('exited'), undefined)
+    assert.equal(f.policy?.('exited'), undefined, 'spent: reported, the learner gets Retry')
     f.setUp(true)
-    assert.equal(f.policy?.('exited'), 500)
+    assert.equal(f.policy?.('exited'), 500, 'the engine Retry started answered: a fresh budget')
+  })
+
+  test('a crash loop that reconnects each time still ends in Retry', () => {
+    const f = fake()
+    supervise(f)
+    // An engine that dies right after each reconnect (on a replayed snapshot, on the first step).
+    const waits: Array<number | undefined> = []
+    for (let i = 0; i < 4; i++) {
+      f.setUp(true)
+      f.setUp(false)
+      waits.push(f.policy?.('exited'))
+    }
+    assert.deepEqual(waits, [500, 2000, 5000, undefined], 'connecting between crashes does not refill the budget')
+  })
+
+  test('hung: repeated "down" reports do not restart the clock', async () => {
+    const f = fake()
+    supervise(f, 200)
+    f.setUp(true)
+    // The link reports down on every failed attempt; one every 60 ms is well inside hungMs.
+    for (let i = 0; i < 8; i++) {
+      f.setUp(false)
+      await wait(60)
+    }
+    assert.equal(f.restarts, 1, 'restarted 200 ms after the first "down", while the reports kept coming')
   })
 
   test('hung: alive but the link down for hungMs restarts it once', async () => {
@@ -162,6 +191,18 @@ describe('superviseEngine: crash policy and hung restart share one budget', () =
     assert.equal(sleepy.restarts, 1, 'awake and still down: restarted')
   })
 
+  test('hung: still down after a restart and the new engine runs: checked again', async () => {
+    const f = fake()
+    supervise(f, 100)
+    f.setUp(true)
+    f.setUp(false)
+    await until(() => f.restarts === 1, 500, 'the first hung restart')
+    await wait(150)
+    assert.equal(f.restarts, 1, 'not while the new engine is starting')
+    f.alive = true
+    await until(() => f.restarts === 2, 500, 'the second hung restart')
+  })
+
   test('hung restarts spend the same budget as crashes', async () => {
     const f = fake()
     supervise(f)
@@ -170,6 +211,48 @@ describe('superviseEngine: crash policy and hung restart share one budget', () =
     await wait(150)
     assert.equal(f.restarts, 0, 'budget spent: reported instead of restarting again')
   })
+})
+
+test('hung: a real link to an engine that accepts but never answers is restarted once hungMs is up', async () => {
+  // TCP accepts, the WebSocket handshake never completes: each attempt times out, closes and retries, and every one
+  // reports "down" to the supervisor again.
+  const sockets: Socket[] = []
+  const tcp = createServer((s) => void sockets.push(s))
+  await new Promise<void>((r) => tcp.listen(0, '127.0.0.1', () => r()))
+  after(() => {
+    for (const s of sockets) s.destroy()
+    tcp.close()
+  })
+  const l = new EngineLink(`ws://127.0.0.1:${(tcp.address() as AddressInfo).port}`, undefined, undefined, { handshakeMs: 150 })
+  let downs = 0
+  l.onStatus((up) => void (up || downs++))
+  let restarts = 0
+  let alive = true
+  const hungMs = 1500
+  const start = Date.now()
+  let restartedAt = 0
+  superviseEngine(
+    {
+      connected: () => l.connected,
+      onStatus: (fn) => l.onStatus(fn),
+      ownEngineAlive: () => alive,
+      restart: () => {
+        restarts++
+        restartedAt = Date.now()
+        alive = false // localEngine is starting the new one: not "running" yet
+      },
+      setPolicy: () => undefined,
+      warn: () => undefined,
+      error: () => undefined
+    },
+    new RespawnBudget([500, 2000, 5000], MAX_RESPAWNS, 60_000),
+    hungMs
+  )
+  await until(() => restarts === 1, 4000, 'the hung restart')
+  assert.ok(downs >= 2, `the link reported down ${downs} times (a retry lands inside hungMs)`)
+  assert.ok(restartedAt - start >= hungMs, 'not before hungMs')
+  await wait(hungMs + 300)
+  assert.equal(restarts, 1, 'once: the new engine is not running yet, so it is never restarted again')
 })
 
 // ---- the heartbeat alone (a fake clock for the sleep) ----------------------------------------------------------------
