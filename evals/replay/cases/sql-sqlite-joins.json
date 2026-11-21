@@ -1,0 +1,73 @@
+{
+ "id": "sql-sqlite-joins",
+ "topic": "sql",
+ "stack": "SQLite through Python's sqlite3 (VS Code + its terminal)",
+ "tutorial": {"kind": "text", "goal": "learn SQL joins with SQLite: create tables, insert rows, INNER JOIN and LEFT JOIN with GROUP BY",
+              "video_query": "SQL joins tutorial SQLite beginners"},
+ "lesson": null,
+ "learner": {
+  "folder": "sql-lab",
+  "notes": "Every run really executes the learner's shop.py with this Python (sqlite3 is stdlib), so the rows printed are real."
+ },
+ "outline": [
+  {
+   "about": "create the customers and orders tables", "match": "create|table",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "tables: \\['customers', 'orders'\\]"},
+    {"type": "file_exists", "file": "shop.db"}
+   ],
+   "actions": [
+    {"do": "write", "file": "shop.py", "text": "import sqlite3\n\ncon = sqlite3.connect(\"shop.db\")\ncur = con.cursor()\ncur.executescript(\"\"\"\nDROP TABLE IF EXISTS orders;\nDROP TABLE IF EXISTS customers;\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, city TEXT);\nCREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id), total REAL);\n\"\"\")\nprint(\"tables:\", [r[0] for r in cur.execute(\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\")])\n"},
+    {"do": "run", "cmd": "python3 shop.py", "real": true}
+   ]
+  },
+  {
+   "about": "insert three customers and three orders", "match": "insert",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^customers: 3$"},
+    {"type": "screen_absent", "app": "Terminal", "pattern": "Traceback"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "four values for three columns: sqlite3.ProgrammingError (real)", "actions": [
+     {"do": "append", "file": "shop.py", "text": "cur.executemany(\"INSERT INTO customers (id, name, city) VALUES (?, ?, ?)\", [(1, \"Ada\", \"London\", \"UK\"), (2, \"Grace\", \"New York\", \"US\"), (3, \"Linus\", \"Helsinki\", \"FI\")])\n"},
+     {"do": "run", "cmd": "python3 shop.py", "real": true}
+    ]},
+    {"do": "edit", "file": "shop.py", "find": "[(1, \"Ada\", \"London\", \"UK\"), (2, \"Grace\", \"New York\", \"US\"), (3, \"Linus\", \"Helsinki\", \"FI\")]",
+     "replace": "[(1, \"Ada\", \"London\"), (2, \"Grace\", \"New York\"), (3, \"Linus\", \"Helsinki\")]"},
+    {"do": "append", "file": "shop.py", "text": "cur.executemany(\"INSERT INTO orders (customer_id, total) VALUES (?, ?)\", [(1, 25.0), (1, 40.5), (2, 12.0)])\ncon.commit()\nprint(\"customers:\", cur.execute(\"SELECT COUNT(*) FROM customers\").fetchone()[0])\n"},
+    {"do": "clear"},
+    {"do": "run", "cmd": "python3 shop.py", "real": true}
+   ]
+  },
+  {
+   "about": "INNER JOIN orders to their customers", "match": "inner join|join",
+   "expect_checks": [
+    {"type": "file_contains", "file": "shop.py", "pattern": "JOIN orders o ON o\\.customer_id = c\\.id"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^\\('Grace', 12\\.0\\)$"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "joins on the wrong key (o.id = c.id): Grace gets Ada's order (real rows)", "actions": [
+     {"do": "append", "file": "shop.py", "text": "for row in cur.execute(\"SELECT c.name, o.total FROM customers c JOIN orders o ON o.id = c.id ORDER BY o.id\"):\n    print(row)\n"},
+     {"do": "run", "cmd": "python3 shop.py", "real": true}
+    ]},
+    {"do": "edit", "file": "shop.py", "find": "ON o.id = c.id", "replace": "ON o.customer_id = c.id"},
+    {"do": "run", "cmd": "python3 shop.py", "real": true}
+   ]
+  },
+  {
+   "about": "LEFT JOIN + GROUP BY: every customer with order count and total", "match": "left join|group",
+   "expect_checks": [
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^\\('Linus', 0, 0\\)$"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^\\('Ada', 2, 65\\.5\\)$"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "uses an INNER JOIN, so Linus (no orders) disappears (real rows)", "actions": [
+     {"do": "append", "file": "shop.py", "text": "print(\"per customer:\")\nfor row in cur.execute(\"SELECT c.name, COUNT(o.id), COALESCE(SUM(o.total), 0) FROM customers c JOIN orders o ON o.customer_id = c.id GROUP BY c.id ORDER BY c.id\"):\n    print(row)\n"},
+     {"do": "run", "cmd": "python3 shop.py", "real": true}
+    ]},
+    {"do": "edit", "file": "shop.py", "find": "FROM customers c JOIN orders o ON o.customer_id = c.id GROUP BY", "replace": "FROM customers c LEFT JOIN orders o ON o.customer_id = c.id GROUP BY"},
+    {"do": "run", "cmd": "python3 shop.py", "real": true}
+   ]
+  }
+ ]
+}

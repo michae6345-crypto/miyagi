@@ -1,0 +1,68 @@
+{
+ "id": "css-flexbox-grid",
+ "topic": "css",
+ "stack": "HTML + CSS (VS Code, browser)",
+ "tutorial": {"kind": "text", "goal": "lay out a web page with CSS flexbox and grid, then make it responsive with a media query",
+              "video_query": "CSS flexbox and grid layout tutorial beginners"},
+ "lesson": null,
+ "learner": {
+  "folder": "css-lab",
+  "notes": "The browser window is what the page shows (text only); layout itself is graded on the CSS the learner typed."
+ },
+ "outline": [
+  {
+   "about": "page skeleton: header, nav, main, aside, footer + stylesheet link", "match": "html|skeleton|structure",
+   "expect_checks": [
+    {"type": "file_contains", "file": "index.html", "pattern": "<link rel=\"stylesheet\" href=\"styles\\.css\">"},
+    {"type": "screen_contains", "app": "Google Chrome", "pattern": "Latest posts"}
+   ],
+   "actions": [
+    {"do": "write", "file": "index.html", "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>My blog</title>\n  <link rel=\"stylesheet\" href=\"styles.css\">\n</head>\n<body>\n  <header>\n    <nav>\n      <ul>\n        <li><a href=\"#\">Home</a></li>\n        <li><a href=\"#\">Posts</a></li>\n        <li><a href=\"#\">About</a></li>\n      </ul>\n    </nav>\n  </header>\n  <section class=\"hero\"><div class=\"card\">Welcome</div></section>\n  <div class=\"layout\">\n    <main><h2>Latest posts</h2></main>\n    <aside>Sidebar</aside>\n  </div>\n  <footer>© 2026</footer>\n</body>\n</html>\n"},
+    {"do": "write", "file": "styles.css", "text": "* {\n  box-sizing: border-box;\n}\n"},
+    {"do": "browser", "lines": ["index.html", "Home", "Posts", "About", "Welcome", "Latest posts", "Sidebar", "© 2026"]}
+   ]
+  },
+  {
+   "about": "nav links in a row with flexbox", "match": "flex|nav",
+   "expect_checks": [
+    {"type": "file_contains", "file": "styles.css", "pattern": "nav ul \\{[^}]*display: flex;[^}]*justify-content: space-between;"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "writes display: flexbox (not a value), so nothing changes", "actions": [
+     {"do": "append", "file": "styles.css", "text": "\nnav ul {\n  display: flexbox;\n  justify-content: space-between;\n  list-style: none;\n}\n"}
+    ]},
+    {"do": "edit", "file": "styles.css", "find": "display: flexbox;", "replace": "display: flex;"}
+   ]
+  },
+  {
+   "about": "main + sidebar in a two-column grid", "match": "grid",
+   "expect_checks": [
+    {"type": "file_contains", "file": "styles.css", "pattern": "\\.layout \\{[^}]*display: grid;[^}]*grid-template-columns: 3fr 1fr;"}
+   ],
+   "actions": [
+    {"do": "append", "file": "styles.css", "text": "\n.layout {\n  display: grid;\n  grid-template-columns: 3fr 1fr;\n  gap: 1rem;\n}\n"}
+   ]
+  },
+  {
+   "about": "center the hero card with flexbox", "match": "center",
+   "expect_checks": [
+    {"type": "file_contains", "file": "styles.css", "pattern": "\\.hero \\{[^}]*align-items: center;[^}]*justify-content: center;"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "puts the centering on .card instead of its flex container", "actions": [
+     {"do": "append", "file": "styles.css", "text": "\n.card {\n  align-items: center;\n  justify-content: center;\n}\n"}
+    ]},
+    {"do": "edit", "file": "styles.css", "find": ".card {\n  align-items: center;\n  justify-content: center;\n}\n", "replace": ".hero {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 60vh;\n}\n"}
+   ]
+  },
+  {
+   "about": "one column under 600px with a media query", "match": "media|responsive",
+   "expect_checks": [
+    {"type": "file_contains", "file": "styles.css", "pattern": "@media \\(max-width: 600px\\) \\{\\s*\\.layout \\{\\s*grid-template-columns: 1fr;"}
+   ],
+   "actions": [
+    {"do": "append", "file": "styles.css", "text": "\n@media (max-width: 600px) {\n  .layout {\n    grid-template-columns: 1fr;\n  }\n}\n"}
+   ]
+  }
+ ]
+}
