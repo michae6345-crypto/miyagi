@@ -88,3 +88,11 @@ Not verified: Electron (`npm run dev`), the window's `data-drag` title bar, `pro
 
 **Contract request (fix round 1)**
 5. `SkillNode.lesson?: boolean` on `card.skillMap.nodes` (server/lesson/skillmap.py): true on the skills this lesson taught, so the completion card can name the skill that leveled up. `features/complete/types.ts` already reads it when it is exactly `true`.
+
+**Fix round 2 (surfaces)**
+- Completion card fits the screen (round 3 review blocker: the Skills block pushed it to 906 px on a 900 px screen and an 8-step lesson clipped Start next lesson). `complete/room.ts` reports the room (pillTop to the work area's bottom, less 16 px) from an invisible overlay layer; the card caps there. The hero and the actions stay put and the middle (result, steps, skills, next up) scrolls on its own with a faded edge (top or bottom, whichever hides more; focusable while it scrolls). When the full middle doesn't fit, Skills folds to one row (the first chip, this lesson's own when tagged, then "and N more"), which is enough for a 6-step lesson at 1440x900. The step list no longer has its own scroller (one scroll, not two).
+- Shots: `surfaces-complete-fit.jpg` (1440x900, fits, no scroll), `surfaces-complete-short-scrolled.jpg` (1440x700, middle scrolled to the end, actions visible).
+
+**Still open, tracked for the home lane (not this lane's files)**
+- The Progress window persona blocker is unchanged in the real app: with `?scenario=progress-contract` (what the real engine sends) the window still shows "Not tracked yet" on four cards, the Goal stepper, a disabled "Start review" beside "3 due", Review listing Practicing skills (groupby, broadcasting), and the keras row clipped at the bottom of the Skills card (`review-surfaces-progress-contract.jpg`). Requests 1 to 4 above are the fix and must land before learners see this window.
+- The rich stage mock (`mock/scenarios/progress.json`) also clips the numpy row and the Review list ("Arrays" is cut off) in `review-surfaces-progress.jpg`: the Skills and Review cards need a scroller with padding (request 3).

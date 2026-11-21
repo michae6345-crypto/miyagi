@@ -142,3 +142,7 @@ If Michael wants it clear anyway, the cheapest option is a compact sheet (about 
 
 **Core requests (fix round 1)**
 5. Only if Michael rejects the exception above: expose the editor's chrome rect (Explorer width, tab bar and toolbar bottom) from core/dock or the layout, so the sheet can be placed clear of it.
+
+**Fix round 2 (surfaces)**
+- One focus ring on the sidebar tabs: the tab's own `ring-1` is gone, so only the sheet's outline (`--focus-ring`) draws, and it waits for the first key press (a mouse open shows only the active row's fill). The active tab still takes focus on open, so ↑ / ↓ work at once. Shot: `surfaces-set-general-kbd.jpg`.
+- Your own key: while Test is off the footer says why ("Save a key to test it.", beside "Where do I find my key?"); the tooltip moved to a wrapper, since a disabled button never shows its own. Shot: `surfaces-set-account-test.jpg`.
