@@ -152,10 +152,12 @@ trust or conversion at launch; **P2** = later (one line each in "Later").
 
 ## Handed to area A (security), details not in this repo
 
-Two findings from the code read are exploitable and were passed to area A outside the repo: one about how freely
-miyagi-cloud hands out and honors tokens (a cost and acceptable-use problem under Anthropic's "responsible for all
-activity" clause), and one about a local interface on the learner's machine. Both are written up in the shared notes
-folder for the area A session and Michael.
+Two findings from the code read are exploitable. Area A already holds both as private placeholders, so they are not
+repeated here: miyagi-cloud token and request controls (`security.md` A01, A02) and local access to the engine and VS
+Code companion (A03, A05). Legal angle for those rows: Anthropic's Commercial Terms make us "responsible for all
+activity" under our account, and Gemini's terms bar sublicensing, so an abusable proxy is also a vendor-terms breach.
+A16 (Delete my data) is the same problem as B05 seen from the app side. The code notes behind this file are in the
+shared session notes folder, outside the repo.
 
 ## Later (P2, one line each)
 
