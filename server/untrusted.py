@@ -12,8 +12,8 @@ The id is a fresh random nonce per block, and any "<untrusted" / "</untrusted" i
 text cannot close its own block. Every prompt that carries such blocks also carries DATA_RULE.
 
 The model's output is filtered too: strip_injection() drops lesson sentences that talk to an AI instead of the
-learner, and dangerous_command() / the coach's own allowlist keep pipelines and URL installers out of anything the
-app shows as a command to run.
+learner and blanks every run_command (and every shell-only `code`) outside run_command_problem()'s allowlist, and
+command_problem() is the coach's allowlist for what it copies to the clipboard.
 
 Pure functions, no I/O: safe to import anywhere in the engine.
 """
@@ -24,6 +24,7 @@ import copy
 import logging
 import re
 import secrets
+import shlex
 from typing import Any
 
 log = logging.getLogger("server.untrusted")
@@ -97,43 +98,74 @@ def unfence(text: str) -> str:
 
 # --------------------------------------------------------------------------- injection detection
 
+# A line start (after optional list / quote markers) or a sentence start: an addressee ("Tutor:", "System:") counts
+# only there, so "Django models: add a field" or "Your operating system: macOS" never does.
+_START = r"(?:^[ \t*#>|-]*|(?<=[.!?\]])\s+)"
+
 _INJECTION: list[tuple[str, re.Pattern]] = [
+    # a qualifier AND instructions/prompts: never "ignore the rules for that line" or "override the system prompt"
     ("ignore_instructions", re.compile(
-        r"\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|the\s+|your\s+)?(?:previous|prior|above|earlier|preceding|"
-        r"system|other|all)?\s*(?:instructions?|rules|prompts?|directions|guidelines)\b", re.I)),
-    ("you_are_now", re.compile(r"\byou\s+are\s+now\b", re.I)),
-    ("role_marker", re.compile(r"(?:^|(?<=[\n.!?>\]\[#*|]))\s*(?:system|assistant|developer)\s*:", re.I | re.M)),
+        r"\b(?:ignore|disregard|forget|override)\s+(?:all\s+(?:of\s+)?)?(?:the\s+|your\s+|any\s+|my\s+|these\s+)?"
+        r"(?:previous|prior|above|earlier|preceding|all)\s+(?:the\s+)?(?:instructions?|prompts?|directions|directives)\b",
+        re.I)),
+    # only a role or persona after it: never "You are now ready to run the server" / "You are now on the main branch"
+    ("you_are_now", re.compile(
+        r"\byou\s+are\s+now\s+(?:an?\s+|the\s+new\b|DAN\b|no\s+longer\b|"
+        r"in\s+(?:developer|dev|god|admin|jailbreak|unrestricted|DAN)\s+mode\b)", re.I)),
+    # a role marker that gives an order: never "System: Ubuntu 22.04" or a chatbot tutorial's "Assistant: Hello!"
+    ("role_marker", re.compile(
+        _START + r"(?:system|assistant|developer)\s*:\s*(?:ignore|disregard|forget|override|from\s+now\s+on|"
+        r"new\s+instructions|you\s+(?:must|will\s+now|are\s+now|should\s+now)|run\b|execute\b|install\b|"
+        r"tell\s+(?:the\s+)?(?:learners?|users?|students?)\b)", re.I | re.M)),
     ("role_tag", re.compile(r"<\|?\s*/?\s*(?:system|assistant|im_start|im_end)\s*\|?>", re.I)),
+    # a colon or an AI tutor / assistant addressee: never "Send a message to the AI model and print its reply"
     ("important_for_ai", re.compile(
-        r"(?i:\b(?:important|note|attention|instructions?|message)\s+(?:note\s+)?(?:for|to)\s+(?:the\s+|any\s+|all\s+)?"
-        r"(?:ai|llm)s?\s*(?::|(?:tutors?|assistants?|agents?|models?|readers?|bots?)\b))"
-        r"|\bIMPORTANT\b[^.\n]{0,20}?\b(?:for|to|FOR|TO)\s+(?:the\s+|THE\s+)?(?:AI|LLM)s?\b")),
+        r"(?i:\b(?:important|note|attention|instructions?)\s+(?:note\s+)?(?:for|to)\s+(?:the\s+|any\s+|all\s+)?"
+        r"(?:ai|llm)s?(?:\s*:|\s+(?:tutors?|assistants?|agents?|readers?|bots?)\b))"
+        r"|\bIMPORTANT\s+(?:NOTE\s+)?(?i:for|to)\s+(?i:the\s+|any\s+|all\s+)?(?i:ai|llm)s?\b")),
     ("as_an_ai", re.compile(
         r"\bas\s+an?\s+(?:ai|llm|large\s+language\s+model|language\s+model)\b(?!\s+(?:engineer|researcher|practitioner|"
         r"developer|scientist|enthusiast|company|startup|product|student|learner|beginner))", re.I)),
+    # an AI addressee at a line or sentence start; never "models:" / "agents:" (Django models, CrewAI agents)
     ("ai_directive", re.compile(
-        r"\b(?:ai|tutors?|assistants?|agents?|llms?|chatbots?|models?)\s*:\s*(?:please\s+|you\s+(?:must|should)\s+)?"
-        r"(?:run|tell|execute|say|score|rate|output|print|include|add|set|recommend|install|reply|respond|answer)\b", re.I)),
+        _START + r"(?:(?:the\s+)?ai\s+)?(?:ai|tutors?|assistants?|llms?|chatbots?)\s*:\s*(?:please\s+|you\s+(?:must|should)\s+)?"
+        r"(?:run|tell|execute|say|score|rate|rank|output|print|include|add|set|recommend|install|reply|respond|answer|mark)\b",
+        re.I | re.M)),
     ("new_instructions", re.compile(r"\bnew\s+(?:system\s+)?instructions?\s*:", re.I)),
-    ("base64_blob", re.compile(r"[A-Za-z0-9+/]{200,}={0,2}")),
+    # asks a grader for a score: "score this page 100", "rank this tutorial first", "set teaches_goal to true"
+    ("score_directive", re.compile(
+        r"\b(?:score|rate|rank|grade|give)\s+(?:this|the|our|my)\s+(?:page|site|tutorial|article|post|result|video|"
+        r"resource|source|course)\b[^.\n]{0,40}?(?:\b\d{2,3}\b|\bhighest\b|\bhighly\b|\btop\b|\bfirst\b|\bmax(?:imum)?\b|"
+        r"\bperfect\b)|\bteaches_goal\b|\bgoal_is_coding\b", re.I)),
+    # never the payload of a data: URI (a notebook's inline image)
+    ("base64_blob", re.compile(r"(?<!base64,)(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{200,}={0,2}")),
 ]
+# The finder's set: a grader reads a whole page (up to 14k characters), and every LLM or chatbot tutorial has an
+# "Assistant:" line or a "you are now ..." somewhere, so only the high-confidence patterns count there.
+STRICT = frozenset({"ignore_instructions", "important_for_ai", "role_tag", "new_instructions", "score_directive"})
+_LESSON = frozenset(n for n, _ in _INJECTION if n != "score_directive")  # a score request means nothing in a lesson
 
 
-def injection_hits(text: Any) -> list[str]:
-    """Names of the AI-directed patterns found in `text` (empty when none)."""
+def injection_hits(text: Any, *, strict: bool = False) -> list[str]:
+    """Names of the AI-directed patterns found in `text` (empty when none). strict: the finder's high-confidence set."""
     s = _CTRL.sub("", "" if text is None else str(text))
-    return [name for name, rx in _INJECTION if rx.search(s)]
+    names = STRICT if strict else _LESSON
+    return [name for name, rx in _INJECTION if name in names and rx.search(s)]
 
 
-def flag_injection(text: Any) -> bool:
-    """True when `text` talks to an AI instead of a human: "ignore previous instructions", "you are now",
-    "system:" / "assistant:", "IMPORTANT for AI", "as an AI", "tutor: run ...", or a base64 blob over 200 chars."""
-    return bool(injection_hits(text))
+def flag_injection(text: Any, *, strict: bool = False) -> bool:
+    """True when `text` talks to an AI instead of a human: "ignore previous instructions", "you are now a/an ...",
+    "System: ignore ..." / "assistant: run ...", "IMPORTANT for AI", "as an AI", "Tutor: run ...", or a base64 blob
+    over 200 chars. strict (a grader reading a whole page): only "ignore previous instructions", "IMPORTANT for AI",
+    <|system|> tags, "new instructions:" and score / rank directives."""
+    return bool(injection_hits(text, strict=strict))
 
 
 # --------------------------------------------------------------------------- dangerous commands
 
 _URL = re.compile(r"\b[a-z][a-z0-9+.-]*://|\bwww\.|\bgit@[\w.-]+:", re.I)
+# an scp-style remote in a non-flag argument (or a flag's =value): user@host:path, host.tld:path, [::1]:path
+_HOST_PATH = re.compile(r"^(?:[\w.+-]+@[\w.-]+|(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+|\[[0-9A-Fa-f:.]+\]):")
 _DANGEROUS = re.compile(
     r"\|\s*(?:sudo\s+)?(?:ba|z|da|k|c|tc|fi)?sh\b"  # piped into a shell
     r"|`|\$\(|<\(|>\("  # command / process substitution
@@ -147,17 +179,42 @@ _DANGEROUS = re.compile(
 )
 
 
+def _split(s: str) -> list[str]:
+    try:
+        return shlex.split(s)
+    except ValueError:
+        return s.split()
+
+
+def _arg_values(tokens: list[str]):
+    """The non-flag arguments, plus the value of every --flag=value."""
+    for t in tokens:
+        if t.startswith("-"):
+            if "=" in t:
+                yield t.split("=", 1)[1]
+            continue
+        yield t
+
+
+def _remote_arg(tokens: list[str]) -> bool:
+    return any(_HOST_PATH.match(v) for v in _arg_values(tokens))
+
+
 def dangerous_command(cmd: Any) -> bool:
-    """True for a command no lesson needs and an injected page would want: a URL, a pipe into a shell, command
-    substitution, curl / wget / sudo / eval, a custom package index, a `git+` install, a brew tap, `rm -rf`."""
+    """True for a command no lesson needs and an injected page would want: a URL (or an scp-style `host:path`
+    remote), a pipe into a shell, command substitution, curl / wget / sudo / eval, a custom package index, a `git+`
+    install, a brew tap, `rm -rf`. A blacklist: what may run is decided by command_problem / run_command_problem."""
     s = "" if cmd is None else str(cmd)
-    return bool(s.strip()) and bool(_URL.search(s) or _DANGEROUS.search(s) or _CTRL.search(s))
+    if not s.strip():
+        return False
+    return bool(_URL.search(s) or _DANGEROUS.search(s) or _CTRL.search(s) or _remote_arg(_split(s)))
 
 
-# --------------------------------------------------------------------------- the coach's command allowlist
+# --------------------------------------------------------------------------- command allowlists
 
-# Anything with one of these is never a command the coach suggests: shell metacharacters, a URL, a downloader, a
-# shell, sudo / eval, a custom package index, a git+ install, or a path that leaves the lesson folder.
+# Anything with one of these is never a command the coach suggests or a lesson runs: shell metacharacters, a URL, a
+# downloader, a shell, sudo / eval, a custom package index, a git+ install, or a path that leaves the lesson folder.
+# (Checked on the raw string, after quoted pip version specifiers such as 'numpy<2' are masked.)
 _CMD_DENY = re.compile(
     r"[|;&<>`\n\r\\]|\$\(|\$\{|\$[A-Za-z_]"
     r"|\b(?:curl|wget|sh|bash|zsh|dash|fish|eval|exec|sudo|doas|source|osascript|nc|ncat)\b"
@@ -165,93 +222,276 @@ _CMD_DENY = re.compile(
     r"|(?:^|[\s=])(?:/|~)|\.\.(?:/|$)",
     re.I,
 )
-_PIP_PKG = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[A-Za-z0-9,._-]+\])?(?:(?:==|~=)[A-Za-z0-9.*+!_-]+)?$")
+_SPEC = r"(?:==|~=|>=|<=|!=|<|>)\s*[A-Za-z0-9.*+!_-]+"
+_PIP_PKG = re.compile(rf"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[A-Za-z0-9,._-]+\])?(?:\s*{_SPEC}(?:\s*,\s*{_SPEC})*)?$")
+_QUOTED = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"")
 _NPM_PKG = re.compile(r"^((?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*)(?:@[A-Za-z0-9.^~*_-]+)?$")
 _PIP_FLAGS = frozenset({"-U", "--upgrade", "--user", "-q", "--quiet", "--no-cache-dir"})
 _NPM_FLAGS = frozenset({"--save", "--save-dev", "-D", "-S", "--no-fund", "--no-audit"})
 _RUN_FILE = re.compile(r"^[A-Za-z0-9_][\w.-]*(?:/[\w.-]+)*\.(?:py|js|mjs|cjs)$")
-_PLAIN_ARG = re.compile(r"^[\w.,:=+%@-]+$")
-_GIT_SUB = re.compile(r"^[a-z][a-z-]*$")
-_GIT_DENY = re.compile(
-    r"\bremote\s+(?:add|set-url)\b|\bconfig\b|\bsubmodule\b|\bfilter-branch\b|\bext::"
-    r"|--(?:upload-pack|receive-pack|exec|config|template|git-dir|work-tree)\b|\bcore\.|\balias\.",
-    re.I,
-)
+_PLAIN_ARG = re.compile(r"^[\w.,:=+%@*?/ -]+$")  # after shlex; a leading / or ~ and any ../ were refused on the raw string
+_REL_NAME = re.compile(r"^(?:\.|\.?[A-Za-z0-9_][\w.-]*(?:/[\w.-]+)*)$")
+_LIB_NAME = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
+# git: the subcommands a lesson needs, and never an option that runs a program or names another repository
+_GIT_SUBS = frozenset({"status", "add", "commit", "log", "diff", "show", "branch", "checkout", "switch", "restore",
+                       "merge", "rebase", "stash", "init", "tag", "mv", "rm", "cherry-pick", "revert", "reset",
+                       "fetch", "pull", "push"})
+_GIT_NET = frozenset({"fetch", "pull", "push"})
+_GIT_U_OK = frozenset({"push", "add", "stash", "branch"})  # -u is --set-upstream / --update / --include-untracked there
+_GIT_LONG_DENY = re.compile(
+    r"^--(?:exec|upload-pack|receive-pack|open-files-in-pager|extcmd|ext-diff|tool|config|template|git-dir|"
+    r"work-tree|exec-path|output|textconv)(?:=|$)", re.I)
+_GIT_DENY = re.compile(r"\bext::", re.I)  # (git -c / git config never pass: the first word must be a subcommand)
+_REMOTE_NAME = re.compile(r"^[A-Za-z0-9_][\w-]*$")
 
-def _lib_names(libraries: Any) -> set[str]:
-    """Normalized names from a lesson's libraries ({name: version} or [{name, version}] or [name])."""
-    if isinstance(libraries, dict):
-        names = list(libraries)
-    elif isinstance(libraries, (list, tuple)):
-        names = [x.get("name") if isinstance(x, dict) else x for x in libraries]
-    else:
-        names = []
-    return {_norm_pkg(str(n)) for n in names if n}
+# a lesson run: a fixed list of scaffolders (`npm create evil` would run the package create-evil)
+SCAFFOLDERS = frozenset({"vite", "next-app", "svelte", "astro", "vue"})
+_SCAFFOLD = re.compile(r"^([a-z][a-z-]*)(?:@(?:latest|\d[\w.]*))?$")
+_VENV_ACTIVATE = re.compile(r"^(?:source|\.)\s+\.?venv/bin/activate$")
+# a line the engine would run as a shell command (orchestrator/session.py SHELL_CMD), and one that is code instead
+_SHELL_HEAD = re.compile(r"^\s*(?:\$\s*)?(?:python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|"
+                         r"make|pytest|flask|streamlit|jupyter)\b")
+_CODE_LIKE = re.compile(r"^\s*[A-Za-z_]\w*\s*(?:[-+*/%]?=(?!=)|\(|\[)")
+# a run step in words ("Run the cell (Shift+Enter)"): never sent anywhere as a command
+_VERB = re.compile(r"^(?:run|execute|press|hit|click)\s+", re.I)
+_WORDS = re.compile(r"^[A-Za-z0-9 ()+,.'\u25b7-]+$")
+_NOTEBOOK_WORDS = re.compile(r"shift\s*\+\s*enter|\bcells?\b|\bnotebook\b|\u25b7", re.I)
 
 
 def _norm_pkg(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name.strip().lower())
 
 
-def command_problem(cmd: Any, libraries: Any = None) -> str | None:
-    """Why the coach may not offer `cmd` to copy and run, or None when it may. Allowed, and nothing else:
+def _lib_names(libraries: Any) -> set[str]:
+    """Normalized names from a lesson's libraries ({name: version} or [{name, version}] or [name]). A model extracted
+    them from the video, so only names with package-name syntax count (no URL, no spaces, at most 64 characters)."""
+    if isinstance(libraries, dict):
+        names = list(libraries)
+    elif isinstance(libraries, (list, tuple)):
+        names = [x.get("name") if isinstance(x, dict) else x for x in libraries]
+    else:
+        names = []
+    return {_norm_pkg(str(n)) for n in names if n and _LIB_NAME.match(str(n).strip())}
+
+
+def _mask_specs(s: str) -> str:
+    """`s` with each quoted pip requirement that has a version specifier ('numpy<2', "numpy>=1.26") replaced by its
+    bare name, so the raw-string checks don't read its < or > as a redirect (shlex keeps it one token)."""
+    def one(m: re.Match) -> str:
+        inner = m.group(1) if m.group(1) is not None else m.group(2)
+        pm = _PIP_PKG.match(inner.strip())
+        return pm.group(1) if pm and re.search(r"[<>!=~]", inner) else m.group(0)
+    return _QUOTED.sub(one, s)
+
+
+def _plain(args: list[str], deny: tuple[str, ...] = ()) -> bool:
+    return all(_PLAIN_ARG.match(a) and not a.startswith(deny) for a in args)
+
+
+def _run_file(t: str) -> bool:
+    while t.startswith("./"):
+        t = t[2:]
+    return bool(_RUN_FILE.match(t)) and ".." not in t.split("/")
+
+
+def _pip_problem(rest: list[str], libs: set[str]) -> str | None:
+    if not rest or rest[0] != "install":
+        return "not allowed"
+    pkgs = [t for t in rest[1:] if t not in _PIP_FLAGS]
+    if not pkgs:
+        return "not allowed"
+    for t in pkgs:
+        m = _PIP_PKG.match(t)
+        if not m:
+            return "not allowed"
+        if _norm_pkg(m.group(1)) not in libs:
+            return "unknown package"
+    return None
+
+
+def _npm_install_problem(pkgs: list[str], libs: set[str]) -> str | None:
+    """`npm install` of names in libs (bare: what the project's package.json already lists). `-g` is no package."""
+    for t in (t for t in pkgs if t not in _NPM_FLAGS):
+        m = _NPM_PKG.match(t)
+        if not m:
+            return "not allowed"
+        if _norm_pkg(m.group(1)) not in libs:
+            return "unknown package"
+    return None
+
+
+def _git_problem(toks: list[str]) -> str | None:
+    if len(toks) < 2 or toks[1] not in _GIT_SUBS:
+        return "not allowed"
+    sub = toks[1]
+    for t in toks[2:]:
+        if t.startswith("--"):
+            if _GIT_LONG_DENY.match(t):
+                return "not allowed"
+        elif (len(t) > 1 and t.startswith("-") and t[1:].isalpha()  # a short-flag cluster: -am, -ix, -Onpx
+              and ("x" in t or "O" in t or ("u" in t and sub not in _GIT_U_OK))):
+            return "not allowed"
+    if _GIT_DENY.search(" ".join(toks)):
+        return "not allowed"
+    if sub in _GIT_NET:  # the repository argument is a remote's name, never a URL, host:path or folder
+        pos = [t for t in toks[2:] if not t.startswith("-")]
+        if pos and not _REMOTE_NAME.match(pos[0]):
+            return "url"
+    return None
+
+
+def _npm_run_problem(toks: list[str], libs: set[str]) -> str | None:
+    """A lesson run's npm forms: run <script>, start, test, ci, a fixed scaffolder, init -y."""
+    sub = toks[1] if len(toks) > 1 else ""
+    rest = toks[2:]
+    if sub in ("install", "i", "add"):
+        return _npm_install_problem(rest, libs)
+    if sub in ("run", "run-script"):
+        return None if rest and re.match(r"^[\w:.-]+$", rest[0]) and _plain(rest[1:]) else "not allowed"
+    if sub in ("start", "test", "t"):
+        return None if _plain(rest) else "not allowed"
+    if sub == "ci":
+        return None if not rest else "not allowed"
+    if sub in ("create", "init"):
+        if sub == "init" and rest in ([], ["-y"], ["--yes"]):
+            return None
+        m = _SCAFFOLD.match(rest[0]) if rest else None
+        if not m or m.group(1) not in SCAFFOLDERS:
+            return "not allowed"
+        args = rest[1:]
+        if args and args[0] != "--" and not args[0].startswith("-") and not _REL_NAME.match(args[0]):
+            return "not allowed"
+        return None if all(re.match(r"^(?:--?[\w-]+|[\w.-]+)$", a) for a in args) else "not allowed"
+    return "not allowed"
+
+
+def _run_tool_problem(toks: list[str]) -> str | None:
+    """A lesson run's other fixed forms: pytest, flask run, uvicorn module:app, streamlit run, jupyter, cd / mkdir /
+    ls / touch inside the lesson folder."""
+    head, rest = toks[0], toks[1:]
+    if head == "pytest":
+        return None if _plain(rest, deny=("-p",)) else "not allowed"  # -p loads a plugin by module name
+    if head == "flask":
+        return None if "run" in rest and _plain(rest) else "not allowed"
+    if head == "uvicorn":
+        return None if rest and re.match(r"^[\w.]+:[\w]+$", rest[0]) and _plain(rest[1:]) else "not allowed"
+    if head == "streamlit":
+        return None if rest[:1] == ["run"] and len(rest) > 1 and _run_file(rest[1]) and _plain(rest[2:]) else "not allowed"
+    if head == "jupyter":
+        return None if rest[:1] in (["notebook"], ["lab"]) and _plain(rest[1:]) else "not allowed"
+    if head in ("cd", "mkdir", "ls", "touch"):
+        args = [a for a in rest if not re.match(r"^-[A-Za-z]+$", a)]
+        return None if all(_REL_NAME.match(a) for a in args) and (head == "ls" or args) else "not allowed"
+    return "not allowed"
+
+
+def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> str | None:
+    """Why `cmd` may not be offered to copy and run, or None when it may. The coach's allowlist (run=False):
     - `pip install` / `pip3 install` / `python3 -m pip install` / `npm install` of names already in `libraries`
-      (a bare `npm install` installs what the project's package.json already lists);
-    - `python3` / `python` / `node` <a relative file in the lesson folder> [plain arguments];
-    - a `git` command with no URL, no `remote add` / `remote set-url` and no config or hook options.
-    The reason is a category ("url", "metacharacter", "not allowed", "unknown package"), never the command."""
+      (a bare `npm install` installs what the project's package.json already lists; quoted version specifiers such
+      as 'numpy<2' are fine);
+    - `python3` / `python` / `node` <a relative file in the lesson folder, ./ allowed> [plain arguments] (never
+      -c / -e / -m code);
+    - a `git` command from a fixed list of subcommands, with no URL or `host:path`, no other repository, and no
+      option that runs a program (-x / --exec, --upload-pack, -O, --extcmd, ...).
+    run=True (a lesson's run_command) also allows pytest, npm run / start / test / ci, a fixed list of scaffolders
+    (`npm create vite@latest app`), `python3 -m venv|pytest|unittest`, `--version` probes, flask / uvicorn /
+    streamlit / jupyter runs of the lesson's files, `source .venv/bin/activate`, and cd / mkdir / ls / touch inside
+    the lesson folder. Never npx / pipx / uvx / bunx / npm exec, a pipeline or `;` / `&&` / `||`.
+    The reason is a category ("url", "metacharacter or blocked word", "not allowed", "unknown package"), never the
+    command."""
     s = ("" if cmd is None else str(cmd)).strip()
     if not s:
         return None
+    if run and _VENV_ACTIVATE.match(s):
+        return None
     if _URL.search(s):
         return "url"
-    if _CTRL.search(s) or _CMD_DENY.search(s) or dangerous_command(s):
+    masked = _mask_specs(s)
+    if _CTRL.search(s) or _CMD_DENY.search(masked) or _DANGEROUS.search(masked):
         return "metacharacter or blocked word"
     try:
-        import shlex
-
         toks = shlex.split(s)
     except ValueError:
         return "unparseable"
     if not toks:
         return None
     head = toks[0]
+    # (uvicorn's first argument is module:attr, `app.main:app`, never a remote)
+    if _remote_arg(toks[:1] + toks[2:] if head == "uvicorn" else toks):
+        return "url"
     libs = _lib_names(libraries)
-    if head in ("pip", "pip3") or (head in ("python", "python3") and toks[1:3] == ["-m", "pip"]):
-        rest = toks[1:] if head.startswith("pip") else toks[3:]
-        if not rest or rest[0] != "install":
+    if head in ("pip", "pip3"):
+        return _pip_problem(toks[1:], libs)
+    if head in ("python", "python3"):
+        if toks[1:3] == ["-m", "pip"]:
+            return _pip_problem(toks[3:], libs)
+        if run and toks[1:2] == ["-m"] and len(toks) > 2:
+            if toks[2] == "venv":
+                return None if len(toks) == 4 and _REL_NAME.match(toks[3]) and toks[3] != "." else "not allowed"
+            if toks[2] in ("pytest", "unittest"):
+                return None if _plain(toks[3:], deny=("-p",)) else "not allowed"
             return "not allowed"
-        pkgs = [t for t in rest[1:] if t not in _PIP_FLAGS]
-        if not pkgs:
+        if run and toks[1:] in (["--version"], ["-V"]):
+            return None
+        if len(toks) < 2 or not _run_file(toks[1]):
             return "not allowed"
-        for t in pkgs:
-            m = _PIP_PKG.match(t)
-            if not m:
-                return "not allowed"
-            if _norm_pkg(m.group(1)) not in libs:
-                return "unknown package"
-        return None
+        return None if _plain(toks[2:]) else "not allowed"
+    if head == "node":
+        if run and toks[1:] in (["--version"], ["-v"]):
+            return None
+        if len(toks) < 2 or not _run_file(toks[1]):
+            return "not allowed"
+        return None if _plain(toks[2:]) else "not allowed"
     if head == "npm":
+        if run:
+            if toks[1:] in (["--version"], ["-v"]):
+                return None
+            return _npm_run_problem(toks, libs)
         if len(toks) < 2 or toks[1] not in ("install", "i", "add"):
             return "not allowed"
-        pkgs = [t for t in toks[2:] if t not in _NPM_FLAGS]
-        for t in pkgs:
-            m = _NPM_PKG.match(t)
-            if not m:
-                return "not allowed"
-            if _norm_pkg(m.group(1)) not in libs:
-                return "unknown package"
-        return None
-    if head in ("python", "python3", "node"):
-        if len(toks) < 2 or not _RUN_FILE.match(toks[1]) or ".." in toks[1].split("/"):
-            return "not allowed"
-        return None if all(_PLAIN_ARG.match(a) for a in toks[2:]) else "not allowed"
+        return _npm_install_problem(toks[2:], libs)
     if head == "git":
-        if len(toks) < 2 or not _GIT_SUB.match(toks[1]) or _GIT_DENY.search(s):
-            return "not allowed"
-        return None
+        if run and toks[1:] == ["--version"]:
+            return None
+        return _git_problem(toks)
+    if run:
+        return _run_tool_problem(toks)
     return "not allowed"
+
+
+def run_command_problem(cmd: Any, libraries: Any = None) -> str | None:
+    """Why a lesson's run_command (what "Run it for me" sends to VS Code's terminal or a subprocess) may not stay, or
+    None. Each line must pass command_problem(run=True); a notebook run in words ("Run the cell (Shift+Enter)") and
+    "Run <an allowed command>" pass too. The reason is a category, never the command."""
+    s = ("" if cmd is None else str(cmd)).strip()
+    if not s:
+        return None
+    lines = [ln.strip() for ln in s.splitlines() if ln.strip()]
+    if len(lines) > 6:
+        return "too long"
+    for ln in lines:
+        ln = re.sub(r"^\$\s*", "", ln)
+        if flag_injection(ln):
+            return "ai-directed"
+        verb = _VERB.match(ln)
+        if verb and _SHELL_HEAD.match(ln[verb.end():]):
+            ln = ln[verb.end():]
+        elif _WORDS.match(ln) and _NOTEBOOK_WORDS.search(ln) and not _SHELL_HEAD.match(ln) and not _CMD_DENY.search(ln):
+            continue
+        if why := command_problem(ln, libraries, run=True):
+            return why
+    return None
+
+
+def shell_lines(code: Any) -> list[str]:
+    """The lines of a step's `code` when the engine would run it as a shell command (every non-comment line starts
+    like one, as orchestrator/session.py's SHELL_CMD reads it, and none looks like code: `go = 1`, `print(...)`)."""
+    lines = [ln.strip() for ln in str(code or "").splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    if lines and all(_SHELL_HEAD.match(ln) for ln in lines) and not any(_CODE_LIKE.match(ln) for ln in lines):
+        return lines
+    return []
 
 
 # --------------------------------------------------------------------------- lesson output filter
@@ -281,10 +521,10 @@ def _cap(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n].rstrip()
 
 
-def _strip_node(node: Any, counter: list[int]) -> None:
+def _strip_node(node: Any, counter: list[int], libs: Any) -> None:
     if isinstance(node, list):
         for x in node:
-            _strip_node(x, counter)
+            _strip_node(x, counter, libs)
         return
     if not isinstance(node, dict):
         return
@@ -315,23 +555,31 @@ def _strip_node(node: Any, counter: list[int]) -> None:
                 e["topic"] = ""
         if isinstance(node.get(key), list):
             node[key] = [e for e in node[key] if not (isinstance(e, dict) and "topic" in e and not str(e["topic"]).strip())]
-    if isinstance(node.get("run_command"), str) and (dangerous_command(node["run_command"]) or flag_injection(node["run_command"])):
+    # "Run it for me" runs these: an allowlist, not a blacklist (the instructions keep the advice in words)
+    if isinstance(node.get("run_command"), str) and run_command_problem(node["run_command"], libs):
         counter[0] += 1
         node["run_command"] = ""
+    if isinstance(node.get("code"), str) and (lines := shell_lines(node["code"])) and run_command_problem("\n".join(lines), libs):
+        counter[0] += 1  # a step whose code is shell lines runs that code as its command
+        node["code"] = ""
     for key in ("steps", "primer", "targets", "items"):
         if isinstance(node.get(key), list):
-            _strip_node(node[key], counter)
+            _strip_node(node[key], counter, libs)
 
 
-def strip_injection(lesson: Any) -> Any:
-    """A copy of a model's lesson output (a draft {title, steps: [...]}, a plan, or one step) with every sentence that
-    addresses an AI removed from instructions, hints, common_mistakes and explanations, dangerous run_commands
-    blanked and text fields capped. Normal text passes unchanged."""
+def strip_injection(lesson: Any, libraries: Any = None) -> Any:
+    """A copy of a model's lesson output (a draft {title, libraries, steps: [...]}, a plan, or one step) with every
+    sentence that addresses an AI removed from instructions, hints, common_mistakes and explanations, every
+    run_command (and shell-only code) outside run_command_problem's allowlist blanked, and text fields capped.
+    `libraries` (default: the output's own top-level `libraries`) are the names a `pip install` / `npm install` may
+    name. Normal text passes unchanged."""
     if not isinstance(lesson, (dict, list)):
         return lesson
+    if libraries is None and isinstance(lesson, dict):
+        libraries = lesson.get("libraries")
     out = copy.deepcopy(lesson)
     counter = [0]
-    _strip_node(out, counter)
+    _strip_node(out, counter, libraries)
     if counter[0]:
         log.warning("lesson output: removed %d AI-directed sentence(s) or command(s)", counter[0])
     return out

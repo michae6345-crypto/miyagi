@@ -21,7 +21,7 @@ import os
 import re
 import time
 
-from server.untrusted import DATA_RULE, strip_injection, wrap
+from server.untrusted import DATA_RULE, SCAFFOLDERS, strip_injection, wrap
 
 from . import builder, claude, coverage, cost, gemini, runnames
 from .schema import schema_errors
@@ -104,9 +104,11 @@ types code in their own editor while an overlay boxes exactly where to type and 
 (on-device OCR of the editor and terminal). Teach by doing: small steps, each ending in something
 visible. Use current, official APIs.
 The learner's files and the research notes come in <untrusted> blocks. run_command is a plain run of the lesson's
-files (`python3 <file>`, `node <file>`, `pytest`, `npm run <script>`) or the one tool command the step needs (e.g.
-`npm create vite@latest`, `pip install <a library the lesson lists>`); never a pipeline, curl/wget, sudo, a brew tap,
-a custom package index or a URL installer.
+files (`python3 <file>`, `node <file>`, `pytest`, `npm run <script>`) or the one tool command the step needs:
+`pip install` / `npm install` of a library the lesson lists, or one of these scaffolders: """ + ", ".join(
+    f"`npm create {s}@latest <name>`" for s in sorted(SCAFFOLDERS)) + """. Never npx, a pipeline, `&&` or `;`,
+`python -c`, curl/wget, sudo, a brew tap, a custom package index or a URL installer: the engine blanks any other
+command (the step's instructions can still say it in words).
 """ + DATA_RULE
 
 PLAN_PROMPT = """Learner's goal: {goal}
@@ -280,6 +282,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
     outline = "; ".join(f"{i}. {s['title']}" + (f" (adds {', '.join(_adds(s))})" if _adds(s) else "")
                         for i, s in enumerate(steps_plan, 1))
     libs = {lb["name"]: lb.get("version", "") for lb in plan.get("libraries") or [] if lb.get("name")}
+    plan_libs = plan.get("libraries") or []  # a step's run_command may pip/npm install these, and nothing else
     done: list[dict] = []  # steps in order, one per plan step (a step that failed to build is left out)
     tried = [0]  # plan steps built (or failed) so far, in order: the outline shows the plan for the rest
     sources: list[dict] = []
@@ -347,7 +350,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
 
     async def draft(i: int, notes: str, earlier: str) -> dict:
         return strip_injection(await claude._generate_json(SYSTEM, prompt_for(i, notes, earlier), STEP_SCHEMA, effort="low",
-                                                           structured=False, role="detail", check=ok))
+                                                           structured=False, role="detail", check=ok), plan_libs)
 
     async def step(i: int, notes: str, d: dict | None = None) -> list[dict]:
         """Build plan step i against the files the earlier steps produced. d: its draft, written in parallel with the
@@ -365,7 +368,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
                    "existing line they go after (or inside). Only call names that exist by now.")
             try:
                 d2 = strip_injection(await claude._generate_json(SYSTEM, prompt + fix, STEP_SCHEMA, effort="medium", structured=False,
-                                                                 role="escalate", escalate=False, check=ok))
+                                                                 role="escalate", escalate=False, check=ok), plan_libs)
                 p2 = consistency_problem(d2.get("file") or sp.get("file") or "", d2.get("code") or "", d2.get("run_command") or "", state)
                 d = d2
                 if p2:

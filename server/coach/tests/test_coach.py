@@ -1131,7 +1131,8 @@ def test_notebook_excerpt_and_cell_patch():
 
 def test_do_it_for_me_command_fix_and_missing_edit(monkeypatch):
     card = {"title": "pandas missing", "body": "The venv lacks pandas. Install it.", "diff": {"expected": "", "yours": "", "command": "pip install pandas"}}
-    r = run(coach.do_it_for_me(d.STEP, "clean.py", "import pandas\n", card))
+    # the command passes the coach's allowlist (eng-untrusted): pandas is one of the lesson's libraries
+    r = run(coach.do_it_for_me(d.STEP, "clean.py", "import pandas\n", card, lesson={"lesson": {"libraries": {"pandas": "2.x"}}}))
     assert r["command"] == "pip install pandas" and r["new_text"] is None and r["unified_diff"] == ""
 
     todo = "pick a1 Add login\npick b2 Cleanup\n"

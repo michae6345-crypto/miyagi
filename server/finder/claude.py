@@ -231,7 +231,9 @@ async def score(key: str, goal: str, cands: list[dict], *, system: str, prompt: 
     data = json.loads(text)
     goal_coding = bool(data.get("goal_is_coding"))
     # a candidate whose own title or description talks to an AI can't talk its way up the ranking
-    injected = {c["id"]: c for c in cands if flag_injection(f"{c.get('title', '')}\n{c.get('meta', '')}\n{c.get('description') or ''}")}
+    # (strict: only the high-confidence patterns, so an LLM or chatbot tutorial's own "Assistant:" lines never count)
+    injected = {c["id"]: c for c in cands
+                if flag_injection(f"{c.get('title', '')}\n{c.get('meta', '')}\n{c.get('description') or ''}", strict=True)}
     out = {}
     for i in data.get("items", []):
         if not i.get("id"):
@@ -294,7 +296,9 @@ async def read(key: str, goal: str, item: dict, text: str, *, timeout: float = 8
     out = json.loads(next((b.text for b in resp.content if b.type == "text"), "{}"))
     words = str(out.get("summary") or "").strip().rstrip(".").split()
     teaches, sc = bool(out.get("teaches_goal")), max(0, min(100, int(out.get("score") or 0)))
-    if flag_injection(text[:14000]) or flag_injection(item.get("title")):  # the page talks to an AI: never trust its score
+    # the page talks to an AI grader: never trust its score. strict: the whole page is checked, and "You are now ready
+    # to ..." or a chatbot tutorial's "Assistant:" lines must not sink a good page
+    if flag_injection(text[:14000], strict=True) or flag_injection(item.get("title"), strict=True):
         teaches, sc = False, min(sc, INJECTED_SCORE_MAX)
         log.warning("finder: AI-directed text on a page from %s; score capped, not marked as teaching the goal", _host(item.get("url", "")) or "?")
     return {

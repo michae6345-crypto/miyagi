@@ -517,11 +517,44 @@ def safe_command(command: str, lesson: dict | None, step: dict | None = None) ->
     return command
 
 
+_SPAN = re.compile(r"`([^`\n]+)`")
+_CMD_HEAD = re.compile(r"^\s*(?:\$\s*)?(?:curl|wget|bash|sh|zsh|sudo|doas|pip3?|python3?|node|npm|npx|pipx|uvx|bunx|git|"
+                       r"brew|eval|source|chmod|rm|perl|ruby|iex|powershell|pwsh)\b", re.I)
+
+
+def scrub_command_spans(text: str, raw_command: str, libraries: Any = None) -> str:
+    """`text` (a card's title or body) without the backtick spans a learner could copy by hand once diff_command was
+    filtered: a span holding that command (or a long part of it), a span with a URL, and a command-like span with a
+    shell metacharacter or blocked word (`curl … | bash`). Other code (`a < b`, `model.fit`) stays."""
+    flat_cmd = _flat(raw_command)
+
+    def one(m: re.Match) -> str:
+        span = _flat(m.group(1))
+        why = command_problem(span, libraries)
+        if (flat_cmd and (flat_cmd in span or (len(span) >= 8 and span in flat_cmd))) or why == "url" \
+                or (why == "metacharacter or blocked word" and _CMD_HEAD.match(span)):
+            return ""
+        return m.group(0)
+
+    out = _SPAN.sub(one, text or "")
+    if out == (text or ""):
+        return out
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"\s+([.,;:!?])", r"\1", out)
+    return out.strip()
+
+
 def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sources: list[dict] | None = None) -> dict:
     expected = (data.get("diff_expected") or "").strip("\n")
     yours = (data.get("diff_yours") or "").strip()
     raw_command = (data.get("diff_command") or "").strip()
     command = safe_command(raw_command, lesson, step)  # the advice (title, body, code diff) stays; only the command goes
+    if raw_command and not command:  # ... and the card's words don't hand the learner the same command to copy by hand
+        libs = lesson_libraries(lesson, step)
+        title = scrub_command_spans(data.get("title") or "", raw_command, libs)
+        if title != (data.get("title") or "") and len(title.split()) < 2:  # "Run `curl … | bash`" left only "Run"
+            title = "The fix needs a terminal step"
+        data = {**data, "title": title, "body": scrub_command_spans(data.get("body") or "", raw_command, libs)}
     if command and _unsafe_git_continue(command, code_excerpt, yours, expected):
         command = ""  # would commit unresolved conflict markers (S9 QA, verified)
     diff = None
