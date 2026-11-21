@@ -75,7 +75,7 @@ describe('notchSize', () => {
     assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, undefined), { w: PEEK.w, h: 32 + PEEK.drop })
   })
   test('a card keeps its width and grows down from the notch; an empty one is the notch', () => {
-    assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 180 }), { w: 340, h: 212 })
+    assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 180 }), { w: 340 + 38, h: 212 })
     assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 0 }), { w: 189, h: 32 })
     assert.deepEqual(notchSize(real, 'card', 'drop', 340, undefined), { w: 189, h: 32 })
   })

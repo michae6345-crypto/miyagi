@@ -7,7 +7,7 @@
  * Owner: core. Features add modes; they don't edit this file.
  */
 import { animate, AnimatePresence, motion, useIsPresent, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
@@ -410,7 +410,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         animate={{ opacity: passFlash ? [0, 0.25, 0] : 0 }}
         transition={{ duration: 0.6, ease: ease.inOut }}
       />
-      {showEars && <NotchEars key="ears" mode={mode} top={STRIP} h={nm!.height} />}
+      {showEars && <NotchEars key="ears" mode={mode} top={STRIP} h={nm!.height} notchW={nm!.width} />}
       <AnimatePresence initial={false}>
         {showLayer && (
           <Layer key={mode.id} id={mode.id} width={mode.width} onEmpty={setLayerEmpty} top={nm ? STRIP + nm.height : 0} quiet={!!nm}>
@@ -504,22 +504,28 @@ function NotchShape({ w, h, rt, rb, open, snap, reduced, lift, hit, children }: 
   )
 }
 
-/** The ears: the bonsai on the left (or the mode's own mark), the mode's status mark on the right. */
-function NotchEars({ mode, top, h }: { mode: IslandMode; top: number; h: number }): ReactNode {
+/**
+ * The ears: the bonsai on the left (or the mode's own mark), the mode's status mark on the right. Each sits in the
+ * middle of its ear, which is EAR_W wide and starts at the hardware notch's edge, whatever width the island has
+ * (a drop is wider than the notch plus its ears).
+ */
+function NotchEars({ mode, top, h, notchW }: { mode: IslandMode; top: number; h: number; notchW: number }): ReactNode {
   const Left = mode.notch?.Left
   const Right = mode.notch?.Right
+  const off = notchW / 2 + EAR_W / 2
+  const mark = (side: 1 | -1): CSSProperties => ({ position: 'absolute', top: (h - 16) / 2, left: `calc(50% + ${side * off}px - 8px)`, width: 16, height: 16 })
   return (
     <motion.div
       data-ui
       data-ears
-      className="pointer-events-none absolute inset-x-0 flex items-center justify-between"
-      style={{ top, height: h, paddingInline: (EAR_W - 16) / 2 }}
+      className="pointer-events-none absolute inset-x-0"
+      style={{ top, height: h }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1, transition: { ...fade.in, delay: beat } }}
       exit={{ opacity: 0, transition: fade.instant }}
     >
-      <span className="grid h-[16px] w-[16px] place-items-center">{Left ? <Left /> : <MiyagiMark size={16} />}</span>
-      <span className="grid h-[16px] w-[16px] place-items-center">{Right ? <Right /> : null}</span>
+      <span className="grid place-items-center" style={mark(-1)}>{Left ? <Left /> : <MiyagiMark size={16} />}</span>
+      <span className="grid place-items-center" style={mark(1)}>{Right ? <Right /> : null}</span>
     </motion.div>
   )
 }

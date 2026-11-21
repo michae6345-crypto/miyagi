@@ -90,7 +90,8 @@ export const earsSize = (n: NotchLayout): { w: number; h: number } => ({ w: n.wi
  * `measured`.
  */
 export function notchSize(n: NotchLayout, kind: 'card' | 'pill', view: NotchView, fixed: number | undefined, measured: { w: number; h: number } | undefined): { w: number; h: number } {
-  if (kind === 'card') return fixed && fixed > 0 && measured && measured.h > 0 ? { w: fixed, h: n.height + Math.ceil(measured.h) } : restSize(n)
+  // The shape's straight sides sit one top radius in from its edges, so the card's own width fits between them.
+  if (kind === 'card') return fixed && fixed > 0 && measured && measured.h > 0 ? { w: fixed + 2 * NOTCH_RADII.open.top, h: n.height + Math.ceil(measured.h) } : restSize(n)
   if (view === 'rest') return restSize(n)
   if (view === 'ears') return earsSize(n)
   if (!measured || !(measured.w > 0) || !(measured.h > 0)) return { w: PEEK.w, h: n.height + PEEK.drop }
