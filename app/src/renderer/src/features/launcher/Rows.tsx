@@ -2,14 +2,16 @@
  * Feature: launcher. The rows of the results list. Every row is ROW_H tall and absolutely placed in
  * its slot, so a skeleton and the result that replaces it crossfade in place (no reflow, no jump).
  */
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { CircleAlert, CirclePlay, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
+import { useState } from 'react'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, font, spring } from '../../core/theme'
 import { toolsLabel, type LibraryItem } from './library'
-import { HOW_LABEL, NavKey } from './parts'
+import { navKey } from './keys'
+import { HOW_LABEL, NavKey, PRESS } from './parts'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { alpha, kindTone } from './tint'
@@ -38,6 +40,7 @@ function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { child
       initial={enter}
       animate={shown}
       exit={gone}
+      whileTap={PRESS}
       transition={{ ...spring, delay }}
       // Keep the caret in the input: rows are pointer targets, not focus stops.
       onMouseDown={(e) => e.preventDefault()}
@@ -149,12 +152,34 @@ export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: ()
  * accident. Ending the lesson is not a row (desktop test 3, item 8): it's the quiet two-tap link in the footer (parts
  * EndLink). Home-LauncherInContext: no tile, the lesson's title, where you are, and the ↵ it answers to.
  */
-export function ResumeRow({ lessonTitle, where, onPick }: { lessonTitle?: string; where: string; onPick: () => void }): ReactNode {
+export function ResumeRow({
+  lessonTitle,
+  where,
+  active = true,
+  onHover,
+  onPick
+}: {
+  lessonTitle?: string
+  where: string
+  /** The idle list's active line: it shows the Enter keycap. */
+  active?: boolean
+  onHover?: () => void
+  onPick: () => void
+}): ReactNode {
   return (
-    <RowShell slot={0} onPick={onPick}>
+    <RowShell slot={0} onHover={onHover} onPick={onPick}>
       <Text title={lessonTitle ?? 'The lesson in progress'} meta={where} />
-      <NavKey>↵</NavKey>
+      <EnterCue active={active} />
     </RowShell>
+  )
+}
+
+/** The idle list's active line shows the Enter keycap; it fades in and out as ↑↓ move, so the cue sits on the row Enter runs. */
+function EnterCue({ active }: { active: boolean }): ReactNode {
+  return (
+    <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={{ duration: 0.12 }} aria-hidden>
+      <NavKey>{navKey('enter')}</NavKey>
+    </motion.span>
   )
 }
 
@@ -170,21 +195,58 @@ export function SettingsRow({ onPick }: { onPick: () => void }): ReactNode {
   )
 }
 
+/** The link preview's height: a 128×72 thumbnail with room around it. */
+export const LINK_H = 92
+
 /**
- * A pasted YouTube link (Home-Launcher "From your link"): no search, one row, Enter builds straight from it. When a
- * cached lesson was built from this exact video, the row says so ("Already a lesson", "Ready instantly") and Enter
- * starts it with library.start: zero model calls, nothing built twice.
+ * A pasted YouTube link (Home-Launcher "From your link"): no search, one clear preview, already the active row (the
+ * hover tint) since it is the only thing Enter can do. A 16:9 thumbnail with the start time from the link (?t=), what
+ * it is, where it starts, and one line saying what Enter does. When a cached lesson was built from this exact video,
+ * the preview says so ("Already a lesson", "Ready instantly") and Enter starts it with library.start: zero model
+ * calls, nothing built twice. The thumbnail scales in from 0.96 on the house spring; a thumbnail that can't load (no
+ * network) falls back to the neutral generated one, never a broken image.
  */
-export function LinkRow({ link, match, onPick }: { link: YouTubeLink; match?: LibraryItem; onPick: () => void }): ReactNode {
+export function LinkPreview({ link, match, onPick }: { link: YouTubeLink; match?: LibraryItem; onPick: () => void }): ReactNode {
   const tools = toolsLabel(match?.tools)
+  const reduce = useReducedMotion()
+  const [broken, setBroken] = useState(false)
+  const src = broken ? undefined : thumbnailFor(link.videoId)
+  const where = `youtu.be/${link.videoId}${link.start ? ` · starts at ${clock(link.start)}` : ''}`
   return (
-    <RowShell slot={0} onPick={onPick}>
-      <Tile kind="video" thumbnail={thumbnailFor(link.videoId)} />
-      {match ? (
-        <Text title={match.title} meta={`Already a lesson. ${match.steps} steps${tools ? ` in ${tools}` : ''}.`} />
-      ) : (
-        <Text title="YouTube video" meta={`youtu.be/${link.videoId}${link.start ? ` · from ${clock(link.start)}` : ''}`} />
-      )}
+    <motion.button
+      type="button"
+      tabIndex={-1}
+      data-link-preview={link.videoId}
+      className="relative flex w-full cursor-pointer items-center gap-[16px] rounded-[12px] px-[16px] text-left"
+      style={{ height: LINK_H, background: fill.highlight }}
+      initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileTap={PRESS}
+      transition={{ y: spring, opacity: { duration: 0.18 } }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onPick}
+    >
+      <motion.span
+        className="relative shrink-0"
+        initial={reduce ? false : { scale: 0.96 }}
+        animate={{ scale: 1 }}
+        transition={spring}
+      >
+        <Thumb w={128} h={72} src={src} time={link.start ? clock(link.start) : undefined} />
+        {/* Probe the thumbnail once: if it can't load, show the generated tile instead of a broken image. */}
+        {src && <img src={src} alt="" className="hidden" onError={() => setBroken(true)} />}
+      </motion.span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[12px] leading-[16px]" style={{ color: color.label }}>
+          {match ? 'Already a lesson' : 'YouTube video'}
+        </span>
+        <span className="mt-[2px] block truncate text-[15px] font-medium leading-[20px] text-white">{match ? match.title : where}</span>
+        <span className="mt-[2px] block truncate text-[12.5px] leading-[17px]" style={{ color: color.faint }}>
+          {match
+            ? `${match.steps} steps${tools ? ` in ${tools}` : ''}. Starts right away.`
+            : 'Builds a lesson that pauses at each step'}
+        </span>
+      </span>
       {match && (
         <span
           className="inline-flex h-[24px] shrink-0 items-center rounded-full px-[8px] text-[12px]"
@@ -193,8 +255,8 @@ export function LinkRow({ link, match, onPick }: { link: YouTubeLink; match?: Li
           Ready instantly
         </span>
       )}
-      <NavKey>↵</NavKey>
-    </RowShell>
+      <NavKey>{navKey('enter')}</NavKey>
+    </motion.button>
   )
 }
 
@@ -206,7 +268,20 @@ const TOOL_TAG: Record<string, string> = { jupyter: 'Jn', vscode: 'VS', terminal
  * was left ("Step 3 of 6 · Drop the empty rows") and a white meter. Click to pick it up (library.start). Its own slot
  * range: these rows never share slots with the search rows.
  */
-export function LibraryContinueRow({ item, slot, onHover, onPick }: { item: LibraryItem; slot: number; onHover: () => void; onPick: () => void }): ReactNode {
+export function LibraryContinueRow({
+  item,
+  slot,
+  active = false,
+  onHover,
+  onPick
+}: {
+  item: LibraryItem
+  slot: number
+  /** The idle list's active line: it shows the Enter keycap. */
+  active?: boolean
+  onHover: () => void
+  onPick: () => void
+}): ReactNode {
   const p = item.progress
   const done = p ? Math.min(1, Math.max(0, p.stepIndex / Math.max(1, p.total))) : 0
   return (
@@ -221,6 +296,7 @@ export function LibraryContinueRow({ item, slot, onHover, onPick }: { item: Libr
       <span className="h-[4px] w-[96px] shrink-0 overflow-hidden rounded-full" style={{ background: fill.hairline }}>
         <span className="block h-full rounded-full" style={{ width: `${Math.round(done * 100)}%`, background: color.text }} />
       </span>
+      <EnterCue active={active} />
     </RowShell>
   )
 }
@@ -233,11 +309,14 @@ export function ReadyRow({
   item,
   slot,
   hover = false,
+  active = false,
   onHover,
   onPick
 }: {
   item: LibraryItem
   slot: number
+  /** The idle list's active line: it shows the Enter keycap. */
+  active?: boolean
   /** Its own hover fill (click-only rows during a lesson); with keys, the list's moving highlight shows it instead. */
   hover?: boolean
   onHover: () => void
@@ -263,6 +342,7 @@ export function ReadyRow({
       <span className="shrink-0 text-[12px]" style={{ color: color.label }}>
         {item.steps === 1 ? '1 step' : `${item.steps} steps`}
       </span>
+      <EnterCue active={active} />
     </motion.button>
   )
 }
