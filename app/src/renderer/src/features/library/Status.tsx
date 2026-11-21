@@ -18,11 +18,12 @@ import { useEffect, type ReactNode } from 'react'
 import { useLesson } from '../../core/lesson'
 import { openOnboarding } from '../../core/surfaces'
 import { color, fill, radius2, spring, surface, type2 } from '../../core/theme'
-import { QuietButton } from '../../core/ui/buttons'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
 import { v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { BootRow } from '../errors/boot'
+import { useBoot } from '../errors/startup'
+import { setupFix } from './homeModel'
 import { summarize, useRows } from '../onboarding/rows'
 import { refreshCloud, refreshPerms, requestHealth, runAction, useOnboarding } from '../onboarding/store'
 import { openAccountSurface } from '../shell/sheet'
@@ -123,32 +124,35 @@ export function StatusArea({ plan = true, setup: withSetup = true }: { plan?: bo
     return () => removeEventListener('focus', read)
   }, [connected, hello])
 
-  const setup: Line = !known
-    ? { state: 'unknown', word: 'Checking', detail: 'Reading this Mac’s setup.' }
-    : sum.allOk
-      ? { state: 'passed', word: 'All set', detail: 'Everything miyagi needs is on.' }
-      : sum.canStart
-        ? { state: 'unknown', word: `${sum.ready} of ${sum.total} ready`, detail: sum.hint }
-        : { state: 'notyet', word: `${sum.ready} of ${sum.total} ready`, detail: sum.hint }
+  // One line, never two that disagree: miyagi's own start-up first (starting, or failed with Retry), then the one thing
+  // left to fix ("Turn on Accessibility", opens setup), else "Ready".
+  const boot = useBoot()
+  const fix = known && !sum.canStart ? setupFix(rows) : undefined
+  const bootBusy = boot.phase !== 'ready' && boot.phase !== 'limited'
+  const one: Line = !known ? { state: 'unknown', word: 'Checking' } : fix ? { state: 'notyet', word: fix.line, detail: sum.hint } : { state: 'passed', word: 'Ready', detail: 'Everything miyagi needs is on.' }
 
-  // The section and its rows glide (layout: transforms) when the failed block opens under the Ready row.
   return (
     <LayoutGroup id="home-status">
-      <motion.section
-        layout
-        transition={spring}
-        aria-label="Status"
-        data-home-status
-        className="flex flex-col"
-        style={{ padding: 4, borderRadius: radius2.card, background: fill.group, boxShadow: `inset 0 0 0 1px ${surface.border}` }}
-      >
-        <motion.div layout="position" transition={spring}>
-          <BootRow />
-        </motion.div>
-        {withSetup && (
+      <motion.section layout transition={spring} aria-label="Status" data-home-status className="flex flex-col" style={{ padding: 2 }}>
+        {bootBusy ? (
           <motion.div layout="position" transition={spring}>
-            <Row label="Setup" line={setup} onClick={() => void openOnboarding()} chevron />
+            <BootRow />
           </motion.div>
+        ) : withSetup && fix ? (
+          <motion.div layout="position" transition={spring}>
+            <Press className="flex w-full items-center" style={{ height: 32, padding: '0 8px', borderRadius: radius2.control, gap: 8 }} title={one.detail} aria-label={`${one.word}. Open setup.`} onClick={() => void openOnboarding()}>
+              <StatusGlyph state={one.state} size={14} />
+              <span className="relative min-w-0 flex-1 truncate" data-status-word={one.state} style={{ fontSize: type2.sm, color: color.text }}>
+                {one.word}
+              </span>
+              <ChevronRight aria-hidden size={13} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.faint }} />
+            </Press>
+          </motion.div>
+        ) : (
+          <div data-status-word={one.state} className="flex items-center" style={{ height: 32, padding: '0 8px', gap: 8 }} title={one.detail}>
+            <StatusGlyph state={one.state} size={14} still />
+            <span style={{ fontSize: type2.sm, color: one.state === 'passed' ? fill.keycapText : color.label }}>{one.word}</span>
+          </div>
         )}
         {v2Cloud && plan && (
           <motion.div layout="position" transition={spring}>

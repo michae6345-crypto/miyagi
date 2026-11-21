@@ -9,17 +9,20 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { CodeText } from '../../core/ui/atoms'
-import { alpha, color, fill, radius2, status, surface, type2 } from '../../core/theme'
-import { layoutTrack, nodeStates, reviewFor, reviewIndex, trackHeadline, type NodeState } from './model'
+import { alpha, brand, color, fill, radius2, status, surface, type2 } from '../../core/theme'
+import { groupTracks, layoutTrack, nodeStates, reviewFor, reviewIndex, trackHeadline, type NodeState, type SkillGroup } from './model'
 import { caption, Empty, h2, NodeGlyph, STATE_WORD } from './parts'
 import { select, useDash } from './store'
 import type { DashData, DashTrack, ReviewEntry } from './types'
 
-const ROW_H = 72
+const ROW_H = 84
 const NODE_TOP = 6
 const GLYPH = 28
-const MIN_COL = 104
-const MAX_COL = 168
+const MIN_COL = 120
+const MAX_COL = 176
+
+/** Soft pastel per track, in order. Tags and washes only: green stays for mastered. */
+export const TRACK_TONES = [brand.pastel.sky, brand.pastel.lilac, brand.pastel.pink, brand.pastel.apricot] as const
 
 function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null)
@@ -43,7 +46,8 @@ const LEGEND: Array<{ state: NodeState; due?: boolean; word: string }> = [
   { state: 'mastered', due: true, word: 'Review due' }
 ]
 
-function Cluster({ t, dueOf, width }: { t: DashTrack; dueOf: (id: string) => boolean; width: number }): ReactNode {
+function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: string; dueOf: (id: string) => boolean; width: number }): ReactNode {
+  const t = g.track
   const selected = useDash((s) => (s.selected?.track === t.track ? s.selected.id : undefined))
   const [hover, setHover] = useState<string>()
   const lay = layoutTrack(t)
@@ -74,15 +78,23 @@ function Cluster({ t, dueOf, width }: { t: DashTrack; dueOf: (id: string) => boo
   const tipAt = hover ? pos.get(hover) : undefined
   return (
     <section data-track={t.track} aria-label={trackHeadline(t)} className="flex flex-col gap-[8px]">
-      <div className="flex items-baseline justify-between gap-[12px]">
+      <div className="flex items-center gap-[8px]">
+        <span aria-hidden className="block shrink-0" style={{ width: 8, height: 8, borderRadius: radius2.round, background: tone }} />
         <h3 className="m-0 min-w-0 truncate" style={{ ...h2, fontSize: type2.md }}>
-          {t.track}
+          {g.title}
         </h3>
-        <span className="shrink-0 tabular-nums" style={caption}>
-          {t.mastered} of {t.total} mastered
-        </span>
+        {g.kicker && (
+          <span className="shrink-0 truncate" style={caption}>
+            {g.kicker}
+          </span>
+        )}
+        {t.mastered > 0 && (
+          <span className="ml-auto shrink-0 tabular-nums" style={caption}>
+            {t.mastered} mastered
+          </span>
+        )}
       </div>
-      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}>
+      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: alpha(tone, 0.1) }}>
         <div className="relative" style={{ width: w, height: h + 8 }}>
           <svg width={w} height={h + 8} className="pointer-events-none absolute inset-0" aria-hidden>
             {t.edges.map((e) => {
@@ -143,8 +155,8 @@ function Cluster({ t, dueOf, width }: { t: DashTrack; dueOf: (id: string) => boo
               >
                 <NodeGlyph state={st} due={due} selected={on} />
                 <span
-                  className="line-clamp-2 w-full"
-                  style={{ fontSize: type2.xs, lineHeight: '15px', color: st === 'available' || st === 'locked' ? color.label : color.text, fontWeight: on ? 600 : 400 }}
+                  className="line-clamp-3 w-full"
+                  style={{ fontSize: type2.xs, lineHeight: '15px', overflowWrap: 'break-word', color: st === 'available' || st === 'locked' ? color.label : color.text, fontWeight: on ? 600 : 400 }}
                 >
                   <CodeText text={s.label} />
                 </span>
@@ -182,14 +194,13 @@ function Cluster({ t, dueOf, width }: { t: DashTrack; dueOf: (id: string) => boo
   )
 }
 
-export function Constellation({ data, review, loading, children }: { data?: DashData; review: ReviewEntry[]; loading: boolean; children?: ReactNode }): ReactNode {
+export function Constellation({ data, review, loading, children, bare }: { data?: DashData; review: ReviewEntry[]; loading: boolean; children?: ReactNode; /** no box of its own and no inner scroll: the page scrolls */ bare?: boolean }): ReactNode {
   const [ref, width] = useWidth<HTMLDivElement>()
+  const groups = groupTracks(data)
   const tracks = data?.tracks ?? []
   const dueIdx = new Set<string>()
   const idx = reviewIndex(review)
   for (const t of tracks) for (const s of t.skills) if (reviewFor(idx, s)) dueIdx.add(`${t.track}\u0000${s.id}`)
-  const mastered = tracks.reduce((n, t) => n + t.mastered, 0)
-  const total = tracks.reduce((n, t) => n + t.total, 0)
   // Esc closes the open skill card.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -199,26 +210,29 @@ export function Constellation({ data, review, loading, children }: { data?: Dash
     return () => removeEventListener('keydown', onKey)
   }, [])
   return (
-    <section aria-labelledby="dash-skills" className="relative flex min-h-0 min-w-0 flex-col gap-[12px]" style={{ padding: 20, borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}>
+    <section
+      aria-labelledby="dash-skills"
+      className="relative flex min-w-0 flex-col gap-[16px]"
+      style={bare ? undefined : { minHeight: 0, padding: 20, borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}
+    >
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-x-[16px] gap-y-[6px]">
-        <div className="flex flex-col gap-[2px]">
-          <h2 id="dash-skills" style={{ ...h2, fontSize: type2.lg }}>
-            Skills
-          </h2>
-          <span style={caption}>{tracks.length ? `${mastered} of ${total} mastered, checked in your own work.` : 'Checked in your own work, not quizzes.'}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[4px]" style={caption}>
-          {LEGEND.map((l) => (
-            <span key={l.word} className="flex items-center gap-[4px]">
-              <span style={{ opacity: l.state === 'locked' ? 0.4 : 1, display: 'inline-flex' }}>
-                <NodeGlyph state={l.state} due={l.due} size={16} />
+        <h2 id="dash-skills" style={{ ...h2, fontSize: bare ? type2.xs : type2.lg, color: bare ? color.label : color.text, fontWeight: bare ? 500 : 600, letterSpacing: bare ? '0.02em' : undefined }}>
+          Skills
+        </h2>
+        {tracks.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[4px]" style={caption}>
+            {LEGEND.map((l) => (
+              <span key={l.word} className="flex items-center gap-[4px]">
+                <span style={{ opacity: l.state === 'locked' ? 0.4 : 1, display: 'inline-flex' }}>
+                  <NodeGlyph state={l.state} due={l.due} size={16} />
+                </span>
+                {l.word}
               </span>
-              {l.word}
-            </span>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
-      <div ref={ref} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={ref} className={bare ? '' : 'min-h-0 flex-1 overflow-y-auto'}>
         {loading ? (
           <span style={caption}>Reading your progress</span>
         ) : !tracks.length ? (
@@ -227,9 +241,9 @@ export function Constellation({ data, review, loading, children }: { data?: Dash
           </div>
         ) : (
           width > 0 && (
-            <div className="flex flex-col gap-[16px]" style={{ paddingBottom: 4 }}>
-              {tracks.map((t) => (
-                <Cluster key={t.track} t={t} width={width} dueOf={(id) => dueIdx.has(`${t.track}\u0000${id}`)} />
+            <div className="flex flex-col gap-[20px]" style={{ paddingBottom: 4 }}>
+              {groups.map((g, i) => (
+                <Cluster key={g.key} g={g} tone={TRACK_TONES[i % TRACK_TONES.length]} width={width} dueOf={(id) => dueIdx.has(`${g.track.track}\u0000${id}`)} />
               ))}
             </div>
           )
