@@ -49,8 +49,8 @@ const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.en
 let stopLocalEngine: () => void = () => undefined
 /** Notch geometry + Boring Notch state (main/notch.ts); started at launch. */
 let notchService: NotchService | undefined
-let resendLayoutRef: () => void = () => undefined
-const resendLayout = (): void => resendLayoutRef()
+/** Every window gets its layout again (Settings > General shows whether Boring Notch is using the notch). Module level: the first notch read can land before whenReady has finished. */
+const resendLayout = (): void => forEachWindow((w) => send(w, 'layout', layoutFor(w)))
 
 const windows = new Set<BrowserWindow>()
 /** Feature windows whose rects join the overlay's overlay.bounds report (ctx.reportBounds). */
@@ -571,10 +571,6 @@ app.whenReady().then(async () => {
   // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
   // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
   // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
-  resendLayoutRef = (): void => {
-    // Every window: Settings (General > Island) shows whether Boring Notch is using the notch.
-    forEachWindow((w) => send(w, 'layout', layoutFor(w)))
-  }
   onPrefsChange(() => resendLayout())
   let refitTimer: ReturnType<typeof setTimeout> | undefined
   const refit = (): void => {
