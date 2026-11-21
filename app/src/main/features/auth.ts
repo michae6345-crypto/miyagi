@@ -210,17 +210,17 @@ export function onLoginDone(fn: () => BrowserWindow | undefined): void {
 let currentAccess: (() => Promise<string | undefined>) | undefined
 /**
  * A fresh access token (refreshed first when it is about to expire), or undefined when signed out. Main process only.
- *
- * TODO(cloud-link), the seam for linking the anonymous miyagi-cloud install token to this user. Not implemented:
- *   - cloud.ts mints an anonymous install token (POST /v1/install) and the engine uses it for the proxy.
- *   - Later: after a sign-in (and once per launch while signed in), cloud.ts calls accessToken() and sends
- *     POST /v1/install/link {Authorization: Bearer <install token>, X-Supabase-JWT: <accessToken()>}; miyagi-cloud
- *     verifies the JWT against the project's JWKS and attaches the install to auth.users.id, so quotas and history
- *     follow the account across Macs. Sign-out does not unlink (the install keeps working anonymously).
- *   - Never send the JWT to the engine or a renderer; never log it.
+ * features/cloudLink.ts sends it to miyagi-cloud (POST /v1/link) to tie this Mac's install token to the learner.
+ * Never send it to the engine or a renderer; never log it.
  */
 export function accessToken(): Promise<string | undefined> {
   return currentAccess ? currentAccess() : Promise.resolve(undefined)
+}
+
+let signedInHook: (() => void) | undefined
+/** features/cloudLink.ts: runs right after each successful Google sign-in (the session is stored by then). */
+export function onSignedIn(fn: () => void): void {
+  signedInHook = fn
 }
 
 export default defineMainFeature({
@@ -478,7 +478,7 @@ export default defineMainFeature({
             const s = r.session
             setSession(s)
             decide()
-            // TODO(cloud-link): link the install token to this user here (see accessToken() above). Not implemented.
+            signedInHook?.() // cloudLink.ts: link this Mac's install token to the learner (async, never in the way)
             f.finish({ ok: true, user: publicUser(s.user) })
           })
         })
