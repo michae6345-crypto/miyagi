@@ -82,8 +82,6 @@ export class EngineLink {
   private token?: string
   /** v2: the install token + proxy URL, folded into every config.keys (never sent on its own: see send()). */
   private cloud?: CloudKeys
-  /** ROADMAP 1.7: the learner's "Share crash reports and usage" switch, folded into config.keys as telemetry "on". */
-  private telemetry = false
   /** v2: what the engine said it understands (engine.hello.capabilities); reset on every connect. */
   private caps = new Set<string>()
   /** v2: the last config.keys the settings feature sent (the full payload), so a later token can ride on it. */
@@ -174,17 +172,6 @@ export class EngineLink {
   }
 
   /**
-   * ROADMAP 1.7 (features/telemetry.ts): the engine sends its usage events only while this is on. It rides in every
-   * config.keys as `telemetry: "on"` (an extra field the engine's ConfigKeys model allows); a change re-sends the last
-   * full payload, like setCloud.
-   */
-  setTelemetry(on: boolean): void {
-    if (this.telemetry === on) return
-    this.telemetry = on
-    if (this.lastKeys && this.connected) this.send(this.lastKeys)
-  }
-
-  /**
    * Install token self-heal: the engine says the proxy does not know the install token it was given (a 401,
    * `cloud.token_invalid`). Only while this link holds a token it may send (setCloud + a secure URL); the event carries
    * no token. features/cloud.ts mints a new one (with its own backoff) and hands it back through setCloud.
@@ -209,7 +196,6 @@ export class EngineLink {
     if (cmd.type === 'config.keys') {
       this.lastKeys = cmd
       if (this.cloud && this.allowSecrets()) cmd = { ...cmd, payload: { ...cmd.payload, ...this.cloud } }
-      if (this.telemetry) cmd = { ...cmd, payload: { ...cmd.payload, telemetry: 'on' } as typeof cmd.payload }
     }
     // Fresh start: a lesson this run starts or chooses (learn, library.start, Continue) may reach the windows, but
     // only once the command really leaves (one dropped offline must not admit the next connect's old snapshot).
