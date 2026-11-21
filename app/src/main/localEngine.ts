@@ -29,7 +29,7 @@
 import { app, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
+import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 import { cp, rename, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
@@ -100,6 +100,32 @@ function bundleDir(): string {
 function vscodeDir(): string {
   const dev = !app.isPackaged ? process.env.MIYAGI_BUNDLE_DIR?.trim() : ''
   return dev ? join(dev, 'vscode') : join(process.resourcesPath, 'vscode')
+}
+
+/** Where Rosetta 2 lives once installed (Apple silicon only). */
+const ROSETTA = '/Library/Apple/usr/share/rosetta/rosetta'
+
+/**
+ * Can this Mac run the bundled Python? PYTHON.json `arch` (bundle-engine.mjs) says which one the app carries: arm64
+ * needs Apple silicon (an x64 app under Rosetta still runs an arm64 child natively); x64 runs on Intel, and on Apple
+ * silicon only with Rosetta. A bundle without a readable arch isn't trusted: the installer / missing path takes over,
+ * never a spawn that dies with "bad CPU type". → '' when it can, else why not (for engine.log)
+ */
+function pythonArchProblem(bundle: string): string {
+  let arch: unknown
+  try {
+    arch = (JSON.parse(readFileSync(join(bundle, 'PYTHON.json'), 'utf8')) as { arch?: unknown }).arch
+  } catch {
+    return 'no readable PYTHON.json'
+  }
+  const appleSilicon = process.arch === 'arm64' || app.runningUnderARM64Translation
+  if (arch === 'universal2') return ''
+  if (arch === 'arm64') return appleSilicon ? '' : `bundled Python is arm64, this Mac is ${process.arch}`
+  if (arch === 'x64') {
+    if (!appleSilicon) return ''
+    return process.arch === 'x64' || existsSync(ROSETTA) ? '' : 'bundled Python is x64 and Rosetta is not installed'
+  }
+  return `unknown bundled Python arch: ${String(arch)}`
 }
 
 /** v2: the latest state, for core modules that need it (main/permissions.ts: 'external' means grants are unknown). */
@@ -180,12 +206,26 @@ export function setupLocalEngine(
   const launcher = join(home, 'bin', 'miyagi-engine')
   const logs = join(home, 'logs', 'engine.log')
   const marker = join(home, 'BUNDLED')
+  /** Details (paths, error codes) go to engine.log only; the pill gets plain fixed copy. */
+  const note = (msg: string): void => {
+    try {
+      mkdirSync(join(home, 'logs'), { recursive: true })
+      appendFileSync(logs, `--- ${new Date().toISOString()} ${msg}\n`)
+    } catch {
+      // No log is no reason to fail.
+    }
+  }
   const bundle = bundleDir()
   const bundleVersion = (): string => readText(join(bundle, 'VERSION')) || 'bundled'
   const hasSource = existsSync(join(bundle, 'src', 'server', 'pyproject.toml'))
   const python = join(bundle, 'python', 'bin', 'python3')
-  /** A12: the app carries its own Python with the packages installed. */
-  const pythonBundled = hasSource && executable(python)
+  /** A12: the app carries its own Python with the packages installed, built for a CPU this Mac can run. */
+  const pythonBundled = ((): boolean => {
+    if (!hasSource || !executable(python)) return false
+    const problem = pythonArchProblem(bundle)
+    if (problem) note(`not using the bundled Python: ${problem}`)
+    return !problem
+  })()
   /** Older bundles: source + the uv installer. */
   const installerBundled = hasSource && existsSync(join(bundle, 'install.sh'))
   const env: NodeJS.ProcessEnv = { ...process.env, MIYAGI_HOME: home, PATH: fixedPath(home), MIYAGI_ENGINE_TOKEN: ENGINE_TOKEN }
@@ -198,8 +238,10 @@ export function setupLocalEngine(
 
   /**
    * Copy the bundled source into ~/miyagi/engine/src: next to it first, then swap, so a crash mid-copy never leaves a
-   * half tree. Built lessons, searches and transcripts are cached in src/demo/cache: kept, and the new source's files
-   * win. Async so the first launch never blocks the main process. → ok
+   * half tree. Built lessons, searches and transcripts are cached in src/demo/cache: merged into src.new before the
+   * swap (the new source's files win), so src.old never holds the only copy once it's deleted. A src.old left by a run
+   * that stopped mid-swap is merged the same way before it goes. Async so the first launch never blocks the main
+   * process. → ok
    */
   const copySource = async (): Promise<boolean> => {
     set({ state: 'installing', line: 'Setting up the engine' })
@@ -210,14 +252,19 @@ export function setupLocalEngine(
       await rm(next, { recursive: true, force: true })
       // preserveTimestamps: the .pyc files are hash-checked, but keeping mtimes avoids needless re-reads.
       await cp(join(bundle, 'src'), next, { recursive: true, preserveTimestamps: true })
+      // force: false keeps what's already there: the bundle's files first, then the current src's cache over src.old's.
+      for (const from of [src, old]) {
+        const cache = join(from, 'demo', 'cache')
+        if (existsSync(cache)) await cp(cache, join(next, 'demo', 'cache'), { recursive: true, force: false, errorOnExist: false })
+      }
       await rm(old, { recursive: true, force: true })
       if (existsSync(src)) await rename(src, old)
       await rename(next, src)
-      if (existsSync(join(old, 'demo', 'cache'))) await cp(join(old, 'demo', 'cache'), join(src, 'demo', 'cache'), { recursive: true, force: false, errorOnExist: false })
       await rm(old, { recursive: true, force: true })
       return true
     } catch (err) {
-      set({ state: 'failed', line: `Couldn't copy the engine: ${String(err).slice(0, 120)}`, logs })
+      note(`engine setup failed: ${String(err)}`)
+      set({ state: 'failed', line: "Couldn't set up the engine.", logs })
       return false
     }
   }
@@ -300,13 +347,15 @@ export function setupLocalEngine(
       child = spawnEngine()
     } catch (err) {
       child = undefined
-      return set({ state: 'failed', line: `Couldn't start the engine: ${String(err).slice(0, 120)}`, logs, runtime })
+      note(`engine start failed: ${String(err)}`)
+      return set({ state: 'failed', line: "Couldn't start the engine.", logs, runtime })
     }
     child.on('error', (err) => {
       child = undefined
-      set({ state: 'failed', line: `Couldn't start the engine: ${err.message}`, logs, runtime })
+      note(`engine start failed: ${String(err)}`)
+      set({ state: 'failed', line: "Couldn't start the engine.", logs, runtime })
     })
-    child.on('exit', (code) => {
+    child.on('exit', (code, signal) => {
       const wasRunning = status.state === 'running'
       child = undefined
       if (stopping) return set({ state: 'off' })
@@ -317,7 +366,8 @@ export function setupLocalEngine(
       if (wasRunning) return set({ state: 'failed', line: 'The engine stopped.', logs, runtime })
       // exit 1 right away can be "port already in use" (someone else's engine is up, the link will find it), or a
       // Python error on start. Only the port can tell them apart.
-      const failed: LocalEngineStatus = { state: 'failed', line: `The engine stopped (exit ${code}).`, logs, runtime }
+      if (code === null) note(`engine stopped by ${signal ?? 'a signal'}`)
+      const failed: LocalEngineStatus = { state: 'failed', line: code === null ? 'The engine stopped.' : `The engine stopped (exit ${code}).`, logs, runtime }
       if (code !== 1) return set(failed)
       void listening(port).then((up) => set(up ? { state: 'external' } : failed))
     })
@@ -441,13 +491,19 @@ function run(file: string, args: string[], timeout: number): Promise<{ ok: boole
   })
 }
 
-/** VS Code's own CLI: the two usual app folders, then Spotlight by bundle id (only Visual Studio Code itself). */
+/**
+ * VS Code's own CLI: the two usual app folders, then Spotlight by bundle id (only Visual Studio Code itself), and
+ * only inside /Applications or ~/Applications: never a copy in Downloads, on a mounted dmg or an external volume
+ * (a bundle id is just a string anyone can put in an Info.plist).
+ */
 async function findCodeCli(): Promise<string | null> {
   const inApp = (a: string): string => join(a, CODE_IN_APP, 'code')
   for (const a of VSCODE_APPS) if (executable(inApp(a))) return inApp(a)
-  const found = await run('/usr/bin/mdfind', [`kMDItemCFBundleIdentifier == '${VSCODE_BUNDLE_ID}'`], 5000)
+  const roots = ['/Applications', join(homedir(), 'Applications')]
+  const found = await run('/usr/bin/mdfind', [...roots.flatMap((r) => ['-onlyin', r]), `kMDItemCFBundleIdentifier == '${VSCODE_BUNDLE_ID}'`], 5000)
   for (const a of found.out.split('\n').map((l) => l.trim())) {
-    if (a.endsWith('.app') && executable(inApp(a))) return inApp(a)
+    const underRoot = roots.some((r) => a.startsWith(r + '/') && !a.split('/').includes('..'))
+    if (underRoot && a.endsWith('.app') && executable(inApp(a))) return inApp(a)
   }
   return null
 }
