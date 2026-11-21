@@ -68,6 +68,8 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
 function PanelLayer({ layout }: { layout: Layout }): ReactNode {
   const stepOn = useLesson((s) => !!s.lesson && !!s.stepId)
   const open = useDrawer((s) => s.open)
+  // Where the panel leaves to (LessonPanel's exit reads it): into the Mini pill on a collapse, off the edge otherwise.
+  const via = useDrawer((s) => s.via ?? 'edge')
   const shown = stepOn && open
   const docked = useDock((d) => d.rect)
   const rect = lessonPanelRect(layout)
@@ -80,7 +82,7 @@ function PanelLayer({ layout }: { layout: Layout }): ReactNode {
       <AnimatePresence>{shown && flyout && <Flyout key="flyout-panel" layout={layout} side="right" anchor={anchor} run={false} />}</AnimatePresence>
       {STEPS_HANDLE_WHEN_COLLAPSED && <Tab rect={tabRect(layout, true, 'right')} shown={stepOn && !open} labeled onOpen={openPanel} />}
       <Selectable>
-        <AnimatePresence>{shown && <LessonPanel key="lesson-panel" layout={layout} />}</AnimatePresence>
+        <AnimatePresence custom={via}>{shown && <LessonPanel key="lesson-panel" layout={layout} />}</AnimatePresence>
       </Selectable>
       <SelectionExplain />
     </>

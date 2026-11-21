@@ -59,6 +59,9 @@ export function useOverviewActive(hover: boolean): boolean {
   const drawerOpen = useDrawer((s) => s.open)
   // v2 (A1): the docked lesson panel is the step card; the hover card would repeat it.
   const panelOpen = useDock((s) => s.open)
+  // Les-Mini: the collapsed pill is itself the way back into the panel (a click opens it). The hover card grew over it
+  // within 150 ms and swallowed that click (persona QA blocker), so it never opens over Mini.
+  const mini = useDock((s) => s.collapsed)
   const overHole = useCardOverHole()
-  return base && !(textLesson && drawerOpen) && !panelOpen && !overHole
+  return base && !(textLesson && drawerOpen) && !(textLesson && mini) && !panelOpen && !overHole
 }
