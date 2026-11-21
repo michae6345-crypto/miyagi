@@ -48,10 +48,10 @@ import './v2/stage'
 const RETURN_MS = 700
 
 /**
- * v2 (A1): while the panel is collapsed, the labeled "Steps" handle on the right edge stays as the way back. A2's Mini
- * pill (useDock collapsed, click = openPanel) replaces it: set false when A2 merges, so there's one way back, not two.
+ * v2 (A1): while the panel is collapsed, the labeled "Steps" handle on the right edge was the way back. A2's Mini
+ * pill (useDock collapsed, click = openPanel) replaces it now that A2 is merged: one way back, not two (Les-Mini).
  */
-const STEPS_HANDLE_WHEN_COLLAPSED = true
+const STEPS_HANDLE_WHEN_COLLAPSED = false
 
 /** A "Just teach me" lesson gets the v2 lesson panel; a video lesson keeps the drawer below. */
 function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
