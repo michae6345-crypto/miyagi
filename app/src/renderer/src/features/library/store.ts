@@ -8,6 +8,7 @@ import type { LessonTool, LibraryItem } from '../../../../../../shared/contracts
 import { bridge } from '../../bridge'
 import { onMessage } from '../../core/bus'
 import { closeWindow } from '../../core/surfaces'
+import { useDash } from '../dashboard/store'
 import { cleanDetail, cleanList, isLibraryId, type LibraryDetail } from './sanitize'
 
 export type Caps = { list: boolean; get: boolean; start: boolean }
@@ -131,10 +132,17 @@ export function itemFor(s: State, id: string): LibraryItem | undefined {
  */
 export async function start(id: string): Promise<void> {
   const s = get()
-  if (s.starting || !isLibraryId(id)) return
+  // One start at a time across the window: Home's dashboard parts (Up next, skills) keep their own flag in useDash.
+  if (s.starting || useDash.getState().starting || !isLibraryId(id)) return
   set({ starting: id, startError: undefined })
+  // Mirror it there too, so those Start buttons wait (and show busy on the same lesson) without touching dashboard.
+  useDash.setState({ starting: id })
+  const release = (): void => {
+    if (useDash.getState().starting === id) useDash.setState({ starting: undefined })
+  }
   const sent = await bridge.invoke<boolean>('library:start', id).catch(() => false)
   if (!sent) {
+    release()
     set({ starting: undefined, startError: { id, text: 'This engine can’t start saved lessons yet.' } })
     return
   }
@@ -151,11 +159,13 @@ export async function start(id: string): Promise<void> {
   })
   if (outcome === 'ready') {
     setTimeout(() => {
+      release()
       set({ starting: undefined })
       void closeWindow('library')
     }, STARTED_LINGER_MS)
     return
   }
+  release()
   set({
     starting: undefined,
     startError: { id, text: outcome === 'error' ? 'That lesson didn’t start. Try again.' : 'No answer from the engine yet. Try again.' }
