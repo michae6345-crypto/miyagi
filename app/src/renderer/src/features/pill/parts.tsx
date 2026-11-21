@@ -193,6 +193,7 @@ export function SwapText({ id, children, className = '' }: { id: string; childre
   return (
     <motion.span
       className="relative block h-[34px] shrink-0 overflow-hidden"
+      data-swap-w={w?.px}
       initial={false}
       animate={{ width: w?.px }}
       transition={w?.instant ? { duration: 0 } : spring}

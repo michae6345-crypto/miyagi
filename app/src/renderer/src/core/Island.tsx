@@ -28,9 +28,14 @@ const PRESS_HOLD_MS = 1500
  */
 export type IslandBox = { x: number; y: number; w: number; h: number; mode?: string; pill: boolean; visible: boolean }
 const useIslandBoxStore = create<IslandBox>(() => ({ x: 0, y: 0, w: 0, h: 0, mode: undefined, pill: true, visible: false }))
-export function useIslandBox(): IslandBox {
-  return useIslandBoxStore()
+/** The whole box, or one value of it (`useIslandBox((b) => b.mode)`: re-renders only when that value changes). */
+export function useIslandBox(): IslandBox
+export function useIslandBox<T>(select: (b: IslandBox) => T): T
+export function useIslandBox<T>(select?: (b: IslandBox) => T): T | IslandBox {
+  return useIslandBoxStore((select ?? ((b: IslandBox) => b)) as (b: IslandBox) => T | IslandBox)
 }
+/** The box right now, without subscribing: for an animation target read when the animation starts. */
+export const islandBoxNow = (): IslandBox => useIslandBoxStore.getState()
 
 export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
   const [hover, setHover] = useState(false)
@@ -93,7 +98,12 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     let raf = 0
     let tries = 0
     const measure = (el: HTMLElement): void => {
-      const w = fixed ?? Math.ceil(el.offsetWidth)
+      // Motion (docs/MOTION.md): a text slot inside (pill/parts SwapText) springs its own width and says where it is
+      // going (data-swap-w). Measure the layer at that width, so the island springs once, in step with the slot,
+      // instead of re-measuring, re-rendering and re-aiming on every frame of the slot's spring.
+      let grow = 0
+      if (!fixed) for (const slot of el.querySelectorAll<HTMLElement>('[data-swap-w]')) grow += Number(slot.dataset.swapW) - slot.offsetWidth
+      const w = fixed ?? Math.ceil(el.offsetWidth + (Number.isFinite(grow) ? grow : 0))
       const h = fixed ? Math.ceil(el.offsetHeight) : pill.height
       if (w > 0 && h > 0) setSize((s) => (s.w === w && s.h === h ? s : { w, h }))
     }
