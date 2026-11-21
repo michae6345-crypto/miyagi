@@ -16,10 +16,11 @@ tips turns them all off.
 | launcher | the idle pill | Press [⌥Space] in any app to start a lesson. (keycap from `bridge.platform.keys.launcher`) | no lesson |
 | menubar | the menu bar (taskbar) item | Open it from the menu bar, even with every window closed. | after the launcher tip, idle, and main says where the item is |
 
-Calm rules: the element must hold still 700 ms (no tips mid-animation), nothing in the first 1.5 s, 1.4 s between two
+Calm rules: nothing while first-run setup is open (the overlay asks `onboarding:get` until it says done), the element must hold still 700 ms (no tips mid-animation), nothing in the first 1.5 s (after start-up, or after setup finishes), 1.4 s between two
 tips, nothing while another surface has the floor (a card out of the island, the launcher or Settings borrowing the
 island, the spotlight's hole, a diagram flyout, a concept, the pill's menu). If the element leaves, the tip goes too and
-counts as seen only if it was up 4 s. Enter: fade plus a 6 px rise toward the element on the house spring; reduced
+counts as seen only if it was up 4 s. The same goes for a dismiss from elsewhere (a card's close, a lesson completing):
+only Got it, the tip's own Esc and Don't show tips are final. Enter: fade plus a 6 px rise toward the element on the house spring; reduced
 motion: the fade only. The mark reserves its rect (`reserveRect('tips')`) so island cards step around it.
 
 ## Owns
@@ -51,9 +52,19 @@ Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/tips-1-launcher.jpg` to
    `[data-part="panel-help"]`, `[data-part="lesson-panel"]` and `[data-island-layer="idle|compact|mini"]`. If any of
    those change, that tip just waits (no crash, no misplaced mark).
 
+5. **Setup finished** (`main/features/onboarding.ts`, onboarding lane): in the `onboarding:done` handler, after saving,
+   `ctx.broadcast('onboarding:done')`. Tips already listen for it; until it lands they ask `onboarding:get` every 2 s
+   while setup is unfinished, so the first tip comes up to 2 s later than it could.
+
 ## Notes
+- Got it is a QuietButton: the element the tip teaches (Check my work) stays the one primary on screen.
+- The "..." menu reserves its rect next to the mark's while open, and a press anywhere else closes it.
+- The tray position is asked for only after the launcher tip is seen, while the island is idle and setup is done; the
+  first failed invoke (no handler before request 2) stops the asking for the session.
+- Stage: `?scenario=tips&onb=full` shows setup with no tip over it; finish setup and the launcher tip follows.
 - Esc: a capture-phase window listener takes Esc only while a tip is up, so the panel under it does not also collapse.
-  An `onUi('dismiss')` from elsewhere (a card's close, Electron's Esc path) also closes the tip.
+  An `onUi('dismiss')` from elsewhere (a card's close, a lesson completing, Electron's Esc path) withdraws the tip: it
+  is kept as seen only if it was up 4 s.
 - The overlay window is not focusable in Electron, so Got it (a click) is the main way out there; Esc works in the stage
   and in any focused window.
 - Unverified in Electron (cost freeze, no live run): click-through over the mark and its menu (both `data-hit`), the

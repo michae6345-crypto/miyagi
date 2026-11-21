@@ -21,7 +21,7 @@
 import { AnimatePresence } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
-import { bridge } from '../../bridge'
+import { bridge, isElectron } from '../../bridge'
 import { reserveRect, useDock } from '../../core/dock'
 import { useIslandBox, type IslandBox } from '../../core/Island'
 import { useLesson } from '../../core/lesson'
@@ -39,12 +39,12 @@ const STABLE_MS = 700
 const STARTUP_MS = 1500
 /** Air between one tip closing and the next one showing. */
 const COOLDOWN_MS = 1400
-/** A tip up this long counts as read even if its element leaves before Got it. */
-const READ_MS = 4000
 /** How often to ask "can a tip show?" while none is up (while one is, it follows its element every frame). */
 const IDLE_POLL_MS = 250
 /** How often to ask main where the menu bar item is (it can move when other items come and go). */
 const TRAY_POLL_MS = 5000
+/** How often to ask main whether first-run setup has finished, until it has (main does not announce it yet). */
+const ONBOARDING_POLL_MS = 2000
 
 /** Something else has the floor: the spotlight's hole, a diagram, a concept, the pill's menu. */
 const BUSY = '[data-part="hole"], [data-part="diagram-flyout"], [data-part="drawer-concept"], [data-launch-menu]'
@@ -69,8 +69,19 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
 
   const [anchor, setAnchor] = useState<Anchor | undefined>()
   const [size, setSize] = useState({ w: MARK_W, h: 128 })
-  const menubarSeen = useTips((s) => s.seen.includes('menubar'))
-  const tray = useTray(layout, !off && !menubarSeen)
+  // First-run setup has the floor until it is finished: no tip competes with its window.
+  const onboarded = useOnboardingDone(tipsEnabled && !off)
+  const onboardedRef = useRef(onboarded)
+  onboardedRef.current = onboarded
+  /** When the floor became free (start-up, or setup just finished): the first tip waits STARTUP_MS after it. */
+  const readyAt = useRef(Date.now())
+  useEffect(() => {
+    if (onboarded) readyAt.current = Date.now()
+  }, [onboarded])
+  // The menu bar tip is the only one that needs main's tray position, and it can show only after the launcher's tip,
+  // while the island is idle: ask main only then.
+  const trayWanted = useTips((s) => !s.off && !s.seen.includes('menubar') && s.seen.includes('launcher')) && onboarded && island.mode === 'idle'
+  const tray = useTray(layout, trayWanted)
   const trayRef = useRef(tray)
   trayRef.current = tray
   // The stage swaps its desktop picture (with a menu bar) for a plain backdrop during a panel lesson.
@@ -78,9 +89,7 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
 
   useEffect(() => {
     if (!tipsEnabled || off) return
-    const mountedAt = Date.now()
     let candidate: { id: TipId; target: Rect; since: number } | undefined
-    let shownAt = 0
     let raf = 0
     let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -107,15 +116,15 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
         seen: (id) => useTips.getState().seen.includes(id),
         height: layout.height
       }
-      // Another surface has the floor: a card grew out of the island, the launcher or Settings borrowed it, the
-      // spotlight or a diagram is up.
-      const busy = !ctx.island.visible || !ctx.island.pill || !!root.querySelector(BUSY)
+      // Another surface has the floor: first-run setup is still open, a card grew out of the island, the launcher or
+      // Settings borrowed it, the spotlight or a diagram is up.
+      const busy = !onboardedRef.current || !ctx.island.visible || !ctx.island.pill || !!root.querySelector(BUSY)
       const now = Date.now()
 
       if (s.active) {
         const a = busy ? undefined : TIP_BY_ID.get(s.active)?.anchor(ctx)
         if (!a) {
-          withdrawTip(now - shownAt >= READ_MS)
+          withdrawTip()
           setAnchor(undefined)
           return
         }
@@ -123,7 +132,7 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
         return
       }
 
-      if (busy || now - mountedAt < STARTUP_MS || now - s.closedAt < COOLDOWN_MS) {
+      if (busy || now - readyAt.current < STARTUP_MS || now - s.closedAt < COOLDOWN_MS) {
         candidate = undefined
         return
       }
@@ -135,7 +144,6 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
           candidate = { id: tip.id, target: a.target, since: now }
         } else if (now - candidate.since >= STABLE_MS) {
           candidate = undefined
-          shownAt = now
           setAnchor(a)
           showTip(tip.id)
         }
@@ -171,11 +179,35 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
   const tip = active ? TIP_BY_ID.get(active) : undefined
   const at = tip && anchor ? place(anchor.side, anchor.target, anchor.avoid ?? anchor.target, size, { w: layout.width, h: layout.height }) : undefined
 
-  // Reserve the mark's rect (screen points) so the island's cards step around it.
+  // The "..." menu hangs below the mark: its rect within the mark (unscaled offsets, so its pop-in scale doesn't count).
+  const [menuBox, setMenuBox] = useState<Rect | undefined>()
+  useLayoutEffect(() => {
+    const m = menu ? card.current?.querySelector<HTMLElement>('[role="menu"]') : undefined
+    const row = m?.offsetParent as HTMLElement | null | undefined
+    const next = m && row ? { x: row.offsetLeft + m.offsetLeft, y: row.offsetTop + m.offsetTop, w: m.offsetWidth, h: m.offsetHeight } : undefined
+    setMenuBox((cur) => (next && cur && sameRect(cur, next, 0) ? cur : next))
+  }, [menu, active, size.w, size.h])
+
+  // Reserve the mark's rect, and the open menu's (screen points), so the island's cards step around both.
   useEffect(() => {
-    reserveRect('tips', at ? { x: at.x + layout.origin.x, y: at.y + layout.origin.y, w: size.w, h: size.h } : undefined)
-  }, [at?.x, at?.y, size.w, size.h, layout.origin.x, layout.origin.y])
+    if (!at) return reserveRect('tips', undefined)
+    const ox = at.x + layout.origin.x
+    const oy = at.y + layout.origin.y
+    const mark = { x: ox, y: oy, w: size.w, h: size.h }
+    reserveRect('tips', menu && menuBox ? [mark, { x: ox + menuBox.x, y: oy + menuBox.y, w: menuBox.w, h: menuBox.h }] : mark)
+  }, [at?.x, at?.y, size.w, size.h, layout.origin.x, layout.origin.y, menu, menuBox?.x, menuBox?.y, menuBox?.w, menuBox?.h])
   useEffect(() => () => reserveRect('tips', undefined), [])
+
+  // A press anywhere outside the mark (and its menu) closes the open menu, as menus do.
+  useEffect(() => {
+    if (!menu) return
+    const onDown = (e: PointerEvent): void => {
+      if (e.target instanceof Element && e.target.closest('[data-part="tip"]')) return
+      setTipMenu(false)
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    return () => window.removeEventListener('pointerdown', onDown, true)
+  }, [menu])
 
   const gotIt = (): void => {
     if (tip?.alsoSeen) tip.alsoSeen.forEach(markSeen)
@@ -212,20 +244,67 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
 }
 
 /**
+ * Whether first-run setup (main/features/onboarding.ts) has finished. Until it has, its window is the one thing on
+ * screen and no tip shows. Asks `onboarding:get` once, then every ONBOARDING_POLL_MS until done; Core request 5 (main
+ * broadcasts `onboarding:done`) makes the hand-off instant. A main without the handler never blocks tips. Browser stage:
+ * setup is only running when the URL opens it (`?onb=`).
+ */
+function useOnboardingDone(wanted: boolean): boolean {
+  const [done, setDone] = useState(() => !isElectron && !new URLSearchParams(location.search).has('onb'))
+  useEffect(() => {
+    if (done || !wanted) return
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (): void => {
+      if (alive) setDone(true)
+    }
+    const ask = (): void => {
+      let p: Promise<{ done?: unknown } | undefined>
+      try {
+        p = bridge.invoke<{ done?: unknown } | undefined>('onboarding:get')
+      } catch {
+        return finish()
+      }
+      p.then((r) => {
+        if (!alive) return
+        if (r?.done === true) finish()
+        else timer = setTimeout(ask, ONBOARDING_POLL_MS)
+      }, finish)
+    }
+    const off = bridge.onFeature('onboarding:done', finish)
+    ask()
+    return () => {
+      alive = false
+      if (timer) clearTimeout(timer)
+      off()
+    }
+  }, [done, wanted])
+  return done
+}
+
+/**
  * Where main's menu bar (or taskbar) item is, in this overlay's coordinates. Core request 2: main/features/launch.ts
- * answers `launch:tray-bounds` with tray.getBounds(). Until then the invoke fails and the menu bar tip never shows.
+ * answers `launch:tray-bounds` with tray.getBounds(). Asked only while the menu bar tip could show (`wanted`). Until
+ * the handler exists the first invoke fails, and this stops asking for the rest of the session.
  */
 function useTray(layout: Layout, wanted: boolean): Rect | undefined {
   const [tray, setTray] = useState<Rect | undefined>()
+  const failed = useRef(false)
   useEffect(() => {
-    if (!wanted || !tipsEnabled) return
+    if (!wanted || !tipsEnabled || failed.current) return
     let alive = true
+    let id: ReturnType<typeof setInterval> | undefined
+    const stop = (): void => {
+      failed.current = true
+      if (id) clearInterval(id)
+      id = undefined
+    }
     const ask = (): void => {
       let p: Promise<unknown>
       try {
         p = bridge.invoke<unknown>(TRAY_CHANNEL)
       } catch {
-        return
+        return stop()
       }
       p.then((r) => {
         if (!alive) return
@@ -233,13 +312,13 @@ function useTray(layout: Layout, wanted: boolean): Rect | undefined {
         const ok = b && [b.x, b.y, b.width, b.height].every((v) => typeof v === 'number' && Number.isFinite(v)) && (b.width as number) > 0
         const next = ok ? { x: (b.x as number) - layout.origin.x, y: (b.y as number) - layout.origin.y, w: b.width as number, h: b.height as number } : undefined
         setTray((cur) => (next && cur && sameRect(cur, next) ? cur : next))
-      }).catch(() => undefined)
+      }, stop)
     }
     ask()
-    const id = setInterval(ask, TRAY_POLL_MS)
+    if (!failed.current) id = setInterval(ask, TRAY_POLL_MS)
     return () => {
       alive = false
-      clearInterval(id)
+      if (id) clearInterval(id)
     }
   }, [wanted, layout.origin.x, layout.origin.y])
   return tray

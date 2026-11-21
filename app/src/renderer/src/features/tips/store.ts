@@ -20,6 +20,8 @@ export type TipsSaved = { off: boolean; seen: TipId[] }
 
 type TipsState = TipsSaved & {
   active?: TipId
+  /** When the tip on screen appeared (ms): a tip that leaves before READ_MS comes back later. */
+  shownAt: number
   /** When the last tip closed (ms). The next one waits a moment, so tips never chain back to back. */
   closedAt: number
   /** The tip's own "…" menu is open. */
@@ -27,6 +29,8 @@ type TipsState = TipsSaved & {
 }
 
 const KEY = 'miyagi.tips'
+/** A tip up this long counts as read even if it closes some other way than Got it (its element left, a dismiss). */
+export const READ_MS = 4000
 const EMPTY: TipsSaved = { off: false, seen: [] }
 
 function clean(raw: unknown): TipsSaved {
@@ -74,7 +78,7 @@ const params = !isElectron && typeof location !== 'undefined' ? new URLSearchPar
 export const tipsEnabled = isElectron || !!params && (params.has('tips') || params.get('scenario') === 'tips')
 if (params?.get('tips') === 'reset') save({ ...EMPTY })
 
-export const useTips = create<TipsState>(() => ({ ...load(), active: undefined, closedAt: 0, menu: false }))
+export const useTips = create<TipsState>(() => ({ ...load(), active: undefined, shownAt: 0, closedAt: 0, menu: false }))
 
 // Prefs arrive after start-up (and from other windows): follow them when they hold the tips.
 usePrefs.subscribe((p) => {
@@ -93,7 +97,7 @@ function persist(): void {
 export function showTip(id: TipId): void {
   const s = useTips.getState()
   if (s.off || s.active === id || s.seen.includes(id)) return
-  useTips.setState({ active: id, menu: false })
+  useTips.setState({ active: id, shownAt: Date.now(), menu: false })
 }
 
 /** The learner closed it (Got it, Esc): it never comes back. */
@@ -104,9 +108,14 @@ export function dismissTip(): void {
   persist()
 }
 
-/** Its target left (the panel closed, a card opened). `read` = it was on screen long enough to count as seen. */
-export function withdrawTip(read: boolean): void {
-  if (read) return dismissTip()
+/**
+ * It closed without the learner choosing to (its target left, a card's close, a lesson completing). It counts as seen
+ * only if it was on screen READ_MS; otherwise it shows again the next time its element appears.
+ */
+export function withdrawTip(): void {
+  const { active, shownAt } = useTips.getState()
+  if (!active) return
+  if (Date.now() - shownAt >= READ_MS) return dismissTip()
   useTips.setState({ active: undefined, menu: false, closedAt: Date.now() })
 }
 
@@ -149,7 +158,6 @@ if (typeof window !== 'undefined') {
     true
   )
 }
-// A dismiss from elsewhere (a card's ✕, Electron's Esc path) also closes the tip: Esc means "not now" everywhere.
-onUi('dismiss', () => {
-  if (useTips.getState().active) dismissTip()
-})
+// A dismiss from elsewhere (a card's ✕, a lesson completing, Electron's Esc path) also closes the tip, but only
+// withdraws it: a tip the learner never got to read is not lost for good. Got it and the tip's own Esc (above) dismiss.
+onUi('dismiss', withdrawTip)
