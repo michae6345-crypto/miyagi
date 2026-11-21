@@ -19,7 +19,7 @@
  * Triggers: "connect", a command type ("learn", "build_lesson", "learn_url"), "learn:<mode>" (a learn with that mode,
  * when the scenario has it), or "action:<kind>".
  */
-import type { Incoming, Outgoing } from '../src/common/wire'
+import { V2_COMMANDS, type Incoming, type Outgoing } from '../src/common/wire'
 
 export type ScenarioItem = { wait?: number; goto?: string; type?: string; payload?: unknown }
 
@@ -37,7 +37,22 @@ export type MockEngine = {
   stop(): void
 }
 
-export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void, log = false): MockEngine {
+/** main/engine.ts LinkInfo: what a `_link` item fakes (the browser stage's feat:engine-link). */
+export type MockLink = { open: boolean; attempting: boolean; failures: number }
+
+/**
+ * v2 (W0-5):
+ *   - `{ "type": "_link", "payload": { "open": false, "attempting": true, "failures": 2 } }` fakes main's engine link
+ *     (reconnecting "2 of 5", offline) through `onLink`; it never reaches the app as an engine event. Where nothing
+ *     listens (replay.ts, DEMO=1) it's dropped.
+ *   - Every other type passes through as-is, the v2 events included (engine.hello, health, blocker, library, ...).
+ *   - v2 commands trigger like any other: "health.get", "progress.get", "panel.state"; library.get / library.start try
+ *     "<type>:<id>" first ("library.start:nn_intro"), then "<type>".
+ *   - Like the v2 engine, the mock says `engine.hello` (every V2_COMMANDS capability) on connect, on dev.reset and when a
+ *     `_link` item comes back open, before the scenario's own items. A scenario that sends its own engine.hello later
+ *     replaces it (core/lesson.ts keeps the last one), so a scenario can still narrow the capabilities or set `restored`.
+ */
+export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void, log = false, onLink?: (l: MockLink) => void): MockEngine {
   let timers: ReturnType<typeof setTimeout>[] = []
   /** Last "stepN" segment played, so triggers like "action:diagram@step6" can depend on it. */
   let current = ''
@@ -64,7 +79,12 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
       timers.push(
         setTimeout(() => {
           if (goto) play(goto)
-          else if (type) {
+          else if (type === '_link') {
+            const l = (payload ?? {}) as Partial<MockLink>
+            onLink?.({ open: !!l.open, attempting: !!l.attempting, failures: Number(l.failures) || 0 })
+            // A fake reconnect is a new engine as far as the app knows (lesson.ts drops hello on disconnect): say it again.
+            if (l.open) hello()
+          } else if (type) {
             if (log) console.log(`[mock]   → ${type}`)
             emit({ type, payload: payload ?? {} } as Incoming)
           }
@@ -73,6 +93,9 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
     }
   }
 
+  /** The default v2 hello, so canSend()/useCapability() hold in every scenario, not only the ones that script it. */
+  const hello = (): void => emit({ type: 'engine.hello', payload: { version: 'mock', contract: '2026-11-20', capabilities: [...V2_COMMANDS] } })
+
   const trigger = (key: string): void => {
     const seg = scenario.on[`${key}@${current}`] ?? scenario.on[key]
     if (seg) play(seg)
@@ -80,7 +103,10 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
   }
 
   return {
-    start: () => trigger('connect'),
+    start: () => {
+      hello()
+      trigger('connect')
+    },
     stop: clear,
     handle(cmd) {
       // The app streams these continuously; the mock just acknowledges keys like the engine would.
@@ -94,6 +120,7 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
       if (log) console.log(`[mock] ← ${JSON.stringify(cmd)}`)
       if (cmd.type === 'dev.reset') {
         clear()
+        hello()
         trigger('connect')
         return
       }
@@ -106,6 +133,7 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
         return
       }
       if (cmd.type === 'action') trigger(`action:${cmd.payload.kind}`)
+      else if ((cmd.type === 'library.get' || cmd.type === 'library.start') && scenario.on[`${cmd.type}:${cmd.payload.id}`]) trigger(`${cmd.type}:${cmd.payload.id}`)
       // learn {mode}: a scenario can answer "Just teach me" / "Demo" apart from a video search ("learn:lesson", "learn:demo").
       else if (cmd.type === 'learn' && cmd.payload.mode && scenario.on[`learn:${cmd.payload.mode}`]) trigger(`learn:${cmd.payload.mode}`)
       else trigger(cmd.type)
