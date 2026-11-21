@@ -4,7 +4,7 @@
  *   step.passed (not skipped, not "already")       tick   (the lesson's last step: done)
  *   card kind "complete" / a skill map             done   (once per lesson; skipped if the last step already chimed)
  *   onUi('setup-done') (Core request 4)            done   (the learner pressed the last setup button; reruns only)
- *   a pointer click on a primary button            tap    (only with the taps sub-toggle)
+ *   a pointer press on a primary button            tap    (only with the taps sub-toggle)
  *
  * Engine cues play in ONE window: the overlay (index.tsx mounts SoundHost there, like voice's speaker), since every
  * window receives the engine feed. Taps play in the window that was clicked. All windows share the "last cue" time and
@@ -12,7 +12,8 @@
  *
  * Typing: the learner types in VS Code and the terminal, which miyagi windows never see, and steps pass live while
  * they type. So before an engine cue the store asks main for the system idle time (sound:idle, any key or mouse input
- * in any app); under a second counts as typing now, and the gate holds the cue and drops it after 2.5 s of input.
+ * in any app); under a second counts as busy, and the gate holds the cue, the store samples the idle clock again every
+ * 225 ms and plays at the first quiet sample, and drops it 2.5 s after the pass if the input never stops.
  *
  *   useSoundLog(s => s.last)   the last cue asked for and what the gate said (the stage monitor reads it)
  */
@@ -33,6 +34,8 @@ const local = { typingAt: 0, dnd: false }
 let hosted = false
 let seq = 0
 let retry: ReturnType<typeof setTimeout> | undefined
+/** Bumped by a lesson reset: a sound:idle answer still in flight from before it must not decide in the new lesson. */
+let generation = 0
 
 const LAST_KEY = 'miyagi.sound.last'
 const TYPING_KEY = 'miyagi.sound.typing'
@@ -56,14 +59,16 @@ let held: { cue: Cue; why: string; system: boolean } | undefined
 export function request(cue: Cue, why: string, opts: { bornAt?: number; system?: boolean } = {}): void {
   const bornAt = opts.bornAt ?? Date.now()
   const system = opts.system === true && cue !== 'tap'
-  if (!system || !enabled()) return decide(cue, why, bornAt, system, undefined)
+  const gen = generation
+  if (!system || !enabled()) return decide(cue, why, bornAt, system, undefined, gen)
   bridge
     .invoke<number>('sound:idle')
-    .then((idle) => decide(cue, why, bornAt, system, idle))
-    .catch(() => decide(cue, why, bornAt, system, undefined))
+    .then((idle) => decide(cue, why, bornAt, system, idle, gen))
+    .catch(() => decide(cue, why, bornAt, system, undefined, gen))
 }
 
-function decide(cue: Cue, why: string, bornAt: number, system: boolean, idleSeconds: number | undefined): void {
+function decide(cue: Cue, why: string, bornAt: number, system: boolean, idleSeconds: number | undefined, gen: number): void {
+  if (gen !== generation) return // asked before a lesson reset: the old lesson's cue never plays in the new one
   const s = useSound.getState()
   const env = withSystemIdle({ now: Date.now(), enabled: s.mode === 'subtle', taps: s.taps, typingAt: local.typingAt, dnd: local.dnd }, idleSeconds)
   const verdict = gate.ask(cue, env, bornAt)
@@ -83,7 +88,7 @@ function decide(cue: Cue, why: string, bornAt: number, system: boolean, idleSeco
       request(p.cue, h.why, { bornAt: p.bornAt, system: h.system })
     }, verdict.retryInMs)
   } else if (!waiting || waiting.cue !== held?.cue) held = undefined
-  const busy = env.typingAt > local.typingAt
+  const busy = env.systemBusy === true
   useSoundLog.setState({ last: { id: ++seq, cue, at: Date.now(), verdict, why: busy ? `${why}, input elsewhere` : why } })
 }
 
@@ -123,12 +128,15 @@ if (typeof document !== 'undefined') {
     true
   )
 
-  // ---- taps: a pointer click on the one primary of a surface -------------------------------------------------------
+  // ---- taps: a pointer press on the one primary of a surface -------------------------------------------------------
+  // pointerdown, not click: the press dip (pressMotion whileTap) shows on press-down, and click waits for mouse-up, so
+  // on a slow press the sound would trail the visual. Left button, mouse or pen only; keys never tap.
   document.addEventListener(
-    'click',
+    'pointerdown',
     (e) => {
       const s = useSound.getState()
-      if (s.mode !== 'subtle' || !s.taps || e.detail === 0) return // detail 0 = keyboard "click": no tap for keys
+      if (s.mode !== 'subtle' || !s.taps || e.button !== 0 || !e.isPrimary) return
+      if (e.pointerType !== 'mouse' && e.pointerType !== 'pen') return
       const btn = (e.target as HTMLElement | null)?.closest?.('button')
       if (btn && !btn.disabled && isPrimary(btn)) request('tap', 'primary press')
     },
@@ -137,8 +145,10 @@ if (typeof document !== 'undefined') {
 }
 
 /**
- * The primary: core/ui/buttons.tsx marks it data-button="primary". core/ui/atoms.tsx's PrimaryButton has no marker
- * (Core request: add one); it is the white fill (color.accent), which no option or chrome button uses.
+ * The primary: core/ui/buttons.tsx marks it data-button="primary". core/ui/atoms.tsx's PrimaryButton and
+ * core/ui/glass.tsx's GlassPrimary have no marker yet (Core request 3); the fallback reads the white fill
+ * (color.accent), which no option or chrome button uses. GlassPrimary in light appearance is ink, so it gets no tap
+ * until it carries the marker.
  */
 function isPrimary(btn: HTMLElement): boolean {
   if (btn.dataset.button) return btn.dataset.button === 'primary'
@@ -176,6 +186,7 @@ onMessage('lesson.ready', () => {
   doneFor = undefined
 })
 onUi('reset', () => {
+  generation++
   doneFor = undefined
   gate.reset()
   if (retry) clearTimeout(retry)
@@ -199,10 +210,22 @@ onUi('setup-done' as UiEvent, () => {
 // ---- Do Not Disturb ------------------------------------------------------------------------------------------------
 
 // The stage has no main process: never in Do Not Disturb, and the system is idle unless ?busy=1 (the learner is
-// typing in another app right now: engine cues wait, then drop).
+// typing in another app right now: engine cues wait, then drop) or ?busy=input (idle is whole seconds since the last
+// key or pointer press in the stage page, like getSystemIdleTime: press a key, then a test Tick, to see the poll).
 if (!isElectron) {
+  let lastInput = 0
+  const mark = (): void => void (lastInput = Date.now())
+  if (typeof document !== 'undefined') {
+    document.addEventListener('keydown', mark, true)
+    document.addEventListener('pointerdown', mark, true)
+  }
   registerWebHandler('sound:dnd', () => false)
-  registerWebHandler('sound:idle', () => (new URLSearchParams(location.search).get('busy') === '1' ? 0 : 60))
+  registerWebHandler('sound:idle', () => {
+    const busy = new URLSearchParams(location.search).get('busy')
+    if (busy === '1') return 0
+    if (busy === 'input') return Math.floor((Date.now() - lastInput) / 1000)
+    return 60
+  })
 }
 
 let dndTimer: ReturnType<typeof setInterval> | undefined

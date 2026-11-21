@@ -5,9 +5,12 @@
  *   - Never more than one cue per MIN_GAP_MS (400 ms). Every cue is shorter than 250 ms, so two never overlap.
  *   - Never while the learner types (any key in a field within TYPING_QUIET_MS), and never in Do Not Disturb.
  *     The learner mostly types outside miyagi (VS Code, the terminal), so before a tick or done the store also asks
- *     main how long the whole system has been idle; under SYSTEM_BUSY_S counts as typing now (withSystemIdle below).
+ *     main how long the whole system has been idle; under SYSTEM_BUSY_S counts as busy now (withSystemIdle below).
  *   - A tick or done that is only blocked by the gap or by typing waits for it (one pending cue, the most important
- *     one), up to MAX_WAIT_MS after it was asked for; then it is dropped. A tap is never held: late feedback is noise.
+ *     one), up to MAX_WAIT_MS after it was FIRST asked for; then it is dropped. A tap is never held: late feedback is
+ *     noise. Typing in a miyagi field waits a fixed TYPING_QUIET_MS; input elsewhere is re-sampled every
+ *     SYSTEM_POLL_MS and the cue plays at the first quiet sample (a pass mostly lands right after Cmd+S or
+ *     Shift+Enter, and the idle clock is whole seconds, so a fixed wait from the pass would always trail the green).
  *
  * Pure module: no imports beyond the Cue type.
  */
@@ -18,6 +21,8 @@ export const TYPING_QUIET_MS = 1200
 export const MAX_WAIT_MS = 2500
 /** System-wide input (keys or mouse, any app) this recent counts as typing. getSystemIdleTime is whole seconds. */
 export const SYSTEM_BUSY_S = 1
+/** While a cue is held only by input elsewhere, the store asks for the system idle time again this often. */
+export const SYSTEM_POLL_MS = 225
 
 const RANK: Record<Cue, number> = { tap: 1, tick: 2, done: 3 }
 
@@ -31,16 +36,18 @@ export type GateEnv = {
   typingAt: number
   /** macOS Do Not Disturb / a Focus is on (false when it can't be read). */
   dnd: boolean
+  /** Key or mouse input anywhere on the Mac within SYSTEM_BUSY_S (set by withSystemIdle; absent = not known busy). */
+  systemBusy?: boolean
 }
 
 /**
  * Fold the system idle time (seconds since the last key or mouse input anywhere; undefined when it can't be read) into
- * the env: any input within SYSTEM_BUSY_S counts as a keystroke right now, so the gate holds the cue and drops it after
- * MAX_WAIT_MS if the learner keeps going.
+ * the env: any input within SYSTEM_BUSY_S marks the system busy, so the gate holds the cue, asks again after
+ * SYSTEM_POLL_MS, and drops it MAX_WAIT_MS after the pass if the learner keeps going.
  */
 export function withSystemIdle(env: GateEnv, idleSeconds: number | undefined): GateEnv {
   if (typeof idleSeconds !== 'number' || !Number.isFinite(idleSeconds) || idleSeconds >= SYSTEM_BUSY_S) return env
-  return { ...env, typingAt: Math.max(env.typingAt, env.now) }
+  return { ...env, systemBusy: true }
 }
 
 export type Verdict =
@@ -64,8 +71,10 @@ export function createGate(): Gate {
   let held: { cue: Cue; bornAt: number } | undefined
 
   const hold = (cue: Cue, bornAt: number, until: number, now: number): Verdict => {
-    // One pending cue: the most important one wins; an equal one keeps the first.
+    // One pending cue: the most important one wins; an equal one keeps the first (and its bornAt, so a second pass
+    // never stretches the wait past MAX_WAIT_MS from the first).
     if (held && held.cue !== cue && RANK[held.cue] >= RANK[cue]) return { play: false, reason: 'outranked' }
+    if (held?.cue === cue) bornAt = Math.min(held.bornAt, bornAt)
     if (until - bornAt > MAX_WAIT_MS) {
       if (held?.cue === cue) held = undefined
       return { play: false, reason: 'stale' }
@@ -90,6 +99,8 @@ export function createGate(): Gate {
       const typingUntil = env.typingAt > 0 ? env.typingAt + TYPING_QUIET_MS : -Infinity
       const gapUntil = lastAt + MIN_GAP_MS
       if (now < typingUntil) return cue === 'tap' ? { play: false, reason: 'typing' } : hold(cue, bornAt, Math.max(typingUntil, gapUntil), now)
+      // Input elsewhere: no fixed wait, the store samples the idle clock again after SYSTEM_POLL_MS.
+      if (env.systemBusy) return cue === 'tap' ? { play: false, reason: 'typing' } : hold(cue, bornAt, Math.max(now + SYSTEM_POLL_MS, gapUntil), now)
       if (now < gapUntil) return cue === 'tap' ? { play: false, reason: 'gap' } : hold(cue, bornAt, gapUntil, now)
 
       release()
