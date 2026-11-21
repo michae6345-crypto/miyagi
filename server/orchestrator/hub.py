@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -20,6 +21,8 @@ log = logging.getLogger("orchestrator.hub")
 V2_EVENTS = frozenset({"engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item",
                        "progress"})
 _KNOWN_EVENTS = frozenset(getattr(_contract, "ENGINE_EVENTS", {}))
+PROGRESS_EVENTS = frozenset({"lesson.ready", "lesson.ended", "step.started", "check.updated", "lesson.complete"})
+SEND_TIMEOUT_S = 5.0  # a client taking longer than this to accept a message is dropped, not waited on
 QUIET_EVENTS = frozenset({"metric", "screen.seen"})  # several a second / OCR'd screen text: no line at all
 
 
@@ -69,6 +72,7 @@ class Hub:
         self.strict = os.environ.get("ORCH_STRICT") == "1" if strict is None else strict
         self.history: deque[dict] = deque(maxlen=history)  # recent messages, for /events and tests
         self._pending_noted: set[str] = set()
+        self.on_progress_event: Any = None  # called (sync) when a lesson starts, ends or a step is done
 
     def encode(self, type_: str, payload: dict) -> dict:
         if type_ in V2_EVENTS and type_ not in _KNOWN_EVENTS:
@@ -97,6 +101,8 @@ class Hub:
     async def emit(self, type_: str, payload: dict[str, Any] | None = None) -> None:
         msg = self.encode(type_, payload or {})
         self.history.append(msg)
+        if type_ in PROGRESS_EVENTS and self.on_progress_event is not None:
+            self.on_progress_event()  # the app's coalesced library / progress reads must not serve a stale answer
         if type_ not in QUIET_EVENTS:  # screen.seen carries OCR'd screen text: keep it out of logs
             # BUILD-PLAN section 6: payloads (learner code, card text, titles) only at DEBUG; INFO keeps the type, so a
             # desktop test still sees what went out and when
@@ -104,14 +110,25 @@ class Hub:
                 log.debug("-> %s %s", type_, json.dumps(msg["payload"], ensure_ascii=False)[:200])
             else:
                 log.info("-> %s", type_)
-        dead = []
-        for ws in list(self.clients):
-            try:
-                await ws.send_json(msg)
-            except Exception as e:  # noqa: BLE001
-                dead.append((ws, e))
-        for ws, e in dead:
-            self.drop(ws, f"send of {type_} failed: {type(e).__name__}")
+        clients = list(self.clients)
+        if not clients:
+            return
+        # Concurrent sends, each capped: one stalled socket (backgrounded renderer, App Nap) used to block every
+        # emitter (_status, the 1 s tick, check results) behind it with no limit. A client that cannot take a message
+        # within SEND_TIMEOUT_S is dropped; the app reconnects and gets the snapshot.
+        results = await asyncio.gather(*(self._send_capped(ws, msg) for ws in clients))
+        for ws, e in zip(clients, results):
+            if e is not None:
+                self.drop(ws, f"send of {type_} failed: {type(e).__name__}")
+
+    async def _send_capped(self, ws: WebSocket, msg: dict) -> BaseException | None:
+        try:
+            await asyncio.wait_for(ws.send_json(msg), SEND_TIMEOUT_S)
+            return None
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - TimeoutError included
+            return e
 
     async def send_to(self, ws: WebSocket, type_: str, payload: dict) -> None:
         await ws.send_json(self.encode(type_, payload))
