@@ -10,7 +10,7 @@ export type Rect = { x: number; y: number; width: number; height: number }
 
 export type ShortcutKind = 'launcher' | 'back' | 'explain' | 'diagram' | 'show_me' | 'hint' | 'voice_toggle'
 /** v2 (W0-4): keys shown in the UI that are not global shortcuts: open Settings (in an app window's menu) and dismiss. */
-export type UiKeyKind = 'settings' | 'dismiss'
+export type UiKeyKind = 'settings' | 'dismiss' | 'ptt' | 'ptt_alt'
 /** Every label in PlatformInfo.keys: the ONLY source of keycaps (core/ui/Keycap.tsx). */
 export type KeyName = ShortcutKind | UiKeyKind
 
@@ -73,9 +73,9 @@ export function describePlatform(os: string): PlatformInfo {
     // in VS Code and ⌥E/D/S/H/V type characters (⌥E is the accent key), so global ⌥ shortcuts stole the learner's
     // typing. ⌃⌥ combos type nothing. The launcher stays ⌥Space. Windows is unchanged (Ctrl+Alt is AltGr there).
     keys: mac
-      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V', settings: '⌘,', dismiss: 'Esc' }
+      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V', settings: '⌘,', dismiss: 'Esc', ptt: 'fn ⌃', ptt_alt: '⌃⌥' }
       : // Alt+Space is the Windows system menu: never bind it there.
-        { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V', settings: 'Ctrl+,', dismiss: 'Esc' },
+        { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V', settings: 'Ctrl+,', dismiss: 'Esc', ptt: 'Ctrl+Win', ptt_alt: 'Ctrl+Alt' },
     accelerators: mac
       ? {
           launcher: 'Alt+Space',
