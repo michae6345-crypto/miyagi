@@ -45,7 +45,15 @@ function Lights({ onClose }: { onClose: () => void }): ReactNode {
   )
 }
 
-function Nav({ section, onSelect, focusOnMount }: { section: SettingsSection; onSelect: (s: SettingsSection) => void; focusOnMount: boolean }): ReactNode {
+function Nav({
+  section,
+  onSelect,
+  focusOnMount
+}: {
+  section: SettingsSection
+  onSelect: (s: SettingsSection, via?: 'keys') => void
+  focusOnMount: boolean
+}): ReactNode {
   const reduce = useReducedMotion()
   const refs = useRef<Partial<Record<SettingsSection, HTMLButtonElement | null>>>({})
 
@@ -53,8 +61,8 @@ function Nav({ section, onSelect, focusOnMount }: { section: SettingsSection; on
     if (focusOnMount) refs.current[section]?.focus({ preventScroll: true })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const go = (id: SettingsSection): void => {
-    onSelect(id)
+  const go = (id: SettingsSection, via?: 'keys'): void => {
+    onSelect(id, via)
     refs.current[id]?.focus({ preventScroll: true })
   }
   const onKey = (e: KeyboardEvent<HTMLDivElement>): void => {
@@ -63,7 +71,7 @@ function Nav({ section, onSelect, focusOnMount }: { section: SettingsSection; on
       e.key === 'ArrowDown' ? (i + 1) % NAV.length : e.key === 'ArrowUp' ? (i - 1 + NAV.length) % NAV.length : e.key === 'Home' ? 0 : e.key === 'End' ? NAV.length - 1 : -1
     if (to < 0) return
     e.preventDefault()
-    go(NAV[to].id)
+    go(NAV[to].id, 'keys')
   }
 
   return (
@@ -83,7 +91,7 @@ function Nav({ section, onSelect, focusOnMount }: { section: SettingsSection; on
             aria-controls="settings-panel"
             tabIndex={on ? 0 : -1}
             data-nav={id}
-            className="relative flex cursor-pointer items-center gap-[9px] text-left font-medium outline-none focus-visible:ring-1 focus-visible:ring-white/60"
+            className="relative flex cursor-pointer items-center gap-[9px] text-left font-medium outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)]"
             style={{ height: 30, padding: '0 10px', borderRadius: radius2.control, fontSize: type2.sm, color: on ? color.text : color.label }}
             whileHover={on ? undefined : { color: color.text }}
             whileTap={{ scale: 0.98 }}
@@ -116,7 +124,7 @@ export function Sidebar({
   focusOnMount = true
 }: {
   section: SettingsSection
-  onSelect: (s: string) => void
+  onSelect: (s: string, via?: 'keys') => void
   onClose: () => void
   version?: string
   focusOnMount?: boolean

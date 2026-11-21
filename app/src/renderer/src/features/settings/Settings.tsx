@@ -220,9 +220,17 @@ export function Settings({ layout }: { layout: Layout }): ReactNode {
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        // Neutral focus rings (the browser default is blue, and blue is not ours).
-        className="absolute left-1/2 overflow-hidden text-white [&_*:focus-visible]:outline-2 [&_*:focus-visible]:outline-offset-2 [&_*:focus-visible]:outline-white/70"
-        style={{ top: bridge.platform.pillTop, x: '-50%', background: color.island, transformOrigin: '50% 0%' }}
+        // Neutral focus rings (the browser default is blue, and blue is not ours), in the theme's label color through
+        // --focus-ring, so no color is hard-coded here. Sidebar's tabs read the same variable.
+        className="absolute left-1/2 overflow-hidden [&_*:focus-visible]:outline-2 [&_*:focus-visible]:outline-offset-2 [&_*:focus-visible]:outline-[color:var(--focus-ring)]"
+        style={{
+          top: bridge.platform.pillTop,
+          x: '-50%',
+          background: color.island,
+          color: color.text,
+          transformOrigin: '50% 0%',
+          ['--focus-ring' as string]: color.label
+        }}
         initial={reduce ? faded : { ...shapeOf(from), opacity: 1 }}
         animate={target}
         transition={transition}

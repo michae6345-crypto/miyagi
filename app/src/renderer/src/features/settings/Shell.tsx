@@ -40,7 +40,7 @@ export function Shell({ live, onClose }: { live: boolean; onClose: () => void })
 
   return (
     <div className="flex h-full w-full">
-      <Sidebar section={section} onSelect={(s) => isSection(s) && setSection(s)} onClose={onClose} version={about?.version} />
+      <Sidebar section={section} onSelect={(s, via) => isSection(s) && setSection(s, via)} onClose={onClose} version={about?.version} />
       <main
         id="settings-panel"
         role="tabpanel"

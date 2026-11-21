@@ -19,6 +19,7 @@ import { PrimaryButtonV2, QuietButton, Spinner } from '../../../core/ui/atoms'
 import { color, copy, fill, radius2, type2 } from '../../../core/theme'
 import type { KeyFlow } from '../account'
 import { KEY_LABEL, REQUIRED, SHOWN, type KeyInfo, type KeyName } from '../keys'
+import { useSettings } from '../store'
 import { Group, Note, PageHeader } from '../ui'
 import { OWN_KEY } from '../words'
 
@@ -32,10 +33,11 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
   const inputs = useRef<Partial<Record<KeyName, HTMLInputElement | null>>>({})
   const { view, status } = flow
 
-  // The caret goes where a key is needed first: a required key with no source, else the first row. Not when the
-  // learner arrived with ↑ / ↓ in the sidebar: focus stays on the section list so the arrows keep working.
+  // The caret goes where a key is needed first: a required key with no source, else the first row. On open (the limit
+  // card's "Your own key", or the sheet opening here) and on a click it does, even though the sidebar focused its tab
+  // first. Not when the learner arrived with ↑ / ↓ in the sidebar: focus stays on the list so the arrows keep working.
   useEffect(() => {
-    if (document.activeElement?.getAttribute('role') === 'tab') return
+    if (useSettings.getState().via === 'keys') return
     const first = SHOWN.find((k) => isRequired(k) && status?.[k] === 'missing') ?? SHOWN[0]
     inputs.current[first]?.focus({ preventScroll: true })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,8 +194,8 @@ function KeyRow({
           autoCapitalize="off"
           autoCorrect="off"
           data-1p-ignore
-          className="h-full min-w-0 flex-1 bg-transparent text-white outline-none placeholder:text-(--ph)"
-          style={{ fontFamily: 'var(--font-mono)', fontSize: type2.xs, caretColor: color.accent, ['--ph' as string]: set ? color.label : color.faint }}
+          className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-(--ph)"
+          style={{ color: color.text, fontFamily: 'var(--font-mono)', fontSize: type2.xs, caretColor: color.accent, ['--ph' as string]: set ? color.label : color.faint }}
         />
         {clearable && <SmallButton label={cleared ? 'Undo' : 'Clear'} onClick={onClear} />}
       </div>
@@ -211,8 +213,8 @@ function HelpLink({ label, onClick }: { label: string; onClick: () => void }): R
   return (
     <button
       type="button"
-      className="flex h-[32px] shrink-0 cursor-pointer items-center gap-[5px] whitespace-nowrap font-medium underline decoration-1 underline-offset-[3px] transition-colors hover:text-white"
-      style={{ fontSize: type2.xs, color: fill.chipText }}
+      className="flex h-[32px] shrink-0 cursor-pointer items-center gap-[5px] whitespace-nowrap font-medium underline decoration-1 underline-offset-[3px] transition-colors hover:text-(--hover)"
+      style={{ fontSize: type2.xs, color: fill.chipText, ['--hover' as string]: color.text }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
