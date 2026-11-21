@@ -53,16 +53,13 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
-<<<<<<< HEAD
 /** Bumped on every close request and open: a stale close watchdog never hides a newer open. */
 let launcherGen = 0
-=======
 /** When the launcher last opened (ms): a second press of the key inside LAUNCHER_DOUBLE_MS is the same press twice, not a close. */
 let launcherOpenedAt = 0
 const LAUNCHER_DOUBLE_MS = 400
 /** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
 let launcherOrigin: BrowserWindow | undefined
->>>>>>> origin/michael/app-ui-nov21
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
 let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
