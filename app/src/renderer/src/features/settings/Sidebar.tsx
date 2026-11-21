@@ -8,7 +8,7 @@
  */
 import { motion, useReducedMotion } from 'motion/react'
 import { KeyRound, Keyboard, Lock, ShieldCheck, SlidersHorizontal, X, type LucideIcon } from 'lucide-react'
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { color, copy, fill, radius2, spring, type2 } from '../../core/theme'
 import type { SettingsSection } from './env'
@@ -61,6 +61,16 @@ function Nav({
     if (focusOnMount) refs.current[section]?.focus({ preventScroll: true })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The tab is focused on open so the arrow keys work at once, but its ring waits for the first key press: a mouse
+  // open shows only the active row's fill, never fill plus ring (round 3 review). One ring, the sheet's own outline.
+  const [kbd, setKbd] = useState(false)
+  useEffect(() => {
+    if (kbd) return
+    const on = (): void => setKbd(true)
+    window.addEventListener('keydown', on, true)
+    return () => window.removeEventListener('keydown', on, true)
+  }, [kbd])
+
   const go = (id: SettingsSection, via?: 'keys'): void => {
     onSelect(id, via)
     refs.current[id]?.focus({ preventScroll: true })
@@ -91,8 +101,9 @@ function Nav({
             aria-controls="settings-panel"
             tabIndex={on ? 0 : -1}
             data-nav={id}
-            className="relative flex cursor-pointer items-center gap-[9px] text-left font-medium outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring)]"
-            style={{ height: 30, padding: '0 10px', borderRadius: radius2.control, fontSize: type2.sm, color: on ? color.text : color.label }}
+            className="relative flex cursor-pointer items-center gap-[9px] text-left font-medium"
+            data-kbd={kbd || undefined}
+            style={{ height: 30, padding: '0 10px', borderRadius: radius2.control, fontSize: type2.sm, color: on ? color.text : color.label, ...(kbd ? {} : { outlineStyle: 'none' }) }}
             whileHover={on ? undefined : { color: color.text }}
             whileTap={{ scale: 0.98 }}
             transition={{ duration: 0.12 }}

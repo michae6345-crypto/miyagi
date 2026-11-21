@@ -27,6 +27,8 @@ const isRequired = (k: KeyName): boolean => REQUIRED.includes(k)
 
 /** Where to get each key (main/safeOpen.ts allowlists these hosts). */
 const KEY_HELP = 'https://console.anthropic.com/settings/keys'
+/** The footer line that says why Test is off. */
+const TEST_WHY = 'settings-key-test-why'
 
 export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): ReactNode {
   const connected = useLesson((s) => s.connected)
@@ -101,15 +103,18 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
               <span className="truncate">{flow.saved}</span>
             </motion.span>
           )}
+          {/* Why Test is off, said out loud: a disabled button's tooltip rarely shows and screen readers never read it. */}
+          {!footNote && !flow.saved && !testable && live && (
+            <span id={TEST_WHY} className="min-w-0 truncate" data-test-why>
+              Save a key to test it.
+            </span>
+          )}
           {!footNote && !flow.saved && <HelpLink label="Where do I find my key?" onClick={() => bridge.invoke('open:external', KEY_HELP).catch(() => {})} />}
         </span>
-        <QuietButton
-          label="Test"
-          busy={flow.testing}
-          disabled={!testable || flow.testing || !live}
-          title={testable ? undefined : 'Paste and save a key first'}
-          onClick={() => void flow.test()}
-        />
+        {/* The title sits on a wrapper: hover on a disabled button never reaches its own title. */}
+        <span className="flex shrink-0" title={testable ? undefined : 'Save a key first, then test it'}>
+          <QuietButton label="Test" busy={flow.testing} disabled={!testable || flow.testing || !live} onClick={() => void flow.test()} />
+        </span>
         <PrimaryButtonV2 label="Save key" busy={flow.saving} disabled={!flow.dirty || flow.saving} onClick={() => void flow.save()} />
       </div>
     </>
