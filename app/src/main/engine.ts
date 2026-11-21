@@ -39,7 +39,8 @@ type LinkListener = (l: LinkInfo) => void
 /** The header that carries the per-launch engine token (W0-5; the engine checks it in E2 when MIYAGI_ENGINE_TOKEN is set). */
 export const TOKEN_HEADER = 'X-Miyagi-Token'
 const V2 = new Set<string>(V2_COMMANDS)
-/** The anonymous install token for the hosted proxy (main/features/cloud.ts): folded into config.keys, nowhere else. */
+/** The anonymous install token for the hosted proxy (main/features/cloud.ts): folded into config.keys, nowhere else.
+ * miyagiCloud is the proxy's API root `https://<host>/v1` (cloudApiRoot), the form the engine's server/config.py uses. */
 export type CloudKeys = { miyagiToken: string; miyagiCloud: string }
 /** This Mac (the same test as localEngine.ts `local`). */
 const LOOPBACK = /^wss?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i

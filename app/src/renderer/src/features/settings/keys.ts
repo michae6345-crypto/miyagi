@@ -15,7 +15,7 @@ import type { KeyState } from '../../../../../../shared/contracts/events'
 export const KEY_NAMES = ['anthropic', 'gemini', 'elevenlabs'] as const
 export type KeyName = (typeof KEY_NAMES)[number]
 
-/** The app can't build a lesson without these. First run opens Settings if either is `missing`. */
+/** The app can't build a lesson without one of these or the miyagi cloud (needsKeys). Settings never opens by itself. */
 export const REQUIRED: readonly KeyName[] = ['anthropic'] // Gemini is off in this build (Michael, Sat)
 
 export type Keys = Partial<Record<KeyName, string>>
@@ -108,7 +108,15 @@ export function clearAll(): SavePatch {
   return out
 }
 
-/** First run: a required key the engine has no source for at all (not even its .env). */
-export function needsKeys(status: Partial<KeyStatus> | undefined): boolean {
+/** The cloud install token's phase (main/features/cloud.ts CloudView, the fields this check reads). */
+export type CloudPhaseView = { configured: boolean; state: 'off' | 'minting' | 'ok' | 'failed' }
+
+/**
+ * A required key the engine has no source for at all (not even its .env), and no miyagi cloud to cover it. With the
+ * cloud configured and its token minted or still minting, no key is needed: never ask for one (bring-your-own-key
+ * stays in Settings › Account).
+ */
+export function needsKeys(status: Partial<KeyStatus> | undefined, cloud?: CloudPhaseView): boolean {
+  if (cloud?.configured && (cloud.state === 'ok' || cloud.state === 'minting')) return false
   return !!status && REQUIRED.some((k) => status[k] === 'missing')
 }
