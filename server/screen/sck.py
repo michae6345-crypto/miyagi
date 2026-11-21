@@ -1,4 +1,4 @@
-"""ScreenCaptureKit capture of the primary display WITHOUT our own overlay (and excluded apps).
+"""ScreenCaptureKit capture of one display (the learner's) WITHOUT our own overlay (and excluded apps).
 
 SCContentFilter leaves our Electron overlay's windows out of OUR frames, while the overlay stays
 visible on screen and in the user's screen recordings (unlike setContentProtection).
@@ -77,7 +77,7 @@ class SCKCapturer:
             return True
         return self._is_overlay(app) or str(app.bundleIdentifier() or "") in self.private_bundles
 
-    def _refresh(self) -> None:
+    def _refresh(self, display_id: int | None = None) -> None:
         ev, box = threading.Event(), {}
 
         def done(content, err):
@@ -96,10 +96,13 @@ class SCKCapturer:
                 raise SCKDeclined(f"SCShareableContent failed: {box.get('e')}")
             raise RuntimeError(f"SCShareableContent failed: {box.get('e')}")
         content = box["c"]
-        main_id = Quartz.CGMainDisplayID()
-        disp = next((d for d in content.displays() if d.displayID() == main_id), None)
+        want = display_id or Quartz.CGMainDisplayID()
+        disp = next((d for d in content.displays() if d.displayID() == want), None)
+        if disp is None and display_id:  # the asked display went away: the primary one
+            main_id = Quartz.CGMainDisplayID()
+            disp = next((d for d in content.displays() if d.displayID() == main_id), None)
         if disp is None:
-            raise RuntimeError("primary display not in SCShareableContent")
+            raise RuntimeError("display not in SCShareableContent")
         excluded = [a for a in content.applications() if self._is_excluded(a)]
         self.excluded_apps = [str(a.applicationName() or a.bundleIdentifier()) for a in excluded]
         self.overlay_apps = [str(a.applicationName() or a.bundleIdentifier()) for a in excluded if self._is_overlay(a)]
@@ -108,12 +111,12 @@ class SCKCapturer:
         self._display = disp
         self._content, self._content_t = content, time.time()
 
-    def capture(self):
+    def capture(self, display_id: int | None = None):
         """-> (CGImage, screen Rect in points, scale). Raises ScreenPermissionError / SCKStalled /
         RuntimeError. A failed screenshot with a stale filter (Space switch, app quit) is retried
         once with fresh content; a stall is not (it would just stall again)."""
         try:
-            return self._capture_once()
+            return self._capture_once(display_id)
         except (SCKStalled, SCKDeclined):  # t10 R5: a TCC refusal isn't retried either (the retry froze capture)
             raise
         except ScreenPermissionError:
@@ -121,11 +124,13 @@ class SCKCapturer:
         except Exception as e:  # noqa: BLE001
             log.info("SCK capture failed (%s); retrying once with fresh content", e)
             self._filter = None
-            return self._capture_once()
+            return self._capture_once(display_id)
 
-    def _capture_once(self):
-        if self._filter is None or time.time() - self._content_t > self.refresh_s:
-            self._refresh()
+    def _capture_once(self, display_id: int | None = None):
+        want = display_id or Quartz.CGMainDisplayID()
+        if (self._filter is None or time.time() - self._content_t > self.refresh_s
+                or (self._display is not None and int(self._display.displayID()) != int(want))):
+            self._refresh(display_id)
         disp = self._display
         f = disp.frame()
         screen = Rect(f.origin.x, f.origin.y, f.size.width, f.size.height)

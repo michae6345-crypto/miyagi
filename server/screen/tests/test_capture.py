@@ -25,13 +25,13 @@ class StalledSCK:
     excluded_apps = ()
     calls = 0
 
-    def capture(self):
+    def capture(self, display_id=None):
         from server.screen.sck import SCKStalled
         StalledSCK.calls += 1
         raise SCKStalled("SCShareableContent gave no answer in 1.5 s")
 
 
-def _fake_frame():
+def _fake_frame(*_a, **_k):
     from server.screen import macos
     from server.screen.types import Rect
     img = macos.load_cgimage(os.path.join(os.path.dirname(__file__), "..", "fixtures", "vscode_fullscreen_top.png"),
@@ -49,7 +49,7 @@ def no_windows(monkeypatch):
 def test_sck_stall_falls_back_to_screencapture_in_the_same_frame(monkeypatch, no_windows):
     from server.screen import macos
     monkeypatch.setattr(macos, "capture_main_display_cli", _fake_frame)
-    monkeypatch.setattr(macos, "capture_main_display", lambda: pytest.fail("CG must not be needed"))
+    monkeypatch.setattr(macos, "capture_main_display", lambda *a, **k: pytest.fail("CG must not be needed"))
     r = _reader()
     r._sck = StalledSCK()
     img, _screen, _scale, _windows, _app, source, excluded = r._grab()
@@ -96,7 +96,7 @@ def test_sck_recovery_resets_backoff(monkeypatch):
     class OK:
         excluded_apps = ("Electron",)
 
-        def capture(self):
+        def capture(self, display_id=None):
             return object(), None, 2.0
 
     r._sck = OK()
@@ -106,7 +106,7 @@ def test_sck_recovery_resets_backoff(monkeypatch):
 def test_no_screencapture_binary_uses_cg(monkeypatch, no_windows):
     from server.screen import macos
 
-    def missing():
+    def missing(*a, **k):
         raise FileNotFoundError(macos.SCREENCAPTURE)
     monkeypatch.setattr(macos, "capture_main_display_cli", missing)
     monkeypatch.setattr(macos, "capture_main_display", _fake_frame)
@@ -119,7 +119,7 @@ def test_no_screencapture_binary_uses_cg(monkeypatch, no_windows):
 def test_tut_capture_cg_forces_the_old_path(monkeypatch, no_windows):
     from server.screen import macos
     monkeypatch.setenv("TUT_CAPTURE", "cg")
-    monkeypatch.setattr(macos, "capture_main_display_cli", lambda: pytest.fail("cli must be skipped"))
+    monkeypatch.setattr(macos, "capture_main_display_cli", lambda *a, **k: pytest.fail("cli must be skipped"))
     monkeypatch.setattr(macos, "capture_main_display", _fake_frame)
     r = _reader()
     assert not r.use_sck
@@ -130,7 +130,7 @@ def test_tut_capture_cg_forces_the_old_path(monkeypatch, no_windows):
 def test_both_paths_failing_is_unavailable_not_permission(monkeypatch, no_windows):
     from server.screen import macos
 
-    def down():
+    def down(*a, **k):
         raise macos.ScreenUnavailableError("screencapture failed (exit 1): no image")
     monkeypatch.setattr(macos, "capture_main_display_cli", down)
     r = _reader()
@@ -146,7 +146,7 @@ def test_sck_retries_once_on_a_stale_filter_but_not_on_a_stall():
     c._filter = "stale"
     seen = []
 
-    def once_bad():
+    def once_bad(*_a):
         seen.append(c._filter)
         if len(seen) == 1:
             raise RuntimeError("ScreenCaptureKit capture failed: window list changed")
@@ -154,7 +154,7 @@ def test_sck_retries_once_on_a_stale_filter_but_not_on_a_stall():
     c._capture_once = once_bad
     assert c.capture() == ("img", None, 2.0) and seen == ["stale", None]   # refreshed, then OK
 
-    def stalled():
+    def stalled(*_a):
         seen.append("stall")
         raise SCKStalled("no answer")
     c._capture_once = stalled

@@ -111,7 +111,7 @@ def test_sck_failure_is_temporary(monkeypatch, live_sck):
     class Boom:
         excluded_apps = ()
 
-        def capture(self):
+        def capture(self, display_id=None):
             raise RuntimeError("display asleep")
 
     r._sck = Boom()
