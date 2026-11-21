@@ -16,6 +16,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
+import { VOICE_ENABLED } from '../../../../common/flags'
 import { cmd } from '../../../../common/wire'
 import { bridge, registerWebHandler } from '../../bridge'
 import { emitUi } from '../../core/bus'
@@ -39,14 +40,14 @@ import { GlassKey, hoverCls, look, Tile } from './Tile'
 
 type Btn = { kind: ActionShortcut; label: string; icon: LucideIcon }
 
-const BUTTONS: Btn[] = [
+const BUTTONS: Btn[] = ([
   { kind: 'back', label: 'Back', icon: RotateCcw },
   { kind: 'explain', label: 'Explain', icon: MessageSquareText },
   { kind: 'diagram', label: 'Diagram', icon: Waypoints },
   { kind: 'show_me', label: 'Show me', icon: SquarePlay },
   { kind: 'hint', label: 'Hint', icon: Lightbulb },
   { kind: 'voice_toggle', label: 'Voice', icon: AudioLines }
-]
+] satisfies Btn[]).filter((b) => VOICE_ENABLED || b.kind !== 'voice_toggle') // voice is off for now (common/flags)
 
 /**
  * Step controls, always reachable in every lesson (video or "Just teach me"): Check = "Can I move on?" (engine re-runs

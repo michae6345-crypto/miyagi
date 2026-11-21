@@ -6,6 +6,7 @@
  * plain words, never as a keycap: live rebinding is wave 2, so a stored key is not what the app listens to yet.
  */
 import type { ShortcutKind } from '../../../../main/platform'
+import { VOICE_ENABLED } from '../../../../common/flags'
 import { isAccelerator, type ShortcutPrefs } from '../../../../common/prefs'
 import type { KeyName } from '../../core/ui/Keycap'
 import type { OptionAction } from '../../core/theme'
@@ -20,7 +21,7 @@ export type ShortcutRow = {
 }
 
 /** Watch has no shortcut this push (decision 3); Voice keeps its key. */
-export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
+export const SHORTCUT_ROWS: readonly ShortcutRow[] = ([
   { key: 'launcher', label: 'Open launcher' },
   { key: 'explain', label: 'Explain', option: 'explain' },
   { key: 'hint', label: 'Hint', option: 'hint' },
@@ -29,7 +30,7 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   { key: 'back', label: 'Back' },
   { key: 'voice_toggle', label: 'Voice' },
   { key: 'dismiss', label: 'Dismiss', fixed: true }
-]
+] satisfies ShortcutRow[]).filter((r) => VOICE_ENABLED || r.key !== 'voice_toggle') // voice is off for now (common/flags)
 
 const SHORTCUT_KINDS: readonly string[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
 export const isShortcutKind = (k: unknown): k is ShortcutKind => typeof k === 'string' && SHORTCUT_KINDS.includes(k)

@@ -17,6 +17,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { devReset } from '../../../common/wire'
 import desktop from './desktop.png'
+import { VOICE_ENABLED } from '../../../common/flags'
 import { bridge, engineMode, STAGE } from '../bridge'
 import { emitUi } from '../core/bus'
 import { useLesson } from '../core/lesson'
@@ -26,7 +27,14 @@ import { getAppWindows, getFeatureWindows } from '../core/registry'
 import { triggerShortcut, type ActionShortcut } from '../core/shortcuts'
 import { Overlay } from '../core/Overlay'
 
-const KEYMAP: Record<string, ActionShortcut> = { ArrowLeft: 'back', KeyE: 'explain', KeyD: 'diagram', KeyS: 'show_me', KeyH: 'hint', KeyV: 'voice_toggle' }
+const KEYMAP: Record<string, ActionShortcut> = {
+  ArrowLeft: 'back',
+  KeyE: 'explain',
+  KeyD: 'diagram',
+  KeyS: 'show_me',
+  KeyH: 'hint',
+  ...(VOICE_ENABLED ? { KeyV: 'voice_toggle' as const } : {}) // voice is off for now (common/flags)
+}
 
 /** Top of the Dock in desktop.png (its tiles start at 921), less a few px of margin, like a Mac's workArea. Scaled with ?size. */
 const DOCK_TOP = Math.round((916 / 1000) * STAGE.height)

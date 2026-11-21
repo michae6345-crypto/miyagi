@@ -9,6 +9,7 @@
  */
 import { CodeXml, NotebookText, Wrench } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { VOICE_ENABLED } from '../../../../../common/flags'
 import { useLesson } from '../../../core/lesson'
 import { setPrefs, usePrefs, type Appearance } from '../../../core/prefs'
 import { openOnboarding } from '../../../core/surfaces'
@@ -47,12 +48,15 @@ export function General({ live }: { live: boolean }): ReactNode {
           caption="miyagi waits in the pill until you need it."
           right={<Toggle label="Launch at login" on={launchAtLogin} onChange={(v) => setPrefs({ launchAtLogin: v })} />}
         />
-        <Row
-          tight
-          label="Voice"
-          caption="Read lessons out loud when one starts."
-          right={<Toggle label="Voice" on={voiceOnStart} onChange={(v) => setPrefs({ voiceOnStart: v })} />}
-        />
+        {/* Voice is off for now (common/flags): the row comes back with the flag. */}
+        {VOICE_ENABLED && (
+          <Row
+            tight
+            label="Voice"
+            caption="Read lessons out loud when one starts."
+            right={<Toggle label="Voice" on={voiceOnStart} onChange={(v) => setPrefs({ voiceOnStart: v })} />}
+          />
+        )}
       </Group>
 
       <WorksWith health={health} inLesson={inLesson} />

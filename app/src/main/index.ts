@@ -33,6 +33,7 @@ import {
   type ShortcutKind
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
+import { VOICE_ENABLED } from '../common/flags'
 
 const platform = describePlatform(process.platform)
 const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
@@ -103,17 +104,20 @@ const RENDERER_COMMANDS = new Set<string>([
   ...V2_COMMANDS
 ])
 
-/** Microphone only, for voice, only for our own page. Everything else a page can ask for is refused. */
+/**
+ * Microphone only, for voice, only for our own page. Everything else a page can ask for is refused.
+ * Voice is off for now (common/flags): then the microphone is refused too, so the app never asks for it.
+ */
 function hardenSession(): void {
   const s = session.defaultSession
   s.setPermissionRequestHandler((wc, permission, cb, details) => {
     const media = details as { mediaTypes?: string[]; requestingUrl?: string }
     const micOnly = permission === 'media' && !!media.mediaTypes?.length && media.mediaTypes.every((t) => t === 'audio')
-    cb(micOnly && ownOrigin(media.requestingUrl ?? wc.getURL()))
+    cb(VOICE_ENABLED && micOnly && ownOrigin(media.requestingUrl ?? wc.getURL()))
   })
   s.setPermissionCheckHandler((_wc, permission, origin, details) => {
     const media = details as { mediaType?: string }
-    return permission === 'media' && media.mediaType === 'audio' && ownOrigin(origin)
+    return VOICE_ENABLED && permission === 'media' && media.mediaType === 'audio' && ownOrigin(origin)
   })
 }
 
@@ -299,7 +303,10 @@ function hideLauncher(): void {
   returnFocus(app, overlay, previousApp())
 }
 
-const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = ['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
+// Voice is off for now (common/flags): its key is never registered, so ⌃⌥V stays with the other apps.
+const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = (['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle'] as const).filter(
+  (k) => VOICE_ENABLED || k !== 'voice_toggle'
+)
 
 /** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
 function registerActionShortcuts(): void {

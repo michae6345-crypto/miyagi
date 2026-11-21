@@ -10,6 +10,7 @@ import { bridge } from '../../../bridge'
 import { triggerShortcut } from '../../../core/shortcuts'
 import { copy, fill, radius2, type2 } from '../../../core/theme'
 import { Keycap, keyLabel } from '../../../core/ui/Keycap'
+import { VOICE_ENABLED } from '../../../../../common/flags'
 import { useVoice } from '../../voice/store'
 import { tone } from './ui'
 
@@ -44,9 +45,12 @@ export function KeysRow({ onHide, backDisabled }: { onHide: () => void; backDisa
         <IconKey label="Back" keyText={keys.back} disabled={backDisabled} onClick={() => triggerShortcut('back')}>
           <ArrowLeft size={14} strokeWidth={1.8} aria-hidden />
         </IconKey>
-        <IconKey label={voiceOn ? 'Voice on' : 'Voice'} keyText={keys.voice_toggle} pressed={voiceOn} onClick={() => triggerShortcut('voice_toggle')}>
-          <AudioLines size={14} strokeWidth={1.8} aria-hidden />
-        </IconKey>
+        {/* Voice is off for now (common/flags): no button, no keycap. */}
+        {VOICE_ENABLED && (
+          <IconKey label={voiceOn ? 'Voice on' : 'Voice'} keyText={keys.voice_toggle} pressed={voiceOn} onClick={() => triggerShortcut('voice_toggle')}>
+            <AudioLines size={14} strokeWidth={1.8} aria-hidden />
+          </IconKey>
+        )}
       </div>
     </div>
   )
