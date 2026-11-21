@@ -239,8 +239,10 @@ fi
 if [ -d "$BACKUPS" ]; then
   KEEP_NOW=$KEEP
   [ "$DRY" = 1 ] && [ -n "$OLD" ] && KEEP_NOW=$((KEEP - 1))
+  # No miyagi-*.app left (backups cleared by hand): ls exits 1, and under pipefail that would abort the install here,
+  # after the swap, before quarantine / Launch Services / the report. `|| true` keeps an empty folder a no-op.
   # shellcheck disable=SC2012
-  ls -1dt "$BACKUPS"/miyagi-*.app 2>/dev/null | tail -n +"$((KEEP_NOW + 1))" | while read -r b; do
+  { ls -1dt "$BACKUPS"/miyagi-*.app 2>/dev/null || true; } | tail -n +"$((KEEP_NOW + 1))" | while read -r b; do
     [ -n "$b" ] && act rm -rf "$b"
   done
 fi
