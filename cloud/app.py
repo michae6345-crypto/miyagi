@@ -72,6 +72,9 @@ PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "1"))  # Render's load bal
 FREE_LESSON_BUILDS_PER_MONTH = int(os.environ.get("FREE_LESSON_BUILDS_PER_MONTH", "3"))  # new videos; cache hits are free
 FREE_COACH_CALLS_PER_DAY = int(os.environ.get("FREE_COACH_CALLS_PER_DAY", "60"))  # AI calls with x-miyagi-role: coach
 FREE_DAILY_REQUESTS = int(os.environ.get("FREE_DAILY_REQUESTS", "0"))  # every forwarded AI call; off by default
+# Kill switch on spend: once the estimated USD of every install together reaches this today (UTC), every forwarded
+# AI call gets a 429 until UTC midnight, pro installs included. Cache hits and events still work. Empty or 0: off.
+DAILY_USD_CAP = float(os.environ.get("DAILY_USD_CAP", "0") or 0)
 # Shared lesson cache (ROADMAP 3.1)
 MAX_LESSON_BYTES = int(float(os.environ.get("MAX_LESSON_KB", "512")) * 1024)
 MIN_LESSON_SCHEMA = int(os.environ.get("MIN_LESSON_SCHEMA", "1"))  # raise it to retire drafts older engines wrote
@@ -224,9 +227,9 @@ def _iso(t: datetime) -> str:
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def quota_error(kind: str, limit: str, used: int, cap: int, resets: datetime, message: str) -> JSONResponse:
+def quota_error(kind: str, limit: str, used: int | float, cap: int | float, resets: datetime, message: str) -> JSONResponse:
     """429 in error()'s shape plus what the app needs to show it: `limit` (lesson_builds | coach_calls |
-    daily_requests), `used`, `cap` and `resets_at`. `x-should-retry: false` stops the SDKs' automatic retries.
+    daily_requests | daily_usd), `used`, `cap` and `resets_at`. `x-should-retry: false` stops the SDKs' automatic retries.
     The engine reads type `miyagi_quota` (server/config.py CLOUD_ERRORS) and `miyagi_lesson_quota` (lesson cache)."""
     body = {"type": "error", "error": {"type": kind, "status": kind.upper(), "code": 429, "message": message,
                                        "limit": limit, "used": used, "cap": cap, "resets_at": _iso(resets)}}
@@ -243,31 +246,35 @@ def request_role(request: Request) -> str | None:
     return role if ROLE_RE.fullmatch(role) else None
 
 
-def check_quota(token_hash: str, role: str | None) -> JSONResponse | None:
-    """Free tier caps on forwarded AI calls; None to allow. The lesson build cap lives on /v1/lessons/{id}/build."""
-    if (store.get_token(token_hash) or {}).get("plan") == "pro":
-        return None
-    if role == "coach" and FREE_COACH_CALLS_PER_DAY > 0:
-        used = store.role_requests_today(token_hash, "coach")
-        if used >= FREE_COACH_CALLS_PER_DAY:
-            return quota_error("miyagi_quota", "coach_calls", used, FREE_COACH_CALLS_PER_DAY, _next_utc_midnight(),
-                               "That's all the coach help for today. It comes back tomorrow.")
-    if FREE_DAILY_REQUESTS > 0:
-        used = store.requests_today(token_hash)
-        if used >= FREE_DAILY_REQUESTS:
-            return quota_error("miyagi_quota", "daily_requests", used, FREE_DAILY_REQUESTS, _next_utc_midnight(),
-                               "You've reached today's limit. It resets tomorrow.")
+def check_quota(token_hash: str, role: str | None, provider: str, model: str) -> JSONResponse | None:
+    """Every cap on one forwarded AI call. None means allowed, and the call is then already counted: the
+    per-install caps are checked and counted in one store transaction, so parallel calls cannot overshoot them.
+
+    1. DAILY_USD_CAP, the spend kill switch: every install together, pro included.
+    2. Free plan: FREE_COACH_CALLS_PER_DAY on x-miyagi-role: coach, and FREE_DAILY_REQUESTS on every call.
+       Pro: no per-install caps (still counted).
+    The lesson build cap lives on POST /v1/lessons/{id}/build."""
+    if DAILY_USD_CAP > 0:
+        spent = store.usd_today()
+        if spent >= DAILY_USD_CAP:
+            log.warning("daily USD cap reached: est. $%.2f of $%.2f", spent, DAILY_USD_CAP)
+            return quota_error("miyagi_quota", "daily_usd", round(spent, 2), DAILY_USD_CAP, _next_utc_midnight(),
+                               "miyagi has used today's cloud budget. Back tomorrow.")
+    pro = (store.get_token(token_hash) or {}).get("plan") == "pro"
+    role_caps = {} if pro else {"coach": FREE_COACH_CALLS_PER_DAY}
+    daily = 0 if pro else FREE_DAILY_REQUESTS
+    hit, used, cap = store.admit_call(token_hash, provider, model, role, role_caps, daily)
+    if hit == "role":
+        return quota_error("miyagi_quota", "coach_calls", used, cap, _next_utc_midnight(),
+                           "That's all the coach help for today. It comes back tomorrow.")
+    if hit == "daily":
+        return quota_error("miyagi_quota", "daily_requests", used, cap, _next_utc_midnight(),
+                           "You've reached today's limit. It resets tomorrow.")
     return None
 
 
 def admit(request: Request, token_hash: str, provider: str, model: str) -> JSONResponse | None:
-    role = request_role(request)
-    if denied := check_quota(token_hash, role):
-        return denied
-    store.count_request(token_hash, provider, model)
-    if role:
-        store.count_role(token_hash, role)
-    return None
+    return check_quota(token_hash, request_role(request), provider, model)
 
 
 _register_hits: dict[str, deque] = defaultdict(deque)

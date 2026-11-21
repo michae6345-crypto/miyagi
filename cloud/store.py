@@ -193,6 +193,50 @@ class Store:
         rows = self._q("SELECT requests FROM role_usage WHERE token_hash = ? AND day = ? AND role = ?", (token_hash, today(), role))
         return int(rows[0]["requests"]) if rows else 0
 
+    # admission: caps checked and counted in one step -------------------------
+    def admit_call(self, token_hash: str, provider: str, model: str, role: str | None,
+                   role_caps: dict[str, int], daily_cap: int) -> tuple[str | None, int, int]:
+        """Count one forwarded AI call unless a cap is reached. Check and count happen under one lock and one
+        transaction, so parallel calls cannot all slip in under a cap.
+
+        role_caps: {role: calls per UTC day} (0 or absent = no cap). daily_cap: every call per UTC day (0 = none).
+        Returns (None, 0, 0) when counted, else (the cap hit: "role" | "daily", used, cap) with nothing counted."""
+        day = today()
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                cap = role_caps.get(role or "", 0)
+                if role and cap > 0:
+                    row = self._db.execute("SELECT requests FROM role_usage WHERE token_hash = ? AND day = ? AND role = ?",
+                                           (token_hash, day, role)).fetchone()
+                    used = int(row[0]) if row else 0
+                    if used >= cap:
+                        self._db.execute("ROLLBACK")
+                        return "role", used, cap
+                if daily_cap > 0:
+                    used = int(self._db.execute("SELECT COALESCE(SUM(requests), 0) FROM usage WHERE token_hash = ? AND day = ?",
+                                                (token_hash, day)).fetchone()[0])
+                    if used >= daily_cap:
+                        self._db.execute("ROLLBACK")
+                        return "daily", used, daily_cap
+                self._db.execute("INSERT INTO usage (token_hash, day, provider, model, requests) VALUES (?, ?, ?, ?, 1) "
+                                 "ON CONFLICT (token_hash, day, provider, model) DO UPDATE SET requests = requests + 1",
+                                 (token_hash, day, provider, model))
+                if role:
+                    self._db.execute("INSERT INTO role_usage (token_hash, day, role, requests) VALUES (?, ?, ?, 1) "
+                                     "ON CONFLICT (token_hash, day, role) DO UPDATE SET requests = requests + 1",
+                                     (token_hash, day, role))
+                self._db.execute("COMMIT")
+                return None, 0, 0
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
+
+    def usd_today(self) -> float:
+        """Estimated spend so far this UTC day, every install together (the DAILY_USD_CAP kill switch reads it)."""
+        return float(self._q("SELECT COALESCE(SUM(usd), 0) AS usd FROM usage WHERE day = ?", (today(),))[0]["usd"])
+
     # usage ----------------------------------------------------------------
     def count_request(self, token_hash: str, provider: str, model: str) -> None:
         self._q("INSERT INTO usage (token_hash, day, provider, model, requests) VALUES (?, ?, ?, ?, 1) "
