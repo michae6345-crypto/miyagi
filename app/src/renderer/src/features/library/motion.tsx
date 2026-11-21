@@ -8,7 +8,7 @@
  * Reduced motion: main.tsx wraps the app in MotionConfig reducedMotion="user", which drops the transforms and keeps
  * the fades (Apple: replace movement with fades). Everything here animates transform and opacity only.
  */
-import { motion, type HTMLMotionProps, type Variants } from 'motion/react'
+import { motion, useReducedMotion, type HTMLMotionProps, type Variants } from 'motion/react'
 import { forwardRef, type CSSProperties, type ReactNode } from 'react'
 import { color, fill, spring } from '../../core/theme'
 
@@ -27,9 +27,11 @@ export const rise: Variants = {
 
 /** A block that rises in as the i-th of its group (i caps at 8). */
 export function Rise({ i = 0, children, className = '', style, as = 'div', ...rest }: { i?: number; children: ReactNode; className?: string; style?: CSSProperties; as?: 'div' | 'section' | 'li' } & Record<`data-${string}`, string | undefined>): ReactNode {
+  // Content never waits on an animation: with reduced motion the block starts shown (no hidden frame to get stuck in).
+  const reduce = useReducedMotion()
   const M = as === 'section' ? motion.section : as === 'li' ? motion.li : motion.div
   return (
-    <M custom={i} variants={rise} initial="hidden" animate="shown" exit="gone" className={className} style={style} {...rest}>
+    <M custom={i} variants={rise} initial={reduce ? false : 'hidden'} animate="shown" exit="gone" className={className} style={style} {...rest}>
       {children}
     </M>
   )

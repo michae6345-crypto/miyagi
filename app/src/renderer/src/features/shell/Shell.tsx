@@ -160,6 +160,8 @@ const frame: Variants = {
 
 function PageFrame({ page, active, covered }: { page: PageId; active: boolean; covered: boolean }): ReactNode {
   const off = !active || covered
+  // Reduced motion: a page is born in its final state (no hidden frame to wait on).
+  const reduce = useReducedMotion() ?? false
   return (
     <motion.section
       data-shell-page={page}
@@ -167,7 +169,7 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
       aria-hidden={off || undefined}
       inert={off}
       variants={frame}
-      initial="hidden"
+      initial={reduce ? (active ? 'shown' : 'hidden') : 'hidden'}
       animate={active ? 'shown' : 'hidden'}
       className="absolute inset-0 flex flex-col"
       style={{ visibility: active ? 'visible' : 'hidden', color: color.text }}
@@ -293,7 +295,7 @@ export function Shell(): ReactNode {
             inert={covered}
             className={`relative ${sideZ} flex h-full shrink-0`}
             // From the window's left edge, its own width (reduced motion: a fade, nothing slides).
-            initial={enter ? (reduce ? { opacity: 0 } : { x: -sideW }) : false}
+            initial={enter && !reduce ? { x: -sideW } : false}
             animate={{ x: 0, opacity: 1 }}
             transition={sidebarIn}
           >
@@ -303,7 +305,7 @@ export function Shell(): ReactNode {
         {/* While the sheet is open the sidebar stays lit but inert; a click on it closes the sheet. */}
         {home && sheet && <div data-shell-sheet-catcher data-no-drag aria-hidden className="absolute inset-y-0 left-0 z-40" style={{ width: sideW }} onPointerDown={closeSheet} />}
         {home && (
-          <motion.main aria-hidden={covered || undefined} inert={covered} className="relative min-w-0 flex-1 overflow-hidden" initial={enter ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
+          <motion.main aria-hidden={covered || undefined} inert={covered} className="relative min-w-0 flex-1 overflow-hidden" initial={enter && !reduce ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
             {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
               <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId || sheet || covered} />
             ))}
