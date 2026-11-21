@@ -222,6 +222,7 @@ SUMMARY_WORDS = 12  # step.passed.summary, <= 12 words
 MAX_MISSING_LINES = 8  # a Not yet lists the step's lines only when they fit the panel
 EDITOR_POLL_S = 3.0  # lesson.paused "editor_closed": how often the lesson's VS Code window is looked for
 EDITOR_GONE_POLLS = 2  # ... and how many sure misses in a row pause the lesson (one closed-and-reopened tab: no pause)
+EDITOR_OPEN_GRACE_S = 30.0  # ... never this soon after the engine opened VS Code (a cold start takes up to 20 s)
 KERNEL_POLL_S = 2.0  # blocker "kernel": how often the frame is read for VS Code's "Select Kernel"
 KERNEL_CLEAR_POLLS = 2  # ... and how many frames without it clear the blocker
 _SELECT_KERNEL = re.compile(r"^\W{0,3}select\s+kernel\W{0,3}$", re.I)
@@ -1073,6 +1074,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     @editor_open.setter
     def editor_open(self, value: bool) -> None:
+        if value and not getattr(self, "_editor_open", False):
+            self._editor_open_t = self.clock()  # v2: a cold-starting VS Code is never "closed" (EDITOR_OPEN_GRACE_S)
         self._editor_open = bool(value)
         self._bind_lesson_window()
 
@@ -1469,7 +1472,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if getattr(self.screen, "reader", None) is None:
             return self.paused is not None
         now = self.clock()
-        if self.editor_open and self.workspace is not None and self.workdir and now - self._editor_poll_t >= EDITOR_POLL_S:
+        settled = now - getattr(self, "_editor_open_t", -1e9) >= EDITOR_OPEN_GRACE_S
+        if self.editor_open and settled and self.workspace is not None and self.workdir \
+                and now - self._editor_poll_t >= EDITOR_POLL_S:
             self._editor_poll_t = now
             from server.workspace import editor as editor_mod
 

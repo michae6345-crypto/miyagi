@@ -1043,12 +1043,19 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
     return {"opened": False, "deferred": True}
 
 
+_state_editor: tuple[float, dict | None] | None = None  # (when, preferred_editor()) for lesson_window_state
+
+
 def lesson_window_state(folder: str | Path) -> bool | None:
     """v2 (lesson.paused "editor_closed"): True when VS Code runs with a window on this lesson folder, False when it
     was quit or that window was closed, None when it can't tell (no window list): a pause needs a sure False. Blocking
     (process + window lists): call it in a thread. Never opens, raises or focuses anything."""
+    global _state_editor
     try:
-        ed = preferred_editor()
+        now = time.monotonic()
+        if _state_editor is None or now - _state_editor[0] > 60.0:  # polled every few seconds: no mdfind each time
+            _state_editor = (now, preferred_editor())
+        ed = _state_editor[1]
         if not ed:
             return None
         if editor_pid(ed) is None:
