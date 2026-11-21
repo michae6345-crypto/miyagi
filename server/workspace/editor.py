@@ -51,10 +51,16 @@ EDITOR_FRACTION = float(os.environ.get("MIYAGI_EDITOR_FRACTION", "0.6"))
 # "Just teach me" fills the screen with a MAXIMIZED window in the current Space. MIYAGI_FULLSCREEN=native brings back
 # macOS full screen, which moves the window into its own Space (where the overlay and other lesson windows get lost).
 NATIVE_FULLSCREEN = os.environ.get("MIYAGI_FULLSCREEN", "").strip().lower() == "native"
-# The maximized lesson window stops short of the overlay's drawer on the right (app drawer/geometry.ts: a "Just teach me"
-# lesson's PANEL_W_LESSON 420 (A9, adrian/shell #83) + its 8 pt inset + an 8 pt gap), so the drawer doesn't cover the editor. MIYAGI_DRAWER_W=0:
-# the full width.
-DRAWER_W = float(os.environ.get("MIYAGI_DRAWER_W", "436"))
+# The maximized lesson window stops short of the overlay's lesson panel on the right, so the panel doesn't cover the
+# editor. v2 (BUILD-PLAN E3, decision 6): the panel is 360 pt wide in every lesson mode, 16 pt in from the screen's
+# right edge (theme dock.inset), with a 16 pt gap to the editor: 360 + 16 + 16 = 392 (was 436: the v1 drawer's
+# PANEL_W_LESSON 420 + 8 + 8). MIYAGI_DRAWER_W=0: the full width.
+PANEL_W, PANEL_INSET, PANEL_GAP = 360.0, 16.0, 16.0
+DRAWER_W = float(os.environ.get("MIYAGI_DRAWER_W", str(PANEL_W + PANEL_INSET + PANEL_GAP)))
+# The lesson panel's real place, when the app reported it (panel.state {open, rect}, screen points, top-left origin):
+# fit_full keeps the editor PANEL_GAP left of its left edge instead of the DRAWER_W estimate. None: not reported.
+_panel_rect: dict | None = None
+_panel_lock = threading.Lock()
 # E22: the lesson's editor window also ends above the overlay's shortcut bar at the bottom of the screen (app
 # shortcut-bar BAR_HEIGHT 88 + its gap: the same 112 pt the player dock and the drawer keep clear, drawer/geometry.ts
 # BAR_CLEARANCE), so the terminal's last lines (the program's output, the prompt) are never under the bar.
@@ -81,6 +87,48 @@ def below_pill(frame: tuple[float, float, float, float]) -> tuple[float, float, 
     x, y, w, h = frame
     clear = max(0.0, min(PILL_CLEARANCE, round(h * 0.5)))
     return (x, y + clear, w, h - clear)
+
+
+def note_panel(open_: bool, rect: dict | None = None) -> bool:
+    """The app's panel.state (v2): where the lesson panel is docked (screen points), or that it closed. The editor's
+    room is kept while the panel is collapsed (Mini), so the learner's window doesn't jump each time they toggle it;
+    only an open panel's rect moves the edge. -> True when the edge fit_full uses changed."""
+    global _panel_rect
+    new = None
+    if open_ and isinstance(rect, dict):
+        try:
+            new = {k: float(rect[k]) for k in ("x", "y", "w", "h")}
+        except (KeyError, TypeError, ValueError):
+            new = None
+        if new is not None and (new["w"] <= 0 or new["h"] <= 0):
+            new = None
+    if new is None:
+        return False
+    with _panel_lock:
+        same = _panel_rect is not None and abs(_panel_rect["x"] - new["x"]) < 2
+        _panel_rect = new
+    return not same
+
+
+def panel_rect() -> dict | None:
+    with _panel_lock:
+        return dict(_panel_rect) if _panel_rect else None
+
+
+def fit_full(visible: tuple[float, float, float, float], panel: dict | None = None,
+             *, drawer_w: float | None = None) -> tuple[float, float, float, float]:
+    """The lesson's editor frame in the visible screen `visible` (x, y, w, h; AX top-left): under the step pill, above
+    the shortcut bar, and ending left of the lesson panel: PANEL_GAP before the panel's reported left edge (`panel`,
+    else the last panel.state), else DRAWER_W short of the screen's right edge. Never narrower than EDITOR_FRACTION
+    of the screen. Pure (no AX)."""
+    x, y, w, h = below_pill(above_bar(visible))
+    reserve = DRAWER_W if drawer_w is None else drawer_w
+    right = x + w if reserve <= 0 else x + w - reserve
+    p = panel if panel is not None else panel_rect()
+    if p and reserve > 0 and x < p["x"] < x + w:  # the panel the app really drew (a moved or resized panel)
+        right = p["x"] - PANEL_GAP
+    width = max(round(w * EDITOR_FRACTION), round(right - x))
+    return (x, y, min(w, width), h)
 # Our own overlay must never be treated as "the app the learner was in".
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
@@ -361,8 +409,7 @@ def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax
     elif (frame := left_frame(1.0)) is None:
         report["fullscreen"] = "skipped: no screen info"
     else:
-        x, y, w, h = below_pill(above_bar(frame))  # t10: under the step pill / gear, above the shortcut bar
-        frame = (x, y, max(round(w * EDITOR_FRACTION), w - DRAWER_W), h)  # the screen minus the overlay's drawer and bar
+        frame = fit_full(frame)  # under the step pill / gear, above the shortcut bar, left of the lesson panel
         report["fullscreen"] = "done (maximized)" if _set_frame(ax, win, *frame) else "failed: the editor refused the new frame"
     if win is not None and folder:
         put_away_other_lessons(ax, pid, folder, win, report)
@@ -396,7 +443,8 @@ def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None,
             return "skipped: no frame"
         x, y, w, h = fr
         vx, _vy, vw, _vh = vis
-        limit = vx + max(round(vw * EDITOR_FRACTION), vw - DRAWER_W)  # make_fullscreen's right edge
+        fx, _fy, fw, _fh = fit_full(vis)
+        limit = fx + fw  # make_fullscreen's right edge (left of the panel the app reported, when it did)
         if x >= vx + vw or x + w <= vx or x + w <= limit + 2:
             return "ok"
         if x <= vx + 2 and x + w >= vx + vw - 2:
@@ -993,6 +1041,30 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
     threading.Thread(target=wait_then_go, daemon=True, name="miyagi-open-editor").start()
     log.info("auto-open of %s deferred: the learner is in Miyagi / typing", Path(key[1]).name)
     return {"opened": False, "deferred": True}
+
+
+def lesson_window_state(folder: str | Path) -> bool | None:
+    """v2 (lesson.paused "editor_closed"): True when VS Code runs with a window on this lesson folder, False when it
+    was quit or that window was closed, None when it can't tell (no window list): a pause needs a sure False. Blocking
+    (process + window lists): call it in a thread. Never opens, raises or focuses anything."""
+    try:
+        ed = preferred_editor()
+        if not ed:
+            return None
+        if editor_pid(ed) is None:
+            return False  # the editor isn't running at all
+        from .active import vscode_windows
+
+        wins = vscode_windows()
+    except Exception:  # noqa: BLE001
+        return None
+    if not wins:  # running with no window, or titles unreadable (no Screen Recording grant): not sure enough to pause
+        return None
+    name = Path(folder).expanduser().resolve().name
+    names = [w.get("folder_name") for w in wins if isinstance(w, dict)]
+    if not any(names):
+        return None  # windows without a folder in their titles (a title setting): can't tell
+    return name in names
 
 
 def _lesson_window_alive(folder: str | Path) -> bool:
