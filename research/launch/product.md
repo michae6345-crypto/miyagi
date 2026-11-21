@@ -1,0 +1,19 @@
+# E. Product failures that make people quit
+
+Area E of Michael's launch-risk brief (v2, Nov 21, 2026). Owner of this file: Adrian's area-E session.
+Status: **early draft, in progress.** Grading, first-run, latency and churn research are still coming in; this version holds the two P0 checks so far.
+
+Code read (read-only):
+- App: `origin/michael/v2-integration` at `d959e0e9` (paths below start at `app/src/`).
+- Engine: `origin/integration/live` at `ddecb79c` (paths start at `server/`).
+
+Rules for this pass: offline only, no lessons through miyagi-cloud, no paid calls, no code fixes, engine and cloud findings written up for Michael.
+
+## Register
+
+| id | area | risk | evidence (link) | applies to miyagi? (where) | severity | fix | owner | status |
+|---|---|---|---|---|---|---|---|---|
+| E01 | Lost progress | The built app forgets everything the renderer stores on every relaunch, because the renderer is served on a new random port each launch and localStorage is per origin | [MDN: localStorage is per origin (scheme, host, port)](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) (checked Nov 21, 2026); #202 R01 | **Applies, confirmed in code.** `main/serve.ts:81` `server.listen(0, '127.0.0.1')`; `main/index.ts:181` loads every window from that origin; no branch on origin has a fixed port. Lost each launch: daily and weekly goal and rhythm pause (`renderer/src/features/dashboard/store.ts:36-52`), tip dismissals (`features/tips/store.ts:51,68`, `tips` is not in `common/prefs.ts:30` `DEFAULT_PREFS`), sound choice (`features/sound/settings.ts:49,129`, `sounds` not in `DEFAULT_PREFS` either), drawer side, player volume and speed, Mini coach collapse, the live network restore Michael added after his 5 AM shoot (`features/diagrams/store.ts:147-185`, it can never work in a built app), and the "no flow" flag, so home opens on a blank pending frame every time (`features/shell/flow/store.ts:47-61`). **Not lost:** lesson and step progress, which the engine keeps (`server/sessions/`). | P0 (every user, every relaunch: "it forgot me"; cheap fix) | Serve from a fixed origin: a privileged custom scheme (`protocol.registerSchemesAsPrivileged` with `standard: true, secure: true`, then `protocol.handle`), or a fixed loopback port saved in userData. Check YouTube embeds still play from the new origin. Move durable choices (tips, sounds, dashboard goals) into main prefs. | Adrian (app) | open |
+| E02 | Stuck UI | "Checking" can spin forever: the app has no socket heartbeat, no client timeout on a check and no reconnect on wake, so if the engine stops answering without closing the socket, Check my work is dead until quit | #202 R02 | **Applies, confirmed in code (app side).** `main/engine.ts:219-275` has no ping or idle timeout (only a 4 s handshake timeout, `:29`); no `powerMonitor` anywhere in `main/`. `renderer/src/core/ui/atoms.tsx:125-128` `useChecking` = thinking and pressed; thinking only clears on a non-thinking `status` (`core/shortcuts.ts:31-39`) or a socket close (`core/lesson.ts:155`). While checking, Enter is off (`features/drawer/v2/LessonPanel.tsx:229`) and the button is busy (`:259,300`). Engine side (does every path that sets thinking clear it, are model calls timed out): pending, see latency notes. | P0 (blocks the lesson's core action, no way out but quit) | App: renderer watchdog (for example 45 to 60 s after pressing Check with no answer: clear the press, say "No answer yet, try again", re-enable Check); ws ping every 15 s with terminate on a missed pong; reconnect on `powerMonitor` `resume`. Engine: hard timeout on every model call and a `finally` that always sends a non-thinking status. | Adrian (app), Michael (engine) | open |
+
+More rows (grading, first run, environment, latency, permissions, churn lessons) are being added.
