@@ -5,7 +5,7 @@
  * engine's items don't say who built a lesson), and "Saved on this Mac" instead of "Built once, shared with everyone"
  * (A6: never claim cross-user sharing; the library is this Mac's cache).
  */
-import { ChartNoAxesColumn, Clock, LibraryBig, Play, Search, Settings } from 'lucide-react'
+import { ChartNoAxesColumn, Clock, House, LibraryBig, Play, Search, Settings } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { bridge } from '../../bridge'
@@ -14,11 +14,13 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { SidebarNav, type NavItem } from '../../core/ui/controls'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { openProgress, openSettings } from '../../core/surfaces'
+import { Dashboard } from '../dashboard/Dashboard'
 import { color, fill, radius2, scrim, surface, type2 } from '../../core/theme'
 import { Chip, FILTER_TOOLS, Meter, Skeleton, TOOL_NAME, ToolTile, minutesLabel, progressLabel, soft, stepsLabel } from './parts'
 import { openDetail, setQuery, setSection, setTool, start, useLibrary, visible, type Section } from './store'
 
 const NAV: NavItem[] = [
+  { id: 'home', label: 'Home', icon: House },
   { id: 'library', label: 'Library', icon: LibraryBig },
   { id: 'continue', label: 'Continue', icon: Clock }
 ]
@@ -83,29 +85,41 @@ function Sidebar(): ReactNode {
   )
 }
 
+const TITLE: Record<Section, string> = { home: 'Home', library: 'Library', continue: 'Continue' }
+
 function Header(): ReactNode {
   const section = useLibrary((s) => s.section)
   const query = useLibrary((s) => s.query)
+  // Home is the dashboard: its own Resume / Start is the one primary there, so New lesson steps back to quiet.
+  const home = section === 'home'
   return (
     <header data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 72, padding: '0 32px', borderBottom: `1px solid ${surface.border}` }}>
       <h1 className="m-0 font-semibold" style={{ fontSize: type2.xl, letterSpacing: '-0.01em' }}>
-        {section === 'continue' ? 'Continue' : 'Library'}
+        {TITLE[section]}
       </h1>
-      <div data-no-drag className="relative ml-auto" style={{ width: 320 }}>
-        <Search aria-hidden size={16} strokeWidth={1.8} className="absolute" style={{ left: 12, top: 10, color: color.label }} />
-        <input
-          type="search"
-          aria-label="Search lessons"
-          placeholder="Search lessons"
-          autoComplete="off"
-          spellCheck={false}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="w-full outline-none"
-          style={{ height: 36, padding: '0 12px 0 36px', borderRadius: radius2.row, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, color: color.text, fontSize: type2.sm }}
-        />
-      </div>
-      <PrimaryButton label="New lesson" keyName="launcher" onClick={openLauncher} />
+      {home ? (
+        <div data-no-drag className="ml-auto">
+          <QuietButton label="New lesson" keyName="launcher" onClick={openLauncher} />
+        </div>
+      ) : (
+        <>
+          <div data-no-drag className="relative ml-auto" style={{ width: 320 }}>
+            <Search aria-hidden size={16} strokeWidth={1.8} className="absolute" style={{ left: 12, top: 10, color: color.label }} />
+            <input
+              type="search"
+              aria-label="Search lessons"
+              placeholder="Search lessons"
+              autoComplete="off"
+              spellCheck={false}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full outline-none"
+              style={{ height: 36, padding: '0 12px 0 36px', borderRadius: radius2.row, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, color: color.text, fontSize: type2.sm }}
+            />
+          </div>
+          <PrimaryButton label="New lesson" keyName="launcher" onClick={openLauncher} />
+        </>
+      )}
     </header>
   )
 }
@@ -221,72 +235,78 @@ export function Library(): ReactNode {
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col">
         <Header />
-        <div className="flex min-h-0 flex-1 flex-col gap-[32px] overflow-y-auto" style={{ padding: '24px 32px 32px' }}>
-          {!s.loaded ? (
-            <div className="grid grid-cols-3 gap-[16px]" aria-busy>
-              {[0, 1, 2].map((i) => (
-                <Skeleton key={i} h={168} />
-              ))}
-            </div>
-          ) : (
-            <>
-              {(continuing.length > 0 || s.section === 'continue') && (
-                <section aria-labelledby="lib-cont">
-                  <SectionHead id="lib-cont" title="Continue">
-                    <span className="ml-auto" style={meta}>
-                      <StartError />
-                      {!s.startError && 'Picks up where you left off'}
-                    </span>
-                  </SectionHead>
-                  {continuing.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-[16px]">
-                      {continuing.map((i) => (
-                        <ContinueCard key={i.id} item={i} />
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={meta}>{filtered ? 'No lesson in progress matches.' : 'Nothing in progress. Start a lesson from the library.'}</div>
-                  )}
-                </section>
-              )}
-              {s.section === 'library' && (
-                <section aria-labelledby="lib-ready">
-                  <SectionHead id="lib-ready" title="Ready to run">
-                    <Chip label="All" on={s.tool === 'all'} onClick={() => setTool('all')} />
-                    {FILTER_TOOLS.map((t) => (
-                      <Chip key={t} label={TOOL_NAME[t]} on={s.tool === t} onClick={() => setTool(t)} />
-                    ))}
-                    <Chip label="Excel, soon" disabled />
-                    <span className="ml-auto" style={meta}>
-                      Saved on this Mac
-                    </span>
-                  </SectionHead>
-                  <div className="grid grid-cols-3 gap-[16px]">
-                    {ready.map((i) => (
-                      <LessonCard key={i.id} item={i} />
-                    ))}
-                    {filtered && ready.length === 0 && !nothing ? (
-                      <article className="flex flex-col items-start justify-center gap-[12px]" style={{ padding: 16, borderRadius: radius2.group, border: `1px dashed ${surface.border}`, minHeight: 168 }}>
-                        <div className="font-medium" style={{ fontSize: type2.body }}>
-                          No lessons match.
-                        </div>
-                        <QuietButton
-                          label="Show all"
-                          onClick={() => {
-                            setTool('all')
-                            setQuery('')
-                          }}
-                        />
-                      </article>
+        {s.section === 'home' ? (
+          <div className="min-h-0 flex-1">
+            <Dashboard route="library" />
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col gap-[32px] overflow-y-auto" style={{ padding: '24px 32px 32px' }}>
+            {!s.loaded ? (
+              <div className="grid grid-cols-3 gap-[16px]" aria-busy>
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} h={168} />
+                ))}
+              </div>
+            ) : (
+              <>
+                {(continuing.length > 0 || s.section === 'continue') && (
+                  <section aria-labelledby="lib-cont">
+                    <SectionHead id="lib-cont" title="Continue">
+                      <span className="ml-auto" style={meta}>
+                        <StartError />
+                        {!s.startError && 'Picks up where you left off'}
+                      </span>
+                    </SectionHead>
+                    {continuing.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-[16px]">
+                        {continuing.map((i) => (
+                          <ContinueCard key={i.id} item={i} />
+                        ))}
+                      </div>
                     ) : (
-                      <PasteCard empty={nothing} />
+                      <div style={meta}>{filtered ? 'No lesson in progress matches.' : 'Nothing in progress. Start a lesson from the library.'}</div>
                     )}
-                  </div>
-                </section>
-              )}
-            </>
-          )}
-        </div>
+                  </section>
+                )}
+                {s.section === 'library' && (
+                  <section aria-labelledby="lib-ready">
+                    <SectionHead id="lib-ready" title="Ready to run">
+                      <Chip label="All" on={s.tool === 'all'} onClick={() => setTool('all')} />
+                      {FILTER_TOOLS.map((t) => (
+                        <Chip key={t} label={TOOL_NAME[t]} on={s.tool === t} onClick={() => setTool(t)} />
+                      ))}
+                      <Chip label="Excel, soon" disabled />
+                      <span className="ml-auto" style={meta}>
+                        Saved on this Mac
+                      </span>
+                    </SectionHead>
+                    <div className="grid grid-cols-3 gap-[16px]">
+                      {ready.map((i) => (
+                        <LessonCard key={i.id} item={i} />
+                      ))}
+                      {filtered && ready.length === 0 && !nothing ? (
+                        <article className="flex flex-col items-start justify-center gap-[12px]" style={{ padding: 16, borderRadius: radius2.group, border: `1px dashed ${surface.border}`, minHeight: 168 }}>
+                          <div className="font-medium" style={{ fontSize: type2.body }}>
+                            No lessons match.
+                          </div>
+                          <QuietButton
+                            label="Show all"
+                            onClick={() => {
+                              setTool('all')
+                              setQuery('')
+                            }}
+                          />
+                        </article>
+                      ) : (
+                        <PasteCard empty={nothing} />
+                      )}
+                    </div>
+                  </section>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </main>
     </div>
   )

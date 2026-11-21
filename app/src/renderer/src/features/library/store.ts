@@ -12,7 +12,8 @@ import { cleanDetail, cleanList, isLibraryId, type LibraryDetail } from './sanit
 
 export type Caps = { list: boolean; get: boolean; start: boolean }
 export type ToolFilter = LessonTool | 'all'
-export type Section = 'library' | 'continue'
+/** home = the lesson dashboard (features/dashboard), the window's first view. */
+export type Section = 'home' | 'library' | 'continue'
 
 type State = {
   items: LibraryItem[]
@@ -46,7 +47,7 @@ export const useLibrary = create<State>(() => ({
   capsKnown: false,
   details: {},
   detailFailed: {},
-  section: 'library',
+  section: 'home',
   tool: 'all',
   query: ''
 }))
