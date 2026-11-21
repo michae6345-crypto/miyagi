@@ -127,13 +127,14 @@ export function stepsPassed(r: Recent): string {
 
 // ---- the ask field ----------------------------------------------------------------------------------------------
 
-export type AskState = { text: string; sending?: 'lesson' | 'link' | 'saved'; note?: string }
+/** picked: "Pick a video instead" already went out for this text (the launcher is open or opening). Typing clears it. */
+export type AskState = { text: string; sending?: 'lesson' | 'link' | 'saved'; note?: string; picked?: boolean }
 
 export const useAsk = create<AskState>(() => ({ text: '' }))
 const set = useAsk.setState
 const get = useAsk.getState
 
-export const setAskText = (text: string): void => set({ text: text.slice(0, 500), note: undefined })
+export const setAskText = (text: string): void => set({ text: text.slice(0, 500), note: undefined, picked: undefined })
 
 export type AskRead =
   | { kind: 'idle' }
@@ -194,14 +195,23 @@ export function submitAsk(connected: boolean): boolean {
  * "Pick a video instead": the launcher picks the video. It is its own window (own store) in Electron, so the goal
  * travels on the clipboard until launcher:open {text} lands (Core request 0b). Focus on this window has closed the
  * launcher, so the toggle opens it (the stage shares one store, so it only toggles when closed there).
+ *
+ * Once per text: in Electron this window's useSearch never sees the launcher window open, so a second click would
+ * toggle an open launcher shut. The link stays spent (and says so) until the text changes; the keycap beside it
+ * still opens the launcher from anywhere. Core request 0(b) (launcher:open) removes the need for this.
  */
 export async function pickVideo(): Promise<void> {
+  if (get().picked || get().sending) return
+  set({ picked: true })
   const goal = get().text.trim()
   let copied = false
-  // Main's clipboard (diagnostics:copy, scrubbed and capped there) works even when Chromium refuses an unfocused
-  // document; the page's own clipboard is the fallback.
+  // Main's clipboard (diagnostics:copy, capped there) works even when Chromium refuses an unfocused document; the
+  // page's own clipboard is the fallback. diagnostics:copy scrubs path-like text (errors.ts scrub()), so a goal that
+  // looks like a path can arrive rewritten. Core request 0(e) (a plain clipboard:write) fixes that.
   if (goal) copied = await bridge.invoke<boolean>('diagnostics:copy', goal).then((ok) => ok === true, () => false)
   if (goal && !copied && navigator.clipboard) copied = await navigator.clipboard.writeText(goal).then(() => true, () => false)
   if (!useSearch.getState().open) bridge.emit('launcher:toggle')
+  // Typed again while the clipboard call was out: that is a new text, and its link is fresh again.
+  if (!get().picked) return
   set({ note: copied ? 'Paste it in the launcher to pick a video.' : 'The launcher is open. Type your goal there.' })
 }
