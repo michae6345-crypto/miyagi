@@ -46,4 +46,4 @@ The player had no idea whether it was on screen, and every step start rolled the
 ## Open
 
 - Unverified in Electron: whether macOS fires `show` for `showInactive()`. The 300 ms and 1200 ms re-tells after `reveal()` cover it either way.
-- The engine half of "don't resume the last lesson on launch" is `claude/eng-no-auto-resume`. This lane only makes sure a resumed lesson never starts the video by itself.
+- The engine half of "don't resume the last lesson on launch" is `claude/eng-fresh-launch`. This lane only makes sure a resumed lesson never starts the video by itself.

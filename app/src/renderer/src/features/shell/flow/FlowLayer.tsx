@@ -35,7 +35,7 @@ import { Intro } from '../../onboarding/Intro'
 import { useLive } from '../../onboarding/Onboarding'
 import { Ready } from '../../onboarding/Ready'
 import { summarize, useRows } from '../../onboarding/rows'
-import { markDone, useOnboarding } from '../../onboarding/store'
+import { markDone, noteSetupShown, useOnboarding } from '../../onboarding/store'
 import { arriveDelay, layerIn, layerOut, leave, screenOut } from './motion'
 import { Strip } from './Strip'
 import './web'
@@ -79,10 +79,14 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
   const rows = useRows()
   const sum = useMemo(() => summarize(rows), [rows])
 
-  // Setup counts as done the moment every row is green (as in the setup window), even before Start.
+  // Setup counts as done the moment every row is green (as in the setup window), even before Start. Only once the
+  // setup walk shows: the login screen (a later launch, setup long done) never marks anything.
+  const walking = phase === 'setup' || phase === 'ready'
   useEffect(() => {
+    if (!walking) return
+    noteSetupShown()
     if (sum.allOk) markDone()
-  }, [sum.allOk])
+  }, [sum.allOk, walking])
 
   // Setup again: Esc hands back to home, before anything under the layer (a preview, the search) sees the key.
   useEffect(() => {
