@@ -7035,6 +7035,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 rows.append([cy, h, [(x, text)]])
         return [" ".join(t for _, t in sorted(parts)) for _, _, parts in rows]
 
+    SCREEN_PERMISSION_DOWN_S = 3.0  # a missing grant is not transient: say so within a tick or two
     SCREEN_DOWN_S = 15.0  # a Space switch / screen lock is brief: only a lasting failure is reported
 
     def screen_down_reason(self) -> str | None:
@@ -7054,6 +7055,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     def screen_down_message(cls, reason: str) -> str:
         if cls.screen_asleep(reason):
             return "Your screen is asleep or locked. Miyagi picks up again when you're back."
+        if reason == "no_permission":
+            from server.screen import health
+            return "Miyagi can't see your screen. " + health.permission_hint()
         return "Miyagi can't see your screen. Check Screen Recording in System Settings."
 
     async def _check_screen_health(self) -> None:
@@ -7066,7 +7070,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if self._screen_down_since is None:
             self._screen_down_since = self.clock()
-        if not self._screen_notice_sent and self.clock() - self._screen_down_since >= self.SCREEN_DOWN_S:
+        wait = self.SCREEN_PERMISSION_DOWN_S if reason == "no_permission" else self.SCREEN_DOWN_S
+        if not self._screen_notice_sent and self.clock() - self._screen_down_since >= wait:
             if self.screen_asleep(reason):  # learner away: an error toast would only mislead ("Check Screen Recording")
                 return
             self._screen_notice_sent = True

@@ -124,6 +124,9 @@ class ScreenBridge:
                     ax.start()  # the AX reader restarts in place (its change listeners are kept)
             except Exception:  # noqa: BLE001
                 log.exception("screen resume failed")
+            if not getattr(r, "thread_alive", True):  # start() raised or the thread died: stay paused (retried next tick)
+                log.warning("screen reader did not start on resume (%s); staying paused", why or "lesson step")
+                return
             self.paused = False
             if self._on_front is not None:
                 self.watch_frontmost(self._on_front)
@@ -155,6 +158,8 @@ class ScreenBridge:
             status = getattr(r, "status", "ok")
         except Exception:  # noqa: BLE001
             return None
+        if not self.paused and not getattr(r, "thread_alive", True):
+            return "capture thread stopped"  # a dead reader serves its last frame forever: say so, don't look fine
         if status not in ("error", "no_permission"):
             return None
         return "no_permission" if status == "no_permission" else str(getattr(r, "last_error", "") or "capture failed")

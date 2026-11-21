@@ -97,6 +97,9 @@ class ScreenReader:
         self._wake = threading.Event()
         self._frame = 0
         self._permission_warned = False
+        self._blank_streak = 0         # consecutive black / flat frames (a locked or revoked capture)
+        self._screen_key: tuple | None = None  # primary display frame at the last capture (change detection)
+        self._last_tick = time.time()  # wall clock of the last loop turn (a big gap = the Mac slept)
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -162,6 +165,11 @@ class ScreenReader:
             self._wake.clear()
             if self._stop.is_set():
                 break
+            now_t = time.time()
+            if now_t - self._last_tick > max(30.0, 4 * self.heartbeat):  # asleep (the loop was frozen): start clean
+                self.reset_capture("wake")
+                woke = True
+            self._last_tick = now_t
             wait = self.debounce - (time.time() - self._last_capture)
             if woke and wait > 0:
                 self._stop.wait(wait)
@@ -178,6 +186,21 @@ class ScreenReader:
                         log.warning("screen unavailable: %s (retrying quietly)", e)
                 elif not isinstance(e, ScreenPermissionError):
                     log.exception("screen capture/OCR failed")
+
+    def reset_capture(self, why: str = "") -> None:
+        """Forget capture state that sleep/wake, a display change or a blank frame can leave stale: the SCK filter and
+        its backoff, the last thumbnail (so the next frame is OCR'd) and the blank streak. The next capture is forced."""
+        log.info("screen capture reset (%s)", why or "manual")
+        sck = self._sck
+        if sck is not None:
+            sck._filter = None
+        self._sck_retry_at, self._sck_streak = 0.0, 0
+        self._prev_thumb, self._blank_streak = None, 0
+        self.poke("reset", force=True)
+
+    @property
+    def thread_alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
 
     # ------------------------------------------------------------------ health / errors / keys
 
@@ -197,9 +220,9 @@ class ScreenReader:
         return lambda: self._error_cbs.remove(cb) if cb in self._error_cbs else None
 
     def _set_error(self, e: Exception | None) -> None:
-        from . import macos
+        from . import health, macos
         msg = None if e is None else (
-            f"no_permission: {macos.PERMISSION_HELP}" if isinstance(e, macos.ScreenPermissionError)
+            f"no_permission: {macos.PERMISSION_HELP}\n{health.permission_hint()}" if isinstance(e, macos.ScreenPermissionError)
             else f"{e.__class__.__name__}: {e}")
         if msg == self.last_error:
             return
@@ -794,7 +817,7 @@ class ScreenReader:
 
     def observe_now(self, force: bool = True, trigger: str = "manual") -> ScreenObservation | None:
         """Capture + OCR synchronously. With force=False, skips OCR when nothing changed."""
-        from . import macos
+        from . import health, macos
         with self._capture_lock:
             self._last_capture = time.time()
             try:
@@ -802,11 +825,29 @@ class ScreenReader:
             except Exception as e:
                 self._set_error(e)
                 raise
+            key = (screen.x, screen.y, screen.w, screen.h)
+            if health.display_changed(self._screen_key, key):  # monitor (un)plugged / resolution switched
+                log.info("primary display changed %s -> %s: capture state reset", self._screen_key, key)
+                self._prev_thumb, self._sck_retry_at = None, 0.0
+                if self._sck is not None:
+                    self._sck._filter = None
+                force = True
+            self._screen_key = key
+            thumb = macos.thumbnail(img)
+            if source == "live" and health.is_blank_thumb(thumb):
+                self._blank_streak += 1
+                if self._blank_streak == 1 and self._sck is not None:
+                    self._sck._filter = None  # a stale filter (Space / display swap) can return empty frames
+                if self._blank_streak >= health.BLANK_STREAK:
+                    err = macos.ScreenUnavailableError("blank frame (all black): capture returns no pixels")
+                    self._set_error(err)
+                    raise err
+                return None  # one black frame is usually a transition: the next tick looks again
+            self._blank_streak = 0
             self._set_error(None)
             with self._lock:
                 overlay = list(self._overlay)
             layout = tuple((w.app, w.title, w.rect) for w in windows)
-            thumb = macos.thumbnail(img)
             thumb = _mask_thumb(thumb, overlay, screen)
             prev = self._latest
             stale = prev is None or (time.time() - prev.t) > self.max_age
