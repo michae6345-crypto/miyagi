@@ -156,7 +156,10 @@ final class Session {
         let source: AudioSource
         if let sim = sim { source = SimSource(file: sim.file) } else { source = Mic() }
         if sim == nil, Perms.micStatus() != "granted" {
-            Out.error("mic_denied", "Microphone access isn't granted for miyagi.")
+            // Never asked is not the same as refused: the app shows an Allow card for one and Open settings for the other.
+            if Perms.micStatus() == "undetermined" { Out.error("mic_undetermined", "Microphone access hasn't been asked for yet.") }
+            else { Out.error("mic_denied", "Microphone access isn't granted for miyagi.") }
+            Perms.refresh(force: true)
             abort("disabled"); return
         }
         do {

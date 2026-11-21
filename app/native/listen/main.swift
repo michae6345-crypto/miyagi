@@ -87,15 +87,21 @@ tap.onKeyDown = { code in ctl.keyDown(keyCode: code) }
 ctl.onConfigChanged = { syncTap(); announceReady() }
 Perms.onChange = { syncTap() }
 
-func announceReady() {
+/// `ready` goes out when the speech engine, locale or chord differs from the last one announced (or when forced), so a
+/// repeated `config` line can never turn into a ready/config ping-pong with the app.
+var lastReadyKey = ""
+func announceReady(force: Bool = false) {
     Task {
         let locale = Locale(identifier: ctl.config.locale)
         let kind = await Transcriber.detect(locale: locale)
         DispatchQueue.main.async {
             ctl.sttKind = kind
-            Out.emit("ready", [("stt", kind.rawValue), ("locale", ctl.config.locale), ("chord", ctl.config.chord.rawValue)])
+            let key = "\(kind.rawValue)/\(ctl.config.locale)/\(ctl.config.chord.rawValue)"
             Perms.locale = ctl.config.locale
             Perms.refresh(force: true)
+            if !force && key == lastReadyKey { return }
+            lastReadyKey = key
+            Out.emit("ready", [("stt", kind.rawValue), ("locale", ctl.config.locale), ("chord", ctl.config.chord.rawValue)])
         }
     }
 }

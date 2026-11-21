@@ -93,6 +93,13 @@ check("ready has stt/locale/chord", ready["stt"] in ("speechanalyzer", "sfspeech
       and ready["chord"] == "fn+control", str(ready))
 check("perm has mic/input/assets", set(perm) >= {"mic", "input", "assets"}, str(perm))
 
+# --- repeated config must not make the helper repeat `ready` (the app answers ready with config: a loop otherwise) ------------
+m = h.mark()
+for _ in range(3):
+    h.send(cmd="config", enabled=True, chord="fn+control", minHoldMs=250, maxHoldMs=60000, locale="en-US")
+time.sleep(1.0)
+check("same config again does not emit ready again", not any(e["type"] == "ready" for e in h.since(m)), str(h.since(m)))
+
 # --- short hold -> cancelled short ---------------------------------------------------------------------------
 m = h.mark()
 h.sim("down"); time.sleep(0.08); h.sim("up")
