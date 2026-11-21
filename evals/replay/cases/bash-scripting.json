@@ -1,0 +1,71 @@
+{
+ "id": "bash-scripting",
+ "topic": "shell",
+ "stack": "bash scripts in zsh's terminal on macOS (VS Code)",
+ "tutorial": {"kind": "text", "goal": "write a bash backup script: shebang and chmod, arguments with defaults, a loop over files, strict mode",
+              "video_query": "bash scripting tutorial for beginners"},
+ "lesson": null,
+ "learner": {
+  "folder": "bash-lab",
+  "notes": "zsh/bash/tar output in their verbatim formats; the script is never executed."
+ },
+ "outline": [
+  {
+   "about": "a script with a shebang, made executable, that tars notes/", "match": "shebang|executable|chmod",
+   "expect_checks": [
+    {"type": "file_contains", "file": "backup.sh", "pattern": "^#!/usr/bin/env bash$"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Backed up notes to backups/notes-\\d{4}-\\d{2}-\\d{2}\\.tar\\.gz"}
+   ],
+   "actions": [
+    {"do": "write", "file": "notes/a.md", "text": "# a\n"},
+    {"do": "write", "file": "notes/b.md", "text": "# b\n"},
+    {"do": "write", "file": "notes/c.md", "text": "# c\n"},
+    {"do": "write", "file": "backup.sh", "text": "#!/usr/bin/env bash\n\nmkdir -p backups\nOUT=\"backups/notes-$(date +%F).tar.gz\"\ntar -czf \"$OUT\" notes\necho \"Backed up notes to $OUT\"\n"},
+    {"do": "mistake", "note": "runs it before chmod +x", "caught_by_spec_rows": ["x1"], "actions": [
+     {"do": "run", "cmd": "./backup.sh", "exit": 126, "output": ["zsh: permission denied: ./backup.sh"]}
+    ]},
+    {"do": "run", "cmd": "chmod +x backup.sh", "output": []},
+    {"do": "run", "cmd": "./backup.sh", "output": ["Backed up notes to backups/notes-2026-11-21.tar.gz"], "creates": {"backups/notes-2026-11-21.tar.gz": "(tar)"}}
+   ]
+  },
+  {
+   "about": "take the folder as $1 with a default, and fail clearly if it is missing", "match": "argument|\\$1",
+   "expect_checks": [
+    {"type": "file_contains", "file": "backup.sh", "pattern": "SRC=\"\\$\\{1:-notes\\}\""},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^No such folder: docs$"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "no space after [ in the test: [!: command not found", "caught_by_spec_rows": ["x1"], "actions": [
+     {"do": "write", "file": "backup.sh", "text": "#!/usr/bin/env bash\n\nSRC=\"${1:-notes}\"\nif [! -d \"$SRC\" ]; then\n  echo \"No such folder: $SRC\" >&2\n  exit 1\nfi\nmkdir -p backups\nOUT=\"backups/$SRC-$(date +%F).tar.gz\"\ntar -czf \"$OUT\" \"$SRC\"\necho \"Backed up $SRC to $OUT\"\n"},
+     {"do": "run", "cmd": "./backup.sh docs", "exit": 1, "output": ["./backup.sh: line 4: [!: command not found",
+      "tar: docs: Cannot stat: No such file or directory", "tar: Error exit delayed from previous errors.", "Backed up docs to backups/docs-2026-11-21.tar.gz"]}
+    ]},
+    {"do": "edit", "file": "backup.sh", "find": "if [! -d", "replace": "if [ ! -d"},
+    {"do": "run", "cmd": "./backup.sh docs", "exit": 1, "output": ["No such folder: docs"]}
+   ]
+  },
+  {
+   "about": "count the markdown files with a for loop", "match": "loop|count",
+   "expect_checks": [
+    {"type": "file_contains", "file": "backup.sh", "pattern": "for f in \"\\$SRC\"/\\*\\.md; do"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^Found 3 markdown files in notes$"}
+   ],
+   "actions": [
+    {"do": "insert", "file": "backup.sh", "after": "fi", "text": "count=0\nfor f in \"$SRC\"/*.md; do\n  count=$((count + 1))\ndone\necho \"Found $count markdown files in $SRC\""},
+    {"do": "run", "cmd": "./backup.sh", "output": ["Found 3 markdown files in notes", "Backed up notes to backups/notes-2026-11-21.tar.gz"]}
+   ]
+  },
+  {
+   "about": "strict mode: set -euo pipefail", "match": "strict|set -e",
+   "expect_checks": [
+    {"type": "file_contains", "file": "backup.sh", "pattern": "^set -euo pipefail$"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "unbound variable"}
+   ],
+   "actions": [
+    {"do": "insert", "file": "backup.sh", "after": "#!/usr/bin/env bash", "text": "set -euo pipefail"},
+    {"do": "edit", "file": "backup.sh", "find": "echo \"Backed up $SRC to $OUT\"", "replace": "echo \"Backed up $SRC to $OUT ($SIZE)\""},
+    {"do": "run", "cmd": "./backup.sh", "exit": 1, "output": ["Found 3 markdown files in notes", "./backup.sh: line 16: SIZE: unbound variable"]}
+   ]
+  }
+ ]
+}
