@@ -5,6 +5,10 @@
  * no shortcut (decision 3).
  * Options only: never a status, never the primary.
  *
+ * Polish (UI-POLISH-SPEC 3): a tile is a pastel slab (white top edge, ink base line, a small lift); hover darkens it 4.5%
+ * through the tint layer, press dips it to .96 on the spring. A tile whose answer is on its way (`busy`) sits pressed
+ * in: no lift, the press tint held, its spinner inside.
+ *
  *   <HelpRow options={[{ action: 'explain', onClick }, { action: 'hint', onClick, busy }]} />
  */
 import { motion } from 'motion/react'
@@ -12,7 +16,8 @@ import type { ReactNode } from 'react'
 import { Lightbulb, MessageSquareText, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
 import { Spinner } from './atoms'
 import { Keycap, type KeyName } from './Keycap'
-import { actionTone, color, fill, radius2, type2, type OptionAction } from '../theme'
+import { actionTone, color, elevation, fill, highlight, radius2, type2, type OptionAction } from '../theme'
+import { pressMotion } from './motion'
 
 /** Watch (a video jump): a play mark inside a rounded screen, so it reads apart from Show me's square-play. */
 export function WatchIcon({ size = 14, strokeWidth = 1.8, className }: { size?: number; strokeWidth?: number; className?: string }): ReactNode {
@@ -54,13 +59,22 @@ export function OptionTile({ action, onClick, label, busy, disabled, hideKey, gl
       data-option={action}
       disabled={disabled}
       aria-busy={busy || undefined}
-      className="flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-[4px] disabled:cursor-default"
-      style={{ height: 56, padding: '0 4px', borderRadius: radius2.card, background: actionTone[action], color: color.onAccent, opacity: disabled ? 0.4 : 1 }}
-      whileHover={disabled ? undefined : { filter: 'brightness(0.96)' }}
-      whileTap={disabled ? undefined : { scale: 0.96 }}
-      transition={{ duration: 0.12 }}
+      className="mg-press mg-press-light flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-[4px] disabled:cursor-default"
+      style={{
+        height: 56,
+        padding: '0 4px',
+        borderRadius: radius2.card,
+        background: actionTone[action],
+        color: color.onAccent,
+        opacity: disabled ? 0.4 : 1,
+        // Polish: busy drops the lift and keeps the base edge; the held press tint is .mg-press[aria-busy="true"]::after (styles.css).
+        // Disabled is flat (no edges, no lift), the same as a disabled Base in buttons.tsx.
+        boxShadow: disabled ? undefined : busy ? highlight.base : `${highlight.onLight}, ${highlight.base}, ${elevation.raised}`
+      }}
+      // Polish: a busy tile is already pressed in, so it does not dip again and a second click does not re-ask.
+      {...pressMotion(disabled || busy, true)}
       onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
+      onClick={busy ? undefined : onClick}
     >
       {busy ? <Spinner size={12} c={color.onAccent} track={fill.onAccentKey} /> : glyph ? I ? <I size={12} strokeWidth={1.8} aria-hidden /> : <WatchIcon size={12} /> : null}
       <span className="max-w-full truncate" style={{ fontSize: type2.xs, fontWeight: 600, lineHeight: 1.2 }}>

@@ -6,7 +6,7 @@
 import type { LucideIcon } from 'lucide-react'
 import { Check, Info } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
-import { color, fill, radius2, type2 } from '../../core/theme'
+import { color, fill, highlight, radius2, type2 } from '../../core/theme'
 
 export function PageHeader({ title, caption, right, lead }: { title: string; caption?: ReactNode; right?: ReactNode; lead?: ReactNode }): ReactNode {
   return (
@@ -31,7 +31,7 @@ export function PageHeader({ title, caption, right, lead }: { title: string; cap
 export function Group({ label, children, inset = 16, title, caption }: { label: string; children: ReactNode; inset?: number; title?: string; caption?: string }): ReactNode {
   const rows = (Array.isArray(children) ? children : [children]).flat().filter(Boolean)
   return (
-    <section aria-label={label} style={{ borderRadius: radius2.card, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}>
+    <section aria-label={label} style={{ borderRadius: radius2.card, background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${fill.hairline}` }}>
       {title && (
         <div className="flex flex-col gap-[2px] px-[16px] pb-[4px] pt-[16px]">
           <span className="font-medium" style={{ fontSize: type2.sm, color: color.text }}>

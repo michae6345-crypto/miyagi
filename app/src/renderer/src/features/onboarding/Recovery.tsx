@@ -6,10 +6,12 @@
  * so its second button is Relaunch (macOS often applies that grant only after one).
  * It closes on its own when the grant is back or the engine resumes the lesson.
  */
+import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { color, fill, radius2, type2 } from '../../core/theme'
 import { useCurrentStep } from '../../core/lesson'
 import { PrimaryButton } from '../../core/ui/buttons'
+import { pressMotion } from '../../core/ui/motion'
 import { StatusGlyph, StatusWord } from '../../core/ui/status'
 import { Row } from './Row'
 import { useRows } from './rows'
@@ -25,17 +27,19 @@ export function savedPlace(step: { index: number; total: number; title: string }
   return `Step ${step.index + 1}${step.total > 0 ? ` of ${step.total}` : ''}  ·  ${step.title}`
 }
 
+/** Polish: hover is the .mg-press tint and press the core dip, so nothing animates a filter. */
 function TextButton({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
   return (
-    <button
+    <motion.button
       type="button"
-      className="h-[44px] w-full cursor-pointer hover:brightness-125"
+      {...pressMotion()}
+      className="mg-press h-[44px] w-full cursor-pointer"
       style={{ borderRadius: radius2.card, background: fill.clear, color: color.label, fontSize: type2.sm, fontWeight: 500 }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       {label}
-    </button>
+    </motion.button>
   )
 }
 

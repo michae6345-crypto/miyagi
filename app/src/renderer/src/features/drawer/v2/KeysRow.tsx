@@ -4,11 +4,13 @@
  * the panel is open). Every keycap comes from bridge.platform.keys (core Keycap); a key the platform lacks drops out.
  * Back and Voice show their keys in their tooltips (no room for four keycaps in 320 px).
  */
+import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { ArrowLeft, AudioLines } from 'lucide-react'
 import { bridge } from '../../../bridge'
 import { triggerShortcut } from '../../../core/shortcuts'
 import { copy, fill, radius2, type2 } from '../../../core/theme'
+import { pressMotion } from '../../../core/ui/motion'
 import { Keycap, keyLabel } from '../../../core/ui/Keycap'
 import { useVoice } from '../../voice/store'
 import { tone } from './ui'
@@ -55,25 +57,26 @@ export function KeysRow({ onHide, backDisabled }: { onHide: () => void; backDisa
 function IconKey({ label, keyText, pressed, disabled, onClick, children }: { label: string; keyText?: string; pressed?: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }): ReactNode {
   const tip = keyText ? `${label} (${keyText})` : label
   return (
-    <button
+    <motion.button
       type="button"
       data-key-button={label.toLowerCase()}
       aria-label={tip}
       aria-pressed={pressed}
       title={tip}
       disabled={disabled}
-      className="grid h-[28px] w-[28px] cursor-pointer place-items-center hover:bg-[var(--panel-hover)] disabled:cursor-default"
+      // Polish: the core hover tint and press dip (.mg-press, pressMotion) instead of a Tailwind background hover.
+      className="mg-press grid h-[28px] w-[28px] cursor-pointer place-items-center disabled:cursor-default"
       style={{
         borderRadius: radius2.control,
         background: pressed ? fill.navActive : undefined,
         color: pressed ? tone.text : tone.label,
-        opacity: disabled ? 0.4 : 1,
-        ['--panel-hover' as string]: fill.chipHover
+        opacity: disabled ? 0.4 : 1
       }}
+      {...pressMotion(disabled)}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       {children}
-    </button>
+    </motion.button>
   )
 }

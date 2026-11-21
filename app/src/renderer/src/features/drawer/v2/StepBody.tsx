@@ -8,7 +8,7 @@
 import type { ReactNode } from 'react'
 import { Play } from 'lucide-react'
 import type { MissingLine, StepKind } from '../../../../../../../shared/contracts/events'
-import { font, radius2, surface, type2 } from '../../../core/theme'
+import { font, highlight, radius2, surface, type2 } from '../../../core/theme'
 import { Caption, Inline, tone } from './ui'
 
 export function StepIntro({ title, instructions }: { title: string; instructions: string }): ReactNode {
@@ -28,13 +28,13 @@ export function StepIntro({ title, instructions }: { title: string; instructions
 
 const DEFAULT_WHERE: Partial<Record<StepKind, string>> = { code: 'Type this', run: 'Run this' }
 
-/** The code box: rgba white .06 on the panel, a hairline, radius 12, mono 13/20. */
+/** The code box: a hairline, radius 12, mono 13/20. Polish: a well, darker than the panel and shaded from the top edge, so it reads pressed IN while the buttons stand out. */
 function Box({ children, padLeft = 16 }: { children: ReactNode; padLeft?: number }): ReactNode {
   return (
     <div
       data-part="panel-code"
       className="overflow-x-auto"
-      style={{ background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, borderRadius: radius2.card, padding: `12px 16px 12px ${padLeft}px`, scrollbarWidth: 'thin' }}
+      style={{ background: surface.well, boxShadow: `inset 0 0 0 1px ${surface.border}, ${highlight.well}`, borderRadius: radius2.card, padding: `12px 16px 12px ${padLeft}px`, scrollbarWidth: 'thin' }}
     >
       {children}
     </div>

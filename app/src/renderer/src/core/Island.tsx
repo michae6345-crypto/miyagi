@@ -16,7 +16,7 @@ import { offDock, useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { getIslandModes } from './registry'
-import { color, pill, shadows, spring, springOut } from './theme'
+import { color, duration, ease, pill, shadows, spring, springOut } from './theme'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
 const PRESS_HOLD_MS = 1500
@@ -256,17 +256,23 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   )
 }
 
-/** One mode's content layer. Only a present layer carries data-island-layer, so a leaving one is never measured. */
+/**
+ * One mode's content layer. Only a present layer carries data-island-layer, so a leaving one is never measured.
+ * Polish (UI-POLISH-SPEC 8, the pill morph): while the black shape springs to its new size, the old content shrinks a
+ * hair and fades out fast (80 ms) and the new content grows in from .96 at the top center on the same spring, its
+ * fade a touch late (60 ms) so the two never sit on top of each other. Transform and opacity only; with reduced
+ * motion, the fades alone.
+ */
 function Layer({ id, width, children }: { id: string; width?: number; children: ReactNode }): ReactNode {
   const present = useIsPresent()
   return (
     <motion.div
       data-island-layer={present ? id : undefined}
       className="absolute left-1/2 top-0"
-      style={{ x: '-50%', width: width ?? 'max-content' }}
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0, transition: { duration: 0.2, delay: 0.06, ease: 'easeOut' } }}
-      exit={{ opacity: 0, transition: { duration: 0.08 } }}
+      style={{ x: '-50%', width: width ?? 'max-content', transformOrigin: '50% 0%' }}
+      initial={{ opacity: 0, y: 4, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { duration: duration.base, delay: 0.06, ease: ease.out } } }}
+      exit={{ opacity: 0, scale: 0.98, transition: { duration: duration.instant } }}
     >
       {children}
     </motion.div>

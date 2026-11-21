@@ -5,10 +5,15 @@
  *   compact  Onb-Setup-Ready: a 56 px tile, glyph and label (every row is done there)
  *   line     Onb-Permission-Recovery: a 40 px line, label left, glyph + word right
  * Buttons here are QuietButtons (chrome): each surface keeps its one white primary for Start learning / the fix.
+ *
+ * Polish: every row is a riseItem, so a list that wraps them in core staggerList arrives one row after another (and a
+ * list that doesn't is unchanged). Card and tile rows carry the soft top highlight of a raised dark surface.
  */
+import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Code, Monitor, MousePointer2, Settings2, type LucideIcon } from 'lucide-react'
-import { color, fill, radius2, status as tone, surface, type2 } from '../../core/theme'
+import { color, fill, highlight, radius2, status as tone, surface, type2 } from '../../core/theme'
+import { riseItem } from '../../core/ui/motion'
 import { QuietButton } from '../../core/ui/buttons'
 import { StatusGlyph } from '../../core/ui/status'
 import type { Row as RowData, RowId, RowState } from './rows'
@@ -44,30 +49,31 @@ export function Row({ row, variant, last }: { row: RowData; variant: 'list' | 'c
   const Icon = ICON[row.id]
   if (variant === 'line')
     return (
-      <div role="listitem" data-onb-row={row.id} data-state={row.state} className="flex h-[40px] items-center justify-between" style={{ fontSize: type2.sm, borderBottom: last ? undefined : `1px solid ${fill.hairline}` }}>
+      <motion.div variants={riseItem} role="listitem" data-onb-row={row.id} data-state={row.state} className="flex h-[40px] items-center justify-between" style={{ fontSize: type2.sm, borderBottom: last ? undefined : `1px solid ${fill.hairline}` }}>
         <span style={{ color: color.text }}>{row.label}</span>
         <span className="flex items-center gap-[8px]">
           <StatusGlyph state={row.state} size={16} />
           <Word row={row} />
         </span>
-      </div>
+      </motion.div>
     )
   if (variant === 'compact')
     return (
-      <div role="listitem" data-onb-row={row.id} data-state={row.state} className="flex h-[56px] items-center gap-[12px] px-[16px]" style={{ borderRadius: radius2.chip, background: surface.row }}>
+      <motion.div variants={riseItem} role="listitem" data-onb-row={row.id} data-state={row.state} className="flex h-[56px] items-center gap-[12px] px-[16px]" style={{ borderRadius: radius2.chip, background: surface.row, boxShadow: highlight.topSoft }}>
         <StatusGlyph state={row.state} size={24} />
         <span style={{ fontSize: type2.body, fontWeight: 500, color: color.text }}>{row.label}</span>
-      </div>
+      </motion.div>
     )
   if (variant === 'card') {
     const open = row.state === 'watching'
     return (
-      <div
+      <motion.div
+        variants={riseItem}
         role="listitem"
         data-onb-row={row.id}
         data-state={row.state}
         className="flex h-[72px] items-center gap-[16px] px-[16px]"
-        style={{ borderRadius: radius2.chip, background: surface.row, boxShadow: open ? `inset 0 0 0 1px ${surface.border}` : undefined }}
+        style={{ borderRadius: radius2.chip, background: surface.row, boxShadow: open ? `inset 0 0 0 1px ${surface.border}, ${highlight.topSoft}` : highlight.topSoft }}
       >
         <StatusGlyph state={row.state} size={24} />
         <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
@@ -77,12 +83,13 @@ export function Row({ row, variant, last }: { row: RowData; variant: 'list' | 'c
           </span>
         </div>
         {row.action ? <Action row={row} tall /> : <Word row={row} />}
-      </div>
+      </motion.div>
     )
   }
   // list (Onb-Setup-Full)
   return (
-    <div
+    <motion.div
+      variants={riseItem}
       role="listitem"
       data-onb-row={row.id}
       data-state={row.state}
@@ -103,6 +110,6 @@ export function Row({ row, variant, last }: { row: RowData; variant: 'list' | 'c
         </span>
         <Action row={row} />
       </div>
-    </div>
+    </motion.div>
   )
 }

@@ -6,6 +6,7 @@
  *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin) and
  *     the preferences. It says "on this Mac" because that is all it can reach.
  */
+import { motion } from 'motion/react'
 import { Camera, CodeXml, KeyRound } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { DEFAULT_PREFS } from '../../../../../common/prefs'
@@ -13,6 +14,7 @@ import { bridge } from '../../../bridge'
 import { setPrefs } from '../../../core/prefs'
 import { PrimaryButtonV2, QuietButton } from '../../../core/ui/atoms'
 import { color, type2 } from '../../../core/theme'
+import { pressMotion } from '../../../core/ui/motion'
 import { stage } from '../env'
 import type { DeleteResult, KeysView } from '../keys'
 import { Badge, Group, OnWord, PageHeader, Row } from '../ui'
@@ -101,15 +103,16 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
 /** The first Delete is an outline, not a fill: it only asks. */
 function OutlineButton({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
   return (
-    <button
+    <motion.button
       type="button"
       aria-label="Delete my data"
-      className="h-[32px] shrink-0 cursor-pointer whitespace-nowrap rounded-[8px] px-[16px] font-medium"
+      className="mg-press h-[32px] shrink-0 cursor-pointer whitespace-nowrap rounded-[8px] px-[16px] font-medium"
       style={{ fontSize: type2.xs, color: color.text, boxShadow: `inset 0 0 0 1px ${color.faint}` }}
+      {...pressMotion()}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       {label}
-    </button>
+    </motion.button>
   )
 }
