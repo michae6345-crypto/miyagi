@@ -3,22 +3,24 @@
  *
  *   step.passed (not skipped, not "already")       tick   (the lesson's last step: done)
  *   card kind "complete" / a skill map             done   (once per lesson; skipped if the last step already chimed)
- *   Prefs.onboarded false -> true (setup finished) done
+ *   onUi('setup-done') (Core request 4)            done   (the learner pressed the last setup button; reruns only)
  *   a pointer click on a primary button            tap    (only with the taps sub-toggle)
  *
  * Engine cues play in ONE window: the overlay (index.tsx mounts SoundHost there, like voice's speaker), since every
  * window receives the engine feed. Taps play in the window that was clicked. All windows share the "last cue" time and
- * the "last keystroke" time through localStorage, so no two cues overlap across windows and none plays while the
- * learner types anywhere in miyagi.
+ * the "last keystroke" time through localStorage, so no two cues overlap across windows.
+ *
+ * Typing: the learner types in VS Code and the terminal, which miyagi windows never see, and steps pass live while
+ * they type. So before an engine cue the store asks main for the system idle time (sound:idle, any key or mouse input
+ * in any app); under a second counts as typing now, and the gate holds the cue and drops it after 2.5 s of input.
  *
  *   useSoundLog(s => s.last)   the last cue asked for and what the gate said (the stage monitor reads it)
  */
 import { create } from 'zustand'
 import { bridge, isElectron, registerWebHandler } from '../../bridge'
-import { onMessage, onUi } from '../../core/bus'
+import { onMessage, onUi, type UiEvent } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
-import { usePrefs } from '../../core/prefs'
-import { createGate, type Verdict } from './gate'
+import { createGate, withSystemIdle, type Verdict } from './gate'
 import { playCue } from './player'
 import { useSound } from './settings'
 import type { Cue } from './synth'
@@ -27,7 +29,7 @@ export type SoundEvent = { id: number; cue: Cue; at: number; verdict: Verdict; w
 export const useSoundLog = create<{ last?: SoundEvent }>(() => ({}))
 
 const gate = createGate()
-const env = { typingAt: 0, dnd: false }
+const local = { typingAt: 0, dnd: false }
 let hosted = false
 let seq = 0
 let retry: ReturnType<typeof setTimeout> | undefined
@@ -44,22 +46,45 @@ const share = (key: string, at: number): void => {
   }
 }
 
-/** Ask for a cue. `why` is for the stage monitor and the brief, never shown in the app. */
-export function request(cue: Cue, why: string, bornAt = Date.now()): void {
+/** The cue the gate is holding, with its own reason and whether it watches system input (a retry reuses both). */
+let held: { cue: Cue; why: string; system: boolean } | undefined
+
+/**
+ * Ask for a cue. `why` is for the stage monitor and the brief, never shown in the app. `system`: also hold it while
+ * the learner is busy anywhere on the Mac (engine cues; not a cue answering a click in miyagi).
+ */
+export function request(cue: Cue, why: string, opts: { bornAt?: number; system?: boolean } = {}): void {
+  const bornAt = opts.bornAt ?? Date.now()
+  const system = opts.system === true && cue !== 'tap'
+  if (!system || !enabled()) return decide(cue, why, bornAt, system, undefined)
+  bridge
+    .invoke<number>('sound:idle')
+    .then((idle) => decide(cue, why, bornAt, system, idle))
+    .catch(() => decide(cue, why, bornAt, system, undefined))
+}
+
+function decide(cue: Cue, why: string, bornAt: number, system: boolean, idleSeconds: number | undefined): void {
   const s = useSound.getState()
-  const verdict = gate.ask(cue, { now: Date.now(), enabled: s.mode === 'subtle', taps: s.taps, typingAt: env.typingAt, dnd: env.dnd }, bornAt)
+  const env = withSystemIdle({ now: Date.now(), enabled: s.mode === 'subtle', taps: s.taps, typingAt: local.typingAt, dnd: local.dnd }, idleSeconds)
+  const verdict = gate.ask(cue, env, bornAt)
   if (verdict.play) {
     playCue(cue, s.dry)
     share(LAST_KEY, Date.now())
-  } else if (verdict.reason === 'held') {
+  }
+  const waiting = gate.pending()
+  if (verdict.play === false && verdict.reason === 'held') {
+    held = { cue, why, system }
     if (retry) clearTimeout(retry)
     retry = setTimeout(() => {
       retry = undefined
       const p = gate.pending()
-      if (p) request(p.cue, why, p.bornAt)
+      if (!p) return
+      const h = held?.cue === p.cue ? held : { cue: p.cue, why, system }
+      request(p.cue, h.why, { bornAt: p.bornAt, system: h.system })
     }, verdict.retryInMs)
-  }
-  useSoundLog.setState({ last: { id: ++seq, cue, at: Date.now(), verdict, why } })
+  } else if (!waiting || waiting.cue !== held?.cue) held = undefined
+  const busy = env.typingAt > local.typingAt
+  useSoundLog.setState({ last: { id: ++seq, cue, at: Date.now(), verdict, why: busy ? `${why}, input elsewhere` : why } })
 }
 
 // ---- other windows: the shared clock ------------------------------------------------------------------------------
@@ -69,7 +94,7 @@ if (typeof window !== 'undefined') {
     const at = Number(e.newValue)
     if (!Number.isFinite(at)) return
     if (e.key === LAST_KEY) gate.note(at)
-    if (e.key === TYPING_KEY) env.typingAt = Math.max(env.typingAt, at)
+    if (e.key === TYPING_KEY) local.typingAt = Math.max(local.typingAt, at)
   })
 }
 
@@ -88,7 +113,7 @@ if (typeof document !== 'undefined') {
       const editKey = e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete'
       if (!enabled() || !editKey || e.metaKey || e.ctrlKey || !isField(e.target)) return
       const now = Date.now()
-      env.typingAt = now
+      local.typingAt = now
       // Throttled: one localStorage write per 300 ms of typing at most.
       if (now - sharedTypingAt > 300) {
         sharedTypingAt = now
@@ -134,8 +159,8 @@ onMessage('step.passed', (p) => {
   const last = steps.length > 0 && steps[steps.length - 1].id === p.stepId && !p.pending && useLesson.getState().complete
   if (last) {
     doneFor = lessonKey()
-    request('done', 'last step passed')
-  } else request('tick', 'step passed')
+    request('done', 'last step passed', { system: true })
+  } else request('tick', 'step passed', { system: true })
 })
 
 onMessage('card', (p) => {
@@ -144,7 +169,7 @@ onMessage('card', (p) => {
   if (raw.kind !== 'complete' && !raw.skillMap) return
   if (doneFor === lessonKey()) return
   doneFor = lessonKey()
-  request('done', 'lesson complete')
+  request('done', 'lesson complete', { system: true })
 })
 
 onMessage('lesson.ready', () => {
@@ -155,38 +180,37 @@ onUi('reset', () => {
   gate.reset()
   if (retry) clearTimeout(retry)
   retry = undefined
+  held = undefined
 })
 
-// ---- setup finished: Prefs.onboarded turns true (onboarding's markDone) --------------------------------------------
+// ---- setup finished: an explicit UI event, never a Prefs flip --------------------------------------------------------
 
 /**
- * Only a change seen AFTER this window has the saved value counts: at startup Prefs begins at the default (false) and
- * then loads true, which is not a setup finishing.
+ * Core request 4: the one-window setup lane emits onUi('setup-done') when the learner presses its last button. Not
+ * Prefs.onboarded: markDone() also runs on the first frame of setup when every permission is already granted (a
+ * reinstall), which would chime before anything was done. Sounds are Off by default and set in Settings after setup,
+ * so in practice this only plays when setup is run again. Not gated on `hosted` and no system-input hold: it answers a
+ * click in the window that finished. Cast: 'setup-done' joins the UiEvent union with Core request 4.
  */
-let onboardedBase: boolean | undefined
-bridge
-  .invoke<{ onboarded?: boolean }>('prefs:get')
-  .then((p) => {
-    onboardedBase = !!(p?.onboarded ?? usePrefs.getState().onboarded)
-  })
-  .catch(() => undefined)
-usePrefs.subscribe((p) => {
-  if (onboardedBase === undefined) return
-  if (p.onboarded && !onboardedBase && hosted) request('done', 'setup finished')
-  onboardedBase = p.onboarded
+onUi('setup-done' as UiEvent, () => {
+  request('done', 'setup finished')
 })
 
 // ---- Do Not Disturb ------------------------------------------------------------------------------------------------
 
-// The stage has no main process: never in Do Not Disturb.
-if (!isElectron) registerWebHandler('sound:dnd', () => false)
+// The stage has no main process: never in Do Not Disturb, and the system is idle unless ?busy=1 (the learner is
+// typing in another app right now: engine cues wait, then drop).
+if (!isElectron) {
+  registerWebHandler('sound:dnd', () => false)
+  registerWebHandler('sound:idle', () => (new URLSearchParams(location.search).get('busy') === '1' ? 0 : 60))
+}
 
 let dndTimer: ReturnType<typeof setInterval> | undefined
 const readDnd = (): void => {
   bridge
     .invoke<boolean>('sound:dnd')
-    .then((on) => (env.dnd = on === true))
-    .catch(() => (env.dnd = false))
+    .then((on) => (local.dnd = on === true))
+    .catch(() => (local.dnd = false))
 }
 const watchDnd = (): void => {
   const on = hosted && enabled()
@@ -196,7 +220,7 @@ const watchDnd = (): void => {
   } else if (!on && dndTimer) {
     clearInterval(dndTimer)
     dndTimer = undefined
-    env.dnd = false
+    local.dnd = false
   }
 }
 useSound.subscribe(watchDnd)

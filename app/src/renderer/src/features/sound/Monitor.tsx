@@ -126,8 +126,8 @@ export function SoundMonitor(): ReactNode {
         <Readout ev={last} dry={dry} />
       </motion.div>
       <motion.div variants={riseItem} className="mt-[12px] flex gap-[8px]">
-        <QuietButton label="Tick" onClick={() => request('tick', 'stage test')} />
-        <QuietButton label="Done" onClick={() => request('done', 'stage test')} />
+        <QuietButton label="Tick" onClick={() => request('tick', 'stage test', { system: true })} />
+        <QuietButton label="Done" onClick={() => request('done', 'stage test', { system: true })} />
         <div className="flex-1" />
         <PrimaryButton label="Primary" onClick={() => undefined} />
       </motion.div>

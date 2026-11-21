@@ -1,7 +1,11 @@
 /**
- * Feature: sound (main). One question for the renderer: is macOS in Do Not Disturb / a Focus right now?
+ * Feature: sound (main). Two questions for the renderer:
  *
- *   bridge.invoke('sound:dnd') -> boolean   true only when it can be read AND a Focus is on; false otherwise
+ *   bridge.invoke('sound:dnd')  -> boolean   true only when it can be read AND a Focus is on; false otherwise
+ *   bridge.invoke('sound:idle') -> number    seconds since the last keyboard or mouse input anywhere on the system
+ *                                            (powerMonitor.getSystemIdleTime, whole seconds, no permission needed).
+ *                                            The learner types in VS Code and the terminal, not in miyagi, so this is
+ *                                            how the renderer holds a tick while they type there.
  *
  * macOS keeps the manually turned-on Focus in ~/Library/DoNotDisturb/DB/Assertions.json (macOS 12+): one record per
  * active assertion. On newer macOS that file can need Full Disk Access; any read or parse failure answers false
@@ -10,6 +14,7 @@
  *
  * UNVERIFIED in Electron (no app runs during this lane): typechecked, and the parse is covered by sound.check.ts.
  */
+import { powerMonitor } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -42,5 +47,6 @@ export default defineMainFeature({
   id: 'sound',
   setup(ctx) {
     ctx.handle('sound:dnd', () => readFocus())
+    ctx.handle('sound:idle', () => powerMonitor.getSystemIdleTime())
   }
 })

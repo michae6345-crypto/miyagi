@@ -7,12 +7,19 @@
  *
  * Where the value comes from, first match wins:
  *   1. the browser stage's ?sound= (1 / subtle, taps, dry, 0 / off). dry = everything on, nothing reaches the speakers.
- *   2. core Prefs `sounds` / `soundTaps`, once Core adds them (read defensively, so this lights up with no change here).
- *   3. localStorage `miyagi.sound`. Every miyagi window shares the origin, so a change in Settings reaches the overlay
- *      through the `storage` event.
+ *      A change made in the stage stays in memory: it never writes localStorage or Prefs, so a later plain stage load
+ *      can't come up Subtle and play real audio.
+ *   2. core Prefs `sounds` / `soundTaps`, once Core adds them (read defensively, so this lights up with no change here),
+ *      but only when they differ from the default or nothing is saved locally: Core's default 'off' must not hide a
+ *      'subtle' the learner saved before Prefs had the field.
+ *   3. localStorage `miyagi.sound`, the store until Core request 1 lands. Every miyagi window shares the origin, so a
+ *      change in Settings reaches the overlay through the `storage` event.
+ *
+ * Migration: the first prefs:get that carries `sounds` (Core request 1 landed) copies a saved local value into Prefs
+ * when Prefs still holds the default, then removes the local key. From then on Prefs is the only store.
  */
 import { create } from 'zustand'
-import { isElectron } from '../../bridge'
+import { bridge, isElectron } from '../../bridge'
 import { setPrefs, usePrefs, type Prefs } from '../../core/prefs'
 
 export type SoundMode = 'off' | 'subtle'
@@ -47,9 +54,20 @@ function fromLocal(): SoundSettings | undefined {
   }
 }
 
+const isDefault = (v: Pick<SoundSettings, 'mode' | 'taps'>): boolean => v.mode === DEFAULT.mode && v.taps === DEFAULT.taps
+
 /** Read once; a change made in the stage (the monitor's Sounds control) updates it in place and keeps `dry`. */
 let stage = fromStage()
-const resolve = (): SoundSettings => stage ?? fromPrefs() ?? fromLocal() ?? DEFAULT
+/** Prefs carries `sounds` (Core request 1 landed): Prefs is the store and localStorage is no longer written. */
+let prefsKnowSounds = false
+
+function resolve(): SoundSettings {
+  if (stage) return stage
+  const p = fromPrefs()
+  const l = fromLocal()
+  if (p && (!isDefault(p) || !l)) return p
+  return l ?? p ?? DEFAULT
+}
 
 export const useSound = create<SoundSettings>(() => resolve())
 
@@ -66,19 +84,57 @@ if (typeof window !== 'undefined') {
   })
 }
 
+const asPrefs = (v: Pick<SoundSettings, 'mode' | 'taps'>): Partial<Prefs> => ({ sounds: v.mode, soundTaps: v.taps }) as unknown as Partial<Prefs>
+
+/** The first prefs:get that knows `sounds`: carry a locally saved value over once, then drop the local key. */
+bridge
+  .invoke<Record<string, unknown>>('prefs:get')
+  .then((p) => {
+    if (!p || !('sounds' in p)) return
+    prefsKnowSounds = true
+    const l = fromLocal()
+    if (!l) return
+    const fromP = fromPrefs()
+    const done = (): void => {
+      try {
+        localStorage.removeItem(KEY)
+      } catch {
+        /* nothing saved */
+      }
+      refresh()
+    }
+    if (fromP && !isDefault(fromP)) return done()
+    if (isDefault(l)) return done()
+    bridge
+      .invoke<Prefs>('prefs:set', asPrefs(l))
+      .then((next) => {
+        if (next) usePrefs.setState(next)
+        done()
+      })
+      .catch(() => undefined)
+  })
+  .catch(() => undefined)
+
 function save(patch: Partial<Pick<SoundSettings, 'mode' | 'taps'>>): void {
   const cur = useSound.getState()
   const next = { mode: patch.mode ?? cur.mode, taps: patch.taps ?? cur.taps }
-  try {
-    localStorage.setItem(KEY, JSON.stringify(next))
-  } catch {
-    /* private window: this session only */
+  // The browser stage's control: memory only, so a plain stage load later never comes up Subtle with real audio.
+  if (stage) {
+    stage = { ...stage, ...next }
+    useSound.setState({ ...next, source: 'stage' })
+    return
   }
-  if (stage) stage = { ...stage, ...next }
-  useSound.setState({ ...next, source: stage ? 'stage' : 'local' })
+  if (!prefsKnowSounds) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(next))
+    } catch {
+      /* private window: this session only */
+    }
+  }
+  useSound.setState({ ...next, source: prefsKnowSounds ? 'prefs' : 'local' })
   // Forward-compatible: once Core adds `sounds` / `soundTaps` to Prefs this persists in main too. Until then
   // sanitizePrefs drops the unknown keys and this is a no-op.
-  setPrefs({ sounds: next.mode, soundTaps: next.taps } as unknown as Partial<Prefs>)
+  setPrefs(asPrefs(next))
 }
 
 export const setSoundMode = (mode: SoundMode): void => save({ mode })

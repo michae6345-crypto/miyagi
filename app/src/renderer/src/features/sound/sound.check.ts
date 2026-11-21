@@ -5,11 +5,12 @@
  *
  * Renders every cue at 44.1 and 48 kHz and checks: peak under -24 dBFS, duration under 250 ms, starts and ends on
  * silence (no click), no DC, finite samples, deterministic. Then drives the gate on a fake clock: off by default, one
- * cue per 400 ms, never during typing, Do Not Disturb, taps sub-toggle, a held done outranking a tick, stale drop.
+ * cue per 400 ms, never during typing, Do Not Disturb, taps sub-toggle, a held done outranking a tick, stale drop, and
+ * typing in another app (a fake system idle clock, as main's sound:idle reports it).
  * Finally the main process's Do Not Disturb parse. Exits 1 on the first failure.
  */
 import { focusOn } from '../../../../main/features/sound'
-import { createGate, MAX_WAIT_MS, MIN_GAP_MS, TYPING_QUIET_MS, type GateEnv } from './gate'
+import { createGate, MAX_WAIT_MS, MIN_GAP_MS, SYSTEM_BUSY_S, TYPING_QUIET_MS, withSystemIdle, type Gate, type GateEnv } from './gate'
 import { CUES, gainToDb, MAX_DURATION_MS, MAX_PEAK_DBFS, peakOf, renderCue, type Cue } from './synth'
 
 let failed = 0
@@ -121,6 +122,50 @@ function on(now: number, extra: Partial<GateEnv> = {}): GateEnv {
   }
   ok(plays.length > 5 && plays.every((t, i) => i === 0 || t - plays[i - 1] >= MIN_GAP_MS), 'a burst never plays two cues within 400 ms')
   ok(Math.max(...Object.values(CUES).map((c) => c.durationMs)) < MIN_GAP_MS, 'every cue ends before the next may start')
+}
+
+// ---- typing in another app: a fake system idle clock (main's sound:idle) -------------------------------------------
+
+/**
+ * Drives one engine cue the way store.ts does: ask with the system idle folded in, and on "held" re-ask after
+ * retryInMs with the original bornAt. `busyUntil`: the learner types in VS Code until then (whole-second idle, like
+ * powerMonitor.getSystemIdleTime). Returns when it played (or undefined) and the verdicts on the way.
+ */
+function drive(g: Gate, cue: Cue, bornAt: number, busyUntil: number): { playedAt?: number; reasons: string[] } {
+  const idleAt = (t: number): number => (t < busyUntil ? 0 : Math.floor((t - busyUntil) / 1000) + 1)
+  const reasons: string[] = []
+  let t = bornAt
+  for (let i = 0; i < 20; i++) {
+    const v = g.ask(cue, withSystemIdle(on(t), idleAt(t)), bornAt)
+    reasons.push(v.play ? 'play' : v.reason)
+    if (v.play) return { playedAt: t, reasons }
+    if (v.reason !== 'held') return { reasons }
+    t += v.retryInMs
+  }
+  return { reasons }
+}
+{
+  ok(withSystemIdle(on(5000), 0).typingAt === 5000, 'system input in the last second counts as typing now')
+  ok(withSystemIdle(on(5000), SYSTEM_BUSY_S).typingAt === 0, 'a second of system idle is not typing')
+  ok(withSystemIdle(on(5000), undefined).typingAt === 0 && withSystemIdle(on(5000), NaN).typingAt === 0, 'an unreadable idle time changes nothing')
+  ok(withSystemIdle(on(5000, { typingAt: 4000 }), 30).typingAt === 4000, 'idle keeps the miyagi keystroke time')
+}
+{
+  const g = createGate()
+  const r = drive(g, 'tick', 10_000, 10_000 + 60_000) // typing in the editor the whole time
+  ok(r.playedAt === undefined && r.reasons[0] === 'held' && r.reasons[r.reasons.length - 1] === 'stale', 'a tick while typing in another app waits, then drops')
+  ok(g.pending() === undefined, 'nothing left waiting after the drop')
+  ok(r.reasons.filter((x) => x === 'held').length * TYPING_QUIET_MS <= MAX_WAIT_MS, 'dropped within MAX_WAIT_MS')
+}
+{
+  const g = createGate()
+  const r = drive(g, 'done', 20_000, 20_500) // the learner stops half a second after the pass
+  ok(r.playedAt !== undefined && r.playedAt - 20_000 <= MAX_WAIT_MS && r.playedAt >= 20_500, 'a done plays once the system goes quiet')
+}
+{
+  const g = createGate()
+  const r = drive(g, 'tick', 30_000, 0) // idle for a long time
+  ok(r.playedAt === 30_000, 'an idle system plays the tick at once')
 }
 
 // ---- Do Not Disturb parse (main) -----------------------------------------------------------------------------------

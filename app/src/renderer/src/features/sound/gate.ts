@@ -4,6 +4,8 @@
  *   - Off means off. Taps also need their own sub-toggle.
  *   - Never more than one cue per MIN_GAP_MS (400 ms). Every cue is shorter than 250 ms, so two never overlap.
  *   - Never while the learner types (any key in a field within TYPING_QUIET_MS), and never in Do Not Disturb.
+ *     The learner mostly types outside miyagi (VS Code, the terminal), so before a tick or done the store also asks
+ *     main how long the whole system has been idle; under SYSTEM_BUSY_S counts as typing now (withSystemIdle below).
  *   - A tick or done that is only blocked by the gap or by typing waits for it (one pending cue, the most important
  *     one), up to MAX_WAIT_MS after it was asked for; then it is dropped. A tap is never held: late feedback is noise.
  *
@@ -14,6 +16,8 @@ import type { Cue } from './synth'
 export const MIN_GAP_MS = 400
 export const TYPING_QUIET_MS = 1200
 export const MAX_WAIT_MS = 2500
+/** System-wide input (keys or mouse, any app) this recent counts as typing. getSystemIdleTime is whole seconds. */
+export const SYSTEM_BUSY_S = 1
 
 const RANK: Record<Cue, number> = { tap: 1, tick: 2, done: 3 }
 
@@ -27,6 +31,16 @@ export type GateEnv = {
   typingAt: number
   /** macOS Do Not Disturb / a Focus is on (false when it can't be read). */
   dnd: boolean
+}
+
+/**
+ * Fold the system idle time (seconds since the last key or mouse input anywhere; undefined when it can't be read) into
+ * the env: any input within SYSTEM_BUSY_S counts as a keystroke right now, so the gate holds the cue and drops it after
+ * MAX_WAIT_MS if the learner keeps going.
+ */
+export function withSystemIdle(env: GateEnv, idleSeconds: number | undefined): GateEnv {
+  if (typeof idleSeconds !== 'number' || !Number.isFinite(idleSeconds) || idleSeconds >= SYSTEM_BUSY_S) return env
+  return { ...env, typingAt: Math.max(env.typingAt, env.now) }
 }
 
 export type Verdict =
