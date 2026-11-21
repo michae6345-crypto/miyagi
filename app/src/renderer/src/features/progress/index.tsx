@@ -13,6 +13,7 @@
  */
 import { defineFeature } from '../../core/registry'
 import { useDock } from '../../core/dock'
+import { useGateOpen } from '../../core/gate'
 import { useLesson } from '../../core/lesson'
 import { ReviewReminderCard, REVIEW_W } from './ReviewReminder'
 import { StepPassedCard, STEP_W } from './StepPassed'
@@ -44,9 +45,11 @@ export default defineFeature({
       priority: 42,
       width: REVIEW_W,
       useActive: () => {
+        // Never before the sign-in gate opens (core/gate.ts): the launch check itself waits for it too (store.ts).
+        const open = useGateOpen()
         const review = useProgress((s) => !!s.review)
         const lesson = useLesson((s) => !!s.lesson || s.building)
-        return review && !lesson
+        return open && review && !lesson
       },
       Content: ReviewReminderCard
     }
