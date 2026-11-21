@@ -43,8 +43,10 @@ Shots (headless Brave over CDP, 1440x900): `agents/shots/lesson-panel-{working,c
 - Not verified: Electron (`npm run dev`), the engine's real `where`/`then`/`hintStep`/`missingLines` (E3), `panel.state` on a real engine (E2).
 
 ### Notes for A2 (pill-cards)
-- `import { isPanelRouted, usePanelRouted, openPanel } from '../drawer/store'`. Skip a card (or the offtrack card) when `usePanelRouted(card)` / `usePanelRouted({ kind: 'offtrack', ...offtrack })` is true. Reading it never imports the panel UI.
-- Mini pill: show while `useDock(s => s.collapsed)`; click = `openPanel()` (or `emitUi('panel', 'open')`). Then flip `STEPS_HANDLE_WHEN_COLLAPSED` off in `drawer/index.tsx`.
+- `import { isPanelRouted, usePanelRouted } from '../drawer/v2/route'` (it imports only core and `v2/panelStore`). Skip a card (or the offtrack card) when `usePanelRouted(card)` / `usePanelRouted({ kind: 'offtrack', ...offtrack })` is true. Reading it never imports the panel UI.
+- **Never import `'../drawer/store'` from `cards/store.ts`**: drawer/store imports `../cards/store` and subscribes to `useCards` at module top level, so the cycle leaves `useCards` uninitialized (TDZ) and throws a ReferenceError at load. `'../drawer/store'` is safe only from `cards/index.tsx` or pill code.
+- Mini pill: show while `useDock(s => s.collapsed)`; click = `emitUi('panel', 'open')` (core's `panel` UI event; no import of drawer code needed). Then flip `STEPS_HANDLE_WHEN_COLLAPSED` off in `drawer/index.tsx`.
+- Esc: drawer/store's `othersOpen` counts only what the learner can see. A card the panel renders (`isPanelRouted`) or the routed offtrack is not "open", and the panel's hint counts only while it is the view on screen (`hintShown()` in `v2/panelStore`, the same rule as view.ts: not under Checking, Passed or a newer Not yet). So the first Esc collapses the panel even if cards/store's `closeTop` clears a hidden card on that Esc.
 
 ### Pass 3 (Sat Nov 14, night): "Just teach me" shows what to type
 Michael tried a "Just teach me" lesson: the instructions weren't clear and didn't show what to type. The drawer now reads, top to bottom:
