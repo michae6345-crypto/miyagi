@@ -31,6 +31,7 @@ import logging
 import math
 import os
 import re
+import textwrap
 import time
 import types
 from collections.abc import Awaitable, Callable
@@ -274,17 +275,20 @@ def build_phases(stage_id: str, text_lesson: bool = False, done: bool = False, w
 
 def build_fail_code(error: BaseException | str | None) -> str:
     """lesson.building.failCode (v2 BuildFailCode) from the builder's error (or its human message)."""
-    low = str(error or "").lower()
+    low = str(error or "").lower()  # status codes and "ssl" as words: never inside a video id, URL or "classless"
     if isinstance(error, TimeoutError) or "took over" in low or "no answer within" in low or "taking too long" in low \
             or "too long" in low:
         return "too_long"
     if any(k in low for k in ("connection", "network", "offline", "getaddrinfo", "name resolution", "unreachable",
-                              "timed out connecting", "ssl")):
+                              "timed out connecting")) or re.search(r"\bssl", low):
         return "network"
-    if any(k in low for k in ("quota", "resource_exhausted", "rate-limit", "rate limit", "429", "too many requests",
-                              "overloaded", "budget", "api key", "api_key", "authentication", "401", "credits")):
-        if ("transcript" in low or "caption" in low) and not any(k in low for k in ("gemini", "quota", "budget", "api key")):
-            return "no_captions"
+    if any(k in low for k in ("quota", "resource_exhausted", "budget", "credits")):
+        return "provider"  # Gemini's cap or quota (human_build_error checks these first too)
+    if re.search(r"(?<![\w-])429(?![\w-])", low) or any(k in low for k in ("too many requests", "rate-limit", "rate limit")):
+        # a rate limit before any transcript test: YouTube throttling its transcript endpoint is this network
+        # ("YouTube is rate-limiting this network"), not a video without captions
+        return "network" if any(k in low for k in ("transcript", "caption", "youtube")) else "provider"
+    if any(k in low for k in ("overloaded", "api key", "api_key", "authentication")) or re.search(r"(?<![\w-])401(?![\w-])", low):
         return "provider"
     if "transcript" in low or "caption" in low:
         return "no_captions"
@@ -342,7 +346,7 @@ def where_then(*, code: str | None, run_command: bool, notebook: bool, file: str
     if run_command:
         return {"where": "Run this in the terminal"}
     if notebook:
-        return {"where": "Type this in a new cell", "then": "Then run it with the arrow beside the cell."}
+        return {"where": "Type this in the new cell", "then": "Then run it with the arrow beside the cell."}
     name = Path(file).name if file else None
     return {"where": f"Type this in {name}" if name else "Type this"}
 
@@ -352,9 +356,10 @@ def _norm_line(line: str) -> str:
 
 
 def code_lines(code: str | None) -> list[str]:
-    """The step's lines that count (no blanks, no comment-only lines), as written."""
+    """The step's lines that count (no blanks, no comment-only lines), as written: the block's common indent removed,
+    each line's own indent kept (a for loop's body stays indented)."""
     out = []
-    for ln in str(code or "").splitlines():
+    for ln in textwrap.dedent(str(code or "").expandtabs(4)).splitlines():
         s = ln.strip()
         if s and not s.startswith("#"):
             out.append(ln.rstrip())
@@ -368,7 +373,7 @@ def missing_lines(code: str | None, have: str | None) -> list[dict] | None:
     if not lines or have is None or len(lines) > MAX_MISSING_LINES:
         return None
     present = {_norm_line(x) for x in str(have).splitlines() if x.strip()}
-    rows = [{"text": ln.strip(), "state": "ok" if _norm_line(ln) in present else "missing"} for ln in lines]
+    rows = [{"text": ln, "state": "ok" if _norm_line(ln) in present else "missing"} for ln in lines]
     return rows if any(r["state"] == "missing" for r in rows) else None
 
 
@@ -609,6 +614,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # v2 (BUILD-PLAN E3): the app said it is a v2 app (it sent a v2 command: panel.state, health.get, ...): only
         # then lesson.paused / lesson.resumed / blocker and card kind "complete" go out. MIYAGI_APP_V2=1 forces it.
         self.app_v2 = os.environ.get("MIYAGI_APP_V2", "").strip() == "1"
+        if self.app_v2:
+            self._editor_v2_room()
         self.paused: dict | None = None  # the lesson.paused payload while the lesson waits (VS Code closed)
         self.blockers: dict[str, dict] = {}  # kind -> the blocker payload on screen (kernel / editor_closed)
         self._editor_poll_t = -1e9
@@ -617,7 +624,6 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._kernel_misses = 0
         self._build_v2: dict | None = None  # the build in progress: {text, t0, source, expected, url}
         self.lesson_wall_t0: float | None = None  # wall clock of step 1's start (0.0: started later; no minutes)
-        self._panel_x: float | None = None  # the last panel.state left edge the editor was fitted to
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
         self._timers: set[asyncio.Task] = set()
@@ -1278,6 +1284,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not self.app_v2:
             log.info("v2 app (%s): lesson.paused, blocker and the complete card are on", type_ or "told")
         self.app_v2 = True
+        self._editor_v2_room()
+
+    @staticmethod
+    def _editor_v2_room() -> None:
+        """The lesson's VS Code window keeps the v2 panel's 392 pt on the right, not the v1 drawer's 436."""
+        try:
+            from server.workspace import editor as editor_mod
+
+            editor_mod.note_app_v2()
+        except Exception:  # noqa: BLE001
+            log.debug("editor v2 room not set", exc_info=True)
 
     async def panel_state(self, open_: bool, rect: dict | None = None) -> None:
         """panel.state {open, rect} (v2): where the lesson panel is docked. The editor's room follows a moved panel
@@ -1333,6 +1350,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 payload["waiting"] = "Watching for a kernel to start"
             return payload
         if type_ == "step.passed":
+            if not payload.get("skipped") and "kernel" in self.blockers:
+                await self._set_blocker({"kind": "kernel", "clear": True})  # a notebook check that passed ran a kernel
             if payload.get("skipped") or payload.get("summary"):
                 return payload  # a skip is not a pass: nothing to sum up
             st = next((x for x in self.steps if x.get("id") == payload.get("stepId")), None)
@@ -1391,7 +1410,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             row = (self.pending_pick or {}).get("row") or next(
                 (r for r in self.results.values() if r.get("url") == url), None) or {}
             src = {"kind": "youtube" if video_id_from_url(url) else "goal",
-                   "title": " ".join(str(row.get("title") or title or "YouTube video").split())[:200], "url": url}
+                   "title": " ".join(str(row.get("title") or title or "YouTube video").split())[:200], "url": url,
+                   **({"channel": str(row["channel"])[:120]} if row.get("channel") else {})}
             if isinstance(row.get("durationS"), (int, float)) and row["durationS"] > 0:
                 src["durationS"] = float(row["durationS"])
         self._build_v2 = {"text": text, "t0": self.clock(), "url": url, "source": src,
@@ -1510,6 +1530,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def _kernel_check(self) -> None:
         step = self.step
+        if self.passed and "kernel" in self.blockers:
+            self._kernel_misses = 0
+            await self._set_blocker({"kind": "kernel", "clear": True})  # the step passed: a kernel ran
+            return
         if step is None or self.passed or not (step.get("code") or "").strip() or self.last_obs is None:
             return
         rect = self._select_kernel_rect()

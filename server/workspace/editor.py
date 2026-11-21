@@ -53,10 +53,15 @@ EDITOR_FRACTION = float(os.environ.get("MIYAGI_EDITOR_FRACTION", "0.6"))
 NATIVE_FULLSCREEN = os.environ.get("MIYAGI_FULLSCREEN", "").strip().lower() == "native"
 # The maximized lesson window stops short of the overlay's lesson panel on the right, so the panel doesn't cover the
 # editor. v2 (BUILD-PLAN E3, decision 6): the panel is 360 pt wide in every lesson mode, 16 pt in from the screen's
-# right edge (theme dock.inset), with a 16 pt gap to the editor: 360 + 16 + 16 = 392 (was 436: the v1 drawer's
-# PANEL_W_LESSON 420 + 8 + 8). MIYAGI_DRAWER_W=0: the full width.
+# right edge (theme dock.inset), with a 16 pt gap to the editor: 360 + 16 + 16 = 392. Today's v1 drawer is wider
+# (PANEL_W_LESSON 420 + 8 + 8 = 436): fit_full keeps 436 until a v2 app is known (it sent a v2 command, or a panel.state
+# rect), so an engine ahead of the app never puts the v1 drawer over VS Code's Run button and panel toggle.
+# MIYAGI_DRAWER_W overrides both (0: the full width).
 PANEL_W, PANEL_INSET, PANEL_GAP = 360.0, 16.0, 16.0
+DRAWER_W_V1 = 436.0
 DRAWER_W = float(os.environ.get("MIYAGI_DRAWER_W", str(PANEL_W + PANEL_INSET + PANEL_GAP)))
+_DRAWER_W_SET = "MIYAGI_DRAWER_W" in os.environ
+_app_v2 = False  # the app draws the v2 panel (session.note_app_v2): DRAWER_W, else DRAWER_W_V1
 # The lesson panel's real place, when the app reported it (panel.state {open, rect}, screen points, top-left origin):
 # fit_full keeps the editor PANEL_GAP left of its left edge instead of the DRAWER_W estimate. None: not reported.
 _panel_rect: dict | None = None
@@ -115,14 +120,28 @@ def panel_rect() -> dict | None:
         return dict(_panel_rect) if _panel_rect else None
 
 
+def note_app_v2(on: bool = True) -> None:
+    """The app draws the v2 lesson panel (360 pt): fit_full reserves DRAWER_W (392) from now on, not the v1 436."""
+    global _app_v2
+    _app_v2 = bool(on)
+
+
+def drawer_reserve() -> float:
+    """The room fit_full keeps on the right: DRAWER_W for a v2 panel (reported, or a v2 app), else the v1 drawer's
+    DRAWER_W_V1. MIYAGI_DRAWER_W, when set, is used as it is."""
+    if _DRAWER_W_SET or _app_v2 or panel_rect() is not None:
+        return DRAWER_W
+    return DRAWER_W_V1
+
+
 def fit_full(visible: tuple[float, float, float, float], panel: dict | None = None,
              *, drawer_w: float | None = None) -> tuple[float, float, float, float]:
     """The lesson's editor frame in the visible screen `visible` (x, y, w, h; AX top-left): under the step pill, above
     the shortcut bar, and ending left of the lesson panel: PANEL_GAP before the panel's reported left edge (`panel`,
-    else the last panel.state), else DRAWER_W short of the screen's right edge. Never narrower than EDITOR_FRACTION
-    of the screen. Pure (no AX)."""
+    else the last panel.state), else drawer_reserve() short of the screen's right edge (392 for the v2 panel, 436 for
+    the v1 drawer). Never narrower than EDITOR_FRACTION of the screen. Pure (no AX)."""
     x, y, w, h = below_pill(above_bar(visible))
-    reserve = DRAWER_W if drawer_w is None else drawer_w
+    reserve = drawer_reserve() if drawer_w is None else drawer_w
     right = x + w if reserve <= 0 else x + w - reserve
     p = panel if panel is not None else panel_rect()
     if p and reserve > 0 and x < p["x"] < x + w:  # the panel the app really drew (a moved or resized panel)
