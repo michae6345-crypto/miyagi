@@ -6,7 +6,7 @@
  *
  * Owner: core. Features add modes; they don't edit this file.
  */
-import { AnimatePresence, motion, useIsPresent, useReducedMotion } from 'motion/react'
+import { animate, AnimatePresence, motion, useIsPresent, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
@@ -17,10 +17,23 @@ import { offDock, useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { MiyagiMark } from './ui/Mark'
-import { getIslandModes } from './registry'
+import { getIslandModes, type IslandMode } from './registry'
 import { perf } from './perf'
 import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
-import { color, pill, shadows } from './theme'
+import { color, notchDrop, pill, shadows } from './theme'
+import {
+  EAR_W,
+  HOVER,
+  isOpenView,
+  notchClip,
+  notchOf,
+  notchSize,
+  radiiFor,
+  restSize,
+  STRIP,
+  viewWith,
+  type NotchView
+} from './notchGeometry'
 import { beat, ease, fade, instant, sizeMove, spring, springOut } from './ui/motion'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
@@ -70,10 +83,22 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const held = islandModes.map((m) => m.useActive(false))
   const at = resolveMode(wanted)
   const mode = at < 0 ? undefined : islandModes[at]
+  // In the notch (layout.notch.place 'notch'): the island is anchored at the display top and drawn in the notch shape.
+  // Undefined = the pill below the menu bar, which is exactly what this file did before.
+  const nm = notchOf(layout)
+  const nmKey = nm ? `${nm.x},${nm.width},${nm.height}` : ''
+  const views = islandModes.map((m): NotchView => (m.notch ? m.notch.useView() : 'drop'))
+  const baseView: NotchView = at < 0 ? 'rest' : views[at]
   /** The active mode's layer shows nothing (or its Boundary fell back): the island is the pill, not a card-wide bar. */
   const [layerEmpty, setLayerEmpty] = useState(false)
-  const isPill = !mode || mode.width === undefined || layerEmpty
-
+  // In the notch an empty card stays a card (its zero-height content sizes it to the notch): flipping it to a pill would
+  // unmount its layer, and the layer's reset would flip it back.
+  const isPill = !mode || mode.width === undefined || (!nm && layerEmpty)
+  /** What a pill-sized mode shows in the notch now: the pointer over a rest or ears view opens the peek. */
+  const view: NotchView = nm && isPill ? viewWith(baseView, hover) : 'drop'
+  const kind = isPill ? 'pill' : 'card'
+  const showLayer = !nm || !isPill || view === 'drop' || view === 'ears+drop'
+  const showEars = !!nm && isPill && (view === 'ears' || view === 'ears+drop')
   // A card the learner closed under the pointer (its ✕, a button) must not hand the island straight to a hover card:
   // the pointer is still on the island, so the hover overview (or an off-track peek) grew out of it at once, and the
   // island "expanded" on the very click that closed it (Michael, Nov 21). Hover waits for the pointer to leave and come
@@ -148,13 +173,28 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const fixed = mode?.width
   useLayoutEffect(() => {
     // No mode owns the island: it is at rest, not at the last card's size (the watchdog's reset lands here too).
+    if (nm && !modeId) {
+      const r = restSize(nm)
+      return void setSize((s) => (s.w === r.w && s.h === r.h ? s : r))
+    }
     if (!modeId) return void setSize((s) => (s.w === pillW.current && s.h === PILL_FALLBACK.h ? s : { w: pillW.current, h: PILL_FALLBACK.h }))
+    if (nm && isPill && (view === 'rest' || view === 'ears')) {
+      // Nothing to measure: the notch itself, or the notch with its ears.
+      const r = notchSize(nm, 'pill', view, undefined, undefined)
+      setSize((s) => (s.w === r.w && s.h === r.h ? s : r))
+      return void setSized(true)
+    }
     const root = islandEl.current
     if (!root) return
     let ro: ResizeObserver | undefined
     let raf = 0
     let tries = 0
     const apply = (m: { w: number; h: number } | undefined): void => {
+      if (nm) {
+        const r = notchSize(nm, kind, view, fixed, m)
+        setSize((s) => (s.w === r.w && s.h === r.h ? s : r))
+        return void setSized(true)
+      }
       const next = islandSizeFor(fixed, layerEmpty, m, pillW.current)
       if ((fixed === undefined || layerEmpty) && m && m.w > 0) pillW.current = next.w
       setSize((s) => (s.w === next.w && s.h === next.h ? s : next))
@@ -165,7 +205,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       // is going (data-swap-w). Measure the layer at that width, so the island springs once, in step with the slot,
       // instead of re-measuring, re-rendering and re-aiming on every frame of the slot's spring. A card's width is fixed.
       let grow = 0
-      if (fixed === undefined || layerEmpty) for (const slot of el.querySelectorAll<HTMLElement>('[data-swap-w]')) grow += Number(slot.dataset.swapW) - slot.offsetWidth
+      if (!nm && (fixed === undefined || layerEmpty)) for (const slot of el.querySelectorAll<HTMLElement>('[data-swap-w]')) grow += Number(slot.dataset.swapW) - slot.offsetWidth
       apply({ w: el.offsetWidth + (Number.isFinite(grow) ? grow : 0), h: el.offsetHeight })
     }
     const bind = (): void => {
@@ -184,7 +224,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       cancelAnimationFrame(raf)
       ro?.disconnect()
     }
-  }, [modeId, fixed, layerEmpty, epoch])
+  }, [modeId, fixed, layerEmpty, epoch, nmKey, view, kind])
 
   // An open card steps off the spotlight's hole, the coach's and its own targets (Michael's desktop test 3, item 3) and
   // out of the engine's avoid rects (screen.avoid: VS Code's quick-pick, test 9, A3), decided as it opens and then held
@@ -199,7 +239,9 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // clipped "Bu|ild…" under the panel).
   const playerOn = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
   const peekAt = { x: (layout.width - size.w) / 2, y: top, w: size.w, h: size.h }
-  const offset = card ? cardOffset : peek ? offDock(peekAt, pillOffset, playerOn, layout) : pillOffset
+  // In the notch the island never steps aside: it is attached to the notch, and a card grows down from it.
+  const cx = nm ? nm.x + nm.width / 2 - layout.width / 2 : 0
+  const offset = nm ? { x: cx, y: 0 } : card ? cardOffset : peek ? offDock(peekAt, pillOffset, playerOn, layout) : pillOffset
 
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).
@@ -213,10 +255,14 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     const raf = requestAnimationFrame(() => {
       perf.count('island.size.sent')
       // `shown` false = nothing is drawn (no mode, or the launcher has it): main's click poll must not grab a ghost box.
-      bridge.emit('island:size', reportedBox(hasMode && !yielded, size, offset.x, offset.y))
+      bridge.emit('island:size', {
+        ...reportedBox(hasMode && !yielded, size, offset.x, offset.y),
+        // The notch: main grabs from the display top and the launcher / Settings start from this exact shape.
+        ...(nm ? { top: 0, place: 'notch' as const, radii: radiiFor(isOpenView(kind, view)) } : {})
+      })
     })
     return () => cancelAnimationFrame(raf)
-  }, [size, landing, offset.x, offset.y, hasMode, yielded])
+  }, [size, landing, offset.x, offset.y, hasMode, yielded, nmKey, kind, view])
   // v2: the same box for in-window readers (useIslandBox).
   useEffect(() => {
     const next: IslandBox = { x: Math.round((layout.width - size.w) / 2 + offset.x), y: Math.round(top + offset.y), w: size.w, h: size.h, mode: modeId, pill: isPill, visible: !!modeId && !yielded }
@@ -228,13 +274,13 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     clearTimeout(hoverTimer.current)
     leaving.current = false
     setPointerIn(true)
-    hoverTimer.current = setTimeout(() => setHover(true), 150)
+    hoverTimer.current = setTimeout(() => setHover(true), HOVER.openMs)
   }
   const leave = (): void => {
     clearTimeout(hoverTimer.current)
     leaving.current = true
     setPointerIn(false)
-    hoverTimer.current = setTimeout(() => setHover(false), 300)
+    hoverTimer.current = setTimeout(() => setHover(false), HOVER.closeMs)
   }
   const press = (): void => {
     clearTimeout(pressTimer.current)
@@ -298,8 +344,9 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // Safety net (core/islandState.ts): an extended size with no card mode claiming it, or a hover card whose pointer is
   // gone or has been still for a long time, collapses on its own. The snapshot ref keeps one interval for the island's life.
   const lastActivity = useRef(Date.now())
-  const snap = useRef({ mode, size, hover, pointerIn })
-  snap.current = { mode, size, hover, pointerIn }
+  const dropOk = !!nm && isPill && (view === 'drop' || view === 'ears+drop')
+  const snap = useRef({ mode, size, hover, pointerIn, restH: nm?.height, dropOk })
+  snap.current = { mode, size, hover, pointerIn, restH: nm?.height, dropOk }
   useEffect(() => {
     const bump = (): void => void (lastActivity.current = Date.now())
     window.addEventListener('mousemove', bump)
@@ -348,6 +395,35 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   if (!mode) return null
   const { Content } = mode
 
+  const open = nm ? isOpenView(kind, view) : false
+  const radii = radiiFor(open)
+  const shown = landing && nm ? restSize(nm) : size
+  const layers = (
+    <>
+      {/* Step passed: the island flashes green (tint 0 → .25 → 0 over 600ms). */}
+      <motion.div
+        key={passFlash}
+        className="pointer-events-none absolute inset-0"
+        style={{ background: color.green }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: passFlash ? [0, 0.25, 0] : 0 }}
+        transition={{ duration: 0.6, ease: ease.inOut }}
+      />
+      {showEars && <NotchEars key="ears" mode={mode} top={STRIP} h={nm!.height} />}
+      <AnimatePresence initial={false}>
+        {showLayer && (
+          <Layer key={mode.id} id={mode.id} width={mode.width} onEmpty={setLayerEmpty} top={nm ? STRIP + nm.height : 0} quiet={!!nm}>
+            {/* A mode that throws renders nothing: the island falls back to the pill (./islandSize.ts) and the mode gets a
+                fresh try a second later, so a crashed card isn't an empty black shape until another mode takes over. */}
+            <Boundary name={`island mode ${mode.id}`} retryMs={1000} fallback={nm ? null : <RestingPill />}>
+              <Content />
+            </Boundary>
+          </Layer>
+        )}
+      </AnimatePresence>
+    </>
+  )
+
   return (
     <motion.div
       ref={wrapper}
@@ -357,48 +433,92 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       animate={{ x: offset.x, y: offset.y }}
       transition={spring}
     >
-      <motion.div
+      <div
         ref={islandEl}
         // Hidden while another surface has it (launcher, settings): not a click target either, or the invisible island
         // keeps eating clicks through overlay.bounds / main's click-catching poll.
         data-hit={yielded ? undefined : true}
-        className={`${yielded ? 'pointer-events-none' : 'pointer-events-auto'} relative overflow-hidden text-white`}
-        style={{
-          background: color.island,
-          boxShadow: isPill ? shadows.pill : shadows.card,
-          transformOrigin: '50% 0%',
-          opacity: yielded || !sized ? 0 : 1
-        }}
-        initial={false}
-        animate={{
-          width: landing ? pill.landingWidth : size.w,
-          height: landing ? pill.height : size.h,
-          borderRadius: isPill ? pill.height / 2 : 24
-        }}
-        transition={landing || !sized ? instant : sizeMove(reduced, { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) })}
+        className={`${yielded ? 'pointer-events-none' : 'pointer-events-auto'} relative`}
+        // In the notch the hover zone is the island plus a margin (HOVER.margin) either side and below; the margin is
+        // transparent and only catches the pointer. Main's grab clamps to the same +-6 / +12 (features/overlay-raise.ts).
+        style={nm ? { padding: `0 ${HOVER.margin}px ${HOVER.margin}px`, margin: `0 -${HOVER.margin}px`, opacity: yielded || !sized ? 0 : 1 } : undefined}
         onMouseEnter={enter}
         onMouseLeave={leave}
         onPointerDownCapture={press}
       >
-        {/* Step passed: the island flashes green (tint 0 → .25 → 0 over 600ms). */}
-        <motion.div
-          key={passFlash}
-          className="pointer-events-none absolute inset-0"
-          style={{ background: color.green }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: passFlash ? [0, 0.25, 0] : 0 }}
-          transition={{ duration: 0.6, ease: ease.inOut }}
-        />
-        <AnimatePresence initial={false}>
-          <Layer key={mode.id} id={mode.id} width={mode.width} onEmpty={setLayerEmpty}>
-            {/* A mode that throws renders nothing: the island falls back to the pill (./islandSize.ts) and the mode gets a
-                fresh try a second later, so a crashed card isn't an empty black shape until another mode takes over. */}
-            <Boundary name={`island mode ${mode.id}`} retryMs={1000} fallback={<RestingPill />}>
-              <Content />
-            </Boundary>
-          </Layer>
-        </AnimatePresence>
+        {nm ? (
+          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} open={open} snap={landing || !sized} reduced={!!reduced} lift={justLanded}>
+            {layers}
+          </NotchShape>
+        ) : (
+          <motion.div
+            className="relative overflow-hidden text-white"
+            style={{
+              background: color.island,
+              boxShadow: isPill ? shadows.pill : shadows.card,
+              transformOrigin: '50% 0%',
+              opacity: yielded || !sized ? 0 : 1
+            }}
+            initial={false}
+            animate={{
+              width: landing ? pill.landingWidth : size.w,
+              height: landing ? pill.height : size.h,
+              borderRadius: isPill ? pill.height / 2 : 24
+            }}
+            transition={landing || !sized ? instant : sizeMove(reduced, { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) })}
+          >
+            {layers}
+          </motion.div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+/**
+ * The notch shape (Boring Notch's): black, clipped to a path with concave top "ears" and convex bottom corners. Width,
+ * height and both radii spring together on the house spring inside the fixed overlay window (the window never resizes);
+ * the clip path is rebuilt from the live values every frame. One black pixel sits above the display (STRIP) so no seam
+ * shows. Open (the peek and cards) gets a soft drop shadow; at rest there is none, so it fuses with the hardware notch.
+ */
+function NotchShape({ w, h, rt, rb, open, snap, reduced, lift, children }: { w: number; h: number; rt: number; rb: number; open: boolean; snap: boolean; reduced: boolean; lift: boolean; children: ReactNode }): ReactNode {
+  const W = useMotionValue(w)
+  const H = useMotionValue(h)
+  const RT = useMotionValue(rt)
+  const RB = useMotionValue(rb)
+  useEffect(() => {
+    const t = snap || reduced ? instant : spring
+    const to = lift ? { ...t, velocity: 0 } : t
+    const runs = [animate(W, w, to), animate(H, h, to), animate(RT, rt, to), animate(RB, rb, to)]
+    return () => runs.forEach((r) => r.stop())
+  }, [w, h, rt, rb, snap, reduced, lift, W, H, RT, RB])
+  const clip = useTransform([W, H, RT, RB], ([cw, ch, ct, cb]: number[]) => notchClip(cw, ch, ct, cb, STRIP))
+  const boxH = useTransform(H, (v) => v + STRIP)
+  return (
+    <div style={{ filter: open ? notchDrop : 'none' }}>
+      <motion.div className="relative overflow-hidden text-white" style={{ width: W, height: boxH, top: -STRIP, background: color.island, clipPath: clip }}>
+        {children}
       </motion.div>
+    </div>
+  )
+}
+
+/** The ears: the bonsai on the left (or the mode's own mark), the mode's status mark on the right. */
+function NotchEars({ mode, top, h }: { mode: IslandMode; top: number; h: number }): ReactNode {
+  const Left = mode.notch?.Left
+  const Right = mode.notch?.Right
+  return (
+    <motion.div
+      data-ui
+      data-ears
+      className="pointer-events-none absolute inset-x-0 flex items-center justify-between"
+      style={{ top, height: h, paddingInline: (EAR_W - 16) / 2 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1, transition: { ...fade.in, delay: beat } }}
+      exit={{ opacity: 0, transition: fade.instant }}
+    >
+      <span className="grid h-[16px] w-[16px] place-items-center">{Left ? <Left /> : <MiyagiMark size={16} />}</span>
+      <span className="grid h-[16px] w-[16px] place-items-center">{Right ? <Right /> : null}</span>
     </motion.div>
   )
 }
@@ -410,7 +530,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
  * fade a touch late (60 ms) so the two never sit on top of each other. Transform and opacity only; with reduced
  * motion, the fades alone.
  */
-function Layer({ id, width, onEmpty, children }: { id: string; width?: number; onEmpty: (empty: boolean) => void; children: ReactNode }): ReactNode {
+function Layer({ id, width, onEmpty, top = 0, quiet = false, children }: { id: string; width?: number; onEmpty: (empty: boolean) => void; top?: number; quiet?: boolean; children: ReactNode }): ReactNode {
   const present = useIsPresent()
   const layer = useRef<HTMLDivElement>(null)
   const body = useRef<HTMLDivElement>(null)
@@ -476,14 +596,14 @@ function Layer({ id, width, onEmpty, children }: { id: string; width?: number; o
     <motion.div
       ref={layer}
       data-island-layer={present ? id : undefined}
-      className="absolute left-1/2 top-0"
-      style={{ x: '-50%', width: empty && present ? 'max-content' : (width ?? 'max-content'), transformOrigin: '50% 0%' }}
+      className="absolute left-1/2"
+      style={{ top, x: '-50%', width: empty && present ? 'max-content' : (width ?? 'max-content'), transformOrigin: '50% 0%' }}
       initial={{ opacity: 0, y: 4, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, opacity: { ...fade.in, delay: beat } } }}
       exit={{ opacity: 0, scale: 0.98, transition: fade.instant }}
     >
       <div ref={body}>{children}</div>
-      {empty && present && !bodyResting && <RestingPill />}
+      {empty && present && !bodyResting && !quiet && <RestingPill />}
     </motion.div>
   )
 }
@@ -506,7 +626,15 @@ export function RestingPill(): ReactNode {
  * The whole island failed (its render threw): a static resting pill under the menu bar, so the top of the screen is
  * never just empty and the real one gets its retry a second later (Overlay.tsx's Boundary).
  */
-export function RestingIsland({ top }: { top: number }): ReactNode {
+export function RestingIsland({ top, layout }: { top: number; layout?: Layout }): ReactNode {
+  const nm = notchOf(layout)
+  // In the notch: just the notch rect in notch black (it sits on the hardware notch, so it is invisible there).
+  if (nm)
+    return (
+      <div className="pointer-events-none absolute flex justify-center" style={{ top: 0, left: nm.x, width: nm.width }}>
+        <div style={{ width: nm.width, height: nm.height + STRIP, marginTop: -STRIP, background: color.island, clipPath: notchClip(nm.width, nm.height, radiiFor(false).top, radiiFor(false).bottom, STRIP) }} />
+      </div>
+    )
   return (
     <div className="pointer-events-none absolute inset-x-0 flex justify-center" style={{ top }}>
       <div className="overflow-hidden" style={{ background: color.island, borderRadius: PILL_FALLBACK.h / 2, boxShadow: shadows.pill }}>
