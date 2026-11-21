@@ -17,6 +17,7 @@
  */
 import { app, clipboard, ipcMain, shell } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
@@ -57,15 +58,34 @@ const readText = (p: string): string => {
   }
 }
 
+/** v2: the latest state, for core modules that need it (main/permissions.ts: 'external' means grants are unknown). */
+let current: LocalEngineStatus = { state: 'off' }
+export function localEngineState(): LocalEngineState {
+  return current.state
+}
+
+/**
+ * v2 (W0-5): a per-launch engine token. 32 random bytes, made once per app launch, kept in memory only: passed to the
+ * engine this app starts in its environment (MIYAGI_ENGINE_TOKEN, never on a command line) and sent back by the link
+ * as a header, so a page in a browser or another local process can't drive the engine (the engine checks it, E2).
+ * MIYAGI_ENGINE_TOKEN already in this app's environment (dev, an engine started by hand with the same value) wins.
+ */
+export const ENGINE_TOKEN: string = process.env.MIYAGI_ENGINE_TOKEN?.trim() || randomBytes(32).toString('base64url')
+
 export function setupLocalEngine(engine: EngineLink, url: string, broadcast: (channel: string, payload: unknown) => void): () => void {
   let status: LocalEngineStatus = { state: 'off' }
   let child: ChildProcess | undefined
   /** We're quitting: the engine's exit is ours, not a crash. */
   let stopping = false
+  /** feat:engine-local:restart is stopping the engine: start it again when it exits. */
+  let restarting = false
   const set = (next: LocalEngineStatus): void => {
     status = next
+    current = next
     broadcast('engine-local', status)
   }
+  // Every connect carries the token; an engine without one configured ignores the header.
+  engine.setToken(ENGINE_TOKEN)
   ipcMain.handle('feat:engine-local:get', () => status)
   ipcMain.handle('feat:engine-local:command', () => ONE_LINER)
   // The pill's "Install the engine": the one-liner on the clipboard. "Engine didn't start": open its log.
@@ -77,6 +97,13 @@ export function setupLocalEngine(engine: EngineLink, url: string, broadcast: (ch
     const file = status.logs ?? ''
     return file && existsSync(file) ? (await shell.openPath(file)) === '' : false
   })
+  /**
+   * v2 (W0-5): the Engine offline card's Restart (A7). Ours: stop it and start it again. External (Terminal): nothing
+   * to do here, the card says "Restart it in Terminal". Not managed (dev without MIYAGI_AUTOSTART): nothing either.
+   * Missing / failed: run the start-up sequence again. → { ok, state }
+   */
+  let restart: () => { ok: boolean; state: LocalEngineState } = () => ({ ok: false, state: status.state })
+  ipcMain.handle('feat:engine-local:restart', () => restart())
 
   const port = (() => {
     try {
@@ -94,7 +121,7 @@ export function setupLocalEngine(engine: EngineLink, url: string, broadcast: (ch
   const logs = join(home, 'logs', 'engine.log')
   const bundle = join(process.resourcesPath, 'engine')
   const bundled = existsSync(join(bundle, 'install.sh')) && existsSync(join(bundle, 'src', 'server', 'pyproject.toml'))
-  const env = { ...process.env, MIYAGI_HOME: home, PATH: fixedPath(home) }
+  const env = { ...process.env, MIYAGI_HOME: home, PATH: fixedPath(home), MIYAGI_ENGINE_TOKEN: ENGINE_TOKEN }
 
   engine.onStatus((up) => {
     if (up && status.state !== 'running' && status.state !== 'external') set({ state: child ? 'running' : 'external' })
@@ -153,13 +180,40 @@ export function setupLocalEngine(engine: EngineLink, url: string, broadcast: (ch
       const wasRunning = status.state === 'running'
       child = undefined
       if (stopping) return set({ state: 'off' })
+      if (restarting) {
+        restarting = false
+        return start()
+      }
       // exit 1 right away = "port already in use": someone else's engine is up, the link will find it.
       if (!wasRunning) set(code === 1 ? { state: 'external' } : { state: 'failed', line: `The engine stopped (exit ${code}).`, logs })
       else set({ state: 'failed', line: 'The engine stopped.', logs })
     })
   }
 
-  void (async () => {
+  const killGroup = (c: ChildProcess): void => {
+    if (c.pid === undefined) return
+    try {
+      process.kill(-c.pid, 'SIGTERM')
+    } catch {
+      c.kill('SIGTERM')
+    }
+  }
+
+  restart = () => {
+    if (status.state === 'external') return { ok: false, state: 'external' }
+    if (child && !child.killed) {
+      if (restarting) return { ok: true, state: status.state }
+      restarting = true
+      set({ state: 'starting', line: 'Restarting the engine' })
+      killGroup(child)
+      return { ok: true, state: 'starting' }
+    }
+    if (status.state === 'checking' || status.state === 'installing' || status.state === 'starting') return { ok: true, state: status.state }
+    void boot()
+    return { ok: true, state: 'checking' }
+  }
+
+  const boot = async (): Promise<void> => {
     set({ state: 'checking' })
     if (await listening(port)) return set({ state: 'external' })
     // A newer engine inside the app (an app update) replaces one the app installed before; never one the
@@ -171,17 +225,14 @@ export function setupLocalEngine(engine: EngineLink, url: string, broadcast: (ch
     }
     if (!existsSync(launcher)) return set({ state: 'missing', line: ONE_LINER })
     start()
-  })()
+  }
+  void boot()
 
   return () => {
     // Only the engine this app started (never one the user runs in Terminal). SIGTERM lets uvicorn close its
     // sockets; the whole group, in case the launcher didn't `exec` into Python.
     if (!child || child.killed || child.pid === undefined) return
     stopping = true
-    try {
-      process.kill(-child.pid, 'SIGTERM')
-    } catch {
-      child.kill('SIGTERM')
-    }
+    killGroup(child)
   }
 }
