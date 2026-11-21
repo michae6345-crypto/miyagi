@@ -268,26 +268,41 @@ export function linkHost(url: string | undefined): string | undefined {
 }
 
 /**
- * Setup Download links main would not open (not on its setup list, main/safeOpen.ts SETUP_HOSTS): tool → the URL,
- * shown on the row as text with a Copy button instead. Cleared for a tool when a later open of it works.
+ * Setup Download links main would not open (not on its setup list, main/safeOpen.ts SETUP_PAGES), keyed by tool AND
+ * URL (refusedKey): the text to show on the row with a Copy button instead ('' = not a web link, nothing to copy).
+ * A corrected URL the engine sends later for the same tool is a new key, so its row offers Get it again.
  */
-export const useRefusedLinks = create<{ byTool: Record<string, string> }>(() => ({ byTool: {} }))
+export const useRefusedLinks = create<{ byKey: Record<string, string> }>(() => ({ byKey: {} }))
+
+const refusedKey = (tool: string, url: string | undefined): string => `${tool}\n${url ?? ''}`
+
+/** The refused link for this tool and URL (the text to copy), or undefined when it wasn't refused. */
+export function refusedLink(byKey: Record<string, string>, tool: string, url: string | undefined): string | undefined {
+  return Object.prototype.hasOwnProperty.call(byKey, refusedKey(tool, url)) ? byKey[refusedKey(tool, url)] : undefined
+}
+
+/** main's answer (safeOpen.ts SetupOpen); the browser stage answers a plain boolean. */
+type SetupOpen = { opened: true } | { opened: false; refused: boolean; copy?: string }
 
 /**
  * A setup row's Download button (cards/index.tsx, cards/VSCodeSheet.tsx). The URL comes from the engine (maybe from a
  * video description), so it never goes through window.open (any https): main opens it only if it is on the setup
- * list, else the row shows it as text with Copy (app-harden).
+ * list, else the row shows it as text with Copy (app-harden). A link on the list the system failed to open is not
+ * "refused": the row keeps Get it, so the learner can try again.
  */
 export function openSetupLink(tool: string, url: string): void {
   void bridge
-    .invoke<boolean>('open:external', { setup: url })
-    .catch(() => false)
-    .then((ok) => {
+    .invoke<SetupOpen | boolean>('open:external', { setup: url })
+    .catch((): SetupOpen => ({ opened: false, refused: false }))
+    .then((r) => {
+      const res: SetupOpen = typeof r === 'boolean' ? (r ? { opened: true } : { opened: false, refused: true, copy: url }) : r
+      if (!res.opened && !res.refused) return
       useRefusedLinks.setState((s) => {
-        const byTool = { ...s.byTool }
-        if (ok) delete byTool[tool]
-        else byTool[tool] = isWebLink(url) ? url : ''
-        return { byTool }
+        const byKey = { ...s.byKey }
+        const key = refusedKey(tool, url)
+        if (res.opened) delete byKey[key]
+        else byKey[key] = res.copy && isWebLink(res.copy) ? res.copy : ''
+        return { byKey }
       })
     })
 }

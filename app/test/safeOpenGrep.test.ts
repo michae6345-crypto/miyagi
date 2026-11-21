@@ -56,11 +56,20 @@ test('the grep would catch a direct call (the check can fail)', () => {
   assert.equal(probe.filter(({ line }) => /\bshell\s*(\.|\?\.)\s*openExternal\b/.test(line)).length, 1)
 })
 
-test('overview.ts opens the Stats page through safeOpenExternal', () => {
+test('overview.ts opens the Stats page through safeOpen.ts (isEngineStatsUrl, then openEngineStats), never shell', () => {
   const overview = files.find((f) => f.rel === 'main/features/overview.ts')?.text ?? ''
-  assert.match(overview, /import \{ safeOpenExternal \} from '\.\.\/safeOpen'/)
-  assert.match(overview, /safeOpenExternal\(url\)/)
+  assert.match(overview, /import \{ isEngineStatsUrl, openEngineStats \} from '\.\.\/safeOpen'/)
+  assert.match(overview, /isEngineStatsUrl\(url, port\) \? openEngineStats\(url, port\)/)
   assert.doesNotMatch(overview, /\bshell\b/)
+})
+
+test('the general opener (open:external) has no loopback exception: openEngineStats is only for overview.ts', () => {
+  const safe = files.find((f) => f.rel === 'main/safeOpen.ts')?.text ?? ''
+  const body = safe.slice(safe.indexOf('export async function safeOpenExternal'), safe.indexOf('/** Open one System Settings pane'))
+  assert.ok(body.length > 0)
+  assert.doesNotMatch(body, /isEngineStatsUrl|openEngineStats/)
+  const users = files.filter((f) => f.rel !== 'main/safeOpen.ts' && /\bopenEngineStats\b/.test(f.text)).map((f) => f.rel)
+  assert.deepEqual(users, ['main/features/overview.ts'])
 })
 
 test('setup Download buttons never window.open an engine URL (they go to main’s setup allowlist)', () => {

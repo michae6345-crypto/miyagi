@@ -3,15 +3,17 @@
  * shell.openExternal goes through here (BUILD-PLAN Section 6).
  *
  *   safeOpenExternal(url)       https on an allowlisted host, or a plain mailto:; anything else is refused (false)
- *   safeOpenExternal({setup})   a setup card's Download button: openSetupDownload's stricter list (below)
- *   openSetupDownload(url)      https on SETUP_HOSTS (GitHub only under SETUP_GITHUB_ORGS) → opened; anything else is
- *                               handed back as copy-only text and never opened
+ *   safeOpenExternal({setup})   a setup card's Download button: openSetupDownload's stricter list (below) → SetupOpen
+ *   openSetupDownload(url)      https on one of SETUP_PAGES (exact host + official download path; GitHub only as a
+ *                               SETUP_GITHUB_ORGS repo or its releases) → opened; anything else is handed back as
+ *                               copy-only text and never opened
+ *   openEngineStats(url, port)  overview.ts's Stats link only: the local engine's /stats on its own port
  *   openLinkInBrowser(url)      the window-open handler only: any plain https link (no user, password or odd port)
  *   openSystemSettings(kind)    a fixed x-apple.systempreferences: URL from an enum, never a URL from a renderer
  *   debugFlagIn(argv)           the packaged-startup guard's test (index.ts): a debugger / remote-debugging switch
  *
- * Renderer: bridge.invoke('open:external', url | {setup: url}) → boolean. System Settings only via
- * permissions:open(kind) (main/permissions.ts), which calls openSystemSettings here.
+ * Renderer: bridge.invoke('open:external', url) → boolean; bridge.invoke('open:external', {setup: url}) → SetupOpen.
+ * System Settings only via permissions:open(kind) (main/permissions.ts), which calls openSystemSettings here.
  *
  * This file is the ONLY place that calls shell.openExternal: test/safeOpenGrep.test.ts fails on any other, except
  * features/player.ts (Adrian's A14).
@@ -47,33 +49,40 @@ const EMAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/
 /**
  * Where a setup card's Download button may send the learner (app-harden). A setup item's URL comes from the engine,
  * which may have taken it from a video description or a page Claude read: a prompt-injected "download fastcli.pkg"
- * must never open. Exact host or a subdomain of one. Kept to the official download pages the engine's setup CATALOG
- * (server/workspace/setup.py on integration/live) links to, plus the usual installers. Cursor (in the CATALOG) is left
- * out on purpose: miyagi never offers it.
+ * (or a malicious PyPI / Go module page on an official host) must never open. So: an exact host (a "www." in front is
+ * the same host, nothing else is) AND one of that host's official download pages. A path matches when it is that
+ * page or under it by whole segments (/downloads matches /downloads/macos/, never /downloads-evil). '/' alone means
+ * the home page only. Kept to the pages the engine's setup CATALOG (server/workspace/setup.py on integration/live)
+ * links to, plus the usual installers. Cursor (in the CATALOG) is left out on purpose: miyagi never offers it.
  */
-export const SETUP_HOSTS = [
-  'python.org', // www.python.org/downloads
-  'nodejs.org',
-  'code.visualstudio.com',
-  'brew.sh',
-  'git-scm.com',
-  'rustup.rs', // CATALOG rust
-  'go.dev', // CATALOG go
-  'adoptium.net', // CATALOG java
-  'docker.com', // CATALOG docker
-  'blender.org', // CATALOG blender
-  'figma.com', // CATALOG figma
-  'unity.com', // CATALOG unity
-  'jupyter.org', // CATALOG jupyter
-  'pypi.org', // the engine's ipykernel row
-  'platform.openai.com', // CATALOG web apps (their "open" rows go through the engine; listed in case a row downloads)
-  'chatgpt.com',
-  'app.botpress.cloud',
-  'zapier.com',
-  'sheets.google.com'
-] as const
+export const SETUP_PAGES: Readonly<Record<string, readonly string[]>> = {
+  'python.org': ['/downloads'], // CATALOG python: www.python.org/downloads/macos/
+  'nodejs.org': ['/en/download', '/download'], // CATALOG node, npm
+  'code.visualstudio.com': ['/download', '/docs/setup'], // CATALOG vscode
+  'brew.sh': ['/'],
+  'git-scm.com': ['/download', '/downloads', '/install'], // CATALOG git: git-scm.com/download/mac
+  'rustup.rs': ['/'], // CATALOG rust
+  'go.dev': ['/dl'], // CATALOG go: go.dev/dl/ (never go.dev/<module> or pkg.go.dev: that is anyone's code)
+  'adoptium.net': ['/', '/temurin/releases'], // CATALOG java
+  'docker.com': ['/products/docker-desktop'], // CATALOG docker
+  'blender.org': ['/download'], // CATALOG blender
+  'figma.com': ['/downloads'], // CATALOG figma
+  'unity.com': ['/download'], // CATALOG unity
+  'jupyter.org': ['/install'], // CATALOG jupyter
+  // The engine's ipykernel row and the Jupyter family; never pypi.org/project/<anything>.
+  'pypi.org': ['/project/ipykernel', '/project/jupyter', '/project/notebook', '/project/jupyterlab'],
+  // CATALOG web apps (their "open" rows go through the engine; listed in case a row comes as a download).
+  'platform.openai.com': ['/'],
+  'chatgpt.com': ['/'],
+  'app.botpress.cloud': ['/'],
+  'zapier.com': ['/app/home'],
+  'sheets.google.com': ['/']
+}
 
-/** github.com only under these orgs (github.com/<org>/…): a tool's own releases, never any repo. Lowercase. */
+/**
+ * github.com only as github.com/<org>/<repo> or its /releases pages, and only under these orgs: a tool's own releases,
+ * never any repo's issues, wiki or files. Lowercase.
+ */
 export const SETUP_GITHUB_ORGS = ['python', 'nodejs', 'nvm-sh', 'homebrew', 'git-for-windows', 'microsoft', 'astral-sh', 'rust-lang', 'golang', 'jupyter', 'conda-forge', 'adoptium', 'docker'] as const
 
 function parse(raw: unknown): URL | undefined {
@@ -85,22 +94,30 @@ function parse(raw: unknown): URL | undefined {
   }
 }
 
-const onHost = (host: string, list: readonly string[]): boolean => list.some((h) => host === h || host.endsWith(`.${h}`))
+/** path is page, or under it by whole segments. '/' is the home page only. */
+const underPage = (path: string, page: string): boolean => (page === '/' ? path === '/' : path === page || path.startsWith(`${page}/`))
 
-/** Would a setup card's Download button open this? Plain https on SETUP_HOSTS, or github.com/<known org>/… */
+/** Would a setup card's Download button open this? Plain https on one of SETUP_PAGES, or a known org's GitHub repo / releases. */
 export function isSetupDownloadUrl(raw: unknown): boolean {
   const u = parse(raw)
   if (!u || !isPlainHttps(u)) return false
-  const host = u.hostname.toLowerCase()
-  if (host === 'github.com' || host === 'www.github.com') {
-    const org = (u.pathname.split('/')[1] ?? '').toLowerCase()
-    return (SETUP_GITHUB_ORGS as readonly string[]).includes(org)
+  const host = u.hostname.toLowerCase().replace(/^www\./, '')
+  if (host === 'github.com') {
+    const [, org = '', repo = '', section, ...rest] = u.pathname.split('/')
+    if (!(SETUP_GITHUB_ORGS as readonly string[]).includes(org.toLowerCase()) || !repo) return false
+    // github.com/<org>/<repo>[/] or github.com/<org>/<repo>/releases[/…]; nothing else in the repo.
+    return section === undefined || section === '' ? rest.length === 0 : section === 'releases'
   }
-  return onHost(host, SETUP_HOSTS)
+  const pages = Object.prototype.hasOwnProperty.call(SETUP_PAGES, host) ? SETUP_PAGES[host] : undefined
+  return !!pages && pages.some((p) => underPage(u.pathname, p))
 }
 
-/** copy: the URL to show as text with a Copy button (plain https only); absent = nothing worth showing. */
-export type SetupOpen = { opened: true } | { opened: false; copy?: string }
+/**
+ * What a setup card's Download button got. opened: in the browser. Else refused: not on the setup list (copy: the URL
+ * to show as text with a Copy button, plain https only; absent = nothing worth showing), or failed (refused: false):
+ * on the list, but the system could not open it (the button stays, so the learner can try again).
+ */
+export type SetupOpen = { opened: true } | { opened: false; refused: true; copy?: string } | { opened: false; refused: false }
 
 /**
  * A setup card's Download button. On the setup list → the default browser. Anything else is never opened: a plain
@@ -110,13 +127,13 @@ export async function openSetupDownload(raw: unknown): Promise<SetupOpen> {
   if (!isSetupDownloadUrl(raw)) {
     console.warn('[safeOpen] a setup download is not on the setup list; shown as text, not opened')
     const u = parse(raw)
-    return u && isPlainHttps(u) ? { opened: false, copy: u.href } : { opened: false }
+    return u && isPlainHttps(u) ? { opened: false, refused: true, copy: u.href } : { opened: false, refused: true }
   }
   try {
     await shell.openExternal(new URL(raw as string).href, { activate: true })
     return { opened: true }
   } catch {
-    return { opened: false }
+    return { opened: false, refused: false }
   }
 }
 
@@ -150,13 +167,29 @@ function isPlainHttps(u: URL): boolean {
 }
 
 /**
- * The overview footer's Stats link (features/overview.ts): the local engine's own /stats page, http on this Mac's
- * loopback, any port, that exact path, nothing else (no user, query or fragment). An engine on another host is refused.
+ * The overview footer's Stats link (features/overview.ts only, never the open:external IPC): the local engine's own
+ * /stats page on this Mac's loopback, on the engine's port only, that exact path, nothing else (no user, query or
+ * fragment). An engine on another host is refused.
  */
-export function isEngineStatsUrl(raw: unknown): boolean {
+export function isEngineStatsUrl(raw: unknown, port: number): boolean {
   const u = parse(raw)
   if (!u || (u.protocol !== 'http:' && u.protocol !== 'https:') || u.username || u.password || u.search || u.hash) return false
-  return ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) && u.pathname === '/stats'
+  const at = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+  return ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) && u.pathname === '/stats' && at === port
+}
+
+/** overview.ts's Stats link: opens only what isEngineStatsUrl(url, port) accepts. false = refused or failed. */
+export async function openEngineStats(raw: unknown, port: number): Promise<boolean> {
+  if (!isEngineStatsUrl(raw, port)) {
+    console.warn('[safeOpen] refused a Stats link that is not the local engine')
+    return false
+  }
+  try {
+    await shell.openExternal(new URL(raw as string).href, { activate: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -193,11 +226,15 @@ export async function openLinkInBrowser(raw: unknown): Promise<boolean> {
 
 /**
  * Open an allowlisted URL in the default browser / mail client. false = refused or failed (never throws).
- * {setup: url} (a setup card's Download button) is checked against the stricter setup list instead (openSetupDownload).
+ * {setup: url} (a setup card's Download button) is checked against the stricter setup list instead and answers with
+ * openSetupDownload's SetupOpen (so the card can tell "not on the list" from "the browser didn't open").
  */
-export async function safeOpenExternal(raw: unknown): Promise<boolean> {
-  if (raw && typeof raw === 'object' && 'setup' in raw) return (await openSetupDownload((raw as { setup: unknown }).setup)).opened
-  if (!isAllowedUrl(raw) && !isEngineStatsUrl(raw)) {
+export function safeOpenExternal(raw: string): Promise<boolean>
+export function safeOpenExternal(raw: { setup: unknown }): Promise<SetupOpen>
+export function safeOpenExternal(raw: unknown): Promise<boolean | SetupOpen>
+export async function safeOpenExternal(raw: unknown): Promise<boolean | SetupOpen> {
+  if (raw && typeof raw === 'object' && 'setup' in raw) return openSetupDownload((raw as { setup: unknown }).setup)
+  if (!isAllowedUrl(raw)) {
     console.warn('[safeOpen] refused a URL that is not on the allowlist')
     return false
   }
