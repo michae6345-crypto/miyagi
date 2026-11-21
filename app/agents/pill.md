@@ -1,6 +1,71 @@
 # pill
 
-**v2 (A2 `michael/app-pill-cards`, port 5187):** in progress. Owner of the pill and the cards for miyagi-v2 BUILD-PLAN A2 (Les-Mini, the pill lines of Les-Checking / NotYet / Passed, the Err-KernelInContext card footer, the Err-VSCodeSetup sheet). See "v2 (A2)" below.
+**v2 (A2 `michael/app-pill-cards`, port 5187):** pass 1 done on core-v2 `4c9898d`, typecheck green, checked in the stage (headless Chromium at 1440x900, the Browser pane was not used). Draft PR #172 into `adrian/shell`. Not checked in Electron. No independent reviewer round yet (this session had no agent tool for it).
+
+## v2 (A2)
+
+Mockups: Les-Mini, the pill lines of Les-Working / Checking / NotYet / Passed, the Err-KernelInContext card footer, the Err-VSCodeSetup sheet. Files: `features/pill/**`, `features/cards/**`, `mock/scenarios/pill-cards.json`, this brief and `cards.md`.
+
+**What works**
+- **Compact pill (Les-Working):** "[bonsai] Normalize the pixels  2 of 6 ●". There's no "Step N ·" lead-in. The count is "N of M" at 12 px in the label color, and M is the outline count when the engine sends one, so it never jumps. The dot is 8 px.
+- **Phase lines** (from core `useStepPhase`), with the same "2 of 6" and no dot:
+  - Checking: "[spinner] Checking your work" while a `check_step` press is being thought about.
+  - Not yet: "[white ring] Not yet" while off track or a check fails. The ring has no hue.
+  - Passed: "[green check] Step 2 passed". The check draws in, and it's the only green on the pill.
+- **The pass with the panel in play:** when the panel is shown or collapsed (core/dock `open || collapsed`), the pill holds "Step N passed" until the engine's `step.started`. Decision 7 has the learner move on from the panel. Without the panel, the pill still runs ahead to the next step at 560 ms, as before.
+- **Mini (Les-Mini), island mode `mini`, priority 9:** shows while core/dock is `collapsed` and a step is running.
+  - It's 380 wide (`dock.miniW`) and 34 tall, as decision 6 says.
+  - It shows the bonsai or the phase glyph, then the title, then StepDots `bars` (passed green, this step white, the rest faint; past 10 steps it switches to one 96 px proportional track), then "2 of 6" and the dot.
+  - The whole pill is a button that opens the panel. It asks through the core `panel` UI event first, then A1's `openPanel`, and with neither it just clears `collapsed`.
+  - It steps aside while the pill's own notice line shows.
+- **Panel-routed cards:** while the panel is shown (open and not collapsed), the island skips the off-track card (including its "Waiting for the fix" view), the step-passed success card and the hint card. A1's `isPanelRouted` decides once it's there (`features/cards/panel.ts`). Before that, a fallback list (offtrack, success, hint) stands in.
+  - The shots show this works: in `pill-cards-notyet-panel` and `pill-cards-hint-panel` there's no card on the island, and the pill reads "Not yet".
+  - Collapsed to Mini, those cards grow from the pill again, except success, which belongs to A8's step-passed card (priority 55) in Mini.
+  - With the panel shown, the Hint key no longer "brings the off-track card back". It asks for a hint as usual.
+- **`card.waiting` (Err-KernelInContext):** a footer under a hairline, with the dashed gray watching ring (decision 5: never a spinner) and the engine's text at 12 px.
+- **VS Code setup sheet (Err-VSCodeSetup):** a `setup` card turns into this sheet when the only things missing are the editor (kind `editor`) and/or its helper (tool or label matches companion / vscode-ext / miyagi-helper / "helper extension").
+  - It's 352 wide and grows from the pill. It has the bonsai and "miyagi" with a ✕, then "One thing left before the lesson." and "The helper lets miyagi run and check your code."
+  - Below that is a bordered list. A row that's present gets a ring with a white tick; a missing row gets a hollow white ring, with no green and no hue.
+  - Then comes one white lg primary, "Install extension" (it changes to "Installing helper" with a spinner while busy, and "Try again" after an error), and the caption "No terminal. VS Code reloads once, your files stay open."
+  - If VS Code itself is missing, the sheet reads "miyagi needs VS Code to teach this." / "Install it and miyagi picks up on its own." with a "Get VS Code" button (its download URL).
+  - Every editor label goes through `copy.editorName`, in the sheet, the regular setup rows and the "Open <editor>" button.
+- **Card kind `complete`** (core-v2 Core request 2): cards ignores it, because it's the complete feature's (A8).
+- **Card targets** (core-v2 Core request 1): `cards/store.ts` publishes the open card's target rects as `reserveRect('card-targets', ...)`, so core can drop its `useCards` import from `islandPlace.ts`.
+
+**How to see it:** `npm run dev:web -- --port 5187`, then open `http://localhost:5187/?scenario=pill-cards&size=1440x900&clean`.
+- Stage params:
+  - add `&pc=panel` to mark the panel as shown, or `&pc=mini` to collapse it to the Mini pill;
+  - both are stand-ins until A1's `?scenario=lesson-panel&panel=...` exists, and A1's own dock state wins.
+- The flow, in order:
+  1. The setup sheet comes up. Install extension shows progress.
+  2. Then "Ready to go" appears, and the lesson moves to step 2 of 6.
+  3. Press `check_step` (the panel's Check my work; in the stage use the console, see below). The pill shows Checking, then Not yet.
+  4. Press `hint` to get the hint card ("Hint 1 of 2").
+  5. Press `check_step` again. The pill shows "Step 2 passed".
+  6. After 3.5 s, step 3 starts. 1.5 s later the "No kernel" card with its waiting footer appears, and it's withdrawn 6 s after that.
+- Console: `(await import('/src/core/shortcuts.ts')).sendAction('check_step')`. Restart the dev server after the JSON changes; HMR leaves a stale module copy for console imports.
+
+**Shots** (`agents/shots/`):
+- `pill-cards-working`, `-checking`, `-notyet-pill`
+- `-notyet-panel` and `-hint-panel` (panel shown, no card on the island)
+- `-passed-panel` (still "Step 2 passed" 1.2 s after the pass)
+- `-mini`, `-mini-checking`, `-mini-passed`, `-mini-step3`
+- `-kernel-waiting`
+- `-setup-sheet`, `-setup-installing`
+
+**Deviations (brand rules win over the mockups)**
+- Pill height stays 34 (decision 6), not the mockups' 36. The lead glyph is in a 16 px box, not 18.
+- The sheet's primary is 15 px / 600 (the core lg PrimaryButton), not 14 px.
+- The sheet's "miyagi" label uses the system font. The mockup uses Google Sans Flex (CLAUDE.md: app text is the system font).
+- The mockup's "Installing helper" and "Connected to VS Code" pill lines are not built. Installing shows on the sheet's own button. "Connected" would claim more than "the install finished".
+- With the panel open, Mini is not used. The pill is the compact line.
+
+## Core requests (A2)
+1. **A1 (overview, drawer):** the overview hover card (priority 20) should stay off while core/dock is `open || collapsed`. Over Mini, hovering for 150 ms swaps the pill for the overview card, so the learner can't click Mini to open the panel.
+2. **A1:** please export `isPanelRouted` and either `openPanel` from any drawer module, or `useDrawer.getState().openPanel`. A2 finds them at runtime. `isPanelRouted` is called as both `isPanelRouted(kind)` and `isPanelRouted(card)`, and true from either counts. The kinds A2 asks about are `'offtrack'` (Not yet and its Waiting for the fix view), `'success'` (step passed) and every engine `card.kind`. Answering the `panel` UI event with `true` (core/bus `PanelRequest 'open'`) is enough for the Mini click.
+3. **Priority table (README):** Mini at 9 sits above A7's net-offline/busy (6) and reconnecting/blocker (7) lines. While the panel is collapsed those lines never show. Either Mini moves below 6, or A7's lines go above 9. Mini already yields to the pill's own notice line (5).
+4. **Contract:** `SetupItem.install.method` has no value for "a VS Code extension the engine installs through the code CLI". The mock uses `"none"`, and the sheet sends `action install {text: tool}` for any method except download and open. A method such as `"vscode_ext"` would make that explicit (contract PR, Michael).
+5. **Copy to confirm (Adrian):** "No terminal. VS Code reloads once, your files stay open." comes from the mockup. Check that E3's helper install really reloads VS Code once.
 
 **Status:** pass 2 (functional: notice, thinking, offline, next part) done, waiting on Adrian's review · **Priority:** P0 · **Port:** 5174 · **Branch:** `adrian/pill`
 

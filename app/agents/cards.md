@@ -1,6 +1,11 @@
 # cards
 
-**v2 (A2 `michael/app-pill-cards`, port 5187):** in progress. Owner of the pill and the cards for miyagi-v2 BUILD-PLAN A2 (Les-Mini, the pill lines of Les-Checking / NotYet / Passed, the Err-KernelInContext card footer, the Err-VSCodeSetup sheet). See "v2 (A2)" below.
+**v2 (A2 `michael/app-pill-cards`, port 5187):** pass 1 done, typecheck green, checked in the stage (headless). Draft PR #172. The full v2 notes, Core requests and shots for pill and cards are in `pill.md` under "v2 (A2)". The cards part:
+- **Panel-routed cards:** while the docked lesson panel is shown, the island skips the off-track card, the success card and the hint card (A1's `isPanelRouted` when present; `features/cards/panel.ts`). No double render: see `shots/pill-cards-notyet-panel.png` and `pill-cards-hint-panel.png`.
+- **`card.waiting` footer** (Err-KernelInContext): a hairline, the dashed watching ring and the text (`pill-cards-kernel-waiting.png`).
+- **VS Code setup sheet** (Err-VSCodeSetup, `features/cards/VSCodeSheet.tsx`): a setup card where only the editor or its helper is missing becomes the 352-wide sheet ("One thing left before the lesson.", Install extension; "miyagi needs VS Code to teach this." / Get VS Code). VS Code copy only: editor labels go through `copy.editorName` everywhere in cards. See `pill-cards-setup-sheet.png` and `pill-cards-setup-installing.png`.
+- Card kind `complete` is left to A8. The open card's targets are published with `reserveRect('card-targets', ...)`.
+- Scenario: `mock/scenarios/pill-cards.json` (`?scenario=pill-cards&size=1440x900&clean`, plus `&pc=panel` or `&pc=mini`).
 
 **Status:** pass 3 done: the off-track card is layout C (side by side, Adrian's pick), off track has no hue anywhere in cards. Merged core 369d97b. Checked in the stage (headless Chrome), screenshots re-shot. Not pushed. · **Priority:** P0 · **Port:** 5177 · **Branch:** `adrian/cards`
 
