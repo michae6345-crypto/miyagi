@@ -22,6 +22,10 @@ services:
         generateValue: true
       - key: PROXY_ENABLED
         value: "true"
+      - key: SUPABASE_URL          # POST /v1/link verifies Supabase access tokens against this project's JWKS
+        value: https://wssdpsdbaqtnfhoyimit.supabase.co
+      - key: SUPABASE_JWT_SECRET   # optional: only for legacy HS256 tokens
+        sync: false
       - key: ALLOWED_ANTHROPIC_MODELS
         value: claude-sonnet-5-5,claude-haiku-5-5
       - key: ALLOWED_GEMINI_MODELS
