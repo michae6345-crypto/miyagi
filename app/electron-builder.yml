@@ -1,5 +1,9 @@
 appId: dev.sandhacks.miyagi
+# The app's name everywhere on the Mac: the .app folder, CFBundleName/CFBundleDisplayName (menu bar, Dock, ⌘Tab,
+# Activity Monitor, Spotlight) and the macOS permission prompts. Lowercase, like the brand (BRAND.md). The main
+# process says the same (src/main/identity.ts), and package.json productName keeps userData at .../miyagi.
 productName: miyagi
+copyright: © 2026 miyagi
 directories:
   output: dist
   buildResources: build
@@ -16,6 +20,8 @@ mac:
   identity: null
   extendInfo:
     LSUIElement: true
+    CFBundleName: miyagi
+    CFBundleDisplayName: miyagi
     # macOS shows these in the permission prompts (the app starts the engine, so the prompts name miyagi).
     NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
     NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
@@ -50,13 +56,13 @@ dmg:
 win:
   target: nsis
   icon: build/icon.ico
-# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts Miyagi when done.
+# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts miyagi when done.
 # Stable file name so the site can link straight to it. Unsigned: SmartScreen asks once (More info > Run anyway).
 nsis:
   artifactName: Miyagi-Windows-Setup.${ext}
   oneClick: true
   perMachine: false
-  shortcutName: Miyagi
+  shortcutName: miyagi
   createDesktopShortcut: true
   createStartMenuShortcut: true
   runAfterFinish: true

@@ -55,7 +55,7 @@ export default defineMainFeature({
     if (isMac) {
       Menu.setApplicationMenu(
         Menu.buildFromTemplate([
-          { label: 'miyagi', submenu: [{ role: 'hide' }, { role: 'quit' }] },
+          { label: 'miyagi', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'quit' }] },
           { role: 'editMenu' }
         ])
       )

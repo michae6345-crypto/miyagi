@@ -44,6 +44,14 @@ APP="$(find dist -maxdepth 2 -name '*.app' -type d | head -1)"
 [ -f "$APP/Contents/Resources/engine/install.sh" ] || { echo "[ship] the engine isn't inside $APP (extraResources?)"; exit 1; }
 
 echo "[ship] 3/5 ad-hoc sign $APP"
+# electron-builder renames the helper apps ("miyagi Helper (Renderer)") but leaves CFBundleName "Electron Helper …",
+# which crash reports and some process lists show. Match it to the display name before signing, so nothing says Electron.
+for helper in "$APP"/Contents/Frameworks/*Helper*.app; do
+  plist="$helper/Contents/Info.plist"
+  [ -f "$plist" ] || continue
+  shown="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist" 2>/dev/null || basename "$helper" .app)"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleName $shown" "$plist"
+done
 # Before the dmg: the image carries the signed app. No Developer ID yet (SHIP.md, Known gaps).
 codesign --force --deep -s - "$APP"
 codesign --verify --deep --strict "$APP"
