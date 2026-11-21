@@ -1,6 +1,38 @@
 # library
 
-**Status:** pass 1 done (plan A6): Library window + lesson preview, main data path, stage stand-in; typecheck green, brand lint clean, stage checked headless. Draft PR #168 into `adrian/shell`. Fix round 1 done: a preview that got no answer is asked again on refresh, caps load on their own (no "can't start" until known), the video opens only the canonical watch link, the step count follows the step list, raw style literals moved to tokens, the HTTP body cap counts bytes as they arrive. Fix round 2 done: the window drags by the sidebar's traffic-light spacer, the list header and the preview back bar (`data-drag`; buttons, inputs and the search box stay clickable); a path anywhere in a string drops that string (`"/Users/…"`, `(/home/…)`, `file:///Users/…`, `'~/…'`, `=C:\…`); shots re-captured from this branch, plus a YouTube preview with its thumbnail. Not verified in Electron. · **Priority:** P1 · **Port:** 5191 · **Branch:** `michael/app-library`
+**Status (Home dashboard, branch `michael/app-home`, Nov 20):** Home is now the full miyagi home dashboard (see "Home" below). Typecheck green, brand lint clean, checked in the stage headless at 1440x900 (shots `miyagi-v2/screens/round3/home-*.jpg`). Not verified in Electron.
+
+**Earlier status:** pass 1 done (plan A6): Library window + lesson preview, main data path, stage stand-in; typecheck green, brand lint clean, stage checked headless. Draft PR #168 into `adrian/shell`. Fix round 1 done: a preview that got no answer is asked again on refresh, caps load on their own (no "can't start" until known), the video opens only the canonical watch link, the step count follows the step list, raw style literals moved to tokens, the HTTP body cap counts bytes as they arrive. Fix round 2 done: the window drags by the sidebar's traffic-light spacer, the list header and the preview back bar (`data-drag`; buttons, inputs and the search box stay clickable); a path anywhere in a string drops that string (`"/Users/…"`, `(/home/…)`, `file:///Users/…`, `'~/…'`, `=C:\…`); shots re-captured from this branch, plus a YouTube preview with its thumbnail. Not verified in Electron. · **Priority:** P1 · **Port:** 5191 · **Branch:** `michael/app-library`
+
+## Home (the home dashboard, Nov 20)
+The window's first view (the Dock click, the tray and `openLibrary()` land here). Files: `Home.tsx` (the page),
+`homeModel.ts` (hero pick, recent activity, the ask field's send path), `Status.tsx` (sidebar status), `motion.tsx`
+(rise / stagger / Press, the polish spec's numbers), plus `Library.tsx` (greeting header, sidebar status, Tools jump
+to the Library list) and `features/dashboard/Dashboard.tsx` (exports `useDashView` and `Milestones`, no behavior change).
+
+| Part | What | Rules |
+|---|---|---|
+| Hero | "Continue where you left off": newest saved lesson in progress (engine `progress.inProgress` with a `libraryId`, else a library row with `progress`), step line, tools, a ring with the share done | **The one white primary** on Home: Continue = `library.start {id}` (zero model calls; waits for lesson.ready, then the window steps aside). Other states: a lesson open now ("Back to the lesson" closes this window), building (spinner line, no button), nothing in progress but a lesson ready ("Start lesson"), nothing at all (welcome, bonsai, "Finish setup" when setup is left), loading skeleton, offline line. |
+| Ask | "ask miyagi anything" (`copy.launcherPlaceholder`), the launcher keycap from `platform.keys` | Sent exactly like the launcher: a goal with "Just teach me" = `learn {query, mode:"lesson"}`; "Watch a video" = `learn {query}` and the launcher opens on the streaming rows (`startSearch` imported); a YouTube link = `library.start` when that video is already a saved lesson (`libraryMatch`), else `learn_url {url}`. Then the window steps aside so the island has the build. Offline: nothing is sent, "miyagi is offline. Your text stays here." Its action is quiet while the hero has the primary, white when it doesn't. Idle shows three neutral idea chips (not pastel: they aren't help options). |
+| Band | Today, This week, Reps, Rhythm | `features/dashboard` as is. |
+| Skills + rail | The constellation, Review and Up next | Up next gets no primary (all quiet): the hero holds it. |
+| Ready to run | Up to 3 saved lessons not started, "See all N" goes to the Library list | Click opens the preview. Skeletons, empty ("No lessons on this Mac yet. Ask miyagi above."). |
+| Recent activity | Last 5 lessons (finished and in progress), steps passed, skipped, when | Green check only for a finished lesson whose steps all passed; otherwise a white progress ring. Never invents a number. |
+| Milestones | Footer | `features/dashboard`. |
+| Sidebar status | Setup (onboarding rows: "All set" / "N of M ready", click = guided setup), Engine (the engine row), Cloud (cloud:get + config.status.cloud), Plan and help meter (v2Cloud only, mock in the stage; click = account sheet) | Reads only, refreshed on open / focus / reconnect; never prompts. Shared status glyphs. |
+
+Motion: every block rises 6 px and fades in, 35 ms apart (first 8), on the house spring; cards and rows take the
+hover tint (opacity layer) and the 0.97 press dip; the ask field's area crossfades between idle, goal and link.
+Reduced motion keeps the fades only (MotionConfig in main.tsx). Focus: focus-visible white ring, no transition.
+
+Stage (port 5401): `?scenario=home-dashboard&window=library&size=1440x900&clean` (new scenario: engine hello, progress,
+library, health, library.start answers, a video search and a build). Also `&perm=accessibility-off` (setup left),
+`?scenario=settings&window=library&library=empty` (empty: no progress, no lessons), `?window=library&engine=ws://127.0.0.1:9&fallback=0`
+(offline), `?scenario=dashboard&window=progress` (the Progress window, unchanged).
+Checked headless: goal + Enter sends learn {mode:lesson}, the build card grows from the island and the window closes;
+Continue sends library.start:hd_mnist, lesson.ready, the window closes; a pasted link to a saved video offers Start
+lesson, another link Build lesson; reduced motion leaves every block at opacity 1 with no transform.
+Not verified: Electron, the launcher window over the Library window (in the stage it opens behind the app window).
 
 ## Goal
 The Library app window (Home-Library) and a lesson's preview inside it (Home-LessonDetail): the lessons cached on this Mac, a Continue row for the ones left mid-way, a filter by tool, search, and Start lesson, which starts a cached lesson with zero model calls.
@@ -52,6 +84,7 @@ Why main owns the data: the engine's replay log drops `engine.hello` at `lesson.
 - Not verified: Electron (`npm run dev`), the HTTP fallback against a real engine (E1/E2 not merged; cost freeze), real window chrome placement of the hiddenInset traffic lights.
 
 ## Core requests
+0. **Home (Nov 20)**: (a) move `features/library/motion.tsx` (rise, stagger, Press) into `core/ui/motion.ts` once the polish lane lands it, and give `QuietButton` / `PrimaryButton` the same hover tint and focus ring; (b) a `launcher:open {text?, mode?}` signal so Home's "Watch a video" can hand the typed goal to the launcher instead of sending `learn` itself and toggling; (c) a `surface.well` token for the ask field (it uses `scrim.launcher` with an inset hairline now); (d) dev/Stage: the launcher layer sits under app windows in the stage, so the video rows Home opens are hidden there.
 1. **mock/engine.ts** (integrator): the default `engine.hello` in `start()` is lost in the browser stage for scenarios without their own hello (`?scenario=happy`, `home`, `full`: `useLesson.hello` stays undefined, so `canSend()` is false everywhere). It is emitted synchronously during `startInline`, apparently before the renderer is listening; core-v2 only works because it scripts its own hello 100 ms later. Fix: emit it on a 0 ms timer, or have the web bridge replay it on `ready()`. Workaround here: `web.ts` treats the inline mock as capable, like main's DEMO link.
 2. **home.json** (A5) or the integrator: add `library.list`, `library.get`, `library.start` triggers to `mock/scenarios/home.json` so the plan's scenario URL (`?scenario=home&window=library`) answers from its own file once `home.json` exists (today `home` falls back to `full`, which gets them from core-v2).
 3. **core/theme.ts** (integrator): a `surface.sidebar` token (black .24, Home-Library sidebar and Home-LessonDetail aside); this lane uses `scrim.launcher` until then.
