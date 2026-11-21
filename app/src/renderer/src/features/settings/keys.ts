@@ -9,8 +9,8 @@ import type { KeyState } from '../../../../../../shared/contracts/events'
 
 /**
  * The keys miyagi keeps, in display order (names as in config.keys / config.status, shared/contracts/events.ts).
- * The key list is Anthropic and Gemini (plus ElevenLabs). Tiger Data is dropped (v2): the contract still lists tigerUrl as optional, but the
- * app no longer stores, shows or sends them, and a stored value from an older build is ignored on the next read.
+ * Anthropic, Gemini and ElevenLabs. Tiger Data is dropped (v2): the contract still lists tigerUrl as optional, but the
+ * app no longer stores, shows or sends it, and a stored value from an older build is ignored on the next read.
  */
 export const KEY_NAMES = ['anthropic', 'gemini', 'elevenlabs'] as const
 export type KeyName = (typeof KEY_NAMES)[number]

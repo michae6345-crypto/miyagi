@@ -884,7 +884,9 @@ class OverlayBounds(_Model):
 
 
 class ConfigKeys(_Model):
-    """Bring-your-own-key. Keep in memory only; never log or echo these."""
+    """Bring-your-own-key. Keep in memory only; never log or echo these. Unknown names (from older app builds) are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
 
     anthropic: str | None = None
     gemini: str | None = None
