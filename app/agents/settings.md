@@ -128,3 +128,17 @@ The overlay window is not focusable, so Settings is its own window. Every `ctx.c
 2. Status rule for the onboarding lane: granted / running is a neutral check + white word everywhere (Settings already); green stays for passed steps and mastery. Onboarding's green "On / Running / Connected" should follow.
 3. Glossary for every lane (`features/settings/words.ts`): "Your own key" (account menu, upgrade, pricing say "Use your own key", "Use my own key", "Bring your own key"), "VS Code companion".
 4. `copy.appearanceCaption` (core) still says the sheet stays black; it now takes the window surface.
+
+**Fix round 1 (surfaces)**
+- Focus rings use the theme: `color.label` through a `--focus-ring` CSS variable on the sheet, which the sidebar tabs read too. No Tailwind `white/*`; the sheet's text is `color.text`, not `text-white` (same for the key field and the help link hover).
+- Your own key: the caret lands in the key field again when the sheet opens on this section (`openSettings('account')` from the limit card's "Your own key") or on a click. The store records how a section was reached (`via: 'keys'` from ↑ / ↓ / Home / End); only then does focus stay on the sidebar.
+
+**Decision for Michael: the sheet covers VS Code's Explorer and tabs**
+At 1440x900 the 912x576 sheet sits at x 264-1175, y 40-615, over the Explorer and the editor tabs, which the UX bar otherwise forbids ("never cover Explorer/tabs/toolbar"). This lane keeps it as an explicit exception:
+- Settings is a modal sheet the learner opened on purpose, with a scrim. Nothing in VS Code is needed while it is up, and Esc, the close light or a click outside collapses it into the island at once.
+- "Every surface is born from the notch island" (Michael, Sat): it starts on the pill's exact pixels at the top center, and a sheet this big can't clear the Explorer and tabs from there without leaving the island.
+- Clamping it to the editor's free area (right of the Explorer, under the tabs) would still cover code at 1440x900 and would detach it from the island.
+If Michael wants it clear anyway, the cheapest option is a compact sheet (about 720x520) moved down under the tab bar, keeping the island neck. That needs Core request 5.
+
+**Core requests (fix round 1)**
+5. Only if Michael rejects the exception above: expose the editor's chrome rect (Explorer width, tab bar and toolbar bottom) from core/dock or the layout, so the sheet can be placed clear of it.

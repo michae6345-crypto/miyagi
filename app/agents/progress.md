@@ -70,7 +70,7 @@ Not verified: Electron (`npm run dev`), the window's `data-drag` title bar, `pro
 ## Round 3 (surfaces lane, michael/app-surfaces-feel)
 
 **Landed**
-- `mock/scenarios/progress.json` now answers `progress.get` with the dashboard fixture's full shape (`stageAnchor`, per-day `activity`, per-skill `reps`, `inProgress`, `next`, `settings`) and a review list of mastered skills only (`due: 2`, `when` filled for the reminder card). The window no longer shows "6 of 13 mastered" beside "Not tracked yet".
+- `mock/scenarios/progress.json` now answers `progress.get` with the dashboard fixture's full shape (`stageAnchor`, per-day `activity`, per-skill `reps`, `inProgress`, `next`, `settings`) and a review list of mastered skills only (`due: 2`, `when` filled for the reminder card). The stage window no longer shows "6 of 13 mastered" beside "Not tracked yet". **This is the stage only:** `activity`, `stageAnchor` and per-skill `reps` are not in `shared/contracts/events.ts` (only `week` is, and the real engine sends `week: null`), so the real app still shows the persona blocker.
 - Completion card (features/complete): no confetti; the hero check springs in, then the result, the steps (ticking in one by one), "Skills in <track>" with the mastered skills as chips ("and N more") and Next up settle in 40 ms apart. Opacity only with reduced motion.
 
 **Stage:** `?scenario=progress&window=progress&clean&size=1440x900`, `?scenario=complete&clean&size=1440x900` (press Next step). Shots: `surfaces-progress-window.jpg`, `surfaces-complete.jpg` in `/Users/tripi/sand hacks/miyagi-v2/screens/round3/`.
@@ -80,3 +80,11 @@ Not verified: Electron (`npm run dev`), the window's `data-drag` title bar, `pro
 2. Start review: the card's white primary when due > 0, or say why it is off ("Review opens after this lesson"); split Review into "Due now" and "Coming up"; list mastered skills only.
 3. Skill-node tooltips in a portal (they clip under the row); Skills scroller with a bottom fade and padding; Practicing as a half-filled ring, Locked dashed or with a lock glyph, Review due as a neutral "due" chip, not a dot on the green check.
 4. Engine: `review.items` only for mastered skills; `progress.week` / `activity` from passed steps.
+
+**Fix round 1 (surfaces)**
+- Contract-faithful stage: `?scenario=progress-contract&window=progress&clean&size=1440x900` answers `progress.get` with the contract's shape only (`skills[].items`, `completed[].at`, `review`) and `week: null`, as the real engine does. It shows the real state ("6 of 13 mastered" beside "Not tracked yet"), so the home lane and QA see what learners see. Its trigger is step-scoped (`progress.get@step_progress_contract`), so `full` keeps the rich payload.
+- **The "Not tracked yet" blocker stays open** until the home lane's request 1 (hide the activity blocks when there is no activity) and engine request 4 (`week` / `activity` from passed steps, plus a `contract:` PR for `activity`, `stageAnchor` and `reps`) land.
+- Completion card: Skills, Next up and the actions wait for the last visible step row (`after = 4 + min(steps, ROWS)`), so the replay reads top to bottom. This lesson's skills come first with a quiet "new" tag when a node carries `lesson: true`; without it the track order stays and nothing is tagged. The `complete` scenario marks Backpropagation and Training loop.
+
+**Contract request (fix round 1)**
+5. `SkillNode.lesson?: boolean` on `card.skillMap.nodes` (server/lesson/skillmap.py): true on the skills this lesson taught, so the completion card can name the skill that leveled up. `features/complete/types.ts` already reads it when it is exactly `true`.
