@@ -150,7 +150,7 @@ is stored encrypted with a key from your Keychain. You can continue without an a
 Off for everyone unless you turn on "Share crash reports and usage" in Settings › Privacy, and nothing is sent
 before you are past sign-in and setup. When on, miyagi sends:
 
-- that the app was installed (with the app version, macOS version and chip type) and that setup finished;
+- that the app was installed (with the app version, the system (macOS) and the chip type) and that setup finished;
 - lesson counts: a lesson was built (how many steps, how it was built), a step passed or failed its check, a hint was
   used, a lesson was finished (steps passed and skipped, minutes) or left (a one-word reason);
 - for each crash, only what kind of error it was and the app version. The error text stays on this Mac.
