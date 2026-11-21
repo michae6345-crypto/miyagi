@@ -44,6 +44,7 @@ export const brand = {
   offTrackDeep: '#141414',
   offTrackTint: 'rgba(255,255,255,0.08)',
   watching: '#8E8E93',
+  /** = hud.notch (the notch black), kept here for the brand-kit table. */
   pill: '#000000',
   /**
    * Pastels for OPTIONS only (Adrian, Sat: "4 · Pastel"): suggestion / quick-action chips, source-kind tiles,
@@ -55,6 +56,15 @@ export const brand = {
 
 /** The overlay follows macOS: dark HUD glass by default, light when the system is light. */
 export const hud = {
+  /**
+   * The notch black: the island, its cards and the pill-to-sheet morphs. Pure #000 because that is what the notch's
+   * hardware is (the display is off there), so the pill fuses with it. Opaque, never translucent or vibrant (nothing
+   * of the desktop may show through), and the same in the light and dark app themes: the island pins data-theme="dark".
+   * Relation to the app's dark windows: the windows are system gray rgb(28,28,30), a deliberate step lighter, one
+   * notch up (raised rgb(37,37,39), sheet rgb(44,44,46)). So black = the island and nothing else; every window, panel
+   * and sheet is gray, never #000, and no surface inside the island may paint a gray fill (use white alphas on it).
+   */
+  notch: '#000000',
   dark: { glass: 'rgba(28,28,30,0.72)', text: '#F4F4F5', muted: 'rgba(255,255,255,0.6)', hairline: 'rgba(255,255,255,0.12)', button: '#F4F4F5', buttonText: '#141414' },
   light: { glass: 'rgba(255,255,255,0.78)', text: '#141414', muted: 'rgba(0,0,0,0.55)', hairline: 'rgba(0,0,0,0.10)', button: '#141414', buttonText: '#F6F6F3' }
 } as const
@@ -142,7 +152,7 @@ const palette: Record<string, readonly [string, string]> = {
   'e-raised': ['0 1px 1px rgba(0,0,0,.3), 0 2px 4px rgba(0,0,0,.22), 0 6px 14px rgba(0,0,0,.2)', `0 0 0 .5px rgba(${SHADOW},.05), 0 1px 2px rgba(${SHADOW},.05), 0 4px 12px rgba(${SHADOW},.06)`],
   'e-overlay': ['0 1px 2px rgba(0,0,0,.3), 0 4px 10px rgba(0,0,0,.22), 0 12px 28px rgba(0,0,0,.24)', `0 0 0 .5px rgba(${SHADOW},.06), 0 2px 5px rgba(${SHADOW},.05), 0 10px 26px rgba(${SHADOW},.09), 0 22px 48px rgba(${SHADOW},.06)`],
   'e-panel': ['0 1px 2px rgba(0,0,0,.3), 0 6px 14px rgba(0,0,0,.24), 0 18px 40px rgba(0,0,0,.3), 0 36px 80px rgba(0,0,0,.32)', `0 0 0 .5px rgba(${SHADOW},.07), 0 3px 8px rgba(${SHADOW},.06), 0 16px 36px rgba(${SHADOW},.1), 0 40px 88px rgba(${SHADOW},.13)`],
-  'e-card': ['0 0 0 0.5px rgba(255,255,255,.09), 0 2px 4px rgba(0,0,0,.3), 0 12px 28px rgba(0,0,0,.34), 0 32px 72px rgba(0,0,0,.42)', `0 0 0 .5px rgba(${SHADOW},.08), 0 3px 8px rgba(${SHADOW},.07), 0 18px 40px rgba(${SHADOW},.12), 0 44px 96px rgba(${SHADOW},.16)`],
+  'e-card': [`0 0 0 0.5px ${hud.notch}, 0 2px 4px rgba(0,0,0,.3), 0 12px 28px rgba(0,0,0,.34), 0 32px 72px rgba(0,0,0,.42)`, `0 0 0 .5px rgba(${SHADOW},.08), 0 3px 8px rgba(${SHADOW},.07), 0 18px 40px rgba(${SHADOW},.12), 0 44px 96px rgba(${SHADOW},.16)`],
   // ---- highlight edges ----
   'h-top': ['inset 0 1px 0 rgba(255,255,255,.1)', 'inset 0 1px 0 rgba(255,255,255,.95)'],
   'h-top-soft': ['inset 0 1px 0 rgba(255,255,255,.06)', 'inset 0 1px 0 rgba(255,255,255,.8)'],
@@ -236,7 +246,7 @@ export const color = {
   faint: 'var(--c-faint)',
   hairline: 'var(--c-hairline)',
   /** The notch pill and the island: always black. */
-  island: brand.pill,
+  island: hud.notch,
   /**
    * Panels on the dark HUD (the launcher / ask panel). CSS can't blur other apps in Electron, so this is far more
    * opaque than the kit's .72: at .90 the code under the ask panel still showed through (Michael's tests 2-3, A13).
@@ -267,11 +277,11 @@ export const shadow = '0 20px 60px rgba(0,0,0,.45)'
  * black pill sits ON the screen instead of floating in a haze. Both have the SAME four layers, because Settings and the
  * launcher still animate boxShadow between them in their pill-to-sheet morphs (pre-existing), and motion interpolates a
  * shadow string layer by layer: equal counts keep that morph smooth. Moving those morphs to an opacity crossfade of two
- * shadow layers (brand: transform and opacity only) is a follow-up for those lanes. The first layer is a 0.5 px hairline
- * that keeps the black island apart from a dark editor behind it.
+ * shadow layers (brand: transform and opacity only) is a follow-up for those lanes. The first layer is a 0.5 px ring in the
+ * notch black itself (it was a 9% white hairline, which drew a grey edge the real notch doesn't have).
  */
 export const shadows = {
-  pill: '0 0 0 0.5px rgba(255,255,255,.09), 0 1px 2px rgba(0,0,0,.32), 0 4px 10px rgba(0,0,0,.22), 0 10px 24px rgba(0,0,0,.14)',
+  pill: `0 0 0 0.5px ${hud.notch}, 0 1px 2px rgba(0,0,0,.32), 0 4px 10px rgba(0,0,0,.22), 0 10px 24px rgba(0,0,0,.14)`,
   /** The card / sheet shadow: follows the theme (same four layers in both, so the pill-to-sheet morph still interpolates). */
   card: 'var(--e-card)'
 } as const

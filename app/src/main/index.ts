@@ -8,7 +8,7 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
@@ -58,6 +58,8 @@ let launcherOpenedAt = 0
 const LAUNCHER_DOUBLE_MS = 400
 /** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
 let launcherOrigin: BrowserWindow | undefined
+/** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
+let basePillTop = 0
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
 let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
@@ -243,7 +245,7 @@ function createCoreWindow(route: 'overlay' | 'launcher'): BrowserWindow {
 function layoutFor(win: BrowserWindow): Layout {
   const b = win.getBounds()
   const wa = screen.getDisplayMatching(b).workArea
-  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {
@@ -414,7 +416,8 @@ app.whenReady().then(async () => {
   }
   // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
   // window exists: every renderer gets pillTop in its launch arguments.
-  platform.pillTop = fitPillTop(platform.pillTop, displayNow())
+  basePillTop = platform.pillTop
+  platform.pillTop = fitPillTop(basePillTop, displayNow())
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 
@@ -528,12 +531,28 @@ app.whenReady().then(async () => {
   const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
-  screen.on('display-metrics-changed', () => {
-    for (const w of [overlay, launcher]) {
-      w.setBounds(overlayBounds(screen.getDisplayMatching(w.getBounds())))
-      send(w, 'layout', layoutFor(w))
-    }
-  })
+  // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
+  // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
+  // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
+  let refitTimer: ReturnType<typeof setTimeout> | undefined
+  const refit = (): void => {
+    clearTimeout(refitTimer)
+    refitTimer = setTimeout(() => {
+      platform.pillTop = fitPillTop(basePillTop, displayNow())
+      for (const w of [overlay, launcher]) {
+        if (w.isDestroyed()) continue
+        w.setBounds(overlayBounds(displayNow()))
+        raise(w)
+        send(w, 'layout', layoutFor(w))
+      }
+    }, 150)
+  }
+  screen.on('display-metrics-changed', refit)
+  screen.on('display-added', refit)
+  screen.on('display-removed', refit)
+  // Wake and unlock: macOS can drop the panels' level and the renderer's frames; re-raise and re-send the layout.
+  powerMonitor.on('resume', refit)
+  powerMonitor.on('unlock-screen', refit)
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.

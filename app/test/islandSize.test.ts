@@ -1,7 +1,7 @@
 /** core/islandSize.ts, offline: a closed card never leaves the island as an empty card-sized box. */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { islandSize, PILL_FALLBACK } from '../src/renderer/src/core/islandSize'
+import { islandSize, islandSizeFor, PILL_FALLBACK } from '../src/renderer/src/core/islandSize'
 import { pill } from '../src/renderer/src/core/theme'
 
 describe('islandSize', () => {
@@ -32,5 +32,13 @@ describe('islandSize', () => {
   test('garbage measurements never win', () => {
     assert.deepEqual(islandSize(undefined, { w: Number.NaN, h: 34 }, 140), { w: 140, h: pill.height })
     assert.deepEqual(islandSize(440, { w: 440, h: Number.POSITIVE_INFINITY }, 140), { w: 140, h: pill.height })
+  })
+
+  test('a card whose layer is empty collapses to the pill, not fixed x 34', () => {
+    // An empty layer is max-content with the resting pill in it: it measures ~120 x 34 even for a 600px card.
+    assert.deepEqual(islandSizeFor(600, true, { w: 120, h: 34 }, 120), { w: 120, h: pill.height })
+    // The same for a card whose Boundary fell back to the resting pill inside the body.
+    assert.deepEqual(islandSizeFor(600, true, { w: 120, h: 34 }, 150), { w: 120, h: pill.height })
+    assert.deepEqual(islandSizeFor(600, false, { w: 600, h: 280 }, 120), { w: 600, h: 280 })
   })
 })
