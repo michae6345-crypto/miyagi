@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-os="mac" data-steps="mac" data-pkg="dmg">
+<html lang="en" data-os="mac" data-steps="mac" data-pkg="zip">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -26,10 +26,12 @@ window.MIYAGI_DOWNLOAD = {
   remindEndpoint: null,                               // optional: a form endpoint that emails the link (see README)
   mac: {
     tag: "mac",
-    file: "Miyagi-Mac.dmg",
-    url: "https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.dmg",
-    // If the release has no .dmg yet but has this file, the page links to it and shows the unzip steps instead.
-    fallbackFile: "Miyagi-Mac.zip",
+    // The file that is on the `mac` release today. The page works with these two lines alone (no API call needed).
+    // When Miyagi-Mac.dmg is uploaded: set file and url to the .dmg, and fallbackFile to "Miyagi-Mac.zip".
+    file: "Miyagi-Mac.zip",
+    url: "https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip",
+    // Optional: if the release lacks `file` but has this one, the live lookup links this one instead.
+    fallbackFile: null,
     sizeMB: null,                                     // fallback when the live lookup is off or fails
     chip: "Apple silicon",                            // this build runs on M1 and later
     intelUrl: null,                                   // set when an Intel (x64) or universal build exists
@@ -102,7 +104,10 @@ code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
 [data-os="other"] .h-phone,
 [data-steps="mac"] .v-win, [data-steps="windows"] .v-mac,
 [data-pkg="dmg"] .pk-zip, [data-pkg="zip"] .pk-dmg { display: none !important; }
-html:not([data-intel="1"]) .intel-note { display: none !important; }
+[data-os="other"] .alt.h-mac, [data-os="other"] .alt.h-win,
+[data-os="other"] #dl-mac, [data-os="other"] #dl-win, [data-os="other"] .meta.h-mac, [data-os="other"] .meta.h-win { display: none !important; }
+html:not([data-intel="1"]) .intel-note, html:not([data-intel="1"]) .intel-anyway { display: none !important; }
+html[data-intel="1"] #dl-mac { display: none !important; }
 
 /* ---------- top bar ---------- */
 .top { display: flex; align-items: center; justify-content: space-between; height: 64px; }
@@ -129,9 +134,16 @@ html:not([data-intel="1"]) .intel-note { display: none !important; }
 .btn-quiet:hover { background: var(--skeleton); }
 .meta { color: var(--label); font-size: 14px; line-height: 1.6; }
 .meta b { color: var(--text); font-weight: 500; }
-.meta .dot { padding: 0 7px; color: var(--faint); }
+.meta .dot { padding: 0 3px 0 7px; color: var(--faint); }
+.meta .nb { white-space: nowrap; }
 .alt { font-size: 14px; color: var(--label); }
 .alt button { background: none; border: 0; color: var(--text); font: inherit; padding: 2px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; }
+.alt a { color: var(--text); }
+.pick { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 640px; }
+.pick > div { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.pick .btn-quiet { width: 100%; height: 52px; font-size: 16px; }
+.pick .btn-quiet svg { width: 18px; height: 18px; }
+@media (max-width: 480px) { .pick { grid-template-columns: 1fr; } }
 .started:empty { display: none; }
 .started { font-size: 14px; color: var(--text); }
 .note { display: flex; gap: 12px; align-items: flex-start; text-align: left; max-width: 520px; margin: 0 auto; padding: 14px 16px; border-radius: var(--r-card); background: var(--group); box-shadow: inset 0 0 0 1px var(--hairline); font-size: 14px; color: var(--label); }
@@ -312,17 +324,17 @@ footer a:hover { color: var(--text); }
       <p class="lede">Turn any tutorial into an auto-graded lab.</p>
 
       <div class="cta">
-        <div class="intel-note note" role="note">
+        <div class="intel-note note h-mac" role="note">
           <span class="ring" aria-hidden="true"></span>
           <span><strong>This version needs an Apple silicon Mac (M1 or later).</strong> Your Mac looks like it has an Intel chip, so miyagi won't open on it yet. To check: Apple menu &gt; About This Mac &gt; Chip.</span>
         </div>
 
-        <a class="btn btn-primary h-mac" id="dl-mac" href="https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.dmg">
+        <a class="btn btn-primary h-mac" id="dl-mac" data-dl="mac" href="https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
           <span>Download for Mac</span>
-          <span class="file" data-slot="mac-file">Miyagi-Mac.dmg</span>
+          <span class="file" data-slot="mac-file">Miyagi-Mac.zip</span>
         </a>
-        <a class="btn btn-primary h-win" id="dl-win" href="https://github.com/adrian-erlikhman/miyagi/releases/download/windows/Miyagi-Windows-Setup.exe">
+        <a class="btn btn-primary h-win" id="dl-win" data-dl="win" href="https://github.com/adrian-erlikhman/miyagi/releases/download/windows/Miyagi-Windows-Setup.exe">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
           <span>Download for Windows</span>
           <span class="file">Miyagi-Windows-Setup.exe</span>
@@ -330,12 +342,24 @@ footer a:hover { color: var(--text); }
 
         <p class="meta h-mac" data-slot="mac-meta">Version 0.1.0<span class="dot">·</span>Apple silicon<span class="dot">·</span>macOS 13 or later</p>
         <p class="meta h-win" data-slot="win-meta">Version 0.1.0<span class="dot">·</span>64-bit<span class="dot">·</span>Windows 10 or 11</p>
+        <p class="alt h-mac intel-anyway"><a data-dl="mac" href="https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip">Download anyway (Apple silicon only)</a></p>
+
+        <p class="alt h-other">miyagi runs on Mac and Windows. Pick yours:</p>
+        <div class="pick h-other">
+          <div>
+            <a class="btn btn-quiet" data-dl="mac" href="https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span>Mac</span></a>
+            <p class="meta" data-slot="mac-meta">Version 0.1.0<span class="dot">·</span>Apple silicon<span class="dot">·</span>macOS 13 or later</p>
+          </div>
+          <div>
+            <a class="btn btn-quiet" data-dl="win" href="https://github.com/adrian-erlikhman/miyagi/releases/download/windows/Miyagi-Windows-Setup.exe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span>Windows</span></a>
+            <p class="meta" data-slot="win-meta">Version 0.1.0<span class="dot">·</span>64-bit<span class="dot">·</span>Windows 10 or 11</p>
+          </div>
+        </div>
 
         <p class="started" id="started" role="status" aria-live="polite"></p>
 
         <p class="alt h-mac">On Windows? <button type="button" data-show="windows">Get miyagi for Windows</button></p>
         <p class="alt h-win">On a Mac? <button type="button" data-show="mac">Get miyagi for Mac</button></p>
-        <p class="alt h-other">miyagi runs on Mac and Windows.</p>
       </div>
     </div>
 
@@ -390,7 +414,7 @@ footer a:hover { color: var(--text); }
               <div style="padding:8px">
                 <div class="row ringed" style="position:relative">
                   <svg class="fileicon" viewBox="0 0 30 34"><rect x="1" y="1" width="28" height="32" rx="5" fill="var(--tile)" stroke="var(--faint)"/><circle cx="15" cy="15" r="7" fill="none" stroke="var(--label)" stroke-width="1.5"/><circle cx="15" cy="15" r="1.6" fill="var(--label)"/><rect x="7" y="26" width="16" height="2.4" rx="1.2" fill="var(--faint)"/></svg>
-                  <div><div class="t" data-slot="mac-file">Miyagi-Mac.dmg</div><div class="s" data-slot="mac-size-s">Done</div></div>
+                  <div><div class="t" data-slot="mac-file">Miyagi-Mac.zip</div><div class="s" data-slot="mac-size-s">Done</div></div>
                   <svg class="cursor" viewBox="0 0 18 22" style="right:14px;top:16px"><path d="M2 1.5v16.2l4.2-4 2.7 6.3 2.9-1.2-2.7-6.2h5.8z" fill="var(--text)" stroke="var(--bg)" stroke-width="1.3" stroke-linejoin="round"/></svg>
                 </div>
                 <div class="row" style="opacity:.5"><span class="fileicon" style="height:26px;width:24px;border-radius:5px;background:var(--tile)"></span><span class="ghost" style="width:110px"></span></div>
@@ -400,9 +424,9 @@ footer a:hover { color: var(--text); }
           <div class="body">
             <span class="num" aria-hidden="true">1</span>
             <h3 class="pk-dmg">Open the download</h3>
-            <h3 class="pk-zip">Open the zip</h3>
+            <h3 class="pk-zip">Find miyagi in Downloads</h3>
             <p class="pk-dmg">Double-click <b data-slot="mac-file">Miyagi-Mac.dmg</b> in your Downloads.</p>
-            <p class="pk-zip">Double-click <b data-slot="mac-file">Miyagi-Mac.zip</b> in your Downloads. miyagi appears next to it.</p>
+            <p class="pk-zip">Open your Downloads. If you see <b data-slot="mac-file">Miyagi-Mac.zip</b>, double-click it. Safari may have unzipped it already.</p>
           </div>
         </li>
         <li class="step">
@@ -556,7 +580,7 @@ footer a:hover { color: var(--text); }
           <summary>Is it safe to open?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
           <div class="a">
             <p>Yes. Your computer warns you because miyagi isn't signed by Apple or Microsoft yet. That's on our list.</p>
-            <p>miyagi asks for two permissions on a Mac, <b>Screen Recording</b> and <b>Accessibility</b>, and you can switch either off in System Settings at any time. It never uses your camera or microphone.</p>
+            <p>On a Mac, miyagi asks for two permissions, <b>Screen Recording</b> and <b>Accessibility</b>, and may ask once to control <b>VS Code</b> so it can open the right file. You can switch any of them off in System Settings at any time. It never uses your camera or microphone.</p>
             <div class="sha-wrap" hidden>
               <p>To check your file is the real one, compare its SHA-256:</p>
               <div class="sha"><code id="sha-value"></code><button type="button" id="copy-sha">Copy</button></div>
@@ -594,7 +618,7 @@ footer a:hover { color: var(--text); }
         <details>
           <summary>How do I uninstall it?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
           <div class="a">
-            <p><b>Mac:</b> quit miyagi, then drag it from Applications to the Trash. To remove its settings too, delete <code>~/Library/Application Support/miyagi</code>. Your lessons stay in the <code>miyagi</code> folder in your home folder until you delete it.</p>
+            <p><b>Mac:</b> quit miyagi, then drag it from Applications to the Trash. To remove its settings too, delete <code>~/Library/Application Support/miyagi</code> and, in Keychain Access, the item <b>miyagi Safe Storage</b>. The <code>miyagi</code> folder in your home folder holds miyagi's engine and your lessons; it stays until you delete it.</p>
             <p><b>Windows:</b> Settings &gt; Apps &gt; Installed apps &gt; miyagi &gt; Uninstall.</p>
           </div>
         </details>
@@ -679,8 +703,8 @@ footer a:hover { color: var(--text); }
     try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch (e) { return ""; }
   }
   function metaHTML(parts) {
-    return parts.filter(Boolean).map(function (p) { return p.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); })
-      .join('<span class="dot">·</span>');
+    return parts.filter(Boolean).map(function (p) { return '<span class="nb">' + p.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }) + "</span>"; })
+      .join('<span class="dot">· </span>');
   }
   function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
@@ -703,18 +727,16 @@ footer a:hover { color: var(--text); }
       var size = info.size ? mb(info.size) : (cfg.sizeMB ? cfg.sizeMB + " MB" : "");
       var line = metaHTML([version ? "Version " + version : "", size, chip, cfg.needs]);
       if (info.updated) line += '<br><span>Updated ' + dateText(info.updated) + "</span>";
-      var el = document.querySelector('[data-slot="' + (k === "mac" ? "mac" : "win") + '-meta"]');
-      if (el) el.innerHTML = line;
+      $all('[data-slot="' + (k === "mac" ? "mac" : "win") + '-meta"]').forEach(function (el) { el.innerHTML = line; });
     });
     var mac = C.mac || {}, macInfo = live.mac || {};
     var intelBuild = root.getAttribute("data-intel") === "x";
     if (intelBuild) macInfo = {};
     var macUrl = intelBuild ? mac.intelUrl : (macInfo.url || mac.url);
-    var macFile = intelBuild ? String(mac.intelUrl).split("/").pop() : (macInfo.file || mac.file || "Miyagi-Mac.dmg");
-    var link = document.getElementById("dl-mac");
-    if (link && macUrl) link.href = macUrl;
-    var win = document.getElementById("dl-win");
-    if (win && C.windows && C.windows.url) win.href = C.windows.url;
+    var macFile = intelBuild ? String(mac.intelUrl).split("/").pop() : (macInfo.file || mac.file || "Miyagi-Mac.zip");
+    var winUrl = (live.windows && live.windows.url) || (C.windows && C.windows.url);
+    if (macUrl) $all('[data-dl="mac"]').forEach(function (a) { a.href = macUrl; });
+    if (winUrl) $all('[data-dl="win"]').forEach(function (a) { a.href = winUrl; });
     setSlot("mac-file", macFile);
     setSlot("mac-size-s", macInfo.size ? mb(macInfo.size) : "Done");
     root.setAttribute("data-pkg", /\.zip$/i.test(macFile) ? "zip" : "dmg");
@@ -751,12 +773,16 @@ footer a:hover { color: var(--text); }
       if (!rel || !rel.assets) return;
       var byName = function (n) { return rel.assets.filter(function (a) { return a.name === n; })[0]; };
       var asset = byName(cfg.file), url = cfg.url;
-      // No .dmg in the release yet: link the fallback (the zip) instead of a 404, and show its steps.
+      // The release lacks `file` (say, no .dmg yet) but has fallbackFile: link that instead of a 404, and show its steps.
       if (!asset && cfg.fallbackFile && isGithubAsset(cfg.url)) {
         asset = byName(cfg.fallbackFile);
         if (asset) url = asset.browser_download_url;
       }
-      if (!asset) return;
+      // Neither file is on the release: send people to the releases page, never to a link that 404s.
+      if (!asset) {
+        if (C.releasesUrl && isGithubAsset(cfg.url)) { live[kind] = { url: C.releasesUrl }; render(); }
+        return;
+      }
       var m = /\bv?(\d+\.\d+\.\d+)\b/.exec(rel.name || "");
       live[kind] = {
         file: asset.name, url: url, size: asset.size, updated: asset.updated_at,
@@ -767,7 +793,9 @@ footer a:hover { color: var(--text); }
   }
 
   /* ---------- events ---------- */
-  function onDownload() {
+  function onDownload(e) {
+    var a = e && e.currentTarget;
+    if (a && C.releasesUrl && a.href === C.releasesUrl) return; // just the releases page, nothing downloads yet
     var started = document.getElementById("started");
     if (started) started.textContent = "Your download has started. Next, open it from your Downloads.";
     var install = document.getElementById("install");
@@ -778,7 +806,13 @@ footer a:hover { color: var(--text); }
       install.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
     }, 700);
   }
-  ["dl-mac", "dl-win"].forEach(function (id) { var a = document.getElementById(id); if (a) a.addEventListener("click", onDownload); });
+  $all("[data-dl]").forEach(function (a) {
+    a.addEventListener("click", function () {
+      // "Pick yours" (Linux, ChromeOS, unknown): show the install steps for the one they picked.
+      if (root.getAttribute("data-os") === "other") setSteps(a.getAttribute("data-dl") === "win" ? "windows" : "mac");
+      onDownload({ currentTarget: a });
+    });
+  });
 
   $all("[data-show]").forEach(function (b) {
     b.addEventListener("click", function () {
