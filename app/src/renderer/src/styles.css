@@ -78,6 +78,17 @@ html[data-kind="app"] [data-no-drag] {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * The room kept for the traffic lights (they hide in macOS full screen; core/prefs.ts sets <html data-fullscreen>):
+ * the sidebar's top strip, the setup header's height and its left inset. In full screen the empty band is dropped.
+ */
+.mg-lights { height: 40px; }
+.mg-flow-head { height: 64px; }
+.mg-lights-pad { padding-left: 88px; }
+html[data-fullscreen] .mg-lights { height: 12px; }
+html[data-fullscreen] .mg-flow-head { height: 48px; }
+html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
+
 /* Paper surfaces (Plan-Pricing, theme.paper) inside any window. */
 [data-surface="paper"] {
   background: #F6F6F3;

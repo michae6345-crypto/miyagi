@@ -10,7 +10,7 @@ import { ChevronLeft, CircleCheck, Play } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
-import { color, fill, font, radius2, scrim, surface, type2 } from '../../core/theme'
+import { color, fill, font, radius2, surface, type2 } from '../../core/theme'
 import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, ToolTile, minutesLabel, soft, stepsLabel } from './parts'
 import { closeDetail, itemFor, start, useLibrary } from './store'
@@ -152,7 +152,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
           )}
         </section>
 
-        <aside className="flex min-h-0 flex-col gap-[24px] overflow-y-auto" style={{ padding: '32px 24px', borderLeft: `1px solid ${surface.border}`, background: scrim.launcher }}>
+        <aside className="flex min-h-0 flex-col gap-[24px] overflow-y-auto" style={{ padding: '32px 24px', borderLeft: `1px solid ${surface.border}`, background: surface.well }}>
           {vid && <Video vid={vid} by={by} />}
 
           <dl className="m-0 grid gap-x-[16px] gap-y-[12px]" style={{ gridTemplateColumns: 'auto 1fr', fontSize: type2.sm }}>
