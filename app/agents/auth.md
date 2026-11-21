@@ -4,9 +4,11 @@ Flow: **intro** (the bonsai grows up out of its pot in the middle of the window,
 **miyagi login** (New user / Returning user, three sign-on boxes at the bottom) → **guided setup** (onboarding) → home.
 
 - Google: live, through the main process. System browser + OAuth 2.0 PKCE via **Supabase Auth**, one-shot loopback
-  redirect `http://127.0.0.1:47217/auth/callback`. No webview (Google blocks embedded sign-in), no client secret in
-  the app: Supabase holds it. The session is kept in `userData/auth.bin`, encrypted with safeStorage (Keychain), like
-  the BYOK keys. The renderer only ever sees `{name, email}`.
+  redirect `http://127.0.0.1:47217/auth/callback?state=<random>`. A callback whose state does not match is ignored
+  (404) and cannot end or hijack the flow. The browser is opened through `safeOpen` (`openLinkInBrowser`, plain https
+  only). No webview (Google blocks embedded sign-in), no client secret in the app: Supabase holds it. The session is
+  kept in `userData/auth.bin`, encrypted with safeStorage (Keychain), like the BYOK keys. The renderer only ever sees
+  `{name, email}`. Esc while waiting on the browser cancels the sign-in.
 - Apple and GitHub: placeholders. A click says "<Provider> sign-in is coming soon. Nothing was sent."
 - "Continue without an account" goes straight to setup (the app stays local-first).
 - Behind the same switch as the account sheet: v2Cloud (`VITE_MIYAGI_V2_CLOUD=1` build + `MIYAGI_V2_CLOUD=1` run).
@@ -38,7 +40,9 @@ The stage's Google box "signs in" a fixture after ~1.6 s. Shots: `agents/shots/a
    then Credentials → Create OAuth client ID → **Web application**:
    Authorized redirect URI = `https://<project-ref>.supabase.co/auth/v1/callback`.
 3. Supabase → Authentication → Providers → Google: on, paste the client ID and secret (in the dashboard only).
-4. Supabase → Authentication → URL Configuration → Redirect URLs: add `http://127.0.0.1:47217/auth/callback`.
+4. Supabase → Authentication → URL Configuration → Redirect URLs: add `http://127.0.0.1:47217/auth/callback**`
+   (with the `**`, so the `?state=…` query matches; an exact entry makes Supabase fall back to the Site URL and the
+   sign-in times out).
 5. Build/run config (public values, not secrets): `MAIN_VITE_SUPABASE_URL=https://<project-ref>.supabase.co`,
    `MAIN_VITE_SUPABASE_ANON_KEY=<publishable key>` (or `MIYAGI_SUPABASE_URL` / `MIYAGI_SUPABASE_ANON_KEY` for a dev run).
 
@@ -50,10 +54,13 @@ The stage's Google box "signs in" a fixture after ~1.6 s. Shots: `agents/shots/a
    signed in (and the learner hasn't chosen "Continue without an account"), then onboarding after `continueToSetup`.
    Today the login is reached with `openWindow('account', {view: 'login'})`.
 3. **safeOpen allowlist**: add `supabase.co` to `ALLOWED_HOSTS` (reason: Google sign-in start page) so `auth.ts` can
-   use `safeOpenExternal` instead of its own validated `shell.openExternal`.
+   use the strict `safeOpenExternal` instead of `openLinkInBrowser` (plain-https gate) it uses today.
 4. Note for core: `MiyagiWordmark`'s `height` prop loses to the preflight's `img { height: auto }`; the intro pins it
    with a class. Worth fixing in `core/ui/Mark.tsx` (`style={{ height }}`).
 
 ## Follow-up (not in this branch)
 Tie the anonymous install token (`main/features/cloud.ts`, `POST /v1/install`) to the signed-in Supabase user on
 miyagi-cloud (verify the Supabase JWT there), so quotas and history follow the account.
+
+Token refresh is not done yet: the access token lasts about an hour, and `auth:get` still reports signed in after
+that. Refresh with `grant_type=refresh_token` in main before the first cloud call that needs the JWT.

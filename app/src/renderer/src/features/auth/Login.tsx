@@ -6,7 +6,7 @@
  * Neutral only (BRAND.md): white on dark, no provider brand fills, no hue for status. Copy stays short.
  */
 import { AnimatePresence, motion } from 'motion/react'
-import type { ReactNode } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import { color, copy, fill, font, radius2, spring, surface, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton } from '../../core/ui/buttons'
@@ -43,8 +43,18 @@ function GitHubGlyph(): ReactNode {
 const GLYPH: Record<Provider, () => ReactNode> = { google: GoogleGlyph, apple: AppleGlyph, github: GitHubGlyph }
 
 function ModeSwitch({ mode }: { mode: Mode }): ReactNode {
+  // A radio group the ARIA way: one tab stop (the checked one), arrow keys move and select.
+  const onKey = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    if (!step) return
+    e.preventDefault()
+    const i = MODES.findIndex((m) => m.id === mode)
+    const next = MODES[(i + step + MODES.length) % MODES.length].id
+    setMode(next)
+    e.currentTarget.querySelector<HTMLButtonElement>(`[data-auth-mode="${next}"]`)?.focus()
+  }
   return (
-    <div role="radiogroup" aria-label="Account" className="relative flex" style={{ padding: 3, borderRadius: radius2.card, background: surface.well, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
+    <div role="radiogroup" aria-label="Account" onKeyDown={onKey} className="relative flex" style={{ padding: 3, borderRadius: radius2.card, background: surface.well, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
       {MODES.map((m) => {
         const on = m.id === mode
         return (
@@ -53,6 +63,7 @@ function ModeSwitch({ mode }: { mode: Mode }): ReactNode {
             type="button"
             role="radio"
             aria-checked={on}
+            tabIndex={on ? 0 : -1}
             data-auth-mode={m.id}
             className="relative cursor-pointer font-medium"
             style={{ height: 32, width: 140, borderRadius: radius2.row, fontSize: type2.sm, color: on ? color.text : color.label }}

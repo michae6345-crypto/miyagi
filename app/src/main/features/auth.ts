@@ -5,9 +5,12 @@
  * OAuth 2.0 PKCE, and a one-shot loopback redirect on 127.0.0.1. Supabase holds the Google client secret; this app
  * only ever has the project URL and its publishable (anon) key, which are public by design.
  *
- *   1. auth:google  → make a PKCE verifier + S256 challenge, listen once on http://127.0.0.1:47217/auth/callback,
- *                     open <project>/auth/v1/authorize?provider=google&redirect_to=…&code_challenge=… in the browser.
- *   2. The browser comes back to the loopback with ?code=…; we answer a small "you can close this tab" page.
+ *   1. auth:google  → make a PKCE verifier + S256 challenge and a random state, listen once on
+ *                     http://127.0.0.1:47217/auth/callback, open
+ *                     <project>/auth/v1/authorize?provider=google&redirect_to=<callback>?state=…&code_challenge=… in the
+ *                     browser (through safeOpen).
+ *   2. The browser comes back to the loopback with ?state=…&code=…. A request whose state does not match this flow's is
+ *      ignored (404) and does not end the flow; then we answer a small "you can close this tab" page.
  *   3. POST <project>/auth/v1/token?grant_type=pkce {auth_code, code_verifier} → session.
  *   4. The session (access + refresh token, name, email) is kept in userData/auth.bin, encrypted with safeStorage
  *      (login Keychain), exactly like the BYOK keys in settings.ts. The renderer only ever gets {name, email}.
@@ -23,19 +26,21 @@
  * {ok:false, reason:'off'} / null unless MIYAGI_V2_CLOUD=1, like the account sheet.
  *
  * Supabase dashboard, once: Authentication › Providers › Google on (client ID + secret from Google Cloud), and
- * Authentication › URL Configuration › Redirect URLs: http://127.0.0.1:47217/auth/callback
+ * Authentication › URL Configuration › Redirect URLs: http://127.0.0.1:47217/auth/callback** (the ** lets the ?state=…
+ * query through; an exact entry without it makes Supabase fall back to the Site URL and the sign-in times out).
  *
  * Follow-up (DISTRIBUTION-PLAN): tie the anonymous install token (cloud.ts, POST /v1/install) to the signed-in user
  * on miyagi-cloud. Not done here.
  *
  * UNVERIFIED in Electron (cost freeze; no live run in this package): the browser round trip and token exchange.
  */
-import { safeStorage, shell } from 'electron'
-import { createHash, randomBytes } from 'node:crypto'
+import { safeStorage } from 'electron'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
+import { openLinkInBrowser } from '../safeOpen'
 import { v2CloudOn } from './account'
 
 const PORT = 47217
@@ -56,8 +61,8 @@ function config(): Config | undefined {
   if (!url || !key) return undefined
   try {
     const u = new URL(url)
-    // https only, no credentials or path tricks: the browser is sent to this host and nowhere else.
-    if (u.protocol !== 'https:' || u.username || u.password || u.pathname !== '/') return undefined
+    // https only, no credentials, port or path tricks: the browser is sent to this host and nowhere else.
+    if (u.protocol !== 'https:' || u.username || u.password || u.port || u.pathname !== '/' || u.search || u.hash) return undefined
   } catch {
     return undefined
   }
@@ -65,6 +70,14 @@ function config(): Config | undefined {
 }
 
 const b64url = (b: Buffer): string => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+/** Constant-time compare of the state that came back with the one this flow sent. */
+function sameState(got: string | null, want: string): boolean {
+  if (!got) return false
+  const a = Buffer.from(got)
+  const b = Buffer.from(want)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
 
 function str(v: unknown, max: number): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined
@@ -164,6 +177,9 @@ export default defineMainFeature({
 
       const verifier = b64url(randomBytes(48))
       const challenge = b64url(createHash('sha256').update(verifier).digest())
+      // Our own state, carried in redirect_to: Supabase keeps the query and appends ?code=… to it. Only the request
+      // that brings it back can end this flow (a page or local process probing the port cannot).
+      const state = b64url(randomBytes(24))
 
       return new Promise<Result>((resolve) => {
         let timer: ReturnType<typeof setTimeout> | undefined
@@ -173,20 +189,32 @@ export default defineMainFeature({
         }
 
         const server = createServer((req, res) => {
-          const u = new URL(req.url ?? '/', REDIRECT)
-          if (req.method !== 'GET' || u.pathname !== CALLBACK_PATH || flow?.server !== server) {
+          let u: URL
+          try {
+            u = new URL(req.url ?? '/', REDIRECT)
+          } catch {
+            res.writeHead(400).end() // a malformed request line must never throw in main
+            return
+          }
+          if (req.method !== 'GET' || u.pathname !== CALLBACK_PATH || flow?.server !== server || !sameState(u.searchParams.get('state'), state)) {
             res.writeHead(404).end()
             return
           }
           const code = u.searchParams.get('code')
           const error = u.searchParams.get('error')
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'"
+          })
           if (!code) {
             res.end(PAGE('Sign-in did not finish', 'You can close this tab and try again in miyagi.'))
             stopFlow({ ok: false, reason: error === 'access_denied' ? 'denied' : 'failed' })
             return
           }
-          res.end(PAGE('You are signed in', 'You can close this tab and go back to miyagi.'))
+          // Not "signed in" yet: the code is exchanged after this page is sent, and miyagi shows the result.
+          res.end(PAGE('Back to miyagi', 'You can close this tab. miyagi finishes signing you in.'))
           const f = flow
           flow = undefined
           server.close()
@@ -206,10 +234,12 @@ export default defineMainFeature({
         server.listen(PORT, '127.0.0.1', () => {
           flow = { server, finish }
           timer = setTimeout(() => stopFlow({ ok: false, reason: 'timeout' }), WAIT_MS)
-          const q = new URLSearchParams({ provider: 'google', redirect_to: REDIRECT, code_challenge: challenge, code_challenge_method: 's256' })
-          // Built here from config only; nothing from a renderer is appended. Core request: route through
-          // safeOpenExternal once the Supabase host is on its allowlist.
-          shell.openExternal(`${cfg.url}/auth/v1/authorize?${q.toString()}`).catch(() => stopFlow({ ok: false, reason: 'failed' }))
+          const q = new URLSearchParams({ provider: 'google', redirect_to: `${REDIRECT}?state=${state}`, code_challenge: challenge, code_challenge_method: 's256' })
+          // Built here from config only; nothing from a renderer is appended. Through safeOpen's plain-https gate
+          // (no credentials, no odd port). Core request: safeOpenExternal once the Supabase host is on its allowlist.
+          void openLinkInBrowser(`${cfg.url}/auth/v1/authorize?${q.toString()}`).then((ok) => {
+            if (!ok && flow?.server === server) stopFlow({ ok: false, reason: 'failed' })
+          })
         })
       })
     }

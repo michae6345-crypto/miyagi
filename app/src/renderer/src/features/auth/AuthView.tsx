@@ -8,7 +8,7 @@ import { useEffect, type ReactNode } from 'react'
 import { surface } from '../../core/theme'
 import { Intro } from './Intro'
 import { Login } from './Login'
-import { loadAuth, useAuth } from './store'
+import { cancelSignIn, loadAuth, useAuth } from './store'
 
 export function AuthView({ skipIntro = false }: { skipIntro?: boolean }): ReactNode {
   const phase = useAuth((s) => s.phase)
@@ -17,6 +17,22 @@ export function AuthView({ skipIntro = false }: { skipIntro?: boolean }): ReactN
     useAuth.setState({ phase: skipIntro ? 'login' : 'intro', pending: undefined, note: undefined })
     void loadAuth()
   }, [skipIntro])
+
+  // Esc while the browser sign-in runs cancels it (main closes its loopback listener) instead of closing the window
+  // under a flow that would keep waiting. Capture phase, so the account window's Esc (close) sees defaultPrevented.
+  // Leaving the view mid-flow cancels it too.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || !useAuth.getState().pending) return
+      e.preventDefault()
+      cancelSignIn()
+    }
+    addEventListener('keydown', onKey, true)
+    return () => {
+      removeEventListener('keydown', onKey, true)
+      if (useAuth.getState().pending) cancelSignIn()
+    }
+  }, [])
 
   return (
     <div data-auth-phase={phase} className="relative h-full w-full overflow-hidden" style={{ background: surface.window }}>

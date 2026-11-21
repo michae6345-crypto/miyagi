@@ -31,13 +31,13 @@ export function reasonLine(reason?: string): string | undefined {
       return undefined
     case 'off':
     case 'not-configured':
-      return 'Google sign-in is not set up in this build yet.'
+      return 'Google sign-in is not set up yet. Continue without an account.'
     case 'timeout':
       return 'The browser sign-in timed out. Try again.'
     case 'port':
-      return 'Another app is using the sign-in port. Quit it and try again.'
+      return 'Sign-in could not start. Try again, or continue without an account.'
     case 'denied':
-      return 'Google sign-in was declined.'
+      return 'Google sign-in was declined. Try again when you are ready.'
     default:
       return 'Sign-in did not finish. Try again.'
   }
