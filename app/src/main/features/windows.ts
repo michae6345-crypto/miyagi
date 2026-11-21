@@ -19,8 +19,18 @@
  * Settings) are activated by the press instead, and nothing is dropped there, so they aren't hooked.
  * Checked on Windows 11 (installed build, raw mouse input): gear → Settings → ✕, again and again, presses held 0-150 ms.
  */
-import { BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen } from 'electron'
 import { defineMainFeature } from '../context'
+
+/** electron-builder.yml appId: the AppUserModelID the installer gives miyagi's shortcuts. */
+const APP_USER_MODEL_ID = 'dev.sandhacks.miyagi'
+
+// The installed app's identity on Windows. The installer's Start menu and desktop shortcuts carry the appId as their
+// AppUserModelID (NSIS); Windows shows a toast (features/reminders.ts) only for an ID that a Start menu shortcut has,
+// and groups taskbar buttons by it. Electron's default ("electron.app.miyagi") has no shortcut, so reminders never
+// appeared. Module top level (features load before app ready): it must be set before main/prefs.ts applies
+// launch at login, whose Run entry is named after this ID. Keep in step with appId in electron-builder.yml.
+if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId(APP_USER_MODEL_ID)
 
 const WM_MOUSEACTIVATE = 0x0021
 const WM_MOUSEMOVE = 0x0200
