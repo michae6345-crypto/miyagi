@@ -96,7 +96,7 @@ export function Row({ row, variant, last }: { row: RowData; variant: 'list' | 'c
         <span style={{ fontSize: type2.body, fontWeight: 600, color: color.text }}>{row.label}</span>
         <span style={{ fontSize: type2.sm, color: color.label }}>{row.state === 'unknown' || (row.id === 'engine' && row.state !== 'passed') ? row.detail : row.why}</span>
       </div>
-      <div className="flex shrink-0 items-center justify-end gap-[12px]" style={{ width: 280 }}>
+      <div className="flex shrink-0 items-center justify-end gap-[12px]">
         <span className="flex items-center gap-[8px]">
           <StatusGlyph state={row.state} size={20} />
           <Word row={row} />

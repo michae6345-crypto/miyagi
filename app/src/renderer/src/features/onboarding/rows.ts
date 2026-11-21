@@ -151,7 +151,10 @@ export function summarize(rows: Row[]): Summary {
 
 /** The rows, live. */
 export function useRows(): Row[] {
-  const o = useOnboarding(useShallow((s) => ({ perms: s.perms, health: s.health, asked: s.asked, installing: s.installing, cloud: s.cloud })))
+  const o = useOnboarding(useShallow((s) => ({ perms: s.perms, health: s.health, asked: s.asked, installing: s.installing, cloud: s.cloud, watching: s.recovery?.kind })))
   const l = useLesson(useShallow((s) => ({ connected: s.connected, localEngine: s.localEngine, cloudStatus: s.keyStatus?.cloud })))
-  return deriveRows({ ...o, ...l })
+  const { watching, ...rest } = o
+  // An open recovery card watches its grant (Onb-Permission-Recovery: that row reads Watching).
+  const asked = watching && !rest.asked[watching] ? { ...rest.asked, [watching]: 1 } : rest.asked
+  return deriveRows({ ...rest, ...l, asked })
 }

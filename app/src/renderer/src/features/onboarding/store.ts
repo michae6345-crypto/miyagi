@@ -136,9 +136,9 @@ onMessage('health', (p) => {
   const companion = p.items?.find((i) => i.id === 'companion')
   if (companion && companion.state !== 'checking') set({ installing: false })
 })
-// A new engine: ask again (its health answer is what the rows show).
+// A new engine: ask again (its health answer is what the rows show). The stage's window asks from its own effect.
 onMessage('engine.hello', () => {
-  if (route() === 'onboarding' || route() === 'stage' || get().recovery) requestHealth()
+  if (route() === 'onboarding' || get().recovery) requestHealth()
 })
 onMessage('library', (p) => {
   if (!wantSuggestion) return

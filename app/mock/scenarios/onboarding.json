@@ -18,7 +18,8 @@
   },
   "segments": {
     "step_onb_full": [
-      { "wait": 50, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 30, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"] } },
+      { "wait": 20, "type": "status", "payload": { "state": "idle" } },
       { "wait": 50, "goto": "onb_health_mixed" }
     ],
     "step_onb_ready": [

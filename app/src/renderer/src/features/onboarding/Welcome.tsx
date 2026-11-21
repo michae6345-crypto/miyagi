@@ -37,7 +37,7 @@ export function Welcome(): ReactNode {
           <MiyagiMark size={40} />
         </div>
         <div className="flex flex-col gap-[8px]">
-          <h1 id="onb-title" className="m-0" style={{ fontFamily: font.brand, fontSize: 32, lineHeight: '40px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
+          <h1 id="onb-title" className="m-0" style={{ fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '36px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
             Welcome to {copy.name}
           </h1>
           <p className="m-0" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }}>
