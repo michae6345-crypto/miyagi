@@ -17,7 +17,7 @@ import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { MiyagiMark } from './ui/Mark'
 import { getIslandModes } from './registry'
-import { islandSize, PILL_FALLBACK, type IslandSize } from './islandSize'
+import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
 import { color, duration, ease, pill, shadows, spring, springOut } from './theme'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
@@ -59,7 +59,9 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const held = islandModes.map((m) => m.useActive(false))
   const at = wanted.indexOf(true)
   const mode = at < 0 ? undefined : islandModes[at]
-  const isPill = !mode || mode.width === undefined
+  /** The active mode's layer shows nothing (or its Boundary fell back): the island is the pill, not a card-wide bar. */
+  const [layerEmpty, setLayerEmpty] = useState(false)
+  const isPill = !mode || mode.width === undefined || layerEmpty
 
   // A card the learner closed under the pointer (its ✕, a button) must not hand the island straight to a hover card:
   // the pointer is still on the island, so the hover overview (or an off-track peek) grew out of it at once, and the
@@ -115,8 +117,8 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     let raf = 0
     let tries = 0
     const apply = (m: { w: number; h: number } | undefined): void => {
-      const next = islandSize(fixed, m, pillW.current)
-      if (fixed === undefined && m && m.w > 0) pillW.current = next.w
+      const next = islandSizeFor(fixed, layerEmpty, m, pillW.current)
+      if ((fixed === undefined || layerEmpty) && m && m.w > 0) pillW.current = next.w
       setSize((s) => (s.w === next.w && s.h === next.h ? s : next))
       setSized(true)
     }
@@ -137,7 +139,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       cancelAnimationFrame(raf)
       ro?.disconnect()
     }
-  }, [modeId, fixed])
+  }, [modeId, fixed, layerEmpty])
 
   // An open card steps off the spotlight's hole, the coach's and its own targets (Michael's desktop test 3, item 3) and
   // out of the engine's avoid rects (screen.avoid: VS Code's quick-pick, test 9, A3), decided as it opens and then held
@@ -282,7 +284,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           transition={{ duration: 0.6, ease: 'easeInOut' }}
         />
         <AnimatePresence initial={false}>
-          <Layer key={mode.id} id={mode.id} width={mode.width}>
+          <Layer key={mode.id} id={mode.id} width={mode.width} onEmpty={setLayerEmpty}>
             {/* A mode that throws renders nothing: the island falls back to the pill (./islandSize.ts) and the mode gets a
                 fresh try a second later, so a crashed card isn't an empty black shape until another mode takes over. */}
             <Boundary name={`island mode ${mode.id}`} retryMs={1000} fallback={<RestingPill />}>
@@ -302,20 +304,36 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
  * fade a touch late (60 ms) so the two never sit on top of each other. Transform and opacity only; with reduced
  * motion, the fades alone.
  */
-function Layer({ id, width, children }: { id: string; width?: number; children: ReactNode }): ReactNode {
+function Layer({ id, width, onEmpty, children }: { id: string; width?: number; onEmpty: (empty: boolean) => void; children: ReactNode }): ReactNode {
   const present = useIsPresent()
   const layer = useRef<HTMLDivElement>(null)
   const body = useRef<HTMLDivElement>(null)
   const [empty, setEmpty] = useState(false)
+  /** The body already holds the resting pill (a Boundary fallback): don't add a second. */
+  const [bodyResting, setBodyResting] = useState(false)
+  const zeroTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // Tell the island, and clear it when this layer goes (a mode change must not inherit its predecessor's emptiness).
+  useEffect(() => {
+    if (present) onEmpty(empty)
+  }, [empty, present, onEmpty])
+  useEffect(() => () => onEmpty(false), [onEmpty])
   // Never an empty black shape. Two ways a live layer shows nothing, and both get a safe default:
   //  - its content renders nothing (a mode with no content, a hidden child): the resting pill mark fills in;
   //  - its fade-in never ran (the renderer's rAF stalls while macOS treats the transparent panel as occluded, after
   //    a Space change, sleep or lock), so it sits at opacity 0 over the black: force it visible.
   useEffect(() => {
     if (!present) return
+    // A zero-size body must persist EMPTY_DEBOUNCE_MS before it counts (a card whose content mounts a frame late
+    // would flash the pill and back); the resting pill (a Boundary fallback) counts at once; non-empty clears at once.
     const measure = (): void => {
       const b = body.current
-      setEmpty(!b || b.offsetWidth === 0 || b.offsetHeight === 0)
+      const resting = !!b?.querySelector('[data-resting]')
+      const zero = !b || b.offsetWidth === 0 || b.offsetHeight === 0
+      clearTimeout(zeroTimer.current)
+      setBodyResting(resting)
+      if (resting) setEmpty(true)
+      else if (!zero) setEmpty(false)
+      else zeroTimer.current = setTimeout(() => setEmpty(true), EMPTY_DEBOUNCE_MS)
     }
     measure()
     // Empty-ness follows the body's size (no polling); the fade check polls only until the layer is seen visible.
@@ -334,6 +352,7 @@ function Layer({ id, width, children }: { id: string; width?: number; children: 
     }, FADE_GRACE_MS)
     const iv = setInterval(fade, 500)
     return () => {
+      clearTimeout(zeroTimer.current)
       clearTimeout(t)
       clearInterval(iv)
       ro?.disconnect()
@@ -350,18 +369,20 @@ function Layer({ id, width, children }: { id: string; width?: number; children: 
       exit={{ opacity: 0, scale: 0.98, transition: { duration: duration.instant } }}
     >
       <div ref={body}>{children}</div>
-      {empty && present && <RestingPill />}
+      {empty && present && !bodyResting && <RestingPill />}
     </motion.div>
   )
 }
 
 /** A layer that should be fully visible by now (the spring and fade take ~300 ms). */
 const FADE_GRACE_MS = 700
+/** A zero-size body counts as empty only after it has stayed that way this long. */
+const EMPTY_DEBOUNCE_MS = 150
 
 /** The island's resting content: the bonsai, on the notch black. What shows when a mode has nothing (or fails) to show. */
 export function RestingPill(): ReactNode {
   return (
-    <div data-ui className="mx-auto flex items-center justify-center" style={{ width: PILL_FALLBACK.w, height: PILL_FALLBACK.h }}>
+    <div data-ui data-resting className="mx-auto flex items-center justify-center" style={{ width: PILL_FALLBACK.w, height: PILL_FALLBACK.h }}>
       <MiyagiMark size={14} />
     </div>
   )

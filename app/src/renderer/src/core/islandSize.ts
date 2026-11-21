@@ -28,3 +28,12 @@ export function islandSize(fixed: number | undefined, measured: { w: number; h: 
   if (fixed === undefined) return w > 0 ? { w, h: pill.height } : pillSize
   return fixed > 0 && h > 0 ? { w: fixed, h } : pillSize
 }
+
+/**
+ * The size when the layer may be empty. An empty layer (nothing rendered, or its Boundary fell back to the resting
+ * pill) renders the pill inside a max-content layer, so it measures ~120 x 34: with a card's `fixed` width that would
+ * be a card-wide 34px bar. While empty the island is the pill, whatever the mode's card width.
+ */
+export function islandSizeFor(fixed: number | undefined, empty: boolean, measured: { w: number; h: number } | undefined, pillW: number): IslandSize {
+  return islandSize(empty ? undefined : fixed, measured, pillW)
+}
