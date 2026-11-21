@@ -63,6 +63,26 @@ Everything here must be true before we post publicly.
 - Double click or double Enter on Check my work sends two `check_step` (#202 R07); dedupe in `sendAction`.
 - Home shows a blank pending frame on every open in the built app until E01 is fixed (`features/shell/flow/store.ts:47-61`).
 - Skip step records "skipped" but gives no way to say "this check is wrong"; add a "Report this check" link once there is somewhere to send it.
+- `segment_done` never reaches the checks, so a hidden terminal's "No errors" passes while the clip plays (`server/orchestrator/modules.py:382-392`); one line.
+- Background judge passes pending checks at 0.8 or more with no press, for example a metric whose pattern didn't parse (`server/coach/judge.py:361-365`).
+- Video steps with no checks auto-pass at the end of the clip (`server/orchestrator/session.py:3513-3515`).
+- Browser-scoped checks lose their app scope and match any window (`server/lesson/builder.py:959-962`).
+- OCR misreads (`!=` read as `≠`, `l` and `1`, quotes, clipped lines) still decide video-mode code checks when the file is outside the lesson folder.
+- A learner coding in their own folder with the same file name is blocked until they press "Use this folder" (`server/orchestrator/session.py:4180-4186`).
+- Engine crash mid-lesson needs a manual Retry (#202 R05, `main/localEngine.ts:641-651`); auto-restart once or twice.
+- Text lessons end early after an engine restart, because nothing extends them (`server/orchestrator/session.py:4032-4046`).
+- Some unfinished lessons can never be continued from Home, because `recent.json` keeps no graph and the lesson isn't cached (`server/sessions/store.py:165-170`, `renderer/src/features/library/homeModel.ts:62`). Fold into the E03 fix.
+
+## Notes: how grading works (engine `integration/live`)
+
+- A model writes each step's checks when the lesson is built. Every check is a case-sensitive Python regex, run against one of: on-device OCR of the screen scoped to an app (`server/checks/screen.py:54-125`), VS Code's live buffer through the companion (`server/orchestrator/editor_text.py:131-157`), the file on disk (`server/checks/evaluator.py:161-184`), a run's output, or notebook cells. Types: `screen_contains`, `screen_absent`, metric checks, and optional precision checks (`server/lesson/schema.py:25-28`).
+- "Just teach me" lessons also get token-exact regexes for each function's return and each top-level assignment (`server/lesson/coverage.py:220-330`) and an exact-line check on the run's last expected line (`server/lesson/textlesson.py:782-791`).
+- A step passes when all checks pass, or all precision checks pass, unless a failing "absent" check vetoes it (`server/checks/evaluator.py:870-894`, `server/orchestrator/session.py:4168-4176`). Lesson mode adds a required run of the step's command and, for `.py` files, a code gate (compiles, contains every call, def name, kwarg name and short dict string; `server/orchestrator/code_gate.py`).
+- A Haiku judge runs in the background (passes pending checks at confidence 0.8 or more, or offers "Looks done?" on failing ones) and on Check (passes the step at 0.6 or more) (`server/coach/judge.py`). Offline, the judge only confirms machine passes (`judge.py:280-289`).
+- Grading re-runs on every changed screen frame (about once a second), save, VS Code dirty or save event, run end and Check. Per-step state resets cleanly between steps (`server/orchestrator/session.py:656-725`); only what is still on screen (terminal scrollback) carries over, which is the root of E15 and E19.
+- Offline run: `server/checks/tests/test_evaluator.py` passes 52 of 52 on Windows with no network. A probe script called the pure check functions with hand-made inputs to confirm E14 to E16, E19 to E21 and E24 (no model, no keys). Coach and orchestrator tests were not run (they need the `anthropic` SDK or the full engine).
+- Missing tests: stale scrollback, intended "Error:" output, random or `input()` output, commented-out code, the learner's own names, call versus def, a Terminal.app run, Confirm versus the code gate.
+- There is no `docs/ROADMAP.md` on `integration/live` or `michael/v2-integration` any more, so ROADMAP 1.8 could not be read; E14 to E25 are the concrete list for it.
 
 ## Mac repros for Michael
 
