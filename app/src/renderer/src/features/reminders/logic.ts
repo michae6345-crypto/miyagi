@@ -6,7 +6,10 @@
  *   settings   off by default; one time a day (default 6:00 PM local); quiet hours (default 10:00 PM to 8:00 AM);
  *              a snooze ("Not today", "For a week"); whether the one-time offer was answered.
  *   decide     is it time to look? At most once a day, inside a grace window after the chosen time (a Mac asleep at
- *              6:00 PM catches up when it wakes, until 9:00 PM), never in quiet hours, never mid-lesson.
+ *              6:00 PM catches up when it wakes, until 9:00 PM), never in quiet hours. Mid-lesson it waits for the
+ *              lesson to end (still inside the window), it never drops the day for it.
+ *   lesson     is a lesson running right now? Read from the engine's own events (lessonSignal), and only while they
+ *              keep coming: a finished, failed or abandoned lesson stops counting by itself.
  *   due        what is due, read from the engine's `progress` answer with the dashboard's own reader (so the
  *              notification and Home always agree): review items due now, and reps left for today's goal.
  *   compose    the one calm, specific line ("2 skills ready for a quick review: pandas groupby, numpy arrays"), or
@@ -30,8 +33,6 @@ export type ReminderSettings = {
   snoozeUntil: number | null
   /** The one-time offer was answered (Yes, Not now or Esc). It never comes back. */
   offered: boolean
-  /** A lesson was finished on this Mac at least once. */
-  completedOnce: boolean
   /** Today's goal in reps, as the dashboard has it (the learner's own choice wins over the engine's). */
   dailyGoal: number | null
   /** The dashboard's rhythm pause: a rest the learner asked for, so no reminder until it ends. */
@@ -60,7 +61,6 @@ export const DEFAULT_SETTINGS: ReminderSettings = {
   quiet: { on: true, from: 22 * 60, to: 8 * 60 },
   snoozeUntil: null,
   offered: false,
-  completedOnce: false,
   dailyGoal: null,
   restUntil: null,
   lastDay: null,
@@ -68,7 +68,7 @@ export const DEFAULT_SETTINGS: ReminderSettings = {
 }
 
 /** The keys a window may change. lastDay / lastSentAt belong to the scheduler. */
-export const EDITABLE = ['enabled', 'time', 'quiet', 'snoozeUntil', 'offered', 'completedOnce', 'dailyGoal', 'restUntil'] as const
+export const EDITABLE = ['enabled', 'time', 'quiet', 'snoozeUntil', 'offered', 'dailyGoal', 'restUntil'] as const
 
 const minute = (v: unknown): Minute | undefined =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < 1440 ? Math.round(v / STEP_MIN) * STEP_MIN % 1440 : undefined
@@ -82,7 +82,6 @@ export function sanitize(raw: unknown, all = false): Partial<ReminderSettings> {
   const r = raw as Record<string, unknown>
   if (typeof r.enabled === 'boolean') out.enabled = r.enabled
   if (typeof r.offered === 'boolean') out.offered = r.offered
-  if (typeof r.completedOnce === 'boolean') out.completedOnce = r.completedOnce
   const t = minute(r.time)
   if (t !== undefined) out.time = t
   if (r.quiet && typeof r.quiet === 'object' && !Array.isArray(r.quiet)) {
@@ -127,8 +126,8 @@ export function fmtTime(m: Minute): string {
   return `${h % 12 === 0 ? 12 : h % 12}:${mm} ${h < 12 ? 'AM' : 'PM'}`
 }
 
-/** One step of the time stepper, wrapping round midnight. */
-export const stepTime = (m: Minute, dir: 1 | -1): Minute => (m + dir * STEP_MIN + 1440) % 1440
+/** Every time a picker offers: the day in STEP_MIN slots, from 12:00 AM. */
+export const SLOTS: readonly Minute[] = Array.from({ length: 1440 / STEP_MIN }, (_, i) => i * STEP_MIN)
 
 export function inQuiet(q: QuietHours, m: Minute): boolean {
   if (!q.on || q.from === q.to) return false
@@ -166,9 +165,9 @@ export function fmtDay(t: number, now: number): string {
 export type Decision =
   /** Off, snoozed or resting: nothing to do today. */
   | 'off'
-  /** Not the time yet, or today's look already ran. */
+  /** Not the time yet, today's look already ran, or a lesson is running (looked at once it ends, inside the window). */
   | 'wait'
-  /** The time came in quiet hours or mid-lesson: today is skipped, quietly. */
+  /** The time came in quiet hours: today is skipped, quietly. */
   | 'skip'
   /** Look at what is due now. */
   | 'look'
@@ -180,9 +179,47 @@ export function decide(s: ReminderSettings, now: number, lessonActive: boolean):
   if (m < s.time || m >= end) return 'wait'
   if (s.lastDay === dayKey(now)) return 'wait'
   if (inQuiet(s.quiet, m)) return 'skip'
-  if (lessonActive) return 'skip'
+  if (lessonActive) return 'wait'
   return 'look'
 }
+
+/** The same rule for main and the stage when a window turns reminders on. */
+export const turnsOn = (s: ReminderSettings, p: Partial<ReminderSettings>): boolean => p.enabled === true && !s.enabled
+
+/**
+ * Reminders turned on: no snooze left over, and the welcome note sent right now counts as today's one, so the first
+ * daily look is tomorrow (at most one notification a day, whatever the time of day).
+ */
+export function turnOn(s: ReminderSettings, p: Partial<ReminderSettings>, now: number): ReminderSettings {
+  return { ...s, ...p, snoozeUntil: null, lastDay: dayKey(now) }
+}
+
+// ---- is a lesson running? --------------------------------------------------------------------------------------------
+
+/** A lesson with no event for this long (paused and left open, the Mac walked away from) no longer holds a reminder. */
+export const LESSON_IDLE_MS = 20 * 60_000
+
+/**
+ * What one engine event says about a running lesson: 'active' (it is alive now), 'idle' (it is over: ended, finished
+ * on the completion card, or its build failed) or undefined (nothing either way). The engine keeps a finished lesson
+ * loaded until the next one, so "a lesson is loaded" is never the test; recent lesson events are.
+ */
+export function lessonSignal(type: string, payload: unknown): 'active' | 'idle' | undefined {
+  const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+  if (type === 'lesson.ended') return 'idle'
+  if (type === 'lesson.building') return p.failed === true ? 'idle' : 'active'
+  if (type === 'card') return p.kind === 'complete' ? 'idle' : undefined
+  if (type.startsWith('lesson.') || type.startsWith('step.') || type === 'check.updated' || type === 'offtrack') return 'active'
+  return undefined
+}
+
+/** Last lesson event time after one more event (0 = no lesson). */
+export function lessonClock(at: number, type: string, payload: unknown, now: number): number {
+  const sig = lessonSignal(type, payload)
+  return sig === 'active' ? now : sig === 'idle' ? 0 : at
+}
+
+export const lessonRunning = (at: number, now: number): boolean => at > 0 && now - at < LESSON_IDLE_MS
 
 /** The next moment miyagi will look (for "Next: today at 6:00 PM"); undefined when reminders are off or the time is quiet. */
 export function nextLook(s: ReminderSettings, now: number): number | undefined {

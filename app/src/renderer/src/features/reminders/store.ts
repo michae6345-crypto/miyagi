@@ -109,8 +109,6 @@ useComplete.subscribe((c, prev) => {
   if (c.card && !prev.card) {
     set({ finishedLesson: useLesson.getState().lesson?.id ?? 'finished', offerArmed: false })
     clearTimeout(armTimer)
-    const s = get().s
-    if (s && !s.completedOnce) void patchReminders({ completedOnce: true })
   }
   if (!c.card && prev.card && get().finishedLesson) {
     clearTimeout(armTimer)

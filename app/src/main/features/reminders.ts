@@ -5,11 +5,13 @@
  *   - Off by default. The renderer offers it once, after the first finished lesson; Settings turns it on or off.
  *   - At most one notification a day, at the learner's time (default 6:00 PM local), only when something is due: a
  *     review item whose time has come, or reps left for today's goal (when the engine counts activity). Nothing due =
- *     nothing sent. Never in quiet hours, never mid-lesson, never while snoozed or while the dashboard's rest is on.
+ *     nothing sent. Never in quiet hours, never while snoozed or while the dashboard's rest is on. Mid-lesson it waits
+ *     for the lesson to end (a lesson counts as running only while its events keep coming; see logic.ts lessonSignal).
  *   - The text is calm and specific ("2 skills ready for a quick review: pandas groupby, numpy arrays"). A click opens
  *     the home window on Home.
  *   - Turning it on sends one confirmation right away, so the learner sees what a reminder looks like and macOS asks
- *     for permission in context, not at 6 PM out of nowhere.
+ *     for permission in context, not at 6 PM out of nowhere. That one is the day's notification: the first look is
+ *     tomorrow.
  *
  * Development builds (not packaged) never post a real notification: the same note goes to the overlay as an in-app
  * toast (feat:reminders:toast). MIYAGI_REAL_NOTIFICATIONS=1 opts a dev run in.
@@ -30,10 +32,13 @@ import {
   compose,
   decide,
   dueFrom,
+  lessonClock,
+  lessonRunning,
   midnightAfter,
-  minuteOf,
   sanitize,
   sanitizePatch,
+  turnOn,
+  turnsOn,
   welcome,
   type ReminderNote,
   type ReminderSettings,
@@ -74,16 +79,17 @@ export default defineMainFeature({
     // ---- what the engine says ---------------------------------------------------------------------------------------
     let last: { raw: unknown; at: number } | undefined
     let answer: ((raw: unknown) => void) | undefined
-    let lessonActive = false
+    /** When the last lesson event arrived (0 = no lesson running). */
+    let lessonAt = 0
+    const lessonActive = (): boolean => lessonRunning(lessonAt, Date.now())
     ctx.engine.onEvent((e) => {
       if (e.type === 'progress') {
         last = { raw: e.payload, at: Date.now() }
         answer?.(e.payload)
-      } else if (e.type === 'lesson.building' || e.type === 'lesson.ready') lessonActive = true
-      else if (e.type === 'lesson.ended') lessonActive = false
+      } else lessonAt = lessonClock(lessonAt, e.type, e.payload, Date.now())
     })
     ctx.engine.onStatus((connected) => {
-      if (!connected) lessonActive = false
+      if (!connected) lessonAt = 0
     })
 
     async function freshProgress(): Promise<unknown> {
@@ -146,7 +152,7 @@ export default defineMainFeature({
     async function tick(): Promise<void> {
       if (looking) return
       const now = Date.now()
-      const d = decide(s, now, lessonActive)
+      const d = decide(s, now, lessonActive())
       if (d === 'off' || d === 'wait') return
       if (d === 'skip') {
         s = { ...s, lastDay: dayKey(now) }
@@ -160,7 +166,7 @@ export default defineMainFeature({
         // The engine can't say what is due: try again later inside the grace window, never guess.
         if (raw === undefined) return
         // Re-check: settings or a lesson may have changed while the engine answered.
-        if (decide(s, Date.now(), lessonActive) !== 'look') return
+        if (decide(s, Date.now(), lessonActive()) !== 'look') return
         const note = compose(dueFrom(raw, Date.now(), s.dailyGoal))
         s = { ...s, lastDay: dayKey(now), ...(note ? { lastSentAt: Date.now() } : {}) }
         save()
@@ -183,9 +189,8 @@ export default defineMainFeature({
     ctx.handle('reminders:get', () => state())
     ctx.handle('reminders:set', (patch) => {
       const p = sanitizePatch(patch)
-      const turnedOn = p.enabled === true && !s.enabled
-      // Turned on after today's time: the welcome note is today's one, the first look is tomorrow.
-    s = { ...s, ...p, ...(turnedOn ? { snoozeUntil: null, ...(minuteOf(Date.now()) >= (p.time ?? s.time) ? { lastDay: dayKey(Date.now()) } : {}) } : {}) }
+      const turnedOn = turnsOn(s, p)
+      s = turnedOn ? turnOn(s, p, Date.now()) : { ...s, ...p }
       save()
       if (turnedOn) post(welcome(s))
       return state()

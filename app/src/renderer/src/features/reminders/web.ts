@@ -14,7 +14,22 @@ import { cmd } from '../../../../common/wire'
 import { bridge, engineMode, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage } from '../../core/bus'
 import { stageRebase } from '../dashboard/stage'
-import { DEFAULT_SETTINGS, compose, decide, dueFrom, midnightAfter, minuteOf, sanitize, sanitizePatch, welcome, type ReminderSettings, type ReminderState } from './logic'
+import {
+  DEFAULT_SETTINGS,
+  compose,
+  decide,
+  dueFrom,
+  lessonClock,
+  lessonRunning,
+  midnightAfter,
+  sanitize,
+  sanitizePatch,
+  turnOn,
+  turnsOn,
+  welcome,
+  type ReminderSettings,
+  type ReminderState
+} from './logic'
 import { dayKey } from '../dashboard/model'
 import { drawsIsland, showToast, useReminders } from './store'
 
@@ -41,16 +56,15 @@ if (!isElectron) {
   }
 
   // Stage views start from a known state, whatever an earlier visit left.
-  if (STAGE_VIEW === 'offer') s = { ...DEFAULT_SETTINGS, completedOnce: true }
+  if (STAGE_VIEW === 'offer') s = { ...DEFAULT_SETTINGS }
   if (STAGE_VIEW === 'toast' || STAGE_VIEW === 'settings') s = { ...s, enabled: true, offered: true, snoozeUntil: null, lastDay: null }
   if (STAGE_VIEW) save()
 
   registerWebHandler('reminders:get', () => state())
   registerWebHandler('reminders:set', (patch) => {
     const p = sanitizePatch(patch)
-    const turnedOn = p.enabled === true && !s.enabled
-    // Turned on after today's time: the welcome note is today's one, the first look is tomorrow.
-    s = { ...s, ...p, ...(turnedOn ? { snoozeUntil: null, ...(minuteOf(Date.now()) >= (p.time ?? s.time) ? { lastDay: dayKey(Date.now()) } : {}) } : {}) }
+    const turnedOn = turnsOn(s, p)
+    s = turnedOn ? turnOn(s, p, Date.now()) : { ...s, ...p }
     save()
     if (turnedOn && drawsIsland()) showToast(welcome(s))
     return state()
@@ -66,11 +80,11 @@ if (!isElectron) {
 
   // The stage's scheduler: the same daily look as main, on the mock's last `progress`, shown as the toast.
   let last: unknown
-  let lessonActive = false
+  let lessonAt = 0
   onMessage('progress', (p) => (last = stageRebase(p)))
-  onMessage('lesson.building', () => (lessonActive = true))
-  onMessage('lesson.ready', () => (lessonActive = true))
-  onMessage('lesson.ended', () => (lessonActive = false))
+  for (const type of ['lesson.building', 'lesson.ready', 'lesson.updated', 'lesson.paused', 'lesson.resumed', 'lesson.ended', 'step.started', 'step.passed', 'check.updated', 'offtrack', 'card'] as const) {
+    onMessage(type, (p) => (lessonAt = lessonClock(lessonAt, type, p, Date.now())))
+  }
 
   const fire = (now: number): void => {
     const note = compose(dueFrom(last, now, s.dailyGoal))
@@ -82,7 +96,7 @@ if (!isElectron) {
   setInterval(() => {
     if (!drawsIsland() || last === undefined || engineMode() !== 'inline') return
     const now = Date.now()
-    const d = decide(s, now, lessonActive)
+    const d = decide(s, now, lessonRunning(lessonAt, now))
     if (d === 'skip') {
       s = { ...s, lastDay: dayKey(now) }
       save()
