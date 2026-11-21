@@ -1,8 +1,10 @@
 {
   "name": "miyagi-overlay",
+  "productName": "miyagi",
   "version": "0.1.0",
   "private": true,
-  "description": "Miyagi: turn any tutorial into an auto-graded lab",
+  "description": "miyagi: turn any tutorial into an auto-graded lab",
+  "author": "miyagi",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -15,16 +17,12 @@
     "bundle:engine": "node scripts/bundle-engine.mjs",
     "dist:mac": "node scripts/bundle-engine.mjs && electron-vite build && electron-builder --mac --dir",
     "ship:mac": "bash scripts/ship-mac.sh",
+    "install:local": "bash scripts/install-local.sh",
     "dist:win": "electron-vite build && electron-builder --win --dir",
     "feature": "node scripts/feature.mjs"
   },
   "dependencies": {
-    "lucide-react": "^1.73.0",
-    "motion": "^14.14.0",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "ws": "^8.23.0",
-    "zustand": "^5.1.0"
+    "ws": "^8.23.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
@@ -37,10 +35,15 @@
     "electron": "^45.3.2",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
+    "lucide-react": "^1.73.0",
+    "motion": "^14.14.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "tailwindcss": "^4.3.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "zustand": "^5.1.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

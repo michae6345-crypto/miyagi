@@ -1,6 +1,79 @@
 # drawer
 
-**Status:** pass 3 done (Michael's side: "Just teach me" overview, plan and full code to type), PR into `adrian/shell` · **Priority:** P2 · **Port:** 5184 · **Branch:** `adrian/drawer` (pass 3: `michael/app-drawer-plan`)
+**Status:** v2 lesson panel (BUILD-PLAN A1) built, typecheck green, stage-checked in headless Brave; draft PR #174 into `adrian/shell` · **Priority:** P0 · **Port:** 5186 (v2; passes 1-3 used 5184) · **Branch:** `michael/app-lesson-panel`
+
+## v2: lesson feel (round 3, Nov 20, branch `michael/app-lesson-feel`, stage port 5511)
+Persona QA fixes for the in-lesson experience. See it: `http://localhost:5511/?scenario=lesson-panel&os=mac&size=1440x900&clean` (`&panel=hint|notyet|checking|passed|mini`; `?scenario=errors&err=engine-offline` for step 3's long code and the demoted primary).
+
+| What | Where | Notes |
+|---|---|---|
+| In / out | `v2/LessonPanel.tsx`, `store.ts` (`via`) | A lesson's first step slides the panel in from the right edge; collapse morphs it into the Mini pill, reopening grows it back out of the pill (`useDrawer.via`, AnimatePresence `custom`). Reduced motion: opacity only. |
+| States animate | `v2/LessonPanel.tsx`, `v2/motion.ts` | The body's height springs to its content (`AutoHeight`, one spring). Screens are keyed per step and work/passed: Not yet / Hint / Passed rise 6 px (house spring, 180 ms fade, 120 ms exit), Working and Checking are one screen. "Next step" (and Enter) slides the passed screen out left and the next step in from the right; Back slides the other way. |
+| Passed | `v2/states.tsx` `PassedCheck` | Green circle springs from 0.6, the ink tick draws in 80 ms later over 240 ms, then the line and Up next rise in. The line is core `copy.passed` ("Step done.", Michael's test 7 replaced "Good. Now the next one."). |
+| Code box | `v2/StepBody.tsx` | Never clipped: soft-wraps with a hanging indent (indent as padding, continuation +2 columns, `<wbr>` after `( , . = :` so names don't split). Focusable (`tabIndex 0`, focus ring), a neutral Copy chip that copies through `copyText` (plan.ts: main's `drawer:copy` IPC, execCommand last, since the focusable:false overlay can't use navigator.clipboard) and says "Copied" or "Could not copy", a breathing skeleton while a code step's code hasn't arrived. Same wrapping in `MissingBlock`. |
+| Hint | `v2/LessonPanel.tsx`, `v2/states.tsx` | The hint sits ABOVE the code (the code never disappears). "Another hint" + Hint keycap while n < of; Hint pressed again asks the engine for the next rung; a new rung rises in keyed on n. Mock: `lesson-panel.json` answers the second press with 2 of 2 (`step_lp_hint1` state segment). |
+| Checking | `v2/LessonPanel.tsx`, `v2/states.tsx` | A fixed 16 px slot under the primary holds the caption, so nothing below moves; the "then" line stays. `plainDetail`: "Reading `x` in your kernel" reads "Looking at `x`". |
+| Help tiles | `v2/Help.tsx` | Own tile (label over an 18 px keycap slot; the spinner takes the slot, no jump; Watch shows its play glyph there). Five tiles wrap to two rows (3 over 2) so "Show me" / "Diagram" never truncate. Busy from the press itself (any path, `usePressed`), `notify('No answer yet. Try again.')` after 8 s with no answer and no thinking. Pressed: Hint while the hint shows, Explain while its card is open, Diagram while the flyout is out. Hover dims, press dips. |
+| Chrome | `v2/Header.tsx`, `v2/KeysRow.tsx`, `v2/ui.tsx` `Tip` | Tooltips with keycaps ("Collapse to the pill  Esc", "Previous step  ⌃⌥←"). Back is labeled "Back ⌃⌥←". Every key item has hover and press feedback. |
+| Keyboard | `v2/LessonPanel.tsx` `useEnter` | Enter presses the primary (Check my work / Check again / Next step) unless focus is in a field or on a button, or the launcher is open. No ↵ keycap yet (Core request 7). |
+| One primary | `v2/LessonPanel.tsx` | While a blocking island card is up (`err-*`, `onboarding-recovery`), the panel's primary renders as `QuietButton` so the card's action is the only white button. |
+| Esc | `store.ts` | An app window open in the stage (`window:stage`: account, library, progress, onboarding) takes Esc; the panel stays. |
+| Pill | `pill/index.tsx` | While the panel is open the pill shows only the status ("Watching" + dot, or the phase line without the count). Mini: hover tint, a chevron that brightens, press dip, title "Open the lesson panel", and on the very first collapse "Click to reopen" in the title's place for 2.6 s. |
+| Hover card (outside this lane, needs integrator sign-off) | `overview/clear.ts`, `overview/index.tsx` | Never opens over Mini (it grew over the pill within 150 ms and swallowed the reopen click, a persona QA blocker). No "Video waits at N" in a "Just teach me" lesson (there is no player). Passed segments green, as in the pill's bars and the panel's dots. |
+
+Shots: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/lesson-*.jpg`.
+
+**Overview was edited in this lane.** `features/overview/**` is outside the drawer/pill/cards/shortcut-bar scope, but no other active lane touches it and the three fixes above are lesson-feel blockers that work in the stage. Kept on this branch, flagged for the integrator: sign off on keeping them here, or move them to an overview pass and drop them from this PR.
+
+**Cross-lane request (surfaces lane, `michael/app-surfaces-feel`, `features/errors/**`):** this lane's errors copy edits were reverted so the two branches don't conflict. Still jargon or unclear for a first-timer, for that lane to fix: "Reconnecting to engine  N of 5" (pill line), "Busy right now. Retrying in Ns" (pill line), "Engine offline" / "The engine stopped responding." / "Restart engine" / "This engine runs in Terminal" (EngineOfflineCard). Suggested: "miyagi stopped responding.", "miyagi is busy. Trying again in Ns", reconnect wording without "engine".
+
+**Not done here (other lanes):** the launcher's ↑/↓/↵ roving selection and two-step Esc (features/launcher); a Watch row in Settings > Shortcuts (features/settings); docking Explain under the panel's step intro (features/cards, left as the island card for now; its tile now shows pressed).
+
+## v2: lesson panel (A1, Nov 20)
+Mockups: Les-Anatomy, Les-Working, Les-Checking, Les-NotYet, Les-Hint, Les-Passed. In a "Just teach me" lesson (`lesson.mode "lesson"`) the drawer is now the docked lesson panel; a video lesson keeps the drawer below (passes 1-3) unchanged. `geometry.ts` `LESSON_PANEL_V2 = false` is a one-line rollback.
+
+### What landed
+| Piece | File | Notes |
+|---|---|---|
+| Panel | `v2/LessonPanel.tsx` | core `GlassCard` surface `panel`, 360 wide at core/dock `panelRect` (x 1064, y 52 at 1440x900), hugs its content up to the dock's height, then the middle scrolls (header and keys stay). Grows out of the island's box (`useIslandBox`) and collapses back into it (the one spring; opacity only with reduced motion). While shown it calls `setDock({open, rect})` with its real height (screen points), so `panel.state` goes out when the engine lists it and the island's cards step around it. |
+| View | `v2/view.ts` | `pickView` (pure): passed > checking > notyet > hint > working. `usePanelModel` builds what each state shows. |
+| State | `v2/panelStore.ts` | the hint card, the latest judge "Not yet" card and when the latest diagnosis came (card, offtrack, failed check), and the held pass. A hint asked for after a "Not yet" shows the hint; a newer diagnosis shows "Not yet" again. step.passed (not skipped, not already) holds Les-Passed although the engine starts the next step at once (decision 7) until "Next step", an action press, or a pass/fail on the next step. |
+| Header | `v2/Header.tsx` | tree, `copy.name`, collapse chevron ("Collapse to the pill"), lesson title, core `StepDots` (current pill white, green once passed), "Step N of M". |
+| Step | `v2/StepBody.tsx` | title 20/600, instruction 14 at .78, `where` caption ("Type this" / "Run this" when the engine sends none), the code in full (mono 13/20, scrolls sideways, never truncated), `then` with the play mark. `MissingBlock` for Les-NotYet (`card.missingLines`, `card.fixCaption`). |
+| States | `v2/states.tsx` | NotYetBox (white ring, "Not yet", no hue), HintBox (pink Hint chip, "1 of 2" from `hintStep`, ✕), PassedBody (core passed glyph 48, `copy.passed`, `step.passed.summary`, Up next from the next step's title and `what`), CheckingCaption (`status.detail`). Backticks render as mono (React text only). |
+| Help | `v2/Help.tsx` | core `OptionTile`s: Explain, Hint, Show me, Diagram via `triggerShortcut`, Watch opens the lesson video at the step's start in the browser (hidden when the step has no clip). Open hint = Hint tile pressed. Spinner on the pressed tile while thinking. |
+| Keys | `v2/KeysRow.tsx` | Esc hide, launcher key + "ask miyagi anything" ("ask miyagi" beside a long key such as ⌥Space), Back and Voice as icon buttons on the right (keys in their tooltips), all from `bridge.platform.keys`. |
+| Routing | `v2/route.ts`, re-exported by `store.ts` | `isPanelRouted(card \| {kind:'offtrack', ...})` and `usePanelRouted`: true for a hint card, a judge not_done card or a card with `missingLines` for the current step, and for an offtrack without a fix (no diff, not level 3, no apply_fix), only while the panel is open in a lesson-mode lesson. Cards with a diff or output stay on the island. |
+| Store | `store.ts` | `openPanel()`, `collapsePanel()` (also on the store: `useDrawer.getState().openPanel()`), `panel` UI event (open / collapse / toggle, claimed), Esc rule below. `useDrawer.open` keeps meaning "the drawer/panel shows", so every reader still works. |
+| Layer | `index.tsx` | `PanelLayer` (lesson mode) vs `LegacyLayer` (video lessons, unchanged). The panel shows from the first step.started. It never yields, flips or tucks (the engine fits VS Code beside it); the Diagram flyout still slides out of its inner edge. `runTuck.ts` never tucks with the v2 panel. |
+| Shortcut bar | `shortcut-bar/ShortcutBar.tsx` | hidden while `useDock.open`; back when the panel collapses. |
+| Overview | `overview/clear.ts` | the hover card never opens while the panel is docked. |
+| Stage | `v2/stage.ts`, `mock/scenarios/lesson-panel.json` | `?panel=` asks the inline mock for the scenario's own `stage.panel:<state>` segment once the first step starts (checking is held). |
+
+**Esc** collapses the panel only when nothing else is open: a card, the off-track card, "Back on track", a diagram, the completion panel, "Before you start", the launcher, or the panel's hint (Esc closes the hint first). All `dismiss` handlers run on the same Esc, so a surface that another handler closed during this Esc still counts (`closedNow`, cleared on the next microtask). Electron: the overlay doesn't take focus, so Esc reaches it only where it did before; the panel's "Esc hide" and chevron work everywhere.
+
+**Collapse:** `collapsePanel()` sets `useDock {open:false, collapsed:true}` for A2's Mini pill. Until A2 lands, the labeled "Steps" handle on the right edge stays as the way back (`STEPS_HANDLE_WHEN_COLLAPSED` in `index.tsx`: set it false when A2 merges).
+
+### See it
+`npm run dev:web -- --port 5186`, then `http://localhost:5186/?scenario=lesson-panel&panel=working|checking|notyet|hint|passed|mini&os=mac&size=1440x900&clean` (`&os=win` for the Windows keys). Without `panel=` the scenario plays for real: Check my work (1.8 s Checking) → Not yet with the missing line → Hint 1 of 2 → Check again → Les-Passed → Next step → step 3 → Check → step 4. Esc closes the hint, then collapses; the Steps handle reopens.
+Shots (headless Brave over CDP, 1440x900): `agents/shots/lesson-panel-{working,checking,notyet,hint,passed,mini,win}.png`. Scripted flow checked: working → checking → notyet → hint → Esc (hint closed, back to notyet) → Esc (collapsed, shortcut bar back) → handle (open, bar hidden) → Check again → passed → Next step → "Build the model". `?scenario=drawer` (a lesson-mode lesson with no video) shows the panel with four help tiles; `?scenario=full` loads with no errors.
+
+### Deviations (brand rules and core limits)
+- Help row gap 6 (mockup 8) and core OptionTile's 4 px side padding removed locally (`[&_button[data-option]]:!px-0`): "Show me" truncated at 12/600 in a 58 px tile. Core request 2.
+- Body text at white .78 uses `fill.keycapText` (same value; no text token). Core request 1.
+- Mockup keycaps (⌥E, ⌘K) replaced by `bridge.platform.keys` (⌃⌥E, ⌥Space on a Mac); Watch has no key (decision 3). Pastels are BRAND.md's (sky #C5E4F9 etc.), not the mockup's #BFE3F5.
+- Les-Passed headline is `copy.passed` ("Step done.") per decision 8, not the mockup's literal.
+- Back and Voice are 28 px icon buttons with their keys in tooltips: four keycaps plus labels don't fit 320 px.
+- No Skip step / End lesson in the panel (not in the mockups) and the shortcut bar hides while it's open: they are reachable when the panel is collapsed. Flag for Adrian.
+- Pre-A2 the island still draws the judge "Not yet" and hint cards too (visible in the notyet / hint shots); A2 drops them with `isPanelRouted`.
+- The old lesson-mode drawer's overview, "Before you start", plan list, sources, concept chips and the code Copy button are not in the v2 panel (not in the mockups).
+- Not verified: Electron (`npm run dev`), the engine's real `where`/`then`/`hintStep`/`missingLines` (E3), `panel.state` on a real engine (E2).
+
+### Notes for A2 (pill-cards)
+- `import { isPanelRouted, usePanelRouted } from '../drawer/v2/route'` (it imports only core and `v2/panelStore`). Skip a card (or the offtrack card) when `usePanelRouted(card)` / `usePanelRouted({ kind: 'offtrack', ...offtrack })` is true. Reading it never imports the panel UI.
+- **Never import `'../drawer/store'` from `cards/store.ts`**: drawer/store imports `../cards/store` and subscribes to `useCards` at module top level, so the cycle leaves `useCards` uninitialized (TDZ) and throws a ReferenceError at load. `'../drawer/store'` is safe only from `cards/index.tsx` or pill code.
+- Mini pill: show while `useDock(s => s.collapsed)`; click = `emitUi('panel', 'open')` (core's `panel` UI event; no import of drawer code needed). Then flip `STEPS_HANDLE_WHEN_COLLAPSED` off in `drawer/index.tsx`.
+- Esc: drawer/store's `othersOpen` counts only what the learner can see. A card the panel renders (`isPanelRouted`) or the routed offtrack is not "open", and the panel's hint counts only while it is the view on screen (`hintShown()` in `v2/panelStore`, the same rule as view.ts: not under Checking, Passed or a newer Not yet). So the first Esc collapses the panel even if cards/store's `closeTop` clears a hidden card on that Esc.
 
 ### Pass 3 (Sat Nov 14, night): "Just teach me" shows what to type
 Michael tried a "Just teach me" lesson: the instructions weren't clear and didn't show what to type. The drawer now reads, top to bottom:
@@ -76,6 +149,20 @@ A slim tab on the right edge (vertically centered, 6px from the edge). Click →
 `npm run dev:web -- --port 5184` → `http://localhost:5184/?scenario=drawer`. Restart the dev server after adding the folder and the scenario.
 
 ## Core requests
+**v2 (A1):**
+- **1. A body text token** (`color.body` = white .78, Les-* instructions and Up next): the panel uses `fill.keycapText`, which has that value.
+- **2. OptionTile side padding 0** (core/ui/HelpRow.tsx), as in the Les-* mockups: five tiles in a 360 panel leave "Show me" ~50 px and it truncates. Workaround: `[&_button[data-option]]:!px-0` on the panel's row (v2/Help.tsx).
+- **3. OptionTile `pressed`** (Les-Hint: an ink ring inside, the pastel ring outside, `aria-pressed`): built as a wrapper in v2/Help.tsx.
+- **4. Esc in Electron**: the overlay is `focusable: false`, so Esc never reaches it; if "Esc hide" should work while the editor has focus it needs a main-side shortcut while the panel is open (main/index.ts).
+- **5. `step.passed.summary` and a "next step started" hint**: the panel holds Les-Passed locally because the engine starts the next step at once; if the engine (E3) waits for the learner (a `next` action), the hold can go.
+- **6. A `watch` key** in `bridge.platform.keys` (main/platform.ts; Alt+V / ⌃⌥V is voice today, so pick a free one) and a Watch row in Settings > Shortcuts. Workaround: Watch's slot shows its play glyph.
+- **7. A `confirm` key** (↵ / Enter) in `bridge.platform.keys`, so the panel's primary can show the keycap for its Enter binding. Workaround: Enter works, no keycap shown.
+- **8. Dock clear of VS Code's tab and toolbar band** (core/dock `panelRect`, islandPlace): start the docked panel and centered cards below about y 96 on a full-screen editor, and add a full-screen VS Code backdrop to the lesson-panel stage so it can be checked. Persona QA: top 52 sits on the editor tab row.
+- **9. Core `copy.passed`**: the lane brief asked for "Good. Now the next one." on Les-Passed; core says "Step done." (Michael, test 7). Kept core; change it there if the brand line should come back.
+- **10. OptionTile**: v2/Help.tsx now draws its own tile (keycap slot, busy at press, pressed ring, two rows at five). Fold that into core `OptionTile` / `HelpRow` when convenient.
+- **11. Esc in Electron app windows**: the stage fix (`window:stage`) covers the browser stage; in Electron each window has its own keys, so check there that Esc in the account window never reaches the overlay's `dismiss`.
+
+**Earlier passes:**
 1. **A shared step-state icon** (`StepIcon {status: 'done' | 'current' | 'locked'}` in `core/ui/atoms.tsx`, on glass tokens), used by the player's Chapters and the drawer, so both show a step the same way. *Workaround:* `StepIcon` / `Tick` / `Ring` in `Drawer.tsx`.
 2. ~~`clock()` with hours~~ done in core.
 3. ~~`setWindowOpenHandler` on every window~~ done in core; the drawer's main-process workaround is gone.

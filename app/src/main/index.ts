@@ -8,16 +8,22 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, shell, type BrowserWindowConstructorOptions } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
+import { V2_COMMANDS } from '../common/wire'
+import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
 import { setupPrefs } from './prefs'
-import { setupLocalEngine } from './localEngine'
+import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
+import { setupAppWindows, type AppWindows } from './appWindows'
+import { setupPermissions } from './permissions'
+import { openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
+  fitPillTop,
   followSpaces,
   isLeavingModifier,
   launcherGlassOptions,
@@ -29,10 +35,12 @@ import {
   type ShortcutKind
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
+import { VOICE_ENABLED } from '../common/flags'
 
 const platform = describePlatform(process.platform)
 const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
-const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined)
+// The token goes in with the constructor: the first connect starts there, before setupLocalEngine runs.
+const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined, ENGINE_TOKEN)
 let stopLocalEngine: () => void = () => undefined
 
 const windows = new Set<BrowserWindow>()
@@ -53,11 +61,94 @@ let actionsRegistered = false
 /** v1: the engine watches the PRIMARY display only (contract: rects are relative to its full frame), so the overlay lives there. */
 const displayNow = (): Electron.Display => screen.getPrimaryDisplay()
 
-function createWindow(route: string, options: BrowserWindowConstructorOptions): BrowserWindow {
+// ---------------------------------------------------------------------------
+// Security core (W0-6, BUILD-PLAN Section 6)
+// ---------------------------------------------------------------------------
+
+/** Where our own pages come from: Vite in dev, main/serve.ts when built (file:// only as the last resort). */
+function ownOrigin(url: string): boolean {
+  try {
+    const u = new URL(url)
+    if (process.env.ELECTRON_RENDERER_URL) return u.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
+    if (rendererOrigin) return u.origin === rendererOrigin
+    return u.protocol === 'file:'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * An IPC sender we trust: one of OUR windows, its main frame (never an iframe such as the YouTube embed), showing our
+ * own page. Every ipcMain handler in core and ctx.handle checks it.
+ */
+function trustedSender(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  const frame = e.senderFrame
+  if (!frame || frame !== e.sender.mainFrame) return false
+  const win = BrowserWindow.fromWebContents(e.sender)
+  if (!win || !windows.has(win)) return false
+  return ownOrigin(frame.url)
+}
+
+/**
+ * Commands a renderer may send to the engine (engine:cmd). config.keys is NOT here: keys go only through the settings
+ * feature in main (settings:save), so a renderer can never set or overwrite them. dev.reset only outside a built app.
+ */
+const RENDERER_COMMANDS = new Set<string>([
+  'learn',
+  'learn_url',
+  'build_lesson',
+  'action',
+  'video.state',
+  'end_lesson',
+  'overlay.bounds',
+  'card.shown',
+  'card.closed',
+  ...V2_COMMANDS
+])
+
+/**
+ * Microphone only, for voice, only for our own page. Everything else a page can ask for is refused.
+ * Voice is off for now (common/flags): then the microphone is refused too, so the app never asks for it.
+ */
+function hardenSession(): void {
+  const s = session.defaultSession
+  s.setPermissionRequestHandler((wc, permission, cb, details) => {
+    const media = details as { mediaTypes?: string[]; requestingUrl?: string }
+    const micOnly = permission === 'media' && !!media.mediaTypes?.length && media.mediaTypes.every((t) => t === 'audio')
+    cb(VOICE_ENABLED && micOnly && ownOrigin(media.requestingUrl ?? wc.getURL()))
+  })
+  s.setPermissionCheckHandler((_wc, permission, origin, details) => {
+    const media = details as { mediaType?: string }
+    return VOICE_ENABLED && permission === 'media' && media.mediaType === 'audio' && ownOrigin(origin)
+  })
+}
+
+/** Every web contents (windows, and any iframe's host): no navigating away from our page, no new windows. */
+function hardenContents(wc: WebContents): void {
+  const block = (e: Electron.Event, url: string): void => {
+    if (!ownOrigin(url)) e.preventDefault()
+  }
+  wc.on('will-navigate', block)
+  wc.on('will-redirect', (e, url, _inPlace, isMainFrame) => {
+    if (isMainFrame) block(e, url)
+  })
+  wc.on('will-attach-webview', (e) => e.preventDefault())
+  // window.open / target=_blank: never a new Electron window; any plain https link (setup downloads, citations,
+  // drawer sources) goes to the default browser. Other schemes are refused (safeOpen.isBrowserLink).
+  wc.setWindowOpenHandler(({ url }) => {
+    void openLinkInBrowser(url)
+    return { action: 'deny' }
+  })
+}
+
+/** v2 (W0-4): open / focus allowlisted app windows. Set up once the app is ready. */
+let appWindows: AppWindows | undefined
+
+function createWindow(route: string, options: BrowserWindowConstructorOptions, kind: 'overlay' | 'app' = 'overlay'): BrowserWindow {
   const win = new BrowserWindow({
     show: false,
-    // A panel on macOS, like the core windows, so it can sit over full-screen apps.
-    ...(platform.os === 'mac' ? { type: 'panel' } : {}),
+    // A panel on macOS, like the core windows, so it can sit over full-screen apps. App windows (v2) are normal windows.
+    ...(platform.os === 'mac' && kind === 'overlay' ? { type: 'panel' } : {}),
     ...options,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -71,13 +162,10 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions): 
   windows.add(win)
   win.on('closed', () => windows.delete(win))
   showAfterFirstPaint(win)
-  // Every Miyagi window follows the learner across Spaces and over full-screen apps (Michael, Sat).
-  followSpaces(win)
-  // window.open / target=_blank from any window: never a new Electron window; http(s) goes to the default browser.
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  // Every overlay window follows the learner across Spaces and over full-screen apps (Michael, Sat). App windows
+  // (v2) stay on their own Space like any Mac window.
+  if (kind === 'overlay') followSpaces(win)
+  // No navigation away, no new windows (W0-6): hardenContents runs for every web contents on creation.
   if (!app.isPackaged) {
     // Pipe renderer warnings/errors into the terminal (overlay windows have no visible devtools).
     win.webContents.on('console-message', (...args: unknown[]) => {
@@ -217,7 +305,10 @@ function hideLauncher(): void {
   returnFocus(app, overlay, previousApp())
 }
 
-const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = ['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
+// Voice is off for now (common/flags): its key is never registered, so ⌃⌥V stays with the other apps.
+const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = (['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle'] as const).filter(
+  (k) => VOICE_ENABLED || k !== 'voice_toggle'
+)
 
 /** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
 function registerActionShortcuts(): void {
@@ -283,8 +374,12 @@ function youtubeReferer(): void {
   })
 }
 
+app.on('web-contents-created', (_e, wc) => hardenContents(wc))
+
 app.whenReady().then(async () => {
   setupApp(app)
+  setupIdentity()
+  hardenSession()
   youtubeReferer()
   if (!process.env.ELECTRON_RENDERER_URL) {
     try {
@@ -293,6 +388,9 @@ app.whenReady().then(async () => {
       console.error('[tut] could not serve the renderer over http, falling back to file:// (YouTube may refuse embeds)', err)
     }
   }
+  // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
+  // window exists: every renderer gets pillTop in its launch arguments.
+  platform.pillTop = fitPillTop(platform.pillTop, displayNow())
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 
@@ -308,15 +406,30 @@ app.whenReady().then(async () => {
   })
   engine.onStatus((c) => forEachWindow((w) => w.webContents.send('engine:status', c)))
 
-  ipcMain.on('engine:cmd', (_e, cmd) => {
-    if (cmd?.type === 'overlay.bounds') {
-      overlayRects = cmd.payload?.rects ?? []
+  ipcMain.on('engine:cmd', (e, cmd) => {
+    // W0-6: only our own windows' main frames, only allowlisted command types, never config.keys from a renderer.
+    if (!trustedSender(e) || !cmd || typeof cmd !== 'object' || typeof cmd.type !== 'string') return
+    const devReset = cmd.type === 'dev.reset' && !app.isPackaged
+    if (!RENDERER_COMMANDS.has(cmd.type) && !devReset) {
+      if (cmd.type === 'config.keys') console.warn('[tut] dropped config.keys sent by a renderer (keys go through settings:save)')
+      return
+    }
+    if (cmd.payload !== undefined && (typeof cmd.payload !== 'object' || cmd.payload === null)) return
+    if (cmd.type === 'overlay.bounds') {
+      const rects: unknown = cmd.payload?.rects
+      overlayRects = Array.isArray(rects)
+        ? rects
+            .slice(0, 64)
+            .filter((r): r is R => !!r && ['x', 'y', 'w', 'h'].every((k) => Number.isFinite((r as Record<string, unknown>)[k])))
+            .map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }))
+        : []
       return sendBounds()
     }
     engine.send(cmd)
   })
 
   ipcMain.on('ui:ready', (e) => {
+    if (!trustedSender(e)) return
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) return
     // A renderer that (re)loads starts closed/click-through. If main still thinks the launcher is open,
@@ -329,6 +442,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.on('ui:emit', (e, signal: string, payload: unknown) => {
+    if (!trustedSender(e) || typeof signal !== 'string') return
     switch (signal) {
       case 'video:intent':
         // core seekVideo(): every OTHER window follows (the sender already set it).
@@ -378,9 +492,20 @@ app.whenReady().then(async () => {
     }
   })
 
-  setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
+  setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
-  stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
+  // Never let the engine's start-up stop the rest of the app (Home, setup, the features below): log it and carry on.
+  try {
+    stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
+  } catch (err) {
+    console.error('[tut] engine start-up threw', err)
+  }
+
+  // v2 (W0-4 / W0-5 / W0-6): app windows, permission probes, the one way out to a browser.
+  const broadcastAll = (channel: string, payload: unknown): void => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload))
+  appWindows = setupAppWindows({ app, create: (route, options) => createWindow(route, options, 'app'), trusted: trustedSender })
+  setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender })
+  ipcMain.handle('feat:open:external', (e, url: unknown) => (trustedSender(e) ? safeOpenExternal(url) : false))
 
   loadFeatures({
     app,
@@ -391,7 +516,12 @@ app.whenReady().then(async () => {
     display: () => screen.getDisplayMatching(overlay.getBounds()),
     createWindow,
     overlayOptions: overlayWindowOptions,
-    handle: (channel, fn) => ipcMain.handle(`feat:${channel}`, (_e, ...args) => fn(...args)),
+    // W0-6: a feature handler only ever runs for our own windows' main frames.
+    handle: (channel, fn) =>
+      ipcMain.handle(`feat:${channel}`, (e, ...args) => {
+        if (!trustedSender(e)) throw new Error('untrusted sender')
+        return fn(...args)
+      }),
     broadcast: (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)),
     onSignal: (signal, fn) => {
       if (!signalListeners.has(signal)) signalListeners.set(signal, new Set())
@@ -401,7 +531,9 @@ app.whenReady().then(async () => {
     raise,
     islandSize: () => islandSize,
     yieldIsland: (on) => send(overlay, on ? 'island:yield' : 'island:return'),
-    overlayRects: () => overlayRects
+    overlayRects: () => overlayRects,
+    openWindow: (route, args) => appWindows?.open(route, args),
+    appWindow: (route) => appWindows?.get(route)
   })
 })
 

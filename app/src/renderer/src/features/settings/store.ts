@@ -1,11 +1,12 @@
 /**
- * Feature: settings. Open/close requests and a counter of config.status answers (Test waits on it).
+ * Feature: settings. Open/close requests, the section on show, and a counter of config.status answers (Test waits on it).
  * Loaded in every window (the registry imports every feature); only the `settings` window renders the sheet.
  * No key ever lands here: typed values stay in the sheet's own state until Save sends them to main.
  */
 import { create } from 'zustand'
 import { bridge } from '../../bridge'
 import { onMessage } from '../../core/bus'
+import { isSection, type SettingsSection } from './env'
 
 export type Size = { w: number; h: number }
 
@@ -16,22 +17,38 @@ type SettingsState = {
   close: number
   /** Bumped on every config.status from the engine. */
   statusSeq: number
+  /** The sidebar section on show. An open request with a section switches to it; without one, the last stays. */
+  section: SettingsSection
+  /**
+   * How the section was reached: 'keys' = ↑ / ↓ / Home / End in the sidebar (focus stays on the section list so the
+   * arrows keep working); undefined = opened from outside (openSettings) or clicked, so the section may take focus.
+   */
+  via?: 'keys'
 }
 
-export const useSettings = create<SettingsState>(() => ({ open: { seq: 0 }, close: 0, statusSeq: 0 }))
+export const useSettings = create<SettingsState>(() => ({ open: { seq: 0 }, close: 0, statusSeq: 0, section: 'general' }))
 
-export function requestOpen(from?: Size): void {
-  useSettings.setState((s) => ({ open: { seq: s.open.seq + 1, from } }))
+export function requestOpen(from?: Size, section?: unknown): void {
+  useSettings.setState((s) => ({ open: { seq: s.open.seq + 1, from }, section: isSection(section) ? section : s.section, via: undefined }))
 }
 
 export function requestClose(): void {
   useSettings.setState((s) => ({ close: s.close + 1 }))
 }
 
+export function setSection(section: unknown, via?: 'keys'): void {
+  if (isSection(section)) useSettings.setState({ section, via })
+}
+
 onMessage('config.status', () => useSettings.setState((s) => ({ statusSeq: s.statusSeq + 1 })))
 
 // Electron: main broadcasts these to every window (src/main/features/settings.ts).
-bridge.onFeature('settings:open', (p) => requestOpen((p as { from?: Size } | undefined)?.from))
+bridge.onFeature('settings:open', (p) => {
+  const o = (p ?? {}) as { from?: Size; section?: unknown }
+  requestOpen(o.from, o.section)
+})
+// Already open: openSettings(section) only switches the section.
+bridge.onFeature('settings:section', (p) => setSection((p as { section?: unknown } | undefined)?.section))
 bridge.onFeature('settings:close', () => requestClose())
 
 /** Resolves on the next config.status after `since`, or false after `ms`. */

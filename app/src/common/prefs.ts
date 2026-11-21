@@ -1,5 +1,11 @@
 /** General preferences (Settings → General), shared by main (src/main/prefs.ts) and the renderer (core/prefs.ts). */
+import type { ShortcutKind } from '../main/platform'
+
 export type Appearance = 'system' | 'light' | 'dark'
+/** v2: what to do with a crash report (Err-CrashConsent). Local only either way; nothing is uploaded this push. */
+export type CrashReports = 'ask' | 'always' | 'never'
+/** v2: the learner's own key for a shortcut, as an Electron accelerator ("Control+Alt+E"). Stored, not applied yet. */
+export type ShortcutPrefs = Partial<Record<ShortcutKind, string>>
 
 export type Prefs = {
   /** The glass panels (shortcut bar, player, drawer) follow this. The island and cards stay black. */
@@ -8,9 +14,42 @@ export type Prefs = {
   voiceOnStart: boolean
   /** Open Miyagi when the computer starts. */
   launchAtLogin: boolean
+  // ---- v2 (W0-5) ----
+  /** The lesson panel was collapsed to the Mini pill last time (Les-Mini): reopen that way. */
+  panelCollapsed: boolean
+  /** Onboarding finished once on this Mac (A3 also keeps its own done flag in userData). */
+  onboarded: boolean
+  /** Crash reports: ask (default), always keep, never keep. */
+  crashReports: CrashReports
+  /** Count which buttons get used (local only). Off by default; the Privacy switch is hidden this push. */
+  usageCounts: boolean
+  /** Shortcut overrides (Settings → Shortcuts). Validated and stored; live rebinding comes in wave 2. */
+  shortcuts: ShortcutPrefs
 }
 
-export const DEFAULT_PREFS: Prefs = { appearance: 'system', voiceOnStart: false, launchAtLogin: false }
+export const DEFAULT_PREFS: Prefs = {
+  appearance: 'system',
+  voiceOnStart: false,
+  launchAtLogin: false,
+  panelCollapsed: false,
+  onboarded: false,
+  crashReports: 'ask',
+  usageCounts: false,
+  shortcuts: {}
+}
+
+const SHORTCUT_KINDS: readonly ShortcutKind[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
+const MODIFIER = /^(Command|Cmd|Control|Ctrl|CommandOrControl|CmdOrCtrl|Alt|Option|AltGr|Shift|Super|Meta)$/
+const KEY = /^([A-Z0-9]|F([1-9]|1[0-9]|2[0-4])|Space|Left|Right|Up|Down|Enter|Tab|Backspace|Delete|Escape|Plus|[,./;'[\]\\`=-])$/
+
+/** An Electron accelerator with 1 to 3 modifiers and one key. A bare key is refused (it would type into the editor). */
+export function isAccelerator(s: unknown): s is string {
+  if (typeof s !== 'string' || s.length > 48) return false
+  const parts = s.split('+')
+  if (parts.length < 2 || parts.length > 4) return false
+  const key = parts.pop()!
+  return KEY.test(key) && parts.every((p) => MODIFIER.test(p)) && new Set(parts).size === parts.length
+}
 
 /** Keep only known keys with valid values (prefs come from a file and from any window). */
 export function sanitizePrefs(raw: unknown): Partial<Prefs> {
@@ -20,5 +59,17 @@ export function sanitizePrefs(raw: unknown): Partial<Prefs> {
   if (r.appearance === 'system' || r.appearance === 'light' || r.appearance === 'dark') out.appearance = r.appearance
   if (typeof r.voiceOnStart === 'boolean') out.voiceOnStart = r.voiceOnStart
   if (typeof r.launchAtLogin === 'boolean') out.launchAtLogin = r.launchAtLogin
+  if (typeof r.panelCollapsed === 'boolean') out.panelCollapsed = r.panelCollapsed
+  if (typeof r.onboarded === 'boolean') out.onboarded = r.onboarded
+  if (r.crashReports === 'ask' || r.crashReports === 'always' || r.crashReports === 'never') out.crashReports = r.crashReports
+  if (typeof r.usageCounts === 'boolean') out.usageCounts = r.usageCounts
+  if (r.shortcuts && typeof r.shortcuts === 'object' && !Array.isArray(r.shortcuts)) {
+    const s: ShortcutPrefs = {}
+    for (const k of SHORTCUT_KINDS) {
+      const v = (r.shortcuts as Record<string, unknown>)[k]
+      if (isAccelerator(v)) s[k] = v
+    }
+    out.shortcuts = s
+  }
   return out
 }
