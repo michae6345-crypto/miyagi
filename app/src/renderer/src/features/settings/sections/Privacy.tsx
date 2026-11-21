@@ -10,8 +10,8 @@
  *     (numbers and enums only, a crash is just {kind, app_version}) to miyagi-cloud POST /v1/events; the error text
  *     never leaves this Mac.
  *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin), the
- *     sign-in (main removes auth.bin and login.json, then auth:sign-out, awaited, forgets the session and revokes it)
- *     and the preferences. privacy/erase.ts picks the step: a sign-out that fails is "partial", never "Deleted".
+ *     sign-in (main removes auth.bin, login.json and cloud-link.json, then auth:sign-out, awaited, forgets the
+ *     session and revokes it) and the preferences. privacy/erase.ts picks the step: a sign-out that fails is "partial", never "Deleted".
  *     It says "on this Mac" because that is all it can reach; lesson folders in ~/miyagi stay (the learner's own
  *     work, kept by the engine) and the confirm says so.
  */

@@ -1,7 +1,8 @@
 /**
  * Feature: settings. Delete my data, the renderer's flow (Privacy.tsx shows its step). Pure apart from `invoke`,
  * so erase.test.ts drives it with a fake bridge.
- *   1. main `settings:delete` removes keys.bin, auth.bin and login.json (main/features/settings/erase.ts);
+ *   1. main `settings:delete` removes keys.bin, auth.bin, login.json and cloud-link.json
+ *      (main/features/settings/erase.ts);
  *   2. only if that worked, main `auth:sign-out` forgets the session in memory and revokes it (auth.ts → true).
  * Step 2 must be awaited and checked: if it fails, auth.ts still holds the session and its refresh timer would write
  * auth.bin back, so the row must not say "Deleted from this Mac".

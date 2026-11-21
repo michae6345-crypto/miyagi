@@ -99,7 +99,7 @@ export const SHOWN: readonly KeyName[] = KEY_NAMES.filter((k) => k !== 'elevenla
 export type AboutView = { version?: string }
 
 /** settings:delete (Privacy › Delete my data): what was erased on this Mac. */
-/** signIn: false when the keys went but a sign-in file (auth.bin, login.json) could not be removed. */
+/** signIn: false when the keys went but a sign-in file (auth.bin, login.json, cloud-link.json) could not be removed. */
 export type DeleteResult = { ok: boolean; keys: KeysView; signIn?: boolean }
 
 /** A patch that removes every stored key. */
