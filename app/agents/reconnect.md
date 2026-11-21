@@ -1,6 +1,6 @@
 # reconnect
 
-**Status:** fix round 1 done (typecheck, app suite and the main checks green, all offline; not run in Electron) · **Priority:** P0 · **Port:** none (no UI) · **Branch:** `michael/app-reconnect`
+**Status:** fix round 2 done (typecheck, app suite and the main checks green, all offline; not run in Electron) · **Priority:** P0 · **Port:** none (no UI) · **Branch:** `michael/app-reconnect`
 
 ## Goal
 ROADMAP 1.4, reconnect and recovery: a lost socket, an engine crash, a hung engine or a Mac that slept never leaves
@@ -31,6 +31,12 @@ started in this run (or nothing, if the engine lost it). Retry only shows after 
   they re-armed it, so a hung engine was never restarted). Still down 30 s after a restart and the new engine
   `running`: checked again, until the budget is spent. Never across a sleep (resume starts the clock again if the link
   is still down), never an engine this app did not start (Terminal, another build).
+- **A Restart of a hung engine** (fix round 2). A hung uvicorn ignores SIGTERM (it only sets should_exit, and a
+  blocked loop never acts on it), and while 'starting' failures are held, so the pill sat on "reconnecting" forever.
+  Now restart() sends SIGTERM, then SIGKILL to the group if the same process is still there after 5 s (as
+  reclaimOwnLeftover does), and arms the start timeout: a restart that never comes back ends in failed, with Retry.
+  Retry on that failure sends SIGKILL again. Quitting clears the timer (and sends SIGKILL if a restart's SIGTERM was
+  already ignored). Quitting while a respawn waits now ends in 'off' (it stayed 'starting').
 - **Wake.** index.ts already calls `engine.wake()` on resume, unlock and network back; recover.ts no longer does it a
   second time, it only pauses the hung verdict while asleep.
 - **Fresh start across reconnects** (`freshStart.ts`). RunGuard keeps filtering on every connect. Fixed a gap: with a
@@ -47,7 +53,9 @@ started in this run (or nothing, if the engine lost it). Retry only shows after 
   `timings` (tests only; index.ts unchanged; fix round 1 adds `handshakeMs` to it, default HANDSHAKE_TIMEOUT_MS) and
   `holdFailures(on)`.
 - `src/main/localEngine.ts` (core, as engine-isolation notes): `setRespawnPolicy`, `restartLocalEngine`,
-  `localEngineChildAlive`, the respawn timer in the exit handler and Retry, `holdFailures` from `set()`.
+  `localEngineChildAlive`, the respawn timer in the exit handler and Retry, `holdFailures` from `set()`. Fix round 2:
+  `LocalEngineDeps` gets `kill` (process.kill; tests pass a fake), `killAfterMs` (5 s) and `startTimeoutMs` (60 s), all
+  defaulted, so index.ts is unchanged; restart() escalates to SIGKILL and arms the start timeout; quit clears it.
 - Not done here, still open from engine-isolation.md: `engine.hold(true|false)` (close and stop reconnecting while
   another engine holds the port).
 
@@ -57,7 +65,12 @@ loopback `ws` server stands in for the engine: no Electron, no engine, no networ
 real EngineLink against a loopback TCP server that accepts but never completes the WebSocket handshake
 (`handshakeMs` 150, hungMs 1.5 s): the link reports "down" on every attempt, and the restart must still come once. The
 fake-link hung tests send a single "down", so they could not catch the re-arming bug; that test, "repeated down
-reports" and "a crash loop that reconnects each time" fail on the round-0 respawn.ts. Also `npx tsx
+reports" and "a crash loop that reconnects each time" fail on the round-0 respawn.ts. `test/engineIsolation.test.ts` (fix round 2, 9 new) drives setupLocalEngine with a fake child (an EventEmitter) and a
+fake `deps.kill` that only records, so no real pid is ever signalled: a crash while running asks the policy, holds
+failures in 'starting' and starts again after the delay; an undefined delay ends in failed with Retry; Retry while a
+respawn waits starts it at once; quitting cancels a waiting respawn and ends in 'off'; a child that ignores SIGTERM
+gets SIGKILL and the restart ends in 'running'; one that ignores both ends in failed (never 'starting' forever), and
+Retry kills it again. Also `npx tsx
 src/main/freshStart.check.ts` (760) and `npx tsx src/main/island-sync.check.ts`. The new "this run's lesson comes
 back, a respawned engine's old lesson does not" case fails without the freshStart.ts fix.
 
