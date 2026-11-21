@@ -109,10 +109,24 @@ class EventTriggers:
         return Quartz.CGEventTapCreate(Quartz.kCGSessionEventTap, Quartz.kCGTailAppendEventTap,
                                        Quartz.kCGEventTapOptionListenOnly, mask, self._on_event, None)
 
+    @staticmethod
+    def key_tap_allowed() -> bool:
+        """Input Monitoring is already granted. Creating a keyboard tap without it makes macOS show its "Keystroke
+        Receiving" prompt (Nov 21: on every launch). Only asks (preflight), never requests. Old pyobjc without the
+        preflight call: tap as before."""
+        preflight = getattr(Quartz, "CGPreflightListenEventAccess", None)
+        if preflight is None:
+            return True
+        try:
+            return bool(preflight())
+        except Exception:  # noqa: BLE001
+            return False
+
     def _tap_thread(self, ready: threading.Event) -> None:
         loop = Quartz.CFRunLoopGetCurrent()
         mouse = self._make_tap(_mask(*_MOUSE_DOWN, Quartz.kCGEventScrollWheel))
-        keys = self._make_tap(_mask(Quartz.kCGEventKeyDown))
+        # no Input Monitoring: no keyboard tap (typing pauses come from the AX reader and the heartbeat instead)
+        keys = self._make_tap(_mask(Quartz.kCGEventKeyDown)) if self.key_tap_allowed() else None
         for tap, name in ((mouse, "mouse_tap"), (keys, "key_tap")):
             if tap is None:
                 continue
