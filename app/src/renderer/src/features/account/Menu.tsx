@@ -7,7 +7,7 @@ import { Folder, KeyRound, LogOut, Settings } from 'lucide-react'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { GlassCard } from '../../core/ui/GlassCard'
 import { openLibrary, openSettings } from '../../core/surfaces'
-import { color, fill, radius2, type2 } from '../../core/theme'
+import { color, fill, layer, radius2, type2 } from '../../core/theme'
 import { planLabel, type Account, type View } from './model'
 import { signOut, useAccount } from './store'
 import { Chip, MenuRow, MeterGroup, PersonGlyph, Rule } from './ui'
@@ -16,7 +16,7 @@ export function Menu({ account, go }: { account: Account; go: (v: View) => void 
   const ownKey = useAccount((s) => s.ownKey)
   const help = account.help
   return (
-    <GlassCard surface="panel" width={340} padding={16} className="flex flex-col gap-[12px]" style={{ display: 'flex' }}>
+    <GlassCard surface="panel" width={340} padding={16} className="flex flex-col gap-[12px]" style={{ display: 'flex', background: layer.overlay.background }}>
       <section role="menu" aria-label="Account" className="flex flex-col gap-[12px]">
         <div className="flex items-center gap-[12px]" style={{ padding: '0 4px' }}>
           <span className="flex shrink-0 items-center justify-center" style={{ width: 40, height: 40, borderRadius: radius2.round, background: fill.navActive, color: color.text }}>

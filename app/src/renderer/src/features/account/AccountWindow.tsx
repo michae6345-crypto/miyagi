@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { Layout } from '../../../../preload/api'
 import { closeWindow, useWindowArgs } from '../../core/surfaces'
-import { spring, surface } from '../../core/theme'
+import { color, spring } from '../../core/theme'
 import { isView, type View } from './model'
 import { Menu } from './Menu'
 import { Pricing } from './Pricing'
@@ -62,7 +62,10 @@ export function AccountWindow({ layout }: { layout: Layout }): ReactNode {
   const paper = view === 'pricing'
 
   return (
-    <div data-account-view={view} className="relative h-full w-full" style={{ background: paper ? undefined : surface.sheet }}>
+    // The window is the base layer (color.window, as every app window) and the card one layer up (layer.overlay, in
+    // Menu / SignIn / Upgrade): the card is lighter than its ground, in the same warm neutral (Nov 22: it was a cool
+    // glass card, darker than a brown sheet behind it).
+    <div data-account-view={view} className="relative h-full w-full" style={{ background: paper ? undefined : color.window }}>
       <div data-drag className="absolute inset-x-0 top-0 z-10" style={{ height: 28 }} />
       <div className="h-full w-full overflow-y-auto">
         {!loaded ? null : paper ? (

@@ -1,47 +1,32 @@
 /**
  * Prog-Progress-Window: the Progress app window (route `progress`, kind 'app', 1100x760; core/surfaces openProgress()).
  *
- * Its body is the lesson dashboard (features/dashboard): Today ring, this week, reps and rhythm on top; the skill
- * constellation with Review, Continue and Up next beside it; milestones at the foot. The same view is Library's Home.
+ * Nov 22 layout pass: the window speaks the home window's language, so the two Progress views are one design. Its body
+ * is the same Overview as the home window's Progress page (features/dashboard Overview.tsx: Review, Up next, the skills
+ * one line per track, the finished lessons), in the same centered 720 column (shell/pages/Column.tsx) with the same
+ * title. The top is a plain 52 px strip that drags the window and clears the traffic lights; no breadcrumb, no title
+ * text in the chrome (the page title does that job, as in Apple Music and System Settings). It used to be a different
+ * layout: a breadcrumb bar with an ask hint, and the dashboard left-aligned in a 1040 column.
  * Everything comes from the engine's `progress` answer; a part it doesn't send yet shows that part's empty state.
  */
 import type { ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
-import { bridge } from '../../bridge'
-import { Keycap } from '../../core/ui/Keycap'
-import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
-import { color, copy, fill, surface, type2 } from '../../core/theme'
-import { Dashboard } from '../dashboard/Dashboard'
-
-const caption = { fontSize: type2.xs, color: color.label } as const
-
-function TitleBar(): ReactNode {
-  return (
-    <div data-drag className="relative flex shrink-0 items-center justify-end px-[20px]" style={{ height: 52, borderBottom: `1px solid ${fill.hairline}` }}>
-      <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-        <div className="flex items-center gap-[8px]">
-          <MiyagiMark size={16} />
-          <MiyagiWordmark height={14} className="h-[14px] w-auto" />
-          <span style={{ fontSize: type2.md, color: color.faint }}>/</span>
-          <span className="font-semibold" style={{ fontSize: type2.md, color: color.text }}>
-            Progress
-          </span>
-        </div>
-      </div>
-      <button type="button" data-no-drag className="flex cursor-pointer items-center gap-[6px] hover:text-white" style={caption} onClick={() => bridge.emit('launcher:toggle')}>
-        <Keycap k="launcher" size="sm" />
-        <span>{copy.launcherPlaceholder}</span>
-      </button>
-    </div>
-  )
-}
+import { color, surface } from '../../core/theme'
+import { ProgressOverview } from '../dashboard/Overview'
+import { PageColumn } from '../shell/pages/Column'
+import { OVERVIEW_SEAT } from '../shell/pages/ProgressPage'
 
 export function ProgressWindow(_: { layout: Layout }): ReactNode {
   return (
-    <div data-progress="window" className="flex h-full w-full flex-col text-white" style={{ background: surface.window }}>
-      <TitleBar />
-      <div className="min-h-0 flex-1">
-        <Dashboard route="progress" />
+    <div data-progress="window" className="flex h-full w-full flex-col @container" style={{ background: surface.window, color: color.text }}>
+      <div data-drag className="shrink-0" style={{ height: 52 }} />
+      <PageColumn top={0} bottom={0}>
+        <h1 className="m-0 font-semibold" style={{ fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
+          Progress
+        </h1>
+      </PageColumn>
+      <div data-progress-seat className={`min-h-0 flex-1 ${OVERVIEW_SEAT}`}>
+        <ProgressOverview route="progress" />
       </div>
     </div>
   )
