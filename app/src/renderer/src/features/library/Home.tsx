@@ -11,10 +11,8 @@
  *   review    one row when skills are due, with Start review
  *   recent    one row per lesson, newest state: a green check when finished, a hueless ring while in progress
  *
- * THREE LAYOUTS while Adrian picks (stage: ?home=a|b|c, default a; the unpicked two get deleted):
- *   a  Card       Continue on one lifted card, the ask field under it, then plain lists
- *   b  Ask first  the ask field centered under the bonsai, Continue as one quiet row, then plain lists
- *   c  Lists      no card at all: every part is rows on the panel; Up next and Recent side by side when wide
+ * Layout (Adrian picked A, Nov 21, with the bonsai centered on top): the bonsai, Continue on the page's one lifted card,
+ * the ask field under it, then plain lists.
  *
  * Continue comes from dashboard/continue.ts, the same list Lessons and Progress read.
  */
@@ -44,17 +42,6 @@ import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
 import { setPage } from '../shell/store'
-
-type Look = 'a' | 'b' | 'c'
-/** Stage only, while Adrian picks: ?home=a|b|c. Electron has no query, so it shows the default. */
-function homeLook(): Look {
-  try {
-    const v = new URLSearchParams(location.search).get('home')
-    return v === 'b' || v === 'c' ? v : 'a'
-  } catch {
-    return 'a'
-  }
-}
 
 // ---- the continue model -------------------------------------------------------------------------------------------
 
@@ -173,7 +160,7 @@ const IDEAS: Array<{ text: string; tone: Tone }> = [
   { text: 'Train an image classifier', tone: 'pink' }
 ]
 
-function Ask({ size = 'md', center = false, primary = false }: { size?: 'sm' | 'md' | 'lg'; center?: boolean; primary?: boolean }): ReactNode {
+function Ask({ primary = false }: { primary?: boolean }): ReactNode {
   const ask = useAsk()
   const items = useLibrary((s) => s.items)
   const canStart = useLibrary((s) => s.caps.start)
@@ -185,12 +172,12 @@ function Ask({ size = 'md', center = false, primary = false }: { size?: 'sm' | '
   }
   const Btn = primary ? PrimaryButton : QuietButton
   const actionLabel = read.kind === 'link' ? (read.match ? 'Start lesson' : 'Build lesson') : 'Teach me'
-  const h = size === 'lg' ? 54 : size === 'md' ? 48 : 42
+  const h = 48
   return (
     <section aria-label="Learn something new" data-home-ask className="flex flex-col">
       <form
         className="flex items-center gap-[10px]"
-        style={{ height: h, padding: `0 8px 0 ${size === 'lg' ? 18 : 14}px`, borderRadius: radius2.card, background: fill.field, boxShadow: `inset 0 0 0 1px ${fill.fieldBorder}` }}
+        style={{ height: h, padding: '0 8px 0 14px', borderRadius: radius2.card, background: fill.field, boxShadow: `inset 0 0 0 1px ${fill.fieldBorder}` }}
         onSubmit={(e) => {
           e.preventDefault()
           go()
@@ -206,7 +193,7 @@ function Ask({ size = 'md', center = false, primary = false }: { size?: 'sm' | '
           disabled={!!ask.sending}
           onChange={(e) => setAskText(e.target.value)}
           className="min-w-0 flex-1 bg-transparent outline-none"
-          style={{ fontSize: size === 'lg' ? type2.lg : type2.body, color: color.text }}
+          style={{ fontSize: type2.body, color: color.text }}
         />
         {read.kind === 'idle' ? (
           <span className="flex shrink-0 items-center" style={{ paddingRight: 4 }}>
@@ -230,7 +217,7 @@ function Ask({ size = 'md', center = false, primary = false }: { size?: 'sm' | '
           </motion.button>
         )}
       </form>
-      <div className={`flex flex-wrap items-center gap-[8px] ${center ? 'justify-center' : ''}`} style={{ marginTop: 12, minHeight: 28 }}>
+      <div className="flex flex-wrap items-center gap-[8px]" style={{ marginTop: 12, minHeight: 28 }}>
         {read.kind === 'idle' ? (
           IDEAS.map((t) => (
             <Press
@@ -373,7 +360,7 @@ function ReviewLine({ data, now }: { data?: DashData; now: number }): ReactNode 
   )
 }
 
-// ---- the continue part, three ways ----------------------------------------------------------------------------------
+// ---- the continue card ----------------------------------------------------------------------------------
 
 function Where({ view, width }: { view: View; width: number }): ReactNode {
   return (
@@ -388,7 +375,7 @@ function Where({ view, width }: { view: View; width: number }): ReactNode {
   )
 }
 
-/** a: the one lifted card on the page. */
+/** The one lifted card on the page. */
 function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }): ReactNode {
   return (
     <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="flex flex-col" style={{ ...CARD, padding: '24px 28px 26px' }}>
@@ -406,94 +393,24 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
   )
 }
 
-/** b: one quiet row on a soft card. */
-function ContinueRow({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }): ReactNode {
+// ---- the page body ----------------------------------------------------------------------------------------------
+
+type BodyProps = { view: View | null | 'loading'; hero: Hero; fix?: Fix; skip: Set<string>; done: Set<string>; data?: DashData; now: number; recent: Recent[] }
+
+function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): ReactNode {
   return (
-    <section aria-labelledby="home-continue" data-home-hero={hero.kind}>
-      <SectionHead>{view.head}</SectionHead>
-      <div className="flex items-center gap-[16px]" style={{ ...CARD, padding: '16px 16px 16px 20px' }}>
-        <div className="flex min-w-0 flex-1 flex-col gap-[6px]">
-          <h2 id="home-continue" className="m-0 truncate font-semibold" style={{ fontSize: type2.body, color: color.text }}>
-            {view.title}
-          </h2>
-          <Where view={view} width={96} />
-        </div>
-        <div className="flex shrink-0 items-center gap-[10px]">
-          <ContAction hero={hero} fix={fix} />
-        </div>
+    <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '0 40px 56px', gap: 40 }}>
+      <div className="flex justify-center" style={{ paddingTop: 'clamp(24px, 6vh, 64px)', marginBottom: -12 }}>
+        <MiyagiMark size={36} />
       </div>
-    </section>
-  )
-}
-
-/** c: no card, the row sits on the panel. */
-function ContinuePlain({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }): ReactNode {
-  return (
-    <section aria-labelledby="home-continue" data-home-hero={hero.kind}>
-      <SectionHead>{view.head}</SectionHead>
-      <div className="flex items-center gap-[16px]">
-        <div className="flex min-w-0 flex-1 flex-col gap-[6px]">
-          <h2 id="home-continue" className="m-0 truncate font-semibold" style={{ fontSize: type2.lg, color: color.text }}>
-            {view.title}
-          </h2>
-          <Where view={view} width={120} />
-        </div>
-        <div className="flex shrink-0 items-center gap-[10px]">
-          <ContAction hero={hero} fix={fix} />
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ---- layouts ------------------------------------------------------------------------------------------------------
-
-type LookProps = { view: View | null | 'loading'; hero: Hero; fix?: Fix; skip: Set<string>; done: Set<string>; data?: DashData; now: number; recent: Recent[] }
-
-function LookA({ view, hero, fix, skip, done, data, now, recent }: LookProps): ReactNode {
-  return (
-    <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '36px 40px 56px', gap: 40 }}>
       {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
-      <Ask size="md" primary={!view || view === 'loading'} />
+      <Ask primary={!view || view === 'loading'} />
       <ReviewLine data={data} now={now} />
       <UpNext skip={skip} done={done} />
       <Recents rows={recent} now={now} />
     </div>
   )
 }
-
-function LookB({ view, hero, fix, skip, done, data, now, recent }: LookProps): ReactNode {
-  return (
-    <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 640, padding: '0 40px 56px', gap: 40 }}>
-      <div className="flex flex-col items-center" style={{ paddingTop: 'clamp(32px, 9vh, 96px)', gap: 22 }}>
-        <MiyagiMark size={36} />
-        <div className="w-full">
-          <Ask size="lg" center primary={!view || view === 'loading'} />
-        </div>
-      </div>
-      {view === 'loading' ? <Loading /> : view && <ContinueRow view={view} hero={hero} fix={fix} />}
-      <ReviewLine data={data} now={now} />
-      <UpNext skip={skip} done={done} />
-      <Recents rows={recent} now={now} max={3} />
-    </div>
-  )
-}
-
-function LookC({ view, hero, fix, skip, done, data, now, recent }: LookProps): ReactNode {
-  return (
-    <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 800, padding: '36px 40px 56px', gap: 40 }}>
-      {view === 'loading' ? <Loading /> : view && <ContinuePlain view={view} hero={hero} fix={fix} />}
-      <Ask size="sm" primary={!view || view === 'loading'} />
-      <ReviewLine data={data} now={now} />
-      <div className="grid gap-x-[48px] gap-y-[40px] @[700px]:grid-cols-2">
-        <UpNext skip={skip} done={done} />
-        <Recents rows={recent} now={now} />
-      </div>
-    </div>
-  )
-}
-
-const LOOKS: Record<Look, (p: LookProps) => ReactNode> = { a: LookA, b: LookB, c: LookC }
 
 // ---- the page -----------------------------------------------------------------------------------------------------
 
@@ -510,17 +427,15 @@ export function Home(): ReactNode {
   const view = useView(hero, fix, conts, items)
   const skip = new Set(conts.map((c) => c.libraryId))
   if (hero.kind === 'resume' || hero.kind === 'fresh') skip.add(hero.id)
-  const look = homeLook()
-  const Look = LOOKS[look]
   return (
-    <div data-home data-home-look={look} className="@container flex min-h-0 flex-1 flex-col overflow-y-auto" style={{ color: color.text }}>
+    <div data-home className="@container flex min-h-0 flex-1 flex-col overflow-y-auto" style={{ color: color.text }}>
       {offline && (
         <p role="status" data-home-offline className="m-0 mx-auto flex w-full items-center gap-[8px]" style={{ ...caption, maxWidth: 700, padding: '12px 40px 0' }}>
           <CloudOff aria-hidden size={14} strokeWidth={1.8} />
           {copy.name} is offline. Your lessons show when it connects.
         </p>
       )}
-      <Look view={view} hero={hero} fix={fix} skip={skip} done={finishedIds(data)} data={data} now={now} recent={load === 'loading' ? [] : recentActivity(data)} />
+      <Body view={view} hero={hero} fix={fix} skip={skip} done={finishedIds(data)} data={data} now={now} recent={load === 'loading' ? [] : recentActivity(data)} />
     </div>
   )
 }
