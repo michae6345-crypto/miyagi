@@ -21,5 +21,9 @@ export const LOGIN_ENABLED = true
  * miyagi gets it as an ask. Speech turns into text on this Mac (the miyagi-listen helper, main/features/ptt.ts); miyagi
  * never talks back, so it is separate from VOICE_ENABLED (text to speech), which stays false. Off = no helper is
  * started, no settings row, no island state. The learner can also switch it off in Settings > General (prefs.ptt).
+ *
+ * Off for launch (Adrian, Nov 21): it asks for Microphone and Input Monitoring, listens to the chord across the whole
+ * session, and sends the words to Anthropic, and nothing tells the learner yet (no consent screen, policy or site line;
+ * #188 says miyagi never uses the microphone). Launch register R05/R06. Turn it back on once it's disclosed there.
  */
-export const PTT_ENABLED = true
+export const PTT_ENABLED = false
