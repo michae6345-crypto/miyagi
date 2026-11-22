@@ -15,7 +15,7 @@ import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
 import { setupPrefs, trackWindowBackground, windowBackground } from './prefs'
-import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
+import { ENGINE_TOKEN, localEngineState, QUIT_CONFIRM_MS, QUIT_GRACE_MS, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
@@ -61,7 +61,9 @@ const platform = describePlatform(process.platform)
 const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
 // The token goes in with the constructor: the first connect starts there, before setupLocalEngine runs.
 const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined, ENGINE_TOKEN)
-let stopLocalEngine: () => void = () => undefined
+let stopLocalEngine: () => Promise<void> | void = () => undefined
+/** R44: the most a quit waits for the engine to go (SIGTERM, QUIT_GRACE_MS, SIGKILL, QUIT_CONFIRM_MS), plus a margin. */
+const QUIT_ENGINE_DEADLINE_MS = QUIT_GRACE_MS + QUIT_CONFIRM_MS + 1000
 /** Notch geometry + Boring Notch state (main/notch.ts); started at launch. */
 let notchService: NotchService | undefined
 /** Every window gets its layout again (Settings > General shows whether Boring Notch is using the notch). Module level: the first notch read can land before whenReady has finished. */
@@ -738,8 +740,36 @@ function setupMenu(): void {
 }
 
 app.on('before-quit', () => boundsOut.flush())
-app.on('will-quit', () => {
+/**
+ * R44: the engine goes with the app. Its windows are already closed here; when the engine this app started is still
+ * running, the quit waits (bounded) while localEngine SIGTERMs its group and, if it's hung, SIGKILLs it, then exits.
+ * The other will-quit listeners (features) have run by then: app.exit skips the events, so none of them runs twice.
+ */
+let engineStopping = false
+app.on('will-quit', (event) => {
   globalShortcut.unregisterAll()
-  stopLocalEngine()
+  if (engineStopping) return event.preventDefault()
+  let pending: Promise<void> | void = undefined
+  try {
+    pending = stopLocalEngine()
+  } catch (err) {
+    console.error('[tut] stopping the engine threw', err)
+  }
+  if (!pending) return
+  engineStopping = true
+  event.preventDefault()
+  let done = false
+  const exit = (): void => {
+    if (done) return
+    done = true
+    app.exit(0)
+  }
+  const deadline = setTimeout(exit, QUIT_ENGINE_DEADLINE_MS)
+  pending
+    .catch((err: unknown) => console.error('[tut] stopping the engine failed', err))
+    .finally(() => {
+      clearTimeout(deadline)
+      exit()
+    })
 })
 app.on('window-all-closed', () => app.quit())
