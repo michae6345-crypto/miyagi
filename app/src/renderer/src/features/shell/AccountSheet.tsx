@@ -343,7 +343,7 @@ function AccountBody(): ReactNode {
   return (
     <>
       {v2Cloud && account?.signedIn && (
-        <motion.div variants={riseItem}>{help ? <MeterGroup help={help} title="Help this month" count={`${help.used} of ${help.limit}`} label="Help requests used this month" /> : <span style={caption}>Checks never count. Only live help does.</span>}</motion.div>
+        <motion.div variants={riseItem}>{help ? <MeterGroup help={help} title="Help this month" count={help.used >= help.limit ? 'None left' : `${help.limit - help.used} left`} label="Help requests left this month" /> : <span style={caption}>Checks never count. Only live help does.</span>}</motion.div>
       )}
       <motion.div variants={riseItem} role="group" aria-label="Account actions" className="flex flex-col" style={group}>
         <SheetRow icon={KeyRound} label="Use your own key" right={keyWord} onClick={toYourKey} />
