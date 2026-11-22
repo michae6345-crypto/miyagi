@@ -33,7 +33,12 @@ electronLanguages: [en]
 #   grantFileProtocolExtraPrivileges false: file:// pages get no more than a browser gives them. The renderer is
 #     served from http://127.0.0.1 (main/serve.ts); the file:// fallback (only if that server fails) loses file://
 #     fetch and module loading, which is the point of the fuse.
+#   resetAdHocDarwinSignature true: flipping fuses rewrites the Electron Framework binary, which breaks the ad-hoc
+#     signature it came with. With mac.identity null electron-builder signs nothing afterwards, so without this an
+#     unsigned build (npm run dist:mac, CI) is killed by macOS at launch on Apple Silicon (invalid code signature).
+#     It re-signs ad hoc right after the flip; ship-mac.sh's later codesign --force --deep -s - just signs again.
 electronFuses:
+  resetAdHocDarwinSignature: true
   runAsNode: false
   enableCookieEncryption: true
   enableNodeOptionsEnvironmentVariable: false

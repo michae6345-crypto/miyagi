@@ -268,7 +268,7 @@ export function linkHost(url: string | undefined): string | undefined {
 }
 
 /**
- * Setup Download links main would not open (not on its setup list, main/safeOpen.ts SETUP_PAGES), keyed by tool AND
+ * Setup Download / Open links main would not open (not on its setup list, main/safeOpen.ts SETUP_PAGES), keyed by tool AND
  * URL (refusedKey): the text to show on the row with a Copy button instead ('' = not a web link, nothing to copy).
  * A corrected URL the engine sends later for the same tool is a new key, so its row offers Get it again.
  */
@@ -285,7 +285,7 @@ export function refusedLink(byKey: Record<string, string>, tool: string, url: st
 type SetupOpen = { opened: true } | { opened: false; refused: boolean; copy?: string }
 
 /**
- * A setup row's Download button (cards/index.tsx, cards/VSCodeSheet.tsx). The URL comes from the engine (maybe from a
+ * A setup row's Download or Open button (cards/index.tsx, cards/VSCodeSheet.tsx). The URL comes from the engine (maybe from a
  * video description), so it never goes through window.open (any https): main opens it only if it is on the setup
  * list, else the row shows it as text with Copy (app-harden). A link on the list the system failed to open is not
  * "refused": the row keeps Get it, so the learner can try again.
@@ -305,6 +305,23 @@ export function openSetupLink(tool: string, url: string): void {
         return { byKey }
       })
     })
+}
+
+/**
+ * Does this setup row's button open a link? "download" (a download page) and "open" (a web app, kind web_app). Both
+ * go through main's setup list (openSetupLink), never the engine's open_in_browser: Claude's requirements may mark any
+ * tool a web_app with any https URL, and the engine would `open` it (app-harden).
+ */
+export const isLinkRow = (method: string): boolean => method === 'download' || method === 'open'
+
+/**
+ * A link row's button (cards/index.tsx itemAct, cards/VSCodeSheet.tsx act): a link main already refused is copied;
+ * anything else goes to main's setup list (no URL at all is refused there and shows "Not a web link").
+ */
+export function linkRowAct(tool: string, url: string | undefined): void {
+  const refused = refusedLink(useRefusedLinks.getState().byKey, tool, url)
+  if (refused !== undefined) void copySetupLink(refused)
+  else openSetupLink(tool, url ?? '')
 }
 
 /** Copy a refused setup link (main's clipboard: the overlay can't take focus; see drawer/plan.ts copyText). */

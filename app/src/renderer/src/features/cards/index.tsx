@@ -27,7 +27,7 @@ import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot, StatusGlyph } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
-import { copySetupLink, linkHost, openSetupLink, refusedLink, useDrawer, useRefusedLinks } from '../drawer/store'
+import { isLinkRow, linkHost, linkRowAct, refusedLink, useDrawer, useRefusedLinks } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
@@ -621,20 +621,18 @@ function UnifiedDiff({ diff }: { diff: string }): ReactNode {
 }
 
 /**
- * One setup row's button (contract SetupItem.install): method "download" opens its URL here (nothing to
- * send), "open" (a web app) asks the engine to open it (open_in_browser), the rest install (install {text: tool}).
+ * One setup row's button (contract SetupItem.install): "download" (a download page) and "open" (a web app) go to
+ * main's setup list (drawer/store linkRowAct; never the engine's open_in_browser, app-harden), the rest install
+ * (install {text: tool}).
  */
 function itemAct(x: NonNullable<EngineCard['setup']>['items'][number]): void {
-  // A download link main refused (not on its setup list): the button copies it instead (app-harden).
-  const refused = refusedLink(useRefusedLinks.getState().byKey, x.tool, x.install.url)
-  if (x.install.method === 'download' && refused !== undefined) void copySetupLink(refused)
-  else if (x.install.method === 'download' && x.install.url) openSetupLink(x.tool, x.install.url)
-  else if (x.install.method === 'open') cardAct('open_in_browser', x.tool)
+  // A link main refused (not on its setup list) is copied instead of opened.
+  if (isLinkRow(x.install.method)) linkRowAct(x.tool, x.install.url)
   else cardAct('install', x.tool)
 }
 
 function itemLabel(x: NonNullable<EngineCard['setup']>['items'][number], run?: Install): string {
-  if (x.install.method === 'download' && refusedLink(useRefusedLinks.getState().byKey, x.tool, x.install.url) !== undefined) return 'Copy link'
+  if (isLinkRow(x.install.method) && refusedLink(useRefusedLinks.getState().byKey, x.tool, x.install.url) !== undefined) return 'Copy link'
   return x.install.method === 'download' ? 'Get it' : x.install.method === 'open' ? 'Open' : run?.error ? 'Retry' : 'Install'
 }
 

@@ -29,6 +29,12 @@ describe('electron-builder.yml fuses', () => {
     assert.equal(fuses.loadBrowserProcessSpecificV8Snapshot, false)
   })
 
+  test('an unsigned build stays launchable: the flipped binary is re-signed ad hoc', () => {
+    // mac.identity is null, so electron-builder signs nothing after the fuse flip; without this the Electron Framework
+    // keeps a broken ad-hoc signature and Apple Silicon kills npm run dist:mac / CI builds at launch.
+    assert.equal(fuses.resetAdHocDarwinSignature, true)
+  })
+
   test('the app is packed in an asar (integrity validation needs one) and signing is unchanged', () => {
     assert.notEqual(config.asar, false)
     const mac = config.mac as Record<string, unknown>
@@ -63,13 +69,15 @@ describe('debugFlagIn (the packaged argv guard)', () => {
   const app = '/Applications/miyagi.app/Contents/MacOS/miyagi'
 
   test('ATTACK each debug switch is caught, in every spelling', () => {
-    for (const a of ['--inspect', '--inspect=9229', '--inspect-brk', '--inspect-brk=0.0.0.0:9229', '--remote-debugging-port=9222', '--remote-debugging-pipe', '--js-flags=--allow-natives-syntax', '--INSPECT', '-inspect', '--inspect-port=1', '--remote-debugging-address=0.0.0.0']) {
+    for (const a of ['--inspect', '--inspect=9229', '--inspect-brk', '--inspect-brk=0.0.0.0:9229', '--remote-debugging-port=9222', '--remote-debugging-pipe', '--js-flags=--allow-natives-syntax', '--INSPECT', '-inspect', '--inspect-port=1', '--remote-debugging-address=0.0.0.0', '--inspect-brk-node', '--inspect-brk-node=9229', '--inspect-wait', '--inspect-wait=9229', '--debug', '--debug=5858', '--debug-brk', '--debug-brk=5858', '--debug-port=5858']) {
       assert.ok(debugFlagIn([app, a], false), a)
     }
     assert.equal(debugFlagIn([app, '--remote-debugging-port=9222'], false), 'remote-debugging-port')
     assert.equal(debugFlagIn([app, '--', '--inspect'], false), 'inspect', 'also after --')
     assert.equal(debugFlagIn(['C:\\miyagi.exe', '/remote-debugging-port=9222'], true), 'remote-debugging-port', 'Windows /switch')
-    for (const s of ['inspect', 'inspect-brk', 'remote-debugging-port', 'remote-debugging-pipe', 'js-flags']) assert.ok((DEBUG_SWITCHES as readonly string[]).includes(s))
+    assert.equal(debugFlagIn([app, '--inspect-brk-node'], false), 'inspect-brk-node')
+    assert.equal(debugFlagIn([app, '--debug-port=5858'], false), 'debug-port')
+    for (const s of ['inspect', 'inspect-brk', 'inspect-brk-node', 'inspect-wait', 'debug', 'debug-brk', 'debug-port', 'remote-debugging-port', 'remote-debugging-pipe', 'js-flags']) assert.ok((DEBUG_SWITCHES as readonly string[]).includes(s))
   })
 
   test('a normal launch is not caught', () => {

@@ -3,10 +3,10 @@
  * shell.openExternal goes through here (BUILD-PLAN Section 6).
  *
  *   safeOpenExternal(url)       https on an allowlisted host, or a plain mailto:; anything else is refused (false)
- *   safeOpenExternal({setup})   a setup card's Download button: openSetupDownload's stricter list (below) → SetupOpen
+ *   safeOpenExternal({setup})   a setup card's Download or Open button: openSetupDownload's stricter list → SetupOpen
  *   openSetupDownload(url)      https on one of SETUP_PAGES (exact host + official download path; GitHub only as a
- *                               SETUP_GITHUB_ORGS repo or its releases) → opened; anything else is handed back as
- *                               copy-only text and never opened
+ *                               SETUP_GITHUB_REPOS repo page or its releases list) → opened; anything else is handed
+ *                               back as copy-only text and never opened
  *   openEngineStats(url, port)  overview.ts's Stats link only: the local engine's /stats on its own port
  *   openLinkInBrowser(url)      the window-open handler only: any plain https link (no user, password or odd port)
  *   openSystemSettings(kind)    a fixed x-apple.systempreferences: URL from an enum, never a URL from a renderer
@@ -47,7 +47,7 @@ const MAX_URL = 2048
 const EMAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/
 
 /**
- * Where a setup card's Download button may send the learner (app-harden). A setup item's URL comes from the engine,
+ * Where a setup card's Download or Open button may send the learner (app-harden). A setup item's URL comes from the engine,
  * which may have taken it from a video description or a page Claude read: a prompt-injected "download fastcli.pkg"
  * (or a malicious PyPI / Go module page on an official host) must never open. So: an exact host (a "www." in front is
  * the same host, nothing else is) AND one of that host's official download pages. A path matches when it is that
@@ -71,7 +71,8 @@ export const SETUP_PAGES: Readonly<Record<string, readonly string[]>> = {
   'jupyter.org': ['/install'], // CATALOG jupyter
   // The engine's ipykernel row and the Jupyter family; never pypi.org/project/<anything>.
   'pypi.org': ['/project/ipykernel', '/project/jupyter', '/project/notebook', '/project/jupyterlab'],
-  // CATALOG web apps (their "open" rows go through the engine; listed in case a row comes as a download).
+  // CATALOG web apps: rows with install.method "open" (kind web_app). Claude's requirements may call any tool a web_app
+  // with any https URL (setup.py), so the Open button comes through this list too, never straight to the engine.
   'platform.openai.com': ['/'],
   'chatgpt.com': ['/'],
   'app.botpress.cloud': ['/'],
@@ -80,10 +81,19 @@ export const SETUP_PAGES: Readonly<Record<string, readonly string[]>> = {
 }
 
 /**
- * github.com only as github.com/<org>/<repo> or its /releases pages, and only under these orgs: a tool's own releases,
- * never any repo's issues, wiki or files. Lowercase.
+ * github.com only for these exact repos (a tool's own installer), and only as the repo page, /releases or
+ * /releases/latest: never a release asset (/releases/download/…, a .pkg straight into Downloads), a tag, issues, a
+ * wiki or files. A whole org is too wide: in an org of community repos (conda-forge's feedstocks) whoever becomes a
+ * maintainer of one can publish a release. No CATALOG row links to GitHub; these are the usual installers.
+ * Lowercase "org/repo".
  */
-export const SETUP_GITHUB_ORGS = ['python', 'nodejs', 'nvm-sh', 'homebrew', 'git-for-windows', 'microsoft', 'astral-sh', 'rust-lang', 'golang', 'jupyter', 'conda-forge', 'adoptium', 'docker'] as const
+export const SETUP_GITHUB_REPOS = ['python/cpython', 'nodejs/node', 'nvm-sh/nvm', 'homebrew/brew', 'git-for-windows/git', 'astral-sh/uv', 'rust-lang/rustup'] as const
+
+/**
+ * A percent-encoded "/", "\" or "." in a path: the URL parser keeps it, but a server that decodes it first (nginx)
+ * walks out of the allowed page (/downloads/..%2F..%2Fevil). No real download page needs one.
+ */
+const ENCODED_TRAVERSAL = /%(?:2f|5c|2e)/i
 
 function parse(raw: unknown): URL | undefined {
   if (typeof raw !== 'string' || raw.length > MAX_URL) return undefined
@@ -97,16 +107,20 @@ function parse(raw: unknown): URL | undefined {
 /** path is page, or under it by whole segments. '/' is the home page only. */
 const underPage = (path: string, page: string): boolean => (page === '/' ? path === '/' : path === page || path.startsWith(`${page}/`))
 
-/** Would a setup card's Download button open this? Plain https on one of SETUP_PAGES, or a known org's GitHub repo / releases. */
+/**
+ * Would a setup card's Download / Open button open this? Plain https on one of SETUP_PAGES, or one of
+ * SETUP_GITHUB_REPOS' repo page, /releases or /releases/latest. A percent-encoded "/", "\" or "." in the path is refused.
+ */
 export function isSetupDownloadUrl(raw: unknown): boolean {
   const u = parse(raw)
-  if (!u || !isPlainHttps(u)) return false
+  if (!u || !isPlainHttps(u) || ENCODED_TRAVERSAL.test(u.pathname)) return false
   const host = u.hostname.toLowerCase().replace(/^www\./, '')
   if (host === 'github.com') {
-    const [, org = '', repo = '', section, ...rest] = u.pathname.split('/')
-    if (!(SETUP_GITHUB_ORGS as readonly string[]).includes(org.toLowerCase()) || !repo) return false
-    // github.com/<org>/<repo>[/] or github.com/<org>/<repo>/releases[/…]; nothing else in the repo.
-    return section === undefined || section === '' ? rest.length === 0 : section === 'releases'
+    // One trailing slash is the same page. After the repo: nothing, releases or releases/latest; anything else is refused.
+    const [, org = '', repo = '', ...rest] = u.pathname.replace(/(.)\/$/, '$1').split('/')
+    if (!(SETUP_GITHUB_REPOS as readonly string[]).includes(`${org}/${repo}`.toLowerCase())) return false
+    const tail = rest.join('/')
+    return tail === '' || tail === 'releases' || tail === 'releases/latest'
   }
   const pages = Object.prototype.hasOwnProperty.call(SETUP_PAGES, host) ? SETUP_PAGES[host] : undefined
   return !!pages && pages.some((p) => underPage(u.pathname, p))
@@ -120,7 +134,7 @@ export function isSetupDownloadUrl(raw: unknown): boolean {
 export type SetupOpen = { opened: true } | { opened: false; refused: true; copy?: string } | { opened: false; refused: false }
 
 /**
- * A setup card's Download button. On the setup list → the default browser. Anything else is never opened: a plain
+ * A setup card's Download or Open button. On the setup list → the default browser. Anything else is never opened: a plain
  * https URL comes back as copy-only text (the card shows it with a Copy button); any other string comes back empty.
  */
 export async function openSetupDownload(raw: unknown): Promise<SetupOpen> {
@@ -226,7 +240,7 @@ export async function openLinkInBrowser(raw: unknown): Promise<boolean> {
 
 /**
  * Open an allowlisted URL in the default browser / mail client. false = refused or failed (never throws).
- * {setup: url} (a setup card's Download button) is checked against the stricter setup list instead and answers with
+ * {setup: url} (a setup card's Download or Open button) is checked against the stricter setup list instead and answers with
  * openSetupDownload's SetupOpen (so the card can tell "not on the list" from "the browser didn't open").
  */
 export function safeOpenExternal(raw: string): Promise<boolean>
@@ -283,7 +297,21 @@ export async function openPttSettings(kind: unknown): Promise<boolean> {
  * flags are also off by fuse (electron-builder.yml enableNodeCliInspectArguments); Chromium's --remote-debugging-*
  * and --js-flags are covered by no fuse, so this check is their only stop.
  */
-export const DEBUG_SWITCHES = ['inspect', 'inspect-brk', 'inspect-port', 'inspect-publish-uid', 'remote-debugging-port', 'remote-debugging-pipe', 'remote-debugging-address', 'js-flags'] as const
+export const DEBUG_SWITCHES = [
+  'inspect',
+  'inspect-brk',
+  'inspect-brk-node', // Electron's: break in Node's own bootstrap
+  'inspect-wait', // Node 22
+  'inspect-port',
+  'inspect-publish-uid',
+  'debug', // Node's older spellings of the same inspector
+  'debug-brk',
+  'debug-port',
+  'remote-debugging-port',
+  'remote-debugging-pipe',
+  'remote-debugging-address',
+  'js-flags'
+] as const
 
 /**
  * The first debug switch in argv (its name), or undefined. Matches --x, --x=…, -x and -x=… in any case (Chromium

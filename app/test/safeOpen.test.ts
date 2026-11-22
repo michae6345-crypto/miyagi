@@ -3,6 +3,8 @@
  * open:external IPC may open. Nothing really opens: the fake shell.openExternal only records the URL.
  */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import overview, { enginePort, statsUrl } from '../src/main/features/overview'
 import { isAllowedUrl, isBrowserLink, isEngineStatsUrl, isSetupDownloadUrl, openEngineStats, openSetupDownload, safeOpenExternal } from '../src/main/safeOpen'
@@ -46,10 +48,75 @@ describe('setup downloads (a setup card from the engine)', () => {
       'https://jupyter.org/install',
       'https://pypi.org/project/ipykernel/',
       'https://github.com/python/cpython/releases',
-      'https://github.com/python/cpython/releases/tag/v3.12.0',
-      'https://github.com/nvm-sh/nvm'
+      'https://github.com/python/cpython/releases/latest',
+      'https://github.com/astral-sh/uv/releases/',
+      'https://github.com/nvm-sh/nvm',
+      'https://github.com/git-for-windows/git/'
     ]) {
       assert.equal(isSetupDownloadUrl(u), true, u)
+    }
+  })
+
+  test('the engine CATALOG web apps open (a setup row with install.method "open")', async () => {
+    for (const u of ['https://platform.openai.com', 'https://chatgpt.com', 'https://app.botpress.cloud', 'https://zapier.com/app/home', 'https://sheets.google.com']) {
+      assert.deepEqual(await opens(() => safeOpenExternal({ setup: u })), [new URL(u).href], u)
+    }
+  })
+
+  test('ATTACK an injected web_app (Open button) is never opened: shown as copy-only text', async () => {
+    // Claude's requirements JSON may call any tool a web_app with any https URL (engine setup.py); recipe() turns it
+    // into install.method "open". {tool: 'fastcli', kind: 'web_app', url: …} must not get past the setup list.
+    const url = 'https://fastcli-download.example/mac.pkg'
+    let r: unknown
+    assert.deepEqual(await opens(async () => (r = await safeOpenExternal({ setup: url }))), [])
+    assert.deepEqual(r, { opened: false, refused: true, copy: url })
+    // A web app on a CATALOG host but another page is refused too.
+    assert.deepEqual(await opens(() => safeOpenExternal({ setup: 'https://chatgpt.com/g/evil-gpt' })), [])
+    // The renderer: an "open" row goes to main's setup list like a download, never to the engine's open_in_browser
+    // (which would run `open <url>` for any https URL).
+    const src = (f: string): string => readFileSync(join(__dirname, '..', 'src', 'renderer', 'src', 'features', f), 'utf8')
+    const store = src('drawer/store.ts')
+    assert.match(store, /export const isLinkRow = \(method: string\): boolean => method === 'download' \|\| method === 'open'/)
+    assert.match(store, /export function linkRowAct\([^)]*\): void \{[\s\S]*?openSetupLink\(tool, url \?\? ''\)/)
+    for (const f of ['cards/index.tsx', 'cards/VSCodeSheet.tsx']) {
+      const code = src(f)
+      assert.doesNotMatch(code, /cardAct\(\s*'open_in_browser'/, `${f} sends open_in_browser`)
+      assert.doesNotMatch(code, /window\.open\(\s*x\.install/, `${f} opens a setup URL itself`)
+      assert.match(code, /if \(isLinkRow\(x\.install\.method\)\) linkRowAct\(x\.tool, x\.install\.url\)/, f)
+    }
+  })
+
+  test('ATTACK GitHub: only listed repos, only the repo page and its releases list, never a release asset', async () => {
+    for (const u of [
+      'https://github.com/conda-forge/anything-feedstock/releases', // a community org: any maintainer can release
+      'https://github.com/conda-forge/anything-feedstock',
+      'https://github.com/microsoft/vscode/releases/download/x/evil.pkg', // a direct asset download
+      'https://github.com/nvm-sh/nvm/releases/download/v0.40.0/install.sh',
+      'https://github.com/python/cpython/releases/download/v3.12.0/python.pkg',
+      'https://github.com/python/cpython/releases/tag/v3.12.0',
+      'https://github.com/microsoft/vscode/releases', // a listed org was never enough
+      'https://github.com/python/evil-repo/releases',
+      'https://github.com/nvm-sh/nvm/archive/refs/heads/master.zip',
+      'https://github.com/nvm-sh/nvm/releases/latest/download/x.pkg'
+    ]) {
+      assert.equal(isSetupDownloadUrl(u), false, u)
+      assert.deepEqual(await opens(() => openSetupDownload(u)), [], u)
+    }
+  })
+
+  test('ATTACK percent-encoded traversal (a server that decodes %2F walks out of the page) is refused', async () => {
+    for (const u of [
+      'https://www.python.org/downloads/..%2F..%2Fevil',
+      'https://www.python.org/downloads/..%2f..%2fevil',
+      'https://www.python.org/downloads/%2E%2E/evil',
+      'https://www.python.org/downloads/%2e%2e%2fevil',
+      'https://www.python.org/downloads/..%5C..%5Cevil',
+      'https://nodejs.org/en/download/%2e%2e%5cevil',
+      'https://github.com/nvm-sh/nvm/releases/..%2F..%2Fevil',
+      'https://github.com/nvm-sh/nvm/releases%2F..%2Fevil'
+    ]) {
+      assert.equal(isSetupDownloadUrl(u), false, u)
+      assert.deepEqual(await opens(() => openSetupDownload(u)), [], u)
     }
   })
 

@@ -72,11 +72,14 @@ test('the general opener (open:external) has no loopback exception: openEngineSt
   assert.deepEqual(users, ['main/features/overview.ts'])
 })
 
-test('setup Download buttons never window.open an engine URL (they go to main’s setup allowlist)', () => {
+test('setup Download / Open buttons never window.open an engine URL or send open_in_browser (main’s setup list decides)', () => {
   for (const rel of ['renderer/src/features/cards/index.tsx', 'renderer/src/features/cards/VSCodeSheet.tsx']) {
     const text = files.find((f) => f.rel === rel)?.text ?? ''
     assert.ok(text, rel)
     assert.doesNotMatch(text, /window\.open\(\s*x\.install\.url/, rel)
-    assert.match(text, /openSetupLink\(/, rel)
+    assert.doesNotMatch(text, /cardAct\(\s*'open_in_browser'/, rel)
+    assert.match(text, /linkRowAct\(x\.tool, x\.install\.url\)/, rel)
   }
+  const store = files.find((f) => f.rel === 'renderer/src/features/drawer/store.ts')?.text ?? ''
+  assert.match(store, /openSetupLink\(tool, url \?\? ''\)/)
 })

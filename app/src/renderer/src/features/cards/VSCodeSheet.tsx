@@ -24,7 +24,7 @@ import { color, copy, fill, radius2, status, type2 } from '../../core/theme'
 import { CloseButton, PrimaryButtonV2 } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { cardAct, engineInstalls, itemDone, useCards, type Install } from './store'
-import { copySetupLink, openSetupLink, refusedLink, useRefusedLinks } from '../drawer/store'
+import { isLinkRow, linkRowAct, refusedLink, useRefusedLinks } from '../drawer/store'
 
 type EngineCard = Payload<'card'>
 type SetupItem = NonNullable<EngineCard['setup']>['items'][number]
@@ -94,11 +94,9 @@ function rowDetail(x: SetupItem, done: boolean, run?: Install): string {
  * with no answer coming.
  */
 function act(x: SetupItem): void {
-  // The engine's URL goes to main's setup list, never window.open; a refused one is copied instead (app-harden).
-  const refused = refusedLink(useRefusedLinks.getState().byKey, x.tool, x.install.url)
-  if (x.install.method === 'download' && refused !== undefined) void copySetupLink(refused)
-  else if (x.install.method === 'download' && x.install.url) openSetupLink(x.tool, x.install.url)
-  else if (x.install.method === 'open') cardAct('open_in_browser', x.tool)
+  // A download or web-app URL goes to main's setup list, never window.open or the engine's open_in_browser; a refused
+  // one is copied instead (app-harden).
+  if (isLinkRow(x.install.method)) linkRowAct(x.tool, x.install.url)
   else if (engineInstalls(x)) cardAct('install', x.tool)
 }
 
@@ -133,7 +131,7 @@ export function VSCodeSheet({ card }: { card: EngineCard }): ReactNode {
   const busy = !!run?.running
   const title = editorMissing ? 'miyagi needs VS Code to teach this.' : missing.length > 1 ? 'Two things left before the lesson.' : 'One thing left before the lesson.'
   const body = editorMissing ? 'Install it and miyagi picks up on its own.' : 'The helper lets miyagi run and check your code.'
-  const label = next && next.install.method === 'download' && refusedLink(refused, next.tool, next.install.url) !== undefined ? 'Copy link' : editorMissing ? 'Get VS Code' : busy ? 'Installing helper' : run?.error ? 'Try again' : 'Install extension'
+  const label = next && isLinkRow(next.install.method) && refusedLink(refused, next.tool, next.install.url) !== undefined ? 'Copy link' : editorMissing ? 'Get VS Code' : busy ? 'Installing helper' : run?.error ? 'Try again' : 'Install extension'
   return (
     <div data-card="setup" data-sheet="vscode" role="dialog" aria-labelledby="miyagi-vscode-sheet" className="flex flex-col gap-[20px] p-[24px]">
       <div className="flex h-[22px] items-center gap-[8px]">
