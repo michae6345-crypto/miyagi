@@ -1,77 +1,134 @@
 /**
  * Feature: tips. The first-lesson walkthrough layer (overlay, z 72). A sample lesson panel docks beside the real pill,
- * and five coach marks (tourMarks.ts) point at the real pill and at the sample panel's steps, Check my work, Hint and
- * Explain, and End lesson. The sample is drawn here and wired to nothing: no engine command, no lesson, so it works
+ * and five coach marks (tourMarks.ts) point at the real pill and at the sample panel's step dots, Check my work, Need
+ * help and its keys line. The sample is drawn here and wired to nothing: no engine command, no lesson, so it works
  * offline and in the stage with mock data. It is the same CoachMark card as the real tips, with Skip and Next.
+ *
+ * The sample has the real lesson panel's shape (features/drawer/v2: header with the tree, step dots and "Step 1 of 3",
+ * the step with its code well, the one white Check my work, Need help as pastel tiles, the keys line), built from core
+ * pieces only, so the walkthrough shows what the first lesson will look like, on a Mac or a PC (keys from
+ * bridge.platform.keys).
  *
  * Starts from startTour() (tourStore.ts). Skip, Done and Esc end it for good. A real lesson on screen ends it (the
  * real panel is the thing to learn then). Overlay clicks stay with the sample's own marks (data-hit).
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronUp } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
-import { bridge } from '../../bridge'
 import { useIslandBox } from '../../core/Island'
 import { useLesson } from '../../core/lesson'
-import { brand, color, dock, elevation, fill, highlight, radius2, surface, type2 } from '../../core/theme'
-import { OptionButton, PrimaryButton } from '../../core/ui/atoms'
-import { QuietButton } from '../../core/ui/buttons'
+import { color, copy, dock, fill, font, highlight, radius2, surface, type2 } from '../../core/theme'
+import { PrimaryButton } from '../../core/ui/buttons'
+import { GlassCard } from '../../core/ui/GlassCard'
+import { HelpRow } from '../../core/ui/HelpRow'
+import { Keycap, keyLabel, type KeyName } from '../../core/ui/Keycap'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { enter, fade, springOut } from '../../core/ui/motion'
-import { StatusGlyph } from '../../core/ui/status'
+import { StepDots } from '../../core/ui/StepDots'
 import { CoachMark, MARK_W } from './CoachMark'
 import { place, type Rect } from './place'
 import { endTour, nextMark, useTour } from './tourStore'
 import { SAMPLE, TOUR, type TourTarget } from './tourMarks'
 
-const PANEL_H = 392
+const TARGETS = ['steps', 'check', 'help', 'keys'] as const
+const noop = (): void => undefined
 
-/** The sample lesson panel: the real one's shape (steps, Check my work, Hint and Explain, End lesson), all inert. */
+function Rule(): ReactNode {
+  return <div aria-hidden className="h-px shrink-0" style={{ background: fill.hairline }} />
+}
+
+/** One quiet item of the keys line: "[Esc] hide", "[launcher key] ask miyagi", "Back [key]". Inert. */
+function KeyItem({ k, label, keyFirst = true }: { k: KeyName; label: string; keyFirst?: boolean }): ReactNode {
+  if (!keyLabel(k)) return null
+  return (
+    <span className="flex h-[28px] shrink-0 items-center gap-[6px] px-[6px]">
+      {keyFirst && <Keycap k={k} size="sm" />}
+      <span>{label}</span>
+      {!keyFirst && <Keycap k={k} size="sm" />}
+    </span>
+  )
+}
+
+/** The sample lesson panel: the real one's shape and spacing, every part inert. */
 function SamplePanel({ x, y }: { x: number; y: number }): ReactNode {
-  const keys = bridge.platform.keys
+  const launch = keyLabel('launcher')
+  // Same rule as the real keys line (drawer/v2/KeysRow): a long launcher key leaves room for "ask miyagi" only.
+  const askLabel = launch && launch.length > 3 ? copy.ask : copy.launcherPlaceholder
   return (
     <motion.div
-      data-hit
       data-part="tour-panel"
-      className="pointer-events-auto absolute flex flex-col"
-      style={{ left: x, top: y, width: dock.w, height: PANEL_H, padding: 16, borderRadius: radius2.panel, background: surface.panel, boxShadow: `${highlight.top}, inset 0 0 0 1px ${surface.border}, ${elevation.panel}` }}
+      className="pointer-events-auto absolute"
+      style={{ left: x, top: y, width: dock.w }}
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 16, transition: { ...springOut, opacity: fade.out } }}
       transition={enter(0, fade.slow)}
     >
-      <div className="flex items-center gap-[8px]">
-        <MiyagiMark size={16} />
-        <span className="flex-1" style={{ fontSize: type2.sm, fontWeight: 600, color: color.text }}>
-          {SAMPLE.title}
-        </span>
-        <span style={{ fontSize: type2.xs, fontWeight: 500, color: color.text, padding: '2px 8px', borderRadius: radius2.round, background: `color-mix(in srgb, ${brand.pastel.lilac} 22%, transparent)` }}>Sample</span>
-      </div>
-
-      <div data-tour="steps" className="mt-[14px] flex flex-col gap-[2px]" style={{ borderRadius: radius2.card, background: fill.group, padding: 6, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}>
-        {SAMPLE.steps.map((s, i) => (
-          <div key={s} className="flex h-[34px] items-center gap-[10px] px-[8px]" style={{ borderRadius: radius2.row, background: i === 0 ? surface.row : undefined }}>
-            <StatusGlyph state={i === 0 ? 'watching' : 'next'} size={16} />
-            <span style={{ fontSize: type2.sm, fontWeight: i === 0 ? 600 : 400, color: i === 0 ? color.text : color.label }}>{s}</span>
+      <GlassCard hit surface="panel" width={dock.w} className="flex flex-col">
+        <div data-tour="steps">
+          <div className="flex items-center gap-[8px]" style={{ padding: '12px 12px 0 20px' }}>
+            <MiyagiMark size={20} />
+            <span className="flex-1 truncate" style={{ fontFamily: font.brand, fontSize: type2.body, fontWeight: 600, letterSpacing: '-0.02em', color: color.text }}>
+              {copy.name}
+            </span>
+            <span aria-hidden className="grid h-[32px] w-[32px] shrink-0 place-items-center" style={{ color: color.label }}>
+              <ChevronUp size={16} strokeWidth={1.6} />
+            </span>
           </div>
-        ))}
-      </div>
-
-      <p className="m-0 mt-[14px]" style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label }}>
-        {SAMPLE.hint}
-      </p>
-      <div className="flex-1" />
-
-      <span data-tour="check" className="block self-start">
-        <PrimaryButton label="Check my work" onClick={() => undefined} />
-      </span>
-      <div data-tour="help" className="mt-[12px] flex items-center gap-[8px]">
-        <OptionButton action="hint" label="Hint" kbd={keys.hint} onClick={() => undefined} />
-        <OptionButton action="explain" label="Explain" kbd={keys.explain} onClick={() => undefined} />
-      </div>
-      <span data-tour="end" className="mt-[10px] block self-start">
-        <QuietButton label="End lesson" onClick={() => undefined} />
-      </span>
+          <div className="flex flex-col gap-[8px]" style={{ padding: '8px 20px 16px' }}>
+            <span className="flex items-center gap-[8px]" style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}>
+              <span className="truncate">{SAMPLE.title}</span>
+              <span style={{ fontSize: type2.micro, fontWeight: 600, color: color.text, padding: '1px 7px', borderRadius: radius2.round, background: fill.navActive }}>Sample</span>
+            </span>
+            <div className="flex items-center gap-[12px]">
+              <StepDots total={SAMPLE.total} current={0} passed={[]} />
+              <span className="whitespace-nowrap" style={{ fontSize: type2.xs, color: color.label }}>
+                Step 1 of {SAMPLE.total}
+              </span>
+            </div>
+          </div>
+        </div>
+        <Rule />
+        <div className="flex flex-col" style={{ padding: '20px 20px 16px' }}>
+          <h2 className="m-0" style={{ fontSize: type2.xl, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.01em', color: color.text }}>
+            {SAMPLE.step}
+          </h2>
+          <p className="m-0 mt-[4px]" style={{ fontSize: type2.md, lineHeight: '20px', color: fill.keycapText }}>
+            {SAMPLE.line}
+          </p>
+          <span className="mt-[16px] block" style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}>
+            {SAMPLE.where}
+          </span>
+          <div className="mt-[8px]" style={{ background: surface.well, boxShadow: `inset 0 0 0 1px ${surface.border}, ${highlight.well}`, borderRadius: radius2.card, padding: '12px 16px' }}>
+            <p className="m-0" style={{ fontFamily: font.mono, fontSize: type2.sm, lineHeight: '20px', color: color.text }}>
+              {SAMPLE.code}
+            </p>
+          </div>
+        </div>
+        <div style={{ padding: '0 20px 20px' }}>
+          <span data-tour="check" className="block">
+            <PrimaryButton label="Check my work" block onClick={noop} />
+          </span>
+        </div>
+        <Rule />
+        <div data-tour="help" style={{ padding: '16px 20px' }}>
+          <HelpRow
+            options={[
+              { action: 'explain', onClick: noop },
+              { action: 'hint', onClick: noop },
+              { action: 'show_me', onClick: noop },
+              { action: 'diagram', onClick: noop }
+            ]}
+          />
+        </div>
+        <div data-tour="keys" className="flex items-center gap-[4px]" style={{ padding: '0 12px 12px 14px', fontSize: type2.xs, color: color.label }}>
+          <KeyItem k="dismiss" label="hide" />
+          <KeyItem k="launcher" label={askLabel} />
+          <span className="flex-1" />
+          <KeyItem k="back" label="Back" keyFirst={false} />
+        </div>
+      </GlassCard>
     </motion.div>
   )
 }
@@ -116,7 +173,7 @@ export function TourLayer({ layout }: { layout: Layout }): ReactNode {
       const box = el.getBoundingClientRect()
       const k = el.offsetWidth ? box.width / el.offsetWidth : 1
       const next: Partial<Record<TourTarget | 'panel', Rect>> = {}
-      for (const t of ['steps', 'check', 'help', 'end'] as const) {
+      for (const t of TARGETS) {
         const n = el.querySelector(`[data-tour="${t}"]`)
         if (!n) continue
         const r = n.getBoundingClientRect()
