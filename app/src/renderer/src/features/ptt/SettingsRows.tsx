@@ -34,7 +34,8 @@ function PermWord({ state, onAllow, pane }: { state: Perm; onAllow: () => void; 
         Not yet
       </span>
       {/* Input monitoring reads "denied" before it was ever asked, so it keeps Allow beside Open settings; a denied microphone only has the pane. */}
-      {(state !== 'denied' || pane === 'input') && <QuietButton label="Allow" onClick={onAllow} />}
+      {/* A microphone that reads denied may be a stale grant from an older install: Allow resets miyagi's row and asks again. */}
+      <QuietButton label="Allow" onClick={onAllow} />
       {state === 'denied' && <QuietButton label="Open settings" onClick={() => void bridge.invoke('ptt:open-settings', pane).catch(() => undefined)} />}
     </span>
   )
@@ -44,6 +45,7 @@ function PermWord({ state, onAllow, pane }: { state: Perm; onAllow: () => void; 
 export function PushToTalk(): ReactNode {
   const ptt = usePrefs((s) => s.ptt)
   const perms = usePtt((s) => s.ptt.perms)
+  const available = usePtt((s) => s.ptt.available)
   if (!pttAvailable()) return null
   const chords: { value: PttChord; label: string }[] = [
     { value: 'fn+control', label: keyLabel('ptt') ?? '' },
@@ -67,6 +69,10 @@ export function PushToTalk(): ReactNode {
           right={<Segmented label="Push to talk shortcut" options={chords} value={ptt.chord} onChange={(chord) => setPrefs({ ptt: { ...ptt, chord } })} />}
         />
       )}
+      {ptt.enabled && ptt.chord === 'fn+control' && (
+        <Row label="Fn key" caption="If Fn opens emoji or dictation, set the Globe key to Do Nothing in System Settings, Keyboard." right={null} />
+      )}
+      {ptt.enabled && !available && perms.input === 'unknown' && <Row label="Listener" caption="Not running. Quit and reopen miyagi to start it." right={null} />}
       {ptt.enabled && <Row label="Microphone" caption="To hear your question." right={<PermWord pane="mic" state={perms.mic} onAllow={() => allow(perms.input === 'granted' ? 'mic' : 'both')} />} />}
       {ptt.enabled && <Row label="Input monitoring" caption="To notice the shortcut in any app." right={<PermWord pane="input" state={perms.input} onAllow={() => allow('input')} />} />}
     </Group>

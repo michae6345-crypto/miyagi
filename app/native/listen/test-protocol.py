@@ -179,6 +179,17 @@ for code, reason in ((0, "keypress"), (53, "esc")):
     check(f"after release a new hold works again ({reason})", ("ptt", "down") in types(h.since(m)), str(h.since(m)))
     h.sim("up"); time.sleep(0.2)
 
+# --- Fn / Globe / modifier keyDowns during the hold are not key presses (some keyboards report them) -----------
+for code in (63, 179, 59, 62):
+    m = h.mark()
+    h.sim("down", fakeText="still talking"); time.sleep(0.45)
+    h.sim("key", code=code); time.sleep(0.05)
+    h.sim("up"); time.sleep(0.4)
+    ev = h.since(m)
+    check(f"keyDown code {code} (Fn/Globe/modifier) does not abort the hold",
+          not any(e["type"] == "cancelled" and e["reason"] in ("keypress", "esc") for e in ev) and any(e["type"] == "final" for e in ev), str(ev))
+    time.sleep(0.1)
+
 # --- cancel command and disabling ----------------------------------------------------------------------------
 m = h.mark()
 h.sim("down", fakeText="cancel me"); time.sleep(0.45); h.send(cmd="cancel"); time.sleep(0.1)

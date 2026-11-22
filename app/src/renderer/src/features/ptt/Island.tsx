@@ -18,7 +18,7 @@ import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
 import { color, duration, ease, pill, type2 } from '../../core/theme'
-import { closeCard, usePtt } from './store'
+import { closeCard, declineInputCard, usePtt } from './store'
 
 /** Fixed, so the pill doesn't change width with every partial. */
 export const PILL_W = 300
@@ -100,7 +100,10 @@ export function AllowCard(): ReactNode {
         Hold <Keycap k={chord === 'control+option' ? 'ptt_alt' : 'ptt'} size="sm" /> to ask. Speech stays on this Mac.
       </div>
       <div className="mt-[14px] flex items-center justify-end gap-[8px]">
-        <QuietButton label="Not now" onClick={closeCard} />
+        <QuietButton label="Not now" onClick={card === 'input' ? declineInputCard : closeCard} />
+        {/* macOS only asks once: after a No (or a stale grant from an older install) the pane is the way in. */}
+        {card === 'input' && <QuietButton label="Open settings" onClick={() => { bridge.invoke('ptt:open-settings', 'input').catch(() => undefined); closeCard() }} />}
+        {card === 'mic-denied' && <QuietButton label="Ask again" onClick={() => { bridge.invoke('ptt:allow', 'mic').catch(() => undefined); closeCard() }} />}
         <PrimaryButton label={w.primary} onClick={act} />
       </div>
     </motion.div>

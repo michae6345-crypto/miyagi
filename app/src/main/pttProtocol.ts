@@ -149,6 +149,19 @@ export function libraryNames(text: string): string[] {
   return out
 }
 
+// ---- macOS grants that went stale ------------------------------------------------------------------------------------
+
+/** miyagi is signed ad hoc, so every reinstall is a "different" app to macOS: the Privacy list can show miyagi switched ON
+ *  while macOS answers "denied" for the new build. Resetting miyagi's own row (and the helper's) makes the next ask a
+ *  real prompt again. Only ever run on an explicit Allow click while the grant reads denied. */
+export const TCC_IDS = ['dev.sandhacks.miyagi', 'dev.sandhacks.miyagi.listen'] as const
+export const TCC_SERVICE = { input: 'ListenEvent', mic: 'Microphone' } as const
+
+/** The `tccutil` argument lists that clear miyagi's stale row for one permission. */
+export function tccResetArgs(kind: 'input' | 'mic'): string[][] {
+  return TCC_IDS.map((id) => ['reset', TCC_SERVICE[kind], id])
+}
+
 // ---- respawn backoff ------------------------------------------------------------------------------------------------
 
 export const BACKOFF_MS = [500, 1000, 2000, 5000, 10_000, 30_000] as const

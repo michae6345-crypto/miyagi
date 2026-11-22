@@ -51,10 +51,44 @@ enum Perms {
     static var allGood: Bool { current.mic == "granted" && current.input == "granted" && current.assets == "installed" }
 
     private static var timer: Timer?
-    /// Poll every ~3 s while something is not granted, so the app sees the switch flip in System Settings.
+    private static var probing = false
+    private static var ticks = 0
+    static var onTick: (() -> Void)?
+    /// Poll every ~3 s so the app sees a switch flip in System Settings (granted or revoked). Re-reading the two
+    /// statuses is cheap; the full refresh (which also asks the speech assets) runs only when something changed or
+    /// something is still not granted.
     static func startPolling() {
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
-            if !allGood { refresh() }
+            ticks += 1
+            if !allGood || micStatus() != current.mic || inputStatus() != current.input { refresh() }
+            onTick?()   // retry a key listener that couldn't be created yet
+            if inputStatus() != "granted" && ticks % 3 == 0 { probeInput() }
         }
     }
+
+    /// CGPreflightListenEventAccess can keep saying "denied" in a process that started before the grant. When Input
+    /// Monitoring is off for us, ask a fresh copy of this binary; if it says granted, restart: the app respawns the
+    /// helper and the new process hears the shortcut. Never prompts (preflight only).
+    private static func probeInput() {
+        if probing || CommandLine.arguments.contains("--stdin-only") { return }
+        probing = true
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        p.arguments = ["--probe-input"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        p.terminationHandler = { _ in
+            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            DispatchQueue.main.async {
+                probing = false
+                if out.contains("granted") && inputStatus() != "granted" {
+                    log("Input Monitoring is granted for a fresh process: restarting to pick it up")
+                    restartForPermission?()
+                }
+            }
+        }
+        do { try p.run() } catch { probing = false }
+    }
+    static var restartForPermission: (() -> Void)?
 }

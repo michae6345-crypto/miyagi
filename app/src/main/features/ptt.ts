@@ -20,8 +20,8 @@
  * UNVERIFIED in Electron (typechecked and unit-tested only: no app runs during this lane).
  */
 import { app } from 'electron'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PTT_ENABLED } from '../../common/flags'
 import { DEFAULT_PREFS, sanitizePrefs, type PttPrefs } from '../../common/prefs'
@@ -40,13 +40,47 @@ import {
   lineBuffer,
   parseLine,
   permissionsCommand,
-  QUIT_COMMAND
+  QUIT_COMMAND,
+  tccResetArgs
 } from '../pttProtocol'
 import { openPttSettings } from '../safeOpen'
 
 /** Where the helper is: shipped in the app's resources, in dev under app/build/helpers (the other lane builds it there). */
 export function helperPath(): string {
   return app.isPackaged ? join(process.resourcesPath, 'helpers', 'miyagi-listen') : join(app.getAppPath(), 'build', 'helpers', 'miyagi-listen')
+}
+
+/**
+ * A small log of what the helper did (never what was said): ~/Library/Logs/miyagi/ptt.log, cut back to its newest half
+ * past 200 KB. A packaged miyagi has no console, so this is the only way to see why a hold did nothing.
+ */
+const LOG_MAX = 200_000
+export function pttLog(line: string): void {
+  try {
+    const dir = app.getPath('logs')
+    const file = join(dir, 'ptt.log')
+    mkdirSync(dir, { recursive: true })
+    if (existsSync(file) && statSync(file).size > LOG_MAX) writeFileSync(file, readFileSync(file, 'utf8').slice(-LOG_MAX / 2))
+    appendFileSync(file, `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    /* logging never breaks push to talk */
+  }
+}
+
+/** `tccutil reset` for miyagi's own rows (packaged builds only: a dev run belongs to Electron, not miyagi). */
+function resetGrant(kind: 'input' | 'mic'): Promise<void> {
+  if (!app.isPackaged) return Promise.resolve()
+  return Promise.all(
+    tccResetArgs(kind).map(
+      (args) =>
+        new Promise<void>((done) => {
+          execFile('/usr/bin/tccutil', args, { timeout: 5000 }, (err) => {
+            pttLog(`tccutil ${args.join(' ')} ${err ? 'failed: ' + err.message : 'ok'}`)
+            done()
+          })
+        })
+    )
+  ).then(() => undefined)
 }
 
 /** An error stays up this long, then the island goes back to rest. */
@@ -65,6 +99,7 @@ export default defineMainFeature({
     const bin = helperPath()
     if (!existsSync(bin)) {
       console.log('[ptt] no miyagi-listen helper at', bin, '(push to talk stays off)')
+      pttLog(`no helper at ${bin}: push to talk stays off`)
       return
     }
 
@@ -130,12 +165,19 @@ export default defineMainFeature({
       }
       child = p
       startedAt = Date.now()
+      pttLog(`spawned helper pid=${p.pid ?? '?'} (${bin})`)
       let configured = false
       p.stdout.setEncoding('utf8')
       p.stdout.on('data', (chunk: string) => {
         for (const l of buf.push(chunk)) {
           const ev = parseLine(l)
           if (!ev) continue
+          if (ev.type === 'ready') pttLog(`ready stt=${ev.stt} locale=${ev.locale} chord=${ev.chord}`)
+          else if (ev.type === 'perm') pttLog(`perm mic=${ev.mic} input=${ev.input} assets=${ev.assets ?? '?'}`)
+          else if (ev.type === 'error') pttLog(`error ${ev.code}: ${ev.message}`)
+          else if (ev.type === 'cancelled') pttLog(`cancelled ${ev.reason}`)
+          else if (ev.type === 'ptt') pttLog(`ptt ${ev.state}`)
+          else if (ev.type === 'listening' || ev.type === 'final') pttLog(ev.type)
           if (ev.type === 'ready') {
             // Once per helper process: a config line makes the helper re-check its speech engine, and a second ready
             // answering a second config would be a loop.
@@ -149,7 +191,7 @@ export default defineMainFeature({
           if (ev.type === 'perm' && pendingInput) {
             clearTimeout(pendingInput)
             pendingInput = undefined
-            if (ev.input !== 'granted') send(permissionsCommand('input'))
+            if (ev.input !== 'granted') void ask('input')
           }
           apply(ev)
         }
@@ -158,6 +200,7 @@ export default defineMainFeature({
       p.stdin.on('error', () => undefined)
       p.on('error', (err) => {
         console.warn('[ptt] helper error', err.message)
+        pttLog(`helper error: ${err.message}`)
         // A spawn failure (no pid) never emits exit: take the same way out as a death.
         if (p.pid === undefined && child === p) {
           child = undefined
@@ -165,7 +208,8 @@ export default defineMainFeature({
           again()
         }
       })
-      p.on('exit', () => {
+      p.on('exit', (code, signal) => {
+        pttLog(`helper exited code=${code ?? '-'} signal=${signal ?? '-'} after ${Date.now() - startedAt} ms`)
         if (child !== p) return
         child = undefined
         buf.reset()
@@ -223,15 +267,23 @@ export default defineMainFeature({
       sendConfig()
       return true
     })
-    ctx.handle('ptt:allow', (which) => {
-      if (which === 'mic' || which === 'input') return void send(permissionsCommand(which))
+    /** Ask for one permission. A grant that reads denied is usually this build's stale row (ad-hoc signing) or an old
+     *  "No": clear miyagi's row first so macOS asks for real instead of silently answering no. */
+    const ask = async (which: 'mic' | 'input'): Promise<void> => {
+      const denied = which === 'input' ? state.perms.input === 'denied' : state.perms.mic === 'denied'
+      if (denied) await resetGrant(which)
+      pttLog(`asking for ${which}${denied ? ' (after reset)' : ''}`)
+      send(permissionsCommand(which))
+    }
+    ctx.handle('ptt:allow', async (which) => {
+      if (which === 'mic' || which === 'input') return void (await ask(which))
       if (which !== 'both') return
       // mic first; input after the answer (the next perm event) so two system prompts never stack.
-      send(permissionsCommand('mic'))
+      await ask('mic')
       clearTimeout(pendingInput)
       pendingInput = setTimeout(() => {
         pendingInput = undefined
-        send(permissionsCommand('input'))
+        void ask('input')
       }, PROMPT_GAP_MS)
     })
     ctx.handle('ptt:open-settings', (kind) => openPttSettings(kind))

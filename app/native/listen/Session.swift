@@ -320,10 +320,16 @@ final class Controller {
 
     /// A key went down while the chord was held (Fn+Ctrl+arrow, Esc, ...).
     func keyDown(keyCode: Int) {
+        // Not a real key press: a modifier (shift/control/option/command/caps/fn, codes 54-63) or the Globe key (179).
+        // Some keyboards and macOS settings report Fn/Globe as a keyDown while the chord is held; aborting on that
+        // would make Fn+Control end the moment it starts.
+        if Controller.isModifierKey(keyCode) { return }
         guard let s = held else { return }
         held = nil; suppressed = true
         s.abort(keyCode == 53 ? "esc" : "keypress")
     }
+
+    static func isModifierKey(_ code: Int) -> Bool { (54...63).contains(code) || code == 179 }
 
     func holdCapped(_ s: Session) {
         if held === s { held = nil; suppressed = true }
