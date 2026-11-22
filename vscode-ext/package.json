@@ -3,7 +3,7 @@
   "publisher": "miyagi",
   "displayName": "Miyagi Companion",
   "description": "Lets the Miyagi tutor engine read and drive VS Code exactly (open, highlight, terminal, apply) over a localhost-only HTTP API.",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "private": true,
   "license": "UNLICENSED",
   "icon": "icon.png",
@@ -65,11 +65,13 @@
         "miyagi.port": {
           "type": "number",
           "default": 8791,
+          "scope": "machine",
           "description": "First localhost port to try. Each VS Code window takes the next free one (8791-8799)."
         },
         "miyagi.engineUrl": {
           "type": "string",
           "default": "http://127.0.0.1:8787",
+          "scope": "machine",
           "description": "Miyagi engine; editor/save/terminal events are posted to <engineUrl>/vscode/event."
         },
         "miyagi.editorUi": {
@@ -85,7 +87,8 @@
   },
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": true
+      "supported": true,
+      "restrictedConfigurations": ["miyagi.engineUrl", "miyagi.port"]
     },
     "virtualWorkspaces": false
   }

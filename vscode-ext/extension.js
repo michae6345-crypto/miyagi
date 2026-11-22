@@ -13,7 +13,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const VERSION = '0.0.7';
+const VERSION = '0.0.8';
 const DEFAULT_PORT = 8791;
 const PORT_SPAN = 9;
 const ACTION_DEADLINE_MS = 250; // the engine's client gives up after 300 ms
