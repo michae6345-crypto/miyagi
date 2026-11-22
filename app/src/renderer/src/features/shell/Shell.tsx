@@ -64,7 +64,7 @@ import { PAGES, setPage, useShell, type PageId } from './store'
 const COMPACT_W = 880
 /** Below this window width the sidebar keeps its labels but narrows (SIDEBAR_NARROW_W). */
 const NARROW_W = 1100
-const SHORT_H = 700
+const SHORT_H = 520 // the sidebar needs ~420 px; keep the Ready line at mid heights (round 3: it vanished at 1024x700)
 
 // ---- page header ------------------------------------------------------------------------------------------------
 
