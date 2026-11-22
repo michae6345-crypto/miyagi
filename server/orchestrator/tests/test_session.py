@@ -1540,7 +1540,7 @@ def test_long_video_builds_progressively(rig):
         assert rig.s.phase == "active" and rig.s.waiting_more
         part2_go.set()
         await t
-        await rig.settle()
+        await rig.built()  # learn_url returns once the lesson is live; the rest runs on as _build_task (flaky without)
 
     import json
     run(go())

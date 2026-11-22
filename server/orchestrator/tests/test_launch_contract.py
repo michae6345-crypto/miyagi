@@ -79,6 +79,8 @@ def quiet_env(tmp_path, monkeypatch):
 
     reader = FakeReader()
     monkeypatch.setattr(screen_pkg, "get_reader", lambda: reader)  # ScreenBridge imports server.screen by name
+    # off macOS the bridge starts a reader only for a fixture screen (CI runs on Linux); the reader here is fake anyway
+    monkeypatch.setenv("TUT_SCREEN_FIXTURE", "fake.png")
     monkeypatch.delenv("ORCH_AUTO_RESUME", raising=False)
     monkeypatch.delenv("ORCH_SCREEN_EAGER", raising=False)
     monkeypatch.delenv("ORCH_AUTOSTART", raising=False)
