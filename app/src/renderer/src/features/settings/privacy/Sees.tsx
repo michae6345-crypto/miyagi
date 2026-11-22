@@ -5,6 +5,7 @@
  */
 import { Bug, ChartColumn, CodeXml, Folder, KeyRound, Link, Monitor, Search, Server, SquareCode, UserRound, Video, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { here } from '../here'
 import { Group, Note, Plain, Row } from '../ui'
 import { FACTS, KEYS_NO_KEYCHAIN, ROUTE, type FactId } from './facts'
 
@@ -34,8 +35,8 @@ export function Sees({ secure }: { secure?: boolean }): ReactNode {
             minH={64}
             icon={ICON[f.id]}
             label={f.label}
-            caption={f.id === 'keys' && secure === false ? KEYS_NO_KEYCHAIN : f.line}
-            right={<Plain>{f.where}</Plain>}
+            caption={here(f.id === 'keys' && secure === false ? KEYS_NO_KEYCHAIN : f.line)}
+            right={<Plain>{here(f.where)}</Plain>}
           />
         ))}
       </Group>
