@@ -113,11 +113,13 @@ ANTHROPIC_SERVER_TOOLS = frozenset(t for t in _env_list("ANTHROPIC_SERVER_TOOLS"
 SERVER_TOOL_MAX_USES = _env_int("SERVER_TOOL_MAX_USES", 5)
 # web_fetch always goes upstream with a max_content_tokens (a fetched page is billed as input), at most this many.
 WEB_FETCH_MAX_CONTENT_TOKENS = max(_env_int("WEB_FETCH_MAX_CONTENT_TOKENS", 20_000), 1)
-GEMINI_MAX_OUTPUT_TOKENS = _env_int("GEMINI_MAX_OUTPUT_TOKENS", 8192)
-GEMINI_MAX_THINKING_TOKENS = _env_int("GEMINI_MAX_THINKING_TOKENS", 2048)
+# On Gemini 2.5 and later, thinking tokens count against maxOutputTokens. The engine sends neither maxOutputTokens
+# nor a thinkingConfig (lesson/gemini.py _generate_json, finder/gemini.py), so dynamic thinking (up to 24576 tokens on
+# Flash) and the JSON answer share this one clamp: 32768 leaves the answer at least 8192 tokens. No thinkingBudget is
+# inserted (Gemini 3 prefers thinkingLevel); the reservation holds the whole clamp at the output price.
+GEMINI_MAX_OUTPUT_TOKENS = _env_int("GEMINI_MAX_OUTPUT_TOKENS", 32_768)
+GEMINI_MAX_THINKING_TOKENS = _env_int("GEMINI_MAX_THINKING_TOKENS", 2048)  # clamp on a thinkingBudget a client sends
 # Reservation estimates (the cost held while a call is in flight; settled to the real usage when it ends).
-# Thinking a Gemini call may do when it sends no thinkingBudget (the engine sends none): dynamic thinking's ceiling.
-GEMINI_THINKING_RESERVE_TOKENS = _env_int("GEMINI_THINKING_RESERVE_TOKENS", 24_576)
 # Input tokens held for a YouTube fileData part without both offsets (about 30 minutes at the engine's 0.5 fps).
 GEMINI_VIDEO_RESERVE_TOKENS = _env_int("GEMINI_VIDEO_RESERVE_TOKENS", 300_000)
 IMAGE_RESERVE_TOKENS = 5_000  # one base64 image (a screenshot is ~1.6k tokens on Claude; held high on purpose)
@@ -125,7 +127,20 @@ WEB_SEARCH_RESERVE_TOKENS = 8_000  # the result blocks one web search adds to th
 CHARS_PER_TOKEN = 3  # the input estimate: forwarded JSON bytes / 3 (real text is ~4 per token: errs high)
 MAX_BODY = int(_env_float("MAX_BODY_MB", 2) * 1024 * 1024)
 # The engine sends Gemini a YouTube fileData part and a prompt (no inline video or screenshots): well under 1 MB.
-MAX_GEMINI_BODY = int(_env_float("MAX_GEMINI_BODY_MB", 8) * 1024 * 1024)
+MAX_GEMINI_BODY = int(_env_float("MAX_GEMINI_BODY_MB", 2) * 1024 * 1024)
+# Request bodies of forwarded AI calls held in memory at once (from the moment their Content-Length is accepted until
+# the call ends), in total and per client network (mint_bucket): past either, 429 concurrency_limit_error.
+MAX_INFLIGHT_BODY = int(_env_float("MAX_INFLIGHT_BODY_MB", 64) * 1024 * 1024)
+MAX_INFLIGHT_BODY_PER_IP = int(_env_float("MAX_INFLIGHT_BODY_PER_IP_MB", 16) * 1024 * 1024)
+# JSON shape bounds, checked while parsing and before anything is copied (a body of a million empty objects is 400,
+# not a gigabyte of dicts). The engine's largest bodies hold a few hundred objects.
+JSON_MAX_OBJECTS = _env_int("JSON_MAX_OBJECTS", 50_000)
+ANTHROPIC_MAX_MESSAGES = 1000
+ANTHROPIC_MAX_BLOCKS = 4000  # content blocks in every message and the system prompt together (top level)
+GEMINI_MAX_CONTENTS = 500
+GEMINI_MAX_PARTS = 2000  # in every content and the system instruction together
+GEMINI_MAX_FUNCTIONS = 256  # functionDeclarations, every tool together
+GEMINI_MAX_SAFETY = 32
 PROXY_HOPS = _env_int("TRUSTED_PROXY_HOPS", 1)  # Render's load balancer appends the client IP
 CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip().lower()  # e.g. cf-connecting-ip; used only when set
 
@@ -175,6 +190,11 @@ LESSON_SCHEMAS = frozenset(int(x) for x in _env_list("LESSON_SCHEMAS", "1") if x
 LESSON_PUTS_PER_DAY = _env_int("LESSON_PUTS_PER_DAY", 10)
 LESSON_AUTO_APPROVE_N = _env_int("LESSON_AUTO_APPROVE_N", 0)
 LESSON_DISK_MAX_PCT = _env_float("LESSON_DISK_MAX_PCT", 85)
+# Pending (unreviewed) uploads: dropped after this many days, and at most this many bytes in total and per uploader
+# network (IPv4 /24, IPv6 /48), so minted tokens cannot fill the disk (and trip the gate above for honest uploads).
+LESSON_PENDING_MAX_DAYS = _env_float("LESSON_PENDING_MAX_DAYS", 14)
+LESSON_PENDING_MAX_BYTES = int(_env_float("LESSON_PENDING_MAX_MB", 128) * 1024 * 1024)
+LESSON_PENDING_PER_NET_BYTES = int(_env_float("LESSON_PENDING_PER_NET_MB", 8) * 1024 * 1024)
 TIMEOUT = httpx.Timeout(connect=10.0, read=_env_float("UPSTREAM_READ_TIMEOUT_S", 300), write=60.0, pool=10.0)
 
 if not ANTHROPIC_KEY or not GEMINI_KEY:
@@ -195,11 +215,26 @@ DEFAULT_PRICE = (2.00, 10.00)
 SERVER_TOOL_USD = 0.01  # one web search ($10 per 1,000); any other server tool use is counted the same, defensively
 
 
-def estimate_usd(model: str, inp: int, out: int, cache_read: int = 0, cache_write: int = 0, server_tool_uses: int = 0) -> float:
-    pin, pout = PRICES.get(model, DEFAULT_PRICE)
+def estimate_usd(model: str, inp: int, out: int, cache_read: int = 0, cache_write: int = 0, server_tool_uses: int = 0,
+                 price: tuple[float, float] | None = None) -> float:
+    pin, pout = price or PRICES.get(model, DEFAULT_PRICE)
     plain = max(inp - cache_read - cache_write, 0)
     tokens = (plain * pin + cache_read * pin * 0.1 + cache_write * pin * 1.25 + out * pout) / 1_000_000
     return tokens + max(server_tool_uses, 0) * SERVER_TOOL_USD
+
+
+def answer_price(answer: str | None, requested: str) -> tuple[float, float]:
+    """The price a finished call is settled at, from the model that answered (a server-side fallback may answer on
+    another model). The requested model, or a dated variant of it: its price. Another known, non-Opus model: its own
+    price. Opus, or a model with no PRICES entry: the higher of its PRICES entry and DEFAULT_PRICE, and never below
+    the requested model's, so a fallback can never make a call look cheaper than it was."""
+    req = PRICES.get(requested, DEFAULT_PRICE)
+    if not answer or (answer.startswith(requested) and not _opus(answer)):
+        return req
+    if answer in PRICES and not _opus(answer):
+        return PRICES[answer]
+    own = PRICES.get(answer, DEFAULT_PRICE)
+    return max(own[0], DEFAULT_PRICE[0], req[0]), max(own[1], DEFAULT_PRICE[1], req[1])
 
 
 def output_price(model: str) -> float:
@@ -562,7 +597,7 @@ class Guard:
                 if status[0] == 0:
                     await error(413, "request_too_large", f"Request body over {limit // (1024 * 1024)} MB.")(scope, receive, send_logged)
         finally:
-            extra = "".join(f" {k}={state[k]}" for k in ("model", "tokens_in", "tokens_out", "tok", "user", "rl")
+            extra = "".join(f" {k}={state[k]}" for k in ("model", "tokens_in", "tokens_out", "held", "tok", "user", "rl")
                             if state.get(k) is not None)
             log.info("%s %s %s %dms%s", scope["method"], path, status[0] or 500, (time.monotonic() - start) * 1000, extra)
 
@@ -754,15 +789,18 @@ def check_quota(token_hash: str, role: str | None, provider: str, model: str, re
 # --------------------------------------------------------------------------- calls in flight (A23)
 
 class Inflight:
-    """Forwarded AI calls in flight, per install token (`per`) and in total (`total`). One event loop: no lock.
+    """Forwarded AI calls in flight, per install token (`per`) and in total (`total`), and the request-body bytes
+    they hold, in total (`bytes_total`) and per client network (`bytes_per_net`). One event loop: no lock.
 
-    The two slots are taken at different times: the per-token slot before the request body is read (so one install
-    cannot open more than PER_TOKEN_INFLIGHT bodies at once), the global slot only once the body has arrived (so
-    slow bodies cannot hold the slots every other install needs)."""
+    The per-token slot and the body bytes are taken before the request body is read (so one install cannot open more
+    than PER_TOKEN_INFLIGHT bodies, and all installs together cannot buffer more than MAX_INFLIGHT_BODY), the global
+    slot only once the body has arrived (so slow bodies cannot hold the slots every other install needs)."""
 
     def __init__(self) -> None:
         self.per: dict[str, int] = {}
         self.total = 0
+        self.bytes_total = 0
+        self.bytes_per_net: dict[str, int] = {}
 
     def acquire_token(self, key: str) -> bool:
         if PER_TOKEN_INFLIGHT > 0 and self.per.get(key, 0) >= PER_TOKEN_INFLIGHT:
@@ -786,6 +824,24 @@ class Inflight:
     def release_global(self) -> None:
         self.total = max(self.total - 1, 0)
 
+    def acquire_bytes(self, net: str, n: int) -> str | None:
+        """Hold `n` body bytes for network `net`. None when held, else which budget is full ("bytes" | "bytes_net")."""
+        if MAX_INFLIGHT_BODY > 0 and self.bytes_total + n > MAX_INFLIGHT_BODY:
+            return "bytes"
+        if MAX_INFLIGHT_BODY_PER_IP > 0 and self.bytes_per_net.get(net, 0) + n > MAX_INFLIGHT_BODY_PER_IP:
+            return "bytes_net"
+        self.bytes_total += n
+        self.bytes_per_net[net] = self.bytes_per_net.get(net, 0) + n
+        return None
+
+    def release_bytes(self, net: str, n: int) -> None:
+        self.bytes_total = max(self.bytes_total - n, 0)
+        left = self.bytes_per_net.get(net, 0) - n
+        if left <= 0:
+            self.bytes_per_net.pop(net, None)
+        else:
+            self.bytes_per_net[net] = left
+
     def acquire(self, key: str) -> str | None:
         """Both slots at once; None when taken, else which limit is full ("token" | "global")."""
         if not self.acquire_global():
@@ -802,12 +858,18 @@ class Inflight:
 
 inflight = Inflight()
 
+_INFLIGHT_429 = {
+    "token": ("inflight_token", "Too many AI calls at once from this install."),
+    "global": ("inflight_global", "miyagi is very busy. Try again in a moment."),
+    "bytes": ("inflight_bytes", "miyagi is very busy. Try again in a moment."),
+    "bytes_net": ("inflight_bytes_network", "Too many large AI requests at once from this network. Try again in a moment."),
+}
+
 
 def too_many_inflight(which: str) -> JSONResponse:
     """429 for the concurrency limits. Its type is not rate_limit_error on purpose: the engine reads a proxy-shaped
     rate_limit_error as "today's limit", and this one clears in a second (the SDKs retry it after retry-after)."""
-    limit = "inflight_token" if which == "token" else "inflight_global"
-    msg = ("Too many AI calls at once from this install." if which == "token" else "miyagi is very busy. Try again in a moment.")
+    limit, msg = _INFLIGHT_429[which]
     body = {"type": "error", "error": {"type": "concurrency_limit_error", "status": "CONCURRENCY_LIMIT_ERROR", "code": 429,
                                        "message": msg, "limit": limit,
                                        "resets_at": _iso(datetime.fromtimestamp(_now() + 1, UTC))}}
@@ -815,12 +877,19 @@ def too_many_inflight(which: str) -> JSONResponse:
 
 
 class Call:
-    """One forwarded AI call: its in-flight slot and its cost reservation. finish() releases the slot and settles
-    the reservation against the real usage exactly once, whatever ends the call (a response, an upstream error, the
-    end of a stream, a client disconnect)."""
+    """One forwarded AI call: its in-flight slots, the body bytes it holds, and its cost reservation. finish()
+    releases them and settles the reservation exactly once, whatever ends the call (a response, an upstream error,
+    the end of a stream, a client disconnect).
 
-    def __init__(self, request: Request, token_hash: str, provider: str, model: str) -> None:
+    Settling: finish() with no usage means nothing reached the provider, or the provider refused the call (a non-200
+    status, not billed): the reservation is dropped. finish(usage) with a terminal usage (Anthropic's message_delta /
+    message_stop, Gemini's final chunk with finishReason, or a whole non-stream body with its usage) settles to the
+    real cost. Anything else (the client hung up, the upstream stream dropped, a cancelled read) keeps the whole
+    reservation, or the observed cost when that is higher: the provider bills the prefill whether or not we saw it."""
+
+    def __init__(self, request: Request, token_hash: str, provider: str, model: str, net: str = "", body_bytes: int = 0) -> None:
         self.request, self.token_hash, self.provider, self.model = request, token_hash, provider, model
+        self.net, self.body_bytes = net, body_bytes
         self.reserve = 0.0
         self.day = today()
         self.admitted = False
@@ -844,12 +913,18 @@ class Call:
             return
         self.done = True
         inflight.release_token(self.token_hash)
+        if self.body_bytes:
+            inflight.release_bytes(self.net, self.body_bytes)
         if self.global_slot:
             self.global_slot = False
             inflight.release_global()
         if not self.admitted:
             return
-        model, inp, out, usd = (usage or Usage()).totals(self.request, self.provider, self.model)
+        model, inp, out, usd = (usage or Usage(self.provider)).totals(self.request, self.provider, self.model)
+        if usage is not None and not usage.complete and usd < self.reserve:
+            usd = self.reserve  # no terminal usage: the provider billed something we did not see
+            self.request.state.held = round(self.reserve, 4)
+            log.info("call ended without its final usage: holding the $%.4f reservation", self.reserve)
         try:
             store.settle(self.token_hash, self.provider, self.model, self.day, self.reserve, model, inp, out, usd)
         except Exception:  # never let accounting break a response
@@ -857,14 +932,23 @@ class Call:
 
 
 def open_call(request: Request, token_hash: str, provider: str, model: str) -> Call | JSONResponse:
-    """Check the caps without counting (so a call that is already over a cap never reads its body), then take the
-    per-token in-flight slot. Returns the Call holding it, or the 429 to send. The global slot comes later
-    (Call.take_global, after the body is read)."""
+    """Before the body is read: require its Content-Length, check the caps without counting (so a call that is
+    already over a cap never reads its body), then take the per-token in-flight slot and hold the body's bytes in
+    the in-flight budget (MAX_INFLIGHT_BODY in total, MAX_INFLIGHT_BODY_PER_IP per network). Returns the Call
+    holding them, or the response to send. The global slot comes later (Call.take_global, after the body is read)."""
+    declared = request.headers.get("content-length", "")
+    if not declared.isdigit() or len(declared) > 12:
+        return error(411, "length_required", "AI calls need a Content-Length header.")
     if denied := check_quota(token_hash, request_role(request), provider, model, dry_run=True):
         return denied
     if not inflight.acquire_token(token_hash):
         return too_many_inflight("token")
-    return Call(request, token_hash, provider, model)
+    n = int(declared)
+    net = mint_bucket(client_ip(request))
+    if which := inflight.acquire_bytes(net, n):
+        inflight.release_token(token_hash)
+        return too_many_inflight(which)
+    return Call(request, token_hash, provider, model, net, n)
 
 
 def request_timeout() -> JSONResponse:
@@ -878,6 +962,15 @@ async def read_body(request: Request) -> bytes | None:
             return await request.body()
     except TimeoutError:
         return None
+
+
+def small_body_too_large(request: Request, max_bytes: int) -> JSONResponse | None:
+    """413 when a route that only takes a small body (a login form, a JWT) declares a bigger one. Guard's running
+    count still stops a body that lies about its length at MAX_BODY."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > max_bytes:
+        return error(413, "request_too_large", f"Request body over {max_bytes // 1024} KB.")
+    return None
 
 
 def mint_token(request: Request, install_id: str | None, app_version: str, platform: str) -> tuple[str, str] | JSONResponse:
@@ -922,14 +1015,29 @@ _USAGE_RE = re.compile(r'"(input_tokens|output_tokens|cache_read_input_tokens|ca
 _MODEL_RE = re.compile(r'"(?:model|modelVersion)"\s*:\s*"([A-Za-z0-9._\-]{1,80})"')
 
 
+# Server-sent event lines worth parsing for the end of a call (cheap substring test first).
+_TERMINAL_HINTS = {"anthropic": (b"message_delta", b"message_stop"), "gemini": (b"finishReason",)}
+_SSE_LINE_MAX = 8 * 1024 * 1024  # a longer partial line is dropped: the call then keeps its whole reservation
+_USAGE_KEY = {"anthropic": "usage", "gemini": "usageMetadata"}
+
+
 class Usage:
     """Reads token counts out of a response as it streams by (JSON or SSE). Last value of each field wins,
-    which matches both APIs: Anthropic's message_delta and Gemini's final chunk carry cumulative totals."""
+    which matches both APIs: Anthropic's message_delta and Gemini's final chunk carry cumulative totals.
 
-    def __init__(self) -> None:
+    `complete` says the final usage was seen, so the counts are the whole bill: a server-sent event that ends the
+    call (Anthropic message_delta / message_stop, a Gemini chunk with a finishReason and its usageMetadata), parsed
+    as JSON so text the model wrote (always inside escaped strings) cannot fake it; a whole non-stream body with its
+    usage object (feed_body); or a non-SSE stream that ended cleanly with usage seen (end_of_stream)."""
+
+    def __init__(self, provider: str = "anthropic") -> None:
+        self.provider = provider
         self.fields: dict[str, int] = {}
         self.model: str | None = None
+        self.complete = False
+        self.sse = False
         self._tail = ""
+        self._line = b""
 
     def feed(self, chunk: bytes) -> None:
         text = self._tail + chunk.decode("latin-1")
@@ -938,14 +1046,56 @@ class Usage:
         if self.model is None and (m := _MODEL_RE.search(text)):
             self.model = m.group(1)
         self._tail = text[-256:]
+        if self.sse and not self.complete:
+            self._scan_events(chunk)
+
+    def _scan_events(self, chunk: bytes) -> None:
+        lines = (self._line + chunk).split(b"\n")
+        self._line = lines.pop()
+        if len(self._line) > _SSE_LINE_MAX:
+            self._line = b""
+        hints = _TERMINAL_HINTS.get(self.provider, ())
+        for line in lines:
+            if line.startswith(b"data:") and any(h in line for h in hints) and self._terminal(line[5:]):
+                self.complete = True
+                return
+
+    def _terminal(self, data: bytes) -> bool:
+        try:
+            obj = json.loads(data)
+        except (ValueError, RecursionError):
+            return False
+        if not isinstance(obj, dict):
+            return False
+        if self.provider == "anthropic":
+            return obj.get("type") in ("message_delta", "message_stop")
+        cands = obj.get("candidates")
+        return (isinstance(cands, list) and any(isinstance(c, dict) and c.get("finishReason") for c in cands)
+                and isinstance(obj.get("usageMetadata"), dict))
+
+    def feed_body(self, content: bytes) -> None:
+        """A whole non-stream 200 body: complete when it parses and carries the provider's usage object."""
+        self.feed(content)
+        try:
+            obj = json.loads(content)
+        except (ValueError, RecursionError):
+            return
+        self.complete = isinstance(obj, dict) and isinstance(obj.get(_USAGE_KEY.get(self.provider, "")), dict)
+
+    def end_of_stream(self) -> None:
+        """The upstream stream ended cleanly. An SSE stream is complete only through its terminal event; a non-SSE
+        stream (Gemini's JSON array) when usage was seen in it."""
+        if not self.sse and self.fields:
+            self.complete = True
 
     def totals(self, request: Request, provider: str, requested_model: str) -> tuple[str, int, int, float]:
-        """(model, input tokens, output tokens, estimated USD), also put on request.state for the log line."""
+        """(model, input tokens, output tokens, estimated USD), also put on request.state for the log line. The usage
+        row is the answering model's when it is not the requested one; the price follows answer_price()."""
         f = self.fields
-        model = requested_model
+        answer = self.model
+        model = requested_model if not answer or answer.startswith(requested_model) else answer
+        price = answer_price(answer, requested_model)
         if provider == "anthropic":
-            if self.model and self.model.startswith("claude-") and "opus" not in self.model.lower():
-                model = self.model  # a server-side fallback may have answered on another model
             cr, cw = f.get("cache_read_input_tokens", 0), f.get("cache_creation_input_tokens", 0)
             inp, out = f.get("input_tokens", 0) + cr + cw, f.get("output_tokens", 0)
             tools = f.get("web_search_requests", 0) + f.get("web_fetch_requests", 0) + f.get("code_execution_requests", 0)
@@ -953,7 +1103,7 @@ class Usage:
             cr, cw, tools = f.get("cachedContentTokenCount", 0), 0, 0
             inp, out = f.get("promptTokenCount", 0), f.get("candidatesTokenCount", 0) + f.get("thoughtsTokenCount", 0)
         request.state.model, request.state.tokens_in, request.state.tokens_out = model, inp, out
-        return model, inp, out, estimate_usd(model, inp, out, cr, cw, tools)
+        return model, inp, out, estimate_usd(model, inp, out, cr, cw, tools, price=price)
 
 
 # --------------------------------------------------------------------------- forwarding
@@ -1030,14 +1180,18 @@ class SlotResponse(Response):
 
 
 async def forward(call: Call, url: str, headers: dict, params: dict, body: bytes, stream: bool) -> Response:
-    """Send the call upstream. Every path out of here finishes the call (slot and reservation)."""
+    """Send the call upstream. Every path out of here finishes the call (slot and reservation): with no usage only
+    when the provider never got the request or refused it (a non-200 status); otherwise with what was seen, so a
+    call that ended before its final usage keeps its reservation (Call.finish)."""
     request, provider, model = call.request, call.provider, call.model
-    usage = Usage()
+    usage = Usage(provider)
     req = http.build_request("POST", url, headers=headers, params=params, content=body)
     try:
         resp = await http.send(req, stream=True)
     except BaseException as e:
-        call.finish()
+        # Never connected: not billed. Anything later (a read timeout waiting for a non-stream answer, the client
+        # hanging up while we wait): the provider may be answering, and billing, right now.
+        call.finish(None if isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)) else usage)
         if isinstance(e, httpx.HTTPError):
             log.warning("upstream %s unreachable: %s", provider, type(e).__name__)
             return error(502, "upstream_unreachable", f"Could not reach the {provider} API. Try again.")
@@ -1052,27 +1206,29 @@ async def forward(call: Call, url: str, headers: dict, params: dict, body: bytes
                     await resp.aclose()
         except httpx.HTTPError as e:
             log.warning("upstream %s read failed: %s", provider, type(e).__name__)
-            call.finish()
+            call.finish(usage if resp.status_code == 200 else None)  # a 200 cut short was billed: hold
             return error(502, "upstream_unreachable", f"The {provider} API connection dropped. Try again.")
         except BaseException:  # cancelled (the client hung up) or anything else: the slot must still come back
-            call.finish()
+            call.finish(usage if resp.status_code == 200 else None)
             raise
         if resp.status_code != 200:
             request.state.model = model
             call.finish()
             return upstream_error(provider, resp.status_code, content, resp.headers.get("retry-after"))
-        usage.feed(content)
+        usage.feed_body(content)
         call.finish(usage)
         out_headers = {k: v for k, v in resp.headers.items() if k.lower() in PASS_HEADERS}
         return Response(content, status_code=200, headers=out_headers)
 
     out_headers = {k: v for k, v in resp.headers.items() if k.lower() in PASS_HEADERS}
+    usage.sse = "event-stream" in resp.headers.get("content-type", "").lower()
 
     async def relay():
         try:
             async for chunk in resp.aiter_bytes():
                 usage.feed(chunk)
                 yield chunk
+            usage.end_of_stream()
         except httpx.HTTPError as e:
             log.warning("upstream %s stream dropped: %s", provider, type(e).__name__)
         finally:
@@ -1083,12 +1239,41 @@ async def forward(call: Call, url: str, headers: dict, params: dict, body: bytes
     return SlotResponse(StreamingResponse(relay(), status_code=200, headers=out_headers), call, usage, resp)
 
 
-def _json_object(raw: bytes) -> dict | None:
+class _TooManyObjects(Exception):
+    pass
+
+
+def parse_json_object(raw: bytes, max_objects: int | None = None) -> dict:
+    """The body as a JSON object. Counts objects while parsing and stops at JSON_MAX_OBJECTS, so a body of a million
+    empty objects never becomes a million dicts. Raises BadBody."""
+    limit = JSON_MAX_OBJECTS if max_objects is None else max_objects
+    seen = [0]
+
+    def count(obj: dict) -> dict:
+        seen[0] += 1
+        if limit > 0 and seen[0] > limit:
+            raise _TooManyObjects
+        return obj
+
     try:
-        data = json.loads(raw)
+        data = json.loads(raw, object_hook=count)
+    except _TooManyObjects:
+        raise BadBody(f"The body has more than {limit} JSON objects.") from None
+    except RecursionError:
+        raise BadBody("The body is nested too deep.") from None
     except (ValueError, UnicodeDecodeError):
+        raise BadBody("Body must be a JSON object.") from None
+    if not isinstance(data, dict):
+        raise BadBody("Body must be a JSON object.")
+    return data
+
+
+def _json_object(raw: bytes) -> dict | None:
+    """parse_json_object, or None for any body it refuses (the routes with their own 400 message)."""
+    try:
+        return parse_json_object(raw)
+    except BadBody:
         return None
-    return data if isinstance(data, dict) else None
 
 
 def _opus(model) -> bool:
@@ -1228,6 +1413,12 @@ def sanitize_anthropic(body: dict) -> tuple[dict, int, int]:
     messages = body.get("messages")
     if not isinstance(messages, list):
         raise BadBody("messages must be a list.")
+    if len(messages) > ANTHROPIC_MAX_MESSAGES:
+        raise BadBody(f"At most {ANTHROPIC_MAX_MESSAGES} messages.")
+    system = body.get("system")
+    blocks = sum(len(m["content"]) for m in messages if isinstance(m, dict) and isinstance(m.get("content"), list))
+    if blocks + (len(system) if isinstance(system, list) else 0) > ANTHROPIC_MAX_BLOCKS:
+        raise BadBody(f"At most {ANTHROPIC_MAX_BLOCKS} content blocks in all.")
     clean_msgs = []
     for msg in messages:
         if not isinstance(msg, dict) or msg.get("role") not in ("user", "assistant", "system"):
@@ -1386,18 +1577,18 @@ def _video_tokens(part: dict, low: bool) -> int:
 
 
 def gemini_reserve(clean: dict, model: str, payload_len: int) -> float:
-    """Input (the body, every video part) at the input price; maxOutputTokens plus the thinking the call may do
-    (its clamped thinkingBudget, else GEMINI_THINKING_RESERVE_TOKENS: the engine sends no thinkingConfig, and
-    Gemini's dynamic thinking is otherwise unbounded here) at the output price."""
+    """Input (the body, every video part) at the input price; the clamped maxOutputTokens at the output price.
+    Thinking counts against maxOutputTokens on Gemini 2.5 and later, so the clamp bounds answer and thinking together
+    (a clamped thinkingBudget above it, only possible when GEMINI_MAX_THINKING_TOKENS is set higher, is held instead)."""
     gen = clean.get("generationConfig") or {}
     low = gen.get("mediaResolution") == "MEDIA_RESOLUTION_LOW"
     parts = [p for c in clean.get("contents", []) for p in c.get("parts", [])]
     parts += (clean.get("systemInstruction") or {}).get("parts", [])
     video = sum(_video_tokens(p, low) for p in parts if "fileData" in p)
     budget = (gen.get("thinkingConfig") or {}).get("thinkingBudget")
-    thinking = budget if _is_int(budget) and budget >= 0 else GEMINI_THINKING_RESERVE_TOKENS
+    out = max(gen.get("maxOutputTokens", GEMINI_MAX_OUTPUT_TOKENS), budget if _is_int(budget) else 0)
     inp = input_tokens_estimate(payload_len, clean) + video
-    return inp * input_price(model) + (gen.get("maxOutputTokens", GEMINI_MAX_OUTPUT_TOKENS) + thinking) * output_price(model)
+    return inp * input_price(model) + out * output_price(model)
 
 
 GEMINI_PART_KEYS = ("text", "inlineData", "fileData", "videoMetadata", "functionCall", "functionResponse", "thought",
@@ -1437,6 +1628,29 @@ def _gemini_parts(parts) -> list:
     return out
 
 
+def _gemini_bounds(body: dict, contents: list) -> None:
+    """Counts checked before anything is copied: contents, parts (every content and the system instruction),
+    functionDeclarations and safetySettings. Raises BadBody past a bound."""
+    if len(contents) > GEMINI_MAX_CONTENTS:
+        raise BadBody(f"At most {GEMINI_MAX_CONTENTS} contents.")
+    si = body.get("systemInstruction")
+    holders = [*contents, si] if isinstance(si, dict) else contents
+    parts = sum(len(c["parts"]) for c in holders if isinstance(c, dict) and isinstance(c.get("parts"), list))
+    if parts > GEMINI_MAX_PARTS:
+        raise BadBody(f"At most {GEMINI_MAX_PARTS} parts in all.")
+    tools = body.get("tools")
+    if isinstance(tools, list):
+        if len(tools) > GEMINI_MAX_FUNCTIONS:
+            raise BadBody(f"At most {GEMINI_MAX_FUNCTIONS} tools.")
+        fns = sum(len(t["functionDeclarations"]) for t in tools
+                  if isinstance(t, dict) and isinstance(t.get("functionDeclarations"), list))
+        if fns > GEMINI_MAX_FUNCTIONS:
+            raise BadBody(f"At most {GEMINI_MAX_FUNCTIONS} functionDeclarations.")
+    ss = body.get("safetySettings")
+    if isinstance(ss, list) and len(ss) > GEMINI_MAX_SAFETY:
+        raise BadBody(f"At most {GEMINI_MAX_SAFETY} safetySettings.")
+
+
 def sanitize_gemini(body: dict) -> tuple[dict, int]:
     """The generateContent body to forward, rebuilt from allowlisted keys, and its (clamped) maxOutputTokens.
     Raises BadBody."""
@@ -1445,6 +1659,7 @@ def sanitize_gemini(body: dict) -> tuple[dict, int]:
     contents = body.get("contents")
     if not isinstance(contents, list):
         raise BadBody("contents must be a list.")
+    _gemini_bounds(body, contents)
     out: dict = {"contents": []}
     for c in contents:
         if not isinstance(c, dict):
@@ -1556,6 +1771,9 @@ from starlette.concurrency import run_in_threadpool  # noqa: E402
 verifier = supabase_auth.SupabaseVerifier.from_env()  # SUPABASE_URL, SUPABASE_ALLOW_HS256, SUPABASE_JWT_SECRET; tests swap it
 
 
+LINK_MAX_BODY = 16 * 1024  # {"access_token": "<JWT>"}: a Supabase JWT is 1-2 KB
+
+
 def link_error(status: int, kind: str) -> JSONResponse:
     return JSONResponse({"error": kind}, status_code=status)
 
@@ -1568,9 +1786,13 @@ async def link(request: Request):
     if row is None or row["disabled"]:
         return link_error(401, "bad_install_token")
     request.state.tok = h[:PREFIX_LEN]
+    if too_big := small_body_too_large(request, LINK_MAX_BODY):
+        return too_big
     raw = await read_body(request)
     if raw is None:
         return request_timeout()
+    if len(raw) > LINK_MAX_BODY:
+        return error(413, "request_too_large", f"Request body over {LINK_MAX_BODY // 1024} KB.")
     body = _json_object(raw)
     try:  # the first call (and one every 10 minutes) fetches the JWKS: keep it off the event loop
         claims = await run_in_threadpool(verifier.verify, (body or {}).get("access_token"))
@@ -1606,13 +1828,10 @@ async def anthropic_messages(request: Request):
         if raw is None:
             call.finish()
             return request_timeout()
-        body = _json_object(raw)
-        if body is None:
-            call.finish()
-            return error(400, "invalid_request_error", "Body must be a JSON object.")
-        model = body.get("model")
-        request.state.model = model if isinstance(model, str) and len(model) <= 80 else None
-        try:
+        try:  # bounded while parsing (JSON_MAX_OBJECTS) and counted before anything is copied
+            body = parse_json_object(raw)
+            model = body.get("model")
+            request.state.model = model if isinstance(model, str) and len(model) <= 80 else None
             clean, server_uses, server_tokens = sanitize_anthropic(body)
         except BadBody as e:
             call.finish()
@@ -1620,10 +1839,13 @@ async def anthropic_messages(request: Request):
         del raw, body
         call.model = clean["model"]
         payload = json.dumps(clean).encode()
+        stream = clean.get("stream") is True
+        reserve = anthropic_reserve(clean, len(payload), server_uses, server_tokens)
+        del clean  # only the encoded payload is held while the call is upstream
         if not call.take_global():  # the global slot only once the body is here
             call.finish()
             return too_many_inflight("global")
-        if denied := call.admit(anthropic_reserve(clean, len(payload), server_uses, server_tokens)):
+        if denied := call.admit(reserve):
             call.finish()
             return denied
     except BaseException:
@@ -1638,7 +1860,7 @@ async def anthropic_messages(request: Request):
     if beta:
         headers["anthropic-beta"] = beta
     params = {"beta": "true"} if request.query_params.get("beta") == "true" else {}
-    return await forward(call, ANTHROPIC_URL, headers, params, payload, stream=clean.get("stream") is True)
+    return await forward(call, ANTHROPIC_URL, headers, params, payload, stream=stream)
 
 
 GEMINI_METHODS = {"generateContent": False, "streamGenerateContent": True}
@@ -1669,21 +1891,19 @@ async def gemini(target: str, request: Request):
         if raw is None:
             call.finish()
             return request_timeout()
-        body = _json_object(raw)
-        if body is None:
-            call.finish()
-            return error(400, "invalid_request_error", "Body must be a JSON object.")
-        try:
-            clean, _ = sanitize_gemini(body)
+        try:  # bounded while parsing (JSON_MAX_OBJECTS) and counted before anything is copied
+            clean, _ = sanitize_gemini(parse_json_object(raw))
         except BadBody as e:
             call.finish()
             return error(400, "invalid_request_error", str(e))
-        del raw, body
+        del raw
         payload = json.dumps(clean).encode()
+        reserve = gemini_reserve(clean, model, len(payload))
+        del clean  # only the encoded payload is held while the call is upstream
         if not call.take_global():  # the global slot only once the body is here
             call.finish()
             return too_many_inflight("global")
-        if denied := call.admit(gemini_reserve(clean, model, len(payload))):
+        if denied := call.admit(reserve):
             call.finish()
             return denied
     except BaseException:
@@ -2028,7 +2248,14 @@ async def put_lesson(video_id: str, request: Request):
         return quota_error("rate_limit_error", "lesson_uploads", used, LESSON_PUTS_PER_DAY, _next_utc_midnight(),
                            "This install has shared enough lessons for today.")
     digest = lesson_hash(lesson)
-    store.put_candidate(video_id, schema, token_hash, body, digest, ip_net(client_ip(request)))
+    full = store.put_candidate(video_id, schema, token_hash, body, digest, ip_net(client_ip(request)),
+                               max_pending_bytes=LESSON_PENDING_MAX_BYTES, max_net_bytes=LESSON_PENDING_PER_NET_BYTES,
+                               max_age_s=LESSON_PENDING_MAX_DAYS * 86400)
+    if full:
+        log.warning("lesson upload refused: %s pending-bytes bound reached",
+                    "the total" if full == "pending_total" else "its network's")
+        return error(507, "insufficient_storage", "Too many lessons are waiting for review right now. "
+                     "Your lesson still works on this Mac.")
     approved = store.auto_approve(video_id, schema, digest, LESSON_AUTO_APPROVE_N)
     if approved:
         log.info("lesson %s schema %s auto-approved (%d matching uploads)", video_id, schema, LESSON_AUTO_APPROVE_N)
@@ -2202,8 +2429,35 @@ async def admin_pending_lessons(request: Request):
             review = lesson_review(json.loads(p.pop("body")))
         except ValueError:
             review = {"libraries": [], "commands": [], "files": [], "unreadable": True}
-        out.append({**p, **review})
+        out.append({**p, **review, "full": f"/admin/lessons/{p['video_id']}/candidates/{p['hash']}"})
     return {"pending": out}
+
+
+_HASH_PREFIX_RE = re.compile(r"[0-9a-f]{8,64}")
+
+
+@app.get("/admin/lessons/{video_id}/candidates/{hash_prefix}")
+async def admin_lesson_candidate(video_id: str, hash_prefix: str, request: Request, schema: int | None = None):
+    """The whole body of the candidates whose hash starts with `hash_prefix`: every instruction, code block,
+    solution, hint and explanation learners would receive, to read before POST /admin/lessons/{video_id}/approve.
+    The review summary (libraries, commands, files) comes with each."""
+    if denied := require_admin(request):
+        return denied
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    if not _HASH_PREFIX_RE.fullmatch(hash_prefix):
+        return error(400, "invalid_request_error", "hash must be 8-64 lowercase hex characters of the body hash.")
+    rows = store.lesson_candidates(video_id, hash_prefix, schema)
+    if not rows:
+        return error(404, "not_found_error", "No candidate of that video has that hash.")
+    out = []
+    for r in rows:
+        try:
+            lesson = json.loads(r.pop("body"))
+        except ValueError:
+            lesson = None
+        out.append({**r, **lesson_review(lesson), "lesson": lesson})
+    return JSONResponse({"video_id": video_id, "candidates": out}, headers={"cache-control": "no-store"})
 
 
 class ApproveBody(BaseModel):
@@ -2280,11 +2534,18 @@ async def admin_page():
     return _page(_LOGIN)
 
 
+ADMIN_FORM_MAX_BODY = 4096  # the login form: one token field
+
+
 @app.post("/admin")
 async def admin_page_post(request: Request):
+    if too_big := small_body_too_large(request, ADMIN_FORM_MAX_BODY):
+        return too_big
     raw = await read_body(request)
     if raw is None:
         return request_timeout()
+    if len(raw) > ADMIN_FORM_MAX_BODY:
+        return error(413, "request_too_large", f"Request body over {ADMIN_FORM_MAX_BODY // 1024} KB.")
     form = parse_qs(raw.decode("utf-8", "replace"))  # urlencoded form, no multipart dependency
     if not admin_ok(request, (form.get("admin_token") or [""])[0]):
         return _page("<p>Wrong token.</p>" + _LOGIN)

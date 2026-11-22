@@ -15,6 +15,7 @@ import json
 import logging
 import sqlite3
 import sys
+import tracemalloc
 from collections import namedtuple
 
 import httpx
@@ -279,14 +280,30 @@ def test_gemini_clamps_and_forwards_only_allowlisted_keys(make_cloud):
     sent = up.last
     assert set(sent) == {"contents", "systemInstruction", "generationConfig"}
     gc = sent["generationConfig"]
-    assert gc["maxOutputTokens"] == 8192 and gc["thinkingConfig"] == {"thinkingBudget": 2048, "includeThoughts": False}
+    assert gc["maxOutputTokens"] == 32768 and gc["thinkingConfig"] == {"thinkingBudget": 2048, "includeThoughts": False}
     assert gc["candidateCount"] == 1 and "responseModalities" not in gc
     assert sent["contents"][0]["parts"][0] == {"fileData": {"fileUri": YT}, "videoMetadata": {"fps": 0.5}}
     # no maxOutputTokens at all: the clamp is sent, so the cost is bounded
     post_gemini(client, h, gem_body())
-    assert up.last["generationConfig"]["maxOutputTokens"] == 8192
-    assert app_mod.GEMINI_MAX_OUTPUT_TOKENS == 8192 and app_mod.GEMINI_MAX_THINKING_TOKENS == 2048
-    assert app_mod.MAX_GEMINI_BODY == 8 * 1024 * 1024
+    assert up.last["generationConfig"]["maxOutputTokens"] == 32768
+    assert app_mod.GEMINI_MAX_OUTPUT_TOKENS == 32768 and app_mod.GEMINI_MAX_THINKING_TOKENS == 2048
+    assert app_mod.MAX_GEMINI_BODY == 2 * 1024 * 1024
+
+
+def test_engine_shaped_gemini_request_leaves_room_for_thinking_and_the_answer(make_cloud):
+    """The engine (lesson/gemini.py _generate_json, finder/gemini.py) sends responseJsonSchema and neither
+    maxOutputTokens nor a thinkingConfig, so dynamic thinking stays on. Thinking counts against maxOutputTokens on
+    Gemini 2.5 and later: the clamp must leave the JSON answer room after Flash's 24576-token thinking ceiling."""
+    client, app_mod = make_cloud(unset=("GEMINI_MAX_OUTPUT_TOKENS", "GEMINI_MAX_THINKING_TOKENS"))
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    body = gem_body()
+    assert "maxOutputTokens" not in body["generationConfig"] and "thinkingConfig" not in body["generationConfig"]
+    assert post_gemini(client, h, body).status_code == 200
+    gc = up.last["generationConfig"]
+    assert "thinkingConfig" not in gc  # nothing inserted: the model keeps its own thinking behaviour
+    assert gc["maxOutputTokens"] - 24_576 >= 8192
+    assert gc["responseJsonSchema"] == {"type": "object"} and gc["responseMimeType"] == "application/json"
 
 
 @pytest.mark.parametrize("uri", [YT, "https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s"])
@@ -410,7 +427,7 @@ async def _asgi(app, path: str, headers: dict, body: dict, disconnect: asyncio.E
              "path": path, "raw_path": path.encode(), "query_string": b"", "root_path": "", "headers": hs,
              "client": ("127.0.0.1", 40000), "server": ("testserver", 80)}
     await app(scope, receive, send)
-    status = next(m["status"] for m in sent if m["type"] == "http.response.start")
+    status = next((m["status"] for m in sent if m["type"] == "http.response.start"), None)
     return status, b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
 
 
@@ -461,9 +478,12 @@ def test_eleventh_concurrent_call_is_429_and_slots_come_back(make_cloud):
         await app_mod.http.aclose()
 
     asyncio.run(scenario())
-    assert app_mod.inflight.total == 0 and app_mod.inflight.per == {}
-    # every reservation was settled: the finished streams at their real cost, the two hung-up ones at what they used
-    assert app_mod.store.usd_today_for(tha) == pytest.approx((n - 2) * app_mod.estimate_usd(HAIKU, 100, 20))
+    assert app_mod.inflight.total == 0 and app_mod.inflight.per == {} and app_mod.inflight.bytes_total == 0
+    # every reservation was settled: the finished streams at their real cost, and the two that hung up before the
+    # final usage keep their whole reservation (the provider bills the prefill whether or not we saw the usage)
+    clean, uses, tokens = app_mod.sanitize_anthropic({"model": HAIKU, "max_tokens": 1000, "messages": msg(), "stream": True})
+    reserve = app_mod.anthropic_reserve(clean, len(json.dumps(clean).encode()), uses, tokens)
+    assert app_mod.store.usd_today_for(tha) == pytest.approx((n - 2) * app_mod.estimate_usd(HAIKU, 100, 20) + 2 * reserve)
     assert app_mod.store.requests_today(tha) == n
 
 
@@ -563,17 +583,21 @@ class BrokenBody(httpx.AsyncByteStream):
         raise RuntimeError("cancelled mid-read")
 
 
-def test_non_stream_read_failure_releases_the_slot(make_cloud):
+def test_non_stream_read_failure_releases_the_slot_and_holds_the_cost(make_cloud):
     """A CancelledError (or any non-httpx exception) during the non-stream read used to skip call.finish(): the
-    in-flight slot stayed taken until a restart."""
+    in-flight slot stayed taken until a restart. The read was cut short after a 200, so the provider billed it:
+    the reservation is kept, not dropped."""
     client, app_mod = make_cloud()
     app_mod.http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, stream=BrokenBody())))
     h, _ = install(client)
     th = app_mod.hash_token(h["Authorization"][7:])
+    body = {"model": HAIKU, "max_tokens": 10, "messages": msg()}
     with pytest.raises(RuntimeError):
-        post_anthropic(client, h, {"model": HAIKU, "max_tokens": 10, "messages": msg()})
-    assert app_mod.inflight.total == 0 and th not in app_mod.inflight.per
-    assert app_mod.store.usd_today_for(th) == 0  # the reservation was settled too
+        post_anthropic(client, h, body)
+    assert app_mod.inflight.total == 0 and th not in app_mod.inflight.per and app_mod.inflight.bytes_total == 0
+    clean, uses, tokens = app_mod.sanitize_anthropic(body)
+    reserve = app_mod.anthropic_reserve(clean, len(json.dumps(clean).encode()), uses, tokens)
+    assert app_mod.store.usd_today_for(th) == pytest.approx(reserve) and reserve > 0
 
 
 def test_over_cap_call_is_refused_before_its_body_is_read(make_cloud):
@@ -697,9 +721,10 @@ def test_gemini_reservation_counts_video_and_thinking(make_cloud):
     clean, max_out = app_mod.sanitize_gemini(window)
     payload = len(json.dumps(clean).encode())
     video = int(600 * (0.5 * 258 + 32))
-    want = (payload // 3 + video) * price_in + (8192 + app_mod.GEMINI_THINKING_RESERVE_TOKENS) * price_out
+    # thinking counts against maxOutputTokens: the clamp alone bounds answer and thinking together
+    want = (payload // 3 + video) * price_in + 32768 * price_out
     assert app_mod.gemini_reserve(clean, GEM, payload) == pytest.approx(want)
-    assert app_mod.GEMINI_THINKING_RESERVE_TOKENS == 24_576 and app_mod.GEMINI_VIDEO_RESERVE_TOKENS == 300_000
+    assert app_mod.GEMINI_VIDEO_RESERVE_TOKENS == 300_000
     # a whole video (no end offset) is held at GEMINI_VIDEO_RESERVE_TOKENS; LOW resolution frames are cheaper
     whole = {"contents": [{"parts": [{"fileData": {"fileUri": YT}}]}]}
     clean, _ = app_mod.sanitize_gemini(whole)
@@ -707,12 +732,309 @@ def test_gemini_reservation_counts_video_and_thinking(make_cloud):
     low = {**window, "generationConfig": {"mediaResolution": "MEDIA_RESOLUTION_LOW"}}
     clean, _ = app_mod.sanitize_gemini(low)
     assert app_mod._video_tokens(clean["contents"][0]["parts"][0], True) == int(600 * (0.5 * 70 + 32))
-    # an explicit thinking budget (clamped) replaces the dynamic-thinking reserve
+    # an explicit thinking budget (clamped to 2048) fits inside the output clamp: nothing extra is held
     capped = {**window, "generationConfig": {"thinkingConfig": {"thinkingBudget": 100_000}}}
     clean, _ = app_mod.sanitize_gemini(capped)
+    assert clean["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 2048}
     payload = len(json.dumps(clean).encode())
-    assert app_mod.gemini_reserve(clean, GEM, payload) == pytest.approx(
-        (payload // 3 + video) * price_in + (8192 + 2048) * price_out)
+    assert app_mod.gemini_reserve(clean, GEM, payload) == pytest.approx((payload // 3 + video) * price_in + 32768 * price_out)
+    # a smaller maxOutputTokens the client asked for is what is held
+    small = {**window, "generationConfig": {"maxOutputTokens": 1000}}
+    clean, _ = app_mod.sanitize_gemini(small)
+    payload = len(json.dumps(clean).encode())
+    assert app_mod.gemini_reserve(clean, GEM, payload) == pytest.approx((payload // 3 + video) * price_in + 1000 * price_out)
+
+
+# --------------------------------------------------------------------------- round 2: settling without the final usage
+
+class GatedStream(httpx.AsyncByteStream):
+    """A response body that sends `first` (possibly nothing), then waits for `gate` before `last`."""
+
+    def __init__(self, gate: asyncio.Event, first: bytes = b"", last: bytes = b"") -> None:
+        self.gate, self.first, self.last = gate, first, last
+
+    async def __aiter__(self):
+        if self.first:
+            yield self.first
+        await self.gate.wait()
+        if self.last:
+            yield self.last
+
+
+SSE = {"content-type": "text/event-stream"}
+ANTHROPIC_PATH = "/v1/anthropic/v1/messages"
+GEMINI_STREAM_PATH = f"/v1/gemini/v1beta/models/{GEM}:streamGenerateContent"
+GEM_FIRST = (b'data: {"candidates":[{"content":{"parts":[{"text":"{\\"a\\":"}],"role":"model"}}],'
+             b'"usageMetadata":{"promptTokenCount":2000,"candidatesTokenCount":5},"modelVersion":"gemini-3.8-flash"}\r\n\r\n')
+GEM_LAST = (b'data: {"candidates":[{"content":{"parts":[{"text":"1}"}],"role":"model"},"finishReason":"STOP"}],'
+            b'"usageMetadata":{"promptTokenCount":2000,"candidatesTokenCount":300},"modelVersion":"gemini-3.8-flash"}\r\n\r\n')
+
+
+def _reserve_for(app_mod, body: dict) -> float:
+    clean, uses, tokens = app_mod.sanitize_anthropic(body)
+    return app_mod.anthropic_reserve(clean, len(json.dumps(clean).encode()), uses, tokens)
+
+
+def test_stream_hangup_before_the_final_usage_keeps_the_reservation(make_cloud):
+    """The probe: a fresh anonymous install sends Sonnet, stream, max_tokens 4096 and a 1.2 MB prompt, and hangs up
+    before message_start. The provider bills the prefill, so the ~$0.84 reservation is kept (it used to settle to
+    $0 and the caps never moved): the second such call is already over FREE_DAILY_USD."""
+    client, app_mod = make_cloud(FREE_DAILY_USD="1.00", DAILY_USD_CAP="25")
+    h, _ = install(client)
+    th = app_mod.hash_token(h["Authorization"][7:])
+    body = {"model": SONNET, "max_tokens": 4096, "messages": msg("x" * 1_200_000), "stream": True}
+    reserve = _reserve_for(app_mod, body)
+    assert 0.8 < reserve < 0.9
+
+    async def scenario():
+        gate = asyncio.Event()
+        app_mod.http = httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, stream=GatedStream(gate), headers=SSE)))
+        out = []
+        for _ in range(5):
+            gone = asyncio.Event()
+            gone.set()  # the client is already gone
+            out.append(await asyncio.wait_for(_asgi(app_mod.app, ANTHROPIC_PATH, h, body, gone), 5))
+        gate.set()
+        await app_mod.http.aclose()
+        return out
+
+    results = asyncio.run(scenario())
+    assert app_mod.store.usd_today_for(th) == pytest.approx(reserve)
+    assert app_mod.store.usd_today() == pytest.approx(reserve)
+    for status, raw in results[1:]:
+        assert status == 429 and json.loads(raw)["error"]["limit"] == "daily_spend"
+    assert app_mod.inflight.total == 0 and app_mod.inflight.per == {} and app_mod.inflight.bytes_total == 0
+
+
+def test_gemini_stream_settles_to_the_real_cost_only_after_its_final_chunk(make_cloud):
+    client, app_mod = make_cloud(FREE_DAILY_USD="5")
+    done_h, _ = install(client)
+    gone_h, _ = install(client)
+    body = gem_body()
+    clean, _ = app_mod.sanitize_gemini(body)
+    reserve = app_mod.gemini_reserve(clean, GEM, len(json.dumps(clean).encode()))
+
+    async def scenario():
+        gate = asyncio.Event()
+        app_mod.http = httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, stream=GatedStream(gate, GEM_FIRST, GEM_LAST), headers=SSE)))
+        hangup = asyncio.Event()
+        gone = asyncio.create_task(_asgi(app_mod.app, GEMINI_STREAM_PATH, gone_h, body, hangup))
+        await asyncio.sleep(0.05)  # the first chunk (usage, no finishReason) has gone by
+        hangup.set()
+        await asyncio.wait_for(gone, 5)
+        gate.set()  # the next stream runs to its final chunk
+        status, raw = await asyncio.wait_for(_asgi(app_mod.app, GEMINI_STREAM_PATH, done_h, body, asyncio.Event()), 5)
+        await app_mod.http.aclose()
+        return status, raw
+
+    status, raw = asyncio.run(scenario())
+    assert status == 200 and b"finishReason" in raw
+    assert app_mod.store.usd_today_for(app_mod.hash_token(done_h["Authorization"][7:])) == pytest.approx(
+        app_mod.estimate_usd(GEM, 2000, 300))
+    assert app_mod.store.usd_today_for(app_mod.hash_token(gone_h["Authorization"][7:])) == pytest.approx(reserve)
+
+
+def test_upstream_errors_and_unreachable_upstreams_are_not_held(make_cloud):
+    """A provider refusal (non-200) or a provider never reached is not billed: those reservations are dropped."""
+    client, app_mod = make_cloud()
+    h, _ = install(client)
+    th = app_mod.hash_token(h["Authorization"][7:])
+    assert anthropic(client, h).status_code == 502  # the closed port: never connected
+    Upstream(app_mod, status=529, body={"type": "error", "error": {"type": "overloaded_error", "message": "busy"}})
+    assert post_anthropic(client, h, {"model": HAIKU, "max_tokens": 10, "messages": msg()}).status_code == 529
+    assert app_mod.store.usd_today_for(th) == 0
+
+
+def test_terminal_events_cannot_be_faked_by_model_text(make_cloud):
+    _, app_mod = make_cloud()
+    u = app_mod.Usage("anthropic")
+    u.sse = True
+    # the model wrote the words of a terminal event: inside a JSON string they are escaped, so they never parse as one
+    u.feed(b'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta",'
+           b'"text":"{\\"type\\":\\"message_stop\\"}"}}\n\n')
+    assert not u.complete
+    u.feed(b'event: message_delta\ndata: {"type":"message_de')  # split across chunks
+    assert not u.complete
+    u.feed(b'lta","usage":{"output_tokens":20}}\n\n')
+    assert u.complete and u.fields["output_tokens"] == 20
+    g = app_mod.Usage("gemini")
+    g.sse = True
+    g.feed(GEM_FIRST)
+    assert not g.complete
+    g.feed(b'data: {"candidates":[{"finishReason":"STOP"}]}\r\n\r\n')  # a finishReason without its usage
+    assert not g.complete
+    g.feed(GEM_LAST)
+    assert g.complete
+    # a whole non-stream body is complete only with its usage object
+    n = app_mod.Usage("anthropic")
+    n.feed_body(b'{"type":"message","content":[]}')
+    assert not n.complete
+    n.feed_body(json.dumps(ANTHROPIC_OK).encode())
+    assert n.complete
+    # a non-SSE stream (Gemini's JSON array) that ended cleanly, with usage seen
+    a = app_mod.Usage("gemini")
+    a.feed(b'[{"usageMetadata": {"promptTokenCount": 5}}]')
+    a.end_of_stream()
+    assert a.complete
+
+
+# --------------------------------------------------------------------------- round 2: one-request memory DoS
+
+def test_a_body_of_empty_objects_is_refused_while_parsing(make_cloud):
+    """The probe: an 8 MB {"contents":[{},{},...]} took RSS from ~100 MB to 1.3 GB before admit() refused it. The
+    body limit is now 2 MB and parsing stops at JSON_MAX_OBJECTS, before anything is copied."""
+    client, app_mod = make_cloud()
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    th = app_mod.hash_token(h["Authorization"][7:])
+    n = (app_mod.MAX_GEMINI_BODY - 100) // 3
+    raw = b'{"contents":[' + b",".join([b"{}"] * n) + b"]}"
+    assert len(raw) <= app_mod.MAX_GEMINI_BODY and n > 10 * app_mod.JSON_MAX_OBJECTS
+    tracemalloc.start()
+    try:
+        r = client.post(f"/v1/gemini/v1beta/models/{GEM}:generateContent", headers={**h, "content-type": "application/json"},
+                        content=raw)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert r.status_code == 400 and "JSON objects" in r.json()["error"]["message"]
+    assert peak < 32 * 1024 * 1024, peak  # ~700k dicts would be 50 MB and more before any copy
+    assert up.requests == [] and app_mod.store.requests_today(th) == 0
+    assert app_mod.inflight.bytes_total == 0 and app_mod.inflight.per == {}
+    # the old 8 MB body is refused on its Content-Length, unread
+    big = client.post(f"/v1/gemini/{GEM}:generateContent", headers={**h, "content-length": str(8 * 1024 * 1024)},
+                      content=b"{}")
+    assert big.status_code == 413
+
+
+@pytest.mark.parametrize("route, body, needle", [
+    ("gemini", {"contents": [[] for _ in range(501)]}, "contents"),
+    ("gemini", {"contents": [{"parts": [{"text": "x"}] * 1001}] * 2}, "parts"),
+    ("gemini", {"contents": [], "systemInstruction": {"parts": [{"text": "x"}] * 2001}}, "parts"),
+    ("gemini", {"contents": [], "tools": [{"functionDeclarations": [{"name": "f"}] * 257}]}, "functionDeclarations"),
+    ("gemini", {"contents": [], "safetySettings": [{}] * 33}, "safetySettings"),
+    ("anthropic", {"model": HAIKU, "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}] * 1001}, "messages"),
+    ("anthropic", {"model": HAIKU, "max_tokens": 10, "messages": [{"role": "user", "content": [{"type": "text", "text": "x"}] * 2001}] * 2},
+     "content blocks"),
+])
+def test_structure_is_bounded_before_it_is_copied(make_cloud, route, body, needle):
+    client, app_mod = make_cloud()
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    r = post_gemini(client, h, body) if route == "gemini" else post_anthropic(client, h, body)
+    assert r.status_code == 400 and needle in r.json()["error"]["message"], r.text
+    assert up.requests == []
+
+
+def test_ai_routes_need_a_content_length(make_cloud):
+    client, app_mod = make_cloud()
+    up = Upstream(app_mod)
+    h, _ = install(client)
+
+    def chunked():
+        yield json.dumps({"model": HAIKU, "max_tokens": 10, "messages": msg()}).encode()
+
+    for path in (ANTHROPIC_PATH, f"/v1/gemini/{GEM}:generateContent"):
+        r = client.post(path, headers={**h, "content-type": "application/json"}, content=chunked())
+        assert r.status_code == 411 and r.json()["error"]["type"] == "length_required"
+    assert up.requests == [] and app_mod.inflight.per == {}
+
+
+def test_buffered_body_bytes_are_bounded_in_total_and_per_network(make_cloud):
+    """Dripped bodies used to be bounded only by tokens x PER_TOKEN_INFLIGHT (and minting gives 60 tokens per IPv4
+    a day). Their declared bytes now count against MAX_INFLIGHT_BODY in total and MAX_INFLIGHT_BODY_PER_IP per
+    network from before the body is read until the call ends."""
+    client, app_mod = make_cloud(MAX_INFLIGHT_BODY_MB=str(250_000 / 1048576), MAX_INFLIGHT_BODY_PER_IP_MB="0")
+    assert app_mod.MAX_INFLIGHT_BODY == 250_000
+    slow = [install(client)[0] for _ in range(3)]
+
+    async def total():
+        release = asyncio.Event()
+        starts = [asyncio.Event() for _ in slow]
+        held = [asyncio.create_task(_asgi_slow(app_mod.app, ANTHROPIC_PATH, h, starts[i], release)) for i, h in enumerate(slow[:2])]
+        await asyncio.wait_for(asyncio.gather(*(s.wait() for s in starts[:2])), 5)
+        assert app_mod.inflight.bytes_total == 200_000
+        status = await asyncio.wait_for(_asgi_slow(app_mod.app, ANTHROPIC_PATH, slow[2], starts[2], release), 5)
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*held), 5)
+        return status, starts[2].is_set()
+
+    status, read = asyncio.run(total())
+    assert status == 429 and not read  # refused before its body was read
+    assert app_mod.inflight.bytes_total == 0 and app_mod.inflight.bytes_per_net == {} and app_mod.inflight.per == {}
+
+    client, app_mod = make_cloud(MAX_INFLIGHT_BODY_MB="0", MAX_INFLIGHT_BODY_PER_IP_MB=str(150_000 / 1048576))
+    a, b, c = (install(client)[0] for _ in range(3))
+
+    async def per_network():
+        release = asyncio.Event()
+        s = [asyncio.Event() for _ in range(3)]
+        first = asyncio.create_task(_asgi_slow(app_mod.app, ANTHROPIC_PATH, {**a, "X-Forwarded-For": "198.51.100.7"}, s[0], release))
+        await asyncio.wait_for(s[0].wait(), 5)
+        same = await asyncio.wait_for(_asgi_slow(app_mod.app, ANTHROPIC_PATH, {**b, "X-Forwarded-For": "198.51.100.7"}, s[1], release), 5)
+        other = asyncio.create_task(_asgi_slow(app_mod.app, ANTHROPIC_PATH, {**c, "X-Forwarded-For": "203.0.113.9"}, s[2], release))
+        await asyncio.wait_for(s[2].wait(), 5)  # another network still gets in
+        release.set()
+        await asyncio.wait_for(asyncio.gather(first, other), 5)
+        return same
+
+    assert asyncio.run(per_network()) == 429
+    assert app_mod.inflight.bytes_total == 0 and app_mod.inflight.bytes_per_net == {}
+
+
+def test_buffered_body_limit_errors_are_concurrency_errors(make_cloud):
+    _, app_mod = make_cloud()
+    for which, limit in (("bytes", "inflight_bytes"), ("bytes_net", "inflight_bytes_network")):
+        r = app_mod.too_many_inflight(which)
+        err = json.loads(r.body)["error"]
+        assert r.status_code == 429 and err["type"] == "concurrency_limit_error" and err["limit"] == limit
+        assert r.headers["retry-after"] == "1"
+    assert app_mod.MAX_INFLIGHT_BODY == 64 * 1024 * 1024 and app_mod.MAX_INFLIGHT_BODY_PER_IP == 16 * 1024 * 1024
+
+
+def test_small_body_routes_refuse_big_bodies(make_cloud):
+    client, app_mod = make_cloud()
+    h, _ = install(client)
+    r = client.post("/admin", content=b"admin_token=" + b"a" * 5000, headers={"content-type": "application/x-www-form-urlencoded"})
+    assert r.status_code == 413
+    r = client.post("/v1/link", headers=h, json={"access_token": "x" * 20_000})
+    assert r.status_code == 413
+
+
+# --------------------------------------------------------------------------- round 2: the answering model's price
+
+def test_opus_or_unknown_answering_model_is_never_priced_lower(make_cloud):
+    _, app_mod = make_cloud()
+
+    class R:
+        state = type("S", (), {})()
+
+    def priced(answer: str, requested: str, provider: str = "anthropic") -> tuple[str, float]:
+        u = app_mod.Usage(provider)
+        if provider == "anthropic":
+            u.feed(json.dumps({"model": answer, "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}).encode())
+        else:
+            u.feed(json.dumps({"modelVersion": answer, "usageMetadata": {"promptTokenCount": 1_000_000}}).encode())
+        model, _, _, usd = u.totals(R(), provider, requested)
+        return model, usd
+
+    default_in = app_mod.DEFAULT_PRICE[0]
+    assert priced("claude-opus-5", HAIKU) == ("claude-opus-5", pytest.approx(default_in))
+    app_mod.PRICES["claude-opus-5"] = (15.0, 75.0)
+    try:
+        assert priced("claude-opus-5", SONNET)[1] == pytest.approx(15.0)  # its own, higher price
+        app_mod.PRICES["claude-opus-cheap"] = (0.01, 0.01)
+        assert priced("claude-opus-cheap", SONNET)[1] == pytest.approx(max(default_in, app_mod.PRICES[SONNET][0]))
+    finally:
+        app_mod.PRICES.pop("claude-opus-5", None)
+        app_mod.PRICES.pop("claude-opus-cheap", None)
+    assert priced("claude-mystery-9", HAIKU)[1] == pytest.approx(default_in)  # unknown: never Haiku's price
+    assert priced(HAIKU, SONNET) == (HAIKU, pytest.approx(app_mod.PRICES[HAIKU][0]))  # a known cheaper fallback
+    assert priced(SONNET + "-20261001", SONNET) == (SONNET, pytest.approx(app_mod.PRICES[SONNET][0]))  # a dated id
+    assert priced(GEM + "-001", GEM, "gemini") == (GEM, pytest.approx(app_mod.PRICES[GEM][0]))
+    assert priced("gemini-9-ultra", GEM, "gemini")[1] == pytest.approx(default_in)
 
 
 # --------------------------------------------------------------------------- A08: lesson cache
@@ -877,6 +1199,67 @@ def test_pending_view_shows_libraries_and_commands(make_cloud):
     assert p["libraries"] == ["torch 1.x", "pyDOE", "scikit-learn >=1.3,<2"]
     assert p["commands"] == ["python3 -u pinn.py --steps 1"] and p["files"] == ["pinn.py"]
     assert "body" not in p
+
+
+def test_operator_can_read_a_candidates_whole_body_before_approving(make_cloud):
+    """The pending view shows libraries, commands and files only; instructions, code, solutions and hints are what
+    every later learner receives (instructions could say "paste curl ... | sh"), so the whole body is readable."""
+    client, app_mod = lesson_client(make_cloud, MAX_LESSON_KB="64")
+    h = claimed(client)
+    lesson = {"steps": [{"title": "Set up", "instructions": "Open a terminal and paste the command below.",
+                         "code": "print('hi')", "solution": "print('hi')", "hints": ["look at line 1"]}]}
+    r = put(client, h, lesson)
+    digest = r.json()["hash"]
+    p = client.get("/admin/lessons/pending", headers=ADMIN).json()["pending"][0]
+    assert p["full"] == f"/admin/lessons/{VID}/candidates/{digest}"
+    full = client.get(p["full"], headers=ADMIN)
+    assert full.status_code == 200 and full.headers["cache-control"] == "no-store"
+    (c,) = full.json()["candidates"]
+    assert c["lesson"] == lesson and c["status"] == "pending" and c["schema"] == 1
+    assert c["hash"].startswith(digest) and len(c["hash"]) == 64 and "body" not in c
+    assert c["commands"] == [] and c["uploader"] == app_mod.hash_token(h["Authorization"][7:])[:12]
+    assert client.get(f"/admin/lessons/{VID}/candidates/{digest}?schema=2", headers=ADMIN).status_code == 404
+    assert client.get(f"/admin/lessons/{VID}/candidates/00000000", headers=ADMIN).status_code == 404
+    assert client.get(f"/admin/lessons/{VID}/candidates/XYZ", headers=ADMIN).status_code == 400
+    assert client.get(f"/admin/lessons/{VID}/candidates/{digest}").status_code == 401
+
+
+def test_old_pending_candidates_are_pruned(make_cloud):
+    client, app_mod = lesson_client(make_cloud)
+    assert app_mod.LESSON_PENDING_MAX_DAYS == 14
+    old, new = claimed(client), claimed(client)
+    assert put(client, old, {"steps": [{"title": "old"}]}).status_code == 201
+    app_mod.store._q("UPDATE lesson_candidates SET created_at = created_at - 15 * 86400")
+    assert put(client, new, {"steps": [{"title": "new"}]}).status_code == 201
+    assert [p["uploader"] for p in client.get("/admin/lessons/pending", headers=ADMIN).json()["pending"]] == [
+        app_mod.hash_token(new["Authorization"][7:])[:12]]
+
+
+def test_pending_bytes_are_bounded_per_network_and_in_total(make_cloud, tmp_path):
+    """Each fresh token can park pending uploads, and minting gives 60 tokens per IP a day: pending bytes are
+    bounded per uploader network (/24) and in total, so they cannot fill the disk past the 85% gate."""
+    lesson = {"steps": [{"title": "x" * 60}]}
+    size = len(json.dumps(lesson, separators=(",", ":")).encode())
+    client, app_mod = lesson_client(make_cloud, LESSON_PENDING_PER_NET_MB=str((size + 10) / 1048576))
+    a, b, c = claimed(client), claimed(client), claimed(client)
+    assert put(client, a, lesson, **{"X-Forwarded-For": "198.51.100.10"}).status_code == 201
+    assert put(client, a, lesson, **{"X-Forwarded-For": "198.51.100.10"}).status_code == 201  # replacing its own
+    r = put(client, b, lesson, **{"X-Forwarded-For": "198.51.100.11"})  # the same /24
+    assert r.status_code == 507 and r.json()["error"]["type"] == "insufficient_storage"
+    assert put(client, c, lesson, **{"X-Forwarded-For": "203.0.113.10"}).status_code == 201  # another network
+
+    client, app_mod = lesson_client(make_cloud, LESSON_PENDING_MAX_MB=str((2 * size + 10) / 1048576),
+                                    DB_PATH=str(tmp_path / "second.db"))
+    a, b, c = claimed(client), claimed(client), claimed(client)
+    assert put(client, a, lesson, **{"X-Forwarded-For": "198.51.100.10"}).status_code == 201
+    assert put(client, b, lesson, **{"X-Forwarded-For": "203.0.113.10"}).status_code == 201
+    assert put(client, c, lesson, **{"X-Forwarded-For": "192.0.2.10"}).status_code == 507
+    # an approved lesson leaves the pending budget
+    digest = app_mod.lesson_hash(lesson)[:16]
+    assert client.post(f"/admin/lessons/{VID}/approve", headers=ADMIN, json={"hash": digest}).status_code == 200
+    assert put(client, c, lesson, **{"X-Forwarded-For": "192.0.2.10"}).status_code == 201
+    _, app_mod = make_cloud(unset=("LESSON_PENDING_MAX_MB", "LESSON_PENDING_PER_NET_MB", "LESSON_PENDING_MAX_DAYS"))
+    assert app_mod.LESSON_PENDING_MAX_BYTES == 128 * 1024 * 1024 and app_mod.LESSON_PENDING_PER_NET_BYTES == 8 * 1024 * 1024
 
 
 def test_lesson_pending_until_approved_and_purge_by_uploader(make_cloud):

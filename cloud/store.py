@@ -243,14 +243,55 @@ class Store:
                              (video_id, schema, row["uploader"]))
             return {"body": row["body"], "created_at": row["created_at"]}
 
-    def put_candidate(self, video_id: str, schema: int, uploader: str, body: str, body_hash: str, net: str) -> None:
+    def put_candidate(self, video_id: str, schema: int, uploader: str, body: str, body_hash: str, net: str, *,
+                      max_pending_bytes: int = 0, max_net_bytes: int = 0, max_age_s: float = 0) -> str | None:
         """Store (or replace) this uploader's candidate for the video and schema, as pending. Another uploader's
-        candidate is never touched, so nobody can block or overwrite someone else's upload."""
-        self._q("INSERT INTO lesson_candidates (video_id, schema, uploader, body, bytes, body_hash, net, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?) ON CONFLICT (video_id, schema, uploader) DO UPDATE SET "
-                "body = excluded.body, bytes = excluded.bytes, body_hash = excluded.body_hash, net = excluded.net, "
-                "status = 'pending', created_at = excluded.created_at",
-                (video_id, schema, uploader, body, len(body.encode("utf-8")), body_hash, net, time.time()))
+        candidate is never touched, so nobody can block or overwrite someone else's upload.
+
+        In the same transaction: pending candidates older than max_age_s are dropped first, then the upload is
+        refused when it would take the pending bytes past max_pending_bytes in total or past max_net_bytes for its
+        uploader network (0 = no bound; the uploader's own candidate it replaces does not count). Returns None when
+        stored, else the bound hit: "pending_total" | "pending_net"."""
+        size, now = len(body.encode("utf-8")), time.time()
+        mine = "NOT (video_id = ? AND schema = ? AND uploader = ?)"
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                if max_age_s > 0:
+                    self._db.execute("DELETE FROM lesson_candidates WHERE status = 'pending' AND created_at < ?", (now - max_age_s,))
+                if max_pending_bytes > 0:
+                    total = self._db.execute(f"SELECT COALESCE(SUM(bytes), 0) FROM lesson_candidates WHERE status = 'pending' "
+                                             f"AND {mine}", (video_id, schema, uploader)).fetchone()[0]
+                    if total + size > max_pending_bytes:
+                        self._db.execute("COMMIT")  # keep the prune
+                        return "pending_total"
+                if max_net_bytes > 0:
+                    used = self._db.execute(f"SELECT COALESCE(SUM(bytes), 0) FROM lesson_candidates WHERE status = 'pending' "
+                                            f"AND net = ? AND {mine}", (net, video_id, schema, uploader)).fetchone()[0]
+                    if used + size > max_net_bytes:
+                        self._db.execute("COMMIT")
+                        return "pending_net"
+                self._db.execute("INSERT INTO lesson_candidates (video_id, schema, uploader, body, bytes, body_hash, net, status, "
+                                 "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?) ON CONFLICT (video_id, schema, uploader) "
+                                 "DO UPDATE SET body = excluded.body, bytes = excluded.bytes, body_hash = excluded.body_hash, "
+                                 "net = excluded.net, status = 'pending', created_at = excluded.created_at",
+                                 (video_id, schema, uploader, body, size, body_hash, net, now))
+                self._db.execute("COMMIT")
+                return None
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
+
+    def lesson_candidates(self, video_id: str, hash_prefix: str, schema: int | None = None) -> list[dict]:
+        """Every candidate of `video_id` whose body hash starts with `hash_prefix` (and schema, when given), with its
+        full body: what an operator reads before approving it."""
+        sql = (f"SELECT video_id, schema, body_hash AS hash, substr(uploader, 1, {PREFIX_LEN}) AS uploader, status, bytes, "
+               "created_at, hits, body FROM lesson_candidates WHERE video_id = ? AND substr(body_hash, 1, ?) = ?")
+        args: tuple = (video_id, len(hash_prefix), hash_prefix)
+        if schema is not None:
+            sql, args = sql + " AND schema = ?", (*args, schema)
+        return [dict(r) for r in self._q(sql + " ORDER BY created_at LIMIT 50", args)]
 
     def _approve_row(self, video_id: str, schema: int, uploader: str) -> None:
         self._db.execute("UPDATE lesson_candidates SET status = 'pending' WHERE video_id = ? AND schema = ? AND status = 'approved'",

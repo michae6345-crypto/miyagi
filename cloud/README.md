@@ -30,7 +30,8 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `GET /admin`, `POST /admin` | admin token typed into a form | The same report as HTML. The token is posted in the form body, never in the URL. |
 | `POST /admin/tokens/{prefix}/disable` and `/enable` | `X-Admin-Token` | Turn one install token off or on, by the first 8+ hex characters of its hash. |
 | `POST /admin/tokens/{prefix}/plan` | `X-Admin-Token` | Body `{"plan": "free"}` or `{"plan": "pro"}`. Pro installs skip the per-install caps. |
-| `GET /admin/lessons/pending` | `X-Admin-Token` | Uploaded lessons waiting for review: video, schema, 16-hex body hash, uploader prefix, size, and what to read before approving: the `libraries` it installs, every `commands` entry it suggests or runs, its `files`. |
+| `GET /admin/lessons/pending` | `X-Admin-Token` | Uploaded lessons waiting for review: video, schema, 16-hex body hash, uploader prefix, size, and what to read before approving: the `libraries` it installs, every `commands` entry it suggests or runs, its `files`, and `full`, the path of the whole body. |
+| `GET /admin/lessons/{video_id}/candidates/{hash}` | `X-Admin-Token` | The whole body of the candidates whose body hash starts with `hash` (8+ hex; `?schema=N` optional): every instruction, code block, solution, hint and explanation learners would receive, plus the review summary. Read it before approving. |
 | `POST /admin/lessons/{video_id}/approve` | `X-Admin-Token` | Body `{"hash": "<8+ hex of the body hash>", "schema": N?}`. Serve that candidate (replaces any approved one). |
 | `DELETE /admin/lessons/by-uploader/{prefix}` | `X-Admin-Token` | Drop every lesson one install uploaded (approved or pending). |
 | `DELETE /admin/lessons/{video_id}` | `X-Admin-Token` | Drop every candidate of a video (every schema). |
@@ -82,17 +83,27 @@ fallback may answer on Sonnet 5), never an Opus id.
   `maxOutputTokens` clamped to `GEMINI_MAX_OUTPUT_TOKENS` and sent even when the client sends none,
   `thinkingConfig.thinkingBudget` clamped to `GEMINI_MAX_THINKING_TOKENS`). Parts keep `text`, `inlineData`,
   `fileData`, `videoMetadata`, function calls and responses.
-- Thinking: the engine sends no `thinkingConfig`, so the model's default dynamic thinking applies and is not
-  clamped (no budget is injected: nobody has checked offline that video lessons stay as good with one). Instead
-  the reservation holds `GEMINI_THINKING_RESERVE_TOKENS` (24576, dynamic thinking's ceiling) at the output price
-  for any call without a `thinkingBudget`, and the real thinking tokens (`thoughtsTokenCount`) are billed when it
-  settles. Set `GEMINI_MAX_THINKING_TOKENS` and have the engine send a budget to bound it outright.
+- Thinking and the output clamp: the engine (`lesson/gemini.py` `_generate_json`, `finder/gemini.py`) sends
+  `responseJsonSchema` and neither `maxOutputTokens` nor a `thinkingConfig`, so the model's dynamic thinking
+  applies. On Gemini 2.5 and later thinking tokens count against `maxOutputTokens`, so the clamp has to leave the
+  JSON answer room after the thinking: `GEMINI_MAX_OUTPUT_TOKENS` defaults to 32768 (Flash's dynamic thinking tops
+  out at 24576, which leaves at least 8192 for the answer; the model's own default is about 64k). With the old 8192
+  a long lesson-window draft could come back cut off or empty (`MAX_TOKENS`), `json.loads` failed and the engine
+  retried. We chose the higher clamp over inserting a `thinkingBudget` (Gemini 3 prefers `thinkingLevel`, and a
+  budget nobody checked offline could make video lessons worse). The reservation holds the whole clamp at the
+  output price, thinking included, and the real `thoughtsTokenCount` is billed when the call settles. A
+  `thinkingBudget` a client does send is clamped to `GEMINI_MAX_THINKING_TOKENS` (2048).
+- Shape bounds, checked before anything is copied (400 past them): at most 500 `contents`, 2000 parts in all
+  (system instruction included), 256 `functionDeclarations` and 32 `safetySettings`, and `JSON_MAX_OBJECTS`
+  (50000) JSON objects in the body, counted while it is parsed.
 - `cachedContent` is refused.
 - `fileData.fileUri` must be `https://www.youtube.com/watch?v=<11 chars>` or `https://youtu.be/<11 chars>`
   (extra query parameters such as `&t=42s` are dropped; the canonical watch URL is forwarded). Files API
   uploads, `gs://` paths and every other host are refused.
-- `?alt=sse` is passed through for streaming. Bodies are capped at `MAX_GEMINI_BODY_MB` (8): the engine sends
-  a YouTube `fileData` part and a prompt, never inline video or screenshots, so its requests are well under 1 MB.
+- `?alt=sse` is passed through for streaming. Bodies are capped at `MAX_GEMINI_BODY_MB` (2): the engine sends
+  a YouTube `fileData` part and a prompt, never inline video or screenshots (no `inline_data` or `from_bytes` in
+  `server/` on `integration/live`), so its requests are well under 1 MB. It was 8: one 8 MB body of empty objects
+  from a freshly minted token took the process from about 100 MB to 1.3 GB before the caps refused it.
 
 ### Upstream errors
 
@@ -225,6 +236,22 @@ body), else 408 `request_timeout` and the slot is released. Both slots are relea
 ends: a JSON response, an upstream error, a cancelled read, the end of a stream, or a client that hangs up
 mid-stream. Oversized bodies are refused on `Content-Length` before any of this (`Guard`).
 
+**Body bytes in memory.** The AI routes need a `Content-Length` (411 `length_required` without one; the SDKs
+always send it). Together with the per-install slot, that many bytes are held against `MAX_INFLIGHT_BODY_MB`
+(64) for every install together and `MAX_INFLIGHT_BODY_PER_IP_MB` (16) per client network (IPv4 address, IPv6
+/48: the mint bucket), from before the body is read until the call ends. Past either: 429
+`concurrency_limit_error` with `limit: inflight_bytes | inflight_bytes_network` and `Retry-After: 1`. Without it,
+bodies dripped in over 20 s were bounded only by tokens x `PER_TOKEN_INFLIGHT`, and minting gives 60 tokens per
+IPv4 a day. Only the encoded upstream payload is kept while a call is with the provider (the parsed body is
+dropped first), and parsing itself stops at `JSON_MAX_OBJECTS`, so the memory one request can take is bounded
+too (a 2 MB body of empty objects peaks at about 8 MB instead of 55 MB). `/v1/link` takes at most 16 KB and the
+admin login form 4 KB.
+
+One install at its busiest (about 10 calls, a few with a 1280-wide JPEG screenshot of 200-400 KB) holds 2-3 MB,
+so 16 MB per network covers a household or a few learners. A classroom behind one IPv4 address can pass it at
+peaks and get short 429s (the SDKs retry them, but the scene look and diagrams use max_retries=0): raise
+`MAX_INFLIGHT_BODY_PER_IP_MB` toward `MAX_INFLIGHT_BODY_MB` if schools report it.
+
 ## Accounts: `POST /v1/link`
 
 Links an install to the signed-in miyagi account so its caps are counted per user. Installs that never link keep
@@ -300,13 +327,26 @@ checks and counts it, input included (a large prompt with `max_tokens: 1` is not
   YouTube part: with an end offset (the engine's windows), its seconds x (fps x 258 tokens a frame, 70 at
   `MEDIA_RESOLUTION_LOW`, + 32 audio tokens); without one, `GEMINI_VIDEO_RESERVE_TOKENS` (300000, about 30 minutes
   at the engine's 0.5 fps).
-- Output: Anthropic `max_tokens` (after the cap; thinking is inside it); Gemini the clamped `maxOutputTokens` plus
-  the thinking the call may do (its clamped `thinkingBudget`, else `GEMINI_THINKING_RESERVE_TOKENS`), at the
-  output price. Plus $0.01 per allowed server-tool use.
+- Output: Anthropic `max_tokens` (after the cap; thinking is inside it); Gemini the clamped `maxOutputTokens`
+  (thinking is inside it too), at the output price. Plus $0.01 per allowed server-tool use.
 
-When the call ends (or fails, or the client hangs up) the reservation is swapped for the real cost read from the
-response. Parallel calls therefore cannot all slip under a USD cap: with 80 calls in flight, the caps are passed
-by at most about one call's estimation error, not by a whole wave. A refused call is not counted.
+When the call ends the reservation is swapped for the real cost read from the response, but only when the
+response's final usage was seen: Anthropic's `message_delta` / `message_stop` event, Gemini's last chunk (a
+`finishReason` with its `usageMetadata`), or a whole non-stream body with its usage object. The events are parsed
+as JSON, so model text (always inside escaped strings) cannot fake one. A call that ends without its final usage
+(the client hung up, the upstream stream dropped, a non-stream read was cancelled, a read timeout after the
+request was sent) keeps its whole reservation, or the observed cost when that is higher: the provider bills the
+prefill either way. Before this, a streamed call whose client hung up before the final event settled at $0, so one
+install could spend real money all day while its caps and `DAILY_USD_CAP` never moved. Only a provider that was
+never reached (connect error) or that refused the call (any non-200, which is not billed) drops the reservation.
+The log line shows `held=<usd>` for a held call. Parallel calls therefore cannot all slip under a USD cap: with 80
+calls in flight, the caps are passed by at most about one call's estimation error, not by a whole wave. A refused
+call is not counted.
+
+The settled price follows the model that answered (a server-side fallback may answer on another model): the
+requested model or a dated variant of it at its own price, another known non-Opus model at its own price, and
+Opus or any model without a `PRICES` entry at the higher of its entry and the default ($2 / $10 per million),
+never below the requested model's.
 
 Over a cap the proxy answers 429 with `x-should-retry: false`, `retry-after`, and:
 
@@ -325,8 +365,9 @@ for the monthly build cap. `limit` is `daily_requests`, `daily_spend` (both with
 - Request bodies, prompts, screenshots, install tokens, admin tokens and keys are never logged. One line per
   request: method, path, status, latency, model, token counts, token-hash prefix, and `rl=` for a rate-limit 429.
   Uvicorn's access log is turned off because it would print query strings.
-- Body size limit: `MAX_GEMINI_BODY_MB` (8) on `/v1/gemini/*`, `MAX_BODY_MB` (2) elsewhere, checked on
-  `Content-Length` and while reading chunked bodies.
+- Body size limit: `MAX_GEMINI_BODY_MB` (2) on `/v1/gemini/*`, `MAX_BODY_MB` (2) elsewhere, checked on
+  `Content-Length` and while reading chunked bodies; body bytes in memory are bounded in total and per network
+  (Calls in flight), and parsing stops at `JSON_MAX_OBJECTS`.
 - No CORS: no `Access-Control-*` headers, and any `/v1` request carrying an `Origin` header is refused with 403.
 - Admin token (A22): `ADMIN_TOKEN` must be at least 32 characters, with at least 12 distinct characters, and
   not a well-known value (`test`, `admin`, `changeme`, `password`, `admin-test`, ...). A weak or missing one does
@@ -356,8 +397,10 @@ Lesson builds are the expensive call, and many learners open the same videos. Th
    build with a calm card; any other failure lets the engine build locally.
 3. After a good build, `PUT /v1/lessons/{video_id}` with `{schema, lesson}`. The upload is a **pending
    candidate** for that video, schema and uploader. Nobody, the uploader included, is served it until an
-   operator approves it: `GET /admin/lessons/pending`, then `POST /admin/lessons/{video_id}/approve` with the
-   candidate's `hash`. There is no first-writer-wins and no 409: a second uploader is never blocked by the first.
+   operator approves it: `GET /admin/lessons/pending`, read the whole candidate at its `full` path
+   (`GET /admin/lessons/{video_id}/candidates/{hash}`: the pending list shows only libraries, commands and files,
+   and the instructions are free text that could tell learners to paste anything), then
+   `POST /admin/lessons/{video_id}/approve` with the candidate's `hash`. There is no first-writer-wins and no 409: a second uploader is never blocked by the first.
    `LESSON_AUTO_APPROVE_N` (default 0 = off) approves automatically once N uploads with the identical normalized
    lesson (sorted keys) came from N different install tokens on N different networks (IPv4 /24, IPv6 /48).
 4. A bad uploader's lessons go with `DELETE /admin/lessons/by-uploader/{prefix}`; one video's with
@@ -390,6 +433,11 @@ Rules:
     no `~`, no drive letter). `sources`: `https://` URLs.
 - Only an install that claimed a build of the video may upload it, at most `LESSON_PUTS_PER_DAY` (10) uploads per
   install per UTC day (429 `lesson_uploads`).
+- Pending storage is bounded so minted tokens cannot fill the disk (each fresh token can park 3 x 128 KB, and
+  minting gives 60 tokens per IPv4 a day): pending candidates older than `LESSON_PENDING_MAX_DAYS` (14) are dropped
+  on the next upload, and an upload that would take the pending bytes past `LESSON_PENDING_PER_NET_MB` (8) for its
+  uploader network (IPv4 /24, IPv6 /48) or past `LESSON_PENDING_MAX_MB` (128) in total gets 507
+  `insufficient_storage`. Approved lessons do not count, and re-uploading replaces the uploader's own candidate.
 - Uploads stop with 507 `insufficient_storage` while the database disk is over `LESSON_DISK_MAX_PCT` (85) percent
   full, so the cache can never fill the disk the proxy needs.
 - Lessons cached by the earlier first-upload-wins version become pending candidates on startup: none of them is
@@ -458,13 +506,14 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `ANTHROPIC_SERVER_TOOLS` | empty | `web_search` and/or `web_fetch` to allow those server tools (see below). |
 | `SERVER_TOOL_MAX_USES` | `5` | Cap on an allowed server tool's `max_uses`. |
 | `WEB_FETCH_MAX_CONTENT_TOKENS` | `20000` | `max_content_tokens` sent with every `web_fetch` (the client's, at most this). |
-| `GEMINI_MAX_OUTPUT_TOKENS` | `8192` | Clamp on (and default for) `generationConfig.maxOutputTokens`. |
-| `GEMINI_MAX_THINKING_TOKENS` | `2048` | Clamp on `thinkingConfig.thinkingBudget`. |
-| `GEMINI_THINKING_RESERVE_TOKENS` | `24576` | Thinking held in the reservation for a Gemini call without a `thinkingBudget`. |
+| `GEMINI_MAX_OUTPUT_TOKENS` | `32768` | Clamp on (and default for) `generationConfig.maxOutputTokens`, thinking included (What the Gemini route enforces). |
+| `GEMINI_MAX_THINKING_TOKENS` | `2048` | Clamp on a `thinkingConfig.thinkingBudget` a client sends. |
 | `GEMINI_VIDEO_RESERVE_TOKENS` | `300000` | Input held for a YouTube part without an end offset. |
 | `ALLOW_FAST_MODE` | `false` | Allow Anthropic `speed: "fast"`. |
 | `ANTHROPIC_VERSION` | `2023-06-01` | Used when the client sends no `anthropic-version`. |
-| `MAX_BODY_MB` / `MAX_GEMINI_BODY_MB` | `2` / `8` | Request size limits. |
+| `MAX_BODY_MB` / `MAX_GEMINI_BODY_MB` | `2` / `2` | Request size limits. |
+| `MAX_INFLIGHT_BODY_MB` / `MAX_INFLIGHT_BODY_PER_IP_MB` | `64` / `16` | AI-call body bytes held in memory at once, in total / per client network. 0 = off. |
+| `JSON_MAX_OBJECTS` | `50000` | JSON objects a request body may hold (counted while parsing). |
 | `RATE_LIMIT_ENABLED` | `1` | The in-memory rate limiter (`RateLimit`). |
 | `RATE_LIMIT_PER_IP_PER_HOUR` | `100` | Every `/v1/*` and `/admin*` request per client IP. |
 | `RATE_LIMIT_PER_TOKEN_PER_HOUR` | `600` | AI, lesson and event calls per known install token. |
@@ -497,6 +546,8 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `LESSON_PUTS_PER_DAY` | `10` | Lesson uploads per install per UTC day. |
 | `LESSON_AUTO_APPROVE_N` | `0` (off) | Auto-approve after N identical uploads from N tokens on N networks. |
 | `LESSON_DISK_MAX_PCT` | `85` | Lesson uploads stop above this disk usage. |
+| `LESSON_PENDING_MAX_DAYS` | `14` | Pending (unreviewed) uploads older than this are dropped. |
+| `LESSON_PENDING_MAX_MB` / `LESSON_PENDING_PER_NET_MB` | `128` / `8` | Pending upload bytes in total / per uploader network (IPv4 /24, IPv6 /48); past either, 507. |
 | `DB_PATH` | `/var/data/miyagi.db` if `/var/data` exists, else `./miyagi.db` | SQLite file. |
 | `UPSTREAM_READ_TIMEOUT_S` | `300` | httpx read timeout (a Gemini video watch can take minutes). |
 | `PRICES_JSON` | empty | Price table overrides for the USD estimate. |
@@ -556,10 +607,10 @@ Tests (no network, no real keys; needs `pytest` in the venv): `.venv/bin/python 
 All SQL lives in `store.py`. Write a `PostgresStore` with the same methods (`add_token`, `get_token`,
 `set_disabled`, `set_plan`, `count_request`, `add_tokens`, `requests_today`, `count_role`,
 `role_requests_today`, `admit_call`, `settle`, `usd_today`, `usd_today_for`, `mint_check`, `get_lesson`,
-`put_candidate`, `approve_lesson`, `auto_approve`, `pending_lessons`, `delete_lessons`,
+`put_candidate`, `lesson_candidates`, `approve_lesson`, `auto_approve`, `pending_lessons`, `delete_lessons`,
 `delete_lessons_by_uploader`, `claim_lesson_put`, `builds_in_month`, `has_build`, `claim_build`, `add_events`,
 `event_counts`, `event_props_rows`, `link_user`, `link_user_capped`, `get_link`, `usage_report`; `admit_call`,
-`settle`, `mint_check`, `link_user_capped` and `add_events` need one transaction with a row lock) and return it
+`settle`, `mint_check`, `put_candidate`, `link_user_capped` and `add_events` need one transaction with a row lock) and return it
 from `open_store()` when `DATABASE_URL` is set. The tables port as they are.
 
 ## How the app and the engine use it

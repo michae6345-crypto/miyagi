@@ -44,19 +44,23 @@ services:
         value: "5"
       - key: WEB_FETCH_MAX_CONTENT_TOKENS  # every web_fetch goes upstream with at most this max_content_tokens
         value: "20000"
-      - key: GEMINI_MAX_OUTPUT_TOKENS
-        value: "8192"
-      - key: GEMINI_MAX_THINKING_TOKENS
+      - key: GEMINI_MAX_OUTPUT_TOKENS  # thinking counts against it: 32768 leaves the JSON answer room after thinking
+        value: "32768"
+      - key: GEMINI_MAX_THINKING_TOKENS  # clamp on a thinkingBudget a client sends (the engine sends none)
         value: "2048"
       # Cost reservations (README, Reservations): held while a call is in flight, settled to the real usage
-      - key: GEMINI_THINKING_RESERVE_TOKENS  # thinking held for a Gemini call without a thinkingBudget
-        value: "24576"
       - key: GEMINI_VIDEO_RESERVE_TOKENS     # input held for a YouTube part without an end offset
         value: "300000"
       - key: MAX_BODY_MB
         value: "2"
-      - key: MAX_GEMINI_BODY_MB
-        value: "8"
+      - key: MAX_GEMINI_BODY_MB    # the engine's Gemini bodies are a YouTube part and a prompt: well under 1 MB
+        value: "2"
+      - key: MAX_INFLIGHT_BODY_MB  # AI-call body bytes held in memory at once, every install together
+        value: "64"
+      - key: MAX_INFLIGHT_BODY_PER_IP_MB  # the same per client network (IPv4 address, IPv6 /48)
+        value: "16"
+      - key: JSON_MAX_OBJECTS      # JSON objects one request body may hold, counted while parsing
+        value: "50000"
       - key: DB_PATH
         value: /var/data/miyagi.db
       # Rate limits (class RateLimit, in memory: per process and per instance; one starter instance today)
@@ -124,3 +128,9 @@ services:
         value: "0"
       - key: LESSON_DISK_MAX_PCT
         value: "85"
+      - key: LESSON_PENDING_MAX_DAYS  # unreviewed uploads older than this are dropped
+        value: "14"
+      - key: LESSON_PENDING_MAX_MB    # unreviewed upload bytes, every network together
+        value: "128"
+      - key: LESSON_PENDING_PER_NET_MB  # unreviewed upload bytes per uploader network (IPv4 /24, IPv6 /48)
+        value: "8"
