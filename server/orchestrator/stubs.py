@@ -53,7 +53,7 @@ async def search(query: str) -> list[dict]:
 
 
 def load_fixture_lesson() -> dict:
-    return json.loads((FIXTURES / "pinn_lesson.json").read_text())
+    return json.loads((FIXTURES / "pinn_lesson.json").read_text(encoding="utf-8"))
 
 
 def text_lesson(graph: dict, goal: str = "") -> dict:

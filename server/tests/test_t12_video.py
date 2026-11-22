@@ -110,7 +110,7 @@ def test_back_after_a_play_on_still_opens_the_previous_clip(rig):
 
 
 def _graph() -> dict:
-    return copy.deepcopy(json.loads(LESSON.read_text()))
+    return copy.deepcopy(json.loads(LESSON.read_text(encoding="utf-8")))
 
 
 def _bare(tmp_path: Path, graph: dict | None = None) -> Session:
@@ -138,7 +138,7 @@ def test_t12_timings_play_on(tmp_path):
 def _nb(path: Path, sources: list[str]) -> None:
     cells = [{"cell_type": "code", "metadata": {}, "source": src.splitlines(keepends=True), "execution_count": None,
               "outputs": []} for src in sources]
-    path.write_text(json.dumps({"cells": cells, "metadata": {}, "nbformat": 4, "nbformat_minor": 5}))
+    path.write_text(json.dumps({"cells": cells, "metadata": {}, "nbformat": 4, "nbformat_minor": 5}), encoding="utf-8")
 
 
 def test_code_typed_reads_the_notebook_and_the_code_checks(tmp_path):

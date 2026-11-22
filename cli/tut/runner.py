@@ -4,21 +4,27 @@ Why a PTY: the child sees a terminal, so it keeps colors and line-buffers its
 output (Python, tqdm, PyTorch logs stay live). stdout and stderr share the PTY,
 the way they share a terminal. ONLCR is turned off on the PTY so the bytes we
 forward are exactly the bytes the program wrote.
+
+Windows has no PTY module (no pty, termios, fcntl, select on pipes): there the
+child's stdout and stderr share one pipe instead (_run_pipe), with
+PYTHONUNBUFFERED=1 so a Python program's lines still arrive as it prints them.
 """
 from __future__ import annotations
 
 import collections
 import errno
-import fcntl
 import os
-import pty
-import select
 import signal
 import struct
 import subprocess
 import sys
-import termios
 from collections.abc import Callable
+
+if os.name != "nt":
+    import fcntl
+    import pty
+    import select
+    import termios
 
 from .metrics import PREFIX, clean_line
 
@@ -77,6 +83,8 @@ class _Display:
 def run_pty(argv: list[str], on_line: LineHandler, hide_metrics: bool = False, tail_lines: int = 200,
             env: dict | None = None) -> tuple[int, list[str]]:
     """Run argv, stream it, call on_line(clean_line) per line. Returns (exit_code, last lines)."""
+    if os.name == "nt":
+        return _run_pipe(argv, on_line, hide_metrics, tail_lines, env)
     master, slave = pty.openpty()
     attrs = termios.tcgetattr(slave)
     attrs[1] &= ~termios.ONLCR  # oflag: don't turn \n into \r\n
@@ -162,4 +170,59 @@ def run_pty(argv: list[str], on_line: LineHandler, hide_metrics: bool = False, t
             signal.signal(signal.SIGWINCH, old_winch)
     if code < 0:  # killed by a signal → shell convention
         code = 128 + (-code)
+    return code, list(tail)
+
+
+def _run_pipe(argv: list[str], on_line: LineHandler, hide_metrics: bool, tail_lines: int,
+              env: dict | None) -> tuple[int, list[str]]:
+    """Windows: run_pty without a PTY. stdout and stderr share one pipe; stdin stays the console's (input() works).
+    The child sees a pipe, so colors may be off and Python would block-buffer: PYTHONUNBUFFERED=1 keeps its lines live.
+    A bare program name is looked up with PATHEXT first (npm -> npm.cmd), as the shell would."""
+    import shutil
+
+    child_env = dict(os.environ if env is None else env)
+    child_env.setdefault("PYTHONUNBUFFERED", "1")
+    argv = list(argv)
+    if argv and not os.path.dirname(argv[0]):
+        argv[0] = shutil.which(argv[0], path=child_env.get("PATH")) or argv[0]
+    try:
+        proc = subprocess.Popen(argv, stdin=None, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=child_env)
+    except FileNotFoundError:
+        msg = f"tut: command not found: {argv[0]}"
+        print(msg, file=sys.stderr)
+        on_line(msg)
+        return 127, [msg]
+    except PermissionError:
+        msg = f"tut: permission denied: {argv[0]}"
+        print(msg, file=sys.stderr)
+        on_line(msg)
+        return 126, [msg]
+    # Ctrl+C reaches the child through the shared console; we keep reading so we can record how it ended.
+    old_int = signal.signal(signal.SIGINT, lambda *_: None)
+    display = _Display(hide_metrics)
+    tail: collections.deque[str] = collections.deque(maxlen=tail_lines)
+    buf = b""
+    try:
+        assert proc.stdout is not None
+        while True:
+            data = proc.stdout.read1(65536)
+            if not data:
+                break
+            display.write(data)
+            buf += data
+            *lines, buf = buf.split(b"\n")
+            for raw in lines:
+                line = clean_line(raw.decode("utf-8", "replace"))  # clean_line drops the \r of \r\n
+                tail.append(line)
+                on_line(line)
+    finally:
+        display.finish()
+        if buf:
+            line = clean_line(buf.decode("utf-8", "replace"))
+            tail.append(line)
+            on_line(line)
+        if proc.stdout is not None:
+            proc.stdout.close()
+        code = proc.wait()
+        signal.signal(signal.SIGINT, old_int)
     return code, list(tail)

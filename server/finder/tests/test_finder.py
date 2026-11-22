@@ -16,11 +16,11 @@ from server.finder import cache, claude, core as search_mod, env, gemini, source
 from server.finder import search
 
 FX = Path(__file__).parent / "fixtures"
-YT = json.loads((FX / "youtube_results.json").read_text())
-OEMBED = json.loads((FX / "oembed.json").read_text())
-DDG = (FX / "ddg.html").read_text()
-GH = json.loads((FX / "github.json").read_text())
-AX = (FX / "arxiv.xml").read_text()
+YT = json.loads((FX / "youtube_results.json").read_text(encoding="utf-8"))
+OEMBED = json.loads((FX / "oembed.json").read_text(encoding="utf-8"))
+DDG = (FX / "ddg.html").read_text(encoding="utf-8")
+GH = json.loads((FX / "github.json").read_text(encoding="utf-8"))
+AX = (FX / "arxiv.xml").read_text(encoding="utf-8")
 KINDS = {"video", "blog", "notebook", "paper", "repo"}
 DEAD = "https://lazyjobseeker.github.io/en/posts/physics-informed-neural-network-tutorials/"
 
@@ -446,7 +446,7 @@ def test_rows_below_the_relevance_floor_are_never_sent(offline, monkeypatch):
     assert not ids & off_topic and all(r["score"] >= 40 for r in rows)
     # search.done total == rows streamed == rows returned (the orchestrator counts what it streamed)
     assert [r["id"] for r in streamed] and {r["id"] for r in streamed} == ids and len(streamed) == len(rows)
-    cached = json.loads(cache.path_for("build a calculator in python").read_text())
+    cached = json.loads(cache.path_for("build a calculator in python").read_text(encoding="utf-8"))
     assert {d["id"] for d in cached["below_floor"]} == off_topic and cached["kinds"] == ["video"]
 
 

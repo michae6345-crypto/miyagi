@@ -85,7 +85,7 @@ async def _demo_at(rig: Rig, idx: int, text: str = ZEROS) -> None:
     await rig.s.learn("anything", mode="demo")
     await rig.settle()
     p = rig.workdir / "nn.py"
-    p.write_text(p.read_text() + text)
+    p.write_text(p.read_text(encoding="utf-8") + text, encoding="utf-8")
     rig.s.last_obs = _code_window(f"nn.py — {rig.workdir.name}")
     await rig.s.goto_step(idx)
     await rig.settle()
@@ -120,7 +120,7 @@ def test_normal_lesson_run_step_keeps_just_the_box(tmp_path, monkeypatch, fast):
 
     rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
     screen.regions = {"terminal": dict(TERMINAL), "run_button": dict(RUN_BTN)}
-    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
     rig.s.check_wait_s = 0
 
     async def go():
@@ -154,7 +154,7 @@ def _run_rig(tmp_path, monkeypatch, with_inputs: bool = False):
     rig = Rig(tmp_path, screen=screen, with_inputs=with_inputs)
     rig.s.workspace = Workspace(enabled=False, runner=lambda argv: True)
     rig.s.m.build_text_lesson = build
-    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
     return rig, screen
 
 
@@ -390,7 +390,7 @@ def _rows_after_reveal(monkeypatch, ext: FakeExt, top: float = 200.0, pitch: flo
 
 
 def _line_of(rig: Rig, text: str) -> int:
-    return next(i for i, ln in enumerate((rig.workdir / "nn.py").read_text().splitlines(), 1) if ln.startswith(text))
+    return next(i for i, ln in enumerate((rig.workdir / "nn.py").read_text(encoding="utf-8").splitlines(), 1) if ln.startswith(text))
 
 
 def test_demo_hint_on_the_stuck_run_boxes_w1_to_w3_not_the_run_button(tmp_path, monkeypatch, fast):
@@ -426,7 +426,7 @@ def test_demo_hint_on_the_stuck_run_boxes_w1_to_w3_not_the_run_button(tmp_path, 
         assert boxes(rig)[-1]["caption"] == "Look at how W1, W2 and W3 start"
         # they start them random and save: a rerun is next, so the ▷ is back (not under a keystroke)
         p = rig.workdir / "nn.py"
-        p.write_text(p.read_text().replace(ZEROS, RANDOM))
+        p.write_text(p.read_text(encoding="utf-8").replace(ZEROS, RANDOM), encoding="utf-8")
         await rig.s.on_file_change([str(p)])
         await rig.settle()
         await rig.s._run_box_done()  # the next frame
@@ -478,7 +478,7 @@ def test_show_me_after_a_name_error_boxes_the_line_that_raised_it(tmp_path, monk
     """t6: forward() called before its def: the run's NameError line is the culprit, not the ▷."""
     rig, _ = _nn_lesson_rig(tmp_path, monkeypatch)
     calc = tmp_path / "calc.py"
-    calc.write_text(CALC)
+    calc.write_text(CALC, encoding="utf-8")
     old = time.time() - 30
     os.utime(calc, (old, old))
     ext = FakeExt()
@@ -502,7 +502,7 @@ def test_show_me_after_a_name_error_boxes_the_line_that_raised_it(tmp_path, monk
         assert ext.opened and ext.opened[-1] == ("calc.py", 4, True)
         assert boxes(rig)[-1]["caption"] == "total is used before it's defined"
         # they move the call below the def and save: the file changed since that run, a rerun is next
-        calc.write_text(CALC.replace("print(total(1, 2))\n\n", "") + "\nprint(total(1, 2))\n")
+        calc.write_text(CALC.replace("print(total(1, 2))\n\n", "") + "\nprint(total(1, 2))\n", encoding="utf-8")
         later = time.time() + 5  # saved a few seconds after that run began
         os.utime(calc, (later, later))
         assert run_pointing.culprit(rig.s, rig.s.step) is None
@@ -518,7 +518,7 @@ def test_a_diagnosed_line_is_the_culprit_while_it_is_still_in_the_file(tmp_path,
     """t6 CP10: "Wrong sign in tanh slope: change + to - on line 23 of nn.py"."""
     rig, _ = _nn_lesson_rig(tmp_path, monkeypatch)
     calc = tmp_path / "calc.py"
-    calc.write_text("def slope(h):\n    return 1 + h ** 2\n")
+    calc.write_text("def slope(h):\n    return 1 + h ** 2\n", encoding="utf-8")
 
     async def go():
         await rig.s.learn("calc", mode="lesson")
@@ -540,7 +540,7 @@ def test_a_diagnosed_line_is_the_culprit_while_it_is_still_in_the_file(tmp_path,
         assert (c["first"], c["caption"]) == (2, "Wrong sign in tanh slope")
         rig.s.last_offtrack = {"stepId": sid, "title": "Wrong sign",
                                "diff": {"yours": "return 1 + h ** 2", "expected": "return 1 - h ** 2"}}
-        calc.write_text("def slope(h):\n    return 1 - h ** 2\n")  # fixed: the ▷ is next
+        calc.write_text("def slope(h):\n    return 1 - h ** 2\n", encoding="utf-8")  # fixed: the ▷ is next
         assert run_pointing.culprit(rig.s, rig.s.step) is None
 
     run(go())

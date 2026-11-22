@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO if a.verbose else logging.WARNING, stream=sys.stderr, format="%(levelname)s %(name)s: %(message)s")
 
     if a.graph:
-        graph = json.loads(Path(a.graph).read_text())
+        graph = json.loads(Path(a.graph).read_text(encoding="utf-8"))
     elif a.url:
         if not a.goal:
             ap.error("--goal is required when building a lesson")
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     if not a.quiet:
         print(json.dumps(graph, indent=2))
     if a.report:
-        expected = json.loads(Path(a.report).read_text())
+        expected = json.loads(Path(a.report).read_text(encoding="utf-8"))
         info = scan(a.workdir)
         r = report(graph, expected, info.metrics, set(info.files))
         print(json.dumps(r, indent=2) if a.report_json else format_report(r), file=sys.stderr)

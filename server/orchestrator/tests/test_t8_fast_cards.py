@@ -67,7 +67,7 @@ def test_sign_bug_card_goes_out_at_paste_without_the_model(rig):  # noqa: F811
         await _at_nn2(rig)
         rig.clock.t += 5  # well inside offtrack_grace_s (20)
         p = rig.workdir / "nn.py"
-        p.write_text(SIGN)
+        p.write_text(SIGN, encoding="utf-8")
         t0 = time.monotonic()
         await rig.s.on_file_change([str(p)])
         card, dt = await _first_offtrack(rig, t0)
@@ -98,7 +98,7 @@ def test_sign_bug_card_is_said_once_and_goes_once_fixed(rig):  # noqa: F811
         await _at_nn2(rig)
         rig.clock.t += 5
         p = rig.workdir / "nn.py"
-        p.write_text(SIGN)
+        p.write_text(SIGN, encoding="utf-8")
         await rig.s.on_file_change([str(p)])
         await settle(rig)
         for _ in range(3):  # more frames / ticks of the same code: no second card
@@ -107,7 +107,7 @@ def test_sign_bug_card_is_said_once_and_goes_once_fixed(rig):  # noqa: F811
             await rig.s.tick()
             await settle(rig)
         n = len(rig.of("offtrack"))
-        p.write_text(NN2)  # fixed
+        p.write_text(NN2, encoding="utf-8")  # fixed
         rig.clock.t += 2
         await rig.s.on_file_change([str(p)])
         await settle(rig)
@@ -127,7 +127,7 @@ def test_an_unknown_failure_still_goes_to_the_coach(rig):  # noqa: F811
         await _at_nn2(rig)
         rig.clock.t += 30
         p = rig.workdir / "nn.py"
-        p.write_text(bad)
+        p.write_text(bad, encoding="utf-8")
         assert curated.known_offtrack(rig.s, rig.s.step, [{"checkId": "nn2p4", "status": "fail"}]) is None
         await rig.s.on_file_change([str(p)])
         rig.clock.t += 10  # idle: the ladder speaks
@@ -204,7 +204,7 @@ def test_stuck_run_card_goes_out_at_the_run_without_the_model(rig):  # noqa: F81
 
     async def go():
         await _at_nn4(rig)
-        (rig.workdir / "nn.py").write_text(ZEROS4)
+        (rig.workdir / "nn.py").write_text(ZEROS4, encoding="utf-8")
         rig.clock.t += 19
         t0 = time.monotonic()
         await _stuck_run(rig)
@@ -233,12 +233,12 @@ def test_stuck_card_is_not_said_again_once_the_weights_are_random(rig):  # noqa:
     async def go():
         await _at_nn4(rig)
         p = rig.workdir / "nn.py"
-        p.write_text(ZEROS4)
+        p.write_text(ZEROS4, encoding="utf-8")
         rig.clock.t += 25
         await _stuck_run(rig)
         await settle(rig)
         n = len(rig.of("offtrack"))
-        p.write_text(NN4)  # random again, saved
+        p.write_text(NN4, encoding="utf-8")  # random again, saved
         rig.clock.t += 60  # past the ladder's wait
         await rig.s.on_file_change([str(p)])
         await settle(rig)

@@ -36,7 +36,7 @@ def _today() -> str:
 
 def _read() -> dict:
     try:
-        d = json.loads(_path().read_text())
+        d = json.loads(_path().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         d = {}
     if d.get("date") != _today():
@@ -65,7 +65,7 @@ def try_take(what: str = "") -> bool:
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             tmp = p.with_suffix(".tmp")
-            tmp.write_text(json.dumps(d, indent=1))
+            tmp.write_text(json.dumps(d, indent=1), encoding="utf-8")
             tmp.replace(p)
         except OSError as e:  # can't persist: still count in memory for this call, but say so
             log.warning("could not write %s: %s", p, e)

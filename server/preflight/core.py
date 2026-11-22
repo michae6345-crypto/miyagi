@@ -206,7 +206,7 @@ def classify_cached(root: Path | None, vid: str | None, goal: str) -> dict | Non
     if root is None or not vid:
         return None
     try:
-        data = json.loads(_classify_path(root, vid, goal).read_text())
+        data = json.loads(_classify_path(root, vid, goal).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     c = data.get("classify") if isinstance(data, dict) else None
@@ -224,7 +224,7 @@ def classify_save(root: Path | None, vid: str | None, goal: str, c: dict) -> Non
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_suffix(f".{os.getpid()}.tmp")
         tmp.write_text(json.dumps({"videoId": vid, "goal": _norm_goal(goal), "created": int(time.time()),
-                                   "classify": {k: c.get(k) for k in _CLASSIFY_KEYS}}, indent=1))
+                                   "classify": {k: c.get(k) for k in _CLASSIFY_KEYS}}, indent=1), encoding="utf-8")
         tmp.replace(p)
     except OSError as e:  # a read-only checkout: no cache, same card
         log.debug("preflight: couldn't keep Claude's read (%s)", e)
@@ -263,7 +263,7 @@ def cached_skim(video_id: str | None, row: dict | None = None, *, cache_dir: Pat
         return None
     for p in files:
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         for r in data.get("results") or []:
@@ -324,7 +324,7 @@ def cached_lesson(url: str, goal: str) -> dict | None:
     hit = path if path.is_file() else builder.find_cached(vid, workdir, info)
     if not hit:
         return None
-    graph = json.loads(Path(hit).read_text())
+    graph = json.loads(Path(hit).read_text(encoding="utf-8"))
     folder = _lesson_folder(graph)
     graph.setdefault("lesson", {})["workdir"] = workdir
     return {"graph": graph, "file": Path(hit).name, "steps": len(graph.get("steps") or []), "workdir": workdir,
@@ -360,14 +360,16 @@ def _venv_mark(folder: str | None) -> str | None:
     to it), so it is checked again."""
     if not folder:
         return None
+    from server.workspace import paths
+
     venv = Path(folder) / ".venv"
     try:
-        if not (venv / "bin" / "python").exists():
+        if not paths.venv_python(venv).exists():
             return None
-        mtimes = [p.stat().st_mtime for p in (venv / "lib").glob("python*/site-packages")]
+        mtimes = [p.stat().st_mtime for p in paths.venv_site_packages(venv)]
     except OSError:
         return None
-    return f"{venv / 'bin' / 'python'}@{max(mtimes, default=0.0):.3f}"
+    return f"{paths.venv_python(venv)}@{max(mtimes, default=0.0):.3f}"
 
 
 def _call_req(req: Callable, graph: dict, workdir: str | None):
@@ -853,7 +855,7 @@ def _transcript_cached(video_id: str | None) -> bool:
         from server.lesson.transcript import _cache_path
 
         p = _cache_path(video_id)
-        return p.is_file() and bool((json.loads(p.read_text()) or {}).get("transcript"))
+        return p.is_file() and bool((json.loads(p.read_text(encoding="utf-8")) or {}).get("transcript"))
     except Exception:  # noqa: BLE001
         return False
 

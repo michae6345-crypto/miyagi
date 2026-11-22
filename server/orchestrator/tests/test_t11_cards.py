@@ -160,7 +160,7 @@ class _NbS:
 def _nb(path, src: str) -> None:
     path.write_text(json.dumps({"cells": [{"cell_type": "code", "source": src.splitlines(True), "outputs": [],
                                            "execution_count": None, "metadata": {}}],
-                                "metadata": {}, "nbformat": 4, "nbformat_minor": 5}))
+                                "metadata": {}, "nbformat": 4, "nbformat_minor": 5}), encoding="utf-8")
 
 
 def test_a_notebook_diagnosis_goes_stale_once_its_line_is_gone(tmp_path):
@@ -174,7 +174,7 @@ def test_a_notebook_diagnosis_goes_stale_once_its_line_is_gone(tmp_path):
     assert run(stale_advice.state(s, s.step, OFF)) == ""  # never in their cells (nor what the coach read): no claim
     stale_advice.note(s, s.step, OFF, "import tensorflow as tf\n" + OFF["diff"]["yours"])
     assert run(stale_advice.state(s, s.step, OFF)) == "gone"
-    nb.write_text("{ not json")
+    nb.write_text("{ not json", encoding="utf-8")
     assert run(stale_advice.state(s, s.step, OFF)) == ""
 
 

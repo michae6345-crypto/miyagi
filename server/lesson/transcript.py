@@ -34,12 +34,12 @@ def _cache_path(video_id: str):
 async def fetch_video_info(video_id: str) -> dict:
     p = _cache_path(video_id)
     if p.is_file():
-        info = json.loads(p.read_text())
+        info = json.loads(p.read_text(encoding="utf-8"))
         info.setdefault("sources", {})["cache"] = p.name
         return info
     info = await _fetch_video_info(video_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(info, indent=1))
+    p.write_text(json.dumps(info, indent=1), encoding="utf-8")
     return info
 
 

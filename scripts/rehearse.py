@@ -290,12 +290,18 @@ class Engine:
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
             with contextlib.suppress(ProcessLookupError):
-                os.killpg(self.proc.pid, signal.SIGTERM)
+                if hasattr(os, "killpg"):
+                    os.killpg(self.proc.pid, signal.SIGTERM)
+                else:  # Windows: no process groups, no SIGTERM; terminate() is TerminateProcess
+                    self.proc.terminate()
             try:
                 self.proc.wait(8)
             except subprocess.TimeoutExpired:
                 with contextlib.suppress(ProcessLookupError):
-                    os.killpg(self.proc.pid, signal.SIGKILL)
+                    if hasattr(os, "killpg"):
+                        os.killpg(self.proc.pid, signal.SIGKILL)
+                    else:
+                        self.proc.kill()
         with contextlib.suppress(Exception):
             self.log.close()
 

@@ -253,7 +253,7 @@ def _replay(purpose: str, user_text: str, replay_dir: Path) -> CallResult | None
     for name in (_key(purpose, user_text), purpose):
         p = replay_dir / f"{name}.json"
         if p.exists():
-            rec = json.loads(p.read_text())
+            rec = json.loads(p.read_text(encoding="utf-8"))
             resp = rec["response"]
             return CallResult(
                 data=json.loads(resp["text"]),
@@ -272,7 +272,7 @@ def _record(record_dir: Path, purpose: str, model: str, user_text: str, text: st
         "request": {"model": model, "user": _redact_secrets(user_text)},  # fixtures get committed: no keys
         "response": {"model": res.model, "text": text, "usage": res.usage, "latency_s": round(res.latency_s, 2)},
     }
-    (record_dir / f"{_key(purpose, user_text)}.json").write_text(json.dumps(rec, indent=2, ensure_ascii=False) + "\n")
+    (record_dir / f"{_key(purpose, user_text)}.json").write_text(json.dumps(rec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 async def structured_call(

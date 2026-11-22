@@ -407,7 +407,7 @@ async def extend(graph: dict, *, parts: int = 1, on_update=None, cache: bool = T
             raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
         if cache and g["build"].get("cache_key") and not L["parts"]["failed"]:
             builder.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            (builder.CACHE_DIR / f"{g['build']['cache_key']}.json").write_text(json.dumps(g, indent=2))
+            (builder.CACHE_DIR / f"{g['build']['cache_key']}.json").write_text(json.dumps(g, indent=2), encoding="utf-8")
         builder._emit("more_steps", f"part {pending[0] + 1}/{len(plist)}")
         if on_update and (added or L["complete"]):
             r = on_update(g, L["complete"])

@@ -23,11 +23,11 @@ def lessons(tmp_path, monkeypatch):
     old, new = root / OLD, root / NEW
     for d in (old, new):
         d.mkdir(parents=True)
-    (old / "calculator.py").write_text("def add(a, b):\n    return a + b  # Michael's work\n")
-    (new / "calculator.py").write_text('"""Calculator."""\n# Step 1: add()\n')
-    (new / "README.md").write_text("# Python calculator\n_Prepared by miyagi._\n")
+    (old / "calculator.py").write_text("def add(a, b):\n    return a + b  # Michael's work\n", encoding="utf-8")
+    (new / "calculator.py").write_text('"""Calculator."""\n# Step 1: add()\n', encoding="utf-8")
+    (new / "README.md").write_text("# Python calculator\n_Prepared by miyagi._\n", encoding="utf-8")
     (new / "data").mkdir()
-    (new / "data" / "cases.csv").write_text("a,b\n1,2\n")
+    (new / "data" / "cases.csv").write_text("a,b\n1,2\n", encoding="utf-8")
     E.reset_open_state()
     yield root, old, new
     E.reset_open_state()
@@ -80,12 +80,12 @@ def test_wrong_folder_michaels_case(lessons):
 
 def test_adopt_folder_copies_missing_never_overwrites_or_deletes(lessons):
     root, old, new = lessons
-    before = (old / "calculator.py").read_text()
+    before = (old / "calculator.py").read_text(encoding="utf-8")
     res = A.adopt_folder(new, old)
     assert res["workdir"] == str(old.resolve())
     assert sorted(res["copied"]) == ["README.md", "data/cases.csv"]
     assert res["skipped"] == ["calculator.py: already there"]
-    assert (old / "calculator.py").read_text() == before  # Michael's work untouched
+    assert (old / "calculator.py").read_text(encoding="utf-8") == before  # Michael's work untouched
     assert (new / "calculator.py").exists() and (new / "README.md").exists()  # nothing deleted
     # prepare() for this lesson now returns the learner's folder
     assert core.read_state(new)["redirect"] == str(old.resolve())

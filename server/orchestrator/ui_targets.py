@@ -94,7 +94,9 @@ async def terminal_open_spot(s, extra: dict | None = None) -> dict | None:
 
 
 def _has_venv(s) -> bool:
-    return (Path(s.workdir) / ".venv" / "bin" / "python").exists()
+    from server.workspace import paths
+
+    return paths.venv_python(Path(s.workdir) / ".venv").exists()
 
 
 def _doesnt_compile(s, step: dict) -> bool:

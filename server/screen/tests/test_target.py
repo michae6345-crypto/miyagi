@@ -32,7 +32,7 @@ TAB = re.compile(r"^\W{0,2}[\w.-]+\.[A-Za-z]\w{0,7}(?:\s+(?:\d{1,3}|[•●○xX
 
 
 def _load(name):
-    obs = ScreenObservation.from_dict(json.loads((FIX / f"{name}.ocr.json").read_text()))
+    obs = ScreenObservation.from_dict(json.loads((FIX / f"{name}.ocr.json").read_text(encoding="utf-8")))
     return Image.open(FIX / f"{name}.png"), obs
 
 

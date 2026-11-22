@@ -276,7 +276,7 @@ def test_engine_route_records_events(monkeypatch):
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_end_to_end_against_the_real_extension(tmp_path, monkeypatch):
     """The real vscode-ext/extension.js (stubbed `vscode`) driven by this client: shapes match on both sides."""
-    (tmp_path / "calculator.py").write_text('"""A simple Python calculator."""\n\n# Step 1\n')
+    (tmp_path / "calculator.py").write_text('"""A simple Python calculator."""\n\n# Step 1\n', encoding="utf-8")
     proc = subprocess.Popen(["node", str(REPO / "vscode-ext" / "test" / "serve-fake.js"), str(tmp_path)],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
@@ -299,7 +299,7 @@ def test_end_to_end_against_the_real_extension(tmp_path, monkeypatch):
         r = vx.apply(folder / "calculator.py", edits=[{"startLine": 3, "text": "def add(a, b):\n    return a - b"}])
         assert r["ok"] and r["saved"] is True
         assert vx.replace_line(folder / "calculator.py", "return a - b", "return a + b")["saved"] is True
-        assert (folder / "calculator.py").read_text() == '"""A simple Python calculator."""\n\ndef add(a, b):\n    return a + b\n'
+        assert (folder / "calculator.py").read_text(encoding="utf-8") == '"""A simple Python calculator."""\n\ndef add(a, b):\n    return a + b\n'
         assert vx.buffer_text(folder / "calculator.py")["dirty"] is False
 
         r = vx.run_in_terminal("python calculator.py", cwd=folder)

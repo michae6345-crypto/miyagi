@@ -121,7 +121,7 @@ def test_download_repo_notebook_and_data(tmp_path):
     assert sorted(p.name for p in repo.iterdir()) == ["gpt.py", "input.txt"]  # no symlink, no .git, no escape
     assert not (tmp_path / "escape.txt").exists() and not (folder / "escape.txt").exists()
     assert not os.access(repo / "gpt.py", os.X_OK)  # never executable
-    assert (tut / "d.csv").read_text() == "a,b\n1,2\n"
+    assert (tut / "d.csv").read_text(encoding="utf-8") == "a,b\n1,2\n"
     s = download_summary(out)
     assert s.startswith("Saved gpt-dev.ipynb, karpathy-ng-video-lecture, d.csv to ") and s.endswith("/lesson/tutorial.")
     # second press: everything reused, only the (cheap) single files are skipped too

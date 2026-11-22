@@ -70,12 +70,12 @@ def test_conceptual_lesson_never_gets_files():
     fc = FakeClient(reply([("notes.py", "# x\n")], kind="conceptual"))
     wd = prepare(graph(), ASKED, client=fc)
     assert sorted(p.name for p in wd.iterdir()) == ["README.md"]
-    assert "explains ideas" in (wd / "README.md").read_text()
+    assert "explains ideas" in (wd / "README.md").read_text(encoding="utf-8")
 
 
 def test_readme_leads_with_the_video_topic():
     wd = prepare(graph(), ASKED, client=FakeClient(reply(kind="no_code", stack="OpenAI Agent Builder, Botpress, Zapier")))
-    readme = (wd / "README.md").read_text()
+    readme = (wd / "README.md").read_text(encoding="utf-8")
     assert readme.startswith("# Build AI Customer Support Agents Across Three Platforms\n")
     assert "Goal:" not in readme and "<sub>You asked for: build chat gpt</sub>" in readme
     assert "https://www.youtube.com/watch?v=zE2MJ3_muNQ" in readme and "1. Create OpenAI FAQ Support Agent (1:10)" in readme
@@ -104,17 +104,17 @@ def test_low_goal_match_goes_in_readme():
     g = graph()
     g["lesson"]["goalMatch"] = {"score": 0.25, "note": "The video builds support agents in no-code tools."}
     wd = prepare(g, ASKED, client=FakeClient(reply(kind="no_code")))
-    assert "> Heads-up: this video only partly matches what you asked for (match 25%). The video builds" in (wd / "README.md").read_text()
+    assert "> Heads-up: this video only partly matches what you asked for (match 25%). The video builds" in (wd / "README.md").read_text(encoding="utf-8")
 
 
 def test_reused_folder_gets_its_readme_refreshed_without_claude():
     g = graph()
     wd = prepare(g, ASKED, client=FakeClient(reply(kind="no_code")))
-    (wd / "README.md").write_text((wd / "README.md").read_text().replace("You asked for", "Goal"))
+    (wd / "README.md").write_text((wd / "README.md").read_text(encoding="utf-8").replace("You asked for", "Goal"), encoding="utf-8")
     g["lesson"]["goalMatch"] = 0.1
     again = FakeClient()
     prepare(g, ASKED, client=again)
-    readme = (wd / "README.md").read_text()
+    readme = (wd / "README.md").read_text(encoding="utf-8")
     assert again.calls == [] and "You asked for" in readme and "(match 10%)" in readme
 
 

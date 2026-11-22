@@ -24,6 +24,7 @@ import asyncio
 import logging
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -182,12 +183,15 @@ async def filter_card(s: Any, card: dict) -> dict | None:
 def _raise_window(folder: str, last_focused: bool) -> None:
     """Bring the lesson's VS Code window forward. It was the last focused VS Code window: activate VS Code (no CLI);
     else `code <folder>` (the folder is open there, so VS Code focuses that window; no -n, no -r, no -g)."""
-    if last_focused:
+    mac = sys.platform == "darwin"  # `open -b` is macOS only: elsewhere `code <folder>` raises the window too
+    if last_focused and mac:
         argv = ["open", "-b", VSCODE_BUNDLE]
     else:
         from . import workspace as wsmod
 
         cli = wsmod.code_cli()
+        if not cli and not mac:
+            return
         argv = [cli, folder] if cli else ["open", "-b", VSCODE_BUNDLE]
     try:
         subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False,

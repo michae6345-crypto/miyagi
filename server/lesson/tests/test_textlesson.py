@@ -213,7 +213,7 @@ def test_prompts_never_see_the_absolute_workdir(fake_claude, tmp_path, monkeypat
     monkeypatch.setattr(claude, "_generate_json", spy)
     wd = tmp_path / "lessons" / "_new"
     wd.mkdir(parents=True)
-    (wd / "calculator.py").write_text("")
+    (wd / "calculator.py").write_text("", encoding="utf-8")
     asyncio.run(textlesson.build_text_lesson("build a calculator in Python", str(wd)))
     assert seen and all(str(wd) not in p for p in seen)
 
