@@ -197,3 +197,11 @@ export function Eyebrow({ children }: { children: ReactNode }): ReactNode {
     <span style={{ fontSize: type2.micro, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: color.label }}>{children}</span>
   )
 }
+
+/**
+ * Overlay round: a card's two actions side by side at equal width, the quiet one first and the one white primary last
+ * (macOS alert order), instead of two full-width buttons stacked. Every island card with two actions uses it.
+ */
+export function ButtonPair({ children }: { children: ReactNode }): ReactNode {
+  return <div className="grid grid-cols-2 gap-[8px]">{children}</div>
+}

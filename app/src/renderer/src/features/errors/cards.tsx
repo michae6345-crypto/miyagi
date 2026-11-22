@@ -19,7 +19,7 @@ import { color, copy, fill, font, radius2, surface, type2 } from '../../core/the
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { guard } from './lines'
-import { Caption, CardFrame, ErrGlyph, Eyebrow } from './parts'
+import { ButtonPair, Caption, CardFrame, ErrGlyph, Eyebrow } from './parts'
 import { buildDetails, LIBRARY_ID, type DetailFields } from './scrub'
 import { closeCard, decideCrash, restartEngine, TRIES, useErrors } from './store'
 import { shellName, thisDevice } from '../onboarding/device'
@@ -127,10 +127,10 @@ export function EngineOfflineCard(): ReactNode {
       title={`${copy.name} stopped responding`}
       body={inLesson ? 'Your place in the lesson is saved.' : 'Nothing you made is lost.'}
     >
-      <div className="flex flex-col gap-2">
-        <PrimaryButton size="lg" block label={external ? 'Try again' : `Restart ${copy.name}`} busy={restart === 'starting'} disabled={restart === 'starting'} onClick={() => void onRestart()} />
+      <ButtonPair>
         <QuietButton size="lg" block label={copied === 'yes' ? 'Copied' : copied === 'no' ? 'Could not copy' : 'Copy details'} onClick={() => void onCopy()} />
-      </div>
+        <PrimaryButton size="lg" block label={external ? 'Try again' : `Restart ${copy.name}`} busy={restart === 'starting'} disabled={restart === 'starting'} onClick={() => void onRestart()} />
+      </ButtonPair>
       <Caption>{foot}</Caption>
     </CardFrame>
   )
@@ -317,10 +317,10 @@ export function LimitCard(): ReactNode {
       title="You have used today's free checks"
       body="Your progress is saved. Free checks reset tomorrow."
     >
-      <div className="flex flex-col gap-2">
-        <PrimaryButton size="lg" block label="See plans" onClick={() => void openAccount('upgrade')} />
+      <ButtonPair>
         <QuietButton size="lg" block icon={KeyRound} label="Your own key" onClick={() => void openSettings('account')} />
-      </div>
+        <PrimaryButton size="lg" block label="See plans" onClick={() => void openAccount('upgrade')} />
+      </ButtonPair>
       <Caption>Lessons stay free to read. Only checks and help count.</Caption>
     </CardFrame>
   )
