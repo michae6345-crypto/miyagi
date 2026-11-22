@@ -90,8 +90,8 @@ const SHADOW = '24,22,16'
 const palette: Record<string, readonly [string, string]> = {
   // ---- text and status ----
   'c-text': [hud.dark.text, brand.ink],
-  'c-label': [hud.dark.muted, `rgba(${INK},.62)`],
-  'c-faint': ['rgba(255,255,255,.42)', `rgba(${INK},.42)`],
+  'c-label': [hud.dark.muted, `rgba(${INK},.68)`],
+  'c-faint': ['rgba(255,255,255,.42)', `rgba(${INK},.6)`],
   'c-hairline': [hud.dark.hairline, `rgba(${INK},.10)`],
   'c-accent': [hud.dark.button, hud.light.button],
   'c-on-accent': [hud.dark.buttonText, hud.light.buttonText],
@@ -101,6 +101,8 @@ const palette: Record<string, readonly [string, string]> = {
   'c-offtrack-tint': [brand.offTrackTint, `rgba(${INK},.06)`],
   'c-green': [brand.pass, '#22A24B'],
   'c-green-deep': [brand.passDeep, '#187A37'],
+  /** Green as text: the pass green on dark, the deep green on light (the fill green is 3.3:1 on white). */
+  'c-green-text': [brand.pass, '#187A37'],
   'c-green-tint': [brand.passTint, 'rgba(31,155,69,.12)'],
   'c-on-green': [brand.ink, brand.ink],
   'c-glass': ['rgb(28,28,30)', 'rgb(252,251,249)'],
@@ -254,6 +256,8 @@ export const color = {
   /** Passed. Nothing else is green. */
   green: 'var(--c-green)',
   greenDeep: 'var(--c-green-deep)',
+  /** Passed, as text on any surface: readable green in light, the pass green in dark. */
+  greenText: 'var(--c-green-text)',
   greenTint: 'var(--c-green-tint)',
   /** Watching (status dot). */
   gray: brand.watching,

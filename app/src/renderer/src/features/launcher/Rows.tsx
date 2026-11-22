@@ -10,7 +10,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { StepBar } from '../shell/ui'
 import { TOOL_NAME } from '../library/parts'
 import { Thumb } from '../../core/ui/atoms'
-import { brand, clock, color, fill, font, spring } from '../../core/theme'
+import { clock, color, fill, font, spring, tone } from '../../core/theme'
 import { toolsLabel, type LibraryItem } from './library'
 import { navKey } from './keys'
 import { HOW_LABEL, NavKey, PRESS } from './parts'
@@ -125,7 +125,7 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
       <Tile kind={r.kind} thumbnail={r.thumbnail} />
       <Text title={r.title} meta={r.meta} extra={metaSegment(r)} checked={r.verified === true} warnings={r.warnings} />
       {best && (
-        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: brand.pastel.pink }}>
+        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: tone.pink.fg }}>
           Best
         </span>
       )}

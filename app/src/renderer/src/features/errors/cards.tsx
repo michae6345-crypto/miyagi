@@ -328,7 +328,7 @@ export function LimitCard(): ReactNode {
 
 // ---- crash consent (90) ------------------------------------------------------------------------------------------
 
-const INCLUDES = ['App and macOS version', 'Error log', 'Lesson name and step']
+const includes = (): string[] => [bridge.platform?.os === 'win' ? 'App and Windows version' : 'App and macOS version', 'Error log', 'Lesson name and step']
 const NEVER = ['Your code or files', 'Screenshots', 'API keys']
 
 export function CrashCard(): ReactNode {
@@ -356,7 +356,7 @@ export function CrashCard(): ReactNode {
     >
       <div className="grid grid-cols-2" style={{ borderRadius: radius2.card, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
         {[
-          ['Includes', INCLUDES],
+          ['Includes', includes()],
           ['Never', NEVER]
         ].map(([head, items], i) => (
           <div key={head as string} className="flex flex-col" style={{ padding: '12px 16px', gap: 6, borderLeft: i ? `1px solid ${surface.border}` : undefined }}>

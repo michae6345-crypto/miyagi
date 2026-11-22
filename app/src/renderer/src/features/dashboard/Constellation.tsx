@@ -171,7 +171,7 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
               <span className="truncate" style={{ fontSize: type2.xs, fontWeight: 600, color: color.text }}>
                 <CodeText text={tip.label} />
               </span>
-              <span style={{ fontSize: type2.micro, color: states[tip.id] === 'mastered' ? status.passed : color.label }}>{STATE_WORD[states[tip.id]]}</span>
+              <span style={{ fontSize: type2.micro, color: states[tip.id] === 'mastered' ? color.greenText : color.label }}>{STATE_WORD[states[tip.id]]}</span>
               {tip.detail && (
                 <span className="line-clamp-2" style={{ fontSize: type2.micro, color: color.label }}>
                   {tip.detail}

@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
 import { CodeText } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import type { AppRoute } from '../../core/surfaces'
-import { color, fill, radius2, status, surface, type2 } from '../../core/theme'
+import { color, fill, radius2, surface, type2 } from '../../core/theme'
 import { lessonIndex, nextFor, nodeStates, prereqs, relDay, relInLine, reviewFor, reviewIndex, shortDay, unlockLabels } from './model'
 import { caption, Empty, h2, NodeGlyph, STATE_WORD } from './parts'
 import { canReview, select, startGoal, startReview, startSaved, useDash } from './store'
@@ -214,7 +214,7 @@ export function SkillCard({ data, now, route }: { data?: DashData; now: number; 
           <span style={{ fontSize: type2.body, fontWeight: 600, color: color.text }}>
             <CodeText text={s.label} />
           </span>
-          <span style={{ fontSize: type2.xs, color: st === 'mastered' ? status.passed : color.label }}>
+          <span style={{ fontSize: type2.xs, color: st === 'mastered' ? color.greenText : color.label }}>
             {STATE_WORD[st]} · {t.track}
           </span>
         </div>

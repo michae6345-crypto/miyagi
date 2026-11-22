@@ -394,7 +394,7 @@ function Controls(): ReactNode {
           <SkipForward size={15} strokeWidth={1.8} />
         </IconButton>
       )}
-      <span className="ml-[6px] text-[13px] tabular-nums" style={{ color: glass.label }}>
+      <span className="ml-[6px] shrink-0 whitespace-nowrap text-[13px] tabular-nums" style={{ color: glass.label }}>
         {clock(p.t)} <span style={{ color: glass.faint }}>/ {p.duration ? clock(p.duration) : '–:––'}</span>
       </span>
       <Volume />
@@ -402,7 +402,7 @@ function Controls(): ReactNode {
       <span className="flex-1" />
       {seg ? (
         <button
-          className="flex h-[24px] cursor-pointer items-center gap-[5px] rounded-[7px] px-[6px] text-[12px] tabular-nums text-[var(--glass-faint)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
+          className="flex h-[24px] min-w-0 cursor-pointer items-center gap-[5px] overflow-hidden whitespace-nowrap rounded-[7px] px-[6px] text-[12px] tabular-nums text-[var(--glass-faint)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
           onClick={checkStep}
           title="The video holds here until the step's checks pass. Click to check now."
         >
