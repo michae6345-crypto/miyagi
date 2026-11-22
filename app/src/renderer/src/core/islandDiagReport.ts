@@ -44,6 +44,27 @@ export function installIslandDiagReport(): () => void {
   let lastSent = 0
   let timer: ReturnType<typeof setTimeout> | undefined
 
+  const seenNow = (): string => {
+    const w = window as unknown as { __miyagiLayout?: { notch?: unknown; n?: number } }
+    try {
+      const isl = (window as unknown as { __miyagiIsland?: unknown }).__miyagiIsland
+      // What is drawn where the pill and the notch sit (the top centre of the display): each element's tag, data-* names and rect.
+      const probe = (x: number, y: number): string =>
+        document
+          .elementsFromPoint(x, y)
+          .slice(0, 6)
+          .map((e) => {
+            const r = e.getBoundingClientRect()
+            const d = Object.keys((e as HTMLElement).dataset ?? {}).join('.')
+            return `${e.tagName.toLowerCase()}${d ? '[' + d + ']' : ''}@${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}x${Math.round(r.height)}`
+          })
+          .join('>')
+      const cx = innerWidth / 2
+      return `route=${location.hash || '-'} layouts=${w.__miyagiLayout?.n ?? 0} notch=${JSON.stringify(w.__miyagiLayout?.notch ?? null)} island=${JSON.stringify(isl ?? null)} at16=${probe(cx, 16)} at57=${probe(cx, 57)}`
+    } catch {
+      return 'route=?'
+    }
+  }
   const send = (why: string): void => {
     const box = findIslandBox()
     const payload = {
@@ -53,7 +74,8 @@ export function installIslandDiagReport(): () => void {
       dpr: window.devicePixelRatio,
       visibility: document.visibilityState,
       hover: { count: c.hoverCount, lastAt: c.hoverAt },
-      peek: { opens: c.peekOpens, closes: c.peekCloses, lastAt: c.peekAt }
+      peek: { opens: c.peekOpens, closes: c.peekCloses, lastAt: c.peekAt },
+      seen: seenNow()
     }
     lastSent = Date.now()
     void bridge.invoke('island:diag', payload).catch(() => undefined)

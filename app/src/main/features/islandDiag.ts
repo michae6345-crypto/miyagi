@@ -153,6 +153,8 @@ export type RendererReport = {
   visibility: string
   hover: { count: number; lastAt: number }
   peek: { opens: number; closes: number; lastAt: number }
+  /** What the page itself holds: its route and the layout.notch it last received (debugging "not in the notch"). */
+  seen: string
 }
 
 /** Validate an untrusted IPC payload: only plain numbers and short strings survive. Null when it is not a report. */
@@ -171,14 +173,15 @@ export function sanitizeRendererReport(raw: unknown): RendererReport | null {
     dpr: n(o.dpr, 1),
     visibility: s(o.visibility, 16),
     hover: { count: n(h.count), lastAt: n(h.lastAt) },
-    peek: { opens: n(p.opens), closes: n(p.closes), lastAt: n(p.lastAt) }
+    peek: { opens: n(p.opens), closes: n(p.closes), lastAt: n(p.lastAt) },
+    seen: s(o.seen, 900)
   }
 }
 
 export function formatRenderer(at: string, r: RendererReport): string {
   const t = (ms: number): string => (ms > 0 ? new Date(ms).toISOString() : '-')
   const isl = r.island ? rect({ x: r.island.x, y: r.island.y, width: r.island.w, height: r.island.h }) : 'none'
-  return `${at} renderer:${r.why} island=${isl} clip="${r.clipPath || 'none'}" dpr=${r4(r.dpr)} visibility=${r.visibility || '?'} hover=${r.hover.count}@${t(r.hover.lastAt)} peek=${r.peek.opens}/${r.peek.closes}@${t(r.peek.lastAt)}`
+  return `${at} renderer:${r.why} island=${isl} clip="${r.clipPath || 'none'}" dpr=${r4(r.dpr)} visibility=${r.visibility || '?'} hover=${r.hover.count}@${t(r.hover.lastAt)} peek=${r.peek.opens}/${r.peek.closes}@${t(r.peek.lastAt)}${r.seen ? ` seen=${r.seen}` : ''}`
 }
 
 // ---- the recorder -----------------------------------------------------------------------------------------------------

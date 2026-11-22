@@ -26,9 +26,17 @@ function useEngineFeed(): Layout {
     const offs = [bridge.onEvent(dispatch), bridge.onStatus(setConnected), bridge.on('layout', (l) => {
         // Main re-fits the pill under the menu bar / notch when the displays change: every reader of platform.pillTop follows.
         const next = l as Layout
-        setNotchInfo(next.notch)
-        if (typeof next.pillTop === 'number') (bridge.platform as { pillTop: number }).pillTop = next.pillTop
+        // Log-only: islandDiagReport reads what this page last received (island.log seen=...).
+        const w = window as unknown as { __miyagiLayout?: { notch?: unknown; n: number } }
+        w.__miyagiLayout = { notch: next.notch, n: (w.__miyagiLayout?.n ?? 0) + 1 }
+        // The layout first: nothing below may keep the island from seeing where the notch is.
         setLayout(next)
+        try {
+          if (typeof next.pillTop === 'number') (bridge.platform as { pillTop: number }).pillTop = next.pillTop
+        } catch {
+          // a read-only platform object: islandTop still follows the layout (the notch top is 0)
+        }
+        setNotchInfo(next.notch)
       })]
     bridge.ready()
     return () => offs.forEach((off) => off())

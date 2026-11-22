@@ -294,7 +294,10 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
 
 const web = window.tut ? undefined : createWebBridge()
 
-export const bridge: TutBridge = window.tut ?? web!
+// The preload's object crosses contextBridge frozen: writing platform.pillTop (main re-fits the pill when the displays
+// change, main.tsx) threw in the packaged app, which also skipped the layout update, so the island never saw the notch.
+// Keep a page-owned copy whose platform this page may update.
+export const bridge: TutBridge = window.tut ? { ...window.tut, platform: { ...window.tut.platform } } : web!
 
 export const engineMode = (): EngineMode => (web ? web.mode() : 'electron')
 

@@ -154,6 +154,8 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const kind = isPill ? 'pill' : 'card'
   const showLayer = !nm || !isPill || view === 'drop' || view === 'ears+drop'
   const showEars = !!nm && isPill && (view === 'ears' || view === 'ears+drop')
+  // Log-only (islandDiagReport, island.log seen=...): what the island decided this render.
+  ;(window as unknown as { __miyagiIsland?: unknown }).__miyagiIsland = { nm: nm ? `${nm.x},${nm.width}x${nm.height}` : null, mode: mode?.id ?? null, view, kind, showLayer, showEars, coexist }
   // A card the learner closed under the pointer (its ✕, a button) must not hand the island straight to a hover card:
   // the pointer is still on the island, so the hover overview (or an off-track peek) grew out of it at once, and the
   // island "expanded" on the very click that closed it (Michael, Nov 21). Hover waits for the pointer to leave and come
