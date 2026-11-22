@@ -2,9 +2,12 @@
 
 Asymmetric tokens (ES256, RS256) are checked against the project's JWKS at
 ${SUPABASE_URL}/auth/v1/.well-known/jwks.json, fetched at most every 10 minutes. Legacy HS256 tokens are
-checked with SUPABASE_JWT_SECRET only when it is set. Every token must have aud "authenticated",
-iss ${SUPABASE_URL}/auth/v1, a future exp and a non-empty sub. exp, iat and nbf get LEEWAY_S of clock
-skew, so a token minted seconds ago by a clock slightly ahead of ours still links.
+accepted only when SUPABASE_ALLOW_HS256=1 AND SUPABASE_JWT_SECRET is set; by default only the JWKS keys count.
+Every token must have aud "authenticated", iss ${SUPABASE_URL}/auth/v1, a future exp, a non-empty sub,
+role "authenticated", is_anonymous not true, and a Google sign-in: app_metadata.provider "google" or "google"
+in app_metadata.providers. app_metadata is set by Supabase Auth only; user_metadata is user-editable, so it is
+never read. exp, iat and nbf get LEEWAY_S of clock skew, so a token minted seconds ago by a clock slightly ahead
+of ours still links.
 
 Nothing here logs or stores the token. The JWKS fetcher is injectable so tests never touch the network.
 """
@@ -17,7 +20,10 @@ import threading
 import time
 from typing import Callable
 
-import jwt
+try:  # PyJWT (requirements.txt). Imported softly so the rest of the proxy still loads without it: /v1/link then 503s.
+    import jwt
+except ImportError:  # pragma: no cover - production always has it
+    jwt = None  # type: ignore[assignment]
 
 log = logging.getLogger("miyagi.cloud.auth")
 
@@ -29,6 +35,7 @@ RETRY_AFTER_FAIL_S = 30.0  # after a failed fetch, wait this long before asking 
 REFRESH_FOR_KID_S = 60.0   # an unknown kid may mean a key rotation: refetch, but not more often than this
 MAX_TOKEN_CHARS = 8192
 LEEWAY_S = 30              # clock skew allowed between Supabase and this server on exp, iat and nbf
+PROVIDER = "google"        # the only sign-in the app offers; email/password and anonymous users never link
 
 Fetcher = Callable[[str], dict]
 
@@ -53,11 +60,12 @@ def http_fetch_jwks(url: str) -> dict:
 class SupabaseVerifier:
     def __init__(self, supabase_url: str = DEFAULT_SUPABASE_URL, jwt_secret: str = "",
                  fetch_jwks: Fetcher | None = None, ttl: float = JWKS_TTL_S,
-                 clock: Callable[[], float] = time.time) -> None:
+                 clock: Callable[[], float] = time.time, allow_hs256: bool = False) -> None:
         self.base = supabase_url.rstrip("/")
         self.issuer = f"{self.base}/auth/v1"
         self.jwks_url = f"{self.issuer}/.well-known/jwks.json"
         self.secret = jwt_secret
+        self.allow_hs256 = allow_hs256
         self._fetch = fetch_jwks or http_fetch_jwks
         self._ttl = ttl
         self._clock = clock
@@ -69,7 +77,8 @@ class SupabaseVerifier:
     @classmethod
     def from_env(cls, fetch_jwks: Fetcher | None = None) -> "SupabaseVerifier":
         url = os.environ.get("SUPABASE_URL", "").strip() or DEFAULT_SUPABASE_URL
-        return cls(url, os.environ.get("SUPABASE_JWT_SECRET", ""), fetch_jwks)
+        allow = os.environ.get("SUPABASE_ALLOW_HS256", "").strip().lower() in ("1", "true", "yes", "on")
+        return cls(url, os.environ.get("SUPABASE_JWT_SECRET", ""), fetch_jwks, allow_hs256=allow)
 
     # key set ---------------------------------------------------------------
     def _parse(self, doc: dict) -> list[jwt.PyJWK]:
@@ -124,6 +133,8 @@ class SupabaseVerifier:
         Raises BadAccessToken (403) or AuthUnavailable (503)."""
         if not isinstance(token, str) or not token or len(token) > MAX_TOKEN_CHARS:
             raise BadAccessToken("missing")
+        if jwt is None:
+            raise AuthUnavailable("PyJWT is not installed")
         try:
             header = jwt.get_unverified_header(token)
         except jwt.PyJWTError:
@@ -135,8 +146,10 @@ class SupabaseVerifier:
             if not keys:
                 raise BadAccessToken("unknown key")
         elif alg == "HS256":
+            if not self.allow_hs256:
+                raise BadAccessToken("algorithm")  # JWKS only unless SUPABASE_ALLOW_HS256=1
             if not self.secret:
-                raise AuthUnavailable("HS256 token and no SUPABASE_JWT_SECRET")
+                raise AuthUnavailable("HS256 allowed but no SUPABASE_JWT_SECRET")
             keys = [self.secret]
         else:
             raise BadAccessToken("algorithm")  # none, HS384, PS256, ...: never accepted
@@ -152,6 +165,22 @@ class SupabaseVerifier:
             sub = claims.get("sub")
             if not isinstance(sub, str) or not sub.strip() or len(sub) > 128:
                 raise BadAccessToken("sub")
+            check_account(claims)
             return claims
         raise BadAccessToken("signature")
 
+
+
+def check_account(claims: dict) -> None:
+    """A signed-in Google account, not an anonymous or email/password one. Reads Supabase's own claims only:
+    role, is_anonymous and app_metadata (set by Supabase Auth); never user_metadata, which the user can edit."""
+    if claims.get("role") != "authenticated":
+        raise BadAccessToken("role")
+    if claims.get("is_anonymous") is True:
+        raise BadAccessToken("anonymous")
+    meta = claims.get("app_metadata")
+    if not isinstance(meta, dict):
+        raise BadAccessToken("provider")
+    providers = meta.get("providers")
+    if meta.get("provider") != PROVIDER and not (isinstance(providers, list) and PROVIDER in providers):
+        raise BadAccessToken("provider")

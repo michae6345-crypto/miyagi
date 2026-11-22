@@ -9,7 +9,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from test_caps import ADMIN, anthropic, install, make_cloud  # noqa: F401  (make_cloud is a fixture)
+from test_caps import ADMIN, ADMIN_TOKEN, anthropic, install, make_cloud  # noqa: F401  (make_cloud is a fixture)
 
 
 def ev(name="step_passed", props=None, at=None):
@@ -149,5 +149,5 @@ def test_admin_shows_events_and_spend(make_cloud):
     report = client.get("/admin/usage", headers=ADMIN).json()
     assert report["usd_today"] == 1.25
     assert [(e["name"], e["count"], e["installs"]) for e in report["events"]] == [("lesson_completed", 1, 1)]
-    page = client.post("/admin", data={"admin_token": "admin-test"}).text
+    page = client.post("/admin", data={"admin_token": ADMIN_TOKEN}).text
     assert "Events per day" in page and "lesson_completed" in page and "daily cap: $25.0" in page

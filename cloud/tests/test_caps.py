@@ -17,15 +17,18 @@ from pathlib import Path
 import pytest
 
 CLOUD = Path(__file__).resolve().parents[1]
-ADMIN = {"X-Admin-Token": "admin-test"}
+ADMIN_TOKEN = "miyagi-tests-admin-0123456789-abcdefghijklmnop"  # 32+ characters: a weak token turns /admin off
+ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
 
 
 def _cloud(tmp_path, monkeypatch, unset=(), **env):
-    base = {"ADMIN_TOKEN": "admin-test", "DB_PATH": str(tmp_path / "miyagi.db"),
+    base = {"ADMIN_TOKEN": ADMIN_TOKEN, "DB_PATH": str(tmp_path / "miyagi.db"),
             "ANTHROPIC_API_KEY": "fake-upstream-key", "GEMINI_API_KEY": "fake-upstream-key",
             "UPSTREAM_ANTHROPIC_URL": "http://127.0.0.1:9/v1/messages",  # closed port: never a real call
             "UPSTREAM_GEMINI_URL": "http://127.0.0.1:9/{model}:{method}",
-            "FREE_COACH_CALLS_PER_DAY": "60", "FREE_DAILY_REQUESTS": "0", "DAILY_USD_CAP": "0"}
+            "FREE_COACH_CALLS_PER_DAY": "60", "FREE_DAILY_REQUESTS": "0", "DAILY_USD_CAP": "0",
+            "FREE_DAILY_USD": "0", "LINKED_DAILY_REQUESTS": "0", "LINKED_DAILY_USD": "0",
+            "ANON_DAILY_USD_PER_NETWORK": "0"}
     for k, v in {**base, **env}.items():
         monkeypatch.setenv(k, v)
     for k in unset:  # back to the default in app.py
@@ -146,8 +149,23 @@ def test_caps_hold_under_parallel_calls(make_cloud):
 
 # --------------------------------------------------------------------------- DAILY_USD_CAP
 
-def test_usd_cap_is_off_by_default(make_cloud):
-    client, app_mod = make_cloud(unset=("DAILY_USD_CAP",))
+@pytest.mark.parametrize("value", [None, "", "  "])
+def test_usd_cap_fails_closed_when_unset_or_empty(make_cloud, value):
+    if value is None:
+        client, app_mod = make_cloud(unset=("DAILY_USD_CAP",))
+    else:
+        client, app_mod = make_cloud(DAILY_USD_CAP=value)
+    assert app_mod.DAILY_USD_CAP == 25.0
+    h, _ = install(client)
+    other, _ = install(client)
+    th = app_mod.hash_token(h["Authorization"][7:])
+    app_mod.store.add_tokens(th, "anthropic", "claude-haiku-5-5", 10**9, 10**9, 25.0)
+    r = anthropic(client, other)
+    assert r.status_code == 429 and r.json()["error"]["limit"] == "daily_usd" and r.json()["error"]["cap"] == 25.0
+
+
+def test_usd_cap_off_only_when_explicitly_zero(make_cloud):
+    client, app_mod = make_cloud(DAILY_USD_CAP="0", FREE_DAILY_USD="0")
     assert app_mod.DAILY_USD_CAP == 0
     h, _ = install(client)
     th = app_mod.hash_token(h["Authorization"][7:])

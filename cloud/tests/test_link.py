@@ -15,11 +15,13 @@ import sys
 import time
 from pathlib import Path
 
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
+jwt = pytest.importorskip("jwt")  # PyJWT (cloud/requirements.txt); these tests skip where it is not installed
+from cryptography.hazmat.primitives.asymmetric import ec, rsa  # noqa: E402
 
 CLOUD = Path(__file__).resolve().parents[1]
+ADMIN_TOKEN = "miyagi-tests-admin-0123456789-abcdefghijklmnop"  # 32+ characters: a weak token turns /admin off
 URL = "https://example-project.supabase.co"
 ISS = f"{URL}/auth/v1"
 SECRET = "legacy-test-secret-that-is-long-enough-for-hs256"
@@ -43,7 +45,8 @@ JWKS = {"keys": [
 def make_token(alg: str = "ES256", key=None, kid: str | None = "ec-1", **claims) -> str:
     now = int(time.time())
     payload = {"sub": USER, "aud": "authenticated", "iss": ISS, "iat": now, "exp": now + 3600,
-               "role": "authenticated", "email": "learner@example.com"} | claims
+               "role": "authenticated", "email": "learner@example.com", "is_anonymous": False,
+               "app_metadata": {"provider": "google", "providers": ["google"]}} | claims
     payload = {k: v for k, v in payload.items() if v is not None}
     if key is None:
         key = {"ES256": EC_KEY, "RS256": RSA_KEY, "HS256": SECRET}[alg]
@@ -67,7 +70,7 @@ class FakeJwks:
 
 @pytest.fixture
 def cloud(tmp_path, monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "admin-test")
+    monkeypatch.setenv("ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.setenv("DB_PATH", str(tmp_path / "miyagi.db"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-upstream-key")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-upstream-key")
@@ -201,7 +204,7 @@ def test_unknown_kid(cloud):
 
 def test_hs256_with_secret(cloud):
     client, _, use = cloud
-    use(secret=SECRET)
+    use(secret=SECRET, allow_hs256=True)
     _, h = install(client)
     r = link(client, h, make_token("HS256", kid=None))
     assert r.status_code == 200 and r.json() == {"ok": True, "user_id": USER}
@@ -209,31 +212,48 @@ def test_hs256_with_secret(cloud):
 
 def test_hs256_wrong_secret(cloud):
     client, _, use = cloud
-    use(secret=SECRET)
+    use(secret=SECRET, allow_hs256=True)
     _, h = install(client)
     r = link(client, h, make_token("HS256", key="some-other-secret-that-is-also-long-enough", kid=None))
     assert r.status_code == 403 and r.json() == {"error": "bad_access_token"}
 
 
-def test_hs256_without_secret_is_unavailable(cloud):
-    client, _, _ = cloud
+def test_hs256_allowed_without_secret_is_unavailable(cloud):
+    client, _, use = cloud
+    use(allow_hs256=True)
     _, h = install(client)
     r = link(client, h, make_token("HS256", kid=None))
     assert r.status_code == 503 and r.json() == {"error": "link_unavailable"}
 
 
+def test_hs256_refused_unless_allowed(cloud, monkeypatch):
+    """JWKS only by default: an HS256 token is refused even when SUPABASE_JWT_SECRET is set."""
+    client, app_mod, use = cloud
+    use(secret=SECRET)
+    _, h = install(client)
+    r = link(client, h, make_token("HS256", kid=None))
+    assert r.status_code == 403 and r.json() == {"error": "bad_access_token"}
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", SECRET)
+    monkeypatch.delenv("SUPABASE_ALLOW_HS256", raising=False)
+    v = app_mod.supabase_auth.SupabaseVerifier.from_env(FakeJwks())
+    assert v.allow_hs256 is False
+    with pytest.raises(app_mod.supabase_auth.BadAccessToken):
+        v.verify(make_token("HS256", kid=None))
+
+
 def test_hs256_secret_from_env(cloud, monkeypatch):
     _, app_mod, _ = cloud
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SECRET)
+    monkeypatch.setenv("SUPABASE_ALLOW_HS256", "1")
     v = app_mod.supabase_auth.SupabaseVerifier.from_env(FakeJwks())
-    assert v.secret == SECRET and v.issuer == ISS
+    assert v.secret == SECRET and v.issuer == ISS and v.allow_hs256 is True
     assert v.verify(make_token("HS256", kid=None))["sub"] == USER
 
 
 def test_public_key_is_not_an_hmac_secret(cloud):
     """Algorithm confusion: an HS256 token signed with the published public key must not pass."""
     client, _, use = cloud
-    use(secret=SECRET)
+    use(secret=SECRET, allow_hs256=True)
     _, h = install(client)
     pem = jwt.algorithms.RSAAlgorithm.to_jwk(RSA_KEY.public_key())
     import hashlib, hmac, base64  # noqa: E401  (hand-rolled so PyJWT's own guard does not stop the encode)
@@ -323,7 +343,7 @@ def test_empty_jwks_is_unavailable(cloud):
 
 def test_no_jwks_with_secret_still_unavailable_for_es256(cloud):
     client, _, use = cloud
-    use(FakeJwks(None), secret=SECRET)
+    use(FakeJwks(None), secret=SECRET, allow_hs256=True)
     _, h = install(client)
     assert link(client, h, make_token()).status_code == 503
     assert link(client, h, make_token("HS256", kid=None)).status_code == 200
@@ -415,6 +435,63 @@ def test_user_id_in_usage_and_logs_without_tokens(cloud, caplog):
     text = caplog.text
     assert f"user={USER}" in text
     assert tok not in text and access not in text and access.split(".")[2] not in text
-    report = client.get("/admin/usage", headers={"x-admin-token": "admin-test"}).json()
+    report = client.get("/admin/usage", headers={"x-admin-token": ADMIN_TOKEN}).json()
     rows = [r for r in report["by_token"] if r["token"] == app_mod.hash_token(tok)[:12]]
     assert rows and rows[0]["user_id"] == USER
+
+
+# --------------------------------------------------------------------------- A18: which accounts may link
+
+
+@pytest.mark.parametrize("claims", [
+    {"is_anonymous": True},                                                       # Supabase anonymous sign-in
+    {"is_anonymous": True, "app_metadata": {"provider": "google", "providers": ["google"]}},
+    {"app_metadata": {"provider": "email", "providers": ["email"]}},               # email/password sign-up
+    {"app_metadata": {"provider": "github", "providers": ["github"]}},
+    {"app_metadata": None},
+    {"app_metadata": "google"},
+    # user_metadata is editable by the user: claiming Google there means nothing
+    {"app_metadata": {"provider": "email", "providers": ["email"]}, "user_metadata": {"provider": "google", "providers": ["google"]}},
+    {"role": "anon"},
+    {"role": "service_role"},
+    {"role": None},
+])
+def test_only_signed_in_google_accounts_link(cloud, claims):
+    client, app_mod, _ = cloud
+    tok, h = install(client)
+    r = link(client, h, make_token(**claims))
+    assert r.status_code == 403 and r.json() == {"error": "bad_access_token"}
+    assert app_mod.store.get_link(app_mod.hash_token(tok)) is None
+
+
+def test_google_in_providers_list_links(cloud):
+    client, _, _ = cloud
+    _, h = install(client)
+    r = link(client, h, make_token(app_metadata={"provider": "email", "providers": ["email", "google"]}))
+    assert r.status_code == 200 and r.json()["user_id"] == USER
+
+
+def test_hs256_refused_when_allow_unset_over_http(cloud, monkeypatch):
+    client, app_mod, _ = cloud
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", SECRET)
+    monkeypatch.delenv("SUPABASE_ALLOW_HS256", raising=False)
+    app_mod.verifier = app_mod.supabase_auth.SupabaseVerifier.from_env(FakeJwks())
+    _, h = install(client)
+    r = link(client, h, make_token("HS256", kid=None))
+    assert r.status_code == 403 and r.json() == {"error": "bad_access_token"}
+
+
+def test_installs_linked_per_user_are_capped(cloud, monkeypatch):
+    client, app_mod, _ = cloud
+    monkeypatch.setattr(app_mod, "LINK_MAX_INSTALLS_PER_USER", 2)
+    heads = [install(client)[1] for _ in range(3)]
+    assert [link(client, h, make_token()).status_code for h in heads[:2]] == [200, 200]
+    r = link(client, heads[2], make_token())
+    assert r.status_code == 403 and r.json() == {"error": "too_many_installs"}
+    assert link(client, heads[0], make_token()).status_code == 200  # re-linking a linked install still works
+    assert link(client, heads[2], make_token(sub="another-user-0001")).status_code == 200  # another user is fine
+
+
+def test_link_cap_default(cloud):
+    _, app_mod, _ = cloud
+    assert app_mod.LINK_MAX_INSTALLS_PER_USER == 10
