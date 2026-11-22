@@ -128,6 +128,12 @@ screen, nothing is spotlighted.
     while another is still running also logs at once: `<- action hint queued behind action ask (0 waiting)`. Speaking decisions log as
     `speak? <step> <reason>: …`.
 - **Reconnect:** a new socket gets a snapshot (`lesson.ready`, `step.started`, check states, the open offtrack card, `status`).
+- **Build metrics (`build_metrics.py`):** every build is timed from the command's arrival (`learn` / `learn_url` / `build_lesson` /
+  `library.start` / `review.start`) to `lesson.ready` and the first `step.started`, by stage (`preflight`, `setup`, `captions`,
+  `plan`, `steps`, `checks`, `handoff`, `workspace`, `hold`, `start`). One `build.metrics {json}` INFO line per build (ok / failed /
+  cancelled) and the same JSON appended to `~/miyagi/state/build-metrics.jsonl` (`$MIYAGI_STATE_DIR`; the last 500 builds).
+  `python -c "from server.orchestrator import build_metrics as b; print(*b.read(limit=5), sep='\n')"` prints the last five.
+  `lesson.ready.buildS` (optional) carries the command -> ready seconds.
 
 ## Ending a lesson
 
