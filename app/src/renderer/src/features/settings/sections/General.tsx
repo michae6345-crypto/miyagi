@@ -71,7 +71,6 @@ function IslandRow(): ReactNode {
           value={place}
           onChange={(p) => {
             setPrefs({ island: { place: p } })
-            setSaved(true)
           }}
         />
       }

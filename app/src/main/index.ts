@@ -44,6 +44,7 @@ import {
 import type { Layout, UiSignal } from '../preload/api'
 import { VOICE_ENABLED } from '../common/flags'
 import { notchFor, recheckThenResend, startNotch, type NotchService } from './notch'
+import { appendRotating, createIslandDiag, type IslandDiag } from './features/islandDiag'
 import { helperPath } from './features/ptt'
 import { getPrefs, onPrefsChange } from './prefs'
 
@@ -76,25 +77,22 @@ let notchService: NotchService | undefined
 const resendLayout = (): void =>
   forEachWindow((w) => {
     const l = layoutFor(w)
-    if (w === overlay) logIsland('resend', l)
+    if (w === overlay) {
+      logIsland('resend', l)
+      islandDiag?.snapshot('resend')
+    }
     send(w, 'layout', l)
   })
-/** ~/Library/Logs/miyagi/island.log: where main told the overlay the island lives, and why (a packaged app has no console). */
+/** Island diagnostics (main/features/islandDiag.ts): bounds, level, grab and display measurements, log-only. Created once the overlay exists. */
+let islandDiag: IslandDiag | undefined
+/** ~/Library/Logs/miyagi/island.log: where main told the overlay the island lives, and why (a packaged app has no console). Rotates at ~512 KB. */
 let lastIslandLine = ''
 function logIsland(why: string, l: ReturnType<typeof layoutFor>): void {
   const n = l.notch
   const line = `pref=${getPrefs().island?.place} place=${n.place} hasNotch=${n.hasNotch} coexist=${n.coexist ? 1 : 0} notch=${n.x},${n.width}x${n.height} service=${notchService ? 'on' : 'off'}`
   if (line === lastIslandLine && why === 'resend') return
   lastIslandLine = line
-  try {
-    const dir = app.getPath('logs')
-    mkdirSync(dir, { recursive: true })
-    const file = join(dir, 'island.log')
-    if (existsSync(file) && statSync(file).size > 100_000) writeFileSync(file, readFileSync(file, 'utf8').slice(-50_000))
-    appendFileSync(file, `${new Date().toISOString()} ${why} ${line}\n`)
-  } catch {
-    /* logging never breaks the island */
-  }
+  appendRotating(join(app.getPath('logs'), 'island.log'), `${new Date().toISOString()} ${why} ${line}`)
 }
 
 const windows = new Set<BrowserWindow>()
@@ -515,6 +513,25 @@ app.whenReady().then(async () => {
   notchService = startNotch({ helperBin: helperPath(), mac: platform.os === 'mac', cacheFile: join(app.getPath('userData'), 'notch-cache.json'), onChange: () => resendLayout() })
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
+  islandDiag = createIslandDiag({
+    logFile: join(app.getPath('logs'), 'island.log'),
+    overlay: () => overlay,
+    display: () => {
+      const d = screen.getDisplayMatching(overlay.getBounds())
+      return { id: d.id, bounds: d.bounds, workArea: d.workArea, scaleFactor: d.scaleFactor }
+    },
+    notch: () => layoutFor(overlay).notch as { place: string; hasNotch?: boolean; coexist?: boolean },
+    islandSize: () => islandSize,
+    pillTop: () => platform.pillTop,
+    cursor: () => screen.getCursorScreenPoint(),
+    helperBin: helperPath(),
+    mac: platform.os === 'mac',
+    pid: process.pid
+  })
+  islandDiag.start()
+  ipcMain.handle('feat:island:diag', (e, report: unknown) => {
+    if (trustedSender(e)) islandDiag?.onRenderer(report)
+  })
 
   overlay.setIgnoreMouseEvents(true, { forward: true })
   // Launch gate (main/gate.ts, Michael Nov 21: launch = start from new): the overlay shows and the launcher key
@@ -576,7 +593,10 @@ app.whenReady().then(async () => {
     if (win === launcher && launcherOpen) hideLauncher()
     if (win === overlay) overlay.setIgnoreMouseEvents(true, { forward: true })
     const l = layoutFor(win)
-    if (win === overlay) logIsland('ready', l)
+    if (win === overlay) {
+      logIsland('ready', l)
+      islandDiag?.snapshot('ready')
+    }
     e.sender.send('ui:layout', l)
     e.sender.send('engine:status', engine.connected)
     for (const ev of engine.log) e.sender.send('engine:event', ev)
@@ -647,6 +667,7 @@ app.whenReady().then(async () => {
   app.on('activate', () => void notchService?.recheck())
   /** Re-apply the display's bounds and the pill's fitted top to both core windows, raise them, send the layout. */
   const applyDisplay = (): void => {
+    islandDiag?.snapshot('refit')
     platform.pillTop = fitPillTop(basePillTop, displayNow())
     for (const w of [overlay, launcher]) {
       if (w.isDestroyed()) continue
@@ -666,6 +687,8 @@ app.whenReady().then(async () => {
   // 250 ms, so a burst of display events is one helper call); a changed answer re-sends the layout through onChange.
   let refitTimer: ReturnType<typeof setTimeout> | undefined
   const displayChanged = (): void => {
+    islandDiag?.snapshot('display')
+    void islandDiag?.refreshScreens('display')
     collapseIsland()
     notchService?.refresh()
     // Off macOS there is no lifecycle tracker: re-fit the windows here (debounced, a plug fires several events).
@@ -679,12 +702,14 @@ app.whenReady().then(async () => {
   screen.on('display-removed', displayChanged)
   // Wake: macOS can drop the panels' level and the renderer's frames; re-fit, re-raise, re-send the layout.
   powerMonitor.on('resume', () => {
+    void islandDiag?.dumpWindows('resume')
     displayChanged()
     setTimeout(applyDisplay, OVERLAY_RESTORE_MS)
     wake()
   })
   // Unlock: the lifecycle shows the overlay again; here the island collapses and the link is checked.
   powerMonitor.on('unlock-screen', () => {
+    void islandDiag?.dumpWindows('unlock')
     displayChanged()
     wake()
   })
@@ -724,15 +749,22 @@ app.whenReady().then(async () => {
     handle: (channel, fn) =>
       ipcMain.handle(`feat:${channel}`, (e, ...args) => {
         if (!trustedSender(e)) throw new Error('untrusted sender')
+        islandDiag?.onFeature(channel, args[0])
         return fn(...args)
       }),
-    broadcast: (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)),
+    broadcast: (channel, payload) => {
+      islandDiag?.onFeature(channel, payload)
+      forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload))
+    },
     onSignal: (signal, fn) => {
       if (!signalListeners.has(signal)) signalListeners.set(signal, new Set())
       signalListeners.get(signal)!.add(fn)
     },
     reportBounds,
-    raise,
+    raise: (w, rel) => {
+      raise(w, rel)
+      islandDiag?.snapshot('raise')
+    },
     islandSize: () => islandSize,
     yieldIsland: (on) => send(overlay, on ? 'island:yield' : 'island:return'),
     overlayRects: () => overlayRects,
