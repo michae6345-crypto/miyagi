@@ -9,6 +9,7 @@
  * Owner: core.
  */
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
@@ -64,7 +65,29 @@ let stopLocalEngine: () => void = () => undefined
 /** Notch geometry + Boring Notch state (main/notch.ts); started at launch. */
 let notchService: NotchService | undefined
 /** Every window gets its layout again (Settings > General shows whether Boring Notch is using the notch). Module level: the first notch read can land before whenReady has finished. */
-const resendLayout = (): void => forEachWindow((w) => send(w, 'layout', layoutFor(w)))
+const resendLayout = (): void =>
+  forEachWindow((w) => {
+    const l = layoutFor(w)
+    if (w === overlay) logIsland('resend', l)
+    send(w, 'layout', l)
+  })
+/** ~/Library/Logs/miyagi/island.log: where main told the overlay the island lives, and why (a packaged app has no console). */
+let lastIslandLine = ''
+function logIsland(why: string, l: ReturnType<typeof layoutFor>): void {
+  const n = l.notch
+  const line = `pref=${getPrefs().island?.place} place=${n.place} hasNotch=${n.hasNotch} boring=${n.boringNotch} notch=${n.x},${n.width}x${n.height} service=${notchService ? 'on' : 'off'}`
+  if (line === lastIslandLine && why === 'resend') return
+  lastIslandLine = line
+  try {
+    const dir = app.getPath('logs')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'island.log')
+    if (existsSync(file) && statSync(file).size > 100_000) writeFileSync(file, readFileSync(file, 'utf8').slice(-50_000))
+    appendFileSync(file, `${new Date().toISOString()} ${why} ${line}\n`)
+  } catch {
+    /* logging never breaks the island */
+  }
+}
 
 const windows = new Set<BrowserWindow>()
 /** Feature windows whose rects join the overlay's overlay.bounds report (ctx.reportBounds). */
@@ -530,7 +553,9 @@ app.whenReady().then(async () => {
     // its invisible full-screen window would keep the keyboard and every click: hide it.
     if (win === launcher && launcherOpen) hideLauncher()
     if (win === overlay) overlay.setIgnoreMouseEvents(true, { forward: true })
-    e.sender.send('ui:layout', layoutFor(win))
+    const l = layoutFor(win)
+    if (win === overlay) logIsland('ready', l)
+    e.sender.send('ui:layout', l)
     e.sender.send('engine:status', engine.connected)
     for (const ev of engine.log) e.sender.send('engine:event', ev)
   })
