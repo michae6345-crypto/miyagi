@@ -35,6 +35,8 @@ import { copyDetails } from './cards'
 import { restartEngine, TRIES, useErrors } from './store'
 import { shellName, thisDevice } from '../onboarding/device'
 
+const capFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
+
 /** How long a start may take before it counts as failed. */
 export const BOOT_MS = 45_000
 /** The app's own engine checking or starting: main fails it itself after 60 s (main/localEngine.ts START_TIMEOUT_MS). */
@@ -110,7 +112,7 @@ export function bootOf(i: BootInput): Boot {
   if (i.cloud === 'minting' || (i.cloud === 'failed' && i.retryHold)) {
     if (i.timedOut) return failed(i, 'cloud', `Couldn't set up access for ${thisDevice()}.`)
     if (!i.shown && !i.retryHold) return { phase: 'checking', line: '' }
-    return { phase: 'starting', line: `${copy.name} is getting ready`, detail: 'Setting up access for this Mac.' }
+    return { phase: 'starting', line: `${copy.name} is getting ready`, detail: `Setting up access for ${thisDevice()}.` }
   }
   switch (i.cloudStatus) {
     case 'quota':
@@ -118,11 +120,11 @@ export function bootOf(i: BootInput): Boot {
     case 'paused':
       return { phase: 'limited', line: `${copy.name} is paused`, detail: 'Try again a little later.' }
     case 'unauthorized':
-      return { phase: 'limited', line: 'Access is off', detail: "This Mac's access was turned off." }
+      return { phase: 'limited', line: 'Access is off', detail: `${capFirst(thisDevice())}'s access was turned off.` }
     case 'offline':
       return { phase: 'limited', line: `${copy.name} is offline`, detail: 'Check your connection.' }
   }
-  const where = i.local === 'external' ? 'Running in Terminal.' : i.cloud === 'ok' || i.cloudStatus === 'ok' ? 'Lessons build in the cloud.' : 'Running on this Mac.'
+  const where = i.local === 'external' ? `Running in ${shellName()}.` : i.cloud === 'ok' || i.cloudStatus === 'ok' ? 'Lessons build in the cloud.' : `Running on ${thisDevice()}.`
   return { phase: 'ready', line: 'Ready', detail: where }
 }
 

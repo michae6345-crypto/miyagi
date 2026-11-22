@@ -2,8 +2,10 @@
  * Offline test harness: a fake Supabase Auth and a fake miyagi-cloud behind a stubbed global fetch (nothing leaves
  * this machine; only the auth loopback on 127.0.0.1 is reached for real), plus a fake MainContext.
  */
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer as createNetServer, type Server as NetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MainContext } from '../src/main/context'
@@ -194,17 +196,121 @@ export function writeSession(dir: string, s: Record<string, unknown>, project = 
   writeFileSync(join(dir, 'auth.bin'), safeStorage.encryptString(JSON.stringify(raw)))
 }
 
-/** Start auth:google and wait until it asks to open the browser. */
+/** The sign-in loopback auth.ts listens on (a constant there: it is the Supabase redirect allowlist entry). */
+export const SIGN_IN_PORT = 47217
+/** A second loopback port held, never served, as a machine-wide lock on SIGN_IN_PORT between test processes. */
+const LOCK_PORT = 47219
+
+/** Listen on 127.0.0.1:port. true: it is ours now; false: EADDRINUSE (anything else throws). */
+function tryListen(server: NetServer, port: number): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: NodeJS.ErrnoException): void => {
+      server.off('listening', onListening)
+      if (err.code === 'EADDRINUSE') resolve(false)
+      else reject(err)
+    }
+    const onListening = (): void => {
+      server.off('error', onError)
+      resolve(true)
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    server.listen({ port, host: '127.0.0.1', exclusive: true })
+  })
+}
+
+const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Who listens on 127.0.0.1:port, for the error when a lock or port wait gives up: PID, parent PID and command (lsof +
+ * ps; a parent PID of 1 is an orphaned test process, safe to kill). Best effort: '' when the tools can't tell.
+ */
+function listenerOn(port: number): string {
+  try {
+    const pids = execFileSync('lsof', ['-nP', `-iTCP@127.0.0.1:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8', timeout: 5000 })
+      .split('\n')
+      .filter((p) => /^\d+$/.test(p))
+    if (!pids.length) return 'no listener found (it let go just now?)'
+    const ps = execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-p', pids.join(',')], { encoding: 'utf8', timeout: 5000 })
+    return `held by ${ps
+      .trim()
+      .split('\n')
+      .map((l) => {
+        const [pid, ppid, ...cmd] = l.trim().split(/\s+/)
+        return `PID ${pid} (parent ${ppid}${ppid === '1' ? ', orphaned' : ''}): ${cmd.join(' ').slice(-160)}`
+      })
+      .join('; ')}`
+  } catch (err) {
+    // lsof exits 1 when nothing matches.
+    return (err as { status?: number }).status === 1 ? 'no listener found (it let go just now?)' : 'holder unknown (lsof failed)'
+  }
+}
+
+/**
+ * Take the sign-in port for a whole test file. `node --test` runs every test file in its own process at once, and other
+ * checkouts on this Mac may run the suite too; auth.test.ts and cloudLink.test.ts both sign in on 127.0.0.1:47217. Two
+ * processes on that port meant one's callback reaching the other's listener, a fake-timer test whose listen retry never
+ * fires, or a sign-in that gave up with reason 'port' while startGoogle waited for a browser forever: the run hung.
+ *
+ * The lock is a listener on LOCK_PORT: one process at a time can hold it, and the OS frees it if the holder dies (a
+ * killed run never leaves a stale lock). Once held, it also waits for 47217 itself to be free (a previous holder's
+ * listener still closing). Call in before(); call the returned release in after().
+ *
+ * It only orders processes that take it. One that ignores it (an older checkout's run, a real miyagi mid sign-in) can
+ * still grab 47217 at any moment, so the tests never rely on it alone: startGoogle fails instead of waiting, and the
+ * fake-clock tests in auth.test.ts retry a taken port on real timers under a per-test timeout. A holder that never
+ * exits (an orphaned test process whose parent alone was killed) keeps the lock: the wait gives up after waitMs and the
+ * error names the holder's PID.
+ */
+export async function lockSignInPort(waitMs = 45_000): Promise<() => Promise<void>> {
+  // Drop any connection at once: close() waits for accepted sockets, so one stray client would hang release().
+  const lock = createNetServer((c) => c.destroy())
+  const end = Date.now() + waitMs
+  while (!(await tryListen(lock, LOCK_PORT))) {
+    if (Date.now() > end) {
+      throw new Error(`another process held the sign-in port lock (127.0.0.1:${LOCK_PORT}) for ${waitMs / 1000} s: ${listenerOn(LOCK_PORT)}`)
+    }
+    await realSleep(25)
+  }
+  lock.unref()
+  const release = (): Promise<void> => new Promise((r) => lock.close(() => r()))
+  const probe = createNetServer((c) => c.destroy())
+  const portEnd = Date.now() + 15_000
+  while (!(await tryListen(probe, SIGN_IN_PORT))) {
+    if (Date.now() > portEnd) {
+      await release()
+      throw new Error(`127.0.0.1:${SIGN_IN_PORT} stayed taken for 15 s (a running miyagi app mid sign-in?): ${listenerOn(SIGN_IN_PORT)}`)
+    }
+    await realSleep(25)
+  }
+  await new Promise<void>((r) => probe.close(() => r()))
+  return release
+}
+
+/** Start auth:google and wait until it asks to open the browser. Fails (never hangs) if the flow answers first. */
 export async function startGoogle(h: Harness): Promise<{ result: Promise<unknown>; authorize: URL; callback: URL; state: string; challenge: string }> {
+  let fn!: (u: string) => void
   const asked = new Promise<string>((resolve) => {
-    const fn = (u: string): void => {
+    fn = (u: string): void => {
       openListeners.delete(fn)
       resolve(u)
     }
     openListeners.add(fn)
   })
   const result = h.invoke('auth:google')
-  const authorize = new URL(await asked)
+  // A flow that ends before opening the browser (reason 'port', say) would otherwise leave `asked` pending forever.
+  const endedFirst = result.then(
+    (r) => Promise.reject(new Error(`auth:google answered before opening the browser: ${JSON.stringify(r)}`)),
+    (err: unknown) => Promise.reject(err)
+  )
+  let url: string
+  try {
+    url = await Promise.race([asked, endedFirst])
+  } catch (err) {
+    openListeners.delete(fn)
+    throw err
+  }
+  const authorize = new URL(url)
   const callback = new URL(authorize.searchParams.get('redirect_to') ?? '')
   return { result, authorize, callback, state: callback.searchParams.get('state') ?? '', challenge: authorize.searchParams.get('code_challenge') ?? '' }
 }

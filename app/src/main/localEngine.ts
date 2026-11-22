@@ -4,6 +4,11 @@
  *
  *   1. Only on macOS (the engine reads the screen with Vision / ScreenCaptureKit), only in a built app or with
  *      MIYAGI_AUTOSTART=1, never with DEMO=1, and only when ENGINE_URL is unset or points at this Mac.
+ *      Windows too, but only a build that carries the engine (Resources/engine/python/python.exe + src, PYTHON.json
+ *      os "win32"): then steps 4 and 6 to 8 the same way, with python.exe -X utf8, a hidden console instead of a
+ *      detached group, netstat for the port holder, CIM (PowerShell) for the pid check, taskkill /T to stop it. No
+ *      launcher or bash installer there (steps 3 and 5). A Windows build without the engine connects to ENGINE_URL
+ *      as before (an engine started by hand) and never holds the port against it.
  *   2. Something already answers on 127.0.0.1:<port> and it isn't ours (step 7). `npm run dev` or engine mode dev
  *      → use it: an engine started in Terminal stays the user's. The installed app (packaged, engine mode bundled)
  *      never adopts it (lane engine-isolation, app/agents/engine-isolation.md): a dev engine or a dev app's engine
@@ -20,12 +25,16 @@
  *      environment to VS Code and to the learner's commands, which must see the user's own Python setup.
  *   5. Older bundles (install.sh + src/, no python/): run `install.sh --src … --no-app --no-vscode --no-start --yes`
  *      once (uv + Python + packages: about a minute, needs the network), then start the launcher it writes.
- *   6. Quit → stop only the engine this app started.
- *   7. Port taken by an engine THIS app started on an earlier launch (miyagi was force-quit or crashed, so step 6 never
- *      ran): that engine still wants the old launch's token and would refuse this launch forever. Its pid file
- *      (~/miyagi/engine/run/app-engine.json; app-engine-dev.json for `npm run dev`, so a dev app never reclaims the
- *      installed app's engine, nor the reverse), its exact command line (this app's Python or launcher, never just the
- *      module name) and its start time say it's ours, so stop it and start a fresh one.
+ *   6. Quit → stop only the engine this app started (R44, main/engineProcess.ts): SIGTERM its process group, SIGKILL
+ *      the group if it's still there after QUIT_GRACE_MS (a hung or `kill -STOP`ped engine), and index.ts holds the
+ *      quit until then. The pid file goes only once the engine and its group are confirmed gone.
+ *   7. An engine THIS app started on an earlier launch is still running (it outlived a quit, or miyagi was force-quit
+ *      or crashed, so step 6 never finished): that engine still wants the old launch's token and would refuse this
+ *      launch forever, and it may still be reading the screen. Checked on every boot, before the port: a hung engine
+ *      may not answer, and its children hold no port. Its pid file (~/miyagi/engine/run/app-engine.json;
+ *      app-engine-dev.json for `npm run dev`, so a dev app never reclaims the installed app's engine, nor the reverse),
+ *      its exact command line (this app's Python or launcher, never just the module name) and its start time say it's
+ *      ours, so stop its group and start a fresh one. A pid the OS gave to another process is never touched.
  *      Anything else on the port (an engine started in Terminal) stays the user's: step 2.
  *   8. The engine this app starts (bundled Python or launcher) always gets ORCH_AUTO_RESUME=0 and ORCH_AUTOSTART=0
  *      (hard in a built app: a launch starts from new, never reloads the last lesson) and an explicit MIYAGI_STATE_DIR
@@ -52,12 +61,25 @@
 import { app, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 import { cp, rename, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import type { EngineLink } from './engine'
+import {
+  groupMembers,
+  isOwnEngineCommand,
+  processAlive,
+  processInfo,
+  reclaimLeftover,
+  removePidRecord,
+  signalTree,
+  stopTree,
+  taskkillTree,
+  writePidRecord,
+  type ProcInfo
+} from './engineProcess'
 
 export type LocalEngineState = 'off' | 'checking' | 'installing' | 'starting' | 'running' | 'external' | 'missing' | 'failed'
 /**
@@ -73,6 +95,10 @@ export const ENGINE_FAILED_LINE = "miyagi couldn't start its engine."
 const START_TIMEOUT_MS = 60_000
 /** A Restart sends SIGTERM; still alive this long after (as in reclaimOwnLeftover), it gets SIGKILL. */
 const KILL_AFTER_MS = 5000
+/** R44: quitting sends SIGTERM to the engine's group; still there this long after, the group gets SIGKILL. */
+export const QUIT_GRACE_MS = 3000
+/** And this long for SIGKILL to land before the quit goes on without it (the pid file then stays for the next launch). */
+export const QUIT_CONFIRM_MS = 2000
 const UNMANAGED_TIMEOUT_MS = 12_000
 
 /** Michael's installer (docs/INSTALL.md), for a Mac where the app carries no engine. */
@@ -101,9 +127,35 @@ const CODE_IN_APP = join('Contents', 'Resources', 'app', 'bin')
  * engine opens lesson folders with it). VS Code's own bin folders only, never a `code` shim another editor installs.
  */
 function fixedPath(home: string): string {
+  if (process.platform === 'win32') {
+    // Windows: the user's PATH as it is (a Start-menu launch gets the full one), plus VS Code's per-user bin folder,
+    // where `code.cmd` lives even if "Add to PATH" was unticked. ';'-separated, never ':' (drive letters).
+    const code = join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Programs', 'Microsoft VS Code', 'bin')
+    return [winEnvPath(process.env), code].filter(Boolean).join(delimiter)
+  }
   const extra = [join(home, 'bin'), join(homedir(), '.local/bin'), ...VSCODE_APPS.map((a) => join(a, CODE_IN_APP)), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
   return [...extra, process.env.PATH ?? ''].filter(Boolean).join(':')
 }
+
+/** Windows keeps PATH as `Path`; a copied env object can then hold both spellings. The value, whichever it is. */
+function winEnvPath(env: NodeJS.ProcessEnv): string {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH')
+  return (key && env[key]) || ''
+}
+
+/**
+ * `env` with PATH set to `value`. On Windows every other spelling (`Path`) goes first: a child given both gets one of
+ * them at random. Elsewhere it's a plain `PATH: value`.
+ */
+function withPath(env: NodeJS.ProcessEnv, value: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env }
+  if (process.platform === 'win32') for (const k of Object.keys(out)) if (k.toUpperCase() === 'PATH') delete out[k]
+  out.PATH = value
+  return out
+}
+
+/** System32, where Windows keeps netstat, taskkill and PowerShell (never a same-named program found on PATH). */
+const SYSTEM32 = join(process.env.SystemRoot || 'C:\\Windows', 'System32')
 
 const readText = (p: string): string => {
   try {
@@ -153,9 +205,9 @@ const ROSETTA = '/Library/Apple/usr/share/rosetta/rosetta'
  * never a spawn that dies with "bad CPU type". → '' when it can, else why not (for engine.log)
  */
 function pythonArchProblem(bundle: string): string {
-  let manifest: { arch?: unknown; precompiled?: unknown }
+  let manifest: { arch?: unknown; precompiled?: unknown; os?: unknown }
   try {
-    manifest = JSON.parse(readFileSync(join(bundle, 'PYTHON.json'), 'utf8')) as { arch?: unknown; precompiled?: unknown }
+    manifest = JSON.parse(readFileSync(join(bundle, 'PYTHON.json'), 'utf8')) as { arch?: unknown; precompiled?: unknown; os?: unknown }
   } catch {
     return 'no readable PYTHON.json'
   }
@@ -163,6 +215,15 @@ function pythonArchProblem(bundle: string): string {
   // write .pycs inside the signed app. Never used.
   if (manifest?.precompiled !== true) return 'bundled Python was not precompiled or import-checked (PYTHON.json precompiled is not true)'
   const arch = manifest.arch
+  // PYTHON.json os: a Windows bundle says "win32" (bundle-engine.mjs for Windows); a Mac bundle has no os field.
+  if (process.platform === 'win32') {
+    if (manifest.os !== 'win32') return `bundled Python is not a Windows build (PYTHON.json os: ${String(manifest.os ?? 'unset')})`
+    // Windows 11 on Arm runs x64 programs too.
+    if (arch === 'x64') return process.arch === 'x64' || process.arch === 'arm64' ? '' : `bundled Python is x64, this PC is ${process.arch}`
+    if (arch === 'arm64') return process.arch === 'arm64' ? '' : `bundled Python is arm64, this PC is ${process.arch}`
+    return `unknown bundled Python arch: ${String(arch)}`
+  }
+  if (manifest.os !== undefined && manifest.os !== 'darwin') return `bundled Python is for ${String(manifest.os)}, not macOS`
   const appleSilicon = process.arch === 'arm64' || app.runningUnderARM64Translation
   if (arch === 'universal2') return ''
   if (arch === 'arm64') return appleSilicon ? '' : `bundled Python is arm64, this Mac is ${process.arch}`
@@ -233,8 +294,11 @@ export const ENGINE_TOKEN: string = process.env.MIYAGI_ENGINE_TOKEN?.trim() || r
  * Why this launch doesn't start an engine of its own, or '' when it does (step 1). Pure, so it can be checked in Node.
  * `npm run dev` is not packaged: it connects to ENGINE_URL (the engine in Terminal) unless MIYAGI_AUTOSTART=1.
  */
-export function whyUnmanaged(o: { platform: string; packaged: boolean; autostart: boolean; demo: boolean; local: boolean; dev: boolean }): string {
-  if (o.platform !== 'darwin') return `not macOS (${o.platform})`
+export function whyUnmanaged(o: { platform: string; packaged: boolean; autostart: boolean; demo: boolean; local: boolean; dev: boolean; bundled?: boolean }): string {
+  // Windows: only a build that carries the engine (Resources/engine/python/python.exe + src) manages one. Without it,
+  // as before: the app connects to ENGINE_URL (an engine started by hand) and never holds the port against it.
+  if (o.platform === 'win32' && !o.bundled) return 'a Windows build without a bundled engine (Resources/engine/python)'
+  if (o.platform !== 'darwin' && o.platform !== 'win32') return `not macOS (${o.platform})`
   if (o.demo) return 'DEMO=1 (mock engine)'
   if (o.dev) return 'engine mode dev (engine.json or MIYAGI_ENGINE)'
   if (!o.local) return 'ENGINE_URL points at another machine'
@@ -268,12 +332,36 @@ export function pidFileName(packaged: boolean): string {
  * `npm run dev` keeps an explicit value. MIYAGI_STATE_DIR is explicit, so the installed engine's saves stay in
  * ~/miyagi/state and a dev app's engine never writes there (~/miyagi/state-dev, as for dev engines).
  */
-export function enginePins(env: NodeJS.ProcessEnv, packaged: boolean): { ORCH_AUTO_RESUME: string; ORCH_AUTOSTART: string; MIYAGI_STATE_DIR: string } {
+export function enginePins(env: NodeJS.ProcessEnv, packaged: boolean): Record<string, string> {
   return {
     ORCH_AUTO_RESUME: packaged ? '0' : env.ORCH_AUTO_RESUME || '0',
     ORCH_AUTOSTART: packaged ? '0' : env.ORCH_AUTOSTART || '0',
     MIYAGI_STATE_DIR: env.MIYAGI_STATE_DIR || join(homedir(), 'miyagi', packaged ? 'state' : 'state-dev'),
+    ...(packaged ? launchPins(env) : {}),
   }
+}
+
+/**
+ * Launch build (Adrian, Nov 21; launch register R17, R31, R45), packaged only, whatever the inherited environment says:
+ * - COACH_WEB=0: the coach's web search (DuckDuckGo plus a fetch of the pages) stays off until it's disclosed.
+ * - ORCH_RECORD=0: no recording of every lesson event to demo/runs/*.jsonl, which kept screen text on disk forever.
+ * - MIYAGI_NET_PROBE: the network check asks the host lessons really use (our cloud), not api.anthropic.com, which a
+ *   school filter can block while the cloud works (a false "you're offline").
+ * `npm run dev` keeps the engine's own defaults.
+ */
+export function launchPins(env: NodeJS.ProcessEnv): Record<string, string> {
+  const probe = netProbe(env)
+  return { COACH_WEB: '0', ORCH_RECORD: '0', ...(probe ? { MIYAGI_NET_PROBE: probe } : {}) }
+}
+
+/**
+ * host:port of the cloud a packaged app uses: always our hosted proxy (features/cloud.ts DEFAULT_CLOUD_URL), because a
+ * packaged app ignores an environment-set cloud host (envCloudUrl, risk A12). Undefined with the cloud off (own keys
+ * only): the engine's own probe is right then.
+ */
+export function netProbe(env: NodeJS.ProcessEnv): string | undefined {
+  if (/^(off|0|false|no)$/i.test((env.MIYAGI_CLOUD_URL || '').trim())) return undefined
+  return 'miyagi-cloud.onrender.com:443'
 }
 
 /** The launcher runtime's environment (~/miyagi/engine/bin/miyagi-engine): the app's env plus the step 8 pins. */
@@ -309,6 +397,16 @@ export function pythonEnv(env: NodeJS.ProcessEnv, home: string, python: string, 
 
 /** Who listens on 127.0.0.1:port, for engine.log: `pid <n> (<command name>)` from lsof, never a command line. */
 async function portHolder(port: number): Promise<string> {
+  if (process.platform === 'win32') {
+    // No lsof: netstat's listening rows ("TCP 127.0.0.1:8787 0.0.0.0:0 LISTENING 1234"). Pid only, no command line.
+    const r = await run(join(SYSTEM32, 'NETSTAT.EXE'), ['-ano', '-p', 'TCP'], 3000)
+    const pids = r.out
+      .split(/\r?\n/)
+      .map((l) => l.trim().split(/\s+/))
+      .filter((f) => f.length >= 5 && /LISTENING/i.test(f[3]) && f[1].endsWith(`:${port}`))
+      .map((f) => `pid ${f[4]}`)
+    return [...new Set(pids)].join(', ') || 'unknown (netstat named no listener)'
+  }
   const r = await run('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc'], 3000)
   const seen: string[] = []
   let pid = ''
@@ -332,6 +430,18 @@ export type LocalEngineDeps = {
   killAfterMs: number
   /** Started (or restarted) and no answer this long: failed, with Retry. */
   startTimeoutMs: number
+  /** R44, engineProcess.ts. Signal 0 (negative = the group); tests pass a fake. */
+  alive: (pid: number) => boolean
+  /** Windows: taskkill /T /F (no process groups there). */
+  taskkill: (pid: number) => void
+  /** A pid's command line and start time (ps; PowerShell on Windows), to prove a leftover is this app's engine. */
+  procInfo: (pid: number) => Promise<ProcInfo | undefined>
+  /** The processes left in a group whose leader is gone. */
+  groupMembers: (pgid: number) => Promise<Array<{ pid: number; command: string }>>
+  /** Quit: SIGTERM, this long, then SIGKILL the group (QUIT_GRACE_MS). */
+  quitGraceMs: number
+  /** Quit: this long for SIGKILL to land (QUIT_CONFIRM_MS). */
+  quitConfirmMs: number
 }
 
 /** Keys, tokens and secrets never leave in "Copy details", even if the engine printed one. */
@@ -350,7 +460,7 @@ export function engineDetails(status: LocalEngineStatus, facts: readonly string[
   return [
     `miyagi engine: ${status.state}${status.reason ? `: ${status.reason}` : ''}`,
     ...facts,
-    `macOS ${process.getSystemVersion?.() ?? ''} ${process.arch}`,
+    `${process.platform === 'win32' ? 'Windows' : 'macOS'} ${process.getSystemVersion?.() ?? ''} ${process.arch}`,
     `log: ${logs}`,
     '',
     tail
@@ -360,6 +470,9 @@ export function engineDetails(status: LocalEngineStatus, facts: readonly string[
 /**
  * `trusted`: main's sender check (index.ts trustedSender). Every handler here answers only our own windows; an
  * untrusted sender gets undefined / false and, for restart, nothing is stopped or spawned.
+ *
+ * → the quit step (index.ts, will-quit). It sends the first signal at once and returns a promise that settles once the
+ * engine is confirmed gone (or SIGKILL had QUIT_CONFIRM_MS to land); undefined when there is nothing to wait for.
  */
 export function setupLocalEngine(
   engine: EngineLink,
@@ -367,7 +480,7 @@ export function setupLocalEngine(
   broadcast: (channel: string, payload: unknown) => void,
   trusted: (e: IpcMainInvokeEvent) => boolean,
   deps: Partial<LocalEngineDeps> = {}
-): () => void {
+): () => Promise<void> | void {
   const d: LocalEngineDeps = {
     listening,
     spawn,
@@ -377,6 +490,12 @@ export function setupLocalEngine(
     kill: (pid, signal) => void process.kill(pid, signal),
     killAfterMs: KILL_AFTER_MS,
     startTimeoutMs: START_TIMEOUT_MS,
+    alive: processAlive,
+    taskkill: taskkillTree,
+    procInfo: (pid) => processInfo(pid),
+    groupMembers: (pgid) => groupMembers(pgid),
+    quitGraceMs: QUIT_GRACE_MS,
+    quitConfirmMs: QUIT_CONFIRM_MS,
     ...deps
   }
   const packaged = app.isPackaged
@@ -454,6 +573,9 @@ export function setupLocalEngine(
   })()
   const local = /^wss?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(url)
   const chosen = engineMode()
+  /** Windows: only the bundled Python runs the engine (no launcher script, no bash installer). */
+  const win = d.platform === 'win32'
+  const winBundled = win && existsSync(join(bundleDir(), 'python', 'python.exe')) && existsSync(join(bundleDir(), 'src', 'server', 'pyproject.toml'))
   // {"cloud": "off"} in engine.json: features/cloud.ts reads MIYAGI_CLOUD_URL when it sets up, after this runs.
   if (chosen.cloud === 'off' && process.env.MIYAGI_CLOUD_URL === undefined) process.env.MIYAGI_CLOUD_URL = 'off'
   if (chosen.mode === 'dev') {
@@ -468,7 +590,8 @@ export function setupLocalEngine(
     autostart: process.env.MIYAGI_AUTOSTART === '1',
     demo: process.env.DEMO === '1',
     local,
-    dev: chosen.mode === 'dev'
+    dev: chosen.mode === 'dev',
+    bundled: winBundled
   })
   facts.push(
     `app: ${app.getVersion()}, ${app.isPackaged ? 'packaged' : 'not packaged (npm run dev)'}, ${process.execPath}`,
@@ -516,7 +639,8 @@ export function setupLocalEngine(
   facts.push(`engine bundle: ${bundle} (${readText(join(bundle, 'VERSION')) || 'no VERSION'})`, `engine home: ${home}`)
   const bundleVersion = (): string => readText(join(bundle, 'VERSION')) || 'bundled'
   const hasSource = existsSync(join(bundle, 'src', 'server', 'pyproject.toml'))
-  const python = join(bundle, 'python', 'bin', 'python3')
+  // python-build-standalone's layout: python/bin/python3 on macOS, python/python.exe on Windows.
+  const python = win ? join(bundle, 'python', 'python.exe') : join(bundle, 'python', 'bin', 'python3')
   /** A12: the app carries its own Python with the packages installed, built for a CPU this Mac can run. */
   const pythonBundled = ((): boolean => {
     if (!hasSource || !executable(python)) return false
@@ -526,8 +650,8 @@ export function setupLocalEngine(
     return !problem
   })()
   /** Older bundles: source + the uv installer. */
-  const installerBundled = hasSource && existsSync(join(bundle, 'install.sh'))
-  const env: NodeJS.ProcessEnv = { ...process.env, MIYAGI_HOME: home, PATH: fixedPath(home), MIYAGI_ENGINE_TOKEN: ENGINE_TOKEN }
+  const installerBundled = !win && hasSource && existsSync(join(bundle, 'install.sh'))
+  const env: NodeJS.ProcessEnv = withPath({ ...process.env, MIYAGI_HOME: home, MIYAGI_ENGINE_TOKEN: ENGINE_TOKEN }, fixedPath(home))
   /** Which way start() runs the engine; boot() decides. */
   let runtime: 'bundled' | 'launcher' = 'launcher'
   /** A respawn waiting to start (ROADMAP 1.4). */
@@ -617,7 +741,19 @@ export function setupLocalEngine(
     try {
       writeSync(fd, `--- ${new Date().toISOString()} engine start (bundled Python, ${bundleVersion()})\n`)
       // -s: no user site-packages; -B: no .pyc written; -m with cwd = src puts src first on sys.path (no PYTHONPATH).
-      return d.spawn(python, ['-s', '-B', '-m', 'server.orchestrator.main', '--host', '127.0.0.1', '--port', String(port)], {
+      const args = ['-s', '-B', '-m', 'server.orchestrator.main', '--host', '127.0.0.1', '--port', String(port)]
+      if (win) {
+        // Windows: -X utf8 (UTF-8 mode for the engine only, never inherited: no PYTHONUTF8 reaches the learner's
+        // programs). Not detached, with its console hidden: a detached engine has no console, so every console
+        // program it starts (code.cmd, git, taskkill) would flash a window of its own. killGroup uses taskkill /T.
+        return d.spawn(python, ['-X', 'utf8', ...args], {
+          cwd: src,
+          env: pythonEnv(env, home, python, port, packaged),
+          stdio: ['ignore', fd, fd],
+          windowsHide: true,
+        })
+      }
+      return d.spawn(python, args, {
         cwd: src,
         env: pythonEnv(env, home, python, port, packaged),
         stdio: ['ignore', fd, fd],
@@ -629,112 +765,35 @@ export function setupLocalEngine(
     }
   }
 
-  const forgetPid = (): void => {
-    try {
-      rmSync(pidFile, { force: true })
-    } catch {
-      // A stale pid file is checked against the process before it's ever used.
-    }
-  }
+  /** Only once the engine and its group are confirmed gone (or never ran): R44, a quit it outlived keeps the file. */
+  const forgetPid = (): void => removePidRecord(pidFile)
   const rememberPid = (pid: number | undefined): void => {
     if (pid === undefined) return
-    try {
-      mkdirSync(join(home, 'run'), { recursive: true })
-      writeFileSync(pidFile, JSON.stringify({ pid, port, runtime, at: new Date().toISOString() }))
-    } catch {
-      // Without it a force-quit leaves an engine the next launch can't reclaim: the pill says so, nothing breaks.
-    }
+    // Without it a force-quit leaves an engine the next launch can't reclaim: the pill says so, nothing breaks.
+    writePidRecord(pidFile, { pid, port, runtime, at: new Date().toISOString() })
   }
 
   /**
-   * Whether `cmd` (a `ps -o command=` line) is an engine this app starts, and never anyone else's. The module name
-   * alone also matches a dev engine (`.../run-live/.venv/bin/python -m server.orchestrator.main`), so it isn't enough.
-   * Bundled: the exact Python inside this app. Launcher: the launcher script itself, or (when it `exec`s into Python)
-   * an interpreter under this app's engine home running the engine module.
-   */
-  const isOwnEngineCommand = (cmd: string, kind: unknown): boolean => {
-    const line = cmd.trim()
-    if (kind !== 'launcher' && line.startsWith(`${python} `)) return true
-    if (kind === 'bundled') return false
-    const shells = ['', '/bin/bash ', 'bash ', '/bin/sh ', 'sh ', '/bin/zsh ']
-    if (shells.some((sh) => line === `${sh}${launcher}` || line.startsWith(`${sh}${launcher} `))) return true
-    return line.startsWith(`${home}/`) && /\s-m\s+server\.orchestrator\.main(\s|$)/.test(line)
-  }
-
-  /**
-   * The pid started within a few seconds of the pid file's `at` (`ps -o lstart=`, C locale, local time), so a pid the
-   * OS has since handed to another process (a dev engine started later from a shell) is never taken for ours.
-   */
-  const startedWhenSaved = async (pid: number, at: unknown): Promise<boolean> => {
-    const saved = typeof at === 'string' ? Date.parse(at) : NaN
-    if (!Number.isFinite(saved)) return false
-    const ps = await run('/usr/bin/env', ['LC_ALL=C', '/bin/ps', '-o', 'lstart=', '-p', String(pid)], 2000)
-    const began = ps.ok ? Date.parse(ps.out.trim().replace(/\s+/g, ' ')) : NaN
-    return Number.isFinite(began) && Math.abs(saved - began) <= 10_000
-  }
-
-  /**
-   * Step 7: the port is taken. If the pid file names a live process whose command line is this app's own engine
-   * (isOwnEngineCommand) and which started when the file was written (startedWhenSaved), it's ours from an earlier
-   * launch: stop its group (SIGTERM, then SIGKILL after 5 s) and wait for the port. Anything else is never touched.
-   * → true when the port is free now.
+   * Step 7 (R44, engineProcess.ts reclaimLeftover): on every boot, before the port is looked at. If the pid file names
+   * a live process whose command line is this app's own engine (isOwnEngineCommand) and which started when the file
+   * was written (startedNear), it's ours from an earlier launch: stop its group (SIGTERM, then SIGKILL after
+   * killAfterMs) and wait until it is gone. Anything else is never touched. → true when one was stopped.
    */
   const reclaimOwnLeftover = async (): Promise<boolean> => {
-    let pid = 0
-    let at: unknown
-    let kind: unknown
-    try {
-      const saved = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid?: unknown; at?: unknown; runtime?: unknown }
-      pid = Number(saved.pid) || 0
-      at = saved.at
-      kind = saved.runtime
-    } catch {
-      return false
-    }
-    const alive = (): boolean => {
-      try {
-        process.kill(pid, 0)
-        return true
-      } catch {
-        return false
-      }
-    }
-    if (pid <= 1 || pid === process.pid || !alive()) {
-      forgetPid()
-      return false
-    }
-    const ps = await run('/bin/ps', ['-o', 'command=', '-p', String(pid)], 2000)
-    if (!ps.ok || !isOwnEngineCommand(ps.out, kind) || !(await startedWhenSaved(pid, at))) {
-      // The pid was reused by something else, or can't be proven ours: never touch it.
-      forgetPid()
-      return false
-    }
-    note(`port ${port} held by this app's engine from an earlier launch (pid ${pid}): stopping it`)
-    const signal = (sig: NodeJS.Signals): void => {
-      try {
-        process.kill(-pid, sig)
-      } catch {
-        try {
-          process.kill(pid, sig)
-        } catch {
-          // Already gone.
-        }
-      }
-    }
-    const freed = async (ms: number): Promise<boolean> => {
-      for (const until = Date.now() + ms; Date.now() < until; ) {
-        if (!(await d.listening(port, 300))) return true
-        await new Promise((r) => setTimeout(r, 250))
-      }
-      return !(await d.listening(port, 300))
-    }
-    signal('SIGTERM')
-    if (!(await freed(5000))) {
-      signal('SIGKILL')
-      if (!(await freed(2000))) return false
-    }
-    forgetPid()
-    return true
+    const result = await reclaimLeftover(pidFile, (cmd, kind) => isOwnEngineCommand(cmd, kind, { python, launcher, home }), {
+      platform: d.platform,
+      kill: d.kill,
+      taskkill: d.taskkill,
+      alive: d.alive,
+      info: d.procInfo,
+      members: d.groupMembers,
+      graceMs: d.killAfterMs,
+      confirmMs: QUIT_CONFIRM_MS,
+      note,
+      self: process.pid
+    })
+    if (result === 'foreign') note(`the pid in ${pidFile} now belongs to another process: not touched, file removed`)
+    return result === 'stopped'
   }
 
   /** Started, but no answer yet: after START_TIMEOUT_MS say so (the engine keeps running; a late connect still wins). */
@@ -748,6 +807,9 @@ export function setupLocalEngine(
   }
 
   const start = (): void => {
+    // A boot still under way when the app quits (copying the source, reclaiming a leftover) never starts an engine
+    // nothing would stop.
+    if (stopping) return
     set({ state: 'starting', runtime })
     try {
       child = spawnEngine()
@@ -766,8 +828,9 @@ export function setupLocalEngine(
       clearTimeout(forceKill)
       forceKill = undefined
       child = undefined
-      forgetPid()
+      // Quitting: the quit step forgets the pid only once the whole group is gone (the leader can die first).
       if (stopping) return set({ state: 'off' })
+      forgetPid()
       if (restarting) {
         restarting = false
         return start()
@@ -799,20 +862,15 @@ export function setupLocalEngine(
     })
   }
 
+  /** The engine's whole process group (taskkill /T /F on Windows); the child alone when there's no group to signal. */
   const killGroup = (c: ChildProcess, sig: NodeJS.Signals = 'SIGTERM'): void => {
     if (c.pid === undefined) return
-    try {
-      d.kill(-c.pid, sig)
-    } catch {
-      try {
-        c.kill(sig)
-      } catch {
-        // Already gone.
-      }
-    }
+    signalTree(c.pid, sig, d, (s) => c.kill(s))
   }
 
   restart = () => {
+    // Quitting: the quit step owns the engine now (recover.ts's hung check could still fire while it waits).
+    if (stopping) return { ok: false, state: status.state }
     if (status.state === 'external') return { ok: false, state: 'external' }
     if (child && !child.killed) {
       // A restart already under way waits for its exit; one that failed (the engine never stopped) may try again.
@@ -880,17 +938,18 @@ export function setupLocalEngine(
   const boot = async (): Promise<void> => {
     stopHolding()
     set({ state: 'checking' })
+    // Step 7 first, port or not (R44): an engine an earlier launch left running may be hung (no answer on the port)
+    // and may still be reading the screen. Once it is gone, whatever still answers on the port isn't this app's.
+    await reclaimOwnLeftover()
     if (await d.listening(port)) {
-      const ours = await reclaimOwnLeftover()
-      if (!ours) {
-        if (!adoptExternal({ packaged, mode: chosen.mode, ours })) return hold()
-        note(`port ${port} already has an engine this app didn't start: using it, and leaving it running on quit`)
-        return set({ state: 'external' })
-      }
+      if (!adoptExternal({ packaged, mode: chosen.mode, ours: false })) return hold()
+      note(`port ${port} already has an engine this app didn't start: using it, and leaving it running on quit`)
+      return set({ state: 'external' })
     }
     const installedFromBundle = existsSync(marker)
-    // The user's own install (the one-liner: a launcher and no BUNDLED marker) always wins.
-    const userInstall = existsSync(launcher) && !installedFromBundle
+    // The user's own install (the one-liner: a launcher and no BUNDLED marker) always wins. Windows has no launcher
+    // (it's a bash script): only the bundled Python.
+    const userInstall = !win && existsSync(launcher) && !installedFromBundle
     if (!userInstall && pythonBundled) {
       runtime = 'bundled'
       // Once per bundled version (first launch, an app update), or when the source was deleted.
@@ -901,6 +960,9 @@ export function setupLocalEngine(
       }
       return start()
     }
+    // Windows: the build carries an engine (whyUnmanaged let it through) but its Python can't run here (wrong arch,
+    // not precompiled: engine.log says which). No launcher or bash installer to fall back on.
+    if (win) return fail(`the engine inside this app can't run on this PC (${bundle}); see the bundled Python line above in this log`)
     runtime = 'launcher'
     // A newer engine inside the app (an app update) replaces one the app installed before; never one the
     // user installed with the one-liner (no BUNDLED marker).
@@ -920,7 +982,7 @@ export function setupLocalEngine(
 
   return () => {
     // Only the engine this app started (never one the user runs in Terminal). SIGTERM lets uvicorn close its
-    // sockets; the whole group, in case the launcher didn't `exec` into Python.
+    // sockets; the whole group, in case the launcher didn't `exec` into Python, and for everything the engine started.
     if (slow) clearTimeout(slow)
     stopHolding()
     // Quitting: a respawn waiting to start never starts (and an exit from here on is ours, not a crash).
@@ -932,12 +994,26 @@ export function setupLocalEngine(
     if (waiting && !child) set({ state: 'off' })
     clearTimeout(forceKill)
     forceKill = undefined
-    if (!child || child.killed || child.pid === undefined) return
-    // A Restart under way already sent SIGTERM and it is still alive: it ignores SIGTERM, so SIGKILL.
-    killGroup(child, restarting ? 'SIGKILL' : 'SIGTERM')
-    // Electron exits before the child's 'exit' handler runs, so forget the pid now: a stale file would name a pid
-    // the OS can later hand to someone else's process.
-    forgetPid()
+    // No child: it exited (its exit handler cleared it and the pid file), never started, or failed to spawn.
+    const target = child
+    if (!target || target.pid === undefined) return
+    const pid = target.pid
+    const posix = d.platform !== 'win32'
+    // R44: SIGTERM, QUIT_GRACE_MS, then SIGKILL the group (a hung or stopped engine ignores SIGTERM). A Restart under
+    // way already sent SIGTERM and it is still alive: it ignores SIGTERM, so SIGKILL at once. Gone means the exit
+    // handler ran (Node reaped it) and nothing is left in its group. index.ts holds the quit until this settles.
+    return stopTree({
+      signal: (sig) => killGroup(target, sig),
+      gone: () => child !== target && !(posix && d.alive(-pid)),
+      first: restarting ? 'SIGKILL' : 'SIGTERM',
+      graceMs: d.quitGraceMs,
+      confirmMs: d.quitConfirmMs,
+      onEscalate: () => note(`quit: the engine (pid ${pid}) ignored SIGTERM for ${d.quitGraceMs / 1000} s; sending SIGKILL to its group`)
+    }).then((outcome) => {
+      // Still there after SIGKILL: keep the pid file, so the next launch stops it (step 7) instead of losing track.
+      if (outcome === 'alive') return note(`quit: the engine (pid ${pid}) is still running after SIGKILL; keeping ${pidFile} for the next launch`)
+      forgetPid()
+    })
   }
 }
 
@@ -993,7 +1069,7 @@ function compareVersions(a: string, b: string): number {
 /** execFile, no shell, bounded: → { ok, out } */
 function run(file: string, args: string[], timeout: number): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
-    execFile(file, args, { timeout, maxBuffer: 4 << 20, env: { ...process.env, PATH: fixedPath(join(homedir(), 'miyagi', 'engine')) } }, (err, stdout) => {
+    execFile(file, args, { timeout, maxBuffer: 4 << 20, windowsHide: true, env: withPath(process.env, fixedPath(join(homedir(), 'miyagi', 'engine'))) }, (err, stdout) => {
       resolve({ ok: !err, out: String(stdout ?? '') })
     })
   })

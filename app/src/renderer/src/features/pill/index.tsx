@@ -603,8 +603,11 @@ function useIdleView(): NotchView {
   const setupPending = useSetupPending()
   const thinking = useThinking()
   const firstOrSetup = !bootIn.everOpen || setupPending
-  const gettingReady = !bootIn.connected && firstOrSetup && (boot.phase === 'starting' || boot.phase === 'reconnecting' || boot.phase === 'failed')
-  if (offline || gettingReady || offer) return 'drop'
+  // Exactly Idle's own conditions (above): drop a line only when it says something other than "ask miyagi". Before,
+  // 'failed' and an offer Idle didn't show dropped a plain "ask miyagi" pill under the notch, which looked like the
+  // old pill below the menu bar, so choosing "In the notch" seemed to do nothing (Michael, Nov 21).
+  const gettingReady = !bootIn.connected && firstOrSetup && (boot.phase === 'starting' || boot.phase === 'reconnecting')
+  if (offline || gettingReady || (offer && !offline)) return 'drop'
   return thinking ? 'ears' : 'rest'
 }
 

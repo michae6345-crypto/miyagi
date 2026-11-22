@@ -5,8 +5,10 @@
  *
  *   waiting   the button morphs into "Waiting for Google…" (spinner for the glyph, one faint band crossing it on a
  *             slow loop: transform only, no gradient), with "Finish in your browser · Cancel" under it. Esc cancels.
+ *             The wait ends at once (store.ts, R20) on Cancel here, on Cancel in Google's page (main's auth:attempt),
+ *             or when the learner comes back to miyagi from the browser without finishing.
  *   failed    main's plain-words reason (the sign-in fix, model.ts reasonLine) fades in under the button, with
- *             Try again. No shake, no hue.
+ *             Try again. A cancel gets a calm line too ("Sign-in cancelled."). No shake, no hue.
  *   signed in "Signed in as …" and one Continue.
  *
  * Used twice: inside the home window's first-run flow (features/shell/flow: `onContinue` moves the flow on to setup)
@@ -25,7 +27,7 @@ import { ease, pressMotion } from '../../core/ui/motion'
 import { AppleGlyph, GoogleGlyph, TextLink } from '../account/ui'
 import { MARK_ID } from '../onboarding/Intro'
 import { Avatar } from './Avatar'
-import { cancelSignIn, continueToSetup, openLegal, signInWith, signOut, useAuth } from './store'
+import { cancelSignIn, continueToSetup, leaveSignIn, openLegal, signInWith, signOut, useAuth } from './store'
 
 const fade = { duration: duration.base, ease: ease.out }
 
@@ -173,7 +175,9 @@ function useCancelOnEsc(): void {
     addEventListener('keydown', onKey, true)
     return () => {
       removeEventListener('keydown', onKey, true)
-      if (useAuth.getState().pending) cancelSignIn()
+      // Quietly: no "Sign-in cancelled." left behind for the next visit. Also ends a listener main kept up after the
+      // wait ended (Cancel on Google's page, coming back to miyagi).
+      leaveSignIn()
     }
   }, [])
 }

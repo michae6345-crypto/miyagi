@@ -89,7 +89,18 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const nm = notchOf(layout)
   const nmKey = nm ? `${nm.x},${nm.width},${nm.height}` : ''
   const views = islandModes.map((m): NotchView => (m.notch ? m.notch.useView() : 'drop'))
-  const baseView: NotchView = at < 0 ? 'rest' : views[at]
+  // Moving into the notch: at rest the island is invisible on the hardware notch, so the move would look like nothing
+  // happened. Show the ears (bonsai + status) for a moment so the learner sees miyagi land there.
+  const [notchLanding, setNotchLanding] = useState(false)
+  const inNotch = !!nm
+  useEffect(() => {
+    if (!inNotch) return
+    setNotchLanding(true)
+    const t = setTimeout(() => setNotchLanding(false), 1800)
+    return () => clearTimeout(t)
+  }, [inNotch])
+  const modeView: NotchView = at < 0 ? 'rest' : views[at]
+  const baseView: NotchView = notchLanding && modeView === 'rest' ? 'ears' : modeView
   /** The active mode's layer shows nothing (or its Boundary fell back): the island is the pill, not a card-wide bar. */
   const [layerEmpty, setLayerEmpty] = useState(false)
   // In the notch an empty card stays a card (its zero-height content sizes it to the notch): flipping it to a pill would

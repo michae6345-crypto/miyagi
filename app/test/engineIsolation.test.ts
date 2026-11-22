@@ -91,6 +91,33 @@ describe('the engine environment: no auto-resume, no autostart, a fixed save fol
   })
 })
 
+describe('launch pins (R17, R31, R45)', () => {
+  test('packaged: web search off, no run recording, the network check probes our cloud', () => {
+    for (const e of [le.pythonEnv({ COACH_WEB: '1', ORCH_RECORD: '1' }, '/h', '/p', 8787, true), le.launcherEnv({ COACH_WEB: '1' }, true)]) {
+      assert.equal(e.COACH_WEB, '0')
+      assert.equal(e.ORCH_RECORD, '0')
+      assert.equal(e.MIYAGI_NET_PROBE, 'miyagi-cloud.onrender.com:443')
+    }
+  })
+  test('packaged: the probe is always our cloud, whatever MIYAGI_CLOUD_URL says (A12)', () => {
+    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'https://elsewhere.example/v1' }), 'miyagi-cloud.onrender.com:443')
+    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'http://127.0.0.1:9000' }), 'miyagi-cloud.onrender.com:443')
+    assert.equal(le.netProbe({}), 'miyagi-cloud.onrender.com:443')
+  })
+  test('packaged with the cloud off: web search and recording still off, the engine keeps its own probe', () => {
+    const e = le.launcherEnv({ MIYAGI_CLOUD_URL: 'off' }, true)
+    assert.equal(e.COACH_WEB, '0')
+    assert.equal(e.ORCH_RECORD, '0')
+    assert.equal(e.MIYAGI_NET_PROBE, undefined)
+  })
+  test('npm run dev: the engine keeps its own defaults', () => {
+    const e = le.pythonEnv({}, '/h', '/p', 8787, false)
+    assert.equal(e.COACH_WEB, undefined)
+    assert.equal(e.ORCH_RECORD, undefined)
+    assert.equal(e.MIYAGI_NET_PROBE, undefined)
+  })
+})
+
 describe('pid file per build', () => {
   test('app-engine.json when packaged, app-engine-dev.json when not', () => {
     assert.equal(le.pidFileName(true), 'app-engine.json')
@@ -186,7 +213,16 @@ describe('packaged app, port held by an engine it did not start', () => {
       if (ch === 'engine-local') states.push(payload as Record<string, unknown>)
     }
     const setup = le.setupLocalEngine as unknown as (...a: unknown[]) => () => void
-    stop = setup(fakeEngine(), `ws://127.0.0.1:${port}`, broadcast, () => true, { platform: 'darwin', holder: async () => 'pid 4242 (Python)', ...deps })
+    // The quit in afterEach signals the fake child: a fake kill and alive, so no real pid is ever signalled.
+    stop = setup(fakeEngine(), `ws://127.0.0.1:${port}`, broadcast, () => true, {
+      platform: 'darwin',
+      holder: async () => 'pid 4242 (Python)',
+      kill: () => undefined,
+      alive: () => false,
+      quitGraceMs: 50,
+      quitConfirmMs: 50,
+      ...deps
+    })
     return { states }
   }
 
@@ -330,6 +366,10 @@ describe('localEngine respawn and restart (fake child, fake kill)', () => {
       holder: async () => 'none',
       spawn,
       kill,
+      // No group left behind once a fake child exits; quit's grace kept short.
+      alive: () => false,
+      quitGraceMs: 60,
+      quitConfirmMs: 60,
       killAfterMs: 60,
       startTimeoutMs: 400
     })
@@ -505,5 +545,248 @@ describe('localEngine respawn and restart (fake child, fake kill)', () => {
     await pause(150)
     assert.equal(e.kills.length, 2, 'the timer never fires after quit')
     assert.equal(e.children.length, 1, 'nothing starts after quit')
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// R44 (research/launch/SOLUTIONS.md): quitting stops a hung engine (SIGTERM, then SIGKILL to its group), the pid file
+// goes only once the engine and its group are gone, and the next launch stops a stray engine of this app before it
+// starts its own. Fake child, fake kill, fake alive and fake ps: no real pid is ever signalled
+// (test/engineProcess.test.ts has the one real-process check).
+
+describe('R44: quit stops a hung engine; the next launch reclaims a stray one', () => {
+  let home = ''
+  let stop: () => Promise<void> | void = () => undefined
+  const saved: Record<string, string | undefined> = {}
+  const envKeys = ['MIYAGI_HOME', 'MIYAGI_ENGINE', 'MIYAGI_AUTOSTART', 'DEMO', 'MIYAGI_CLOUD_URL']
+  const savedResources = (process as { resourcesPath?: string }).resourcesPath
+  const GRACE = 150
+  const AT = new Date(Date.now() - 3_600_000).toISOString()
+
+  before(() => {
+    for (const k of envKeys) saved[k] = process.env[k]
+  })
+  beforeEach(() => {
+    home = mkdtempSync(join(sandbox, 'r44-home-'))
+    for (const k of envKeys) delete process.env[k]
+    process.env.MIYAGI_HOME = home
+    // A user-installed launcher (no BUNDLED marker, no bundled Python): boot() goes straight to start().
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    writeFileSync(join(home, 'bin', 'miyagi-engine'), '#!/bin/sh\nexit 0\n')
+    ;(process as { resourcesPath?: string }).resourcesPath = mkdtempSync(join(sandbox, 'r44-resources-'))
+    fakeApp.isPackaged = true
+  })
+  afterEach(() => {
+    void stop()
+    stop = () => undefined
+    fakeApp.isPackaged = false
+    ;(process as { resourcesPath?: string }).resourcesPath = savedResources
+    for (const k of envKeys) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  })
+
+  const pidFile = (): string => join(home, 'run', 'app-engine.json')
+  const pidInFile = (): number | undefined => {
+    try {
+      return (JSON.parse(readFileSync(pidFile(), 'utf8')) as { pid: number }).pid
+    } catch {
+      return undefined
+    }
+  }
+  const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+  type World = {
+    states: Array<Record<string, unknown>>
+    children: FakeChild[]
+    kills: Array<{ pid: number; sig: string }>
+    /** What the fake `alive` answers for: pids (leaders) and -pids (their groups). */
+    live: Set<number>
+    events: string[]
+    up: () => void
+    last: () => Record<string, unknown>
+  }
+  /** A signal reached group `pgid`: what it does is up to the test (default: nothing, a hung engine). */
+  type OnKill = (w: World, pgid: number, sig: string) => void
+  /** The leader exits (Node reaps it: 'exit'); its group may or may not go with it. */
+  const leaderExits = (w: World, pgid: number, sig: string, groupToo = true): void => {
+    w.live.delete(pgid)
+    if (groupToo) w.live.delete(-pgid)
+    const c = w.children.find((x) => x.pid === pgid)
+    if (c) setImmediate(() => c.emit('exit', null, sig))
+  }
+
+  const boot = (o: { onKill?: OnKill; procs?: Map<number, { command: string; startedAt: number }>; live?: number[] } = {}): World => {
+    const listeners: Array<(up: boolean) => void> = []
+    const link = { connected: false, setToken: () => undefined, reconnect: () => undefined, holdFailures: () => undefined, onStatus: (fn: (up: boolean) => void) => void listeners.push(fn) }
+    const w: World = {
+      states: [],
+      children: [],
+      kills: [],
+      live: new Set(o.live ?? []),
+      events: [],
+      up: () => {
+        link.connected = true
+        for (const fn of listeners) fn(true)
+      },
+      last: () => w.states.at(-1) ?? {}
+    }
+    const spawn = (): FakeChild => {
+      // Made-up pids, never signalled: deps.kill below only records.
+      const c: FakeChild = Object.assign(new EventEmitter(), {
+        pid: 991_001 + w.children.length,
+        killed: false,
+        exitCode: null as number | null,
+        kill: (): boolean => assert.fail('the group kill (deps.kill) must be used')
+      })
+      w.children.push(c)
+      w.live.add(c.pid)
+      w.live.add(-c.pid)
+      w.events.push(`spawn ${c.pid}`)
+      return c
+    }
+    const broadcast = (ch: string, payload: unknown): void => {
+      if (ch === 'engine-local') w.states.push(payload as Record<string, unknown>)
+    }
+    const setup = le.setupLocalEngine as unknown as (...a: unknown[]) => () => Promise<void> | void
+    stop = setup(link, 'ws://127.0.0.1:18787', broadcast, () => true, {
+      platform: 'darwin',
+      listening: async () => false,
+      holder: async () => 'none',
+      spawn,
+      kill: (pid: number, sig: string) => {
+        w.kills.push({ pid, sig })
+        w.events.push(`${sig} ${pid}`)
+        if (!w.live.has(pid)) throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' })
+        o.onKill?.(w, Math.abs(pid), sig)
+      },
+      alive: (pid: number) => w.live.has(pid),
+      procInfo: async (pid: number) => o.procs?.get(pid),
+      groupMembers: async () => [],
+      quitGraceMs: GRACE,
+      quitConfirmMs: 100,
+      killAfterMs: 100,
+      startTimeoutMs: 60_000
+    })
+    return w
+  }
+  const running = async (onKill?: OnKill): Promise<World> => {
+    const w = boot({ onKill })
+    await until(() => w.children.length === 1)
+    w.up()
+    assert.equal(w.last().state, 'running')
+    assert.equal(pidInFile(), 991_001)
+    return w
+  }
+  const quit = (): Promise<void> => {
+    const p = stop()
+    stop = () => undefined
+    assert.ok(p instanceof Promise, 'a running engine makes the quit wait')
+    return p
+  }
+
+  test('quit, engine obeys SIGTERM: one SIGTERM to its group, then the pid file goes', async () => {
+    const w = await running((w, pgid, sig) => sig === 'SIGTERM' && leaderExits(w, pgid, sig))
+    const p = quit()
+    assert.deepEqual(w.kills, [{ pid: -991_001, sig: 'SIGTERM' }])
+    await p
+    assert.deepEqual(w.kills, [{ pid: -991_001, sig: 'SIGTERM' }])
+    assert.equal(existsSync(pidFile()), false)
+    assert.equal(w.last().state, 'off')
+  })
+
+  test('quit, hung engine (kill -STOP) ignores SIGTERM: SIGKILL to the group after the grace; the pid file stays until it is gone', async () => {
+    const w = await running((w, pgid, sig) => sig === 'SIGKILL' && leaderExits(w, pgid, sig))
+    const t = Date.now()
+    const p = quit()
+    await pause(GRACE / 3)
+    assert.deepEqual(w.kills, [{ pid: -991_001, sig: 'SIGTERM' }], 'no SIGKILL before the grace')
+    assert.equal(pidInFile(), 991_001, 'still running: the pid file stays')
+    await p
+    assert.ok(Date.now() - t >= GRACE - 5, `waited ${Date.now() - t} ms`)
+    assert.deepEqual(w.kills, [
+      { pid: -991_001, sig: 'SIGTERM' },
+      { pid: -991_001, sig: 'SIGKILL' }
+    ])
+    assert.equal(existsSync(pidFile()), false)
+    assert.equal(w.last().state, 'off')
+    assert.match(readFileSync(join(home, 'logs', 'engine.log'), 'utf8'), /ignored SIGTERM .*sending SIGKILL to its group/)
+  })
+
+  test('quit, the engine exits on SIGTERM but something it started does not: SIGKILL the group, then the pid file goes', async () => {
+    const w = await running((w, pgid, sig) => {
+      if (sig === 'SIGTERM') leaderExits(w, pgid, sig, false)
+      if (sig === 'SIGKILL') w.live.delete(-pgid)
+    })
+    const p = quit()
+    await pause(GRACE / 3)
+    assert.equal(w.live.has(991_001), false, 'the leader exited')
+    assert.equal(pidInFile(), 991_001, 'its group still runs: the pid file stays')
+    await p
+    assert.deepEqual(
+      w.kills.map((k) => `${k.sig} ${k.pid}`),
+      ['SIGTERM -991001', 'SIGKILL -991001']
+    )
+    assert.equal(existsSync(pidFile()), false)
+  })
+
+  test('quit, an engine that survives SIGKILL keeps its pid file for the next launch', async () => {
+    const w = await running()
+    await quit()
+    assert.deepEqual(
+      w.kills.map((k) => k.sig),
+      ['SIGTERM', 'SIGKILL']
+    )
+    assert.equal(pidInFile(), 991_001)
+    assert.match(readFileSync(join(home, 'logs', 'engine.log'), 'utf8'), /still running after SIGKILL; keeping/)
+  })
+
+  test('quit with no engine running: nothing to wait for', async () => {
+    le.setRespawnPolicy(() => undefined)
+    try {
+      const w = await running()
+      w.children[0].emit('exit', 1, null)
+      assert.equal(existsSync(pidFile()), false, 'a crash forgets the pid at once')
+      assert.equal(stop(), undefined)
+      stop = () => undefined
+      assert.deepEqual(w.kills, [])
+    } finally {
+      le.setRespawnPolicy(undefined)
+    }
+  })
+
+  test('launch: a stray engine of this app (its command line and start time) is stopped before a new one starts, port or not', async () => {
+    const stray = 990_900
+    mkdirSync(join(home, 'run'), { recursive: true })
+    writeFileSync(pidFile(), JSON.stringify({ pid: stray, port: 18787, runtime: 'launcher', at: AT }))
+    const procs = new Map([[stray, { command: join(home, 'bin', 'miyagi-engine'), startedAt: Date.parse(AT) + 400 }]])
+    // Hung: only SIGKILL ends it. The port is free (it never got that far, or only its children are left).
+    const w = boot({ procs, live: [stray, -stray], onKill: (w, pgid, sig) => sig === 'SIGKILL' && leaderExits(w, pgid, sig) })
+    await until(() => w.children.length === 1)
+    assert.deepEqual(w.events, [`SIGTERM -${stray}`, `SIGKILL -${stray}`, 'spawn 991001'])
+    assert.equal(pidInFile(), 991_001, 'the pid file names the new engine')
+    assert.match(readFileSync(join(home, 'logs', 'engine.log'), 'utf8'), new RegExp(`earlier launch is still running \\(pid ${stray}`))
+  })
+
+  test('launch: a pid file whose pid now runs something else is never signalled', async () => {
+    const reused = 990_901
+    mkdirSync(join(home, 'run'), { recursive: true })
+    writeFileSync(pidFile(), JSON.stringify({ pid: reused, port: 18787, runtime: 'launcher', at: AT }))
+    const procs = new Map([[reused, { command: '/Users/learner/code/miyagi/run-live/.venv/bin/python -m server.orchestrator.main', startedAt: Date.parse(AT) }]])
+    const w = boot({ procs, live: [reused, -reused] })
+    await until(() => w.children.length === 1)
+    assert.deepEqual(w.kills, [])
+    assert.ok(w.live.has(reused))
+    assert.equal(pidInFile(), 991_001)
+  })
+
+  test('launch: a pid file naming a process that is gone is cleared without a signal', async () => {
+    mkdirSync(join(home, 'run'), { recursive: true })
+    writeFileSync(pidFile(), JSON.stringify({ pid: 990_902, port: 18787, runtime: 'bundled', at: AT }))
+    const w = boot()
+    await until(() => w.children.length === 1)
+    assert.deepEqual(w.kills, [])
+    assert.equal(pidInFile(), 991_001)
   })
 })

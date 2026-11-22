@@ -1,9 +1,10 @@
 /**
  * Feature: shell / flow. The slim progress strip at the top of the first run:
  *
- *   [bonsai]  · · ▬ · ·  [same width, empty]
+ *   [bonsai]  · · · ▬ · ·  [same width, empty]
  *
- * Progress is five small dots (onboarding/Dots.tsx), no labels: Sign in, Screen, Accessibility, VS Code, Ready. The
+ * Progress is six small dots (onboarding/Dots.tsx), no labels: Sign in, What miyagi sends (the consent screen),
+ * Screen, Accessibility, VS Code, Ready. The
  * current one is longer and white, a done step is green (green only means done), a step ahead is faint. "Ready" covers
  * Getting miyagi ready and You're ready. The bonsai's slot is always there (so nothing shifts when the tree arrives)
  * and an empty slot of the same width balances it on the right, so the dots sit on the window's center line. The tree
@@ -22,9 +23,10 @@ import { FlowMark } from './FlowMark'
 import { stripIn } from './motion'
 import type { FlowPhase } from './store'
 
-export type StripId = 'login' | 'screen' | 'accessibility' | 'companion' | 'ready'
+export type StripId = 'login' | 'consent' | 'screen' | 'accessibility' | 'companion' | 'ready'
 export const STRIP: ReadonlyArray<{ id: StripId; label: string }> = [
   { id: 'login', label: 'Sign in' },
+  { id: 'consent', label: 'What miyagi sends' },
   { id: 'screen', label: 'Screen Recording' },
   { id: 'accessibility', label: 'Accessibility' },
   { id: 'companion', label: 'VS Code' },
@@ -42,6 +44,7 @@ const SLOT_GAP = 10
 /** Which strip item is current for this phase and guided step. */
 export function currentItem(phase: FlowPhase, step: GuidedStepId | undefined, os: Os = osNow()): StripId {
   if (phase === 'login' || phase === 'intro' || phase === 'pending') return 'login'
+  if (phase === 'consent') return 'consent'
   if (phase === 'setup') {
     if (step === 'engine') return 'ready'
     if (!step) return needsGrants(os) ? 'screen' : 'companion'
@@ -52,7 +55,8 @@ export function currentItem(phase: FlowPhase, step: GuidedStepId | undefined, os
 
 /** Done: green. The login is done once the walk is past it; a setup step once its row is green (or skipped). */
 export function itemDone(id: StripId, phase: FlowPhase, rows: Row[], skipped: readonly GuidedStepId[]): boolean {
-  if (id === 'login') return phase === 'setup' || phase === 'ready' || phase === 'leaving'
+  if (id === 'login') return phase === 'consent' || phase === 'setup' || phase === 'ready' || phase === 'leaving'
+  if (id === 'consent') return phase === 'setup' || phase === 'ready' || phase === 'leaving'
   if (id === 'ready') return phase === 'ready' || phase === 'leaving'
   return rows.find((r) => r.id === id)?.state === 'passed' || skipped.includes(id)
 }

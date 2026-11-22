@@ -1,6 +1,9 @@
 /**
- * YouTube IFrame Player API: loader + the few types we use (no @types package needed).
+ * YouTube IFrame Player API: the few types and helpers we use (no @types package needed).
  * https://developers.google.com/youtube/iframe_api_reference
+ *
+ * R33: the API itself never loads in our pages. It runs in the player host page (main/playerHost.page.js), framed from
+ * its own origin; frame.ts is the YTPlayer the store drives over postMessage.
  */
 
 /**
@@ -39,53 +42,6 @@ export type YTPlayer = {
   getPlaybackRate(): number
   destroy(): void
   getVideoData?(): { video_id?: string; title?: string; author?: string }
-}
-
-type YTEvent = { target: YTPlayer; data: number }
-
-export type YTOptions = {
-  width?: string | number
-  height?: string | number
-  videoId?: string
-  host?: string
-  playerVars?: Record<string, string | number>
-  events?: {
-    onReady?: (e: YTEvent) => void
-    onStateChange?: (e: YTEvent) => void
-    onError?: (e: YTEvent) => void
-  }
-}
-
-type YTNamespace = { Player: new (el: HTMLElement, opts: YTOptions) => YTPlayer }
-
-declare global {
-  interface Window {
-    YT?: YTNamespace
-    onYouTubeIframeAPIReady?: () => void
-  }
-}
-
-let loading: Promise<YTNamespace> | undefined
-
-/** Loads https://www.youtube.com/iframe_api once. */
-export function loadYouTube(): Promise<YTNamespace> {
-  if (window.YT?.Player) return Promise.resolve(window.YT)
-  loading ??= new Promise<YTNamespace>((resolve, reject) => {
-    const prev = window.onYouTubeIframeAPIReady
-    window.onYouTubeIframeAPIReady = () => {
-      prev?.()
-      resolve(window.YT!)
-    }
-    const s = document.createElement('script')
-    s.src = 'https://www.youtube.com/iframe_api'
-    s.async = true
-    s.onerror = () => {
-      loading = undefined
-      reject(new Error('Could not load the YouTube player (offline?)'))
-    }
-    document.head.appendChild(s)
-  })
-  return loading
 }
 
 /** YouTube's onError codes → a short, human message. */

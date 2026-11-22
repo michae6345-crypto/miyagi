@@ -16,6 +16,7 @@
  *
  * Electron: this module runs in every window (features are imported everywhere), but only the
  * player window hosts the YouTube player. core seekVideo reaches it through main (video:intent).
+ * R33: the player itself lives in a framed host page on its own origin (frame.ts); this page never loads YouTube's API.
  *
  * Never unseen (policy.ts, Michael Nov 21): every play goes through admit(), which refuses it while the panel isn't on
  * screen (main's player:visible in Electron; the page's visibility on the stage). Hiding pauses. A replayed step cues its
@@ -31,7 +32,8 @@ import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { useCards } from '../cards/store'
 import { decidePlay, engineIntentPlays, GATE_ZONE_S, lessonReadyResets, panelVisible, replayKeepsVideo, resumesAfterPass, startDeferred, stepStartPlays, type PausedBy, type PlayCause } from './policy'
-import { describeYTError, isYouTubeId, loadYouTube, resolveVideoId, YTState, type YTPlayer } from './youtube'
+import { FramePlayer } from './frame'
+import { describeYTError, isYouTubeId, resolveVideoId, YTState, type YTPlayer } from './youtube'
 
 export type { PausedBy } from './policy'
 
@@ -108,6 +110,7 @@ const GATE_ZONE = GATE_ZONE_S
 const TICK_MS = 100
 const REPORT_MS = 1000
 const AUTOPLAY_GRACE_MS = 1500
+const LOAD_ERROR = 'Could not load the YouTube player (offline?)'
 
 /** Electron loads index.html#/player for the player window; the browser stage is one window that hosts everything. */
 const route = location.hash.replace(/^#\/?/, '')
@@ -456,43 +459,39 @@ export function attachPlayer(host: HTMLElement): () => void {
   mount.style.cssText = 'width:100%;height:100%'
   host.appendChild(mount)
   const inner = document.createElement('div')
+  inner.style.cssText = 'width:100%;height:100%'
   mount.appendChild(inner)
 
-  loadYouTube()
-    .then((YT) => {
+  // R33: YouTube's API runs in the host page, framed from its own origin (frame.ts), never in this page with the bridge.
+  // The host makes the quiet embed (Michael's desktop test 9: no controls, rel 0, no cards, no keyboard, no fullscreen).
+  // A paused embed still draws its title bar and "More videos" strip: the panel's gate states cover the frame
+  // (Player.tsx GlassScrim cover).
+  bridge
+    .invoke<string | undefined>('player:host')
+    .then((url) => {
       if (dead) return
-      // Quiet embed (Michael's desktop test 9): no controls (ours drive it), related videos from the same channel only
-      // (rel 0), no annotations or cards (iv_load_policy 3), no keyboard, no fullscreen. modestbranding is a no-op on
-      // today's player but harmless. A paused embed still draws its title bar and "More videos" strip: the panel's
-      // gate states cover the frame (Player.tsx GlassScrim cover).
-      const vars: Record<string, string | number> = { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, enablejsapi: 1 }
-      // Under file:// (packaged Electron) there's no http(s) origin to give YouTube: see player.md → Notes.
-      if (/^https?:$/.test(location.protocol)) vars.origin = location.origin
+      if (!url) throw new Error(LOAD_ERROR)
       // Created empty, then everything goes through go(). (Creating it with a videoId and re-cueing
       // on ready races YouTube's own first cue: the clip then starts at 0 instead of the step start.)
-      const player = new YT.Player(inner, {
-        width: '100%',
-        height: '100%',
-        playerVars: vars,
-        events: {
-          onReady: () => {
-            if (dead) return
-            yt = player
-            ready = true
-            applyPrefs()
-            loadedId = undefined
-            if (want.videoId) go(want.videoId, want.t, want.play)
-            else sync()
-          },
-          onStateChange: (e) => !dead && onStateChange(e.data),
-          onError: (e) => !dead && onError(e.data)
-        }
+      const player = new FramePlayer(inner, url, {
+        onReady: () => {
+          if (dead) return
+          yt = player
+          ready = true
+          applyPrefs()
+          loadedId = undefined
+          if (want.videoId) go(want.videoId, want.t, want.play)
+          else sync()
+        },
+        onStateChange: (st) => !dead && onStateChange(st),
+        onError: (code) => !dead && onError(code),
+        onFail: () => !dead && setUi({ error: LOAD_ERROR })
       })
       destroy = () => player.destroy() // even before onReady
       tickTimer = setInterval(tick, TICK_MS)
       reportTimer = setInterval(() => report(true), REPORT_MS)
     })
-    .catch((err: Error) => !dead && setUi({ error: err.message }))
+    .catch(() => !dead && setUi({ error: LOAD_ERROR }))
 
   const release = (): void => {
     if (dead) return
@@ -827,5 +826,7 @@ if (!isElectron && typeof document !== 'undefined') document.addEventListener('v
 registerWebHandler('player:dock', () => undefined)
 registerWebHandler('player:hover', () => undefined)
 registerWebHandler('player:visible', () => pageVisible())
+// The stage's Vite server serves the host page itself (vite.web.config.ts), on the stage's own origin.
+registerWebHandler('player:host', () => `${location.origin}/player-host.html`)
 
 if (import.meta.env.DEV && isHost) Object.assign(window, { __player: { player, usePlayer, now, yt: () => yt } })

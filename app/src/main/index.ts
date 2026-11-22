@@ -9,13 +9,16 @@
  * Owner: core.
  */
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
 import { setupPrefs, trackWindowBackground, windowBackground } from './prefs'
-import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
+import { ENGINE_TOKEN, localEngineState, QUIT_CONFIRM_MS, QUIT_GRACE_MS, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
+import { servePlayerHost } from './playerHost'
+import playerHostScript from './playerHost.page.js?raw'
 import { setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
 import { debugFlagIn, openLinkInBrowser, safeOpenExternal } from './safeOpen'
@@ -57,14 +60,40 @@ if (app.isPackaged) {
 }
 
 const platform = describePlatform(process.platform)
-const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
+// A packaged app always talks to its own engine on localhost: ENGINE_URL from the environment is for dev runs only
+// (risk A12, launch register R33: a `launchctl setenv` could otherwise point the app at another engine).
+const ENGINE_URL = (!app.isPackaged && process.env.ENGINE_URL) || 'ws://localhost:8787'
 // The token goes in with the constructor: the first connect starts there, before setupLocalEngine runs.
 const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined, ENGINE_TOKEN)
-let stopLocalEngine: () => void = () => undefined
+let stopLocalEngine: () => Promise<void> | void = () => undefined
+/** R44: the most a quit waits for the engine to go (SIGTERM, QUIT_GRACE_MS, SIGKILL, QUIT_CONFIRM_MS), plus a margin. */
+const QUIT_ENGINE_DEADLINE_MS = QUIT_GRACE_MS + QUIT_CONFIRM_MS + 1000
 /** Notch geometry + Boring Notch state (main/notch.ts); started at launch. */
 let notchService: NotchService | undefined
 /** Every window gets its layout again (Settings > General shows whether Boring Notch is using the notch). Module level: the first notch read can land before whenReady has finished. */
-const resendLayout = (): void => forEachWindow((w) => send(w, 'layout', layoutFor(w)))
+const resendLayout = (): void =>
+  forEachWindow((w) => {
+    const l = layoutFor(w)
+    if (w === overlay) logIsland('resend', l)
+    send(w, 'layout', l)
+  })
+/** ~/Library/Logs/miyagi/island.log: where main told the overlay the island lives, and why (a packaged app has no console). */
+let lastIslandLine = ''
+function logIsland(why: string, l: ReturnType<typeof layoutFor>): void {
+  const n = l.notch
+  const line = `pref=${getPrefs().island?.place} place=${n.place} hasNotch=${n.hasNotch} boring=${n.boringNotch} notch=${n.x},${n.width}x${n.height} service=${notchService ? 'on' : 'off'}`
+  if (line === lastIslandLine && why === 'resend') return
+  lastIslandLine = line
+  try {
+    const dir = app.getPath('logs')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'island.log')
+    if (existsSync(file) && statSync(file).size > 100_000) writeFileSync(file, readFileSync(file, 'utf8').slice(-50_000))
+    appendFileSync(file, `${new Date().toISOString()} ${why} ${line}\n`)
+  } catch {
+    /* logging never breaks the island */
+  }
+}
 
 const windows = new Set<BrowserWindow>()
 /** Feature windows whose rects join the overlay's overlay.bounds report (ctx.reportBounds). */
@@ -184,12 +213,17 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions, k
     ...options,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
-      contextIsolation: true,
       backgroundThrottling: false,
       additionalArguments: [`--tut-platform=${encodeURIComponent(JSON.stringify(platform))}`],
       ...options.webPreferences,
-      // Last, so no caller (player, settings, app windows) can turn it back on: no DevTools in a built app (app-harden).
+      // Last, so no caller (player, settings, app windows) can turn them off: sandboxed, isolated, no Node in any frame,
+      // no <webview>, and no DevTools in a built app (app-harden). The player relies on these for the video's frames (R33).
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      nodeIntegrationInWorker: false,
+      webviewTag: false,
       devTools: !app.isPackaged
     }
   })
@@ -462,6 +496,15 @@ app.whenReady().then(async () => {
       console.error('[tut] could not serve the renderer over http, falling back to file:// (YouTube may refuse embeds)', err)
     }
   }
+  // R33: the YouTube player's host page, on its own loopback origin, before any window (main/serve.ts's CSP frames it).
+  const appOrigin = process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : rendererOrigin
+  if (appOrigin) {
+    try {
+      await servePlayerHost(playerHostScript, appOrigin)
+    } catch (err) {
+      console.error('[tut] could not serve the player host page; the video will not load', err)
+    }
+  }
   // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
   // window exists: every renderer gets pillTop in its launch arguments.
   basePillTop = platform.pillTop
@@ -530,7 +573,9 @@ app.whenReady().then(async () => {
     // its invisible full-screen window would keep the keyboard and every click: hide it.
     if (win === launcher && launcherOpen) hideLauncher()
     if (win === overlay) overlay.setIgnoreMouseEvents(true, { forward: true })
-    e.sender.send('ui:layout', layoutFor(win))
+    const l = layoutFor(win)
+    if (win === overlay) logIsland('ready', l)
+    e.sender.send('ui:layout', l)
     e.sender.send('engine:status', engine.connected)
     for (const ev of engine.log) e.sender.send('engine:event', ev)
   })
@@ -713,8 +758,36 @@ function setupMenu(): void {
 }
 
 app.on('before-quit', () => boundsOut.flush())
-app.on('will-quit', () => {
+/**
+ * R44: the engine goes with the app. Its windows are already closed here; when the engine this app started is still
+ * running, the quit waits (bounded) while localEngine SIGTERMs its group and, if it's hung, SIGKILLs it, then exits.
+ * The other will-quit listeners (features) have run by then: app.exit skips the events, so none of them runs twice.
+ */
+let engineStopping = false
+app.on('will-quit', (event) => {
   globalShortcut.unregisterAll()
-  stopLocalEngine()
+  if (engineStopping) return event.preventDefault()
+  let pending: Promise<void> | void = undefined
+  try {
+    pending = stopLocalEngine()
+  } catch (err) {
+    console.error('[tut] stopping the engine threw', err)
+  }
+  if (!pending) return
+  engineStopping = true
+  event.preventDefault()
+  let done = false
+  const exit = (): void => {
+    if (done) return
+    done = true
+    app.exit(0)
+  }
+  const deadline = setTimeout(exit, QUIT_ENGINE_DEADLINE_MS)
+  pending
+    .catch((err: unknown) => console.error('[tut] stopping the engine failed', err))
+    .finally(() => {
+      clearTimeout(deadline)
+      exit()
+    })
 })
 app.on('window-all-closed', () => app.quit())

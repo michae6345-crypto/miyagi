@@ -21,5 +21,18 @@ export const LOGIN_ENABLED = true
  * miyagi gets it as an ask. Speech turns into text on this Mac (the miyagi-listen helper, main/features/ptt.ts); miyagi
  * never talks back, so it is separate from VOICE_ENABLED (text to speech), which stays false. Off = no helper is
  * started, no settings row, no island state. The learner can also switch it off in Settings > General (prefs.ptt).
+ *
+ * Off for launch (Adrian, Nov 21): it asks for Microphone and Input Monitoring, listens to the chord across the whole
+ * session, and sends the words to Anthropic, and nothing tells the learner yet (the consent screen, policy and site
+ * never mention it; #188 says miyagi never uses the microphone). Launch register R05/R06. Turn it back on once it's
+ * disclosed there.
  */
-export const PTT_ENABLED = true
+export const PTT_ENABLED = false
+
+/**
+ * GEMINI_ENABLED (Adrian, Nov 21, decision D1): Claude only at launch, no Gemini. While false the app names only
+ * Anthropic (Claude): the consent screen, Settings > Privacy (the Lesson videos row) and Your own key, where the Gemini
+ * key field is hidden. The Gemini code stays in place (config.keys still carries every name, so the engine's
+ * set_app_keys keeps working): flip this to true to bring the field and the Google lines back.
+ */
+export const GEMINI_ENABLED = false
