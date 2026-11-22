@@ -23,9 +23,13 @@ install token at `<host>/v1/register`. A bare host would 404 on every call.
 
 The install token lives here in memory only. It is never written to os.environ (no ANTHROPIC_API_KEY,
 GEMINI_API_KEY, MIYAGI_CLOUD_TOKEN or ANTHROPIC_BASE_URL export). Keys from .env or the shell the engine was
-started from DO sit in os.environ, so every subprocess the engine starts (the editor CLI and with it VS Code and
-its terminals, pip, the learner's code, a kernel, screencapture) gets `env=safe_env(...)`, which drops them
-(SECRET_ENV_RE); server/tests/test_safe_env.py fails on any launch that passes no env. A non-cloud key (Settings
+started from DO sit in os.environ. `safe_env(...)` drops them (SECRET_ENV_RE), and every subprocess launch outside
+the PENDING files in server/tests/test_safe_env.py passes `env=safe_env(...)`: the editor CLI (and with it VS Code
+and its terminals), the where-row and live-fresh helpers, screencapture. test_safe_env.py fails on any new launch
+that passes no env. Four PENDING files still hand children the engine's os.environ, keys included, until their
+lanes fix them: orchestrator/session.py ("run it for me" builds env = dict(os.environ) for the learner's code),
+workspace/setup.py (pip, brew and python -m venv get a copy of os.environ), orchestrator/workspace.py (the
+background editor Popen passes no env) and workspace/core.py (git runs with {**os.environ, ...}). A non-cloud key (Settings
 or .env) always goes to https://api.anthropic.com: ANTHROPIC_BASE_URL is ignored by every engine client.
 
 Where the cloud may be (claude/eng-keys-ssrf): config.keys.miyagiCloud and MIYAGI_CLOUD_URL are used only when

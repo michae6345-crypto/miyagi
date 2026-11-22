@@ -126,22 +126,26 @@ def test_where_row_raise_gets_no_keys(secret_env, monkeypatch):
 # launch with no env=, a launch whose env= is os.environ (or a name assigned from it in the same function), or a
 # child environment copied from os.environ (dict(os.environ), {**os.environ}, os.environ.copy()). Any finding in
 # another file, or one more in these, fails. When a lane merges its fix, lower the count or delete the entry.
-# The counts hold on origin/integration/live and on origin/claude/eng-harden.
+# The counts hold on origin/integration/live (claude/eng-harden merged there in e2ca8771 and fixed none of these).
+# An owner must be a lane that is still open or a named follow-up ticket, never a merged branch (it would never
+# shrink the entry).
 # Limits of this scan: an entry caps a COUNT per file, so a fix in one place plus a new leak in another of the same
 # file goes unnoticed until the count is lowered; a call that passes `**kw` is trusted to carry env= (the caller is
 # not followed); and only names assigned in the same function are traced back to os.environ. env=None is a finding:
 # it inherits os.environ exactly like leaving env= out.
+SAFE_ENV_GIT = "follow-up SAFE-ENV-GIT"  # the named ticket for workspace/core.py (see its PENDING entry)
 PENDING: dict[str, tuple[int, str]] = {
-    # claude/eng-harden (with the engine-agency lane) owns session.py: "run it for me" builds env = dict(os.environ)
-    # for the learner's command, and the `pbcopy` clipboard helper passes no env.
-    "orchestrator/session.py": (3, "claude/eng-harden"),
+    # the engine-agency lane owns session.py: "run it for me" builds env = dict(os.environ) for the learner's
+    # command, and the `pbcopy` clipboard helper passes no env.
+    "orchestrator/session.py": (3, "engine-agency lane"),
     # the engine-agency lane owns orchestrator/workspace.py: the background `code` / `open` launch (Popen), no env.
     "orchestrator/workspace.py": (1, "engine-agency lane"),
     # the engine-agency lane owns workspace/setup.py: the tool probe runner and `xcode-select -p` pass no env, and
     # install() / ensure_venv() copy os.environ for pip, brew and `python -m venv`.
     "workspace/setup.py": (4, "engine-agency lane"),
-    # claude/eng-harden owns workspace/core.py: the `git` helper runs with {**os.environ, GIT_AUTHOR_...}.
-    "workspace/core.py": (2, "claude/eng-harden"),
+    # workspace/core.py had no owner left once eng-harden merged: follow-up ticket SAFE-ENV-GIT gives the `git`
+    # helper (it runs with {**os.environ, GIT_AUTHOR_...}) env=safe_env({...}) and deletes this entry.
+    "workspace/core.py": (2, SAFE_ENV_GIT),
 }
 # config.py builds safe_env() itself from os.environ.
 _ENV_COPY_OK = {"config.py"}
@@ -313,7 +317,7 @@ def test_owned_files_are_clean():
 
 
 def test_pending_names_only_other_lanes_files():
-    lanes = {"claude/eng-harden", "engine-agency lane"}
+    lanes = {"engine-agency lane", SAFE_ENV_GIT}  # live owners only: claude/eng-harden has merged
     assert set(PENDING) <= {"orchestrator/session.py", "orchestrator/workspace.py", "workspace/setup.py",
                             "orchestrator/missing_module.py", "workspace/core.py"}
     for rel, (_n, owner) in PENDING.items():
@@ -344,3 +348,8 @@ def test_config_docstring_matches_safe_env():
     """The module docstring used to say safe_env "strips the rest" while nothing called it; it now says who does."""
     doc = config.__doc__ or ""
     assert "env=safe_env(...)" in doc and "SECRET_ENV_RE" in doc and "test_safe_env.py" in doc
+    # and it does not claim more than holds: every file still inheriting os.environ is named
+    flat = " ".join(doc.split())
+    assert "PENDING" in flat and "every subprocess the engine starts" not in flat
+    for rel in PENDING:
+        assert rel in flat, f"config.py's docstring should name {rel}, which still inherits os.environ"

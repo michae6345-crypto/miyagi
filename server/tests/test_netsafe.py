@@ -7,6 +7,8 @@ from __future__ import annotations
 import asyncio
 import gzip
 import socket
+import time
+import zlib
 from pathlib import Path
 
 import httpx
@@ -429,3 +431,247 @@ def test_finder_builds_its_client_with_netsafe(monkeypatch):
     assert made[0]["headers"]["Cookie"] == "CONSENT=YES+1"
     src = Path(core.__file__).read_text()
     assert "follow_redirects=True" not in src
+
+
+# --------------------------------------------------------------------------- the whole-fetch deadline
+
+
+class _Drip(httpx.AsyncByteStream):
+    """A server that sends one byte every 50 ms forever: each read is quick, the body never ends."""
+
+    async def __aiter__(self):
+        while True:
+            await asyncio.sleep(0.05)
+            yield b"x"
+
+
+class _SyncDrip(httpx.SyncByteStream):
+    def __iter__(self):
+        while True:
+            time.sleep(0.05)
+            yield b"x"
+
+
+def test_a_dripping_server_hits_the_deadline():
+    """httpx's timeouts are per read; a 1-byte drip never trips them. The deadline cuts the whole fetch."""
+    net = FakeNet(lambda req: httpx.Response(200, stream=_Drip()))
+    t0 = time.monotonic()
+    with pytest.raises(httpx.TimeoutException) as e:
+        fetch("https://example.com/slow", net, timeout=1.0, deadline=0.4, max_bytes=10_000_000)
+    assert time.monotonic() - t0 < 2 and "within 0.4 s" in str(e.value)
+
+
+def test_the_default_deadline_is_a_few_timeouts():
+    net = FakeNet(lambda req: httpx.Response(200, stream=_Drip()))
+    t0 = time.monotonic()
+    with pytest.raises(httpx.TimeoutException):
+        fetch("https://example.com/slow", net, timeout=0.2, max_bytes=10_000_000)
+    assert time.monotonic() - t0 < 0.2 * netsafe.DEADLINE_FACTOR + 1.0
+    assert netsafe._deadline_for(5.0, None) == 5.0 * netsafe.DEADLINE_FACTOR
+    assert netsafe._deadline_for(httpx.Timeout(10.0, connect=3.0), None) == 10.0 * netsafe.DEADLINE_FACTOR
+
+
+def test_lesson_link_check_does_not_hang_on_a_dripping_server(monkeypatch):
+    """links.py's GET fallback (HEAD refused) on a drip server ends at the deadline and counts as bad."""
+    from server.lesson import links
+
+    def handler(req):
+        if req.method == "HEAD":
+            return httpx.Response(405)
+        return httpx.Response(200, stream=_Drip())
+
+    monkeypatch.setattr(netsafe, "TRANSPORT", FakeNet(handler))
+    monkeypatch.setattr(links, "CHECK_TIMEOUT_S", 0.2)
+    t0 = time.monotonic()
+    bad = asyncio.run(links.find_bad_urls([{"id": "s", "instructions": "https://example.com/drip"}], ""))
+    assert bad == {"https://example.com/drip"} and time.monotonic() - t0 < 3
+
+
+# --------------------------------------------------------------------------- decoding: identity, bounded inflate
+
+
+def test_requests_ask_for_identity_encoding():
+    seen: list[str] = []
+
+    def handler(req):
+        seen.append(req.headers.get("accept-encoding"))
+        return httpx.Response(200, text="ok")
+
+    fetch("https://example.com/", FakeNet(handler))
+    assert seen == ["identity"]
+
+
+class _Chunks(httpx.AsyncByteStream, httpx.SyncByteStream):
+    """A body still on the wire (not read into memory the way httpx.Response(content=...) is)."""
+
+    def __init__(self, *chunks: bytes):
+        self.chunks = chunks
+
+    def __iter__(self):
+        yield from self.chunks
+
+    async def __aiter__(self):
+        for c in self.chunks:
+            yield c
+
+
+def test_a_deflate_bomb_never_inflates_past_the_cap():
+    """One small raw chunk that inflates to 10 MB: at most cap + 1 bytes are ever produced."""
+    req = httpx.Request("GET", "https://example.com/bomb")
+    for enc, data in (("deflate", zlib.compress(b"\0" * 10_000_000, 9)), ("gzip", gzip.compress(b"\0" * 10_000_000))):
+        assert len(data) < 100_000
+        resp = httpx.Response(200, headers={"Content-Encoding": enc}, stream=_Chunks(), request=req)
+        body = netsafe._Body(resp, 1000, truncate=True)
+        assert body.feed(data) is True and len(body.bytes()) == 1000
+        body = netsafe._Body(resp, 1000, truncate=False)
+        with pytest.raises(netsafe.BodyTooLarge):
+            body.feed(data)
+        assert len(body.out) <= 1001
+    raw = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+    payload = raw.compress(b"hello") + raw.flush()
+    ok = netsafe._Body(httpx.Response(200, headers={"Content-Encoding": "deflate"}, stream=_Chunks(), request=req),
+                       100, False)
+    ok.feed(payload)
+    assert ok.bytes() == b"hello"
+
+
+def test_a_streamed_gzip_body_is_inflated_here_and_capped():
+    """Over the wire (raw chunks): a gzip page decodes, a gzip bomb stops at the cap, through get and get_sync."""
+    page = gzip.compress(b"hello world")
+    bomb = gzip.compress(b"0" * 3_000_000)
+    hdr = {"Content-Encoding": "gzip"}
+    assert fetch("https://example.com/p", FakeNet(lambda r: httpx.Response(
+        200, headers=hdr, stream=_Chunks(page[:5], page[5:])))).text == "hello world"
+    with pytest.raises(netsafe.BodyTooLarge):
+        fetch("https://example.com/b", FakeNet(lambda r: httpx.Response(200, headers=hdr, stream=_Chunks(bomb))))
+    with netsafe.sync_client(transport=SyncFakeNet(lambda r: httpx.Response(200, headers=hdr, stream=_Chunks(bomb)))) \
+            as c, pytest.raises(netsafe.BodyTooLarge):
+        netsafe.get_sync("https://example.com/b", client=c)
+
+
+def test_an_unsupported_encoding_is_refused():
+    net = FakeNet(lambda req: httpx.Response(200, stream=_Chunks(b"\x1b\x00"), headers={"Content-Encoding": "br"}))
+    with pytest.raises(httpx.DecodingError):
+        fetch("https://example.com/br", net)
+
+
+# --------------------------------------------------------------------------- the sync variant (workspace/resources)
+
+
+class SyncFakeNet(httpx.BaseTransport):
+    """FakeNet for a blocking client."""
+
+    def __init__(self, handler):
+        self.mock = httpx.MockTransport(handler)
+        self.seen: list[str] = []
+
+    def handle_request(self, request):
+        self.seen.append(str(request.url))
+        resp = self.mock.handle_request(request)
+        host = request.url.host
+        ip = PEER.get(host) or (DNS.get(host) or [host])[0]
+        resp.extensions["network_stream"] = _Stream((ip, request.url.port or 443))
+        return resp
+
+
+@pytest.mark.parametrize("target", ["http://127.0.0.1:8791/text", "http://169.254.169.254/latest/meta-data/",
+                                    "http://192.168.1.1/", "http://evil.example/", "file:///etc/passwd"])
+def test_sync_get_refuses_a_private_redirect(target):
+    net = SyncFakeNet(redirecting({"example.com/go": httpx.Response(302, headers={"Location": target})}))
+    with netsafe.sync_client(transport=net) as c, pytest.raises(netsafe.BlockedURL):
+        netsafe.get_sync("https://example.com/go", client=c)
+    assert net.seen == ["https://example.com/go"]
+
+
+def test_sync_get_checks_rebinding_hops_and_the_cap():
+    with netsafe.sync_client(transport=SyncFakeNet(redirecting({}))) as c:
+        with pytest.raises(netsafe.BlockedURL):
+            netsafe.get_sync("https://rebind.example/", client=c)
+        assert netsafe.get_sync("https://example.com/ok", client=c).text == "page https://example.com/ok"
+    routes = {f"example.com/r{i}": httpx.Response(302, headers={"Location": f"/r{i + 1}"}) for i in range(5)}
+    net = SyncFakeNet(redirecting(routes))
+    with netsafe.sync_client(transport=net) as c, pytest.raises(netsafe.BlockedURL):
+        netsafe.get_sync("https://example.com/r0", client=c)
+    assert len(net.seen) == 4
+    big = SyncFakeNet(lambda req: httpx.Response(200, content=b"x" * 5000))
+    with netsafe.sync_client(transport=big) as c, pytest.raises(netsafe.BodyTooLarge):
+        netsafe.get_sync("https://example.com/big", client=c, max_bytes=1000)
+
+
+def test_sync_get_hits_the_deadline():
+    net = SyncFakeNet(lambda req: httpx.Response(200, stream=_SyncDrip()))
+    t0 = time.monotonic()
+    with netsafe.sync_client(transport=net) as c, pytest.raises(httpx.TimeoutException):
+        netsafe.get_sync("https://example.com/slow", client=c, timeout=1.0, deadline=0.4, max_bytes=10_000_000)
+    assert time.monotonic() - t0 < 2
+
+
+def test_the_sync_guarded_client_checks_every_hop_httpx_follows():
+    net = SyncFakeNet(redirecting({"example.com/go": httpx.Response(302, headers={"Location": "http://10.0.0.5/"})}))
+    with netsafe.sync_client(transport=net, redirects=True) as c, pytest.raises(netsafe.BlockedURL):
+        c.get("https://example.com/go")
+    assert net.seen == ["https://example.com/go"]
+
+
+RES_GRAPH = {"lesson": {"id": "lesson-abcdefghijk", "title": "t"}, "steps": [],
+             "sources": [{"id": "s", "kind": "video", "url": "https://www.youtube.com/watch?v=abcdefghijk",
+                          "videoId": "abcdefghijk"}]}
+
+
+@pytest.fixture
+def lessons_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("MIYAGI_LESSONS_DIR", str(tmp_path / "lessons"))
+    return tmp_path
+
+
+def test_resources_csv_link_that_redirects_to_loopback_fetches_nothing(lessons_dir):
+    """A description's https://evil.example/data.csv that 302s to 127.0.0.1: the loopback hop is never requested and
+    nothing is saved (a caller's own client, even one built with follow_redirects=True, is hand-followed)."""
+    from server.workspace import resources
+
+    hits: list[str] = []
+
+    def handler(req):
+        hits.append(str(req.url))
+        if req.url.host == "evil.example":
+            return httpx.Response(302, headers={"Location": "http://127.0.0.1:8791/text"})
+        return httpx.Response(200, text="secret code", headers={"content-type": "text/csv"})
+
+    c = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    out = resources.download_resources(RES_GRAPH, folder=lessons_dir / "l", client=c,
+                                       description="https://evil.example/data.csv")
+    assert hits == ["https://evil.example/data.csv"]
+    assert out[0]["path"] is None and out[0]["error"]
+    assert not (lessons_dir / "l" / "tutorial" / "data.csv").exists()
+
+
+def test_resources_default_client_is_guarded(lessons_dir, monkeypatch, fake_dns):
+    """No client passed (the session's Download press): names are resolved and checked, a literal private IP and a
+    metadata redirect are refused before any request to them, and a public file still downloads."""
+    from server.workspace import resources
+
+    def handler(req):
+        if req.url.path == "/meta.csv":
+            return httpx.Response(302, headers={"Location": "http://169.254.169.254/latest/meta-data/"})
+        return httpx.Response(200, text="a,b\n1,2\n", headers={"content-type": "text/csv"})
+
+    net = SyncFakeNet(handler)
+    monkeypatch.setattr(netsafe, "SYNC_TRANSPORT", net)
+    desc = ("https://10.0.0.5/x.zip https://evil.example/loop.csv https://example.com/meta.csv "
+            "https://example.com/ok.csv")
+    out = {r["name"]: r for r in resources.download_resources(RES_GRAPH, folder=lessons_dir / "l", description=desc)}
+    assert all(out[n]["path"] is None for n in ("x.zip", "loop.csv", "meta.csv")), out
+    assert out["ok.csv"]["path"] and (lessons_dir / "l" / "tutorial" / "ok.csv").read_text() == "a,b\n1,2\n"
+    assert net.seen == ["https://example.com/meta.csv", "https://example.com/ok.csv"]
+    assert "evil.example" in fake_dns
+
+
+def test_resources_watch_page_goes_through_netsafe(lessons_dir, monkeypatch):
+    from server.workspace import resources
+
+    net = SyncFakeNet(lambda req: httpx.Response(302, headers={"Location": "http://127.0.0.1:8787/v1/state"}))
+    monkeypatch.setattr(netsafe, "SYNC_TRANSPORT", net)
+    assert resources.fetch_description("abcdefghijk") == ""
+    assert net.seen == ["https://www.youtube.com/watch?v=abcdefghijk"]
+    src = Path(resources.__file__).read_text()
+    assert "follow_redirects=True" not in src and "httpx.Client(" not in src
