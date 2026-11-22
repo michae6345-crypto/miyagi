@@ -140,6 +140,7 @@ faiss-cpu
 pinecone-client
 cohere
 ollama
+pyautogen  # Microsoft AutoGen (two edits from pyautogui: listed so it is never taken for a typosquat)
 
 # web, apis, scraping
 requests

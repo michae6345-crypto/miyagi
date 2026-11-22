@@ -90,4 +90,4 @@ def test_checks_are_graded_off_the_event_loop_with_the_lessons_regex_budget(tmp_
     run(go())
     assert seen
     on_loop, budget, live = seen[-1]
-    assert not on_loop and budget is not None and budget.key[1] == id(rig.s) and not live
+    assert not on_loop and budget is not None and budget.key == rig.s._regex_key() and not live

@@ -35,7 +35,9 @@ Refused shapes (on the sre parse tree):
 
 The text a pattern scans is capped by its callers (server.checks.evaluator: the screen's last 4 KB, a file in 64 KB
 windows up to 1 MB with long lines split into 2 KB pieces), which bounds what one merely quadratic search can cost.
-The evaluation runs off the event loop with a per-lesson budget of worker timeouts (regex_worker.budget).
+The evaluation (evaluate_gate, and the session's grading of VS Code checks on their files and buffers) runs off the
+event loop with a per-lesson budget of worker timeouts (regex_worker.budget); the sinks still on the loop use the
+running lesson's budget too (regex_worker.set_fallback).
 """
 from __future__ import annotations
 

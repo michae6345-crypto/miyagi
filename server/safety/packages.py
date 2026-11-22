@@ -4,13 +4,14 @@ A lesson graph, the setup check (Claude's tool list), a scaffold's requirements.
 names the packages. Each name gets one verdict:
 
   allow    on the curated list (pip_packages.txt, a few hundred common tutorial packages): Install / Install all
-  refuse   not on the list but one typo (Damerau-Levenshtein distance 1, or the same letters with separators moved)
-           from a listed name: a likely typosquat ("reqeusts", "numpyy", "scikitlearn"); never installed by the
-           engine, the learner is told which name it resembles
+  refuse   not on the list but within Damerau-Levenshtein distance 1-2 of a listed name, or the same letters with
+           separators moved: a likely typosquat ("reqeusts", "numpyy", "reqeust", "scikitlearn"); never installed by
+           the engine, the learner is told which name it resembles
   confirm  any other valid name: installed only after its own confirm that shows the exact name and its pypi.org
-           page, and never by Install all. A near miss that real projects use (two edits away, "pyautogen" next to
-           pyautogui, or only a trailing version digit apart, "boto" next to boto3) is a confirm too, whose reason
-           says which listed name it resembles (Verdict.near)
+           page, and never by Install all. A near miss of the shapes real projects use (only a trailing version digit
+           apart, "boto" next to boto3; two characters added at one end, "requests-x" next to requests) is a confirm
+           too, whose reason says which listed name it resembles (Verdict.near). Known real near-names (pyautogen
+           next to pyautogui) are on the list.
   invalid  not a PyPI project name at all (a URL, a path, a flag, a VCS spec, a local archive such as x.tar.gz or
            x.whl that pip would build from the folder): refused
 
@@ -107,18 +108,26 @@ def _digit_suffix_only(a: str, b: str) -> bool:
     return long_.startswith(short) and long_[len(short):].isdigit()
 
 
+def _extends(a: str, b: str) -> bool:
+    """requests / requests-x, openai / pyopenai: one name is the other with characters added at one end only."""
+    short, long_ = sorted((a, b), key=len)
+    return long_ != short and (long_.startswith(short) or long_.endswith(short))
+
+
 def near_miss(name: str) -> tuple[str, bool] | None:
-    """(the listed name `name` resembles, refused?) or None. refused: one typo away ("reqeusts", "numpyy") or the same
-    letters with separators moved ("scikitlearn"). Not refused (a confirm that names the look-alike): two edits away
-    ("pyautogen" / pyautogui) or only a trailing version digit apart ("boto" / boto3)."""
+    """(the listed name `name` resembles, refused?) or None. refused: one typo away ("reqeusts", "numpyy"), two typos
+    inside the name ("reqeust"), or the same letters with separators moved ("scikitlearn"). Not refused (a confirm
+    that names the look-alike): only a trailing version digit apart ("boto" / boto3), or two characters added at
+    one end ("requests-x" / requests)."""
     near = typosquat_of(name)
     if near is None:
         return None
     n = normalize(name)
-    d = damerau_levenshtein(n, near)
-    if d == 1 and not _digit_suffix_only(n, near) or n.replace("-", "") == near.replace("-", ""):
+    if n.replace("-", "") == near.replace("-", ""):
         return near, True
-    return near, False
+    if damerau_levenshtein(n, near) == 1:
+        return near, not _digit_suffix_only(n, near)
+    return near, not _extends(n, near)
 
 
 def typosquat_of(name: str) -> str | None:

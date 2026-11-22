@@ -12,7 +12,8 @@ for good. An answer already waiting when the engine itself was the one stalled i
 Per lesson (budget(key) around a lesson's evaluation, server.orchestrator.session): after LESSON_TIMEOUTS timeouts
 in one lesson within LESSON_WINDOW_S, every other pattern of that lesson that would need the worker counts as "no
 match" without running, so a cached or shared graph full of distinct slow patterns costs a few deadlines per window,
-never one per pattern.
+never one per pattern. A search outside any budget() (one on the event loop) uses the running lesson's Budget
+(set_fallback), so those sinks are bounded the same way.
 
   GuardedPattern   what server.safety.patterns.safe_compile returns: .search / .match / .fullmatch / .finditer /
                    .findall / .pattern / .flags / .groups / .groupindex like re.Pattern, the matching done in the
@@ -29,6 +30,7 @@ import atexit
 import contextlib
 import contextvars
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -37,6 +39,7 @@ import select
 import sys
 import threading
 import time
+import weakref
 from collections import OrderedDict
 from subprocess import DEVNULL, PIPE
 from subprocess import Popen as _Popen  # bound at import: a test's mock of subprocess.Popen never replaces the worker
@@ -167,6 +170,35 @@ def lesson_budget(key: Any) -> Budget:
         else:
             _BUDGETS.move_to_end(key)
         return b
+
+
+_FALLBACK: Any = None  # a weakref.WeakMethod (or a plain callable) -> the key of the lesson now running, or None
+
+
+def set_fallback(key_of: Any) -> None:
+    """The Budget a guarded search uses when no budget() is active: `key_of()` (a bound method is held weakly) names
+    the lesson running now (LessonSession._regex_key), so a lesson pattern searched on the event loop (a metric read
+    off a run, code_gate, the notebook coach, the lesson-end summary, a target's match) counts against, and is stopped
+    by, that lesson's Budget too. None: no fallback."""
+    global _FALLBACK
+    if key_of is None or not inspect.ismethod(key_of):
+        _FALLBACK = key_of
+    else:
+        _FALLBACK = weakref.WeakMethod(key_of)
+
+
+def _active() -> Budget | None:
+    """The budget() in effect, else the fallback lesson's Budget, else None."""
+    b = _CURRENT.get()
+    if b is not None or (f := _FALLBACK) is None:
+        return b
+    if isinstance(f, weakref.WeakMethod) and (f := f()) is None:
+        return None
+    try:
+        key = f()
+    except Exception:  # noqa: BLE001 - a session being torn down: no budget, never a failed search
+        return None
+    return lesson_budget(key) if key is not None else None
 
 
 @contextlib.contextmanager
@@ -312,7 +344,7 @@ def _run(gp: GuardedPattern, op: str, text: str, pos: int, endpos: int) -> Any:
                 return _CACHE[key]
     if is_bad(gp.pattern, gp.flags):
         return [] if op == "finditer" else None
-    b = _CURRENT.get()
+    b = _active()
     if b is not None and b.exhausted:
         if not b.told:
             b.told = True

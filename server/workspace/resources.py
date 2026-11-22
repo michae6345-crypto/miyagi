@@ -216,12 +216,32 @@ def _write(dest: Path, data: bytes) -> None:
     dest.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)  # never executable
 
 
+# A downloaded tutorial repo's example / tool-config dotfiles that nothing reads by itself (no editor, CI, shell or
+# package manager runs them, and the repo has no .git for a pre-commit hook): unpacked like any other file
+DOWNLOAD_DOTFILES = frozenset({".env.example", ".env.sample", ".env.template", ".gitattributes", ".dockerignore",
+                               ".flake8", ".pre-commit-config.yaml"})
+DOWNLOAD_DOTDIR_FILES = frozenset({(".streamlit", "config.toml")})  # streamlit's theme; read from the run's own folder
+
+
+def _download_rel(rel: PurePosixPath) -> str | None:
+    """`rel` when a downloaded repo's file may be unpacked there, else None: scaffold._safe_rel's rules, except the
+    harmless example dotfiles above (.env.example, .streamlit/config.toml ...) which a tutorial repo ships."""
+    from .scaffold import _safe_rel
+
+    parts = list(rel.parts)
+    if parts and parts[-1].casefold() in DOWNLOAD_DOTFILES:
+        parts[-1] = "example" + parts[-1]  # checked as a plain file: every other rule still applies to its folders
+    if len(parts) >= 2 and (parts[-2].casefold(), parts[-1].casefold()) in DOWNLOAD_DOTDIR_FILES:
+        parts[-2] = "dot" + parts[-2]
+    return rel.as_posix() if _safe_rel(PurePosixPath(*parts).as_posix()) is not None else None
+
+
 def _extract_zip(data: bytes, dest: Path) -> int:
     """Extract a GitHub zip into dest (drops the `<repo>-<ref>/` top folder). Returns the number of files.
     LLM06: the same rules as a scaffold's starter files (scaffold._safe_rel): no editor / CI / shell configuration
     (.vscode/, .github/, .envrc, .devcontainer/), no .git, .venv or node_modules, no dotfile but .gitignore,
-    .editorconfig, .nvmrc and .python-version (.npmrc, .env ...), and no top-level pip.py / pytest.py."""
-    from .scaffold import _safe_rel
+    .editorconfig, .nvmrc and .python-version (.npmrc, .env ...) and the example files nothing runs (DOWNLOAD_DOTFILES:
+    .env.example, .streamlit/config.toml ...), and no top-level pip.py / pytest.py."""
 
     root = dest.resolve()
     n = total = 0
@@ -235,7 +255,7 @@ def _extract_zip(data: bytes, dest: Path) -> int:
             rel = PurePosixPath(*parts[1:]) if len(parts) > 1 else PurePosixPath(parts[0])
             if not rel.parts or ".." in rel.parts or rel.is_absolute() or ".git" in rel.parts:
                 continue
-            if _safe_rel(rel.as_posix()) is None:  # .vscode/tasks.json, .github/workflows, .envrc, .npmrc ...
+            if _download_rel(rel) is None:  # .vscode/tasks.json, .github/workflows, .envrc, .npmrc ...
                 continue
             target = (root / rel).resolve()
             if root not in target.parents:

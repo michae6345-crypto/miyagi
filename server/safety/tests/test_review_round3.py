@@ -312,7 +312,7 @@ def test_scan_windows_overlap_and_each_fit_one_search():
 
 # ------------------------------------------------------------------ 8. typosquat near misses
 
-@pytest.mark.parametrize("name,near", [("boto", "boto3"), ("pyautogen", "pyautogui")])
+@pytest.mark.parametrize("name,near", [("boto", "boto3"), ("requests-x", "requests"), ("pyopenai", "openai")])
 def test_real_projects_near_a_listed_name_get_a_confirm_that_names_it(name, near):
     v = packages.verdict(name)
     assert v.kind == packages.CONFIRM and v.near == near and near in v.reason

@@ -40,3 +40,13 @@ def _no_live_web(monkeypatch):
     """The coach grounds fixes in DuckDuckGo + the docs pages (server/coach/web.py). Tests never reach them: a test
     that needs the web fakes web.fetch, one that replays recordings sets COACH_REPLAY_DIR."""
     monkeypatch.setenv("COACH_WEB", "0")
+
+
+@pytest.fixture(autouse=True)
+def _no_lesson_regex_budget():
+    """A LessonSession makes its lesson the regex worker's fallback budget (regex_worker.set_fallback): a later
+    test's searches outside any budget() never count against (or are stopped by) an earlier test's session."""
+    yield
+    from server.safety import regex_worker
+
+    regex_worker.set_fallback(None)
