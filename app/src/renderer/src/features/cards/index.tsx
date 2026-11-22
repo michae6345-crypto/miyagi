@@ -291,16 +291,18 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
         <Evidence o={o} failing={failing} width={rightW} reserveDiff={o.level === 2} />
       </div>
 
-      {options.length > 0 && (
-        <div data-options className="mt-[14px] flex flex-wrap items-center gap-[8px]">
+      {/* Overlay round: the options and the one white "Do it for me" share one row, the primary on the right edge
+          (it used to drop to a line of its own under the options). */}
+      {(options.length > 0 || canFix) && (
+        <div data-options className="mt-[16px] flex flex-wrap items-center gap-[8px]">
           {options.map((x) => (
             <OptionButton key={x.action} action={x.action} label={x.label} kbd={keys[x.action]} icon={busy(x.action)} onClick={() => act(x.action)} />
           ))}
-        </div>
-      )}
-      {canFix && (
-        <div data-fix className={`${options.length > 0 ? 'mt-[8px]' : 'mt-[14px]'} flex`}>
-          <PrimaryButton label={ACTION.apply_fix!.label} icon={busy('apply_fix', ACTION.apply_fix!.Icon)} onClick={() => act('apply_fix')} />
+          {canFix && (
+            <div data-fix className="ml-auto flex">
+              <PrimaryButton label={ACTION.apply_fix!.label} icon={busy('apply_fix', ACTION.apply_fix!.Icon)} onClick={() => act('apply_fix')} />
+            </div>
+          )}
         </div>
       )}
     </div>
