@@ -9,6 +9,7 @@ import CoreGraphics
 //   miyagi-listen --transcribe-file F [--terms a,b] [--locale en-US]
 //                                         transcribe an audio file with the same Transcriber and print the final JSON
 //   miyagi-listen --screens               print the displays' geometry (notch, safe area) as one JSON line and exit 0
+//   miyagi-listen --windows --pid N | --owner NAME   print matching windows (layer, bounds, on-screen, z) as one JSON line and exit 0
 
 setvbuf(stdout, nil, _IOLBF, 0)
 signal(SIGPIPE, SIG_IGN)
@@ -24,6 +25,9 @@ Transcriber.forceModule = argValue("--module")
 
 // MARK: --screens (NSScreen geometry only: no permissions, no tap, no mic)
 if args.contains("--screens") { Screens.run() }
+
+// MARK: --windows (CGWindowList entries for given pids / owners: layer, bounds, on-screen; read-only, no permissions)
+if args.contains("--windows") { Windows.run(args) }
 
 // MARK: --probe-input (fresh read of the Input Monitoring grant: preflight only, never prompts)
 if args.contains("--probe-input") { print(CGPreflightListenEventAccess() ? "granted" : "denied"); exit(0) }

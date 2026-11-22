@@ -7,6 +7,7 @@ import { bridge, isElectron } from './bridge'
 import { dispatch } from './core/bus'
 import { setConnected } from './core/lesson'
 import { setNotchInfo } from './core/notchInfo'
+import './core/islandDiagReport' // log-only island measurements for main's island.log (overlay route only)
 import './core/prefs' // applies the appearance before the first paint
 import { getFeatureWindows } from './core/registry' // importing it loads features/* (their stores subscribe on import)
 import { Overlay, useClickThrough } from './core/Overlay'

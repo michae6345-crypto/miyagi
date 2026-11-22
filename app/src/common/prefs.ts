@@ -12,7 +12,7 @@ export type ShortcutPrefs = Partial<Record<ShortcutKind, string>>
 /** Push to talk (Settings > General): the hold-to-ask chord. fn+control is the default; control+option is for keyboards without Fn. */
 export type PttChord = 'fn+control' | 'control+option'
 export type PttPrefs = { enabled: boolean; chord: PttChord }
-/** Where the island lives (Settings > General). Notch is the default; it only takes effect on a Mac without Boring Notch running (common/notch.ts effectivePlace). */
+/** Where the island lives (Settings > General). Notch is the default; it takes effect on a Mac, on a display that has a notch (common/notch.ts effectivePlace). */
 export type IslandPrefs = { place: IslandPlace }
 export const ISLAND_PLACES: readonly IslandPlace[] = ['notch', 'below']
 

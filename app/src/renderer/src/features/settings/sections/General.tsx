@@ -35,11 +35,10 @@ const PLACES: { value: IslandPlace; label: string }[] = [
   { value: 'below', label: 'Below the menu bar' }
 ]
 
-/** Where the island lives. macOS only; while Boring Notch is running it has the notch, so the pill sits below the bar. */
+/** Where the island lives. macOS only. A Mac whose display has no notch cannot put it there, so the choice shows as unavailable. */
 function IslandRow(): ReactNode {
   const place = usePrefs((s) => s.island?.place ?? 'notch')
-  const boring = useNotchInfo((s) => !!s.notch?.boringNotch)
-  const effective = useNotchInfo((s) => s.notch?.place)
+  const info = useNotchInfo((s) => s.notch)
   const mac = bridge.platform.os === 'mac'
   // A short "Saved." after a choice (the row saves as you click; this just says so).
   const [saved, setSaved] = useState(false)
@@ -48,34 +47,18 @@ function IslandRow(): ReactNode {
     const t = setTimeout(() => setSaved(false), 2500)
     return () => clearTimeout(t)
   }, [saved])
-  // Ask main to look for Boring Notch now (the cached answer can be seconds old), when this opens, when the window is
-  // focused again, and every 2 s while it is believed to run, so the caption and the island follow its quitting.
-  useEffect(() => {
-    if (!mac) return
-    const look = (): void => void bridge.invoke('notch:recheck').catch(() => undefined)
-    look()
-    window.addEventListener('focus', look)
-    const t = boring ? setInterval(look, 2000) : undefined
-    return () => {
-      window.removeEventListener('focus', look)
-      if (t) clearInterval(t)
-    }
-  }, [mac, boring])
   if (!mac) return null
+  if (info && !info.hasNotch) {
+    return <Row label="Island" caption="This display has no notch, so miyagi is below the menu bar." right={<span style={{ fontSize: type2.xs, color: color.label }}>Not available</span>} />
+  }
   // What main actually did with the choice (layout.notch.place), so a click never looks like it did nothing.
-  const actual = effective ?? place
-  const where = actual === 'notch' ? 'miyagi is in the notch now.' : 'miyagi is below the menu bar now.'
-  const caption = boring
-    ? place === 'notch'
-      ? 'Boring Notch is using the notch, so miyagi sits below the menu bar. It moves into the notch when you quit it.'
-      : 'Boring Notch is using the notch. Quit it to put miyagi there.'
-    : place !== actual
-      ? 'Moving miyagi…'
-      : where
+  const actual = info?.place ?? place
+  const where = actual === 'notch' ? 'miyagi is in the notch now' : 'miyagi is below the menu bar now'
+  const caption = place !== actual ? 'Moving miyagi…' : saved ? `Saved. ${where}` : where
   return (
     <Row
       label="Island"
-      caption={saved && !boring && place === actual ? `Saved. ${where}` : caption}
+      caption={caption}
       right={
         <Segmented
           label="Island"
