@@ -168,12 +168,12 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
                 onBlur={() => setHover((h0) => (h0 === s.id ? undefined : h0))}
                 onClick={() => select(on ? undefined : { track: t.track, id: s.id })}
                 className="absolute flex cursor-pointer flex-col items-center gap-[4px] text-center outline-none"
-                style={{ left: p.x - colW / 2 + 4, top: p.y - GLYPH / 2, width: colW - 8, opacity: st === 'locked' ? 0.4 : 1 }}
+                style={{ left: p.x - colW / 2 + 4, top: p.y - GLYPH / 2, width: colW - 8, opacity: st === 'locked' ? 0.55 : 1 }}
               >
                 <NodeGlyph state={st} due={due} selected={on} />
                 <span
                   className="line-clamp-3 w-full"
-                  style={{ fontSize: type2.xs, lineHeight: '15px', overflowWrap: 'break-word', color: st === 'available' || st === 'locked' ? color.label : color.text, fontWeight: on ? 600 : 400 }}
+                  style={{ fontSize: type2.sm, lineHeight: '17px', overflowWrap: 'break-word', color: st === 'available' || st === 'locked' ? color.label : color.text, fontWeight: on ? 600 : 500 }}
                 >
                   <CodeText text={s.label} />
                 </span>
@@ -211,7 +211,7 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
   )
 }
 
-export function Constellation({ data, review, loading, children, bare }: { data?: DashData; review: ReviewEntry[]; loading: boolean; children?: ReactNode; /** no box of its own and no inner scroll: the page scrolls */ bare?: boolean }): ReactNode {
+export function Constellation({ data, review, loading, children, bare, titled = true }: { data?: DashData; review: ReviewEntry[]; loading: boolean; children?: ReactNode; /** no box of its own and no inner scroll: the page scrolls */ bare?: boolean; /** false on the Skills page, whose own title already says Skills (the legend stays) */ titled?: boolean }): ReactNode {
   const [ref, width] = useWidth<HTMLDivElement>()
   const groups = groupTracks(data)
   const tracks = data?.tracks ?? []
@@ -233,7 +233,7 @@ export function Constellation({ data, review, loading, children, bare }: { data?
       style={bare ? undefined : { minHeight: 0, padding: 20, borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}
     >
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-x-[16px] gap-y-[6px]">
-        <h2 id="dash-skills" style={{ ...h2, fontSize: bare ? type2.xs : type2.lg, color: bare ? color.label : color.text, fontWeight: bare ? 500 : 600, letterSpacing: bare ? '0.02em' : undefined }}>
+        <h2 id="dash-skills" className={titled ? undefined : 'sr-only'} style={{ ...h2, fontSize: bare ? type2.xs : type2.lg, color: bare ? color.label : color.text, fontWeight: bare ? 500 : 600, letterSpacing: bare ? '0.02em' : undefined }}>
           Skills
         </h2>
         {tracks.length > 0 && (
