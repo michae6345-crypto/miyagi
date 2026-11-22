@@ -234,18 +234,65 @@ def test_bad_access_token_deletes_nothing(make_cloud):
     assert table_counts(app_mod, th) == before
 
 
-def test_unknown_disabled_and_repeated_calls_get_401(make_cloud):
+def test_401_only_without_a_valid_access_token(make_cloud):
+    """401 needs BOTH a bad install token and no valid JWT: a repeated signed-out call, an unknown or disabled token."""
     client, app_mod, _ = make_cloud()
     h, tok = new_install(client)
-    assert delete(client, h, {"access_token": make_token()}).json()["account"] == "deleted"
-    r = delete(client, h, {"access_token": make_token()})  # the same token again: already deleted
-    assert r.status_code == 401 and r.json() == {"error": "bad_install_token"}
-    assert delete(client, h).status_code == 401
-    assert delete(client, {"Authorization": "Bearer mi_never-minted"}).status_code == 401
-    assert delete(client, {}).status_code == 401
+    assert delete(client, h).json() == {"ok": True, "install": True, "account": "none"}
+    for headers, body in ((h, {}), (h, None), ({"Authorization": "Bearer mi_never-minted"}, {}), ({}, {}),
+                          (h, {"access_token": "not-a-jwt"}), ({}, {"access_token": make_token(exp=int(time.time()) - 3600)})):
+        r = delete(client, headers, body)
+        assert r.status_code == 401 and r.json() == {"error": "bad_install_token"}, (headers, body)
+    # a bad install token with a body that is not a JSON object: still 401 (no valid JWT), never 400
+    r = client.post("/v1/account/delete", headers={**h, "content-type": "application/json"}, content=b"[1]")
+    assert r.status_code == 401
     h2, tok2 = new_install(client)
     app_mod.store.set_disabled(app_mod.hash_token(tok2)[:16], True)
     assert delete(client, h2).json() == {"error": "bad_install_token"}
+    # the JWKS is down and the install token is gone: 503 (retry), never a 401 the app would take as done
+    app_mod.verifier = app_mod.supabase_auth.SupabaseVerifier(URL, "", FakeJwks(None))
+    assert delete(client, h, {"access_token": make_token()}).json() == {"error": "delete_unavailable"}
+
+
+@pytest.mark.parametrize("how", ["deleted_signed_out", "no_header", "unknown", "disabled"])
+def test_valid_access_token_deletes_the_account_without_a_live_install_token(make_cloud, how):
+    """An earlier signed-out delete, a wiped install file or a disabled install must not stop an account delete."""
+    client, app_mod, supabase = make_cloud()
+    ha, ta = new_install(client)
+    hb, tb = new_install(client)
+    a, b = app_mod.hash_token(ta), app_mod.hash_token(tb)
+    app_mod.store.link_user(b, USER)  # another install of the user
+    seed(app_mod, b, VIDEO, approved=True)
+    if how == "deleted_signed_out":
+        assert delete(client, ha).json()["install"] is True
+        headers = ha
+    elif how == "no_header":
+        headers = {}
+    elif how == "unknown":
+        headers = {"Authorization": "Bearer mi_never-minted"}
+    else:
+        app_mod.store.set_disabled(a[:16], True)
+        headers = ha
+    r = delete(client, headers, {"access_token": make_token()})
+    assert r.status_code == 200 and r.json() == {"ok": True, "install": False, "account": "deleted"}
+    assert rows_mentioning(app_mod, USER, b, b[:12], tb) == {}
+    assert [str(q.url) for q in supabase.requests] == [f"{URL}/auth/v1/admin/users/{USER}"]
+    if how == "disabled":  # an unlinked install that was not live is not the caller's to delete
+        assert app_mod.store.get_token(a) is not None
+    # and again: the account is already gone, Supabase answers 404 or 200; still 200, never a 401
+    supabase.status = 404
+    r = delete(client, headers, {"access_token": make_token()})
+    assert r.json() == {"ok": True, "install": False, "account": "deleted"}
+
+
+def test_valid_access_token_without_install_token_goes_pending_without_service_key(make_cloud):
+    client, app_mod, _ = make_cloud(service_key=None)
+    h, tok = new_install(client)
+    app_mod.store.link_user(app_mod.hash_token(tok), USER)
+    r = delete(client, {}, {"access_token": make_token()})
+    assert r.json() == {"ok": True, "install": False, "account": "pending"}
+    assert app_mod.store.get_token(app_mod.hash_token(tok)) is None
+    assert [x["user_id"] for x in app_mod.store.deletion_requests()] == [USER]
 
 
 def test_pending_when_the_service_key_is_missing_then_admin_retry(make_cloud):
@@ -324,6 +371,9 @@ def test_delete_is_rate_limited_per_ip_and_body_capped(make_cloud):
     for _ in range(2):
         assert client.post("/v1/account/delete", headers={"Authorization": "Bearer mi_guess", **ip}, json={}).status_code == 401
     r = client.post("/v1/account/delete", headers={**h, **ip}, json={})
+    assert r.status_code == 429 and r.json()["error"]["limit"] == "ip_hourly"
+    # a token-less signed-in call is limited per IP the same way
+    r = client.post("/v1/account/delete", headers=ip, json={"access_token": make_token()})
     assert r.status_code == 429 and r.json()["error"]["limit"] == "ip_hourly"
     assert app_mod.store.get_token(app_mod.hash_token(h["Authorization"][7:])) is not None  # nothing deleted
 

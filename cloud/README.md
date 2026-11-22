@@ -340,11 +340,13 @@ Authorization: Bearer <mi_ install token>
 {"access_token": "<Supabase user access token (JWT)>"}    signed in
 {}                                                       signed out (an empty body or "access_token": null too)
 
-200 {"ok": true, "install": true, "account": "deleted" | "none" | "pending"}
-401 {"error": "bad_install_token"}    unknown or disabled install token; also every call after a successful one
-                                      (the token is gone): the app treats it as already deleted
-403 {"error": "bad_access_token"}     not a valid Google sign-in for this project: nothing deleted
-400 {"error": "bad_request"}          the body is not a JSON object: nothing deleted
+200 {"ok": true, "install": true | false, "account": "deleted" | "none" | "pending"}
+                                      install: whether the Bearer token was a live install (now deleted)
+401 {"error": "bad_install_token"}    ONLY when there is no valid access token AND the install token is missing,
+                                      unknown or disabled (e.g. a repeated signed-out call): the app treats it as
+                                      already deleted
+403 {"error": "bad_access_token"}     live install token but an invalid access token: nothing deleted
+400 {"error": "bad_request"}          live install token, body not a JSON object: nothing deleted
 413                                   body over 16 KB (the /v1/link cap)
 503 {"error": "delete_unavailable"}   the JWT cannot be verified right now (no JWKS): nothing deleted, retry
 ```
@@ -353,7 +355,9 @@ Same install-token check, body cap and JWT verifier as `/v1/link`; rate limited 
 
 - Signed in: every row tied to the user id and to every install linked to it, plus the calling install, then the
   Supabase auth user (`DELETE ${SUPABASE_URL}/auth/v1/admin/users/{id}` with `SUPABASE_SERVICE_ROLE_KEY`; a 404
-  counts as deleted). `account` is `"deleted"`.
+  counts as deleted). `account` is `"deleted"`. A valid access token is enough on its own: with the install token
+  missing, unknown or disabled (an earlier signed-out delete, a wiped install file) the account and every linked
+  install are still deleted, and `install` is `false`.
 - Signed out: the calling install's rows only. `account` is `"none"`.
 - Without the key, or when Supabase fails: the cloud data is deleted anyway, the user id goes into
   `deletion_requests (user_id, requested_day)`, the `account_delete_pending` alert fires (no user id in it), and

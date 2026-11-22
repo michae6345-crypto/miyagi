@@ -2212,15 +2212,19 @@ async def finish_account_delete(user_id: str) -> str:
 async def account_delete(request: Request):
     """Contract (the app builds against it):
     Authorization: Bearer <mi_ install token>; body {"access_token": "<Supabase JWT>"} signed in, or {} signed out.
-    200 {"ok": true, "install": true, "account": "deleted" | "none" | "pending"}; 401 {"error": "bad_install_token"}
-    (unknown or disabled token; also a second call, as the first deleted it); 403 {"error": "bad_access_token"};
-    400 {"error": "bad_request"} (not a JSON object); 413; 503 {"error": "delete_unavailable"} (the JWT cannot be
-    verified right now: nothing deleted, retry)."""
+    200 {"ok": true, "install": true | false, "account": "deleted" | "none" | "pending"}: `install` says whether the
+    calling install token was a live one (and is now deleted). A valid access token deletes the account and every
+    install linked to it even when the install token is missing, unknown or disabled (an earlier signed-out delete,
+    a wiped install file): then `install` is false.
+    401 {"error": "bad_install_token"}: only when there is no valid access token AND the install token is bad (so a
+    repeated signed-out call gets 401, which the app treats as already deleted). 403 {"error": "bad_access_token"}:
+    the access token is invalid and the install token is live; nothing deleted. 400 {"error": "bad_request"} (live
+    install token, body not a JSON object); 413; 503 {"error": "delete_unavailable"} (the JWT cannot be verified
+    right now: nothing deleted, retry)."""
     token = presented_token(request)
     h = hash_token(token) if token and len(token) <= 200 else None
     row = store.get_token(h) if h else None
-    if row is None or row["disabled"]:
-        return link_error(401, "bad_install_token")
+    live = row is not None and not row["disabled"]
     if too_big := small_body_too_large(request, LINK_MAX_BODY):
         return too_big
     raw = await read_body(request)
@@ -2230,20 +2234,23 @@ async def account_delete(request: Request):
         return error(413, "request_too_large", f"Request body over {LINK_MAX_BODY // 1024} KB.")
     body = _json_object(raw) if raw.strip() else {}
     if body is None:
-        return link_error(400, "bad_request")
+        return link_error(400, "bad_request") if live else link_error(401, "bad_install_token")
     access, user_id = body.get("access_token"), None
     if access is not None and access != "":
         try:
             claims = await run_in_threadpool(verifier.verify, access)
         except supabase_auth.AuthUnavailable:
-            return link_error(503, "delete_unavailable")
+            return link_error(503, "delete_unavailable")  # never 401 here: the app would take it as done
         except supabase_auth.BadAccessToken:
-            return link_error(403, "bad_access_token")
+            return link_error(403, "bad_access_token") if live else link_error(401, "bad_install_token")
         user_id = claims["sub"]
-    n = await run_in_threadpool(store.delete_account, h, user_id)
-    log.info("account delete: %d install(s), signed %s", n["installs"], "in" if user_id else "out")
+    if not live and user_id is None:
+        return link_error(401, "bad_install_token")
+    n = await run_in_threadpool(store.delete_account, h if live else None, user_id)
+    log.info("account delete: %d install(s), signed %s, install token %s", n["installs"], "in" if user_id else "out",
+             "live" if live else "gone")
     account = await finish_account_delete(user_id) if user_id else "none"
-    return {"ok": True, "install": True, "account": account}
+    return {"ok": True, "install": live, "account": account}
 
 
 @app.post("/v1/anthropic/messages")
