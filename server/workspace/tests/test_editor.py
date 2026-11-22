@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from server.workspace import editor as E
@@ -58,6 +60,7 @@ def opener(tmp_path, ok=lambda a: True):
     return calls, (lambda a: calls.append(a) or ok(a))
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="asserts the `open -a` step, which only runs on macOS")
 def test_open_with_cursor_cli_then_frontmost_without_accessibility(tmp_path):
     calls, run = opener(tmp_path)
     rep = E.open_editor_report(tmp_path, "main.py", runner=run, editor=CURSOR, trusted=lambda: False, previous=None)
@@ -67,6 +70,7 @@ def test_open_with_cursor_cli_then_frontmost_without_accessibility(tmp_path):
     assert rep["arrange"] == "skipped: Accessibility not granted" and "unfullscreened" not in rep
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="asserts the `open -a` step, which only runs on macOS")
 def test_cli_failure_falls_back_to_open_a(tmp_path):
     calls, run = opener(tmp_path, ok=lambda a: a[0] == "open")
     assert E.open_editor(tmp_path, "main.py", runner=run, editor=CURSOR, trusted=lambda: False, previous=None)
@@ -168,6 +172,7 @@ def test_ax_trusted_is_a_bool():
 
 # --------------------------------------------------------------------------- "Just teach me": full screen
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="asserts the `open -a` step, which only runs on macOS")
 def test_fullscreen_without_accessibility_says_so(tmp_path):
     calls, run = opener(tmp_path)
     rep = E.open_editor_report(tmp_path, "main.py", runner=run, editor=CURSOR, trusted=lambda: False, previous=None, fullscreen=True)

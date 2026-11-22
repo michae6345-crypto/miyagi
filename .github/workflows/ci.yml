@@ -29,6 +29,15 @@ jobs:
         # in the tree, so they block.
         run: ruff check --isolated --select E9,F63,F7,F82 server cli evals scripts cloud
       - run: python -c "import server"
+      - name: a stand-in `code` on PATH
+        # Many engine tests assume VS Code is installed, as on a dev Mac: they look for the `code` CLI, then hand the
+        # command to a recording runner instead of running it. The runner has no VS Code, so a do-nothing `code` is all
+        # they need to find one.
+        run: |
+          mkdir -p "$RUNNER_TEMP/editor-stub"
+          printf '#!/bin/sh\nexit 0\n' > "$RUNNER_TEMP/editor-stub/code"
+          chmod +x "$RUNNER_TEMP/editor-stub/code"
+          echo "$RUNNER_TEMP/editor-stub" >> "$GITHUB_PATH"
       - name: pytest
         env:
           PYTHONUTF8: "1"
