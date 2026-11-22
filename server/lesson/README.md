@@ -31,23 +31,27 @@ a short on-screen `match` ("def lossPDE"). Extra top-level `build` = models, tim
   draft); a learner's own key (`set_api_key`) lifts it. `gemini.py` stays importable but imports google-genai only on
   its first real call, so no default path loads the SDK (the bundled app can drop it). Long videos are only split
   into Gemini parts when Gemini leads; the Claude path builds them in one pass.
+- A `LESSON_ENGINE` set in `.env` overrides the default: `gemini._load_env` reads this checkout's `.env` and, in a
+  `.claude/worktrees/<name>` worktree, the main checkout's too. Remove it or set it to `claude` to stay Claude-only;
+  with `auto`/`gemini` and a real `GEMINI_API_KEY`, Gemini runs and is billed (the cloud token gets 403 at once).
 - `build.model = {"video": "...", "adapt": "..."}` records which model did what. If every enabled engine fails, the
   error is raised; nothing is made up.
 
 ## Step timing without the video (`timing.py`)
 Claude copies its MM:SS from the transcript lines, so a start can land a sentence or half a minute off. After the
-draft, each start moves to a **chapter mark** within 30 s that no earlier step took, else to the exact start of the
+draft, each start moves to a **chapter mark** within 15 s that no earlier step took, else to the exact start of the
 **caption line** it names (or the line being spoken then, at most 8 s back). Never reorders steps or leaves one
 shorter than 5 s; the previous step's end is trimmed only when a start moved into it. `build.timing` counts the pins.
 Offline eval against the chapter marks (`python evals/lesson/timing_eval.py`, cached captions only, 40 Claude-built
-lessons / 306 steps saved by earlier eval runs), in-sample (circular: scored on the marks it snaps to): median 1.0 s → 0.0 s, within 10 s of a mark
-65 % → 79 % (IoU-aligned 70 % → 84 %), mean 18.5 s → 15.3 s. Gemini's watched builds on the same videos: 1.0 s,
-63 %. Pinning to caption lines alone (chapters withheld) is 0.96 s / 65 %: the gain comes from the chapter marks, and
-the gold is those marks, so read the "pinned" row as "where chapters exist, starts sit on them". S3's "1 s vs 15 s"
-was one FastAPI run; across all saved Claude runs the median was already ~1 s. The held-out check (leave one chapter
-out: pin without mark k, score on mark k; 253 pairs) shows **no timing gain**: median 1.0 → 0.8 s, but within 10 s
-78 % → 72 % and mean 5.3 → 7.1 s with the 30 s chapter window (a step whose boundary is not a mark gets pulled onto a
-neighbouring one); with a window of 15 s or less it is neutral (78 %, 5.4 s). See `evals/lesson/report.md`.
+lessons / 306 steps saved by earlier eval runs). The held-out check (leave one chapter out: pin without mark k, score
+on mark k; 253 pairs), the only non-circular number, is **neutral**: median 1.0 → 0.8 s, within 10 s 78 % → 78 %,
+mean 5.3 → 5.4 s. The chapter window is 15 s because a wider one hurts there: at 30 s a step whose boundary is not a
+mark gets pulled onto a neighbouring one (within 10 s 78 % → 72 %, mean 5.3 → 7.1 s). In-sample (circular: scored on
+the marks it snaps to): median 1.0 s → 0.0 s, within 10 s of a mark 65 % → 70 % (IoU-aligned 70 % → 76 %), mean
+18.5 s → 17.3 s. Gemini's watched builds on the same videos: 1.0 s, 63 %. Pinning to caption lines alone (chapters
+withheld) is 0.96 s / 65 %. S3's "1 s vs 15 s" was one FastAPI run; across all saved Claude runs the median was
+already ~1 s. So timing has not been shown to improve; the pin moves starts onto sentence starts and onto nearby
+chapter marks without making held-out timing worse. See `evals/lesson/report.md`.
 
 ## The tutorial's own code (`materials.py`)
 When the video description (or a caller's `material_urls=` / `video_meta["materials"]`; no caller passes them yet)

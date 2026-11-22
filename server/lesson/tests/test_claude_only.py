@@ -192,11 +192,15 @@ def test_pin_starts_chapters_then_caption_lines():
     lines = [{"t": 10.4, "text": "a"}, {"t": 47.6, "text": "b"}, {"t": 90.2, "text": "c"}, {"t": 95.9, "text": "d"},
              {"t": 200.7, "text": "e"}]
     chapters = [{"t": 0.0, "title": "Intro"}, {"t": 60.0, "title": "Setup"}, {"t": 180.0, "title": "Train"}]
-    steps = [{"start": 47.0, "end": 85.0}, {"start": 90.0, "end": 170.0}, {"start": 205.0, "end": 260.0}]
+    steps = [{"start": 47.0, "end": 85.0}, {"start": 90.0, "end": 170.0}, {"start": 193.0, "end": 260.0}]
     stats = timing.pin_starts(steps, lines, chapters)
-    # 47 -> chapter 60 (13 s away); 90 -> its own caption line 90.2; 205 -> chapter 180, the previous step ends there
+    # 47 -> chapter 60 (13 s away); 90 -> its own caption line 90.2; 193 -> chapter 180 (13 s away), past the previous
+    # step's end, so that end is kept
     assert [s["start"] for s in steps] == [60.0, 90.2, 180.0] and steps[1]["end"] == 170.0
     assert stats == {"chapter": 2, "caption": 1, "kept": 0}
+    # a mark more than CHAPTER_WINDOW_S (15 s) away is not taken: 205 is 25 s from 180 and keeps its own second
+    far = [{"start": 205.0, "end": 260.0}]
+    assert timing.pin_starts(far, [], chapters) == {"chapter": 0, "caption": 0, "kept": 1} and far[0]["start"] == 205.0
 
 
 def test_pin_never_reorders_or_squashes():

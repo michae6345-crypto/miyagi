@@ -16,7 +16,7 @@ the new start moved into it. `evals/lesson/timing_eval.py` measures it offline a
 
 from __future__ import annotations
 
-CHAPTER_WINDOW_S = 30.0
+CHAPTER_WINDOW_S = 15.0  # held-out eval: 15 s or less is neutral, 30 s pulls steps onto neighbouring marks (report.md)
 CAPTION_WINDOW_S = 8.0
 MIN_KEEP_S = 5.0
 
