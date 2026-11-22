@@ -1,5 +1,6 @@
 /** General preferences (Settings → General), shared by main (src/main/prefs.ts) and the renderer (core/prefs.ts). */
 import type { ShortcutKind } from '../main/platform'
+import { cleanConsent, type Consent } from './consent'
 import type { IslandPlace } from './notch'
 
 export type Appearance = 'system' | 'light' | 'dark'
@@ -41,6 +42,11 @@ export type Prefs = {
   ptt: PttPrefs
   /** The island in the notch or below the menu bar. Send the whole object in a patch. */
   island: IslandPrefs
+  /**
+   * The learner agreed to the terms and privacy policy (common/consent.ts): which version, and when. Absent until they
+   * continue past the consent screen. Written only by main (onboarding:agree); a renderer's prefs:set can't set it.
+   */
+  consent?: Consent
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -94,6 +100,8 @@ export function sanitizePrefs(raw: unknown): Partial<Prefs> {
     const p = (r.island as Record<string, unknown>).place
     out.island = { place: ISLAND_PLACES.includes(p as IslandPlace) ? (p as IslandPlace) : DEFAULT_PREFS.island.place }
   }
+  const consent = cleanConsent(r.consent)
+  if (consent) out.consent = consent
   if (r.shortcuts && typeof r.shortcuts === 'object' && !Array.isArray(r.shortcuts)) {
     const s: ShortcutPrefs = {}
     for (const k of SHORTCUT_KINDS) {

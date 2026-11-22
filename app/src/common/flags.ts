@@ -23,3 +23,11 @@ export const LOGIN_ENABLED = true
  * started, no settings row, no island state. The learner can also switch it off in Settings > General (prefs.ptt).
  */
 export const PTT_ENABLED = true
+
+/**
+ * GEMINI_ENABLED (Adrian, Nov 21, decision D1): Claude only at launch, no Gemini. While false the app names only
+ * Anthropic (Claude): the consent screen, Settings > Privacy (the Lesson videos row) and Your own key, where the Gemini
+ * key field is hidden. The Gemini code stays in place (config.keys still carries every name, so the engine's
+ * set_app_keys keeps working): flip this to true to bring the field and the Google lines back.
+ */
+export const GEMINI_ENABLED = false

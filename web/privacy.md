@@ -49,7 +49,7 @@ miyagi needs to see your work to help with it. Here is everything it reads, said
 | Your code | The step’s code, when miyagi checks your work or helps. | Anthropic |
 | Your editor | miyagi reads VS Code here to follow your step. | Read on this Mac, then sent as your code |
 | Your searches | What you ask to learn goes to search sites and the AI. | Search sites (YouTube first) and Anthropic |
-| Lesson videos | The video link and what you want to learn, to Google Gemini. | Google |
+| Lesson videos | The video’s text and what you want to learn, to Anthropic. | Anthropic |
 | Your sign-in | Google sign-in through Supabase. The session stays encrypted here. | Supabase |
 | Account link | When you sign in, miyagi’s server ties this Mac to your account. | miyagi |
 | miyagi’s server | Passes AI calls on. Keeps counts and cost, never your work. | miyagi |
@@ -222,7 +222,7 @@ In Settings › Privacy, Delete my data:
 
 Before it deletes, it asks once more:
 
-> Signs you out. Lesson folders in ~/miyagi stay. Cannot be undone.
+> Signs you out. Lessons and progress in ~/miyagi stay. Cannot be undone.
 
 It also removes the note of your account link on this Mac. It does not yet remove your install token, the account
 link kept on miyagi-cloud, the app's YouTube cookies, cached searches and lessons, the engine log or crash reports, or

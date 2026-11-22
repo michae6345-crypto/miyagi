@@ -14,17 +14,25 @@
  * normal build can't reach the browser. The renderer's own switch is the build-time VITE_MIYAGI_V2_CLOUD (see Core
  * requests in agents/account.md for one shared flag).
  */
+import { CONTACT_EMAIL, LEGAL_URL } from '../../common/consent'
 import { defineMainFeature } from '../context'
 import { safeOpenExternal } from '../safeOpen'
 
-/** The renderer's AccountLink names (features/account/model.ts). Keep the two lists in sync. */
+/** The site's home: the only miyagi.study page that answers today besides the terms and the policy. */
+const HOME = 'https://miyagi.study/'
+
+/**
+ * The renderer's AccountLink names (features/account/model.ts). Keep the two lists in sync. /pricing, /teams and
+ * /account answered 404 (checked Nov 21, R06): pricing, upgrade and restore open the home page until those pages exist,
+ * and Talk to us (teams) writes to the contact address.
+ */
 const LINKS = {
-  pricing: 'https://miyagi.study/pricing',
-  upgrade: 'https://miyagi.study/pricing',
-  teams: 'https://miyagi.study/teams',
-  terms: 'https://miyagi.study/terms',
-  privacy: 'https://miyagi.study/privacy',
-  restore: 'https://miyagi.study/account'
+  pricing: HOME,
+  upgrade: HOME,
+  teams: `mailto:${CONTACT_EMAIL}`,
+  terms: LEGAL_URL.terms,
+  privacy: LEGAL_URL.privacy,
+  restore: HOME
 } as const
 type Link = keyof typeof LINKS
 

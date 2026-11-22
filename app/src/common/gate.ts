@@ -5,18 +5,21 @@
  *
  * The overlay (pill, cards, shortcut bar), the launcher, the global keys and the full tray menu exist for the learner
  * only once every part is true:
- *   login  signed in with Google (a stored session counts), "Continue without an account" in this run, login switched
- *          off, or MIYAGI_SKIP_LOGIN=1
- *   setup  guided setup finished or put off ("Set up later")
+ *   login    signed in with Google (a stored session counts), "Continue without an account" in this run, login
+ *            switched off, or MIYAGI_SKIP_LOGIN=1
+ *   consent  the learner agreed to this build's terms and privacy policy version (common/consent.ts, R05 and R06):
+ *            the consent screen, after the login and before guided setup asks macOS for anything
+ *   setup    guided setup finished or put off ("Set up later")
  * MIYAGI_SKIP_ONBOARDING=1 opens it outright (dev, tests).
  */
 
-export type GatePart = 'login' | 'setup'
+export type GatePart = 'login' | 'consent' | 'setup'
 export type GateParts = Record<GatePart, boolean>
 /** What main broadcasts (feat:onboarding:gate) and onboarding:get carries as `gate`. */
 export type GateView = GateParts & { open: boolean }
 
-export const GATE_PARTS: readonly GatePart[] = ['login', 'setup']
+/** In the order the first run asks for them: the login, then consent, then setup. */
+export const GATE_PARTS: readonly GatePart[] = ['login', 'consent', 'setup']
 
 export function gateOpen(parts: GateParts, forced = false): boolean {
   return forced || GATE_PARTS.every((p) => parts[p])
@@ -30,6 +33,6 @@ export function firstNeeded(parts: GateParts): GatePart | undefined {
 /** A plain copy of a gate view that came over IPC; anything malformed reads as closed with every part missing. */
 export function cleanGate(raw: unknown): GateView {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  const parts: GateParts = { login: r.login === true, setup: r.setup === true }
+  const parts: GateParts = { login: r.login === true, consent: r.consent === true, setup: r.setup === true }
   return { ...parts, open: r.open === true }
 }

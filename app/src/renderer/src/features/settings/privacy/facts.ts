@@ -41,7 +41,11 @@
  * shape and can miss some, so the panel never promises it; the policy describes it with that caveat.
  *
  * Copy rules: one calm line each, 12 words at most, lowercase "miyagi", no em dashes.
+ *
+ * D1 (Adrian, Nov 21): Claude only at launch, no Gemini. With GEMINI_ENABLED false the panel names Anthropic only (the
+ * Lesson videos row below), like the consent screen (features/onboarding/consentCopy.ts).
  */
+import { GEMINI_ENABLED } from '../../../../../common/flags'
 
 export type FactId =
   | 'screen'
@@ -70,12 +74,21 @@ export type Fact = {
 
 export const STAYS = 'On this Mac'
 
+/**
+ * Lesson videos: Anthropic only at launch (D1, Adrian, Nov 21: Claude only, no Gemini; common/flags.ts GEMINI_ENABLED).
+ * The Gemini line comes back with the flag. CHECK with Michael that the engine's Claude-only path sends what the line
+ * says (the video's page text or captions and the learner's goal).
+ */
+const VIDEOS: Fact = GEMINI_ENABLED
+  ? { id: 'videos', label: 'Lesson videos', line: 'The video link and what you want to learn, to Google Gemini.', where: 'To Google', leaves: true }
+  : { id: 'videos', label: 'Lesson videos', line: 'The video’s text and what you want to learn, to Anthropic.', where: 'To Anthropic', leaves: true }
+
 export const FACTS: readonly Fact[] = [
   { id: 'screen', label: 'Your screen', line: 'During a lesson, screenshots and screen text. Text from password apps dropped.', where: 'To Anthropic', leaves: true },
   { id: 'code', label: 'Your code', line: 'The step’s code, when miyagi checks your work or helps.', where: 'To Anthropic', leaves: true },
   { id: 'editor', label: 'Your editor', line: 'miyagi reads VS Code here to follow your step.', where: 'Read on this Mac', leaves: false },
   { id: 'searches', label: 'Your searches', line: 'What you ask to learn goes to search sites and the AI.', where: 'To search sites', leaves: true },
-  { id: 'videos', label: 'Lesson videos', line: 'The video link and what you want to learn, to Google Gemini.', where: 'To Google', leaves: true },
+  VIDEOS,
   { id: 'account', label: 'Your sign-in', line: 'Google sign-in through Supabase. The session stays encrypted here.', where: 'To Supabase', leaves: true },
   { id: 'link', label: 'Account link', line: 'When you sign in, miyagi’s server ties this Mac to your account.', where: 'To miyagi', leaves: true },
   { id: 'cloud', label: 'miyagi’s server', line: 'Passes AI calls on. Keeps counts and cost, never your work.', where: 'To miyagi', leaves: true },
@@ -91,11 +104,17 @@ export const KEYS_NO_KEYCHAIN = 'Kept in memory for this run, sent only to their
 /** AI calls: how they travel. Shown under the panel and in the policy. */
 export const ROUTE = 'AI calls go through miyagi’s server, or direct with your key.'
 
-/** Delete my data (Privacy.tsx's two-step confirm, main settings:delete). The policy quotes these too. */
+/**
+ * Delete my data (Privacy.tsx's two-step confirm, main settings:delete). The policy quotes these too. Exactly what the
+ * code erases (checked Nov 21, R06/A16): keys.bin, the sign-in files (auth.bin, login.json, cloud-link.json) and the
+ * session (auth:sign-out), and the preferences reset to their defaults. What stays: lessons and progress in ~/miyagi,
+ * setup's onboarding.json, the logs in userData, the consent record (prefs.consent, main's own) and everything on
+ * miyagi's server. The full erase is R28. Never "everything".
+ */
 export const DELETE = {
   row: 'Erases keys, settings and sign-in on this Mac. Cannot be undone.',
   confirmLabel: 'Delete keys, settings and sign-in?',
-  confirm: 'Signs you out. Lesson folders in ~/miyagi stay. Cannot be undone.',
+  confirm: 'Signs you out. Lessons and progress in ~/miyagi stay. Cannot be undone.',
   partial: 'Keys and settings deleted. Couldn’t clear sign-in.',
   failed: 'Couldn’t delete. Nothing was removed.'
 } as const
