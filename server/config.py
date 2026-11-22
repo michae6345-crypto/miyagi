@@ -22,10 +22,24 @@ The cloud URL is the proxy's API root, `https://<host>/v1` (not the bare host): 
 install token at `<host>/v1/register`. A bare host would 404 on every call.
 
 The install token lives here in memory only. It is never written to os.environ (no ANTHROPIC_API_KEY,
-GEMINI_API_KEY, MIYAGI_CLOUD_TOKEN or ANTHROPIC_BASE_URL export), so a learner's subprocess (their code,
-pip, a kernel, VS Code terminals) cannot inherit a credential that bills miyagi; `safe_env()` strips the
-rest. A non-cloud key (Settings or .env) always goes to https://api.anthropic.com: ANTHROPIC_BASE_URL
-is ignored by every engine client.
+GEMINI_API_KEY, MIYAGI_CLOUD_TOKEN or ANTHROPIC_BASE_URL export). Keys from .env or the shell the engine was
+started from DO sit in os.environ. `safe_env(...)` drops them (SECRET_ENV_RE), and every subprocess launch outside
+the PENDING files in server/tests/test_safe_env.py passes `env=safe_env(...)`: the editor CLI (and with it VS Code
+and its terminals), the where-row and live-fresh helpers, screencapture. test_safe_env.py fails on any new launch
+that passes no env. Four PENDING files still hand children the engine's os.environ, keys included, until their
+lanes fix them: orchestrator/session.py ("run it for me" builds env = dict(os.environ) for the learner's code),
+workspace/setup.py (pip, brew and python -m venv get a copy of os.environ), orchestrator/workspace.py (the
+background editor Popen passes no env) and workspace/core.py (git runs with {**os.environ, ...}). A non-cloud key (Settings
+or .env) always goes to https://api.anthropic.com: ANTHROPIC_BASE_URL is ignored by every engine client.
+
+Where the cloud may be (claude/eng-keys-ssrf): config.keys.miyagiCloud and MIYAGI_CLOUD_URL are used only when
+their host is miyagi-cloud.onrender.com, one listed in MIYAGI_CLOUD_HOSTS (comma separated), or the host of the
+MIYAGI_CLOUD_URL the engine was started with (the app's engine spawn passes its own MIYAGI_CLOUD_URL down, and
+features/cloud.ts sends that same host as miyagiCloud, so a staging or dev cloud keeps working). All of these are
+read once at engine start. http(s)://127.0.0.1 / localhost only when the engine started with MIYAGI_DEV_CLOUD=1 or
+with a loopback MIYAGI_CLOUD_URL. Anything else is ignored with a warning naming only the host, so whoever can send
+config.keys cannot point the install token, the prompts and the learner's screen at their own server. A value put
+into os.environ later (a .env loaded lazily, a test) widens nothing.
 
 Cost guards (BUILD-PLAN E4): `guard_model()` turns any Opus / Fable / Mythos choice into Sonnet
 unless MIYAGI_ALLOW_OPUS=1 (and never through the cloud, which rejects them), and
@@ -37,6 +51,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -73,20 +88,86 @@ def usable(value: str | None) -> bool:
     return bool(value) and "..." not in value  # type: ignore[operator]
 
 
+DEFAULT_CLOUD_HOST = "miyagi-cloud.onrender.com"  # app/src/main/features/cloud.ts DEFAULT_CLOUD_URL
+CLOUD_HOSTS_ENV = "MIYAGI_CLOUD_HOSTS"  # more allowed proxy hosts, comma separated (staging), read at engine start
+DEV_CLOUD_ENV = "MIYAGI_DEV_CLOUD"  # =1 at engine start: a local proxy on http://127.0.0.1 / localhost is allowed
+_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def _norm_host(host: str | None) -> str:
+    return (host or "").strip().lower().rstrip(".")
+
+
+def _hosts_from_env(raw: str | None) -> frozenset[str]:
+    return frozenset(_norm_host(h) for h in (raw or "").split(",") if h.strip())
+
+
+def _start_url_host(raw: str | None) -> str:
+    """The host of the MIYAGI_CLOUD_URL the engine was started with ('' when unset, `off` or unparsable). The app
+    spawns the engine with its own environment, so this is the cloud the app itself talks to (staging, dev)."""
+    try:
+        return _norm_host(urlsplit((raw or "").strip()).hostname)
+    except ValueError:
+        return ""
+
+
+START_CLOUD_HOST: str = _start_url_host(os.environ.get(CLOUD_URL_ENV))  # read once, at engine start
+CLOUD_HOSTS: frozenset[str] = (frozenset({DEFAULT_CLOUD_HOST}) | _hosts_from_env(os.environ.get(CLOUD_HOSTS_ENV))
+                               | ({START_CLOUD_HOST} if START_CLOUD_HOST not in ("", *_LOOPBACK_HOSTS) else frozenset()))
+# This Mac's own proxy: MIYAGI_DEV_CLOUD=1, or the engine was started with a loopback MIYAGI_CLOUD_URL.
+DEV_CLOUD: bool = os.environ.get(DEV_CLOUD_ENV, "") == "1" or START_CLOUD_HOST in _LOOPBACK_HOSTS
+
+
+def cloud_host_allowed(host: str | None, scheme: str = "https") -> bool:
+    """May the install token and the prompts go to `host`? CLOUD_HOSTS over https (the default, MIYAGI_CLOUD_HOSTS
+    and the start-time MIYAGI_CLOUD_URL host); this Mac (http or https) only when DEV_CLOUD. Nothing else: no
+    wildcard, not even a reserved TLD, since a LAN resolver plus a trusted MITM CA could answer for it."""
+    h = _norm_host(host)
+    if not h:
+        return False
+    if h in _LOOPBACK_HOSTS:
+        return DEV_CLOUD and scheme in ("http", "https")
+    if scheme != "https":
+        return False
+    return h in CLOUD_HOSTS
+
+
 def _clean_url(value: str | None) -> str | None:
-    """An http(s) URL without a trailing slash, else None. Plain http only for this Mac (local proxy runs)."""
+    """An https URL on an allowed proxy host (cloud_host_allowed) without a trailing slash, else None. Plain http
+    only for this Mac, and only with MIYAGI_DEV_CLOUD=1. A refused host is logged by name (never the full URL)."""
     v = (value or "").strip().rstrip("/")
     if not usable(v):
         return None
     try:
         u = urlsplit(v)
+        host = u.hostname
+        u.port  # noqa: B018  raises ValueError on a bad port
     except ValueError:
         return None
-    if not u.hostname or u.query or u.fragment:
+    if not host or u.query or u.fragment or u.username or u.password:
         return None
-    if u.scheme == "https" or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1", "::1")):
-        return v
-    return None
+    if u.scheme not in ("http", "https"):
+        return None
+    if not cloud_host_allowed(host, u.scheme):
+        _warn_host(host, u.scheme)
+        return None
+    return v
+
+
+_warned_hosts: set[tuple[str, str]] = set()
+
+
+def _warn_host(host: str, scheme: str) -> None:
+    key = (host.lower(), scheme)
+    if key in _warned_hosts:
+        return
+    _warned_hosts.add(key)
+    if host.lower() in _LOOPBACK_HOSTS:
+        log.warning("miyagi cloud: ignoring the local proxy host %s (start the engine with %s=1 or a local %s to "
+                    "allow it)", host, DEV_CLOUD_ENV, CLOUD_URL_ENV)
+    else:
+        log.warning("miyagi cloud: ignoring %s proxy host %s (not %s, in %s or the engine's start-time %s)", scheme,
+                    host, DEFAULT_CLOUD_HOST, CLOUD_HOSTS_ENV, CLOUD_URL_ENV)
 
 
 def set_app_keys(keys: dict) -> None:
@@ -103,9 +184,14 @@ def set_app_keys(keys: dict) -> None:
         else:
             _app_keys.pop(name, None)
     raw = keys.get("miyagiCloud")
-    _app_cloud_url = _clean_url(raw if isinstance(raw, str) else None)
-    if raw and not _app_cloud_url:
-        log.warning("config.keys.miyagiCloud is not an https URL; the cloud is off")
+    if raw and isinstance(raw, str):
+        url = _clean_url(raw)
+        if url:
+            _app_cloud_url = url
+        else:  # not an allowed https proxy: keep the URL we had (None on a first connect = the cloud stays off)
+            log.warning("config.keys.miyagiCloud refused; the cloud URL is unchanged")
+    else:
+        _app_cloud_url = None  # the app turned the cloud off (no miyagiCloud)
     if cloud_token() != before:  # a new install token (or none): whatever the proxy said about the old one is moot
         _clear_verdict()
 
@@ -485,18 +571,27 @@ def fallback_kwargs(model: str) -> dict:
 
 # ------------------------------------------------------------------ learner subprocesses
 
-_SECRET_PREFIXES = ("ANTHROPIC_", "GEMINI_", "GOOGLE_API", "GOOGLE_GENAI", "ELEVENLABS_", "TIGER_",
-                    "MIYAGI_CLOUD")
+# Names never handed to a subprocess: provider keys, the cloud's token and URL, the engine's own token, the app's
+# Supabase settings, TUT_ENV (the path of a .env file), a database URL (it carries a password), and anything named
+# like a credential (AWS_SECRET_ACCESS_KEY, *_PRIVATE_KEY, GOOGLE_APPLICATION_CREDENTIALS ...). Other lanes import it.
+SECRET_ENV_RE = re.compile(
+    r"^(?:ANTHROPIC_|GEMINI_|GOOGLE_API|GOOGLE_GENAI|ELEVENLABS_|OPENAI_|SUPABASE_|TIGER_|MIYAGI_TOKEN|MIYAGI_CLOUD)"
+    r"|^(?:MIYAGI_ENGINE_TOKEN|TUT_ENV|DATABASE_URL)$"
+    r"|(?:_API_KEY|_SECRET|_SECRET_KEY|_TOKEN|_PASSWORD|_ACCESS_KEY|_PRIVATE_KEY|_CREDENTIALS|_DATABASE_URL)$",
+    re.IGNORECASE,
+)
+
+
+def is_secret_env(name: str) -> bool:
+    return bool(SECRET_ENV_RE.search(name)) or name in KEY_ENV.values()
 
 
 def safe_env(base: dict | None = None, **extra: str) -> dict[str, str]:
-    """A copy of the environment (or `base`) for a learner's subprocess (their code, pip, a kernel, VS Code):
-    every provider key, the cloud token and URL and any Tiger value removed, then `extra` added."""
-    env = dict(os.environ if base is None else base)
-    secret = set(KEY_ENV.values()) | {
-        CLOUD_URL_ENV, "TIGER_DATABASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "GOOGLE_API_KEY", "ADMIN_PASSWORD"}
-    for var in list(env):
-        if var in secret or var.upper().startswith(_SECRET_PREFIXES):
-            env.pop(var, None)
+    """A copy of the environment (or `base`) for any subprocess the engine starts (the learner's code, pip, a kernel,
+    the editor CLI and so VS Code and its terminals, system tools): every name matching SECRET_ENV_RE removed (provider
+    keys, the cloud token and URL, the engine token, Supabase, TUT_ENV, DATABASE_URL, *_API_KEY / *_SECRET / *_TOKEN /
+    *_PASSWORD / *_ACCESS_KEY / *_PRIVATE_KEY / *_CREDENTIALS),
+    then `extra` added. PATH, HOME, LANG, VIRTUAL_ENV and the rest are kept."""
+    env = {k: v for k, v in dict(os.environ if base is None else base).items() if not is_secret_env(k)}
     env.update(extra)
     return env

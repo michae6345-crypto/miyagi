@@ -15,7 +15,7 @@ import json
 import logging
 import re
 
-import httpx
+from server import netsafe
 
 log = logging.getLogger("server.lesson")
 
@@ -60,15 +60,15 @@ async def _fetch_metadata(video_id: str) -> dict:
                   "sources": {}, "errors": [], "_tracks": []}
     page = None
     # The plain watch page is fast and loads even while YouTube 429s caption endpoints.
-    try:
-        async with httpx.AsyncClient(headers=_HEADERS, timeout=10, follow_redirects=True) as c:
-            r = await c.get(WATCH_URL.format(vid=video_id))
-            r.raise_for_status()
-            if _player_response(r.text):
-                page = r.text
-                info["sources"]["metadata"] = "youtube.com"
-            else:
-                info["errors"].append("watch page: no player data (consent/bot page?)")
+    try:  # netsafe: http(s) only, every redirect hop must be a public host, the page capped
+        r = await netsafe.get(WATCH_URL.format(vid=video_id), headers=_HEADERS, timeout=10,
+                              max_bytes=netsafe.PAGE_MAX_BYTES)
+        r.raise_for_status()
+        if _player_response(r.text):
+            page = r.text
+            info["sources"]["metadata"] = "youtube.com"
+        else:
+            info["errors"].append("watch page: no player data (consent/bot page?)")
     except Exception as e:  # noqa: BLE001
         info["errors"].append(f"watch page: {str(e)[:160]}")
 
@@ -165,10 +165,10 @@ def _best_track(tracks: list[dict]) -> str:
 
 
 async def _direct_captions(tracks: list[dict]) -> list[dict]:
-    async with httpx.AsyncClient(headers=_HEADERS, timeout=30, follow_redirects=True) as c:
-        r = await c.get(_best_track(tracks))
-        r.raise_for_status()
-        return _parse_json3(r.text)
+    """The caption track's baseUrl comes out of the watch page, so it goes through netsafe like any other link."""
+    r = await netsafe.get(_best_track(tracks), headers=_HEADERS, timeout=30, max_bytes=netsafe.PAGE_MAX_BYTES)
+    r.raise_for_status()
+    return _parse_json3(r.text)
 
 
 def _parse_json3(raw: str) -> list[dict]:

@@ -11,6 +11,12 @@ files (.csv .tsv .json .jsonl .parquet .xlsx .txt .ipynb .py .zip). Everything e
 papers, sponsors) is ignored. Each download is capped at MIYAGI_DOWNLOAD_MAX_MB (50); zips are
 extracted with path-escape and symlink guards, file and size caps. Nothing downloaded is ever executed,
 imported or installed, and no file gets an executable bit.
+
+Every fetch goes through server.netsafe (claude/eng-keys-ssrf): the description is written by the video's uploader,
+so a link like https://evil.example/data.csv could redirect to http://192.168.1.1/ or http://169.254.169.254/ (or be
+https://10.0.0.5/x.zip outright) and have the router's or a metadata service's answer saved into tutorial/. Each hop
+must be a public http(s) host (resolved and checked, the peer address checked after connecting), at most 3 redirects,
+and each fetch has a deadline (DOWNLOAD_DEADLINE_S for a file, a few timeouts for the watch page).
 """
 
 from __future__ import annotations
@@ -28,6 +34,8 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
+from server import netsafe
+
 from . import paths
 
 log = logging.getLogger("server.workspace")
@@ -37,6 +45,8 @@ MAX_BYTES = int(float(os.environ.get("MIYAGI_DOWNLOAD_MAX_MB", "50")) * 1024 * 1
 MAX_UNZIPPED = 4 * MAX_BYTES
 MAX_ZIP_FILES = 5000
 MAX_RESOURCES = 8
+DOWNLOAD_TIMEOUT_S = 60
+DOWNLOAD_DEADLINE_S = 600  # one file (up to MAX_BYTES) start to finish
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
       "Accept-Language": "en-US,en;q=0.9"}
 FILE_EXT = {".csv", ".tsv", ".json", ".jsonl", ".parquet", ".xlsx", ".txt", ".ipynb", ".py", ".zip", ".r", ".sql", ".md"}
@@ -112,9 +122,10 @@ def extract_links(text: str) -> list[str]:
 
 def fetch_description(video_id: str, *, client: httpx.Client | None = None) -> str:
     """The video's full description from its watch page ("" if unavailable)."""
-    c = client or httpx.Client(headers=UA, timeout=10, follow_redirects=True)
+    c = client or netsafe.sync_client(headers=UA, timeout=10)
     try:
-        html = c.get(f"https://www.youtube.com/watch?v={video_id}").text
+        html = netsafe.get_sync(f"https://www.youtube.com/watch?v={video_id}", client=c, timeout=10,
+                                max_bytes=netsafe.PAGE_MAX_BYTES).text
     except httpx.HTTPError as e:
         log.warning("description for %s: %s", video_id, e)
         return ""
@@ -184,16 +195,14 @@ class TooLarge(Exception):
 
 
 def _get(client: httpx.Client, url: str) -> tuple[bytes, dict]:
-    with client.stream("GET", url) as r:
-        r.raise_for_status()
-        if int(r.headers.get("content-length") or 0) > MAX_BYTES:
-            raise TooLarge(f"larger than {MAX_BYTES // 2**20} MB")
-        buf = io.BytesIO()
-        for chunk in r.iter_bytes():
-            buf.write(chunk)
-            if buf.tell() > MAX_BYTES:
-                raise TooLarge(f"larger than {MAX_BYTES // 2**20} MB")
-        return buf.getvalue(), {k.lower(): v for k, v in r.headers.items()}
+    """One file through netsafe (redirects by hand, every hop a public host), capped at MAX_BYTES."""
+    try:
+        r = netsafe.get_sync(url, client=client, timeout=DOWNLOAD_TIMEOUT_S, max_bytes=MAX_BYTES,
+                             deadline=DOWNLOAD_DEADLINE_S)
+    except netsafe.BodyTooLarge:
+        raise TooLarge(f"larger than {MAX_BYTES // 2**20} MB") from None
+    r.raise_for_status()
+    return r.content, {k.lower(): v for k, v in r.headers.items()}
 
 
 def _safe_name(name: str) -> str:
@@ -285,7 +294,7 @@ def download_resources(lesson: dict, *, folder: Path | str | None = None, descri
     folder defaults to the lesson's folder (~/miyagi/lessons/<slug>-<hash>). Returns one entry per resource:
     {name, url, kind, path, bytes?|files?, cached?} or {..., path: None, error}. [] = nothing linked
     (show NO_RESOURCES). Already-downloaded resources are reused."""
-    c = client or httpx.Client(headers=UA, timeout=60, follow_redirects=True)
+    c = client or netsafe.sync_client(headers=UA, timeout=DOWNLOAD_TIMEOUT_S)
     try:
         found = resources if resources is not None else find_resources(lesson, description=description, client=c)
         if not found:

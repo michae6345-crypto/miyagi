@@ -1,19 +1,26 @@
 name: ci
 on: { push: { branches: [main] }, pull_request: {} }
+# Least privilege: no job writes to the repo, so the run's GITHUB_TOKEN can only read it. Actions are pinned to the
+# commit their major tag pointed at (the tag can be moved; the commit cannot).
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   server:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: "3.11" }
       - run: |
           if [ -f server/pyproject.toml ]; then pip install -e server[dev] && (ruff check server || true) && python -c "import server" ; else echo "no server yet"; fi
   app:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "22" }
       - run: |
           if [ -f app/package.json ]; then cd app && npm ci && npm run typecheck --if-present && npm run lint --if-present; else echo "no app yet"; fi
@@ -21,8 +28,8 @@ jobs:
     if: github.event_name == 'push'
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "22" }
       - run: |
           if [ -f app/package.json ]; then
@@ -33,7 +40,7 @@ jobs:
             MIYAGI_ENGINE_REF=HEAD MIYAGI_INSTALL_REF=origin/claude/distribution node scripts/bundle-engine.mjs
             npx electron-builder --mac --dir --publish never
           else echo "no app yet"; fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: hashFiles('app/dist/**') != ''
         with: { name: mac-app, path: app/dist/mac*/** }
       # The Mac download on miyagi.study. upload-artifact drops symlinks and the executable bit, so the
@@ -46,15 +53,15 @@ jobs:
           echo "engine inside: $(cat "$app_path/Contents/Resources/engine/VERSION" 2>/dev/null || echo none)"
           codesign --force --deep --sign - "$app_path"
           ditto -c -k --sequesterRsrc --keepParent "$app_path" app/dist/Miyagi-Mac.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: hashFiles('app/dist/Miyagi-Mac.zip') != ''
         with: { name: mac-zip, path: app/dist/Miyagi-Mac.zip, compression-level: 0 }
   contract:
     # every event / card kind / card action / action kind in shared/contracts/events.ts must have a handler or label in app/src
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: "3.11" }
       - run: python3 scripts/test_check_contract.py
       - run: python3 scripts/check_contract.py

@@ -26,6 +26,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from server.config import safe_env
+
 log = logging.getLogger("server.workspace")
 
 EDITORS: dict[str, dict] = {
@@ -164,7 +166,7 @@ def _app_path(ed: dict) -> str | None:
     if sys.platform == "darwin":
         try:
             out = subprocess.run(["mdfind", f"kMDItemCFBundleIdentifier == '{ed['bundle']}'"], capture_output=True,
-                                 text=True, timeout=5, check=False).stdout
+                                 text=True, timeout=5, check=False, env=safe_env()).stdout
         except (OSError, subprocess.SubprocessError):
             return None
         return next((ln for ln in out.splitlines() if ln.endswith(".app")), None)
@@ -594,9 +596,12 @@ def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_
 # --------------------------------------------------------------------------- open
 
 def _run(argv: list[str]) -> bool:
-    """Run and wait briefly: the editor CLI hands off to the app and exits 0 within a few seconds."""
+    """Run and wait briefly: the editor CLI hands off to the app and exits 0 within a few seconds.
+    env=safe_env(): a `code` CLI that starts VS Code hands it this environment, and VS Code hands it on to every
+    integrated terminal, task and extension host, so no provider key or miyagi token may be in it."""
     try:
-        r = subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=15, check=False, start_new_session=True)
+        r = subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=15, check=False,
+                           start_new_session=True, env=safe_env())
     except subprocess.TimeoutExpired:
         return True  # still handing off: the window is coming
     except OSError as e:
@@ -918,10 +923,11 @@ def _frontmost() -> tuple[str, str] | None:
     """(bundle id, name) of the active app, live. NSWorkspace.frontmostApplication goes stale in a process with
     no AppKit run loop (the uvicorn engine), so ask Launch Services (`lsappinfo`, ~15 ms, no permission)."""
     try:
-        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=2, check=False).stdout.strip()
+        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=2, check=False,
+                             env=safe_env()).stdout.strip()
         if asn:
             info = subprocess.run(["lsappinfo", "info", "-only", "bundleID", "-only", "name", asn],
-                                  capture_output=True, text=True, timeout=2, check=False).stdout
+                                  capture_output=True, text=True, timeout=2, check=False, env=safe_env()).stdout
             bid = re.search(r'"CFBundleIdentifier"="([^"]*)"', info)
             name = re.search(r'"LSDisplayName"="([^"]*)"', info)
             if bid or name:
