@@ -28,6 +28,11 @@ services:
         value: "0"
       - key: SUPABASE_JWT_SECRET   # only with SUPABASE_ALLOW_HS256=1
         sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY  # POST /v1/account/delete deletes the Supabase auth user (Admin API). Secret:
+        sync: false                     # dashboard only. Unset: deletions wait in /admin/deletions ("pending")
+      # Retention (README, Data we keep): per-install rows older than this are folded into per-day totals or deleted
+      - key: RETAIN_DAYS
+        value: "35"
       - key: LINK_MAX_INSTALLS_PER_USER
         value: "10"
       - key: ALLOWED_ANTHROPIC_MODELS

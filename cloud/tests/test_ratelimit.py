@@ -193,7 +193,8 @@ def test_admin_lockout_after_five_wrong_tokens(make_cloud, caplog, monkeypatch):
             else:
                 assert client.get("/admin/usage", headers={"X-Admin-Token": guess, **ip}).status_code == 401
     fails = [r for r in caplog.records if "admin auth failed" in r.getMessage()]
-    assert len(fails) == 5 and all("192.0.2.60" in r.getMessage() for r in fails)
+    # the line names the network by its keyed hash, never the address
+    assert len(fails) == 5 and all("192.0.2.60" not in r.getMessage() and "n1:" in r.getMessage() for r in fails)
     for guess in wrong:
         assert guess not in caplog.text
     # the right token from that IP is locked out too, until the window passes
@@ -387,6 +388,7 @@ def test_install_mint_limit_per_hour_survives_a_restart(make_cloud):
 
 def test_mint_counts_persist_across_store_reopen(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(CLOUD))
+    monkeypatch.setenv("NET_HASH_KEY", "a-stable-key-as-every-deploy-has")  # buckets are stored as keyed hashes
     import importlib
     import sys
 
@@ -453,7 +455,9 @@ def test_anonymous_spend_is_capped_per_minting_network(make_cloud):
     for i in range(3):
         r = client.post("/v1/install", headers=xff(f"2001:db8:cc:{i}::1"), json={})  # three /64s of one /48
         hashes.append((r.json()["token"], app_mod.hash_token(r.json()["token"])))
-    assert {app_mod.store.get_token(h)["mint_net"] for _, h in hashes} == {"2001:db8:cc::/48"}
+    # one network, stored as its keyed hash only: never the prefix itself
+    assert {app_mod.store.get_token(h)["mint_net"] for _, h in hashes} == {app_mod.store.hash_net("2001:db8:cc::/48")}
+    assert not any("2001" in (app_mod.store.get_token(h)["mint_net"] or "") for _, h in hashes)
     for _, h in hashes[:2]:
         app_mod.store.add_tokens(h, "anthropic", "claude-haiku-5-5", 10, 10, 0.25)  # $0.50 from that network today
     body = {"model": "claude-haiku-5-5", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]}

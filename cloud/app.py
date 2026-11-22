@@ -5,11 +5,12 @@ Gemini keys, enforce model allowlists, request-body allowlists, rate limits and 
 call, and count usage per token.
 
 Logs carry method, path, status, latency, model, token counts and the token-hash prefix only:
-never bodies, prompts, screenshots, tokens or keys.
+never bodies, prompts, screenshots, tokens, keys, account ids or IP addresses.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import html
@@ -27,7 +28,7 @@ import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 import anyio
 import httpx
@@ -36,7 +37,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, Field, ValidationError
 from starlette.datastructures import Headers
 
-from store import PLANS, PREFIX_LEN, Store, lesson_hash, open_store, this_month, today
+from store import MIN_RETAIN_DAYS, PLANS, PREFIX_LEN, Store, lesson_hash, open_store, this_month, today
 
 VERSION = "0.2.0"
 # Overridable only so local tests can point at a mock upstream.
@@ -250,6 +251,14 @@ LESSON_DISK_MAX_PCT = _env_float("LESSON_DISK_MAX_PCT", 85)
 LESSON_PENDING_MAX_DAYS = _env_float("LESSON_PENDING_MAX_DAYS", 14)
 LESSON_PENDING_MAX_BYTES = int(_env_float("LESSON_PENDING_MAX_MB", 128) * 1024 * 1024)
 LESSON_PENDING_PER_NET_BYTES = int(_env_float("LESSON_PENDING_PER_NET_MB", 8) * 1024 * 1024)
+# Retention (README, Data we keep): per-install detail rows older than this many days are folded into per-day totals
+# or deleted, hourly and at startup (Store.prune). Never below MIN_RETAIN_DAYS (35): the monthly build cap needs them.
+RETAIN_DAYS = max(_env_int("RETAIN_DAYS", MIN_RETAIN_DAYS), MIN_RETAIN_DAYS)
+PRUNE_EVERY_S = max(_env_float("PRUNE_EVERY_S", 3600), 60)
+# An anonymous install's mint network hash (the ANON_DAILY_USD_PER_NETWORK pool) is dropped this many days after it was
+# minted. 0 (default): kept while the install stays anonymous (linking or deleting drops it). A short value lets an
+# install minted that long ago escape its network's pool and be capped per install only (FREE_DAILY_USD).
+MINT_NET_RETAIN_DAYS = max(_env_float("MINT_NET_RETAIN_DAYS", 0), 0)
 TIMEOUT = httpx.Timeout(connect=10.0, read=_env_float("UPSTREAM_READ_TIMEOUT_S", 300), write=60.0, pool=10.0)
 
 if not ANTHROPIC_KEY or (ALLOWED_GEMINI and not GEMINI_KEY):
@@ -319,8 +328,31 @@ async def lifespan(_app: FastAPI):
     log.info("miyagi-cloud %s up: db=%s proxy_enabled=%s paused=%s rate_limit=%s admin=%s alerts=%s", VERSION, store.path,
              PROXY_ENABLED, runtime_paused(), RATE_LIMIT_ENABLED, "on" if ADMIN_ENABLED else "OFF (weak ADMIN_TOKEN)",
              "on" if ALERT_WEBHOOK_URL else "off")
-    yield
-    await http.aclose()
+    prune_now()
+    pruner = asyncio.create_task(_prune_loop())
+    try:
+        yield
+    finally:
+        pruner.cancel()
+        await http.aclose()
+
+
+def prune_now() -> dict | None:
+    """Store.prune with the configured retention. Never raises: a failed prune is logged and retried next hour."""
+    try:
+        n = store.prune(RETAIN_DAYS, LESSON_PENDING_MAX_DAYS * 86400, mint_net_days=MINT_NET_RETAIN_DAYS)
+    except Exception:
+        log.exception("pruning old rows failed")
+        return None
+    if any(n.values()):
+        log.info("pruned old rows: %s", " ".join(f"{k}={v}" for k, v in n.items() if v))
+    return n
+
+
+async def _prune_loop() -> None:
+    while True:
+        await asyncio.sleep(PRUNE_EVERY_S)
+        await anyio.to_thread.run_sync(prune_now)
 
 
 # --------------------------------------------------------------------------- client IP
@@ -619,7 +651,7 @@ def body_limit(path: str) -> int:
     """The most body bytes Guard lets a request to `path` send (declared Content-Length and running count)."""
     if path in SMALL_BODY_PATHS or _is_admin(path):
         return SMALL_BODY_MAX
-    if path == "/v1/link":
+    if path in ("/v1/link", "/v1/account/delete"):
         return LINK_MAX_BODY
     if path == "/v1/events":
         return EVENTS_MAX_BYTES
@@ -698,7 +730,7 @@ class Guard:
                 if status[0] == 0:
                     await too_large(limit)(scope, receive, send_logged)
         finally:
-            extra = "".join(f" {k}={state[k]}" for k in ("model", "role", "tokens_in", "tokens_out", "held", "tok", "user", "rl")
+            extra = "".join(f" {k}={state[k]}" for k in ("model", "role", "tokens_in", "tokens_out", "held", "tok", "linked", "rl")
                             if state.get(k) is not None)
             log.info("%s %s %s %dms%s", scope["method"], path, status[0] or 500, (time.monotonic() - start) * 1000, extra)
 
@@ -793,7 +825,7 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     if row is None:
         return None, error(401, "authentication_error", "Unknown install token. Get a new one at /v1/install.")
     request.state.tok = h[:PREFIX_LEN]
-    request.state.user = (store.get_link(h) or {}).get("user_id")  # the linked account, for the log line
+    request.state.linked = 1 if store.get_link(h) else None  # linked or not, for the log line: never the account id
     if row["disabled"]:
         return None, error(403, "permission_error", "This install has been disabled.")
     return h, None
@@ -2127,10 +2159,98 @@ async def link(request: Request):
         return link_error(403, "bad_access_token")
     user_id = claims["sub"]
     if not store.link_user_capped(h, user_id, LINK_MAX_INSTALLS_PER_USER):
-        log.warning("link refused: user %s already has %d installs linked", user_id, LINK_MAX_INSTALLS_PER_USER)
+        log.warning("link refused: the user already has %d installs linked", LINK_MAX_INSTALLS_PER_USER)
         return link_error(403, "too_many_installs")
-    request.state.user = user_id
+    request.state.linked = 1
     return {"ok": True, "user_id": user_id}
+
+
+# --------------------------------------------------------------------------- accounts: POST /v1/account/delete
+#
+# Deletes what the cloud holds for an install and, signed in, for the whole account (README, Deleting an account).
+# Same install-token check, body cap and JWT verifier as /v1/link; rate limited per client IP like it.
+
+SUPABASE_ADMIN_URL = (os.environ.get("SUPABASE_URL", "").strip() or supabase_auth.DEFAULT_SUPABASE_URL).rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = _env_key("SUPABASE_SERVICE_ROLE_KEY")  # Supabase secret (service_role) key: dashboard only
+supabase_transport: httpx.AsyncBaseTransport | None = None  # tests inject an httpx.MockTransport: never the network
+
+
+async def delete_supabase_user(user_id: str) -> str | None:
+    """DELETE the Supabase auth user through the Admin API. None when it is gone (a 404 counts: already deleted),
+    else why not: "no_service_key" | "supabase_<status>" | "supabase_unreachable". Logs neither the id nor the key."""
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        return "no_service_key"
+    url = f"{SUPABASE_ADMIN_URL}/auth/v1/admin/users/{quote(user_id, safe='')}"
+    headers = {"apikey": SUPABASE_SERVICE_ROLE_KEY, "authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0), follow_redirects=False, transport=supabase_transport) as c:
+            r = await c.delete(url, headers=headers)
+    except httpx.HTTPError as e:
+        log.warning("supabase user delete failed: %s", type(e).__name__)
+        return "supabase_unreachable"
+    if r.status_code in (200, 204, 404):
+        return None
+    log.warning("supabase user delete answered %s", r.status_code)
+    return f"supabase_{r.status_code}"
+
+
+async def finish_account_delete(user_id: str) -> str:
+    """Delete the Supabase user; on failure remember the request (deletion_requests) and alert. "deleted" | "pending"."""
+    why = await delete_supabase_user(user_id)
+    if why is None:
+        store.clear_deletion_request(user_id)
+        return "deleted"
+    store.add_deletion_request(user_id)
+    log.warning("account deletion pending: local data deleted, Supabase user not (%s)", why)
+    alert("account_delete_pending", f"miyagi-cloud: an account deletion is pending ({why}). Its cloud data is deleted, "
+                                    "its Supabase auth user is not yet. See GET /admin/deletions; retry with "
+                                    "POST /admin/deletions/retry once SUPABASE_SERVICE_ROLE_KEY works.")
+    return "pending"
+
+
+@app.post("/v1/account/delete")
+async def account_delete(request: Request):
+    """Contract (the app builds against it):
+    Authorization: Bearer <mi_ install token>; body {"access_token": "<Supabase JWT>"} signed in, or {} signed out.
+    200 {"ok": true, "install": true | false, "account": "deleted" | "none" | "pending"}: `install` says whether the
+    calling install token was a live one (and is now deleted). A valid access token deletes the account and every
+    install linked to it even when the install token is missing, unknown or disabled (an earlier signed-out delete,
+    a wiped install file): then `install` is false.
+    401 {"error": "bad_install_token"}: only when there is no valid access token AND the install token is bad (so a
+    repeated signed-out call gets 401, which the app treats as already deleted). 403 {"error": "bad_access_token"}:
+    the access token is invalid and the install token is live; nothing deleted. 400 {"error": "bad_request"} (live
+    install token, body not a JSON object); 413; 503 {"error": "delete_unavailable"} (the JWT cannot be verified
+    right now: nothing deleted, retry)."""
+    token = presented_token(request)
+    h = hash_token(token) if token and len(token) <= 200 else None
+    row = store.get_token(h) if h else None
+    live = row is not None and not row["disabled"]
+    if too_big := small_body_too_large(request, LINK_MAX_BODY):
+        return too_big
+    raw = await read_body(request)
+    if raw is None:
+        return request_timeout()
+    if len(raw) > LINK_MAX_BODY:
+        return error(413, "request_too_large", f"Request body over {LINK_MAX_BODY // 1024} KB.")
+    body = _json_object(raw) if raw.strip() else {}
+    if body is None:
+        return link_error(400, "bad_request") if live else link_error(401, "bad_install_token")
+    access, user_id = body.get("access_token"), None
+    if access is not None and access != "":
+        try:
+            claims = await run_in_threadpool(verifier.verify, access)
+        except supabase_auth.AuthUnavailable:
+            return link_error(503, "delete_unavailable")  # never 401 here: the app would take it as done
+        except supabase_auth.BadAccessToken:
+            return link_error(403, "bad_access_token") if live else link_error(401, "bad_install_token")
+        user_id = claims["sub"]
+    if not live and user_id is None:
+        return link_error(401, "bad_install_token")
+    n = await run_in_threadpool(store.delete_account, h if live else None, user_id)
+    log.info("account delete: %d install(s), signed %s, install token %s", n["installs"], "in" if user_id else "out",
+             "live" if live else "gone")
+    account = await finish_account_delete(user_id) if user_id else "none"
+    return {"ok": True, "install": live, "account": account}
 
 
 @app.post("/v1/anthropic/messages")
@@ -2682,12 +2802,12 @@ async def events(request: Request):
 def admin_ok(request: Request, token: str | None) -> bool:
     """The presented admin token matches (constant time). A miss is recorded against the client's IP bucket:
     ADMIN_LOCKOUT_FAILURES of them within an hour lock that bucket out of /admin (RateLimit). The log line names
-    the bucket only, never what was presented."""
+    the bucket's keyed hash only (never the address), never what was presented."""
     if ADMIN_ENABLED and isinstance(token, str) and token and hmac.compare_digest(token.encode(), ADMIN_TOKEN.encode()):
         return True
     bucket = getattr(request.state, "ip_bucket", None) or ip_bucket(client_ip(request))
     n = admin_failures.record(bucket)
-    log.warning("admin auth failed from %s (%d in the last hour)", bucket, n)
+    log.warning("admin auth failed from network %s (%d in the last hour)", store.hash_net(bucket), n)
     return False
 
 
@@ -2878,6 +2998,29 @@ async def admin_delete_lesson(video_id: str, request: Request):
     return {"video_id": video_id, "deleted": n}
 
 
+@app.get("/admin/deletions")
+async def admin_deletions(request: Request):
+    """Account deletions whose Supabase user is not deleted yet (their cloud data already is)."""
+    if denied := require_admin(request):
+        return denied
+    return JSONResponse({"pending": store.deletion_requests(), "service_key": bool(SUPABASE_SERVICE_ROLE_KEY)},
+                        headers={"cache-control": "no-store"})
+
+
+@app.post("/admin/deletions/retry")
+async def admin_retry_deletions(request: Request):
+    """Retry every pending deletion: wipe again whatever the account linked since, then delete the Supabase user."""
+    if denied := require_admin(request):
+        return denied
+    done = 0
+    for r in store.deletion_requests():
+        await run_in_threadpool(store.delete_account, None, r["user_id"])
+        done += await finish_account_delete(r["user_id"]) == "deleted"
+    left = store.deletion_requests()
+    log.info("admin: retried account deletions: %d deleted, %d pending", done, len(left))
+    return {"deleted": done, "pending": left}
+
+
 _ADMIN_HEADERS = {"cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer",
                   "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'"}
 _STYLE = ("body{font:14px system-ui,sans-serif;margin:24px;color:#111;background:#fff}table{border-collapse:collapse;margin:8px 0 24px}"
@@ -2935,7 +3078,9 @@ async def admin_page_post(request: Request):
                f"global spend brake: {'$' + str(DAILY_USD_CAP) if DAILY_USD_CAP > 0 else 'off'}.</p>"
                f"<p>New installs today: {r['new_installs_today']} of "
                f"{NEW_INSTALLS_PER_DAY if NEW_INSTALLS_PER_DAY > 0 else 'no cap'}. Alerts sent today: "
-               f"{html.escape(', '.join(r['alerts_today'])) or 'none'}.</p>")
+               f"{html.escape(', '.join(r['alerts_today'])) or 'none'}.</p>"
+               f"<p>Account deletions pending (Supabase user not deleted yet): <b>{len(store.deletion_requests())}</b> "
+               f"(GET /admin/deletions, POST /admin/deletions/retry).</p>")
     cols = ["requests", "input_tokens", "output_tokens", "usd"]
     return _page(summary + "<h2>Per day</h2>" + _table(r["by_day"], ["day", "tokens", *cols])
                  + "<h2>Events per day</h2>" + _table(r["events"], ["day", "name", "count", "installs"])

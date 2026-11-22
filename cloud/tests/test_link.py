@@ -424,7 +424,7 @@ def test_unlinked_install_still_uses_the_proxy(cloud):
     assert r.status_code == 502  # got past auth to the (closed) upstream
 
 
-def test_user_id_in_usage_and_logs_without_tokens(cloud, caplog):
+def test_user_id_in_usage_but_never_in_logs(cloud, caplog):
     client, app_mod, _ = cloud
     tok, h = install(client)
     access = make_token()
@@ -433,7 +433,7 @@ def test_user_id_in_usage_and_logs_without_tokens(cloud, caplog):
         client.post("/v1/anthropic/messages", headers=h,
                     json={"model": "claude-haiku-5-5", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]})
     text = caplog.text
-    assert f"user={USER}" in text
+    assert USER not in text and "linked=1" in text  # the log says linked, never the account id
     assert tok not in text and access not in text and access.split(".")[2] not in text
     report = client.get("/admin/usage", headers={"x-admin-token": ADMIN_TOKEN}).json()
     rows = [r for r in report["by_token"] if r["token"] == app_mod.hash_token(tok)[:12]]
