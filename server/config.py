@@ -136,7 +136,7 @@ def _clean_url(value: str | None) -> str | None:
     """An https URL on an allowed proxy host (cloud_host_allowed) without a trailing slash, else None. Plain http
     only for this Mac, and only with MIYAGI_DEV_CLOUD=1. A refused host is logged by name (never the full URL)."""
     v = (value or "").strip().rstrip("/")
-    if not usable(v):
+    if not usable(v) or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in v):  # urlsplit strips tab/CR/LF; httpx won't
         return None
     try:
         u = urlsplit(v)
@@ -155,11 +155,12 @@ def _clean_url(value: str | None) -> str | None:
 
 
 _warned_hosts: set[tuple[str, str]] = set()
+_WARNED_HOSTS_MAX = 64  # past this, refused hosts are still refused, just not logged again
 
 
 def _warn_host(host: str, scheme: str) -> None:
     key = (host.lower(), scheme)
-    if key in _warned_hosts:
+    if key in _warned_hosts or len(_warned_hosts) >= _WARNED_HOSTS_MAX:
         return
     _warned_hosts.add(key)
     if host.lower() in _LOOPBACK_HOSTS:

@@ -68,6 +68,8 @@ def test_an_attacker_host_on_first_connect_leaves_the_cloud_off():
     "https://miyagi-cloud.onrender.com.test/v1",
     "javascript:alert(1)",
     "file:///etc/passwd",
+    "https://miyagi-cloud.onrender.co\tm/v1",        # urlsplit drops tab/CR/LF; the raw value would keep them
+    "https://miyagi-cloud.onrender.com/v\r\n1",
 ])
 def test_refused_cloud_urls(url):
     assert config._clean_url(url) is None
@@ -173,3 +175,10 @@ def test_the_app_sends_the_default_host():
     """app/src/main/features/cloud.ts DEFAULT_CLOUD_URL is the pinned default (read only, other branch)."""
     assert config.DEFAULT_CLOUD_HOST == "miyagi-cloud.onrender.com"
     assert config.cloud_host_allowed("MIYAGI-CLOUD.onrender.com.")  # case and a trailing dot do not matter
+
+
+def test_refused_host_warnings_are_capped(caplog):
+    with caplog.at_level(logging.WARNING, logger="server.config"):
+        for i in range(config._WARNED_HOSTS_MAX + 50):
+            assert config._clean_url(f"https://h{i}.attacker.example/v1") is None
+    assert len(config._warned_hosts) == config._WARNED_HOSTS_MAX

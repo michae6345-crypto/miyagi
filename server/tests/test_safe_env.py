@@ -155,32 +155,55 @@ _ASYNCIO_FUNCS = {"create_subprocess_exec", "create_subprocess_shell"}
 _OS_FUNCS = {"system", "popen", "spawnl", "spawnlp", "spawnv", "spawnvp", "execv", "execvp", "execl", "execlp"}
 
 
+_LAUNCH_MODULES = ("subprocess", "asyncio", "asyncio.subprocess", "os")
+
+
 def _imported_names(tree: ast.Module) -> dict[str, str]:
-    """Bare names imported from subprocess / asyncio / os (`from subprocess import run`) -> module."""
+    """Local names bound by an import of subprocess / asyncio / os -> what they stand for: a module
+    (`import subprocess as sp` -> "subprocess") or a function (`from subprocess import run as r` -> "subprocess.run")."""
     out: dict[str, str] = {}
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module in ("subprocess", "asyncio", "asyncio.subprocess", "os"):
+        if isinstance(node, ast.ImportFrom) and node.module in _LAUNCH_MODULES:
             for a in node.names:
-                out[a.asname or a.name] = node.module.split(".")[0]
+                out[a.asname or a.name] = f"{node.module.split('.')[0]}.{a.name}"
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name in _LAUNCH_MODULES and a.asname:
+                    out[a.asname] = a.name.split(".")[0]
     return out
 
 
-def _launch(call: ast.Call, bare: dict[str, str]) -> str | None:
-    f = call.func
+def _launch_name(mod: str | None, func: str) -> str | None:
+    if mod == "subprocess" and func in _SUBPROCESS_FUNCS:
+        return f"subprocess.{func}"
+    if mod in ("asyncio", "subprocess") and func in _ASYNCIO_FUNCS:
+        return f"asyncio.{func}"
+    if mod == "os" and func in _OS_FUNCS:
+        return f"os.{func}"
+    return None
+
+
+def _launch_ref(f: ast.AST, bare: dict[str, str]) -> str | None:
+    """A reference to a launch function (`subprocess.run`, `sp.run`, `r` from `from subprocess import run as r`)."""
     if isinstance(f, ast.Attribute):
         base = f.value
         mod = base.id if isinstance(base, ast.Name) else (base.attr if isinstance(base, ast.Attribute) else None)
-        if mod == "subprocess" and f.attr in _SUBPROCESS_FUNCS:
-            return f"subprocess.{f.attr}"
-        if mod in ("asyncio", "subprocess") and f.attr in _ASYNCIO_FUNCS:
-            return f"asyncio.{f.attr}"
-        if mod == "os" and f.attr in _OS_FUNCS:
-            return f"os.{f.attr}"
-    elif isinstance(f, ast.Name) and f.id in bare:
-        mod = bare[f.id]
-        if (mod == "subprocess" and f.id in _SUBPROCESS_FUNCS) or (mod == "asyncio" and f.id in _ASYNCIO_FUNCS) \
-                or (mod == "os" and f.id in _OS_FUNCS):
-            return f"{mod}.{f.id}"
+        if isinstance(base, ast.Name) and "." not in bare.get(mod, "."):
+            mod = bare[mod]  # a module alias
+        return _launch_name(mod, f.attr)
+    if isinstance(f, ast.Name) and "." in bare.get(f.id, ""):
+        mod, func = bare[f.id].split(".", 1)
+        return _launch_name(mod, func)
+    return None
+
+
+def _launch(call: ast.Call, bare: dict[str, str]) -> str | None:
+    if (what := _launch_ref(call.func, bare)) is not None:
+        return what
+    f = call.func  # functools.partial(subprocess.run, ...) / partial(...): the launch happens later, check it here
+    if ((isinstance(f, ast.Attribute) and f.attr == "partial") or (isinstance(f, ast.Name) and f.id == "partial")) \
+            and call.args and (what := _launch_ref(call.args[0], bare)) is not None:
+        return f"{what} (via partial)"
     return None
 
 
@@ -343,6 +366,20 @@ def test_the_scan_catches_each_kind_of_leak():
     lines = sorted(int(h.split(":")[1].split()[0]) for h in scan(src, "x.py"))
     assert lines == [3, 4, 5, 6, 7, 7, 9, 10, 15]
 
+
+
+def test_the_scan_sees_through_aliases_and_partial():
+    src = ("import subprocess as sp, os as o\nimport functools\nfrom subprocess import run as r\n"
+           "from functools import partial\n"
+           "sp.run(['x'])\n"                                       # 5: module alias
+           "r(['x'])\n"                                            # 6: function alias
+           "o.system('x')\n"                                       # 7: os alias
+           "functools.partial(sp.Popen, ['x'])\n"                  # 8: partial
+           "partial(r, ['x'])\n"                                   # 9: bare partial
+           "sp.run(['x'], env=safe_env())\n"                       # clean
+           "partial(sp.run, ['x'], env=safe_env())\n")             # clean
+    lines = sorted(int(h.split(":")[1].split()[0]) for h in scan(src, "x.py"))
+    assert lines == [5, 6, 7, 8, 9]
 
 def test_config_docstring_matches_safe_env():
     """The module docstring used to say safe_env "strips the rest" while nothing called it; it now says who does."""

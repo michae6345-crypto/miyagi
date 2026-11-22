@@ -70,6 +70,8 @@ async def _resolves(client: httpx.AsyncClient, url: str) -> bool:
         if r.status_code in (403, 405, 501):  # some hosts refuse HEAD
             r = await netsafe.get(target, client=client, timeout=CHECK_TIMEOUT_S, max_bytes=GET_PEEK_BYTES,
                                   truncate=True)
+        if r.status_code == 400 and target != url.split("#", 1)[0]:
+            return True  # the query we dropped was likely what the server needed (drive.google.com/uc?id=...)
         return r.status_code < 400
     except Exception:  # noqa: BLE001  unreachable (or refused by netsafe) counts as bad
         return False

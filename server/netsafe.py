@@ -105,6 +105,8 @@ def ip_allowed(ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
             return False
     if a.is_multicast or a.is_unspecified or a.is_loopback or a.is_link_local or a.is_private or a.is_reserved:
         return False
+    if isinstance(a, ipaddress.IPv6Address) and a.is_site_local:  # deprecated fec0::/10
+        return False
     return a.is_global
 
 
@@ -459,10 +461,10 @@ async def _request(client: httpx.AsyncClient, method: str, url: str | httpx.URL,
             if (nxt := _redirect(resp, req, first, current, hop, max_redirects, hdrs)) is not None:
                 current, hdrs = nxt
                 continue
+            if method.upper() == "HEAD":  # no body: no size or Content-Encoding check (a 30 MB PDF is fine)
+                return _final(resp, req, b"")
             body = _Body(resp, max_bytes, truncate)
-            if method.upper() == "HEAD":
-                pass
-            elif body.in_memory:
+            if body.in_memory:
                 body.feed(resp.content)
             else:
                 async for raw in resp.aiter_raw():
@@ -529,10 +531,10 @@ def _request_sync(client: httpx.Client, method: str, url: str | httpx.URL, heade
             if (nxt := _redirect(resp, req, first, current, hop, max_redirects, hdrs)) is not None:
                 current, hdrs = nxt
                 continue
+            if method.upper() == "HEAD":  # no body: no size or Content-Encoding check
+                return _final(resp, req, b"")
             body = _Body(resp, max_bytes, truncate)
-            if method.upper() == "HEAD":
-                pass
-            elif body.in_memory:
+            if body.in_memory:
                 body.feed(resp.content)
             else:
                 for raw in resp.iter_raw():

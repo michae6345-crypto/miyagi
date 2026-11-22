@@ -27,6 +27,8 @@ DNS = {  # what the fake resolver answers
     "mixed.example": [PUBLIC, "10.0.0.7"],      # one bad address is enough to refuse
     "mapped.example": ["::ffff:127.0.0.1"],
     "ula.example": ["fd00::5"],
+    "arxiv.org": ["151.101.3.42"],
+    "drive.google.com": ["142.250.80.46"],
 }
 PEER = {"rebind.example": "127.0.0.1"}  # where the fake socket really connects, when not the DNS answer
 
@@ -290,6 +292,7 @@ def test_without_a_client_netsafe_uses_its_own(monkeypatch):
     ("fc00::1", False), ("fd00::1", False), ("fe80::1%en0", False), ("ff02::1", False), ("ff0e::1", False),
     ("::ffff:127.0.0.1", False), ("::ffff:10.0.0.1", False), ("::ffff:8.8.8.8", True),
     ("2002:7f00:0001::", False), ("64:ff9b::7f00:1", False), ("64:ff9b::808:808", True), ("not-an-ip", False),
+    ("fec0::1", False), ("feff::1", False),
 ])
 def test_ip_allowed(ip, ok):
     assert netsafe.ip_allowed(ip) is ok
@@ -675,3 +678,58 @@ def test_resources_watch_page_goes_through_netsafe(lessons_dir, monkeypatch):
     assert net.seen == ["https://www.youtube.com/watch?v=abcdefghijk"]
     src = Path(resources.__file__).read_text()
     assert "follow_redirects=True" not in src and "httpx.Client(" not in src
+
+
+# --------------------------------------------------------------------------- HEAD has no body
+
+
+BIG_PDF = 31457280  # 30 MB
+
+
+def _big_head(req):
+    return httpx.Response(200, headers={"Content-Length": str(BIG_PDF), "Content-Type": "application/pdf"})
+
+
+def test_a_head_for_a_file_over_the_cap_succeeds():
+    async def go():
+        async with netsafe.async_client(transport=FakeNet(_big_head)) as c:
+            return await netsafe.head("https://arxiv.org/pdf/1706.03762", client=c)
+    assert asyncio.run(go()).status_code == 200
+
+
+def test_a_head_with_an_unsupported_encoding_succeeds():
+    net = FakeNet(lambda req: httpx.Response(200, headers={"Content-Encoding": "br", "Content-Length": "9"}))
+    async def go():
+        async with netsafe.async_client(transport=net) as c:
+            return await netsafe.head("https://example.com/br", client=c)
+    assert asyncio.run(go()).status_code == 200
+
+
+def test_a_sync_head_for_a_file_over_the_cap_succeeds():
+    with netsafe.sync_client(transport=SyncFakeNet(_big_head)) as c:
+        assert netsafe.request_sync("HEAD", "https://arxiv.org/pdf/1706.03762", client=c).status_code == 200
+
+
+def test_lesson_link_to_a_big_pdf_resolves(monkeypatch):
+    from server.lesson import links
+    monkeypatch.setattr(netsafe, "TRANSPORT", FakeNet(_big_head))
+
+    async def go():
+        async with netsafe.async_client() as c:
+            return await links._resolves(c, "https://arxiv.org/pdf/1706.03762")
+    assert asyncio.run(go()) is True
+
+
+def test_lesson_link_whose_query_was_dropped_is_kept_on_a_400(monkeypatch):
+    from server.lesson import links
+
+    def handler(req):
+        if req.url.host == "drive.google.com":
+            return httpx.Response(400)  # /uc without its id
+        return httpx.Response(404)
+
+    monkeypatch.setattr(netsafe, "TRANSPORT", FakeNet(handler))
+    steps = [{"id": "s1", "instructions": "Get https://drive.google.com/uc?export=download&id=abc and "
+                                          "https://example.com/missing?x=1 and https://drive.google.com/bare"}]
+    bad = asyncio.run(links.find_bad_urls(steps, ""))
+    assert bad == {"https://example.com/missing?x=1", "https://drive.google.com/bare"}
