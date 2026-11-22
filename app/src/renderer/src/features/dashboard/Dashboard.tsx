@@ -102,7 +102,7 @@ export function useDashView() {
   return { data, load, now, goals, r, t, due, later, active }
 }
 
-export function Dashboard({ route }: { route: AppRoute }): ReactNode {
+export function Dashboard({ route, withContinue = true }: { route: AppRoute; /** the home window's Progress page leaves Continue to Home and Lessons */ withContinue?: boolean }): ReactNode {
   const { data, load, now, r, due, later } = useDashView()
   const items = useLibrary((s) => s.items)
   const cont = continueList(data, items)
@@ -114,9 +114,9 @@ export function Dashboard({ route }: { route: AppRoute }): ReactNode {
   // One quiet page: Continue, then Skills with Review and Up next beside them. Parts with nothing to show are left out.
   return (
     <div data-dashboard className="@container relative h-full min-h-0 w-full" style={{ color: color.text }}>
-      <div className="h-full overflow-y-auto" style={{ padding: '24px 32px 32px', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
-        <div className="mx-auto flex w-full flex-col gap-[36px]" style={{ maxWidth: 1040 }}>
-          {cont.length > 0 && <Continue items={cont} route={route} />}
+      <div className="h-full overflow-y-auto" style={{ padding: withContinue ? '24px 32px 32px' : '8px 40px 40px', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
+        <div className={`${withContinue ? 'mx-auto' : ''} flex w-full flex-col gap-[36px]`} style={{ maxWidth: 1040 }}>
+          {withContinue && cont.length > 0 && <Continue items={cont} route={route} />}
           <div className={rail ? 'grid items-start gap-[40px] @min-[900px]:grid-cols-[minmax(0,1fr)_280px]' : ''}>
             <Constellation data={data} review={due} loading={loading} bare />
             {rail && (

@@ -16,9 +16,11 @@
  * Compact (narrow window): icons only, 64 px, labels as tooltips. Navigation is chrome: neutral fills, never a hue.
  */
 import { motion } from 'motion/react'
+import { SquarePen } from 'lucide-react'
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { color, fill, focus, highlight, radius2, spring, surface, type2 } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
+import { openLauncher } from '../library/Library'
 import { planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { authOn } from '../auth/model'
@@ -29,8 +31,42 @@ import { SidebarBrand } from './flow/SidebarBrand'
 import { openSheet, useSheet } from './sheet'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
-export const SIDEBAR_W = 224
+export const SIDEBAR_W = 232
 export const SIDEBAR_COMPACT_W = 64
+
+/**
+ * Redraft (Adrian, Nov 21): the main nav is the learner's pages (Home, Lessons, Skills, Progress). Settings sits at the
+ * foot beside the account, as in macOS and Linear; Account is the chip itself (⌘6 still reaches its page).
+ */
+const FOOT: ReadonlySet<PageId> = new Set(['settings', 'account'])
+
+/** New lesson: the launcher, one click from every page (a goal or a YouTube link). Chrome: neutral, never a hue. */
+function NewLesson({ compact }: { compact: boolean }): ReactNode {
+  return (
+    <motion.button
+      type="button"
+      data-shell-new
+      title={compact ? 'New lesson' : undefined}
+      aria-label="New lesson"
+      className="mg-press relative flex cursor-pointer items-center text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
+      style={{
+        height: 34,
+        gap: 10,
+        padding: compact ? 0 : '0 6px 0 10px',
+        justifyContent: compact ? 'center' : undefined,
+        borderRadius: radius2.control,
+        fontSize: type2.sm,
+        color: color.text,
+        outlineColor: focus.dark
+      }}
+      {...pressMotion()}
+      onClick={openLauncher}
+    >
+      <SquarePen aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" />
+      {!compact && <span className="relative flex-1 truncate">New lesson</span>}
+    </motion.button>
+  )
+}
 
 function NavRow({ id, label, Icon, on, compact, index }: { id: PageId; label: string; Icon: (typeof PAGES)[number]['icon']; on: boolean; compact: boolean; index: number }): ReactNode {
   return (
@@ -75,12 +111,15 @@ function NavRow({ id, label, Icon, on, compact, index }: { id: PageId; label: st
 function Nav({ compact }: { compact: boolean }): ReactNode {
   const page = useShell((s) => s.page)
   const ref = useRef<HTMLElement>(null)
+  // The arrows walk the main pages only (Settings and the account live at the foot).
+  const main = PAGES.filter((p) => !FOOT.has(p.id))
   const onKey = (e: KeyboardEvent<HTMLElement>): void => {
-    const i = PAGES.findIndex((p) => p.id === page)
-    const to = e.key === 'ArrowDown' ? Math.min(PAGES.length - 1, i + 1) : e.key === 'ArrowUp' ? Math.max(0, i - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? PAGES.length - 1 : -1
+    const i = main.findIndex((p) => p.id === page)
+    const last = main.length - 1
+    const to = e.key === 'ArrowDown' ? Math.min(last, i + 1) : e.key === 'ArrowUp' ? Math.max(0, i - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? last : -1
     if (to < 0) return
     e.preventDefault()
-    setPage(PAGES[to].id)
+    setPage(main[to].id)
   }
   // Keep keyboard focus on the selected row when the arrows (or ⌘1..⌘6 while the nav has focus) move it.
   useEffect(() => {
@@ -90,9 +129,9 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
   }, [page])
   return (
     <nav ref={ref} aria-label="Pages" className="flex flex-col gap-[2px]" onKeyDown={onKey}>
-      {PAGES.map((p, i) => (
-        <NavRow key={p.id} id={p.id} label={p.label} Icon={p.icon} on={p.id === page} compact={compact} index={i} />
-      ))}
+      {PAGES.map((p, i) =>
+        FOOT.has(p.id) ? null : <NavRow key={p.id} id={p.id} label={p.label} Icon={p.icon} on={p.id === page} compact={compact} index={i} />
+      )}
     </nav>
   )
 }
@@ -102,7 +141,7 @@ const FLIGHT_Z = 45
 
 /** Where the avatar sits while it is lent to the sheet: an empty recessed circle, so the chip never looks broken. */
 function AvatarSocket(): ReactNode {
-  return <span aria-hidden data-avatar="socket" className="block shrink-0" style={{ width: 32, height: 32, borderRadius: radius2.round, background: surface.well, boxShadow: `${highlight.well}, inset 0 0 0 1px ${fill.hairline}` }} />
+  return <span aria-hidden data-avatar="socket" className="block shrink-0" style={{ width: 28, height: 28, borderRadius: radius2.round, background: surface.well, boxShadow: `${highlight.well}, inset 0 0 0 1px ${fill.hairline}` }} />
 }
 
 /**
@@ -158,18 +197,18 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
       className="mg-press relative flex w-full cursor-pointer items-center text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
       style={{
         gap: 10,
-        padding: compact ? 6 : '8px 10px',
+        padding: compact ? 6 : '6px 8px',
         justifyContent: compact ? 'center' : undefined,
-        borderRadius: radius2.card,
-        background: on ? fill.navActive : fill.group,
-        boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}`,
+        borderRadius: radius2.row,
+        background: on ? fill.navActive : 'transparent',
+        boxShadow: on ? highlight.topSoft : undefined,
         outlineColor: focus.dark
       }}
       {...pressMotion()}
       aria-haspopup={login || v2Cloud ? 'dialog' : undefined}
       onClick={() => (login || v2Cloud ? openSheet(signedIn ? 'account' : 'signin') : setPage('account'))}
     >
-      {lent ? <AvatarSocket /> : <SharedAvatar initial={initial} size={32} snap={snap} onFlight={onFlight} />}
+      {lent ? <AvatarSocket /> : <SharedAvatar initial={initial} size={28} snap={snap} onFlight={onFlight} />}
       {!compact && (
         <span className="relative flex min-w-0 flex-1 flex-col" style={{ gap: 2 }}>
           {pending ? (
@@ -194,21 +233,29 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
 }
 
 export function Sidebar({ compact, short, blocked = false }: { compact: boolean; short: boolean; /** the account sheet is open: lit, but inert */ blocked?: boolean }): ReactNode {
+  const page = useShell((s) => s.page)
+  const settings = PAGES.findIndex((p) => p.id === 'settings')
+  const S = PAGES[settings]
   return (
     <aside
       data-shell-sidebar={compact ? 'compact' : 'full'}
       inert={blocked}
       className="flex h-full shrink-0 flex-col"
-      style={{ width: compact ? SIDEBAR_COMPACT_W : SIDEBAR_W, padding: compact ? '0 10px 12px' : '0 12px 12px', background: fill.group, boxShadow: `inset -1px 0 0 ${fill.hairline}` }}
+      // The sidebar is the window itself (the lowest layer); the content panel beside it is the raised one.
+      style={{ width: compact ? SIDEBAR_COMPACT_W : SIDEBAR_W, padding: compact ? '0 10px 10px' : '0 10px 10px 12px' }}
     >
       {/* The window's own traffic lights sit here (hiddenInset); this strip drags the window. */}
       <div data-drag className="mg-lights shrink-0" />
-      <div data-drag className="flex shrink-0 items-center gap-[8px]" style={{ padding: compact ? '4px 0 20px' : '4px 10px 20px', justifyContent: compact ? 'center' : undefined }}>
+      <div data-drag className="flex shrink-0 items-center gap-[8px]" style={{ padding: compact ? '4px 0 18px' : '4px 10px 18px', justifyContent: compact ? 'center' : undefined }}>
         <SidebarBrand compact={compact} />
       </div>
-      <Nav compact={compact} />
-      <div className="mt-auto flex flex-col gap-[10px]" style={{ paddingTop: 16 }}>
+      <div className="flex flex-col" style={{ gap: 14 }}>
+        <NewLesson compact={compact} />
+        <Nav compact={compact} />
+      </div>
+      <div className="mt-auto flex flex-col gap-[4px]" style={{ paddingTop: 16 }}>
         {!compact && !short && <StatusArea plan={false} />}
+        <NavRow id={S.id} label={S.label} Icon={S.icon} on={page === 'settings'} compact={compact} index={settings} />
         <AccountChip compact={compact} />
       </div>
     </aside>

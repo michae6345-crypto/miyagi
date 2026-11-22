@@ -14,8 +14,8 @@ export function SkillsPage(): ReactNode {
   const { data, load, now, due } = useDashView()
   return (
     <div data-shell-skills className="relative h-full min-h-0 @container" style={{ color: color.text }}>
-      <div className="h-full overflow-y-auto" style={{ padding: '24px 32px 32px', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
-        <div className="mx-auto w-full" style={{ maxWidth: 1040 }}>
+      <div className="h-full overflow-y-auto" style={{ padding: '8px 40px 40px', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
+        <div className="w-full" style={{ maxWidth: 1040 }}>
           <Constellation data={data} review={due} loading={load === 'loading'} bare />
         </div>
       </div>

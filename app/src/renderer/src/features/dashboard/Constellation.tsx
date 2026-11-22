@@ -91,13 +91,8 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
             {g.kicker}
           </span>
         )}
-        {t.mastered > 0 && (
-          <span className="ml-auto shrink-0 tabular-nums" style={caption}>
-            {t.mastered} mastered
-          </span>
-        )}
       </div>
-      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: `color-mix(in srgb, ${tones[tone].bg} 60%, transparent)` }}>
+      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: tones[tone].wash }}>
         <div className="relative" style={{ width: w, height: h + 8 }}>
           <svg width={w} height={h + 8} className="pointer-events-none absolute inset-0" aria-hidden>
             {t.edges.map((e) => {
