@@ -186,6 +186,20 @@ const palette: Record<string, readonly [string, string]> = {
   'tone-peach-fg': [brand.pastel.peach, '#9A4E1C'],
   'tone-sand-bg': [alphaHex(brand.pastel.sand, 0.14), '#EFE8D8'],
   'tone-sand-fg': [brand.pastel.sand, '#77683F'],
+  // a lesson's cover tile (home window redraft, Adrian Nov 21): in dark the solid option pastel with an ink icon (a wash
+  // over gray reads as dusty gray); light keeps the tag's pale wash with the deep icon
+  'tone-sky-cover': [brand.pastel.sky, '#DDEEF9'],
+  'tone-sky-cover-fg': [brand.ink, '#2B6C9B'],
+  'tone-lilac-cover': [brand.pastel.lilac, '#E7E2FB'],
+  'tone-lilac-cover-fg': [brand.ink, '#5848B0'],
+  'tone-pink-cover': [brand.pastel.pink, '#FADCE6'],
+  'tone-pink-cover-fg': [brand.ink, '#A23C66'],
+  'tone-mint-cover': [brand.pastel.mint, '#D8F0EA'],
+  'tone-mint-cover-fg': [brand.ink, '#2A7468'],
+  'tone-peach-cover': [brand.pastel.peach, '#FCE3D2'],
+  'tone-peach-cover-fg': [brand.ink, '#9A4E1C'],
+  'tone-sand-cover': [brand.pastel.sand, '#EFE8D8'],
+  'tone-sand-cover-fg': [brand.ink, '#77683F'],
   // ---- glass panels (theme.glass): the same surfaces, as before ----
   'glass-bg': ['rgba(28, 28, 30, 0.96)', 'rgba(252, 251, 249, 0.97)'],
   'glass-text': [hud.dark.text, brand.ink],
@@ -627,12 +641,12 @@ export type Layer = keyof typeof layer
  *   mint    (teal, not the pass green) skills  peach  warm tracks, new        sand   neutral warm, everything else
  */
 export const tone = {
-  sky: { bg: 'var(--tone-sky-bg)', fg: 'var(--tone-sky-fg)', solid: brand.pastel.sky },
-  lilac: { bg: 'var(--tone-lilac-bg)', fg: 'var(--tone-lilac-fg)', solid: brand.pastel.lilac },
-  pink: { bg: 'var(--tone-pink-bg)', fg: 'var(--tone-pink-fg)', solid: brand.pastel.pink },
-  mint: { bg: 'var(--tone-mint-bg)', fg: 'var(--tone-mint-fg)', solid: brand.pastel.mint },
-  peach: { bg: 'var(--tone-peach-bg)', fg: 'var(--tone-peach-fg)', solid: brand.pastel.peach },
-  sand: { bg: 'var(--tone-sand-bg)', fg: 'var(--tone-sand-fg)', solid: brand.pastel.sand }
+  sky: { bg: 'var(--tone-sky-bg)', fg: 'var(--tone-sky-fg)', cover: 'var(--tone-sky-cover)', coverFg: 'var(--tone-sky-cover-fg)', solid: brand.pastel.sky },
+  lilac: { bg: 'var(--tone-lilac-bg)', fg: 'var(--tone-lilac-fg)', cover: 'var(--tone-lilac-cover)', coverFg: 'var(--tone-lilac-cover-fg)', solid: brand.pastel.lilac },
+  pink: { bg: 'var(--tone-pink-bg)', fg: 'var(--tone-pink-fg)', cover: 'var(--tone-pink-cover)', coverFg: 'var(--tone-pink-cover-fg)', solid: brand.pastel.pink },
+  mint: { bg: 'var(--tone-mint-bg)', fg: 'var(--tone-mint-fg)', cover: 'var(--tone-mint-cover)', coverFg: 'var(--tone-mint-cover-fg)', solid: brand.pastel.mint },
+  peach: { bg: 'var(--tone-peach-bg)', fg: 'var(--tone-peach-fg)', cover: 'var(--tone-peach-cover)', coverFg: 'var(--tone-peach-cover-fg)', solid: brand.pastel.peach },
+  sand: { bg: 'var(--tone-sand-bg)', fg: 'var(--tone-sand-fg)', cover: 'var(--tone-sand-cover)', coverFg: 'var(--tone-sand-cover-fg)', solid: brand.pastel.sand }
 } as const
 export type Tone = keyof typeof tone
 export const toneNames = Object.keys(tone) as Tone[]
