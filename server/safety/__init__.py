@@ -71,7 +71,8 @@ def _host(url: str) -> str | None:
 
 
 def allowed_hosts() -> frozenset[str]:
-    """DOCS_HOSTS plus every host the setup catalog (server.workspace.setup.CATALOG) links to."""
+    """DOCS_HOSTS plus every host the setup catalog (server.workspace.setup.CATALOG) links to, and the licensed apps'
+    vendor pages and free alternatives (server.workspace.apps: autodesk.com, adobe.com, freecad.org...)."""
     hosts = set(DOCS_HOSTS)
     try:
         from server.workspace.setup import CATALOG
@@ -80,6 +81,12 @@ def allowed_hosts() -> frozenset[str]:
             if (h := _host(str(entry.get("url") or ""))) is not None:
                 hosts.add(h)
     except Exception:  # noqa: BLE001 - the docs list alone
+        pass
+    try:
+        from server.workspace.apps import link_hosts
+
+        hosts |= set(link_hosts())
+    except Exception:  # noqa: BLE001
         pass
     return frozenset(h for h in hosts if not _under(h, BANNED_HOSTS))
 

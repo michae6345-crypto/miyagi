@@ -31,6 +31,7 @@ from jsonschema import Draft202012Validator
 
 from server.untrusted import EXTRACT_RULE, wrap
 
+from . import apps as _apps
 from . import editor as _editor
 from . import paths
 from .scaffold import _extract_json, _reply_text, make_client, record_cost
@@ -82,6 +83,17 @@ ALIASES = {
     "sheets": "google-sheets", "google sheets": "google-sheets",
     "golang": "go", "jdk": "java", "openjdk": "java", "docker desktop": "docker", "unity hub": "unity",
 }
+# Free desktop apps with an allowlisted Homebrew cask, free web apps, and GNU Octave (apps.py). Never overrides an
+# entry above. Licensed apps (AutoCAD, Photoshop...) are NOT catalog entries: they have no installer (apps.LICENSED).
+for _t, _e in _apps.FREE_APPS.items():
+    CATALOG.setdefault(_t, {"label": _e["label"], "kind": "app", "bundle": _e["bundle"], "app": _e["app"], "cask": _e["cask"],
+                            "url": _e["url"]})
+for _t, _e in _apps.WEB_APPS.items():
+    CATALOG.setdefault(_t, {"label": _e["label"], "kind": "web_app", "url": _e["url"]})
+CATALOG.setdefault("octave", {"label": "GNU Octave", "kind": "cli", "bin": "octave", "formula": "octave", "url": "https://octave.org/download"})
+# Homebrew casks install() may run: the catalog's own. A model's cask name off this list gets the download page instead
+# (a GUI app from an unknown cask could be anything, or a paid app that has a cask, like microsoft-excel).
+ALLOWED_CASKS = frozenset(e["cask"] for e in CATALOG.values() if e.get("cask") and e["cask"] != "cursor")
 
 REQ_SCHEMA = {
     "type": "object",
@@ -142,6 +154,8 @@ Go only by the video's steps above (what the learner typed when searching is not
   the macOS terminal. Each tool appears once. At most 15.
 - min_version only when the tutorial clearly needs it (e.g. python 3.10 for match statements).
 - brew: the real Homebrew formula/cask name (brew_cask=true for GUI apps), "" if you are not sure.
+- commercial or licensed desktop apps (AutoCAD, Fusion, Photoshop, Excel, MATLAB, ...): kind "app", the app's
+  plain name as tool (autocad, not "AutoCAD 2025"), brew "" (they are never installed for the learner).
 """
 
 
@@ -373,7 +387,13 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
         check_python_packages([item], check_python(workdir), run=run)
         return item
     else:
-        if cat.get("bundle") or kind in ("app", "editor"):
+        if item["tool"] in _apps.LICENSED or (item["tool"] in _apps.FREE_APPS and kind == "app"):
+            # apps.py: also one folder down (/Applications/Autodesk/AutoCAD 2025/...) and Spotlight by bundle prefix
+            found = _apps.detect(item["tool"], run)
+            installed, where, version = bool(found["installed"]), found["where"], found["version"]
+            if found.get("noMac"):
+                item["noMac"] = True
+        elif cat.get("bundle") or kind in ("app", "editor"):
             app = find_app(cat.get("bundle", ""), cat.get("app", item.get("label", "")), run)
             if app:
                 installed, where, version = True, app, _app_version(app, run)
@@ -404,6 +424,8 @@ def recipe(item: dict, brew: str | None) -> dict:
 
     cat = CATALOG.get(item["tool"], {})
     url = cat.get("url") or _https(item.get("url", ""))
+    if lic := _apps.licensed(item["tool"]):  # commercial: never installed, whatever cask a model names (apps.py)
+        return {"method": "download", "package": "", "command": "", "url": lic["vendor_url"], "licensed": True}
     if item["kind"] == "web_app":
         return {"method": "open", "package": "", "command": "", "url": url}
     if item["kind"] == "python_package":
@@ -420,7 +442,7 @@ def recipe(item: dict, brew: str | None) -> dict:
             return {"method": "pip", "package": pkg, "command": f"pip install {pkg}  (in the lesson's .venv)", "url": url}
     cask = cat.get("cask") or (item.get("brew") if item.get("brew_cask") else "")
     formula = cat.get("formula") or (item.get("brew") if not item.get("brew_cask") else "")
-    if brew and cask and (cat.get("cask") or brew_name_ok(cask)) and _PKG.match(cask):
+    if brew and cask and (cat.get("cask") or (brew_name_ok(cask) and cask in ALLOWED_CASKS)) and _PKG.match(cask):
         return {"method": "brew_cask", "package": cask, "command": f"brew install --cask {cask}", "url": url}
     if brew and formula and (cat.get("formula") or brew_name_ok(formula)) and _PKG.match(formula):
         return {"method": "brew", "package": formula, "command": f"brew install {formula}", "url": url}
@@ -525,7 +547,9 @@ def _https(url: str) -> str:
 
 def _canonical(tool: str) -> str:
     t = re.sub(r"[\s_-]+", " ", (tool or "").strip().lower())  # "openai-agent-builder" == "OpenAI Agent Builder"
-    return ALIASES.get(t, t.replace(" ", "-"))
+    if t in ALIASES:
+        return ALIASES[t]
+    return _apps.canonical(t) or t.replace(" ", "-")  # "AutoCAD 2025" / "Adobe Photoshop CC" -> autocad / photoshop
 
 
 _JUPYTER_FAMILY = {"jupyter", "notebook", "jupyterlab", "ipykernel", "jupyter-notebook", "jupyter-lab"}
@@ -608,8 +632,25 @@ def local_requirements(graph: dict) -> dict:
             tools.append({**tool, "tool": pip.lower(), "kind": "python_package", "why": "The lesson imports it.",
                           "pip_name": pip, "import_name": name if pip.lower() != low else
                           (IMPORT_ALIASES.get(low) or [""])[0]})
-    return {"editor": {"needed": py or nb, "why": "You write and run the code in VS Code." if py or nb
-                       else "this lesson doesn't edit code files."}, "tools": tools[:16]}
+    app = None if py or nb else work_app(graph)  # a code lesson's title may name an app in passing ("read Excel files")
+    if app:  # offline too: "AutoCAD - Toy Car Creation" needs AutoCAD (apps.py decides how it's offered)
+        web = app in _apps.WEB_APPS
+        tools.insert(0, {**tool, "tool": app, "kind": "web_app" if web else "app", "url": CATALOG.get(app, {}).get("url", ""),
+                         "why": f"The video works in {_apps.label(app)}."})
+    why = ("You write and run the code in VS Code." if py or nb else
+           f"all the work happens in {_apps.label(app)}." if app else "this lesson doesn't edit code files.")
+    return {"editor": {"needed": py or nb, "why": why}, "tools": tools[:16]}
+
+
+def work_app(graph: dict) -> str | None:
+    """The desktop or web app a lesson is done in, when its title (or its video's title) names one (apps.app_in_text):
+    "AutoCAD - Toy Car Creation for 3D Printer" -> "autocad". None for most code lessons."""
+    les = graph.get("lesson") or {}
+    titles = [str(les.get("title") or "")] + [str(s.get("title") or "") for s in graph.get("sources") or [] if isinstance(s, dict)]
+    for t in titles:
+        if app := _apps.app_in_text(t):
+            return app
+    return None
 
 
 def _items(raw: dict, graph: dict | None = None) -> list[dict]:
@@ -626,17 +667,24 @@ def _items(raw: dict, graph: dict | None = None) -> list[dict]:
             continue
         seen.add(tool)
         cat = CATALOG.get(tool, {})
-        kind = cat.get("kind") or (t.get("kind") if t.get("kind") in KINDS else "cli")
+        lic = _apps.licensed(tool)
+        kind = "app" if lic else cat.get("kind") or (t.get("kind") if t.get("kind") in KINDS else "cli")
         if kind == "web_app" and not (cat.get("url") or _https(t.get("url", ""))):
             continue  # a web app we can't link to is no use on the card
         if kind == "editor":
             continue
         items.append({
-            "tool": tool, "label": cat.get("label") or t.get("tool") or tool, "kind": kind,
+            "tool": tool, "label": (lic or cat).get("label") or t.get("tool") or tool, "kind": kind,
             "why": t.get("why", ""), "needed": bool(t.get("needed", True)), "min_version": t.get("min_version", ""),
             "binary": t.get("binary", ""), "import_name": t.get("import_name", ""), "pip_name": t.get("pip_name", ""),
             "brew": t.get("brew", ""), "brew_cask": bool(t.get("brew_cask")), "url": t.get("url", ""),
         })
+    if graph is not None and not ed.get("needed") and (app := work_app(graph)) and app not in seen:
+        # the title names the app ("AutoCAD - ...") but Claude's list left it out: the card still offers it
+        cat = CATALOG.get(app, {})
+        items.append({"tool": app, "label": _apps.label(app), "kind": cat.get("kind") or "app",
+                      "why": f"The video works in {_apps.label(app)}.", "needed": True, "min_version": "", "binary": "",
+                      "import_name": "", "pip_name": "", "brew": "", "brew_cask": False, "url": cat.get("url", "")})
     colab = graph is not None and _colab_lesson(graph)
     if graph is not None and ed.get("needed") and not colab and notebook_lesson(graph) and not seen & _JUPYTER_FAMILY:
         # VS Code runs a notebook's cells with the lesson .venv's ipykernel; Claude's list often leaves it out
@@ -671,8 +719,8 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
             else:
                 cache.parent.mkdir(parents=True, exist_ok=True)
                 cache.write_text(json.dumps(raw, indent=1), encoding="utf-8")
-        if not raw.get("tools") and not (raw.get("editor") or {}).get("needed"):
-            return []  # nothing known: no card (as before)
+        if not raw.get("tools") and not (raw.get("editor") or {}).get("needed") and not work_app(lesson):
+            return []  # nothing known: no card (as before; a lesson whose title names its app still gets that row)
     items = _items(raw, lesson)
     brew = brew_path()
     pys = [it for it in items if it["kind"] == "python_package"]
@@ -683,9 +731,27 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
         for f in futs:
             f.result()
     for it in items:
-        it["install"] = {k: v for k, v in recipe(it, brew).items() if k != "package"}
+        it["install"] = {k: v for k, v in recipe(it, brew).items() if k not in ("package", "licensed")}
         if why := it["install"].get("refused"):  # a likely typosquat: the row says why there's no Install
             it["why"] = f"{it.get('why') or ''} (miyagi won't install it: {why})".strip()
+    annotate(items)
+    _apps.remember_scan(items)  # what this Mac has, for the next lesson's card and the coach's context
+    return items
+
+
+def annotate(items: list[dict]) -> list[dict]:
+    """setupKind on every row (apps.classify), and what the learner told us before on this Mac: "I have it" (haveIt) or
+    "use the free alternative" (using). Neither counts as missing. In place; returns items."""
+    mem = _apps.recall()
+    for it in items:
+        it["setupKind"] = _apps.classify(it)
+        if it["setupKind"] != "licensed_app" or it.get("installed"):
+            continue
+        seen = mem.get(it.get("tool") or "") or {}
+        if seen.get("haveIt"):
+            it["haveIt"] = True
+        if str(seen.get("choice") or "").startswith("alternative:") and (alt := _apps.alternative(it["tool"])):
+            it["using"] = alt["name"]
     return items
 
 
@@ -694,8 +760,10 @@ def editor_needed(items: list[dict]) -> bool:
 
 
 def missing(items: list[dict]) -> list[dict]:
-    """Needed items that aren't installed or are too old (items we couldn't check are not "missing")."""
-    return [it for it in items if it["needed"] and not it.get("ok") and not it.get("unknown")]
+    """Needed items that aren't installed or are too old (items we couldn't check are not "missing", nor a licensed app
+    the learner says they have or replaced with its free alternative)."""
+    return [it for it in items if it["needed"] and not it.get("ok") and not it.get("unknown")
+            and not it.get("haveIt") and not it.get("using")]
 
 
 def unknown(items: list[dict]) -> list[dict]:
@@ -849,6 +917,11 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
     if r.get("refused"):
         out.update(error=f"miyagi won't install it: {r['refused']}")
         return out
+    if r.get("licensed"):  # never installed by miyagi: the vendor's own page
+        lic = _apps.licensed(item["tool"]) or {}
+        out.update(error=f"{lic.get('label') or item['tool']} is licensed software. Get it from {lic.get('vendor') or 'its maker'}.",
+                   url=r["url"], licensed=True)
+        return out
     if r["method"] in ("download", "none"):
         out.update(error="Homebrew isn't installed; download it from the official page" if r["url"]
                    else "no installer known: get it from its official site", url=r["url"])
@@ -922,14 +995,54 @@ def _last_error(text: str) -> str:
 
 # --------------------------------------------------------------------------- card payload (proposal)
 
-def setup_card(items: list[dict], *, step_id: str | None = None, resources: list[dict] | None = None) -> dict:
-    """The proposed `card {kind: "setup"}` payload for the app (see README: contract proposal)."""
+def licensed_line(rows: list[dict]) -> str:
+    """The card's sentence for licensed apps that aren't here: never "Install now?" (apps.py). Calm, short, no dashes."""
+    if len(rows) > 1:
+        return f"{', '.join(it['label'] for it in rows)} are paid apps. Have them already?"
+    it = rows[0]
+    alt = _apps.alternative(it["tool"])
+    if it.get("noMac"):
+        return f"{it['label']} is Windows only." + (f" Try {alt['name']}, free." if alt else "")
+    return f"Have {it['label']} already?" + (f" Or try {alt['name']}, free." if alt else "") + " Watch while you decide."
+
+
+def _row(it: dict) -> dict:
+    """One contract SetupItem; the apps.py fields are additive (setupKind, actions, vendorUrl, alternative...)."""
+    sk = it.get("setupKind") or _apps.classify(it)
+    row = {
+        "tool": it["tool"], "label": it["label"], "kind": it["kind"], "why": it["why"], "needed": it["needed"],
+        "installed": it.get("installed", False), "ok": it.get("ok", False), "unknown": bool(it.get("unknown")), "version": it.get("version") or None,
+        "minVersion": it.get("min_version") or None,
+        "install": {"method": it["install"]["method"], "command": it["install"]["command"] or None, "url": it["install"]["url"] or None},
+        "setupKind": sk, "actions": _apps.item_actions(it),
+    }
+    if sk == "licensed_app" and (lic := _apps.licensed(it["tool"])):
+        row.update(vendorUrl=lic["vendor_url"], vendorName=lic["vendor"])
+        if alt := _apps.alternative(it["tool"]):
+            row["alternative"] = {"name": alt["name"], "url": alt["url"], "tool": alt["tool"]}
+    for k in ("haveIt", "using", "noMac"):
+        if it.get(k):
+            row[k] = it[k]
+    return row
+
+
+def setup_card(items: list[dict], *, step_id: str | None = None, resources: list[dict] | None = None,
+               hold_for: list[str] | set[str] | None = None) -> dict:
+    """The proposed `card {kind: "setup"}` payload for the app (see README: contract proposal).
+    hold_for: the tools the current step truly needs now; setup.holdVideo is True only when one of them is missing
+    and Install can get it. Otherwise setup is a companion, never a gate: the video plays while it waits."""
     miss = missing(items)
+    lic = [it for it in miss if (it.get("setupKind") or _apps.classify(it)) == "licensed_app"]
+    inst = [it for it in miss if it not in lic]
     need_ed = editor_needed(items)
     ed = next((it for it in items if it["kind"] == "editor"), None)
     web = [it for it in items if it["kind"] == "web_app"]
-    if miss:
-        body = "Missing: " + ", ".join(it["label"] for it in miss) + ". Install now?"
+    if inst:
+        body = "Missing: " + ", ".join(it["label"] for it in inst) + ". Install now?"
+        if lic:
+            body += " " + licensed_line(lic)
+    elif lic:
+        body = licensed_line(lic)
     elif web and not need_ed:
         body = "Nothing to install."
     elif unknown(items):
@@ -940,16 +1053,29 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
         body += " Still checking " + ", ".join(it["label"] for it in unk) + " (first import is slow)."
     if web:
         body += " In your browser: " + ", ".join(it["label"] for it in web) + "."
-    if not need_ed and ed:
-        body += " " + ed["why"]
+    apps_lesson = any((it.get("setupKind") or _apps.classify(it)) in ("licensed_app", "free_app") and it["kind"] != "editor"
+                      for it in items)
+    if not need_ed and ed and not lic:
+        # the editor row keeps its full reason; the card says it in four words (Michael, Nov 22: the long
+        # "No editor needed: the tutorial is a no-code CAD workflow..." line cluttered the card)
+        body += " No editor needed." if apps_lesson else " " + ed["why"]
     elif need_ed and ed and ed.get("installed"):
         body += f" Open the lesson folder in {ed['label']}?"
     if resources:  # find_resources(): the video links its own code/notebooks/data
         body += f" The video links its materials ({', '.join(r['name'] for r in resources[:3])}{'…' if len(resources) > 3 else ''}): download them?"
+    alts = [a for a in (_apps.alternative(it["tool"]) for it in lic) if a]
     actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
-               + (["download"] if resources else []) + (["install"] if miss else []) + ["skip_setup"])
+               + (["download"] if resources else []) + (["install"] if inst else [])
+               + (["have_it", "get_it"] if lic else []) + (["alternative"] if alts else []) + ["skip_setup"])
+    if inst:
+        title = "Set up first"
+    elif lic:
+        title = f"This lesson uses {lic[0]['label']}" if len(lic) == 1 else "Apps this lesson uses"
+    else:
+        title = "Ready to go"
+    hold = {str(t).lower() for t in hold_for or []}
     card = {
-        "kind": "setup", "title": "Set up first" if miss else "Ready to go", "body": body,
+        "kind": "setup", "title": title, "body": body,
         "actions": actions,
         "setup": {
             "editorNeeded": need_ed,
@@ -958,13 +1084,14 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
             "resources": [{"name": r["name"], "url": r["url"], "kind": r["kind"]} for r in resources or []],
             "actionLabels": {"open_editor": f"Open {ed['label']}" if ed else "Open editor", "open_in_browser": "Open in browser",
                              "download": "Download tutorial files",
-                             "install": "Install", "skip_setup": "Skip"},
-            "items": [{
-                "tool": it["tool"], "label": it["label"], "kind": it["kind"], "why": it["why"], "needed": it["needed"],
-                "installed": it.get("installed", False), "ok": it.get("ok", False), "unknown": bool(it.get("unknown")), "version": it.get("version") or None,
-                "minVersion": it.get("min_version") or None,
-                "install": {"method": it["install"]["method"], "command": it["install"]["command"] or None, "url": it["install"]["url"] or None},
-            } for it in items],
+                             "install": "Install", "skip_setup": "Skip",
+                             **({"have_it": "I have it",
+                                 "get_it": f"Get {lic[0]['label']}" if len(lic) == 1 else "Get it"} if lic else {}),
+                             **({"alternative": f"Try {alts[0]['name']}" if len(alts) == 1 else "Free alternative"} if alts else {})},
+            # Setup never gates watching (Nov 22): the app plays the video while this card waits, unless the step
+            # the learner is on truly needs a tool that Install can get right now.
+            "holdVideo": any(str(it["tool"]).lower() in hold for it in inst),
+            "items": [_row(it) for it in items],
         },
     }
     if step_id:

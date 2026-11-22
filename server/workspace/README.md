@@ -95,6 +95,41 @@ the list is empty). Don't auto-open VS Code any more. `action install {text: too
 `setup.progress` lines, then `{done, ok, error|version}`, then re-run `requirements` (cached list, fresh checks) and re-emit the card.
 `action open_editor` → `open_editor(wd, open_file_for(wd))`. `action skip_setup` → dismiss.
 
+### Smart setup: packages, free apps, licensed apps, web apps (apps.py, Nov 22)
+
+Michael's "AutoCAD - Toy Car Creation for 3D Printer" card said "Missing: autocad. Install now?" with only Skip. Every
+row now has a `setupKind` (`apps.classify`):
+
+| setupKind | examples | what the row offers |
+|---|---|---|
+| `package` | python, git, numpy (pip / brew formula) | Install (the existing allowlisted installers) |
+| `free_app` | Blender, FreeCAD, GIMP, Inkscape, PrusaSlicer (`apps.FREE_APPS`) | Install via an allowlisted Homebrew cask (`setup.ALLOWED_CASKS`; a model's cask off the list gets the download page), I have it |
+| `licensed_app` | AutoCAD, Fusion, Photoshop, Excel, MATLAB, SOLIDWORKS (`apps.LICENSED`) | never installed: I have it, Get it (the vendor's own page, host on `apps.VENDOR_HOSTS`), the free alternative (FreeCAD, GIMP, Onshape...) |
+| `web_app` | Tinkercad, Botpress, Google Sheets | Open |
+
+- A licensed row's `install` is `{method: "download", url: <vendor page>}` (older apps show "Get it"); `install()` refuses it.
+  A model's link or cask for it is never used.
+- Detection (`apps.detect`, read-only): `/Applications` and `~/Applications`, one folder down too
+  (`/Applications/Autodesk/AutoCAD 2025/AutoCAD 2025.app`, newest year wins), then `mdfind` by bundle-id prefix
+  (`com.autodesk.AutoCAD*`), version from Info.plist. `noMac` for Windows-only apps.
+- A title that names its app (`apps.app_in_text`: "AutoCAD - ..." → autocad) adds the row even offline or when Claude
+  left it out, for no-code lessons only (a pandas lesson about Excel files is still a code lesson).
+- Card copy for a missing licensed app: title "This lesson uses AutoCAD", body "Have AutoCAD already? Or try FreeCAD,
+  free. Watch while you decide.", actions `have_it`, `get_it`, `alternative`, `skip_setup` (labels in
+  `setup.actionLabels`). No "Install now?", no long "No editor needed: ..." line.
+- `setup.holdVideo`: False unless the current step truly needs a missing tool Install can get now (`setup_card(...,
+  hold_for=step.requires)`). Setup is a companion: the app keeps the video playing.
+- Per-row additive fields: `setupKind`, `actions` (`install | have_it | get_it | alternative | skip`), `vendorUrl`,
+  `vendorName`, `alternative {name, url, tool}`, `haveIt`, `using`, `noMac` (contract: events.ts SetupItem).
+- What the learner said is kept per Mac in `<lessons root>/.miyagi-state/mac-apps.json` (`apps.remember / recall`):
+  "I have it" (`haveIt`) and "use FreeCAD" (`using`) are not missing next lesson either. Each scan's app rows are kept
+  too, and `apps.context_line(items)` ("Apps on this Mac: AutoCAD 25.0 is installed.") goes into the coach's explain
+  context as an `<untrusted source="setup">` block (code lessons: nothing added).
+- Session side: `server/orchestrator/setup_apps.py` (have_it re-checks, get_it opens the vendor page through
+  `server.safety.browser_url_allowed`, alternative opens a web alternative or adds the free app's own Install row,
+  `on_front` re-checks a row when its app comes to the front). App lessons' wording and checks:
+  `server/lesson/app_lesson.py` ("in AutoCAD", screen checks scoped to the app, no file / command checks).
+
 ## Editor: VS Code, frontmost, room for the video (editor.py)
 
 - **Which editor:** VS Code (`com.microsoft.VSCode`, `code`); Miyagi only ever opens, names or offers VS Code

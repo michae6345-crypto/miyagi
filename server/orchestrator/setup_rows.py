@@ -15,6 +15,7 @@ log = logging.getLogger("orchestrator.session")
 
 INSTALL_METHODS = ("pip", "brew", "brew_cask")  # what Install runs here (download / open / none have no Install)
 ROW_STATE = ("installed", "ok", "version", "unknown")
+APP_STATE = ("actions", "haveIt", "using")  # setup_apps: a row's buttons and what the learner chose
 
 
 def installable(card: dict | None) -> list[dict]:
@@ -37,7 +38,14 @@ def carry(old: dict | None, new: dict | None, status: list[dict] | None) -> dict
     rows = []
     for r in orows:
         f = fresh.get(str(r.get("tool")))
-        rows.append({**r, **{k: f.get(k) for k in ROW_STATE if f is not None and k in f}} if f is not None else r)
+        row = {**r, **{k: f.get(k) for k in ROW_STATE if f is not None and k in f}} if f is not None else dict(r)
+        if f is not None:  # apps.py's row fields follow the fresh row, and go when it no longer has them
+            for k in APP_STATE:
+                if k in f:
+                    row[k] = f[k]
+                else:
+                    row.pop(k, None)
+        rows.append(row)
     known = {str(r.get("tool")) for r in orows}
     rows += [r for r in nsetup.get("items") or [] if str(r.get("tool")) not in known]
     nsetup["items"] = rows

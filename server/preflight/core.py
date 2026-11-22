@@ -937,6 +937,24 @@ def _whole_minutes(secs: Any) -> Any:
     return 60 * (int(secs) // 60) if isinstance(secs, (int, float)) and secs >= 60 else secs
 
 
+def _app_fields(it: dict) -> dict:
+    """The setup card row's additive app fields (setupKind, actions, vendorUrl, alternative...; server.workspace.apps),
+    so the preflight card's rows offer the same buttons. {} when the workspace module isn't there or the row is odd."""
+    if not it.get("tool") or not isinstance(it.get("install"), dict):
+        return {}
+    try:
+        from server.workspace.setup import _row
+
+        row = _row({**it, "label": it.get("label") or it["tool"], "kind": it.get("kind") or "cli", "why": it.get("why") or "",
+                    "needed": bool(it.get("needed")), "install": {"method": it["install"].get("method") or "none",
+                                                                   "command": it["install"].get("command") or "",
+                                                                   "url": it["install"].get("url") or ""}})
+    except Exception:  # noqa: BLE001 - the card goes out without them
+        return {}
+    return {k: row[k] for k in ("setupKind", "actions", "vendorUrl", "vendorName", "alternative", "haveIt", "using", "noMac")
+            if k in row}
+
+
 def preflight_card(res: dict) -> dict:
     """card {kind: "preflight"}: what the video is, how well it fits the goal, what it needs.
     actions: build / pick_another, plus install when a needed tool is missing (S2's install flow).
@@ -976,7 +994,9 @@ def preflight_card(res: dict) -> dict:
         lines.append("I couldn't check this video in time; you can still build it.")
     items = res.get("requirements") or []  # the app's "Needs … · N to install" row (needs_line is the text form)
     missing = [it for it in items if it.get("needed") and not it.get("ok")]
-    actions = ["build", "pick_another"] + (["install"] if missing else [])
+    # Nov 22: a licensed app (AutoCAD) is never "to install": its row offers I have it / Get it instead (apps.py)
+    installable = [it for it in missing if it.get("setupKind") != "licensed_app" and not it.get("haveIt") and not it.get("using")]
+    actions = ["build", "pick_another"] + (["install"] if installable else [])
     card: dict[str, Any] = {
         "kind": "preflight",
         "title": res.get("title") or "This video",
@@ -986,6 +1006,7 @@ def preflight_card(res: dict) -> dict:
             "installed": bool(it.get("installed")), "ok": bool(it.get("ok")), "version": it.get("version") or None,
             "why": it.get("why") or "",
             "install": {k: (it.get("install") or {}).get(k) or None for k in ("method", "command", "url")},
+            **_app_fields(it),
         } for it in items],
         "actions": actions,
         "preflight": {

@@ -58,6 +58,7 @@ from . import advice_clear  # t8: a Hint / Not yet card goes once the code it is
 from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
 from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
 from . import setup_rows  # t9 V12: the setup card's rows stay put while it installs; Install all
+from . import setup_apps  # Nov 22: licensed apps (AutoCAD): I have it / Get it / free alternative, noticed when in front
 from . import nb_coach  # T11: a notebook run still going keeps its output rows pending and the coach quiet
 
 
@@ -102,7 +103,8 @@ _ANSWERED: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("act
 ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "video.play", "step.started", "step.passed",
                  "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress", "lesson.paused", "blocker"}
 # their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
-QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser"}
+QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser",
+                 "have_it", "get_it", "alternative"}
 # t10: an off-track box is placed from a screen read at most this old (a repeat warning's box went to the line's
 # position in an older read, then jumped 454 pt to where it was on screen)
 OFFTRACK_READ_MAX_AGE_S = float(os.environ.get("ORCH_OFFTRACK_READ_MAX_AGE_S", "1.0"))
@@ -579,6 +581,18 @@ _PCT_LABEL = re.compile(r"\s*(?:reaches|is at least|at least|>=|≥|above|over)\
 METRIC_EMIT_CAP = 20  # live-curve points per metric name emitted per ingest batch (the run keeps them all)
 
 
+def _app_lesson(graph: dict) -> None:
+    """Nov 22: server.lesson.app_lesson.adapt on every lesson loaded (a cached one built before it existed too): an app
+    lesson (AutoCAD...) reads "in AutoCAD", never "in your editor", and its checks look at the app. Code lessons are
+    untouched. Never raises."""
+    try:
+        from server.lesson import app_lesson
+
+        app_lesson.adapt(graph)
+    except Exception:  # noqa: BLE001 - wording and check scope are a refinement; the lesson runs without them
+        log.exception("app lesson adapt failed")
+
+
 def _metric_labels(graph: dict) -> None:
     """t10: one style for an accuracy check's label: "Training accuracy reaches 0.95" / "Test accuracy at least 95" ->
     "… at least 95%". In place; only `>=` accuracy checks whose label ends in their own threshold."""
@@ -953,13 +967,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._maybe_pass_setup_step()
             return
         coding = self._editor_lesson(graph, items)
+        # Nov 22: setup never gates watching, unless the step the learner is on is the install step for a missing tool
+        hold = list((self.step or {}).get("requires") or []) if (self.step or {}).get("setup") else None
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
             missing = [it for it in items if it.get("needed") and not it.get("ok")]
             if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
                 # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
                 if missing:
-                    card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found))
+                    card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found, **({"hold_for": hold} if hold else {})))
                     if card:
                         self._setup_card = card = wsmod.editor_opens(card, items)
                         await self.emit("card", card)
@@ -967,7 +983,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 if found and not missing and (card := self._tutorial_files_card(found, folder)):
                     await self.emit("card", card)  # keep the video's files one tap away
             else:  # something is missing: the setup card (install buttons)
-                card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found))
+                card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found, **({"hold_for": hold} if hold else {})))
                 if card:
                     self._setup_card = card
                     await self.emit("card", card)
@@ -3368,6 +3384,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             unscope_editor_apps(graph)  # the presenter's outputs); Colab in a browser counts, not just VS Code
         _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
         _metric_labels(graph)  # t10: "at least 95%", never "reaches 0.95" beside "at least 95"
+        _app_lesson(graph)  # Nov 22: a cached AutoCAD lesson too talks about AutoCAD and checks the app, never files
         self.graph = graph
         _session_cost_start(graph)  # roadmap 3.8: the running cost tally (build included) belongs to this lesson
         self.lesson_wall_t0 = None  # v2: set by the first start_step (minutes only from step 1)
@@ -4636,7 +4653,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                "apply_fix", "confirm", "back", "use_this_folder", "undo",
                                # t6: Install on the setup card left step 1 held; any learner press begins it
                                "install", "install_all", "skip_setup", "explain", "diagram", "ask", "download", "open_in_browser",
-                               "retry"})  # they begin a held step
+                               "retry", "have_it", "get_it", "alternative"})  # they begin a held step
     WORK_TERMINALS = ("terminal", "iterm", "warp")
 
     @property
@@ -4780,6 +4797,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         (E5); then the box follows the switch (on_frontmost), except behind "Continue?" (E7; t6: under "Before you
         start" too, where the type box is up and VS Code coming to the front can start the step: start_hold.py)."""
         self._attribute_input()
+        if self._setup_card is not None:  # Nov 22: AutoCAD came to the front after Get it: re-check and flip its row
+            self._spawn(setup_apps.on_front(self, app))
         if self.awaiting_start:
             start_hold.note_front(self, app)  # t6: VS Code in front + a key / click starts the held step (tick)
         if self.awaiting_resume:
@@ -5831,9 +5850,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.emit("card", {"kind": "answer", "title": "Tutorial files",
                                      "body": "I'll save the video's files in your lesson folder as soon as it's ready."})
             return
-        if self.step is None and self.pending_pick is not None and kind in ("install", "open_in_browser"):
+        if self.step is None and self.pending_pick is not None and kind in ("install", "open_in_browser", *setup_apps.ACTIONS):
             # the preflight card's tool buttons, before any lesson exists
-            if kind == "install":
+            if kind in setup_apps.ACTIONS:  # I have it / Get it / free alternative (a licensed app's row)
+                await setup_apps.act(self, kind, text)
+            elif kind == "install":
                 self._spawn(self._install((text or "").strip()))
             else:
                 await self._open_in_browser((text or "").strip())
@@ -5928,6 +5949,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     # Setup and help presses aren't work on the step: they must not open the check gate or start the
     # off-track clock (live test 01:08: clicking Install showed "Not yet" before the learner typed anything).
     NOT_WORK_ACTIONS = frozenset({"install", "install_all", "skip_setup", "open_editor", "open_in_browser", "download",
+                                  "have_it", "get_it", "alternative",
                                   "use_this_folder", "voice_toggle", "build", "pick_another",
                                   "explain", "diagram", "show_me", "hint", "ask", "retry", "back"})
 
@@ -6175,6 +6197,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if kind == "open_in_browser":  # text = a web_app setup item's tool id (no-code lessons)
             await self._open_in_browser((text or "").strip())
             return
+        if kind in setup_apps.ACTIONS:  # text = an app row's tool id: I have it / Get it / free alternative
+            await setup_apps.act(self, kind, text)
+            return
         if kind == "voice_toggle":
             if not config.voice_enabled():  # voice is off for now (MIYAGI_VOICE): the toggle does nothing
                 log.info("voice: off (set MIYAGI_VOICE=1 to turn it on); voice_toggle ignored")
@@ -6419,6 +6444,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             "code": code,
             "file": file,
             "offtrack": advice_clear.live_offtrack(self),  # t11: never a diagnosis whose checks pass now
+            # Nov 22: what the setup scan found about the lesson's app ("AutoCAD 2025 is installed"; "the learner uses
+            # FreeCAD instead"). "" for a code lesson, so its context is unchanged.
+            "setup": setup_apps.context_line(self),
         }
 
     CARD_GAP_S = 8.0  # never two automatic cards within 8 s

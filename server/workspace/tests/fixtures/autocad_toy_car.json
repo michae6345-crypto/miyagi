@@ -1,0 +1,37 @@
+{
+  "lesson": {
+    "id": "lesson-autocad-toy-car",
+    "title": "AutoCAD - Toy Car Creation for 3D Printer",
+    "goal": "make a toy car I can 3D print",
+    "workdir": "/tmp/miyagi-lessons/autocad-toy-car",
+    "libraries": {}
+  },
+  "sources": [
+    {"id": "src1", "kind": "video", "title": "AutoCAD - Toy Car Creation for 3D Printer",
+     "url": "https://www.youtube.com/watch?v=AcadToyCar1", "videoId": "AcadToyCar1"}
+  ],
+  "steps": [
+    {"id": "s1", "index": 1, "title": "Draw the car profile",
+     "instructions": "Type along in your editor: draw the side profile of the car with LINE and ARC.",
+     "video": {"sourceId": "src1", "start": 0, "end": 300},
+     "checks": [
+       {"id": "c1", "type": "screen_contains", "label": "profile drawn", "pattern": "LINE"},
+       {"id": "c2", "type": "file_exists", "label": "drawing saved", "file": "toy_car.dwg"}
+     ],
+     "targets": [{"label": "command line", "text": "Command:"}],
+     "explanations": [], "hints": [], "common_mistakes": []},
+    {"id": "s2", "index": 2, "title": "Extrude the body in your editor",
+     "instructions": "In VS Code, extrude the profile 20 mm with EXTRUDE.",
+     "video": {"sourceId": "src1", "start": 300, "end": 620},
+     "checks": [
+       {"id": "c3", "type": "screen_contains", "label": "body extruded", "pattern": "EXTRUDE", "app": "AutoCAD"},
+       {"id": "c4", "type": "command_exit_ok", "label": "export works", "command": "python export.py"}
+     ],
+     "targets": [], "explanations": [], "hints": [], "common_mistakes": []},
+    {"id": "s3", "index": 3, "title": "Cut the wheel wells",
+     "instructions": "Subtract two cylinders for the wheel wells, then export an STL for the printer.",
+     "video": {"sourceId": "src1", "start": 620, "end": 1056},
+     "checks": [{"id": "c5", "type": "screen_contains", "label": "STL exported", "pattern": "STLOUT"}],
+     "targets": [], "explanations": [], "hints": [], "common_mistakes": []}
+  ]
+}

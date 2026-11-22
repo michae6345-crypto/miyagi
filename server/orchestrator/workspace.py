@@ -413,12 +413,19 @@ def requirements(graph: dict, folder: str) -> list[dict] | None:
         return []
 
 
-def setup_card(items: list[dict], resources: list[dict] | None = None) -> dict | None:
+def setup_card(items: list[dict], resources: list[dict] | None = None, hold_for: list[str] | None = None) -> dict | None:
+    """S2's setup card. hold_for: the tools the current step truly needs now (its `requires`): only then may the card
+    hold the video (setup.holdVideo); otherwise setup is a companion and the video plays."""
     ws = _s2()
     fn = getattr(ws, "setup_card", None) if ws is not None else None
     if fn is None:
         return None
-    return fn(items, resources=resources) if resources else fn(items)
+    kw: dict = {}
+    if resources:
+        kw["resources"] = resources
+    if hold_for:
+        kw["hold_for"] = hold_for
+    return fn(items, **kw)
 
 
 def editor_opens(card: dict, items: list[dict]) -> dict:
