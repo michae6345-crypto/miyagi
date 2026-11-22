@@ -8,7 +8,7 @@
 import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAppearance } from '../../core/prefs'
-import { actionTone, color, rawThumb } from '../../core/theme'
+import { brand, color, rawThumb } from '../../core/theme'
 import { duration, ease, prefersReduced, stagger } from '../../core/ui/motion'
 
 export type HeatmapData = { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }
@@ -30,7 +30,8 @@ const hex = (h: string): [number, number, number] => {
 }
 // Canvas and colour maths need raw hex: fill.thumb is a var() since the Nov 21 theme, so the low end comes from rawThumb.
 const LOW = { dark: hex(rawThumb.dark), light: hex(rawThumb.light) } as const
-const HIGH = hex(actionTone.diagram)
+// Diagram content keeps the sky emphasis: data color, not the Diagram option's own pastel.
+const HIGH = hex(brand.pastel.sky)
 type Ramp = (f: number) => [number, number, number]
 const rampFrom = (low: readonly number[]): Ramp => (f) => [0, 1, 2].map((i) => Math.round(low[i] + (HIGH[i] - low[i]) * f)) as [number, number, number]
 const RAMP = { dark: rampFrom(LOW.dark), light: rampFrom(LOW.light) } as const

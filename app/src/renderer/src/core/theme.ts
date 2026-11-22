@@ -50,7 +50,11 @@ export const brand = {
    * the "Best" label. Ink text on them. They never mean status (green = passed, amber = off track stay as is),
    * and the chrome stays black and white. No gradients or glow.
    */
-  pastel: { pink: '#F9C5D5', sky: '#C5E4F9', lilac: '#D9D2FF', pinkDeep: '#F4A7BF', skyDeep: '#9CCFF2', apricot: '#FFC4A3', mint: '#BFE6DA', peach: '#FFC4A3', sand: '#E9DFC6' }
+  pastel: { pink: '#F9C5D5', sky: '#C5E4F9', lilac: '#D9D2FF', pinkDeep: '#F4A7BF', skyDeep: '#9CCFF2', apricot: '#FFC4A3', mint: '#BFE6DA', peach: '#FFC4A3', sand: '#E9DFC6',
+    /** Option fills (Adrian, Nov 21): Diagram and Watch each get their own pastel. peachLight is lighter than the tone peach (that one is the apricot that read orange). */
+    seafoam: '#BFEBE6',
+    peachLight: '#FBD5BE'
+  }
 } as const
 
 /** The overlay follows macOS: dark HUD glass by default, light when the system is light. */
@@ -341,13 +345,14 @@ export const fill = {
 
 /**
  * The pastel options mapping (Adrian, Sat: "the same action is the same color everywhere"). Options only,
- * never status. sky = understand (Explain, Diagram, Watch) · lilac = Show me · pink = Hint.
+ * never status. Each option its own pastel (Adrian, Nov 21): sky = Explain · seafoam = Diagram · peach = Watch ·
+ * lilac = Show me · pink = Hint.
  * The ONE primary action per surface is white + ink (PrimaryButton). Chrome and navigation stay neutral.
  */
 export const actionTone = {
   explain: brand.pastel.sky,
-  diagram: brand.pastel.sky,
-  watch: brand.pastel.sky,
+  diagram: brand.pastel.seafoam,
+  watch: brand.pastel.peachLight,
   show_me: brand.pastel.lilac,
   hint: brand.pastel.pink
 } as const

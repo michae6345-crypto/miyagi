@@ -1,7 +1,7 @@
 /**
  * Core (v2, W0-3): the "Need help" row of the lesson panel (Les-Working): Explain, Hint, Show me, Diagram, Watch.
- * Five equal OptionTiles, gap 8, each a solid pastel (BRAND.md mapping, theme.actionTone: sky = Explain / Diagram /
- * Watch, pink = Hint, lilac = Show me) with an ink label and its keycap from the platform inside the tile. Watch has
+ * Five equal OptionTiles, gap 8, each a solid pastel (BRAND.md mapping, theme.actionTone: sky = Explain, seafoam =
+ * Diagram, peach = Watch, pink = Hint, lilac = Show me) with an ink label and its keycap from the platform inside the tile. Watch has
  * no shortcut (decision 3).
  * Options only: never a status, never the primary.
  *
