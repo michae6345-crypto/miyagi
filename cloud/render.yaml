@@ -16,7 +16,7 @@ services:
         value: "3.12.8"
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: GEMINI_API_KEY
+      - key: GEMINI_API_KEY        # leave unset while Gemini is off (D1: Claude only at launch)
         sync: false
       - key: ADMIN_TOKEN           # 32+ random characters; a weak one turns /admin off (503), never the server
         generateValue: true
@@ -32,10 +32,12 @@ services:
         value: "10"
       - key: ALLOWED_ANTHROPIC_MODELS
         value: claude-sonnet-5-5,claude-haiku-5-5
+      # Gemini off (D1: Claude only at launch): every /v1/gemini call gets 403 gemini_disabled. To bring it back
+      # (e.g. through Vertex AI once an adult-held account exists), list the models here and set GEMINI_API_KEY.
       - key: ALLOWED_GEMINI_MODELS
-        value: gemini-3.8-flash
-      - key: MAX_TOKENS_CAP
-        value: "4096"
+        value: none
+      - key: MAX_TOKENS_CAP        # Anthropic max_tokens ceiling; the lesson builder asks for 32000 (R03)
+        value: "32000"
       - key: ANTHROPIC_BETAS       # anthropic-beta values forwarded (what the engine sends); others get 400
         value: server-side-fallback-2026-07-01
       - key: ANTHROPIC_SERVER_TOOLS  # the engine's finder and text lessons search the web; empty refuses server tools
@@ -68,8 +70,8 @@ services:
         value: "1"
       - key: RATE_LIMIT_PER_IP_PER_HOUR
         value: "100"
-      - key: RATE_LIMIT_PER_TOKEN_PER_HOUR
-        value: "600"
+      - key: RATE_LIMIT_PER_TOKEN_PER_HOUR  # above a lesson's busiest hour (scene looks alone up to 720)
+        value: "2400"
       - key: ADMIN_RATE_LIMIT_PER_IP_PER_HOUR
         value: "20"
       - key: ADMIN_LOCKOUT_FAILURES
@@ -100,23 +102,30 @@ services:
         value: "80"
       - key: BODY_READ_TIMEOUT_S   # a request body must arrive within this (408 after)
         value: "20"
-      # Caps for every role (README, Free tier caps: why these numbers)
-      - key: FREE_DAILY_REQUESTS
-        value: "300"
-      - key: FREE_DAILY_USD
-        value: "1.00"
+      # Caps in dollars per install / per user (README, Free tier caps). x-miyagi-role is a label: no cap reads it.
+      - key: FREE_DAILY_USD        # anonymous install per UTC day: ~3x a lesson (D13); set from a measured lesson
+        value: "2.00"
       - key: ANON_DAILY_USD_PER_NETWORK  # every anonymous install minted from one network together, per UTC day
         value: "5.00"
-      - key: LINKED_DAILY_REQUESTS
-        value: "1000"
-      - key: LINKED_DAILY_USD
+      - key: LINKED_DAILY_USD      # per signed-in user, all their installs together
         value: "3.00"
+      - key: FREE_DAILY_REQUESTS   # request counts: 0 = off (a count stops a normal lesson)
+        value: "0"
+      - key: LINKED_DAILY_REQUESTS
+        value: "0"
       - key: FREE_LESSON_BUILDS_PER_MONTH
         value: "3"
-      - key: FREE_COACH_CALLS_PER_DAY
-        value: "60"
-      - key: DAILY_USD_CAP         # spend kill switch in dollars per UTC day, every install; unset or empty = 25, 0 = off
+      - key: NEW_INSTALLS_PER_DAY  # new installs per UTC day, every network; past it "miyagi is full today" (D13)
+        value: "500"
+      - key: DAILY_USD_CAP         # global abuse brake in dollars per UTC day; unset/empty/0 = off. Never a low value:
+        sync: false                # it stops every learner. If set, keep it far above ALERT_DAILY_USD
+      # Alerts (README, Alerts). The webhook URL is a secret: dashboard only.
+      - key: ALERT_WEBHOOK_URL     # Discord or Slack incoming webhook (https); unset = no alerts
         sync: false
+      - key: ALERT_DAILY_USD       # the daily alert line: alerts at 50, 80 and 100% of it
+        value: "25"
+      - key: ALERT_TOKEN_DAILY_USD  # one install over this today alerts (3x FREE_DAILY_USD)
+        value: "6.00"
       # Shared lesson cache
       - key: MAX_LESSON_KB
         value: "128"

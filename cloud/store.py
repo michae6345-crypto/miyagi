@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS builds (
     created_at REAL NOT NULL,
     PRIMARY KEY (token_hash, month, video_id)
 );
--- Requests per install, UTC day and x-miyagi-role (coach, lesson, scene, ...): the coach's daily cap reads it.
+-- Requests per install, UTC day and x-miyagi-role (coach, lesson, scene, ...). A label for the usage view only: the
+-- role is set by the client, so no cap reads this table.
 CREATE TABLE IF NOT EXISTS role_usage (
     token_hash TEXT NOT NULL,
     day        TEXT NOT NULL,
@@ -149,6 +150,25 @@ CREATE TABLE IF NOT EXISTS event_intake (
     taken      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (token_hash, day)
 );
+-- Operator switches changed at runtime (POST /admin/proxy/pause and /resume). Guard reads 'paused' on every /v1
+-- request, so stopping traffic needs no redeploy, and the value survives restarts and deploys.
+CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+-- New installs minted per UTC day (POST /v1/install and /v1/register): the NEW_INSTALLS_PER_DAY cap reads it.
+CREATE TABLE IF NOT EXISTS install_days (
+    day TEXT PRIMARY KEY,
+    n   INTEGER NOT NULL DEFAULT 0
+);
+-- Alerts sent per UTC day and key (spend_50, token:<prefix>, ...), so each fires at most once a day, across restarts.
+CREATE TABLE IF NOT EXISTS alerts_sent (
+    day     TEXT NOT NULL,
+    key     TEXT NOT NULL,
+    sent_at REAL NOT NULL,
+    PRIMARY KEY (day, key)
+);
 """
 
 PLANS = ("free", "pro")  # free: the caps in app.py apply; pro: no caps
@@ -164,6 +184,10 @@ def lesson_hash(lesson) -> str:
 
 def today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _utc_day(t: float) -> str:
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
 
 
 def _days_ago(n: int) -> str:
@@ -378,15 +402,19 @@ class Store:
             return True, used + 1
 
     # install token minting (POST /v1/install, /v1/register) --------------
-    def mint_check(self, bucket: str, per_hour: int, per_day: int, global_max: int, now: float | None = None) -> dict:
+    def mint_check(self, bucket: str, per_hour: int, per_day: int, global_max: int, now: float | None = None,
+                   new_per_day: int = 0) -> dict:
         """Count one mint for `bucket` unless a limit is reached, in one transaction. 0 turns a limit off.
 
+        new_per_day: every bucket together in the current UTC day (the daily new-install cap, D13), checked first.
         per_hour: this bucket in the current clock hour. per_day: this bucket over the last 24 clock hours.
         global_max: every bucket together in the current clock hour.
-        Returns {"hit": None | "hour" | "day" | "global", "used", "cap", "retry_s", "global": mints this hour}."""
+        Returns {"hit": None | "new_installs" | "hour" | "day" | "global", "used", "cap", "retry_s",
+        "global": mints this hour}."""
         t = time.time() if now is None else now
         hour = int(t // 3600)
         to_next_hour = (hour + 1) * 3600 - t
+        day = _utc_day(t)
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
@@ -395,7 +423,12 @@ class Store:
                     self._pruned_hour = hour
                 g = int(self._db.execute("SELECT COALESCE(SUM(n), 0) FROM mints WHERE hour = ?", (hour,)).fetchone()[0])
                 hit = None
-                if global_max > 0 and g >= global_max:
+                if new_per_day > 0:
+                    row = self._db.execute("SELECT n FROM install_days WHERE day = ?", (day,)).fetchone()
+                    used = int(row[0]) if row else 0
+                    if used >= new_per_day:
+                        hit = {"hit": "new_installs", "used": used, "cap": new_per_day, "retry_s": (t // 86400 + 1) * 86400 - t}
+                if hit is None and global_max > 0 and g >= global_max:
                     hit = {"hit": "global", "used": g, "cap": global_max, "retry_s": to_next_hour}
                 if hit is None and per_hour > 0:
                     row = self._db.execute("SELECT n FROM mints WHERE bucket = ? AND hour = ?", (bucket, hour)).fetchone()
@@ -413,6 +446,8 @@ class Store:
                     return {**hit, "global": g}
                 self._db.execute("INSERT INTO mints (bucket, hour, n) VALUES (?, ?, 1) "
                                  "ON CONFLICT (bucket, hour) DO UPDATE SET n = n + 1", (bucket, hour))
+                self._db.execute("INSERT INTO install_days (day, n) VALUES (?, 1) "
+                                 "ON CONFLICT (day) DO UPDATE SET n = n + 1", (day,))
                 self._db.execute("COMMIT")
                 return {"hit": None, "used": 0, "cap": 0, "retry_s": 0, "global": g + 1}
             except BaseException:
@@ -454,22 +489,24 @@ class Store:
         return int(rows[0]["requests"]) if rows else 0
 
     # admission: caps checked and counted in one step -------------------------
-    def admit_call(self, token_hash: str, provider: str, model: str, role: str | None,
-                   role_caps: dict[str, int], daily_cap: int, *, usd_cap: float = 0.0, user_id: str | None = None,
-                   global_usd_cap: float = 0.0, reserve_usd: float = 0.0, net: str | None = None, net_usd_cap: float = 0.0,
-                   dry_run: bool = False) -> tuple[str | None, float, float]:
+    def admit_call(self, token_hash: str, provider: str, model: str, role: str | None, daily_cap: int = 0, *,
+                   usd_cap: float = 0.0, user_id: str | None = None, global_usd_cap: float = 0.0, reserve_usd: float = 0.0,
+                   net: str | None = None, net_usd_cap: float = 0.0, dry_run: bool = False) -> tuple[str | None, float, float]:
         """Count one forwarded AI call unless a cap is reached, and reserve its estimated cost. Check, count and
         reserve happen under one lock and one transaction, so parallel calls cannot all slip in under a cap.
 
-        global_usd_cap: every install together per UTC day, reservations included (0 = none).
-        role_caps: {role: calls per UTC day} for this install (0 or absent = no cap).
+        Every cap keys on the install token or the linked user (or the anonymous installs of one mint network), counted
+        here from the usage table. `role` (the client's x-miyagi-role) is only a label: counted in role_usage for the
+        usage view, never read by a cap, so a client cannot lift or move a cap by changing it.
+
+        global_usd_cap: every install together per UTC day, reservations included (0 = none: the abuse brake).
         daily_cap / usd_cap: calls / estimated USD per UTC day (0 = none), for this install, or with `user_id` for
         every install linked to that user together.
         net / net_usd_cap: estimated USD per UTC day of every unlinked install minted from network `net` together
         (0 or no net = none); the caller passes them for anonymous installs only.
         reserve_usd is added to this call's usage row now; settle() swaps it for the real cost when the call ends.
         dry_run: check only, count nothing.
-        Returns (None, 0, 0) when admitted, else (the cap hit: "global_usd" | "role" | "daily" | "usd" | "net_usd", used, cap)
+        Returns (None, 0, 0) when admitted, else (the cap hit: "global_usd" | "daily" | "usd" | "net_usd", used, cap)
         with nothing counted."""
         day = today()
         reserve_usd = max(float(reserve_usd), 0.0)
@@ -481,14 +518,6 @@ class Store:
                     if spent >= global_usd_cap or spent + reserve_usd > global_usd_cap:
                         self._db.execute("ROLLBACK")
                         return "global_usd", spent, global_usd_cap
-                cap = role_caps.get(role or "", 0)
-                if role and cap > 0:
-                    row = self._db.execute("SELECT requests FROM role_usage WHERE token_hash = ? AND day = ? AND role = ?",
-                                           (token_hash, day, role)).fetchone()
-                    used = int(row[0]) if row else 0
-                    if used >= cap:
-                        self._db.execute("ROLLBACK")
-                        return "role", used, cap
                 if daily_cap > 0 or usd_cap > 0:
                     if user_id:
                         scope, arg = "token_hash IN (SELECT token_hash FROM links WHERE user_id = ?)", user_id
@@ -534,8 +563,53 @@ class Store:
                 raise
 
     def usd_today(self) -> float:
-        """Estimated spend so far this UTC day, every install together (the DAILY_USD_CAP kill switch reads it)."""
+        """Estimated spend so far this UTC day, every install together, in-flight reservations included (the
+        DAILY_USD_CAP brake and the spend alerts read it)."""
         return float(self._q("SELECT COALESCE(SUM(usd), 0) AS usd FROM usage WHERE day = ?", (today(),))[0]["usd"])
+
+    # runtime switches (POST /admin/proxy/pause, /resume) -----------------------
+    def get_setting(self, key: str) -> str | None:
+        rows = self._q("SELECT value FROM settings WHERE key = ?", (key,))
+        return rows[0]["value"] if rows else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._q("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET "
+                "value = excluded.value, updated_at = excluded.updated_at", (key, value, time.time()))
+
+    def paused(self) -> bool:
+        """The operators' runtime pause (settings 'paused' = '1'). Read on every /v1 request."""
+        return self.get_setting("paused") == "1"
+
+    def set_paused(self, paused: bool) -> None:
+        self.set_setting("paused", "1" if paused else "0")
+
+    def ping(self) -> bool:
+        """The database answers a read of its own tables (/healthz db_ok)."""
+        try:
+            self._q("SELECT COUNT(*) FROM settings")
+            return True
+        except sqlite3.Error:
+            return False
+
+    # new installs per UTC day (NEW_INSTALLS_PER_DAY) ---------------------------
+    def new_installs_on(self, day: str | None = None) -> int:
+        rows = self._q("SELECT n FROM install_days WHERE day = ?", (day or today(),))
+        return int(rows[0]["n"]) if rows else 0
+
+    # alerts ------------------------------------------------------------------
+    def claim_alert(self, key: str, day: str | None = None) -> bool:
+        """Record that alert `key` fires today. True only for the first claim of that key on that UTC day (across
+        processes and restarts), so each alert is sent at most once a day. Rows older than 30 days are pruned."""
+        d = day or today()
+        with self._lock:
+            n = self._db.execute("INSERT OR IGNORE INTO alerts_sent (day, key, sent_at) VALUES (?, ?, ?)",
+                                 (d, key, time.time())).rowcount
+            if n:
+                self._db.execute("DELETE FROM alerts_sent WHERE day < ?", (_days_ago(30),))
+            return n == 1
+
+    def alerts_on(self, day: str | None = None) -> list[str]:
+        return [r["key"] for r in self._q("SELECT key FROM alerts_sent WHERE day = ? ORDER BY sent_at", (day or today(),))]
 
     # usage ----------------------------------------------------------------
     def count_request(self, token_hash: str, provider: str, model: str) -> None:
@@ -713,6 +787,9 @@ class Store:
             "by_day_token_model": [dict(r) for r in rows],
             "lessons": {**dict(lessons), "builds_this_month": builds["n"]},
             "usd_today": round(self.usd_today(), 4),
+            "new_installs_today": self.new_installs_on(),
+            "paused": self.paused(),
+            "alerts_today": self.alerts_on(),
             "events": [dict(r) for r in events],
         }
 

@@ -150,4 +150,4 @@ def test_admin_shows_events_and_spend(make_cloud):
     assert report["usd_today"] == 1.25
     assert [(e["name"], e["count"], e["installs"]) for e in report["events"]] == [("lesson_completed", 1, 1)]
     page = client.post("/admin", data={"admin_token": ADMIN_TOKEN}).text
-    assert "Events per day" in page and "lesson_completed" in page and "daily cap: $25.0" in page
+    assert "Events per day" in page and "lesson_completed" in page and "global spend brake: $25.0" in page
