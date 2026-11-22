@@ -157,10 +157,22 @@ export function startNotch(opts: StartNotchOpts): NotchService {
     saveCache(opts.cacheFile, good)
     opts.onChange()
   }
+  // A read asked for while one is in flight (a display plugged in mid-read) must not reuse the stale result: mark it
+  // and run exactly one more read when the current one finishes.
+  let again = false
   const readNow = (): Promise<void> => {
     if (!opts.mac) return Promise.resolve()
     lastRead = Date.now()
-    inflight ??= readOnce().finally(() => (inflight = undefined))
+    if (inflight) {
+      again = true
+      return inflight
+    }
+    inflight = (async (): Promise<void> => {
+      do {
+        again = false
+        await readOnce()
+      } while (again && !stopped)
+    })().finally(() => (inflight = undefined))
     return inflight
   }
   const checkOther = async (): Promise<void> => {

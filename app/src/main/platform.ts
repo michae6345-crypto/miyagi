@@ -210,7 +210,9 @@ export function trackOverlayLifecycle(
       const show = wasVisible === true && (deps.canShow?.() ?? true)
       wasVisible = undefined
       if (show && !win.isVisible()) win.showInactive()
-      if (!win.isVisible()) return
+      // Always undo the fade, even for a window that stays hidden: the gate shows it later with showInactive(), and a
+      // window left at opacity 0 would come back fully transparent (an invisible island).
+      if (!win.isVisible()) return void win.setOpacity(1)
       reassert()
       win.setOpacity(1)
     }, OVERLAY_RESTORE_MS)

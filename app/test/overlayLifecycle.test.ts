@@ -67,6 +67,8 @@ test('display change while the gate keeps the overlay hidden does not show it', 
   await settle()
   assert.equal(t.st.visible, false)
   assert.ok(!t.log.includes('show'))
+  // ...but the fade is undone, so when the gate shows it later it is not invisible
+  assert.equal(t.log.filter((l) => l.startsWith('opacity:')).at(-1), 'opacity:1')
 })
 
 test('lock then unlock while the overlay was hidden does not show it', opts, async () => {
@@ -77,6 +79,7 @@ test('lock then unlock while the overlay was hidden does not show it', opts, asy
   await settle()
   assert.equal(t.st.visible, false)
   assert.ok(!t.log.includes('show'))
+  assert.equal(t.log.filter((l) => l.startsWith('opacity:')).at(-1), 'opacity:1')
 })
 
 test('lock hides a visible overlay and unlock shows it again', opts, async () => {

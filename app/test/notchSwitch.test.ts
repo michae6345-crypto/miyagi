@@ -178,3 +178,21 @@ test('a display that is gone is forgotten, and an entry only fits a display of i
   assert.equal(svc.layoutFor({ ...display, bounds: { ...display.bounds, width: 1920 } }, 'notch').hasNotch, false)
   assert.equal(svc.layoutFor(display, 'notch').hasNotch, true)
 })
+
+test('a read asked for during a read in flight runs once more after it (a display plugged in mid-read)', async () => {
+  // the first read is slow and sees only the built-in; the display is plugged in while it runs
+  let n = 0
+  const slow = async (): Promise<ScreenInfo[]> => {
+    n++
+    await tick(40)
+    return n === 1 ? [builtin] : [builtin, external]
+  }
+  const { svc } = harness([], false, { read: slow })
+  await tick(5)
+  svc.refresh() // debounced re-read while the first is still in flight
+  await tick(150)
+  assert.equal(n, 2, 'exactly one more read')
+  assert.equal(svc.layoutFor(ext, 'notch').place, 'below')
+  assert.equal(svc.layoutFor(ext, 'notch').hasNotch, false)
+  svc.stop()
+})
