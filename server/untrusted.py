@@ -12,8 +12,9 @@ The id is a fresh random nonce per block, and any "<untrusted" / "</untrusted" i
 text cannot close its own block. Every prompt that carries such blocks also carries DATA_RULE.
 
 The model's output is filtered too: strip_injection() drops lesson sentences that talk to an AI instead of the
-learner and blanks every run_command (and every shell-only `code`) outside run_command_problem()'s allowlist, and
-command_problem() is the coach's allowlist for what it copies to the clipboard.
+learner, blanks every run_command (and every shell-only `code`) outside run_command_problem()'s allowlist and drops
+every check whose `command` is outside it, and command_problem() is the coach's allowlist for what it copies to the
+clipboard.
 
 Pure functions, no I/O: safe to import anywhere in the engine.
 """
@@ -53,15 +54,21 @@ CAPS: dict[str, int] = {
     "screen": 40_000,
     "web": 8_000,
     "citations": 8_000,
+    "lesson": 60_000,
 }
 DEFAULT_CAP = 20_000
 TAIL_SOURCES = frozenset({"terminal"})  # an output tail: the end (the error) matters, keep that
 
 # Control characters except tab and newline, plus invisible characters that can split or hide a word: zero-width,
-# bidi overrides, the soft hyphen (U+00AD), the combining grapheme joiner (U+034F) and the Mongolian vowel separator
-# (U+180E). Text is NFKC-normalized first, so fullwidth letters ("\uff29gnore") read as plain ones.
+# bidi overrides, the soft hyphen (U+00AD), the combining grapheme joiner (U+034F), the Mongolian vowel separator
+# (U+180E) and the line / paragraph separators (U+2028, U+2029). Text is NFKC-normalized first, so fullwidth letters
+# ("\uff29gnore") read as plain ones.
 _CTRL = re.compile(
-    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u00ad\u034f\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u00ad\u034f\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069"
+    r"\u2028\u2029\ufeff]")
+# What Python's str.splitlines() reads as a line break besides \n and \r: in text for a model they become a newline (so
+# a sentence after one still starts a line), and in a command they are refused (/bin/sh reads them as word characters)
+_LINE_SEPS = re.compile(r"[\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
 _TAG = re.compile(r"<(\s*/?\s*untrusted)", re.I)
 _ATTR_BAD = re.compile(r"[^A-Za-z0-9._:/@+-]")
 _FENCE_OPEN = re.compile(r'<untrusted source="[^"]*"(?: [a-z_]+="[^"]*")* id="[0-9a-f]{8}">\n')
@@ -72,7 +79,7 @@ def clean(text: Any, cap: int = DEFAULT_CAP, *, tail: bool = False) -> str:
     """`text` as a string, NFKC-normalized, with control and invisible characters stripped, line endings normalized,
     fence tags escaped and the length capped (the start kept, or the end when `tail`)."""
     s = unicodedata.normalize("NFKC", "" if text is None else str(text))
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = _LINE_SEPS.sub("\n", s.replace("\r\n", "\n").replace("\r", "\n"))
     s = _CTRL.sub("", s)
     s = _TAG.sub(r"&lt;\1", s)
     if cap and len(s) > cap:
@@ -166,7 +173,8 @@ _LESSON = frozenset(n for n, _ in _INJECTION if n != "score_directive")  # a sco
 
 def injection_hits(text: Any, *, strict: bool = False) -> list[str]:
     """Names of the AI-directed patterns found in `text` (empty when none). strict: the finder's high-confidence set."""
-    s = _CTRL.sub("", unicodedata.normalize("NFKC", "" if text is None else str(text)))
+    s = unicodedata.normalize("NFKC", "" if text is None else str(text))
+    s = _CTRL.sub("", _LINE_SEPS.sub("\n", s.replace("\r\n", "\n").replace("\r", "\n")))
     names = STRICT if strict else _LESSON
     return [name for name, rx in _INJECTION if name in names and rx.search(s)]
 
@@ -247,6 +255,8 @@ _NPM_PKG = re.compile(r"^((?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*)(?:@[A
 _PIP_FLAGS = frozenset({"-U", "--upgrade", "--user", "-q", "--quiet", "--no-cache-dir"})
 _NPM_FLAGS = frozenset({"--save", "--save-dev", "-D", "-S", "--no-fund", "--no-audit"})
 _RUN_FILE = re.compile(r"^[A-Za-z0-9_][\w.-]*(?:/[\w.-]+)*\.(?:py|js|mjs|cjs)$")
+_REL_FILE = re.compile(r"^[A-Za-z0-9_][\w.-]*(?:/[\w.-]+)*\.([A-Za-z0-9]+)$")  # a relative file, by its extension
+_REQUIREMENTS = re.compile(r"^(?:[A-Za-z0-9_][\w.-]*/)*requirements[\w.-]*\.txt$")
 _PLAIN_ARG = re.compile(r"^[\w.,:=+%@*?/ -]+$")  # after shlex; a leading / or ~ and any ../ were refused on the raw string
 _REL_NAME = re.compile(r"^(?:\.|\.?[A-Za-z0-9_][\w.-]*(?:/[\w.-]+)*)$")
 _LIB_NAME = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -287,10 +297,10 @@ _PUSH_REFSPEC = re.compile(r"^(?:HEAD|[A-Za-z0-9_][\w./-]*)(?::[A-Za-z0-9_][\w./
 SCAFFOLDERS = frozenset({"vite", "next-app", "svelte", "astro", "vue"})
 _SCAFFOLD = re.compile(r"^([a-z][a-z-]*)(?:@(?:latest|\d[\w.]*))?$")
 _VENV_ACTIVATE = re.compile(r"^(?:source|\.)\s+\.?venv/bin/activate$")
-# a line the engine would run as a shell command (orchestrator/session.py SHELL_CMD), and one that is code instead
+_GO_TEST_ALL = re.compile(r"^go test(?: -v)? \./\.\.\.(?: -v)?$")
+# a line the engine would run as a shell command (orchestrator/session.py SHELL_CMD)
 _SHELL_HEAD = re.compile(r"^\s*(?:\$\s*)?(?:python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|"
                          r"make|pytest|flask|streamlit|jupyter)\b")
-_CODE_LIKE = re.compile(r"^\s*[A-Za-z_]\w*\s*(?:[-+*/%]?=(?!=)|\(|\[)")
 # a run step in words ("Run the cell (Shift+Enter)"): its first word is a verb, never a program
 NOTEBOOK_RUN = "Run the cell (Shift+Enter)"  # (lesson/builder.py's NOTEBOOK_RUN)
 _VERB = re.compile(r"^(?:run|execute|press|hit|click)\s+", re.I)
@@ -328,15 +338,24 @@ def _plain(args: list[str], deny: tuple[str, ...] = ()) -> bool:
     return all(_PLAIN_ARG.match(a) and not a.startswith(deny) for a in args)
 
 
-def _run_file(t: str) -> bool:
+def _run_file(t: str, exts: tuple[str, ...] = ()) -> bool:
+    """`t` is a relative file inside the lesson folder (./ allowed): a .py / .js / .mjs / .cjs, or one of `exts`."""
     while t.startswith("./"):
         t = t[2:]
-    return bool(_RUN_FILE.match(t)) and ".." not in t.split("/")
+    if ".." in t.split("/"):
+        return False
+    if not exts:
+        return bool(_RUN_FILE.match(t))
+    m = _REL_FILE.match(t)
+    return bool(m) and m.group(1).lower() in exts
 
 
-def _pip_problem(rest: list[str], libs: set[str]) -> str | None:
+def _pip_problem(rest: list[str], libs: set[str], *, run: bool = False) -> str | None:
     if not rest or rest[0] != "install":
         return "not allowed"
+    if run and len(rest) == 3 and rest[1] in ("-r", "--requirement"):  # a lesson's requirements file (its lines are
+        t = rest[2][2:] if rest[2].startswith("./") else rest[2]       # vetted where it runs: server.safety.commands)
+        return None if _REQUIREMENTS.match(t) and ".." not in t.split("/") else "not allowed"
     pkgs = [t for t in rest[1:] if t not in _PIP_FLAGS]
     if not pkgs:
         return "not allowed"
@@ -498,7 +517,71 @@ _MODULE_APP = re.compile(r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$")
 _MODULE = re.compile(r"^[A-Za-z_][\w.]*(?::[A-Za-z_]\w*)?$")
 
 
-def _run_tool_problem(toks: list[str]) -> str | None:
+_OTHER_TOOLS = frozenset({"cargo", "go", "ruby", "javac", "java", "yarn", "pnpm", "deno", "bun"})
+_CLASS_NAME = re.compile(r"^[A-Za-z_][\w.]*$")
+_TARGET_NAME = re.compile(r"^[A-Za-z0-9_][\w.-]*$")
+_SCRIPT_NAME = re.compile(r"^[\w:.-]+$")
+
+
+def _other_tool_problem(head: str, rest: list[str], libs: set[str]) -> str | None:
+    """Other languages' fixed shapes of a lesson run (never a remote module, a URL or a permission flag):
+    cargo run|build|test|check [--release] [--bin|--example <name>] [-q], cargo new|init [<folder>];
+    go run|build <relative .go file or .>, go test [./...], go mod init <name>, go mod tidy;
+    ruby <relative .rb> [plain args]; javac <relative .java>; java <relative .java or ClassName> [plain args];
+    yarn / pnpm [install] | dev | start | test | build | run <script> | add <a known package>;
+    deno run <relative .ts / .js>; bun run|<relative .ts / .js>, bun install.
+    Never `make`: a Makefile's recipes are shell lines nothing vets (npm scripts are read where they run)."""
+    if head == "cargo":
+        sub, args = (rest[0] if rest else ""), rest[1:]
+        if sub in ("new", "init"):
+            return None if len(args) <= 1 and all(_REL_NAME.match(a) and a != "." for a in args) else "not allowed"
+        if sub not in ("run", "build", "test", "check"):
+            return "not allowed"
+        return _opts_problem(args, frozenset({"--release", "-q", "--quiet"}), {"--bin": _TARGET_NAME, "--example": _TARGET_NAME})
+    if head == "go":
+        sub, args = (rest[0] if rest else ""), rest[1:]
+        if sub in ("run", "build"):
+            if not args:
+                return None if sub == "build" else "not allowed"
+            if args[0] != "." and not _run_file(args[0], ("go",)):
+                return "not allowed"
+            return None if sub == "run" and _plain(args[1:]) or not args[1:] else "not allowed"
+        if sub == "test":
+            return None if args in ([], ["./..."], ["."], ["-v"], ["-v", "./..."], ["./...", "-v"]) else "not allowed"
+        if sub == "mod":
+            if args == ["tidy"]:
+                return None
+            return None if len(args) == 2 and args[0] == "init" and _REL_NAME.match(args[1]) else "not allowed"
+        return "not allowed"
+    if head == "ruby":
+        return None if rest and _run_file(rest[0], ("rb",)) and _plain(rest[1:]) else "not allowed"
+    if head == "javac":
+        return None if rest and all(_run_file(a, ("java",)) for a in rest) else "not allowed"
+    if head == "java":
+        if not rest or not (_run_file(rest[0], ("java",)) or _CLASS_NAME.match(rest[0])):
+            return "not allowed"
+        return None if _plain(rest[1:]) else "not allowed"
+    if head in ("yarn", "pnpm"):
+        if rest in ([], ["install"], ["i"]) or rest[:1] in (["dev"], ["start"], ["test"], ["build"]) and len(rest) == 1:
+            return None
+        if rest[:1] == ["run"] and len(rest) == 2 and _SCRIPT_NAME.match(rest[1]):
+            return None
+        if rest[:1] == ["add"] and rest[1:]:
+            return _npm_install_problem(rest[1:], libs)
+        return "not allowed"
+    if head == "deno":  # never a permission flag (-A, --allow-*): deno's sandbox is the point
+        return None if len(rest) == 2 and rest[0] == "run" and _run_file(rest[1], ("ts", "js", "mjs", "tsx")) else "not allowed"
+    if head == "bun":
+        if rest in (["install"], ["i"]):
+            return None
+        args = rest[1:] if rest[:1] == ["run"] else rest
+        if len(args) == 1 and (_run_file(args[0], ("ts", "js", "mjs", "tsx")) or rest[:1] == ["run"] and _SCRIPT_NAME.match(args[0])):
+            return None
+        return "not allowed"
+    return "not allowed"
+
+
+def _run_tool_problem(toks: list[str], libs: set[str] = frozenset()) -> str | None:
     """A lesson run's other fixed forms: pytest, flask run, uvicorn module:app, streamlit run, jupyter, cd / mkdir /
     ls / touch inside the lesson folder. The servers take a fixed set of arguments: never a host, an address, a
     token, a password or an origin (a notebook server on 0.0.0.0 without its token runs anyone's code)."""
@@ -526,6 +609,8 @@ def _run_tool_problem(toks: list[str]) -> str | None:
         if args[:1] and _IPYNB.match(args[0]) and ".." not in args[0].split("/"):
             args = args[1:]
         return _opts_problem(args, frozenset({"--no-browser"}), {"--port": _PORT})
+    if head in _OTHER_TOOLS:
+        return _other_tool_problem(head, rest, libs)
     if head in ("cd", "mkdir", "ls", "touch"):
         args = [a for a in rest if not re.match(r"^-[A-Za-z]+$", a)]
         return None if all(_REL_NAME.match(a) for a in args) and (head == "ls" or args) else "not allowed"
@@ -552,7 +637,7 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
     s = ("" if cmd is None else str(cmd)).strip()
     if not s:
         return None
-    if run and _VENV_ACTIVATE.match(s):
+    if run and (_VENV_ACTIVATE.match(s) or _GO_TEST_ALL.match(s)):  # (`./...` would read as a `..` path below)
         return None
     if _URL.search(s):
         return "url"
@@ -571,10 +656,10 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
         return "url"
     libs = _lib_names(libraries)
     if head in ("pip", "pip3"):
-        return _pip_problem(toks[1:], libs)
+        return _pip_problem(toks[1:], libs, run=run)
     if head in ("python", "python3"):
         if toks[1:3] == ["-m", "pip"]:
-            return _pip_problem(toks[3:], libs)
+            return _pip_problem(toks[3:], libs, run=run)
         if run and toks[1:2] == ["-m"] and len(toks) > 2:
             if toks[2] == "venv":
                 return None if len(toks) == 4 and _REL_NAME.match(toks[3]) and toks[3] != "." else "not allowed"
@@ -607,18 +692,34 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
             return None
         return _git_problem(toks)
     if run:
-        return _run_tool_problem(toks)
+        return _run_tool_problem(toks, libs)
     return "not allowed"
+
+
+# Never in a run_command: what /bin/sh reads as a word character but Python's str.splitlines() (or a card) reads as a
+# line break or shows as nothing: \r, \v, \f, \x1c-\x1e, NEL, U+2028 / U+2029, any other control, format or
+# invisible character, and any space but a plain one
+_RUN_BAD_CHAR = re.compile(r"[\r\x0b\x0c\x1c-\x1e\x85\u2028\u2029\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]")
+
+
+def _bad_run_char(s: str) -> bool:
+    return bool(_RUN_BAD_CHAR.search(s) or _CTRL.search(s)) or any(
+        unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp", "Co", "Cs") and ch not in "\t\n" for ch in s)
 
 
 def run_command_problem(cmd: Any, libraries: Any = None) -> str | None:
     """Why a lesson's run_command (what "Run it for me" sends to VS Code's terminal or a subprocess) may not stay, or
-    None. Each line must pass command_problem(run=True); a notebook run in words ("Run the cell (Shift+Enter)") and
-    "Run <an allowed command>" pass too. The reason is a category, never the command."""
-    s = ("" if cmd is None else str(cmd)).strip()
+    None. Each line (split on \\n only, the one line break /bin/sh knows; any other separator, control or invisible
+    character is refused) must pass command_problem(run=True); "Run <an allowed command>" passes too. A notebook run
+    in words ("Run the cell (Shift+Enter)") passes only as the whole run_command: next to command lines the shell
+    would run it as one. The reason is a category, never the command."""
+    raw = "" if cmd is None else str(cmd)
+    if _bad_run_char(raw):
+        return "metacharacter or blocked word"
+    s = raw.strip()
     if not s:
         return None
-    lines = [ln.strip() for ln in s.splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in s.split("\n") if ln.strip()]
     if len(lines) > 6:
         return "too long"
     for ln in lines:
@@ -628,22 +729,23 @@ def run_command_problem(cmd: Any, libraries: Any = None) -> str | None:
         verb = _VERB.match(ln)
         if verb and _SHELL_HEAD.match(ln[verb.end():]):
             ln = ln[verb.end():]
-        elif ln == NOTEBOOK_RUN or (verb and _WORDS.match(ln) and _NOTEBOOK_WORDS.search(ln)
-                                    and not _CMD_DENY.search(ln) and not _DANGEROUS.search(ln)):
+        elif len(lines) == 1 and (ln == NOTEBOOK_RUN or (verb and _WORDS.match(ln) and _NOTEBOOK_WORDS.search(ln)
+                                                         and not _CMD_DENY.search(ln) and not _DANGEROUS.search(ln))):
             # a run in words. session._run_for_me hands run_command to /bin/sh (or VS Code's terminal), so a words
             # line is only one whose first word is Run / Execute / Press / Hit / Click, never a real program
             # ("rm -rf .. notebook", "open -a Calculator notebook" are commands, checked below)
-            continue
+            return None
         if why := command_problem(ln, libraries, run=True):
             return why
     return None
 
 
 def shell_lines(code: Any) -> list[str]:
-    """The lines of a step's `code` when the engine would run it as a shell command (every non-comment line starts
-    like one, as orchestrator/session.py's SHELL_CMD reads it, and none looks like code: `go = 1`, `print(...)`)."""
+    """The lines of a step's `code` when the engine would run it as a shell command: every non-comment line starts
+    like one, exactly as orchestrator/session.py's SHELL_CMD reads it (`ls = 1` and `go = 1` included: the engine
+    would run those too, so they go through run_command_problem like any other)."""
     lines = [ln.strip() for ln in str(code or "").splitlines() if ln.strip() and not ln.strip().startswith("#")]
-    if lines and all(_SHELL_HEAD.match(ln) for ln in lines) and not any(_CODE_LIKE.match(ln) for ln in lines):
+    if lines and all(_SHELL_HEAD.match(ln) for ln in lines):
         return lines
     return []
 
@@ -716,6 +818,13 @@ def _strip_node(node: Any, counter: list[int], libs: Any) -> None:
     if isinstance(node.get("code"), str) and (lines := shell_lines(node["code"])) and run_command_problem("\n".join(lines), libs):
         counter[0] += 1  # a step whose code is shell lines runs that code as its command
         node["code"] = ""
+    # a check's command is shown as advice (hints: "What happens when you run `...`?") and graded against the run
+    for key in ("checks", "precision_checks"):
+        if isinstance(node.get(key), list):
+            kept = [c for c in node[key] if not (isinstance(c, dict) and isinstance(c.get("command"), str)
+                                                 and run_command_problem(c["command"], libs))]
+            counter[0] += len(node[key]) - len(kept)
+            node[key] = kept
     for key in ("steps", "primer", "targets", "items"):
         if isinstance(node.get(key), list):
             _strip_node(node[key], counter, libs)
@@ -724,7 +833,8 @@ def _strip_node(node: Any, counter: list[int], libs: Any) -> None:
 def strip_injection(lesson: Any, libraries: Any = None) -> Any:
     """A copy of a model's lesson output (a draft {title, libraries, steps: [...]}, a plan, or one step) with every
     sentence that addresses an AI removed from instructions, hints, common_mistakes and explanations, every
-    run_command (and shell-only code) outside run_command_problem's allowlist blanked, and text fields capped.
+    run_command (and shell-only code) outside run_command_problem's allowlist blanked, every check / precision_check
+    whose `command` is outside it dropped, and text fields capped.
     `libraries` (default: the output's own top-level `libraries`) are the names a `pip install` / `npm install` may
     name. Normal text passes unchanged."""
     if not isinstance(lesson, (dict, list)):

@@ -423,11 +423,14 @@ async def goal_match(goal: str, meta: dict) -> dict:
     """How well this video fits what the learner asked for (0..1), from its title/description/chapters."""
     if not (goal or "").strip():
         return {"score": None, "note": "no goal given"}
-    prompt = (f"A learner asked to: {goal!r}.\nThis is the video they would follow:\n{transcript.format_metadata(meta)}\n\n"
+    from server.untrusted import DATA_RULE, wrap
+
+    prompt = (f"A learner asked to: {goal!r}.\nThis is the video they would follow:\n"
+              f"{wrap('video_page', transcript.format_metadata(meta))}\n\n"
               "Score 0..1 how well following this video achieves what they asked (1 = exactly, 0.5 = related but a "
               "different project/tool, 0 = unrelated). note: one short sentence a learner would understand.")
     try:
-        r = await asyncio.wait_for(claude._generate_json("You judge whether a tutorial fits a learner's goal.", prompt, GOAL_SCHEMA, effort="low", role="judge", escalate=False), 30)
+        r = await asyncio.wait_for(claude._generate_json("You judge whether a tutorial fits a learner's goal. " + DATA_RULE, prompt, GOAL_SCHEMA, effort="low", role="judge", escalate=False), 30)
         return {"score": max(0.0, min(1.0, float(r.get("score", 0)))), "note": str(r.get("note", ""))[:200]}
     except Exception as e:  # noqa: BLE001
         return {"score": None, "note": f"not scored ({str(e)[:80]})"}

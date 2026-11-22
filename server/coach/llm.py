@@ -40,6 +40,12 @@ except ImportError:  # pragma: no cover - coach/ on its own
     def _redact_secrets(text: str) -> str:
         return text
 
+try:  # the <untrusted> fences carry random nonces: fixtures are keyed by the prompt with them taken out
+    from server.untrusted import unfence as _unfence
+except ImportError:  # pragma: no cover - coach/ on its own
+    def _unfence(text: str) -> str:
+        return text
+
 OPUS = "claude-opus-5-5"
 SONNET = "claude-sonnet-5-5"
 HAIKU = "claude-haiku-5-5"
@@ -246,7 +252,8 @@ def cloud_mode() -> bool:
 
 
 def _key(purpose: str, user_text: str) -> str:
-    return f"{purpose}-{hashlib.sha256(user_text.encode()).hexdigest()[:10]}"
+    """The fixture name: purpose + a hash of the user text with its <untrusted> fences (random nonces) taken out."""
+    return f"{purpose}-{hashlib.sha256(_unfence(user_text).encode()).hexdigest()[:10]}"
 
 
 def _replay(purpose: str, user_text: str, replay_dir: Path) -> CallResult | None:

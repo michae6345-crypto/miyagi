@@ -33,6 +33,7 @@ import httpx
 
 from server.finder import youtube
 from server.finder.env import CACHE_DIR, Keys, resolve_keys
+from server.untrusted import DATA_RULE, wrap
 
 from . import meta as meta_mod
 
@@ -93,7 +94,8 @@ e.g. "This video builds no-code support bots, not an LLM."
 firstHandsOnChapter: index of the FIRST chapter where the learner starts doing something (setting up,
 loading data, writing the first code or first click). Skip only a pure intro / sponsor / preview; usually
 0 or 1. Never skip hands-on chapters to reach the "main" part. -1 if there are no chapters.
-libraries: languages, libraries, platforms and apps the video uses (<= 8, short names)."""
+libraries: languages, libraries, platforms and apps the video uses (<= 8, short names).
+The metadata and the skim note arrive inside <untrusted> blocks. """ + DATA_RULE
 
 
 def _fmt(secs: int | None) -> str:
@@ -105,9 +107,11 @@ def _ts(secs: float | None) -> str:
 
 
 def _prompt(goal: str, m: dict, skim: dict | None, prior: dict | None = None) -> str:
+    """The learner's goal, then the video's metadata in one <untrusted source="video_page"> block (title, channel,
+    tags, chapters and description are whatever the uploader wrote) and the skim note in another."""
     chs = m.get("chapters") or []
+    head = [f"Learner's goal: {goal or '(none given)'}"]
     lines = [
-        f"Learner's goal: {goal or '(none given)'}",
         f"Title: {m.get('title') or '?'}",
         f"Channel: {m.get('channel') or '?'}",
         f"Length: {_fmt(m.get('duration_s'))}",
@@ -120,12 +124,14 @@ def _prompt(goal: str, m: dict, skim: dict | None, prior: dict | None = None) ->
         lines.append("Chapters:\n" + "\n".join(f"{c['index']}. [{_ts(c['start'])}] {c['title']}" for c in chs[:60]))
     else:
         lines.append("Chapters: none")
+    lines.append("Description:\n" + (m.get("description") or "(empty)")[:4000])
+    tail = []
     if prior and prior.get("style"):
-        lines.append(f"Search's style guess (from the results page): {prior['style']}")
+        tail.append(f"Search's style guess (from the results page): {prior['style']}")
     if skim:
-        lines.append(f"Skim note (Gemini watched it at low fps for the search; score {skim.get('score')}/100): {skim.get('reason', '')}")
-    lines.append("Description:\n<description>\n" + (m.get("description") or "(empty)")[:4000] + "\n</description>")
-    return "\n".join(lines)
+        tail.append(f"Skim note (Gemini watched it at low fps for the search; score {skim.get('score')}/100): "
+                    + wrap("video_page", skim.get("reason", ""), cap=400))
+    return "\n".join([*head, wrap("video_page", "\n".join(lines), cap=20_000), *tail])
 
 
 def _record_cost(resp: Any, model_id: str) -> None:

@@ -17,6 +17,11 @@ from . import llm
 from .common import failed_checks_text
 from .playbook import BY_ID, PLAYBOOK, match
 
+try:
+    from server.untrusted import DATA_RULE, wrap
+except ImportError:  # pragma: no cover - coach/ run on its own (from server/)
+    from untrusted import DATA_RULE, wrap  # type: ignore[no-redef]
+
 FILE_CHECKS = {"file_exists", "file_contains"}
 METRIC_CHECKS = {"metric_threshold", "metric_trend"}
 
@@ -48,6 +53,8 @@ When in doubt choose "opus".
 
 Known failure modes (playbook ids):
 {chr(10).join(f"- {m.id}: {m.name}" for m in PLAYBOOK)}
+
+The error / output tail and the code excerpt arrive inside <untrusted> blocks. {DATA_RULE}
 """
 
 TRIAGE_SCHEMA = {
@@ -91,8 +98,8 @@ async def triage(
         user = (
             f"Step: {step.get('title')} — {step.get('instructions')}\n"
             f"Failed checks:\n{failed_checks_text(failed_checks)}\n"
-            f"Error/output tail:\n{(error_text or '(none)')[-1500:]}\n"
-            f"Code excerpt:\n{(code_excerpt or '(none)')[:3000]}"
+            f"Error/output tail:\n{wrap('terminal', (error_text or '(none)')[-1500:])}\n"
+            f"Code excerpt:\n{wrap('code', (code_excerpt or '(none)')[:3000])}"
         )
         try:
             res = await llm.structured_call(

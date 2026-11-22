@@ -19,6 +19,11 @@ import re
 from . import llm, web
 from .common import clamp_title, clamp_words
 
+try:
+    from server.untrusted import DATA_RULE, wrap
+except ImportError:  # pragma: no cover - coach/ run on its own (from server/)
+    from untrusted import DATA_RULE, wrap  # type: ignore[no-redef]
+
 log = logging.getLogger("coach.outdated")
 
 # (error regex, title, body, yours, expected, source label, source url)
@@ -85,7 +90,17 @@ FIX_SYSTEM = """Code copied from a tutorial fails because the learner has a newe
 - Prefer an official docs/changelog page as the source; use a community page (Stack Overflow, GitHub issue) only if no official page covers it.
 - title: 3 to 7 words naming what changed. body: at most 30 words: what changed (and in which version, if the page says), then what to write instead.
 - yours: the old code as it appears in the error or the learner's code; expected: the replacement, at most 3 lines, same language and style. Both "" if the fix is not a code change (e.g. a CLI flag or config).
-- source_index: 0-based index of the page that documents the fix."""
+- source_index: 0-based index of the page that documents the fix.
+The error, the learner's code and every page arrive inside <untrusted> blocks. """ + DATA_RULE
+
+
+def _pages_fenced(pages: list[dict]) -> str:
+    """web.sources_text with each page in its own <untrusted source="web" host=...> block (one page can't speak for
+    another); with the fences taken out it is web.sources_text exactly (the replay fixtures' key)."""
+    from urllib.parse import urlsplit
+
+    return "\n\n".join(wrap("web", f"[web:{i}] ({s['kind']}) {s['title']} <{s['url']}>\n{s['snippet']}",
+                             host=urlsplit(str(s.get("url") or "")).hostname or "") for i, s in enumerate(pages))
 
 
 async def fix_outdated(error_text: str, libraries: dict | list | None = None, *, code: str = "", command: str = "") -> dict | None:
@@ -106,10 +121,10 @@ async def fix_outdated(error_text: str, libraries: dict | list | None = None, *,
     versions = json.dumps(libraries, sort_keys=True) if isinstance(libraries, dict) else ", ".join(libraries or [])
     user = (
         f"Library/tool: {lib or 'unknown'} (symbol: {sym or 'unknown'}); tutorial versions: {versions or 'unknown'}\n"
-        f"Error seen on screen:\n{error_text[-1500:]}\n"
-        + (f"\nLearner code excerpt:\n{code[:2000]}\n" if code else "")
+        f"Error seen on screen:\n{wrap('terminal', error_text[-1500:])}\n"
+        + (f"\nLearner code excerpt:\n{wrap('code', code[:2000])}\n" if code else "")
         + "\nPAGES:\n"
-        + web.sources_text(pages)
+        + _pages_fenced(pages)
     )
     try:
         res = await llm.structured_call(
