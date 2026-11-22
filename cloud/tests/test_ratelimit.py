@@ -104,7 +104,7 @@ def test_rate_limit_can_be_turned_off(make_cloud):
 # --------------------------------------------------------------------------- per token
 
 def test_valid_tokens_behind_one_ip_have_their_own_budget(make_cloud):
-    client, app_mod = make_cloud()
+    client, app_mod = make_cloud(RATE_LIMIT_PER_TOKEN_PER_HOUR="600")
     ip = xff("100.64.0.1")
     a = {**install(client)[0], **ip}
     b = {**install(client)[0], **ip}
@@ -115,12 +115,12 @@ def test_valid_tokens_behind_one_ip_have_their_own_budget(make_cloud):
     for _ in range(100):
         assert client.post("/v1/link", headers=a, json={}).status_code == 403
     assert_rate_limited(client.post("/v1/link", headers=a, json={}), "ip_hourly")
-    # each token's own budget is 600 an hour
+    # each token's own budget is 600 an hour here (2400 by default: test_spend_controls.py)
     for _ in range(450):
         assert client.post("/v1/events", headers=a, json={"events": []}).status_code == 202
     assert_rate_limited(client.post("/v1/events", headers=a, json={"events": []}), "token_hourly")
     assert client.post("/v1/events", headers=b, json={"events": []}).status_code == 202
-    assert app_mod.RATE_LIMIT_PER_TOKEN_PER_HOUR == 600 and app_mod.RATE_LIMIT_PER_IP_PER_HOUR == 100
+    assert app_mod.RATE_LIMIT_PER_IP_PER_HOUR == 100
 
 
 def test_unknown_token_counts_against_the_ip(make_cloud):
@@ -512,8 +512,12 @@ def test_every_setting_is_documented_and_the_new_ones_are_in_render_yaml():
            "LESSON_DISK_MAX_PCT", "SUPABASE_ALLOW_HS256", "LINK_MAX_INSTALLS_PER_USER", "ADMIN_FAILURE_MAX_KEYS",
            "ANON_DAILY_USD_PER_NETWORK", "BODY_READ_TIMEOUT_S", "GEMINI_VIDEO_RESERVE_TOKENS",
            "MINT_IPV6_PREFIX", "WEB_FETCH_MAX_CONTENT_TOKENS", "MAX_INFLIGHT_BODY_MB", "MAX_INFLIGHT_BODY_PER_IP_MB",
-           "JSON_MAX_OBJECTS", "LESSON_PENDING_MAX_DAYS", "LESSON_PENDING_MAX_MB", "LESSON_PENDING_PER_NET_MB"]
+           "JSON_MAX_OBJECTS", "LESSON_PENDING_MAX_DAYS", "LESSON_PENDING_MAX_MB", "LESSON_PENDING_PER_NET_MB",
+           "MAX_TOKENS_CAP", "ALLOWED_GEMINI_MODELS", "NEW_INSTALLS_PER_DAY", "ALERT_WEBHOOK_URL", "ALERT_DAILY_USD",
+           "ALERT_TOKEN_DAILY_USD"]
     assert not [n for n in new if n not in render]
+    assert "FREE_COACH_CALLS_PER_DAY" not in render and "FREE_COACH_CALLS_PER_DAY" not in readme  # the role cap is gone
+    assert "key: ALERT_WEBHOOK_URL" in render and "sync: false" in render.split("key: ALERT_WEBHOOK_URL", 1)[1].split("- key:", 1)[0]
     assert "key: DAILY_USD_CAP" in render and "sync: false" in render.split("key: DAILY_USD_CAP", 1)[1].split("- key:", 1)[0]
     assert "ADMIN_TOKEN=test" not in readme and "secrets.token_urlsafe(32)" in readme
 

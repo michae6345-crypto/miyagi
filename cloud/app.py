@@ -22,11 +22,12 @@ import re
 import secrets
 import shutil
 import sys
+import threading
 import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 import anyio
 import httpx
@@ -109,10 +110,17 @@ def _env_key(name: str) -> str:
 
 ANTHROPIC_KEY = _env_key("ANTHROPIC_API_KEY")
 GEMINI_KEY = _env_key("GEMINI_API_KEY")
-PROXY_ENABLED = _env_bool("PROXY_ENABLED", True)
+PROXY_ENABLED = _env_bool("PROXY_ENABLED", True)  # the deploy-time switch; POST /admin/proxy/pause is the runtime one
 ALLOWED_ANTHROPIC = _env_list("ALLOWED_ANTHROPIC_MODELS", "claude-sonnet-5-5,claude-haiku-5-5")
-ALLOWED_GEMINI = _env_list("ALLOWED_GEMINI_MODELS", "gemini-3.8-flash")
-MAX_TOKENS_CAP = _env_int("MAX_TOKENS_CAP", 4096)
+# Gemini is off by default: the founders' D1 decision is Claude only at launch (Gemini's terms are 18+, miyagi's gate
+# is 13+). An empty list (unset, empty, or "none") makes every /v1/gemini call a 403 gemini_disabled. It stays
+# configurable so Gemini can come back, for example through Vertex AI once an adult-held account exists: set
+# ALLOWED_GEMINI_MODELS to a comma-separated list (and GEMINI_API_KEY) to turn it on again.
+ALLOWED_GEMINI = [m for m in _env_list("ALLOWED_GEMINI_MODELS", "") if m.lower() not in ("none", "off")]
+# Upper bound on Anthropic max_tokens (thinking included). The lesson builder asks for 32000 with adaptive thinking
+# (server/lesson/claude.py), so a lower cap cuts its replies short. Spend is bounded by the dollar caps below, which
+# reserve max_tokens at the output price while a call is in flight; a per-call cap never bounded abuse on its own.
+MAX_TOKENS_CAP = _env_int("MAX_TOKENS_CAP", 32_000)
 ALLOW_FAST_MODE = _env_bool("ALLOW_FAST_MODE", False)  # speed:"fast" bills 2x
 ANTHROPIC_VERSION = os.environ.get("ANTHROPIC_VERSION", "2023-06-01")
 # anthropic-beta values forwarded; anything else is refused. Default: the one the engine sends (the refusal fallback).
@@ -161,7 +169,9 @@ CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip().lower()  # e.g
 # Rate limits (Michael's ask): per process and per instance, in memory. See class RateLimit.
 RATE_LIMIT_ENABLED = _env_bool("RATE_LIMIT_ENABLED", True)
 RATE_LIMIT_PER_IP_PER_HOUR = _env_int("RATE_LIMIT_PER_IP_PER_HOUR", 100)
-RATE_LIMIT_PER_TOKEN_PER_HOUR = _env_int("RATE_LIMIT_PER_TOKEN_PER_HOUR", 600)
+# Per install token: above a normal lesson's busiest hour (scene looks alone are up to 720 an hour, plus the judge,
+# screen picks, coach cards and events). An abuse brake only: the dollar caps bound spend.
+RATE_LIMIT_PER_TOKEN_PER_HOUR = _env_int("RATE_LIMIT_PER_TOKEN_PER_HOUR", 2400)
 ADMIN_RATE_LIMIT_PER_IP_PER_HOUR = _env_int("ADMIN_RATE_LIMIT_PER_IP_PER_HOUR", 20)
 ADMIN_LOCKOUT_FAILURES = _env_int("ADMIN_LOCKOUT_FAILURES", 5)
 RATE_LIMIT_MAX_KEYS = _env_int("RATE_LIMIT_MAX_KEYS", 200_000)
@@ -179,23 +189,54 @@ GLOBAL_INFLIGHT = _env_int("GLOBAL_INFLIGHT", 80)
 # A request body must arrive within this many seconds (408 after), so slow uploads cannot hold slots or memory.
 BODY_READ_TIMEOUT_S = _env_float("BODY_READ_TIMEOUT_S", 20)
 
-# Caps for every install whatever its x-miyagi-role (A01). 0 turns a cap off. "pro" installs skip the per-install caps.
+# Caps (A01, R01). Every cap keys on the install token or the linked user, in dollars counted on the server from the
+# usage table (estimated cost, in-flight reservations included). The client-set x-miyagi-role header is a label for
+# the log line and the usage view only: no cap reads it. 0 turns a cap off. "pro" installs skip the per-install caps.
 FREE_LESSON_BUILDS_PER_MONTH = _env_int("FREE_LESSON_BUILDS_PER_MONTH", 3)  # new videos; cache hits are free
-FREE_COACH_CALLS_PER_DAY = _env_int("FREE_COACH_CALLS_PER_DAY", 60)  # an extra cap on x-miyagi-role: coach
-# Anonymous (unlinked) installs, per install and UTC day. One normal lesson is ~150-250 calls and $0.30-0.60 (README).
-FREE_DAILY_REQUESTS = _env_int("FREE_DAILY_REQUESTS", 300)
-FREE_DAILY_USD = _env_float("FREE_DAILY_USD", 1.00)
+# Anonymous (unlinked) installs, per install and UTC day: about 3x one lesson (D13; Area C estimates ~$0.50), and
+# above one build's peak reservation (the builder runs up to 4 Claude calls at once, each holding max_tokens at the
+# output price: about $0.35 for a 32000-token Sonnet call). Set it from a measured lesson.
+FREE_DAILY_USD = _env_float("FREE_DAILY_USD", 2.00)
 # Linked installs: per Supabase user, every install of theirs together.
-LINKED_DAILY_REQUESTS = _env_int("LINKED_DAILY_REQUESTS", 1000)
 LINKED_DAILY_USD = _env_float("LINKED_DAILY_USD", 3.00)
+# Request counts per UTC day (anonymous install / linked user): off by default. A count stops a normal lesson (scene
+# looks alone are up to 720 Haiku calls an hour) while saying little about cost. Set only as an extra abuse brake,
+# far above a lesson's calls.
+FREE_DAILY_REQUESTS = _env_int("FREE_DAILY_REQUESTS", 0)
+LINKED_DAILY_REQUESTS = _env_int("LINKED_DAILY_REQUESTS", 0)
 LINK_MAX_INSTALLS_PER_USER = _env_int("LINK_MAX_INSTALLS_PER_USER", 10)
 # Every anonymous install minted from one network (mint bucket: IPv4 address or IPv6 /48) together, per UTC day,
-# so minting many installs cannot multiply FREE_DAILY_USD (nor trip DAILY_USD_CAP for everyone). 0 = off.
+# so minting many installs cannot multiply FREE_DAILY_USD. 0 = off.
 ANON_DAILY_USD_PER_NETWORK = _env_float("ANON_DAILY_USD_PER_NETWORK", 5.0)
-# Kill switch on spend: once the estimated USD of every install together (in-flight reservations included) reaches
-# this today (UTC), every forwarded AI call gets a 429 until UTC midnight, pro installs included. Unset or empty: 25
-# (fail closed). Only an explicit 0 turns it off.
-DAILY_USD_CAP = _env_float("DAILY_USD_CAP", 25.0)
+# The global spend brake: an ABUSE BRAKE, OFF by default. When set (dollars), once the estimated spend of every
+# install together reaches it in the current UTC day, every forwarded AI call, pro included, gets a 429 until UTC
+# midnight. A fixed breaker trips on a good launch day and shuts everyone out (D13), so demand is handled by the
+# daily new-install cap (NEW_INSTALLS_PER_DAY) and the alerts instead, and the hard stop is the provider's prepaid
+# balance (R02). If you set it, set it far above ALERT_DAILY_USD. Unset, empty or 0: off.
+DAILY_USD_CAP = _env_float("DAILY_USD_CAP", 0.0)
+# New installs minted per UTC day, every network together (POST /v1/install and /v1/register; D13). Past it, new
+# installs get 429 miyagi_full ("miyagi is full today, try tomorrow.") until UTC midnight; installs already minted
+# keep working. Counted in SQLite, so restarts and deploys do not reset it. 0 = off.
+NEW_INSTALLS_PER_DAY = _env_int("NEW_INSTALLS_PER_DAY", 500)
+
+# Alerts (R01 step 6). ALERT_WEBHOOK_URL: a Discord or Slack incoming-webhook URL (a secret: never logged). Unset:
+# no alerts. Each alert fires at most once per UTC day (alerts_sent in SQLite):
+# - spend_50 / spend_80 / spend_100: today's estimated spend, every install together, passes 50 / 80 / 100% of
+#   ALERT_DAILY_USD (the daily alert line, D13);
+# - token:<id>: one install token spends more than ALERT_TOKEN_DAILY_USD today (default 3x FREE_DAILY_USD);
+# - installs_full: NEW_INSTALLS_PER_DAY is reached; mints_high: GLOBAL_MINTS_WARN_PER_HOUR is reached in an hour;
+# - brake: DAILY_USD_CAP (when set) is reached.
+ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
+ALERT_DAILY_USD = _env_float("ALERT_DAILY_USD", 25.0)
+ALERT_TOKEN_DAILY_USD = _env_float("ALERT_TOKEN_DAILY_USD", 3 * FREE_DAILY_USD)
+ALERT_LEVELS = (50, 80, 100)
+ALERT_SPEND_CHECK_S = 10.0  # the spend alerts read the day's total at most this often per process
+if ALERT_WEBHOOK_URL and not ALERT_WEBHOOK_URL.lower().startswith("https://"):
+    log.error("ALERT_WEBHOOK_URL is not an https URL: alerts are off until it is fixed")
+    ALERT_WEBHOOK_URL = ""
+# The commit Render deployed (Render sets RENDER_GIT_COMMIT), shown on /healthz. Only a hex SHA is reported.
+_commit = os.environ.get("RENDER_GIT_COMMIT", "").strip().lower()
+DEPLOYED_COMMIT = _commit[:40] if re.fullmatch(r"[0-9a-f]{7,40}", _commit) else None
 
 # Shared lesson cache (ROADMAP 3.1, A08)
 MAX_LESSON_BYTES = int(_env_float("MAX_LESSON_KB", 128) * 1024)
@@ -211,9 +252,11 @@ LESSON_PENDING_MAX_BYTES = int(_env_float("LESSON_PENDING_MAX_MB", 128) * 1024 *
 LESSON_PENDING_PER_NET_BYTES = int(_env_float("LESSON_PENDING_PER_NET_MB", 8) * 1024 * 1024)
 TIMEOUT = httpx.Timeout(connect=10.0, read=_env_float("UPSTREAM_READ_TIMEOUT_S", 300), write=60.0, pool=10.0)
 
-if not ANTHROPIC_KEY or not GEMINI_KEY:
+if not ANTHROPIC_KEY or (ALLOWED_GEMINI and not GEMINI_KEY):
     log.warning("missing upstream key(s): anthropic=%s gemini=%s (those routes return 503)",
                 "set" if ANTHROPIC_KEY else "MISSING", "set" if GEMINI_KEY else "MISSING")
+if not ALLOWED_GEMINI:
+    log.info("Gemini is off (ALLOWED_GEMINI_MODELS is empty): /v1/gemini answers 403 gemini_disabled")
 
 # USD per 1M tokens (input, output). Estimates for the caps and the admin view, not billing.
 # Gemini rows are placeholders: check Google's pricing page. Override with PRICES_JSON='{"model": [in, out]}'.
@@ -273,8 +316,9 @@ async def lifespan(_app: FastAPI):
     global store, http
     store = open_store()
     http = httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False)
-    log.info("miyagi-cloud %s up: db=%s proxy_enabled=%s rate_limit=%s admin=%s", VERSION, store.path, PROXY_ENABLED,
-             RATE_LIMIT_ENABLED, "on" if ADMIN_ENABLED else "OFF (weak ADMIN_TOKEN)")
+    log.info("miyagi-cloud %s up: db=%s proxy_enabled=%s paused=%s rate_limit=%s admin=%s alerts=%s", VERSION, store.path,
+             PROXY_ENABLED, runtime_paused(), RATE_LIMIT_ENABLED, "on" if ADMIN_ENABLED else "OFF (weak ADMIN_TOKEN)",
+             "on" if ALERT_WEBHOOK_URL else "off")
     yield
     await http.aclose()
 
@@ -590,9 +634,23 @@ def too_large(limit: int) -> JSONResponse:
     return error(413, "request_too_large", f"Request body over {_size(limit)}.")
 
 
+def runtime_paused() -> bool:
+    """The operators' runtime pause (POST /admin/proxy/pause), read from SQLite on every /v1 request. A read that
+    fails is logged and counts as not paused: the call then fails at admission anyway, which needs the same database."""
+    try:
+        return store.paused()
+    except Exception:
+        log.exception("reading the runtime pause flag failed")
+        return False
+
+
+PAUSED_MESSAGE = "Miyagi cloud AI is paused by the operators. Try again later."
+
+
 class Guard:
-    """Pure ASGI middleware: kill switch, no browser origins on /v1, admin off for a weak ADMIN_TOKEN, body size
-    limit, one log line per request (RateLimit's 429s included: Guard is the outer middleware).
+    """Pure ASGI middleware: kill switches (PROXY_ENABLED and the runtime pause), no browser origins on /v1, admin
+    off for a weak ADMIN_TOKEN, body size limit, one log line per request (RateLimit's 429s included: Guard is the
+    outer middleware).
 
     Handlers put model / token counts / token prefix on request.state; we log them after the
     response (including a streamed one) has finished.
@@ -614,8 +672,8 @@ class Guard:
             await send(msg)
 
         try:
-            if path.startswith("/v1/") and not PROXY_ENABLED:
-                return await error(503, "proxy_disabled", "Miyagi cloud AI is paused by the operators. Try again later.")(scope, receive, send_logged)
+            if path.startswith("/v1/") and (not PROXY_ENABLED or runtime_paused()):
+                return await error(503, "proxy_disabled", PAUSED_MESSAGE)(scope, receive, send_logged)
             if path.startswith("/v1/") and "origin" in headers:
                 return await error(403, "forbidden", "Browser origins are not allowed.")(scope, receive, send_logged)
             if _is_admin(path) and not ADMIN_ENABLED:
@@ -640,7 +698,7 @@ class Guard:
                 if status[0] == 0:
                     await too_large(limit)(scope, receive, send_logged)
         finally:
-            extra = "".join(f" {k}={state[k]}" for k in ("model", "tokens_in", "tokens_out", "held", "tok", "user", "rl")
+            extra = "".join(f" {k}={state[k]}" for k in ("model", "role", "tokens_in", "tokens_out", "held", "tok", "user", "rl")
                             if state.get(k) is not None)
             log.info("%s %s %s %dms%s", scope["method"], path, status[0] or 500, (time.monotonic() - start) * 1000, extra)
 
@@ -659,7 +717,7 @@ class RateLimit:
     Per hour, sliding window (RATE_LIMIT_ENABLED=1 turns it on; it is on by default):
     - every /v1/* and /admin* request counts against its client IP (RATE_LIMIT_PER_IP_PER_HOUR, 100); /healthz never;
     - /v1/anthropic/*, /v1/gemini/*, /v1/lessons/* and /v1/events count against the install token instead
-      (RATE_LIMIT_PER_TOKEN_PER_HOUR, 600), but only when the presented token is a known, enabled one: a missing or
+      (RATE_LIMIT_PER_TOKEN_PER_HOUR, 2400), but only when the presented token is a known, enabled one: a missing or
       unknown token counts against the IP, so guessing tokens is IP-limited;
     - /admin* also counts against ADMIN_RATE_LIMIT_PER_IP_PER_HOUR (20) per IP;
     - ADMIN_LOCKOUT_FAILURES (5) wrong admin tokens from one IP within an hour lock that IP out of /admin* (429
@@ -757,8 +815,8 @@ def _iso(t: datetime) -> str:
 
 def quota_error(kind: str, limit: str, used: int | float, cap: int | float, resets: datetime, message: str,
                 **extra) -> JSONResponse:
-    """429 in error()'s shape plus what the app needs to show it: `limit` (lesson_builds | coach_calls |
-    daily_requests | daily_spend | daily_usd | lesson_uploads), `used`, `cap` and `resets_at`. `x-should-retry: false`
+    """429 in error()'s shape plus what the app needs to show it: `limit` (lesson_builds | daily_requests |
+    daily_spend | daily_usd | lesson_uploads), `used`, `cap` and `resets_at`. `x-should-retry: false`
     stops the SDKs' automatic retries. The engine reads type `miyagi_quota` (server/config.py CLOUD_ERRORS) and
     `miyagi_lesson_quota` (lesson cache)."""
     body = {"type": "error", "error": {"type": kind, "status": kind.upper(), "code": 429, "message": message,
@@ -771,24 +829,24 @@ ROLE_RE = re.compile(r"[a-z][a-z0-9_-]{0,23}")
 
 
 def request_role(request: Request) -> str | None:
-    """The engine's x-miyagi-role (coach, lesson, screen, finder, diagram, workspace), when it is well formed.
-    A label for the usage log and the coach cap only: no role is ever exempt from the caps."""
+    """The engine's x-miyagi-role (coach, scene, lesson, screen, finder, diagram, workspace), when it is well formed.
+    The client sets it, so it is only a label for the log line and the usage view: no cap reads it, and no role is
+    ever exempt from the caps."""
     role = request.headers.get("x-miyagi-role", "").strip().lower()
     return role if ROLE_RE.fullmatch(role) else None
 
 
 def _caps(token_hash: str) -> dict:
-    """The per-install caps for this token: pro none, linked per user, anonymous per install."""
+    """The caps for this token, from server-side state only (its plan, its link, its mint network): pro none, linked
+    per user, anonymous per install and per mint network."""
     row = store.get_token(token_hash) or {}
     none = {"net": None, "net_usd_cap": 0.0}
     if row.get("plan") == "pro":
-        return {"role_caps": {}, "daily_cap": 0, "usd_cap": 0.0, "user_id": None, **none}
+        return {"daily_cap": 0, "usd_cap": 0.0, "user_id": None, **none}
     link = store.get_link(token_hash)
-    role_caps = {"coach": FREE_COACH_CALLS_PER_DAY}
     if link:
-        return {"role_caps": role_caps, "daily_cap": LINKED_DAILY_REQUESTS, "usd_cap": LINKED_DAILY_USD,
-                "user_id": link["user_id"], **none}
-    return {"role_caps": role_caps, "daily_cap": FREE_DAILY_REQUESTS, "usd_cap": FREE_DAILY_USD, "user_id": None,
+        return {"daily_cap": LINKED_DAILY_REQUESTS, "usd_cap": LINKED_DAILY_USD, "user_id": link["user_id"], **none}
+    return {"daily_cap": FREE_DAILY_REQUESTS, "usd_cap": FREE_DAILY_USD, "user_id": None,
             "net": row.get("mint_net"), "net_usd_cap": ANON_DAILY_USD_PER_NETWORK}
 
 
@@ -796,26 +854,25 @@ def check_quota(token_hash: str, role: str | None, provider: str, model: str, re
                 dry_run: bool = False) -> JSONResponse | None:
     """Every cap on one forwarded AI call. None means allowed, and the call is then already counted with its cost
     estimate reserved (unless dry_run, which only checks): caps are checked and counted in one store transaction,
-    so parallel calls cannot overshoot them.
+    so parallel calls cannot overshoot them. `role` is recorded as a label only.
 
-    1. DAILY_USD_CAP, the spend kill switch: every install together, pro included, reservations included.
-    2. The coach cap (FREE_COACH_CALLS_PER_DAY on x-miyagi-role: coach), free and linked installs.
-    3. Every call whatever its role: anonymous installs FREE_DAILY_REQUESTS / FREE_DAILY_USD each; linked installs
-       LINKED_DAILY_REQUESTS / LINKED_DAILY_USD per Supabase user, all their installs together. Pro: none.
-    4. Anonymous installs: ANON_DAILY_USD_PER_NETWORK for every unlinked install minted from the same network.
-    The lesson build cap lives on POST /v1/lessons/{id}/build."""
+    1. DAILY_USD_CAP, the global abuse brake (off by default): every install together, pro included.
+    2. Every call whatever its role: anonymous installs FREE_DAILY_USD each; linked installs LINKED_DAILY_USD per
+       Supabase user, all their installs together. Pro: none. (FREE_DAILY_REQUESTS / LINKED_DAILY_REQUESTS: optional
+       request counts on the same scopes, off by default.)
+    3. Anonymous installs: ANON_DAILY_USD_PER_NETWORK for every unlinked install minted from the same network.
+    The lesson build cap lives on POST /v1/lessons/{id}/build, the new-install cap on POST /v1/install."""
     c = _caps(token_hash)
-    hit, used, cap = store.admit_call(token_hash, provider, model, role, c["role_caps"], c["daily_cap"], usd_cap=c["usd_cap"],
+    hit, used, cap = store.admit_call(token_hash, provider, model, role, c["daily_cap"], usd_cap=c["usd_cap"],
                                       user_id=c["user_id"], global_usd_cap=DAILY_USD_CAP, reserve_usd=reserve_usd,
                                       net=c["net"], net_usd_cap=c["net_usd_cap"], dry_run=dry_run)
     scope = "account" if c["user_id"] else "install"
     if hit == "global_usd":
-        log.warning("daily USD cap reached: est. $%.2f of $%.2f", used, DAILY_USD_CAP)
+        log.warning("daily USD brake reached: est. $%.2f of $%.2f", used, DAILY_USD_CAP)
+        alert("brake", f"miyagi-cloud: the global spend brake (DAILY_USD_CAP ${DAILY_USD_CAP:.2f}) is reached at est. "
+                       f"${used:.2f} today. Every AI call is refused until UTC midnight.")
         return quota_error("miyagi_quota", "daily_usd", round(used, 2), DAILY_USD_CAP, _next_utc_midnight(),
                            "miyagi has used today's cloud budget. Back tomorrow.")
-    if hit == "role":
-        return quota_error("miyagi_quota", "coach_calls", used, cap, _next_utc_midnight(),
-                           "That's all the coach help for today. It comes back tomorrow.")
     if hit == "daily":
         return quota_error("miyagi_quota", "daily_requests", used, cap, _next_utc_midnight(),
                            "You've reached today's limit. It resets tomorrow.", scope=scope)
@@ -827,6 +884,97 @@ def check_quota(token_hash: str, role: str | None, provider: str, model: str, re
                            "Free use from this network is used up for today. Sign in to keep going, or come back tomorrow.",
                            scope="network")
     return None
+
+
+# --------------------------------------------------------------------------- alerts (R01 step 6)
+
+_alerted: set[tuple[str, str]] = set()  # (day, key) this process already claimed or saw claimed: skips the database
+_spend_checked = [0.0]  # when the spend alerts last read the day's total
+
+
+def _seen(day: str, key: str) -> bool:
+    if _alerted and next(iter(_alerted))[0] != day:
+        _alerted.clear()  # a new UTC day: yesterday's keys can fire again
+    return (day, key) in _alerted
+
+
+def _alert_payload(text: str) -> dict:
+    """Discord takes {"content"}, Slack (and most other incoming webhooks) {"text"}."""
+    host = (urlsplit(ALERT_WEBHOOK_URL).hostname or "").lower()
+    if host in ("discord.com", "discordapp.com") or host.endswith((".discord.com", ".discordapp.com")):
+        return {"content": text[:1900]}
+    return {"text": text}
+
+
+def _post_webhook(payload: dict) -> None:
+    """POST one alert, with one retry. Logs only the status or the exception class: the URL is a secret."""
+    for attempt in range(2):
+        try:
+            r = httpx.post(ALERT_WEBHOOK_URL, json=payload, timeout=10.0, follow_redirects=False)
+            if r.status_code < 300:
+                return
+            log.warning("alert webhook answered %s", r.status_code)
+        except httpx.HTTPError as e:
+            log.warning("alert webhook failed: %s", type(e).__name__)
+        if attempt == 0:
+            time.sleep(5)
+
+
+def _dispatch(payload: dict) -> None:
+    """Send off the request path, in a daemon thread (tests replace this)."""
+    threading.Thread(target=_post_webhook, args=(payload,), daemon=True, name="miyagi-alert").start()
+
+
+def alert(key: str, text: str) -> bool:
+    """Send `text` to ALERT_WEBHOOK_URL at most once per UTC day per `key`, across processes and restarts (the
+    first claim in alerts_sent wins). No webhook set: nothing at all. Never raises. Returns whether it was sent."""
+    if not ALERT_WEBHOOK_URL:
+        return False
+    k = (today(), key)
+    if _seen(*k):
+        return False
+    try:
+        first = store.claim_alert(key, k[0])
+    except Exception:
+        log.exception("claiming an alert failed")
+        return False
+    _alerted.add(k)
+    if not first:
+        return False
+    log.warning("alert sent: %s", key)
+    try:
+        _dispatch(_alert_payload(text))
+    except Exception:
+        log.exception("sending an alert failed")
+    return True
+
+
+def check_spend_alerts(token_hash: str) -> None:
+    """After a call settles: the day's spend against the alert line (at most every ALERT_SPEND_CHECK_S), and this
+    install's spend against ALERT_TOKEN_DAILY_USD."""
+    if not ALERT_WEBHOOK_URL:
+        return
+    day = today()
+    try:
+        if ALERT_TOKEN_DAILY_USD > 0:
+            prefix = token_hash[:PREFIX_LEN]
+            if not _seen(day, f"token:{prefix}"):
+                spent = store.usd_today_for(token_hash)
+                if spent > ALERT_TOKEN_DAILY_USD:
+                    alert(f"token:{prefix}", f"miyagi-cloud: install {prefix} has spent est. ${spent:.2f} today, over the "
+                                             f"${ALERT_TOKEN_DAILY_USD:.2f} alert line for one install. "
+                                             f"Disable it with /admin/tokens/{prefix}/disable if it looks wrong.")
+        levels = [p for p in ALERT_LEVELS if not _seen(day, f"spend_{p}")]
+        now = _now()
+        if ALERT_DAILY_USD > 0 and levels and now - _spend_checked[0] >= ALERT_SPEND_CHECK_S:
+            _spend_checked[0] = now
+            total = store.usd_today()
+            for p in levels:
+                if total >= ALERT_DAILY_USD * p / 100:
+                    alert(f"spend_{p}", f"miyagi-cloud: est. spend today is ${total:.2f}, {p}% of the "
+                                        f"${ALERT_DAILY_USD:.2f} daily alert line.")
+    except Exception:  # alerts never break a response
+        log.exception("checking the spend alerts failed")
 
 
 # --------------------------------------------------------------------------- calls in flight (A23)
@@ -972,6 +1120,7 @@ class Call:
             store.settle(self.token_hash, self.provider, self.model, self.day, self.reserve, model, inp, out, usd)
         except Exception:  # never let accounting break a response
             log.exception("settling a call failed")
+        check_spend_alerts(self.token_hash)
 
 
 def open_call(request: Request, token_hash: str, provider: str, model: str) -> Call | JSONResponse:
@@ -982,6 +1131,7 @@ def open_call(request: Request, token_hash: str, provider: str, model: str) -> C
     declared = request.headers.get("content-length", "")
     if not declared.isdigit() or len(declared) > 12:
         return error(411, "length_required", "AI calls need a Content-Length header.")
+    request.state.role = request_role(request)  # a label for the log line only
     if denied := check_quota(token_hash, request_role(request), provider, model, dry_run=True):
         return denied
     if not inflight.acquire_token(token_hash):
@@ -1041,8 +1191,14 @@ def mint_token(request: Request, install_id: str | None, app_version: str, platf
     token_id is the first PREFIX_LEN hex characters of that hash: public, the same id the admin views and
     /admin/tokens/{prefix}/disable use, and useless for calling the proxy."""
     net = mint_bucket(client_ip(request))
-    r = store.mint_check(net, REGISTER_PER_HOUR, REGISTER_PER_DAY, GLOBAL_MINTS_MAX)
+    r = store.mint_check(net, REGISTER_PER_HOUR, REGISTER_PER_DAY, GLOBAL_MINTS_MAX, new_per_day=NEW_INSTALLS_PER_DAY)
     if r["hit"]:
+        if r["hit"] == "new_installs":
+            log.warning("daily new-install cap reached: %d today (NEW_INSTALLS_PER_DAY=%d); new installs refused until "
+                        "UTC midnight", r["used"], NEW_INSTALLS_PER_DAY)
+            alert("installs_full", f"miyagi-cloud: today's new-install cap ({NEW_INSTALLS_PER_DAY}) is reached. New installs "
+                                   "see \"miyagi is full today\" until UTC midnight; existing installs keep working.")
+            return installs_full()
         if r["hit"] == "global":
             log.error("install mint ceiling reached: %d this hour (GLOBAL_MINTS_PER_HOUR=%d); new installs refused",
                       r["used"], GLOBAL_MINTS_MAX)
@@ -1065,6 +1221,22 @@ def _warn_mints(this_hour: int) -> None:
     if GLOBAL_MINTS_WARN > 0 and this_hour >= GLOBAL_MINTS_WARN and _mint_warned_hour != hour:
         _mint_warned_hour = hour
         log.warning("install minting is high: %d this hour (warn at %d, refuse at %d)", this_hour, GLOBAL_MINTS_WARN, GLOBAL_MINTS_MAX)
+        alert("mints_high", f"miyagi-cloud: {this_hour} new installs this hour, past the warning line of "
+                            f"{GLOBAL_MINTS_WARN} (refused from {GLOBAL_MINTS_MAX} an hour).")
+
+
+FULL_MESSAGE = "miyagi is full today, try tomorrow."
+
+
+def installs_full() -> JSONResponse:
+    """429 for the daily new-install cap, in error()'s shape with its own type, `miyagi_full`, so the app can show
+    FULL_MESSAGE instead of a generic failure. No counts (the route is public). x-should-retry: false; retry-after
+    and resets_at say UTC midnight."""
+    resets = _next_utc_midnight()
+    body = {"type": "error", "error": {"type": "miyagi_full", "status": "MIYAGI_FULL", "code": 429, "message": FULL_MESSAGE,
+                                       "limit": "new_installs", "resets_at": _iso(resets)}}
+    retry = max(60, int((resets - datetime.now(UTC)).total_seconds()))
+    return JSONResponse(body, status_code=429, headers={"retry-after": str(retry), "x-should-retry": "false"})
 
 
 # --------------------------------------------------------------------------- usage sniffing
@@ -1858,7 +2030,16 @@ def sanitize_gemini(body: dict) -> tuple[dict, int]:
 
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "version": VERSION, "proxy_enabled": PROXY_ENABLED}
+    """Liveness plus what an operator checks after a deploy: the deployed commit, and booleans only (never a key, a
+    path or a count). Always 200 while the process runs, so a database hiccup does not make Render restart it."""
+    try:
+        db_ok = store.ping()
+    except Exception:
+        db_ok = False
+    paused = runtime_paused() if db_ok else False
+    return {"ok": True, "version": VERSION, "commit": DEPLOYED_COMMIT, "proxy_enabled": PROXY_ENABLED and not paused,
+            "paused": paused, "db_ok": db_ok, "gemini_enabled": bool(ALLOWED_GEMINI),
+            "keys_configured": {"anthropic": bool(ANTHROPIC_KEY), "gemini": bool(GEMINI_KEY)}}
 
 
 TOKEN_PREFIX = "mi_"  # the app (main/features/cloud.ts TOKEN_RE) only keeps tokens of this shape
@@ -2017,6 +2198,11 @@ async def gemini(target: str, request: Request):
     token_hash, denied = authenticate(request)
     if denied:
         return denied
+    if not ALLOWED_GEMINI:
+        # Off by default (D1: Claude only). 403 with its own type, not the 404 of an unknown model: the engine marks
+        # Gemini unavailable on a 403 instead of walking its fallback models, and gemini_disabled is not the
+        # permission_error of a disabled install, so the install keeps working for Claude.
+        return error(403, "gemini_disabled", "Gemini is off on this proxy. miyagi uses Claude.")
     if not GEMINI_KEY:
         return error(503, "upstream_not_configured", "Gemini is not configured on this proxy.")
     model, _, method = target.partition(":")
@@ -2522,6 +2708,43 @@ async def admin_usage(request: Request, days: int = 30):
     return store.usage_report(max(1, min(days, 365)))
 
 
+def _proxy_state() -> dict:
+    return {"paused": store.paused(), "proxy_enabled_env": PROXY_ENABLED, "daily_usd_brake": DAILY_USD_CAP or None,
+            "new_installs_today": store.new_installs_on(), "new_installs_per_day": NEW_INSTALLS_PER_DAY or None,
+            "alert_daily_usd": ALERT_DAILY_USD or None, "alerts": bool(ALERT_WEBHOOK_URL)}
+
+
+@app.get("/admin/proxy")
+async def admin_proxy_state(request: Request):
+    if denied := require_admin(request):
+        return denied
+    return _proxy_state()
+
+
+@app.post("/admin/proxy/pause")
+@app.post("/admin/proxy/resume")
+async def admin_proxy_pause(request: Request):
+    """The runtime kill switch: pause stops every /v1 route (503 proxy_disabled, what the engine shows as "paused")
+    within one request, with no redeploy; resume undoes it. Persisted in SQLite (survives restarts and deploys).
+    PROXY_ENABLED=false still wins: resume cannot turn on a proxy the environment turned off."""
+    if denied := require_admin(request):
+        return denied
+    pause = request.url.path.endswith("/pause")
+    store.set_paused(pause)
+    log.warning("admin: proxy %s at runtime", "PAUSED" if pause else "resumed")
+    return _proxy_state()
+
+
+@app.post("/admin/alerts/test")
+async def admin_test_alert(request: Request):
+    """Send one test alert, to check that ALERT_WEBHOOK_URL reaches both founders. Deduped like every alert: once a
+    UTC day (key "test")."""
+    if denied := require_admin(request):
+        return denied
+    sent = alert("test", "miyagi-cloud: test alert. Alerts reach this channel.")
+    return {"alerts": bool(ALERT_WEBHOOK_URL), "sent": sent}
+
+
 @app.post("/admin/tokens/{prefix}/disable")
 @app.post("/admin/tokens/{prefix}/enable")
 async def admin_set_disabled(prefix: str, request: Request):
@@ -2703,11 +2926,16 @@ async def admin_page_post(request: Request):
     t = r["total"]
     summary = (f"<p>Since {html.escape(r['since'])}: <b>{t['requests']}</b> requests, {t['input_tokens']} input / "
                f"{t['output_tokens']} output tokens, est. <b>${t['usd']}</b>. Tokens registered: {r['registered_tokens']} "
-               f"({r['disabled_tokens']} disabled). Proxy enabled: {PROXY_ENABLED}.</p>"
+               f"({r['disabled_tokens']} disabled). Proxy enabled: {PROXY_ENABLED}. "
+               f"Paused at runtime: <b>{r['paused']}</b> (POST /admin/proxy/pause or /resume).</p>"
                f"<p>Shared lessons: {r['lessons']['cached']} approved, {r['lessons']['pending']} pending review, "
                f"{r['lessons']['hits']} cache hits, {r['lessons']['builds_this_month']} new builds this month.</p>"
-               f"<p>Est. spend today (UTC): <b>${r['usd_today']}</b>; daily cap: "
-               f"{'$' + str(DAILY_USD_CAP) if DAILY_USD_CAP > 0 else 'off'}.</p>")
+               f"<p>Est. spend today (UTC): <b>${r['usd_today']}</b>; alert line: "
+               f"{'$' + str(ALERT_DAILY_USD) if ALERT_DAILY_USD > 0 else 'off'} (alerts {'on' if ALERT_WEBHOOK_URL else 'off'}); "
+               f"global spend brake: {'$' + str(DAILY_USD_CAP) if DAILY_USD_CAP > 0 else 'off'}.</p>"
+               f"<p>New installs today: {r['new_installs_today']} of "
+               f"{NEW_INSTALLS_PER_DAY if NEW_INSTALLS_PER_DAY > 0 else 'no cap'}. Alerts sent today: "
+               f"{html.escape(', '.join(r['alerts_today'])) or 'none'}.</p>")
     cols = ["requests", "input_tokens", "output_tokens", "usd"]
     return _page(summary + "<h2>Per day</h2>" + _table(r["by_day"], ["day", "tokens", *cols])
                  + "<h2>Events per day</h2>" + _table(r["events"], ["day", "name", "count", "installs"])

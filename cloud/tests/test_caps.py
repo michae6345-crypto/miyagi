@@ -1,4 +1,4 @@
-"""Enforced caps (check_quota) and the DAILY_USD_CAP kill switch, offline.
+"""Enforced caps (check_quota) and the DAILY_USD_CAP abuse brake, offline.
 
 The upstreams point at a closed local port, so a call that gets past the caps fails with 502
 (upstream_unreachable) and never reaches a real provider.
@@ -26,7 +26,7 @@ def _cloud(tmp_path, monkeypatch, unset=(), **env):
             "ANTHROPIC_API_KEY": "fake-upstream-key", "GEMINI_API_KEY": "fake-upstream-key",
             "UPSTREAM_ANTHROPIC_URL": "http://127.0.0.1:9/v1/messages",  # closed port: never a real call
             "UPSTREAM_GEMINI_URL": "http://127.0.0.1:9/{model}:{method}",
-            "FREE_COACH_CALLS_PER_DAY": "60", "FREE_DAILY_REQUESTS": "0", "DAILY_USD_CAP": "0",
+            "FREE_DAILY_REQUESTS": "0", "DAILY_USD_CAP": "0", "ALLOWED_GEMINI_MODELS": "gemini-3.8-flash",
             "FREE_DAILY_USD": "0", "LINKED_DAILY_REQUESTS": "0", "LINKED_DAILY_USD": "0",
             "ANON_DAILY_USD_PER_NETWORK": "0"}
     for k, v in {**base, **env}.items():
@@ -78,30 +78,18 @@ def gemini(client, h, role: str | None = "lesson"):
 
 # --------------------------------------------------------------------------- caps
 
-def test_coach_cap_defaults_to_sixty_a_day(make_cloud):
-    client, app_mod = make_cloud(unset=("FREE_COACH_CALLS_PER_DAY", "FREE_LESSON_BUILDS_PER_MONTH"))
-    assert app_mod.FREE_COACH_CALLS_PER_DAY == 60 and app_mod.FREE_LESSON_BUILDS_PER_MONTH == 3
-    h, _ = install(client)
-    for _ in range(60):
-        assert anthropic(client, h).status_code == 502  # past the cap, then the closed port
-    r = anthropic(client, h)
-    assert r.status_code == 429
-    err = r.json()["error"]
-    assert err["type"] == "miyagi_quota" and err["limit"] == "coach_calls" and err["used"] == 60 and err["cap"] == 60
-    # a refused call is not counted
-    assert app_mod.store.role_requests_today(app_mod.hash_token(h["Authorization"][7:]), "coach") == 60
-
-
-def test_refused_calls_are_not_counted_and_other_roles_pass(make_cloud):
-    client, app_mod = make_cloud(FREE_COACH_CALLS_PER_DAY="2")
+def test_refused_calls_are_not_counted_and_every_role_counts_the_same(make_cloud):
+    client, app_mod = make_cloud(FREE_DAILY_REQUESTS="4")
     h, _ = install(client)
     th = app_mod.hash_token(h["Authorization"][7:])
-    assert [anthropic(client, h).status_code for _ in range(4)] == [502, 502, 429, 429]
-    assert app_mod.store.requests_today(th) == 2
+    assert anthropic(client, h, role="coach").status_code == 502
     assert anthropic(client, h, role="scene").status_code == 502
-    assert gemini(client, h).status_code == 502
+    assert gemini(client, h, role="lesson").status_code == 502
     assert anthropic(client, h, role=None).status_code == 502
-    assert app_mod.store.requests_today(th) == 5
+    for role in ("coach", "scene", "lesson", "screen", None, "anything-else"):
+        r = anthropic(client, h, role=role)
+        assert r.status_code == 429 and r.json()["error"]["limit"] == "daily_requests"
+    assert app_mod.store.requests_today(th) == 4
 
 
 def test_daily_request_cap_covers_every_call(make_cloud):
@@ -119,21 +107,21 @@ def test_daily_request_cap_covers_every_call(make_cloud):
 
 
 def test_pro_has_no_per_install_caps(make_cloud):
-    client, _ = make_cloud(FREE_COACH_CALLS_PER_DAY="1", FREE_DAILY_REQUESTS="1")
+    client, _ = make_cloud(FREE_DAILY_REQUESTS="1", FREE_DAILY_USD="0.01")
     h, token_id = install(client)
     assert client.post(f"/admin/tokens/{token_id}/plan", json={"plan": "pro"}, headers=ADMIN).status_code == 200
     assert [anthropic(client, h).status_code for _ in range(4)] == [502] * 4
 
 
 def test_caps_hold_under_parallel_calls(make_cloud):
-    client, app_mod = make_cloud(FREE_COACH_CALLS_PER_DAY="5")
+    client, app_mod = make_cloud()
     h, _ = install(client)
     th = app_mod.hash_token(h["Authorization"][7:])
     results: list[tuple[str | None, int, int]] = []
     lock = threading.Lock()
 
     def call():
-        r = app_mod.store.admit_call(th, "anthropic", "claude-haiku-5-5", "coach", {"coach": 5}, 0)
+        r = app_mod.store.admit_call(th, "anthropic", "claude-haiku-5-5", "coach", 0, usd_cap=0.625, reserve_usd=0.125)
         with lock:
             results.append(r)
 
@@ -145,32 +133,24 @@ def test_caps_hold_under_parallel_calls(make_cloud):
     assert sum(1 for hit, _, _ in results if hit is None) == 5
     assert app_mod.store.role_requests_today(th, "coach") == 5
     assert app_mod.store.requests_today(th) == 5
+    assert app_mod.store.usd_today_for(th) == 0.625
 
 
 # --------------------------------------------------------------------------- DAILY_USD_CAP
 
-@pytest.mark.parametrize("value", [None, "", "  "])
-def test_usd_cap_fails_closed_when_unset_or_empty(make_cloud, value):
+@pytest.mark.parametrize("value", [None, "", "  ", "0"])
+def test_global_brake_is_off_unless_set(make_cloud, value):
+    """DAILY_USD_CAP is an abuse brake, off by default: a busy day does not stop everyone (D13)."""
     if value is None:
         client, app_mod = make_cloud(unset=("DAILY_USD_CAP",))
     else:
         client, app_mod = make_cloud(DAILY_USD_CAP=value)
-    assert app_mod.DAILY_USD_CAP == 25.0
+    assert app_mod.DAILY_USD_CAP == 0
     h, _ = install(client)
     other, _ = install(client)
     th = app_mod.hash_token(h["Authorization"][7:])
-    app_mod.store.add_tokens(th, "anthropic", "claude-haiku-5-5", 10**9, 10**9, 25.0)
-    r = anthropic(client, other)
-    assert r.status_code == 429 and r.json()["error"]["limit"] == "daily_usd" and r.json()["error"]["cap"] == 25.0
-
-
-def test_usd_cap_off_only_when_explicitly_zero(make_cloud):
-    client, app_mod = make_cloud(DAILY_USD_CAP="0", FREE_DAILY_USD="0")
-    assert app_mod.DAILY_USD_CAP == 0
-    h, _ = install(client)
-    th = app_mod.hash_token(h["Authorization"][7:])
     app_mod.store.add_tokens(th, "anthropic", "claude-haiku-5-5", 10**9, 10**9, 9999.0)
-    assert anthropic(client, h).status_code == 502
+    assert anthropic(client, other).status_code == 502
 
 
 def test_usd_cap_stops_every_install_until_midnight(make_cloud):

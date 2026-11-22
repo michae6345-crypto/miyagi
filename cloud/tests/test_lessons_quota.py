@@ -31,7 +31,6 @@ def cloud(tmp_path, monkeypatch):
     monkeypatch.setenv("UPSTREAM_ANTHROPIC_URL", "http://127.0.0.1:9/v1/messages")  # closed port: never a real call
     monkeypatch.setenv("UPSTREAM_GEMINI_URL", "http://127.0.0.1:9/{model}:{method}")
     monkeypatch.setenv("FREE_LESSON_BUILDS_PER_MONTH", "3")
-    monkeypatch.setenv("FREE_COACH_CALLS_PER_DAY", "2")
     monkeypatch.setenv("MAX_LESSON_KB", "4")
     monkeypatch.syspath_prepend(str(CLOUD))
     for mod in ("app", "store"):
@@ -193,18 +192,12 @@ def _coach(client, h, role="coach"):
     return client.post("/v1/anthropic/v1/messages", headers={**h, "x-miyagi-role": role}, json=body)
 
 
-def test_coach_calls_capped_per_day(cloud):
+def test_coach_role_has_no_cap_of_its_own(cloud):
+    """x-miyagi-role is set by the client, so no cap keys on it: coach calls count like every other call."""
     client, _ = cloud
     a = install(client)
-    # FREE_COACH_CALLS_PER_DAY=2: the first two get past the cap (and fail upstream: closed port, no real call)
-    assert _coach(client, a).status_code == 502
-    assert _coach(client, a).status_code == 502
-    r = _coach(client, a)
-    assert r.status_code == 429
-    err = r.json()["error"]
-    assert err["type"] == "miyagi_quota" and err["limit"] == "coach_calls" and err["cap"] == 2
-    assert r.headers["x-should-retry"] == "false"
-    # other roles are not coach calls
+    # past the caps, then the closed port (no real call)
+    assert [_coach(client, a).status_code for _ in range(3)] == [502] * 3
     assert _coach(client, a, role="lesson").status_code == 502
 
 

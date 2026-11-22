@@ -16,17 +16,20 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 
 | Route | Auth | What it does |
 |---|---|---|
-| `GET /healthz` | none, never rate limited | `{"ok": true, "version": ..., "proxy_enabled": ...}`. No secrets. |
-| `POST /v1/install` | none; 20 per network per hour and 60 per day, shared with `/v1/register` | What the desktop app calls. Body `{app, os, arch}` (all optional, extra fields ignored) → `{token, token_id}`. `token` is `mi_` + 32 random bytes urlsafe (46 characters); `token_id` is the first 12 hex characters of its sha256, the same id the admin views and `/admin/tokens/{prefix}/disable` use. |
+| `GET /healthz` | none, never rate limited | `{"ok": true, "version", "commit", "proxy_enabled", "paused", "db_ok", "gemini_enabled", "keys_configured": {"anthropic", "gemini"}}`. `commit` is `RENDER_GIT_COMMIT` (a hex SHA) or null; everything else is a boolean. Never a key, a path or a count. Always 200 while the process runs. |
+| `POST /v1/install` | none; 20 per network per hour and 60 per day, shared with `/v1/register`; `NEW_INSTALLS_PER_DAY` (500) in all per UTC day | What the desktop app calls. Body `{app, os, arch}` (all optional, extra fields ignored) → `{token, token_id}`. `token` is `mi_` + 32 random bytes urlsafe (46 characters); `token_id` is the first 12 hex characters of its sha256, the same id the admin views and `/admin/tokens/{prefix}/disable` use. Past the daily new-install cap: 429 `miyagi_full` (see "Install minting"). |
 | `POST /v1/register` | same limits | Older form. Body `{install_id, app_version, platform}` → `{token, token_id}`, same token shape. |
 | `POST /v1/link` | install token | Links the install to a Google-signed-in miyagi account. See "Accounts" below. |
 | `POST /v1/anthropic/messages` (also `/v1/anthropic/v1/messages`) | install token | Messages API through our key, request body rebuilt from an allowlist (below). |
-| `POST /v1/gemini/{model}:generateContent` and `:streamGenerateContent` (also under `/v1/gemini/v1beta/models/`) | install token | generateContent through our key, body rebuilt from an allowlist (below). |
+| `POST /v1/gemini/{model}:generateContent` and `:streamGenerateContent` (also under `/v1/gemini/v1beta/models/`) | install token | **Off by default** (D1: Claude only): 403 `gemini_disabled`. With `ALLOWED_GEMINI_MODELS` set: generateContent through our key, body rebuilt from an allowlist (below). |
 | `GET /v1/lessons/{video_id}?schema=N` | install token | Shared lesson cache: an approved lesson, or 404 `lesson_not_cached` (its `error.builds` says how many free builds are left). Free. |
 | `POST /v1/lessons/{video_id}/build` | install token | Use one of this month's new-lesson builds. 200 `{ok, builds: {used, cap, month, resets_at}}` or 429 `miyagi_lesson_quota`. |
 | `PUT /v1/lessons/{video_id}` | install token | Body `{schema, lesson}`. Upload a lesson this install built, as a pending candidate. 201 `{stored, status: "pending" \| "approved", hash}`, 403 `build_not_claimed`, 400, 413, 429 `lesson_uploads`, 507 `insufficient_storage`. |
 | `POST /v1/events` | install token | Product events, counts only. See "Product events" below. |
 | `GET /admin/usage` | `X-Admin-Token` | JSON usage report. `?days=30` by default. |
+| `POST /admin/proxy/pause` and `/resume` | `X-Admin-Token` | The runtime kill switch (see "Kill switches"). No body. Answers the state below. |
+| `GET /admin/proxy` | `X-Admin-Token` | `{paused, proxy_enabled_env, daily_usd_brake, new_installs_today, new_installs_per_day, alert_daily_usd, alerts}`. |
+| `POST /admin/alerts/test` | `X-Admin-Token` | Sends one test alert to `ALERT_WEBHOOK_URL` (once a UTC day, like every alert). `{alerts, sent}`. |
 | `GET /admin`, `POST /admin` | admin token typed into a form | The same report as HTML. The token is posted in the form body, never in the URL. |
 | `POST /admin/tokens/{prefix}/disable` and `/enable` | `X-Admin-Token` | Turn one install token off or on, by the first 8+ hex characters of its hash. |
 | `POST /admin/tokens/{prefix}/plan` | `X-Admin-Token` | Body `{"plan": "free"}` or `{"plan": "pro"}`. Pro installs skip the per-install caps. |
@@ -43,7 +46,7 @@ forwarded upstream; the proxy sets the upstream key itself.
 ### What the Anthropic route enforces
 
 The upstream JSON is rebuilt from allowlisted keys only. Kept: `model`, `messages`, `system`,
-`max_tokens` (capped at `MAX_TOKENS_CAP`), `temperature`, `top_p`, `top_k`, `stop_sequences`, `stream`,
+`max_tokens` (capped at `MAX_TOKENS_CAP`, 32000: what the lesson builder asks for), `temperature`, `top_p`, `top_k`, `stop_sequences`, `stream`,
 `thinking` (`type`, `display`, and `budget_tokens` below `max_tokens` and at most `MAX_TOKENS_CAP`),
 `tool_choice`, `tools`, plus two the engine needs: `output_config` (`effort` and a `json_schema` `format`
 only: the coach's structured outputs) and `fallbacks` (`"default"`, which the engine sends with Sonnet; for
@@ -77,8 +80,15 @@ fallback may answer on Sonnet 5), never an Opus id.
 
 ### What the Gemini route enforces
 
-- `{model}` must be in `ALLOWED_GEMINI_MODELS`; any other model gets a 404 (Google's own reply for an
-  unknown model, so the engine skips to its next fallback at once).
+- **Off by default.** The founders' D1 decision is Claude only at launch (Gemini's terms are 18+, miyagi's gate
+  is 13+), so `ALLOWED_GEMINI_MODELS` is empty in code and `none` in `render.yaml`, and every Gemini call gets
+  403 `gemini_disabled` ("Gemini is off on this proxy. miyagi uses Claude."), before the body is read and with
+  nothing counted. Its type is not `permission_error`, so the engine does not take it for a disabled install, and
+  a 403 makes the engine mark Gemini unavailable instead of walking its fallback models (a 404 would). `/healthz`
+  says `gemini_enabled: false`. It stays configurable: set `ALLOWED_GEMINI_MODELS` (and `GEMINI_API_KEY`) to bring
+  Gemini back, for example through Vertex AI once an adult-held account exists.
+- With Gemini on, `{model}` must be in `ALLOWED_GEMINI_MODELS`; any other model gets a 404 (Google's own reply for
+  an unknown model, so the engine skips to its next fallback at once).
 - The body is rebuilt from `contents`, `systemInstruction`, `safetySettings`, `toolConfig`
   (`functionCallingConfig`), `tools` (`functionDeclarations` only: `googleSearch`, `codeExecution`, `urlContext`
   and every other tool are refused) and `generationConfig` (`temperature`, `topP`, `topK`, `stopSequences`,
@@ -144,7 +154,7 @@ how much of it still overlaps: O(1) per key):
 | Limit | Env | Default | Counts |
 |---|---|---|---|
 | Per client IP | `RATE_LIMIT_PER_IP_PER_HOUR` | 100 | Every `/v1/*` and `/admin*` request. `/healthz` is never limited. |
-| Per install token | `RATE_LIMIT_PER_TOKEN_PER_HOUR` | 600 | `/v1/anthropic/*`, `/v1/gemini/*`, `/v1/lessons/*`, `/v1/events`, counted per token instead of per IP, but only when the presented token (Bearer, `x-api-key` or `x-goog-api-key`) is a known, enabled one. A missing or unknown token counts against the IP, so guessing tokens is IP-limited, and a school behind one IP is not limited to 100 calls. |
+| Per install token | `RATE_LIMIT_PER_TOKEN_PER_HOUR` | 2400 | Above a normal lesson's busiest hour (scene looks alone are up to 720 an hour, plus the judge, screen picks, coach cards and events); 600 stopped real lessons. `/v1/anthropic/*`, `/v1/gemini/*`, `/v1/lessons/*`, `/v1/events`, counted per token instead of per IP, but only when the presented token (Bearer, `x-api-key` or `x-goog-api-key`) is a known, enabled one. A missing or unknown token counts against the IP, so guessing tokens is IP-limited, and a school behind one IP is not limited to 100 calls. |
 | Admin per IP | `ADMIN_RATE_LIMIT_PER_IP_PER_HOUR` | 20 | Every `/admin*` request (on top of the IP limit). |
 | Admin lockout | `ADMIN_LOCKOUT_FAILURES` | 5 | Wrong admin tokens (header or form) from one IP within an hour. Then every `/admin*` request from that IP gets 429 `admin_lockout`, the right token included, until the oldest of those failures is an hour old. Each failure logs a WARNING with the IP, never what was presented. Holds even with `RATE_LIMIT_ENABLED=0`. |
 
@@ -215,11 +225,26 @@ and clock hour, rows older than two days pruned), so a deploy does not reset it:
 | `MINT_IPV6_PREFIX` | 48 | ISPs hand one home a /56 or a /48, so counting mints by /64 would give one user 256 to 65536 buckets. |
 | `GLOBAL_MINTS_WARN_PER_HOUR` | 500 | Every network together: a WARNING once an hour from here on. |
 | `GLOBAL_MINTS_PER_HOUR` | 2000 | Every network together: new installs get 429 `install_global` until the next hour. |
+| `NEW_INSTALLS_PER_DAY` | 500 | Every network together, per UTC day (D13). 0 = off. See below. |
+
+**The daily new-install cap (D13).** Instead of a fixed spend breaker, which would trip on a good launch day and
+stop every learner, the number of new installs per UTC day is capped. The count lives in SQLite (table
+`install_days`), checked and counted in the same transaction as the per-network limits, so restarts, deploys and
+parallel mints cannot pass it, and a mint the per-network limit refuses is not counted. Installs already minted
+keep working all day. Past the cap, `/v1/install` and `/v1/register` answer:
+
+```json
+{"type": "error", "error": {"type": "miyagi_full", "status": "MIYAGI_FULL", "code": 429,
+  "message": "miyagi is full today, try tomorrow.", "limit": "new_installs", "resets_at": "2026-11-22T00:00:00Z"}}
+```
+
+with `retry-after` (seconds to UTC midnight) and `x-should-retry: false`. No counts: the route is public. The app
+shows the message as is (R01 step 8). The `installs_full` alert fires when the cap is reached (see "Alerts").
 
 Each token row keeps the network it was minted from (`tokens.mint_net`), and `ANON_DAILY_USD_PER_NETWORK` (5.00)
 caps the estimated spend of every *unlinked* install minted from one network together per UTC day (429
 `miyagi_quota`, `limit: daily_spend`, `scope: network`). Without it one IPv4 address could mint 60 installs a day
-x `FREE_DAILY_USD` = $60, past the $25 `DAILY_USD_CAP` that stops everyone. A school behind one address shares
+x `FREE_DAILY_USD` = $120 a day. A school behind one address shares
 those $5 while anonymous; signed-in learners count per account instead. Tokens minted before this version have
 no network and only their own caps.
 
@@ -304,31 +329,40 @@ Verification (`supabase_auth.py`, PyJWT with the `cryptography` backend):
 
 ## Free tier caps (ROADMAP 3.7, A01)
 
-`x-miyagi-role` (coach, lesson, screen, finder, diagram, workspace) is a label for the usage log and the coach
-cap only: every forwarded call counts against the daily caps whatever its role, and a call without one counts
-the same. Installs start on the `free` plan. A cap set to 0 is off.
+Every cap keys on the install token or the signed-in user (or the anonymous installs of one mint network), in
+dollars counted on the server from the usage table: estimated cost, in-flight reservations included. The
+`x-miyagi-role` header (coach, scene, lesson, screen, finder, diagram, workspace) is set by the client, so it is
+only a label: it shows in the log line (`role=`) and is counted per install in `role_usage` for the usage view,
+and no cap reads it. Changing it can neither lift nor move a cap. Installs start on the `free` plan. A cap set to
+0 is off.
 
 | Cap | Env | Default | Counted |
 |---|---|---|---|
-| All AI calls, anonymous install, per UTC day | `FREE_DAILY_REQUESTS` | 300 | Every forwarded call of an unlinked install. |
-| Estimated USD, anonymous install, per UTC day | `FREE_DAILY_USD` | 1.00 | The same calls' estimated cost. |
+| Estimated USD, anonymous install, per UTC day | `FREE_DAILY_USD` | 2.00 | Every forwarded call of an unlinked install. |
 | Estimated USD, every anonymous install of one network, per UTC day | `ANON_DAILY_USD_PER_NETWORK` | 5.00 | See "Install minting". |
-| All AI calls, linked user, per UTC day | `LINKED_DAILY_REQUESTS` | 1000 | Every install linked to the same Supabase user, together. |
-| Estimated USD, linked user, per UTC day | `LINKED_DAILY_USD` | 3.00 | The same, in dollars. |
-| Coach calls per UTC day | `FREE_COACH_CALLS_PER_DAY` | 60 | An extra cap on `x-miyagi-role: coach`, anonymous and linked installs. |
+| Estimated USD, linked user, per UTC day | `LINKED_DAILY_USD` | 3.00 | Every install linked to the same Supabase user, together. |
+| AI calls, anonymous install / linked user, per UTC day | `FREE_DAILY_REQUESTS` / `LINKED_DAILY_REQUESTS` | 0 (off) | Optional request counts on the same scopes. Off: a count stops a normal lesson (scene looks alone are up to 720 Haiku calls an hour) and says little about cost. Set only as an extra abuse brake, far above a lesson. |
 | New lesson builds per UTC month | `FREE_LESSON_BUILDS_PER_MONTH` | 3 | Distinct videos claimed with `POST /v1/lessons/{id}/build`. Cache hits and rebuilding a claimed video are free. |
-| Spend kill switch, every install, per UTC day | `DAILY_USD_CAP` | 25 | See "Kill switches". |
+| New installs per UTC day, every network | `NEW_INSTALLS_PER_DAY` | 500 | See "Install minting". |
+| Global spend brake, every install, per UTC day | `DAILY_USD_CAP` | off | An abuse brake only. See "Kill switches". |
 
-`pro` (set with `/admin/tokens/{prefix}/plan`) skips the per-install and per-user caps; the kill switch still applies.
+`pro` (set with `/admin/tokens/{prefix}/plan`) skips the per-install and per-user caps; the global brake, when set,
+still applies.
 
-**Why these defaults, and not 100 calls / $0.25 (anonymous) and 300 / $1.50 (linked).** Counted from the
+**Why $2.00 for an anonymous install.** About 3x one lesson (D13; Area C estimates ~$0.50), and above one build's
+peak reservation: the lesson builder runs up to 4 Claude calls at once (`LESSON_CLAUDE_CONCURRENCY`), and each
+holds its `max_tokens` at the output price while in flight, about $0.35 for a 32000-token Sonnet call, so four
+hold about $1.40. Under the old $1.00 the third parallel call of a fresh install's first build was refused. Set the
+final figure from a measured lesson (R01 step 1).
+
+**How a lesson spends (why no request counts by default).** Counted from the
 engine on `integration/live`: building a new lesson is roughly 20-35 calls (Gemini watches the video in parts,
 `step_detail` per step, the Claude lesson and adapt passes, workspace setup, diagrams, the finder's searches)
 and $0.20-0.50. Following it for 30-60 minutes adds 100-200 more: Haiku scene looks every ~5 s while the screen
 changes (`server/orchestrator/scene_watch.py`, role coach), the judge (at most every 20 s, role coach), screen
 target picks (up to 6 a minute, role screen) and coach cards. So one normal lesson is about 150-250 calls and
-$0.30-0.60: 100 calls or $0.25 would stop a learner in the middle of their first lesson. 300 / $1.00 covers one
-full lesson with room for retries; 1000 / $3.00 covers three or four lessons a day for a signed-in learner.
+$0.30-0.60 by this count, and the scene watcher alone can send 720 calls in a busy hour. A cap of 100 calls,
+300 calls or $0.25 stops a learner in the middle of their first lesson; dollars track what the calls cost.
 
 **Reservations.** When a call is admitted, its likely worst-case cost is reserved in the same transaction that
 checks and counts it, input included (a large prompt with `max_tokens: 1` is not free):
@@ -373,7 +407,8 @@ Over a cap the proxy answers 429 with `x-should-retry: false`, `retry-after`, an
 
 `type` is `miyagi_quota` for the daily caps (the engine's `cloud_error()` reads it) and `miyagi_lesson_quota`
 for the monthly build cap. `limit` is `daily_requests`, `daily_spend` (both with `scope: install | account`),
-`coach_calls`, `daily_usd` (the kill switch; `used` and `cap` are dollars there) or `lesson_builds`.
+`daily_usd` (the global brake; `used` and `cap` are dollars there) or `lesson_builds`. The old `coach_calls`
+cap is gone. New installs over the daily cap get their own type, `miyagi_full` (see "Install minting").
 
 ## Security
 
@@ -396,15 +431,46 @@ for the monthly build cap. `limit` is `daily_requests`, `daily_spend` (both with
 
 ## Kill switches
 
-- `PROXY_ENABLED=false` makes every `/v1` route return 503 with
-  "Miyagi cloud AI is paused by the operators. Try again later." `/healthz` and `/admin` keep working.
+- **Runtime pause, no redeploy:** `curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" $URL/admin/proxy/pause`. The flag
+  is a row in SQLite (table `settings`), read by `Guard` on every `/v1` request, so the next request after the POST
+  is refused, and it survives restarts and deploys. Every `/v1` route then answers 503 `proxy_disabled`
+  ("Miyagi cloud AI is paused by the operators. Try again later."), which the engine shows as "miyagi is paused".
+  `/healthz` (`paused: true`) and `/admin` keep working. `.../admin/proxy/resume` undoes it; `GET /admin/proxy`
+  shows it. The routes use the usual admin auth (`X-Admin-Token`, constant-time compare, the admin rate limit and
+  lockout); with a weak `ADMIN_TOKEN` they answer 503 like every admin route. Kept for abuse, not demand.
+- `PROXY_ENABLED=false` (env, needs a deploy) does the same and wins over the runtime flag: resume cannot turn on
+  a proxy the environment turned off.
 - Disable one install: `curl -X POST -H "X-Admin-Token: $ADMIN_TOKEN" $URL/admin/tokens/<prefix>/disable`
   (take the prefix from `/admin/usage`). Its calls then get 403.
-- `DAILY_USD_CAP` (dollars): once the estimated spend of every install together (in-flight reservations
-  included) reaches it in the current UTC day, every forwarded AI call, pro installs included, gets the 429
-  `miyagi_quota` above with `limit: "daily_usd"` until UTC midnight. Cache reads, build claims and events keep
-  working. Unset or empty means 25 (fail closed); only an explicit `0` turns it off. `/admin` shows today's
-  estimate.
+- `DAILY_USD_CAP` (dollars), the global spend brake: **an abuse brake, off by default** (unset, empty or 0). When
+  set, once the estimated spend of every install together (in-flight reservations included) reaches it in the
+  current UTC day, every forwarded AI call, pro installs included, gets the 429 `miyagi_quota` above with
+  `limit: "daily_usd"` until UTC midnight, and the `brake` alert fires. Cache reads, build claims and events keep
+  working. A fixed breaker trips on a good launch day and shuts everyone out (D13: at about $70 a day per 1,000
+  monthly users, a $100 breaker shuts out a busy launch), so demand is handled by the daily new-install cap and the
+  alerts, and the hard stop is the provider's prepaid balance with auto-reload off (R02). If you set it, set it
+  far above `ALERT_DAILY_USD`. `/admin` shows today's estimate.
+
+## Alerts
+
+Set `ALERT_WEBHOOK_URL` to a Discord or Slack incoming-webhook URL (https; dashboard only, it is a secret and is
+never logged). Discord URLs get `{"content": ...}`, every other host `{"text": ...}`. Unset (or not https): no
+alerts, and nothing is written. Each alert fires at most once per UTC day: the first claim of its key in the
+`alerts_sent` table wins, across restarts and processes, so a deploy never repeats one. Alerts are sent from a
+background thread (one retry), and a failed send never affects a call. `POST /admin/alerts/test` sends a test
+alert, to check the channel reaches both founders' phones.
+
+| Key | Fires when | Env |
+|---|---|---|
+| `spend_50`, `spend_80`, `spend_100` | today's estimated spend, every install together, passes 50 / 80 / 100% of the daily alert line (checked after calls settle, at most every 10 s) | `ALERT_DAILY_USD` (25; 0 = off) |
+| `token:<id>` | one install token's estimated spend today passes the line for one install (its 12-hex id, as in `/admin`) | `ALERT_TOKEN_DAILY_USD` (3x `FREE_DAILY_USD`, so 6.00; 0 = off) |
+| `installs_full` | the daily new-install cap is reached | `NEW_INSTALLS_PER_DAY` |
+| `mints_high` | new installs in one hour reach the warning line | `GLOBAL_MINTS_WARN_PER_HOUR` |
+| `brake` | the global spend brake is reached (only when `DAILY_USD_CAP` is set) | `DAILY_USD_CAP` |
+
+The alert line is a D13 decision; 25 keeps the old breaker's number as a warning instead of a stop. A daily
+check from outside the service (R01 step 6: a cron that reads `/admin/usage` and pings a dead-man's switch) is
+still to do, so a silent service is noticed too.
 
 ## Shared lesson cache (ROADMAP 3.1, A08)
 
@@ -499,8 +565,9 @@ Extra top-level fields (the app sends `source`, `app`, `platform`) are ignored. 
 - `by_day`: the same per UTC day, with the number of active tokens
 - `by_day_token_model`: per day, token, provider and model
 - `lessons`: approved (`cached`) and `pending` lessons, cache hits, bytes, and new builds this month
-- `usd_today`: estimated spend so far this UTC day, every install together, reservations included (what
-  `DAILY_USD_CAP` reads)
+- `usd_today`: estimated spend so far this UTC day, every install together, reservations included (what the
+  spend alerts and `DAILY_USD_CAP` read)
+- `new_installs_today`, `paused` (the runtime pause), `alerts_today` (the alert keys sent today)
 - `events`: product events per UTC day and name, with how many installs sent them
 
 USD is an estimate from the `PRICES` table in `app.py` (Anthropic list prices; the Gemini rows are placeholders
@@ -515,11 +582,11 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 |---|---|---|
 | `ADMIN_TOKEN` | none | 32+ characters, 12+ distinct. Render generates it (`generateValue: true`). Weak or missing: `/admin*` answers 503. |
 | `ANTHROPIC_API_KEY` | none | Dashboard only (`sync: false`). Missing: Anthropic routes return 503. |
-| `GEMINI_API_KEY` | none | Dashboard only (`sync: false`). Missing: Gemini routes return 503. |
-| `PROXY_ENABLED` | `true` | `false` turns off every `/v1` route. |
+| `GEMINI_API_KEY` | none | Dashboard only (`sync: false`). Leave unset while Gemini is off (D1). With Gemini on and no key: Gemini routes return 503. |
+| `PROXY_ENABLED` | `true` | `false` turns off every `/v1` route (needs a deploy; `POST /admin/proxy/pause` is the runtime switch). |
 | `ALLOWED_ANTHROPIC_MODELS` | `claude-sonnet-5-5,claude-haiku-5-5` | Comma-separated. Opus is rejected regardless. |
-| `ALLOWED_GEMINI_MODELS` | `gemini-3.8-flash` | Comma-separated. See the engine note below. |
-| `MAX_TOKENS_CAP` | `4096` | Upper bound on Anthropic `max_tokens` and `thinking.budget_tokens`. |
+| `ALLOWED_GEMINI_MODELS` | empty (Gemini off; `render.yaml`: `none`) | Comma-separated. Empty or `none`: every Gemini call gets 403 `gemini_disabled` (D1: Claude only). Set a list to bring Gemini back. |
+| `MAX_TOKENS_CAP` | `32000` | Upper bound on Anthropic `max_tokens` and `thinking.budget_tokens`. The lesson builder asks for 32000; the dollar caps bound spend. |
 | `ANTHROPIC_BETAS` | `server-side-fallback-2026-07-01` | `anthropic-beta` values forwarded; any other is refused. |
 | `ANTHROPIC_SERVER_TOOLS` | empty | `web_search` and/or `web_fetch` to allow those server tools (see below). |
 | `SERVER_TOOL_MAX_USES` | `5` | Cap on an allowed server tool's `max_uses`. |
@@ -536,7 +603,7 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `JSON_MAX_OBJECTS` | `50000` | JSON objects a request body may hold (counted while parsing). |
 | `RATE_LIMIT_ENABLED` | `1` | The in-memory rate limiter (`RateLimit`). |
 | `RATE_LIMIT_PER_IP_PER_HOUR` | `100` | Every `/v1/*` and `/admin*` request per client IP. |
-| `RATE_LIMIT_PER_TOKEN_PER_HOUR` | `600` | AI, lesson and event calls per known install token. |
+| `RATE_LIMIT_PER_TOKEN_PER_HOUR` | `2400` | AI, lesson and event calls per known install token (above a lesson's busiest hour). |
 | `ADMIN_RATE_LIMIT_PER_IP_PER_HOUR` | `20` | `/admin*` requests per client IP. |
 | `ADMIN_LOCKOUT_FAILURES` | `5` | Wrong admin tokens per IP per hour before the lockout. |
 | `RATE_LIMIT_MAX_KEYS` | `200000` | Bound on the limiter's memory. |
@@ -548,12 +615,17 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `GLOBAL_MINTS_WARN_PER_HOUR` / `GLOBAL_MINTS_PER_HOUR` | `500` / `2000` | Installs minted per hour, every client together: warn / refuse. |
 | `PER_TOKEN_INFLIGHT` / `GLOBAL_INFLIGHT` | `10` / `80` | AI calls in flight per install / in total. |
 | `BODY_READ_TIMEOUT_S` | `20` | Seconds a request body may take to arrive (408 after). |
-| `FREE_DAILY_REQUESTS` / `FREE_DAILY_USD` | `300` / `1.00` | Anonymous install caps per UTC day. 0 = off. |
+| `FREE_DAILY_USD` | `2.00` | Anonymous install cap in estimated USD per UTC day. 0 = off. |
+| `FREE_DAILY_REQUESTS` / `LINKED_DAILY_REQUESTS` | `0` / `0` (off) | Optional request counts per UTC day (install / user). |
 | `ANON_DAILY_USD_PER_NETWORK` | `5.00` | Every anonymous install minted from one network together, per UTC day. 0 = off. |
-| `LINKED_DAILY_REQUESTS` / `LINKED_DAILY_USD` | `1000` / `3.00` | Linked user caps per UTC day, all their installs. 0 = off. |
-| `FREE_COACH_CALLS_PER_DAY` | `60` | Coach calls per install per UTC day. 0 = off. |
+| `LINKED_DAILY_USD` | `3.00` | Linked user cap in estimated USD per UTC day, all their installs. 0 = off. |
+| `NEW_INSTALLS_PER_DAY` | `500` | New installs per UTC day, every network together; past it 429 `miyagi_full`. 0 = off. |
 | `FREE_LESSON_BUILDS_PER_MONTH` | `3` | New lesson builds per free install per UTC month. 0 = off. |
-| `DAILY_USD_CAP` | `25` when unset or empty | Spend kill switch in dollars, every install together. Only `0` turns it off. |
+| `DAILY_USD_CAP` | off (unset, empty or `0`) | Global spend brake in dollars, every install together: an abuse brake, never a low value. |
+| `ALERT_WEBHOOK_URL` | empty (no alerts) | Discord or Slack incoming webhook, https. A secret: dashboard only. |
+| `ALERT_DAILY_USD` | `25` | The daily alert line: alerts at 50, 80 and 100%. 0 = off. |
+| `ALERT_TOKEN_DAILY_USD` | 3x `FREE_DAILY_USD` | One install's spend today past this alerts. 0 = off. |
+| `RENDER_GIT_COMMIT` | set by Render | The deployed commit, shown on `/healthz` (a hex SHA only). Never set by hand. |
 | `LINK_MAX_INSTALLS_PER_USER` | `10` | Installs one Supabase user may link. |
 | `SUPABASE_URL` | `https://wssdpsdbaqtnfhoyimit.supabase.co` | JWKS URL and expected `iss` derive from it. |
 | `SUPABASE_ALLOW_HS256` | empty (off) | `1` to accept legacy HS256 tokens (needs `SUPABASE_JWT_SECRET`). |
@@ -597,8 +669,9 @@ Secrets (never in the repo; `sync: false` in `render.yaml`):
 | Name | Value | Why |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | the production Anthropic key | Anthropic routes answer 503 without it. |
-| `GEMINI_API_KEY` | the production Gemini key | Gemini routes answer 503 without it. |
-| `DAILY_USD_CAP` | a dollar figure, or leave unset for 25 | `sync: false`: the value lives only in the dashboard. |
+| `GEMINI_API_KEY` | leave unset (Gemini is off, D1) | R02 step 3: with Claude only, unset the key instead of capping it. Set it again only with `ALLOWED_GEMINI_MODELS`. |
+| `DAILY_USD_CAP` | leave unset (the brake is off), or a figure far above the alert line | `sync: false`. Delete any old low value (a value of 25 left from before would stop everyone on a busy day). |
+| `ALERT_WEBHOOK_URL` | a Discord or Slack incoming-webhook URL | `sync: false`. Unset: no alerts. |
 | `SUPABASE_JWT_SECRET` | only if `SUPABASE_ALLOW_HS256=1` | Not needed: access tokens are verified against the JWKS. |
 
 Check `ADMIN_TOKEN`: Render generates a long random value (`generateValue: true`), which passes. If someone set it
@@ -629,8 +702,10 @@ All SQL lives in `store.py`. Write a `PostgresStore` with the same methods (`add
 `role_requests_today`, `admit_call`, `settle`, `usd_today`, `usd_today_for`, `mint_check`, `get_lesson`,
 `put_candidate`, `lesson_candidates`, `approve_lesson`, `auto_approve`, `pending_lessons`, `delete_lessons`,
 `delete_lessons_by_uploader`, `claim_lesson_put`, `builds_in_month`, `has_build`, `claim_build`, `add_events`,
-`event_counts`, `event_props_rows`, `link_user`, `link_user_capped`, `get_link`, `usage_report`; `admit_call`,
-`settle`, `mint_check`, `put_candidate`, `link_user_capped` and `add_events` need one transaction with a row lock) and return it
+`event_counts`, `event_props_rows`, `link_user`, `link_user_capped`, `get_link`, `usage_report`, `get_setting`,
+`set_setting`, `paused`, `set_paused`, `ping`, `new_installs_on`, `claim_alert`, `alerts_on`; `admit_call`,
+`settle`, `mint_check`, `put_candidate`, `link_user_capped` and `add_events` need one transaction with a row lock,
+and `claim_alert` an insert that only one caller wins) and return it
 from `open_store()` when `DATABASE_URL` is set. The tables port as they are.
 
 ## How the app and the engine use it
@@ -642,11 +717,14 @@ from `open_store()` when `DATABASE_URL` is set. The tables port as they are.
    (`server/config.py` `anthropic_kwargs()` / `gemini_kwargs()`) points its Anthropic and google-genai clients at
    `<host>/v1/anthropic` and `<host>/v1/gemini` (api_version v1beta) with the token as the key, and tags each call
    with `x-miyagi-role`.
-3. A 401 means the token is unknown: the app mints a new one. A 403 means the install was disabled. A 503
-   `proxy_disabled` means the operators paused the proxy. A 429 `miyagi_quota` (or a proxy-shaped
-   `rate_limit_error`) shows the "today's limit" card.
+3. A 401 means the token is unknown: the app mints a new one. A 403 `permission_error` means the install was
+   disabled. A 503 `proxy_disabled` means the operators paused the proxy. A 429 `miyagi_quota` (or a proxy-shaped
+   `rate_limit_error`) shows the "today's limit" card. A 429 `miyagi_full` from `/v1/install` means today's
+   new-install cap is reached: show its message ("miyagi is full today, try tomorrow.") and try again after
+   `resets_at`. A 403 `gemini_disabled` means Gemini is off on the proxy: use Claude.
 
-**Models to allowlist.** The engine's Gemini defaults are `gemini-4-hydrogen` (video watch, `LESSON_MODEL`),
+**Models to allowlist, if Gemini comes back.** Gemini is off by default (D1). The engine's Gemini defaults are `gemini-4-hydrogen` (video watch, `LESSON_MODEL`),
 `gemini-3.8-flash` (`LESSON_FAST_MODEL`) and the fallbacks `gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash`.
-With the default allowlist only `gemini-3.8-flash` passes; a model that is not allowed gets a 404 and the
-engine skips to its next fallback, so the video watch needs at least one of its chain allowlisted.
+With `ALLOWED_GEMINI_MODELS=gemini-3.8-flash` only that model passes; a model that is not allowed gets a 404 and
+the engine skips to its next fallback, so the video watch needs at least one of its chain allowlisted (R03 step 4:
+`gemini-4-hydrogen`, with 3.8-flash and 3.6-flash as fallbacks; 3.5 and 3.7 flash are retired).

@@ -80,9 +80,10 @@ def test_roleless_anonymous_calls_hit_the_daily_request_cap(make_cloud):
 def test_free_defaults_cover_a_normal_lesson(make_cloud):
     client, app_mod = make_cloud(unset=("FREE_DAILY_REQUESTS", "FREE_DAILY_USD", "LINKED_DAILY_REQUESTS",
                                         "LINKED_DAILY_USD", "DAILY_USD_CAP"))
-    assert app_mod.FREE_DAILY_REQUESTS == 300 and app_mod.FREE_DAILY_USD == 1.0
-    assert app_mod.LINKED_DAILY_REQUESTS == 1000 and app_mod.LINKED_DAILY_USD == 3.0
-    assert app_mod.DAILY_USD_CAP == 25.0 and app_mod.FREE_COACH_CALLS_PER_DAY == 60
+    # dollars are the caps; request counts and the global brake are off unless set (R01, D13)
+    assert app_mod.FREE_DAILY_REQUESTS == 0 and app_mod.FREE_DAILY_USD == 2.0
+    assert app_mod.LINKED_DAILY_REQUESTS == 0 and app_mod.LINKED_DAILY_USD == 3.0
+    assert app_mod.DAILY_USD_CAP == 0 and not hasattr(app_mod, "FREE_COACH_CALLS_PER_DAY")
 
 
 def test_per_install_usd_cap(make_cloud):
@@ -124,13 +125,13 @@ def test_reservations_stop_parallel_calls_overshooting(make_cloud):
     _, app_mod = make_cloud()
     s, th = app_mod.store, "f" * 64
     reserve = 4096 * app_mod.output_price(SONNET)  # max_tokens x output price: about $0.04
-    results = [s.admit_call(th, "anthropic", SONNET, None, {}, 0, usd_cap=0.1, reserve_usd=reserve) for _ in range(3)]
+    results = [s.admit_call(th, "anthropic", SONNET, None, 0, usd_cap=0.1, reserve_usd=reserve) for _ in range(3)]
     assert [r[0] for r in results] == [None, None, "usd"]  # the third would pass $0.10 with the two in flight
     day = app_mod.today()
     s.settle(th, "anthropic", SONNET, day, reserve, SONNET, 1000, 100, 0.003)  # the first call cost $0.003
-    assert s.admit_call(th, "anthropic", SONNET, None, {}, 0, usd_cap=0.1, reserve_usd=reserve)[0] is None
+    assert s.admit_call(th, "anthropic", SONNET, None, 0, usd_cap=0.1, reserve_usd=reserve)[0] is None
     # the global kill switch counts reservations too
-    assert s.admit_call("e" * 64, "anthropic", SONNET, None, {}, 0, global_usd_cap=0.1, reserve_usd=reserve)[0] == "global_usd"
+    assert s.admit_call("e" * 64, "anthropic", SONNET, None, 0, global_usd_cap=0.1, reserve_usd=reserve)[0] == "global_usd"
 
 
 def test_reservation_is_settled_to_the_real_cost(make_cloud):
@@ -167,7 +168,7 @@ def test_anthropic_forwards_only_allowlisted_keys(make_cloud):
     assert r.status_code == 200, r.text
     sent = up.last
     assert sent == {
-        "model": SONNET, "max_tokens": 4096,
+        "model": SONNET, "max_tokens": app_mod.MAX_TOKENS_CAP,
         "messages": [{"role": "user", "content": body["messages"][0]["content"]}],
         "system": body["system"], "temperature": 0.2, "stop_sequences": ["END"], "stream": False,
         "thinking": {"type": "adaptive", "display": "omitted"},
@@ -206,7 +207,7 @@ def test_anthropic_forwards_only_allowlisted_keys(make_cloud):
     ({"fallback_model": "claude-sonnet-4-6"}, "allowed model"),
     ({"speed": "fast"}, "fast"),
     ({"thinking": {"type": "enabled", "budget_tokens": 50}}, "budget_tokens"),  # max_tokens is 10 here
-    ({"thinking": {"type": "enabled", "budget_tokens": 9000}, "max_tokens": 99999}, "budget_tokens"),
+    ({"thinking": {"type": "enabled", "budget_tokens": 40_000}, "max_tokens": 99999}, "budget_tokens"),  # over the cap
 ])
 def test_anthropic_refuses_dangerous_fields(make_cloud, patch, needle):
     client, app_mod = make_cloud()
