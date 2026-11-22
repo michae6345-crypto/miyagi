@@ -141,12 +141,15 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
   )
 }
 
+/** The account chip's avatar. */
+const CHIP_AVATAR = 24
+
 /** Above the sheet's scrim (z 30) and the sheet itself (z 40) while the avatar flies back into the chip. */
 const FLIGHT_Z = 45
 
 /** Where the avatar sits while it is lent to the sheet: an empty recessed circle, so the chip never looks broken. */
 function AvatarSocket(): ReactNode {
-  return <span aria-hidden data-avatar="socket" className="block shrink-0" style={{ width: 28, height: 28, borderRadius: radius2.round, background: surface.well, boxShadow: `${highlight.well}, inset 0 0 0 1px ${fill.hairline}` }} />
+  return <span aria-hidden data-avatar="socket" className="block shrink-0" style={{ width: CHIP_AVATAR, height: CHIP_AVATAR, borderRadius: radius2.round, background: surface.well, boxShadow: `${highlight.well}, inset 0 0 0 1px ${fill.hairline}` }} />
 }
 
 /**
@@ -202,8 +205,9 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
       title={compact ? name : undefined}
       className="mg-press relative flex w-full cursor-pointer items-center text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
       style={{
-        gap: 10,
-        padding: compact ? 6 : '6px 8px',
+        // The avatar's center lines up with the nav icons' and the name with their labels (x 46 in a 232 sidebar).
+        gap: 6,
+        padding: compact ? 6 : '5px 6px',
         justifyContent: compact ? 'center' : undefined,
         borderRadius: radius2.row,
         background: on ? fill.navOn : 'transparent',
@@ -213,7 +217,7 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
       aria-haspopup={login || v2Cloud ? 'dialog' : undefined}
       onClick={() => (login || v2Cloud ? openSheet(signedIn ? 'account' : 'signin') : setPage('account'))}
     >
-      {lent ? <AvatarSocket /> : <SharedAvatar initial={initial} size={28} snap={snap} onFlight={onFlight} />}
+      {lent ? <AvatarSocket /> : <SharedAvatar initial={initial} size={CHIP_AVATAR} snap={snap} onFlight={onFlight} />}
       {!compact && (
         <span className="relative flex min-w-0 flex-1 flex-col" style={{ gap: 2 }}>
           {pending ? (

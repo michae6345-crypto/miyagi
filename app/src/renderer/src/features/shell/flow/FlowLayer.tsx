@@ -27,7 +27,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { cmd } from '../../../../../common/wire'
 import { bridge } from '../../../bridge'
 import { canSend } from '../../../core/lesson'
-import { color, type2 } from '../../../core/theme'
+import { color, layout, type2 } from '../../../core/theme'
 import { beat, fade } from '../../../core/ui/motion'
 import { Keycap } from '../../../core/ui/Keycap'
 import { Login } from '../../auth/Login'
@@ -46,6 +46,12 @@ import { backToSetup, endConsent, endIntro, endLogin, finishFlow, flowCovers, le
 
 /** Below this window width the strip is compact (current label, ticks and dots). */
 const COMPACT_W = 760
+/**
+ * The guided setup's column (layout lane, Nov 22): its steps already center an 860 px column, but its footer (Back /
+ * Allow) spread to the window's corners, about 700 px from the copy in full screen. The view is capped to the same
+ * column (centered, top-anchored), so the one primary action sits under the content at every size.
+ */
+const SETUP_W = layout.page.column + 2 * layout.page.gutter
 
 /** One phase's view: absolutely placed so the old one can fade while the new one arrives. */
 function View({ id, children }: { id: string; children: ReactNode }): ReactNode {
@@ -175,7 +181,9 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             )}
             {phase === 'setup' && (
               <View key="setup" id="setup">
-                <Guided chrome="flow" rows={rows} width={width} height={height - 64} enterDelay={arriveDelay} resumeAt={resume} onFinish={toReady} />
+                <div data-flow-column className="mx-auto h-full w-full" style={{ maxWidth: SETUP_W }}>
+                  <Guided chrome="flow" rows={rows} width={Math.min(width, SETUP_W)} height={height - 64} enterDelay={arriveDelay} resumeAt={resume} onFinish={toReady} />
+                </div>
               </View>
             )}
             {phase === 'ready' && (

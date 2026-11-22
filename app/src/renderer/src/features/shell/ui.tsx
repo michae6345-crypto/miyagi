@@ -71,7 +71,8 @@ export const caption: CSSProperties = { fontSize: type2.xs, lineHeight: '16px', 
 /**
  * The page header (the shell renders it above every page but Home): the title and the page's own actions, on the same
  * column as the page below it (its left edge is the content's left edge at every width). The top strip drags the
- * window (40 px, 24 in macOS full screen: styles.css .mg-page-head); title to first section is 32.
+ * window (40 px, 24 in macOS full screen: styles.css .mg-page-head); the title row is 36 tall and sits 32 above the
+ * first section.
  */
 export function PageHeader({ title, caption: sub, right }: { title: ReactNode; caption?: ReactNode; right?: ReactNode }): ReactNode {
   return (
@@ -81,15 +82,18 @@ export function PageHeader({ title, caption: sub, right }: { title: ReactNode; c
       className="mg-page-head flex shrink-0 items-center gap-[16px]"
       style={{ paddingInline: `calc(var(--page-inset, 0px) + ${layout.page.gutter}px)`, paddingBottom: layout.page.titleGap }}
     >
-      <div className="flex min-w-0 items-baseline gap-[12px]">
-        <h1 className="m-0 shrink-0" style={{ ...typeScale.pageTitle, color: color.text }}>
-          {title}
-        </h1>
-        {sub && (
-          <span className="truncate" style={{ ...typeScale.nav, fontWeight: 400, color: color.label }}>
-            {sub}
-          </span>
-        )}
+      {/* 36 tall whatever sits on the right (a search field), so the title's top is the same on every page. */}
+      <div className="flex min-h-[36px] min-w-0 items-center">
+        <div className="flex min-w-0 items-baseline gap-[12px]">
+          <h1 className="m-0 shrink-0" style={{ ...typeScale.pageTitle, color: color.text }}>
+            {title}
+          </h1>
+          {sub && (
+            <span className="truncate" style={{ ...typeScale.nav, fontWeight: 400, color: color.label }}>
+              {sub}
+            </span>
+          )}
+        </div>
       </div>
       {right && (
         <div data-no-drag className="ml-auto flex min-w-0 items-center gap-[12px]">
