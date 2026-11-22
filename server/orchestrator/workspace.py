@@ -159,7 +159,9 @@ def line_location(path: str | Path, line: int) -> dict:
 
 def anchor_line(text: str, match: str) -> int | None:
     """1-based line of `match` in `text`: the literal text first ("return a + b" has a regex '+'), then as a regex.
-    None when it isn't there."""
+    None when it isn't there. The regex is ONE search of the whole text (MULTILINE: ^ and $ at each line), never one
+    per line: callers run on the event loop, and a lesson pattern that costs just under the regex worker's deadline
+    per search would otherwise cost that once per line of the file (60 lines: 5 s with the loop blocked)."""
     lines = text.splitlines()
     for i, ln in enumerate(lines, start=1):
         if match in ln:
@@ -167,13 +169,12 @@ def anchor_line(text: str, match: str) -> int | None:
     from server.safety.patterns import safe_compile
 
     try:
-        rx = safe_compile(match)  # a lesson's catastrophic regex ((x+)+, (a|aa)+) never runs on the learner's file
+        rx = safe_compile(match, re.MULTILINE)  # a lesson's catastrophic regex ((x+)+, (a|aa)+) runs in the worker
     except re.error:
         return None
-    for i, ln in enumerate(lines, start=1):
-        if rx.search(ln):
-            return i
-    return None
+    joined = "\n".join(lines)  # splitlines' breaks (\r, \x0b ...) as \n: the same line numbers as above
+    m = rx.search(joined)
+    return joined.count("\n", 0, m.start()) + 1 if m else None
 
 
 def target_location(workdir: str | Path, step: dict, missing: str = "first") -> tuple[Path, int] | None:

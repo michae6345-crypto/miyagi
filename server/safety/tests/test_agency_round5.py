@@ -225,8 +225,8 @@ def test_a_python_without_a_lesson_venv_keeps_pips_user_install(tmp_path):
     assert parse_run_command("python3 -m pip install numpy", tmp_path).argv[1] == "-m"
 
 
-@pytest.mark.parametrize("make", ["pip.py", "random.py", "JSON.py", "email/__init__.py", "pip/", "ssl.cpython-312.so",
-                                  "tempfile.pyc"])
+@pytest.mark.parametrize("make", ["pip.py", "runpy.py", "Typing.py", "collections/__init__.py", "pip/",
+                                  "re.cpython-39-darwin.so", "types.pyc"])
 def test_without_a_venv_a_lesson_file_pip_would_import_is_manual(tmp_path, make):
     target = tmp_path / make
     if make.endswith("/"):

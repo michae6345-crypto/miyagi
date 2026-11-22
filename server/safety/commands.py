@@ -17,8 +17,8 @@ runs WITHOUT a shell, or says why the learner should run it themselves:
                   pip install <names on the curated package list (server/safety/packages.py)>
                   (`python -m pip` with the lesson's .venv python runs as `python -I -m pip`, so a pip.py in the
                   lesson folder never runs; with another python (no .venv: -I would also turn off pip's fallback to
-                  a user install) it runs as written, never while the folder has its own pip.py, json.py ... that
-                  `-m pip` would import instead: PIP_SHADOWS)
+                  a user install) it runs as written, never while the folder has its own pip.py, runpy.py,
+                  typing.py ... that `-m pip` would import instead: PIP_SHADOWS)
   Manual(reason)  everything else: several commands, pipes, redirects, substitutions, globs, `~`, URLs, shells and
                   other programs (curl, wget, bash, sudo, rm, open, osascript, npx ...), and paths that leave the
                   lesson folder (symlinks followed)
@@ -32,7 +32,6 @@ import json
 import os
 import re
 import shlex
-import sys
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -231,21 +230,28 @@ def _pytest(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
     return Allowed(tuple(argv))
 
 
-# what `python -m pip` (no -I) would import from the lesson folder, which is first on its sys.path: pip itself and
-# every standard-library module (pip imports dozens). Python 3.9-3.11 names gone from this Python's list are added;
-# names pip never imports and lessons often use (test.py, turtle.py) are not.
-PIP_SHADOWS = frozenset(
-    {n.casefold() for n in getattr(sys, "stdlib_module_names", ())}
-    | {"pip", "setuptools", "pkg_resources", "_distutils_hack", "distutils", "imp", "asynchat", "asyncore", "smtpd"}
-    | {"json", "os", "re", "random", "logging", "email", "http", "urllib", "ssl", "socket", "tempfile", "typing"}
-) - {"test", "this", "antigravity", "turtle", "turtledemo", "idlelib", "tkinter", "__hello__", "__phello__"}
+# what `python -m pip` (no -I) would import from the lesson folder, which is first on its sys.path until pip's own
+# __main__ takes it off (its first lines, before it imports anything else of pip's): pip itself, runpy, and what
+# runpy, pip/__init__.py and the interpreter's own -m machinery import first that isn't already loaded (or frozen)
+# when they run. Probed one name at a time (a <name>.py in the folder that records its import, `python -m pip
+# --version`): the Mac's /usr/bin/python3 3.9 (pip 21), uv's 3.11 and 3.12 and Homebrew's 3.15 (pip 26) each import
+# a subset of the first three lines from the folder (3.11 the most after 3.9: traceback, threading, textwrap ...).
+# The last line is margin for 3.10, 3.13 and 3.14 (their re internals, warnings' second half, typing's annotationlib,
+# traceback's _colorize). Everything else (json.py, random.py, calendar.py, code.py, queue.py, email/ ...) is
+# imported only after the folder is gone from sys.path, so a lesson file named like it never runs in place of pip.
+PIP_SHADOWS = frozenset({
+    "pip", "runpy", "pkgutil", "importlib", "types", "typing", "__future__", "warnings", "collections", "functools",
+    "operator", "keyword", "reprlib", "heapq", "_heapq", "contextlib", "enum", "re", "copyreg", "weakref",
+    "_weakrefset", "linecache", "token", "tokenize", "traceback", "textwrap", "threading",
+    "sre_compile", "sre_parse", "sre_constants", "_py_warnings", "annotationlib", "ast", "_colorize",
+})
 _MODULE_SUFFIXES = (".py", ".pyc", ".so", ".pyd")
 
 
 def pip_shadowing(workdir: str) -> str | None:
     """The first top-level entry of the lesson folder `python -m pip` would import in place of pip or a standard
-    module (pip.py, json.py, random.py, email/ with an __init__.py, a .pyc or .so of one), compared case-insensitively
-    (APFS), else None."""
+    module it imports before it takes the folder off sys.path (pip.py, runpy.py, typing.py, collections/ with an
+    __init__.py, a .pyc or .so of one: PIP_SHADOWS), compared case-insensitively (APFS), else None."""
     try:
         names = sorted(os.listdir(workdir))
     except OSError:

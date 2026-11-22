@@ -16,10 +16,14 @@ never bans a real pattern. An answer already waiting when the engine itself was 
 counted as a timeout.
 
 Per lesson (budget(key) around a lesson's evaluation, server.orchestrator.session): after LESSON_TIMEOUTS pattern
-timeouts (a stall of the Mac is not one) in one lesson within LESSON_WINDOW_S, every other pattern of that lesson that would need the worker counts as "no
-match" without running, so a cached or shared graph full of distinct slow patterns costs a few deadlines per window,
-never one per pattern. A search outside any budget() (one on the event loop) uses the running lesson's Budget
-(set_fallback), so those sinks are bounded the same way.
+timeouts (a stall of the Mac is not one) in one lesson within LESSON_WINDOW_S, or once the worker has spent
+LESSON_CPU_S of CPU time on that lesson's searches within LESSON_WINDOW_S (every answer carries the worker's CPU
+time, so a pattern that stays just under the deadline is charged what it costs), every other pattern of that lesson
+that would need the worker counts as "no match" without running, so a cached or shared graph full of distinct slow
+patterns costs a few seconds per window, never one deadline (or one near-deadline search) per pattern per frame.
+A real lesson's search costs about 0.02 ms of CPU (0.1 ms on a 64 KB window): LESSON_CPU_S is some 10^5 of them per
+window. A search outside any budget() (one on the event loop) uses the running lesson's Budget (set_fallback), so
+those sinks are bounded the same way.
 
   GuardedPattern   what server.safety.patterns.safe_compile returns: .search / .match / .fullmatch / .finditer /
                    .findall / .pattern / .flags / .groups / .groupindex like re.Pattern, the matching done in the
@@ -46,7 +50,7 @@ import sys
 import threading
 import time
 import weakref
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from subprocess import DEVNULL, PIPE
 from subprocess import Popen as _Popen  # bound at import: a test's mock of subprocess.Popen never replaces the worker
 from typing import Any
@@ -67,6 +71,7 @@ STRIKE_GAP_S = 5.0  # one strike per pattern per this long (search_wrapped is 4 
 STRIKE_TTL_S = 600.0  # a strike older than this (monotonic clock) is forgotten: two stalls hours apart never ban
 LESSON_TIMEOUTS = 3  # timeouts in one lesson before its other worker patterns stop running (budget())
 LESSON_WINDOW_S = 600.0  # ... within this long (a monotonic clock): an old stall doesn't stop a lesson for good
+LESSON_CPU_S = 3.0  # the worker's CPU time on one lesson's searches within LESSON_WINDOW_S before they stop (budget())
 MAX_REMEMBERED = 1 << 16  # banned / struck patterns kept (as 16-byte hashes), oldest forgotten first
 
 _CHILD = r"""
@@ -179,14 +184,44 @@ def _note_skip() -> None:
 
 
 class Budget:
-    """One lesson's worker timeouts (see the module docstring). exhausted: LESSON_TIMEOUTS of them in the last
-    LESSON_WINDOW_S (monotonic clock), so its other worker patterns don't run; a lesson that stalled once on a busy
-    Mac gets its patterns back later, a graph of slow patterns costs a few deadlines per window."""
+    """One lesson's worker timeouts and CPU time (see the module docstring). exhausted: LESSON_TIMEOUTS timeouts, or
+    LESSON_CPU_S of the worker's CPU time, in the last LESSON_WINDOW_S (monotonic clock), so its other worker
+    patterns don't run; a lesson that stalled once on a busy Mac gets its patterns back later, a graph of slow
+    patterns costs a few seconds per window."""
 
-    __slots__ = ("key", "times", "told")
+    __slots__ = ("key", "times", "told", "costs", "spent", "lock")
 
     def __init__(self, key: Any) -> None:
         self.key, self.times, self.told = key, [], False
+        self.costs: deque = deque()  # (monotonic time, CPU seconds), oldest first; `spent` is their sum
+        self.spent, self.lock = 0.0, threading.Lock()
+
+    def charge(self, cpu: float | None) -> None:
+        """Count `cpu` seconds the worker spent on one of this lesson's searches."""
+        if not cpu or cpu <= 0:
+            return
+        now = time.monotonic()
+        with self.lock:
+            self._expire(now)
+            if self.costs and now - self.costs[-1][0] < 1.0:  # one entry per second: a long window stays small
+                t, c = self.costs[-1]
+                self.costs[-1] = (t, c + cpu)
+            else:
+                self.costs.append((now, cpu))
+            self.spent += cpu
+
+    def _expire(self, now: float) -> None:
+        while self.costs and now - self.costs[0][0] >= LESSON_WINDOW_S:
+            self.spent -= self.costs.popleft()[1]
+        if not self.costs:
+            self.spent = 0.0  # no float drift left over
+
+    @property
+    def cpu(self) -> float:
+        """The worker's CPU seconds on this lesson's searches in the last LESSON_WINDOW_S."""
+        with self.lock:
+            self._expire(time.monotonic())
+            return max(self.spent, 0.0)
 
     def add(self) -> None:
         self.times = [t for t in self.times if time.monotonic() - t < LESSON_WINDOW_S][-LESSON_TIMEOUTS:]
@@ -198,7 +233,7 @@ class Budget:
 
     @property
     def exhausted(self) -> bool:
-        if self.timeouts >= LESSON_TIMEOUTS:
+        if self.timeouts >= LESSON_TIMEOUTS or self.cpu >= LESSON_CPU_S:
             return True
         self.told = False
         return False
@@ -277,6 +312,7 @@ class _Worker:
         self.buf = b""
         self.failed_t: float | None = None
         self.cpu: float | None = None  # the worker's CPU time at its last answer (its own process_time())
+        self.last = threading.local()  # .cost: CPU seconds the worker spent on this thread's last answered request
 
     # ------------------------------------------------------------------ lifecycle
     def _start(self) -> bool:
@@ -357,6 +393,7 @@ class _Worker:
         """The worker's answer to `req` within `limit_s`; raises _Timeout (the worker was killed; .cpu: what it spent
         on this request) or _Unavailable."""
         data = (json.dumps(req) + "\n").encode("ascii")
+        self.last.cost = 0.0
         with self.lock:
             if self.proc is not None and (self.pid != os.getpid() or self.proc.poll() is not None):
                 self.proc, self.buf = None, b""  # a forked child or a dead worker: start a fresh one
@@ -375,8 +412,11 @@ class _Worker:
                 log.warning("regex worker failed (%s); starting it again", exc)
                 self._kill()
                 raise _Unavailable from exc
-        ans = json.loads(line)
-        self.cpu = _float(ans.get("c"))
+            ans = json.loads(line)
+            before, after = self.cpu, _float(ans.get("c"))
+            self.cpu = after
+        if after is not None and before is not None:
+            self.last.cost = max(0.0, after - before)  # what this search cost (compile + search + its JSON)
         if "e" in ans:
             raise re.error(str(ans["e"]))
         return ans["r"]
@@ -441,18 +481,20 @@ def _run(gp: GuardedPattern, op: str, text: str, pos: int, endpos: int) -> Any:
     if b is not None and b.exhausted:
         if not b.told:
             b.told = True
-            log.warning("lesson %r: %d regex timeouts; its other slow-capable patterns no longer run",
-                        str(b.key)[:60], b.timeouts)
+            log.warning("lesson %r: %d regex timeouts, %.1f s of regex CPU time; its other slow-capable patterns "
+                        "no longer run", str(b.key)[:60], b.timeouts, b.cpu)
         return empty
     end = min(endpos, len(text))
     req = {"p": gp.pattern, "f": gp.flags, "op": op, "t": text, "pos": pos, "end": end, "max": MAX_MATCHES}
     try:
         res = _WORKER.call(req)
+        _charge(b)
     except _Timeout as t:
         res = _confirm(gp, req, b, t)
         if res is _NO:
             _note_skip()
             return empty
+        _charge(b)
     except _Unavailable:
         res = _local(gp, op, text, pos, end)
     if key is not None:
@@ -461,6 +503,12 @@ def _run(gp: GuardedPattern, op: str, text: str, pos: int, endpos: int) -> Any:
             if len(_CACHE) > CACHE_SIZE:
                 _CACHE.popitem(last=False)
     return res
+
+
+def _charge(b: Budget | None) -> None:
+    """Charge the CPU time the worker spent on this thread's last answer to the lesson's Budget `b`."""
+    if b is not None:
+        b.charge(getattr(_WORKER.last, "cost", 0.0))
 
 
 def _confirm(gp: GuardedPattern, req: dict, b: Budget | None, t: _Timeout) -> Any:
@@ -483,6 +531,7 @@ def _confirm(gp: GuardedPattern, req: dict, b: Budget | None, t: _Timeout) -> An
         return _NO
     if b is not None:
         b.add()
+        b.charge(t.cpu)
     why = strike(gp.pattern)
     log.warning("lesson pattern %r ran past %d ms%s", gp.pattern[:80], int(DEADLINE_S * 1000),
                 f": refused from now on ({why})" if why else " (a strike: not refused yet)")

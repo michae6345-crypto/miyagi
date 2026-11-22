@@ -261,10 +261,12 @@ def _search_file(rx: Any, text: str) -> tuple[Any, int] | None:
 
 
 def read_for_scan(path: str | os.PathLike) -> str:
-    """A lesson file's text for its checks. A big notebook keeps its cell sources whole, without image / binary output
-    payloads (base64 PNGs are most of an .ipynb and never what a pattern looks for) and with each output's printed
-    text cut to its last NOTEBOOK_OUTPUT_CHARS (a training loop's thousands of lines never push the code out of what a
-    check scans). OSError as open() raises it."""
+    """A lesson file's text for its checks. A big notebook (over FILE_SCAN_CHARS) is written out again as two parts:
+    first every cell's printed output, without image / binary payloads (base64 PNGs are most of an .ipynb and never
+    what a pattern looks for) and each output's text cut to its last NOTEBOOK_OUTPUT_CHARS, then the notebook with
+    its cells' code whole and their outputs left out. scan_windows reads from the end (newest first), so the code is
+    always searched before any output, and a check on code never depends on how much output the notebook keeps (200
+    cells of df.head() tables are over FILE_SCAN_TOTAL). OSError as open() raises it."""
     with open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
     if not os.fspath(path).lower().endswith(".ipynb") or len(text) <= FILE_SCAN_CHARS:
@@ -273,8 +275,14 @@ def read_for_scan(path: str | os.PathLike) -> str:
         nb = json.loads(text)
     except ValueError:
         return text
-    for cell in nb.get("cells") or [] if isinstance(nb, dict) else []:
-        for out in (cell.get("outputs") or []) if isinstance(cell, dict) else []:
+    if not isinstance(nb, dict):
+        return text
+    outputs = []
+    for i, cell in enumerate(nb.get("cells") or []):
+        if not isinstance(cell, dict) or not isinstance(cell.get("outputs"), list):
+            continue
+        outs = cell.pop("outputs")
+        for out in outs:
             if not isinstance(out, dict):
                 continue
             if "text" in out:  # a stream output (print, a progress log)
@@ -283,7 +291,13 @@ def read_for_scan(path: str | os.PathLike) -> str:
             if isinstance(data, dict):
                 for k in list(data):
                     data[k] = _tail_text(data[k]) if str(k).startswith("text/") else ""
-    return json.dumps(nb, indent=1, ensure_ascii=False)
+        if outs:
+            outputs.append({"cell": i, "outputs": outs})
+        cell["outputs"] = []
+    code = json.dumps(nb, indent=1, ensure_ascii=False)
+    if not outputs:
+        return code
+    return json.dumps({"outputs": outputs}, indent=1, ensure_ascii=False) + "\n" + code
 
 
 def _tail_text(v: Any) -> Any:
