@@ -98,6 +98,8 @@ function listen(server: Server, port: number, host: string): Promise<number> {
     server.once('error', reject)
     server.listen(port, host, () => {
       server.off('error', reject)
+      // Never hold the process open: the app's own loop outlives this, and a test that serves must be able to exit.
+      server.unref()
       const addr = server.address()
       if (addr && typeof addr === 'object') resolve(addr.port)
       else reject(new Error('[playerHost] no port'))
