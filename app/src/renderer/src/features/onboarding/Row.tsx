@@ -71,6 +71,7 @@ export function Row({ row, variant, last }: { row: RowData; variant: 'list' | 'c
       </motion.div>
     )
   if (variant === 'card') {
+    // The row miyagi is watching (the learner is in System Settings) is the one lit a step.
     const open = row.state === 'watching'
     return (
       <motion.div
@@ -79,7 +80,8 @@ export function Row({ row, variant, last }: { row: RowData; variant: 'list' | 'c
         data-onb-row={row.id}
         data-state={row.state}
         className="flex h-[72px] items-center gap-[16px] px-[16px]"
-        style={{ borderRadius: radius2.chip, background: surface.row, boxShadow: open ? `inset 0 0 0 1px ${surface.border}, ${highlight.topSoft}` : highlight.topSoft }}
+        // One row of a grouped list (Checklist wraps them in one surface): a hairline between rows, no box per row.
+        style={{ borderBottom: last ? undefined : `1px solid ${fill.hairline}`, background: open ? fill.highlight : undefined }}
       >
         <StatusGlyph state={row.state} size={24} />
         <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
