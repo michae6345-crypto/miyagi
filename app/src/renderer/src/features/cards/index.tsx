@@ -27,11 +27,12 @@ import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot, StatusGlyph } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
-import { isLinkRow, linkHost, linkRowAct, refusedLink, useDrawer, useRefusedLinks } from '../drawer/store'
+import { isLinkRow, linkRowAct, refusedLink, useDrawer, useRefusedLinks } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
 import { shortEditor, useFitLevel } from './fit'
+import { LinkText } from './LinkText'
 import { isEditor, useFrontApp } from './front'
 import { useDock } from '../../core/dock'
 import { useRoutedAway } from './panel'
@@ -177,32 +178,6 @@ function Question({ text }: { text: string }): ReactNode {
     <div data-question className="mt-[6px] text-[13px] leading-[18px]" style={{ color: color.label }}>
       {text}
     </div>
-  )
-}
-
-/**
- * A label that opens its URL outside the overlay (window.open; Electron's main hands plain https to the browser).
- * The destination host shows next to it (app-harden): the label is the engine's words, the host is where it goes.
- */
-function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: boolean }): ReactNode {
-  const fit = wrap ? 'line-clamp-2 break-words' : 'truncate'
-  const host = linkHost(url)
-  if (!url || !host) return <span className={fit}>{label}</span>
-  return (
-    <a
-      href={url}
-      data-link
-      title={url}
-      className={`cursor-pointer ${fit} underline-offset-2 hover:underline`}
-      style={{ color: 'inherit' }}
-      onClick={(e) => {
-        e.preventDefault()
-        window.open(url, '_blank', 'noopener,noreferrer')
-      }}
-    >
-      {label}
-      <span data-link-host style={{ color: color.faint }}>{` · ${host}`}</span>
-    </a>
   )
 }
 

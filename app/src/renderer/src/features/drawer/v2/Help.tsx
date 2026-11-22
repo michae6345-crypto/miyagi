@@ -27,6 +27,7 @@ import { WatchIcon } from '../../../core/ui/HelpRow'
 import { Keycap, keyLabel, type KeyName } from '../../../core/ui/Keycap'
 import { useCards } from '../../cards/store'
 import { useDiagram } from '../../diagrams/store'
+import { linkHost } from '../links'
 import { openSource } from '../store'
 import type { Gate } from '../../errors/gate'
 import { Caption } from './ui'
@@ -113,6 +114,7 @@ export function Help({ pressed, watchStart, waiting, gate }: { pressed?: OptionA
             pressed={isPressed(a)}
             height={two ? 48 : 56}
             span={two ? (i < 3 ? 2 : 3) : undefined}
+            host={a === 'watch' ? linkHost(watch) : undefined}
             onClick={() => (a === 'watch' ? watch && openSource(watch) : triggerShortcut(a))}
           />
         ))}
@@ -134,6 +136,7 @@ function HelpTile({
   pressed,
   height,
   span,
+  host,
   onClick
 }: {
   action: OptionAction
@@ -144,6 +147,8 @@ function HelpTile({
   height: number
   /** Grid columns to span (the two-row layout), or undefined in the one-row flex. */
   span?: number
+  /** Watch: where the video opens (linkHost of the URL), shown in the tile so the click's destination is in view. */
+  host?: string
   onClick: () => void
 }): ReactNode {
   const label = LABEL[action]
@@ -156,8 +161,8 @@ function HelpTile({
       disabled={disabled}
       aria-pressed={pressed || undefined}
       aria-busy={busy || undefined}
-      aria-label={key ? `${label} (${key})` : action === 'watch' ? 'Watch this step in the video' : label}
-      title={key ? `${label}  ${key}` : undefined}
+      aria-label={key ? `${label} (${key})` : action === 'watch' ? `Watch this step in the video${host ? ` on ${host}` : ''}` : label}
+      title={key ? `${label}  ${key}` : host ? `${label} on ${host}` : undefined}
       // Polish: the core pastel press tint (.mg-press-light), depth and press dip, as core OptionTile; the keyboard focus
       // ring is the global :focus-visible one (styles.css), so the panel has a single ring style.
       className="mg-press mg-press-light relative flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-[4px] disabled:cursor-default"
@@ -185,8 +190,13 @@ function HelpTile({
       <span className="max-w-full truncate" style={{ fontSize: type2.xs, fontWeight: 600, lineHeight: '15px' }}>
         {label}
       </span>
-      <span className="flex h-[18px] items-center justify-center" aria-hidden>
+      <span className="flex h-[18px] items-center justify-center gap-[4px]" aria-hidden>
         {busy ? <Spinner size={12} c={color.onAccent} track={fill.onAccentKey} /> : k ? <Keycap k={k} on="accent" size="sm" /> : action === 'watch' ? <WatchIcon size={14} /> : null}
+        {!busy && host && (
+          <span data-link-host className="whitespace-nowrap text-[11px] font-medium leading-[14px]">
+            {host}
+          </span>
+        )}
       </span>
     </motion.button>
   )

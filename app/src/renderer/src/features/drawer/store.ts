@@ -15,6 +15,7 @@ import { useDiagram } from '../diagrams/store'
 import { useErrors } from '../errors/store'
 import { useSearch } from '../launcher/store'
 import { closeHint, hintShown, usePanel } from './v2/panelStore'
+import { isWebLink, linkHost } from './links'
 import { isPanelRouted } from './v2/route'
 
 export type Side = 'left' | 'right'
@@ -236,15 +237,9 @@ onUi('dismiss', () => {
 // A new lesson: the panel isn't collapsed (lesson.ready opens it above).
 onMessage('lesson.ready', () => setDock({ collapsed: false }))
 
-/** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */
-export function isWebLink(url: string): boolean {
-  try {
-    const u = new URL(url)
-    return u.protocol === 'https:' || u.protocol === 'http:'
-  } catch {
-    return false
-  }
-}
+// http(s) links only; anything else (file:, javascript:, a bare path) is ignored. linkHost: where a link goes, shown
+// next to it. Both live in ./links (pure, so tests import them without the stores).
+export { isWebLink, linkHost }
 
 /**
  * A source row was clicked. Electron: core's window-open handler denies the window and sends http(s) to the
@@ -252,19 +247,6 @@ export function isWebLink(url: string): boolean {
  */
 export function openSource(url: string): void {
   if (isWebLink(url)) window.open(url, '_blank', 'noopener,noreferrer')
-}
-
-/**
- * Where a link goes, to show next to it (citations, sources): "python.org" for https://www.python.org/x. The label
- * comes from the engine or a page; the host can't lie about where the click lands. undefined = not a web link.
- */
-export function linkHost(url: string | undefined): string | undefined {
-  if (!url || !isWebLink(url)) return undefined
-  try {
-    return new URL(url).hostname.replace(/^www\./, '') || undefined
-  } catch {
-    return undefined
-  }
 }
 
 /**
