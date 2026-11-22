@@ -290,7 +290,7 @@ async def _build_lesson_impl(
     if cache and not (refresh or readapt):
         hit = path if path.is_file() else find_cached(vid, workdir, info)
         if hit:
-            graph = json.loads(hit.read_text())
+            graph = json.loads(hit.read_text(encoding="utf-8"))
             graph["lesson"]["workdir"] = workdir
             log.info("lesson cache hit %s%s", hit.name, "" if hit == path else " (same video + workdir, different goal wording)")
             _emit("cache_hit", hit.name)
@@ -318,7 +318,7 @@ async def _build_lesson_impl(
             raise RuntimeError(human_error(str(e), meta)) from e
         if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
             CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(graph, indent=2))
+            path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
         _emit("done", f"{time.time() - t0:.0f}s")
         return graph
 
@@ -338,7 +338,7 @@ async def _build_lesson_impl(
                 raise RuntimeError(human_error(f"{e}\nparts: {e2}", meta)) from e2
             if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
                 CACHE_DIR.mkdir(parents=True, exist_ok=True)
-                path.write_text(json.dumps(graph, indent=2))
+                path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
             _emit("done", f"{time.time() - t0:.0f}s")
             return graph
         raise RuntimeError(human_error(str(e), meta)) from e
@@ -381,7 +381,7 @@ async def _build_lesson_impl(
         _emit("done", f"{time.time() - t0:.0f}s")
         return graph
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(graph, indent=2))
+    path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
     log.info("lesson built in %.1fs -> %s (%d warnings)", time.time() - t0, path, len(warnings))
     _emit("done", f"{time.time() - t0:.0f}s")
     return graph
@@ -443,7 +443,7 @@ def find_cached(vid: str, workdir: str, info: WorkdirInfo) -> Path | None:
     best: tuple[float, Path] | None = None
     for p in CACHE_DIR.glob("*.json"):
         try:
-            g = json.loads(p.read_text())
+            g = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         if (g.get("sources") or [{}])[0].get("videoId") == vid and (g.get("build") or {}).get("workdir_fp") == fp:
@@ -462,14 +462,14 @@ async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: 
     gh = hashlib.sha256(" ".join(goal.lower().split()).encode()).hexdigest()[:8]
     raw_path = RAW_DIR / f"{vid}-{gh}.json"
     if raw_path.is_file() and not refresh:
-        return json.loads(raw_path.read_text())
+        return json.loads(raw_path.read_text(encoding="utf-8"))
 
     draft = await _watch(url, vid, goal)
     if detail and draft.get("_engine") == "gemini":  # clips need a model that sees the video
         await _add_detail(url, draft)
     if write:
         RAW_DIR.mkdir(parents=True, exist_ok=True)
-        raw_path.write_text(json.dumps(draft, indent=2))
+        raw_path.write_text(json.dumps(draft, indent=2), encoding="utf-8")
     return draft
 
 
@@ -852,7 +852,7 @@ async def _known_text(vid: str) -> str:
     p = transcript._cache_path(vid)
     if p.is_file():
         try:
-            parts.append(" ".join(ln.get("text", "") for ln in json.loads(p.read_text()).get("transcript") or []))
+            parts.append(" ".join(ln.get("text", "") for ln in json.loads(p.read_text(encoding="utf-8")).get("transcript") or []))
         except (OSError, json.JSONDecodeError):
             pass
     return "\n".join(parts)

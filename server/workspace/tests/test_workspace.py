@@ -27,7 +27,7 @@ CACHE = REPO_ROOT / "demo" / "cache" / "lessons"
 
 def load(name: str) -> dict:
     p = FIX / name if (FIX / name).exists() else CACHE / name
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 class FakeClient:
@@ -69,9 +69,9 @@ def test_pandas_starter_files_readme_and_state(tmp_path):
     assert scaffold.SYSTEM and "lesson.libraries" in fc.calls[0]["messages"][0]["content"]
     assert wd.parent == tmp_path / "lessons"
     assert wd.name == folder_name(g) and wd.name.startswith("complete-python-pandas-data-science-tutorial-")
-    assert (wd / "main.py").read_text().startswith('"""Pokemon')
+    assert (wd / "main.py").read_text(encoding="utf-8").startswith('"""Pokemon')
     assert (wd / "pokemon_data.csv").exists() and (wd / "requirements.txt").exists()
-    readme = (wd / "README.md").read_text()
+    readme = (wd / "README.md").read_text(encoding="utf-8")
     assert "https://www.youtube.com/watch?v=vmEHCJofslg" in readme
     assert "1. Load the Pokemon CSV" in readme and "6. Group by type" in readme
     assert "pip install -r requirements.txt" in readme and "not the original dataset" in readme
@@ -88,20 +88,20 @@ def test_pandas_starter_files_readme_and_state(tmp_path):
 def test_reuse_never_calls_claude_twice_nor_overwrites(tmp_path):
     g = load("pandas_pokemon.json")
     wd = prepare(g, "", client=FakeClient(reply([("main.py", "# start\n")])))
-    (wd / "main.py").write_text("import pandas as pd  # learner's work\n")
+    (wd / "main.py").write_text("import pandas as pd  # learner's work\n", encoding="utf-8")
     again = FakeClient(reply([("main.py", "# other\n")]))
     assert prepare(g, "", client=again) == wd
     assert again.calls == []
-    assert "learner's work" in (wd / "main.py").read_text()
+    assert "learner's work" in (wd / "main.py").read_text(encoding="utf-8")
 
 
 def test_existing_files_are_not_replaced_on_first_scaffold(tmp_path):
     g = load("pandas_pokemon.json")
     wd = tmp_path / "lessons" / folder_name(g)
     wd.mkdir(parents=True)
-    (wd / "main.py").write_text("mine\n")
+    (wd / "main.py").write_text("mine\n", encoding="utf-8")
     prepare(g, "", client=FakeClient(reply([("main.py", "# start\n"), ("notes.txt", "hi\n")])))
-    assert (wd / "main.py").read_text() == "mine\n" and (wd / "notes.txt").exists()
+    assert (wd / "main.py").read_text(encoding="utf-8") == "mine\n" and (wd / "notes.txt").exists()
 
 
 def test_solution_leak_is_sent_back_then_dropped():
@@ -180,7 +180,7 @@ def test_git_history_is_scripted(tmp_path):
     assert len(log.strip().splitlines()) == 3
     branch = subprocess.run(["git", "branch", "--show-current"], cwd=wd, capture_output=True, text=True, check=True).stdout.strip()
     assert branch == "feature"
-    assert "3 commits" in (wd / "README.md").read_text()
+    assert "3 commits" in (wd / "README.md").read_text(encoding="utf-8")
     assert open_file_for(wd) == "app.py"
     assert subprocess.run(["git", "status", "--porcelain"], cwd=wd, capture_output=True, text=True, check=True).stdout.strip() == "?? README.md"
 
@@ -227,7 +227,7 @@ def test_readme_titles_never_satisfy_editor_checks(tmp_path):
     g = load("pandas_pokemon.json")
     g["steps"][2]["checks"].append({"id": "s3c2", "type": "screen_contains", "label": "x", "app": "Code", "pattern": "Sort by name"})
     wd = prepare(g, "", client=FakeClient(reply()))
-    readme = (wd / "README.md").read_text()
+    readme = (wd / "README.md").read_text(encoding="utf-8")
     assert "Sort by name" not in readme and "3. Step 3" in readme
 
 

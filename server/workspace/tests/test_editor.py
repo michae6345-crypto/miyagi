@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from server.workspace import editor as E
@@ -53,11 +55,12 @@ def test_cursor_is_banned_by_default():
 
 
 def opener(tmp_path, ok=lambda a: True):
-    (tmp_path / "main.py").write_text("")
+    (tmp_path / "main.py").write_text("", encoding="utf-8")
     calls = []
     return calls, (lambda a: calls.append(a) or ok(a))
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="asserts the `open -a` step, which only runs on macOS")
 def test_open_with_cursor_cli_then_frontmost_without_accessibility(tmp_path):
     calls, run = opener(tmp_path)
     rep = E.open_editor_report(tmp_path, "main.py", runner=run, editor=CURSOR, trusted=lambda: False, previous=None)
@@ -67,6 +70,7 @@ def test_open_with_cursor_cli_then_frontmost_without_accessibility(tmp_path):
     assert rep["arrange"] == "skipped: Accessibility not granted" and "unfullscreened" not in rep
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="asserts the `open -a` step, which only runs on macOS")
 def test_cli_failure_falls_back_to_open_a(tmp_path):
     calls, run = opener(tmp_path, ok=lambda a: a[0] == "open")
     assert E.open_editor(tmp_path, "main.py", runner=run, editor=CURSOR, trusted=lambda: False, previous=None)
@@ -168,6 +172,7 @@ def test_ax_trusted_is_a_bool():
 
 # --------------------------------------------------------------------------- "Just teach me": full screen
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="asserts the `open -a` step, which only runs on macOS")
 def test_fullscreen_without_accessibility_says_so(tmp_path):
     calls, run = opener(tmp_path)
     rep = E.open_editor_report(tmp_path, "main.py", runner=run, editor=CURSOR, trusted=lambda: False, previous=None, fullscreen=True)
@@ -204,7 +209,7 @@ def test_make_fullscreen_sets_axfullscreen(monkeypatch):
 
 def snap(tmp_path, **kw):
     f = tmp_path / "main.py"
-    f.write_text("a\nb\nc\nd\ne\n")
+    f.write_text("a\nb\nc\nd\ne\n", encoding="utf-8")
     base = {"document": f"file://{f}", "caret_line": 3, "line_rect": {"x": 300.0, "y": 400.0, "w": 600.0, "h": 18.0},
             "line_height": 18.0, "window": {"x": 0.0, "y": 33.0, "w": 1728.0, "h": 1000.0}}
     base.update(kw)
@@ -261,7 +266,7 @@ def test_ax_wins_over_screen(tmp_path):
 
 def test_page_start_for_big_files(tmp_path):
     f = tmp_path / "big.py"
-    f.write_text("\n".join(f"line {i}" for i in range(1, 1201)))
+    f.write_text("\n".join(f"line {i}" for i in range(1, 1201)), encoding="utf-8")
     assert E._page_start("line 501\nline 502\nline 503", f) == 501
     assert E._page_start("x", tmp_path / "missing.py") == 1
 
@@ -390,7 +395,7 @@ def test_explicit_open_ignores_focus(tmp_path, fresh):
 
 def test_auto_jumps_never_steal_focus_or_race_startup(tmp_path, fresh):
     f = tmp_path / "main.py"
-    f.write_text("x\n")
+    f.write_text("x\n", encoding="utf-8")
     calls = []
     run = lambda a: calls.append(a) or True  # noqa: E731
     up = lambda ed: True  # noqa: E731
@@ -423,7 +428,7 @@ def test_orchestrator_workspace_opens_once_and_guards_jumps(tmp_path, fresh):
     calls = []
     w = Workspace(enabled=True, runner=lambda a: calls.append(a) or True)
     w.lesson_key = "lesson-1"
-    (tmp_path / "main.py").write_text("x\n")
+    (tmp_path / "main.py").write_text("x\n", encoding="utf-8")
     w.open(str(tmp_path), True, True)          # _open_editor_full
     w.open(str(tmp_path), True)                # _auto_open_editor
     w.open(str(tmp_path), True, True)          # resume / replaced provisional lesson

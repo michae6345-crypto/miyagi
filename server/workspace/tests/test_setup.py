@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from server.workspace import editor_needed, install, missing, requirements, setup_card
+from server.workspace import paths
 from server.workspace import setup as S
 from server.workspace.tests.test_workspace import FakeClient, load
 
@@ -219,14 +220,14 @@ def test_pip_install_creates_lesson_venv(mac, tmp_path, monkeypatch):
         def __init__(self, argv, **kw):
             super().__init__(argv, **kw)
             if argv[1:3] == ["-m", "venv"]:
-                (Path(argv[3]) / "bin").mkdir(parents=True)
-                (Path(argv[3]) / "bin" / "python").write_text("")
+                paths.venv_bin(argv[3]).mkdir(parents=True)
+                paths.venv_python(argv[3]).write_text("", encoding="utf-8")
 
     monkeypatch.setattr(S, "check", lambda it, workdir=None, run=None: {**it, "installed": True, "version": "2.2.3"})
     item = {"tool": "pandas", "kind": "python_package", "label": "pandas", "needed": True, "min_version": "", "pip_name": "pandas"}
     res = install(item, workdir=wd, popen=VenvPopen)
     assert FakePopen.calls[0] == ["/usr/local/bin/python3.12", "-m", "venv", str(wd / ".venv")]
-    assert FakePopen.calls[1] == [str(wd / ".venv/bin/python"), "-m", "pip", "install", "--disable-pip-version-check",
+    assert FakePopen.calls[1] == [str(paths.venv_python(wd / ".venv")), "-m", "pip", "install", "--disable-pip-version-check",
                                   "--progress-bar", "off", "--retries", "2", "--timeout", "30", "pandas"]
     # ed9078d: no progress-bar glyphs in the card; a dropped connection fails in about a minute, not five
     assert res["ok"] and res["version"] == "2.2.3"

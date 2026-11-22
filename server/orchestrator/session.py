@@ -60,6 +60,24 @@ from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lin
 from . import setup_rows  # t9 V12: the setup card's rows stay put while it installs; Install all
 from . import nb_coach  # T11: a notebook run still going keeps its output rows pending and the coach quiet
 
+
+async def _kill_shell(proc: asyncio.subprocess.Process) -> None:
+    """Stop a timed-out Run it for me. On Windows a kill leaves anything the program started running and holding the
+    output pipe, so the read after it would wait for that child: taskkill /T stops the whole tree first."""
+    if os.name == "nt":
+        import subprocess
+
+        try:
+            await asyncio.to_thread(subprocess.run, ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+
+
 log = logging.getLogger("orchestrator.session")
 
 Emit = Callable[[str, dict], Awaitable[None]]
@@ -1081,7 +1099,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                              "your browser yourself.", "output": visible(url)})
             return
         if self.workspace is not None:
-            self.workspace.run(["open", url])  # macOS: the default browser
+            if os.name == "nt" and self.workspace.run == getattr(self.workspace, "_spawn", None):  # Windows has no `open`
+                try:
+                    os.startfile(url)  # the default browser (an https URL only, checked above)
+                except OSError as e:
+                    log.warning("could not open %s: %s", url, e)
+            else:
+                self.workspace.run(["open", url])  # macOS: the default browser
 
     async def _install(self, tool: str, item: dict | None = None) -> None:
         """Install one setup item (the learner pressed Install). One install per tool at a time. Progress goes
@@ -2574,8 +2598,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         lesson's .venv."""
         import shutil
 
+        from server.workspace import paths
+
+        if os.name == "nt":  # the other way round: a Windows .venv has no python3.exe, and python3 on PATH is often
+            py3 = shutil.which("python3")  # only the Microsoft Store's stub (WindowsApps), which opens the Store
+            if not py3 or "windowsapps" in py3.lower() or paths.venv_python(Path(self.workdir) / ".venv").exists():
+                return re.sub(r"(^|\n|&&\s*|;\s*)python3(?=\s)", r"\1python", cmd)
+            return cmd
         has = self.has_python if self.has_python is not None else bool(shutil.which("python"))
-        if has or (Path(self.workdir) / ".venv" / "bin" / "python").exists():
+        if has or paths.venv_python(Path(self.workdir) / ".venv").exists():
             return cmd
         return re.sub(r"(^|\n|&&\s*|;\s*)python(?=\s)", r"\1python3", cmd)
 
@@ -6543,7 +6574,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
             return
         try:
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
@@ -6588,11 +6619,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
         try:
             backup_dir.mkdir(parents=True, exist_ok=True)
-            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(text)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(text, encoding="utf-8")
         except OSError:
             log.warning("could not write a backup of %s", path)
         self.undo = (path, text)
-        path.write_text(new_text)
+        path.write_text(new_text, encoding="utf-8")
         line = next((i for i, (a, b) in enumerate(zip(text.splitlines(), new_text.splitlines()), 1) if a != b), 1)
         if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), line, explicit=True)  # Do it for me: a learner action
@@ -7825,7 +7856,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                              kind="answer", actions=["apply_fix"])
             return
         try:
-            text = path.read_text() if path.exists() else ""
+            text = path.read_text(encoding="utf-8") if path.exists() else ""
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
@@ -8100,7 +8131,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         run_id = f"run-for-me-{int(time.time() * 1000)}"
         await self.ingest({"kind": "run_started", "run_id": run_id, "command": cmd, "cwd": self.workdir})
         extra: dict[str, str] = {}
-        venv = Path(self.workdir) / ".venv" / "bin"
+        from server.workspace import paths
+
+        venv = paths.venv_bin(Path(self.workdir) / ".venv")
         if venv.is_dir():
             extra = {"PATH": f"{venv}{os.pathsep}{os.environ.get('PATH', '')}", "VIRTUAL_ENV": str(venv.parent)}
         env = child_env(**extra)  # no provider key, cloud token or engine token reaches the learner's program
@@ -8118,7 +8151,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             code = proc.returncode or 0
         except TimeoutError:
             timed_out = True
-            proc.kill()
+            await _kill_shell(proc)
             out = (await proc.stdout.read()) if proc.stdout else b""
             await proc.wait()
             code = 124
@@ -8287,7 +8320,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
             return
         try:
-            current = path.read_text() if (path.exists() or pp["old"]) else ""
+            current = path.read_text(encoding="utf-8") if (path.exists() or pp["old"]) else ""
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {path}: {e}"})
             return
@@ -8301,12 +8334,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
         try:
             backup_dir.mkdir(parents=True, exist_ok=True)
-            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(current)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(current, encoding="utf-8")
         except OSError:
             log.warning("could not write a backup of %s", path)
         self.undo = (path, current)
         path.parent.mkdir(parents=True, exist_ok=True)  # lesson mode: a step may create its file
-        path.write_text(pp["new"])
+        path.write_text(pp["new"], encoding="utf-8")
         if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), int(pp["line"]), explicit=True)  # Do it for me: a learner action
         if pp["first"]:
@@ -8336,7 +8369,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.warning("undo: refusing to write %s (outside the lesson folder or a protected file)", path)
             await self._card(step, "I can't undo that", f"{path.name} isn't a file in your lesson folder.")
             return
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
         if step["id"] in self.assisted_steps:  # their own version again: no longer Do it for me's
             self.assisted_steps.remove(step["id"])
         await self._card(step, "Undone", "Your version is back.")
@@ -8344,9 +8377,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     @staticmethod
     async def _clipboard(text: str) -> bool:
+        # macOS: pbcopy. Windows has no pbcopy: clip.exe, fed UTF-16LE without a byte-order mark (with one, the mark
+        # lands on the clipboard; UTF-8 arrives mangled through the console code page).
+        argv, data = (["clip"], text.encode("utf-16-le")) if os.name == "nt" else (["pbcopy"], text.encode())
         try:
-            proc = await asyncio.create_subprocess_exec("pbcopy", stdin=asyncio.subprocess.PIPE)
-            await proc.communicate(text.encode())
+            proc = await asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.PIPE)
+            await proc.communicate(data)
             return proc.returncode == 0
         except OSError:
             return False

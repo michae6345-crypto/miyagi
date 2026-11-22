@@ -25,7 +25,7 @@ def _rig(tmp_path, monkeypatch, missing: list[bool]):
     calls: list[list[str]] = []
     ws = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
     ws.editor_check = lambda: (dict(CARD), dict(ITEM)) if missing[0] else None
-    (tmp_path / "pinn_convection.py").write_text("import torch\n")
+    (tmp_path / "pinn_convection.py").write_text("import torch\n", encoding="utf-8")
     rig = Rig(tmp_path)
     rig.s.workspace = ws
     return rig, calls

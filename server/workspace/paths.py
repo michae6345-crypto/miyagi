@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import sys
 import unicodedata
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -22,6 +23,38 @@ def lessons_root() -> Path:
     """MIYAGI_LESSONS_DIR > ~/miyagi/lessons."""
     v = os.environ.get("MIYAGI_LESSONS_DIR")
     return Path(v).expanduser() if v else Path.home() / "miyagi" / "lessons"
+
+
+# A lesson .venv's layout: bin/python and lib/python3.x/site-packages on macOS and Linux, Scripts\python.exe and
+# Lib\site-packages on Windows (python -m venv makes no bin/ there).
+
+def _windows() -> bool:
+    return sys.platform == "win32"
+
+
+def venv_bin(venv: Path | str) -> Path:
+    """The venv's scripts folder (what goes first on PATH): <venv>/bin, or <venv>\\Scripts on Windows."""
+    return Path(venv) / ("Scripts" if _windows() else "bin")
+
+
+def venv_python(venv: Path | str) -> Path:
+    """The venv's interpreter: <venv>/bin/python, or <venv>\\Scripts\\python.exe on Windows."""
+    return venv_bin(venv) / ("python.exe" if _windows() else "python")
+
+
+def venv_site_packages(venv: Path | str) -> list[Path]:
+    """The venv's site-packages folders that exist: lib/python3.x/site-packages, or Lib\\site-packages on Windows."""
+    v = Path(venv)
+    if _windows():
+        sp = v / "Lib" / "site-packages"
+        return [sp] if sp.is_dir() else []
+    return sorted(v.glob("lib/python*/site-packages"))
+
+
+def venv_run_prefix() -> str:
+    """How a command line names the lesson .venv's python, relative to the lesson folder (Run it for me):
+    `.venv/bin/python`, or `.venv\\Scripts\\python` on Windows (cmd.exe and PowerShell both run it)."""
+    return ".venv\\Scripts\\python" if _windows() else ".venv/bin/python"
 
 
 def slugify(text: str, max_len: int = 48) -> str:

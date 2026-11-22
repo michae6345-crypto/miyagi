@@ -183,7 +183,7 @@ def test_math_rows_say_whats_wrong_and_where():
     assert say("nn3c2", "    b3 -= lr * db3\n", "")[0] == "still needs b3 -= lr * db3"
     assert say("nn3c4", "np.mean((out - y) ** 2)", "np.mean(out - y)")[0].startswith("needs np.mean((out - y) ** 2)")
     # the code really isn't there: the row's own "not in nn.py yet" stands
-    assert curated.math_detail("nn2c4", curated.STARTER_FILE.read_text().splitlines()) is None
+    assert curated.math_detail("nn2c4", curated.STARTER_FILE.read_text(encoding="utf-8").splitlines()) is None
     assert curated.math_detail("nn1c1", NN.splitlines()) is None  # not a math row
 
 
@@ -207,7 +207,7 @@ def test_just_teach_me_check_names_the_wrong_sign_on_its_line(rig):  # noqa: F81
         await rig.s.goto_step(1)
         await settle(rig)
         assert rig.s.step["id"] == "nn2"
-        (rig.workdir / "nn.py").write_text(bad)
+        (rig.workdir / "nn.py").write_text(bad, encoding="utf-8")
         rig.clock.t += 30
         await rig.s.action("check_step")
         await settle(rig)
@@ -238,7 +238,7 @@ def test_curated_lessons_are_not_written_by_claude(rig):  # noqa: F811
     rig.s.graph = curated.lesson_for("x", force=True)
     rig.s.graph["lesson"]["builtBy"] = "claude"
     assert rig.s._lesson_ready_payload()["lesson"]["builtBy"] == "curated"
-    assert json.loads(curated.LESSON_FILE.read_text())["lesson"]["curated"] == curated.KEY
+    assert json.loads(curated.LESSON_FILE.read_text(encoding="utf-8"))["lesson"]["curated"] == curated.KEY
 
 
 # ------------------------------------------------------------------------------- A / B: the frame review

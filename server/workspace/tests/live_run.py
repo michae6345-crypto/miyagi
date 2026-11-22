@@ -44,7 +44,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     for name in a.which:
         path, goal = LESSONS[name]
-        graph = json.loads(path.read_text())
+        graph = json.loads(path.read_text(encoding="utf-8"))
         if a.fresh:
             d = lessons_root() / folder_name(graph)
             shutil.rmtree(d, ignore_errors=True)

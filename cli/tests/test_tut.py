@@ -47,18 +47,18 @@ def test_clean_line_progress_bar():
 # ---------------------------------------------------------------- db helpers
 def test_split_sql_on_contract_schema():
     root = os.path.join(os.path.dirname(__file__), "..", "..")
-    stmts = split_sql(open(os.path.join(root, "shared/contracts/tiger-schema.sql")).read())
+    stmts = split_sql(open(os.path.join(root, "shared/contracts/tiger-schema.sql"), encoding="utf-8").read())
     assert any(s.startswith("CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1s") for s in stmts)
     assert all(";" not in s for s in stmts)
 
 
 def test_read_curve_csv_wide_and_long(tmp_path):
     w = tmp_path / "w.csv"
-    w.write_text("epoch,loss,val_loss\n0,1.0,1.1\n100,0.5,0.6\n")
+    w.write_text("epoch,loss,val_loss\n0,1.0,1.1\n100,0.5,0.6\n", encoding="utf-8")
     rows = read_curve_csv(str(w), "loss")
     assert {(r[0], r[1]) for r in rows} == {(0, "loss"), (0, "val_loss"), (100, "loss"), (100, "val_loss")}
     lg = tmp_path / "l.csv"
-    lg.write_text("step,value\n0,1.0\n10,0.5\n")
+    lg.write_text("step,value\n0,1.0\n10,0.5\n", encoding="utf-8")
     assert [(r[0], r[1], r[2]) for r in read_curve_csv(str(lg), "loss")] == [(0, "loss", 1.0), (10, "loss", 0.5)]
 
 

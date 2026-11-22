@@ -494,3 +494,11 @@ test('POST /apply refuses an .ipynb (409); POST /save saves the open notebook, n
   assert.equal(again.body.saved, false);
   assert.equal(doc.saves, 1, 'a clean notebook is left alone');
 });
+
+test('engineUrl and port are machine settings, ignored in a workspace and in Restricted Mode (A03)', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const props = pkg.contributes.configuration.properties;
+  assert.equal(props['miyagi.engineUrl'].scope, 'machine', 'a cloned repo\'s .vscode/settings.json must not repoint the engine');
+  assert.equal(props['miyagi.port'].scope, 'machine');
+  assert.deepEqual(pkg.capabilities.untrustedWorkspaces.restrictedConfigurations.sort(), ['miyagi.engineUrl', 'miyagi.port']);
+});

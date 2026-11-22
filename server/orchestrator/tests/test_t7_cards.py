@@ -51,7 +51,7 @@ async def _to_train_step(rig) -> None:  # noqa: F811
     await settle(rig)
     await save(rig, NN1_ZEROS)  # the presenter's zeros shortcut
     await save(rig, code("nn2"))
-    (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text() + code("nn3"))
+    (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text(encoding="utf-8") + code("nn3"), encoding="utf-8")
     rig.clock.t += 2
     await rig.s.action("check_step")
     await settle(rig)

@@ -358,7 +358,7 @@ def test_cached_skim_from_finder_cache(tmp_path):
         {"videoId": "kCc8FmEb1nY", "url": "https://www.youtube.com/watch?v=kCc8FmEb1nY", "score": 88,
          "reason": "Live-codes a GPT in PyTorch, 2 h", "scoredBy": "claude+gemini-watch"},
         {"videoId": "zE2MJ3_muNQ", "score": 40, "reason": "title only", "scoredBy": "claude"},
-    ]}))
+    ]}), encoding="utf-8")
     assert cached_skim("kCc8FmEb1nY", cache_dir=tmp_path) == {"score": 88, "reason": "Live-codes a GPT in PyTorch, 2 h", "query": "build gpt"}
     assert cached_skim("zE2MJ3_muNQ", cache_dir=tmp_path) is None  # not watched: no skim
     row = {"url": "https://www.youtube.com/watch?v=zE2MJ3_muNQ", "score": 30, "reason": "no-code platforms", "scoredBy": "claude+gemini-watch"}

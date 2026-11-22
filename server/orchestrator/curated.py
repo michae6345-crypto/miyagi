@@ -52,6 +52,7 @@ import logging
 import math
 import os
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,9 @@ KEY = "nn-from-scratch"
 LESSON_FILE = config.DEMO_CACHE / "lessons" / "text-nn-from-scratch.json"
 STARTER_FILE = config.REPO_ROOT / "demo" / "nn-start.py"
 FILE = "nn.py"
+# The run step's command. A Windows .venv has python.exe and no python3.exe, and python3 there is the Microsoft
+# Store's stub (it opens the Store instead of running nn.py).
+_PY = "python" if sys.platform == "win32" else "python3"
 BUILT_BY = "curated"  # lesson.ready builtBy (contract): written by hand, no model wrote it (the app shows no "… wrote this lesson")
 LAYERS = (1, 4, 4, 1)
 TRAIN_STEP, TEST_STEP = "nn4", "nn6"  # the run steps: training (the stuck moment), and the run that prints the weights
@@ -275,12 +279,13 @@ def _folder_extras(folder: Path, graph: dict) -> None:
 
         core._write_vscode_settings(folder)
         sp = folder / ".vscode" / "settings.json"
-        cur = json.loads(sp.read_text()) if sp.exists() else {}
+        cur = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
         if isinstance(cur, dict) and "python.defaultInterpreterPath" not in cur:
             # Pylance resolves `import numpy` once Miyagi installed it into the lesson's .venv (the setup card)
-            cur["python.defaultInterpreterPath"] = "${workspaceFolder}/.venv/bin/python"
+            cur["python.defaultInterpreterPath"] = ("${workspaceFolder}/.venv/Scripts/python.exe" if sys.platform == "win32"
+                                                     else "${workspaceFolder}/.venv/bin/python")
             sp.parent.mkdir(parents=True, exist_ok=True)
-            sp.write_text(json.dumps(cur, indent=2) + "\n")
+            sp.write_text(json.dumps(cur, indent=2) + "\n", encoding="utf-8")
         sf = core._state_file(folder)
         if not sf.exists():
             sf.parent.mkdir(parents=True, exist_ok=True)
@@ -290,7 +295,7 @@ def _folder_extras(folder: Path, graph: dict) -> None:
                 "lesson_kind": "code", "stack": "python", "summary": "A NumPy neural network that learns y = sin(x).",
                 "setup": [], "open_file": FILE, "files": [FILE], "readme": "README.md",
                 "git": {"init": False, "ops": 0, "commits": 0}, "dropped": [], "model": "", "error": "", "seconds": 0,
-            }, indent=1))
+            }, indent=1), encoding="utf-8")
     except Exception:  # noqa: BLE001
         log.exception("curated lesson: VS Code settings / state file")
     try:
@@ -299,7 +304,7 @@ def _folder_extras(folder: Path, graph: dict) -> None:
         cache = setup._cache_file(graph)
         if not cache.exists():
             cache.parent.mkdir(parents=True, exist_ok=True)
-            cache.write_text(json.dumps(requirements_raw(), indent=1))
+            cache.write_text(json.dumps(requirements_raw(), indent=1), encoding="utf-8")
     except Exception:  # noqa: BLE001
         log.exception("curated lesson: requirements cache")
 
@@ -323,11 +328,13 @@ def requirements_raw() -> dict:
 
 def _venv_python(workdir: str | Path) -> Path | None:
     """The lesson .venv's python, only when NumPy is installed in it (a .venv without NumPy runs nn.py with python3)."""
+    from server.workspace import paths
+
     venv = Path(workdir) / ".venv"
-    p = venv / "bin" / "python"
+    p = paths.venv_python(venv)
     if not p.exists():
         return None
-    return p if any(venv.glob("lib/python*/site-packages/numpy/__init__.py")) else None
+    return p if any((sp / "numpy" / "__init__.py").is_file() for sp in paths.venv_site_packages(venv)) else None
 
 
 def prepare_step(session: Any, step: dict) -> None:
@@ -338,7 +345,7 @@ def prepare_step(session: Any, step: dict) -> None:
     used to become `.venv/bin/python nn.py` once NumPy was installed; a step saved like that is put back."""
     if not active(session) or not (step.get("run_command") or "").strip():
         return
-    cmd = f"python3 {FILE}"
+    cmd = f"{_PY} {FILE}"
     if step.get("run_command") != cmd and RUN_RX.search(step["run_command"]):
         step["run_command"] = cmd
         step["code"] = cmd
@@ -351,7 +358,9 @@ def run_for_me_command(session: Any, step: dict, cmd: str) -> str:
     if (not active(session) or len((cmd or "").strip().splitlines()) != 1 or not RUN_RX.search(cmd)
             or _venv_python(session.workdir) is None):
         return cmd
-    return f".venv/bin/python {FILE}"
+    from server.workspace import paths
+
+    return f"{paths.venv_run_prefix()} {FILE}"
 
 
 def _cache_json(*parts: str) -> dict | None:

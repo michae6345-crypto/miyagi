@@ -152,7 +152,7 @@ def _read_graph(p: Path) -> dict | None:
         if p.stat().st_size > MAX_FILE_BYTES:
             log.warning("library: skipping oversized cache file %s", p.name)
             return None
-        g = json.loads(p.read_text())
+        g = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         log.debug("library: unreadable %s: %s", p.name, e)
         return None

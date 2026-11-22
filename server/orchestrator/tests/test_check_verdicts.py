@@ -74,7 +74,7 @@ def _rig(tmp_path, monkeypatch, judge=None) -> tuple[Rig, FakeScreen]:
 
 async def _save(rig: Rig, screen: FakeScreen, name: str, text: str) -> None:
     """The learner saves `name`; VS Code shows it (OCR reads every line, as in the live frames)."""
-    (rig.workdir / name).write_text(text)
+    (rig.workdir / name).write_text(text, encoding="utf-8")
     screen.text["Code"] = [name] + text.splitlines()
     await rig.s.on_file_change([str(rig.workdir / name)])
     await rig.settle()
@@ -217,7 +217,7 @@ def test_not_yet_body_is_whole_sentences_with_the_steps_python3(tmp_path, monkey
     async def go():
         await rig.s.learn("dice", mode="lesson")
         await rig.settle()
-        (rig.workdir / "main.py").write_text(DICE)
+        (rig.workdir / "main.py").write_text(DICE, encoding="utf-8")
         await rig.s.goto_step(2)
         await rig.settle()
         await rig.s.action("check_step")
@@ -284,7 +284,7 @@ def test_a_readable_lesson_file_never_asks_to_open_vs_code(tmp_path):
     from server.checks.evaluator import screen_check_on_file
 
     c = _code("s2c3", r"raise_for_status\(\)", "Raises for status")
-    (tmp_path / "weather.py").write_text(WEATHER_LOOSE)
+    (tmp_path / "weather.py").write_text(WEATHER_LOOSE, encoding="utf-8")
     r = screen_check_on_file(c, tmp_path / "weather.py", window_open=False)
     assert r["status"] == "fail" and r["detail"] == "not in weather.py yet"
     r = screen_check_on_file(c, tmp_path / "missing.py", window_open=False)

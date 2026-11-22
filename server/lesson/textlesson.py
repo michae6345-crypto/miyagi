@@ -259,7 +259,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
     key = _key(goal, workdir, info)
     path = builder.CACHE_DIR / f"{key}.json"
     if cache and not refresh and path.is_file():
-        g = json.loads(path.read_text())
+        g = json.loads(path.read_text(encoding="utf-8"))
         g["lesson"]["workdir"] = workdir
         log.info("text lesson: cache hit %s", path.name)
         return fill_missing(g)  # a lesson cached by an older builder: complete labels, overview, what / why
@@ -449,7 +449,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
         raise RuntimeError("text lesson failed contract validation:\n" + "\n".join(errs))
     if cache and g["steps"] and not any("failed" in w for w in warnings):
         builder.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(g, indent=2))
+        path.write_text(json.dumps(g, indent=2), encoding="utf-8")
     await emit(True)
     return g
 

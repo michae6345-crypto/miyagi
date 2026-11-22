@@ -31,7 +31,7 @@ def main() -> None:
     if a.fresh:
         shutil.rmtree(lessons_root() / ".miyagi-state" / "requirements", ignore_errors=True)
     for name in a.which:
-        graph = json.loads(LESSONS[name].read_text())
+        graph = json.loads(LESSONS[name].read_text(encoding="utf-8"))
         t0 = time.monotonic()
         items = requirements(graph)
         print(f"\n=== {name} ({time.monotonic() - t0:.1f}s) editor needed: {editor_needed(items)}")

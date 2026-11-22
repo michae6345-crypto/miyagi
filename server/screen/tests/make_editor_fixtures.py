@@ -162,7 +162,7 @@ def main() -> None:
     from server.screen import match as M
     from server.screen.types import Rect, ScreenObservation, Window
 
-    src_lines = SRC.read_text().split("\n")
+    src_lines = SRC.read_text(encoding="utf-8").split("\n")
     if src_lines and src_lines[-1] == "":
         src_lines.pop()
     screen = Rect(0, 0, W, H)
@@ -173,7 +173,7 @@ def main() -> None:
         windows = [Window(spec.app, spec.title, Rect(0, 0, W, H))]
         (FIX / f"{spec.name}.json").write_text(json.dumps(
             {"screen": screen.to_dict(), "scale": float(S), "app": spec.app,
-             "windows": [w.to_dict() for w in windows]}, indent=2) + "\n")
+             "windows": [w.to_dict() for w in windows]}, indent=2) + "\n", encoding="utf-8")
         cg = macos.load_cgimage(str(png))
         blocks, ms = macos.ocr_image(cg, screen, float(S))
         blocks = M.reading_order(M.assign_windows(blocks, windows))
@@ -181,9 +181,9 @@ def main() -> None:
                                 scale=float(S), ocr_ms=ms, frame=1, source=f"fixture:{png.name}")
         rec = obs.to_dict()
         rec["postprocessed"] = False    # RAW Vision output: loaders apply match.postprocess like a live frame
-        (FIX / f"{spec.name}.ocr.json").write_text(json.dumps(rec, indent=1) + "\n")
+        (FIX / f"{spec.name}.ocr.json").write_text(json.dumps(rec, indent=1) + "\n", encoding="utf-8")
         (FIX / f"{spec.name}.truth.json").write_text(json.dumps(
-            {"geometry": geo, "lines": {str(k): v for k, v in truth.items()}}, indent=1) + "\n")
+            {"geometry": geo, "lines": {str(k): v for k, v in truth.items()}}, indent=1) + "\n", encoding="utf-8")
         print(f"{spec.name}: {len(blocks)} blocks, OCR {ms:.0f} ms, visible {geo['visible']}")
 
 

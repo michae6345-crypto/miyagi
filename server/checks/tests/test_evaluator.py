@@ -14,7 +14,7 @@ def status(check, ctx):
 @pytest.fixture
 def wd(tmp_path):
     (tmp_path / "pinn_convection.py").write_text(
-        "import torch\n\ndef pde_residual(u_t, u_x, beta):\n    return u_t + beta * u_x\n"
+        "import torch\n\ndef pde_residual(u_t, u_x, beta):\n    return u_t + beta * u_x\n", encoding="utf-8"
     )
     return tmp_path
 
@@ -51,7 +51,7 @@ def test_file_contains_pass_fail_missing(wd):
          "pattern": r"u_t\s*\+\s*\w*\s*\*\s*u_x"}
     r = evaluate_check(c, ctx)
     assert r["status"] == "pass" and r["detail"].endswith(":4")
-    (wd / "pinn_convection.py").write_text("def pde_residual(u_t, u_x):\n    return u_t\n")
+    (wd / "pinn_convection.py").write_text("def pde_residual(u_t, u_x):\n    return u_t\n", encoding="utf-8")
     assert status(c, ctx) == "fail"
     assert status({**c, "file": "missing.py"}, ctx) == "fail"
 

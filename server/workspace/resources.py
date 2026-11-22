@@ -159,7 +159,7 @@ def find_resources(lesson: dict, *, description: str | None = None, client: http
     cache = _cache_file(lesson)
     if use_cache and description is None and cache.exists():
         try:
-            return json.loads(cache.read_text())
+            return json.loads(cache.read_text(encoding="utf-8"))
         except ValueError:
             pass
     texts = [s.get("url", "") for s in lesson.get("sources") or [] if s.get("kind") != "video"]
@@ -184,7 +184,7 @@ def find_resources(lesson: dict, *, description: str | None = None, client: http
     # a file inside a repo we download whole is already covered
     found = [r for r in found if r["kind"] == "repo" or r.get("repo") not in repos][:MAX_RESOURCES]
     cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text(json.dumps(found, indent=1))
+    cache.write_text(json.dumps(found, indent=1), encoding="utf-8")
     return found
 
 

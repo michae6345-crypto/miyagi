@@ -210,7 +210,7 @@ def engine_env(port: int, base: Path, companion_port: int, extra: dict[str, str]
     home = base / "home"
     for d in (home, base / "lessons", base / "state", base / "spool", base / "tts"):
         d.mkdir(parents=True, exist_ok=True)
-    (base / "empty.env").write_text("# rehearsal: no keys\n")
+    (base / "empty.env").write_text("# rehearsal: no keys\n", encoding="utf-8")
     env.update({
         "HOME": str(home),
         "MIYAGI_LESSONS_DIR": str(base / "lessons"), "MIYAGI_LESSONS": str(base / "lessons"),
@@ -252,7 +252,7 @@ class PrivateEngine:
 
         if not port_free(self.port):
             raise RuntimeError(f"port {self.port} is busy: pick another (--port), never {LIVE_PORT}")
-        self._log = open(self.log_path, "w")  # noqa: SIM115
+        self._log = open(self.log_path, "w", encoding="utf-8")  # noqa: SIM115
         t0 = time.monotonic()
         self.proc = subprocess.Popen([self.python, "-m", "server.tests.rehearsal_engine", "--host", "127.0.0.1",
                                       "--port", str(self.port)], cwd=ROOT, env=self.env, stdout=self._log,
@@ -270,12 +270,18 @@ class PrivateEngine:
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
             with contextlib.suppress(ProcessLookupError):
-                os.killpg(self.proc.pid, signal.SIGTERM)
+                if hasattr(os, "killpg"):
+                    os.killpg(self.proc.pid, signal.SIGTERM)
+                else:  # Windows: no process groups, no SIGTERM; terminate() is TerminateProcess
+                    self.proc.terminate()
             try:
                 self.proc.wait(8)
             except subprocess.TimeoutExpired:
                 with contextlib.suppress(ProcessLookupError):
-                    os.killpg(self.proc.pid, signal.SIGKILL)
+                    if hasattr(os, "killpg"):
+                        os.killpg(self.proc.pid, signal.SIGKILL)
+                    else:
+                        self.proc.kill()
                 self.proc.wait(4)
         if self._log:
             with contextlib.suppress(Exception):

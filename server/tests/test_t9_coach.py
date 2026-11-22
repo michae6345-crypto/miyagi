@@ -22,7 +22,7 @@ from server.coach import common, llm
 
 dg = importlib.import_module("server.coach.diagnose")  # the package re-exports the function under the same name
 
-LESSON = json.loads((Path(__file__).parent / "fixtures" / "t9_lesson_5c0ea8a49f419487.json").read_text())
+LESSON = json.loads((Path(__file__).parent / "fixtures" / "t9_lesson_5c0ea8a49f419487.json").read_text(encoding="utf-8"))
 PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY")
 
 

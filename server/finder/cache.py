@@ -25,7 +25,7 @@ def path_for(query: str, root: Path | None = None) -> Path:
 def load(query: str, *, max_age_s: float | None = None, root: Path | None = None) -> dict | None:
     p = path_for(query, root)
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     if normalize(data.get("query", "")) != normalize(query) or not data.get("results"):
@@ -40,6 +40,6 @@ def save(query: str, results: list[dict], info: dict, *, root: Path | None = Non
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {"query": query, "created": int(time.time()), **info, "results": results}
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(p)
     return p

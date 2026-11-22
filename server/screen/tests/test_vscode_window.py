@@ -23,11 +23,11 @@ HOVER, CLEAN = "vscode_window_calc_hover", "vscode_window_calc_clean"
 
 
 def _obs(name):
-    return ScreenObservation.from_dict(json.loads((FIX / f"{name}.ocr.json").read_text()))
+    return ScreenObservation.from_dict(json.loads((FIX / f"{name}.ocr.json").read_text(encoding="utf-8")))
 
 
 def _truth(name):
-    return json.loads((FIX / f"{name}.truth.json").read_text())
+    return json.loads((FIX / f"{name}.truth.json").read_text(encoding="utf-8"))
 
 
 def near(a, b, tol=4):

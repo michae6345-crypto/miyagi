@@ -179,13 +179,13 @@ class Autopilot:
 
     def write(self, text: str, append: bool = True) -> None:
         p = self.file()
-        if p.exists() and MARKER not in p.read_text():
+        if p.exists() and MARKER not in p.read_text(encoding="utf-8"):
             raise SystemExit(f"refusing to touch {p}: not created by the autopilot (start the engine with TUT_WORKDIR=<scratch dir>)")
         p.parent.mkdir(parents=True, exist_ok=True)
         if append and p.exists():
-            p.write_text(p.read_text() + text)
+            p.write_text(p.read_text(encoding="utf-8") + text, encoding="utf-8")
         else:
-            p.write_text(text)
+            p.write_text(text, encoding="utf-8")
 
     async def run(self, run_id: str, kind: str, exit_code: int = 0, beta: int = 1) -> None:
         self.running = True
@@ -229,7 +229,7 @@ class Autopilot:
             await asyncio.sleep(0.6 / self.speed)
             await self.run("run-beta1", "converge", beta=1)
         elif sid == "s6":
-            text = self.file().read_text().replace("    beta = 1\n", "    beta = 30\n")
+            text = self.file().read_text(encoding="utf-8").replace("    beta = 1\n", "    beta = 30\n")
             self.write(text, append=False)
             self.hero_phase = 1
             await asyncio.sleep(0.6 / self.speed)

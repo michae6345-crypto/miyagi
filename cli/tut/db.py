@@ -50,7 +50,7 @@ def apply_schema(conn, root: Path, extras: bool = True) -> list[str]:
         files.append(root / "cli/sql/tiger-extras.sql")
     done = []
     for f in files:
-        for stmt in split_sql(f.read_text()):
+        for stmt in split_sql(f.read_text(encoding="utf-8")):
             conn.execute(stmt)
             done.append(stmt.split("\n")[0][:90])
     return done
@@ -72,7 +72,7 @@ def read_curve_csv(path: str, metric: str) -> list[tuple[int, str, float, float 
     Accepts long format (step,name,value) or wide format (step,loss,val_loss,...).
     The step column may be called step/epoch/iter/global_step.
     """
-    with open(path, newline="") as fh:
+    with open(path, newline="", encoding="utf-8") as fh:
         rd = csv.DictReader(fh)
         cols = [c.strip() for c in (rd.fieldnames or [])]
         lower = {c.lower(): c for c in cols}

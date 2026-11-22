@@ -117,7 +117,7 @@ def test_tiger_sink_writes_run_metrics_and_end(fake_pg):
 def _spooled(tmp_path):
     out = []
     for f in sorted((tmp_path / "spool").glob("*.jsonl")):
-        out += [json.loads(line) for line in f.read_text().splitlines()]
+        out += [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines()]
     return out
 
 
@@ -155,7 +155,7 @@ def test_apply_schema_runs_each_statement_separately(fake_pg):
 def test_load_ref_inserts_tutorial_run_and_refreshes(fake_pg, tmp_path, capsys):
     log, _ = fake_pg
     csv = tmp_path / "ref.csv"
-    csv.write_text("step,loss\n0,0.25\n100,0.1\n200,0.01\n")
+    csv.write_text("step,loss\n0,0.25\n100,0.1\n200,0.01\n", encoding="utf-8")
     args = argparse.Namespace(csv=str(csv), metric="loss", run_id="ref_t", lesson="pinn", step="s5",
                               note="from video", no_refresh=False)
     assert db.cmd_load_ref(args) == 0
@@ -239,7 +239,7 @@ def test_tut_stats_offline(fake_pg, tmp_path, capsys):
     _, state = fake_pg
     state["fail_connect"] = True
     (tmp_path / "spool").mkdir()
-    (tmp_path / "spool" / "engine-x.jsonl").write_text('{"k":"m","v":[]}\n' * 7)
+    (tmp_path / "spool" / "engine-x.jsonl").write_text('{"k":"m","v":[]}\n' * 7, encoding="utf-8")
     assert db.cmd_stats(argparse.Namespace(watch=False, interval=1.0, runs=1, json=False)) == 1
     assert "Tiger offline (connection refused), 7 rows spooled in" in capsys.readouterr().out
 

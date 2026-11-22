@@ -23,7 +23,7 @@ def main() -> None:
     ap.add_argument("which", nargs="*", default=["karpathy", "react"])
     ap.add_argument("--fresh", action="store_true")
     a = ap.parse_args()
-    graphs = {"karpathy": KARPATHY, "react": json.loads((REPO_ROOT / "demo/cache/lessons/516197461c0dacf3.json").read_text())}
+    graphs = {"karpathy": KARPATHY, "react": json.loads((REPO_ROOT / "demo/cache/lessons/516197461c0dacf3.json").read_text(encoding="utf-8"))}
     for name in a.which:
         g = graphs[name]
         if a.fresh:

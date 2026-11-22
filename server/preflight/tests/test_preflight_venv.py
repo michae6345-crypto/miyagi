@@ -61,17 +61,18 @@ def lessons(tmp_path, monkeypatch):
         monkeypatch.delenv(k, raising=False)
     req = root / ".miyagi-state" / "requirements"
     req.mkdir(parents=True)
-    (req / f"video-{VID}.json").write_text(json.dumps(TOOLS))  # S2's cached list: no Claude call
+    (req / f"video-{VID}.json").write_text(json.dumps(TOOLS), encoding="utf-8")  # S2's cached list: no Claude call
     core.clear_memo()
     yield root
     core.clear_memo()
 
 
 def make_venv(folder: Path) -> str:
-    py = folder / ".venv" / "bin" / "python"
+    py = paths.venv_python(folder / ".venv")  # bin/python; Scripts\python.exe on Windows
     py.parent.mkdir(parents=True)
-    py.write_text("")
-    (folder / ".venv" / "lib" / "python3.12" / "site-packages").mkdir(parents=True)
+    py.write_text("", encoding="utf-8")
+    site = folder / ".venv" / ("Lib" if paths._windows() else "lib/python3.12") / "site-packages"
+    site.mkdir(parents=True)
     return str(py)
 
 
@@ -101,7 +102,7 @@ def test_lesson_folder_is_prepares_folder_found_read_only(lessons, monkeypatch):
     assert e4.lesson_folder(GRAPH) == str(own)
     other = lessons.parent / "my-own-folder"
     other.mkdir()
-    ws_core._state_file(own).write_text(json.dumps({"redirect": str(other)}))  # "use this folder"
+    ws_core._state_file(own).write_text(json.dumps({"redirect": str(other)}), encoding="utf-8")  # "use this folder"
     assert lesson_folder(GRAPH) == other
     monkeypatch.setenv("TUT_WORKDIR", str(other))
     assert Path(e4.lesson_folder(GRAPH)).resolve() == other.resolve()  # a pinned folder is the lesson's folder
@@ -115,7 +116,7 @@ def test_cached_lesson_names_the_real_lesson_folder(lessons, tmp_path, monkeypat
     builder.CACHE_DIR.mkdir()
     workdir = core._build_workdir(URL, GOAL)
     assert Path(workdir).name == "_new"  # the build's placeholder: never where the lesson's .venv lives
-    (builder.CACHE_DIR / f"{builder.cache_key(URL, GOAL, workdir, scan(workdir))}.json").write_text(json.dumps(GRAPH))
+    (builder.CACHE_DIR / f"{builder.cache_key(URL, GOAL, workdir, scan(workdir))}.json").write_text(json.dumps(GRAPH), encoding="utf-8")
     hit = core.cached_lesson(URL, GOAL)
     assert hit["workdir"] == workdir and hit["folder"] is None  # not built into its folder yet
     own = lessons / paths.folder_name(GRAPH)

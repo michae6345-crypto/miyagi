@@ -147,7 +147,7 @@ def _open_rig(tmp_path, monkeypatch, req_s: float = 0.0):
             asked.append({"full": full, "explicit": explicit, **k})
             return super().open(workdir, force, full, explicit, **k)
 
-    (tmp_path / "pinn_convection.py").write_text("import torch\n")
+    (tmp_path / "pinn_convection.py").write_text("import torch\n", encoding="utf-8")
     rig = Rig(tmp_path)
     rig.s.workspace = Rec(enabled=True, runner=lambda argv: True)
     return rig, asked, wsmod

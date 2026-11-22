@@ -36,7 +36,7 @@ def test_no_dotenv_keeps_paid_keys_out_after_config_keys(tmp_path):
         env[k] = ""
     env.update(HOME=str(tmp_path), TUT_ENV=str(tmp_path / "empty.env"), REHEARSAL_SIDE_EFFECTS="", ORCH_SCREEN="0",
                MIYAGI_LESSONS_DIR=str(tmp_path / "lessons"), MIYAGI_STATE_DIR=str(tmp_path / "state"))
-    (tmp_path / "empty.env").write_text("")
+    (tmp_path / "empty.env").write_text("", encoding="utf-8")
     out = subprocess.run([sys.executable, "-c", PROBE], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr[-2000:]
     assert out.stdout.strip().splitlines()[-1] == "none"

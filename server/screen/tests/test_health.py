@@ -103,6 +103,7 @@ def test_bridge_stays_paused_when_resume_cannot_start_the_reader(monkeypatch):
 
 # ---- multi-display, AX revocation, flat frames, wake gap (all offline: fake displays / fake clocks)
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="imports server.screen.macos (pyobjc): macOS only")
 def test_pick_display_prefers_the_window_then_the_cursor_then_main():
     from server.screen import macos
     left, right = (1, Rect(0, 0, 1440, 900)), (2, Rect(1440, 0, 1920, 1080))

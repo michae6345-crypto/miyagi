@@ -84,13 +84,13 @@ def test_save_load_clear_roundtrip_is_atomic(state_dir):
 
 def test_corrupt_or_foreign_files_read_as_none(state_dir):
     state_dir.mkdir(parents=True)
-    (state_dir / "current.json").write_text("{not json")
+    (state_dir / "current.json").write_text("{not json", encoding="utf-8")
     assert sessions.load() is None
-    (state_dir / "current.json").write_text(json.dumps({"lessonId": "L1"}))  # no step index
+    (state_dir / "current.json").write_text(json.dumps({"lessonId": "L1"}), encoding="utf-8")  # no step index
     assert sessions.load() is None
     sessions.save({"lessonId": "L1", "stepIndex": 0, "stepCount": 2}, {"lesson": {"id": "OTHER"}, "steps": [{"id": "x"}]})
     assert sessions.load_graph(sessions.load()) is None  # cached graph belongs to another lesson
-    (state_dir / "current.graph.json").write_text("garbage")
+    (state_dir / "current.graph.json").write_text("garbage", encoding="utf-8")
     assert sessions.load_graph() is None
 
 
@@ -122,10 +122,10 @@ def test_progress_saved_on_step_and_video_and_in_memory_card_uses_it():
         e.clock.t += 600  # the app was away 10 min; E4's engine asks to resume (lesson frozen in memory)
         msgs = e.s.snapshot(ask_resume=True)
         assert [t for t, _ in msgs] == ["spotlight", "video.pause", "card"] and e.s.awaiting_resume
-        before = (state_dir_of() / "current.json").read_text()
+        before = (state_dir_of() / "current.json").read_text(encoding="utf-8")
         assert e.r.save_now() is None  # frozen: nothing may overwrite the save (disconnect, stop, player)
         await e.s.video_state(seg["start"] + 30, True)
-        assert (state_dir_of() / "current.json").read_text() == before
+        assert (state_dir_of() / "current.json").read_text(encoding="utf-8") == before
         assert msgs[2][1]["body"].endswith("step 2 of %d · 10 min ago" % n)
         for t, p in msgs:
             engine_message(t, p)
@@ -490,8 +490,8 @@ def test_graph_and_progress_commit_together(state_dir):
 def test_legacy_graph_file_still_resumes(state_dir):
     state_dir.mkdir(parents=True, exist_ok=True)
     g = {"lesson": {"id": "L1"}, "steps": [{"id": "a", "title": "a"}]}
-    (state_dir / "current.graph.json").write_text(json.dumps(g))
-    (state_dir / "current.json").write_text(json.dumps({"lessonId": "L1", "stepIndex": 0, "stepCount": 1}))
+    (state_dir / "current.graph.json").write_text(json.dumps(g), encoding="utf-8")
+    (state_dir / "current.json").write_text(json.dumps({"lessonId": "L1", "stepIndex": 0, "stepCount": 1}), encoding="utf-8")
     assert sessions.load_graph(sessions.load()) == g
 
 
