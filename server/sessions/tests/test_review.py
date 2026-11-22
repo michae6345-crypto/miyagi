@@ -28,6 +28,9 @@ def at(days: float, hour: int = 9) -> float:
 def state(tmp_path, monkeypatch):
     d = tmp_path / "state"
     monkeypatch.setenv("MIYAGI_STATE_DIR", str(d))
+    work = tmp_path / "default-workdir"  # the fixture lesson's own workdir is the hero's demo/pinn-lab: a lesson-mode
+    work.mkdir(exist_ok=True)  # session creates each step's file there (pinn_convection.py): the hero cache would miss
+    monkeypatch.setenv("TUT_WORKDIR", str(work))
     for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY", "TIGER_DATABASE_URL"):
         monkeypatch.setenv(k, "")
     return d

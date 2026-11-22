@@ -11,6 +11,11 @@ For every graph whose video has chapters, three versions of its step starts are 
 - pinned: timing.pin_starts with chapters + caption lines (what the Claude path now does);
 - captions_only: timing.pin_starts with the caption lines alone (chapters withheld from the pin, so this one is not
   scored against marks it was allowed to snap to).
+"pinned" is circular: it snaps to the same chapter marks it is scored against. The held-out rows are not:
+- held_out (leave one chapter out): for each chapter mark k, the built step nearest to k (within HELD_OUT_PAIR_S) is
+  scored on k twice: as built ("held_out_built") and after pin_starts with every chapter mark EXCEPT k plus the
+  caption lines ("held_out_pinned"). A pin that helps moves that step toward a mark it never saw; one that snaps it to
+  a neighbouring mark gets worse. Each step is paired with at most one mark (the nearest).
 Two error measures per step start:
 - nearest: seconds to the nearest chapter mark (report.md's "step starts vs chapter marks");
 - aligned: steps matched one-to-one to chapter segments by time IoU (server/lesson/precision.align), start error of
@@ -63,6 +68,29 @@ def _errors(starts: list[dict], gold: list[dict]) -> tuple[list[float], list[flo
     return nearest, aligned
 
 
+HELD_OUT_PAIR_S = 60.0
+
+
+def _held_out(built: list[dict], cap: dict) -> tuple[list[float], list[float]]:
+    """Leave-one-chapter-out errors: (as built, pinned without that mark) for every (mark, nearest step) pair."""
+    chapters = sorted(cap.get("chapters") or [], key=lambda c: c["t"])
+    pairs: dict[int, tuple[float, int]] = {}  # step index -> (distance, chapter index): one mark per step
+    for k, c in enumerate(chapters):
+        if not built:
+            break
+        j = min(range(len(built)), key=lambda i: abs(built[i]["start"] - float(c["t"])))
+        d = abs(built[j]["start"] - float(c["t"]))
+        if d <= HELD_OUT_PAIR_S and (j not in pairs or d < pairs[j][0]):
+            pairs[j] = (d, k)
+    before, after = [], []
+    for j, (d, k) in sorted(pairs.items()):
+        steps = copy.deepcopy(built)
+        timing.pin_starts(steps, cap.get("transcript"), chapters[:k] + chapters[k + 1:])
+        before.append(d)
+        after.append(abs(steps[j]["start"] - float(chapters[k]["t"])))
+    return before, after
+
+
 def _summary(nearest: list[float], aligned: list[float]) -> dict:
     if not nearest:
         return {"n": 0}
@@ -99,8 +127,11 @@ def evaluate(dirs: list[Path] | None = None, captions: Path | None = None) -> di
                 versions["captions_only"] = copy.deepcopy(built)
                 timing.pin_starts(versions["captions_only"], cap.get("transcript"), [])
             lessons[path] = lessons.get(path, 0) + 1
-            for name, starts in versions.items():
-                n, a = _errors(starts, gold)
+            scored = {name: _errors(starts, gold) for name, starts in versions.items()}
+            if path == "claude":  # leave one chapter out: the non-circular measure
+                hb, hp = _held_out(built, cap)
+                scored["held_out_built"], scored["held_out_pinned"] = (hb, []), (hp, [])
+            for name, (n, a) in scored.items():
                 slot = acc.setdefault(path, {}).setdefault(name, [[], []])
                 slot[0].extend(n)
                 slot[1].extend(a)
@@ -118,11 +149,13 @@ def _table(res: dict) -> str:
     for p, by in res.items():
         if p.startswith("_"):
             continue
-        for name in ("built", "pinned", "captions_only"):
+        for name in ("built", "pinned", "captions_only", "held_out_built", "held_out_pinned"):
             s = by.get(name)
             if s and s.get("n"):
+                al = (f"{s['aligned_median']} s | {s['aligned_within_10s']:.0%}" if s.get("aligned_median") is not None
+                      else "- | -")
                 rows.append(f"| {p} ({by['lessons']} lessons) | {name} | {s['n']} | {s['median']} s | {s['within_10s']:.0%} | "
-                            f"{s['mean']} s | {s['aligned_median']} s | {s['aligned_within_10s']:.0%} |")
+                            f"{s['mean']} s | {al} |")
     return "\n".join(rows)
 
 

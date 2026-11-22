@@ -227,6 +227,10 @@ def test_timing_eval_runs_offline(tmp_path):
     out = timing_eval.evaluate([res])
     built, pinned = out["claude"]["built"], out["claude"]["pinned"]
     assert built["n"] == 2 and built["median"] == 5.0 and pinned["median"] == 0.0 and pinned["within_10s"] == 1.0
+    # leave one chapter out: pinned WITHOUT the mark it is scored on, so it can't just snap to it (caption lines only)
+    hb, hp = out["claude"]["held_out_built"], out["claude"]["held_out_pinned"]
+    assert hb["n"] == hp["n"] == 2 and hb["median"] == 5.0 and hp["median"] == 4.45
+    assert "| held_out_pinned |" in timing_eval._table(out)
 
 
 # --------------------------------------------------------------------------- the tutorial's own code
@@ -286,6 +290,38 @@ def test_collect_never_raises_and_can_be_turned_off(monkeypatch):
     monkeypatch.setenv("LESSON_MATERIALS", "0")
     _serve(monkeypatch, [])
     assert asyncio.run(materials.collect("v2", {"description": MAT["description"]})) == []
+
+
+def test_materials_one_deadline_covers_metadata_and_fetches(monkeypatch):
+    """A slow watch page plus slow links must not add up: builder._materials returns [] by one shared deadline."""
+    import time as _time
+
+    monkeypatch.setattr(materials, "COLLECT_TIMEOUT_S", 1.0)
+
+    async def slow_meta(vid):
+        await asyncio.sleep(0.8)
+        return {"title": "x", "description": MAT["description"]}
+
+    async def slow_get(url, **k):
+        await asyncio.sleep(5)
+        raise httpx.ConnectError("slow")
+
+    monkeypatch.setattr(transcript, "fetch_metadata", slow_meta)
+    monkeypatch.setattr(materials, "_http_get", slow_get)
+    t0 = _time.monotonic()
+    assert asyncio.run(builder._materials("slowvid", ())) == []
+    assert _time.monotonic() - t0 < 1.5  # one 1 s deadline, not 0.8 s + collect's own 1 s
+
+
+def test_materials_within_the_deadline_still_arrive(monkeypatch):
+    async def meta(vid):
+        await asyncio.sleep(0.05)
+        return {"title": "Python FastAPI Tutorial: Build a REST API", "description": MAT["description"]}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+    _serve(monkeypatch, [])
+    paths = [f["path"] for f in asyncio.run(builder._materials("fastvid", ()))]
+    assert "main.py" in paths
 
 
 def test_materials_reach_claude_as_untrusted_data(monkeypatch):

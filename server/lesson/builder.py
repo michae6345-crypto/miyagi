@@ -266,10 +266,12 @@ async def _build_lesson_impl(
 
     Each step has screen-first `checks` (screen_* / metric_* with metric_pattern) and, as an
     extra field, `precision_checks` (file_* / command_* / ::metric:: backups for `tut run`).
-    Engines (LESSON_ENGINE=auto|gemini|claude, default auto): Gemini watches the video directly;
-    if every Gemini model fails (quota, outage, no key), Claude builds the same graph from the
-    video's transcript + title/description/chapters. build.model records which model did what.
-    If both fail the error is raised, never papered over with made-up steps.
+    Engines (LESSON_ENGINE=claude|auto|claude-first|gemini, default claude; see engine_mode): by default Claude
+    builds the graph from the video's transcript + title/description/chapters (and the tutorial's linked code), with
+    step starts pinned to chapter marks / caption lines; Gemini is never called. Gemini watches the video only when
+    LESSON_ENGINE names it explicitly AND a Gemini key is present (gemini_enabled); a gemini_disabled 403 from the
+    miyagi cloud turns it off for the process. build.model records which model did what. If every engine tried fails
+    the error is raised, never papered over with made-up steps.
     api_key / anthropic_key: the app's bring-your-own keys (config.keys.gemini / .anthropic).
     on_progress(stage, message): optional callback (sync or async) with a stage id from STAGES.
     on_update(graph, complete): long videos (> LESSON_LONG_VIDEO_S, 30 min) are built progressively:
@@ -284,11 +286,11 @@ async def _build_lesson_impl(
     refresh: rebuild everything (new video pass). readapt: reuse the cached video draft, redo only
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
-    material_urls: links to the tutorial's own code found elsewhere (e.g. the finder's repo / notebook rows for this
-      video), read with the description's links (materials.py); also taken from video_meta["materials"].
+    material_urls: links to the tutorial's own code found elsewhere, read with the description's links (materials.py);
+      also taken from video_meta["materials"]. No caller passes them yet (the finder's rows are not video-specific).
 
     Cached at demo/cache/lessons/<hash>.json; the cache wins unless refresh/readapt, so the
-    demo never waits on Gemini. The hash covers the video, the goal, the workdir folder name and
+    demo never waits on a model. The hash covers the video, the goal, the workdir folder name and
     a fingerprint of its file names + printed ::metric:: names (not the absolute path or file
     contents, so the cache survives other laptops and the learner's edits, but a different
     project layout gets checks adapted to it). A graph whose adapt pass failed is returned
@@ -692,15 +694,24 @@ PARTS_FALLBACK_MIN_S = 8 * 60
 
 
 async def _materials(vid: str, extra_urls) -> list[dict]:
-    """The tutorial's own linked code for the Claude draft (materials.py); [] on any failure, never raises."""
-    try:
-        meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
-    except Exception:  # noqa: BLE001  no description: only the caller's links
-        meta = {}
-    try:
+    """The tutorial's own linked code for the Claude draft (materials.py); [] on any failure, never raises.
+    One deadline (materials.COLLECT_TIMEOUT_S, env LESSON_MATERIALS_TIMEOUT_S) covers the description lookup AND the
+    fetches, so the first Claude draft never waits longer than that for them. The description comes from the watch
+    page fetch that fetch_video_info shares (transcript.fetch_metadata runs once per video per process)."""
+    if os.environ.get("LESSON_MATERIALS", "1") == "0":
+        return []
+
+    async def run() -> list[dict]:
+        try:
+            meta = await transcript.fetch_metadata(vid)
+        except Exception:  # noqa: BLE001  no description: only the caller's links
+            meta = {}
         return await materials.collect(vid, meta, list(extra_urls or ()))
-    except Exception as e:  # noqa: BLE001
-        log.info("materials for %s: %s", vid, e)
+
+    try:
+        return await asyncio.wait_for(run(), materials.COLLECT_TIMEOUT_S)
+    except Exception as e:  # noqa: BLE001  (TimeoutError too): build without them
+        log.info("materials for %s: %s", vid, type(e).__name__)
         return []
 
 

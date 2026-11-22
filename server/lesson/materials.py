@@ -1,5 +1,5 @@
-"""The tutorial's own code for the Claude build path: what the video description (or a caller, e.g. the finder's
-rows for the same tutorial) links to, read so the steps use the real code instead of code guessed from speech.
+"""The tutorial's own code for the Claude build path: what the video description (or a caller's extra_urls; none
+passes any yet) links to, read so the steps use the real code instead of code guessed from speech.
 
     files = await collect(vid, info, extra_urls)   # [{url, path, kind, text}], [] on any failure; never raises
     block = for_prompt(files, focus_text, budget)  # <untrusted source="tutorial_code"> blocks, most relevant first

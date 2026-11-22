@@ -26,6 +26,25 @@ before and after `server/lesson/timing.py` pins them. 4 of the 5 videos have cha
   30 s of a chapter mark, it now starts on it". Caption lines alone only move starts by under a second (playback starts
   at a sentence's beginning).
 - git-rebase stays worst (11 s pinned, 23 s built): its chapters cover theory while the steps are the hands-on part.
+
+**Held out (leave one chapter out), the only non-circular number.** For each chapter mark k, the built step nearest
+to k (within 60 s; one mark per step) is scored on k as built, and again after pinning with every mark except k plus
+the caption lines. 253 (mark, step) pairs, 40 Claude lessons:
+
+| Chapter window (`timing.CHAPTER_WINDOW_S`) | Held-out median | Within 10 s | Mean | In-sample "pinned" within 10 s |
+|---|---|---|---|---|
+| as built (no pin) | 1.0 s | 78 % | 5.3 s | 65 % |
+| 0 s (captions only) | 0.8 s | 78 % | 5.4 s | 65 % |
+| 10 s | 0.8 s | 78 % | 5.4 s | 65 % |
+| 15 s | 0.8 s | 78 % | 5.4 s | 70 % |
+| 20 s | 0.8 s | 76 % | 5.8 s | 76 % |
+| **30 s (current default)** | 0.8 s | **72 %** | **7.1 s** | 79 % |
+
+So **timing has not been shown to improve.** Caption pinning moves starts by under a second (median 1.0 -> 0.8 s, no
+change within 10 s). Where the true boundary is not a chapter mark, the 30 s window pulls about 6 % of steps onto a
+neighbouring mark (within 10 s: 78 % -> 72 %, mean 5.3 -> 7.1 s); at 15 s or less the held-out score is unchanged.
+The default stays 30 s in this branch; lowering it to 15 s is the do-no-harm choice and is listed for Michael.
+Sweep: `timing_eval.evaluate` with `functools.partial(timing.pin_starts, chapter_window=w)`.
 - Not measured offline: whether the tutorial's linked code (`materials.py`) improves the code and checks, and the
   finder's Claude second look on live results. Both need a paid run (listed in the branch's hand-off).
 
