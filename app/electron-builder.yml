@@ -105,6 +105,18 @@ dmg:
 win:
   target: nsis
   icon: build/icon.ico
+  # The engine, the same way as on the Mac, once bundle-engine.mjs can make a Windows bundle (build/engine with
+  # python/python.exe and PYTHON.json os "win32"; today it builds macOS bundles only). Until then a Windows build has
+  # no build/engine, electron-builder only warns ("file source doesn't exist"), and the app connects to an engine
+  # started by hand, as before (localEngine.ts whyUnmanaged).
+  extraResources:
+    - from: build/engine
+      to: engine
+      filter:
+        - "**/*"
+        - "!vscode{,/**/*}"
+    - from: build/engine/vscode
+      to: vscode
 # The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts miyagi when done.
 # Stable file name so the site can link straight to it. Unsigned: SmartScreen asks once (More info > Run anyway).
 nsis:

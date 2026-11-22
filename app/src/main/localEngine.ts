@@ -4,6 +4,11 @@
  *
  *   1. Only on macOS (the engine reads the screen with Vision / ScreenCaptureKit), only in a built app or with
  *      MIYAGI_AUTOSTART=1, never with DEMO=1, and only when ENGINE_URL is unset or points at this Mac.
+ *      Windows too, but only a build that carries the engine (Resources/engine/python/python.exe + src, PYTHON.json
+ *      os "win32"): then steps 4 and 6 to 8 the same way, with python.exe -X utf8, a hidden console instead of a
+ *      detached group, netstat for the port holder, CIM (PowerShell) for the pid check, taskkill /T to stop it. No
+ *      launcher or bash installer there (steps 3 and 5). A Windows build without the engine connects to ENGINE_URL
+ *      as before (an engine started by hand) and never holds the port against it.
  *   2. Something already answers on 127.0.0.1:<port> and it isn't ours (step 7). `npm run dev` or engine mode dev
  *      → use it: an engine started in Terminal stays the user's. The installed app (packaged, engine mode bundled)
  *      never adopts it (lane engine-isolation, app/agents/engine-isolation.md): a dev engine or a dev app's engine
@@ -50,13 +55,13 @@
  * Only Visual Studio Code (bundle id com.microsoft.VSCode). Never a `code` found on PATH: other editors ship one.
  */
 import { app, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
-import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { execFile, execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { cp, rename, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import type { EngineLink } from './engine'
 
 export type LocalEngineState = 'off' | 'checking' | 'installing' | 'starting' | 'running' | 'external' | 'missing' | 'failed'
@@ -101,9 +106,35 @@ const CODE_IN_APP = join('Contents', 'Resources', 'app', 'bin')
  * engine opens lesson folders with it). VS Code's own bin folders only, never a `code` shim another editor installs.
  */
 function fixedPath(home: string): string {
+  if (process.platform === 'win32') {
+    // Windows: the user's PATH as it is (a Start-menu launch gets the full one), plus VS Code's per-user bin folder,
+    // where `code.cmd` lives even if "Add to PATH" was unticked. ';'-separated, never ':' (drive letters).
+    const code = join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Programs', 'Microsoft VS Code', 'bin')
+    return [winEnvPath(process.env), code].filter(Boolean).join(delimiter)
+  }
   const extra = [join(home, 'bin'), join(homedir(), '.local/bin'), ...VSCODE_APPS.map((a) => join(a, CODE_IN_APP)), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
   return [...extra, process.env.PATH ?? ''].filter(Boolean).join(':')
 }
+
+/** Windows keeps PATH as `Path`; a copied env object can then hold both spellings. The value, whichever it is. */
+function winEnvPath(env: NodeJS.ProcessEnv): string {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH')
+  return (key && env[key]) || ''
+}
+
+/**
+ * `env` with PATH set to `value`. On Windows every other spelling (`Path`) goes first: a child given both gets one of
+ * them at random. Elsewhere it's a plain `PATH: value`.
+ */
+function withPath(env: NodeJS.ProcessEnv, value: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env }
+  if (process.platform === 'win32') for (const k of Object.keys(out)) if (k.toUpperCase() === 'PATH') delete out[k]
+  out.PATH = value
+  return out
+}
+
+/** System32, where Windows keeps netstat, taskkill and PowerShell (never a same-named program found on PATH). */
+const SYSTEM32 = join(process.env.SystemRoot || 'C:\\Windows', 'System32')
 
 const readText = (p: string): string => {
   try {
@@ -153,9 +184,9 @@ const ROSETTA = '/Library/Apple/usr/share/rosetta/rosetta'
  * never a spawn that dies with "bad CPU type". → '' when it can, else why not (for engine.log)
  */
 function pythonArchProblem(bundle: string): string {
-  let manifest: { arch?: unknown; precompiled?: unknown }
+  let manifest: { arch?: unknown; precompiled?: unknown; os?: unknown }
   try {
-    manifest = JSON.parse(readFileSync(join(bundle, 'PYTHON.json'), 'utf8')) as { arch?: unknown; precompiled?: unknown }
+    manifest = JSON.parse(readFileSync(join(bundle, 'PYTHON.json'), 'utf8')) as { arch?: unknown; precompiled?: unknown; os?: unknown }
   } catch {
     return 'no readable PYTHON.json'
   }
@@ -163,6 +194,15 @@ function pythonArchProblem(bundle: string): string {
   // write .pycs inside the signed app. Never used.
   if (manifest?.precompiled !== true) return 'bundled Python was not precompiled or import-checked (PYTHON.json precompiled is not true)'
   const arch = manifest.arch
+  // PYTHON.json os: a Windows bundle says "win32" (bundle-engine.mjs for Windows); a Mac bundle has no os field.
+  if (process.platform === 'win32') {
+    if (manifest.os !== 'win32') return `bundled Python is not a Windows build (PYTHON.json os: ${String(manifest.os ?? 'unset')})`
+    // Windows 11 on Arm runs x64 programs too.
+    if (arch === 'x64') return process.arch === 'x64' || process.arch === 'arm64' ? '' : `bundled Python is x64, this PC is ${process.arch}`
+    if (arch === 'arm64') return process.arch === 'arm64' ? '' : `bundled Python is arm64, this PC is ${process.arch}`
+    return `unknown bundled Python arch: ${String(arch)}`
+  }
+  if (manifest.os !== undefined && manifest.os !== 'darwin') return `bundled Python is for ${String(manifest.os)}, not macOS`
   const appleSilicon = process.arch === 'arm64' || app.runningUnderARM64Translation
   if (arch === 'universal2') return ''
   if (arch === 'arm64') return appleSilicon ? '' : `bundled Python is arm64, this Mac is ${process.arch}`
@@ -233,8 +273,11 @@ export const ENGINE_TOKEN: string = process.env.MIYAGI_ENGINE_TOKEN?.trim() || r
  * Why this launch doesn't start an engine of its own, or '' when it does (step 1). Pure, so it can be checked in Node.
  * `npm run dev` is not packaged: it connects to ENGINE_URL (the engine in Terminal) unless MIYAGI_AUTOSTART=1.
  */
-export function whyUnmanaged(o: { platform: string; packaged: boolean; autostart: boolean; demo: boolean; local: boolean; dev: boolean }): string {
-  if (o.platform !== 'darwin') return `not macOS (${o.platform})`
+export function whyUnmanaged(o: { platform: string; packaged: boolean; autostart: boolean; demo: boolean; local: boolean; dev: boolean; bundled?: boolean }): string {
+  // Windows: only a build that carries the engine (Resources/engine/python/python.exe + src) manages one. Without it,
+  // as before: the app connects to ENGINE_URL (an engine started by hand) and never holds the port against it.
+  if (o.platform === 'win32' && !o.bundled) return 'a Windows build without a bundled engine (Resources/engine/python)'
+  if (o.platform !== 'darwin' && o.platform !== 'win32') return `not macOS (${o.platform})`
   if (o.demo) return 'DEMO=1 (mock engine)'
   if (o.dev) return 'engine mode dev (engine.json or MIYAGI_ENGINE)'
   if (!o.local) return 'ENGINE_URL points at another machine'
@@ -309,6 +352,16 @@ export function pythonEnv(env: NodeJS.ProcessEnv, home: string, python: string, 
 
 /** Who listens on 127.0.0.1:port, for engine.log: `pid <n> (<command name>)` from lsof, never a command line. */
 async function portHolder(port: number): Promise<string> {
+  if (process.platform === 'win32') {
+    // No lsof: netstat's listening rows ("TCP 127.0.0.1:8787 0.0.0.0:0 LISTENING 1234"). Pid only, no command line.
+    const r = await run(join(SYSTEM32, 'NETSTAT.EXE'), ['-ano', '-p', 'TCP'], 3000)
+    const pids = r.out
+      .split(/\r?\n/)
+      .map((l) => l.trim().split(/\s+/))
+      .filter((f) => f.length >= 5 && /LISTENING/i.test(f[3]) && f[1].endsWith(`:${port}`))
+      .map((f) => `pid ${f[4]}`)
+    return [...new Set(pids)].join(', ') || 'unknown (netstat named no listener)'
+  }
   const r = await run('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc'], 3000)
   const seen: string[] = []
   let pid = ''
@@ -350,7 +403,7 @@ export function engineDetails(status: LocalEngineStatus, facts: readonly string[
   return [
     `miyagi engine: ${status.state}${status.reason ? `: ${status.reason}` : ''}`,
     ...facts,
-    `macOS ${process.getSystemVersion?.() ?? ''} ${process.arch}`,
+    `${process.platform === 'win32' ? 'Windows' : 'macOS'} ${process.getSystemVersion?.() ?? ''} ${process.arch}`,
     `log: ${logs}`,
     '',
     tail
@@ -454,6 +507,9 @@ export function setupLocalEngine(
   })()
   const local = /^wss?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(url)
   const chosen = engineMode()
+  /** Windows: only the bundled Python runs the engine (no launcher script, no bash installer). */
+  const win = d.platform === 'win32'
+  const winBundled = win && existsSync(join(bundleDir(), 'python', 'python.exe')) && existsSync(join(bundleDir(), 'src', 'server', 'pyproject.toml'))
   // {"cloud": "off"} in engine.json: features/cloud.ts reads MIYAGI_CLOUD_URL when it sets up, after this runs.
   if (chosen.cloud === 'off' && process.env.MIYAGI_CLOUD_URL === undefined) process.env.MIYAGI_CLOUD_URL = 'off'
   if (chosen.mode === 'dev') {
@@ -468,7 +524,8 @@ export function setupLocalEngine(
     autostart: process.env.MIYAGI_AUTOSTART === '1',
     demo: process.env.DEMO === '1',
     local,
-    dev: chosen.mode === 'dev'
+    dev: chosen.mode === 'dev',
+    bundled: winBundled
   })
   facts.push(
     `app: ${app.getVersion()}, ${app.isPackaged ? 'packaged' : 'not packaged (npm run dev)'}, ${process.execPath}`,
@@ -516,7 +573,8 @@ export function setupLocalEngine(
   facts.push(`engine bundle: ${bundle} (${readText(join(bundle, 'VERSION')) || 'no VERSION'})`, `engine home: ${home}`)
   const bundleVersion = (): string => readText(join(bundle, 'VERSION')) || 'bundled'
   const hasSource = existsSync(join(bundle, 'src', 'server', 'pyproject.toml'))
-  const python = join(bundle, 'python', 'bin', 'python3')
+  // python-build-standalone's layout: python/bin/python3 on macOS, python/python.exe on Windows.
+  const python = win ? join(bundle, 'python', 'python.exe') : join(bundle, 'python', 'bin', 'python3')
   /** A12: the app carries its own Python with the packages installed, built for a CPU this Mac can run. */
   const pythonBundled = ((): boolean => {
     if (!hasSource || !executable(python)) return false
@@ -526,8 +584,8 @@ export function setupLocalEngine(
     return !problem
   })()
   /** Older bundles: source + the uv installer. */
-  const installerBundled = hasSource && existsSync(join(bundle, 'install.sh'))
-  const env: NodeJS.ProcessEnv = { ...process.env, MIYAGI_HOME: home, PATH: fixedPath(home), MIYAGI_ENGINE_TOKEN: ENGINE_TOKEN }
+  const installerBundled = !win && hasSource && existsSync(join(bundle, 'install.sh'))
+  const env: NodeJS.ProcessEnv = withPath({ ...process.env, MIYAGI_HOME: home, MIYAGI_ENGINE_TOKEN: ENGINE_TOKEN }, fixedPath(home))
   /** Which way start() runs the engine; boot() decides. */
   let runtime: 'bundled' | 'launcher' = 'launcher'
   /** A respawn waiting to start (ROADMAP 1.4). */
@@ -617,7 +675,19 @@ export function setupLocalEngine(
     try {
       writeSync(fd, `--- ${new Date().toISOString()} engine start (bundled Python, ${bundleVersion()})\n`)
       // -s: no user site-packages; -B: no .pyc written; -m with cwd = src puts src first on sys.path (no PYTHONPATH).
-      return d.spawn(python, ['-s', '-B', '-m', 'server.orchestrator.main', '--host', '127.0.0.1', '--port', String(port)], {
+      const args = ['-s', '-B', '-m', 'server.orchestrator.main', '--host', '127.0.0.1', '--port', String(port)]
+      if (win) {
+        // Windows: -X utf8 (UTF-8 mode for the engine only, never inherited: no PYTHONUTF8 reaches the learner's
+        // programs). Not detached, with its console hidden: a detached engine has no console, so every console
+        // program it starts (code.cmd, git, taskkill) would flash a window of its own. killGroup uses taskkill /T.
+        return d.spawn(python, ['-X', 'utf8', ...args], {
+          cwd: src,
+          env: pythonEnv(env, home, python, port, packaged),
+          stdio: ['ignore', fd, fd],
+          windowsHide: true,
+        })
+      }
+      return d.spawn(python, args, {
         cwd: src,
         env: pythonEnv(env, home, python, port, packaged),
         stdio: ['ignore', fd, fd],
@@ -654,6 +724,14 @@ export function setupLocalEngine(
    */
   const isOwnEngineCommand = (cmd: string, kind: unknown): boolean => {
     const line = cmd.trim()
+    if (win) {
+      // Windows runs only the bundled Python. Its command line quotes the exe ("C:\...\python.exe" -X utf8 -s -B -m
+      // server.orchestrator.main ...); paths compare without case.
+      if (kind !== 'bundled') return false
+      const m = /^"([^"]+)"(?:\s|$)|^(\S+)(?:\s|$)/.exec(line)
+      const exe = (m?.[1] ?? m?.[2] ?? '').toLowerCase()
+      return exe === python.toLowerCase() && /\s-m\s+server\.orchestrator\.main(\s|$)/.test(line)
+    }
     if (kind !== 'launcher' && line.startsWith(`${python} `)) return true
     if (kind === 'bundled') return false
     const shells = ['', '/bin/bash ', 'bash ', '/bin/sh ', 'sh ', '/bin/zsh ']
@@ -671,6 +749,21 @@ export function setupLocalEngine(
     const ps = await run('/usr/bin/env', ['LC_ALL=C', '/bin/ps', '-o', 'lstart=', '-p', String(pid)], 2000)
     const began = ps.ok ? Date.parse(ps.out.trim().replace(/\s+/g, ' ')) : NaN
     return Number.isFinite(began) && Math.abs(saved - began) <= 10_000
+  }
+
+  /**
+   * Windows' isOwnEngineCommand + startedWhenSaved: no ps, so the process's start time (UTC, ISO) and command line
+   * from CIM (Win32_Process) in one PowerShell call. `pid` is a number from the pid file, never text.
+   */
+  const winOwnEngine = async (pid: number, at: unknown, kind: unknown): Promise<boolean> => {
+    const saved = typeof at === 'string' ? Date.parse(at) : NaN
+    if (!Number.isFinite(saved) || !Number.isInteger(pid)) return false
+    const script = `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p) { $p.CreationDate.ToUniversalTime().ToString('o'); $p.CommandLine }`
+    const r = await run(join(SYSTEM32, 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], 10_000)
+    if (!r.ok) return false
+    const [first = '', ...rest] = r.out.split(/\r?\n/)
+    const began = Date.parse(first.trim())
+    return Number.isFinite(began) && Math.abs(saved - began) <= 10_000 && isOwnEngineCommand(rest.join(' '), kind)
   }
 
   /**
@@ -703,14 +796,18 @@ export function setupLocalEngine(
       forgetPid()
       return false
     }
-    const ps = await run('/bin/ps', ['-o', 'command=', '-p', String(pid)], 2000)
-    if (!ps.ok || !isOwnEngineCommand(ps.out, kind) || !(await startedWhenSaved(pid, at))) {
+    const ours = win ? await winOwnEngine(pid, at, kind) : await (async () => {
+      const ps = await run('/bin/ps', ['-o', 'command=', '-p', String(pid)], 2000)
+      return ps.ok && isOwnEngineCommand(ps.out, kind) && (await startedWhenSaved(pid, at))
+    })()
+    if (!ours) {
       // The pid was reused by something else, or can't be proven ours: never touch it.
       forgetPid()
       return false
     }
     note(`port ${port} held by this app's engine from an earlier launch (pid ${pid}): stopping it`)
     const signal = (sig: NodeJS.Signals): void => {
+      if (win) return killTree(pid, false) // no process groups, no SIGTERM: taskkill /T /F (both "signals")
       try {
         process.kill(-pid, sig)
       } catch {
@@ -799,8 +896,14 @@ export function setupLocalEngine(
     })
   }
 
-  const killGroup = (c: ChildProcess, sig: NodeJS.Signals = 'SIGTERM'): void => {
+  /** sync: at quit, so taskkill has run before Electron exits (Windows only, where sig doesn't apply). */
+  const killGroup = (c: ChildProcess, sig: NodeJS.Signals = 'SIGTERM', sync = false): void => {
     if (c.pid === undefined) return
+    if (win) {
+      // Windows: no process groups or SIGTERM (c.kill is TerminateProcess, and leaves what the engine started).
+      killTree(c.pid, sync)
+      return
+    }
     try {
       d.kill(-c.pid, sig)
     } catch {
@@ -889,8 +992,9 @@ export function setupLocalEngine(
       }
     }
     const installedFromBundle = existsSync(marker)
-    // The user's own install (the one-liner: a launcher and no BUNDLED marker) always wins.
-    const userInstall = existsSync(launcher) && !installedFromBundle
+    // The user's own install (the one-liner: a launcher and no BUNDLED marker) always wins. Windows has no launcher
+    // (it's a bash script): only the bundled Python.
+    const userInstall = !win && existsSync(launcher) && !installedFromBundle
     if (!userInstall && pythonBundled) {
       runtime = 'bundled'
       // Once per bundled version (first launch, an app update), or when the source was deleted.
@@ -901,6 +1005,9 @@ export function setupLocalEngine(
       }
       return start()
     }
+    // Windows: the build carries an engine (whyUnmanaged let it through) but its Python can't run here (wrong arch,
+    // not precompiled: engine.log says which). No launcher or bash installer to fall back on.
+    if (win) return fail(`the engine inside this app can't run on this PC (${bundle}); see the bundled Python line above in this log`)
     runtime = 'launcher'
     // A newer engine inside the app (an app update) replaces one the app installed before; never one the
     // user installed with the one-liner (no BUNDLED marker).
@@ -934,10 +1041,25 @@ export function setupLocalEngine(
     forceKill = undefined
     if (!child || child.killed || child.pid === undefined) return
     // A Restart under way already sent SIGTERM and it is still alive: it ignores SIGTERM, so SIGKILL.
-    killGroup(child, restarting ? 'SIGKILL' : 'SIGTERM')
+    killGroup(child, restarting ? 'SIGKILL' : 'SIGTERM', true)
     // Electron exits before the child's 'exit' handler runs, so forget the pid now: a stale file would name a pid
     // the OS can later hand to someone else's process.
     forgetPid()
+  }
+}
+
+/**
+ * Windows: stop `pid` and everything it started (a learner's run, a code.cmd) with taskkill /T /F. A hard stop:
+ * Windows has no SIGTERM for uvicorn to catch, and the engine saves the lesson as it goes. sync at quit only.
+ */
+function killTree(pid: number, sync: boolean): void {
+  const exe = join(SYSTEM32, 'taskkill.exe')
+  const args = ['/T', '/F', '/PID', String(pid)]
+  try {
+    if (sync) execFileSync(exe, args, { stdio: 'ignore', timeout: 5000, windowsHide: true })
+    else execFile(exe, args, { windowsHide: true }, () => undefined)
+  } catch {
+    // Already gone (taskkill exits 128), or taskkill missing: nothing else to try.
   }
 }
 
@@ -993,7 +1115,7 @@ function compareVersions(a: string, b: string): number {
 /** execFile, no shell, bounded: → { ok, out } */
 function run(file: string, args: string[], timeout: number): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
-    execFile(file, args, { timeout, maxBuffer: 4 << 20, env: { ...process.env, PATH: fixedPath(join(homedir(), 'miyagi', 'engine')) } }, (err, stdout) => {
+    execFile(file, args, { timeout, maxBuffer: 4 << 20, windowsHide: true, env: withPath(process.env, fixedPath(join(homedir(), 'miyagi', 'engine'))) }, (err, stdout) => {
       resolve({ ok: !err, out: String(stdout ?? '') })
     })
   })
