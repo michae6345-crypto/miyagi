@@ -4,9 +4,11 @@
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { CircleAlert, CirclePlay, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
+import { CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { StepBar } from '../shell/ui'
+import { TOOL_NAME } from '../library/parts'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, font, spring } from '../../core/theme'
 import { toolsLabel, type LibraryItem } from './library'
@@ -175,10 +177,18 @@ export function ResumeRow({
   )
 }
 
-/** The idle list's active line shows the Enter keycap; it fades in and out as ↑↓ move, so the cue sits on the row Enter runs. */
-function EnterCue({ active }: { active: boolean }): ReactNode {
+/**
+ * The idle list's active line shows what Enter does there: the Enter keycap, and on a Continue line the word
+ * ("Continue ↵"). It fades in and out as ↑↓ move, so the cue sits on the line Enter runs.
+ */
+function EnterCue({ active, label }: { active: boolean; label?: string }): ReactNode {
   return (
-    <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
+    <motion.span className="flex shrink-0 items-center gap-[6px]" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
+      {label && (
+        <span className="text-[12px] font-medium" style={{ color: color.text }}>
+          {label}
+        </span>
+      )}
       <NavKey>{navKey('enter')}</NavKey>
     </motion.span>
   )
@@ -262,7 +272,6 @@ export function LinkPreview({ link, match, onPick }: { link: YouTubeLink; match?
 }
 
 /** Two letters for the tool a cached lesson runs in (Home-Launcher's "Jn" tile). */
-const TOOL_TAG: Record<string, string> = { jupyter: 'Jn', vscode: 'VS', terminal: '>_', excel: 'Xl' }
 
 /**
  * Home-Launcher "Continue": a cached lesson started on this Mac and not finished. Its tool's tag, the title, where it
@@ -284,20 +293,11 @@ export function LibraryContinueRow({
   onPick: () => void
 }): ReactNode {
   const p = item.progress
-  const done = p ? Math.min(1, Math.max(0, p.stepIndex / Math.max(1, p.total))) : 0
   return (
     <RowShell slot={slot} onHover={onHover} onPick={onPick}>
-      <span
-        className="grid h-[32px] w-[32px] shrink-0 place-items-center rounded-[8px] text-[11px]"
-        style={{ background: fill.tile, boxShadow: `inset 0 0 0 1px ${fill.hairline}`, color: fill.keycapText, fontFamily: font.mono }}
-      >
-        {TOOL_TAG[item.tools?.[0] ?? ''] ?? <CirclePlay size={14} strokeWidth={1.6} />}
-      </span>
       <Text title={item.title} meta={p ? `Step ${p.stepIndex + 1} of ${p.total}${p.stepTitle ? ` · ${p.stepTitle}` : ''}` : `${item.steps} steps`} />
-      <span className="h-[4px] w-[96px] shrink-0 overflow-hidden rounded-full" style={{ background: fill.hairline }}>
-        <span className="block h-full rounded-full" style={{ width: `${Math.round(done * 100)}%`, background: color.text }} />
-      </span>
-      <EnterCue active={active} />
+      {p && <StepBar done={p.stepIndex} total={p.total} width={84} />}
+      <EnterCue active={active} label="Continue" />
     </RowShell>
   )
 }
@@ -341,7 +341,7 @@ export function ReadyRow({
     >
       <span className="min-w-0 flex-1 truncate text-[14px] text-white">{item.title}</span>
       <span className="shrink-0 text-[12px]" style={{ color: color.label }}>
-        {item.steps === 1 ? '1 step' : `${item.steps} steps`}
+        {[(item.tools ?? []).map((t) => TOOL_NAME[t]).join(', '), item.steps === 1 ? '1 step' : `${item.steps} steps`, item.estMinutes ? `${item.estMinutes} min` : ''].filter(Boolean).join(' · ')}
       </span>
       <EnterCue active={active} />
     </motion.button>

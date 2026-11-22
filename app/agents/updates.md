@@ -13,7 +13,8 @@ Updates people never have to think about. miyagi looks for a newer release on la
 ## How it works
 | | |
 |---|---|
-| Where it looks | `MIYAGI_UPDATE_URL` (a manifest, https; http only for localhost) or, by default, the GitHub Releases API: `https://api.github.com/repos/<MIYAGI_RELEASE_REPO>/releases/tags/<mac\|windows>`. The default repo is `adrian-erlikhman/miyagi`, the same one `scripts/ship-mac.sh` publishes to. `MIYAGI_UPDATE_URL=off` turns checks off. |
+| Where it looks | A packaged app: always the GitHub Releases API of the official repo, `https://api.github.com/repos/adrian-erlikhman/miyagi/releases/tags/<mac\|windows>`, the same one `scripts/ship-mac.sh` publishes to. It ignores the environment (A12, R33: a `launchctl setenv` must not steer it). A dev run: `MIYAGI_UPDATE_URL` (a manifest, https; http only for localhost) or the Releases API for `MIYAGI_RELEASE_REPO`; `MIYAGI_UPDATE_URL=off` turns checks off. |
+| What it may offer | Only an official release asset (R26): exactly `https://github.com/adrian-erlikhman/miyagi/releases/download/<tag>/<asset>`, asset `Miyagi-Mac.dmg` (Mac) or `Miyagi-Windows-Setup.exe` (Windows), fully uploaded. Anything else: no card (`manifest.ts` `officialInstaller`). The SHA-256 is not checked against the file yet (TODO(R26) in `main/features/updates.ts`). |
 | When | 45 s after launch (after the engine start), then every 6 h, and on wake when the last check is older than 6 h. A failed check tries again after 1 h. Only in a packaged app, unless `MIYAGI_UPDATE_URL` is set. |
 | What is sent | A plain GET with `User-Agent: miyagi/<version>`. No cookies, no install token, nothing about the learner. |
 | Comparing | semver against `app.getVersion()`. A prerelease is offered only to someone already on a prerelease. |

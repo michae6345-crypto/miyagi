@@ -18,6 +18,12 @@ import { useLesson } from '../../core/lesson'
 import { copy } from '../../core/theme'
 import type { StatusState } from '../../core/ui/status'
 import { useOnboarding, type Asked, type CloudView, type Permissions, type RowAction } from './store'
+import { bridge } from '../../bridge'
+
+/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
+const ON_MAC = bridge.platform.os === 'mac'
+const HERE = ON_MAC ? 'this Mac' : 'this computer'
+const HERE_CAP = ON_MAC ? 'This Mac' : 'This computer'
 
 export type RowId = 'screen' | 'accessibility' | 'companion' | 'engine'
 export type RowState = Extract<StatusState, 'passed' | 'notyet' | 'watching' | 'checking' | 'unknown'>
@@ -85,7 +91,7 @@ function companionRow(i: RowInput): Row | undefined {
   if (comp.state === 'checking') return { ...base, state: 'checking', word: 'Checking', detail: 'Checking VS Code.' }
   if (comp.state === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: "miyagi can't check this yet." }
   if (vscode && (vscode.state === 'missing' || vscode.state === 'off'))
-    return { ...base, state: i.asked.companion ? 'watching' : 'notyet', word: i.asked.companion ? 'Watching' : 'Not yet', detail: "VS Code isn't on this Mac yet.", action: { id: 'get-vscode', label: 'Get VS Code' } }
+    return { ...base, state: i.asked.companion ? 'watching' : 'notyet', word: i.asked.companion ? 'Watching' : 'Not yet', detail: `VS Code isn't on ${HERE} yet.`, action: { id: 'get-vscode', label: 'Get VS Code' } }
   const action = { id: 'install-companion' as const, label: 'Install in VS Code', item: comp }
   if (i.asked.companion) return { ...base, state: 'watching', word: 'Watching', detail: 'Watching for VS Code to connect.', action }
   return { ...base, state: 'notyet', word: 'Not yet', detail: 'Not yet. One click, VS Code opens.', action }
@@ -96,7 +102,7 @@ function engineRow(i: RowInput): Row {
   const base = { id: 'engine' as const, label: 'miyagi engine', why: 'Builds and checks your lessons.' }
   const local = i.localEngine?.state
   if (!i.connected) {
-    if (local === 'checking' || local === 'installing' || local === 'starting') return { ...base, state: 'watching', word: 'Starting', detail: 'Starting on this Mac.' }
+    if (local === 'checking' || local === 'installing' || local === 'starting') return { ...base, state: 'watching', word: 'Starting', detail: `Starting on ${HERE}.` }
     // Never "Connecting" forever: main says failed (with its reason in engine.log) once the engine can't come up.
     if (local === 'failed' || local === 'missing')
       return { ...base, state: 'notyet', word: "Couldn't start", detail: ENGINE_FAILED, action: { id: 'retry-engine', label: 'Retry' }, alt: { id: 'copy-engine-details', label: 'Copy details' } }
@@ -104,7 +110,7 @@ function engineRow(i: RowInput): Row {
     return { ...base, state: 'watching', word: 'Connecting', detail: 'Looking for the engine.' }
   }
   const cloud = i.cloud?.state
-  if (cloud === 'minting') return { ...base, state: 'checking', word: 'Setting up', detail: 'Setting up access for this Mac.' }
+  if (cloud === 'minting') return { ...base, state: 'checking', word: 'Setting up', detail: `Setting up access for ${HERE}.` }
   if (cloud === 'failed') return { ...base, state: 'notyet', word: 'Not yet', detail: "Couldn't set up access. Check your connection.", action: { id: 'retry-cloud', label: 'Try again' } }
   if (cloud === 'ok' || i.cloudStatus) {
     switch (i.cloudStatus) {
@@ -113,12 +119,12 @@ function engineRow(i: RowInput): Row {
       case 'quota':
         return { ...base, state: 'notyet', word: 'Not yet', detail: "Today's free use is used up. Back tomorrow." }
       case 'unauthorized':
-        return { ...base, state: 'notyet', word: 'Not yet', detail: "This Mac's access was turned off." }
+        return { ...base, state: 'notyet', word: 'Not yet', detail: `${HERE_CAP}'s access was turned off.` }
       case 'offline':
         return { ...base, state: 'notyet', word: 'Offline', detail: "Can't reach miyagi. Check your connection." }
     }
   }
-  return { ...base, state: 'passed', word: 'Running', detail: local === 'external' ? 'Running in Terminal.' : 'Running on this Mac.' }
+  return { ...base, state: 'passed', word: 'Running', detail: local === 'external' ? 'Running in Terminal.' : `Running on ${HERE}.` }
 }
 
 export function deriveRows(i: RowInput): Row[] {

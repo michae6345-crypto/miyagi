@@ -57,6 +57,7 @@ import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
 import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_W } from './Sidebar'
+import { PANEL, PANEL_INSET } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
@@ -65,20 +66,20 @@ const SHORT_H = 700
 
 // ---- page header ------------------------------------------------------------------------------------------------
 
-const CAPTION: Partial<Record<PageId, string>> = {
-  skills: 'Pick a skill to see its lessons.',
-  account: v2Cloud ? 'Your plan and how miyagi runs here.' : 'Your account and how miyagi runs here.'
-}
+/** Captions only where the page needs one to be understood; the redraft keeps them off (calm copy). */
+const CAPTION: Partial<Record<PageId, string>> = {}
 
 function Header({ page }: { page: PageId }): ReactNode {
   const label = PAGES.find((p) => p.id === page)?.label ?? ''
-  const title = label
   const caption = CAPTION[page]
+  // Home has no title (Michael's brief: no greeting, no date, and the sidebar already says where you are): only the
+  // strip that drags the window.
+  if (page === 'home') return <header data-drag className="shrink-0" style={{ height: 20 }} />
   return (
-    <header data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 68, padding: '0 32px', borderBottom: `1px solid ${fill.hairline}` }}>
+    <header data-drag className="flex shrink-0 items-end gap-[16px]" style={{ height: 76, padding: '0 40px 10px' }}>
       <div className="flex min-w-0 items-baseline gap-[12px]">
-        <h1 className="m-0 shrink-0 font-semibold" style={{ fontSize: type2.xl, letterSpacing: '-0.01em', color: color.text }}>
-          {title}
+        <h1 className="m-0 shrink-0 font-semibold" style={{ fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
+          {label}
         </h1>
         {caption && (
           <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
@@ -89,9 +90,6 @@ function Header({ page }: { page: PageId }): ReactNode {
       {page === 'lessons' && (
         <div data-no-drag className="ml-auto flex min-w-0 items-center gap-[12px]">
           <LessonSearch />
-          <Ring>
-            <PrimaryButton label="New lesson" keyName="launcher" onClick={openLauncher} />
-          </Ring>
         </div>
       )}
     </header>
@@ -287,7 +285,7 @@ export function Shell(): ReactNode {
   const sideZ = phase === 'off' ? '' : again ? 'z-[1]' : 'z-[3]'
   return (
     <LayoutGroup id="shell">
-      <div ref={ref} data-shell={page} data-flow-phase={phase} data-shell-sheet-open={sheet || undefined} className="relative flex h-full w-full overflow-hidden" style={{ color: color.text }}>
+      <div ref={ref} data-shell={page} data-flow-phase={phase} data-shell-sheet-open={sheet || undefined} className="relative flex h-full w-full overflow-hidden" style={{ color: color.text, background: color.window }}>
         {home && (
           <motion.div
             data-shell-sidebar-wrap
@@ -305,18 +303,28 @@ export function Shell(): ReactNode {
         {/* While the sheet is open the sidebar stays lit but inert; a click on it closes the sheet. */}
         {home && sheet && <div data-shell-sheet-catcher data-no-drag aria-hidden className="absolute inset-y-0 left-0 z-40" style={{ width: sideW }} onPointerDown={closeSheet} />}
         {home && (
-          <motion.main aria-hidden={covered || undefined} inert={covered} className="relative min-w-0 flex-1 overflow-hidden" initial={enter && !reduce ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={homeIn}>
+          <motion.main
+            aria-hidden={covered || undefined}
+            inert={covered}
+            data-shell-panel
+            className="relative min-w-0 flex-1 overflow-hidden"
+            // The content is one raised panel inset from the window (the sidebar is the window's own layer).
+            style={{ ...PANEL, margin: `${PANEL_INSET}px ${PANEL_INSET}px ${PANEL_INSET}px 0` }}
+            initial={enter && !reduce ? { opacity: 0, y: 8 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={homeIn}
+          >
             {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
               <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId || sheet || covered} />
             ))}
             <AnimatePresence>
               {openId && (
-                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="absolute inset-0 z-20" style={{ background: color.window }}>
+                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="absolute inset-0 z-20" style={{ background: PANEL.background }}>
                   <Detail id={openId} back={backLabel} />
                 </motion.div>
               )}
             </AnimatePresence>
-            <AccountSheetHost mainW={size.w - sideW} mainH={size.h} />
+            <AccountSheetHost mainW={size.w - sideW - PANEL_INSET} mainH={size.h - 2 * PANEL_INSET} />
           </motion.main>
         )}
         <AnimatePresence>{covered && <FlowLayer key="flow" width={size.w} height={size.h} />}</AnimatePresence>

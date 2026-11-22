@@ -1,55 +1,49 @@
 /**
- * Feature: library. Home, the home window's first page. One calm column on one layered surface, grouped by spacing and
- * quiet headers (no grid of bordered cards, no greeting, no date, no stat boxes):
+ * Feature: library. Home, the home window's first page (redraft, Adrian Nov 21). Sleek and minimal: type, spacing and
+ * one raised surface do the work. Monochrome chrome; the only hues are the suggestion chips (options, BRAND.md) and the
+ * green check (passed). No icon tiles, no tool pills on rows, no title, greeting, date or stat boxes. Parts with nothing
+ * to show are left out.
  *
- *   continue  the ONE most recent unfinished lesson: title, "Step N of M · step title", one primary button. When setup
+ *   continue  the ONE most recent unfinished lesson: title, where it stands, its steps, one primary button. When setup
  *             is left that button is the one setup action instead ("Turn on Accessibility"), never a disabled Continue.
  *   ask       "ask miyagi anything" with three suggestion chips (a goal or a pasted YouTube link, homeModel.ts)
- *   ready     a short list of lessons saved on this Mac, with soft pastel tool tags
- *   recent    one row per lesson, newest state, a green check when finished and a hueless ring while in progress
+ *   up next   three lessons saved on this Mac, as plain rows
+ *   review    one row when skills are due, with Start review
+ *   recent    one row per lesson, newest state: a green check when finished, a hueless ring while in progress
  *
- * Continue comes from dashboard/continue.ts, the same list Lessons and Progress read. Parts with nothing to show are
- * left out (no "nothing yet" boxes). The window's content is capped at 720 px so a big window stays calm.
+ * Layout (Adrian picked A, Nov 21, with the bonsai centered on top): the bonsai, Continue on the page's one lifted card,
+ * the ask field under it, then plain lists.
+ *
+ * Continue comes from dashboard/continue.ts, the same list Lessons and Progress read.
  */
+import { ArrowRight, CloudOff, Play, RotateCcw } from 'lucide-react'
 import { motion } from 'motion/react'
-import { ArrowRight, ChevronRight, CloudOff, Play } from 'lucide-react'
 import { useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
-import { color, copy, elevation, fill, highlight, radius2, tone, type Tone, type2 } from '../../core/theme'
+import { color, copy, fill, radius2, tone, type Tone, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { enter, press } from '../../core/ui/motion'
 import { StatusGlyph } from '../../core/ui/status'
-import { continueList } from '../dashboard/continue'
+import { continueList, type Cont } from '../dashboard/continue'
 import { useDashView } from '../dashboard/Dashboard'
 import { relDay } from '../dashboard/model'
-import { useDash } from '../dashboard/store'
+import { canReview, startReview, useDash } from '../dashboard/store'
 import type { DashData } from '../dashboard/types'
 import { summarize, useRows } from '../onboarding/rows'
+import { CARD, Row, SectionHead, StepBar, TextAction, caption } from '../shell/ui'
 import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText, setupFix, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
 import { Press, Ring, Rise } from './motion'
-import { Skeleton, ToolTag, minutesLabel, soft, stepsLabel } from './parts'
+import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
-import { enter, press } from '../../core/ui/motion'
+import { setPage } from '../shell/store'
 
-const caption = { fontSize: type2.xs, lineHeight: '16px', color: color.label } as const
-
-/** A quiet section header: small, medium weight, the label gray. */
-function Head({ id, children, right }: { id: string; children: ReactNode; right?: ReactNode }): ReactNode {
-  return (
-    <div className="flex min-h-[24px] items-center gap-[8px]" style={{ marginBottom: 6 }}>
-      <h2 id={id} className="m-0 font-medium" style={{ fontSize: type2.xs, letterSpacing: '0.02em', color: color.label }}>
-        {children}
-      </h2>
-      {right && <div className="ml-auto flex items-center">{right}</div>}
-    </div>
-  )
-}
-
-// ---- continue ---------------------------------------------------------------------------------------------------
+// ---- the continue model -------------------------------------------------------------------------------------------
 
 function useHero(data: DashData | undefined, dashLoading: boolean): Hero {
   const lib = useLibrary(useShallow((s) => ({ loaded: s.loaded, items: s.items, canStart: s.caps.start || !s.capsKnown })))
@@ -67,93 +61,106 @@ function useHero(data: DashData | undefined, dashLoading: boolean): Hero {
   })
 }
 
-function ContinueBlock({ hero, fix }: { hero: Hero; fix?: { label: string; line: string } }): ReactNode {
+type Fix = { label: string; line: string }
+type View = { head: string; title: string; line: string; id: string; blocked: boolean; done?: number; total?: number }
+
+/** What the Continue part says, or null when there is nothing to continue and nothing to fix. */
+function useView(hero: Hero, fix: Fix | undefined, conts: Cont[], items: LibraryItem[]): View | null | 'loading' {
+  const connected = useLesson((s) => s.connected)
+  const p = useLessonProgress()
+  if (hero.kind === 'loading') return 'loading'
+  const startable = hero.kind === 'resume' || hero.kind === 'fresh'
+  const blocked = !!fix && connected && (startable || hero.kind === 'empty')
+  if (hero.kind === 'empty' && !blocked) return null
+  const id = startable ? hero.id : hero.kind
+  const head = blocked && hero.kind === 'empty' ? 'Setup' : hero.kind === 'live' ? 'In a lesson' : hero.kind === 'building' ? 'Building' : hero.kind === 'fresh' ? 'Start' : 'Continue'
+  const title = hero.kind === 'empty' ? 'Almost ready' : (hero.title ?? 'Your next lesson')
+  const line = blocked ? fix!.line : hero.kind === 'empty' ? '' : hero.line
+  let done: number | undefined
+  let total: number | undefined
+  if (hero.kind === 'resume') {
+    const c = conts.find((x) => x.libraryId === hero.id)
+    if (c) [done, total] = [c.passed, c.total]
+  } else if (hero.kind === 'live' && p.total) [done, total] = [p.index, p.total]
+  return { head, title, line, id, blocked, done, total }
+}
+
+/** The one primary action for the Continue part, and its quiet notes. */
+function ContAction({ hero, fix, size = 'md' }: { hero: Hero; fix?: Fix; size?: 'md' | 'lg' }): ReactNode {
   const libStarting = useLibrary((s) => s.starting)
   const dashStarting = useDash((s) => s.starting)
   const starting = libStarting ?? dashStarting
   const err = useLibrary((s) => s.startError)
   const connected = useLesson((s) => s.connected)
-  if (hero.kind === 'loading')
-    return (
-      <div aria-busy aria-label="Loading your lessons" className="flex flex-col gap-[10px]">
-        <Skeleton h={14} />
-        <Skeleton h={26} />
-        <Skeleton h={44} />
-      </div>
-    )
-  const id = hero.kind === 'resume' || hero.kind === 'fresh' ? hero.id : undefined
-  const busy = !!id && starting === id
   const startable = hero.kind === 'resume' || hero.kind === 'fresh'
-  // Setup left: the one button is the one thing to fix. A lesson that can't start yet never shows a dead button beside it.
+  const id = startable ? hero.id : undefined
+  const busy = !!id && starting === id
   const blocked = !!fix && connected && (startable || hero.kind === 'empty')
-  const title = hero.kind === 'empty' ? (fix ? 'Almost ready' : 'What do you want to learn?') : (hero.title ?? 'Your next lesson')
-  const line = blocked ? fix.line : hero.kind === 'empty' ? '' : hero.line
-  const tools = startable ? hero.tools : []
-  if (hero.kind === 'empty' && !blocked) return null
   return (
-    <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="flex flex-col">
-      <Head id="home-continue-head">{hero.kind === 'live' ? 'In a lesson' : hero.kind === 'building' ? 'Building' : hero.kind === 'fresh' ? 'Start' : 'Continue'}</Head>
-      <h1 id="home-continue" className="m-0 line-clamp-2 font-semibold" style={{ fontSize: type2.xxl, lineHeight: '34px', letterSpacing: '-0.02em', color: color.text }}>
-        {title}
-      </h1>
-      <div className="flex flex-wrap items-center gap-x-[10px] gap-y-[6px]" style={{ marginTop: 8, fontSize: type2.sm, color: soft }}>
-        {line && <span data-hero-line>{line}</span>}
-        {!blocked && tools.map((t) => <ToolTag key={t} tool={t} />)}
-      </div>
-      <div className="flex flex-wrap items-center gap-[12px]" style={{ marginTop: 20 }}>
-        {blocked && (
-          <Ring>
-            <PrimaryButton label={fix.label} size="lg" onClick={() => void openOnboarding()} />
-          </Ring>
-        )}
-        {!blocked && startable && (
-          <Ring>
-            <PrimaryButton
-              label={hero.kind === 'resume' ? 'Continue' : 'Start lesson'}
-              icon={Play}
-              size="lg"
-              busy={busy}
-              disabled={!hero.canStart || (!!starting && !busy)}
-              title={hero.canStart ? undefined : 'This engine can’t start saved lessons yet.'}
-              onClick={() => void start(hero.id)}
-            />
-          </Ring>
-        )}
-        {hero.kind === 'live' && (
-          <Ring>
-            <PrimaryButton label="Back to the lesson" icon={ArrowRight} size="lg" onClick={() => void closeWindow('library')} />
-          </Ring>
-        )}
-        {hero.kind === 'building' && (
-          <span className="flex items-center gap-[8px]" style={caption}>
-            <Spinner size={14} c={color.text} />
-            The island shows each step.
-          </span>
-        )}
-        {!blocked && startable && !connected && (
-          <span role="status" style={caption}>
-            miyagi is offline.
-          </span>
-        )}
-        {err && err.id === id && (
-          <span role="status" style={{ ...caption, color: color.text }}>
-            {err.text}
-          </span>
-        )}
-      </div>
-    </section>
+    <>
+      {blocked && (
+        <Ring>
+          <PrimaryButton label={fix!.label} size={size} onClick={() => void openOnboarding()} />
+        </Ring>
+      )}
+      {!blocked && startable && (
+        <Ring>
+          <PrimaryButton
+            label={hero.kind === 'resume' ? 'Continue' : 'Start lesson'}
+            icon={Play}
+            size={size}
+            busy={busy}
+            disabled={!hero.canStart || (!!starting && !busy)}
+            title={hero.canStart ? undefined : 'This engine can’t start saved lessons yet.'}
+            onClick={() => void start(hero.id)}
+          />
+        </Ring>
+      )}
+      {hero.kind === 'live' && (
+        <Ring>
+          <PrimaryButton label="Back to the lesson" icon={ArrowRight} size={size} onClick={() => void closeWindow('library')} />
+        </Ring>
+      )}
+      {hero.kind === 'building' && (
+        <span className="flex items-center gap-[8px]" style={caption}>
+          <Spinner size={14} c={color.text} />
+          The island shows each step.
+        </span>
+      )}
+      {!blocked && startable && !connected && (
+        <span role="status" style={caption}>
+          miyagi is offline.
+        </span>
+      )}
+      {err && err.id === id && (
+        <span role="status" style={{ ...caption, color: color.text }}>
+          {err.text}
+        </span>
+      )}
+    </>
+  )
+}
+
+function Loading({ rows = 3 }: { rows?: number }): ReactNode {
+  return (
+    <div aria-busy aria-label="Loading your lessons" className="flex flex-col gap-[10px]">
+      {Array.from({ length: rows }, (_, i) => (
+        <Skeleton key={i} h={i === 0 ? 18 : 40} />
+      ))}
+    </div>
   )
 }
 
 // ---- ask --------------------------------------------------------------------------------------------------------
 
+/** Suggestion chips are options, so they keep their pastels (BRAND.md); they are the page's only color. */
 const IDEAS: Array<{ text: string; tone: Tone }> = [
   { text: 'Clean a messy CSV with pandas', tone: 'sky' },
   { text: 'Build a tiny web server', tone: 'lilac' },
   { text: 'Train an image classifier', tone: 'pink' }
 ]
 
-function AskBlock({ primary }: { primary: boolean }): ReactNode {
+function Ask({ primary = false }: { primary?: boolean }): ReactNode {
   const ask = useAsk()
   const items = useLibrary((s) => s.items)
   const canStart = useLibrary((s) => s.caps.start)
@@ -165,18 +172,17 @@ function AskBlock({ primary }: { primary: boolean }): ReactNode {
   }
   const Btn = primary ? PrimaryButton : QuietButton
   const actionLabel = read.kind === 'link' ? (read.match ? 'Start lesson' : 'Build lesson') : 'Teach me'
+  const h = 48
   return (
-    <section aria-labelledby="home-ask" data-home-ask className="flex flex-col">
-      <Head id="home-ask">Learn something new</Head>
+    <section aria-label="Learn something new" data-home-ask className="flex flex-col">
       <form
         className="flex items-center gap-[10px]"
-        style={{ height: 52, padding: '0 8px 0 16px', borderRadius: radius2.card, background: fill.field, boxShadow: `inset 0 0 0 1px ${fill.fieldBorder}, ${highlight.well}` }}
+        style={{ height: h, padding: '0 8px 0 14px', borderRadius: radius2.card, background: fill.field, boxShadow: `inset 0 0 0 1px ${fill.fieldBorder}` }}
         onSubmit={(e) => {
           e.preventDefault()
           go()
         }}
       >
-        <MiyagiMark size={16} />
         <input
           ref={input}
           aria-label={copy.launcherPlaceholder}
@@ -190,8 +196,7 @@ function AskBlock({ primary }: { primary: boolean }): ReactNode {
           style={{ fontSize: type2.body, color: color.text }}
         />
         {read.kind === 'idle' ? (
-          <span className="flex shrink-0 items-center gap-[6px]" style={{ fontSize: type2.micro, color: color.faint }}>
-            anywhere
+          <span className="flex shrink-0 items-center" style={{ paddingRight: 4 }}>
             <Keycap k="launcher" size="sm" />
           </span>
         ) : (
@@ -206,13 +211,13 @@ function AskBlock({ primary }: { primary: boolean }): ReactNode {
             whileTap={{ scale: press.scale }}
             transition={enter()}
             className="flex shrink-0 cursor-pointer items-center justify-center"
-            style={{ width: 34, height: 34, borderRadius: radius2.row, background: fill.chip, color: color.text }}
+            style={{ width: h - 16, height: h - 16, borderRadius: radius2.control, background: color.accent, color: color.onAccent }}
           >
-            {ask.sending ? <Spinner size={13} c={color.text} /> : <ArrowRight size={15} strokeWidth={2} aria-hidden />}
+            {ask.sending ? <Spinner size={13} c={color.onAccent} /> : <ArrowRight size={15} strokeWidth={2} aria-hidden />}
           </motion.button>
         )}
       </form>
-      <div className="flex flex-wrap items-center gap-[8px]" style={{ marginTop: 12, minHeight: 36 }}>
+      <div className="flex flex-wrap items-center gap-[8px]" style={{ marginTop: 12, minHeight: 28 }}>
         {read.kind === 'idle' ? (
           IDEAS.map((t) => (
             <Press
@@ -223,7 +228,7 @@ function AskBlock({ primary }: { primary: boolean }): ReactNode {
                 input.current?.focus()
               }}
               className="flex items-center"
-              style={{ height: 30, padding: '0 12px', borderRadius: radius2.round, background: tone[t.tone].bg, fontSize: type2.xs, color: tone[t.tone].fg }}
+              style={{ height: 28, padding: '0 11px', borderRadius: radius2.round, background: tone[t.tone].bg, fontSize: type2.xs, color: tone[t.tone].fg }}
             >
               <span className="relative">{t.text}</span>
             </Press>
@@ -248,58 +253,45 @@ function AskBlock({ primary }: { primary: boolean }): ReactNode {
   )
 }
 
-// ---- ready to run, recent ---------------------------------------------------------------------------------------
+// ---- lists ----------------------------------------------------------------------------------------------------------
 
-function ReadyToRun({ skip, done }: { skip: Set<string>; done: Set<string> }): ReactNode {
+const list = { margin: 0, padding: 0, listStyle: 'none', marginInline: -10 } as const
+const titleText = { fontSize: type2.md, color: color.text } as const
+
+function useUpNext(skip: Set<string>, done: Set<string>): { loaded: boolean; ready: LibraryItem[]; more: boolean } {
   const loaded = useLibrary((s) => s.loaded)
   const items = useLibrary((s) => s.items)
-  const fresh = items.filter((i) => i.ready && !i.progress && !skip.has(i.id))
-  const ready = [...fresh.filter((i) => !done.has(i.id)), ...fresh.filter((i) => done.has(i.id))]
+  const ready = items.filter((i) => i.ready && !i.progress && !skip.has(i.id) && !done.has(i.id))
+  return { loaded, ready, more: items.length > 3 }
+}
+
+/** "Jupyter · 6 steps · 15 min": the tool in words, never a pill. */
+const lessonLine = (i: LibraryItem): string => [i.tools.map((t) => TOOL_NAME[t]).join(', '), stepsLabel(i.steps), minutesLabel(i.estMinutes)?.replace('About ', '')].filter(Boolean).join(' · ')
+
+function UpNext({ skip, done }: { skip: Set<string>; done: Set<string> }): ReactNode {
+  const { loaded, ready, more } = useUpNext(skip, done)
   if (loaded && !ready.length) return null
   return (
-    <section aria-labelledby="home-ready" data-home-ready>
-      <Head
-        id="home-ready"
-        right={
-          items.length > 3 ? (
-            <Press onClick={() => setSection('library')} className="flex items-center gap-[2px]" style={{ height: 24, padding: '0 6px', borderRadius: radius2.control, fontSize: type2.xs, color: soft }}>
-              <span className="relative">See all</span>
-              <ChevronRight aria-hidden size={12} strokeWidth={1.8} className="relative" />
-            </Press>
-          ) : undefined
-        }
-      >
-        Ready to run
-      </Head>
+    <section aria-labelledby="home-next" data-home-ready>
+      <SectionHead id="home-next" right={more ? <TextAction onClick={() => setSection('library')}>All lessons</TextAction> : undefined}>
+        Up next
+      </SectionHead>
       {!loaded ? (
-        <div className="flex flex-col gap-[8px]" aria-busy aria-label="Loading lessons">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} h={44} />
-          ))}
-        </div>
+        <Loading />
       ) : (
-        <ul className="m-0 flex list-none flex-col p-0" style={{ marginInline: -10 }}>
+        <ul style={list}>
           {ready.slice(0, 3).map((i, n) => (
             <Rise key={i.id} as="li" i={n}>
-              <Press
-                data-lesson={i.id}
-                aria-label={`${i.title}. ${done.has(i.id) ? 'Done. ' : ''}${stepsLabel(i.steps)}. Open its preview.`}
-                onClick={() => openDetail(i.id)}
-                className="flex w-full items-center gap-[12px]"
-                style={{ padding: '10px', borderRadius: radius2.row }}
-              >
+              <Row onClick={() => openDetail(i.id)} label={`${i.title}. ${lessonLine(i)}. Open its preview.`} data={{ 'data-lesson': i.id }}>
                 <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
-                  <span className="truncate font-medium" style={{ fontSize: type2.sm, color: color.text }}>
+                  <span className="truncate" style={titleText}>
                     {i.title}
                   </span>
-                  <span style={caption}>{done.has(i.id) ? 'Done' : [stepsLabel(i.steps), minutesLabel(i.estMinutes)?.replace('About ', '')].filter(Boolean).join(' · ')}</span>
+                  <span className="truncate" style={caption}>
+                    {lessonLine(i)}
+                  </span>
                 </span>
-                <span className="relative flex shrink-0 gap-[6px]">
-                  {i.tools.slice(0, 2).map((t) => (
-                    <ToolTag key={t} tool={t} />
-                  ))}
-                </span>
-              </Press>
+              </Row>
             </Rise>
           ))}
         </ul>
@@ -308,64 +300,119 @@ function ReadyToRun({ skip, done }: { skip: Set<string>; done: Set<string> }): R
   )
 }
 
-/** Finished = the one green check. In progress = a plain hollow ring, whole and still (never a half ring that reads as loading). */
+/** Finished = the one green check. In progress = a plain hollow ring, whole and still. */
 function StateMark({ done }: { done: boolean }): ReactNode {
-  return done ? (
-    <StatusGlyph state="passed" size={16} still />
-  ) : (
-    <span aria-hidden className="block shrink-0" style={{ width: 16, height: 16, borderRadius: radius2.round, boxShadow: `inset 0 0 0 1.5px ${fill.ring}` }} />
-  )
+  return done ? <StatusGlyph state="passed" size={14} still /> : <span aria-hidden className="block shrink-0" style={{ width: 14, height: 14, borderRadius: radius2.round, boxShadow: `inset 0 0 0 1.5px ${fill.ring}` }} />
 }
 
-function RecentRow({ r, now, i }: { r: Recent; now: number; i: number }): ReactNode {
-  const content = (
-    <>
-      <span className="relative flex shrink-0">
-        <StateMark done={r.done} />
-      </span>
-      <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
-        <span className="truncate" style={{ fontSize: type2.sm, color: color.text }}>
-          {r.title}
-        </span>
-        <span style={caption}>{recentLine(r)}</span>
-      </span>
-      {r.at && (
-        <span className="relative shrink-0" style={{ fontSize: type2.xs, color: color.faint }}>
-          {relDay(r.at, now)}
-        </span>
-      )}
-    </>
-  )
-  return (
-    <Rise as="li" i={i}>
-      {r.libraryId ? (
-        <Press data-recent={r.key} onClick={() => openDetail(r.libraryId!)} className="flex w-full items-center gap-[12px]" style={{ padding: '8px 10px', borderRadius: radius2.row }} aria-label={`${r.title}. ${recentLine(r)}. Open its preview.`}>
-          {content}
-        </Press>
-      ) : (
-        <div data-recent={r.key} className="flex items-center gap-[12px]" style={{ padding: '8px 10px' }}>
-          {content}
-        </div>
-      )}
-    </Rise>
-  )
-}
-
-function Recents({ rows, now }: { rows: Recent[]; now: number }): ReactNode {
+function Recents({ rows, now, max = 4 }: { rows: Recent[]; now: number; max?: number }): ReactNode {
   if (!rows.length) return null
   return (
     <section aria-labelledby="home-recent" data-home-recent>
-      <Head id="home-recent">Recent</Head>
-      <ul className="m-0 flex list-none flex-col p-0" style={{ marginInline: -10 }}>
-        {rows.map((r, i) => (
-          <RecentRow key={r.key} r={r} now={now} i={i} />
+      <SectionHead id="home-recent">Recent</SectionHead>
+      <ul style={list}>
+        {rows.slice(0, max).map((r, i) => (
+          <Rise key={r.key} as="li" i={i}>
+            <Row onClick={r.libraryId ? () => openDetail(r.libraryId!) : undefined} label={`${r.title}. ${recentLine(r)}. Open its preview.`} data={{ 'data-recent': r.key }}>
+              <span className="relative flex shrink-0">
+                <StateMark done={r.done} />
+              </span>
+              <span className="relative min-w-0 flex-1 truncate" style={titleText}>
+                {r.title}
+              </span>
+              {r.at && (
+                <span className="relative shrink-0" style={{ fontSize: type2.xs, color: color.faint }}>
+                  {relDay(r.at, now)}
+                </span>
+              )}
+            </Row>
+          </Rise>
         ))}
       </ul>
     </section>
   )
 }
 
-// ---- the page ---------------------------------------------------------------------------------------------------
+/** One row when skills are due: what they are; it opens Progress (where review lives). Review shows only once the engine can. */
+function ReviewLine({ data, now }: { data?: DashData; now: number }): ReactNode {
+  const due = (data?.review?.items ?? []).filter((r) => (r.dueAt === undefined ? !!r.when : r.dueAt <= now))
+  if (!due.length) return null
+  const can = canReview()
+  const names = due.map((r) => r.label.split(String.fromCharCode(96)).join(''))
+  const title = due.length === 1 ? 'One skill to review' : `${due.length} skills to review`
+  return (
+    <section aria-label="Review" data-home-review className="flex items-center gap-[12px]" style={{ marginInline: -10 }}>
+      <Row onClick={() => setPage('progress')} label={`${title}: ${names.join(', ')}. Open Progress.`} style={{ flex: 1, minWidth: 0 }}>
+        <RotateCcw aria-hidden size={15} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label }} />
+        <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
+          <span style={titleText}>{title}</span>
+          <span className="truncate" style={caption}>
+            {names.slice(0, 3).join(', ')}
+          </span>
+        </span>
+      </Row>
+      {can && (
+        <Ring>
+          <QuietButton label="Review" onClick={() => startReview(due[0], 'library')} />
+        </Ring>
+      )}
+    </section>
+  )
+}
+
+// ---- the continue card ----------------------------------------------------------------------------------
+
+function Where({ view, width }: { view: View; width: number }): ReactNode {
+  return (
+    <div className="flex items-center gap-[12px]">
+      {!view.blocked && view.total ? <StepBar done={view.done ?? 0} total={view.total} width={width} /> : null}
+      {view.line && (
+        <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
+          {view.line}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** The one lifted card on the page. */
+function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }): ReactNode {
+  return (
+    <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="flex flex-col" style={{ ...CARD, padding: '24px 28px 26px' }}>
+      <span style={caption}>{view.head}</span>
+      <h2 id="home-continue" className="m-0 line-clamp-2 font-semibold" style={{ marginTop: 6, fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
+        {view.title}
+      </h2>
+      <div style={{ marginTop: 10 }}>
+        <Where view={view} width={140} />
+      </div>
+      <div className="flex flex-wrap items-center gap-[12px]" style={{ marginTop: 22 }}>
+        <ContAction hero={hero} fix={fix} />
+      </div>
+    </section>
+  )
+}
+
+// ---- the page body ----------------------------------------------------------------------------------------------
+
+type BodyProps = { view: View | null | 'loading'; hero: Hero; fix?: Fix; skip: Set<string>; done: Set<string>; data?: DashData; now: number; recent: Recent[] }
+
+function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): ReactNode {
+  return (
+    <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '0 40px 56px', gap: 40 }}>
+      <div className="flex justify-center" style={{ paddingTop: 'clamp(24px, 6vh, 64px)', marginBottom: -12 }}>
+        <MiyagiMark size={36} />
+      </div>
+      {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
+      <Ask primary={!view || view === 'loading'} />
+      <ReviewLine data={data} now={now} />
+      <UpNext skip={skip} done={done} />
+      <Recents rows={recent} now={now} />
+    </div>
+  )
+}
+
+// ---- the page -----------------------------------------------------------------------------------------------------
 
 export function Home(): ReactNode {
   const { data, load, now } = useDashView()
@@ -376,34 +423,19 @@ export function Home(): ReactNode {
   const sum = summarize(rows)
   const fix = sum.canStart ? undefined : setupFix(rows)
   const offline = !connected && !data && load !== 'loading'
-  const inFlight = new Set(continueList(data, items).map((c) => c.libraryId))
-  const heroId = hero.kind === 'resume' || hero.kind === 'fresh' ? hero.id : undefined
-  if (heroId) inFlight.add(heroId)
-  const heroPrimary = hero.kind === 'resume' || hero.kind === 'fresh' || hero.kind === 'live' || (hero.kind === 'empty' && !!fix)
+  const conts = continueList(data, items)
+  const view = useView(hero, fix, conts, items)
+  const skip = new Set(conts.map((c) => c.libraryId))
+  if (hero.kind === 'resume' || hero.kind === 'fresh') skip.add(hero.id)
   return (
     <div data-home className="@container flex min-h-0 flex-1 flex-col overflow-y-auto" style={{ color: color.text }}>
-      <div className="mx-auto w-full" style={{ maxWidth: 784, padding: '24px 20px 40px' }}>
-        <div className="flex flex-col gap-[30px]" style={{ padding: '28px 32px 24px', borderRadius: radius2.panel, background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${fill.hairline}, ${elevation.raised}` }}>
-          {offline && (
-            <p role="status" data-home-offline className="m-0 flex items-center gap-[8px]" style={caption}>
-              <CloudOff aria-hidden size={14} strokeWidth={1.8} />
-              {copy.name} is offline. Your lessons show when it connects.
-            </p>
-          )}
-          <Rise i={0}>
-            <ContinueBlock hero={hero} fix={fix} />
-          </Rise>
-          <Rise i={1}>
-            <AskBlock primary={!heroPrimary} />
-          </Rise>
-          <Rise i={2}>
-            <ReadyToRun skip={inFlight} done={finishedIds(data)} />
-          </Rise>
-          <Rise i={3}>
-            <Recents rows={load === 'loading' ? [] : recentActivity(data)} now={now} />
-          </Rise>
-        </div>
-      </div>
+      {offline && (
+        <p role="status" data-home-offline className="m-0 mx-auto flex w-full items-center gap-[8px]" style={{ ...caption, maxWidth: 700, padding: '12px 40px 0' }}>
+          <CloudOff aria-hidden size={14} strokeWidth={1.8} />
+          {copy.name} is offline. Your lessons show when it connects.
+        </p>
+      )}
+      <Body view={view} hero={hero} fix={fix} skip={skip} done={finishedIds(data)} data={data} now={now} recent={load === 'loading' ? [] : recentActivity(data)} />
     </div>
   )
 }

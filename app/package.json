@@ -19,7 +19,8 @@
     "ship:mac": "bash scripts/ship-mac.sh",
     "install:local": "bash scripts/install-local.sh",
     "dist:win": "electron-vite build && electron-builder --win --dir",
-    "feature": "node scripts/feature.mjs"
+    "feature": "node scripts/feature.mjs",
+    "test": "node --import tsx --import ./test/setup.mjs --test --test-force-exit --test-timeout=60000 test/*.test.ts"
   },
   "dependencies": {
     "ws": "^8.23.0"

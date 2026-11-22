@@ -37,7 +37,7 @@ const toYourKey = (): void => {
 
 function Wrap({ children }: { children: ReactNode }): ReactNode {
   return (
-    <div data-shell-account-page className="flex flex-col items-center" style={{ padding: '40px 32px' }}>
+    <div data-shell-account-page className="flex flex-col items-start" style={{ padding: '8px 40px 40px' }}>
       <div className="flex w-full flex-col gap-[16px]" style={{ maxWidth: 460 }}>
         {children}
       </div>

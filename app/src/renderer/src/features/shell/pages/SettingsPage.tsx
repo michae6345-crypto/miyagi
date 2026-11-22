@@ -19,6 +19,7 @@ import { Permissions } from '../../settings/sections/Permissions'
 import { Privacy } from '../../settings/sections/Privacy'
 import { Shortcuts } from '../../settings/sections/Shortcuts'
 import { NAV } from '../../settings/Sidebar'
+import { InlineSettings } from '../../settings/ui'
 import { setSettingsSection, useShell } from '../store'
 
 const OPTIONS = NAV.map((n) => ({ value: n.id, label: n.label }))
@@ -33,7 +34,8 @@ export function SettingsPage({ active }: { active: boolean }): ReactNode {
     if (section !== first) setMoved(true)
   }, [section, first])
   return (
-    <div data-shell-settings={section} className="flex flex-col gap-[24px]" style={{ padding: '20px 32px 40px', maxWidth: 880 }}>
+    <InlineSettings.Provider value>
+    <div data-shell-settings={section} className="flex flex-col gap-[24px]" style={{ padding: '8px 40px 40px', maxWidth: 820 }}>
       <div className="flex shrink-0">
         <Segmented<SettingsSection> label="Settings sections" options={OPTIONS} value={section} onChange={setSettingsSection} />
       </div>
@@ -45,5 +47,6 @@ export function SettingsPage({ active }: { active: boolean }): ReactNode {
         {section === 'shortcuts' && <Shortcuts />}
       </motion.div>
     </div>
+    </InlineSettings.Provider>
   )
 }

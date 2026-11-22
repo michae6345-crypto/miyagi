@@ -14,6 +14,9 @@
  * `neededFirst()` names the part a closed gate starts on (login before setup), on every launch, not only a first run.
  * Prefs.onboarded is set only once the setup walk really showed (setupShown), never from a login screen.
  *
+ * Consent (R05, R06): `consent` mirrors main's prefs.consent for this build's version (onboarding:get, the gate's
+ * consent part). agree() is the consent screen's Continue (Consent.tsx); before it, runAction asks macOS for nothing.
+ *
  * The recovery card (Onb-Permission-Recovery) opens on lesson.paused {reason: "permission"}, or when a permission this
  * window already watches goes from granted to denied during a lesson. It closes on lesson.resumed, when the grant is
  * back, on "Keep going without pointing" (Accessibility only), and when the lesson ends.
@@ -74,9 +77,14 @@ type State = {
   skipped: RecoveryKind[]
   /** The launch gate (main/gate.ts) as main last said. Closed until main answers. */
   gate: GateView
+  /**
+   * The learner agreed to this build's terms and privacy policy version (main's prefs.consent, R05 and R06). Until then
+   * the consent screen shows instead of setup, and no row button asks macOS for anything (runAction).
+   */
+  consent: boolean
 }
 
-export const useOnboarding = create<State>(() => ({ asked: {}, installing: false, done: false, introSeen: false, loaded: false, skipped: [], skippedSteps: [], gate: cleanGate(undefined) }))
+export const useOnboarding = create<State>(() => ({ asked: {}, installing: false, done: false, introSeen: false, loaded: false, skipped: [], skippedSteps: [], gate: cleanGate(undefined), consent: false }))
 const set = useOnboarding.setState
 const get = useOnboarding.getState
 
@@ -180,11 +188,32 @@ export function requestSuggestion(): void {
   bridge.send(cmd('library.list', {}))
 }
 
+/** onboarding:get's consent (main: prefs.consent is this build's version), or the gate's consent part. */
+export function consentFrom(r: { consent?: unknown; gate?: unknown } | undefined): boolean {
+  return r?.consent === true || (r?.gate !== undefined && cleanGate(r.gate).consent)
+}
+
 bridge
-  .invoke<{ done?: boolean; introSeen?: boolean; gate?: unknown }>('onboarding:get')
-  .then((r) => set({ done: r?.done === true, introSeen: r?.introSeen === true, loaded: true, ...(r?.gate === undefined ? {} : { gate: cleanGate(r.gate) }) }))
+  .invoke<{ done?: boolean; introSeen?: boolean; consent?: boolean; gate?: unknown }>('onboarding:get')
+  .then((r) => set({ done: r?.done === true, introSeen: r?.introSeen === true, consent: consentFrom(r), loaded: true, ...(r?.gate === undefined ? {} : { gate: cleanGate(r.gate) }) }))
   .catch(() => set({ loaded: true }))
-bridge.onFeature('onboarding:gate', (g) => set({ gate: cleanGate(g) }))
+bridge.onFeature('onboarding:gate', (g) => {
+  const gate = cleanGate(g)
+  set({ gate, consent: gate.consent })
+})
+
+/**
+ * The consent screen's Continue: main stamps prefs.consent {version, at} itself (onboarding:agree) and opens the
+ * gate's consent part. → true once main said so; false leaves the screen up (nothing is asked or captured meanwhile).
+ */
+export async function agree(): Promise<boolean> {
+  const ok = await bridge.invoke<boolean>('onboarding:agree').then(
+    (v) => v === true,
+    () => false
+  )
+  if (ok) set({ consent: true })
+  return ok
+}
 
 /** The part a closed launch gate starts on (login before setup), or undefined when it is open. */
 export function neededFirst(): GatePart | undefined {
@@ -228,6 +257,9 @@ async function installCompanion(item?: HealthItem): Promise<void> {
 }
 
 export async function runAction(a: RowAction, item?: HealthItem): Promise<void> {
+  // No macOS prompt and no System Settings pane before the learner agreed (R05). Main refuses the prompt too; the
+  // consent screen covers these buttons until then, so this only stops a stray call.
+  if ((a === 'allow-screen' || a === 'open-accessibility') && !get().consent) return
   switch (a) {
     case 'allow-screen':
       noteAsked('screen')
