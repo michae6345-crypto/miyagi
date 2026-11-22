@@ -78,9 +78,8 @@ describe('plan at rest', () => {
 })
 
 describe('springs', () => {
-  test('open ~224/24, close critically damped, hover lean', () => {
-    assert.equal(NOTCH_SPRING.open.stiffness, 224)
-    assert.equal(NOTCH_SPRING.open.damping, 24)
+  test('open lands without a wobble (damping ratio >= .9), close critically damped, hover lean', () => {
+    assert.ok(NOTCH_SPRING.open.damping / (2 * Math.sqrt(NOTCH_SPRING.open.stiffness * NOTCH_SPRING.open.mass)) >= 0.9)
     assert.ok(Math.abs(NOTCH_SPRING.close.damping - 2 * Math.sqrt(NOTCH_SPRING.close.stiffness)) < 0.5)
     assert.equal(NOTCH_SPRING.hover.duration, 0.38)
     assert.ok(HOVER_SCALE > 1 && HOVER_SCALE < 1.1)

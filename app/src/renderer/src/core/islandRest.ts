@@ -10,7 +10,8 @@ type Box = { x: number; y: number; w: number; h: number }
 
 /** The notch shape's springs: opening (a touch of life), closing (critically damped: k=195, c=2*sqrt(k)=27.9), and the hover lean. */
 export const NOTCH_SPRING = {
-  open: { type: 'spring', stiffness: 224, damping: 24, mass: 1 },
+  // Nov 22: the open read as awkward (it overshot and wobbled): stiffer and near-critically damped, so it lands once.
+  open: { type: 'spring', stiffness: 300, damping: 32, mass: 1 },
   close: { type: 'spring', stiffness: 195, damping: 28, mass: 1 },
   hover: { type: 'spring', duration: 0.38, bounce: 0.2 }
 } as const

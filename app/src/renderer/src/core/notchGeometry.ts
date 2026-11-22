@@ -10,10 +10,11 @@ import { pill } from './theme'
 type Box = { x: number; y: number; w: number; h: number }
 
 /** The notch's radii: closed (at rest, ears) and open (peek, cards). The shape animates between them. */
-export const NOTCH_RADII = { closed: { top: 6, bottom: 14 }, open: { top: 19, bottom: 24 }, peek: { top: 10, bottom: 18 } } as const
+export const NOTCH_RADII = { closed: { top: 6, bottom: 14, taper: 0 }, open: { top: 19, bottom: 24, taper: 16 }, peek: { top: 10, bottom: 18, taper: 5 } } as const
 /** An open shape shorter than this uses the peek radii: the big top flare on a short shape read as an upside-down trapezoid (Michael, Nov 22). */
 export const SHORT_OPEN_H = 120
-export type Radii = { top: number; bottom: number }
+/** `taper`: how far each side leans in from top to bottom (0 = straight sides, like the hardware notch). */
+export type Radii = { top: number; bottom: number; taper: number }
 
 /** How far each ear grows sideways, at the notch's own height. */
 export const EAR_W = 36
@@ -56,12 +57,16 @@ export const radiiFor = (open: boolean, h?: number): Radii => (!open ? NOTCH_RAD
  * corners (`bottom` radius), quadratic curves. `strip` extra pixels sit above the shape (the black seam strip), so the
  * element is `h + strip` tall and the shape is shifted down by `strip`. Radii are clamped to what fits.
  */
-export function notchPath(w: number, h: number, top: number, bottom: number, strip = 0): string {
+export function notchPath(w: number, h: number, top: number, bottom: number, strip = 0, taper = 0): string {
   const W = Math.max(0, w)
   const H = Math.max(0, h)
   const t = Math.max(0, Math.min(top, W / 2, H))
-  const b = Math.max(0, Math.min(bottom, (W - 2 * t) / 2, H - t))
+  // `taper`: each side leans in this much from under the top ear to the bottom (Michael, Nov 22: "more diagonality").
+  const k = Math.max(0, Math.min(taper, (W - 2 * t) / 2 - 1))
+  const b = Math.max(0, Math.min(bottom, (W - 2 * t - 2 * k) / 2, H - t))
   const s = strip
+  // Where a leaning side meets the bottom corner's curve: the side's x at the height the curve starts.
+  const lean = H - t > 0 ? k * (1 - b / (H - t)) : k
   const f = (n: number): string => String(Math.round(n * 100) / 100)
   const P = (cmd: string, ...v: number[]): string => `${cmd}${v.map(f).join(' ')}`
   return [
@@ -69,10 +74,10 @@ export function notchPath(w: number, h: number, top: number, bottom: number, str
     P('L', W, 0),
     P('L', W, s),
     P('Q', W - t, s, W - t, s + t),
-    P('L', W - t, s + H - b),
-    P('Q', W - t, s + H, W - t - b, s + H),
-    P('L', t + b, s + H),
-    P('Q', t, s + H, t, s + H - b),
+    P('L', W - t - lean, s + H - b),
+    P('Q', W - t - k, s + H, W - t - k - b, s + H),
+    P('L', t + k + b, s + H),
+    P('Q', t + k, s + H, t + lean, s + H - b),
     P('L', t, s + t),
     P('Q', t, s, 0, s),
     'Z'
@@ -80,7 +85,7 @@ export function notchPath(w: number, h: number, top: number, bottom: number, str
 }
 
 /** The CSS clip-path for that shape. */
-export const notchClip = (w: number, h: number, top: number, bottom: number, strip = STRIP): string => `path('${notchPath(w, h, top, bottom, strip)}')`
+export const notchClip = (w: number, h: number, top: number, bottom: number, strip = STRIP, taper = 0): string => `path('${notchPath(w, h, top, bottom, strip, taper)}')`
 
 /** The notch rect itself: the island at rest. */
 export const restSize = (n: NotchLayout): { w: number; h: number } => ({ w: n.width, h: n.height })
@@ -94,11 +99,11 @@ export const earsSize = (n: NotchLayout): { w: number; h: number } => ({ w: n.wi
  */
 export function notchSize(n: NotchLayout, kind: 'card' | 'pill', view: NotchView, fixed: number | undefined, measured: { w: number; h: number } | undefined): { w: number; h: number } {
   // The shape's straight sides sit one top radius in from its edges, so the card's own width fits between them.
-  if (kind === 'card') return fixed && fixed > 0 && measured && measured.h > 0 ? { w: fixed + 2 * NOTCH_RADII.open.top, h: n.height + Math.ceil(measured.h) } : restSize(n)
+  if (kind === 'card') return fixed && fixed > 0 && measured && measured.h > 0 ? { w: fixed + 2 * (NOTCH_RADII.open.top + NOTCH_RADII.open.taper), h: n.height + Math.ceil(measured.h) } : restSize(n)
   if (view === 'rest') return restSize(n)
   if (view === 'ears') return earsSize(n)
   if (!measured || !(measured.w > 0) || !(measured.h > 0)) return { w: PEEK.w, h: n.height + PEEK.drop }
-  return { w: Math.max(PEEK.w, Math.ceil(measured.w) + 2 * NOTCH_RADII.open.top), h: n.height + Math.ceil(measured.h) + PEEK.pad }
+  return { w: Math.max(PEEK.w, Math.ceil(measured.w) + 2 * (NOTCH_RADII.open.top + NOTCH_RADII.peek.taper)), h: n.height + Math.ceil(measured.h) + PEEK.pad }
 }
 
 /** A pill-sized mode's view with hover applied: the pointer over a rest or ears view opens the peek. */
