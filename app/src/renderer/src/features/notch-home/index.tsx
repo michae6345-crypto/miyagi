@@ -176,7 +176,7 @@ function DropZone(): ReactNode {
       }}
     >
       <Link2 size={14} strokeWidth={1.8} className="shrink-0" />
-      <span className="truncate">{sent ? 'Building your lesson…' : 'Drop a YouTube link to learn it'}</span>
+      <span className="truncate">{sent ? 'Building your lesson…' : 'Drop a YouTube link'}</span>
     </div>
   )
 }
