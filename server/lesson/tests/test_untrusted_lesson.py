@@ -92,7 +92,11 @@ def test_bad_lesson_folders_are_replaced(wd, tmp_path):
     assert g["lesson"]["workdir"] == str(tmp_path)
 
 
-def test_good_lesson_folders_stay(tmp_path):
-    for wd in (str(tmp_path / "lesson"), "demo/nn-lab", str(Path.home() / "miyagi" / "lessons" / "calc")):
+def test_good_lesson_folders_stay(tmp_path, monkeypatch):
+    monkeypatch.delenv("MIYAGI_LESSONS_DIR", raising=False)
+    for wd in ("demo/nn-lab", str(Path.home() / "miyagi" / "lessons" / "calc")):
         g = {"lesson": {"id": "x", "workdir": wd}, "steps": []}
         assert validate_untrusted_lesson(g, None) == [] and g["lesson"]["workdir"] == wd
+    wd = str(tmp_path / "lesson")  # a folder elsewhere (one the learner picked): only as the caller's own folder
+    g = {"lesson": {"id": "x", "workdir": wd}, "steps": []}
+    assert validate_untrusted_lesson(g, wd) == [] and g["lesson"]["workdir"] == wd

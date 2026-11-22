@@ -47,8 +47,11 @@ def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> l
     THE FUTURE CLOUD-CACHE CONSUMER (shared lessons from miyagi-cloud /v1/lessons/*) MUST CALL THIS on every graph it
     downloads, before the graph reaches LessonSession.load_graph.
 
-      * lesson.workdir: a home folder, an ancestor of it, a dot-folder (~/.ssh), ~/Library or a system folder is
-        replaced by `workdir_hint` (or removed: the engine's default folder)
+      * lesson.workdir is honoured only under the lessons root (~/miyagi/lessons), as one of the shipped demo labs
+        (demo/nn-lab) or when it is the folder the caller already uses (`workdir_hint`: the build's folder, the saved
+        session's folder); never a home or system root, ~/Library, a dot-folder, a system folder or the engine's own
+        code, compared case-insensitively (APFS). Anything else is replaced by `workdir_hint` when that passes the
+        same rules, or removed (the engine's default folder)
       * step / target / check files that fail the lesson-folder path rules (server.safety.paths: absolute, `~`,
         `..`, NUL) are dropped; a check reading such a file is dropped
       * a run_command that can never run (server.safety.commands: shell syntax, a URL, curl / bash / npx ..., a path
@@ -65,9 +68,9 @@ def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> l
         return ["not a lesson graph"]
     les = graph.get("lesson")
     if isinstance(les, dict) and les.get("workdir") not in (None, ""):
-        if why := _workdir_problem(les.get("workdir")):
+        if why := _workdir_problem(les.get("workdir"), workdir_hint):
             notes.append(f"lesson.workdir {str(les.get('workdir'))[:80]!r}: {why}")
-            if workdir_hint and not _workdir_problem(workdir_hint):
+            if workdir_hint and not _workdir_problem(workdir_hint, workdir_hint):
                 les["workdir"] = str(workdir_hint)
             else:
                 les.pop("workdir", None)
@@ -151,28 +154,84 @@ def _protected_dir(rel: str) -> str | None:
     return f"{hit}/ is never a step file" if hit else None
 
 
-def _workdir_problem(workdir) -> str | None:
-    """Why a lesson's workdir may not be used as a lesson folder (None: fine)."""
-    if not isinstance(workdir, str) or not workdir.strip() or "\x00" in workdir:
-        return "not a folder path"
+_SYSTEM_ROOTS = ("/System", "/usr", "/bin", "/sbin", "/etc", "/private/etc", "/var/db", "/private/var/db",
+                 "/private/var/root", "/Library", "/Applications", "/cores", "/opt")
+_DEMO_NOT_LABS = frozenset({"cache", "runs", "recordings"})  # demo/ folders that are never a lesson folder
+
+
+def _cf(p: Path) -> tuple[str, ...]:
+    """The path's parts, casefolded: APFS is case-insensitive, so ~/library/LaunchAgents IS ~/Library/LaunchAgents."""
+    return tuple(x.casefold() for x in p.parts)
+
+
+def _within(p: Path, root: Path) -> bool:
+    a, b = _cf(p), _cf(root)
+    return a[:len(b)] == b
+
+
+def _resolve_workdir(workdir) -> tuple[Path | None, str | None]:
+    """(resolved folder, None) or (None, why it isn't a folder path). A relative path is the repo's (curated lessons)."""
+    from server.safety.commands import invisible_char
+
+    if not isinstance(workdir, str) or not workdir.strip() or "\x00" in workdir or invisible_char(workdir):
+        return None, "not a folder path"
     p = Path(workdir).expanduser()
     if not p.is_absolute():
-        return "goes up out of the repo" if ".." in p.parts else None  # repo-relative (curated / demo lessons)
+        if ".." in p.parts:
+            return None, "goes up out of the repo"
+        p = REPO_ROOT / p
     try:
-        p, home = p.resolve(), Path.home().resolve()
+        return p.resolve(), None
+    except (OSError, RuntimeError, ValueError):
+        return None, "not a folder path"
+
+
+def _demo_lab(p: Path) -> bool:
+    """REPO_ROOT/demo/<lab>[/...]: a shipped demo lesson's folder (demo/nn-lab, demo/pinn-lab)."""
+    demo = REPO_ROOT.resolve() / "demo"
+    return _within(p, demo) and len(_cf(p)) > len(_cf(demo)) and _cf(p)[len(_cf(demo))] not in _DEMO_NOT_LABS
+
+
+def _workdir_problem(workdir, hint=None) -> str | None:
+    """Why `workdir` may not be used as a lesson folder (None: fine). See validate_untrusted_lesson: under the lessons
+    root, a demo lab, or the caller's own folder `hint`; never a home / system root, ~/Library, a dot-folder, a system
+    folder or the engine's own code. Every comparison is casefolded on resolved paths (APFS is case-insensitive:
+    /USERS/me/.ssh, ~/library/LaunchAgents)."""
+    p, why = _resolve_workdir(workdir)
+    if p is None:
+        return why
+    try:
+        home = Path.home().resolve()
     except (OSError, RuntimeError):
         return "not a folder path"
-    if p == home or p in home.parents or p == Path("/"):
+    if _cf(p) == _cf(home) or _within(home, p) or len(p.parts) <= 1:
         return "a home or system root, not a lesson folder"
-    try:
-        inside = p.relative_to(home).parts
-    except ValueError:
-        inside = ()
-    if inside and (inside[0].startswith(".") or inside[0] == "Library"):
-        return f"~/{inside[0]} is never a lesson folder"
-    for root in ("/System", "/usr", "/bin", "/sbin", "/etc", "/private/etc", "/Library", "/Applications", "/cores"):
-        if p == Path(root) or Path(root) in p.parents:
+    if _within(p, home) and _cf(p)[len(_cf(home))] == "library":
+        return "~/Library is never a lesson folder"
+    for root in _SYSTEM_ROOTS:
+        if _within(p, Path(root)):
             return f"{root} is never a lesson folder"
+    repo = REPO_ROOT.resolve()
+    if (_within(p, repo) or _within(repo, p)) and not _demo_lab(p):
+        return "miyagi's own code is never a lesson folder"  # 'server' -> REPO_ROOT/server: the engine's source
+    from server.workspace.paths import lessons_root
+
+    try:
+        root = lessons_root().expanduser().resolve()
+    except (OSError, RuntimeError):
+        root = None
+    if root is not None and _within(root, p) and _cf(root) != _cf(p):
+        return "a folder above the lessons folder is never a lesson folder"  # ~/miyagi holds the engine itself
+    if _demo_lab(p):
+        base = repo / "demo"
+    elif root is not None and _within(p, root):
+        base = root
+    elif hint and (hp := _resolve_workdir(hint)[0]) is not None and _cf(hp) == _cf(p):
+        base = Path(p.anchor)  # the folder this build / saved session already uses (a folder the learner picked)
+    else:
+        return "not under the lessons folder"
+    if any(part.startswith(".") for part in p.parts[len(base.parts):]):  # ~/.ssh, demo/nn-lab/.git, lessons/.x
+        return "a dot-folder is never a lesson folder"
     return None
 
 

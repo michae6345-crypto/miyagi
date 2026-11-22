@@ -2,18 +2,24 @@
 
 A lesson's check patterns (pattern, metric_pattern, a target's match) come from a model, a cached graph or a shared
 lesson, and the engine runs them on every screen frame, file save and run output. CPython's `re` has no timeout and
-holds the GIL while it backtracks, so ONE catastrophic pattern stalls the whole engine. The `regex` module (which has
-timeouts) is not installed, so a pattern is refused on its shape before it ever runs:
+holds the GIL while it backtracks, so ONE catastrophic pattern would stall the whole engine. Two lines of defence:
 
-  pattern_problem(p)       why `p` may not run (too long, doesn't compile, catastrophic shape), else None
-  safe_compile(p, flags)   re.compile after pattern_problem; raises re.error(why) for a refused pattern, so every
+  1. the shape checks below refuse the known catastrophic shapes before a pattern ever runs (and at lesson load,
+     schema.validate_untrusted_lesson);
+  2. every search with a pattern that passed them runs in the regex worker process under a hard deadline
+     (server.safety.regex_worker: killed and restarted on a timeout, the pattern refused from then on). Shape rules
+     can't be complete ('-?' * 27 + '-' * 27 + 'x', \\d+\\d+\\d+x); the deadline is the guarantee.
+
+  pattern_problem(p)       why `p` may not run (too long, doesn't compile, catastrophic shape, timed out), else None
+  safe_compile(p, flags)   a GuardedPattern after pattern_problem; raises re.error(why) for a refused pattern, so every
                            sink's existing `except re.error` treats it as an invalid pattern
   safe_search(p, text)     safe_compile(p).search(text)
 
 Every place the engine compiles or searches with a lesson's pattern goes through safe_compile / safe_search: the
 evaluator and server.checks.screen, the build's coverage and lint (lesson.coverage, lesson.schema, lesson.builder,
 lesson.precision, lesson.venv_steps), the screen matcher and metric reader (screen.match, screen.metrics), the
-notebook coach, the lesson-end summary, workspace.anchor_line and the scaffold's leak check. So a graph that has not
+notebook coach, the lesson-end summary, workspace.anchor_line, the scaffold's leak check, code_gate's claims and the
+Demo lesson's work check (orchestrator.stage). So a graph that has not
 been through schema.validate_untrusted_lesson yet (the build runs coverage and lint before it) still never runs one.
 
 Refused shapes (on the sre parse tree):
@@ -35,6 +41,8 @@ from __future__ import annotations
 import math
 import re
 from typing import Any
+
+from . import regex_worker
 
 # The brief asked for 200; the shipped "neural network from scratch" demo lesson grades whole statements with 225-320
 # character code patterns (nn1c4, nn2c4, nn3c2), so the cap is 400. The shape checks below are the ReDoS guard.
@@ -63,13 +71,16 @@ _ALL = frozenset(_ALPHABET)
 
 
 def pattern_problem(pattern: Any, flags: int = 0) -> str | None:
-    """Why `pattern` may not run (too long, does not compile, catastrophic backtracking), else None. `flags`: the
-    re flags it will be compiled with (IGNORECASE widens what its classes overlap)."""
+    """Why `pattern` may not run (too long, does not compile, catastrophic backtracking, or it already ran past the
+    worker's deadline), else None. `flags`: the re flags it will be compiled with (IGNORECASE widens what its
+    classes overlap)."""
     if not isinstance(pattern, str):
         return "not a pattern"
     if len(pattern) > MAX_PATTERN_LEN:
         return f"pattern longer than {MAX_PATTERN_LEN} characters"
-    key = (pattern, int(flags) & (re.IGNORECASE | re.DOTALL))
+    if (why := regex_worker.is_bad(pattern, flags)) is not None:
+        return why
+    key = (pattern, _fkey(flags))
     if key in _SHAPES:
         return _SHAPES[key]
     why = _shape(pattern, key[1])
@@ -78,20 +89,27 @@ def pattern_problem(pattern: Any, flags: int = 0) -> str | None:
     return why
 
 
-def safe_compile(pattern: Any, flags: int = 0) -> re.Pattern[str]:
-    """re.compile(pattern, flags) for a pattern pattern_problem() accepts; re.error(why) otherwise. For every lesson
-    pattern the engine runs (a check's pattern / metric_pattern, a target's match)."""
+def safe_compile(pattern: Any, flags: int = 0) -> regex_worker.GuardedPattern:
+    """For a pattern pattern_problem() accepts: a GuardedPattern (server.safety.regex_worker) whose searches run in
+    the regex worker under its deadline (a pattern that times out there is refused from then on); re.error(why)
+    otherwise. For every lesson pattern the engine runs (a check's pattern / metric_pattern, a target's match)."""
     if (why := pattern_problem(pattern, flags)) is not None:
         raise re.error(why)
-    return re.compile(pattern, flags)
+    return regex_worker.GuardedPattern(re.compile(pattern, flags), _LINEAR.get((pattern, _fkey(flags)), False))
 
 
-def safe_search(pattern: Any, text: str, flags: int = 0) -> re.Match[str] | None:
-    """safe_compile(pattern, flags).search(text); re.error for a refused pattern."""
+def safe_search(pattern: Any, text: str, flags: int = 0) -> Any:
+    """safe_compile(pattern, flags).search(text); re.error for a refused pattern. None also when the search ran past
+    the worker's deadline."""
     return safe_compile(pattern, flags).search(text)
 
 
+def _fkey(flags: int) -> int:
+    return int(flags) & (re.IGNORECASE | re.DOTALL)
+
+
 _SHAPES: dict[tuple[str, int], str | None] = {}
+_LINEAR: dict[tuple[str, int], bool] = {}  # no repeat / alternation / backreference: safe to run in-process
 
 
 def _shape(pattern: str, flags: int = 0) -> str | None:
@@ -101,6 +119,11 @@ def _shape(pattern: str, flags: int = 0) -> str | None:
         return f"invalid pattern: {exc}"
     except Exception as exc:  # noqa: BLE001 - the parser's own internals: refuse, never crash a sink
         return f"invalid pattern: {exc}"
+    if len(_LINEAR) < 8192:
+        try:
+            _LINEAR[(pattern, flags)] = _linear(list(tree))
+        except RecursionError:
+            pass
     flags = getattr(getattr(tree, "state", None), "flags", 0) or 0
     try:
         why = _Shape(flags, _literal_prefix(list(tree))).walk(list(tree), 1)
@@ -109,6 +132,24 @@ def _shape(pattern: str, flags: int = 0) -> str | None:
     except Exception as exc:  # noqa: BLE001 - a shape this checker doesn't know: refused, never run unchecked
         why = f"pattern could not be checked ({type(exc).__name__})"
     return why
+
+
+def _linear(items: list) -> bool:
+    """Literals, classes, anchors and groups of them only: at most one try per start position, so the search is
+    linear in the text and needs no deadline."""
+    for op, av in items:
+        if op in (_c.LITERAL, _c.NOT_LITERAL, _c.ANY, _c.IN, _c.AT):
+            continue
+        if op is _c.SUBPATTERN:
+            if not _linear(list(av[-1])):
+                return False
+            continue
+        if op in (_c.ASSERT, _c.ASSERT_NOT):
+            if not _linear(list(av[-1])):
+                return False
+            continue
+        return False
+    return True
 
 
 class _Polynomial(Exception):

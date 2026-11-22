@@ -243,8 +243,8 @@ def _safe_rel(path: str) -> str | None:
 
 def content_problem(path: str, content: str) -> str | None:
     """Why a starter file's content is refused (None: fine): a package.json with install-time scripts or pre / post
-    hooks (or that doesn't parse), a requirements file with option lines (-i, --index-url, -e ...), VCS or URL
-    requirements."""
+    hooks (or that doesn't parse), a requirements file with option lines (-i, --index-url, -e ...), VCS, URL, archive
+    or local-path requirements (./pkg, pkg/, name @ ./x), a .python-version / .nvmrc that isn't a plain version."""
     name = PurePosixPath(path).name.casefold()  # case-insensitive APFS: Package.JSON is the package.json npm reads
     if name == "package.json":
         try:
@@ -262,9 +262,23 @@ def content_problem(path: str, content: str) -> str | None:
             line = raw.strip()
             if line.startswith("-") or line.lower().startswith("git+") or "://" in line:
                 return f"requirements line {line[:60]!r} installs from outside PyPI or changes pip's options"
-            if line.split("#", 1)[0].strip().lower().endswith(ARCHIVE_SUFFIXES):  # pip builds a local x.tar.gz
+            req = line.split("#", 1)[0].strip()
+            if req.lower().endswith(ARCHIVE_SUFFIXES):  # pip builds a local x.tar.gz
                 return f"requirements line {line[:60]!r} installs a local archive, not a PyPI package"
+            # ./pkg, pkg/, name @ ./x, ~/x: pip builds a local folder by running its setup.py
+            if req.startswith((".", "~")) or any(ch in req for ch in "/\\@") or not req.isprintable():
+                return f"requirements line {line[:60]!r} installs a local path, not a PyPI package"
+    if name in (".python-version", ".nvmrc"):
+        # pyenv / nvm read these as a version name; a crafted relative one ran code (pyenv CVE-2022-35861)
+        for raw in (content or "").splitlines():
+            v = raw.strip()
+            if v and not (_VERSION_LINE.fullmatch(v) or name == ".nvmrc" and _NVM_LTS.fullmatch(v)):
+                return f"{name} line {v[:40]!r} isn't a plain version"
     return None
+
+
+_VERSION_LINE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")  # 3.11.6, v20.10.0, system (never .., never a path)
+_NVM_LTS = re.compile(r"lts/(?:\*|[a-z]+)")  # nvm's own aliases: lts/*, lts/iron
 
 
 def _is_text_name(p: str) -> bool:

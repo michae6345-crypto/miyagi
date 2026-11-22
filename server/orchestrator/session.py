@@ -7958,7 +7958,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._card(step, "Nothing to run", "This step has no command.", kind="answer")
             return
         from server.safety import child_env
-        from server.safety.commands import Manual, parse_run_command
+        from server.safety.commands import Manual, parse_run_command, visible
 
         verdict = parse_run_command(cmd, self.workdir)
         mark = step.get("run_command_manual")  # validate_untrusted_lesson's mark, while run_command is still that one
@@ -7971,7 +7971,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._card(step, "From the tutorial: check it before running",
                              f"I don't run this one for you ({verdict.reason}). Read it, and if it's what the "
                              "tutorial means, copy it into VS Code's terminal and run it there.", kind="answer",
-                             output=cmd)
+                             output=visible(cmd))  # a control / zero-width character is shown, never hidden
             return
         cmd = verdict.command  # what runs, exactly: shlex-quoted, one command
         seen = self.__dict__.setdefault("_run_confirmed", set())
@@ -7985,6 +7985,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                              + f"It runs in the lesson folder ({Path(str(self.workdir)).name}). Check it, then press "
                              "Yes.", kind="answer", output=cmd + (f"\n{verdict.details}" if verdict.details else ""),
                              actions=["confirm"])
+            # Yes runs it only while THIS card holds the slot (_apply_patch): a later card with a confirm (Looks
+            # done?, the checks pass), an off-track, a closed card or a new step makes the run stale
+            card = self._card_in_use
+            if self.pending_patch is not None and self.pending_patch.get("run"):
+                self.pending_patch["card"] = card if card and card[0] == "Run this command?" else None
             return
         argv = list(verdict.argv)
         await self._save_step_file(step)  # the fix in the editor is what runs (Nov 15: the old file ran twice)
@@ -8172,7 +8177,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
         pp, self.pending_patch = self.pending_patch, None
         if pp.get("run"):  # Yes on "Run this command?": the same step, the same folder, then it runs
-            if pp.get("step") != step.get("id") or pp.get("workdir") != str(self.workdir):
+            card = pp.get("card")
+            if card is None or self._card_in_use != card:
+                # not this card's Yes: a card with its own confirm went up since (Looks done?, the checks pass), or
+                # the run card was closed / replaced. Never a run: the press answers the card that is on screen.
+                log.info("confirm: the 'Run this command?' card isn't up any more; not running %r", pp["command"][:80])
+                await self._action("confirm")
+                return
+            if (pp.get("step") != step.get("id") or pp.get("workdir") != str(self.workdir)
+                    or card[2] != self.step_gen):
                 await self._card(step, "That command is out of date", "Press Run it for me again.", kind="answer")
                 return
             self.__dict__.setdefault("_run_confirmed", set()).add((str(self.workdir), pp["command"],

@@ -317,3 +317,67 @@ def test_an_edited_npm_script_asks_again_before_it_runs(tmp_path, monkeypatch, s
     run(go())
     argv = next(a for a, _ in spawned if a and a[0] == "npm")
     assert argv == ("npm", "start", "--ignore-scripts")
+
+
+# ---------------------------------------------------------------- review round 2: Yes runs only the card it is on
+
+
+def _ask_to_run(tmp_path, monkeypatch):
+    rig, _ = _rig_with(tmp_path, monkeypatch, _run_lesson())
+    (tmp_path / "calc.py").write_text("print(5)\n")
+
+    async def ask():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await rig.s.goto_step(1)
+        await rig.settle()
+        await rig.s.action("run_command")
+        await rig.settle()
+        assert rig.of("card")[-1]["title"] == "Run this command?" and rig.s.pending_patch.get("run")
+
+    return rig, ask
+
+
+def test_a_looks_done_confirm_never_runs_a_pending_command(tmp_path, monkeypatch, spawned):
+    rig, ask = _ask_to_run(tmp_path, monkeypatch)
+
+    async def go():
+        await ask()
+        step = rig.s.step
+        shown = await rig.s._emit_card({"stepId": step["id"], "kind": "answer", "title": "Looks done?",
+                                        "body": "The checks pass. Confirm and I'll move on.",
+                                        "actions": ["confirm"]}, window_s=0.0)
+        assert shown  # the judge's Looks done? replaced the run card in the app's one card slot
+        rig.s.confirm_pending = True
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert not [a for a, _ in spawned if a and a[0] != "pbcopy"]  # nothing ran
+    assert rig.s.pending_patch is None
+    assert not [c for c in rig.of("card") if c["title"] == "That command is out of date"]  # the Yes was answered
+
+
+def test_a_closed_run_card_never_runs_on_a_later_confirm(tmp_path, monkeypatch, spawned):
+    rig, ask = _ask_to_run(tmp_path, monkeypatch)
+
+    async def go():
+        await ask()
+        await rig.s.card_seen(False, rig.s.step["id"], "Run this command?", kind="answer", by="user")
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert not [a for a, _ in spawned if a and a[0] != "pbcopy"]
+
+
+def test_the_run_cards_own_yes_still_runs(tmp_path, monkeypatch, spawned):
+    rig, ask = _ask_to_run(tmp_path, monkeypatch)
+
+    async def go():
+        await ask()
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert [a for a, _ in spawned if a and a[0] == "python"] == [("python", "calc.py")]

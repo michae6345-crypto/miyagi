@@ -26,6 +26,7 @@ import json
 import os
 import re
 import shlex
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
@@ -35,6 +36,30 @@ from .paths import safe_lesson_path
 _META = set(";|&`<>*~$\x00(){}!?[]")  # the shell syntax a learner's own command never needs here
 _URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|\bwww\.", re.I)
 ARG = re.compile(r"^[A-Za-z0-9_./=:,+@-]+$")
+# a lesson file the engine runs (a script, a pytest path, a requirements file): plain ASCII path characters only, so
+# the card shows exactly the file that runs (no look-alike, zero-width or bidi characters: main​.py)
+PATH_ARG = re.compile(r"^[A-Za-z0-9_./-]+$")
+# Unicode categories never in a command the engine runs: controls (^U kills the line in zsh's editor, ^O accepts it,
+# so typed into VS Code's terminal they would run something else), format characters (zero-width, bidi overrides),
+# line / paragraph separators, private use, surrogates and unassigned code points
+_INVISIBLE = frozenset({"Cc", "Cf", "Zl", "Zp", "Co", "Cs", "Cn"})
+
+
+def invisible_char(text: str) -> str | None:
+    """The first character of `text` a confirm card can't show truthfully (a control, format, separator, private-use,
+    unassigned character or any space but ' '), as U+XXXX; None when there is none."""
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if cat in _INVISIBLE or (cat == "Zs" and ch != " "):
+            return f"U+{ord(ch):04X}"
+    return None
+
+
+def visible(text: str) -> str:
+    """`text` with every character invisible_char() objects to written out as <U+XXXX>: what a card shows (and its
+    Copy copies) for a command the engine refused, so nothing hidden reaches the learner's terminal. Line breaks and
+    tabs stay: a card shows them as they are."""
+    return "".join(f"<U+{ord(ch):04X}>" if ch not in "\n\t" and invisible_char(ch) else ch for ch in text)
 PYTHONS = frozenset({"python", "python3", ".venv/bin/python", ".venv/bin/python3", "./.venv/bin/python",
                      "./.venv/bin/python3"})
 PIPS = frozenset({"pip", "pip3", ".venv/bin/pip", ".venv/bin/pip3"})
@@ -72,13 +97,15 @@ class Manual:
 
 def parse_run_command(cmd: str | None, workdir: str | os.PathLike | None) -> Allowed | Manual:
     """Allowed(argv) when the engine may run `cmd` for the learner in `workdir`, else Manual(reason)."""
-    raw = (cmd or "").strip()
+    raw = (cmd or "").strip(" \t\r\n")  # (str.strip() would also eat \x1c-\x1f and \x0b: never silently)
     if raw.startswith("$ "):  # a prompt copied with the command
-        raw = raw[2:].strip()
+        raw = raw[2:].strip(" \t\r\n")
     if not raw:
         return Manual("no command", command=raw)
     if "\n" in raw or "\r" in raw:
         return Manual("more than one command", command=raw)
+    if (bad := invisible_char(raw)) is not None:  # checked on the raw text, before shlex reads it
+        return Manual(f"it holds an invisible or control character ({bad})", command=raw)
     if bad := sorted(set(raw) & _META):
         return Manual(f"shell syntax ({' '.join(bad)}) the engine never runs", command=raw)
     if _URL.search(raw):
@@ -138,6 +165,8 @@ def _script(argv: list[str], i: int, workdir: str, suffixes: tuple[str, ...]) ->
     script = argv[i]
     if script.startswith("-"):
         return Manual(f"{argv[0]} {script} runs code that isn't a lesson file")
+    if not PATH_ARG.match(script):
+        return Manual(f"the file name {script[:40]!r} has characters miyagi doesn't run (letters, digits, _ . / - only)")
     if not script.endswith(suffixes):
         return Manual(f"{script} isn't a {'/'.join(suffixes)} file")
     if (why := _inside(script, workdir)) is not None:
@@ -169,7 +198,7 @@ def _pytest(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
     for a in argv[i:]:
         if a in PYTEST_FLAGS:
             continue
-        if a.startswith("-") or not ARG.match(a):
+        if a.startswith("-") or not ARG.match(a) or not PATH_ARG.match(a.split("::", 1)[0]):
             return Manual(f"pytest {a[:40]} isn't run for you")
         if (why := _inside(a.split("::", 1)[0], workdir)) is not None:
             return why
@@ -187,6 +216,8 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
         if len(rest) != 2:
             return Manual("pip install -r takes one requirements file here")
         req = rest[1]
+        if not PATH_ARG.match(req):
+            return Manual(f"the file name {req[:40]!r} has characters miyagi doesn't run (letters, digits, _ . / - only)")
         name = PurePosixPath(req).name
         if not (name.startswith("requirements") and name.endswith(".txt")):
             return Manual(f"{req} isn't a requirements*.txt file")
@@ -231,6 +262,9 @@ def npm_scripts(workdir: str | os.PathLike) -> dict[str, str]:
     return {str(k): str(v) for k, v in scripts.items()} if isinstance(scripts, dict) else {}
 
 
+NPM_SCRIPT_MAX = 200  # a longer npm script is never run for the learner: the confirm card shows the script in full
+
+
 def _npm(argv: list[str], workdir: str) -> Allowed | Manual:
     rest = [a for a in argv[1:] if a != "--ignore-scripts"]
     if rest in (["test"], ["start"]):
@@ -246,9 +280,15 @@ def _npm(argv: list[str], workdir: str) -> Allowed | Manual:
         # npm runs pre<name> / post<name> around it: code the card wouldn't show. The learner reads them and runs it.
         return Manual(f"package.json also runs {' and '.join(f'{h}: {scripts[h][:80]}' for h in hooks)} around "
                       f"{name!r}", structural=False)
+    script = scripts[name]
+    if len(script) > NPM_SCRIPT_MAX or not script.isprintable():
+        # the card shows the WHOLE script or the engine doesn't run it: a harmless start, 200 spaces, then
+        # `&& curl … | sh` must never hide past what a card shows (nor a control character inside it)
+        return Manual(f"package.json's {name!r} script is too long (or has characters) to check on a card: read it "
+                      "in package.json", structural=False)
     # --ignore-scripts: npm still runs the named script, never a pre / post hook added after this check
-    return Allowed((argv[0], *rest, "--ignore-scripts"), details=f"{name}: {scripts[name][:200]}",
-                   fingerprint=_digest(name, scripts[name]))
+    return Allowed((argv[0], *rest, "--ignore-scripts"), details=f"{name}: {script}",
+                   fingerprint=_digest(name, script))
 
 
 def _digest(*parts: str) -> str:

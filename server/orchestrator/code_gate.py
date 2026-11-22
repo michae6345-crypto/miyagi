@@ -24,6 +24,8 @@ import textwrap
 from collections.abc import Container
 from pathlib import Path
 
+from server.safety.patterns import safe_compile
+
 _STR = re.compile(r"""(?<!\w)(?P<pre>[rRbBuUfF]{0,2})(?P<lit>"{3}[\s\S]*?"{3}|'{3}[\s\S]*?'{3}"""
                   r"""|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')""")
 _CALL = re.compile(r"([A-Za-z_]\w*)\s*\(")
@@ -209,16 +211,17 @@ def missing_code(code: str, text: str) -> list[dict]:
 
 
 def _claims(pattern: str, line: str) -> bool:
-    try:
-        return any(re.search(pattern, t, re.MULTILINE) for t in (line, re.sub(r"\s+", " ", line)))
-    except re.error:
+    try:  # a step check's pattern: the regex worker's deadline (server.safety.regex_worker), never plain re
+        rx = safe_compile(pattern, re.MULTILINE)
+        return any(rx.search(t) for t in (line, re.sub(r"\s+", " ", line)))
+    except (re.error, TypeError):
         return False
 
 
 def _line_of(pattern: str, text: str) -> int | None:
     try:
-        m = re.search(pattern, text, re.MULTILINE)
-    except re.error:
+        m = safe_compile(pattern, re.MULTILINE).search(text)
+    except (re.error, TypeError):
         return None
     return text.count("\n", 0, m.start()) + 1 if m else None
 

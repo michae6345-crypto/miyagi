@@ -173,8 +173,11 @@ async def _work_here(session: Any, step: dict) -> bool:
     except OSError:
         pass
     try:  # most of them, not all: a planted bug (the tanh slope's + sign) is still the step's code
-        return any(2 * sum(bool(re.search(p, t, re.M)) for p in pats) >= len(pats) for t in texts)
-    except re.error:
+        from server.safety.patterns import safe_compile  # a lesson's patterns: the regex worker's deadline
+
+        rxs = [safe_compile(p, re.M) for p in pats]
+        return any(2 * sum(bool(rx.search(t)) for rx in rxs) >= len(pats) for t in texts)
+    except (re.error, TypeError):
         return True
 
 
