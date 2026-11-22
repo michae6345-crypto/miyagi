@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreGraphics
 
 // miyagi-listen: push-to-talk helper. Protocol: PUSH-TO-TALK.md (JSON lines on stdin/stdout).
 //
@@ -23,6 +24,9 @@ Transcriber.forceModule = argValue("--module")
 
 // MARK: --screens (NSScreen geometry only: no permissions, no tap, no mic)
 if args.contains("--screens") { Screens.run() }
+
+// MARK: --probe-input (fresh read of the Input Monitoring grant: preflight only, never prompts)
+if args.contains("--probe-input") { print(CGPreflightListenEventAccess() ? "granted" : "denied"); exit(0) }
 
 // MARK: --transcribe-file (offline self-test: no mic, no key tap, no prompts)
 
@@ -90,6 +94,7 @@ tap.onChord = { down in ctl.chordChanged(down: down) }
 tap.onKeyDown = { code in ctl.keyDown(keyCode: code) }
 ctl.onConfigChanged = { syncTap(); announceReady() }
 Perms.onChange = { syncTap() }
+Perms.onTick = { if ctl.config.enabled && !tap.isRunning && Perms.inputStatus() == "granted" { syncTap() } }
 
 /// `ready` goes out when the speech engine, locale or chord differs from the last one announced (or when forced), so a
 /// repeated `config` line can never turn into a ready/config ping-pong with the app.
@@ -157,6 +162,12 @@ func handle(_ obj: [String: Any]) {
     default:
         break
     }
+}
+
+Perms.restartForPermission = {
+    ctl.cancelAll("disabled")
+    tap.stop()
+    exit(75)   // the app respawns the helper
 }
 
 func shutdown() -> Never {

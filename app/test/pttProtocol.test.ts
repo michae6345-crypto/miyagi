@@ -12,7 +12,8 @@ import {
   lineBuffer,
   MAX_TEXT,
   parseLine,
-  permissionsCommand
+  permissionsCommand,
+  tccResetArgs
 } from '../src/main/pttProtocol'
 
 const j = (o: object): string => JSON.stringify(o)
@@ -119,5 +120,15 @@ describe('respawn backoff', () => {
     assert.ok(backoffMs(3) > backoffMs(1))
     assert.equal(backoffMs(99), BACKOFF_MS[BACKOFF_MS.length - 1])
     assert.equal(backoffMs(-4), BACKOFF_MS[0])
+  })
+})
+
+describe("tccResetArgs", () => {
+  test("resets miyagi and its helper for exactly one service", () => {
+    assert.deepEqual(tccResetArgs("input"), [
+      ["reset", "ListenEvent", "dev.sandhacks.miyagi"],
+      ["reset", "ListenEvent", "dev.sandhacks.miyagi.listen"]
+    ])
+    assert.deepEqual(tccResetArgs("mic").map((a) => a[1]), ["Microphone", "Microphone"])
   })
 })

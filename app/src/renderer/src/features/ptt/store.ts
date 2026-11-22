@@ -47,7 +47,9 @@ let cap: ReturnType<typeof setTimeout> | undefined
 let cardTimer: ReturnType<typeof setTimeout> | undefined
 let sendTimer: ReturnType<typeof setTimeout> | undefined
 let seen: string | undefined
-let inputCardShown = false
+let inputCardCount = 0
+let inputCardAt = 0
+let inputCardDeclined = false
 
 /** One idempotent way back to rest for the island's claim. */
 export function release(): void {
@@ -75,10 +77,22 @@ function openCard(card: PttCard): void {
  * (first-run setup is not over yet): it is asked again when the gate opens and when the pref changes.
  */
 function maybeInputCard(): void {
-  if (!shouldShowInputCard({ shown: inputCardShown, inputDenied: get().ptt.perms.input === 'denied', enabled: usePrefs.getState().ptt.enabled, gateOpen: gateIsOpen() })) return
-  inputCardShown = true
+  const facts = { shownCount: inputCardCount, sinceLastMs: Date.now() - inputCardAt, declined: inputCardDeclined, inputDenied: get().ptt.perms.input === 'denied', enabled: usePrefs.getState().ptt.enabled, gateOpen: gateIsOpen() }
+  if (!shouldShowInputCard(facts)) return
+  inputCardCount += 1
+  inputCardAt = Date.now()
   openCard('input')
 }
+
+/** "Not now" on the Input Monitoring card: quiet for the rest of this run (Settings still has the row). */
+export function declineInputCard(): void {
+  inputCardDeclined = true
+  closeCard()
+}
+
+// The card closes by itself; if nobody saw it, it is offered again (inputCard.ts decides when).
+const reoffer = setInterval(maybeInputCard, 60_000) as unknown as { unref?: () => void }
+reoffer.unref?.()
 
 /** A new PttState from main (or the stage's mock helper). */
 export function receive(next: PttState): void {
