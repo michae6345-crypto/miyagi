@@ -1,0 +1,12 @@
+# gitleaks findings checked by hand on 2026-11-21: none is a secret. One fingerprint per line (commit:file:rule:line).
+# Add a line here only after reading the finding; a real key gets rotated, never listed.
+
+# server/tests/test_redact.py: made-up values the redactor test feeds in (a sequential hex apiKey, a cut-off PEM)
+e93c67ea13503a844fccdd583b0c910e0bef1d98:server/tests/test_redact.py:generic-api-key:58
+feffca50dac33ce30e3ecabf2adc8bd9119399c6:server/tests/test_redact.py:private-key:51
+# evals/replay/cases/tf-mnist-notebook.json: a scripted learner's Jupyter output, a localhost:8888 ?token= URL
+576698afdf78a136d577245d22debaaf2169b4df:evals/replay/cases/tf-mnist-notebook.json:generic-api-key:32
+576698afdf78a136d577245d22debaaf2169b4df:evals/replay/cases/tf-mnist-notebook.json:generic-api-key:33
+# app/agents/eng-drop-vendors.md: environment variable names set to empty ("keys empty: ..._API_KEY= ...")
+9ddc00efbaf5014fe27cfe21bb77ab058154e2e5:app/agents/eng-drop-vendors.md:generic-api-key:28
+c1d16021894de859c5b4ce37c0e6f7d265d8b92a:app/agents/eng-drop-vendors.md:generic-api-key:27
