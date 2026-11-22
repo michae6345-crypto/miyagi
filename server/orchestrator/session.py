@@ -254,7 +254,7 @@ def human_build_error(e: BaseException) -> str:
 # Copy rules (app/brand/BRAND.md): plain sentences, lowercase miyagi, no em dashes, no keycaps.
 
 V2_COMMANDS = frozenset({"health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
-                         "panel.state"})
+                         "panel.state", "review.start"})
 STATUS_DETAIL_WORDS = 6  # status.detail: what the engine does right now, <= 6 words
 SUMMARY_WORDS = 12  # step.passed.summary, <= 12 words
 MAX_MISSING_LINES = 8  # a Not yet lists the step's lines only when they fit the panel
