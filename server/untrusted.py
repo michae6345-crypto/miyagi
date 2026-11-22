@@ -327,13 +327,24 @@ _GIT_SHORT_DENY_BY_SUB = {"commit": "n",  # --no-verify
                           "push": "d",  # --delete
                           "branch": "DMC",  # force-delete / force-move / force-copy
                           "rm": "r"}
-_GIT_GLOB = re.compile(r"[*?\[\]]|^:\(|^:/")  # the shell (or git's pathspec magic) expands it to every file
+_GIT_GLOB = re.compile(r"[*?\[\]{}]|^:\(|^:/")  # the shell (or git's pathspec magic) expands it to every file
+# A brace is the shell's too: zsh / bash expand `git reset {--hard,HEAD}` to `git reset --hard HEAD` and `git log
+# {--output=main.py,-1}` to an --output. Only a reflog / upstream suffix (`stash@{0}`, `HEAD@{1}`, `@{u}`, `@{-1}`),
+# which no shell expands (no comma, no `..`), keeps its braces.
+_GIT_REFLOG = re.compile(r"@\{(?:[A-Za-z0-9_:-]|\.(?!\.))+\}")
+_BRACE_EXPANSION = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")  # in a -m message (quoted, or the shell expands it)
 _GIT_STASH_DENY = frozenset({"clear", "drop"})
 _GIT_WHOLE_TREE = frozenset({".", "./", ":/"})  # `git restore .` / `git rm -r .`: every file at once
 _GIT_DENY = re.compile(r"\bext::", re.I)  # (git -c / git config never pass: the first word must be a subcommand)
 _REMOTE_NAME = re.compile(r"^[A-Za-z0-9_][\w-]*$")
 # git push's refspec: a branch, or HEAD:<branch> (never +<branch> (force) or :<branch> (delete the remote branch))
 _PUSH_REFSPEC = re.compile(r"^(?:HEAD|[A-Za-z0-9_][\w./-]*)(?::[A-Za-z0-9_][\w./-]*)?$")
+
+# the lesson's own venv interpreter, and `python3 -c` that only imports lesson libraries (`import torch, numpy`)
+_VENV_PYTHON = re.compile(r"^(?:\./)?\.?venv/bin/python3?$")
+_IMPORT_ONLY = re.compile(r"^\s*import\s+([A-Za-z_]\w*(?:\.\w+)*(?:\s*,\s*[A-Za-z_]\w*(?:\.\w+)*)*)\s*$")
+_IMPORT_ALIAS = {"sklearn": "scikit-learn", "cv2": "opencv-python", "PIL": "pillow", "yaml": "pyyaml",
+                 "bs4": "beautifulsoup4", "dotenv": "python-dotenv", "skimage": "scikit-image"}
 
 # a lesson run: a fixed list of scaffolders (`npm create evil` would run the package create-evil)
 SCAFFOLDERS = frozenset({"vite", "next-app", "svelte", "astro", "vue"})
@@ -353,6 +364,9 @@ NOTEBOOK_RUN = "Run the cell (Shift+Enter)"  # (lesson/builder.py's NOTEBOOK_RUN
 _VERB = re.compile(r"^(?:run|execute|press|hit|click)\s+", re.I)
 _WORDS = re.compile(r"^[A-Za-z0-9 ()+,.'\u25b7-]+$")
 _NOTEBOOK_WORDS = re.compile(r"shift\s*\+\s*enter|\bcells?\b|\bnotebook\b|\u25b7", re.I)
+# what a sentence never has but a command line does: a word that starts with - (an option such as --upload-pack or
+# -c) or a quote that is no apostrophe inside a word ("Click -c 'touch x' notebook", "Run 'x y' cell")
+_WORDS_ARGLIKE = re.compile(r"(?:^|\s)-|(?<!\w)'|'(?!\w)")
 
 
 def _norm_pkg(name: str) -> str:
@@ -400,8 +414,9 @@ def _run_file(t: str, exts: tuple[str, ...] = ()) -> bool:
 def _pip_problem(rest: list[str], libs: set[str], *, run: bool = False) -> str | None:
     if not rest or rest[0] != "install":
         return "not allowed"
-    if run and len(rest) == 3 and rest[1] in ("-r", "--requirement"):  # a lesson's requirements file (its lines are
-        t = rest[2][2:] if rest[2].startswith("./") else rest[2]       # vetted where it runs: server.safety.commands)
+    req = [t for t in rest[1:] if t not in _PIP_FLAGS]
+    if run and len(req) == 2 and req[0] in ("-r", "--requirement"):  # a lesson's requirements file (its lines are
+        t = req[1][2:] if req[1].startswith("./") else req[1]        # vetted where it runs: server.safety.commands)
         return None if _REQUIREMENTS.match(t) and ".." not in t.split("/") else "not allowed"
     pkgs = [t for t in rest[1:] if t not in _PIP_FLAGS]
     if not pkgs:
@@ -444,10 +459,14 @@ def _git_problem(toks: list[str]) -> str | None:
     for t in toks[2:]:
         if message:
             message = False
+            if _BRACE_EXPANSION.search(t):  # `-m {x,--no-verify}` is `-m x --no-verify` to the shell
+                return "not allowed"
             continue
         if t.startswith("--message="):
+            if _BRACE_EXPANSION.search(t):
+                return "not allowed"
             continue
-        if _GIT_GLOB.search(t):
+        if _GIT_GLOB.search(_GIT_REFLOG.sub("", t)):
             return "not allowed"
         if not end_of_options and (t == "--message" or re.match(r"^-[A-Za-z]*m$", t)):
             message = sub in ("commit", "tag", "merge", "stash", "revert", "cherry-pick")
@@ -584,6 +603,11 @@ def _other_tool_problem(head: str, rest: list[str], libs: set[str]) -> str | Non
             return None if len(args) <= 1 and all(_REL_NAME.match(a) and a != "." for a in args) else "not allowed"
         if sub not in ("run", "build", "test", "check"):
             return "not allowed"
+        if sub == "run" and "--" in args:  # `cargo run -- 5`: plain arguments to the lesson's own program
+            i = args.index("--")
+            if not _plain(args[i + 1:], ("-",)):
+                return "not allowed"
+            args = args[:i]
         return _opts_problem(args, frozenset({"--release", "-q", "--quiet"}), {"--bin": _TARGET_NAME, "--example": _TARGET_NAME})
     if head == "go":
         sub, args = (rest[0] if rest else ""), rest[1:]
@@ -605,6 +629,10 @@ def _other_tool_problem(head: str, rest: list[str], libs: set[str]) -> str | Non
     if head == "javac":
         return None if rest and all(_run_file(a, ("java",)) for a in rest) else "not allowed"
     if head == "java":
+        if rest[:1] in (["-cp"], ["-classpath"], ["--class-path"]) and len(rest) > 1:  # `java -cp . Main`
+            if not all(_REL_NAME.match(p) for p in rest[1].split(":")):
+                return "not allowed"
+            rest = rest[2:]
         if not rest or not (_run_file(rest[0], ("java",)) or _CLASS_NAME.match(rest[0])):
             return "not allowed"
         return None if _plain(rest[1:]) else "not allowed"
@@ -673,9 +701,11 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
       -c / -e / -m code);
     - a `git` command from a fixed list of subcommands, with no URL or `host:path`, no other repository, no option
       that runs a program (-x / --exec, --upload-pack, -O, --extcmd, ..., or any abbreviation of one), and nothing
-      that throws work away (--hard, --force / -f / +branch, --no-verify, a glob, `git restore .`, `git stash clear`).
+      that throws work away (--hard, --force / -f / +branch, --no-verify, a glob or a brace the shell expands, `git restore .`,
+      `git stash clear`).
     run=True (a lesson's run_command) also allows pytest (its own options an allowlist), npm run / start / test / ci,
-    a fixed list of scaffolders (`npm create vite@latest app`), `python3 -m venv|pytest|unittest`, `--version`
+    a fixed list of scaffolders (`npm create vite@latest app`), `python3 -m venv|pytest|unittest|py_compile`,
+    `python3 -c 'import <a lesson library>'`, `node --check <file>`, the lesson's .venv/bin/python, `--version`
     probes, flask / uvicorn / streamlit / jupyter runs of the lesson's files with a fixed argument shape (never a
     host, address, token or origin), `source .venv/bin/activate`, and cd / mkdir / ls / touch inside the lesson
     folder. Never npx / pipx / uvx / bunx / npm exec, a pipeline or `;` / `&&` / `||`.
@@ -698,6 +728,8 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
     if not toks:
         return None
     head = toks[0]
+    if _VENV_PYTHON.match(head):  # the lesson's own venv interpreter reads like python3
+        head = toks[0] = "python3"
     # (uvicorn's first argument is module:attr, `app.main:app`, never a remote)
     if _remote_arg(toks[:1] + toks[2:] if head == "uvicorn" else toks):
         return "url"
@@ -714,7 +746,13 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
                 return _pytest_problem(toks[3:])
             if toks[2] == "unittest":
                 return None if _plain(toks[3:]) else "not allowed"
+            if toks[2] == "py_compile":  # a syntax check of the lesson's files
+                return None if toks[3:] and all(_run_file(t) for t in toks[3:]) else "not allowed"
             return "not allowed"
+        if run and len(toks) == 3 and toks[1] == "-c":  # `python3 -c 'import torch'`: a lesson library imports
+            m = _IMPORT_ONLY.match(toks[2])
+            mods = [x.strip().split(".")[0] for x in m.group(1).split(",")] if m else []
+            return None if mods and all(_norm_pkg(_IMPORT_ALIAS.get(x, x)) in libs for x in mods) else "not allowed"
         if run and toks[1:] in (["--version"], ["-V"]):
             return None
         if len(toks) < 2 or not _run_file(toks[1]):
@@ -723,6 +761,8 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
     if head == "node":
         if run and toks[1:] in (["--version"], ["-v"]):
             return None
+        if run and len(toks) == 3 and toks[1] in ("--check", "-c"):  # a syntax check, never runs the file
+            return None if _run_file(toks[2]) else "not allowed"
         if len(toks) < 2 or not _run_file(toks[1]):
             return "not allowed"
         return None if _plain(toks[2:]) else "not allowed"
@@ -777,6 +817,7 @@ def run_command_problem(cmd: Any, libraries: Any = None) -> str | None:
         if verb and _SHELL_HEAD.match(ln[verb.end():]):
             ln = ln[verb.end():]
         elif len(lines) == 1 and (ln == NOTEBOOK_RUN or (verb and _WORDS.match(ln) and _NOTEBOOK_WORDS.search(ln)
+                                                         and not _WORDS_ARGLIKE.search(ln)
                                                          and not _CMD_DENY.search(ln) and not _DANGEROUS.search(ln))):
             # a run in words. session._run_for_me hands run_command to /bin/sh (or VS Code's terminal), so a words
             # line is only one whose first word is Run / Execute / Press / Hit / Click, never a real program

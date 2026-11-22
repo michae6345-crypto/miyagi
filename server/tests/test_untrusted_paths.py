@@ -854,3 +854,74 @@ def test_judge_fences_the_editor_file_name(monkeypatch):
     sent = _sent(seen[0])
     fenced_only(sent)
     assert 'EDITOR (from the editor window, not OCR): VS Code showing <untrusted source="screen"' in sent
+
+
+# zsh / bash expand braces before git sees them: `git reset {--hard,HEAD}` is `git reset --hard HEAD`
+BRACE_GIT = ["git reset {--hard,HEAD}", "git checkout {-f,main}", "git stash {clear,}", "git restore {.,}",
+             "git log {--output=main.py,-1}", "git commit -m {x,--no-verify}", "git commit --message={x,--amend}",
+             "git log {1..3}", "git diff HEAD@{1,2}"]
+
+
+@pytest.mark.parametrize("cmd", BRACE_GIT)
+def test_shell_brace_expansion_never_gets_past_the_git_checks(cmd):
+    assert untrusted.command_problem(cmd) is not None, cmd
+    assert untrusted.command_problem(cmd, run=True) is not None, cmd
+    assert run_command_problem(cmd) is not None, cmd
+
+
+@pytest.mark.parametrize("cmd", ["git stash apply stash@{0}", "git show HEAD@{1}", "git log @{u}", "git checkout @{-1}",
+                                 'git commit -m "Add the {name} placeholder"'])
+def test_a_reflog_suffix_or_a_plain_brace_in_a_message_still_passes(cmd):
+    assert untrusted.command_problem(cmd) is None, cmd
+    assert run_command_problem(cmd) is None, cmd
+
+
+@pytest.mark.parametrize("cmd", ["Run --upload-pack 'touch PWNED' notebook", "Click -c 'touch x' notebook",
+                                 "Execute -x cell", "Run 'touch x' cell", "Press notebook --exec=x"])
+def test_a_words_run_never_carries_an_option_or_a_quoted_argument(cmd):
+    assert run_command_problem(cmd) is not None, cmd
+
+
+@pytest.mark.parametrize("cmd", ["Run the cell (Shift+Enter)", "Run the notebook's first cell", "Click the ▷ next to the cell",
+                                 "Run every cell in the notebook", "Run the cell-by-cell notebook"])
+def test_a_words_run_that_is_a_sentence_still_passes(cmd):
+    assert run_command_problem(cmd) is None, cmd
+
+
+@pytest.mark.parametrize("cmd", ["node --check app.js", "node -c src/app.mjs", "python3 -m py_compile a.py",
+                                 "python3 -m py_compile a.py pkg/b.py", ".venv/bin/python nn.py", "venv/bin/python3 nn.py --epochs 1",
+                                 "./.venv/bin/python -m pytest -q", "cargo run -- 5", "cargo run --release -- input.txt",
+                                 "java -cp . Main", "java -classpath out:lib.jar com.example.App",
+                                 "pip install -r requirements.txt --user", "pip install -q -r requirements.txt"])
+def test_common_check_commands_have_a_shape(cmd):
+    assert run_command_problem(cmd, ["torch"]) is None, cmd
+
+
+def test_python_c_only_imports_lesson_libraries():
+    libs = ["torch", "numpy", "scikit-learn"]
+    for ok in ("python3 -c 'import torch'", 'python3 -c "import torch, numpy"', "python3 -c 'import torch.nn'",
+               "python -c 'import sklearn'"):
+        assert run_command_problem(ok, libs) is None, ok
+    for bad in ("python3 -c 'import os'", "python3 -c 'import antigravity'", "python3 -c 'import torch; import os'",
+                "python3 -c '__import__(\"os\").system(\"id\")'", "python3 -c 'import torch' extra",
+                "python3 -c 'from os import system'"):
+        assert run_command_problem(bad, libs) is not None, bad
+    assert run_command_problem("python3 -c 'import torch'") is not None  # no libraries: nothing to import
+    assert untrusted.command_problem("python3 -c 'import torch'", libs) is not None  # the coach never copies -c
+
+
+@pytest.mark.parametrize("cmd", ["node --check ../x.js", "node --check /tmp/x.js", "node -e 'x'", "python3 -m py_compile ../x.py",
+                                 "python3 -m py_compile", "/tmp/venv/bin/python x.py", ".venv/bin/pip install evil",
+                                 "cargo run -- --config x", "cargo run -- $(id)", "java -cp /tmp Evil", "java -cp ../x Evil",
+                                 "java -cp . -javaagent:x.jar Main", "pip install -r requirements.txt --index-url x"])
+def test_the_new_check_shapes_are_narrow(cmd):
+    assert run_command_problem(cmd, ["torch"]) is not None, cmd
+
+
+def test_a_check_with_a_common_shape_is_kept():
+    step = {"title": "t", "instructions": "Run it.", "run_command": "python3 nn.py",
+            "checks": [{"id": "c1", "type": "command_exit_ok", "label": "x", "command": "python3 -m py_compile nn.py"},
+                       {"id": "c2", "type": "command_exit_ok", "label": "x", "command": "python3 -c 'import torch'"},
+                       {"id": "c3", "type": "command_exit_ok", "label": "x", "command": "git reset {--hard,HEAD}"}]}
+    out = strip_injection({"libraries": {"torch": "2.3"}, "steps": [step]})["steps"][0]
+    assert [c["id"] for c in out["checks"]] == ["c1", "c2"]
