@@ -116,7 +116,8 @@ const underPage = (path: string, page: string): boolean => (page === '/' ? path 
  */
 export function isSetupDownloadUrl(raw: unknown): boolean {
   const u = parse(raw)
-  if (!u || !isPlainHttps(u) || u.search || u.hash || ENCODED_TRAVERSAL.test(u.pathname)) return false
+  // href, not search/hash: those read '' for a bare '?' or '#', which href keeps.
+  if (!u || !isPlainHttps(u) || /[?#]/.test(u.href) || ENCODED_TRAVERSAL.test(u.pathname)) return false
   const host = u.hostname.toLowerCase().replace(/^www\./, '')
   if (host === 'github.com') {
     // One trailing slash is the same page. After the repo: nothing, releases or releases/latest; anything else is refused.
