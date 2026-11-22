@@ -31,13 +31,16 @@ Cloud side: branch `claude/eng-proxy-funnel` (PR into `claude/eng-proxy-next`): 
 2. **Privacy facts**: one line under "usage" in `renderer/src/features/settings/privacy/facts.ts`: "With usage on and
    signed in: when you first launched, signed in, granted permissions, and started, passed and finished a lesson.
    Times only." (+ facts.test.ts).
-3. **Settings toggle (for Adrian)**: today the funnel rides on the existing "Share crash reports and usage" switch.
-   If Michael wants it separate, a "Help improve setup (first-run timing)" switch in Settings › Privacy writing
-   `prefs.shareFunnel`; funnel.ts would read that instead.
-4. `auth.ts onSignedIn` holds one hook (cloudLink.ts uses it). A multi-listener version would let funnel.ts record
+3. `auth.ts onSignedIn` holds one hook (cloudLink.ts uses it). A multi-listener version would let funnel.ts record
    signed_in at the sign-in instant instead of at the link time (seconds apart today).
 
-## Needs Michael's yes
-- Whether milestones recorded before the switch was turned on may be sent once it is on (they are today: times only).
-- Whether the funnel stays on the shared usage switch or gets its own (Core request 3).
-- Applying the Postgres migration when the cloud moves to Supabase (file only now).
+## Decisions (Michael, Nov 22)
+- The funnel stays on the existing "Share crash reports and usage" switch: no separate toggle (Core request 3 dropped).
+- Milestones recorded before opt-in may be sent after opt-in (names and times only).
+- Cloud side merged into `claude/eng-proxy-next` (staging, #244, 07852563): POST /v1/funnel, GET /admin/funnel,
+  35-day retention into `funnel_daily`, deleted with the account (every linked install).
+
+## Still needs Michael's yes
+- Promoting the cloud to `claude/eng-proxy` (the Render prod deploy).
+- Applying the Postgres migration (file only; no Postgres move is planned).
+- This app PR stays a draft into `adrian/shell` for Adrian's review.
