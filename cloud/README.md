@@ -65,6 +65,9 @@ key (`metadata`, `inference_geo`, `task_budget`, ...) is dropped. Refused with 4
   result's content), only a `tool_use` block's `input` (the model's own JSON) is skipped, and content nested
   deeper than 32 levels is refused rather than left unchecked. Anthropic would fetch those on our account. Base64
   images and documents are fine.
+- A `cache_control` that is not `{"type": "ephemeral"}`. Its `ttl` is dropped unless it is `"5m"` (in content,
+  `system` and tools alike): a 1-hour cache write bills 2x input, against the 1.25x the caps price a cache write at.
+  A usage block that still reports `ephemeral_1h_input_tokens` is settled at 2x for those tokens.
 - `anthropic-beta` values outside `ANTHROPIC_BETAS` (default `server-side-fallback-2026-07-01`, the only one
   the engine sends).
 - `speed: "fast"` unless `ALLOW_FAST_MODE=true` (fast mode bills 2x; the engine retries at standard speed).
@@ -82,7 +85,12 @@ fallback may answer on Sonnet 5), never an Opus id.
   `responseMimeType`, `responseSchema`, `responseJsonSchema`, `mediaResolution`, `candidateCount` forced to 1,
   `maxOutputTokens` clamped to `GEMINI_MAX_OUTPUT_TOKENS` and sent even when the client sends none,
   `thinkingConfig.thinkingBudget` clamped to `GEMINI_MAX_THINKING_TOKENS`). Parts keep `text`, `inlineData`,
-  `fileData`, `videoMetadata`, function calls and responses.
+  `fileData`, `videoMetadata` (`startOffset`, `endOffset`, and `fps` clamped to `GEMINI_MAX_FPS`, 2), function
+  calls and function responses (rebuilt as `{id, name, response}`).
+- `fileData`, `file_data`, `fileUri` or `file_uri` anywhere in a part other than its validated top-level
+  `fileData` (a `functionCall`'s args, a `videoMetadata`, ...) is refused, and so is any `functionResponse.parts`
+  (Gemini 3's multimodal function responses carry `file_data` / `inline_data` the model would read). A video
+  window whose `endOffset` is before its `startOffset`, or an `fps` that is not a positive number, is refused.
 - Thinking and the output clamp: the engine (`lesson/gemini.py` `_generate_json`, `finder/gemini.py`) sends
   `responseJsonSchema` and neither `maxOutputTokens` nor a `thinkingConfig`, so the model's dynamic thinking
   applies. On Gemini 2.5 and later thinking tokens count against `maxOutputTokens`, so the clamp has to leave the
@@ -270,8 +278,12 @@ Authorization: Bearer <mi_ install token from /v1/install>
 ```
 
 The errors are the flat `{"error": kind}` shape, not the proxy's `{type, error: {...}}` shape. A link from a
-different account on the same install replaces the user (one user per install). Like every `/v1` route it
-answers 503 `proxy_disabled` while `PROXY_ENABLED=false`.
+different account on the same install replaces the user (one user per install). Relinking never moves spend
+between caps: what the install had used that UTC day stays counted against the user it leaves, or, on its first
+link, against its mint network's anonymous pool (`ANON_DAILY_USD_PER_NETWORK`), through the table `moved_usage`.
+The new user's sum sees the install's whole day too. Without this, moving spent installs onto a spare Google
+account reset `LINKED_DAILY_USD`, and linking a spent anonymous install freed its network's pool. Like every `/v1`
+route it answers 503 `proxy_disabled` while `PROXY_ENABLED=false`.
 
 Verification (`supabase_auth.py`, PyJWT with the `cryptography` backend):
 
@@ -324,9 +336,12 @@ checks and counts it, input included (a large prompt with `max_tokens: 1` is not
 - Input: the forwarded JSON's bytes / 3 at the input price (real text is nearer 4 bytes a token, so this errs
   high), with each base64 image at 5000 tokens instead of its bytes. Anthropic adds what the allowed server tools
   may pull in: `max_content_tokens` per `web_fetch` use and 8000 tokens per `web_search` use. Gemini adds each
-  YouTube part: with an end offset (the engine's windows), its seconds x (fps x 258 tokens a frame, 70 at
-  `MEDIA_RESOLUTION_LOW`, + 32 audio tokens); without one, `GEMINI_VIDEO_RESERVE_TOKENS` (300000, about 30 minutes
-  at the engine's 0.5 fps).
+  YouTube part: with a window (an end offset after its start: the engine's windows), its seconds x (fps x 258
+  tokens a frame, 70 at `MEDIA_RESOLUTION_LOW`, + 32 audio tokens), fps 1 when unset and at most `GEMINI_MAX_FPS`
+  (2); without one (no end, an unparseable offset, or an end equal to the start), a whole video:
+  `GEMINI_VIDEO_RESERVE_TOKENS` (300000, about 30 minutes at the engine's 0.5 fps), scaled up by the part's rate
+  when it is above 0.5 fps. Each part, and the call's whole input, is capped at `GEMINI_CONTEXT_TOKENS` (1048576):
+  no call can bill more input than the context.
 - Output: Anthropic `max_tokens` (after the cap; thinking is inside it); Gemini the clamped `maxOutputTokens`
   (thinking is inside it too), at the output price. Plus $0.01 per allowed server-tool use.
 
@@ -365,9 +380,12 @@ for the monthly build cap. `limit` is `daily_requests`, `daily_spend` (both with
 - Request bodies, prompts, screenshots, install tokens, admin tokens and keys are never logged. One line per
   request: method, path, status, latency, model, token counts, token-hash prefix, and `rl=` for a rate-limit 429.
   Uvicorn's access log is turned off because it would print query strings.
-- Body size limit: `MAX_GEMINI_BODY_MB` (2) on `/v1/gemini/*`, `MAX_BODY_MB` (2) elsewhere, checked on
-  `Content-Length` and while reading chunked bodies; body bytes in memory are bounded in total and per network
-  (Calls in flight), and parsing stops at `JSON_MAX_OBJECTS`.
+- Body size limit: `MAX_GEMINI_BODY_MB` (2) on `/v1/gemini/*`; 4 KB on `/v1/install`, `/v1/register` and every
+  `/admin` route; 16 KB on `/v1/link`; 32 KB on `/v1/events`; `MAX_BODY_MB` (2) elsewhere. `Guard` checks it on
+  `Content-Length` and while reading chunked bodies, before any route buffers the body, and the small routes read
+  their body under `BODY_READ_TIMEOUT_S` (408 after) and validate it themselves instead of through a FastAPI body
+  parameter (which read up to 2 MB with no time limit before the handler ran). Body bytes in memory are bounded in
+  total and per network (Calls in flight), and parsing stops at `JSON_MAX_OBJECTS`.
 - No CORS: no `Access-Control-*` headers, and any `/v1` request carrying an `Origin` header is refused with 403.
 - Admin token (A22): `ADMIN_TOKEN` must be at least 32 characters, with at least 12 distinct characters, and
   not a well-known value (`test`, `admin`, `changeme`, `password`, `admin-test`, ...). A weak or missing one does
@@ -509,6 +527,8 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `GEMINI_MAX_OUTPUT_TOKENS` | `32768` | Clamp on (and default for) `generationConfig.maxOutputTokens`, thinking included (What the Gemini route enforces). |
 | `GEMINI_MAX_THINKING_TOKENS` | `2048` | Clamp on a `thinkingConfig.thinkingBudget` a client sends. |
 | `GEMINI_VIDEO_RESERVE_TOKENS` | `300000` | Input held for a YouTube part without an end offset. |
+| `GEMINI_MAX_FPS` | `2` | `videoMetadata.fps` is clamped to this before forwarding and reserving. |
+| `GEMINI_CONTEXT_TOKENS` | `1048576` | The most input one Gemini call is reserved at (the model context). |
 | `ALLOW_FAST_MODE` | `false` | Allow Anthropic `speed: "fast"`. |
 | `ANTHROPIC_VERSION` | `2023-06-01` | Used when the client sends no `anthropic-version`. |
 | `MAX_BODY_MB` / `MAX_GEMINI_BODY_MB` | `2` / `2` | Request size limits. |

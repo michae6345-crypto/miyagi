@@ -1378,3 +1378,216 @@ def test_strong_admin_token_works(make_cloud):
     assert app_mod.ADMIN_ENABLED is True and len(ADMIN_TOKEN) >= 32
     assert client.get("/admin/usage", headers=ADMIN).status_code == 200
     assert app_mod.admin_token_problem(ADMIN_TOKEN) is None
+
+
+# --------------------------------------------------------------------------- round 3: the rate-limit review's leftovers
+
+@pytest.mark.parametrize("part", [
+    # the probe: Gemini 3 multimodal function responses carry file_data / inline_data the model reads
+    {"functionResponse": {"name": "f", "response": {}, "parts": [{"fileData": {"fileUri": "https://evil.example/huge.pdf"}}]}},
+    {"functionResponse": {"name": "f", "response": {}, "parts": [{"file_data": {"file_uri": "gs://bucket/x.mp4"}}]}},
+    {"functionResponse": {"name": "f", "response": {}, "parts": [{"inline_data": {"mime_type": "image/png", "data": "AA=="}}]}},
+    {"functionResponse": {"name": "f", "response": {"file_data": {"file_uri": "gs://bucket/x.mp4"}}}},
+    {"functionCall": {"name": "f", "args": {"fileData": {"fileUri": "https://evil.example/x"}}}},
+    {"inlineData": {"mimeType": "image/png", "data": "AA==", "fileUri": "https://evil.example/x"}},
+])
+def test_gemini_file_refs_nested_in_a_part_are_refused(make_cloud, part):
+    client, app_mod = make_cloud()
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    r = post_gemini(client, h, gem_body(contents=[{"role": "user", "parts": [part]}]))
+    assert r.status_code == 400, r.text
+    assert up.requests == [] and app_mod.inflight.total == 0 and app_mod.inflight.per == {}
+
+
+def test_gemini_function_response_is_rebuilt(make_cloud):
+    client, app_mod = make_cloud()
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    fr = {"id": "call-1", "name": "lookup", "response": {"result": 42}, "willContinue": True, "scheduling": "SILENT"}
+    contents = [{"role": "model", "parts": [{"functionCall": {"name": "lookup", "args": {"q": "x"}}}]},
+                {"role": "user", "parts": [{"functionResponse": fr}, {"file_data": {"file_uri": "gs://b/x"}}]}]
+    assert post_gemini(client, h, gem_body(contents=contents)).status_code == 200
+    sent = up.last["contents"]
+    assert sent[1]["parts"] == [{"functionResponse": {"name": "lookup", "response": {"result": 42}, "id": "call-1"}}]
+    assert "file_data" not in json.dumps(up.last) and "gs://" not in json.dumps(up.last)  # snake_case part: dropped
+
+
+def test_gemini_video_fps_is_clamped_and_reserved_at_its_rate(make_cloud):
+    client, app_mod = make_cloud()
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    assert app_mod.GEMINI_MAX_FPS == 2.0 and app_mod.GEMINI_CONTEXT_TOKENS == 1_048_576
+    part = {"fileData": {"fileUri": YT}, "videoMetadata": {"startOffset": "0s", "endOffset": "60s", "fps": 24,
+                                                           "fileUri": "https://evil.example/x"}}  # unknown keys dropped
+    assert post_gemini(client, h, gem_body(contents=[{"parts": [part]}])).status_code == 200
+    assert up.last["contents"][0]["parts"][0]["videoMetadata"] == {"startOffset": "0s", "endOffset": "60s", "fps": 2.0}
+    # a 60 s window at 24 fps is reserved at 2 fps (what is forwarded)
+    clean, _ = app_mod.sanitize_gemini({"contents": [{"parts": [part]}]})
+    assert app_mod._video_tokens(clean["contents"][0]["parts"][0], False) == int(60 * (2 * 258 + 32))
+    # a whole video above 0.5 fps holds more than the flat reserve; at 0.5 fps (or low resolution) the flat reserve
+    def whole(fps):
+        return {"fileData": {"fileUri": YT}, "videoMetadata": {"fps": fps}}
+    assert app_mod._video_tokens(whole(2), False) == int(300_000 * (2 * 258 + 32) / (0.5 * 258 + 32))
+    assert app_mod._video_tokens(whole(24), False) == app_mod._video_tokens(whole(2), False)  # a raw 24 is clamped too
+    assert app_mod._video_tokens(whole(0.5), False) == 300_000
+    assert app_mod._video_tokens(whole(0.5), True) == 300_000
+    assert app_mod._video_tokens({"fileData": {"fileUri": YT}}, False) == int(300_000 * 290 / 161)  # Gemini's 1 fps
+    # a huge window is capped at the model's context, and so is the call's whole input
+    huge = {"fileData": {"fileUri": YT}, "videoMetadata": {"startOffset": "0s", "endOffset": "999999s", "fps": 2}}
+    assert app_mod._video_tokens(huge, False) == 1_048_576
+    clean, _ = app_mod.sanitize_gemini({"contents": [{"parts": [huge, huge, huge]}]})
+    payload = len(json.dumps(clean).encode())
+    want = 1_048_576 * app_mod.input_price(GEM) + 32768 * app_mod.output_price(GEM)
+    assert app_mod.gemini_reserve(clean, GEM, payload) == pytest.approx(want)
+
+
+@pytest.mark.parametrize("vm", [{"startOffset": "100s", "endOffset": "50s"}, {"startOffset": 100, "endOffset": 50},
+                                {"fps": 0}, {"fps": -1}, {"fps": "24"}])
+def test_gemini_inverted_window_or_bad_fps_is_refused(make_cloud, vm):
+    client, app_mod = make_cloud()
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    r = post_gemini(client, h, gem_body(contents=[{"parts": [{"fileData": {"fileUri": YT}, "videoMetadata": vm}]}]))
+    assert r.status_code == 400 and "videoMetadata" in r.json()["error"]["message"], r.text
+    assert up.requests == []
+
+
+@pytest.mark.parametrize("vm", [{"startOffset": "50s", "endOffset": "50s"}, {"startOffset": "abc", "endOffset": "50s"},
+                                {"endOffset": "1e9s"}, {"startOffset": "10s"}])
+def test_gemini_empty_or_unparseable_window_is_reserved_as_a_whole_video(make_cloud, vm):
+    _, app_mod = make_cloud()
+    clean, _ = app_mod.sanitize_gemini({"contents": [{"parts": [{"fileData": {"fileUri": YT}, "videoMetadata": {**vm, "fps": 0.5}}]}]})
+    assert app_mod._video_tokens(clean["contents"][0]["parts"][0], False) == 300_000
+
+
+def test_anthropic_cache_ttl_is_stripped_everywhere(make_cloud):
+    client, app_mod = make_cloud()
+    up = Upstream(app_mod)
+    h, _ = install(client)
+    one_h = {"type": "ephemeral", "ttl": "1h"}
+    body = {"model": HAIKU, "max_tokens": 10,
+            "system": [{"type": "text", "text": "sys", "cache_control": one_h}],
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": "hi", "cache_control": one_h},
+                {"type": "tool_result", "tool_use_id": "t", "content": [{"type": "text", "text": "r", "cache_control": one_h}]},
+                {"type": "text", "text": "five", "cache_control": {"type": "ephemeral", "ttl": "5m"}}]}],
+            "tools": [{"name": "t", "input_schema": {"type": "object"}, "cache_control": one_h}]}
+    assert post_anthropic(client, h, body).status_code == 200
+    sent = up.last
+    assert sent["system"][0]["cache_control"] == {"type": "ephemeral"}
+    content = sent["messages"][0]["content"]
+    assert content[0]["cache_control"] == {"type": "ephemeral"}
+    assert content[1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert content[2]["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
+    assert sent["tools"][0]["cache_control"] == {"type": "ephemeral"}
+    assert '"1h"' not in up.requests[-1].content.decode()
+    bad = {**body, "messages": [{"role": "user", "content": [{"type": "text", "text": "x", "cache_control": {"type": "persistent"}}]}]}
+    assert post_anthropic(client, h, bad).status_code == 400
+
+
+def test_one_hour_cache_writes_are_priced_at_twice_input(make_cloud):
+    client, app_mod = make_cloud()
+    pin = app_mod.PRICES[SONNET][0] / 1e6
+    assert app_mod.estimate_usd(SONNET, 1000, 0, cache_write=1000) == pytest.approx(1000 * pin * 1.25)
+    assert app_mod.estimate_usd(SONNET, 1000, 0, cache_write=1000, cache_write_1h=600) == pytest.approx(400 * pin * 1.25 + 600 * pin * 2)
+    usage = {"type": "message", "model": HAIKU, "content": [], "usage": {
+        "input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 1000,
+        "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 1000}}}
+    Upstream(app_mod, body=usage)
+    h, _ = install(client)
+    assert post_anthropic(client, h, {"model": HAIKU, "max_tokens": 10, "messages": msg()}).status_code == 200
+    th = app_mod.hash_token(h["Authorization"][7:])
+    assert app_mod.store.usd_today_for(th) == pytest.approx(1000 * app_mod.PRICES[HAIKU][0] / 1e6 * 2)
+
+
+async def _asgi_raw(app, path: str, chunks: list[bytes], headers: dict | None = None):
+    """One raw ASGI POST sending `chunks` (no Content-Length unless given). Returns the status."""
+    sent: list[dict] = []
+    left = list(chunks)
+
+    async def receive():
+        if left:
+            c = left.pop(0)
+            return {"type": "http.request", "body": c, "more_body": bool(left)}
+        return {"type": "http.disconnect"}
+
+    async def send(m):
+        sent.append(m)
+
+    hs = [(k.lower().encode(), v.encode()) for k, v in {"content-type": "application/json", **(headers or {})}.items()]
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http",
+             "path": path, "raw_path": path.encode(), "query_string": b"", "root_path": "", "headers": hs,
+             "client": ("127.0.0.1", 40002), "server": ("testserver", 80)}
+    await app(scope, receive, send)
+    return next((m["status"] for m in sent if m["type"] == "http.response.start"), None)
+
+
+def test_install_and_admin_bodies_are_small_and_time_bound(make_cloud):
+    """The probe: a client declared Content-Length 2000000 on /v1/install, sent 1.9 MB and stalled; it was still
+    held after 30 s. Now 4 KB is the most these routes take (declared or counted), and a stalled body is 408."""
+    client, app_mod = make_cloud(BODY_READ_TIMEOUT_S="0.2")
+    h, token_id = install(client)
+    assert app_mod.SMALL_BODY_MAX == 4096
+    pad = {"app": "test", "pad": "x" * 5000}
+    for path, kw in (("/v1/install", {}), ("/v1/register", {}), (f"/admin/tokens/{token_id}/plan", {"headers": ADMIN}),
+                     ("/admin/lessons/dQw4w9WgXcQ/approve", {"headers": ADMIN})):
+        r = client.post(path, json=pad, **kw)
+        assert r.status_code == 413 and r.json()["error"]["message"] == "Request body over 4 KB.", (path, r.text)
+
+    async def scenario():
+        # declared too big: refused before a byte is read
+        assert await _asgi_raw(app_mod.app, "/v1/install", [b"{}"], {"content-length": "2000000"}) == 413
+        # a body that lies about its length (or sends none) is stopped by the running count
+        assert await _asgi_raw(app_mod.app, "/v1/install", [b'{"app": "', b"x" * 3000, b"x" * 3000, b'"}']) == 413
+        assert await _asgi_raw(app_mod.app, "/v1/install", [b'{"app": "', b"x" * 5000, b'"}'], {"content-length": "100"}) == 413
+        # a stalled small body is cut off at BODY_READ_TIMEOUT_S
+        loop = asyncio.get_running_loop()
+        for path, hdrs in (("/v1/install", {}), ("/v1/register", {}), (f"/admin/tokens/{token_id}/plan", ADMIN)):
+            t0 = loop.time()
+            status = await asyncio.wait_for(_asgi_slow(app_mod.app, path, hdrs, asyncio.Event(), asyncio.Event(), length=1000), 5)
+            assert status == 408 and loop.time() - t0 < 2, path
+
+    asyncio.run(scenario())
+    # what the app and the admin send still works; a malformed body is 422 as before
+    assert client.post("/v1/install", json={"app": "a", "os": "darwin", "arch": "arm64", "extra": 1}).status_code == 200
+    assert client.post("/v1/install", json={"app": "a" * 65}).status_code == 422
+    assert client.post("/v1/install", content=b"[1]").status_code == 422
+    r = client.post("/v1/register", json={"install_id": "i", "app_version": "1", "platform": "darwin"})
+    assert r.status_code == 200 and r.json()["token"].startswith("mi_")
+    assert client.post("/v1/register", json={"install_id": "i"}).status_code == 422
+    assert client.post(f"/admin/tokens/{token_id}/plan", json={"plan": "pro"}, headers=ADMIN).json()["plan"] == "pro"
+    assert client.post(f"/admin/tokens/{token_id}/plan", json={"plan": "pro"}).status_code == 401  # auth before body
+    assert app_mod.body_limit("/v1/gemini/x") == app_mod.MAX_GEMINI_BODY and app_mod.body_limit("/v1/link") == 16 * 1024
+    assert app_mod.body_limit("/v1/events") == 32 * 1024 and app_mod.body_limit("/v1/anthropic/messages") == app_mod.MAX_BODY
+
+
+def test_relinking_does_not_move_spend_between_caps(make_cloud):
+    """A user moving spent installs onto a spare account used to reset LINKED_DAILY_USD: the spend now stays counted
+    against the user it leaves (and the new user sees it too)."""
+    client, app_mod = make_cloud(LINKED_DAILY_USD="0.50", FREE_DAILY_USD="5")
+    spent, _ = install(client)
+    other, _ = install(client)
+    hs, ho = (app_mod.hash_token(x["Authorization"][7:]) for x in (spent, other))
+    app_mod.store.link_user(hs, "user-a")
+    app_mod.store.link_user(ho, "user-a")
+    app_mod.store.add_tokens(hs, "anthropic", HAIKU, 10, 10, 0.50)
+    assert anthropic(client, other).status_code == 429  # user-a is at its cap
+    assert app_mod.store.link_user_capped(hs, "user-b", 10)  # relinking still works (one user per install)
+    assert app_mod.store.get_link(hs)["user_id"] == "user-b"
+    r = anthropic(client, other)
+    assert r.status_code == 429 and r.json()["error"]["scope"] == "account"  # user-a's cap was not reset
+    assert anthropic(client, spent).status_code == 429  # and user-b's sum sees the install's day
+    # relinking the same pair again records nothing more
+    assert app_mod.store.link_user_capped(hs, "user-b", 10)
+    assert len(app_mod.store._q("SELECT * FROM moved_usage")) == 1
+
+
+def test_xff_hop_count_is_logged_once_without_addresses(make_cloud, caplog):
+    client, app_mod = make_cloud()
+    with caplog.at_level(logging.INFO, logger="miyagi.cloud"):
+        for ip in ("8.8.4.4", "9.9.9.9"):
+            client.post("/v1/install", json={}, headers={"X-Forwarded-For": f"10.0.0.1, {ip}"})
+    lines = [r.getMessage() for r in caplog.records if "X-Forwarded-For entr" in r.getMessage()]
+    assert lines == ["first request: 2 X-Forwarded-For entries (TRUSTED_PROXY_HOPS=1); the chosen entry is a global address"]
+    assert "8.8.4.4" not in caplog.text and "10.0.0.1" not in caplog.text

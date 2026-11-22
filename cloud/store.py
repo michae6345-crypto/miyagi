@@ -129,6 +129,19 @@ CREATE TABLE IF NOT EXISTS event_props (
     total      REAL NOT NULL DEFAULT 0,    -- the sum of a number's values
     PRIMARY KEY (token_hash, day, name, key, value)
 );
+-- What an install had already used on a UTC day when POST /v1/link moved it away from the scope its caps were
+-- summed over: a user (from_user, on a relink to another account) or the anonymous network pool (from_net, on its
+-- first link). admit_call adds these rows back to that scope, so relinking cannot reset a cap: the spend stays
+-- where it was made (and the new user's sum sees the install's whole day too).
+CREATE TABLE IF NOT EXISTS moved_usage (
+    token_hash TEXT NOT NULL,
+    day        TEXT NOT NULL,
+    from_user  TEXT,
+    from_net   TEXT,
+    requests   INTEGER NOT NULL DEFAULT 0,
+    usd        REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS moved_usage_day ON moved_usage (day);
 -- Events taken per install and UTC receive day: the EVENTS_PER_DAY cap reads it.
 CREATE TABLE IF NOT EXISTS event_intake (
     token_hash TEXT NOT NULL,
@@ -483,6 +496,10 @@ class Store:
                         scope, arg = "token_hash = ?", token_hash
                     reqs, usd = self._db.execute(f"SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM usage "
                                                  f"WHERE day = ? AND {scope}", (day, arg)).fetchone()
+                    if user_id:  # what installs relinked away from this user had used today
+                        mr, mu = self._db.execute("SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM moved_usage "
+                                                  "WHERE day = ? AND from_user = ?", (day, user_id)).fetchone()
+                        reqs, usd = int(reqs) + int(mr), float(usd) + float(mu)
                     if daily_cap > 0 and int(reqs) >= daily_cap:
                         self._db.execute("ROLLBACK")
                         return "daily", int(reqs), daily_cap
@@ -494,6 +511,8 @@ class Store:
                         "SELECT COALESCE(SUM(u.usd), 0) FROM usage u JOIN tokens t ON t.token_hash = u.token_hash "
                         "WHERE u.day = ? AND t.mint_net = ? AND u.token_hash NOT IN (SELECT token_hash FROM links)",
                         (day, net)).fetchone()[0])
+                    net_usd += float(self._db.execute("SELECT COALESCE(SUM(usd), 0) FROM moved_usage WHERE day = ? AND from_net = ?",
+                                                      (day, net)).fetchone()[0])
                     if net_usd >= net_usd_cap or net_usd + reserve_usd > net_usd_cap:
                         self._db.execute("ROLLBACK")
                         return "net_usd", net_usd, net_usd_cap
@@ -616,12 +635,32 @@ class Store:
     # links ----------------------------------------------------------------
     def link_user(self, token_hash: str, user_id: str) -> None:
         """Link an install to a user. Re-linking the same pair keeps the first linked_at."""
-        self._q("INSERT INTO links (token_hash, user_id, linked_at) VALUES (?, ?, ?) "
-                "ON CONFLICT (token_hash) DO UPDATE SET user_id = excluded.user_id, linked_at = excluded.linked_at "
-                "WHERE links.user_id != excluded.user_id", (token_hash, user_id, time.time()))
+        self.link_user_capped(token_hash, user_id, 0)
+
+    def _keep_usage_behind(self, token_hash: str, user_id: str) -> None:
+        """Inside link_user_capped's transaction, before the link changes: when the install moves to `user_id` from
+        another user, or from the anonymous pool of its mint network, record what it used today under the scope it
+        leaves (moved_usage), so that scope's caps still count it."""
+        cur = self._db.execute("SELECT user_id FROM links WHERE token_hash = ?", (token_hash,)).fetchone()
+        old_user = cur[0] if cur else None
+        if old_user == user_id:
+            return
+        net = None
+        if old_user is None:
+            row = self._db.execute("SELECT mint_net FROM tokens WHERE token_hash = ?", (token_hash,)).fetchone()
+            net = row[0] if row else None
+            if not net:
+                return
+        day = today()
+        reqs, usd = self._db.execute("SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM usage "
+                                     "WHERE token_hash = ? AND day = ?", (token_hash, day)).fetchone()
+        if int(reqs) or float(usd):
+            self._db.execute("INSERT INTO moved_usage (token_hash, day, from_user, from_net, requests, usd) "
+                             "VALUES (?, ?, ?, ?, ?, ?)", (token_hash, day, old_user, net, int(reqs), float(usd)))
 
     def link_user_capped(self, token_hash: str, user_id: str, max_installs: int) -> bool:
-        """link_user, unless the user already has `max_installs` (> 0) other installs linked. Returns whether it linked."""
+        """link_user, unless the user already has `max_installs` (> 0) other installs linked. Returns whether it linked.
+        The install's usage today stays counted against the user or network pool it leaves (_keep_usage_behind)."""
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
@@ -631,6 +670,7 @@ class Store:
                     if others >= max_installs:
                         self._db.execute("ROLLBACK")
                         return False
+                self._keep_usage_behind(token_hash, user_id)
                 self._db.execute("INSERT INTO links (token_hash, user_id, linked_at) VALUES (?, ?, ?) "
                                  "ON CONFLICT (token_hash) DO UPDATE SET user_id = excluded.user_id, linked_at = excluded.linked_at "
                                  "WHERE links.user_id != excluded.user_id", (token_hash, user_id, time.time()))
