@@ -1079,7 +1079,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                              "your browser yourself.", "output": url})
             return
         if self.workspace is not None:
-            if os.name == "nt" and self.workspace.run == self.workspace._spawn:  # Windows has no `open`
+            if os.name == "nt" and self.workspace.run == getattr(self.workspace, "_spawn", None):  # Windows has no `open`
                 try:
                     os.startfile(url)  # the default browser (an https URL only, checked above)
                 except OSError as e:
