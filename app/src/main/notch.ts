@@ -12,7 +12,8 @@ export { effectivePlace, notchFor, parseScreens, type IslandPlace, type NotchGeo
 
 const HELPER_TIMEOUT_MS = 2000
 const REFRESH_DEBOUNCE_MS = 300
-const BORING_POLL_MS = 30_000
+/** pgrep is cheap; a short poll catches Boring Notch quitting even when no pref/focus event says to look. */
+const BORING_POLL_MS = 5_000
 
 /** Run the helper's --screens. Never rejects: a missing helper, a timeout or bad output is an empty list. */
 export function readScreens(bin: string): Promise<ScreenInfo[]> {
@@ -45,6 +46,8 @@ export type NotchService = {
   /** Re-read the screens (debounced 300 ms, for display events). */
   refresh(): void
   boringNotch(): boolean
+  /** Look for Boring Notch right now (pref change, Settings opened, app focused). Resolves after the check; `onChange` has fired if it flipped. */
+  recheck(): Promise<void>
   stop(): void
 }
 
@@ -52,7 +55,7 @@ export type NotchService = {
  * Start the service (macOS only does real work; elsewhere it answers the fake notch and 'below' via effectivePlace).
  * `onChange` fires when the geometry or the Boring Notch state changed, so main re-sends the layout.
  */
-export function startNotch(opts: { helperBin: string; mac: boolean; onChange: () => void }): NotchService {
+export function startNotch(opts: { helperBin: string; mac: boolean; onChange: () => void; isBoring?: () => Promise<boolean>; pollMs?: number }): NotchService {
   let cache = new Map<number, ScreenInfo>()
   let boring = false
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -69,7 +72,7 @@ export function startNotch(opts: { helperBin: string; mac: boolean; onChange: ()
   }
   const checkBoring = async (): Promise<void> => {
     if (!opts.mac) return
-    const now = await isBoringNotchRunning()
+    const now = await (opts.isBoring ?? isBoringNotchRunning)()
     if (stopped || now === boring) return
     boring = now
     opts.onChange()
@@ -77,7 +80,7 @@ export function startNotch(opts: { helperBin: string; mac: boolean; onChange: ()
   void readNow()
   void checkBoring()
   if (opts.mac) {
-    poll = setInterval(() => void checkBoring(), BORING_POLL_MS)
+    poll = setInterval(() => void checkBoring(), opts.pollMs ?? BORING_POLL_MS)
     poll.unref?.()
   }
 
@@ -90,12 +93,18 @@ export function startNotch(opts: { helperBin: string; mac: boolean; onChange: ()
       timer = setTimeout(() => void readNow(), REFRESH_DEBOUNCE_MS)
     },
     boringNotch: () => boring,
+    recheck: checkBoring,
     stop() {
       stopped = true
       clearTimeout(timer)
       if (poll) clearInterval(poll)
     }
   }
+}
+
+/** The island pref changed: look for Boring Notch afresh, then resend the layout whatever the answer, so the choice acts at once. */
+export function recheckThenResend(svc: Pick<NotchService, 'recheck'> | undefined, resend: () => void): Promise<void> {
+  return (svc?.recheck() ?? Promise.resolve()).catch(() => undefined).then(resend)
 }
 
 function parseList(list: ScreenInfo[]): [number, ScreenInfo][] {

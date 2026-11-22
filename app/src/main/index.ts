@@ -38,7 +38,7 @@ import {
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
 import { VOICE_ENABLED } from '../common/flags'
-import { notchFor, startNotch, type NotchService } from './notch'
+import { notchFor, recheckThenResend, startNotch, type NotchService } from './notch'
 import { helperPath } from './features/ptt'
 import { getPrefs, onPrefsChange } from './prefs'
 
@@ -587,7 +587,17 @@ app.whenReady().then(async () => {
   // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
   // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
   // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
-  onPrefsChange(() => resendLayout())
+  // Choosing "In the notch" must act now: look for Boring Notch afresh (it may have quit since the last poll), then resend
+  // the layout whatever the answer, so the island moves at once without waiting for the poll.
+  onPrefsChange(() => void recheckThenResend(notchService, resendLayout))
+  ipcMain.handle('feat:notch:recheck', async (e) => {
+    if (!trustedSender(e)) return false
+    await notchService?.recheck()
+    return notchService?.boringNotch() ?? false
+  })
+  // Back from another app (maybe the one that quit Boring Notch): look again.
+  app.on('browser-window-focus', () => void notchService?.recheck())
+  app.on('activate', () => void notchService?.recheck())
   let refitTimer: ReturnType<typeof setTimeout> | undefined
   const refit = (): void => {
     clearTimeout(refitTimer)

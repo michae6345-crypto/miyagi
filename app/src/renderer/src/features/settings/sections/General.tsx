@@ -8,7 +8,7 @@
  * Works with reads the engine's health rows when it has them; nothing is shown that the engine didn't say.
  */
 import { CodeXml, Compass, NotebookText, Wrench } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { VOICE_ENABLED } from '../../../../../common/flags'
 import type { IslandPlace } from '../../../../../common/notch'
 import { useLesson } from '../../../core/lesson'
@@ -39,11 +39,31 @@ const PLACES: { value: IslandPlace; label: string }[] = [
 function IslandRow(): ReactNode {
   const place = usePrefs((s) => s.island?.place ?? 'notch')
   const boring = useNotchInfo((s) => !!s.notch?.boringNotch)
-  if (bridge.platform.os !== 'mac') return null
+  const mac = bridge.platform.os === 'mac'
+  // Ask main to look for Boring Notch now (the cached answer can be seconds old), when this opens, when the window is
+  // focused again, and every 2 s while it is believed to run, so the caption and the island follow its quitting.
+  useEffect(() => {
+    if (!mac) return
+    const look = (): void => void bridge.invoke('notch:recheck').catch(() => undefined)
+    look()
+    window.addEventListener('focus', look)
+    const t = boring ? setInterval(look, 2000) : undefined
+    return () => {
+      window.removeEventListener('focus', look)
+      if (t) clearInterval(t)
+    }
+  }, [mac, boring])
+  if (!mac) return null
   return (
     <Row
       label="Island"
-      caption={boring ? 'Boring Notch is using the notch. Quit it to put miyagi there.' : 'Where miyagi sits at the top of the screen.'}
+      caption={
+        boring
+          ? place === 'notch'
+            ? 'Boring Notch is using the notch, so miyagi sits below the menu bar. It moves into the notch when you quit it.'
+            : 'Boring Notch is using the notch. Quit it to put miyagi there.'
+          : 'Where miyagi sits at the top of the screen.'
+      }
       right={<Segmented label="Island" options={PLACES} value={place} onChange={(p) => setPrefs({ island: { place: p } })} />}
     />
   )
