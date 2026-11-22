@@ -751,8 +751,8 @@ app.whenReady().then(async () => {
       signalListeners.get(signal)!.add(fn)
     },
     reportBounds,
-    raise: (w) => {
-      raise(w)
+    raise: (w, rel) => {
+      raise(w, rel)
       islandDiag?.snapshot('raise')
     },
     islandSize: () => islandSize,
