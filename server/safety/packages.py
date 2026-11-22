@@ -8,7 +8,8 @@ names the packages. Each name gets one verdict:
            ("reqeusts", "numpyy"); never installed by the engine, the learner is told which name it resembles
   confirm  any other valid name: installed only after its own confirm that shows the exact name and its pypi.org
            page, and never by Install all
-  invalid  not a PyPI project name at all (a URL, a path, a flag, a VCS spec): refused
+  invalid  not a PyPI project name at all (a URL, a path, a flag, a VCS spec, a local archive such as x.tar.gz or
+           x.whl that pip would build from the folder): refused
 
 The list is static and reviewed; nothing a model says changes it.
 """
@@ -24,6 +25,10 @@ _NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$")
 _SPEC = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(\[[A-Za-z0-9_,.\- ]*\])?\s*"
                    r"((?:[<>=!~]=?|===)\s*[A-Za-z0-9.*+!_-]+(?:\s*,\s*(?:[<>=!~]=?|===)\s*[A-Za-z0-9.*+!_-]+)*)?\s*$")
 ALLOW, CONFIRM, REFUSE, INVALID = "allow", "confirm", "refuse", "invalid"
+# pip treats a name ending in one of these as a LOCAL FILE when it exists in the folder, and builds a local sdist by
+# running its setup.py (pip's own ARCHIVE_EXTENSIONS, plus .egg): never a PyPI name
+ARCHIVE_SUFFIXES = (".zip", ".whl", ".tar.gz", ".tgz", ".tar", ".tar.bz2", ".tbz", ".tar.xz", ".txz", ".tlz",
+                    ".tar.lz", ".tar.lzma", ".egg")
 
 
 @dataclass(frozen=True)
@@ -67,7 +72,9 @@ def project_name(spec: str) -> str | None:
     if not s or "://" in s or s.startswith(("-", ".", "/", "~")) or ";" in s or "@" in s:
         return None
     m = _SPEC.match(s)
-    return normalize(m.group(1)) if m else None
+    if not m or m.group(1).lower().endswith(ARCHIVE_SUFFIXES):  # evil.tar.gz: a local archive, not a project
+        return None
+    return normalize(m.group(1))
 
 
 def damerau_levenshtein(a: str, b: str, limit: int = 3) -> int:
@@ -147,6 +154,20 @@ def requirements_problems(text: str) -> list[str]:
         elif v.kind == REFUSE:
             out.append(v.reason)
     return out
+
+
+def requirements_to_confirm(text: str) -> list[Verdict]:
+    """The CONFIRM verdicts of a requirements.txt (names off the curated list), in order, each name once: `pip install
+    -r` is never run for the learner while it lists one (each needs its own confirm with its pypi.org page)."""
+    out: dict[str, Verdict] = {}
+    for raw in (text or "").splitlines():
+        line = raw.split(" #", 1)[0].strip()
+        if not line or line.startswith(("#", "-")):
+            continue
+        v = verdict(line)
+        if v.kind == CONFIRM:
+            out.setdefault(v.name, v)
+    return list(out.values())
 
 
 def requirement_names(text: str) -> list[str]:

@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import re
+
 from .commands import Allowed, Manual, parse_run_command
 from .paths import safe_lesson_path
 
@@ -34,6 +36,23 @@ DOCS_HOSTS = frozenset({"python.org", "docs.python.org", "pypi.org", "nodejs.org
                         "colab.research.google.com"})  # a Colab lesson's notebook button (the setup card's web app)
 
 
+# Never opened, whatever the catalog lists: Michael's rule, miyagi never opens, names or offers Cursor (editor.py).
+BANNED_HOSTS = frozenset({"cursor.com", "cursor.sh", "cursor.so", "anysphere.inc"})
+# github.com pages that start a file download when opened (a release asset, a source archive, a raw file), and the
+# hosts that serve them: shown as text, never opened
+_GITHUB_DOWNLOAD = re.compile(r"^/[^/]+/[^/]+/(?:releases/download|archive|raw|zipball|tarball|blob/[^?#]*\?raw=)",
+                              re.I)
+_DOWNLOAD_HOSTS = frozenset({"codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
+                             "github-releases.githubusercontent.com", "release-assets.githubusercontent.com"})
+# a link straight to an installer or archive, on any host: the learner downloads it themselves from the official page
+_DOWNLOAD_SUFFIX = re.compile(r"\.(?:zip|tar|tgz|gz|bz2|xz|7z|rar|dmg|pkg|mpkg|exe|msi|deb|rpm|appimage|whl|jar|"
+                              r"sh|command|app|iso|img)$", re.I)
+
+
+def _under(host: str, hosts) -> bool:
+    return any(host == a or host.endswith("." + a) for a in hosts)
+
+
 def _host(url: str) -> str | None:
     from urllib.parse import urlsplit
 
@@ -59,16 +78,30 @@ def allowed_hosts() -> frozenset[str]:
                 hosts.add(h)
     except Exception:  # noqa: BLE001 - the docs list alone
         pass
-    return frozenset(hosts)
+    return frozenset(h for h in hosts if not _under(h, BANNED_HOSTS))
 
 
 def browser_url_allowed(url: str) -> bool:
-    """May the engine open `url` in the learner's browser? https only, no user:password@, the default port, and a
-    host that is (or is under) a catalog / docs host. Anything else is shown to the learner as text."""
+    """May the engine open `url` in the learner's browser? https only, no user:password@, the default port, a host
+    that is (or is under) a catalog / docs host and never a banned one (cursor.com), and a page, not a download
+    (github.com release assets and archives, codeload / raw hosts, a path ending .zip / .dmg / .pkg ...). Anything
+    else is shown to the learner as text."""
+    from urllib.parse import unquote, urlsplit
+
     h = _host(url)
-    if h is None:
+    if h is None or _under(h, BANNED_HOSTS) or h in _DOWNLOAD_HOSTS:
         return False
-    return any(h == a or h.endswith("." + a) for a in allowed_hosts())
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return False
+    path = unquote(parts.path or "/")
+    if _DOWNLOAD_SUFFIX.search(path.rstrip("/")):
+        return False
+    if _under(h, {"github.com"}) and (_GITHUB_DOWNLOAD.search(path + ("?" + parts.query if parts.query else ""))
+                                      or h != "github.com" and h != "gist.github.com"):
+        return False  # a release asset / archive / raw file, or a github.com subdomain that serves files
+    return _under(h, allowed_hosts())
 
 
 __all__ = ["Allowed", "Manual", "browser_url_allowed", "child_env", "parse_run_command", "safe_lesson_path"]

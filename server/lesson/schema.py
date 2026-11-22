@@ -13,6 +13,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
+from server.safety.patterns import safe_search
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = REPO_ROOT / "shared" / "contracts"
@@ -104,7 +105,8 @@ def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> l
                     notes.append(f"{sid} target {str(f)[:80]!r}: {rel_problem(str(f))}")
                     continue
                 m = t.get("match")  # literal text first, a regex only when it compiles (workspace.anchor_line)
-                if isinstance(m, str) and m and (why := pattern_problem(m)) and not why.startswith("invalid pattern"):
+                why = pattern_problem(m, re.IGNORECASE) if isinstance(m, str) and m else None  # screen.match: re.I
+                if why and not why.startswith("invalid pattern"):
                     notes.append(f"{sid} target match: {why}")
                     t = {k: v for k, v in t.items() if k != "match"}
                 targets.append(t)
@@ -145,7 +147,7 @@ def _protected_dir(rel: str) -> str | None:
 
     from server.safety.paths import WRITE_DENY_DIRS
 
-    hit = next((p for p in PurePosixPath(rel).parts[:-1] if p in WRITE_DENY_DIRS), None)
+    hit = next((p for p in PurePosixPath(rel).parts[:-1] if p.casefold() in WRITE_DENY_DIRS), None)  # APFS
     return f"{hit}/ is never a step file" if hit else None
 
 
@@ -237,7 +239,7 @@ _BACKTICKS = re.compile(r"`([^`]+)`")
 
 def _search(pattern: str, text: str) -> bool:
     try:
-        return bool(text) and re.search(pattern, text, re.M) is not None
+        return bool(text) and safe_search(pattern, text, re.M) is not None  # lint runs before validation
     except re.error:
         return False
 

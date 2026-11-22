@@ -7975,10 +7975,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         cmd = verdict.command  # what runs, exactly: shlex-quoted, one command
         seen = self.__dict__.setdefault("_run_confirmed", set())
-        if (str(self.workdir), cmd) not in seen:  # its first run this session: the exact command, then Yes
-            self.pending_patch = {"run": True, "command": cmd, "step": step.get("id"), "workdir": str(self.workdir)}
+        # confirmed per (folder, command, what it runs): an npm script or requirements file edited since asks again
+        if (str(self.workdir), cmd, verdict.fingerprint) not in seen:  # first run this session: the command, then Yes
+            self.pending_patch = {"run": True, "command": cmd, "step": step.get("id"), "workdir": str(self.workdir),
+                                  "fingerprint": verdict.fingerprint}
+            changed = any(k[:2] == (str(self.workdir), cmd) for k in seen)  # said Yes to it before it was edited
             await self._card(step, "Run this command?",
-                             f"It runs in the lesson folder ({Path(str(self.workdir)).name}). Check it, then press "
+                             ("What it runs changed since your last Yes. " if changed else "")
+                             + f"It runs in the lesson folder ({Path(str(self.workdir)).name}). Check it, then press "
                              "Yes.", kind="answer", output=cmd + (f"\n{verdict.details}" if verdict.details else ""),
                              actions=["confirm"])
             return
@@ -8171,7 +8175,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if pp.get("step") != step.get("id") or pp.get("workdir") != str(self.workdir):
                 await self._card(step, "That command is out of date", "Press Run it for me again.", kind="answer")
                 return
-            self.__dict__.setdefault("_run_confirmed", set()).add((str(self.workdir), pp["command"]))
+            self.__dict__.setdefault("_run_confirmed", set()).add((str(self.workdir), pp["command"],
+                                                                   pp.get("fingerprint") or ""))
             await self._run_for_me(step)
             return
         path: Path = pp["path"]

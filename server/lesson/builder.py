@@ -35,6 +35,7 @@ from .schema import (
 from .notebook_steps import use_lesson_notebook
 from .venv_steps import use_lesson_venv
 from .workdir import WorkdirInfo, scan
+from server.safety.patterns import safe_search
 
 # Progress for the UI. Stable stage ids (the app maps them to text; log wording may change):
 #   cache_hit, watching (Gemini watches the video), reading_transcript, writing_steps (Claude),
@@ -1025,7 +1026,7 @@ def looks_like_literal(p: str) -> bool:
     if "\\" in p or "|" in p or not re.search(r"[()\[\].+*?]", p):
         return False
     try:
-        return re.search(p, p) is None
+        return safe_search(p, p) is None  # the model's pattern, before validation: never a catastrophic one
     except re.error:
         return True
 

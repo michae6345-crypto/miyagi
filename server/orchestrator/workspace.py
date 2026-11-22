@@ -164,12 +164,10 @@ def anchor_line(text: str, match: str) -> int | None:
     for i, ln in enumerate(lines, start=1):
         if match in ln:
             return i
-    from server.checks.evaluator import pattern_problem
+    from server.safety.patterns import safe_compile
 
-    if (why := pattern_problem(match)) and not why.startswith("invalid pattern"):
-        return None  # a lesson's catastrophic regex ((x+)+, (a|aa)+) never runs on the learner's file
     try:
-        rx = re.compile(match)
+        rx = safe_compile(match)  # a lesson's catastrophic regex ((x+)+, (a|aa)+) never runs on the learner's file
     except re.error:
         return None
     for i, ln in enumerate(lines, start=1):

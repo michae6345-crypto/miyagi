@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
 import time
 from collections import deque
@@ -20,6 +19,7 @@ from rapidfuzz import fuzz
 
 from .match import app_matches, group_lines, norm
 from .types import ScreenObservation
+from server.safety.patterns import safe_compile
 
 log = logging.getLogger("server.screen.metrics")
 
@@ -46,7 +46,7 @@ def parse_step(s: str) -> int | None:
 def _local_extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
     """Fallback with the same contract as `server.checks.extract_metrics` (E3), used until that
     lands on main: named groups `step`/`value`, last group as value, line order as step."""
-    rx = re.compile(pattern)
+    rx = safe_compile(pattern)  # re.error for a catastrophic lesson pattern (server.safety.patterns)
     pts: dict[int, float] = {}
     order = 0
     for line in text.splitlines():
@@ -110,7 +110,7 @@ class TerminalMetricReader:
         self._lock = threading.Lock()
 
     def add_pattern(self, name: str, pattern: str) -> None:
-        rx = re.compile(pattern)
+        rx = safe_compile(pattern)  # re.error for a catastrophic lesson pattern (server.safety.patterns)
         if "value" not in rx.groupindex and not rx.groups:
             raise ValueError(f"metric_pattern for {name!r} needs a (?P<value>...) group: {pattern}")
         self.patterns[name] = pattern

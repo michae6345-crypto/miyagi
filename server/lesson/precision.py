@@ -16,6 +16,7 @@ import statistics
 from collections import Counter
 
 from .schema import lint, schema_errors
+from server.safety.patterns import safe_compile, safe_search
 
 START_TOLERANCE_S = 30.0
 
@@ -48,7 +49,7 @@ def align(pred: list[dict], exp: list[dict]) -> list[tuple[int, int, float]]:
 
 def _regex_accepts(pattern: str, code: str) -> bool | None:
     try:
-        return re.search(pattern, code, re.M) is not None
+        return safe_search(pattern, code, re.M) is not None
     except re.error:
         return None
 
@@ -56,7 +57,7 @@ def _regex_accepts(pattern: str, code: str) -> bool | None:
 def _parses(metric_pattern: str, output: str) -> bool:
     """True if the pattern extracts a numeric value (and an int step, when it has that group) from a line."""
     try:
-        rx = re.compile(metric_pattern)
+        rx = safe_compile(metric_pattern)
     except re.error:
         return False
     if "value" not in rx.groupindex:

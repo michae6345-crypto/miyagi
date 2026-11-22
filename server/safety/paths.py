@@ -6,7 +6,8 @@ untrusted. Before the engine reads or writes such a file it goes through safe_le
   * relative only: no absolute path, no `~`, no `..` component, no NUL, no backslash, no Windows drive;
   * after resolve() (symlinks followed) the file is inside workdir.resolve();
   * writes (write=True) also never touch .git/, .vscode/, .venv/, node_modules/ or a dotfile, except the harmless
-    project dotfiles in DOTFILE_ALLOW (.gitignore, .editorconfig, .nvmrc, .python-version).
+    project dotfiles in DOTFILE_ALLOW (.gitignore, .editorconfig, .nvmrc, .python-version). Names are compared
+    case-folded: macOS's default APFS is case-insensitive, so Node_Modules/ and Venv/ are the protected folders.
 """
 from __future__ import annotations
 
@@ -47,11 +48,12 @@ def rel_problem(rel: str | os.PathLike | None, *, write: bool = False) -> str | 
 
 def _write_problem(parts: list[str] | tuple[str, ...]) -> str | None:
     for i, part in enumerate(parts):
-        if part in WRITE_DENY_DIRS:
+        folded = part.casefold()  # macOS's default APFS is case-insensitive: Node_Modules/ IS node_modules/
+        if folded in WRITE_DENY_DIRS:
             return f"{part}/ is never written"
         if part.startswith("."):
             last = i == len(parts) - 1
-            if not (last and part in DOTFILE_ALLOW):
+            if not (last and folded in DOTFILE_ALLOW):
                 return f"{part} is a dotfile"
     return None
 

@@ -7,8 +7,11 @@ runs WITHOUT a shell, or says why the learner should run it themselves:
   Allowed(argv)   python | python3 | .venv/bin/python <relative .py in the lesson folder> [plain args]
                   python -m pytest | pytest [relative paths in the lesson folder] [-q -v -vv -x -s]
                   node <relative .js / .mjs / .cjs in the lesson folder> [plain args]
-                  npm run <a script in the lesson's package.json> | npm start (its start script) | npm test
-                  pip | pip3 | python -m pip install -r <relative requirements*.txt in the lesson folder>
+                  npm run <a script in the lesson's package.json> | npm start (its start script) | npm test,
+                    run with --ignore-scripts, and only when the script has no pre<name> / post<name> hook (npm would
+                    run those too, and the card would not show them)
+                  pip | pip3 | python -m pip install -r <relative requirements*.txt in the lesson folder> whose every
+                    line is a name on the curated package list
                   pip install <names on the curated package list (server/safety/packages.py)>
   Manual(reason)  everything else: several commands, pipes, redirects, substitutions, globs, `~`, URLs, shells and
                   other programs (curl, wget, bash, sudo, rm, open, osascript, npx ...), and paths that leave the
@@ -18,12 +21,13 @@ Manual commands are shown on a card ("From the tutorial: check it before running
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import shlex
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from . import packages
 from .paths import safe_lesson_path
@@ -49,6 +53,9 @@ class Allowed:
     """Run `argv` with create_subprocess_exec (no shell) in the lesson folder."""
     argv: tuple[str, ...]
     details: str = ""  # what else the confirm card should show (an npm script's text, a requirements file's names)
+    # what the command runs besides its own words (the npm script's text, the requirements file's content), hashed:
+    # a run is confirmed per (folder, command, fingerprint), so an edited script or requirements file asks again
+    fingerprint: str = ""
 
     @property
     def command(self) -> str:
@@ -144,7 +151,8 @@ def _args(args: list[str], workdir: str) -> Manual | None:
     for a in args:
         if not ARG.match(a):
             return Manual(f"the argument {a[:40]!r} isn't a plain value")
-        if a.startswith("/") or ".." in PurePosixPath(a.split("=", 1)[-1]).parts:
+        value = a.split("=", 1)[-1]  # --out=/etc/x: the value after '=' is a path too
+        if a.startswith(("/", "~")) or value.startswith(("/", "~")) or ".." in PurePosixPath(value).parts:
             return Manual(f"the argument {a[:40]!r} points outside the lesson folder")
     return None
 
@@ -193,9 +201,15 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
             return Manual(f"{req} isn't in the lesson folder yet", structural=False)
         if probs := packages.requirements_problems(text):
             return Manual(f"{req}: {probs[0]}", structural=False)
+        if unlisted := packages.requirements_to_confirm(text):
+            # names off the curated list need their own confirm (setup's Install with its pypi.org page), never a
+            # bulk install: the learner checks each one and runs it themselves
+            return Manual(f"{req} lists packages that aren't on miyagi's list of common tutorial packages, so check "
+                          "each one first: " + "; ".join(f"{v.name} ({v.url})" for v in unlisted[:8])
+                          + (" …" if len(unlisted) > 8 else ""), structural=False)
         names = packages.requirement_names(text)
         return Allowed(tuple(argv), details="Installs: " + (", ".join(names[:12]) + (" …" if len(names) > 12 else "")
-                                             if names else "nothing listed"))
+                                             if names else "nothing listed"), fingerprint=_digest(req, text))
     for a in rest:
         if a.startswith("-"):
             return Manual(f"pip install {a[:40]} isn't run for you")
@@ -218,7 +232,7 @@ def npm_scripts(workdir: str | os.PathLike) -> dict[str, str]:
 
 
 def _npm(argv: list[str], workdir: str) -> Allowed | Manual:
-    rest = argv[1:]
+    rest = [a for a in argv[1:] if a != "--ignore-scripts"]
     if rest in (["test"], ["start"]):
         name = rest[0]
     elif len(rest) == 2 and rest[0] in ("run", "run-script") and re.fullmatch(r"[A-Za-z0-9:_.-]+", rest[1]):
@@ -228,7 +242,17 @@ def _npm(argv: list[str], workdir: str) -> Allowed | Manual:
     scripts = npm_scripts(workdir)
     if name not in scripts:
         return Manual(f"package.json has no {name!r} script", structural=False)
-    return Allowed(tuple(argv), details=f"{name}: {scripts[name][:200]}")
+    if hooks := [h for h in (f"pre{name}", f"post{name}") if h in scripts]:
+        # npm runs pre<name> / post<name> around it: code the card wouldn't show. The learner reads them and runs it.
+        return Manual(f"package.json also runs {' and '.join(f'{h}: {scripts[h][:80]}' for h in hooks)} around "
+                      f"{name!r}", structural=False)
+    # --ignore-scripts: npm still runs the named script, never a pre / post hook added after this check
+    return Allowed((argv[0], *rest, "--ignore-scripts"), details=f"{name}: {scripts[name][:200]}",
+                   fingerprint=_digest(name, scripts[name]))
+
+
+def _digest(*parts: str) -> str:
+    return hashlib.sha256("\x00".join(parts).encode("utf-8", "replace")).hexdigest()[:16]
 
 
 def is_structural_manual(cmd: str | None) -> Manual | None:

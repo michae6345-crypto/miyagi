@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from jsonschema import Draft202012Validator
+from server.safety.packages import ARCHIVE_SUFFIXES
+from server.safety.patterns import safe_compile
 
 log = logging.getLogger("server.workspace")
 
@@ -45,6 +47,21 @@ FORBIDDEN_PARTS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".miy
 # npm runs these on `npm install` / `npm ci` / publish: a scaffolded package.json never has them
 NPM_LIFECYCLE = {"preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare", "prepublish",
                  "prepublishOnly", "prepack", "postpack", "preuninstall", "uninstall", "postuninstall", "dependencies"}
+# npm's own commands: pre<command> / post<command> scripts run around them (prestart, posttest, preversion ...)
+NPM_COMMANDS = {"install", "ci", "uninstall", "publish", "pack", "version", "test", "start", "stop", "restart",
+                "shrinkwrap", "prepare", "prepublish", "prepublishOnly", "dependencies", "rebuild", "run"}
+
+
+def npm_hooks(scripts: dict) -> list[str]:
+    """The scripts npm runs by itself around another one: pre<name> / post<name> for a script in the file or an npm
+    command (prestart, posttest, prebuild next to a build script). `prettier` or `postcss` alone are plain scripts."""
+    out = []
+    for k in scripts:
+        for lead in ("pre", "post"):
+            rest = str(k)[len(lead):]
+            if str(k).startswith(lead) and rest and (rest in scripts or rest in NPM_COMMANDS):
+                out.append(str(k))
+    return sorted(set(out))
 # Screen checks in these apps read terminal/browser output, not files: starter files can't satisfy them.
 NON_EDITOR_APPS = {"terminal", "iterm", "iterm2", "warp", "ghostty", "kitty", "alacritty", "hyper",
                    "safari", "google chrome", "chrome", "firefox", "arc", "microsoft edge", "brave browser"}
@@ -188,7 +205,7 @@ def learner_projects(graph: dict) -> set[str]:
 
 def _compile(pattern: str) -> re.Pattern | None:
     try:
-        rx = re.compile(pattern, re.MULTILINE)
+        rx = safe_compile(pattern, re.MULTILINE)  # a lesson's catastrophic regex never runs on a starter file
     except (re.error, TypeError):
         return None
     return None if rx.search("") else rx  # a pattern matching "" passes anyway: not a leak signal
@@ -215,7 +232,7 @@ def _safe_rel(path: str) -> str | None:
     if not p or path.startswith(("/", "~")) or re.match(r"^[A-Za-z]:", path):
         return None
     parts = PurePosixPath(p).parts
-    if ".." in parts or any(x in FORBIDDEN_PARTS for x in parts):
+    if ".." in parts or any(x.casefold() in FORBIDDEN_PARTS for x in parts):  # APFS: Node_Modules is node_modules
         return None
     from server.safety.paths import rel_problem
 
@@ -225,9 +242,10 @@ def _safe_rel(path: str) -> str | None:
 
 
 def content_problem(path: str, content: str) -> str | None:
-    """Why a starter file's content is refused (None: fine): a package.json with install-time scripts (or that
-    doesn't parse), a requirements file with option lines (-i, --index-url, -e ...), VCS or URL requirements."""
-    name = PurePosixPath(path).name
+    """Why a starter file's content is refused (None: fine): a package.json with install-time scripts or pre / post
+    hooks (or that doesn't parse), a requirements file with option lines (-i, --index-url, -e ...), VCS or URL
+    requirements."""
+    name = PurePosixPath(path).name.casefold()  # case-insensitive APFS: Package.JSON is the package.json npm reads
     if name == "package.json":
         try:
             data = json.loads(content or "{}")
@@ -236,12 +254,16 @@ def content_problem(path: str, content: str) -> str | None:
         scripts = data.get("scripts") if isinstance(data, dict) else None
         if isinstance(scripts, dict) and (bad := sorted(set(scripts) & NPM_LIFECYCLE)):
             return f"package.json runs code on install ({', '.join(bad)})"
+        if isinstance(scripts, dict) and (hooks := npm_hooks(scripts)):  # npm start would also run prestart
+            return f"package.json runs hidden pre / post scripts ({', '.join(hooks)})"
         return None
     if name.startswith("requirements") and name.endswith(".txt"):
         for raw in (content or "").splitlines():
             line = raw.strip()
             if line.startswith("-") or line.lower().startswith("git+") or "://" in line:
                 return f"requirements line {line[:60]!r} installs from outside PyPI or changes pip's options"
+            if line.split("#", 1)[0].strip().lower().endswith(ARCHIVE_SUFFIXES):  # pip builds a local x.tar.gz
+                return f"requirements line {line[:60]!r} installs a local archive, not a PyPI package"
     return None
 
 

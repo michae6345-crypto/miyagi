@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from server.safety.patterns import safe_compile
 
 MIN_CONFIDENCE = 0.3  # drop OCR blocks Vision is unsure about
 
@@ -105,7 +106,7 @@ def screen_text(screen: Any, app: str | None = None) -> str | None:
 
 def search_screen(pattern: str, text: str) -> re.Match[str] | None:
     """Regex search tolerant to OCR line wrapping: tries the raw text, then whitespace-collapsed."""
-    rx = re.compile(pattern, re.MULTILINE)
+    rx = safe_compile(pattern, re.MULTILINE)  # re.error for a catastrophic lesson pattern (server.safety.patterns)
     return rx.search(text) or rx.search(re.sub(r"\s+", " ", text))
 
 
@@ -120,7 +121,7 @@ def search_wrapped(pattern: str, text: str) -> re.Match[str] | None:
     m = search_screen(pattern, text)
     if m or not text:
         return m
-    rx = re.compile(pattern, re.MULTILINE)
+    rx = safe_compile(pattern, re.MULTILINE)
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     return rx.search("".join(lines)) or rx.search(_PUNCT_GAP.sub(r"\1", " ".join(lines)))
 
@@ -148,7 +149,7 @@ def extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
     group is used, and without ``step`` the line order is the step (0, 1, 2, ...).
     Duplicate steps (the same line visible across screenshots) keep the last value.
     """
-    rx = re.compile(pattern)
+    rx = safe_compile(pattern)
     pts: dict[int, float] = {}
     order = 0
     for line in text.splitlines():

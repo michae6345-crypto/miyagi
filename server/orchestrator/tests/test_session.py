@@ -3216,7 +3216,8 @@ def test_run_it_for_me_reports_a_failure_and_a_hang(tmp_path, monkeypatch):
     async def go():
         await rig.s.learn("calc", mode="lesson")
         await rig.settle()
-        rig.s._run_confirmed = {(str(rig.s.workdir), "python3 boom.py"), (str(rig.s.workdir), "python3 hang.py")}
+        rig.s._run_confirmed = {(str(rig.s.workdir), "python3 boom.py", ""),
+                                (str(rig.s.workdir), "python3 hang.py", "")}
         await rig.s._run_for_me(step)
         await rig.s._run_for_me(hang)
 
