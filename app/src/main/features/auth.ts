@@ -44,8 +44,23 @@
  * Switch: LOGIN_ENABLED (common/flags.ts), off for one run with MIYAGI_LOGIN=0. Separate from v2Cloud (account.ts).
  *
  * Supabase dashboard, once: Authentication › Providers › Google on (client ID + secret from Google Cloud), and
- * Authentication › URL Configuration › Redirect URLs: http://127.0.0.1:47217/auth/callback** (the ** lets the ?state=…
- * query through; an exact entry without it makes Supabase fall back to the Site URL and the sign-in times out).
+ * Authentication › URL Configuration › Redirect URLs: exactly http://127.0.0.1:47217/auth/callback, no wildcard. That
+ * entry is documentation more than a gate: Supabase Auth accepts ANY loopback-IP redirect_to (127.0.0.1 / ::1, any
+ * port, any path) before it even reads the Redirect URLs list (supabase/auth internal/utilities/request.go,
+ * IsRedirectURLValid: `net.ParseIP(host).IsLoopback()` returns true). So the list can't stop a local process from asking
+ * for a code sent to its own loopback port. What protects the sign-in is PKCE S256 (a code is useless without this
+ * flow's verifier, which never leaves main) plus our own state (192 random bits, constant-time compare).
+ *
+ * Callback rules (app-harden): only GET, only the exact path /auth/callback, only Host 127.0.0.1:47217, only the params
+ * code, state, error, error_code and error_description (each once). A matching-state callback whose code is refused
+ * (bad_code_verifier, flow_state_not_found, a junk code) or that carries an error does NOT end the flow: the tab says
+ * why (with Try again), main broadcasts auth:attempt {reason, message}, and the listener stays until the 5-minute
+ * timeout, which then answers with the last reason. At most 5 callbacks per flow, then 404; only a callback that passed
+ * every check (this flow's state included) counts, so requests without the state can't use the turns up. On success
+ * the listener lets go of 47217 when the response closes (finished or dropped by the browser). If 127.0.0.1:47217 is
+ * still taken (EADDRINUSE) after ~3 s of retries, the sign-in stops with a plain reason and the browser never opens.
+ * redirect_to is built only from constants and this flow's state (redirectTo), never from a request. PKCE only: no
+ * implicit flow anywhere.
  *
  * UNVERIFIED in Electron (no live run in this package): the browser round trip, the token exchange and the refresh.
  */
@@ -63,8 +78,20 @@ import { isAllowedUrl, openLinkInBrowser, safeOpenExternal } from '../safeOpen'
 
 const PORT = 47217
 const CALLBACK_PATH = '/auth/callback'
-const REDIRECT = `http://127.0.0.1:${PORT}${CALLBACK_PATH}`
-const WAIT_MS = 5 * 60_000
+const CALLBACK_HOST = `127.0.0.1:${PORT}`
+export const REDIRECT = `http://${CALLBACK_HOST}${CALLBACK_PATH}`
+/** The one OAuth flow there is: PKCE (code + verifier). Never the implicit flow (tokens in a URL). */
+export const FLOW_TYPE = 'pkce' as const
+/** The query a callback may carry, each at most once. Anything else (access_token from an implicit flow, junk) → 404. */
+const CALLBACK_PARAMS = new Set(['code', 'state', 'error', 'error_code', 'error_description'])
+/** Callbacks one flow answers (the real one, a retry or two, a stray reload); the rest get 404. */
+export const MAX_CALLBACKS = 5
+export const WAIT_MS = 5 * 60_000
+/**
+ * A taken port is tried this many times, this far apart (~3 s), before the sign-in gives up with reason 'port'.
+ * Mutable only for tests (the taken-port test holds 47217 for one try, so a parallel test file isn't starved).
+ */
+export const listenRetry = { tries: 20, ms: 150 }
 const FETCH_MS = 15_000
 /** Refresh this long before the access token expires. */
 const REFRESH_EARLY_MS = 5 * 60_000
@@ -101,6 +128,35 @@ function config(): Config | undefined {
 }
 
 const b64url = (b: Buffer): string => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+/** The only redirect_to there is: the constant callback and this flow's state. Never anything from a request. */
+export const redirectTo = (state: string): string => `${REDIRECT}?state=${encodeURIComponent(state)}`
+
+/**
+ * Supabase's authorize URL for this flow, built from config and constants only. Throws unless it is a PKCE S256
+ * request back to our constant callback (a guard against a later edit drifting to the implicit flow).
+ */
+export function authorizeUrl(projectUrl: string, state: string, challenge: string): string {
+  const q = new URLSearchParams({ provider: 'google', redirect_to: redirectTo(state), code_challenge: challenge, code_challenge_method: 's256' })
+  const url = `${projectUrl}/auth/v1/authorize?${q.toString()}`
+  assertPkce(url)
+  return url
+}
+
+/** The authorize URL is PKCE: an S256 challenge, our constant redirect, no response_type=token / implicit flow_type. */
+export function assertPkce(url: string): void {
+  const p = new URL(url).searchParams
+  const redirect = p.get('redirect_to') ?? ''
+  const ok =
+    FLOW_TYPE === 'pkce' &&
+    /^[A-Za-z0-9_-]{43,128}$/.test(p.get('code_challenge') ?? '') &&
+    p.get('code_challenge_method') === 's256' &&
+    !p.has('response_type') &&
+    (!p.has('flow_type') || p.get('flow_type') === 'pkce') &&
+    redirect.startsWith(`${REDIRECT}?state=`) &&
+    new URL(redirect).origin + new URL(redirect).pathname === REDIRECT
+  if (!ok) throw new Error('[auth] refusing a non-PKCE authorize URL')
+}
 
 /** Constant-time compare of the state that came back with the one this flow sent. */
 function sameState(got: string | null, want: string): boolean {
@@ -186,9 +242,12 @@ function explainExchange(res: Answer | undefined): string {
   return `The sign-in server refused the sign-in: ${what.replace(/[.\s]+$/, '')}. Try again, or continue without an account.`
 }
 
-/** The "back to miyagi" tab in the system browser. Everything shown is HTML-escaped; the app window's theme colors. */
-const PAGE = (title: string, line: string): string =>
-  `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="margin:0;height:100vh;display:grid;place-items:center;background:${color.window};color:${color.text};font:15px -apple-system,system-ui,sans-serif"><div style="text-align:center;max-width:520px;padding:0 24px"><h1 style="font-size:22px;font-weight:600;margin:0 0 8px">${escapeHtml(title)}</h1><p style="margin:0;color:${color.label}">${escapeHtml(line)}</p></div>`
+/**
+ * The "back to miyagi" tab in the system browser. Everything shown is HTML-escaped; the app window's theme colors.
+ * retry: this flow's own authorize URL (built by authorizeUrl from constants), shown as "Try again" after a failure.
+ */
+const PAGE = (title: string, line: string, retry?: string): string =>
+  `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="margin:0;height:100vh;display:grid;place-items:center;background:${color.window};color:${color.text};font:15px -apple-system,system-ui,sans-serif"><div style="text-align:center;max-width:520px;padding:0 24px"><h1 style="font-size:22px;font-weight:600;margin:0 0 8px">${escapeHtml(title)}</h1><p style="margin:0;color:${color.label}">${escapeHtml(line)}</p>${retry ? `<p style="margin:16px 0 0"><a href="${escapeHtml(retry)}" style="color:${color.text}">Try again</a></p>` : ''}</div>`
 /** Callback answers close their connection, so a quick retry never reuses a socket to the last flow's listener. */
 const PAGE_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -386,12 +445,27 @@ export default defineMainFeature({
     /**
      * The running sign-in. Set BEFORE the listener is up, so a cancel right after the click is never lost, and kept
      * while the code is exchanged, so Cancel / Esc / closing the window still win then (the answer is dropped unused).
+     * callbacks: callbacks with this flow's state so far (MAX_CALLBACKS). last: the latest failed attempt's reason, which the
+     * timeout answers with.
      */
-    type Flow = { server: Server; finish: (r: Result) => void; aborted: boolean; exchanging: boolean }
+    type Flow = {
+      server: Server
+      finish: (r: Result) => void
+      aborted: boolean
+      exchanging: boolean
+      callbacks: number
+      last?: { reason: string; message: string }
+    }
     let flow: Flow | undefined
+    /** Settles once the last flow's listener has let go of the port, so a quick second click never meets EADDRINUSE. */
+    let released: Promise<void> = Promise.resolve()
 
     const closeServer = (server: Server): void => {
-      if (server.listening) server.close()
+      if (server.listening) {
+        const gone = new Promise<void>((r) => server.close(() => r()))
+        // Never wait long on it: a stuck socket must not block the next sign-in.
+        released = Promise.race([gone, new Promise<void>((r) => setTimeout(r, 1000).unref?.())])
+      }
       server.closeAllConnections()
     }
 
@@ -406,7 +480,7 @@ export default defineMainFeature({
 
     /** The code → session. A failure carries the plain-words reason (never a token or the code). */
     async function exchange(cfg: Config, code: string, verifier: string): Promise<{ session: Session } | { message: string }> {
-      const res = await post(cfg, '/auth/v1/token?grant_type=pkce', { auth_code: code, code_verifier: verifier })
+      const res = await post(cfg, `/auth/v1/token?grant_type=${FLOW_TYPE}`, { auth_code: code, code_verifier: verifier })
       if (!res || !res.ok) {
         const b = (res?.body && typeof res.body === 'object' ? res.body : {}) as Record<string, unknown>
         console.warn('[auth] token exchange failed:', res ? res.status : '(network)', plain(b.error_code, 80) ?? '', plain(b.msg, 160) ?? '')
@@ -423,6 +497,12 @@ export default defineMainFeature({
     /** The sign-in page, through the strict allowlist for our own project; a dev-run override still gets the https gate. */
     const openAuthorize = (url: string): Promise<boolean> => (isAllowedUrl(url) ? safeOpenExternal(url) : openLinkInBrowser(url))
 
+    /** Why the listener could not start, in plain words. */
+    const portMessage = (err: unknown): string =>
+      (err as NodeJS.ErrnoException | undefined)?.code === 'EADDRINUSE'
+        ? `Another app on this Mac is using port ${PORT}, which miyagi needs to receive the Google sign-in. Quit it (or another copy of miyagi) and try again, or continue without an account.`
+        : 'miyagi could not get ready to receive the Google sign-in on this Mac. Try again, or continue without an account.'
+
     function google(): Promise<Result> {
       if (!loginEnabled()) return Promise.resolve({ ok: false, reason: 'off' })
       const cfg = config()
@@ -432,50 +512,86 @@ export default defineMainFeature({
       const verifier = b64url(randomBytes(48))
       const challenge = b64url(createHash('sha256').update(verifier).digest())
       // Our own state, carried in redirect_to: Supabase keeps the query and appends ?code=… to it. Only the request
-      // that brings it back can end this flow (a page or local process probing the port cannot).
+      // that brings it back can end this flow (a page or local process probing the port cannot). 24 bytes = 192 bits.
       const state = b64url(randomBytes(24))
+      // Built here from config and constants only; nothing from a renderer or a request is ever appended.
+      const authorize = authorizeUrl(cfg.url, state, challenge)
 
       return new Promise<Result>((resolve) => {
         let timer: ReturnType<typeof setTimeout> | undefined
         const server = createServer((req, res) => {
-          let u: URL
+          const deny = (status = 404): void => void res.writeHead(status, { Connection: 'close' }).end()
+          // The raw request target, not a parsed URL: "//host/auth/callback" or "/auth/./callback" never count as ours.
+          const target = req.url ?? ''
+          const at = target.indexOf('?')
+          if ((at < 0 ? target : target.slice(0, at)) !== CALLBACK_PATH) return deny() // favicon, probes: not callbacks
+          if (req.method !== 'GET' || req.headers.host !== CALLBACK_HOST || flow !== f || f.exchanging) return deny()
+          let q: URLSearchParams
           try {
-            u = new URL(req.url ?? '/', REDIRECT)
+            q = new URLSearchParams(at < 0 ? '' : target.slice(at + 1))
           } catch {
-            res.writeHead(400, { Connection: 'close' }).end() // a malformed request line must never throw in main
-            return
+            return deny(400) // a malformed request line must never throw in main
           }
-          if (req.method !== 'GET' || u.pathname !== CALLBACK_PATH || flow !== f || f.exchanging || !sameState(u.searchParams.get('state'), state)) {
-            res.writeHead(404, { Connection: 'close' }).end()
-            return
-          }
-          const q = u.searchParams
-          const code = q.get('code')
-          res.writeHead(200, PAGE_HEADERS)
-          // Bring miyagi forward with the outcome (success or the reason it failed), not just the browser tab.
+          const keys = [...q.keys()]
+          if (keys.some((k) => !CALLBACK_PARAMS.has(k)) || new Set(keys).size !== keys.length) return deny()
+          if (!sameState(q.get('state'), state)) return deny()
+          // Counted only now, after every check: a request without this flow's state (a local process, an <img> on a
+          // web page, a DNS-rebinding page with another Host) is a cheap 404 that can't use up the real callback's turns.
+          if (++f.callbacks > MAX_CALLBACKS) return deny()
+
+          // Bring miyagi forward with the outcome, not just the browser tab.
           const focusApp = (): void => {
             if (process.platform === 'darwin') ctx.app.focus({ steal: true })
           }
+          /** A failed attempt: the tab says why (with Try again), the app hears it, and the flow keeps listening. */
+          const failed = (why: { reason: string; message: string }): void => {
+            f.last = why
+            ctx.broadcast('auth:attempt', why)
+            try {
+              res.writeHead(200, PAGE_HEADERS).end(PAGE('Sign-in did not finish', why.message, authorize))
+            } catch {
+              /* the browser went away */
+            }
+          }
+
+          const code = q.get('code')
           if (!code) {
-            // Google or Supabase said no: say why, in plain words, in the tab AND in miyagi (it used to drop the reason).
+            // Google or Supabase said no: say why, in plain words, in the tab AND in miyagi. Not the end of the flow: a
+            // forged error callback can't stop a real sign-in, and the learner can try again from the tab.
             const why = explainCallbackError(q.get('error'), q.get('error_code'), q.get('error_description'))
             console.warn('[auth] sign-in came back without a code:', plain(q.get('error'), 80) ?? '(no error)', plain(q.get('error_code'), 80) ?? '', plain(q.get('error_description'))?.replace(/^(Unable to exchange external code)\b.*$/i, '$1') ?? '')
-            f.aborted = true
-            flow = undefined
-            // Close only after the page is flushed (closeAllConnections would cut it off mid-write).
-            res.end(PAGE('Sign-in did not finish', why.message), () => closeServer(server))
-            focusApp()
-            f.finish({ ok: false, ...why })
-            return
+            return failed(why)
           }
-          // Not "signed in" yet: the code is exchanged after this page is sent, and miyagi shows the result.
+          // The tab waits for the exchange, so it can say whether it worked.
           f.exchanging = true
-          res.end(PAGE('Back to miyagi', 'You can close this tab. miyagi finishes signing you in.'), () => closeServer(server))
           void exchange(cfg, code, verifier).then((r) => {
-            if (f.aborted || flow !== f) return // cancelled meanwhile: the answer is dropped, nothing is stored
+            f.exchanging = false
+            if (f.aborted || flow !== f) {
+              // Cancelled meanwhile: the answer is dropped, nothing is stored.
+              try {
+                res.writeHead(200, PAGE_HEADERS).end(PAGE('Sign-in cancelled', 'miyagi stopped waiting for this sign-in. Start again from miyagi.'))
+              } catch {
+                /* the listener is closed already */
+              }
+              return
+            }
+            // A refused code (junk, already used, another verifier) is not the end: the real callback may still come.
+            if (!('session' in r)) return failed({ reason: 'failed', message: r.message })
             flow = undefined
+            // Let go of 47217 once the page is flushed (closeAllConnections would cut it off mid-write), or at once if
+            // the browser already dropped the request during the exchange: 'close' fires on finish AND on abort (end's
+            // callback never runs after an abort, which used to keep the port for the rest of the run). A short
+            // fallback timer covers a response that neither finishes nor closes.
+            const release = (): void => closeServer(server)
+            res.once('close', release)
+            setTimeout(release, 2000).unref?.()
+            try {
+              res.writeHead(200, PAGE_HEADERS).end(PAGE('Back to miyagi', 'You can close this tab. You are signed in to miyagi.'))
+            } catch {
+              /* the browser went away */
+            }
+            if (res.destroyed || req.socket.destroyed) release()
             focusApp()
-            if (!('session' in r)) return f.finish({ ok: false, reason: 'failed', message: r.message })
             const s = r.session
             setSession(s)
             decide() // the gate's login part opens
@@ -487,6 +603,7 @@ export default defineMainFeature({
           server,
           aborted: false,
           exchanging: false,
+          callbacks: 0,
           finish: (r) => {
             clearTimeout(timer)
             resolve(r)
@@ -494,21 +611,39 @@ export default defineMainFeature({
         }
         flow = f
 
-        server.once('error', () => {
+        let tries = 0
+        server.on('error', (err) => {
+          if (server.listening) return // an error on a live listener (a bad socket) is not a listen failure
+          // A port still held for a moment (our own last listener closing, a test, a quick restart): try again briefly.
+          if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE' && ++tries < listenRetry.tries && !f.aborted) {
+            setTimeout(() => {
+              if (!f.aborted) server.listen(PORT, '127.0.0.1')
+            }, listenRetry.ms)
+            return
+          }
+          // Still taken (another app or another miyagi on 47217), or any other listen failure: stop here, plainly, and
+          // never open the browser (Google would send the code to whoever holds the port).
+          if (f.aborted) return // cancelled meanwhile: that already answered
+          console.warn('[auth] could not listen on the sign-in port:', (err as NodeJS.ErrnoException).code ?? 'error')
           if (flow === f) flow = undefined
           f.aborted = true
-          f.finish({ ok: false, reason: 'port' })
+          closeServer(server)
+          f.finish({ ok: false, reason: 'port', message: portMessage(err) })
         })
-        server.listen(PORT, '127.0.0.1', () => {
-          if (f.aborted) return closeServer(server) // cancelled before the listener was up: nothing opens
-          timer = setTimeout(() => {
-            if (flow === f) stopFlow({ ok: false, reason: 'timeout' })
-          }, WAIT_MS)
-          const q = new URLSearchParams({ provider: 'google', redirect_to: `${REDIRECT}?state=${state}`, code_challenge: challenge, code_challenge_method: 's256' })
-          // Built here from config only; nothing from a renderer is appended.
-          void openAuthorize(`${cfg.url}/auth/v1/authorize?${q.toString()}`).then((ok) => {
-            if (!ok && flow === f) stopFlow({ ok: false, reason: 'failed' })
+        // After the last flow's listener let go of the port (a second click right after the first).
+        void released.then(() => {
+          if (f.aborted) return // cancelled before the listener was up: nothing opens
+          server.once('listening', () => {
+            if (f.aborted) return closeServer(server) // cancelled while it came up: nothing opens
+            timer = setTimeout(() => {
+              // The last failed attempt's reason, if there was one (a timeout after "access denied" says that).
+              if (flow === f) stopFlow(f.last ? { ok: false, ...f.last } : { ok: false, reason: 'timeout' })
+            }, WAIT_MS)
+            void openAuthorize(authorize).then((ok) => {
+              if (!ok && flow === f) stopFlow({ ok: false, reason: 'failed' })
+            })
           })
+          server.listen(PORT, '127.0.0.1')
         })
       })
     }

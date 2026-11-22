@@ -21,7 +21,7 @@ returns nothing while no login window is open).
   key anywhere in the app: Supabase holds the Google secret.
 - **Google**: live, through the main process. System browser + OAuth 2.0 PKCE (S256) via **Supabase Auth**, one-shot
   loopback redirect `http://127.0.0.1:47217/auth/callback?state=<random>`. A callback whose state does not match is
-  ignored (404) and cannot end or hijack the flow. The browser opens through `safeOpenExternal` (the project host is on
+  ignored (404) and cannot end or hijack the flow. Hardening rules (app-harden): see "Callback and redirect" below. The browser opens through `safeOpenExternal` (the project host is on
   the allowlist). No webview, no secret. Esc, Cancel or closing the window cancels, also during the code exchange.
   Esc and leaving the login mid-wait are handled in Login.tsx itself (`useCancelOnEsc`), so the home window's flow
   and the standalone login window behave the same.
@@ -108,7 +108,37 @@ secret in Supabase does not match the Google client); anything else shows Supaba
 code exchange shows Supabase's `msg` (expired / already used → "Try again."). Before this, every one of these showed the
 same "Sign-in did not finish … try again in miyagi" and the app dropped the reason.
 
+## Callback and redirect (app-harden, `claude/app-harden`)
+- **Supabase dashboard**: Authentication › URL Configuration › Redirect URLs holds exactly
+  `http://127.0.0.1:47217/auth/callback`, **no wildcard** (the old note asking for `/auth/callback**` was wrong).
+  That list does not protect a loopback sign-in: Supabase Auth accepts any loopback-IP `redirect_to` (127.0.0.1 or
+  ::1, any port, any path) before it reads the list (`supabase/auth` `internal/utilities/request.go`,
+  `IsRedirectURLValid`: `net.ParseIP(host).IsLoopback()` → allowed). The real protection is **PKCE S256** (a code is
+  useless without this flow's verifier, which never leaves main) plus **our own state** (192 random bits,
+  `timingSafeEqual`, one flow at a time, 5-minute expiry).
+- `redirect_to` is built only from constants: `redirectTo(state)` = `http://127.0.0.1:47217/auth/callback?state=…`.
+  Nothing from a request or a renderer. `authorizeUrl` asserts PKCE (S256 challenge, no `response_type`, our redirect)
+  and refuses to build anything else; the exchange is `grant_type=pkce`. No implicit flow anywhere.
+- The listener answers only `GET` on the exact path `/auth/callback` with `Host: 127.0.0.1:47217` and only the params
+  `code`, `state`, `error`, `error_code`, `error_description` (each once). Anything else is 404.
+- A matching-state callback whose code exchange fails (junk code, `bad_code_verifier`, `flow_state_not_found`) or that
+  carries an OAuth error does **not** end the flow: the tab shows the reason with a Try again link (this flow's own
+  authorize URL), main broadcasts `feat:auth:attempt {reason, message}`, and the listener keeps going until the
+  5-minute timeout, which answers with the last reason (or `timeout`). A forged callback can't cancel a real sign-in.
+- At most 5 callbacks per flow; the 6th and later get 404. Only a callback that passed every check above, this
+  flow's state included, counts: requests without the state (a local process, an `<img>` on a web page, a
+  DNS-rebinding page with another Host) are a cheap 404 and can't use the turns up before the real callback comes.
+- On success the listener lets go of 47217 when the response closes, finished or dropped (the learner closed the tab
+  during a slow exchange), with a 2 s fallback; the next sign-in in the same run gets the port.
+- If 127.0.0.1:47217 is still taken after ~3 s of retries (EADDRINUSE: another app, another miyagi), `auth:google`
+  answers `{ok:false, reason:'port', message}` in plain words and the browser never opens.
+- Tests: `test/auth.test.ts` (ATTACK cases: junk code, error callback, 6th callback, state-less probes don't count,
+  request shape and Host, a tab dropped mid-exchange, taken port, expiry with fake timers, redirect_to vs. hostile
+  headers, PKCE only).
+
 ## Core requests (still open)
+- `feat:auth:attempt` (app-harden): the login could show the failed attempt's reason while it keeps waiting
+  ("Waiting for Google…" + the reason). Today the renderer shows it only when the flow ends (timeout or Cancel).
 - `MiyagiWordmark`'s `height` prop loses to the preflight's `img { height: auto }`; callers pin it with a class. Worth
   fixing in `core/ui/Mark.tsx` (`style={{ height }}`).
 

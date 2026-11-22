@@ -15,6 +15,7 @@ import { useDiagram } from '../diagrams/store'
 import { useErrors } from '../errors/store'
 import { useSearch } from '../launcher/store'
 import { closeHint, hintShown, usePanel } from './v2/panelStore'
+import { isWebLink, linkHost } from './links'
 import { isPanelRouted } from './v2/route'
 
 export type Side = 'left' | 'right'
@@ -236,15 +237,9 @@ onUi('dismiss', () => {
 // A new lesson: the panel isn't collapsed (lesson.ready opens it above).
 onMessage('lesson.ready', () => setDock({ collapsed: false }))
 
-/** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */
-export function isWebLink(url: string): boolean {
-  try {
-    const u = new URL(url)
-    return u.protocol === 'https:' || u.protocol === 'http:'
-  } catch {
-    return false
-  }
-}
+// http(s) links only; anything else (file:, javascript:, a bare path) is ignored. linkHost: where a link goes, shown
+// next to it. Both live in ./links (pure, so tests import them without the stores).
+export { isWebLink, linkHost }
 
 /**
  * A source row was clicked. Electron: core's window-open handler denies the window and sends http(s) to the
@@ -252,4 +247,77 @@ export function isWebLink(url: string): boolean {
  */
 export function openSource(url: string): void {
   if (isWebLink(url)) window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+/**
+ * Setup Download / Open links main would not open (not on its setup list, main/safeOpen.ts SETUP_PAGES), keyed by tool AND
+ * URL (refusedKey): the text to show on the row with a Copy button instead ('' = not a web link, nothing to copy).
+ * A corrected URL the engine sends later for the same tool is a new key, so its row offers Get it again.
+ */
+export const useRefusedLinks = create<{ byKey: Record<string, string> }>(() => ({ byKey: {} }))
+
+const refusedKey = (tool: string, url: string | undefined): string => `${tool}\n${url ?? ''}`
+
+/** The refused link for this tool and URL (the text to copy), or undefined when it wasn't refused. */
+export function refusedLink(byKey: Record<string, string>, tool: string, url: string | undefined): string | undefined {
+  return Object.prototype.hasOwnProperty.call(byKey, refusedKey(tool, url)) ? byKey[refusedKey(tool, url)] : undefined
+}
+
+/** main's answer (safeOpen.ts SetupOpen); the browser stage answers a plain boolean. */
+type SetupOpen = { opened: true } | { opened: false; refused: boolean; copy?: string }
+
+/**
+ * A setup row's Download or Open button (cards/index.tsx, cards/VSCodeSheet.tsx). The URL comes from the engine (maybe from a
+ * video description), so it never goes through window.open (any https): main opens it only if it is on the setup
+ * list, else the row shows it as text with Copy (app-harden). A link on the list the system failed to open is not
+ * "refused": the row keeps Get it, so the learner can try again.
+ */
+export function openSetupLink(tool: string, url: string): void {
+  void bridge
+    .invoke<SetupOpen | boolean>('open:external', { setup: url })
+    .catch((): SetupOpen => ({ opened: false, refused: false }))
+    .then((r) => {
+      const res: SetupOpen = typeof r === 'boolean' ? (r ? { opened: true } : { opened: false, refused: true, copy: url }) : r
+      if (!res.opened && !res.refused) return
+      useRefusedLinks.setState((s) => {
+        const byKey = { ...s.byKey }
+        const key = refusedKey(tool, url)
+        if (res.opened) delete byKey[key]
+        else byKey[key] = res.copy && isWebLink(res.copy) ? res.copy : ''
+        return { byKey }
+      })
+    })
+}
+
+/**
+ * Does this setup row's button open a link? "download" (a download page) and "open" (a web app, kind web_app). Both
+ * go through main's setup list (openSetupLink), never the engine's open_in_browser: Claude's requirements may mark any
+ * tool a web_app with any https URL, and the engine would `open` it (app-harden).
+ */
+export const isLinkRow = (method: string): boolean => method === 'download' || method === 'open'
+
+/**
+ * A link row's button (cards/index.tsx itemAct, cards/VSCodeSheet.tsx act): a link main already refused is copied;
+ * anything else goes to main's setup list (no URL at all is refused there and shows "Not a web link").
+ */
+export function linkRowAct(tool: string, url: string | undefined): void {
+  const refused = refusedLink(useRefusedLinks.getState().byKey, tool, url)
+  if (refused !== undefined) void copySetupLink(refused)
+  else openSetupLink(tool, url ?? '')
+}
+
+/** Copy a refused setup link (main's clipboard: the overlay can't take focus; see drawer/plan.ts copyText). */
+export async function copySetupLink(url: string): Promise<boolean> {
+  if (!url) return false
+  try {
+    if (await bridge.invoke<boolean>('drawer:copy', url)) return true
+  } catch {
+    // no handler (the stage without one): fall through
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    return true
+  } catch {
+    return false
+  }
 }

@@ -29,7 +29,7 @@ import { useCards } from '../cards/store'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
 import { count, lessonOutline, planTotal, useJustEnded, useStepDetail, useStepStatuses, type StepStatus } from './plan'
-import { closeDrawer, isWebLink, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
+import { closeDrawer, isWebLink, linkHost, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 import { enter, fade } from '../../core/ui/motion'
 
@@ -781,6 +781,9 @@ const KIND_ICON: Record<Exclude<SourceKind, 'video'>, LucideIcon> = { repo: Fold
 
 function SourceRow({ source }: { source: Source }): ReactNode {
   const link = isWebLink(source.url) ? source.url : undefined
+  // Where the click lands, from the URL itself (app-harden): the title and meta are the engine's words. Its own element,
+  // never truncated: a long meta gives way first.
+  const host = linkHost(link)
   return (
     <button
       type="button"
@@ -796,9 +799,14 @@ function SourceRow({ source }: { source: Source }): ReactNode {
         <span className="block truncate text-[13px] font-medium leading-[17px]" style={{ color: glass.text }}>
           {source.title}
         </span>
-        {source.meta && (
-          <span className="block truncate text-[12px] leading-[16px]" style={{ color: glass.faint }}>
-            {source.meta}
+        {(source.meta || host) && (
+          <span className="flex min-w-0 text-[12px] leading-[16px]" style={{ color: glass.faint }}>
+            {source.meta && <span className="min-w-0 truncate">{source.meta}</span>}
+            {host && (
+              <span data-link-host className="shrink-0 whitespace-pre">
+                {source.meta ? ` · ${host}` : host}
+              </span>
+            )}
           </span>
         )}
       </span>
