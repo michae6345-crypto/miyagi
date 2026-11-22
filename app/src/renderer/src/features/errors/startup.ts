@@ -33,6 +33,7 @@ import { copy } from '../../core/theme'
 import { useOnboarding, type CloudView } from '../onboarding/store'
 import { copyDetails } from './cards'
 import { restartEngine, TRIES, useErrors } from './store'
+import { shellName, thisDevice } from '../onboarding/device'
 
 /** How long a start may take before it counts as failed. */
 export const BOOT_MS = 45_000
@@ -95,19 +96,19 @@ export function bootOf(i: BootInput): Boot {
       if (i.local === 'missing') return failed(i, 'engine', "The engine isn't installed yet.")
       if (i.stopped) return failed(i, 'engine', 'It stopped answering.')
       // Installing is never a timeout: main is working on it and says when it fails (the clock waits too).
-      if (i.timedOut && i.local !== 'installing') return failed(i, 'engine', i.local === 'external' ? 'Start the engine in Terminal.' : 'It took too long to start.')
+      if (i.timedOut && i.local !== 'installing') return failed(i, 'engine', i.local === 'external' ? `Start the engine in ${shellName()}.` : 'It took too long to start.')
     }
     if (!i.shown && !i.retryHold) return { phase: 'checking', line: '' }
     if (i.everOpen) return { phase: 'reconnecting', line: `${copy.name} is reconnecting`, detail: 'Picking up where it left off.' }
     return {
       phase: 'starting',
       line: `${copy.name} is getting ready`,
-      detail: i.local === 'installing' ? 'Setting up the engine. The first time takes a minute.' : 'Starting the engine on this Mac.'
+      detail: i.local === 'installing' ? 'Setting up the engine. The first time takes a minute.' : `Starting the engine on ${thisDevice()}.`
     }
   }
-  if (i.cloud === 'failed' && !i.retryHold) return failed(i, 'cloud', "Couldn't set up access for this Mac.")
+  if (i.cloud === 'failed' && !i.retryHold) return failed(i, 'cloud', `Couldn't set up access for ${thisDevice()}.`)
   if (i.cloud === 'minting' || (i.cloud === 'failed' && i.retryHold)) {
-    if (i.timedOut) return failed(i, 'cloud', "Couldn't set up access for this Mac.")
+    if (i.timedOut) return failed(i, 'cloud', `Couldn't set up access for ${thisDevice()}.`)
     if (!i.shown && !i.retryHold) return { phase: 'checking', line: '' }
     return { phase: 'starting', line: `${copy.name} is getting ready`, detail: 'Setting up access for this Mac.' }
   }

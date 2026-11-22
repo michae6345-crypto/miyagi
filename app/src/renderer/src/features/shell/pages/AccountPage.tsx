@@ -26,6 +26,7 @@ import { authOn } from '../../auth/model'
 import { loadAuth, useAuth } from '../../auth/store'
 import { openSheet } from '../sheet'
 import { setPage, setSettingsSection } from '../store'
+import { thisDevice } from '../../onboarding/device'
 
 const card = { borderRadius: radius2.panel, background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}, ${surface.shadowSmall}` } as const
 const caption = { fontSize: type2.sm, lineHeight: '20px', color: color.label } as const
@@ -146,7 +147,7 @@ function NoCloud(): ReactNode {
         </h2>
       </div>
       <p className="m-0" style={caption}>
-        {copy.name} runs on this Mac. Your lessons and progress stay here.
+        {copy.name} runs on {thisDevice()}. Your lessons and progress stay here.
       </p>
       <Rule />
       <div className="flex flex-col">

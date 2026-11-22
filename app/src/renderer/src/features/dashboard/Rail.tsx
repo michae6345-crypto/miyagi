@@ -14,6 +14,7 @@ import { caption, Empty, h2, NodeGlyph, STATE_WORD } from './parts'
 import { canReview, select, startGoal, startReview, startSaved, useDash } from './store'
 import { contLine, type Cont } from './continue'
 import type { DashData, DashNext, ReviewEntry } from './types'
+import { thisDevice } from '../onboarding/device'
 
 const row = { borderTop: `1px solid ${fill.hairline}` } as const
 
@@ -143,7 +144,7 @@ function NextRow({ n, data, primary, route, first }: { n: DashNext; data?: DashD
         block
         busy={!!n.id && starting === n.id}
         disabled={!!starting}
-        title={n.id ? 'Saved on this Mac' : 'miyagi builds this lesson for you'}
+        title={n.id ? `Saved on ${thisDevice()}` : 'miyagi builds this lesson for you'}
         onClick={() => (n.id ? void startSaved(n.id, route) : startGoal(n.goal, route))}
       />
       {n.id && <StartError k={n.id} />}
@@ -240,7 +241,7 @@ export function SkillCard({ data, now, route }: { data?: DashData; now: number; 
                 label={l.inProgress ? 'Resume' : 'Again'}
                 busy={!!l.libraryId && starting === l.libraryId}
                 disabled={!l.libraryId || !!starting}
-                title={l.libraryId ? undefined : 'Not saved on this Mac'}
+                title={l.libraryId ? undefined : `Not saved on ${thisDevice()}`}
                 onClick={() => l.libraryId && void startSaved(l.libraryId, route)}
               />
             </div>
@@ -260,7 +261,7 @@ export function SkillCard({ data, now, route }: { data?: DashData; now: number; 
           ))}
         </div>
       )}
-      {!taught.length && !ups.length && st !== 'mastered' && <span style={caption}>No lesson for it on this Mac yet. Ask miyagi for one.</span>}
+      {!taught.length && !ups.length && st !== 'mastered' && <span style={caption}>No lesson for it on {thisDevice()} yet. Ask miyagi for one.</span>}
       {[...taught.map((l) => l.libraryId), ...ups.map((n) => n.id)].filter((x): x is string => !!x).map((k) => (
         <StartError key={k} k={k} />
       ))}

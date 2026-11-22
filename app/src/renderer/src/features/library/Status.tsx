@@ -74,7 +74,7 @@ function PlanRow({ cloudUnused }: { cloudUnused: boolean }): ReactNode {
   }, [])
   if (!loaded) return <div aria-hidden style={{ height: 44, margin: '4px 8px 0', borderRadius: radius2.control, background: fill.skeleton }} />
   if (!account?.signedIn)
-    return <Row label="Account" line={{ state: 'unknown', word: 'Sign in', detail: 'Sign in to keep your plan on every Mac.' }} onClick={() => openAccountSurface('signin')} chevron />
+    return <Row label="Account" line={{ state: 'unknown', word: 'Sign in', detail: 'Sign in to keep your plan on every computer.' }} onClick={() => openAccountSurface('signin')} chevron />
   const help = cloudUnused ? undefined : account.help
   const plan = account.plan === 'pro' ? 'Pro plan' : account.plan === 'teams' ? 'Teams plan' : 'Free plan'
   const f = help && help.limit ? Math.min(1, help.used / help.limit) : 0
