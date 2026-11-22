@@ -5,10 +5,16 @@
  */
 import type { LucideIcon } from 'lucide-react'
 import { Check, Info } from 'lucide-react'
-import { Fragment, type ReactNode } from 'react'
+import { createContext, useContext, Fragment, type ReactNode } from 'react'
 import { color, fill, highlight, radius2, type2 } from '../../core/theme'
 
+/** True inside the home window's Settings page (features/shell): there the page title and the section control already
+ * name the section, so a section's own header keeps only its right-hand actions. */
+export const InlineSettings = createContext(false)
+
 export function PageHeader({ title, caption, right, lead }: { title: string; caption?: ReactNode; right?: ReactNode; lead?: ReactNode }): ReactNode {
+  const inline = useContext(InlineSettings)
+  if (inline) return right ? <header className="flex items-center justify-end gap-[12px]">{right}</header> : null
   return (
     <header className="flex items-end gap-[16px]">
       {lead}

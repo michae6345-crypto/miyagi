@@ -35,14 +35,9 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
           variants={rise}
           data-onb-stage
           className="grid w-full place-items-center"
-          style={{
-            height: 168,
-            borderRadius: radius2.sheet,
-            background: `color-mix(in srgb, ${brand.pastel.lilac} 24%, ${surface.sheet})`,
-            boxShadow: `${highlight.top}, inset 0 0 0 1px ${fill.hairline}, ${elevation.overlay}`
-          }}
+          style={{ height: 120 }}
         >
-          <MiyagiMark size={96} />
+          <MiyagiMark size={88} />
         </motion.div>
         <motion.h1 id="onb-title" variants={rise} className="m-0 mt-[28px]" style={{ fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '34px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
           You&apos;re ready
@@ -60,7 +55,7 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
             onMouseDown={(e) => e.preventDefault()}
             onClick={tour}
           >
-            <span className="grid h-[44px] w-[44px] shrink-0 place-items-center" style={{ borderRadius: radius2.card, background: `color-mix(in srgb, ${brand.pastel.sky} 22%, transparent)` }}>
+            <span className="grid h-[44px] w-[44px] shrink-0 place-items-center" style={{ borderRadius: radius2.card, background: fill.tile }}>
               <NotebookText size={22} strokeWidth={1.5} color={color.text} />
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-[2px]">

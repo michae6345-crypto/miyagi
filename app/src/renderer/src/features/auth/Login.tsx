@@ -222,27 +222,7 @@ export function Login({ onContinue }: { onContinue?: () => void } = {}): ReactNo
                     ) : note ? (
                       <Failure key="fail" text={note} />
                     ) : (
-                      <motion.span
-                        key="soon"
-                        data-auth-soon
-                        aria-label="Apple and GitHub sign-in are coming soon"
-                        className="flex items-center gap-[8px]"
-                        style={{ fontSize: type2.sm, color: color.faint }}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={fade}
-                      >
-                        <span className="flex items-center gap-[5px]">
-                          <AppleGlyph /> Apple
-                        </span>
-                        <span aria-hidden>·</span>
-                        <span className="flex items-center gap-[5px]">
-                          <GitHubGlyph size={14} /> GitHub
-                        </span>
-                        <span aria-hidden>·</span>
-                        <span>coming soon</span>
-                      </motion.span>
+                      null
                     )}
                   </AnimatePresence>
                 </div>
