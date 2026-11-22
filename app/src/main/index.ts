@@ -58,7 +58,9 @@ if (app.isPackaged) {
 }
 
 const platform = describePlatform(process.platform)
-const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
+// A packaged app always talks to its own engine on localhost: ENGINE_URL from the environment is for dev runs only
+// (risk A12, launch register R33: a `launchctl setenv` could otherwise point the app at another engine).
+const ENGINE_URL = (!app.isPackaged && process.env.ENGINE_URL) || 'ws://localhost:8787'
 // The token goes in with the constructor: the first connect starts there, before setupLocalEngine runs.
 const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined, ENGINE_TOKEN)
 let stopLocalEngine: () => void = () => undefined

@@ -268,12 +268,36 @@ export function pidFileName(packaged: boolean): string {
  * `npm run dev` keeps an explicit value. MIYAGI_STATE_DIR is explicit, so the installed engine's saves stay in
  * ~/miyagi/state and a dev app's engine never writes there (~/miyagi/state-dev, as for dev engines).
  */
-export function enginePins(env: NodeJS.ProcessEnv, packaged: boolean): { ORCH_AUTO_RESUME: string; ORCH_AUTOSTART: string; MIYAGI_STATE_DIR: string } {
+export function enginePins(env: NodeJS.ProcessEnv, packaged: boolean): Record<string, string> {
   return {
     ORCH_AUTO_RESUME: packaged ? '0' : env.ORCH_AUTO_RESUME || '0',
     ORCH_AUTOSTART: packaged ? '0' : env.ORCH_AUTOSTART || '0',
     MIYAGI_STATE_DIR: env.MIYAGI_STATE_DIR || join(homedir(), 'miyagi', packaged ? 'state' : 'state-dev'),
+    ...(packaged ? launchPins(env) : {}),
   }
+}
+
+/**
+ * Launch build (Adrian, Nov 21; launch register R17, R31, R45), packaged only, whatever the inherited environment says:
+ * - COACH_WEB=0: the coach's web search (DuckDuckGo plus a fetch of the pages) stays off until it's disclosed.
+ * - ORCH_RECORD=0: no recording of every lesson event to demo/runs/*.jsonl, which kept screen text on disk forever.
+ * - MIYAGI_NET_PROBE: the network check asks the host lessons really use (our cloud), not api.anthropic.com, which a
+ *   school filter can block while the cloud works (a false "you're offline").
+ * `npm run dev` keeps the engine's own defaults.
+ */
+export function launchPins(env: NodeJS.ProcessEnv): Record<string, string> {
+  const probe = netProbe(env)
+  return { COACH_WEB: '0', ORCH_RECORD: '0', ...(probe ? { MIYAGI_NET_PROBE: probe } : {}) }
+}
+
+/**
+ * host:port of the cloud a packaged app uses: always our hosted proxy (features/cloud.ts DEFAULT_CLOUD_URL), because a
+ * packaged app ignores an environment-set cloud host (envCloudUrl, risk A12). Undefined with the cloud off (own keys
+ * only): the engine's own probe is right then.
+ */
+export function netProbe(env: NodeJS.ProcessEnv): string | undefined {
+  if (/^(off|0|false|no)$/i.test((env.MIYAGI_CLOUD_URL || '').trim())) return undefined
+  return 'miyagi-cloud.onrender.com:443'
 }
 
 /** The launcher runtime's environment (~/miyagi/engine/bin/miyagi-engine): the app's env plus the step 8 pins. */
