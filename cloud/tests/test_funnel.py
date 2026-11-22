@@ -98,3 +98,51 @@ def test_account_delete_removes_funnel_rows(make_cloud):
     assert app_mod.store.funnel_rows(th)
     n = app_mod.store.delete_account(th)
     assert n["funnel"] == 2 and app_mod.store.funnel_rows(th) == []
+
+
+def test_prune_folds_funnel_rows_past_retention_into_daily_totals(make_cloud):
+    _, app_mod = make_cloud()
+    s = app_mod.store
+    now = datetime.now(UTC).timestamp()
+    a, b = "a" * 64, "b" * 64
+    s.add_funnel(a, [("first_launch", now - 40 * 86400), ("signed_in", now - 34 * 86400)])
+    s.add_funnel(b, [("first_launch", now - 40 * 86400)])
+    n = s.prune(retain_days=1)  # below the minimum: 35 days are kept
+    assert n["funnel"] == 2
+    assert [(r["token_hash"], r["name"]) for r in s.funnel_rows()] == [(a, "signed_in")]
+    daily = [dict(r) for r in s._q("SELECT day, name, installs FROM funnel_daily")]
+    old_day = datetime.fromtimestamp(now - 40 * 86400, UTC).strftime("%Y-%m-%d")
+    assert daily == [{"day": old_day, "name": "first_launch", "installs": 2}]  # no install in the totals
+    assert [r[1] for r in s._q("PRAGMA table_info(funnel_daily)")] == ["day", "name", "installs"]
+    assert s.prune()["funnel"] == 0  # a second run changes nothing
+    assert s.funnel_report(["first_launch", "signed_in"])["pruned_totals"] == {"first_launch": 2}
+
+
+def test_signed_in_delete_removes_funnel_rows_of_every_linked_install(make_cloud):
+    client, app_mod = make_cloud()
+    h1, _ = install(client)
+    h2, _ = install(client)
+    other, _ = install(client)
+    for h in (h1, h2, other):
+        assert client.post("/v1/funnel", headers=h, json=ms(datetime.now(UTC), [0, 1])).status_code == 202
+    t1, t2, t3 = (app_mod.hash_token(h["Authorization"][7:]) for h in (h1, h2, other))
+    app_mod.store.link_user(t1, "user-123")
+    app_mod.store.link_user(t2, "user-123")
+    n = app_mod.store.delete_account(None, "user-123")
+    assert n["funnel"] == 4
+    assert {r["token_hash"] for r in app_mod.store.funnel_rows()} == {t3}  # another learner's install is untouched
+
+
+def test_no_token_user_id_or_address_in_funnel_rows_or_logs(make_cloud, caplog):
+    client, app_mod = make_cloud()
+    h, _ = install(client)
+    token = h["Authorization"][7:]
+    caplog.set_level("DEBUG")
+    hdrs = {**h, "X-Forwarded-For": "203.0.113.9"}
+    assert client.post("/v1/funnel", headers=hdrs, json=ms(datetime.now(UTC), [0])).status_code == 202
+    th = app_mod.hash_token(token)
+    app_mod.store.link_user(th, "user-xyz")
+    dump = "\n".join(str(tuple(r)) for r in app_mod.store._q("SELECT * FROM funnel"))
+    for needle in (token, "user-xyz", "203.0.113.9", "testclient"):
+        assert needle not in dump
+        assert needle not in caplog.text

@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS funnel (
     first_at   REAL NOT NULL,              -- epoch seconds, UTC
     PRIMARY KEY (token_hash, name)
 );
+-- Funnel rows past retention (prune), folded into per-day totals with no install: UTC day of first_at and name.
+CREATE TABLE IF NOT EXISTS funnel_daily (
+    day      TEXT NOT NULL,
+    name     TEXT NOT NULL,
+    installs INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, name)
+);
 -- Shared lesson cache (ROADMAP 3.1, A08): every upload is a candidate per video, schema and uploader. GET serves only
 -- the one approved candidate (POST /admin/lessons/{video_id}/approve, or LESSON_AUTO_APPROVE_N matching uploads).
 CREATE TABLE IF NOT EXISTS lesson_candidates (
@@ -822,7 +829,8 @@ class Store:
             median = None if not gaps else gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2
             out.append({"name": step, "installs": len(reached), "share": round(len(reached) / base, 4) if base else 0.0,
                         "median_s_from_prev": None if median is None else round(median, 1)})
-        return {"installs": base, "since": since, "steps": out,
+        older = {r["name"]: int(r["n"]) for r in self._q("SELECT name, SUM(installs) AS n FROM funnel_daily GROUP BY name")}
+        return {"installs": base, "since": since, "steps": out, "pruned_totals": older,
                 "installs_minted": int(self._q("SELECT COUNT(*) FROM tokens")[0][0]),
                 "installs_linked": int(self._q("SELECT COUNT(*) FROM links")[0][0])}
 
@@ -966,6 +974,8 @@ class Store:
         - usage, events, event_props older than retain_days (at least MIN_RETAIN_DAYS): folded into per-day totals
           under AGGREGATE (no install), then deleted; role_usage and builds that old: deleted;
         - event_intake, moved_usage, lesson_puts, alerts_sent older than SHORT_RETAIN_DAYS; mints older than 48 hours;
+        - funnel rows whose first_at is older than retain_days: counted per UTC day and name into funnel_daily
+          (no install), then deleted;
         - pending lesson candidates older than pending_max_age_s (0 = keep);
         - the mint network hash of installs minted more than mint_net_days ago (0 = keep while the install is
           anonymous; linking or deleting drops it anyway). Such an install is then capped per install only.
@@ -1000,6 +1010,12 @@ class Store:
                 for table in ("event_intake", "moved_usage", "lesson_puts", "alerts_sent"):
                     n[table] = self._db.execute(f"DELETE FROM {table} WHERE day < ?", (short,)).rowcount
                 n["mints"] = self._db.execute("DELETE FROM mints WHERE hour < ?", (int(t // 3600) - 48,)).rowcount
+                # funnel: a row older than retention (by its own first_at) is counted into funnel_daily, then deleted
+                self._db.execute("INSERT INTO funnel_daily (day, name, installs) SELECT strftime('%Y-%m-%d', first_at, "
+                                 "'unixepoch'), name, COUNT(*) FROM funnel WHERE first_at < ? GROUP BY 1, 2 "
+                                 "ON CONFLICT (day, name) DO UPDATE SET installs = installs + excluded.installs",
+                                 (t - keep * 86400,))
+                n["funnel"] = self._db.execute("DELETE FROM funnel WHERE first_at < ?", (t - keep * 86400,)).rowcount
                 n["mint_net"] = 0
                 if mint_net_days > 0:
                     n["mint_net"] = self._db.execute("UPDATE tokens SET mint_net = NULL WHERE mint_net IS NOT NULL "

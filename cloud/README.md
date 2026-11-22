@@ -654,7 +654,10 @@ Authorization: Bearer <mi_ install token>
 Milestones, in order: `first_launch`, `signed_in`, `permissions_granted`, `lesson_started`, `step_passed`,
 `lesson_finished`. The table `funnel` keeps the earliest time per install and name: names and times only, the user
 comes from `links`. Unknown names and unreadable times are dropped; a future time counts as now, one older than 400
-days is dropped. Deleted with the account (`delete_account`). Download is not a milestone (count it on the site or
+days is dropped. Deleted with the account (`delete_account`: the calling install and, signed in, every install linked
+to that user). Retention: `prune()` counts a row whose `first_at` is older than 35 days into `funnel_daily` (UTC day,
+name, installs; no install) and deletes it, like the other per-install rows. No IP, network hash, user id or token is
+stored in either table, and the route logs none. Download is not a milestone (count it on the site or
 release side; `tokens` is every first launch).
 
 `GET /admin/funnel?days=N` (admin token): installs per step, share of the first step and the median seconds from the
