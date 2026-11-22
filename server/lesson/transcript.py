@@ -107,9 +107,26 @@ async def _fetch_video_info(video_id: str) -> dict:
     return info
 
 
-def parse_chapters(description: str) -> list[dict]:
-    from .builder import parse_ts  # local import: builder imports this module
+def parse_ts(v) -> float | None:
+    """'7:42' -> 462, '1:02:03' -> 3723, '75s' / 75 -> 75."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip().lower().rstrip("s")
+    if not s:
+        return None
+    try:
+        parts = [float(p) for p in s.split(":")]
+    except ValueError:
+        return None
+    out = 0.0
+    for p in parts:
+        out = out * 60 + p
+    return out
 
+
+def parse_chapters(description: str) -> list[dict]:
     out = []
     for ts, title in _CHAPTER.findall(description or ""):
         t = parse_ts(ts)

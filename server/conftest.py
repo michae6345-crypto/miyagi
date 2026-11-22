@@ -50,3 +50,36 @@ def _no_lesson_regex_budget():
     from server.safety import regex_worker
 
     regex_worker.set_fallback(None)
+
+
+_HERO_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "demo", "pinn-lab")
+
+
+def _hero_names() -> set[str]:
+    try:
+        return set(os.listdir(_HERO_DIR))
+    except OSError:
+        return set()
+
+
+@pytest.fixture(autouse=True)
+def _hero_workdir_untouched(request):
+    """demo/pinn-lab is fingerprinted by its file NAMES (server.lesson.builder.workdir_fingerprint): one extra file and
+    the hero lesson misses demo/cache/lessons/aebc6b8fba02dac5.json and builds live (a stray empty pinn_convection.py,
+    the kind a lesson-mode session's _ensure_step_file makes, was committed once in 36bbf6bf). A test that leaves a new
+    file there gets a warning naming it, and an empty leftover is removed so it can't be committed again."""
+    before = _hero_names()
+    yield
+    new = _hero_names() - before
+    if not new:
+        return
+    import warnings
+
+    for name in sorted(new):
+        p = os.path.join(_HERO_DIR, name)
+        try:
+            if os.path.isfile(p) and os.path.getsize(p) == 0:
+                os.remove(p)
+        except OSError:
+            pass
+    warnings.warn(f"{request.node.nodeid} left {sorted(new)} in demo/pinn-lab (the hero workdir)", stacklevel=1)

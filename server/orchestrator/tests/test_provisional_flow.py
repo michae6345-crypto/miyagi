@@ -29,6 +29,7 @@ def lesson_fakes(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path / "w"))
     monkeypatch.delenv("DEMO", raising=False)
     monkeypatch.setenv("LESSON_ENGINE", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-placeholder")  # Gemini is opt-in (D1): engine AND a key; faked below
     monkeypatch.setenv("LESSON_GEMINI_USAGE_FILE", str(tmp_path / "usage.json"))
     monkeypatch.setattr(builder, "CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(builder, "RAW_DIR", tmp_path / "cache" / "raw")

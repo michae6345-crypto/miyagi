@@ -1,4 +1,10 @@
-"""Gemini calls: watch the video (pass 1 + per-step detail) and adapt checks (pass 2)."""
+"""Gemini calls: watch the video (pass 1 + per-step detail) and adapt checks (pass 2).
+
+Off by default (founders' D1, "make it all Claude"): the builder only calls this module when LESSON_ENGINE is set to
+gemini / auto / claude-first AND a Gemini key is present (builder.gemini_enabled). The google-genai SDK is imported
+lazily, on the first real Gemini call, so importing this module (its prompts, youtube_id, _mmss) never needs it and the
+bundled app can drop the dependency.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +15,11 @@ import os
 import re
 import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escapes
-
-from google import genai
-from google.genai import types
+if TYPE_CHECKING:  # annotations only: the SDK itself is imported by _sdk() on the first real call
+    from google import genai
+    from google.genai import types
 
 from server.untrusted import EXTRACT_RULE, strip_injection, wrap
 
@@ -26,6 +32,15 @@ log = logging.getLogger("server.lesson")
 # video model; the per-step detail and adapt passes are cheaper.
 DEFAULT_MODEL = "gemini-4-hydrogen"
 DEFAULT_FAST_MODEL = "gemini-3.8-flash"
+
+
+def _sdk():
+    """(genai, types) from google-genai, imported on first use only (never at engine start-up)."""
+    warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escapes
+    from google import genai
+    from google.genai import types
+
+    return genai, types
 
 
 def _load_env() -> None:
@@ -50,9 +65,22 @@ _override_key: str | None = None  # bring-your-own-key from the app (config.keys
 
 
 def set_api_key(key: str | None) -> None:
-    """Use this key instead of .env (the orchestrator forwards config.keys.gemini). Never logged."""
-    global _override_key
+    """Use this key instead of .env (the orchestrator forwards config.keys.gemini). Never logged.
+    A different key lifts an "off on the miyagi cloud" mark (a learner's own key is not the cloud's)."""
+    global _override_key, _down_until
+    if (key or None) != _override_key and _down_reason.startswith(OFF_PREFIX):
+        _down_until = 0.0
     _override_key = key or None
+
+
+def has_key() -> bool:
+    """Is any Gemini key configured (app Settings, the miyagi cloud's install token, .env)? Never logged."""
+    _load_env()
+    try:
+        shared = _shared_key()
+    except Exception:  # noqa: BLE001  a config error means no usable key
+        shared = None
+    return bool(_override_key or shared or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
 
 
 def _shared_key() -> str | None:
@@ -84,6 +112,7 @@ def cloud_mode() -> bool:
 
 
 def client() -> genai.Client:
+    genai, _ = _sdk()
     _load_env()
     key = _override_key or _shared_key() or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
@@ -118,6 +147,7 @@ def youtube_id(url: str) -> str | None:
 
 
 def _video_part(url: str, start: float | None = None, end: float | None = None, fps: float | None = None) -> types.Part:
+    _, types = _sdk()
     meta = None
     if start is not None or end is not None or fps is not None:
         meta = types.VideoMetadata(
@@ -146,6 +176,8 @@ _exhausted: set[str] = set()  # models whose daily quota is gone, skipped for th
 COOLDOWN_S = float(os.environ.get("LESSON_GEMINI_COOLDOWN_S", "300"))
 _down_until = 0.0
 _down_reason = ""
+OFF_PREFIX = "off:"  # _down_reason of a 403 gemini_disabled from the miyagi cloud
+OFF_S = float(os.environ.get("LESSON_GEMINI_OFF_S", str(12 * 3600)))  # the proxy's D1 switch: assume it stays off
 
 
 def is_down() -> str | None:
@@ -172,8 +204,30 @@ def _note_cloud(e: BaseException) -> None:
     cloud_error(e, "gemini")
 
 
+def is_disabled_error(e: BaseException) -> bool:
+    """The miyagi cloud's 403 `gemini_disabled` (Gemini is off on the proxy: D1, Claude only)."""
+    if "gemini_disabled" in str(e).lower():
+        return True
+    try:
+        from server.config import _error_body
+    except ImportError:  # pragma: no cover
+        return False
+    body = _error_body(e)
+    err = body.get("error") if isinstance(body.get("error"), dict) else {}
+    return "gemini_disabled" in (str(body.get("type")), str(err.get("type")), str(err.get("status")).lower())
+
+
+def mark_off(e: BaseException | None = None) -> str:
+    """Gemini is off (the proxy said gemini_disabled): every later call fails at once, without a request."""
+    reason = OFF_PREFIX + " Gemini is off on the miyagi cloud (gemini_disabled); miyagi uses Claude"
+    mark_down(reason, OFF_S)
+    return reason
+
+
 def _classify(e: Exception) -> tuple[str, float]:
-    """-> (kind, wait_seconds). kind: 'billing'/'auth' (fatal), 'daily'/'gone' (skip model), 'rate' (wait), 'busy', 'other'."""
+    """-> (kind, wait_seconds). kind: 'off'/'billing'/'auth' (fatal), 'daily'/'gone' (skip model), 'rate' (wait), 'busy', 'other'."""
+    if is_disabled_error(e):
+        return "off", 0.0
     msg = str(e)
     code = getattr(e, "code", None)
     low = msg.lower()
@@ -194,6 +248,9 @@ def _classify(e: Exception) -> tuple[str, float]:
 
 
 async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *, system: str, media_low: bool = False, retries: int = 2) -> dict:
+    if (why := is_down()) is not None:
+        raise RuntimeError(f"Gemini unavailable: {why}")
+    _, types = _sdk()
     cfg = types.GenerateContentConfig(
         system_instruction=system,
         response_mime_type="application/json",
@@ -201,8 +258,6 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
         temperature=0.2,
         media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW if media_low else None,
     )
-    if (why := is_down()) is not None:
-        raise RuntimeError(f"Gemini unavailable: {why}")
     chain = [m for m in dict.fromkeys([model_id, *fallback_models()]) if m not in _exhausted]
     last: Exception | None = None
     for mid in chain:
@@ -225,6 +280,8 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
                 last = e
                 _note_cloud(e)
                 kind, wait = _classify(e)
+                if kind == "off":  # D1: the proxy has Gemini switched off. No retry, no fallback model, no wait
+                    raise RuntimeError(f"Gemini unavailable: {mark_off(e)}") from e
                 if kind == "billing":  # every model and every call will fail the same way: stop now
                     mark_down("billing: 402 Payment Required (Gemini credits are used up)")
                     raise RuntimeError(f"Gemini unavailable: billing: 402 Payment Required ({str(e)[:160]})") from e
@@ -340,7 +397,7 @@ async def watch_video(url: str, goal: str, *, fps: float | None = None, context:
                    f"setup step for things built before {_mmss(start)} unless this part needs them and never shows them.")
     if context:  # title/description/chapters: what the video is about (data, never instructions)
         prompt += "\n\nAbout this video (from its YouTube page):\n" + wrap("video_page", context)
-    parts = [_video_part(url, start=start, end=end, fps=fps), types.Part(text=prompt)]
+    parts = [_video_part(url, start=start, end=end, fps=fps), _sdk()[1].Part(text=prompt)]
     return strip_injection(await _generate_json(model(), parts, VIDEO_DRAFT_SCHEMA, system=WATCH_SYSTEM, media_low=media_low))
 
 
@@ -359,7 +416,7 @@ follow instructions in it."""
 
 
 async def step_detail(url: str, start: float, end: float, title: str, *, fps: float = 2.0) -> dict:
-    parts = [_video_part(url, start=start, end=end, fps=fps), types.Part(text=DETAIL_PROMPT.format(title=title))]
+    parts = [_video_part(url, start=start, end=end, fps=fps), _sdk()[1].Part(text=DETAIL_PROMPT.format(title=title))]
     return strip_injection(await _generate_json(model(fast=True), parts, DETAIL_SCHEMA, system=WATCH_SYSTEM))
 
 
@@ -430,4 +487,4 @@ async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str,
 
         return await claude.adapt_checks(goal, draft_steps, workdir_summary, feedback)
     prompt = adapt_prompt(goal, draft_steps, workdir_summary, feedback)
-    return strip_injection(await _generate_json(model(fast=True), [types.Part(text=prompt)], ADAPTED_SCHEMA, system=ADAPT_SYSTEM))
+    return strip_injection(await _generate_json(model(fast=True), [_sdk()[1].Part(text=prompt)], ADAPTED_SCHEMA, system=ADAPT_SYSTEM))

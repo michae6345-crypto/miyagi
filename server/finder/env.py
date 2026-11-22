@@ -112,6 +112,16 @@ def skim_top() -> int:
     return max(0, n)
 
 
+def video_reads() -> int:
+    """How many top videos Claude takes a second look at, from their own text (full description, chapter titles,
+    a transcript excerpt): the default replacement for the Gemini skim. FINDER_VIDEO_READS, default 3; 0 = off."""
+    load_env()
+    try:
+        return max(0, int(os.environ.get("FINDER_VIDEO_READS", "3")))
+    except ValueError:
+        return 3
+
+
 def gemini_fallback() -> bool:
     """Gemini scores rows only if Claude fails AND FINDER_GEMINI_FALLBACK=1 (default off, same reason)."""
     load_env()

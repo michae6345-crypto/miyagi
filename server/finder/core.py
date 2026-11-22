@@ -11,8 +11,9 @@ Pipeline (target: first result ~4 s, done < 20 s):
   2. every candidate is verified (oEmbed for videos, an HTTP request for the rest) and
      scored by Claude for the learner's goal (Gemini only with FINDER_GEMINI_FALLBACK=1, if
      Claude fails); rows stream through on_result as they land
-  3. Gemini skims the top videos at low fps (opt-in);
-     Claude reads the top non-video pages (teaches the goal? prerequisites? code?)
+  3. Claude takes a second look at the top videos from their own text (full description, chapter titles, a
+     transcript excerpt; FINDER_VIDEO_READS, default 3); a low-fps Gemini skim replaces it only when opted in
+     (FINDER_SKIM_TOP). Claude reads the top non-video pages (teaches the goal? prerequisites? code?)
   4. the ranked list is returned (best video first, since build_lesson needs a video) and
      cached in demo/cache/search/.
 
@@ -35,7 +36,7 @@ import httpx
 
 from server import netsafe
 
-from . import cache, claude, env, gemini, sources, youtube
+from . import cache, claude, env, gemini, scoring, sources, youtube
 from .env import Keys, resolve_keys
 from .verify import verify
 
@@ -161,7 +162,7 @@ def make_meta(c: dict) -> str:
     return " · ".join(b for b in bits if b)
 
 
-_STOP = gemini.STOP | {"equation", "using", "with"}
+_STOP = scoring.STOP | {"equation", "using", "with"}
 
 
 def heuristic_score(goal: str, c: dict) -> tuple[int, str]:
@@ -176,7 +177,7 @@ def heuristic_score(goal: str, c: dict) -> tuple[int, str]:
     reason = ("Matches " + ", ".join(hits[:3])) if hits else "Weak keyword match"
     if c.get("duration_s"):
         reason += f", {round(c['duration_s'] / 60)} min"
-    return gemini.clamp(round(s)), reason
+    return scoring.clamp(round(s)), reason
 
 
 def _gemini_text_ok() -> bool:
@@ -236,8 +237,10 @@ class _Run:
         # FINDER_GEMINI_FALLBACK=0 by default (BUILD-PLAN E4): Claude scores. Gemini scores only when Claude fails AND
         # FINDER_GEMINI_FALLBACK=1 AND the Gemini key may take text calls (never the miyagi cloud's video-only token).
         self.gemini_fallback = self.gemini_ok and env.gemini_fallback() and _gemini_text_ok()
-        self.video_top = 3  # top videos considered for the Gemini skim
+        self.video_top = 3  # top videos considered for a second look (Claude reads their text; Gemini skim opt-in)
         self.watching = 0   # videos handed to Gemini so far
+        self.video_reads = env.video_reads()  # FINDER_VIDEO_READS: Claude's second look at the top videos (default 3)
+        self.reading = 0    # videos whose own text Claude reads so far
         self.plan_used: dict = {}
         self.timings: dict[str, float] = {}
         self.ctx: sources.Ctx | None = None
@@ -295,7 +298,7 @@ class _Run:
 
     async def _gather_sources(self) -> None:
         q = self.query
-        plan = gemini.heuristic_plan(q)
+        plan = scoring.heuristic_plan(q)
         self.plan_used = plan
         topic = plan["topic"]
         want = self.kinds
@@ -407,10 +410,10 @@ class _Run:
         only if both fail does it get the labelled keyword score."""
 
         async def by_claude(ch: list[dict]) -> dict[str, dict]:
-            r = await claude.score(self.keys.anthropic, self.query, ch, system=gemini.SCORE_SYSTEM,
-                                   prompt=gemini.SCORE_PROMPT, timeout=max(1.5, min(timeout, self.left(margin=1.5))))
+            r = await claude.score(self.keys.anthropic, self.query, ch, system=scoring.SCORE_SYSTEM,
+                                   prompt=scoring.SCORE_PROMPT, timeout=max(1.5, min(timeout, self.left(margin=1.5))))
             self.ctx.used.add("claude-triage")
-            return {k: {**v, "reason": gemini.short(v["reason"]), "by": "claude"} for k, v in r.items()}
+            return {k: {**v, "reason": scoring.short(v["reason"]), "by": "claude"} for k, v in r.items()}
 
         async def by_gemini(ch: list[dict]) -> dict[str, dict]:
             r = await gemini.score(self.keys.gemini, self.query, ch, timeout=max(1.5, min(5.0, self.left(margin=1.5))),
@@ -519,6 +522,8 @@ class _Run:
             if v["id"] not in self.skims and len(self.skims) < self.video_top + 1:
                 v["_watch"] = self.watching < self.skim_top  # Gemini skim is opt-in (FINDER_SKIM_TOP)
                 self.watching += int(v["_watch"])
+                v["_read"] = not v["_watch"] and self.reading < self.video_reads and bool(self.keys.anthropic)
+                self.reading += int(v["_read"])
                 self.skims[v["id"]] = asyncio.create_task(self._skim(v))
         for c in pages[: self.read_top]:
             if c["id"] not in self.reads and len(self.reads) < self.read_top + 1:
@@ -553,11 +558,31 @@ class _Run:
             self.ctx.note(f"read {c['id']} failed: {type(e).__name__}: {str(e)[:80]}")
             self._not_watched(c, f"Claude {claude.failure(e)}")
 
+    async def _read_video(self, v: dict) -> None:
+        """Default second look (D1: Claude only): Claude scores the video again from its own text, the full
+        description, the chapter titles and a transcript excerpt (sources.video_text), with the same rubric."""
+        try:
+            v["video_text"] = await sources.video_text(self.ctx, v["videoId"], timeout=max(1.0, min(6.0, self.left(margin=4))))
+        except Exception as e:
+            self.ctx.note(f"video text {v['videoId']}: {type(e).__name__}: {str(e)[:80]}")
+            return
+        try:
+            r = await claude.score(self.keys.anthropic, self.query, [v], system=scoring.SCORE_SYSTEM,
+                                   prompt=scoring.SCORE_PROMPT, timeout=max(1.0, self.left(margin=0.7)))
+            self.ctx.used.add("claude-video-read")
+        except Exception as e:
+            self.ctx.note(f"video read {v['videoId']} failed: {type(e).__name__}: {str(e)[:80]}")
+            return
+        if v["id"] in r:
+            v["vread"] = r[v["id"]]
+
     async def _skim(self, v: dict) -> None:
-        """Gemini watches the video (opt-in, FINDER_SKIM_TOP)."""
+        """Gemini watches the video (opt-in, FINDER_SKIM_TOP); otherwise Claude reads its text (FINDER_VIDEO_READS)."""
 
         async def watch() -> None:
             if not v.get("_watch"):
+                if v.get("_read"):
+                    await self._read_video(v)
                 return  # skim off (default): no Gemini call, and no "watched" label on the row
             if not self.gemini_ok:
                 return self._not_watched(v, "no Gemini key")
@@ -613,6 +638,15 @@ class _Run:
                     c["style"] = sk["style"]  # Gemini saw the screen: its call wins
                 c["scored_by"] = f"{c['scored_by']}+gemini-watch"
                 c["watched"] = "watched by Gemini"
+            vr = c.get("vread")
+            if vr and not sk:  # what the video says it teaches (description, chapters, transcript) outweighs its title
+                c["score"] = round(0.4 * c["score"] + 0.6 * vr["score"])
+                c["reason"] = scoring.short(vr.get("reason") or "") or c["reason"]
+                if vr.get("style"):
+                    c["style"] = vr["style"]
+                heard = bool((c.get("video_text") or {}).get("transcript"))
+                c["scored_by"] = f"{c['scored_by']}+claude-{'transcript' if heard else 'description'}"
+                c["watched"] = f"read by Claude ({'transcript' if heard else 'description'})"
             rd = c.get("read")
             if rd:  # what the page actually teaches outweighs its title (read by Claude)
                 c["score"] = round(0.4 * c["score"] + 0.6 * rd["score"])

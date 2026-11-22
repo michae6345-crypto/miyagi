@@ -15,7 +15,8 @@ from pathlib import Path
 
 import os
 
-from . import budget, claude, gemini, links, transcript
+from . import budget, claude, gemini, links, materials, timing, transcript
+from .transcript import parse_ts  # noqa: F401  (re-exported: claude.py, progressive.py, tests use builder.parse_ts)
 from .schema import (
     CHECK_TYPES,
     PRECISION_TYPES,
@@ -49,6 +50,7 @@ from server.untrusted import flag_injection
 STAGES = ("cache_hit", "watching", "reading_transcript", "writing_steps", "engine_switch", "steps_ready", "adapting", "done",
           "planning", "first_steps", "more_steps", "provisional", "transcript_only")
 _progress: contextvars.ContextVar = contextvars.ContextVar("lesson_progress", default=None)
+_material_urls: contextvars.ContextVar = contextvars.ContextVar("lesson_material_urls", default=())
 
 
 def _emit(stage: str, message: str = "") -> None:
@@ -258,15 +260,18 @@ async def _build_lesson_impl(
     on_update=None,
     video_meta: dict | None = None,
     transcript_only: bool = False,
+    material_urls: list[str] | None = None,
 ) -> dict:
     """Return a step graph that validates against shared/contracts/step-graph.schema.json.
 
     Each step has screen-first `checks` (screen_* / metric_* with metric_pattern) and, as an
     extra field, `precision_checks` (file_* / command_* / ::metric:: backups for `tut run`).
-    Engines (LESSON_ENGINE=auto|gemini|claude, default auto): Gemini watches the video directly;
-    if every Gemini model fails (quota, outage, no key), Claude builds the same graph from the
-    video's transcript + title/description/chapters. build.model records which model did what.
-    If both fail the error is raised, never papered over with made-up steps.
+    Engines (LESSON_ENGINE=claude|auto|claude-first|gemini, default claude; see engine_mode): by default Claude
+    builds the graph from the video's transcript + title/description/chapters (and the tutorial's linked code), with
+    step starts pinned to chapter marks / caption lines; Gemini is never called. Gemini watches the video only when
+    LESSON_ENGINE names it explicitly AND a Gemini key is present (gemini_enabled); a gemini_disabled 403 from the
+    miyagi cloud turns it off for the process. build.model records which model did what. If every engine tried fails
+    the error is raised, never papered over with made-up steps.
     api_key / anthropic_key: the app's bring-your-own keys (config.keys.gemini / .anthropic).
     on_progress(stage, message): optional callback (sync or async) with a stage id from STAGES.
     on_update(graph, complete): long videos (> LESSON_LONG_VIDEO_S, 30 min) are built progressively:
@@ -281,15 +286,18 @@ async def _build_lesson_impl(
     refresh: rebuild everything (new video pass). readapt: reuse the cached video draft, redo only
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
+    material_urls: links to the tutorial's own code found elsewhere, read with the description's links (materials.py);
+      also taken from video_meta["materials"]. No caller passes them yet (the finder's rows are not video-specific).
 
     Cached at demo/cache/lessons/<hash>.json; the cache wins unless refresh/readapt, so the
-    demo never waits on Gemini. The hash covers the video, the goal, the workdir folder name and
+    demo never waits on a model. The hash covers the video, the goal, the workdir folder name and
     a fingerprint of its file names + printed ::metric:: names (not the absolute path or file
     contents, so the cache survives other laptops and the learner's edits, but a different
     project layout gets checks adapted to it). A graph whose adapt pass failed is returned
     with build.adapted=False and is NOT cached (the video draft is, so a retry is cheap).
     """
     _progress.set(on_progress)  # also clears a callback left by an earlier build in the same task
+    _material_urls.set(tuple(material_urls or (video_meta or {}).get("materials") or ()))
     vid = gemini.youtube_id(source_url)
     if not vid:
         raise ValueError(f"only YouTube sources are supported for now: {source_url!r}")
@@ -322,8 +330,8 @@ async def _build_lesson_impl(
             meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
         except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
             pass
-    if (not transcript_only and (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and engine_mode() != "claude-first"
-            and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0):
+    if (not transcript_only and (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and engines()[0] == "gemini"
+            and not gemini.is_down() and budget.remaining() > 0):
         try:
             graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
         except RuntimeError as e:
@@ -386,6 +394,10 @@ async def _build_lesson_impl(
         "community_signals": n_signals,
         "warnings": warnings,
     }
+    if draft.get("_timing"):
+        graph["build"]["timing"] = draft["_timing"]  # how many step starts were pinned to a chapter / caption line
+    if draft.get("_materials"):
+        graph["build"]["materials"] = draft["_materials"]  # the tutorial files the steps' code came from
     use_lesson_venv(graph)  # t9 V6: no second venv / reinstall in a step (Miyagi's setup card fills the lesson's .venv)
     use_lesson_notebook(graph)  # t10: a Jupyter lesson's own notebook (mnist.ipynb) in VS Code, never Untitled.ipynb
     errs = schema_errors(graph)
@@ -491,27 +503,42 @@ async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: 
     return draft
 
 
-# Gemini watching the video gives better step boundaries and reads names/versions off the screen
-# (S3 eval: median start error 1 s vs 15 s), so auto prefers it: it gets up to LESSON_GEMINI_TIMEOUT
-# seconds, and the Claude transcript draft (running in parallel from t=0) is used only if Gemini fails
-# or runs out of time. Paid tier: a 20-min video takes Gemini ~35-60 s at 0.5 fps.
+# D1 (founders, Nov 22: "make it all Claude"): the default engine is Claude on the transcript + title, description,
+# chapters and the tutorial's own linked code (materials.py), with step starts pinned to chapter marks and caption
+# lines (timing.py). Gemini watching the video is opt-in only: LESSON_ENGINE=auto|gemini|claude-first AND a Gemini key.
+# The miyagi cloud answers Gemini calls with 403 gemini_disabled; gemini.py marks Gemini off on the first one.
+# When Gemini is enabled (auto), it races the Claude draft: it gets up to LESSON_GEMINI_TIMEOUT seconds and the Claude
+# draft (running in parallel from t=0) is used if Gemini fails or runs out of time.
 GEMINI_VIDEO_TIMEOUT_S = 75.0  # preferred limit while a Claude draft is available
 GEMINI_MAX_TIMEOUT_S = 110.0  # LESSON_GEMINI_MAX_TIMEOUT: when Claude has nothing (e.g. no captions), Gemini may keep going
 GEMINI_GRACE_S = GEMINI_VIDEO_TIMEOUT_S  # LESSON_GEMINI_GRACE: extra wait for Gemini once Claude's draft is ready
+ENGINE_MODES = ("claude", "auto", "claude-first", "gemini")
+DEFAULT_ENGINE = "claude"
 
 
 def engine_mode() -> str:
-    """LESSON_ENGINE: auto (Gemini preferred, Claude races it) | claude-first (Claude transcript path; Gemini
-    only if there's no transcript or Claude's draft fails) | gemini | claude."""
+    """LESSON_ENGINE: claude (default: transcript path only, Gemini never called) | auto (Gemini preferred, Claude
+    races it) | claude-first (Claude; Gemini only if the transcript path fails) | gemini. An unknown value is claude."""
     gemini._load_env()
-    e = os.environ.get("LESSON_ENGINE", "auto").strip().lower().replace("_", "-")
-    return e if e in ("auto", "claude-first", "gemini", "claude") else "auto"
+    e = os.environ.get("LESSON_ENGINE", DEFAULT_ENGINE).strip().lower().replace("_", "-")
+    return e if e in ENGINE_MODES else DEFAULT_ENGINE
+
+
+def gemini_enabled() -> bool:
+    """May this build call Gemini at all? Only when LESSON_ENGINE names it explicitly, a Gemini key is present and the
+    miyagi cloud hasn't said gemini_disabled (then Gemini is off for the process, without another request)."""
+    if engine_mode() == "claude" or not gemini.has_key():
+        return False
+    return not (gemini.is_down() or "").startswith(gemini.OFF_PREFIX)
 
 
 def engines() -> list[str]:
     """Video-pass engines in order. Rule: Gemini only ever *watches* the video; Claude does
-    everything else (transcript drafts, the adapt pass, check writing)."""
-    return {"gemini": ["gemini"], "claude": ["claude"], "claude-first": ["claude", "gemini"]}.get(engine_mode(), ["gemini", "claude"])
+    everything else (transcript drafts, the adapt pass, check writing). Without gemini_enabled() it is Claude only,
+    whatever LESSON_ENGINE says."""
+    if not gemini_enabled():
+        return ["claude"]
+    return {"gemini": ["gemini"], "claude-first": ["claude", "gemini"]}.get(engine_mode(), ["gemini", "claude"])
 
 
 async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False) -> dict:
@@ -525,7 +552,15 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
     async def claude_draft() -> dict:
         t0 = time.time()
         _emit("reading_transcript")
-        info = await transcript.fetch_video_info(vid)
+        mats = asyncio.ensure_future(_materials(vid, _material_urls.get()))  # in parallel with the captions
+        try:
+            info = await transcript.fetch_video_info(vid)
+        except BaseException:
+            mats.cancel()
+            raise
+        files = await mats
+        if files:
+            info = {**info, "materials": files}  # a copy: the transcript cache never holds them
         _emit("writing_steps", f"{len(info.get('transcript') or [])} transcript lines")
         last: Exception | None = None
         for _attempt in range(2):
@@ -536,7 +571,11 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
                 last = e
         else:
             raise RuntimeError(f"unusable step list ({last})")
-        log.info("claude video pass: %.1fs", time.time() - t0)
+        # no frames: pin each step's start to the chapter mark / caption line where it begins (timing.py)
+        draft["_timing"] = timing.pin_starts(draft["steps"], info.get("transcript"), info.get("chapters"))
+        rehome_explanations(draft["steps"])
+        draft["_materials"] = [{"url": f["url"], "path": f["path"]} for f in files]
+        log.info("claude video pass: %.1fs (starts pinned: %s; %d tutorial file(s))", time.time() - t0, draft["_timing"], len(files))
         draft["_built_by"] = f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
         draft["_engine"] = "claude"
         return draft
@@ -548,7 +587,7 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
         t0 = time.time()
         # hard limit; the race below takes Claude's draft at pref_cap if one exists
         long_cap = max(pref_cap, float(os.environ.get("LESSON_GEMINI_MAX_TIMEOUT", GEMINI_MAX_TIMEOUT_S)))
-        cap = long_cap if ("claude" in order or engine_mode() == "claude-first") else pref_cap
+        cap = long_cap if "claude" in order else pref_cap
         _emit("watching")
         try:
             meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
@@ -577,7 +616,7 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
         _emit("steps_ready", "claude")
         return d
 
-    if engine_mode() == "claude-first":
+    if order == ["claude", "gemini"]:  # claude-first
         # Michael's rule: pay for Gemini only when the transcript route can't do it
         try:
             d = await claude_draft()
@@ -624,6 +663,10 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
                     e = e if isinstance(e, RuntimeError) else RuntimeError(f"{type(e).__name__}: {e}")
                     errors.append(f"{eng}: {str(e)[:300]}")
                     log.warning("%s video pass failed: %s", eng, str(e)[:200])
+                    if eng == "gemini" and "claude" not in tasks and (gemini.is_down() or "").startswith(gemini.OFF_PREFIX):
+                        # LESSON_ENGINE=gemini but the miyagi cloud has Gemini off (D1): build from the transcript
+                        tasks["claude"] = asyncio.create_task(claude_draft())
+                        pending.add(tasks["claude"])
                     if eng == "gemini" and "claude" in tasks:
                         _emit("engine_switch", _short_reason(str(e)))
                     continue
@@ -648,6 +691,28 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
 
 
 PARTS_FALLBACK_MIN_S = 8 * 60
+
+
+async def _materials(vid: str, extra_urls) -> list[dict]:
+    """The tutorial's own linked code for the Claude draft (materials.py); [] on any failure, never raises.
+    One deadline (materials.COLLECT_TIMEOUT_S, env LESSON_MATERIALS_TIMEOUT_S) covers the description lookup AND the
+    fetches, so the first Claude draft never waits longer than that for them. The description comes from the watch
+    page fetch that fetch_video_info shares (transcript.fetch_metadata runs once per video per process)."""
+    if os.environ.get("LESSON_MATERIALS", "1") == "0":
+        return []
+
+    async def run() -> list[dict]:
+        try:
+            meta = await transcript.fetch_metadata(vid)
+        except Exception:  # noqa: BLE001  no description: only the caller's links
+            meta = {}
+        return await materials.collect(vid, meta, list(extra_urls or ()))
+
+    try:
+        return await asyncio.wait_for(run(), materials.COLLECT_TIMEOUT_S)
+    except Exception as e:  # noqa: BLE001  (TimeoutError too): build without them
+        log.info("materials for %s: %s", vid, type(e).__name__)
+        return []
 
 
 def normalize_video_meta(vm: dict) -> dict:
@@ -704,6 +769,8 @@ def _short_reason(err: str) -> str:
     e = err.lower()
     if "gemini budget" in e:
         return "budget"
+    if "gemini_disabled" in e or "gemini is off" in e:
+        return "off"
     if "402" in e or "payment required" in e or "credits" in e or "billing" in e:
         return "billing"
     if "429" in e or "quota" in e or "resource_exhausted" in e:
@@ -766,25 +833,6 @@ async def _add_detail(url: str, draft: dict) -> None:
             draft.setdefault("libraries", []).append(lib)
 
     await asyncio.gather(*(one(s) for s in draft["steps"]))
-
-
-def parse_ts(v) -> float | None:
-    """'7:42' -> 462, '1:02:03' -> 3723, '75s' / 75 -> 75."""
-    if v is None:
-        return None
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip().lower().rstrip("s")
-    if not s:
-        return None
-    try:
-        parts = [float(p) for p in s.split(":")]
-    except ValueError:
-        return None
-    out = 0.0
-    for p in parts:
-        out = out * 60 + p
-    return out
 
 
 def normalize_draft(draft: dict, *, min_step_s: float | None = None, min_steps: int = 3) -> dict:

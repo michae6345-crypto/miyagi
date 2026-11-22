@@ -30,6 +30,13 @@ def block_network(monkeypatch, *, http: bool = True) -> None:
     monkeypatch.setattr(genai, "Client", _Blocked)
     monkeypatch.setattr(claude, "_client", None)
     monkeypatch.setattr(gemini, "_clients", {})
+    from server.lesson import materials
+
+    async def no_materials(url, **k):  # the tutorial's linked code: materials tests serve fixtures instead
+        raise RuntimeError(f"offline test: no materials fetch ({url})")
+
+    monkeypatch.setattr(materials, "_http_get", no_materials)
+    monkeypatch.setattr(materials, "_tasks", {})
     if http:
         import httpx
         import requests

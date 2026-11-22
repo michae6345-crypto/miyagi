@@ -72,7 +72,7 @@ System Settings › Privacy & Security, then quit and reopen the terminal. The s
 | Key in `.env` | Needed? | What it turns on |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Required | Everything Claude does (see the table above) |
-| `GEMINI_API_KEY` | Optional | Gemini watches the videos. Without it, video lessons are built from the transcript by Claude |
+| `GEMINI_API_KEY` | Optional, off by default | Video lessons are built by Claude (transcript, chapters and the tutorial's linked code). Gemini watches the video only with this key AND `LESSON_ENGINE=auto` (or `gemini`) |
 | `TIGER_DATABASE_URL` | Optional | Stores check results and metrics. Create the tables once with `.venv/bin/tut db init` |
 
 [`.env.example`](.env.example) lists every key the engine reads. You can also enter keys in the app's Settings (⌘,); keys
@@ -191,7 +191,7 @@ flowchart LR
 | `server/orchestrator/` | The hub (FastAPI on :8787): lesson state machine, don't-nag gate, hint ladder, Do it for me (preview → confirm → apply → undo), the hand-written neural-network lesson (`curated.py`), Demo lessons and the presenter endpoints (`stage.py`), `DEMO=1` replay |
 | `server/finder/` | Tutorial search: YouTube videos by default, scored by Claude, with a relevance floor |
 | `server/preflight/` | The card shown right after you pick a video (style, length, fit, tools needed); nothing is built until you say so |
-| `server/lesson/` | Builds the lesson: Gemini watches the video while Claude drafts from the transcript; long videos part by part; "Just teach me" is `textlesson.py` (Claude only) |
+| `server/lesson/` | Builds the lesson with Claude from the transcript, chapters and the tutorial's own linked code, step starts pinned to chapter marks and caption lines (Gemini watching the video is opt-in); "Just teach me" is `textlesson.py` |
 | `server/workspace/` | One folder per lesson with starter files that never pass a step on their own; opens it in VS Code |
 | `server/screen/` | The screen reader: capture, on-device Apple Vision OCR, terminal and editor regions for the spotlight, values read off the terminal |
 | `server/checks/` | Pure check evaluator (`screen_contains`, `metric_threshold`, `metric_trend`) and the Tiger Data writer with an offline spool |

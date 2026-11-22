@@ -156,6 +156,7 @@ class BuildStage(logging.Handler):
         "key": "No Gemini key; using the transcript",
         "error": "Couldn't watch the video; using the transcript",
         "budget": "Today's Gemini budget is used up — reading the transcript instead",
+        "off": "Reading the transcript",  # 403 gemini_disabled (D1: Claude only); nothing failed from the learner's view
     }
 
     def __init__(self) -> None:

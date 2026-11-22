@@ -79,7 +79,7 @@ def build_one(vid: dict, src: Path, saved_captions: Path | None = None) -> dict:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format=f"[{vid['id']}] %(levelname)s %(name)s: %(message)s")
     from server.lesson import build_lesson, transcript  # noqa: E402
 
-    meta: dict = {"id": vid["id"], "url": vid["url"], "goal": vid["goal"], "src": str(src), "engine_env": os.environ.get("LESSON_ENGINE", "auto")}
+    meta: dict = {"id": vid["id"], "url": vid["url"], "goal": vid["goal"], "src": str(src), "engine_env": os.environ.get("LESSON_ENGINE", "claude")}  # unset = the Claude-only default (D1)
     if saved_captions:
         _use_saved_captions(transcript, vid, saved_captions, meta)
     graph, error = None, None
