@@ -6,7 +6,7 @@ import { coexistOf, coreCut, coreMask, HOVER_SCALE, islandPlan, NOTCH_SHADOW, NO
 import { EAR_W, earsSize, restSize } from '../src/renderer/src/core/notchGeometry'
 
 const nm = { width: 189, height: 32 }
-const real: NotchLayout = { hasNotch: true, x: 769.5, width: 189, height: 32, place: 'notch', boringNotch: false }
+const real: NotchLayout = { hasNotch: true, x: 769.5, width: 189, height: 32, place: 'notch' }
 
 describe('rest view', () => {
   test('a connected engine keeps the persistent ear; a loaded lesson too', () => {

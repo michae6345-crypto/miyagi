@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   cfgFor,
-  COEXIST_TIMINGS,
   HOVER_IDLE,
   hoverDeadline,
   hoverEnter,
@@ -12,7 +11,6 @@ import {
   hoverTick,
   inCore,
   inHoverZone,
-  inOtherOpenZone,
   MUTE_ENTER_MS,
   MUTE_EXIT_MS,
   peekOpen,
@@ -21,7 +19,7 @@ import {
   stretchWheel,
   type HoverState
 } from '../src/renderer/src/core/hoverIntent'
-import { HOVER } from '../src/renderer/src/core/notchGeometry'
+import { COEXIST_HOVER, HOVER, inOtherOpenZone } from '../src/renderer/src/core/notchGeometry'
 
 const normal = cfgFor(false)
 const shared = cfgFor(true)
@@ -44,11 +42,12 @@ describe('open timer', () => {
     assert.equal(peekOpen(s), false)
     assert.equal(hoverDeadline(s, normal), 1000 + HOVER.openMs)
     assert.equal(HOVER.openMs, 150)
+    assert.equal(HOVER.closeMs, 100)
     assert.equal(peekOpen(hoverTick(s, 1149, normal)), false)
     assert.equal(peekOpen(hoverTick(s, 1150, normal)), true)
   })
   test('with a shared notch it opens at 300 ms', () => {
-    assert.equal(COEXIST_TIMINGS.openMs, 300)
+    assert.equal(COEXIST_HOVER.openMs, 300)
     const s = hoverEnter(HOVER_IDLE, 0, shared)
     assert.equal(s.light, true)
     assert.equal(peekOpen(hoverTick(s, 299, shared)), false)
@@ -73,7 +72,7 @@ describe('close grace', () => {
   test('the peek closes after the grace', () => {
     const o = open(shared)
     const s = hoverLeave(o, 2000, shared)
-    assert.equal(hoverDeadline(s, shared), 2000 + COEXIST_TIMINGS.closeMs)
+    assert.equal(hoverDeadline(s, shared), 2000 + COEXIST_HOVER.closeMs)
     assert.equal(peekOpen(hoverTick(s, 2099, shared)), true)
     assert.equal(peekOpen(hoverTick(s, 2100, shared)), false)
   })
@@ -174,7 +173,8 @@ describe('wheel stretch', () => {
     assert.equal(stretchScale(s), 1)
     let r = stretchWheel(s, 50)
     s = r.state
-    assert.equal(stretchScale(s), 1.3)
+    assert.equal(stretchScale(s), 1.5)
+    assert.equal(stretchScale({ progress: 200, committed: true }), 3)
     assert.equal(stretchScale({ progress: 20, committed: false }), 1.2)
     assert.equal(r.commit, false)
     r = stretchWheel(s, 160)

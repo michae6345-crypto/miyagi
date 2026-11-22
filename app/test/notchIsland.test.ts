@@ -18,7 +18,7 @@ import {
 } from '../src/renderer/src/core/notchGeometry'
 import { NO_ACTION, OWNERLESS_GRACE_MS, WATCH_REST, watchdogStep } from '../src/renderer/src/core/islandState'
 
-const real: NotchLayout = { hasNotch: true, x: 267.5, width: 189, height: 32, place: 'notch', boringNotch: false }
+const real: NotchLayout = { hasNotch: true, x: 267.5, width: 189, height: 32, place: 'notch' }
 const below: NotchLayout = { ...real, place: 'below' }
 
 describe('islandTop / islandBottom', () => {

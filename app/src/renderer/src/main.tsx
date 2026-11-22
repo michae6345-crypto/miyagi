@@ -19,7 +19,7 @@ import { Stage } from './dev/Stage'
 const route = location.hash.replace(/^#\/?/, '') || (isElectron ? 'overlay' : 'stage')
 
 function useEngineFeed(): Layout {
-  const [layout, setLayout] = useState<Layout>({ origin: { x: 0, y: 0 }, width: innerWidth, height: innerHeight, notch: { hasNotch: false, x: (innerWidth - 185) / 2, width: 185, height: 32, place: 'below', boringNotch: false }, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
+  const [layout, setLayout] = useState<Layout>({ origin: { x: 0, y: 0 }, width: innerWidth, height: innerHeight, notch: { hasNotch: false, x: (innerWidth - 185) / 2, width: 185, height: 32, place: 'below' }, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
   useEffect(() => {
     const offs = [bridge.onEvent(dispatch), bridge.onStatus(setConnected), bridge.on('layout', (l) => {
         // Main re-fits the pill under the menu bar / notch when the displays change: every reader of platform.pillTop follows.

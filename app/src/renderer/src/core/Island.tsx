@@ -201,7 +201,11 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       bridge.on('island:yield', () => setYielded(true)),
       bridge.on('island:return', () => setYielded(false)),
       // Main: wake from sleep, unlock, a display change, a hung overlay renderer.
-      bridge.on('island:collapse', () => collapseRef.current())
+      bridge.on('island:collapse', () => collapseRef.current()),
+      // Main: the pointer is in the other notch app's open panel: step back to rest (the mute then holds hover off).
+      bridge.onFeature('overlay:other-open', (open) => {
+        if (open === true) collapseRef.current()
+      })
     ]
     return () => {
       offs.forEach((off) => off())
@@ -532,7 +536,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         // Hidden while another surface has it (launcher, settings): not a click target either, or the invisible island
         // keeps eating clicks through overlay.bounds / main's click-catching poll.
         data-hit={!nm && !yielded ? true : undefined}
-        data-stretch={nm ? true : undefined}
+        data-stretch={nm && !open && !muted ? true : undefined}
         className={`${yielded ? 'pointer-events-none' : 'pointer-events-auto'} relative`}
         // In the notch the hover zone is the island plus a margin (HOVER.margin) either side and below; the margin is
         // transparent and only catches the pointer. Main's grab clamps to the same +-6 / +12 (features/overlay-raise.ts).

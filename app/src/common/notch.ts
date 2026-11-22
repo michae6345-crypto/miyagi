@@ -3,14 +3,17 @@
  * Design: miyagi-v2/NOTCH-ISLAND.md (Geometry, Placement modes).
  */
 
-/** Where the island lives: in the notch (default on macOS) or the pill below the menu bar (Windows, Boring Notch running, the pref). */
+/** Where the island lives: in the notch (default on macOS) or the pill below the menu bar (Windows, a display without a notch, the pref). */
 export type IslandPlace = 'notch' | 'below'
 
 /** The notch rect in display-local points: x from the display's left edge, y is always the display top. */
 export type NotchGeom = { hasNotch: boolean; x: number; width: number; height: number }
 
-/** What the renderers get as `layout.notch`. */
-export type NotchLayout = NotchGeom & { place: IslandPlace; boringNotch: boolean }
+/**
+ * What the renderers get as `layout.notch`. `coexist`: another notch app is running (private, log-only: it never changes
+ * `place`, and nothing shows it in the UI; the island only reads it to keep the notch core free for that app's hover).
+ */
+export type NotchLayout = NotchGeom & { place: IslandPlace; coexist?: boolean }
 
 type R = { x: number; y: number; w: number; h: number }
 /** One entry of `miyagi-listen --screens` (native/listen/Screens.swift). */
@@ -28,28 +31,33 @@ export type ScreenInfo = {
 /** The fake notch on displays without one (external monitors, older Macs): same width the hardware notch roughly has. */
 export const FAKE_NOTCH_WIDTH = 185
 const MIN_BAND = 24
-/** Boring Notch widens its notch by 4 pt to hide the seam; so do we. */
+/** A notch overlay widens the notch by 4 pt to hide the seam. */
 const SEAM = 4
 
 type DisplayLike = { id: number; bounds: { x: number; y: number; width: number; height: number }; workArea: { x: number; y: number; width: number; height: number } }
 
-/** The notch for a display. `info` is the helper's entry for it (absent: helper missing or failed, so the fake notch). */
+/**
+ * The notch for a display. `info` is the helper's entry for it (absent: helper missing, failed or not read yet).
+ * Without a real notch the geometry is only a placeholder for the pill below the menu bar (`hasNotch` false, and
+ * effectivePlace never answers 'notch' for it), so no black notch is ever drawn where there is none.
+ */
 export function notchFor(display: DisplayLike, info?: ScreenInfo): NotchGeom {
   const w = display.bounds.width
   if (info && info.safeTop > 0 && typeof info.auxLeft === 'number' && typeof info.auxRight === 'number') {
     const width = Math.round(info.frame.w - info.auxLeft - info.auxRight + SEAM)
     if (width > 0 && width < w) return { hasNotch: true, x: (w - width) / 2, width, height: info.safeTop }
   }
-  const band = Math.max(MIN_BAND, display.workArea.y - display.bounds.y)
+  // The helper's safeTop is the real top inset; the work area's offset is wrong while the menu bar auto-hides.
+  const band = info && info.safeTop > 0 ? info.safeTop : Math.max(MIN_BAND, display.workArea.y - display.bounds.y)
   return { hasNotch: false, x: (w - FAKE_NOTCH_WIDTH) / 2, width: FAKE_NOTCH_WIDTH, height: band }
 }
 
-/** Notch placement only on a Mac, only when asked, and never while Boring Notch owns the notch. */
-export function effectivePlace(pref: IslandPlace | undefined, mac: boolean, boringNotch: boolean): IslandPlace {
-  return mac && pref !== 'below' && !boringNotch ? 'notch' : 'below'
+/** The notch placement: only on a Mac, only on a display that has a notch, and not when the pref says below. Other notch apps never matter. */
+export function effectivePlace(pref: IslandPlace | undefined, mac: boolean, hasNotch: boolean): IslandPlace {
+  return mac && pref !== 'below' && hasNotch ? 'notch' : 'below'
 }
 
-/** Parse the helper's stdout. Never throws: anything malformed gives an empty list (callers fall back to the fake notch). */
+/** Parse the helper's stdout. Never throws: anything malformed gives an empty list (callers keep what they had). */
 export function parseScreens(text: string): ScreenInfo[] {
   const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
   const rect = (v: unknown): R | null => {
@@ -89,5 +97,5 @@ export function parseScreens(text: string): ScreenInfo[] {
 export function stageNotch(mode: string | null, width: number): NotchLayout {
   const real = mode !== 'fake'
   const w = mode === 'fake' ? FAKE_NOTCH_WIDTH : 200
-  return { hasNotch: real, x: (width - w) / 2, width: w, height: 32, place: mode === 'below' ? 'below' : 'notch', boringNotch: false }
+  return { hasNotch: real, x: (width - w) / 2, width: w, height: 32, place: mode === 'below' ? 'below' : 'notch', coexist: false }
 }

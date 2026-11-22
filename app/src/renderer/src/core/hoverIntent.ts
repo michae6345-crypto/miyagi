@@ -12,25 +12,20 @@
  *
  * Every function takes `now` (ms) and returns a new state; `hoverDeadline` says when to call `hoverTick` next.
  */
-import { HOVER } from './notchGeometry'
+import { COEXIST_HOVER, HOVER, inNotchCore, inOtherOpenZone, OTHER_CORE_DWELL_MS, OTHER_OPEN_MUTE_MS, type NotchRect } from './notchGeometry'
 
 export type Pt = { x: number; y: number }
-export type NotchRect = { x: number; width: number; height: number }
+export type { NotchRect }
 export type Box = { x: number; y: number; w: number; h: number }
 
 export type HoverTimings = { openMs: number; closeMs: number }
-/** With another notch app present: its own open delay, and a short cancellable close grace. */
-export const COEXIST_TIMINGS: HoverTimings = { openMs: 300, closeMs: 100 }
 export type HoverCfg = HoverTimings & { coexist: boolean }
 /** Timings and mode for the island: the island's own `HOVER` normally, the coexist timings when the notch is shared. */
-export const cfgFor = (coexist: boolean): HoverCfg => (coexist ? { ...COEXIST_TIMINGS, coexist } : { openMs: HOVER.openMs, closeMs: HOVER.closeMs, coexist })
+export const cfgFor = (coexist: boolean): HoverCfg => (coexist ? { ...COEXIST_HOVER, coexist } : { openMs: HOVER.openMs, closeMs: HOVER.closeMs, coexist })
 
-/** The pointer rests this long in the notch core before we take the other app to be open. */
-export const MUTE_ENTER_MS = 250
-/** The pointer stays out of the other app's open zone this long before we spring back. */
-export const MUTE_EXIT_MS = 150
-/** The other app's open panel, from the notch centre: this far either side, this far down. */
-export const OPEN_ZONE = { halfW: 320, bottom: 190 } as const
+/** Mute timing is main's (notchGeometry OTHER_CORE_DWELL_MS / OTHER_OPEN_MUTE_MS): both sides use the same constants. */
+export const MUTE_ENTER_MS = OTHER_CORE_DWELL_MS
+export const MUTE_EXIT_MS = OTHER_OPEN_MUTE_MS
 /** Hover zones next to the core when it is shared: the strip just under the notch is this tall. */
 export const STRIP_BELOW = 12
 /** Each ear's width as a hover zone (the ear the island draws). */
@@ -78,9 +73,7 @@ export function hoverOpenNow(s: HoverState, now: number, cfg: HoverCfg): HoverSt
 }
 
 /** The pointer is inside the notch core (the part the hardware notch covers, where the other app's hit rect is). */
-export const inCore = (p: Pt, n: NotchRect): boolean => p.x >= n.x && p.x <= n.x + n.width && p.y >= 0 && p.y < n.height
-/** The pointer is inside the other app's open panel: ±OPEN_ZONE.halfW of the notch centre, 0..OPEN_ZONE.bottom down. */
-export const inOtherOpenZone = (p: Pt, n: NotchRect): boolean => Math.abs(p.x - (n.x + n.width / 2)) <= OPEN_ZONE.halfW && p.y >= 0 && p.y <= OPEN_ZONE.bottom
+export const inCore = (p: Pt, n: NotchRect): boolean => inNotchCore(p, n)
 
 /** Track the pointer for the mute (only when the notch is shared). Call on every pointer move. */
 export function hoverPoint(s: HoverState, now: number, cfg: HoverCfg, p: Pt, n: NotchRect): HoverState {
@@ -130,7 +123,7 @@ export const peekOpen = (s: HoverState): boolean => s.open && !s.muted
 // The down-wheel stretch (optional): a scroll down over the island leans it open; past COMMIT it opens.
 // ---------------------------------------------------------------------------------------------------------------
 
-export const STRETCH = { commit: 200, minScale: 0.6, maxScale: 1.3, endMs: 300 } as const
+export const STRETCH = { commit: 200, minScale: 0.6, endMs: 300 } as const
 export type Stretch = { progress: number; committed: boolean }
 export const STRETCH_IDLE: Stretch = { progress: 0, committed: false }
 
@@ -140,5 +133,5 @@ export function stretchWheel(s: Stretch, deltaY: number): { state: Stretch; comm
   const commit = !s.committed && progress >= STRETCH.commit
   return { state: { progress, committed: s.committed || commit }, commit }
 }
-/** The island's scale while stretching: it grows with the wheel, never below 0.6 (nor past 1.3). */
-export const stretchScale = (s: Stretch): number => Math.min(STRETCH.maxScale, Math.max(STRETCH.minScale, 1 + s.progress * 0.01))
+/** The island's scale while stretching: it grows with the wheel, never below 0.6. */
+export const stretchScale = (s: Stretch): number => Math.max(STRETCH.minScale, 1 + s.progress * 0.01)
