@@ -291,17 +291,12 @@ export function launchPins(env: NodeJS.ProcessEnv): Record<string, string> {
 }
 
 /**
- * host:port of the cloud the app uses: MIYAGI_CLOUD_URL when it's https, else our hosted proxy (features/cloud.ts
- * DEFAULT_CLOUD_URL). Undefined with the cloud off (own keys only): the engine's own probe is right then.
+ * host:port of the cloud a packaged app uses: always our hosted proxy (features/cloud.ts DEFAULT_CLOUD_URL), because a
+ * packaged app ignores an environment-set cloud host (envCloudUrl, risk A12). Undefined with the cloud off (own keys
+ * only): the engine's own probe is right then.
  */
 export function netProbe(env: NodeJS.ProcessEnv): string | undefined {
   if (/^(off|0|false|no)$/i.test((env.MIYAGI_CLOUD_URL || '').trim())) return undefined
-  try {
-    const u = new URL((env.MIYAGI_CLOUD_URL || '').trim())
-    if (u.protocol === 'https:' && u.hostname) return `${u.hostname}:${u.port || '443'}`
-  } catch {
-    // not a URL: the default below
-  }
   return 'miyagi-cloud.onrender.com:443'
 }
 

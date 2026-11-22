@@ -99,11 +99,10 @@ describe('launch pins (R17, R31, R45)', () => {
       assert.equal(e.MIYAGI_NET_PROBE, 'miyagi-cloud.onrender.com:443')
     }
   })
-  test('packaged: the probe follows an https MIYAGI_CLOUD_URL, never an http or junk one', () => {
-    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'https://api.miyagi.study/v1' }), 'api.miyagi.study:443')
-    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'https://cloud.example:8443' }), 'cloud.example:8443')
+  test('packaged: the probe is always our cloud, whatever MIYAGI_CLOUD_URL says (A12)', () => {
+    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'https://elsewhere.example/v1' }), 'miyagi-cloud.onrender.com:443')
     assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'http://127.0.0.1:9000' }), 'miyagi-cloud.onrender.com:443')
-    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'junk' }), 'miyagi-cloud.onrender.com:443')
+    assert.equal(le.netProbe({}), 'miyagi-cloud.onrender.com:443')
   })
   test('packaged with the cloud off: web search and recording still off, the engine keeps its own probe', () => {
     const e = le.launcherEnv({ MIYAGI_CLOUD_URL: 'off' }, true)
