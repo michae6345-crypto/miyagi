@@ -43,6 +43,7 @@ import { cancelSignIn, loadAuth, openLegal, setMode, signInWith, signOut as sign
 import { Ring } from '../library/motion'
 import { backFromSheet, closeSheet, isSheetKind, openSheet, registerSheetHost, useSheet, type SheetKind } from './sheet'
 import { PAGES, setPage, setSettingsSection } from './store'
+import { thisDevice } from '../onboarding/device'
 
 /** The sidebar chip's avatar and the sheet's are one element (Sidebar.tsx renders it too). */
 export const AVATAR_ID = 'shell-account-avatar'
@@ -395,7 +396,7 @@ function useWho(): Who {
 }
 
 function headerFor(kind: SheetKind, who: Who, signedInHere: boolean): { title: string; sub: string } {
-  if (kind === 'signout') return { title: `Sign out of ${copy.name}?`, sub: 'Your lessons and progress stay on this Mac.' }
+  if (kind === 'signout') return { title: `Sign out of ${copy.name}?`, sub: `Your lessons and progress stay on ${thisDevice()}.` }
   if (kind === 'signin' && !who.signedIn) return { title: 'Sign in to sync', sub: `Your lessons and progress, ${acrossMachines()}.` }
   if (kind === 'signin' && signedInHere) return { title: 'You’re signed in', sub: who.email ?? who.name ?? '' }
   return { title: who.name ?? 'Signed in', sub: who.email ?? (who.plan ? `${who.plan} plan` : 'Signed in') }
