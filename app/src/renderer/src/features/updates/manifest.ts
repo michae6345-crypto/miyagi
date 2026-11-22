@@ -3,12 +3,19 @@
  *
  *   updateSource(env, os)   where to look: MIYAGI_UPDATE_URL (a manifest or a release JSON), else the GitHub Releases
  *                           API for MIYAGI_RELEASE_REPO (default DEFAULT_RELEASE_REPO, the repo ship-mac.sh publishes to)
+ *   sourceForRun(packaged, env, os)   a packaged build: always the official release source, env ignored (A12, R33);
+ *                           a dev run: updateSource(env), only when MIYAGI_UPDATE_URL is set
+ *   officialInstaller(url, os)        the only installer URLs the card may offer (R26)
  *   readRelease(json, ...)  a manifest, a per-platform manifest, or a GitHub release object → Release (or undefined)
  *   compareSemver(a, b)     semver order (prerelease < release); isNewer(latest, current)
  *
- * The manifest (any https host on the safeOpen allowlist, e.g. downloads.miyagi.study later):
- *   { "version": "0.2.0", "notes": ["Lessons open faster."], "url": "https://.../Miyagi-Mac.dmg", "sha256": "<64 hex>" }
+ * The manifest (MIYAGI_UPDATE_URL, any https host):
+ *   { "version": "0.2.0", "notes": ["Lessons open faster."],
+ *     "url": "https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.dmg", "sha256": "<64 hex>" }
  * or per platform: { "mac": { ...same }, "windows": { ... } }. "dmg" is accepted for "url".
+ *
+ * Either shape: the installer URL must be an official release asset (officialInstaller, R26), or readRelease answers
+ * undefined and the card shows nothing.
  *
  * A GitHub release (GET /repos/<repo>/releases/tags/mac, the rolling "mac" release ship-mac.sh uploads to): the version
  * is the first semver in tag_name, then name ("miyagi 0.2.0"), then a "Version: 0.2.0" body line, then the installer's
@@ -52,6 +59,40 @@ export type UpdateView = {
 
 /** The repo ship-mac.sh publishes to (MIYAGI_RELEASE_REPO overrides both). Its "mac" release holds Miyagi-Mac.dmg. */
 export const DEFAULT_RELEASE_REPO = 'adrian-erlikhman/miyagi'
+
+/**
+ * The ONLY installers the card may offer (R26 step 2, A13): an asset of the official release repo, at
+ * https://github.com/adrian-erlikhman/miyagi/releases/download/<tag>/<asset>, with the asset name each platform's
+ * build publishes (ship-mac.sh: Miyagi-Mac.dmg; electron-builder.yml win.artifactName: Miyagi-Windows-Setup.exe).
+ * Pinned on purpose: neither MIYAGI_RELEASE_REPO nor MIYAGI_UPDATE_URL can widen it (in a dev run they change where the
+ * metadata is read, never what may be opened; a packaged build ignores them, sourceForRun). Add a name here only when a
+ * build really publishes it.
+ */
+export const OFFICIAL_RELEASE_REPO = 'adrian-erlikhman/miyagi'
+export const OFFICIAL_ASSETS: Readonly<Record<UpdateOs, readonly string[]>> = { mac: ['Miyagi-Mac.dmg'], windows: ['Miyagi-Windows-Setup.exe'] }
+const OFFICIAL_PREFIX = `https://github.com/${OFFICIAL_RELEASE_REPO}/releases/download/`
+/** A release tag: the rolling "mac" / "windows" releases, or a versioned vX.Y.Z (R08 step 2). No "/", "%", "?" or "#". */
+const TAG_RE = /^(?:mac|windows|v\d{1,6}\.\d{1,6}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,64})?)$/
+
+/**
+ * The tag and asset of an official installer URL for this platform, or undefined for anything else: another repo,
+ * host, scheme, port, user, path, query or fragment, an encoded character, another file name, or another platform's
+ * installer. An exact string match (no normalizing), then the URL parser must print it back unchanged.
+ */
+export function officialInstaller(raw: unknown, os: UpdateOs): { tag: string; asset: string } | undefined {
+  if (typeof raw !== 'string' || raw.length > 512 || !raw.startsWith(OFFICIAL_PREFIX)) return undefined
+  const [tag = '', asset = '', ...rest] = raw.slice(OFFICIAL_PREFIX.length).split('/')
+  if (rest.length || !TAG_RE.test(tag) || !OFFICIAL_ASSETS[os].includes(asset)) return undefined
+  try {
+    if (new URL(raw).href !== raw) return undefined
+  } catch {
+    return undefined
+  }
+  return { tag, asset }
+}
+
+export const isOfficialInstaller = (raw: unknown, os: UpdateOs): boolean => !!officialInstaller(raw, os)
+
 export const CHECK_EVERY_MS = 6 * 60 * 60_000
 export const SNOOZE_MS = 24 * 60 * 60_000
 export const MAX_NOTES = 6
@@ -85,6 +126,17 @@ export function updateSource(env: { MIYAGI_UPDATE_URL?: string; MIYAGI_RELEASE_R
   const repo = env.MIYAGI_RELEASE_REPO?.trim()
   const r = repo && REPO_RE.test(repo) && !repo.includes('..') ? repo : DEFAULT_RELEASE_REPO
   return { url: `https://api.github.com/repos/${r}/releases/tags/${os}`, kind: 'github' }
+}
+
+/**
+ * Where THIS run looks (main/features/updates.ts). A packaged build ignores the environment (A12, R33): whoever can
+ * set the app's env (launchctl setenv, a wrapper) could otherwise point the check at their own manifest or switch it
+ * off, so it always reads the official release source, OFFICIAL_RELEASE_REPO's "mac" / "windows" release. Dev runs
+ * (not packaged) honor MIYAGI_UPDATE_URL and MIYAGI_RELEASE_REPO, and look only when MIYAGI_UPDATE_URL is set.
+ */
+export function sourceForRun(packaged: boolean, env: { MIYAGI_UPDATE_URL?: string; MIYAGI_RELEASE_REPO?: string }, os: UpdateOs): Source | undefined {
+  if (packaged) return { url: `https://api.github.com/repos/${OFFICIAL_RELEASE_REPO}/releases/tags/${os}`, kind: 'github' }
+  return env.MIYAGI_UPDATE_URL?.trim() ? updateSource(env, os) : undefined
 }
 
 // ---- semver -------------------------------------------------------------------------------------------------------
@@ -173,15 +225,6 @@ function sha(raw: unknown): string | undefined {
   return s && HEX64.test(s) ? s : undefined
 }
 
-function fileOf(url: string): string | undefined {
-  try {
-    const name = decodeURIComponent(new URL(url).pathname.split('/').pop() ?? '')
-    return /^[\w.() -]{1,120}$/.test(name) ? name : undefined
-  } catch {
-    return undefined
-  }
-}
-
 const EXT: Record<UpdateOs, RegExp> = { mac: /\.dmg$/i, windows: /\.exe$/i }
 
 /** Our own manifest (flat, or keyed by platform). */
@@ -189,7 +232,8 @@ function fromManifest(j: Record<string, unknown>, os: UpdateOs): Release | undef
   const m = obj(j[os]) ?? j
   const version = findVersion(str(m.version))
   const url = str(m.url) ?? str(m.dmg) ?? str(m.download)
-  if (!version || !url) return undefined
+  // Whatever host serves the manifest, the installer is an official release asset or there is no offer (R26).
+  if (!version || !url || !isOfficialInstaller(url, os)) return undefined
   const size = typeof m.size === 'number' && Number.isFinite(m.size) && m.size > 0 ? Math.round(m.size) : undefined
   return {
     version,
@@ -197,7 +241,8 @@ function fromManifest(j: Record<string, unknown>, os: UpdateOs): Release | undef
     url,
     sha256: sha(m.sha256),
     size,
-    file: str(m.file) ?? fileOf(url),
+    // The pinned asset's own name (the install steps show it), never free text from the manifest.
+    file: officialInstaller(url, os)?.asset,
     prerelease: m.prerelease === true
   }
 }
@@ -206,7 +251,14 @@ function fromManifest(j: Record<string, unknown>, os: UpdateOs): Release | undef
 function fromGithub(j: Record<string, unknown>, os: UpdateOs, arch: string): Release | undefined {
   if (j.draft === true) return undefined
   const assets = (Array.isArray(j.assets) ? j.assets : []).map(obj).filter((a): a is Record<string, unknown> => !!a)
-  const installers = assets.filter((a) => EXT[os].test(str(a.name) ?? '') && !!str(a.browser_download_url))
+  const tag = str(j.tag_name)
+  // Only an official asset of THIS release (R26): its name on the list, its URL the pinned one for this release's tag
+  // and that name, and fully uploaded (an asset mid-upload, state "starter"/"open", is not a download yet).
+  const installers = assets.filter((a) => {
+    const name = str(a.name) ?? ''
+    const at = officialInstaller(str(a.browser_download_url), os)
+    return EXT[os].test(name) && !!at && at.asset === name && at.tag === tag && (a.state === undefined || a.state === 'uploaded')
+  })
   if (!installers.length) return undefined
   const archRe = arch === 'arm64' ? /arm64|aarch64|apple/i : /x64|x86_64|intel|amd64/i
   const otherRe = arch === 'arm64' ? /x64|x86_64|intel|amd64/i : /arm64|aarch64|apple/i

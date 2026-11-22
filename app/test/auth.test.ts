@@ -8,7 +8,22 @@ import { request } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { join } from 'node:path'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
-import auth, { accessToken, assertPkce, authorizeUrl, FLOW_TYPE, listenRetry, MAX_CALLBACKS, needsLogin, onSignedIn, REDIRECT, redirectTo, WAIT_MS } from '../src/main/features/auth'
+import auth, {
+  accessToken,
+  assertPkce,
+  authorizeUrl,
+  CANCELLED_MESSAGE,
+  explainCallbackError,
+  FLOW_TYPE,
+  listenRetry,
+  MAX_CALLBACKS,
+  needsLogin,
+  onSignedIn,
+  REDIRECT,
+  redirectTo,
+  TIMEOUT_MESSAGE,
+  WAIT_MS
+} from '../src/main/features/auth'
 import { opened, safeStorage } from './fakes/electron'
 import { FakeCloud, FakeSupabase, challengeOf, hitCallback, makeHarness, makeJwt, lockSignInPort, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
 
@@ -171,6 +186,12 @@ describe('Google sign-in (PKCE, loopback)', () => {
     auth.setup(h.ctx)
     const g = await startGoogle(h)
     let page = await hitCallback(g.callback, { error: 'access_denied' })
+    assert.match(page.text, /Sign-in cancelled/)
+    // R20: a bare access_denied is Google's Cancel, told to the app (which ends its wait), never "ask to be a tester".
+    assert.deepEqual(lastAttempt(), { reason: 'cancelled', message: CANCELLED_MESSAGE })
+    assert.equal(await isPending(g.result), true)
+
+    page = await hitCallback(g.callback, { error: 'access_denied', error_description: 'This app can only be accessed by developer-approved testers.' })
     assert.match(page.text, /Sign-in did not finish/)
     assert.equal(lastAttempt()?.reason, 'denied')
     assert.equal(await isPending(g.result), true)
@@ -284,6 +305,53 @@ describe('Google sign-in (PKCE, loopback)', () => {
     await g.result
     assert.ok(supa.calls.every((c) => !c.url.includes('/token') || /grant_type=(pkce|refresh_token)$/.test(c.url)))
     assert.ok(supa.calls.some((c) => c.url.endsWith('/auth/v1/token?grant_type=pkce')))
+  })
+
+  test('R20 Cancel on Google’s page: told at once as a calm cancel (tab and app), no tester line, and a retry signs in', async () => {
+    auth.setup(h.ctx)
+    const first = await startGoogle(h)
+    // What Supabase sends back after Google's Cancel: access_denied, an empty description, no error_code.
+    const page = await hitCallback(first.callback, { error: 'access_denied', error_description: '' })
+    assert.equal(page.status, 200)
+    assert.match(page.text, /<title>Sign-in cancelled<\/title>/)
+    assert.ok(page.text.includes('Sign-in was cancelled in the browser.'))
+    assert.match(page.text, />Try again<\/a>/)
+    assert.deepEqual(lastAttempt(), { reason: 'cancelled', message: CANCELLED_MESSAGE })
+    assert.ok(!/tester/i.test(page.text + JSON.stringify(h.broadcasts)), 'no tester talk on a plain Cancel')
+    assert.equal(supa.calls.length, 0, 'nothing exchanged')
+    // The app's Try again (a new auth:google) replaces the old flow at once; the new one signs in.
+    const g = await startGoogle(h)
+    assert.deepEqual(await first.result, { ok: false, reason: 'cancelled' })
+    supa.codes.set('after-cancel', { challenge: g.challenge, user: ALICE })
+    assert.match((await hitCallback(g.callback, { code: 'after-cancel' })).text, /Back to miyagi/)
+    assert.equal(((await g.result) as { ok: boolean }).ok, true)
+  })
+
+  test('R20 explainCallbackError: the tester line only for Google’s own not-a-tester error', () => {
+    const tester = /Ask to be added as a tester/
+    const cases: [string | null, string | null, string | null, string, RegExp | string][] = [
+      ['access_denied', null, null, 'cancelled', CANCELLED_MESSAGE],
+      ['access_denied', null, '', 'cancelled', CANCELLED_MESSAGE],
+      ['access_denied', 'access_denied', 'The user denied the request', 'cancelled', CANCELLED_MESSAGE],
+      ['access_denied', null, 'Access blocked: this app can only be accessed by developer-approved testers', 'denied', tester],
+      ['access_denied', null, "The developer hasn't given you access to this app.", 'denied', tester],
+      ['access_denied', null, 'miyagi has not completed the Google verification process', 'denied', tester],
+      // Supabase's own access_denied refusals carry an error_code: its words, never the tester line, never "cancelled".
+      ['access_denied', 'signup_disabled', 'Signups not allowed for this instance', 'failed', /Signups not allowed for this instance/],
+      ['access_denied', 'user_banned', 'User is banned', 'failed', /User is banned/],
+      ['admin_policy_enforced', null, null, 'denied', /school or work account/],
+      ['server_error', null, 'Unable to exchange external code: 4/0Asecret', 'provider', /not set up correctly/],
+      [null, null, null, 'failed', /did not send a sign-in code/]
+    ]
+    for (const [error, code, desc, reason, message] of cases) {
+      const r = explainCallbackError(error, code, desc)
+      const label = `${error} / ${code} / ${desc}`
+      assert.equal(r.reason, reason, label)
+      if (typeof message === 'string') assert.equal(r.message, message, label)
+      else assert.match(r.message, message, label)
+      if (message !== tester) assert.doesNotMatch(r.message, tester, label)
+      assert.ok(!r.message.includes('4/0A'), label)
+    }
   })
 
   test('cancel while the browser is open, then a second try works', async () => {
@@ -518,7 +586,9 @@ describe('the sign-in port and the flow’s lifetime', () => {
       mock.timers.tick(WAIT_MS - 1000)
       assert.equal(await isPending(g.result), true, 'still waiting at 4:59')
       mock.timers.tick(1000)
-      assert.deepEqual(await g.result, { ok: false, reason: 'timeout' })
+      // R20: says plainly what happened (nothing came back in 5 minutes), never the tester line.
+      assert.deepEqual(await g.result, { ok: false, reason: 'timeout', message: TIMEOUT_MESSAGE })
+      assert.match(TIMEOUT_MESSAGE, /^No answer from Google after 5 minutes, so miyagi stopped waiting\./)
     } finally {
       mock.timers.reset()
     }
@@ -530,7 +600,9 @@ describe('the sign-in port and the flow’s lifetime', () => {
     try {
       auth.setup(h.ctx)
       const g = await startGoogleOnFakeClock()
-      const page = await raw(`/auth/callback?state=${g.state}&error=access_denied`)
+      // Google's real not-a-tester error (its description says so): that, and only that, is the tester line.
+      const desc = encodeURIComponent("The developer hasn't given you access to this app.")
+      const page = await raw(`/auth/callback?state=${g.state}&error=access_denied&error_description=${desc}`)
       assert.equal(page.status, 200)
       assert.equal(await isPending(g.result), true)
       mock.timers.tick(WAIT_MS)

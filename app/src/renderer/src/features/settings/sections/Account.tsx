@@ -2,7 +2,8 @@
  * Feature: settings. Your own key (Plan-OwnKey as a section, Set-Account's BYOK block). The real safeStorage path:
  * the flow is account.ts, main owns the keys, this view only ever sees {set, last4}.
  *
- * One row per key (Anthropic, and Gemini as optional; ElevenLabs stays hidden), each a password field
+ * One row per key (Anthropic; Gemini as optional only when GEMINI_ENABLED, hidden at launch by D1; ElevenLabs stays
+ * hidden), each a password field
  * (autocomplete off, spellcheck off, cleared after Save) with Clear / Undo inside it and the key's status as words
  * under its name (no bare dots, persona QA): "Works" with a white tick, "Using miyagi's key" (the engine's own),
  * "Saved", "Not set" (ring), "Not yet. Check the key." (ring). No green: green only means a step passed.
@@ -13,6 +14,7 @@ import { motion } from 'motion/react'
 import { Check, ExternalLink, Lock, WifiOff } from 'lucide-react'
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import type { KeyState } from '../../../../../../../shared/contracts/events'
+import { GEMINI_ENABLED } from '../../../../../common/flags'
 import { bridge } from '../../../bridge'
 import { useLesson } from '../../../core/lesson'
 import { PrimaryButtonV2, QuietButton, Spinner } from '../../../core/ui/atoms'
@@ -28,6 +30,8 @@ const isRequired = (k: KeyName): boolean => REQUIRED.includes(k)
 
 /** Where to get each key (main/safeOpen.ts allowlists these hosts). */
 const KEY_HELP = 'https://console.anthropic.com/settings/keys'
+/** Names the providers the sheet shows: Anthropic only at launch (D1, common/flags.ts GEMINI_ENABLED). */
+const OWN_KEY_CAPTION =GEMINI_ENABLED ? 'Paste an Anthropic or Gemini key. Calls then bill your own account.' : 'Paste an Anthropic key. Calls then bill your own account.'
 /** The footer line that says why Test is off. */
 const TEST_WHY = 'settings-key-test-why'
 
@@ -58,7 +62,7 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
 
   return (
     <>
-      <PageHeader title={OWN_KEY} caption="Paste a key from your AI provider. Calls then bill your own account." />
+      <PageHeader title={OWN_KEY} caption={OWN_KEY_CAPTION} />
 
       <div onKeyDown={onKey}>
         <Group label="Your keys">

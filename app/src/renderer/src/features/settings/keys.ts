@@ -6,6 +6,7 @@
  * back a KeysView ({set, last4}), never a key. Nothing here logs or stores anything.
  */
 import type { KeyState } from '../../../../../../shared/contracts/events'
+import { GEMINI_ENABLED } from '../../../../common/flags'
 
 /**
  * The keys miyagi keeps, in display order (names as in config.keys / config.status, shared/contracts/events.ts).
@@ -92,8 +93,9 @@ export const KEY_LABEL: Record<KeyName, string> = {
 }
 
 /** Rows shown in the sheet. ElevenLabs is hidden: voice speaks with the computer's own voice now (Adrian, Sat),
- * but the key name stays in storage and in config.keys so the engine contract is unchanged. */
-export const SHOWN: readonly KeyName[] = KEY_NAMES.filter((k) => k !== 'elevenlabs')
+ * but the key name stays in storage and in config.keys so the engine contract is unchanged. Gemini is hidden while
+ * GEMINI_ENABLED is false (D1, Adrian, Nov 21: Claude only at launch); its name stays in storage and config.keys too. */
+export const SHOWN: readonly KeyName[] = KEY_NAMES.filter((k) => k !== 'elevenlabs' && (GEMINI_ENABLED || k !== 'gemini'))
 
 /** settings:about: what the sidebar footer shows. */
 export type AboutView = { version?: string }

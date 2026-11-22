@@ -2,6 +2,7 @@
  * Core: the launch gate's live state in main (rules: common/gate.ts). Features set their part, core and features listen:
  *
  *   setGatePart('login', ok)   features/auth.ts (signed in, guest for this run, login off, MIYAGI_SKIP_LOGIN=1; sign-out)
+ *   setGatePart('consent', ok) features/onboarding.ts (the learner agreed to this build's policy version, prefs.consent)
  *   setGatePart('setup', ok)   features/onboarding.ts (setup done or put off)
  *   gateIsOpen() / gateView()  anyone
  *   onGate((open, view) => …)  called on every change of a part (open may be unchanged)
@@ -14,7 +15,7 @@
  */
 import { gateOpen, type GatePart, type GateParts, type GateView } from '../common/gate'
 
-const parts: GateParts = { login: false, setup: false }
+const parts: GateParts = { login: false, consent: false, setup: false }
 const listeners = new Set<(open: boolean, view: GateView) => void>()
 
 /** MIYAGI_SKIP_ONBOARDING=1: dev and tests, everything opens at once (read live, so tests can set it). */
@@ -79,6 +80,6 @@ export function gateCore(core: CoreGate): () => void {
 
 /** Tests only: back to all-closed with no listeners. */
 export function resetGateForTests(): void {
-  parts.login = parts.setup = false
+  parts.login = parts.consent = parts.setup = false
   listeners.clear()
 }
