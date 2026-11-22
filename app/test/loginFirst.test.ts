@@ -270,7 +270,7 @@ describe('prompts come only from a setup click', () => {
       for (const e of readdirSync(d, { withFileTypes: true })) {
         const p = join(d, e.name)
         if (e.isDirectory()) walk(p)
-        else if (/\.tsx?$/.test(e.name) && !/web\.ts$/.test(e.name) && readFileSync(p, 'utf8').includes("'onboarding:prompt'")) hits.push(p.slice(src.length + 1))
+        else if (/\.tsx?$/.test(e.name) && !/web\.ts$/.test(e.name) && readFileSync(p, 'utf8').includes("'onboarding:prompt'")) hits.push(p.slice(src.length + 1).replaceAll('\\', '/'))
       }
     }
     walk(src)

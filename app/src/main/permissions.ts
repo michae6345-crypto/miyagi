@@ -10,7 +10,7 @@
  * States: granted · denied · not-determined · unknown. `unknown` when we can't tell honestly:
  *   - the engine is EXTERNAL (started in Terminal): macOS grants belong to that Terminal, not to this app;
  *   - automation (Apple Events to VS Code): no API reads it without prompting;
- *   - not macOS.
+ *   - not macOS (Windows reads screen and accessibility as granted: it has no such grants).
  * Prompting is never done here. A click handler that wants the prompt asks for it on purpose (onboarding, A3).
  */
 import { BrowserWindow, ipcMain, systemPreferences, type IpcMainInvokeEvent } from 'electron'
@@ -32,6 +32,10 @@ export function setupPermissions(deps: {
   const read = (): Permissions => {
     const external = deps.engineExternal()
     const base: Permissions = { screen: 'unknown', accessibility: 'unknown', automation: 'unknown', external, at: Date.now() }
+    // Windows has no Screen Recording or Accessibility grant: any desktop app may capture the screen and use UI
+    // Automation. Reporting them as on lets setup skip the two macOS steps (and their System Settings pictures) and
+    // Settings > Permissions read "On" instead of "Not sure yet".
+    if (process.platform === 'win32') return { ...base, screen: 'granted', accessibility: 'granted' }
     if (process.platform !== 'darwin' || external) return base
     try {
       const s = systemPreferences.getMediaAccessStatus('screen')

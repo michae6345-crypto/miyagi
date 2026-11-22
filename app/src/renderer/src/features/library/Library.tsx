@@ -22,6 +22,10 @@ import { contLine, continueList, type Cont } from '../dashboard/continue'
 import { useDash } from '../dashboard/store'
 import { openDetail, setQuery, setTool, start, useLibrary, visible } from './store'
 
+/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
+const ON_MAC = bridge.platform.os === 'mac'
+const HERE = ON_MAC ? 'this Mac' : 'this computer'
+
 /** New lesson / Paste a link: the launcher takes a goal or a pasted YouTube link (it builds; the library never does). */
 export const openLauncher = (): void => bridge.emit('launcher:toggle')
 
@@ -134,7 +138,7 @@ function PasteCard({ empty }: { empty?: boolean }): ReactNode {
   return (
     <article className="flex h-full flex-col items-start justify-center gap-[12px]" style={{ padding: 16, borderRadius: radius2.group, border: `1px dashed ${surface.border}`, minHeight: 168 }}>
       <div className="font-medium" style={{ fontSize: type2.body }}>
-        {empty ? 'No lessons on this Mac yet.' : 'Have a tutorial in mind?'}
+        {empty ? `No lessons on ${HERE} yet.` : 'Have a tutorial in mind?'}
       </div>
       <div style={meta}>Paste a YouTube link. {copy.name} turns it into a lesson.</div>
       <Ring>

@@ -88,7 +88,7 @@ export function useKeyFlow(live: boolean): KeyFlow {
       setCleared([])
       if (v.error) setNote(v.error)
       else {
-        setSaved(v.secure ? 'Saved to Keychain' : 'Saved for this run')
+        setSaved(v.secure ? (bridge.platform.os === 'mac' ? 'Saved to Keychain' : 'Saved securely') : 'Saved for this run')
         clearTimeout(savedTimer.current)
         savedTimer.current = setTimeout(() => setSaved(undefined), 4000)
       }

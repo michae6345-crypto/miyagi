@@ -19,6 +19,11 @@ import { StatusGlyph, type StatusState } from '../../core/ui/status'
 import type { Row } from './rows'
 import { useOnboarding } from './store'
 import { fade } from '../../core/ui/motion'
+import { bridge } from '../../bridge'
+
+/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
+const ON_MAC = bridge.platform.os === 'mac'
+const HERE = ON_MAC ? 'this Mac' : 'this computer'
 
 /** A raised card: lighter step, a brighter top edge, a hairline, a soft two-layer lift (UI-POLISH-SPEC 2). */
 export const raisedCard = {
@@ -131,16 +136,16 @@ function useEngineParts(row: Row): Part[] {
   const l = useLesson(useShallow((s) => ({ connected: s.connected, local: s.localEngine?.state })))
   const cloud = useOnboarding((s) => s.cloud)
   const engine: Part = l.connected
-    ? { id: 'engine', label: 'Engine on this Mac', state: 'passed', word: l.local === 'external' ? 'In Terminal' : 'Running' }
+    ? { id: 'engine', label: `Engine on ${HERE}`, state: 'passed', word: l.local === 'external' ? 'In Terminal' : 'Running' }
     : l.local === 'failed' || l.local === 'missing'
-      ? { id: 'engine', label: 'Engine on this Mac', state: 'notyet', word: 'Not yet' }
-      : { id: 'engine', label: 'Engine on this Mac', state: 'watching', word: l.local === 'external' ? 'Waiting' : 'Starting' }
+      ? { id: 'engine', label: `Engine on ${HERE}`, state: 'notyet', word: 'Not yet' }
+      : { id: 'engine', label: `Engine on ${HERE}`, state: 'watching', word: l.local === 'external' ? 'Waiting' : 'Starting' }
   const parts = [engine]
   if (cloud?.configured || (cloud && cloud.state !== 'off')) {
     const c = cloud.state
     const state: StatusState = !l.connected ? 'next' : c === 'minting' ? 'checking' : c === 'failed' ? 'notyet' : row.state === 'passed' ? 'passed' : row.state === 'notyet' ? 'notyet' : 'checking'
     const word = state === 'passed' ? 'Ready' : state === 'checking' ? 'Setting up' : state === 'next' ? 'Next' : 'Not yet'
-    parts.push({ id: 'cloud', label: 'Access for this Mac', state, word })
+    parts.push({ id: 'cloud', label: `Access for ${HERE}`, state, word })
   }
   return parts
 }
