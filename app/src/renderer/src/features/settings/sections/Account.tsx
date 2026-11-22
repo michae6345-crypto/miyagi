@@ -26,6 +26,9 @@ import { useSettings } from '../store'
 import { Group, Note, PageHeader } from '../ui'
 import { OWN_KEY } from '../words'
 
+/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
+const ON_MAC = bridge.platform.os === 'mac'
+
 const isRequired = (k: KeyName): boolean => REQUIRED.includes(k)
 
 /** Where to get each key (main/safeOpen.ts allowlists these hosts). */
@@ -89,7 +92,7 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
         </Group>
       </div>
 
-      <Note icon={Lock}>{view && !view.secure ? 'Not saved: no secure storage. Kept for this run only.' : 'Kept in your Mac’s Keychain, never on our servers.'}</Note>
+      <Note icon={Lock}>{view && !view.secure ? 'Not saved: no secure storage. Kept for this run only.' : ON_MAC ? 'Kept in your Mac’s Keychain, never on our servers.' : 'Kept encrypted on this computer, never on our servers.'}</Note>
 
       <div className="flex min-h-[36px] items-center gap-[8px]">
         <span className="flex min-w-0 flex-1 items-center gap-[7px]" style={{ fontSize: type2.xs, color: color.label }}>

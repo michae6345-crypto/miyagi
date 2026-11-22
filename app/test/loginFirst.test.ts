@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 import { makeConsent } from '../src/common/consent'
 import type { MainContext } from '../src/main/context'
@@ -283,7 +283,7 @@ describe('prompts come only from a setup click', () => {
       for (const e of readdirSync(d, { withFileTypes: true })) {
         const p = join(d, e.name)
         if (e.isDirectory()) walk(p)
-        else if (/\.tsx?$/.test(e.name) && !/web\.ts$/.test(e.name) && readFileSync(p, 'utf8').includes("'onboarding:prompt'")) hits.push(p.slice(src.length + 1).split(sep).join('/'))
+        else if (/\.tsx?$/.test(e.name) && !/web\.ts$/.test(e.name) && readFileSync(p, 'utf8').includes("'onboarding:prompt'")) hits.push(p.slice(src.length + 1).replaceAll('\\', '/'))
       }
     }
     walk(src)

@@ -3,8 +3,9 @@
  *
  * One instance. macOS gives an app one instance for free: opening Miyagi again just focuses the running one.
  * Windows starts a second process, which would stack a second overlay and lose every global shortcut
- * to the first. So the installed Windows build keeps one instance and a second launch exits; main/index.ts
- * opens the launcher in the running one ('second-instance'), so opening Miyagi from the Start menu again shows it.
+ * to the first. So the installed Windows build keeps one instance and a second launch exits; features/launch.ts
+ * opens home in the running one ('second-instance'), so opening miyagi from the Start menu again shows it.
+ * Checked again on Nov 21 (v2 UI, packaged dir build): the second process exits, the running one brings home forward.
  * No-op on the Mac and in `npm run dev` (dev restarts must never be blocked by a stale process).
  * Checked on Windows 11 (packaged build): a second launch exits, the first keeps running.
  *
@@ -19,8 +20,18 @@
  * Settings) are activated by the press instead, and nothing is dropped there, so they aren't hooked.
  * Checked on Windows 11 (installed build, raw mouse input): gear → Settings → ✕, again and again, presses held 0-150 ms.
  */
-import { BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, Menu, screen } from 'electron'
 import { defineMainFeature } from '../context'
+
+/** electron-builder.yml appId: the AppUserModelID the installer gives miyagi's shortcuts. */
+const APP_USER_MODEL_ID = 'dev.sandhacks.miyagi'
+
+// The installed app's identity on Windows. The installer's Start menu and desktop shortcuts carry the appId as their
+// AppUserModelID (NSIS); Windows shows a toast (features/reminders.ts) only for an ID that a Start menu shortcut has,
+// and groups taskbar buttons by it. Electron's default ("electron.app.miyagi") has no shortcut, so reminders never
+// appeared. Module top level (features load before app ready): it must be set before main/prefs.ts applies
+// launch at login, whose Run entry is named after this ID. Keep in step with appId in electron-builder.yml.
+if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId(APP_USER_MODEL_ID)
 
 const WM_MOUSEACTIVATE = 0x0021
 const WM_MOUSEMOVE = 0x0200
@@ -75,6 +86,14 @@ export default defineMainFeature({
 
     if (!ctx.app.isPackaged) return
     // Runs before the core windows' ready-to-show, so a second instance exits before anything appears.
-    if (!ctx.app.requestSingleInstanceLock()) ctx.app.exit(0)
+    if (!ctx.app.requestSingleInstanceLock()) {
+      ctx.app.exit(0)
+      return
+    }
+    // No menu bar. main/index.ts sets the one app menu on macOS only, so Windows kept Electron's default (File, Edit,
+    // View, Window): Alt showed it on every app window (home, setup), and it shipped Reload (Ctrl+R) and Toggle
+    // Developer Tools (Ctrl+Shift+I) to learners. Text fields keep Ctrl+C / Ctrl+V / Ctrl+A / Ctrl+Z without it (only
+    // macOS needs the Edit menu for those); Alt+F4 and the title bar still close, minimize and maximize.
+    Menu.setApplicationMenu(null)
   }
 })

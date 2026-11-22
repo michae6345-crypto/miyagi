@@ -15,6 +15,10 @@ import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, ToolTile, minutesLabel, soft, stepsLabel } from './parts'
 import { closeDetail, itemFor, start, useLibrary } from './store'
 
+/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
+const ON_MAC = bridge.platform.os === 'mac'
+const HERE = ON_MAC ? 'this Mac' : 'this computer'
+
 const KICKER = { youtube: 'Lesson from a YouTube tutorial', goal: 'Lesson built for a goal', library: 'Lesson from the library' } as const
 
 /** `vid`: a checked 11-character YouTube id. Only the canonical watch link built from it is opened, never the engine's URL. */
@@ -87,7 +91,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
       <div className="flex h-full w-full flex-col" style={{ color: color.text }}>
         {bar}
         <div className="flex flex-1 items-center justify-center" style={{ fontSize: type2.sm, color: color.label }}>
-          {loaded ? 'That lesson isn’t on this Mac.' : 'Loading…'}
+          {loaded ? `That lesson isn’t on ${HERE}.` : 'Loading…'}
         </div>
       </div>
     )
@@ -106,7 +110,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
     (capsKnown && !canStart
       ? 'This engine can’t start saved lessons yet.'
       : !item.ready
-        ? 'Not ready on this Mac yet.'
+        ? `Not ready on ${HERE} yet.`
         : !capsKnown
           ? ' '
           : editorNear
@@ -190,7 +194,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
             {ready && (
               <div className="flex items-center gap-[8px]" style={{ fontSize: type2.xs, color: soft }}>
                 <CircleCheck aria-hidden size={14} strokeWidth={1.8} />
-                Ready instantly. Saved on this Mac.
+                Ready instantly. Saved on {HERE}.
               </div>
             )}
             <PrimaryButton label="Start lesson" size="lg" block busy={busy} disabled={!ready || (!!starting && !busy)} onClick={() => void start(id)} />

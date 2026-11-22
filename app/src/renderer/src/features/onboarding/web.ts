@@ -123,8 +123,10 @@ function setupWeb(): void {
   stageVariant = variant
   const guided = GUIDED.includes(variant)
 
-  const screenOn = variant === 'step2' || variant === 'step3' || variant === 'step4' || variant === 'mixed' || variant === 'ready' || variant === 'recovery'
-  const accessOn = variant === 'step3' || variant === 'step4' || variant === 'ready'
+  // ?os=win: like main/permissions.ts on Windows, which has no such grants (both read as on).
+  const win = bridge.platform.os === 'win'
+  const screenOn = win || variant === 'step2' || variant === 'step3' || variant === 'step4' || variant === 'mixed' || variant === 'ready' || variant === 'recovery'
+  const accessOn = win || variant === 'step3' || variant === 'step4' || variant === 'ready'
   const perms: Record<'screen' | 'accessibility' | 'automation', string> = {
     screen: screenOn ? 'granted' : 'denied',
     accessibility: accessOn ? 'granted' : 'denied',
