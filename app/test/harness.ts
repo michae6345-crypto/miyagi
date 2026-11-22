@@ -263,7 +263,8 @@ function listenerOn(port: number): string {
  * error names the holder's PID.
  */
 export async function lockSignInPort(waitMs = 45_000): Promise<() => Promise<void>> {
-  const lock = createNetServer()
+  // Drop any connection at once: close() waits for accepted sockets, so one stray client would hang release().
+  const lock = createNetServer((c) => c.destroy())
   const end = Date.now() + waitMs
   while (!(await tryListen(lock, LOCK_PORT))) {
     if (Date.now() > end) {
@@ -273,7 +274,7 @@ export async function lockSignInPort(waitMs = 45_000): Promise<() => Promise<voi
   }
   lock.unref()
   const release = (): Promise<void> => new Promise((r) => lock.close(() => r()))
-  const probe = createNetServer()
+  const probe = createNetServer((c) => c.destroy())
   const portEnd = Date.now() + 15_000
   while (!(await tryListen(probe, SIGN_IN_PORT))) {
     if (Date.now() > portEnd) {

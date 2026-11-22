@@ -128,6 +128,9 @@ describe('setup downloads (a setup card from the engine)', () => {
       'https://platform.openai.com/#https://evil.example',
       'https://github.com/nvm-sh/nvm/releases?after=x',
       'https://github.com/nvm-sh/nvm#readme',
+      'https://sheets.google.com/?', // a bare ? or # (URL reports search/hash as '')
+      'https://zapier.com/app/home#',
+      'https://github.com/nvm-sh/nvm/releases?',
       'https://www.python.org/downloads/%252e%252e/evil', // double-encoded traversal
       'https://www.python.org/downloads/%25'
     ]) {

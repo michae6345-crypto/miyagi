@@ -478,7 +478,7 @@ describe('the sign-in port and the flow’s lifetime', () => {
   })
 
   test('ATTACK port 47217 already taken (EADDRINUSE): sign-in stops with a clear reason and the browser never opens', async () => {
-    const blocker = createNetServer()
+    const blocker = createNetServer((c) => c.destroy()) // close() waits for accepted sockets: never keep one
     // Another process squatting the port (it would receive Google's code if the browser opened).
     const end = Date.now() + 5000
     for (;;) {

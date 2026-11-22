@@ -1,6 +1,6 @@
 // Offline unit tests for main-process features: `electron`, main/publicConfig.ts and mock/scenarios resolve to fakes in test/fakes/.
-// Run from app/: node --import tsx --import ./test/setup.mjs --test --test-force-exit --test-timeout=60000 test/*.test.ts
-// (--test-timeout: no single test can block the run forever, whatever else holds a port it needs.)
+// Run from app/: npm test (node --import tsx --import ./test/setup.mjs --test --test-force-exit --test-timeout=60000 test/*.test.ts).
+// --test-timeout is optional but recommended: with it no single test can block the run forever, whatever holds a port it needs.
 // Synchronous hooks (Node 22.15+), so they also catch require() (tsx loads these .ts files as CommonJS).
 import { registerHooks } from 'node:module'
 
