@@ -10,6 +10,9 @@
  * The bar is a glass panel: theme.glass tokens, so it follows Settings → Appearance (light / dark).
  * Thinking: the pressed tile's glyph is the Spinner (Busy.tsx). Any trigger dips its tile for 90 ms (press.ts).
  * Voice speaking: the equalizer (Equalizer.tsx). Diagram open: its tile stays lit.
+ * Slim (slim.ts, video lessons): while the steps drawer is open the bar is one quiet row of icon tiles (the ask field
+ * shrinks to the tree), every action still there with its name and keycap in the tooltip. The drawer and the player
+ * carry the rest. Close the drawer and the full bar returns.
  * Folded (review A12 / A8, fold.ts + front.ts): a thin handle over the middle of the status bar while the pointer has
  * been off the bar for a few seconds, or while another app is in front. The pointer on the handle brings it back.
  */
@@ -36,6 +39,7 @@ import { Equalizer, useVoiceTile } from './Equalizer'
 import { holdWhile, pointerLeft, reveal, useFold } from './fold'
 import { useFront, wake } from './front'
 import { usePress } from './press'
+import { SLIM_HEIGHT } from './slim'
 import { GlassKey, hoverCls, look, Tile } from './Tile'
 import { fade } from '../../core/ui/motion'
 
@@ -192,7 +196,7 @@ function Handle({ bottom, height, onReach }: { bottom: number; height: number; o
  * bottom: the bar's lower edge above the display's bottom (above the status bar band); dock: the Dock / taskbar's
  * height (the handle sits just above it); lift: px above the spotlight's hole (lift.ts).
  */
-export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; dock?: number; lift?: number }): ReactNode {
+export function ShortcutBar({ bottom, dock = 0, lift = 0, slim = false }: { bottom: number; dock?: number; lift?: number; slim?: boolean }): ReactNode {
   // Michael's test 8: no Hint / Skip / Check my work under the lesson-complete panel (it has its own End lesson).
   const completing = useComplete((c) => !!c.card)
   // v2 (A1): the lesson panel carries Check, the help row, Back and Voice; the bar steps away while it is open.
@@ -250,12 +254,14 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
             onPointerEnter={raiseOverlay}
             onPointerLeave={pointerLeft}
             className="pointer-events-auto flex items-center gap-[2px] rounded-[24px] border p-[8px]"
-            style={{ height: BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
+            data-slim={slim ? '' : undefined}
+            style={{ height: slim ? SLIM_HEIGHT : BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
             {/* While the launcher is open it is the ask field: this one keeps its width but shows only the tree (A13). */}
             <motion.button
-              className={`mr-[8px] flex h-[44px] shrink-0 cursor-pointer items-center gap-[9px] overflow-hidden whitespace-nowrap rounded-[22px] border pl-[14px] pr-[8px] text-left ${hoverCls}`}
-              style={{ width: ASK_W, borderColor: glass.hairline, color: glass.label }}
+              className={`${slim ? 'mr-[4px] h-[36px] pl-[10px] pr-[8px]' : 'mr-[8px] h-[44px] pl-[14px] pr-[8px]'} flex shrink-0 cursor-pointer items-center gap-[9px] overflow-hidden whitespace-nowrap rounded-[22px] border text-left ${hoverCls}`}
+              title={slim ? `${copy.ask} (${bridge.platform.keys.launcher})` : undefined}
+              style={{ width: slim ? 36 : ASK_W, borderColor: glass.hairline, color: glass.label }}
               aria-label={copy.ask}
               data-collapsed={askCollapsed ? '' : undefined}
               onClick={() => bridge.emit('launcher:toggle')}
@@ -263,7 +269,7 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
               <span className="flex shrink-0">
                 <MiyagiMark size={15} tone={appearance === 'light' ? 'light' : 'dark'} />
               </span>
-              <motion.span className="flex flex-1 items-center gap-[9px]" initial={false} animate={{ opacity: askCollapsed ? 0 : 1 }} transition={fade.tint} aria-hidden={askCollapsed || undefined}>
+              <motion.span className="flex flex-1 items-center gap-[9px]" initial={false} animate={{ opacity: askCollapsed || slim ? 0 : 1 }} transition={fade.tint} aria-hidden={askCollapsed || slim || undefined}>
                 <span className="flex-1 text-[14.5px]">{copy.ask}</span>
                 <GlassKey text={bridge.platform.keys.launcher} />
               </motion.span>
@@ -280,6 +286,7 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
                   label={label}
                   icon={back ? ArrowLeft : icon}
                   look={l}
+                  slim={slim}
                   disabled={back && textLesson && firstStep}
                   keycap={bridge.platform.keys[kind]}
                   busyKind={kind}
@@ -292,13 +299,13 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
                 />
               )
             })}
-            {stepTiles.length > 0 && <div className="mx-[6px] h-[34px] w-px" style={{ background: glass.rule }} />}
+            {stepTiles.length > 0 && <div className={`mx-[6px] w-px ${slim ? 'h-[22px]' : 'h-[34px]'}`} style={{ background: glass.rule }} />}
             {stepTiles.map(({ id, label, icon, kind, title }) => {
               const shown = id === 'skip' && step.skipping ? 'Skipping…' : id === 'end' && step.armed ? 'Tap to end' : label
               const tip = id === 'end' && step.armed ? 'Tap again to end the lesson' : title
               // Check is the bar's one primary, unless a card with its own step controls is up (A17): then it's quiet.
               const primary = (id === 'check' && !cardSteps) || (id === 'end' && step.armed)
-              return <Tile key={id} label={shown} icon={icon} look={primary ? look.primary : look.quiet} busyKind={kind} title={tip} onDown={id === 'end'} onClick={() => step.run(id)} />
+              return <Tile key={id} label={shown} icon={icon} look={(slim ? id === 'end' && primary : primary) ? look.primary : look.quiet} slim={slim} busyKind={kind} title={tip} onDown={id === 'end'} onClick={() => step.run(id)} />
             })}
           </div>
         </motion.div>
