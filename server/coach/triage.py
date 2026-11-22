@@ -14,13 +14,13 @@ import re
 from dataclasses import dataclass
 
 from . import llm
-from .common import failed_checks_text
+from .common import failed_checks_block
 from .playbook import BY_ID, PLAYBOOK, match
 
 try:
-    from server.untrusted import DATA_RULE, wrap
+    from server.untrusted import DATA_RULE, step_text, wrap
 except ImportError:  # pragma: no cover - coach/ run on its own (from server/)
-    from untrusted import DATA_RULE, wrap  # type: ignore[no-redef]
+    from untrusted import DATA_RULE, step_text, wrap  # type: ignore[no-redef]
 
 FILE_CHECKS = {"file_exists", "file_contains"}
 METRIC_CHECKS = {"metric_threshold", "metric_trend"}
@@ -54,7 +54,7 @@ When in doubt choose "opus".
 Known failure modes (playbook ids):
 {chr(10).join(f"- {m.id}: {m.name}" for m in PLAYBOOK)}
 
-The error / output tail and the code excerpt arrive inside <untrusted> blocks. {DATA_RULE}
+The error / output tail, the code excerpt, the output that failed checks quote and a placeholder step built from the video's chapter title arrive inside <untrusted> blocks. {DATA_RULE}
 """
 
 TRIAGE_SCHEMA = {
@@ -96,8 +96,8 @@ async def triage(
     # 4. Ambiguous middle: ask Haiku.
     if use_haiku:
         user = (
-            f"Step: {step.get('title')} — {step.get('instructions')}\n"
-            f"Failed checks:\n{failed_checks_text(failed_checks)}\n"
+            f"Step: {step_text(step, sep=' — ')}\n"
+            f"Failed checks:\n{failed_checks_block(failed_checks)}\n"
             f"Error/output tail:\n{wrap('terminal', (error_text or '(none)')[-1500:])}\n"
             f"Code excerpt:\n{wrap('code', (code_excerpt or '(none)')[:3000])}"
         )

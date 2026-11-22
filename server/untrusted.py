@@ -125,6 +125,24 @@ def wrap_stable(source: str, text: Any, *, cap: int | None = None, **attrs: Any)
     return f'{head} id="{nonce}">\n{body}\n</untrusted id="{nonce}">'
 
 
+def is_uploader_step(step: Any) -> bool:
+    """True for a provisional step (lesson/builder.provisional_graph): its title and instructions are a raw chapter
+    title from the video page, the uploader's text, never the engine's."""
+    return isinstance(step, dict) and bool(step.get("provisional"))
+
+
+def step_text(step: Any, *keys: str, sep: str = "\n") -> str:
+    """The step's `keys` (default title and instructions) joined by `sep`, as prompt text. A provisional step's text
+    comes back as an <untrusted source="video_page"> block (one block for all the keys); any other step's as is."""
+    keys = keys or ("title", "instructions")
+    s = step if isinstance(step, dict) else {}
+    vals = [str(s.get(k) or "") for k in keys]
+    if not is_uploader_step(s):
+        return sep.join(vals)
+    body = "\n".join(v for v in vals if v)
+    return wrap("video_page", body) if body else ""
+
+
 def unfence(text: str) -> str:
     """`text` with every fence tag taken out (the content stays). The coach keys its recorded fixtures by this, since
     the fences carry random nonces; never used to build what the model sees."""
