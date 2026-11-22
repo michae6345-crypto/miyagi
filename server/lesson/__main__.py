@@ -27,7 +27,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--refresh", action="store_true", help="ignore the cache and call Gemini again")
     ap.add_argument("--readapt", action="store_true", help="reuse the cached video draft, redo only the adapt pass")
     ap.add_argument("--no-cache", action="store_true", help="don't read or write demo/cache (e.g. to compare engines)")
-    ap.add_argument("--engine", choices=["auto", "gemini", "claude"], help="override LESSON_ENGINE")
+    ap.add_argument("--engine", choices=["claude", "auto", "claude-first", "gemini"],
+                    help="override LESSON_ENGINE (default claude; Gemini also needs a key)")
     ap.add_argument("--detail", action="store_true", help="per-step clip pass at 2 fps (one extra request per step)")
     ap.add_argument("--graph", help="score an existing graph JSON instead of building one")
     ap.add_argument("--report", metavar="EXPECTED", help="print a precision report against a hand-written graph (fixtures/*.json)")

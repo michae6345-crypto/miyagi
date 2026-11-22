@@ -81,6 +81,9 @@ def fake(monkeypatch, tmp_path):
     monkeypatch.setattr(gemini, "step_detail", step_detail)
     monkeypatch.setattr(gemini, "adapt_checks", adapt_checks)
     monkeypatch.setenv("LESSON_ENGINE", "gemini")  # tests never reach a real API; Claude tests opt in
+    # Gemini is opt-in (D1): LESSON_ENGINE alone doesn't enable it, a key must be present too. genai.Client is blocked
+    # (conftest) and every Gemini call here is faked, so this placeholder is never sent anywhere.
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-placeholder")
     monkeypatch.setenv("LESSON_LAZY_PARTS", "0")  # eager by default in tests; lazy tests opt in
     monkeypatch.setenv("LESSON_GEMINI_USAGE_FILE", str(tmp_path / "gemini_usage.json"))  # never ~/miyagi
     monkeypatch.setenv("LESSON_GEMINI_DAILY_CAP", "1000")

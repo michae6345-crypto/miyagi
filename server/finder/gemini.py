@@ -1,5 +1,6 @@
-"""Gemini: plan the per-source queries, score candidates for the learner's goal, and
-skim the top videos (low fps, low media resolution) the way server/lesson passes YouTube URLs."""
+"""Gemini (opt-in only): score candidates when Claude fails (FINDER_GEMINI_FALLBACK=1) and skim the top videos
+(FINDER_SKIM_TOP > 0; low fps, low media resolution) the way server/lesson passes YouTube URLs. The default path never
+calls it (D1: Claude only). The rubric it shares with Claude lives in scoring.py."""
 
 from __future__ import annotations
 
@@ -9,12 +10,28 @@ import logging
 import re
 import warnings
 
-warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escapes
-
-from google import genai
-from google.genai import types
-
 from .env import skim_models, triage_models
+from .scoring import SCORE_PROMPT, SCORE_SYSTEM, STOP, STYLES, clamp, heuristic_plan, short  # noqa: F401  (re-exported)
+
+
+class _LazyModule:
+    """google-genai, imported on the first real Gemini call only: the finder's default path (Claude scores, no skim)
+    never loads the SDK, so the bundled app can drop it."""
+
+    def __init__(self, name: str):
+        self._name, self._mod = name, None
+
+    def __getattr__(self, attr: str):
+        if self._mod is None:
+            import importlib
+
+            warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escapes
+            self._mod = importlib.import_module(self._name)
+        return getattr(self._mod, attr)
+
+
+genai = _LazyModule("google.genai")
+types = _LazyModule("google.genai.types")
 
 try:
     from server.untrusted import DATA_RULE, wrap
@@ -47,7 +64,9 @@ def _retry_after(err: Exception) -> float:
 
 def _mark(model: str, e: Exception, now: float) -> None:
     msg = str(e)
-    if "402" in msg or "prepayment credits" in msg:  # prepaid billing ran out: nothing works until a top-up
+    if "gemini_disabled" in msg.lower():  # D1: the miyagi cloud has Gemini off; don't ask again this process
+        _exhausted[model], _why[model] = now + 12 * 3600, "off"
+    elif "402" in msg or "prepayment credits" in msg:  # prepaid billing ran out: nothing works until a top-up
         _exhausted[model], _why[model] = now + 3600, "credits depleted"
     elif "429" in msg or "RESOURCE_EXHAUSTED" in msg:
         _exhausted[model], _why[model] = now + min(_retry_after(e), 3600), "quota"
@@ -158,24 +177,7 @@ async def plan(key: str, query: str, *, timeout: float = 4.0) -> dict:
     return out
 
 
-STOP = set("a an the to on of in for with and or how do i learn learning train training build make using use my me want tutorial".split())
-
-
-def heuristic_plan(query: str) -> dict:
-    words = [w for w in re.findall(r"[\w\-+]+", query.lower()) if w not in STOP]
-    kw = " ".join(words) or query
-    return {
-        "topic": kw,
-        "youtube_query": query,
-        "web_queries": [f"{kw} tutorial code", f"{kw} colab notebook"],
-        "github_query": " ".join(words[:3]) or query,
-        "arxiv_terms": words[:2],
-    }
-
-
 # --------------------------------------------------------------------------- triage
-
-STYLES = ["coding", "no-code", "conceptual"]
 
 SCORE_SCHEMA = {
     "type": "object",
@@ -197,33 +199,6 @@ SCORE_SCHEMA = {
     },
     "required": ["items", "goal_is_coding"],
 }
-
-SCORE_SYSTEM = """You rank learning resources for one learner. Be strict and honest; only use the information given.
-
-First decide what the goal really asks for. goal_is_coding = true when the learner wants to BUILD, implement,
-train or code something (e.g. "build chat gpt" = implement a GPT-style language model in code, NOT use ChatGPT;
-"build an LLM" = write the model and training code, NOT call an API or use a no-code tool).
-
-Score 0-100 = how well this resource gets THIS learner to that goal by following along:
-1. Topic match decides most of the score. A resource that only shares keywords ("ChatGPT", "AI", "agent", "LLM")
-   but teaches a different thing (using ChatGPT, prompt tips, no-code bots, news, a product demo) is NOT a match:
-   score it 0-30, however popular or polished.
-2. Then: hands-on runnable code, clear, current libraries, sensible length (a long course is fine if it is
-   structured, e.g. has chapters).
-3. A page that only lists, embeds or links to someone else's tutorial (course aggregators like Class Central,
-   link roundups, a Kaggle page pointing at a video) is not the tutorial itself: score it 40 at most.
-style: "coding" (writes and runs real code), "no-code" (Zapier, Botpress, GPT builders, drag-and-drop, prompting a
-product), or "conceptual" (explains ideas, no code to follow).
-reason: at most 12 words. Start with WHY it matches (or doesn't), then a caveat if any.
-Examples: "Implements GPT from scratch in PyTorch; 2 hours, chapters" / "No-code Zapier bots, not building an LLM" /
-"Explains transformers conceptually; no code to follow"."""
-
-SCORE_PROMPT = """Learner's goal: {goal}
-
-Candidates (JSON):
-{items}
-
-Return one item per candidate id."""
 
 
 async def score(key: str, goal: str, cands: list[dict], *, timeout: float = 7.0, hedge_after: float | None = 2.5) -> dict[str, dict]:
@@ -292,6 +267,8 @@ def failure(e: BaseException) -> str:
     msg = str(e)
     if isinstance(e, asyncio.TimeoutError) or "did not answer" in msg:
         return "timeout"
+    if "gemini_disabled" in msg.lower() or "(off)" in msg:
+        return "off"
     if "402" in msg or "prepayment credits" in msg or "credits depleted" in msg:
         return "credits depleted"
     if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "(quota)" in msg:
@@ -299,15 +276,3 @@ def failure(e: BaseException) -> str:
     if "503" in msg or "UNAVAILABLE" in msg or "overloaded" in msg:
         return "overloaded"
     return "error"
-
-
-def clamp(v) -> int:
-    try:
-        return max(0, min(100, int(v)))
-    except (TypeError, ValueError):
-        return 0
-
-
-def short(reason: str, words: int = 12) -> str:
-    w = (reason or "").strip().rstrip(".").split()
-    return " ".join(w[:words])

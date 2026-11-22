@@ -94,6 +94,70 @@ async def youtube_search(ctx: Ctx, query: str, limit: int = 10) -> list[dict]:
     return out
 
 
+EXCERPT_CHARS = 2400
+
+
+def transcript_excerpt(lines: list[dict], limit: int = EXCERPT_CHARS) -> str:
+    """What the presenter says, in a few thousand characters: the opening (what it builds), then evenly spaced
+    windows through the rest (does it write code? which libraries?), each line with its [m:ss]."""
+    if not lines:
+        return ""
+
+    def fmt(ln: dict) -> str:
+        t = int(ln.get("t") or 0)
+        return f"[{t // 60}:{t % 60:02d}] {str(ln.get('text') or '').strip()}"
+
+    out, used, i = [], 0, 0
+    while i < len(lines) and used < limit // 2:  # the opening half of the budget
+        s = fmt(lines[i])
+        out.append(s)
+        used += len(s) + 1
+        i += 1
+    rest = lines[i:]
+    windows = 4
+    for w in range(windows):
+        if used >= limit or not rest:
+            break
+        j = (w * len(rest)) // windows
+        out.append("…")
+        for ln in rest[j:j + 6]:
+            s = fmt(ln)
+            if used + len(s) > limit:
+                break
+            out.append(s)
+            used += len(s) + 1
+    return "\n".join(out)
+
+
+async def video_text(ctx: Ctx, video_id: str, *, timeout: float = 6.0) -> dict:
+    """The video's own text for Claude's second look (replaces the Gemini skim on the default path): the full
+    description, the chapter titles (from the description) and a transcript excerpt (the caption track the watch page
+    lists). Both fetches go through ctx.client (netsafe: public hosts, every hop checked). -> {description, chapters:
+    [titles], transcript}; the transcript is "" when YouTube serves no captions or refuses them (429)."""
+    from server.lesson.transcript import _best_track, _parse_json3, _player_response, parse_chapters
+
+    from server import netsafe
+
+    r = await netsafe.get(f"https://www.youtube.com/watch?v={video_id}&hl=en", client=ctx.client, timeout=timeout,
+                          max_bytes=netsafe.PAGE_MAX_BYTES)
+    r.raise_for_status()
+    player = _player_response(r.text)
+    if not player:
+        raise ValueError("watch page: no player data")
+    vd = player.get("videoDetails") or {}
+    desc = str(vd.get("shortDescription") or "")
+    out = {"description": desc, "chapters": [c["title"] for c in parse_chapters(desc)], "transcript": ""}
+    tracks = (((player.get("captions") or {}).get("playerCaptionsTracklistRenderer") or {}).get("captionTracks")) or []
+    if tracks:
+        try:
+            cr = await netsafe.get(_best_track(tracks), client=ctx.client, timeout=timeout, max_bytes=netsafe.PAGE_MAX_BYTES)
+            cr.raise_for_status()
+            out["transcript"] = transcript_excerpt(_parse_json3(cr.text))
+        except Exception as e:  # noqa: BLE001  captions are often 429'd: description + chapters still help
+            ctx.note(f"captions {video_id}: {type(e).__name__}: {str(e)[:80]}")
+    return out
+
+
 # --------------------------------------------------------------------------- web search
 
 _DDG_RESULT = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.S)

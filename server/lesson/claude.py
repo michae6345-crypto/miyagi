@@ -1,7 +1,7 @@
-"""Claude build path: transcript + metadata -> step-graph draft, and the adapt pass.
+"""Claude build path: transcript + metadata (+ the tutorial's own linked code) -> step-graph draft, and the adapt pass.
 
-Used when Gemini can't watch the video (quota, outage, no key). Same draft schema and the
-same adapt prompt as gemini.py, so builder.py treats both engines identically.
+The default engine (D1: Claude only). Same draft schema and the same adapt prompt as gemini.py (whose prompts live
+there for both engines), so builder.py treats both engines identically.
 """
 
 from __future__ import annotations
@@ -378,6 +378,7 @@ STEP_DETAIL_SCHEMA = {
     "required": ["checks", "hints"],
 }
 DETAIL_CONCURRENCY = 8
+MATERIALS_STEP_CHARS = 9_000  # the tutorial's own code per step prompt (materials.for_prompt picks the relevant files)
 
 
 def video_info_prompt(info: dict) -> str:
@@ -416,7 +417,11 @@ async def watch_transcript(info: dict, goal: str) -> dict:
             return "unparseable timestamps"
         return None
 
-    seg = await _generate_json(gemini.WATCH_SYSTEM, SEGMENT_PROMPT.format(goal=goal) + "\n\n" + TRANSCRIPT_NOTE + "\n\n" + video_info_prompt(info),
+    from . import materials
+
+    files = info.get("materials") or []  # the tutorial's own code (materials.collect), already capped and screened
+    seg_extra = ("\n\n" + materials.overview(files)) if files else ""
+    seg = await _generate_json(gemini.WATCH_SYSTEM, SEGMENT_PROMPT.format(goal=goal) + "\n\n" + TRANSCRIPT_NOTE + "\n\n" + video_info_prompt(info) + seg_extra,
                                SEGMENT_SCHEMA, effort=effort_seg, role="segment", check=seg_ok)
     seg = strip_injection(seg)  # its titles / instructions go into every detail prompt: no AI-directed sentence in them
     steps = seg.get("steps") or []
@@ -430,6 +435,9 @@ async def watch_transcript(info: dict, goal: str) -> dict:
                                     start=st.get("start"), end=st.get("end"), instructions=st.get("instructions", ""),
                                     slice=wrap("transcript", "\n".join(f"[{_mmss(ln['t'])}] {ln['text']}" for ln in lines) or "(no transcript lines)"),
                                     stack_guide=gemini.STACK_GUIDE)
+        if files:  # the real code for this step: the files whose names and identifiers match it best
+            focus = " ".join([st.get("title", ""), st.get("instructions", "")] + [ln["text"] for ln in lines])
+            prompt += "\n\n" + materials.for_prompt(files, focus, MATERIALS_STEP_CHARS)
         async with sem:
             # too many optional fields for structured output: skip the guaranteed 400, validate client-side
             d = await _generate_json(gemini.WATCH_SYSTEM, prompt, STEP_DETAIL_SCHEMA, effort=effort_detail, structured=False,

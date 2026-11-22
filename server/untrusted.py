@@ -64,6 +64,7 @@ CAPS: dict[str, int] = {
     "workdir": 30_000,
     "terminal": 4_000,
     "code": 40_000,
+    "tutorial_code": 12_000,  # one file of the tutorial's own linked code (lesson/materials.py)
     "screen": 40_000,
     "web": 8_000,
     "citations": 8_000,

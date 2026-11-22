@@ -17,8 +17,8 @@ source, scoredBy, watched?, style?, durationLabel?, long?, chapters?, captions?,
 - `source`: the stage that found the row: `claude`, `youtube`, `duckduckgo`, `github` or `arxiv`.
 - `style` (from Claude's scoring; Gemini's skim overrides it for videos it watched): `coding` | `no-code` | `conceptual`. (`kind` stays the contract's resource type.)
 - `durationLabel`: e.g. "1 h 56 min · 30 chapters, builds chapter by chapter". `long` is true over `LESSON_LONG_VIDEO_S` (30 min, the same setting server/lesson uses to build progressively); `chapters` and `captions` (CC) come from YouTube's results page and the watch page. `meta` shows "chapters: 30 · CC".
-- `scoredBy`: `claude` | `gemini` (only when Claude failed) | `keywords`, plus `+gemini-watch` (video) / `+claude-read` (page).
-- `watched`: `watched by Gemini` | `read by Claude` | `not watched: Gemini quota` | `not read: Claude timeout` (or `overloaded`, `page fetch failed`, …). A row that wasn't watched or read says so, in its `meta` too; it is never faked.
+- `scoredBy`: `claude` | `gemini` (only with `FINDER_GEMINI_FALLBACK=1`, when Claude failed) | `keywords`, plus `+claude-transcript` / `+claude-description` (Claude's second look at a top video), `+gemini-watch` (opt-in skim) / `+claude-read` (page).
+- `watched`: `read by Claude (transcript)` | `read by Claude (description)` | `read by Claude` (page) | `watched by Gemini` (opt-in) | `not watched: Gemini quota` | `not read: Claude timeout` (or `overloaded`, `page fetch failed`, …). A row that wasn't watched or read says so, in its `meta` too; it is never faked.
 Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear convection equation using PINNs",
 "meta": "YouTube · SimCom · 22:40 · 314 · 1y ago", "score": 86, "reason": "Clear, 22 min, hands-on, uses PyTorch, explains PINNs for convection", "url": "https://www.youtube.com/watch?v=unBU1PwCnvQ", ...}`
 
@@ -40,6 +40,10 @@ Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear 
   - Pages are fetched with plain HTTP; Colab notebooks are read from their GitHub `.ipynb`.
   - It answers: does the page teach the goal, what are the prerequisites, what code does it give.
   - Its summary becomes the row's `reason`.
+- **Claude takes a second look at the top 3 videos** (D1: Claude only; this replaced the Gemini skim on the default path).
+  - `sources.video_text` fetches the watch page (netsafe, through the run's guarded client): the full description, the chapter titles, and a transcript excerpt from the caption track it lists (the opening, then evenly spaced windows; 2 400 characters).
+  - Claude scores the video again with the same rubric (scoring.py) from that text, inside the `search_results` untrusted block; the final score is 40 % first score, 60 % second look, and the second look's reason and style win. Captions that YouTube refuses (429) leave the description + chapters.
+  - `FINDER_VIDEO_READS` (default 3, `0` = off). No Anthropic key: no second look.
 - **Gemini is off in the finder by default** (Michael: Gemini only for what the product needs, i.e. the lesson builder). `FINDER_SKIM_TOP=3` (or `FINDER_SKIMS=1`) turns the low-fps skim of the top videos back on, and `FINDER_SKIMS=0` always forces it off; `FINDER_GEMINI_FALLBACK=1` lets Gemini score when Claude fails.
 - **The live-web layer is YouTube's own pages, DuckDuckGo's HTML endpoint and plain HTTP.** No third-party scraping service: pages Claude reads are fetched directly, and the web searches go to DuckDuckGo.
 - **Fallbacks:**
@@ -62,7 +66,7 @@ Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear 
    - The first batch waits for the YouTube results so the UI leads with videos.
    - If Claude fails, Gemini scores. If both fail, the row gets a keyword score that says so ("Matches pinn, convection, 22 min").
 4. **Deep pass:**
-   - The top 3 videos get a **low-fps Gemini skim** of the actual YouTube video (0.05 fps, low media resolution). The final score is 40% text, 60% skim, and the skim writes the reason.
+   - The top 3 videos get **Claude's second look** from their own text (above). With `FINDER_SKIM_TOP` set, a **low-fps Gemini skim** (0.05 fps, low media resolution) replaces it for those videos: 40% text, 60% skim.
    - The top 3 non-video results get a **Claude read** of the page. The score is 40% text, 60% read, capped at 45 if the page doesn't teach the goal. The read fills `reason`, `prerequisites` and `codeNotes`.
    - Rows that only got a keyword score get a second scoring try.
 5. **Rank:** best first, but the best **video** always leads (build_lesson needs a video).
@@ -83,7 +87,8 @@ The keys come from the shared `.env` (looked up in `$TUT_ENV`, the repo root, th
 |---|---|
 | `ANTHROPIC_API_KEY` | Claude search, scoring and page reads (`server.config.get_key("anthropic")` when that module exists) |
 | `FINDER_CLAUDE_MODEL`, `FINDER_CLAUDE_SEARCH_TOOL` | default `claude-haiku-5-5`, `web_search_20250305` |
-| `GEMINI_API_KEY` | video skims (and the scoring fallback) |
+| `GEMINI_API_KEY` | opt-in only: video skims (`FINDER_SKIM_TOP`) and the scoring fallback (`FINDER_GEMINI_FALLBACK=1`). The SDK is imported on the first such call only |
+| `FINDER_VIDEO_READS` | default 3: Claude's second look at the top videos (description, chapters, transcript excerpt); 0 = off |
 | `GITHUB_TOKEN` | optional, raises the GitHub search rate limit |
 | `FINDER_KINDS` (default `video`; `all`), `FINDER_MIN_SCORE` (default 40) | what to search for, relevance floor |
 | `FINDER_SKIM_TOP` (default 0 = no Gemini skim), `FINDER_GEMINI_FALLBACK` (default 0), `FINDER_MODEL` (Gemini scoring fallback), `FINDER_SKIM_MODEL` | comma-separated Gemini fallback chains (default flash-lite only, so server/lesson's `gemini-4-hydrogen` / `gemini-3.8-flash` daily quota is left alone) |
@@ -95,7 +100,8 @@ Gemini calls use no SDK retries. Each call has its own timeout and a **hedged** 
 - every emitted URL came from a source response (none invented);
 - a 404 is dropped;
 - a URL Claude wrote that its search tool never returned is dropped;
-- Claude scores and reads while Gemini only skims videos;
+- Claude scores and reads while Gemini only skims videos (opt-in);
+- on the default path Gemini is never called, Claude's second look sees each top video's chapters and transcript excerpt and re-ranks a slide talk below a hands-on video (`test_claude_only.py`, hand-written watch pages in `fixtures/video_text.json`);
 - Gemini scores only when Claude fails;
 - a no-code video never leads a coding goal (capped at 35);
 - with default settings Gemini is never called;

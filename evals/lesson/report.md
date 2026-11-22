@@ -7,6 +7,28 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
+## Claude only (D1, `claude/eng-claude-only`): step timing without the video, offline
+
+No model was called. `python evals/lesson/timing_eval.py` re-scores the step starts of every graph saved in
+`results*/` against the videos' chapter marks, using the captions run.py saved (`<id>.transcript.json`, gitignored),
+before and after `server/lesson/timing.py` pins them. 4 of the 5 videos have chapters (rust-cli has none).
+
+| Engine | Version | Steps | Median, nearest mark | Within 10 s | Mean | Median, IoU-aligned | Within 10 s, aligned |
+|---|---|---|---|---|---|---|---|
+| Claude (40 lessons) | as built | 306 | 1.0 s | 65 % | 18.5 s | 1.0 s | 70 % |
+| Claude | pinned (chapters + captions) | 306 | **0.0 s** | **79 %** | 15.3 s | **0.0 s** | **84 %** |
+| Claude | pinned, captions only | 306 | 0.96 s | 65 % | 18.7 s | 0.8 s | 68 % |
+| Gemini (27 lessons) | as built (watched) | 220 | 1.0 s | 63 % | 19.6 s | 0.0 s | 73 % |
+
+- Across all saved runs the transcript path's median was already ~1 s; S3's "15 s" was one FastAPI run (that video's
+  11 saved Claude runs range 1.5-24.5 s as built, 0 s pinned in each).
+- The gain comes from the chapter marks, which are also the gold, so "pinned" means "where a step starts within
+  30 s of a chapter mark, it now starts on it". Caption lines alone only move starts by under a second (playback starts
+  at a sentence's beginning).
+- git-rebase stays worst (11 s pinned, 23 s built): its chapters cover theory while the steps are the hands-on part.
+- Not measured offline: whether the tutorial's linked code (`materials.py`) improves the code and checks, and the
+  finder's Claude second look on live results. Both need a paid run (listed in the branch's hand-off).
+
 ## Latest (`dec3653`): Gemini billing returns 402; localhost fix verified
 
 Runs (both with `--saved-captions`):

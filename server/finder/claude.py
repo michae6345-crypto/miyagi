@@ -210,12 +210,25 @@ SCORE_SCHEMA = {
 }
 
 
+def score_item(c: dict) -> dict:
+    """One candidate as the scorer sees it. A video Claude takes a second look at (core._video_reads) also carries
+    its full description, its chapter titles and a transcript excerpt (sources.video_text): what the video teaches,
+    in its own words, instead of the Gemini skim."""
+    item = {"id": c["id"], "kind": c["kind"], "title": c["title"][:160], "meta": c.get("meta", ""),
+            "description": (c.get("description") or "")[:350]}
+    vt = c.get("video_text") or {}
+    if vt.get("description"):
+        item["description"] = vt["description"][:1500]
+    if vt.get("chapters"):
+        item["chapters"] = [str(t)[:80] for t in vt["chapters"][:40]]
+    if vt.get("transcript"):
+        item["transcript_excerpt"] = vt["transcript"][:2500]
+    return item
+
+
 async def score(key: str, goal: str, cands: list[dict], *, system: str, prompt: str, timeout: float = 8.0) -> dict[str, dict]:
-    """Same rubric as gemini.score (the prompts are passed in so both stay identical)."""
-    items = [
-        {"id": c["id"], "kind": c["kind"], "title": c["title"][:160], "meta": c.get("meta", ""), "description": (c.get("description") or "")[:350]}
-        for c in cands
-    ]
+    """The finder's scorer (scoring.py's rubric, which the opt-in Gemini fallback shares)."""
+    items = [score_item(c) for c in cands]
     resp = await _create(
         key,
         model=model(),
@@ -233,7 +246,9 @@ async def score(key: str, goal: str, cands: list[dict], *, system: str, prompt: 
     # a candidate whose own title or description talks to an AI can't talk its way up the ranking
     # (strict: only the high-confidence patterns, so an LLM or chatbot tutorial's own "Assistant:" lines never count)
     injected = {c["id"]: c for c in cands
-                if flag_injection(f"{c.get('title', '')}\n{c.get('meta', '')}\n{c.get('description') or ''}", strict=True)}
+                if flag_injection(f"{c.get('title', '')}\n{c.get('meta', '')}\n{c.get('description') or ''}\n"
+                                  f"{(c.get('video_text') or {}).get('description', '')}\n"
+                                  f"{(c.get('video_text') or {}).get('transcript', '')}", strict=True)}
     out = {}
     for i in data.get("items", []):
         if not i.get("id"):
