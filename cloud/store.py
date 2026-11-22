@@ -89,6 +89,14 @@ CREATE TABLE IF NOT EXISTS events (
     PRIMARY KEY (token_hash, day, name)
 );
 CREATE INDEX IF NOT EXISTS events_day ON events (day);
+-- Activation funnel (POST /v1/funnel): the earliest time per install and milestone. Names and times only; the
+-- install's user, when it has one, comes from `links`.
+CREATE TABLE IF NOT EXISTS funnel (
+    token_hash TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    first_at   REAL NOT NULL,              -- epoch seconds, UTC
+    PRIMARY KEY (token_hash, name)
+);
 -- Shared lesson cache (ROADMAP 3.1, A08): every upload is a candidate per video, schema and uploader. GET serves only
 -- the one approved candidate (POST /admin/lessons/{video_id}/approve, or LESSON_AUTO_APPROVE_N matching uploads).
 CREATE TABLE IF NOT EXISTS lesson_candidates (
@@ -783,6 +791,41 @@ class Store:
         return [dict(r) for r in self._q("SELECT name, key, value, count, total FROM event_props WHERE token_hash = ? AND day = ? "
                                          "ORDER BY name, key, value", (token_hash, day or today()))]
 
+    # funnel ---------------------------------------------------------------
+    def add_funnel(self, token_hash: str, items: list[tuple[str, float]]) -> int:
+        """Record milestones [(name, epoch seconds)] for one install, keeping the earliest time per name."""
+        with self._lock:
+            for name, at in items:
+                self._db.execute("INSERT INTO funnel (token_hash, name, first_at) VALUES (?, ?, ?) "
+                                 "ON CONFLICT (token_hash, name) DO UPDATE SET first_at = MIN(first_at, excluded.first_at)",
+                                 (token_hash, name, float(at)))
+        return len(items)
+
+    def funnel_rows(self, token_hash: str | None = None) -> list[dict]:
+        sql, args = "SELECT token_hash, name, first_at FROM funnel", ()
+        if token_hash:
+            sql, args = sql + " WHERE token_hash = ?", (token_hash,)
+        return [dict(r) for r in self._q(sql + " ORDER BY token_hash, first_at", args)]
+
+    def funnel_report(self, steps: list[str], since: float = 0) -> dict:
+        """Per milestone, in `steps` order: installs that reached it, the share of the first step, and the median
+        seconds from the step before (installs that have both). Installs counted from their first step's time."""
+        by: dict[str, dict[str, float]] = {}
+        for r in self._q("SELECT token_hash, name, first_at FROM funnel"):
+            by.setdefault(r["token_hash"], {})[r["name"]] = float(r["first_at"])
+        cohort = {h: m for h, m in by.items() if steps and steps[0] in m and m[steps[0]] >= since}
+        out, base = [], len(cohort)
+        for i, step in enumerate(steps):
+            reached = [m for m in cohort.values() if step in m]
+            gaps = sorted(m[step] - m[steps[i - 1]] for m in reached if i and steps[i - 1] in m and m[step] >= m[steps[i - 1]])
+            mid = len(gaps) // 2
+            median = None if not gaps else gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2
+            out.append({"name": step, "installs": len(reached), "share": round(len(reached) / base, 4) if base else 0.0,
+                        "median_s_from_prev": None if median is None else round(median, 1)})
+        return {"installs": base, "since": since, "steps": out,
+                "installs_minted": int(self._q("SELECT COUNT(*) FROM tokens")[0][0]),
+                "installs_linked": int(self._q("SELECT COUNT(*) FROM links")[0][0])}
+
     # links ----------------------------------------------------------------
     def link_user(self, token_hash: str, user_id: str) -> None:
         """Link an install to a user. Re-linking the same pair keeps the first linked_at."""
@@ -879,7 +922,7 @@ class Store:
                                  f"input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + "
                                  f"excluded.output_tokens, usd = usd + excluded.usd", (AGGREGATE, day, *hs))
 
-                for table in ("usage", "role_usage", "builds", "events", "event_props", "event_intake", "lesson_puts"):
+                for table in ("usage", "role_usage", "builds", "events", "event_props", "event_intake", "lesson_puts", "funnel"):
                     n[table] = self._db.execute(f"DELETE FROM {table} WHERE token_hash {inn}", hs).rowcount
                 n["moved_usage"] = self._db.execute(f"UPDATE moved_usage SET token_hash = ? WHERE token_hash {inn}",
                                                     (AGGREGATE, *hs)).rowcount  # what they moved away from OTHER scopes
