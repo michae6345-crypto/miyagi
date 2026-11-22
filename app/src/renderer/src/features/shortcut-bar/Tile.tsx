@@ -61,12 +61,45 @@ type TileProps = {
   /** Fire on the press itself, not the click (End lesson, desktop test 9 A2): a click needs down and up on the same
    * spot, and the bar can lift or re-render between them. Keyboard activation still goes through onClick. */
   onDown?: boolean
+  /** The slim bar (slim.ts): the glyph tile alone, 36px; the label and keycap move to the tooltip and aria-label. */
+  slim?: boolean
 }
 
-export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, dip, lit, dot, pressed, expanded, disabled, title, glyph, onDown }: TileProps): ReactNode {
+export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, dip, lit, dot, pressed, expanded, disabled, title, glyph, onDown, slim }: TileProps): ReactNode {
   const [hover, setHover] = useState(false)
   const alt = useAltHeld((a) => a.held)
   const inner = glyph ?? <Icon size={16} strokeWidth={1.8} />
+  if (slim) {
+    const tip = title ?? (keycap ? `${label} (${keycap})` : label)
+    return (
+      <motion.button
+        className={`relative grid h-[36px] w-[36px] place-items-center rounded-[12px] outline-none focus-visible:bg-[var(--glass-field)] ${disabled ? 'cursor-default' : `cursor-pointer ${hoverCls}`}`}
+        style={{ ...(lit ? { background: glass.field } : {}), ...(disabled ? { opacity: DISABLED_OPACITY } : {}) }}
+        aria-label={label}
+        aria-pressed={pressed}
+        aria-expanded={expanded}
+        data-slim=""
+        disabled={disabled}
+        title={tip}
+        animate={{ scale: dip && !disabled ? PRESS_SCALE : 1 }}
+        whileTap={disabled ? undefined : { scale: PRESS_SCALE }}
+        transition={spring}
+        onPointerDown={onDown && !disabled ? (e) => e.button === 0 && onClick() : undefined}
+        onClick={onDown ? (e) => e.detail === 0 && onClick() : onClick}
+      >
+        <span className="relative grid h-[28px] w-[28px] place-items-center rounded-[8px]" style={{ background: l.background, color: l.color }}>
+          {dot && <span data-part="tile-dot" aria-hidden className="absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full" style={{ background: glass.text }} />}
+          {busyKind ? (
+            <Glyph kind={busyKind} tone={l.color} track={l.track} glass={l.glass} size={16}>
+              {inner}
+            </Glyph>
+          ) : (
+            inner
+          )}
+        </span>
+      </motion.button>
+    )
+  }
   return (
     <motion.button
       // No browser focus ring (it's blue: brand). Keyboard focus shows as the neutral hover fill instead.

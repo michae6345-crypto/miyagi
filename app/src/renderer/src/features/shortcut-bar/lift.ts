@@ -10,6 +10,8 @@ import type { Layout } from '../../../../preload/api'
 import { hole, isUsableRect, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { BAR_HEIGHT } from './ShortcutBar'
+import { SLIM_HEIGHT } from './slim'
+import { useSlim } from './useSlim'
 
 /**
  * The bar's lower edge above the Dock / taskbar: clear of an editor's status bar (VS Code's is 22px) with a little air
@@ -20,7 +22,8 @@ export const ABOVE_DOCK = 30
 /** The bar's top edge in overlay px right now (Dock position, lifted over the spotlight's hole): the floating net keeps above it. */
 export function useBarTop(layout: Layout): number {
   const bottom = layout.height - (layout.workArea.y + layout.workArea.height) + ABOVE_DOCK
-  return layout.height - bottom - useLift(layout, bottom) - BAR_HEIGHT
+  const height = useSlim() ? SLIM_HEIGHT : BAR_HEIGHT
+  return layout.height - bottom - useLift(layout, bottom, height) - height
 }
 
 /** Space between the hole and the bar. */
@@ -31,15 +34,15 @@ const HALF_W = 500
 const MAX_RISE = 0.55
 
 /** How many px to lift the bar above its Dock position right now (0 = stay). */
-export function useLift(layout: Layout, bottom: number): number {
+export function useLift(layout: Layout, bottom: number, height: number = BAR_HEIGHT): number {
   const rect = useSpotlight((s) => (s.target && isUsableRect(s.target.rect) ? s.target.rect : undefined))
   if (!rect) return 0
   const h = hole(toLocal(rect, layout.origin))
-  const barTop = layout.height - bottom - BAR_HEIGHT
+  const barTop = layout.height - bottom - height
   const cx = layout.width / 2
   const overlapsX = h.x < cx + HALF_W && h.x + h.w > cx - HALF_W
   if (!overlapsX || h.y + h.h <= barTop - GAP) return 0
   const lifted = layout.height - (h.y - GAP) // the bar's new `bottom`: its lower edge GAP above the hole
-  if (lifted + BAR_HEIGHT > layout.height * MAX_RISE) return 0
+  if (lifted + height > layout.height * MAX_RISE) return 0
   return Math.max(0, Math.round(lifted - bottom))
 }

@@ -10,6 +10,11 @@
  * a move; a target followed by a clear is gone), and the spotlight's lifetime is NOT tied to the card it came with:
  * closing a card leaves the box up until the engine clears it.
  *
+ * Calm (video lessons only, calm.ts): the drawer, player and bar are already up, so the spotlight shows only when
+ * asked for (a step starts, Not yet arrives, a Show me answer) and fades after CALM_MS or the first keystroke. A faded
+ * box stays gone even while the engine re-sends it, until the next step or Not yet. Show me keeps its old lifetime.
+ * "Just teach me" lessons are untouched (their "type here" box is the lesson).
+ *
  * Front app (review A9: "draw it only while spotlight.app is the front app"): while another app is in front, the box
  * and caption hide; the target is kept and comes back when its app does (unless the engine cleared or moved it
  * meanwhile). Only when the payload names an app and main knows the front one (macOS: main/features/front-app.ts,
@@ -18,8 +23,10 @@
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
+import { useLesson } from '../../core/lesson'
 import { usePressed } from '../../core/shortcuts'
 import { useFront } from '../shortcut-bar/front'
+import { calmGate, isTyping } from './calm'
 import { sameRect } from './place'
 
 export type SpotlightTarget = Exclude<Payload<'spotlight'>, { clear: true }> & { code?: string }
@@ -76,12 +83,25 @@ useFront.subscribe(() => {
 
 let pendingClear: ReturnType<typeof setTimeout> | undefined
 
+/** Video lessons get the calm gate; a "Just teach me" lesson's box is its whole point, so it keeps the old lifetime. */
+const calmApplies = (): boolean => {
+  const l = useLesson.getState().lesson
+  return !!l && l.mode !== 'lesson'
+}
+
 function clearNow(): void {
   clearTimeout(pendingClear)
   pendingClear = undefined
   current = undefined
   set({ target: undefined, targets: [], showMe: false })
 }
+
+/** The gate's fade: clear the box (the engine's later re-sends are refused by the gate until the next arm). */
+const gate = calmGate(() => clearNow())
+/** A spotlight the gate refused a moment ago: a Not yet that arrives just after its box shows it. */
+let refused: { t: SpotlightTarget; at: number } | undefined
+const REFUSED_MS = 2500
+if (typeof window !== 'undefined') window.addEventListener('keydown', (e) => isTyping(e) && gate.keystroke(), true)
 
 /**
  * The last Show me press, for as long as a spotlight can still be its answer: core clears `usePressed` the moment
@@ -111,18 +131,30 @@ function clearSoon(): void {
 const validTargets = (t: CoachTarget[] | undefined): CoachTarget[] =>
   (t ?? []).filter((x) => x && x.rect && [x.rect.x, x.rect.y, x.rect.w, x.rect.h].every(Number.isFinite) && x.rect.w > 0 && x.rect.h > 0)
 
-onUi('reset', clearNow) // dev reset, reconnect, and engine lesson.ended (core turns it into a reset)
-onMessage('lesson.ready', clearNow)
-onMessage('lesson.ended', clearNow)
+onUi('reset', () => {
+  gate.reset()
+  refused = undefined
+  clearNow()
+}) // dev reset, reconnect, and engine lesson.ended (core turns it into a reset)
+onMessage('lesson.ready', () => (gate.reset(), (refused = undefined), clearNow()))
+onMessage('lesson.ended', () => (gate.reset(), (refused = undefined), clearNow()))
 // A clear lands together with the new step: no grace, the old step's box must not sit over the new step's code.
-onMessage('step.started', clearNow)
-onMessage('step.passed', clearNow)
+onMessage('step.started', () => (clearNow(), (refused = undefined), gate.arm()))
+onMessage('step.passed', () => (clearNow(), (refused = undefined), gate.reset()))
 
 onMessage('spotlight', (p) => {
   if ('clear' in p) return clearSoon()
   clearTimeout(pendingClear)
   pendingClear = undefined
   const next = p as SpotlightTarget
+  if (calmApplies()) {
+    // A Show me answer pins the box (old lifetime); anything else needs the gate open (step start, Not yet).
+    if (answersShowMe()) gate.arm(true)
+    else if (!gate.admit()) {
+      refused = { t: next, at: Date.now() }
+      return
+    }
+  }
   const prev = current
   // A re-spotlight: the engine re-sends the same target every screen read. Ignore OCR jitter so the hole doesn't wobble.
   const still = !!(prev && next.rect && sameRect(prev.rect, next.rect, JITTER_PX))
@@ -131,8 +163,20 @@ onMessage('spotlight', (p) => {
   const showMe = answersShowMe() || (still && get().showMe)
   // New words at (nearly) the same place: keep the old rect so only the caption changes.
   put(still && prev ? { ...next, rect: prev.rect } : next, showMe)
+  if (calmApplies()) gate.shown()
 })
 
 // The coach's targets: the engine spotlights targets[0]; the rest are drawn as extra cut-outs while it's up.
 onMessage('card', (p) => set({ targets: validTargets(p.targets) }))
-onMessage('offtrack', (p) => set({ targets: validTargets(p.targets) }))
+onMessage('offtrack', (p) => {
+  set({ targets: validTargets(p.targets) })
+  // Not yet is a reason to point again: open the gate, and show the box that came a moment before it.
+  if (!calmApplies()) return
+  gate.arm()
+  const r = refused
+  refused = undefined
+  if (r && Date.now() - r.at < REFUSED_MS) {
+    put(r.t, false)
+    gate.shown()
+  }
+})
