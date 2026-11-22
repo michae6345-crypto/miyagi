@@ -197,6 +197,9 @@ and takes at most 300 ms. From async code, use `await asyncio.to_thread(...)`.
   (an engine the app started with `MIYAGI_ENGINE_TOKEN` refuses token-less events from an older extension).
 - Requests from a remote address other than loopback are refused (403 `not_loopback`), on top of the `127.0.0.1`
   bind.
+- `miyagi.engineUrl` and `miyagi.port` are machine settings (0.0.8): a folder's `.vscode/settings.json` can't set them,
+  and in Restricted Mode VS Code ignores any workspace value too (`restrictedConfigurations`). So a cloned tutorial
+  repo can't point editor events, selections and terminal output at a server it starts.
 - The extension never opens a new window, never installs anything, and makes no network calls except to the
   engine on localhost.
 
