@@ -1,5 +1,5 @@
 /**
- * Feature: settings. The computer in Settings copy: "this Mac" on macOS, "this PC" on Windows (the same words as
+ * Feature: settings. The computer in Settings copy: "this Mac" on macOS, "this computer" on Windows (the same words as
  * onboarding/device.ts). privacy/facts.ts keeps the Mac wording because web/privacy.md quotes it and facts.test.ts
  * checks it; the rows pass their text through here() so Windows reads its own words. Keys are encrypted by the
  * Keychain on a Mac and by Windows' own protected storage (DPAPI, through Electron safeStorage) on a PC.
@@ -14,12 +14,12 @@ export function here(text: string): string {
   return text
     .replace(/Locked by your Keychain/g, 'Encrypted by Windows')
     .replace(/your Mac’s Keychain/g, 'Windows’ protected storage')
-    .replace(/\bthis Mac\b/g, 'this PC')
-    .replace(/\bThis Mac\b/g, 'This PC')
+    .replace(/\bthis Mac\b/g, 'this computer')
+    .replace(/\bThis Mac\b/g, 'This computer')
 }
 
 /** The note under Your own key. */
-export const keysNote = (): string => (isMac() ? 'Kept in your Mac’s Keychain, never on our servers.' : 'Encrypted on this PC, never on our servers.')
+export const keysNote = (): string => (isMac() ? 'Kept in your Mac’s Keychain, never on our servers.' : 'Encrypted on this computer, never on our servers.')
 
 /** The flash after a Save that reached secure storage. */
 export const savedSecure = (): string => (isMac() ? 'Saved to Keychain' : 'Saved and encrypted')
