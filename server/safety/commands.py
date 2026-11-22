@@ -5,14 +5,17 @@ step's code that looks like a shell line. None of it is trusted. parse_run_comma
 runs WITHOUT a shell, or says why the learner should run it themselves:
 
   Allowed(argv)   python | python3 | .venv/bin/python <relative .py in the lesson folder> [plain args]
-                  python -m pytest | pytest [relative paths in the lesson folder] [-q -v -vv -x -s]
+                  python -m pytest | pytest [relative paths in the lesson folder] [-q -v -vv -x -s], never while
+                    the folder has its own pytest.py, _pytest/ ... (SHADOWS) that would run instead
                   node <relative .js / .mjs / .cjs in the lesson folder> [plain args]
                   npm run <a script in the lesson's package.json> | npm start (its start script) | npm test,
                     run with --ignore-scripts, and only when the script has no pre<name> / post<name> hook (npm would
                     run those too, and the card would not show them)
                   pip | pip3 | python -m pip install -r <relative requirements*.txt in the lesson folder> whose every
-                    line is a name on the curated package list
+                    line is a name on the curated package list, run as `pip install <those specs>` (pip never reads
+                    the file; a file pip would decode differently, by a BOM or a coding line, is refused)
                   pip install <names on the curated package list (server/safety/packages.py)>
+                  (`python -m pip` always runs as `python -I -m pip`: a pip.py in the lesson folder never runs)
   Manual(reason)  everything else: several commands, pipes, redirects, substitutions, globs, `~`, URLs, shells and
                   other programs (curl, wget, bash, sudo, rm, open, osascript, npx ...), and paths that leave the
                   lesson folder (symlinks followed)
@@ -145,6 +148,8 @@ def _classify(argv: list[str], workdir: str) -> Allowed | Manual:
 def _python(argv: list[str], workdir: str) -> Allowed | Manual:
     if len(argv) < 2:
         return Manual("an interactive Python")
+    if argv[1] == "-I" and argv[2:4] == ["-m", "pip"]:  # `python -I -m pip ...`: what _pip_argv itself writes
+        return _pip([argv[0], *argv[2:]], 3, workdir)
     if argv[1] == "-m":
         mod = argv[2] if len(argv) > 2 else ""
         if mod == "pytest":
@@ -194,7 +199,24 @@ def _inside(rel: str, workdir: str) -> Manual | None:
     return None
 
 
+# top-level lesson files that would run in place of pytest (`python -m pytest` puts the lesson folder first on
+# sys.path, and pytest inserts it for the tests too, so it can't run isolated like pip)
+SHADOWS = frozenset({"pytest", "pytest.py", "_pytest", "_pytest.py", "py.py", "pluggy", "pluggy.py"})
+
+
+def shadowing(workdir: str) -> str | None:
+    """The first top-level entry of the lesson folder named like pytest or a module of it (pytest.py, _pytest/ ...),
+    compared case-insensitively (APFS), else None."""
+    try:
+        names = os.listdir(workdir)
+    except OSError:
+        return None
+    return next((n for n in sorted(names) if n.casefold() in SHADOWS), None)
+
+
 def _pytest(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
+    if (shadow := shadowing(workdir)) is not None:
+        return Manual(f"the lesson folder has its own {shadow}, which would run instead of pytest", structural=False)
     for a in argv[i:]:
         if a in PYTEST_FLAGS:
             continue
@@ -203,6 +225,16 @@ def _pytest(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
         if (why := _inside(a.split("::", 1)[0], workdir)) is not None:
             return why
     return Allowed(tuple(argv))
+
+
+def _pip_argv(argv: list[str], i: int, tail: list[str]) -> tuple[str, ...]:
+    """What runs for `argv[:i] install <tail>`: `python -m pip` as `python -I -m pip` (isolated mode: the lesson
+    folder is never on sys.path, so a pip.py, pip/ or a stdlib-named module there can't run in place of pip). The
+    `pip` console script never has the folder on its path."""
+    head = list(argv[:i])
+    if head[0] in PYTHONS and "-I" not in head:
+        head.insert(1, "-I")
+    return (*head, "install", *tail)
 
 
 def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
@@ -225,11 +257,16 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
             return why
         path = safe_lesson_path(workdir, req)
         try:
-            text = path.read_text(encoding="utf-8", errors="replace") if path is not None and path.is_file() else None
+            data = path.read_bytes() if path is not None and path.is_file() else None
         except OSError:
-            text = None
-        if text is None:
+            data = None
+        if data is None:
             return Manual(f"{req} isn't in the lesson folder yet", structural=False)
+        # A08: read the bytes the way pip would or not at all (a `# coding: utf-7` line or a BOM made pip see a URL
+        # line the card never showed)
+        text, why = packages.decode_requirements(data)
+        if text is None:
+            return Manual(f"{req}: {why}", structural=False)
         if probs := packages.requirements_problems(text):
             return Manual(f"{req}: {probs[0]}", structural=False)
         if unlisted := packages.requirements_to_confirm(text):
@@ -238,9 +275,15 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
             return Manual(f"{req} lists packages that aren't on miyagi's list of common tutorial packages, so check "
                           "each one first: " + "; ".join(f"{v.name} ({v.url})" for v in unlisted[:8])
                           + (" …" if len(unlisted) > 8 else ""), structural=False)
+        specs = packages.requirement_specs(text)
+        if not specs:
+            return Manual(f"{req} lists no packages, so there's nothing to install", structural=False)
         names = packages.requirement_names(text)
-        return Allowed(tuple(argv), details="Installs: " + (", ".join(names[:12]) + (" …" if len(names) > 12 else "")
-                                             if names else "nothing listed"), fingerprint=_digest(req, text))
+        # pip gets the verified specs themselves, never the file: what it installs is exactly what the card shows,
+        # whatever the file says by the time pip would have read it
+        return Allowed(_pip_argv(argv, i, specs),
+                       details=f"Installs (from {req}): " + ", ".join(names[:12]) + (" …" if len(names) > 12 else ""),
+                       fingerprint=_digest(req, text))
     for a in rest:
         if a.startswith("-"):
             return Manual(f"pip install {a[:40]} isn't run for you")
@@ -248,7 +291,7 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
         if v.kind != packages.ALLOW:
             extra = f" ({v.url})" if v.name else ""
             return Manual(f"{v.reason}{extra}")
-    return Allowed(tuple(argv))
+    return Allowed(_pip_argv(argv, i, rest))
 
 
 def npm_scripts(workdir: str | os.PathLike) -> dict[str, str]:

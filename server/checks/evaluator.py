@@ -24,7 +24,7 @@ import os
 import re
 import shlex
 import statistics
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
@@ -163,7 +163,7 @@ def _compile(pattern: str) -> re.Pattern[str]:
 # server.safety.patterns refuses a catastrophic shape before it runs (no `regex` module, so no timeout), and the text
 # a pattern scans is capped here, which bounds what an accepted pattern can cost.
 SCREEN_SCAN_CHARS = 4096  # a screen pattern sees at most the last 4 KB of a window's text
-FILE_SCAN_CHARS = 64 * 1024  # a file / notebook / run output: its last 64 KB
+FILE_SCAN_CHARS = 64 * 1024  # one search: a run output's last 64 KB, a file in 64 KB windows (scan_windows)
 LINE_SCAN_CHARS = 2048  # and no line longer than 2 KB (a notebook's base64 image, a minified bundle)
 
 
@@ -223,10 +223,47 @@ def scan_text(text: str | None, limit: int = FILE_SCAN_CHARS) -> str:
     return scan(text, limit).text
 
 
+FILE_SCAN_TOTAL = 1024 * 1024  # a larger file: overlapping FILE_SCAN_CHARS windows, newest first, up to this much
+WINDOW_OVERLAP_CHARS = 4096  # how much two neighbouring windows share (a match across their boundary)
+NOTEBOOK_OUTPUT_CHARS = 4096  # a big notebook: each output's printed text keeps its last 4 KB (3000 epoch lines)
+
+
+def scan_windows(text: str | None, limit: int = FILE_SCAN_CHARS,
+                 total: int = FILE_SCAN_TOTAL) -> Iterator[tuple[int, Scan]]:
+    """`text` as lesson-pattern-sized pieces: (offset in `text`, scan() of the piece). One piece when it fits in
+    `limit`; else windows of `limit` characters from the end backwards (each starting at a line start when one is
+    near), overlapping by WINDOW_OVERLAP_CHARS, until `total` characters are covered. Each window is what one search
+    may cost, so a big file costs a few searches instead of hiding everything above its last 64 KB."""
+    if not text or len(text) <= limit:
+        yield 0, scan(text, limit)
+        return
+    end, covered, overlap = len(text), 0, min(WINDOW_OVERLAP_CHARS, limit // 4)
+    while end > 0 and covered < total:
+        start = max(0, end - limit)
+        if start:
+            cut = text.find("\n", start, end)
+            if 0 <= cut - start < limit // 2:  # start at the next line (never drop more than half the window)
+                start = cut + 1
+        yield start, scan(text[start:end], limit)
+        covered += end - start
+        if start == 0:
+            break
+        end = start + overlap
+
+
+def _search_file(rx: Any, text: str) -> tuple[Any, int] | None:
+    """(the first match, its 1-based line in `text`) over scan_windows(text), newest window first; None."""
+    for off, sc in scan_windows(text):
+        if m := rx.search(sc.text):
+            return m, text.count("\n", 0, off) + sc.line_of(m.start())
+    return None
+
+
 def read_for_scan(path: str | os.PathLike) -> str:
-    """A lesson file's text for its checks: a notebook without its image / binary output payloads (base64 PNGs are
-    most of an .ipynb and never what a pattern looks for), so the 64 KB scan keeps its code and printed text.
-    OSError as open() raises it."""
+    """A lesson file's text for its checks. A big notebook keeps its cell sources whole, without image / binary output
+    payloads (base64 PNGs are most of an .ipynb and never what a pattern looks for) and with each output's printed
+    text cut to its last NOTEBOOK_OUTPUT_CHARS (a training loop's thousands of lines never push the code out of what a
+    check scans). OSError as open() raises it."""
     with open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
     if not os.fspath(path).lower().endswith(".ipynb") or len(text) <= FILE_SCAN_CHARS:
@@ -237,11 +274,25 @@ def read_for_scan(path: str | os.PathLike) -> str:
         return text
     for cell in nb.get("cells") or [] if isinstance(nb, dict) else []:
         for out in (cell.get("outputs") or []) if isinstance(cell, dict) else []:
-            data = out.get("data") if isinstance(out, dict) else None
+            if not isinstance(out, dict):
+                continue
+            if "text" in out:  # a stream output (print, a progress log)
+                out["text"] = _tail_text(out["text"])
+            data = out.get("data")
             if isinstance(data, dict):
-                for k in [k for k in data if not str(k).startswith("text/")]:
-                    data[k] = ""
+                for k in list(data):
+                    data[k] = _tail_text(data[k]) if str(k).startswith("text/") else ""
     return json.dumps(nb, indent=1, ensure_ascii=False)
+
+
+def _tail_text(v: Any) -> Any:
+    """A notebook output's text (a string or a list of lines) cut to its last NOTEBOOK_OUTPUT_CHARS, whole lines."""
+    s = "".join(str(x) for x in v) if isinstance(v, list) else v if isinstance(v, str) else ""
+    if len(s) <= NOTEBOOK_OUTPUT_CHARS:
+        return v
+    tail = s[-NOTEBOOK_OUTPUT_CHARS:]
+    tail = tail[tail.find("\n") + 1:] if "\n" in tail[:-1] else tail
+    return tail.splitlines(keepends=True) if isinstance(v, list) else tail
 
 
 def unsafe_patterns(check: dict) -> str | None:
@@ -282,14 +333,12 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", f"{rel} not found")
     except OSError as exc:
         return _result(check, "fail", f"cannot read {rel}: {exc.strerror}")
-    sc = scan(full)  # the last 64 KB, no line over 2 KB: what a lesson pattern may cost is bounded
-    try:
-        m = _compile(pattern).search(sc.text)
+    try:  # 64 KB windows (up to 1 MB), no line over 2 KB: what one lesson search may cost is bounded
+        hit = _search_file(_compile(pattern), full)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
-    if m:
-        line = sc.line_of(m.start())
-        return _result(check, "pass", f"found in {rel}:{line}")
+    if hit:
+        return _result(check, "pass", f"found in {rel}:{hit[1]}")
     return _result(check, "fail", f"not in {rel} yet")
 
 
@@ -1067,14 +1116,16 @@ def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_ope
     if not pattern:
         return _result(check, "fail", "check has no 'pattern'")
     name = os.path.basename(os.fspath(path)) if path else "the lesson file"
-    text, readable = "", False
+    text, readable, m = "", False, None
     if path:
         try:
-            text, readable = scan_text(read_for_scan(path)), True
+            text, readable = read_for_scan(path), True
         except OSError:
             text = ""
     try:
-        m = search_screen(pattern, text) if text else None
+        for _, sc in scan_windows(text) if text else ():  # 64 KB windows, newest first (a big notebook's code too)
+            if m := search_screen(pattern, sc.text):
+                break
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if m:

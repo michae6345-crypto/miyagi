@@ -4,10 +4,13 @@ A lesson graph, the setup check (Claude's tool list), a scaffold's requirements.
 names the packages. Each name gets one verdict:
 
   allow    on the curated list (pip_packages.txt, a few hundred common tutorial packages): Install / Install all
-  refuse   not on the list but within Damerau-Levenshtein distance 1-2 of a listed name: a likely typosquat
-           ("reqeusts", "numpyy"); never installed by the engine, the learner is told which name it resembles
+  refuse   not on the list but one typo (Damerau-Levenshtein distance 1, or the same letters with separators moved)
+           from a listed name: a likely typosquat ("reqeusts", "numpyy", "scikitlearn"); never installed by the
+           engine, the learner is told which name it resembles
   confirm  any other valid name: installed only after its own confirm that shows the exact name and its pypi.org
-           page, and never by Install all
+           page, and never by Install all. A near miss that real projects use (two edits away, "pyautogen" next to
+           pyautogui, or only a trailing version digit apart, "boto" next to boto3) is a confirm too, whose reason
+           says which listed name it resembles (Verdict.near)
   invalid  not a PyPI project name at all (a URL, a path, a flag, a VCS spec, a local archive such as x.tar.gz or
            x.whl that pip would build from the folder): refused
 
@@ -98,6 +101,26 @@ def damerau_levenshtein(a: str, b: str, limit: int = 3) -> int:
     return min(prev[-1], limit)
 
 
+def _digit_suffix_only(a: str, b: str) -> bool:
+    """boto / boto3, web3 / web: one name is the other plus trailing digits (a real project's major version)."""
+    short, long_ = sorted((a, b), key=len)
+    return long_.startswith(short) and long_[len(short):].isdigit()
+
+
+def near_miss(name: str) -> tuple[str, bool] | None:
+    """(the listed name `name` resembles, refused?) or None. refused: one typo away ("reqeusts", "numpyy") or the same
+    letters with separators moved ("scikitlearn"). Not refused (a confirm that names the look-alike): two edits away
+    ("pyautogen" / pyautogui) or only a trailing version digit apart ("boto" / boto3)."""
+    near = typosquat_of(name)
+    if near is None:
+        return None
+    n = normalize(name)
+    d = damerau_levenshtein(n, near)
+    if d == 1 and not _digit_suffix_only(n, near) or n.replace("-", "") == near.replace("-", ""):
+        return near, True
+    return near, False
+
+
 def typosquat_of(name: str) -> str | None:
     """The listed name `name` looks like a misspelling of, else None. Distance 1 for names of 3+ characters, distance 2
     for names of 6+ (shorter names are 2 edits away from too many real projects)."""
@@ -129,9 +152,52 @@ def verdict(spec: str) -> Verdict:
         return Verdict(INVALID, "", f"{(spec or '').strip()[:60]!r} is not a PyPI package name")
     if name in curated():
         return Verdict(ALLOW, name)
-    if near := typosquat_of(name):
-        return Verdict(REFUSE, name, f"{name} looks like a misspelling of {near}", near=near)
+    if miss := near_miss(name):
+        near, refuse = miss
+        if refuse:
+            return Verdict(REFUSE, name, f"{name} looks like a misspelling of {near}", near=near)
+        return Verdict(CONFIRM, name, f"{name} isn't on miyagi's list of common tutorial packages and looks a lot like "
+                       f"{near}: make sure it's the one the tutorial means", near=near)
     return Verdict(CONFIRM, name, f"{name} isn't on miyagi's list of common tutorial packages")
+
+
+# pip decodes a requirements file by its BOM, else by a PEP 263 `# coding: X` line in its first two lines, else the
+# locale's encoding (pip._internal.req.req_file / utils.encoding). The engine accepts only a file every one of those
+# reads the same way it does: plain ASCII, no BOM, no coding line, no line break but \n / \r\n.
+_CODING = re.compile(rb"coding[:=]")
+_BOMS = (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff", b"\x00\x00\xfe\xff", b"\xff\xfe\x00\x00")
+
+
+def decode_requirements(data: bytes | str) -> tuple[str | None, str | None]:
+    """(text, None) for a requirements file pip reads exactly as the engine does; (None, why) otherwise: a BOM, a
+    PEP 263 coding line in the first two lines, a byte outside printable ASCII + tab, or a line break other than \\n
+    and \\r\\n (\\v, \\f, \\x1c-\\x1e, a lone \\r: str.splitlines() and pip split there, a card shows one line).
+    A str (a scaffold's content, written as UTF-8) is checked as its UTF-8 bytes."""
+    if isinstance(data, str):
+        data = data.encode("utf-8", "surrogatepass")
+    if data.startswith(_BOMS):
+        return None, "it starts with a byte-order mark (pip would read it in another encoding)"
+    for line in data.split(b"\n")[:2]:
+        if _CODING.search(line):
+            return None, "it declares an encoding (pip would read it in that encoding)"
+    for i, b in enumerate(data):
+        if b == 0x0D and data[i + 1:i + 2] == b"\n" or b in (0x09, 0x0A) or 0x20 <= b < 0x7F:
+            continue
+        return None, (f"it has a non-ASCII byte (0x{b:02X})" if b >= 0x80
+                      else f"it has a control character (0x{b:02X})")
+    return data.decode("ascii"), None
+
+
+def requirement_specs(text: str) -> list[str]:
+    """The requirement specs of a requirements file every line of which requirements_problems() accepts, without
+    their whitespace (`numpy >= 1.26` -> `numpy>=1.26`): what `pip install <specs>` gets in place of `-r <file>`, so
+    pip never reads the file the card summarised."""
+    out = []
+    for raw in (text or "").splitlines():
+        line = raw.split(" #", 1)[0].strip()
+        if line and not line.startswith(("#", "-")) and project_name(line):
+            out.append("".join(line.split()))
+    return out
 
 
 def requirements_problems(text: str) -> list[str]:

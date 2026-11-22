@@ -33,8 +33,9 @@ Refused shapes (on the sre parse tree):
     ([\\s\\S]*[\\s\\S]*, .*.*=), three for \\w (\\w*\\w*\\w*!), four for \\s or \\d alone (\\s*\\s*\\s*\\s*x,
     \\d+\\.?\\d*\\.?\\d*\\.?\\d*); see overlap_limit.
 
-The text a pattern scans is capped by its callers (server.checks.evaluator: the screen's last 4 KB, a file's last
-64 KB with long lines split into 2 KB pieces), which bounds what a merely quadratic pattern can cost.
+The text a pattern scans is capped by its callers (server.checks.evaluator: the screen's last 4 KB, a file in 64 KB
+windows up to 1 MB with long lines split into 2 KB pieces), which bounds what one merely quadratic search can cost.
+The evaluation runs off the event loop with a per-lesson budget of worker timeouts (regex_worker.budget).
 """
 from __future__ import annotations
 
@@ -74,12 +75,19 @@ def pattern_problem(pattern: Any, flags: int = 0) -> str | None:
     """Why `pattern` may not run (too long, does not compile, catastrophic backtracking, or it already ran past the
     worker's deadline), else None. `flags`: the re flags it will be compiled with (IGNORECASE widens what its
     classes overlap)."""
+    if isinstance(pattern, str) and (why := regex_worker.is_bad(pattern, flags)) is not None:
+        return why
+    return static_problem(pattern, flags)
+
+
+def static_problem(pattern: Any, flags: int = 0) -> str | None:
+    """pattern_problem() on the pattern alone: too long, doesn't compile or a catastrophic shape, never "it timed out
+    in this engine process" (one engine's runtime ban is no reason to drop a check from a lesson graph it then
+    stores; the sinks skip a banned pattern at run time). For lesson validation (schema.validate_untrusted_lesson)."""
     if not isinstance(pattern, str):
         return "not a pattern"
     if len(pattern) > MAX_PATTERN_LEN:
         return f"pattern longer than {MAX_PATTERN_LEN} characters"
-    if (why := regex_worker.is_bad(pattern, flags)) is not None:
-        return why
     key = (pattern, _fkey(flags))
     if key in _SHAPES:
         return _SHAPES[key]

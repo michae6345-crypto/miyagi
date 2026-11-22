@@ -4,8 +4,15 @@ A lesson's check patterns come from a model, a cached graph or a shared lesson. 
 holds the GIL while it backtracks, and no set of shape rules catches every catastrophic pattern ('-?' * 27 + '-' * 27
 + 'x', (?:a|aa){16}... , \\d+\\d+\\d+x). So every search with a lesson pattern that could backtrack runs in ONE
 long-lived worker process (plain `re`, stdlib only) and must answer within DEADLINE_S. On a timeout the worker is
-killed and started again, the pattern is remembered as bad (is_bad(): safe_compile refuses it from then on, every
-sink's `except re.error` treats it as invalid) and the search counts as "no match".
+killed and started again and the search counts as "no match". A timeout is a strike against the pattern: after
+BAN_STRIKES of them it is remembered as bad (is_bad(): safe_compile refuses it from then on, every sink's
+`except re.error` treats it as invalid), so one stall of the Mac (a SIGSTOP, heavy swap) never bans a real pattern
+for good. An answer already waiting when the engine itself was the one stalled is read, never counted as a timeout.
+
+Per lesson (budget(key) around a lesson's evaluation, server.orchestrator.session): after LESSON_TIMEOUTS timeouts
+in one lesson within LESSON_WINDOW_S, every other pattern of that lesson that would need the worker counts as "no
+match" without running, so a cached or shared graph full of distinct slow patterns costs a few deadlines per window,
+never one per pattern.
 
   GuardedPattern   what server.safety.patterns.safe_compile returns: .search / .match / .fullmatch / .finditer /
                    .findall / .pattern / .flags / .groups / .groupindex like re.Pattern, the matching done in the
@@ -19,6 +26,9 @@ If the worker can't start at all (no interpreter to spawn), a pattern that passe
 from __future__ import annotations
 
 import atexit
+import contextlib
+import contextvars
+import hashlib
 import json
 import logging
 import os
@@ -40,6 +50,10 @@ MAX_MATCHES = 10_000  # finditer / findall: at most this many matches come back
 CACHE_TEXT = 4096  # answers for texts up to this long are kept (the same OCR lines come back every frame)
 CACHE_SIZE = 4096
 RETRY_SPAWN_S = 30.0  # after a failed start, how long the in-process fallback is used before trying again
+BAN_STRIKES = 2  # timeouts before a pattern is refused everywhere (one can be the Mac stalling, not the pattern)
+LESSON_TIMEOUTS = 3  # timeouts in one lesson before its other worker patterns stop running (budget())
+LESSON_WINDOW_S = 600.0  # ... within this long (a monotonic clock): an old stall doesn't stop a lesson for good
+MAX_REMEMBERED = 1 << 16  # banned / struck patterns kept (as 16-byte hashes), oldest forgotten first
 
 _CHILD = r"""
 import json, re, sys
@@ -73,15 +87,97 @@ while True:
     out.flush()
 """
 
-# pattern -> why: timed out in the worker, never run again with any flags (lesson validation reads it without the
-# MULTILINE / IGNORECASE a sink adds)
-_BAD: dict[str, str] = {}
+# hash(pattern) -> why: timed out BAN_STRIKES times in the worker, never run again with any flags (lesson validation
+# reads it without the MULTILINE / IGNORECASE a sink adds). hash(pattern) -> timeouts so far, below BAN_STRIKES.
+_BAD: dict[bytes, str] = {}
+_STRIKES: dict[bytes, int] = {}
+_BAN_LOCK = threading.Lock()
+
+
+def _hkey(pattern: str) -> bytes:
+    return hashlib.blake2b(pattern.encode("utf-8", "surrogatepass"), digest_size=16).digest()
+
+
+def _remember(table: dict, key: bytes, value: Any) -> None:
+    table.pop(key, None)
+    table[key] = value
+    while len(table) > MAX_REMEMBERED:
+        table.pop(next(iter(table)))
 
 
 def is_bad(pattern: str, flags: int = 0) -> str | None:
-    """Why `pattern` is refused after running too long in the worker, else None. (`flags`: for symmetry with
-    pattern_problem; a pattern that timed out with any flags is refused with all of them.)"""
-    return _BAD.get(pattern) if isinstance(pattern, str) else None
+    """Why `pattern` is refused after running too long in the worker (BAN_STRIKES times), else None. (`flags`: for
+    symmetry with pattern_problem; a pattern that timed out with any flags is refused with all of them.)"""
+    return _BAD.get(_hkey(pattern)) if isinstance(pattern, str) else None
+
+
+def strike(pattern: str) -> str | None:
+    """Count one worker timeout against `pattern`; why it is now refused (its BAN_STRIKES-th), else None."""
+    k = _hkey(pattern)
+    with _BAN_LOCK:
+        if k in _BAD:
+            return _BAD[k]
+        n = _STRIKES.pop(k, 0) + 1
+        if n < BAN_STRIKES:
+            _remember(_STRIKES, k, n)
+            return None
+        why = f"pattern ran longer than {int(DEADLINE_S * 1000)} ms {n} times (catastrophic backtracking)"
+        _remember(_BAD, k, why)
+        return why
+
+
+class Budget:
+    """One lesson's worker timeouts (see the module docstring). exhausted: LESSON_TIMEOUTS of them in the last
+    LESSON_WINDOW_S (monotonic clock), so its other worker patterns don't run; a lesson that stalled once on a busy
+    Mac gets its patterns back later, a graph of slow patterns costs a few deadlines per window."""
+
+    __slots__ = ("key", "times", "told")
+
+    def __init__(self, key: Any) -> None:
+        self.key, self.times, self.told = key, [], False
+
+    def add(self) -> None:
+        self.times = [t for t in self.times if time.monotonic() - t < LESSON_WINDOW_S][-LESSON_TIMEOUTS:]
+        self.times.append(time.monotonic())
+
+    @property
+    def timeouts(self) -> int:
+        return sum(1 for t in self.times if time.monotonic() - t < LESSON_WINDOW_S)
+
+    @property
+    def exhausted(self) -> bool:
+        if self.timeouts >= LESSON_TIMEOUTS:
+            return True
+        self.told = False
+        return False
+
+
+_BUDGETS: OrderedDict = OrderedDict()
+_CURRENT: contextvars.ContextVar[Budget | None] = contextvars.ContextVar("miyagi_regex_budget", default=None)
+
+
+def lesson_budget(key: Any) -> Budget:
+    """The Budget of lesson `key` (made on first use; the 64 most recent lessons are kept)."""
+    with _BAN_LOCK:
+        b = _BUDGETS.get(key)
+        if b is None:
+            b = _BUDGETS[key] = Budget(key)
+            while len(_BUDGETS) > 64:
+                _BUDGETS.popitem(last=False)
+        else:
+            _BUDGETS.move_to_end(key)
+        return b
+
+
+@contextlib.contextmanager
+def budget(key: Any):
+    """Every guarded search inside counts against (and is stopped by) lesson `key`'s Budget. A context variable, so
+    it holds in the thread asyncio.to_thread runs the evaluation in, and only there."""
+    tok = _CURRENT.set(lesson_budget(key))
+    try:
+        yield _CURRENT.get()
+    finally:
+        _CURRENT.reset(tok)
 
 
 class _Timeout(Exception):
@@ -105,8 +201,10 @@ class _Worker:
         if self.failed_t is not None and time.monotonic() - self.failed_t < RETRY_SPAWN_S:
             return False
         try:
-            self.proc = _Popen([sys.executable, "-I", "-S", "-c", _CHILD], stdin=PIPE, stdout=PIPE, stderr=DEVNULL,
-                               bufsize=0, close_fds=True, env={"PYTHONIOENCODING": "utf-8", "LC_ALL": "C"})
+            # -B: never a .pyc written into the signed app bundle's Python (the app runs the engine with -B too)
+            self.proc = _Popen([sys.executable, "-I", "-S", "-B", "-c", _CHILD], stdin=PIPE, stdout=PIPE,
+                               stderr=DEVNULL, bufsize=0, close_fds=True,
+                               env={"PYTHONIOENCODING": "utf-8", "LC_ALL": "C"})
             self.pid, self.buf = os.getpid(), b""
             if self._read_line(time.monotonic() + START_S) != b"ready":
                 raise _Dead("no ready line")
@@ -144,9 +242,9 @@ class _Worker:
     def _read_line(self, deadline: float) -> bytes:
         fd = self.proc.stdout.fileno()
         while b"\n" not in self.buf:
-            left = deadline - time.monotonic()
-            if left <= 0:
-                raise _Timeout
+            # past the deadline: one more look without waiting (the engine itself may have been the one stopped, and
+            # the answer has been waiting since)
+            left = max(deadline - time.monotonic(), 0.0)
             ready, _, _ = select.select([fd], [], [], left)
             if not ready:
                 raise _Timeout
@@ -161,9 +259,7 @@ class _Worker:
         fd = self.proc.stdin.fileno()
         view = memoryview(data)
         while view:
-            left = deadline - time.monotonic()
-            if left <= 0:
-                raise _Timeout
+            left = max(deadline - time.monotonic(), 0.0)
             _, ready, _ = select.select([], [fd], [], left)
             if not ready:
                 raise _Timeout
@@ -216,15 +312,23 @@ def _run(gp: GuardedPattern, op: str, text: str, pos: int, endpos: int) -> Any:
                 return _CACHE[key]
     if is_bad(gp.pattern, gp.flags):
         return [] if op == "finditer" else None
+    b = _CURRENT.get()
+    if b is not None and b.exhausted:
+        if not b.told:
+            b.told = True
+            log.warning("lesson %r: %d regex timeouts; its other slow-capable patterns no longer run",
+                        str(b.key)[:60], b.timeouts)
+        return [] if op == "finditer" else None
     end = min(endpos, len(text))
     req = {"p": gp.pattern, "f": gp.flags, "op": op, "t": text, "pos": pos, "end": end, "max": MAX_MATCHES}
     try:
         res = _WORKER.call(req)
     except _Timeout:
-        why = f"pattern ran longer than {int(DEADLINE_S * 1000)} ms (catastrophic backtracking)"
-        if len(_BAD) < 4096:
-            _BAD[gp.pattern] = why
-        log.warning("lesson pattern %r refused: %s", gp.pattern[:80], why)
+        if b is not None:
+            b.add()
+        why = strike(gp.pattern)
+        log.warning("lesson pattern %r ran past %d ms%s", gp.pattern[:80], int(DEADLINE_S * 1000),
+                    f": refused from now on ({why})" if why else " (once: not refused yet)")
         return [] if op == "finditer" else None
     except _Unavailable:
         res = _local(gp, op, text, pos, end)

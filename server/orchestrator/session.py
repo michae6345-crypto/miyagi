@@ -91,6 +91,17 @@ OFFTRACK_READ_MAX_AGE_S = float(os.environ.get("ORCH_OFFTRACK_READ_MAX_AGE_S", "
 BUILD_OPEN_FOLLOW_S = float(os.environ.get("ORCH_BUILD_OPEN_FOLLOW_S", "3"))
 
 
+def _run_copy(r: RunInfo) -> RunInfo:
+    """A run's state as of now (its output and metrics copied): what a check grades in a worker thread."""
+    import dataclasses
+
+    try:
+        return dataclasses.replace(r, output_tail=list(r.output_tail),
+                                   metrics={k: list(v) for k, v in dict(r.metrics).items()})
+    except (TypeError, AttributeError):  # not a RunInfo (a test's stand-in): as it is
+        return copy.copy(r)
+
+
 def video_id_from_url(url: str) -> str | None:
     m = re.search(r"(?:v=|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{6,})", url or "")
     return m.group(1) if m else None
@@ -1051,6 +1062,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.emit("error", {"message": f"No link to open for {tool or 'that app'}."})
             return
         from server.safety import browser_url_allowed
+        from server.safety.commands import visible  # a hidden character in the link is written out, never hidden
 
         if not browser_url_allowed(url):  # a model-made link to an unknown site: shown, never opened for them
             log.info("open_in_browser: %s is not a known host; shown as text", url[:120])
@@ -1058,7 +1070,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                      "title": "From the tutorial: check it before opening",
                                      "body": "I only open sites I know. If this is the right page for "
                                              f"{(item or {}).get('label') or tool or 'the app'}, copy the link into "
-                                             "your browser yourself.", "output": url})
+                                             "your browser yourself.", "output": visible(url)})
             return
         if self.workspace is not None:
             self.workspace.run(["open", url])  # macOS: the default browser
@@ -4262,6 +4274,27 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return tuple(sorted(r.get("checkId", "") for r in failed))
 
     # ------------------------------------------------------------------ evaluation
+    async def _gate_off_loop(self, step: dict, ctx: RunContext, precision: bool) -> dict:
+        """self.m.evaluate_gate in a worker thread (A08 / ReDoS: a lesson's regexes wait on the regex worker's
+        deadlines there, never on the event loop), on a snapshot of the run state (ingest keeps appending to the
+        live one meanwhile), with the lesson's regex budget (server.safety.regex_worker.budget: after a few
+        timeouts in this lesson its other slow-capable patterns stop running)."""
+        from server.safety import regex_worker
+
+        snap = RunContext(workdir=ctx.workdir, runs=[_run_copy(r) for r in ctx.runs], editor=ctx.editor,
+                          screen={k: list(v) if isinstance(v, list) else v for k, v in ctx.screen.items()}
+                          if isinstance(ctx.screen, dict) else ctx.screen)
+        if ctx.last_run is not None:  # the same run as in runs (a `tut run` may be the last one there or not)
+            snap.last_run = next((c for r, c in zip(ctx.runs, snap.runs) if r is ctx.last_run), None) \
+                or _run_copy(ctx.last_run)
+        key = ("lesson", id(self), self.lesson_epoch)
+
+        def run() -> dict:
+            with regex_worker.budget(key):
+                return self.m.evaluate_gate(step, snap, snap.screen, precision)
+
+        return await asyncio.to_thread(run)
+
     async def evaluate(self, trigger: str) -> None:
         """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
         if stage.on(self):  # a Demo lesson: a save passes a typing step, the recorded run grades a run step
@@ -4283,15 +4316,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.engaged = True  # screen changes count once the clip is over (the learner is working)
             ctx = self.context()
             precision = self.precision_mode()
+            gen = self.step_gen
             try:
-                gate = self.m.evaluate_gate(step, ctx, ctx.screen, precision)
+                gate = await self._gate_off_loop(step, ctx, precision)
             except Exception as e:
                 log.exception("evaluate_gate failed")
                 if not self._eval_error_sent:  # once per step, not once per frame
                     self._eval_error_sent = True
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
-            gen = self.step_gen
+            if gen != self.step_gen or self.step is not step or self.passed or self.phase != "active":
+                return  # the step moved on (or ended) while its checks were graded in the worker thread
             if trigger in ("check", "file"):
                 self._buffers.clear()  # Check / a save: VS Code's text now, not the last tick's
             gate = await self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
@@ -6431,10 +6466,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if await stale_advice.line_fix(self, step, diff):  # a line to delete from the file (02:59:22: the `python3
             return  # nn.py` typed into nn.py went to the clipboard): the previewed deletion, never "Command copied"
         if command:  # terminal fix: stage it on the clipboard, the learner presses Enter (never sent for them)
-            ok = await self._clipboard(command)  # the card always shows exactly what went on the clipboard
-            await self._card(step, "Command copied" if ok else "Run this command",
-                             "Check it, then paste it in your terminal (⌘V) and press Enter." if ok
-                             else "Check it, then type it in your terminal.", output=str(command))
+            from server.safety.commands import invisible_char, visible
+
+            command = str(command)
+            if (bad := invisible_char(command.replace("\n", "").replace("\t", ""))) is not None:
+                # a control / zero-width / bidi character: the card could show one command and paste another, so
+                # nothing goes on the clipboard and the card writes every hidden character out
+                log.info("Do it for me: not copying a command with %s", bad)
+                await self._card(step, "Check this command", f"It holds a hidden character ({bad}), so I didn't copy "
+                                 "it. Type the command yourself, without that character.", output=visible(command))
+            else:
+                ok = await self._clipboard(command)  # the card always shows exactly what went on the clipboard
+                await self._card(step, "Command copied" if ok else "Run this command",
+                                 "Check it, then paste it in your terminal (⌘V) and press Enter." if ok
+                                 else "Check it, then type it in your terminal.", output=command)
             if not (file and yours and expected):
                 return  # command-only fix; otherwise continue with the code part below
         if self.lesson_mode and self._run_command(step):

@@ -409,8 +409,10 @@ def recipe(item: dict, brew: str | None) -> dict:
             if v.kind in (packages.REFUSE, packages.INVALID):
                 return {"method": "none", "package": "", "command": "", "url": "", "refused": v.reason}
             if v.kind == packages.CONFIRM:
+                like = f", looks like {v.near}" if v.near else ""  # a near miss real projects use (boto / boto3)
                 return {"method": "pip", "package": pkg, "url": v.url, "confirm": v.name,
-                        "command": f"pip install {pkg}  (not on miyagi's list: check {v.url} first)"}
+                        **({"near": v.near} if v.near else {}),
+                        "command": f"pip install {pkg}  (not on miyagi's list{like}: check {v.url} first)"}
             return {"method": "pip", "package": pkg, "command": f"pip install {pkg}  (in the lesson's .venv)", "url": url}
     cask = cat.get("cask") or (item.get("brew") if item.get("brew_cask") else "")
     formula = cat.get("formula") or (item.get("brew") if not item.get("brew_cask") else "")
@@ -848,8 +850,9 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
                    else "no installer known: get it from its official site", url=r["url"])
         return out
     if r.get("confirm") and item.get("confirmed") != r["confirm"]:  # its own confirm, never Install all
-        out.update(error=f"{r['confirm']} isn't on miyagi's list of common packages. Check it's the one the tutorial "
-                         f"means ({r['url']}), then press its Install again.", url=r["url"], needs_confirm=True,
+        like = f" and looks a lot like {r['near']}" if r.get("near") else ""
+        out.update(error=f"{r['confirm']} isn't on miyagi's list of common packages{like}. Check it's the one the "
+                         f"tutorial means ({r['url']}), then press its Install again.", url=r["url"], needs_confirm=True,
                    package=r["confirm"])
         return out
     env = _child_env(HOMEBREW_NO_AUTO_UPDATE="1", HOMEBREW_NO_ENV_HINTS="1", NONINTERACTIVE="1")

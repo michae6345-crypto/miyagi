@@ -217,7 +217,12 @@ def _write(dest: Path, data: bytes) -> None:
 
 
 def _extract_zip(data: bytes, dest: Path) -> int:
-    """Extract a GitHub zip into dest (drops the `<repo>-<ref>/` top folder). Returns the number of files."""
+    """Extract a GitHub zip into dest (drops the `<repo>-<ref>/` top folder). Returns the number of files.
+    LLM06: the same rules as a scaffold's starter files (scaffold._safe_rel): no editor / CI / shell configuration
+    (.vscode/, .github/, .envrc, .devcontainer/), no .git, .venv or node_modules, no dotfile but .gitignore,
+    .editorconfig, .nvmrc and .python-version (.npmrc, .env ...), and no top-level pip.py / pytest.py."""
+    from .scaffold import _safe_rel
+
     root = dest.resolve()
     n = total = 0
     with zipfile.ZipFile(io.BytesIO(data)) as z:
@@ -229,6 +234,8 @@ def _extract_zip(data: bytes, dest: Path) -> int:
             parts = PurePosixPath(info.filename).parts
             rel = PurePosixPath(*parts[1:]) if len(parts) > 1 else PurePosixPath(parts[0])
             if not rel.parts or ".." in rel.parts or rel.is_absolute() or ".git" in rel.parts:
+                continue
+            if _safe_rel(rel.as_posix()) is None:  # .vscode/tasks.json, .github/workflows, .envrc, .npmrc ...
                 continue
             target = (root / rel).resolve()
             if root not in target.parents:

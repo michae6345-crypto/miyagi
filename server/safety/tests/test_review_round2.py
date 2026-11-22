@@ -45,17 +45,20 @@ def test_a_slow_pattern_is_cut_off_at_the_deadline_and_refused_after(tmp_path, p
     assert time.monotonic() - t0 < BOUND_S
 
 
-def test_a_pattern_that_timed_out_is_refused_everywhere_after():
+def test_a_pattern_that_timed_out_twice_is_refused_everywhere_after():
     p = "-?" * 26 + "-" * 26 + "y"
     rx = safe_compile(p, re.MULTILINE)
-    t0 = time.monotonic()
-    assert rx.search("# " + "-" * 26) is None and time.monotonic() - t0 < BOUND_S
+    for _ in range(regex_worker.BAN_STRIKES):  # one timeout is a strike (the Mac may have stalled), not a ban
+        t0 = time.monotonic()
+        assert rx.search("# " + "-" * 26) is None and time.monotonic() - t0 < BOUND_S
     assert pattern_problem(p, re.MULTILINE) and "longer than" in pattern_problem(p, re.MULTILINE)
     with pytest.raises(re.error):
         safe_compile(p, re.MULTILINE)
+    # the runtime ban is this engine's, never the lesson's: a stored copy keeps the check (skipped at run time)
     g = {"lesson": {"id": "x"}, "steps": [{"id": "s1", "checks": [
         {"id": "c1", "type": "file_contains", "label": "x", "file": "main.py", "pattern": p}]}]}
-    assert validate_untrusted_lesson(g) and g["steps"][0]["checks"] == []  # a stored copy of the lesson too
+    validate_untrusted_lesson(g)
+    assert [c["id"] for c in g["steps"][0]["checks"]] == ["c1"]
 
 
 def test_the_worker_keeps_answering_after_a_timeout():
