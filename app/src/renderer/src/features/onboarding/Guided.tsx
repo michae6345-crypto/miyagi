@@ -41,6 +41,8 @@ import { ease, fade, stagger as motionStagger } from '../../core/ui/motion'
 export const ADVANCE_MS = 1100
 /** How long the walk waits for the first permissions answer before it picks a step anyway. */
 const SETTLE_MS = 900
+/** The tallest the step plus its footer grows (Nov 22): a bit more than the first-run window has under its header. */
+const STAGE_MAX_H = 640
 /** In the flow, how long after enterDelay the loading shape may fade in (s): past the login's exit, and usually never
  * seen at all, since the first answer lands before it (the strip and the gliding bonsai carry that beat). */
 const SKELETON_WAIT = 0.3
@@ -362,6 +364,11 @@ export function Guided({
         )}
       </header>}
 
+      {/* The step and its footer are one block, at most STAGE_MAX_H tall and centered in what is left of the window: at the
+          first-run size (944x640) it fills the window as before; full screen, the actions stay under the step instead of
+          sinking to the bottom edge 300 px away (Nov 22 layout pass). */}
+      <div className="flex min-h-0 flex-1 flex-col justify-center">
+      <div className="flex min-h-0 w-full flex-col" style={{ height: '100%', maxHeight: STAGE_MAX_H }}>
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {row ? (
           <AnimatePresence custom={custom} initial={true} mode="popLayout">
@@ -395,9 +402,11 @@ export function Guided({
         )}
       </main>
 
+      {/* The footer shares a centered 720 column with the step: in a full-screen window the primary stays near the copy it
+          answers instead of drifting to the far corner. */}
       <motion.footer
-        className="flex h-[84px] shrink-0 items-center justify-between px-[40px]"
-
+        // With no Back (the first step) the actions center under the step, like the copy above them.
+        className={`mx-auto flex h-[84px] w-full max-w-[720px] shrink-0 items-center px-[40px] ${idx !== undefined && idx > 0 ? 'justify-between' : 'justify-center'}`}
         initial={{ opacity: 0 }}
         animate={{ opacity: row ? 1 : 0 }}
         transition={{ ...fade.slow, delay: enterDelay }}
@@ -416,6 +425,8 @@ export function Guided({
           )}
         </div>
       </motion.footer>
+      </div>
+      </div>
     </div>
   )
 }

@@ -8,7 +8,7 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { NotebookText } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { brand, color, elevation, fill, font, highlight, radius2, surface, type2 } from '../../core/theme'
+import { color, elevation, fill, font, highlight, radius2, surface, type2 } from '../../core/theme'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
@@ -29,6 +29,9 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
     startTour()
     ;(onTour ?? home)()
   }
+  // One centered group (Nov 22 layout pass): the tree, the line, the sample lesson and, right under it, the actions, so in
+  // a full-screen window the buttons sit by the card they belong to (they used to be pinned to the bottom, 380 px away,
+  // and overhung the card by 88 px). The launcher hint is a quiet caption at the foot, centered, like the sign-in's terms.
   return (
     <div data-onb-view="ready" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[560px] flex-col px-[32px]">
       <motion.div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center" variants={stagger(0.05)} initial={reduce ? false : 'hidden'} animate="shown">
@@ -40,8 +43,8 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
         >
           <MiyagiMark size={88} />
         </motion.div>
-        <motion.h1 id="onb-title" variants={rise} className="m-0 mt-[28px]" style={{ fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '34px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
-          You&apos;re ready
+        <motion.h1 id="onb-title" variants={rise} className="m-0 mt-[24px]" style={{ fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '34px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
+          You’re ready
         </motion.h1>
         <motion.p variants={rise} className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }}>
           miyagi is set up on {thisDevice()}.
@@ -51,7 +54,7 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
             variants={rise}
             type="button"
             data-onb-lesson="sample"
-            className="mg-press mt-[24px] flex w-full cursor-pointer items-center gap-[16px] p-[14px] text-left"
+            className="mg-press mt-[32px] flex w-full cursor-pointer items-center gap-[16px] p-[16px] text-left"
             style={{ borderRadius: radius2.group, background: surface.sheet, boxShadow: `${highlight.top}, inset 0 0 0 1px ${fill.hairline}, ${elevation.raised}` }}
             onMouseDown={(e) => e.preventDefault()}
             onClick={tour}
@@ -69,10 +72,7 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
             </span>
           </motion.button>
         )}
-      </motion.div>
-      <div className="flex h-[84px] shrink-0 items-center justify-between gap-[16px]">
-        <LauncherHint lead="Open miyagi anytime" />
-        <span data-onb-primary className="flex items-center gap-[8px]">
+        <motion.div variants={rise} data-onb-primary className="mt-[24px] flex w-full items-center justify-center gap-[8px]">
           {again ? (
             <PrimaryButton size="lg" label="Done" onClick={home} />
           ) : (
@@ -83,7 +83,10 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
               <PrimaryButton size="lg" label="Show me around" onClick={tour} />
             </>
           )}
-        </span>
+        </motion.div>
+      </motion.div>
+      <div className="flex h-[64px] shrink-0 items-center justify-center">
+        <LauncherHint lead="Open miyagi anytime" />
       </div>
     </div>
   )
