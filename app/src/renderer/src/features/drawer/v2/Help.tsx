@@ -27,7 +27,7 @@ import { WatchIcon } from '../../../core/ui/HelpRow'
 import { Keycap, keyLabel, type KeyName } from '../../../core/ui/Keycap'
 import { useCards } from '../../cards/store'
 import { useDiagram } from '../../diagrams/store'
-import { linkHost } from '../links'
+import { HOST_MAX_NARROW, linkHost } from '../links'
 import { openSource } from '../store'
 import type { Gate } from '../../errors/gate'
 import { Caption } from './ui'
@@ -114,7 +114,7 @@ export function Help({ pressed, watchStart, waiting, gate }: { pressed?: OptionA
             pressed={isPressed(a)}
             height={two ? 48 : 56}
             span={two ? (i < 3 ? 2 : 3) : undefined}
-            host={a === 'watch' ? linkHost(watch) : undefined}
+            host={a === 'watch' ? linkHost(watch, HOST_MAX_NARROW) : undefined}
             onClick={() => (a === 'watch' ? watch && openSource(watch) : triggerShortcut(a))}
           />
         ))}

@@ -2,6 +2,7 @@
  * Offline test harness: a fake Supabase Auth and a fake miyagi-cloud behind a stubbed global fetch (nothing leaves
  * this machine; only the auth loopback on 127.0.0.1 is reached for real), plus a fake MainContext.
  */
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createNetServer, type Server as NetServer } from 'node:net'
@@ -221,6 +222,31 @@ function tryListen(server: NetServer, port: number): Promise<boolean> {
 const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /**
+ * Who listens on 127.0.0.1:port, for the error when a lock or port wait gives up: PID, parent PID and command (lsof +
+ * ps; a parent PID of 1 is an orphaned test process, safe to kill). Best effort: '' when the tools can't tell.
+ */
+function listenerOn(port: number): string {
+  try {
+    const pids = execFileSync('lsof', ['-nP', `-iTCP@127.0.0.1:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8', timeout: 5000 })
+      .split('\n')
+      .filter((p) => /^\d+$/.test(p))
+    if (!pids.length) return 'no listener found (it let go just now?)'
+    const ps = execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-p', pids.join(',')], { encoding: 'utf8', timeout: 5000 })
+    return `held by ${ps
+      .trim()
+      .split('\n')
+      .map((l) => {
+        const [pid, ppid, ...cmd] = l.trim().split(/\s+/)
+        return `PID ${pid} (parent ${ppid}${ppid === '1' ? ', orphaned' : ''}): ${cmd.join(' ').slice(-160)}`
+      })
+      .join('; ')}`
+  } catch (err) {
+    // lsof exits 1 when nothing matches.
+    return (err as { status?: number }).status === 1 ? 'no listener found (it let go just now?)' : 'holder unknown (lsof failed)'
+  }
+}
+
+/**
  * Take the sign-in port for a whole test file. `node --test` runs every test file in its own process at once, and other
  * checkouts on this Mac may run the suite too; auth.test.ts and cloudLink.test.ts both sign in on 127.0.0.1:47217. Two
  * processes on that port meant one's callback reaching the other's listener, a fake-timer test whose listen retry never
@@ -229,12 +255,20 @@ const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r
  * The lock is a listener on LOCK_PORT: one process at a time can hold it, and the OS frees it if the holder dies (a
  * killed run never leaves a stale lock). Once held, it also waits for 47217 itself to be free (a previous holder's
  * listener still closing). Call in before(); call the returned release in after().
+ *
+ * It only orders processes that take it. One that ignores it (an older checkout's run, a real miyagi mid sign-in) can
+ * still grab 47217 at any moment, so the tests never rely on it alone: startGoogle fails instead of waiting, and the
+ * fake-clock tests in auth.test.ts retry a taken port on real timers under a per-test timeout. A holder that never
+ * exits (an orphaned test process whose parent alone was killed) keeps the lock: the wait gives up after waitMs and the
+ * error names the holder's PID.
  */
-export async function lockSignInPort(waitMs = 120_000): Promise<() => Promise<void>> {
+export async function lockSignInPort(waitMs = 45_000): Promise<() => Promise<void>> {
   const lock = createNetServer()
   const end = Date.now() + waitMs
   while (!(await tryListen(lock, LOCK_PORT))) {
-    if (Date.now() > end) throw new Error(`another test run held the sign-in port lock (127.0.0.1:${LOCK_PORT}) for ${waitMs} ms`)
+    if (Date.now() > end) {
+      throw new Error(`another process held the sign-in port lock (127.0.0.1:${LOCK_PORT}) for ${waitMs / 1000} s: ${listenerOn(LOCK_PORT)}`)
+    }
     await realSleep(25)
   }
   lock.unref()
@@ -244,7 +278,7 @@ export async function lockSignInPort(waitMs = 120_000): Promise<() => Promise<vo
   while (!(await tryListen(probe, SIGN_IN_PORT))) {
     if (Date.now() > portEnd) {
       await release()
-      throw new Error(`127.0.0.1:${SIGN_IN_PORT} stayed taken for 15 s (a running miyagi app mid sign-in?)`)
+      throw new Error(`127.0.0.1:${SIGN_IN_PORT} stayed taken for 15 s (a running miyagi app mid sign-in?): ${listenerOn(SIGN_IN_PORT)}`)
     }
     await realSleep(25)
   }

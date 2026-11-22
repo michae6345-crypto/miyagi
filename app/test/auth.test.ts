@@ -384,9 +384,40 @@ test('makeJwt is not a real token (sanity for the fakes)', () => {
   assert.equal(makeJwt({ sub: 'x', exp: 1 }).split('.').length, 3)
 })
 
-// Last in the file: these hold or squat the port, and two use fake timers (a listen retry would never fire). The file
-// holds lockSignInPort throughout, so no other test process is on 47217 meanwhile.
+// Last in the file: these hold or squat the port, and two use fake timers. The file holds lockSignInPort throughout, so
+// no other test process that takes the lock is on 47217 meanwhile; a process that ignores it (an older checkout's run, a
+// real miyagi mid sign-in) still can be, so the fake-clock tests never rely on the lock alone (startGoogleOnFakeClock).
 describe('the sign-in port and the flow’s lifetime', () => {
+  /** A fake-clock test can't hang the run: node:test's own timeout still fires while setTimeout is mocked. */
+  const FAKE_CLOCK_TEST = { timeout: 20_000 }
+
+  /**
+   * startGoogle with mock.timers on (left on for the test; the caller resets it). The fake clock must be on before the
+   * listener comes up (that is when the WAIT_MS timer starts), but auth.ts's listen retry is a setTimeout too and would
+   * never fire on it: a port another process held for a moment hung the run. So each attempt listens once (a taken port
+   * answers reason 'port' at once and startGoogle rejects), and a taken port gets real timers, a real pause and another
+   * attempt, for up to 10 s.
+   */
+  async function startGoogleOnFakeClock(): Promise<Awaited<ReturnType<typeof startGoogle>>> {
+    const saved = { ...listenRetry }
+    Object.assign(listenRetry, { tries: 1 })
+    const end = Date.now() + 10_000 // Date is not mocked (apis: setTimeout only)
+    try {
+      for (;;) {
+        mock.timers.enable({ apis: ['setTimeout'] })
+        try {
+          return await startGoogle(h)
+        } catch (err) {
+          mock.timers.reset()
+          if (!/"reason":"port"/.test(String((err as Error)?.message)) || Date.now() > end) throw err
+          await new Promise((r) => setTimeout(r, 50))
+        }
+      }
+    } finally {
+      Object.assign(listenRetry, saved)
+    }
+  }
+
   test('a second click right after the first restarts the flow without a port error', async () => {
     auth.setup(h.ctx)
     const first = await startGoogle(h) // listening on 47217, browser open
@@ -411,10 +442,11 @@ describe('the sign-in port and the flow’s lifetime', () => {
       }
       return real(url, call)
     }
-    // Two quick tries: before the fix the old listener kept 47217 for the rest of the run, and the second sign-in
-    // failed with reason 'port'; it must not hang the test meanwhile.
+    // ~300 ms of tries, not the real ~3 s: before the fix the old listener kept 47217 for the rest of the run, and the
+    // second sign-in failed with reason 'port' (still caught here); it must not hang the test meanwhile. Not 2 tries:
+    // another process that grabs 47217 for a moment (an older checkout's run) would fail it.
     const saved = { ...listenRetry }
-    Object.assign(listenRetry, { tries: 2, ms: 20 })
+    Object.assign(listenRetry, { tries: 10, ms: 30 })
     try {
       auth.setup(h.ctx)
       const g = await startGoogle(h)
@@ -478,12 +510,11 @@ describe('the sign-in port and the flow’s lifetime', () => {
     }
   })
 
-  test('the flow expires after 5 minutes (fake timers): timeout, and the listener lets go of the port', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
+  test('the flow expires after 5 minutes (fake timers): timeout, and the listener lets go of the port', FAKE_CLOCK_TEST, async () => {
     let g: Awaited<ReturnType<typeof startGoogle>>
     try {
       auth.setup(h.ctx)
-      g = await startGoogle(h)
+      g = await startGoogleOnFakeClock()
       mock.timers.tick(WAIT_MS - 1000)
       assert.equal(await isPending(g.result), true, 'still waiting at 4:59')
       mock.timers.tick(1000)
@@ -495,11 +526,10 @@ describe('the sign-in port and the flow’s lifetime', () => {
     await assert.rejects(raw(`/auth/callback?state=${g.state}&code=late`), /ECONNREFUSED|ECONNRESET|socket hang up/)
   })
 
-  test('a timeout after a failed attempt answers with that attempt’s reason (fake timers)', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
+  test('a timeout after a failed attempt answers with that attempt’s reason (fake timers)', FAKE_CLOCK_TEST, async () => {
     try {
       auth.setup(h.ctx)
-      const g = await startGoogle(h)
+      const g = await startGoogleOnFakeClock()
       const page = await raw(`/auth/callback?state=${g.state}&error=access_denied`)
       assert.equal(page.status, 200)
       assert.equal(await isPending(g.result), true)
