@@ -25,6 +25,7 @@ import logging
 import re
 import secrets
 import shlex
+import unicodedata
 from typing import Any
 
 log = logging.getLogger("server.untrusted")
@@ -56,8 +57,11 @@ CAPS: dict[str, int] = {
 DEFAULT_CAP = 20_000
 TAIL_SOURCES = frozenset({"terminal"})  # an output tail: the end (the error) matters, keep that
 
-# Control characters except tab and newline, plus zero-width and bidi-override characters that can hide text.
-_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
+# Control characters except tab and newline, plus invisible characters that can split or hide a word: zero-width,
+# bidi overrides, the soft hyphen (U+00AD), the combining grapheme joiner (U+034F) and the Mongolian vowel separator
+# (U+180E). Text is NFKC-normalized first, so fullwidth letters ("\uff29gnore") read as plain ones.
+_CTRL = re.compile(
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u00ad\u034f\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
 _TAG = re.compile(r"<(\s*/?\s*untrusted)", re.I)
 _ATTR_BAD = re.compile(r"[^A-Za-z0-9._:/@+-]")
 _FENCE_OPEN = re.compile(r'<untrusted source="[^"]*"(?: [a-z_]+="[^"]*")* id="[0-9a-f]{8}">\n')
@@ -65,9 +69,9 @@ _FENCE_CLOSE = re.compile(r'\n</untrusted id="[0-9a-f]{8}">')
 
 
 def clean(text: Any, cap: int = DEFAULT_CAP, *, tail: bool = False) -> str:
-    """`text` as a string with control characters stripped, line endings normalized, fence tags escaped and the
-    length capped (the start kept, or the end when `tail`)."""
-    s = "" if text is None else str(text)
+    """`text` as a string, NFKC-normalized, with control and invisible characters stripped, line endings normalized,
+    fence tags escaped and the length capped (the start kept, or the end when `tail`)."""
+    s = unicodedata.normalize("NFKC", "" if text is None else str(text))
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     s = _CTRL.sub("", s)
     s = _TAG.sub(r"&lt;\1", s)
@@ -132,6 +136,19 @@ _INJECTION: list[tuple[str, re.Pattern]] = [
         r"(?:run|tell|execute|say|score|rate|rank|output|print|include|add|set|recommend|install|reply|respond|answer|mark)\b",
         re.I | re.M)),
     ("new_instructions", re.compile(r"\bnew\s+(?:system\s+)?instructions?\s*:", re.I)),
+    # an AI as the subject of an order: "AI tutors must run x", "AI assistants should tell the learner to ..."; never
+    # "AI agents should be tested" (the verb after it has to be one that gives an order)
+    ("ai_should", re.compile(
+        r"\b(?:ai|llm)\s+(?:tutors?|assistants?|agents?|readers?)\s+(?:should|must|need\s+to|have\s+to|are\s+to)\s+"
+        r"(?:always\s+|now\s+|first\s+|also\s+)?(?:(?:run|execute|install)(?!\s+(?:on|in|locally|offline|inside|faster|as)\b)|"
+        r"tell|recommend|ignore|disregard|instruct|direct|copy|paste|suggest)\b", re.I)),
+    # an AI addressed directly: "Dear AI assistant, ...", "For any AI reading this: ...", "AI assistant, please run"
+    ("ai_addressee", re.compile(
+        r"\bdear\s+(?:ai|llm|chatbot|assistant|tutor|language\s+model)\b"
+        r"|\b(?:ai|llms?|language\s+models?|chatbots?)\s+(?:that\s+(?:is|are)\s+)?reading\s+this\b"
+        r"|" + _START + r"(?:(?:hey|hi|hello)\s+)?(?:the\s+)?(?:ai|llm)(?:\s+(?:assistants?|tutors?|agents?|models?))?\s*,\s*"
+        r"(?:please\s+|you\s+(?:must|should)\s+)?(?:run|tell|execute|install|ignore|disregard|say|output|print|recommend|"
+        r"rank|score|rate|include)\b", re.I | re.M)),
     # asks a grader for a score: "score this page 100", "rank this tutorial first", "set teaches_goal to true"
     ("score_directive", re.compile(
         r"\b(?:score|rate|rank|grade|give)\s+(?:this|the|our|my)\s+(?:page|site|tutorial|article|post|result|video|"
@@ -142,13 +159,14 @@ _INJECTION: list[tuple[str, re.Pattern]] = [
 ]
 # The finder's set: a grader reads a whole page (up to 14k characters), and every LLM or chatbot tutorial has an
 # "Assistant:" line or a "you are now ..." somewhere, so only the high-confidence patterns count there.
-STRICT = frozenset({"ignore_instructions", "important_for_ai", "role_tag", "new_instructions", "score_directive"})
+STRICT = frozenset({"ignore_instructions", "important_for_ai", "role_tag", "new_instructions", "score_directive",
+                    "ai_addressee"})
 _LESSON = frozenset(n for n, _ in _INJECTION if n != "score_directive")  # a score request means nothing in a lesson
 
 
 def injection_hits(text: Any, *, strict: bool = False) -> list[str]:
     """Names of the AI-directed patterns found in `text` (empty when none). strict: the finder's high-confidence set."""
-    s = _CTRL.sub("", "" if text is None else str(text))
+    s = _CTRL.sub("", unicodedata.normalize("NFKC", "" if text is None else str(text)))
     names = STRICT if strict else _LESSON
     return [name for name, rx in _INJECTION if name in names and rx.search(s)]
 
@@ -219,7 +237,7 @@ _CMD_DENY = re.compile(
     r"[|;&<>`\n\r\\]|\$\(|\$\{|\$[A-Za-z_]"
     r"|\b(?:curl|wget|sh|bash|zsh|dash|fish|eval|exec|sudo|doas|source|osascript|nc|ncat)\b"
     r"|--(?:extra-)?index-url\b|--trusted-host\b|--find-links\b|\bgit\+"
-    r"|(?:^|[\s=])(?:/|~)|\.\.(?:/|$)",
+    r"|(?:^|[\s=])(?:/|~)|\.\.(?:/|\s|$)",
     re.I,
 )
 _SPEC = r"(?:==|~=|>=|<=|!=|<|>)\s*[A-Za-z0-9.*+!_-]+"
@@ -239,11 +257,31 @@ _GIT_SUBS = frozenset({"status", "add", "commit", "log", "diff", "show", "branch
                        "fetch", "pull", "push"})
 _GIT_NET = frozenset({"fetch", "pull", "push"})
 _GIT_U_OK = frozenset({"push", "add", "stash", "branch"})  # -u is --set-upstream / --update / --include-untracked there
-_GIT_LONG_DENY = re.compile(
-    r"^--(?:exec|upload-pack|receive-pack|open-files-in-pager|extcmd|ext-diff|tool|config|template|git-dir|"
-    r"work-tree|exec-path|output|textconv)(?:=|$)", re.I)
+# Long options that run a program, write a file, name another repository or throw work away. Git accepts any
+# unambiguous prefix of a long option (`--exe` is --exec, `--upload-pa` is --upload-pack), so an option is refused
+# when it is a prefix of one of these or one of these is a prefix of it (`--force-with-lease`).
+_GIT_LONG_DENY = ("exec", "upload-pack", "receive-pack", "open-files-in-pager", "extcmd", "ext-diff", "tool", "config",
+                  "template", "git-dir", "work-tree", "exec-path", "output", "textconv", "separate-git-dir", "reference",
+                  "strategy", "hard", "force", "no-verify", "mirror")
+_GIT_LONG_DENY_BY_SUB = {"push": ("delete", "all", "prune", "tags", "follow-tags", "atomic", "repo", "set-url"),
+                         "reset": ("merge", "keep", "recurse-submodules"),
+                         "branch": ("delete", "move", "copy"),
+                         "stash": ("all",)}
+# Short-option letters, checked in the letters before the first non-letter of a cluster (`-x./pwn.py` is -x
+# ./pwn.py, `-xopen -a Calculator` is -x "open -a Calculator"): x runs a program (rebase), O opens a pager, f forces
+_GIT_SHORT_DENY = frozenset("xOf")
+_GIT_SHORT_DENY_BY_SUB = {"commit": "n",  # --no-verify
+                          "merge": "s", "rebase": "s", "pull": "s",  # --strategy (runs git-merge-<name>)
+                          "push": "d",  # --delete
+                          "branch": "DMC",  # force-delete / force-move / force-copy
+                          "rm": "r"}
+_GIT_GLOB = re.compile(r"[*?\[\]]|^:\(|^:/")  # the shell (or git's pathspec magic) expands it to every file
+_GIT_STASH_DENY = frozenset({"clear", "drop"})
+_GIT_WHOLE_TREE = frozenset({".", "./", ":/"})  # `git restore .` / `git rm -r .`: every file at once
 _GIT_DENY = re.compile(r"\bext::", re.I)  # (git -c / git config never pass: the first word must be a subcommand)
 _REMOTE_NAME = re.compile(r"^[A-Za-z0-9_][\w-]*$")
+# git push's refspec: a branch, or HEAD:<branch> (never +<branch> (force) or :<branch> (delete the remote branch))
+_PUSH_REFSPEC = re.compile(r"^(?:HEAD|[A-Za-z0-9_][\w./-]*)(?::[A-Za-z0-9_][\w./-]*)?$")
 
 # a lesson run: a fixed list of scaffolders (`npm create evil` would run the package create-evil)
 SCAFFOLDERS = frozenset({"vite", "next-app", "svelte", "astro", "vue"})
@@ -253,7 +291,8 @@ _VENV_ACTIVATE = re.compile(r"^(?:source|\.)\s+\.?venv/bin/activate$")
 _SHELL_HEAD = re.compile(r"^\s*(?:\$\s*)?(?:python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|"
                          r"make|pytest|flask|streamlit|jupyter)\b")
 _CODE_LIKE = re.compile(r"^\s*[A-Za-z_]\w*\s*(?:[-+*/%]?=(?!=)|\(|\[)")
-# a run step in words ("Run the cell (Shift+Enter)"): never sent anywhere as a command
+# a run step in words ("Run the cell (Shift+Enter)"): its first word is a verb, never a program
+NOTEBOOK_RUN = "Run the cell (Shift+Enter)"  # (lesson/builder.py's NOTEBOOK_RUN)
 _VERB = re.compile(r"^(?:run|execute|press|hit|click)\s+", re.I)
 _WORDS = re.compile(r"^[A-Za-z0-9 ()+,.'\u25b7-]+$")
 _NOTEBOOK_WORDS = re.compile(r"shift\s*\+\s*enter|\bcells?\b|\bnotebook\b|\u25b7", re.I)
@@ -321,23 +360,55 @@ def _npm_install_problem(pkgs: list[str], libs: set[str]) -> str | None:
     return None
 
 
+def _git_long_denied(name: str, sub: str) -> bool:
+    """True when the long option `name` (without --, before any =) is, or abbreviates, a denied one."""
+    n = name.lower()
+    return any(d.startswith(n) or n.startswith(d) for d in _GIT_LONG_DENY + _GIT_LONG_DENY_BY_SUB.get(sub, ()))
+
+
 def _git_problem(toks: list[str]) -> str | None:
     if len(toks) < 2 or toks[1] not in _GIT_SUBS:
         return "not allowed"
     sub = toks[1]
+    short_deny = _GIT_SHORT_DENY | set(_GIT_SHORT_DENY_BY_SUB.get(sub, ""))
+    if sub not in _GIT_U_OK:
+        short_deny |= {"u"}  # git clone -u is --upload-pack
+    end_of_options = False
+    message = False  # the token after -m is a quoted message: a "?" in it is no glob
     for t in toks[2:]:
-        if t.startswith("--"):
-            if _GIT_LONG_DENY.match(t):
-                return "not allowed"
-        elif (len(t) > 1 and t.startswith("-") and t[1:].isalpha()  # a short-flag cluster: -am, -ix, -Onpx
-              and ("x" in t or "O" in t or ("u" in t and sub not in _GIT_U_OK))):
+        if message:
+            message = False
+            continue
+        if t.startswith("--message="):
+            continue
+        if _GIT_GLOB.search(t):
             return "not allowed"
+        if not end_of_options and (t == "--message" or re.match(r"^-[A-Za-z]*m$", t)):
+            message = sub in ("commit", "tag", "merge", "stash", "revert", "cherry-pick")
+        if end_of_options or t == "--":
+            end_of_options = True
+            continue
+        if t.startswith("--"):
+            if _git_long_denied(t[2:].split("=", 1)[0], sub):
+                return "not allowed"
+        elif t.startswith("-") and len(t) > 1:
+            m = re.match(r"-([A-Za-z]+)", t)  # -am, -ix, -x./pwn.py, "-xopen -a Calculator"
+            if not m and not re.match(r"^-\d+$", t):  # (-5 is log's count)
+                return "not allowed"
+            if m and short_deny & set(m.group(1)):
+                return "not allowed"
     if _GIT_DENY.search(" ".join(toks)):
         return "not allowed"
+    pos = [t for t in toks[2:] if not t.startswith("-")]
+    if sub in ("restore", "checkout", "rm") and any(t in _GIT_WHOLE_TREE for t in pos):
+        return "not allowed"
+    if sub == "stash" and pos[:1] and pos[0] in _GIT_STASH_DENY:
+        return "not allowed"
     if sub in _GIT_NET:  # the repository argument is a remote's name, never a URL, host:path or folder
-        pos = [t for t in toks[2:] if not t.startswith("-")]
         if pos and not _REMOTE_NAME.match(pos[0]):
             return "url"
+        if sub == "push" and not all(_PUSH_REFSPEC.match(t) for t in pos[1:]):
+            return "not allowed"
     return None
 
 
@@ -347,10 +418,12 @@ def _npm_run_problem(toks: list[str], libs: set[str]) -> str | None:
     rest = toks[2:]
     if sub in ("install", "i", "add"):
         return _npm_install_problem(rest, libs)
+    # (the script's own arguments never bind a dev server to every interface: `npm start -- --host 0.0.0.0`)
     if sub in ("run", "run-script"):
-        return None if rest and re.match(r"^[\w:.-]+$", rest[0]) and _plain(rest[1:]) else "not allowed"
+        return (None if rest and re.match(r"^[\w:.-]+$", rest[0]) and _plain(rest[1:])
+                and not any(_EXPOSE.search(a) for a in rest[1:]) else "not allowed")
     if sub in ("start", "test", "t"):
-        return None if _plain(rest) else "not allowed"
+        return None if _plain(rest) and not any(_EXPOSE.search(a) for a in rest) else "not allowed"
     if sub == "ci":
         return None if not rest else "not allowed"
     if sub in ("create", "init"):
@@ -366,20 +439,93 @@ def _npm_run_problem(toks: list[str], libs: set[str]) -> str | None:
     return "not allowed"
 
 
+_PYTEST_FLAGS = frozenset({"-q", "-qq", "-v", "-vv", "-vvv", "-x", "-s", "-l", "-rA", "-ra", "--quiet", "--verbose",
+                           "--exitfirst", "--lf", "--last-failed", "--ff", "--failed-first", "--co", "--collect-only",
+                           "--no-header", "--disable-warnings", "--showlocals", "--sw", "--stepwise"})
+_PYTEST_VALUE_FLAGS = frozenset({"-k", "-m"})  # a test-name / marker expression follows
+_PYTEST_EQ = re.compile(r"^--(?:tb=(?:auto|long|short|line|native|no)|maxfail=\d{1,3}|durations=\d{1,3})$")
+_PYTEST_TARGET = re.compile(r"^(?!-)[\w.-]+(?:/[\w.-]+)*/?(?:::[\w\[\].,-]+)*$")  # tests/, test_x.py::test_add[1]
+_PYTEST_EXPR = re.compile(r"^(?!-)[\w ().-]+$")
+
+
+def _pytest_problem(args: list[str]) -> str | None:
+    """pytest's own options are an allowlist: -p (a plugin by module name), -o / --override-ini (addopts=-pevil),
+    -c / --rootdir / --confcutdir, -W (imports a warning class), --pyargs and their abbreviations never pass."""
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in _PYTEST_VALUE_FLAGS:
+            if i + 1 >= len(args) or not _PYTEST_EXPR.match(args[i + 1]):
+                return "not allowed"
+            i += 2
+            continue
+        if not (a in _PYTEST_FLAGS or _PYTEST_EQ.match(a) or (_PYTEST_TARGET.match(a) and a not in ("..",))):
+            return "not allowed"
+        i += 1
+    return None
+
+
+# a server bound to every interface, or without its token / password / origin check, hands code execution to any
+# web page or host on the network: never in a lesson run's arguments
+_EXPOSE = re.compile(r"host|(?<![a-z])ip(?![a-z])|address|token|password|passwd|allow[_-]?origin|xsrf|cors|"
+                     r"0\.0\.0\.0|::|\*|disable[_-]?check", re.I)
+_PORT = re.compile(r"^\d{2,5}$")
+
+
+def _opts_problem(args: list[str], flags: frozenset[str], valued: dict[str, re.Pattern]) -> str | None:
+    """`args` are only `flags`, and `valued` options (--opt N or --opt=N) whose value matches its pattern."""
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if _EXPOSE.search(a):
+            return "not allowed"
+        name, eq, val = a.partition("=")
+        if a in flags:
+            i += 1
+        elif name in valued and eq:
+            if not valued[name].match(val):
+                return "not allowed"
+            i += 1
+        elif a in valued and i + 1 < len(args) and valued[a].match(args[i + 1]) and not _EXPOSE.search(args[i + 1]):
+            i += 2
+        else:
+            return "not allowed"
+    return None
+
+
+_IPYNB = re.compile(r"^(?:\./)?[A-Za-z0-9_][\w .-]*(?:/[\w .-]+)*\.ipynb$")
+_MODULE_APP = re.compile(r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$")
+_MODULE = re.compile(r"^[A-Za-z_][\w.]*(?::[A-Za-z_]\w*)?$")
+
+
 def _run_tool_problem(toks: list[str]) -> str | None:
     """A lesson run's other fixed forms: pytest, flask run, uvicorn module:app, streamlit run, jupyter, cd / mkdir /
-    ls / touch inside the lesson folder."""
+    ls / touch inside the lesson folder. The servers take a fixed set of arguments: never a host, an address, a
+    token, a password or an origin (a notebook server on 0.0.0.0 without its token runs anyone's code)."""
     head, rest = toks[0], toks[1:]
     if head == "pytest":
-        return None if _plain(rest, deny=("-p",)) else "not allowed"  # -p loads a plugin by module name
-    if head == "flask":
-        return None if "run" in rest and _plain(rest) else "not allowed"
-    if head == "uvicorn":
-        return None if rest and re.match(r"^[\w.]+:[\w]+$", rest[0]) and _plain(rest[1:]) else "not allowed"
-    if head == "streamlit":
-        return None if rest[:1] == ["run"] and len(rest) > 1 and _run_file(rest[1]) and _plain(rest[2:]) else "not allowed"
-    if head == "jupyter":
-        return None if rest[:1] in (["notebook"], ["lab"]) and _plain(rest[1:]) else "not allowed"
+        return _pytest_problem(rest)
+    if head == "flask":  # flask [--app <module>] [--debug] run [--port N] [--debug] [--reload]
+        if "run" not in rest:
+            return "not allowed"
+        i = rest.index("run")
+        return (_opts_problem(rest[:i], frozenset({"--debug"}), {"--app": _MODULE})
+                or _opts_problem(rest[i + 1:], frozenset({"--debug", "--reload", "--no-reload"}), {"--port": _PORT, "-p": _PORT}))
+    if head == "uvicorn":  # uvicorn module:app [--reload] [--port N]
+        if not rest or not _MODULE_APP.match(rest[0]):
+            return "not allowed"
+        return _opts_problem(rest[1:], frozenset({"--reload"}), {"--port": _PORT})
+    if head == "streamlit":  # streamlit run <file> [--server.port N]
+        if rest[:1] != ["run"] or len(rest) < 2 or not _run_file(rest[1]):
+            return "not allowed"
+        return _opts_problem(rest[2:], frozenset(), {"--server.port": _PORT})
+    if head == "jupyter":  # jupyter notebook|lab [<relative .ipynb>] [--no-browser] [--port N]
+        if rest[:1] not in (["notebook"], ["lab"]):
+            return "not allowed"
+        args = rest[1:]
+        if args[:1] and _IPYNB.match(args[0]) and ".." not in args[0].split("/"):
+            args = args[1:]
+        return _opts_problem(args, frozenset({"--no-browser"}), {"--port": _PORT})
     if head in ("cd", "mkdir", "ls", "touch"):
         args = [a for a in rest if not re.match(r"^-[A-Za-z]+$", a)]
         return None if all(_REL_NAME.match(a) for a in args) and (head == "ls" or args) else "not allowed"
@@ -393,12 +539,14 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
       as 'numpy<2' are fine);
     - `python3` / `python` / `node` <a relative file in the lesson folder, ./ allowed> [plain arguments] (never
       -c / -e / -m code);
-    - a `git` command from a fixed list of subcommands, with no URL or `host:path`, no other repository, and no
-      option that runs a program (-x / --exec, --upload-pack, -O, --extcmd, ...).
-    run=True (a lesson's run_command) also allows pytest, npm run / start / test / ci, a fixed list of scaffolders
-    (`npm create vite@latest app`), `python3 -m venv|pytest|unittest`, `--version` probes, flask / uvicorn /
-    streamlit / jupyter runs of the lesson's files, `source .venv/bin/activate`, and cd / mkdir / ls / touch inside
-    the lesson folder. Never npx / pipx / uvx / bunx / npm exec, a pipeline or `;` / `&&` / `||`.
+    - a `git` command from a fixed list of subcommands, with no URL or `host:path`, no other repository, no option
+      that runs a program (-x / --exec, --upload-pack, -O, --extcmd, ..., or any abbreviation of one), and nothing
+      that throws work away (--hard, --force / -f / +branch, --no-verify, a glob, `git restore .`, `git stash clear`).
+    run=True (a lesson's run_command) also allows pytest (its own options an allowlist), npm run / start / test / ci,
+    a fixed list of scaffolders (`npm create vite@latest app`), `python3 -m venv|pytest|unittest`, `--version`
+    probes, flask / uvicorn / streamlit / jupyter runs of the lesson's files with a fixed argument shape (never a
+    host, address, token or origin), `source .venv/bin/activate`, and cd / mkdir / ls / touch inside the lesson
+    folder. Never npx / pipx / uvx / bunx / npm exec, a pipeline or `;` / `&&` / `||`.
     The reason is a category ("url", "metacharacter or blocked word", "not allowed", "unknown package"), never the
     command."""
     s = ("" if cmd is None else str(cmd)).strip()
@@ -430,8 +578,10 @@ def command_problem(cmd: Any, libraries: Any = None, *, run: bool = False) -> st
         if run and toks[1:2] == ["-m"] and len(toks) > 2:
             if toks[2] == "venv":
                 return None if len(toks) == 4 and _REL_NAME.match(toks[3]) and toks[3] != "." else "not allowed"
-            if toks[2] in ("pytest", "unittest"):
-                return None if _plain(toks[3:], deny=("-p",)) else "not allowed"
+            if toks[2] == "pytest":
+                return _pytest_problem(toks[3:])
+            if toks[2] == "unittest":
+                return None if _plain(toks[3:]) else "not allowed"
             return "not allowed"
         if run and toks[1:] in (["--version"], ["-V"]):
             return None
@@ -478,7 +628,11 @@ def run_command_problem(cmd: Any, libraries: Any = None) -> str | None:
         verb = _VERB.match(ln)
         if verb and _SHELL_HEAD.match(ln[verb.end():]):
             ln = ln[verb.end():]
-        elif _WORDS.match(ln) and _NOTEBOOK_WORDS.search(ln) and not _SHELL_HEAD.match(ln) and not _CMD_DENY.search(ln):
+        elif ln == NOTEBOOK_RUN or (verb and _WORDS.match(ln) and _NOTEBOOK_WORDS.search(ln)
+                                    and not _CMD_DENY.search(ln) and not _DANGEROUS.search(ln)):
+            # a run in words. session._run_for_me hands run_command to /bin/sh (or VS Code's terminal), so a words
+            # line is only one whose first word is Run / Execute / Press / Hit / Click, never a real program
+            # ("rm -rf .. notebook", "open -a Calculator notebook" are commands, checked below)
             continue
         if why := command_problem(ln, libraries, run=True):
             return why
