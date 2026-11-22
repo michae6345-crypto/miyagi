@@ -1,7 +1,7 @@
 /**
  * Feature: library. The Lessons page of the home window (features/shell): Continue (lessons left mid-way), Ready to
  * run (every cached lesson, filtered by tool and search), and a last row to paste a link. Redraft (Adrian, Nov 21):
- * lists of rows on the content panel, no grid of bordered cards; each lesson keeps its tool's pastel tile. The shell's page header holds
+ * plain rows on the content panel (title, then the tool in words, steps and minutes), no cards, tiles or pills. The shell's page header holds
  * the search field (LessonSearch) and New lesson, the one primary on this page. Deviations from the mockup, by rule:
  * no Free plan box (plan A6: hidden), no "Your lessons" split (the engine's items don't say who built a lesson), and
  * "Saved on this Mac" instead of "Built once, shared with everyone" (A6: never claim cross-user sharing).
@@ -9,17 +9,17 @@
  * States: loading = three skeleton cards; offline with nothing cached = one calm line; empty = the paste card says
  * "No lessons on this Mac yet."; a filter with no match = "No lessons match." with Show all.
  */
-import { ChevronRight, CloudOff, Play, Plus, Search } from 'lucide-react'
+import { CloudOff, Play, Plus, Search } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { bridge } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { Empty, LessonTile, Row, StepBar } from '../shell/ui'
+import { Empty, Row, StepBar } from '../shell/ui'
 import { color, copy, fill, focus, highlight, radius2, surface, type2 } from '../../core/theme'
 import { Ring, Rise } from './motion'
-import { FILTER_TOOLS, Skeleton, TOOL_NAME, ToolTag, minutesLabel, stepsLabel } from './parts'
+import { FILTER_TOOLS, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { contLine, continueList, type Cont } from '../dashboard/continue'
 import { useDash } from '../dashboard/store'
 import { openDetail, setQuery, setTool, start, useLibrary, visible } from './store'
@@ -61,8 +61,8 @@ const meta = { fontSize: type2.xs, color: color.label } as const
 /** A section header: the title, then whatever the section puts beside it (filters, a note). */
 function Head({ id, title, children }: { id: string; title: string; children?: ReactNode }): ReactNode {
   return (
-    <div className="flex flex-wrap items-center gap-[6px]" style={{ marginBottom: 6, minHeight: 32 }}>
-      <h2 id={id} className="m-0 font-semibold" style={{ fontSize: type2.sm, marginRight: 10, color: color.text }}>
+    <div className="flex flex-wrap items-center gap-[6px]" style={{ marginBottom: 6, minHeight: 30 }}>
+      <h2 id={id} className="m-0 font-medium" style={{ fontSize: type2.xs, marginRight: 10, color: color.label }}>
         {title}
       </h2>
       {children}
@@ -70,7 +70,9 @@ function Head({ id, title, children }: { id: string; title: string; children?: R
   )
 }
 
-/** A lesson left mid-way: one row with its tile, where it stands, its steps as a bar and a Continue. */
+const titleText = { fontSize: type2.md, color: color.text } as const
+
+/** A lesson left mid-way: title, where it stands, its steps, and Continue (the first one is the page's primary). */
 function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
   const item = useLibrary((s) => s.items.find((i) => i.id === c.libraryId))
   const starting = useLibrary((s) => s.starting)
@@ -78,13 +80,10 @@ function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
   const busy = starting === c.libraryId
   const Btn = first ? PrimaryButton : QuietButton
   return (
-    <div data-continue={c.libraryId} className="flex items-center gap-[12px]" style={{ padding: '4px 10px 4px 0' }}>
+    <div data-continue={c.libraryId} className="flex items-center gap-[12px]" style={{ paddingRight: 10 }}>
       <Row onClick={() => openDetail(c.libraryId)} label={`${c.title}. ${contLine(c)}. Open its preview.`} style={{ flex: 1, minWidth: 0, padding: '10px 10px' }}>
-        <span className="relative flex">
-          <LessonTile tools={item?.tools} id={c.libraryId} size={36} />
-        </span>
         <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
-          <span className="truncate font-medium" style={{ fontSize: type2.body, color: color.text }}>
+          <span className="truncate" style={titleText}>
             {c.title}
           </span>
           <span className="truncate" style={meta}>
@@ -92,43 +91,30 @@ function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
           </span>
         </span>
         <span className="relative hidden @[620px]:flex">
-          <StepBar done={c.passed} total={c.total} width={128} />
+          <StepBar done={c.passed} total={c.total} width={96} />
         </span>
       </Row>
       <Ring>
-        <Btn label="Continue" icon={Play} busy={busy} disabled={!canStart || (!!starting && !busy)} title={canStart ? undefined : 'Open the lesson to see why it can\u2019t start'} onClick={() => void start(c.libraryId)} />
+        <Btn label="Continue" icon={first ? Play : undefined} busy={busy} disabled={!canStart || (!!starting && !busy)} title={canStart ? undefined : 'Open the lesson to see why it can\u2019t start'} onClick={() => void start(c.libraryId)} />
       </Ring>
     </div>
   )
 }
 
-/** One saved lesson: tile, title (and who made it), its tools, its length. Opens the preview. */
+/** One saved lesson: its title, then the tool in words, steps and minutes. Opens the preview. */
 function LessonRow({ item }: { item: LibraryItem }): ReactNode {
   const mins = minutesLabel(item.estMinutes)?.replace('About ', '')
-  const length = [stepsLabel(item.steps), mins].filter(Boolean).join(' \u00b7 ')
-  const sub = [item.by ? `by ${item.by}` : '', !item.ready ? 'Not ready yet' : ''].filter(Boolean).join(' \u00b7 ')
+  const line = [item.tools.map((t) => TOOL_NAME[t]).join(', '), stepsLabel(item.steps), mins, item.by ? `by ${item.by}` : '', !item.ready ? 'Not ready yet' : ''].filter(Boolean).join(' \u00b7 ')
   return (
-    <Row onClick={() => openDetail(item.id)} label={`${item.title}. ${stepsLabel(item.steps)}. Open its preview.`} data={{ 'data-lesson': item.id }} style={{ padding: '10px 10px' }}>
-      <span className="relative flex">
-        <LessonTile tools={item.tools} id={item.id} size={36} />
-      </span>
+    <Row onClick={() => openDetail(item.id)} label={`${item.title}. ${line}. Open its preview.`} data={{ 'data-lesson': item.id }} style={{ padding: '10px 10px' }}>
       <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
-        <span className="truncate font-medium" style={{ fontSize: type2.body, color: color.text }}>
+        <span className="truncate" style={titleText}>
           {item.title}
         </span>
         <span className="truncate" style={meta}>
-          {sub || length}
+          {line}
         </span>
       </span>
-      <span className="relative hidden shrink-0 gap-[6px] @[560px]:flex">
-        {item.tools.map((t) => (
-          <ToolTag key={t} tool={t} />
-        ))}
-      </span>
-      <span className="relative hidden shrink-0 text-right tabular-nums @[720px]:block" style={{ ...meta, width: 120 }}>
-        {length}
-      </span>
-      <ChevronRight aria-hidden size={14} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.faint }} />
     </Row>
   )
 }
@@ -136,15 +122,10 @@ function LessonRow({ item }: { item: LibraryItem }): ReactNode {
 /** The last row of the list: paste a YouTube link (the launcher builds it). */
 function PasteRow(): ReactNode {
   return (
-    <Row onClick={openLauncher} label="Paste a YouTube link" data={{ 'data-lessons-paste': '' }} style={{ padding: '10px 10px' }}>
-      <span aria-hidden className="relative inline-flex shrink-0 items-center justify-center" style={{ width: 36, height: 36, borderRadius: radius2.control, boxShadow: `inset 0 0 0 1px ${surface.border}`, color: color.label }}>
-        <Plus size={16} strokeWidth={1.8} />
-      </span>
-      <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
-        <span className="font-medium" style={{ fontSize: type2.body, color: color.text }}>
-          Paste a YouTube link
-        </span>
-        <span style={meta}>{copy.name} turns it into a lesson.</span>
+    <Row onClick={openLauncher} label="Paste a YouTube link" data={{ 'data-lessons-paste': '' }} style={{ padding: '12px 10px' }}>
+      <Plus aria-hidden size={15} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label }} />
+      <span className="relative" style={{ fontSize: type2.md, color: color.label }}>
+        Paste a YouTube link
       </span>
     </Row>
   )

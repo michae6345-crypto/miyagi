@@ -5,18 +5,15 @@
  *   PANEL       the content surface: one raised layer inset from the window, the sidebar sits on the window itself
  *   PageTitle   a page's title row (no hairline under it; spacing does the grouping)
  *   SectionHead a quiet section header with an optional right-hand action
- *   LessonTile  a lesson's pastel tile: the tone of its first tool (or a stable tone from its id) with the tool's icon
  *   StepBar     "Step 4 of 7" as seven short segments: done in ink/white, the current one outlined, never green
  *   Row         a list row that lifts one level on hover (Linear / Notion rows, no border box)
  *
- * Colors come from core/theme tokens only. Pastel tones here are tags, never status: green still only means passed.
- * Peach (the apricot Adrian found too orange) and sand (earth) are left out of the lesson tones.
+ * Sleek and minimal (Adrian, Nov 21: "a lot seems very AI slop-ish"): type, spacing and one raised surface do the work.
+ * No icon tiles or tool pills on rows; color stays for options (pastel chips) and passed (green). Tokens only.
  */
 import { motion } from 'motion/react'
-import { BookOpen, Code2, NotebookText, SquareTerminal, Table2, type LucideIcon } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
-import type { LessonTool } from '../../../../../../shared/contracts/events'
-import { color, elevation, fill, highlight, radius2, surface, tone, type Tone, type2 } from '../../core/theme'
+import { color, elevation, fill, highlight, radius2, surface, type2 } from '../../core/theme'
 import { fade, press, spring } from '../../core/ui/motion'
 
 // ---- the content panel ------------------------------------------------------------------------------------------
@@ -63,53 +60,14 @@ export function PageTitle({ children, right, sub }: { children: ReactNode; right
   )
 }
 
-export function SectionHead({ id, children, right, icon }: { id?: string; children: ReactNode; right?: ReactNode; icon?: ReactNode }): ReactNode {
+export function SectionHead({ id, children, right }: { id?: string; children: ReactNode; right?: ReactNode }): ReactNode {
   return (
-    <div className="flex min-h-[28px] items-center gap-[8px]" style={{ marginBottom: 8 }}>
-      {icon}
-      <h2 id={id} className="m-0 font-semibold" style={{ fontSize: type2.sm, color: color.text }}>
+    <div className="flex min-h-[24px] items-center gap-[8px]" style={{ marginBottom: 6 }}>
+      <h2 id={id} className="m-0 font-medium" style={{ fontSize: type2.xs, color: color.label }}>
         {children}
       </h2>
       {right && <div className="ml-auto flex items-center">{right}</div>}
     </div>
-  )
-}
-
-// ---- lesson tones and tiles -----------------------------------------------------------------------------------------
-
-const LESSON_TONES: readonly Tone[] = ['sky', 'lilac', 'pink', 'mint']
-const TOOL_TONE: Record<LessonTool, Tone> = { vscode: 'sky', jupyter: 'lilac', terminal: 'pink', excel: 'mint' }
-const TOOL_ICON: Record<LessonTool, LucideIcon> = { vscode: Code2, jupyter: NotebookText, terminal: SquareTerminal, excel: Table2 }
-
-function hashTone(key: string): Tone {
-  let h = 0
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
-  return LESSON_TONES[h % LESSON_TONES.length]
-}
-
-/** A lesson's tone: its first tool's pastel, else a stable one from its id or title. */
-export function lessonTone(tools: readonly LessonTool[] | undefined, key: string): Tone {
-  const t = tools?.[0]
-  return t ? TOOL_TONE[t] : hashTone(key)
-}
-
-export function lessonIcon(tools: readonly LessonTool[] | undefined): LucideIcon {
-  const t = tools?.[0]
-  return t ? TOOL_ICON[t] : BookOpen
-}
-
-/** The lesson's pastel tile with its tool icon. size 28 in lists, 44 on Continue, 'cover' fills its box. */
-export function LessonTile({ tools, id, size = 28, style }: { tools?: readonly LessonTool[]; id: string; size?: number; style?: CSSProperties }): ReactNode {
-  const t = tone[lessonTone(tools, id)]
-  const Icon = lessonIcon(tools)
-  return (
-    <span
-      aria-hidden
-      className="inline-flex shrink-0 items-center justify-center"
-      style={{ width: size, height: size, borderRadius: size >= 40 ? radius2.card : radius2.control, background: size >= 40 ? t.cover : t.bg, color: size >= 40 ? t.coverFg : t.fg, ...style }}
-    >
-      <Icon size={Math.round(size * 0.5)} strokeWidth={1.7} />
-    </span>
   )
 }
 

@@ -19,7 +19,6 @@ import { motion } from 'motion/react'
 import { SquarePen } from 'lucide-react'
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { color, fill, focus, highlight, radius2, spring, surface, type2 } from '../../core/theme'
-import { Keycap } from '../../core/ui/Keycap'
 import { pressMotion } from '../../core/ui/motion'
 import { openLauncher } from '../library/Library'
 import { planLabel, v2Cloud } from '../account/model'
@@ -64,14 +63,7 @@ function NewLesson({ compact }: { compact: boolean }): ReactNode {
       onClick={openLauncher}
     >
       <SquarePen aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" />
-      {!compact && (
-        <>
-          <span className="relative flex-1 truncate">New lesson</span>
-          <span className="relative">
-            <Keycap k="launcher" size="sm" />
-          </span>
-        </>
-      )}
+      {!compact && <span className="relative flex-1 truncate">New lesson</span>}
     </motion.button>
   )
 }
