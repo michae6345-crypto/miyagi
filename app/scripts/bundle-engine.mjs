@@ -19,6 +19,9 @@
  * --allow-unchecked (then PYTHON.json says precompiled: false and the app never uses that Python).
  *
  *   node scripts/bundle-engine.mjs                     # engine from origin/integration/live (fetched first)
+ *   node scripts/bundle-engine.mjs --windows           # the Windows bundle (python.exe, Lib\\site-packages, PYTHON.json os: win32);
+ *                                                      #   also MIYAGI_BUNDLE_PLATFORM=win32; arch x64 (MIYAGI_PY_ARCH=arm64 for Arm).
+ *                                                      #   Default platform: Windows on a Windows PC, else macOS. See bundle-target.mjs.
  *   node scripts/bundle-engine.mjs --dry-run           # print every step, download and write nothing (no git fetch)
  *   node scripts/bundle-engine.mjs --no-python         # source + install.sh only (the old first-run install)
  *   node scripts/bundle-engine.mjs --offline           # packages from uv's cache only
@@ -37,12 +40,13 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { PY, libPath, pickPlatform, prune, pruneDirNames, pruneLists, pruneSrc, pythonPath, resolveTarget, runnableHere, sitePath } from './bundle-target.mjs'
 
 const args = new Set(process.argv.slice(2))
 for (const a of args) {
-  if (!['--dry-run', '--no-python', '--offline', '--allow-unchecked'].includes(a)) {
+  if (!['--dry-run', '--no-python', '--offline', '--allow-unchecked', '--windows'].includes(a)) {
     console.error(`[bundle-engine] unknown option: ${a}`)
     process.exit(1)
   }
@@ -60,56 +64,21 @@ const INSTALL_REFS = [process.env.MIYAGI_INSTALL_REF, REF, 'origin/claude/distri
 /** What the engine needs at runtime (docs/DISTRIBUTION.md: server imports shared/contracts; demo/cache ships lessons). */
 const PATHS = ['server', 'shared', 'cli', 'scripts', 'demo']
 
-/**
- * The pinned interpreter: python-build-standalone, install_only_stripped (relocatable, no debug symbols). To move it,
- * take the new release's SHA256SUMS (github.com/astral-sh/python-build-standalone/releases) and change all four.
- */
-const PY = {
-  version: '3.12.16',
-  release: '20261026',
-  sha256: {
-    arm64: '353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e',
-    x64: '37c38fda76fec1fbf310adcbafb7f0d96af13b5511bf8ea954c3aa8eec185734',
-  },
-}
-const ARCH = process.env.MIYAGI_PY_ARCH || 'arm64'
-if (!(ARCH in PY.sha256)) {
-  console.error(`[bundle-engine] MIYAGI_PY_ARCH=${ARCH}: use arm64 or x64`)
+const PLATFORM = args.has('--windows') ? 'win32' : pickPlatform({ env: process.env, hostPlatform: process.platform })
+if (!PLATFORM) {
+  console.error(`[bundle-engine] MIYAGI_BUNDLE_PLATFORM=${process.env.MIYAGI_BUNDLE_PLATFORM}: use darwin or win32`)
   process.exit(1)
 }
-const TRIPLE = ARCH === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
-const PY_FILE = `cpython-${PY.version}+${PY.release}-${TRIPLE}-install_only_stripped.tar.gz`
-const PY_URL = `https://github.com/astral-sh/python-build-standalone/releases/download/${PY.release}/${encodeURIComponent(PY_FILE)}`
-const PY_MINOR = PY.version.split('.').slice(0, 2).join('.')
+const T = resolveTarget({ platform: PLATFORM, arch: process.env.MIYAGI_PY_ARCH })
+if (T.error) {
+  console.error(`[bundle-engine] ${T.error}`)
+  process.exit(1)
+}
+const { arch: ARCH, triple: TRIPLE, file: PY_FILE, url: PY_URL, minor: PY_MINOR } = T
 const CACHE = process.env.MIYAGI_BUNDLE_CACHE || join(homedir(), '.cache', 'miyagi-bundle')
 
-/**
- * Pruned after the packages are in (app/SIZE.md has the reasons and the sizes):
- *   site-packages: tests (PyObjCTest alone is ~16 MB), Tiger's Postgres driver (Tiger is gone; psycopg is only
- *     imported when TIGER_DATABASE_URL is set), console scripts whose shebangs point at this build machine, pip (the
- *     standalone Python ships it; the engine never runs it, and lesson .venvs get their own pip from ensurepip),
- *     build-only sources (.pyi stubs, Cython .pyx/.pxd, C sources) and each dist-info's RECORD (lists files we pruned).
- *     .py and .pyc both stay: anyio builds its lazy-import map from its own source (inspect.getsource), so a
- *     sourceless site-packages breaks it; the .pyc keep the engine import at about 1 s instead of 2 to 2.5 s.
- *   stdlib: tests, IDLE, Tk (tkinter, turtle and the Tcl/Tk libraries), lib2to3, pydoc_data. ensurepip and venv stay:
- *     lesson .venvs are made from this Python when the Mac has no other (MIYAGI_BUNDLED_PYTHON).
- *   python/: libpython3.12.dylib (bin/python3.12 is statically linked; it is only for embedding), the C headers,
- *     man pages and pkg-config files (only for building extensions against this Python), and the 2to3, pydoc, pip
- *     and *-config scripts.
- */
-const PRUNE_SITE_DIRS = new Set(['PyObjCTest', 'tests', 'test', '__tests__'])
-const PRUNE_SITE_TOP = [/^psycopg_binary/, /^bin$/, /^pip$/, /^pip-.*\.dist-info$/]
-const PRUNE_SITE_FILES = [/\.pyi$/, /\.pyx$/, /\.pxd$/, /\.c$/, /\.cpp$/]
-const PRUNE_DIST_INFO_FILES = new Set(['RECORD'])
-const PRUNE_STDLIB = ['test', 'idlelib', 'turtledemo', 'tkinter', 'turtle.py', 'lib2to3', 'pydoc_data', 'lib-dynload/_tkinter.cpython-312-darwin.so']
-const PRUNE_PYTHON = ['include', 'share', 'lib/pkgconfig', 'lib/libpython3.12.dylib', 'lib/libtcl9.0.dylib', 'lib/libtcl9tk9.0.dylib']
-const PRUNE_PYTHON_LIB = [/^tcl\d/, /^tk\d/, /^itcl\d/, /^thread\d/]
-const PRUNE_BIN = [/^idle3/, /^2to3/, /^pydoc3/, /^pip/, /-config$/]
-/** Engine source: the tests stay in git (no runtime module imports them). */
-const PRUNE_SRC_DIRS = new Set(['tests'])
-const PRUNE_SRC_FILES = new Set(['conftest.py'])
-/** Imported with the bundled Python before we call the bundle good. */
-const SMOKE = 'import fastapi, uvicorn, websockets, pydantic, httpx, anthropic, google.genai, jsonschema, watchdog, rapidfuzz, PIL, Quartz, Vision, ScreenCaptureKit, ApplicationServices'
+/** Imported with the bundled Python before we call the bundle good (bundle-target.mjs: no pyobjc on Windows). */
+const SMOKE = T.smoke
 
 const say = (m) => console.log(`[bundle-engine] ${m}`)
 const die = (m) => {
@@ -131,8 +100,9 @@ const run = (cmd, a, opts = {}) => {
 }
 const which = (cmd) => {
   const extra = [join(homedir(), '.local', 'bin'), join(homedir(), '.cargo', 'bin'), '/opt/homebrew/bin', '/usr/local/bin']
-  for (const d of [...(process.env.PATH ?? '').split(':'), ...extra]) {
-    if (d && existsSync(join(d, cmd))) return join(d, cmd)
+  const names = process.platform === 'win32' ? [`${cmd}.exe`, cmd] : [cmd]
+  for (const d of [...(process.env.PATH ?? '').split(delimiter), ...extra]) {
+    for (const n of names) if (d && existsSync(join(d, n))) return join(d, n)
   }
   return null
 }
@@ -205,7 +175,7 @@ if (installRef) say(`install.sh (fallback only) from ${installRef}`)
 /** Download (or reuse the cached copy of) the pinned archive and check its sha256. → path */
 async function pythonArchive() {
   const file = join(CACHE, PY_FILE)
-  const want = PY.sha256[ARCH]
+  const want = T.sha256
   if (DRY) {
     say(`would ${existsSync(file) ? 'reuse' : 'download'} ${PY_URL}`)
     say(`would check sha256 ${want}`)
@@ -229,83 +199,13 @@ async function pythonArchive() {
   return file
 }
 
-/** Remove what the engine never needs (PRUNE_* above). → files removed */
-function prune(pyDir) {
-  let removed = 0
-  const lib = join(pyDir, 'lib', `python${PY_MINOR}`)
-  for (const d of PRUNE_STDLIB) {
-    if (existsSync(join(lib, d))) {
-      rmSync(join(lib, d), { recursive: true, force: true })
-      removed++
-    }
-  }
-  for (const p of PRUNE_PYTHON) {
-    if (existsSync(join(pyDir, p))) {
-      rmSync(join(pyDir, p), { recursive: true, force: true })
-      removed++
-    }
-  }
-  for (const name of readdirSync(join(pyDir, 'lib'))) {
-    if (PRUNE_PYTHON_LIB.some((re) => re.test(name))) {
-      rmSync(join(pyDir, 'lib', name), { recursive: true, force: true })
-      removed++
-    }
-  }
-  // Their scripts in bin/ would point at the pruned idlelib, lib2to3, pydoc_data and pip.
-  for (const name of readdirSync(join(pyDir, 'bin'))) {
-    if (PRUNE_BIN.some((re) => re.test(name))) {
-      rmSync(join(pyDir, 'bin', name), { force: true })
-      removed++
-    }
-  }
-  const site = join(lib, 'site-packages')
-  for (const name of readdirSync(site)) {
-    if (PRUNE_SITE_TOP.some((re) => re.test(name))) {
-      rmSync(join(site, name), { recursive: true, force: true })
-      removed++
-    }
-  }
-  const walk = (dir) => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (e.isSymbolicLink()) continue
-      const p = join(dir, e.name)
-      const drop = e.isDirectory()
-        ? PRUNE_SITE_DIRS.has(e.name)
-        : PRUNE_SITE_FILES.some((re) => re.test(e.name)) || (PRUNE_DIST_INFO_FILES.has(e.name) && dir.endsWith('.dist-info'))
-      if (drop) {
-        rmSync(p, { recursive: true, force: true })
-        removed++
-      } else if (e.isDirectory()) walk(p)
-    }
-  }
-  walk(site)
-  return removed
-}
-
-/** The engine source minus its tests (PRUNE_SRC_*). → files removed */
-function pruneSrc(srcDir) {
-  let removed = 0
-  const walk = (dir) => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (e.isSymbolicLink()) continue
-      const p = join(dir, e.name)
-      if (e.isDirectory() ? PRUNE_SRC_DIRS.has(e.name) : PRUNE_SRC_FILES.has(e.name)) {
-        rmSync(p, { recursive: true, force: true })
-        removed++
-      } else if (e.isDirectory()) walk(p)
-    }
-  }
-  for (const d of ['server', 'shared', 'cli']) if (existsSync(join(srcDir, d))) walk(join(srcDir, d))
-  return removed
-}
-
 /**
- * Can this machine run the bundled interpreter (same arch, or arm64 Mac with Rosetta for x64)? -B and
+ * Can this machine run the bundled interpreter (same OS; same arch, or arm64 Mac with Rosetta for x64, or Windows on Arm for x64)? -B and
  * PYTHONDONTWRITEBYTECODE: starting it must not write timestamp .pycs into python/lib (-I ignores the variable, -B
  * doesn't). The compileall -f below rewrites any that slip in anyway.
  */
 function runnable(python) {
-  if (DRY || process.platform !== 'darwin') return false
+  if (DRY || !runnableHere(T, process.platform)) return false
   try {
     execFileSync(python, ['-I', '-B', '-c', 'import sys'], { stdio: 'ignore', timeout: 20_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
     return true
@@ -387,12 +287,12 @@ async function bundlePython() {
   if (!uv) die('needs uv on the build machine to install the packages (https://docs.astral.sh/uv/), or use --no-python')
   const archive = await pythonArchive()
   const pyDir = join(out, 'python')
-  const python = join(pyDir, 'bin', 'python3')
-  const site = join(pyDir, 'lib', `python${PY_MINOR}`, 'site-packages')
+  const python = pythonPath(T, pyDir)
+  const site = sitePath(T, pyDir)
 
   // The archive's top folder is python/.
   run('tar', ['-xzf', archive, '-C', out])
-  if (!DRY && !existsSync(python)) die(`no python/bin/python3 in ${PY_FILE}`)
+  if (!DRY && !existsSync(python)) die(`no python/${T.pythonRel.join('/')} in ${PY_FILE}`)
   const canRun = runnable(python)
 
   // Only the engine's dependencies (`-r pyproject.toml` installs them, not the server package itself: the source runs
@@ -402,18 +302,18 @@ async function bundlePython() {
   // Resolve against the bundled interpreter itself when this machine can run it (uv finds another one otherwise).
   if (canRun) uvArgs.push('--python', python)
   if (OFFLINE) uvArgs.push('--offline')
-  say(`installing the engine's packages into python/lib/python${PY_MINOR}/site-packages`)
+  say(`installing the engine's packages into python/${T.libRel.join('/')}/site-packages`)
   // A throwaway venv context: uv must not pick up this checkout's .venv or a VIRTUAL_ENV from the shell. uv starts the
   // bundled interpreter to read its tags: it must not leave timestamp .pycs behind either.
   const uvEnv = { ...process.env, VIRTUAL_ENV: '', UV_NO_CONFIG: '1', PYTHONDONTWRITEBYTECODE: '1' }
   run(uv, uvArgs, { cwd: tmpdir(), env: uvEnv })
 
   if (DRY) {
-    say(`would prune: site-packages/**/{${[...PRUNE_SITE_DIRS].join(',')}}, psycopg_binary, pip, site-packages/bin, stubs and C/Cython sources, dist-info RECORD; stdlib ${PRUNE_STDLIB.join(', ')}; python/{${PRUNE_PYTHON.join(',')}}, Tcl/Tk; src/**/tests`)
+    say(`would prune: site-packages/**/{${pruneDirNames().join(',')}}, psycopg_binary, pip, site-packages/${T.win ? 'Scripts' : 'bin'}, stubs and C/Cython sources, dist-info RECORD; stdlib ${pruneLists(T).stdlib.join(', ')}; python/{${pruneLists(T).python.join(',')}}, Tcl/Tk; src/**/tests`)
     say(`would precompile python/ (unchecked-hash) and src/ (checked-hash), then import-check: ${SMOKE.replace('import ', '')}`)
     return { python, ran: false }
   }
-  say(`pruned ${prune(pyDir)} folders/files the engine never loads (SIZE.md)`)
+  say(`pruned ${prune(T, pyDir)} folders/files the engine never loads (SIZE.md)`)
 
   if (!canRun) {
     // Without precompiling, a lesson .venv made from this Python would write .pycs inside the signed app, and nothing
@@ -427,7 +327,7 @@ async function bundlePython() {
   const pyEnv = { ...process.env, PYTHONNOUSERSITE: '1', PYTHONDONTWRITEBYTECODE: '', PYTHONPATH: '' }
   // unchecked-hash: never re-validated, so Python never tries to rewrite a .pyc inside the signed app. -f: rewrite the
   // timestamp .pycs that starting the interpreter above (runnable, uv) may have left (compileall skips them otherwise).
-  run(python, ['-I', '-m', 'compileall', '-f', '-q', '-j', '0', '--invalidation-mode', 'unchecked-hash', join(pyDir, 'lib')], { env: pyEnv, stdio: ['ignore', 'ignore', 'inherit'] })
+  run(python, ['-I', '-m', 'compileall', '-f', '-q', '-j', '0', '--invalidation-mode', 'unchecked-hash', libPath(T, pyDir)], { env: pyEnv, stdio: ['ignore', 'ignore', 'inherit'] })
   // checked-hash: src/ is copied to ~/miyagi/engine/src (timestamps change), and a hash check stays valid there.
   const srcDirs = ['server', 'shared', 'cli'].map((d) => join(out, 'src', d)).filter((d) => existsSync(d))
   run(python, ['-I', '-m', 'compileall', '-q', '-j', '0', '--invalidation-mode', 'checked-hash', ...srcDirs], { env: pyEnv, stdio: ['ignore', 'ignore', 'inherit'] })
@@ -449,9 +349,11 @@ async function bundlePython() {
   const stale = timestampPycs(pyDir)
   if (stale.length) die(`${stale.length} timestamp .pyc files left in python/ (they'd be rewritten inside the signed app), e.g. ${stale.slice(0, 5).join(', ')}`)
   say('python/: every .pyc is hash-based (0 timestamp .pycs)')
-  const dangling = prunedLinks(pyDir)
-  if (dangling.length) die(`binaries still link pruned libraries (put them back in PRUNE_*): ${dangling.slice(0, 5).join('; ')}`)
-  say('python/: no binary links a pruned library (libpython, Tcl/Tk)')
+  if (T.checksLinks) {
+    const dangling = prunedLinks(pyDir)
+    if (dangling.length) die(`binaries still link pruned libraries (put them back in PRUNE_*): ${dangling.slice(0, 5).join('; ')}`)
+    say('python/: no binary links a pruned library (libpython, Tcl/Tk)')
+  } else say('python/: skipped the pruned-library link check (needs otool, macOS only)')
   return { python, ran: true }
 }
 
@@ -524,7 +426,10 @@ function bundleCompanion() {
 `
   )
   mkdirSync(dir, { recursive: true })
-  execFileSync('zip', ['-qrXD', join(dir, file), '[Content_Types].xml', 'extension.vsixmanifest', 'extension'], { cwd: stage, stdio: 'inherit' })
+  const members = ['[Content_Types].xml', 'extension.vsixmanifest', 'extension']
+  // Windows has no zip: its bsdtar writes zip archives.
+  if (process.platform === 'win32') execFileSync('tar', ['-a', '-c', '--format', 'zip', '-f', join(dir, file), ...members], { cwd: stage, stdio: 'inherit' })
+  else execFileSync('zip', ['-qrXD', join(dir, file), ...members], { cwd: stage, stdio: 'inherit' })
   rmSync(stage, { recursive: true, force: true })
   // main/localEngine.ts reads this to compare with what VS Code has installed.
   writeFileSync(join(dir, 'companion.json'), JSON.stringify({ id, version: ver, file }, null, 2) + '\n')
@@ -537,14 +442,14 @@ function bundleCompanion() {
 const companion = bundleCompanion()
 let py = null
 if (WITH_PYTHON) {
-  if (process.platform !== 'darwin' && !DRY) die('the bundled Python is macOS only: run this on a Mac, or use --no-python')
+  if (T.platform === 'darwin' && process.platform !== 'darwin' && !DRY) die('the macOS bundled Python needs a Mac to build: run this on a Mac, or use --no-python')
   py = await bundlePython()
   if (!DRY) {
-    const site = join(out, 'python', 'lib', `python${PY_MINOR}`, 'site-packages')
+    const site = sitePath(T, join(out, 'python'))
     // What shipped, exactly: pyproject.toml has only lower bounds (no lock yet, see agents/bundle.md core requests).
     const freeze = frozen(site)
     const packages = freeze.length
-    const manifest = { python: PY.version, release: PY.release, arch: ARCH, archive: PY_FILE, sha256: PY.sha256[ARCH], packages, precompiled: py.ran, engine: version, freeze }
+    const manifest = { python: PY.version, release: PY.release, ...T.manifestExtra, arch: ARCH, archive: PY_FILE, sha256: T.sha256, packages, precompiled: py.ran, engine: version, freeze }
     writeFileSync(join(out, 'PYTHON.json'), JSON.stringify(manifest, null, 2) + '\n')
     say(`python ${PY.version} (${ARCH}) with ${packages} packages: ${du(join(out, 'python'))} on disk`)
   }
