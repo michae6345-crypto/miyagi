@@ -335,7 +335,7 @@ def test_materials_reach_claude_as_untrusted_data(monkeypatch):
     prompts = []
 
     async def gen(system, prompt, schema, **kw):
-        prompts.append(prompt)
+        prompts.append(kw.get("prefix", "") + "\n\n" + prompt)  # the cached prefix first, then the call's own text
         if kw.get("role") == "segment":
             return {"title": "T", "libraries": [], "steps": [
                 {"start": "0:10", "end": "1:00", "title": "Get one item", "instructions": "Add get_item."},
