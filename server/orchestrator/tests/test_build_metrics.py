@@ -203,6 +203,8 @@ def test_a_video_build_logs_its_stages_and_appends_the_state_file(tmp_path, monk
                               "handoff": 0.0, "workspace": 3.0, "hold": 0.0, "start": 0.0}
     assert line["toReadyS"] == 40.0 and line["toFirstStepS"] == 40.0 and line["buildToReadyS"] == 38.0
     assert line["steps"] == len(rig.s.steps)
+    assert rig.of("lesson.ready")[0]["buildS"] == 40.0  # contract: additive, the build's first lesson.ready only
+    assert all("buildS" not in p for t, p in rig.s.snapshot() if t == "lesson.ready")  # a reconnect's replay: none
     assert build_metrics.read() == [line]  # $MIYAGI_STATE_DIR/build-metrics.jsonl (conftest: a temp folder)
     assert sum(r.getMessage().startswith("build.metrics {") for r in caplog.records) == 1
 

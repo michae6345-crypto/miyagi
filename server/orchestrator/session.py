@@ -3438,8 +3438,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
         if self.voice:
             self._prefetch_voice()
-        await self.emit("lesson.ready", self._lesson_ready_payload())
-        self._metrics("ready", steps=len(self.steps), provisional=True if is_provisional(graph) else None)
+        ready = self._lesson_ready_payload()
+        build_s = self._metrics("ready", steps=len(self.steps), provisional=True if is_provisional(graph) else None)
+        if isinstance(build_s, (int, float)):
+            ready["buildS"] = build_s  # contract (additive): seconds from the learner's command to this lesson.ready
+        await self.emit("lesson.ready", ready)
         self.editor_open = False
         if self.workspace is not None:  # S2 opens the editor at most once per lesson + folder
             self.workspace.lesson_key = str(graph.get("lesson", {}).get("id") or "")
