@@ -17,6 +17,8 @@ import { EngineLink } from './engine'
 import { setupPrefs, trackWindowBackground, windowBackground } from './prefs'
 import { ENGINE_TOKEN, localEngineState, QUIT_CONFIRM_MS, QUIT_GRACE_MS, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
+import { servePlayerHost } from './playerHost'
+import playerHostScript from './playerHost.page.js?raw'
 import { setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
 import { debugFlagIn, openLinkInBrowser, safeOpenExternal } from './safeOpen'
@@ -211,12 +213,17 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions, k
     ...options,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
-      contextIsolation: true,
       backgroundThrottling: false,
       additionalArguments: [`--tut-platform=${encodeURIComponent(JSON.stringify(platform))}`],
       ...options.webPreferences,
-      // Last, so no caller (player, settings, app windows) can turn it back on: no DevTools in a built app (app-harden).
+      // Last, so no caller (player, settings, app windows) can turn them off: sandboxed, isolated, no Node in any frame,
+      // no <webview>, and no DevTools in a built app (app-harden). The player relies on these for the video's frames (R33).
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      nodeIntegrationInWorker: false,
+      webviewTag: false,
       devTools: !app.isPackaged
     }
   })
@@ -487,6 +494,15 @@ app.whenReady().then(async () => {
       rendererOrigin = await serveRenderer(join(__dirname, '../renderer'))
     } catch (err) {
       console.error('[tut] could not serve the renderer over http, falling back to file:// (YouTube may refuse embeds)', err)
+    }
+  }
+  // R33: the YouTube player's host page, on its own loopback origin, before any window (main/serve.ts's CSP frames it).
+  const appOrigin = process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : rendererOrigin
+  if (appOrigin) {
+    try {
+      await servePlayerHost(playerHostScript, appOrigin)
+    } catch (err) {
+      console.error('[tut] could not serve the player host page; the video will not load', err)
     }
   }
   // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any

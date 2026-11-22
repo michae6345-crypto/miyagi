@@ -15,8 +15,7 @@
  * Renderer: bridge.invoke('open:external', url) → boolean; bridge.invoke('open:external', {setup: url}) → SetupOpen.
  * System Settings only via permissions:open(kind) (main/permissions.ts), which calls openSystemSettings here.
  *
- * This file is the ONLY place that calls shell.openExternal: test/safeOpenGrep.test.ts fails on any other, except
- * features/player.ts (Adrian's A14).
+ * This file is the ONLY place that calls shell.openExternal: test/safeOpenGrep.test.ts fails on any other.
  */
 import { shell } from 'electron'
 import type { PermissionKind } from '../../../shared/contracts/events'

@@ -54,6 +54,15 @@ describe('index.ts: DevTools, menu, debug flags', () => {
     assert.match(prefs, /\.\.\.options\.webPreferences,[\s\S]*devTools: !app\.isPackaged/)
   })
 
+  test('sandbox, contextIsolation and no Node come after the callers’ webPreferences too (R33: the player relies on them)', () => {
+    const ctor = index.slice(index.indexOf('new BrowserWindow('))
+    const prefs = ctor.slice(ctor.indexOf('webPreferences: {'), ctor.indexOf('\n    }\n  })'))
+    const after = prefs.slice(prefs.indexOf('...options.webPreferences,'))
+    for (const flag of ['sandbox: true', 'contextIsolation: true', 'nodeIntegration: false', 'nodeIntegrationInSubFrames: false', 'webviewTag: false']) {
+      assert.ok(after.includes(flag), flag)
+    }
+  })
+
   test('no menu offers Reload or DevTools; Windows / Linux get no menu at all', () => {
     assert.doesNotMatch(index, /toggleDevTools|toggledevtools|forceReload|forcereload|role: 'reload'/)
     const menu = index.slice(index.indexOf('function setupMenu'), index.indexOf('\n}\n', index.indexOf('function setupMenu')))
