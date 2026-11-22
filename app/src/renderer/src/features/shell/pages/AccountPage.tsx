@@ -12,22 +12,21 @@
  * Login off: miyagi runs on this Mac, with your own key or the cloud setup.
  * Nothing here can block a lesson, and nothing is sent from here: main and the sheet do that.
  */
-import { KeyRound, LogOut } from 'lucide-react'
+import { ChevronRight, LogOut } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../../bridge'
-import { color, copy, fill, highlight, radius2, surface, type2 } from '../../../core/theme'
+import { color, copy, fill, radius2, type2 } from '../../../core/theme'
 import { PrimaryButton, QuietButton } from '../../../core/ui/buttons'
-import { MiyagiMark } from '../../../core/ui/Mark'
-import { planLabel, v2Cloud } from '../../account/model'
+import { planLabel, resetDay, v2Cloud, type HelpMeter } from '../../account/model'
 import { loadAccount, useAccount } from '../../account/store'
-import { Chip, MenuRow, MeterGroup, PersonGlyph, Rule } from '../../account/ui'
+import { PersonGlyph } from '../../account/ui'
 import { Avatar } from '../../auth/Avatar'
 import { authOn } from '../../auth/model'
 import { loadAuth, useAuth } from '../../auth/store'
 import { openSheet } from '../sheet'
 import { setPage, setSettingsSection } from '../store'
+import { thisDevice } from '../../onboarding/device'
 
-const card = { borderRadius: radius2.panel, background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}, ${surface.shadowSmall}` } as const
 const caption = { fontSize: type2.sm, lineHeight: '20px', color: color.label } as const
 
 const toYourKey = (): void => {
@@ -35,27 +34,93 @@ const toYourKey = (): void => {
   setPage('settings')
 }
 
+/**
+ * Redraft (Adrian, Nov 21; Michael's audit: "a small card floating in a huge empty area", "14 of 20 is a stray
+ * number"): the page is a header (who you are) and one grouped list, as in Settings. No floating cards.
+ */
 function Wrap({ children }: { children: ReactNode }): ReactNode {
   return (
-    <div data-shell-account-page className="flex flex-col items-start" style={{ padding: '8px 40px 40px' }}>
-      <div className="flex w-full flex-col gap-[16px]" style={{ maxWidth: 460 }}>
+    <div data-shell-account-page className="flex flex-col" style={{ padding: '8px 40px 40px' }}>
+      <div className="flex w-full flex-col gap-[24px]" style={{ maxWidth: 560 }}>
         {children}
       </div>
     </div>
   )
 }
 
+/** One grouped list (the panel re-points --f-group at a quiet wash), rows split by hairlines. */
+function Group({ children, label }: { children: ReactNode; label: string }): ReactNode {
+  return (
+    <section aria-label={label} className="flex flex-col overflow-hidden" style={{ borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}>
+      {children}
+    </section>
+  )
+}
+
+/** A row of a group: the label, then its value in gray, then its action (a button, or the whole row opens). */
+function Line({ label, value, action, onClick, last }: { label: string; value?: ReactNode; action?: ReactNode; onClick?: () => void; last?: boolean }): ReactNode {
+  const inner = (
+    <>
+      <span className="relative shrink-0" style={{ fontSize: type2.md, color: color.text }}>
+        {label}
+      </span>
+      <span className="relative min-w-0 flex-1 truncate text-right" style={{ fontSize: type2.sm, color: color.label }}>
+        {value}
+      </span>
+      {action}
+      {onClick && !action && <ChevronRight aria-hidden size={14} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.faint }} />}
+    </>
+  )
+  const style = { minHeight: 52, padding: '8px 14px 8px 16px', borderBottom: last ? undefined : `1px solid ${fill.hairline}` }
+  return onClick ? (
+    <button type="button" onClick={onClick} className="mg-press relative flex w-full cursor-pointer items-center gap-[12px] text-left outline-offset-[-2px] focus-visible:outline-2 focus-visible:outline-solid" style={{ ...style, outlineColor: color.text }}>
+      {inner}
+    </button>
+  ) : (
+    <div className="flex items-center gap-[12px]" style={style}>
+      {inner}
+    </div>
+  )
+}
+
+/** Who is signed in: the avatar, the name and the email, on the page itself (no box). */
+function Who({ avatar, name, email }: { avatar: ReactNode; name: string; email?: string }): ReactNode {
+  return (
+    <section aria-labelledby="shell-who" data-shell-signed-in className="flex items-center gap-[14px]">
+      {avatar}
+      <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
+        <h2 id="shell-who" className="m-0 truncate font-semibold" style={{ fontSize: type2.lg, color: color.text }}>
+          {name}
+        </h2>
+        {email && (
+          <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
+            {email}
+          </span>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function SignOut(): ReactNode {
+  return (
+    <div>
+      <QuietButton icon={LogOut} label="Sign out" onClick={() => openSheet('signout')} />
+    </div>
+  )
+}
+
 function Skeleton(): ReactNode {
   return (
-    <div aria-busy aria-label="Loading your account" className="flex flex-col gap-[12px]" style={{ ...card, padding: 24 }}>
-      <div className="flex items-center gap-[12px]">
-        <div style={{ width: 48, height: 48, borderRadius: radius2.round, background: fill.skeleton }} />
+    <div aria-busy aria-label="Loading your account" className="flex flex-col gap-[16px]">
+      <div className="flex items-center gap-[14px]">
+        <div style={{ width: 44, height: 44, borderRadius: radius2.round, background: fill.skeleton }} />
         <div className="flex flex-1 flex-col gap-[8px]">
-          <div style={{ width: '50%', height: 14, borderRadius: radius2.round, background: fill.skeleton }} />
-          <div style={{ width: '35%', height: 10, borderRadius: radius2.round, background: fill.skeleton }} />
+          <div style={{ width: '40%', height: 14, borderRadius: radius2.round, background: fill.skeleton }} />
+          <div style={{ width: '28%', height: 10, borderRadius: radius2.round, background: fill.skeleton }} />
         </div>
       </div>
-      <div style={{ height: 56, borderRadius: radius2.card, background: fill.skeleton }} />
+      <div style={{ height: 104, borderRadius: radius2.chip, background: fill.skeleton }} />
     </div>
   )
 }
@@ -63,30 +128,26 @@ function Skeleton(): ReactNode {
 /** "across Macs" on a Mac, "across computers" elsewhere. */
 const acrossMachines = (): string => (bridge.platform.os === 'mac' ? 'across Macs' : 'across computers')
 
-function SignInCard(): ReactNode {
+/** Signed out: one line, one button, on the page (no box). */
+function SignIn(): ReactNode {
   return (
-    <section aria-labelledby="shell-signin" data-shell-signin className="flex flex-col items-center gap-[12px] text-center" style={{ ...card, padding: 32 }}>
-      <MiyagiMark size={40} />
-      <h2 id="shell-signin" className="m-0 font-semibold" style={{ fontSize: type2.xl, lineHeight: '26px', letterSpacing: '-0.01em', color: color.text, maxWidth: 320 }}>
+    <section aria-labelledby="shell-signin" data-shell-signin className="flex flex-col items-start gap-[8px]">
+      <h2 id="shell-signin" className="m-0 font-semibold" style={{ fontSize: type2.lg, color: color.text }}>
         Sign in to sync your progress {acrossMachines()}
       </h2>
       <p className="m-0" style={caption}>
         {copy.name} works without an account too.
       </p>
       <div style={{ marginTop: 8 }}>
-        <PrimaryButton size="lg" label="Sign in" onClick={() => openSheet('signin')} />
+        <PrimaryButton label="Sign in" onClick={() => openSheet('signin')} />
       </div>
     </section>
   )
 }
 
-function KeyRow(): ReactNode {
+function KeyLine({ last = true }: { last?: boolean }): ReactNode {
   const ownKey = useAccount((s) => s.ownKey)
-  return (
-    <section aria-label="Account actions" className="flex flex-col" style={{ ...card, padding: 8 }}>
-      <MenuRow icon={KeyRound} label="Use your own key" right={ownKey === undefined ? undefined : ownKey ? 'On' : 'Off'} onClick={toYourKey} />
-    </section>
-  )
+  return <Line label="Your own key" value={ownKey === undefined ? undefined : ownKey ? 'On' : 'Off'} onClick={toYourKey} last={last} />
 }
 
 /** The shipped page: the real login (features/auth). */
@@ -95,7 +156,7 @@ function LoginAccount(): ReactNode {
   const loaded = useAuth((s) => s.loaded)
   useEffect(() => {
     void loadAuth()
-    void loadAccount() // only for the "Use your own key" On / Off (settings:get); account:get is null here
+    void loadAccount() // only for the "Your own key" On / Off (settings:get); account:get is null here
   }, [])
 
   if (!loaded)
@@ -107,60 +168,52 @@ function LoginAccount(): ReactNode {
   if (!user)
     return (
       <Wrap>
-        <SignInCard />
-        <KeyRow />
+        <SignIn />
+        <Group label="Keys">
+          <KeyLine />
+        </Group>
       </Wrap>
     )
   return (
     <Wrap>
-      <section aria-labelledby="shell-who" data-shell-signed-in className="flex flex-col gap-[16px]" style={{ ...card, padding: 24 }}>
-        <div className="flex items-center gap-[14px]">
-          <Avatar initial={user.avatarInitial} size={48} />
-          <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
-            <h2 id="shell-who" className="m-0 truncate font-semibold" style={{ fontSize: type2.lg, color: color.text }}>
-              {user.name ?? user.email}
-            </h2>
-            {user.name && user.email && (
-              <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
-                {user.email}
-              </span>
-            )}
-          </div>
-        </div>
-        <div>
-          <QuietButton icon={LogOut} label="Sign out" onClick={() => openSheet('signout')} />
-        </div>
-      </section>
-      <KeyRow />
+      <Who avatar={<Avatar initial={user.avatarInitial} size={44} />} name={user.name ?? user.email ?? 'Signed in'} email={user.name ? user.email : undefined} />
+      <Group label="Account">
+        <KeyLine />
+      </Group>
+      <SignOut />
     </Wrap>
   )
 }
 
 function NoCloud(): ReactNode {
   return (
-    <section aria-labelledby="shell-local" data-shell-local className="flex flex-col gap-[12px]" style={{ ...card, padding: 24 }}>
-      <div className="flex items-center gap-[12px]">
-        <MiyagiMark size={28} />
+    <>
+      <section aria-labelledby="shell-local" data-shell-local className="flex flex-col gap-[6px]">
         <h2 id="shell-local" className="m-0 font-semibold" style={{ fontSize: type2.lg, color: color.text }}>
           No account needed
         </h2>
-      </div>
-      <p className="m-0" style={caption}>
-        {copy.name} runs on this Mac. Your lessons and progress stay here.
-      </p>
-      <Rule />
-      <div className="flex flex-col">
-        <MenuRow icon={KeyRound} label="Use your own key" onClick={toYourKey} />
-      </div>
-    </section>
+        <p className="m-0" style={caption}>
+          {copy.name} runs on {thisDevice()}. Your lessons and progress stay here.
+        </p>
+      </section>
+      <Group label="Keys">
+        <KeyLine />
+      </Group>
+    </>
   )
+}
+
+/** What is left this month, the number that helps a decision ("6 left"), never "14 of 20". */
+function helpLeft(help: HelpMeter): string {
+  const left = Math.max(0, help.limit - help.used)
+  const day = resetDay(help.resetsAt)
+  return [left === 0 ? 'None left' : `${left} left`, day ? `resets ${day}` : ''].filter(Boolean).join(' · ')
 }
 
 /** v2Cloud: the plans, pricing and usage mock (features/account). */
 function CloudAccount(): ReactNode {
   const account = useAccount((s) => s.account)
   const loaded = useAccount((s) => s.loaded)
-  const ownKey = useAccount((s) => s.ownKey)
   const note = useAccount((s) => s.note)
   useEffect(() => {
     void loadAccount()
@@ -175,47 +228,35 @@ function CloudAccount(): ReactNode {
   if (!account?.signedIn)
     return (
       <Wrap>
-        <SignInCard />
+        <SignIn />
       </Wrap>
     )
 
   const help = account.help
+  const free = account.plan === 'free'
   return (
     <Wrap>
-      <section aria-labelledby="shell-who" data-shell-signed-in className="flex flex-col gap-[16px]" style={{ ...card, padding: 24 }}>
-        <div className="flex items-center gap-[14px]">
-          <span className="flex shrink-0 items-center justify-center" style={{ width: 48, height: 48, borderRadius: radius2.round, background: fill.navActive, color: color.text }}>
-            <PersonGlyph size={24} />
+      <Who
+        avatar={
+          <span className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 44, borderRadius: radius2.round, background: fill.navActive, color: color.text }}>
+            <PersonGlyph size={22} />
           </span>
-          <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
-            <h2 id="shell-who" className="m-0 truncate font-semibold" style={{ fontSize: type2.lg, color: color.text }}>
-              {account.name ?? account.email ?? 'Signed in'}
-            </h2>
-            {account.email && account.name && (
-              <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
-                {account.email}
-              </span>
-            )}
-          </div>
-          <Chip>{planLabel(account.plan)}</Chip>
-        </div>
-        {help ? (
-          <MeterGroup help={help} title="Help this month" count={`${help.used} of ${help.limit}`} label="Help requests used this month" />
-        ) : (
-          <span style={caption}>Checks never count. Only live help does.</span>
-        )}
-        {account.plan === 'free' ? (
-          <PrimaryButton size="lg" block label="Upgrade to Pro" onClick={() => openSheet('plans')} />
-        ) : (
-          <QuietButton label="See plans" onClick={() => openSheet('plans')} />
-        )}
-      </section>
-      <section aria-label="Account actions" className="flex flex-col" style={{ ...card, padding: 8 }}>
-        <MenuRow icon={KeyRound} label="Use your own key" right={ownKey === undefined ? undefined : ownKey ? 'On' : 'Off'} onClick={toYourKey} />
-        <MenuRow icon={LogOut} label="Sign out" onClick={() => openSheet('signout')} />
-      </section>
+        }
+        name={account.name ?? account.email ?? 'Signed in'}
+        email={account.email && account.name ? account.email : undefined}
+      />
+      <Group label="Plan">
+        <Line
+          label="Plan"
+          value={planLabel(account.plan)}
+          action={free ? <PrimaryButton label="Upgrade to Pro" onClick={() => openSheet('plans')} /> : <QuietButton label="See plans" onClick={() => openSheet('plans')} />}
+        />
+        {help ? <Line label="Help this month" value={helpLeft(help)} /> : <Line label="Help this month" value="Checks never count" />}
+        <KeyLine />
+      </Group>
+      <SignOut />
       {note && (
-        <p role="status" className="m-0 text-center" style={{ fontSize: type2.xs, color: color.label }}>
+        <p role="status" className="m-0" style={{ fontSize: type2.xs, color: color.label }}>
           {note}
         </p>
       )}

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { bridge } from '../../bridge'
 import { useLesson } from '../../core/lesson'
+import { savedSecure } from './here'
 import { KEY_NAMES, type KeyName, type KeysView, type KeyStatus, type SavePatch } from './keys'
 import { nextStatus, useSettings } from './store'
 
@@ -88,7 +89,7 @@ export function useKeyFlow(live: boolean): KeyFlow {
       setCleared([])
       if (v.error) setNote(v.error)
       else {
-        setSaved(v.secure ? (bridge.platform.os === 'mac' ? 'Saved to Keychain' : 'Saved securely') : 'Saved for this run')
+        setSaved(v.secure ? savedSecure() : 'Saved for this run')
         clearTimeout(savedTimer.current)
         savedTimer.current = setTimeout(() => setSaved(undefined), 4000)
       }

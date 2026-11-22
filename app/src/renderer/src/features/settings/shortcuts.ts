@@ -79,7 +79,7 @@ export function record(e: { code: string; key: string; ctrlKey: boolean; altKey:
   if (e.altKey) mods.push('Alt')
   if (e.shiftKey) mods.push('Shift')
   if (e.metaKey) mods.push(mac ? 'Command' : 'Super')
-  if (!mods.length || (mods.length === 1 && mods[0] === 'Shift')) return { kind: 'invalid', reason: 'Add Control, Option or Command.' }
+  if (!mods.length || (mods.length === 1 && mods[0] === 'Shift')) return { kind: 'invalid', reason: mac ? 'Add Control, Option or Command.' : 'Add Ctrl or Alt.' }
   const value = [...mods, key].join('+')
   return isAccelerator(value) ? { kind: 'accelerator', value } : { kind: 'invalid', reason: 'That key can’t be used.' }
 }

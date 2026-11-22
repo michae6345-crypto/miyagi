@@ -22,6 +22,7 @@ import { color, copy, duration, elevation, fill, font, highlight, radius2, sprin
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { StatusGlyph } from '../../core/ui/status'
 import { ease, pressMotion } from '../../core/ui/motion'
 import { AppleGlyph, GoogleGlyph, TextLink } from '../account/ui'
 import { MARK_ID } from '../onboarding/Intro'
@@ -124,24 +125,34 @@ function SignedIn({ name, email, initial, onContinue }: { name?: string; email?:
   )
 }
 
-/** The calm failure line: main's reason in plain words, and Try again. Fades in; never shakes. */
-function Failure({ text }: { text: string }): ReactNode {
+/**
+ * The failure line: main's reason in plain words, and the one thing that can help. Fades in; never shakes. Redraft
+ * (Michael's audit: "a failed login looks like the normal login"): the hollow Not yet ring and full-contrast words, so
+ * it reads as a state, never red. When trying again can't help (Google sign-in not set up), the action is Continue
+ * without an account, not Try again.
+ */
+function Failure({ text, onWithout }: { text: string; onWithout: () => void }): ReactNode {
+  const retry = /try again/i.test(text) || !/continue without an account/i.test(text)
+  // The action below says it: don't say it twice.
+  const line = text.replace(/\s*Try again\.?$/, '').replace(/\s*Continue without an account( for now)?\.?$/, '')
   return (
     <motion.div
       key="fail"
       role="alert"
-      data-auth-failure
-      className="flex flex-col items-center gap-[6px] text-center"
+      data-auth-failure={retry ? 'retry' : 'without'}
+      className="flex flex-col items-center gap-[8px] text-center"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: duration.fast } }}
       transition={{ duration: duration.slow, ease: ease.out }}
     >
-      {/* The link below says Try again: don't say it twice. */}
-      <span style={{ fontSize: type2.sm, lineHeight: '19px', color: color.label, maxWidth: 360 }}>{text.replace(/\s*Try again\.?$/, '')}</span>
+      <span className="flex items-center gap-[8px]" style={{ fontSize: type2.md, lineHeight: '20px', color: color.text, maxWidth: 380 }}>
+        <StatusGlyph state="notyet" size={16} still />
+        <span>{line}</span>
+      </span>
       <span style={{ fontSize: type2.sm }}>
-        <TextLink weight={500} onClick={() => void signInWith('google')}>
-          Try again
+        <TextLink weight={500} onClick={retry ? () => void signInWith('google') : onWithout}>
+          {retry ? 'Try again' : 'Continue without an account'}
         </TextLink>
       </span>
     </motion.div>
@@ -201,7 +212,7 @@ export function Login({ onContinue }: { onContinue?: () => void } = {}): ReactNo
           {user ? "You're signed in" : `Sign in to ${copy.name}`}
         </h1>
         <p className="m-0 mt-[8px] text-center" style={{ fontSize: type2.body, lineHeight: '22px', color: color.label }}>
-          Your lessons and progress follow you to any Mac.
+          Your lessons and progress follow you to any computer.
         </p>
 
         <div className="mt-[32px] flex w-full flex-col items-center">
@@ -220,7 +231,7 @@ export function Login({ onContinue }: { onContinue?: () => void } = {}): ReactNo
                         <TextLink onClick={cancelSignIn}>Cancel</TextLink>
                       </motion.span>
                     ) : note ? (
-                      <Failure key="fail" text={note} />
+                      <Failure key="fail" text={note} onWithout={done} />
                     ) : (
                       null
                     )}

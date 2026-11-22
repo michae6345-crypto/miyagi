@@ -28,13 +28,10 @@ import { openLegal, useAuth } from '../../auth/store'
 import { stage } from '../env'
 import type { KeysView } from '../keys'
 import { eraseData } from '../privacy/erase'
-import { DELETE, POLICY_LINE, onThisComputer } from '../privacy/facts'
+import { DELETE, POLICY_LINE } from '../privacy/facts'
 import { Sees } from '../privacy/Sees'
+import { here } from '../here'
 import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
-
-/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
-const ON_MAC = bridge.platform.os === 'mac'
-const HERE = ON_MAC ? 'this Mac' : 'this computer'
 
 
 /** partial: keys and settings went, but a sign-in file could not be removed (main says signIn: false). */
@@ -122,10 +119,10 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
               step === 'failed' || step === 'partial' ? (
                 <span style={{ color: color.text }}>{step === 'failed' ? DELETE.failed : DELETE.partial}</span>
               ) : (
-                onThisComputer(DELETE.row, ON_MAC)
+                here(DELETE.row)
               )
             }
-            right={step === 'done' ? <OnWord>{`Deleted from ${HERE}`}</OnWord> : <OutlineButton label="Delete" onClick={() => setStep('confirm')} />}
+            right={step === 'done' ? <OnWord>{here('Deleted from this Mac')}</OnWord> : <OutlineButton label="Delete" onClick={() => setStep('confirm')} />}
           />
         )}
       </Group>

@@ -40,10 +40,10 @@ export function Group({ label, children, inset = 16, title, caption }: { label: 
     <section aria-label={label} style={{ borderRadius: radius2.card, background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${fill.hairline}` }}>
       {title && (
         <div className="flex flex-col gap-[2px] px-[16px] pb-[4px] pt-[16px]">
-          <span className="font-medium" style={{ fontSize: type2.sm, color: color.text }}>
+          <span className="font-medium" style={{ fontSize: type2.md, color: color.text }}>
             {title}
           </span>
-          {caption && <span style={{ fontSize: type2.xs, color: color.label }}>{caption}</span>}
+          {caption && <span style={{ fontSize: type2.sm, color: color.label }}>{caption}</span>}
         </div>
       )}
       {rows.map((r, i) => (
@@ -83,11 +83,12 @@ export function Row({
         </span>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-[2px] py-[10px]">
-        <span className="font-medium" style={{ fontSize: type2.sm, color: color.text }}>
+        {/* 14 / 13 (Michael's audit: "text is very small on settings"; it was 13 / 12). */}
+        <span className="font-medium" style={{ fontSize: type2.md, color: color.text }}>
           {label}
         </span>
         {caption && (
-          <span style={{ fontSize: type2.xs, color: color.label, fontFamily: mono ? 'var(--font-mono)' : undefined }}>{caption}</span>
+          <span style={{ fontSize: type2.sm, color: color.label, fontFamily: mono ? 'var(--font-mono)' : undefined }}>{caption}</span>
         )}
       </div>
       {right}

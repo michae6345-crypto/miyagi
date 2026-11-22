@@ -11,19 +11,17 @@
  * watching is the gray dashed ring (miyagi waits for the learner's switch); unknown is gray too and never blocks the
  * start (an engine started in Terminal: macOS grants belong to that Terminal, so the app can't tell).
  * Copy: short, calm, no em dashes. Editor labels go through copy.editorName (never an unsupported editor's name).
+ * Mac and Windows (device.ts): the computer is "this Mac" or "this PC"; Screen Recording and Accessibility are macOS
+ * grants, so on Windows those rows don't exist. Windows ships no engine yet: when none answers there, the engine row
+ * says so plainly in gray (unknown, so it never traps setup) and keeps Retry for an engine started by hand.
  */
 import { useShallow } from 'zustand/react/shallow'
 import type { HealthItem } from '../../../../../../shared/contracts/events'
 import { useLesson } from '../../core/lesson'
 import { copy } from '../../core/theme'
 import type { StatusState } from '../../core/ui/status'
+import { needsGrants, osNow, shellName, thisDevice, type Os } from './device'
 import { useOnboarding, type Asked, type CloudView, type Permissions, type RowAction } from './store'
-import { bridge } from '../../bridge'
-
-/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
-const ON_MAC = bridge.platform.os === 'mac'
-const HERE = ON_MAC ? 'this Mac' : 'this computer'
-const HERE_CAP = ON_MAC ? 'This Mac' : 'This computer'
 
 export type RowId = 'screen' | 'accessibility' | 'companion' | 'engine'
 export type RowState = Extract<StatusState, 'passed' | 'notyet' | 'watching' | 'checking' | 'unknown'>
@@ -55,15 +53,17 @@ export type RowInput = {
   localEngine?: { state: string }
   cloud?: CloudView
   cloudStatus?: string
+  /** 'mac' when left out (main/platform.ts PlatformInfo.os). */
+  os?: Os
 }
 
-const UNKNOWN_DETAIL = (external: boolean): string => (external ? "Can't check this while the engine runs in Terminal." : "miyagi can't check this from here.")
+const UNKNOWN_DETAIL = (external: boolean, os: Os = 'mac'): string => (external ? `Can't check this while the engine runs in ${shellName(os)}.` : "miyagi can't check this from here.")
 
 function screenRow(i: RowInput): Row {
   const base = { id: 'screen' as const, label: 'Screen Recording', why: 'So miyagi can see where you are.' }
   const s = i.perms?.screen
   if (s === 'granted') return { ...base, state: 'passed', word: 'On', detail: base.why }
-  if (!i.perms || s === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: UNKNOWN_DETAIL(!!i.perms?.external) }
+  if (!i.perms || s === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: UNKNOWN_DETAIL(!!i.perms?.external, i.os) }
   // macOS often applies this grant only after a relaunch.
   if (i.asked.screen) return { ...base, state: 'watching', word: 'Watching', detail: 'Switch miyagi on, then relaunch it.', action: { id: 'relaunch', label: 'Relaunch' } }
   return { ...base, state: 'notyet', word: 'Not yet', detail: 'Not yet. Allow it, then switch miyagi on.', action: { id: 'allow-screen', label: 'Allow' } }
@@ -73,7 +73,7 @@ function accessibilityRow(i: RowInput): Row {
   const base = { id: 'accessibility' as const, label: 'Accessibility', why: 'So miyagi can point at real buttons.' }
   const s = i.perms?.accessibility
   if (s === 'granted') return { ...base, state: 'passed', word: 'On', detail: base.why }
-  if (!i.perms || s === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: UNKNOWN_DETAIL(!!i.perms?.external) }
+  if (!i.perms || s === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: UNKNOWN_DETAIL(!!i.perms?.external, i.os) }
   const action = { id: 'open-accessibility' as const, label: 'Open System Settings' }
   if (i.asked.accessibility) return { ...base, state: 'watching', word: 'Watching', detail: 'Watching. Switch miyagi on, then come back.', action }
   return { ...base, state: 'notyet', word: 'Not yet', detail: 'Not yet. Switch miyagi on in System Settings.', action }
@@ -91,7 +91,7 @@ function companionRow(i: RowInput): Row | undefined {
   if (comp.state === 'checking') return { ...base, state: 'checking', word: 'Checking', detail: 'Checking VS Code.' }
   if (comp.state === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: "miyagi can't check this yet." }
   if (vscode && (vscode.state === 'missing' || vscode.state === 'off'))
-    return { ...base, state: i.asked.companion ? 'watching' : 'notyet', word: i.asked.companion ? 'Watching' : 'Not yet', detail: `VS Code isn't on ${HERE} yet.`, action: { id: 'get-vscode', label: 'Get VS Code' } }
+    return { ...base, state: i.asked.companion ? 'watching' : 'notyet', word: i.asked.companion ? 'Watching' : 'Not yet', detail: `VS Code isn't on ${thisDevice(i.os)} yet.`, action: { id: 'get-vscode', label: 'Get VS Code' } }
   const action = { id: 'install-companion' as const, label: 'Install in VS Code', item: comp }
   if (i.asked.companion) return { ...base, state: 'watching', word: 'Watching', detail: 'Watching for VS Code to connect.', action }
   return { ...base, state: 'notyet', word: 'Not yet', detail: 'Not yet. One click, VS Code opens.', action }
@@ -101,16 +101,21 @@ function companionRow(i: RowInput): Row | undefined {
 function engineRow(i: RowInput): Row {
   const base = { id: 'engine' as const, label: 'miyagi engine', why: 'Builds and checks your lessons.' }
   const local = i.localEngine?.state
+  const here = thisDevice(i.os)
   if (!i.connected) {
-    if (local === 'checking' || local === 'installing' || local === 'starting') return { ...base, state: 'watching', word: 'Starting', detail: `Starting on ${HERE}.` }
+    if (local === 'checking' || local === 'installing' || local === 'starting') return { ...base, state: 'watching', word: 'Starting', detail: `Starting on ${here}.` }
+    // Windows ships no engine yet (main/localEngine.ts whyUnmanaged: not macOS): say it plainly, in gray, so setup can
+    // still finish. Retry tries the link again for an engine started by hand.
+    if (i.os === 'win' && (local === 'failed' || local === 'missing'))
+      return { ...base, state: 'unknown', word: 'Not running', detail: `The engine isn't running on ${here}.`, action: { id: 'retry-engine', label: 'Retry' }, alt: { id: 'copy-engine-details', label: 'Copy details' } }
     // Never "Connecting" forever: main says failed (with its reason in engine.log) once the engine can't come up.
     if (local === 'failed' || local === 'missing')
       return { ...base, state: 'notyet', word: "Couldn't start", detail: ENGINE_FAILED, action: { id: 'retry-engine', label: 'Retry' }, alt: { id: 'copy-engine-details', label: 'Copy details' } }
-    if (local === 'external') return { ...base, state: 'notyet', word: 'Not yet', detail: 'Start the engine in Terminal.' }
+    if (local === 'external') return { ...base, state: 'notyet', word: 'Not yet', detail: `Start the engine in ${shellName(i.os)}.` }
     return { ...base, state: 'watching', word: 'Connecting', detail: 'Looking for the engine.' }
   }
   const cloud = i.cloud?.state
-  if (cloud === 'minting') return { ...base, state: 'checking', word: 'Setting up', detail: `Setting up access for ${HERE}.` }
+  if (cloud === 'minting') return { ...base, state: 'checking', word: 'Setting up', detail: `Setting up access for ${here}.` }
   if (cloud === 'failed') return { ...base, state: 'notyet', word: 'Not yet', detail: "Couldn't set up access. Check your connection.", action: { id: 'retry-cloud', label: 'Try again' } }
   if (cloud === 'ok' || i.cloudStatus) {
     switch (i.cloudStatus) {
@@ -119,17 +124,19 @@ function engineRow(i: RowInput): Row {
       case 'quota':
         return { ...base, state: 'notyet', word: 'Not yet', detail: "Today's free use is used up. Back tomorrow." }
       case 'unauthorized':
-        return { ...base, state: 'notyet', word: 'Not yet', detail: `${HERE_CAP}'s access was turned off.` }
+        return { ...base, state: 'notyet', word: 'Not yet', detail: `Access for ${here} was turned off.` }
       case 'offline':
         return { ...base, state: 'notyet', word: 'Offline', detail: "Can't reach miyagi. Check your connection." }
     }
   }
-  return { ...base, state: 'passed', word: 'Running', detail: local === 'external' ? 'Running in Terminal.' : `Running on ${HERE}.` }
+  return { ...base, state: 'passed', word: 'Running', detail: local === 'external' ? `Running in ${shellName(i.os)}.` : `Running on ${here}.` }
 }
 
 export function deriveRows(i: RowInput): Row[] {
   const comp = companionRow(i)
-  return [screenRow(i), accessibilityRow(i), ...(comp ? [comp] : []), engineRow(i)]
+  // Screen Recording and Accessibility are macOS grants: on Windows there is nothing to ask for (device.ts).
+  const grants = needsGrants(i.os ?? 'mac') ? [screenRow(i), accessibilityRow(i)] : []
+  return [...grants, ...(comp ? [comp] : []), engineRow(i)]
 }
 
 export type Summary = {
@@ -168,5 +175,5 @@ export function useRows(): Row[] {
   const { watching, ...rest } = o
   // An open recovery card watches its grant (Onb-Permission-Recovery: that row reads Watching).
   const asked = watching && !rest.asked[watching] ? { ...rest.asked, [watching]: 1 } : rest.asked
-  return deriveRows({ ...rest, ...l, asked })
+  return deriveRows({ ...rest, ...l, asked, os: osNow() })
 }

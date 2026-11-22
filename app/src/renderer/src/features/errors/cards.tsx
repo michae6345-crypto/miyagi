@@ -22,10 +22,7 @@ import { guard } from './lines'
 import { Caption, CardFrame, ErrGlyph, Eyebrow } from './parts'
 import { buildDetails, LIBRARY_ID, type DetailFields } from './scrub'
 import { closeCard, decideCrash, restartEngine, TRIES, useErrors } from './store'
-
-/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
-const ON_MAC = bridge.platform.os === 'mac'
-const HERE = ON_MAC ? 'this Mac' : 'this computer'
+import { shellName, thisDevice } from '../onboarding/device'
 
 /** A text-only control (End lesson for now, View report): chrome, no fill. */
 function TextButton({ label, onClick, underline }: { label: string; onClick: () => void; underline?: boolean }): ReactNode {
@@ -113,7 +110,7 @@ export function EngineOfflineCard(): ReactNode {
     restart === 'failed'
       ? 'Restart did not work. Quit and reopen miyagi.'
       : external
-        ? `${copy.name} runs in Terminal here. Restart it there.`
+        ? `${copy.name} runs in ${shellName()} here. Restart it there.`
         : restart === 'starting'
           ? 'Restarting. This takes a few seconds.'
           : `Tried ${TRIES} times. Restart takes a few seconds.`
@@ -341,7 +338,7 @@ export function CrashCard(): ReactNode {
   const save = (): void => {
     if (always) setPrefs({ crashReports: 'always' })
     decideCrash(true)
-    notify(`Report kept on ${HERE}`, 'info', { id: 'err-crash-saved' })
+    notify(`Report kept on ${thisDevice()}`, 'info', { id: 'err-crash-saved' })
   }
   return (
     <CardFrame
@@ -355,7 +352,7 @@ export function CrashCard(): ReactNode {
         </>
       }
       title={`${copy.name} closed unexpectedly`}
-      body={`Keep a report so you can share it if it happens again? It stays on ${HERE}.`}
+      body={`Keep a report so you can share it if it happens again? It stays on ${thisDevice()}.`}
     >
       <div className="grid grid-cols-2" style={{ borderRadius: radius2.card, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
         {[

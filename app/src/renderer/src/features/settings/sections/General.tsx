@@ -134,7 +134,7 @@ export function General({ live }: { live: boolean }): ReactNode {
         <Row
           icon={Wrench}
           label={`Set up ${copy.name}`}
-          caption="Check permissions and VS Code again."
+          caption={bridge.platform.os === 'mac' ? 'Check permissions and VS Code again.' : 'Check VS Code again.'}
           right={<QuietButton label="Open setup" onClick={() => void openOnboarding()} />}
         />
         <Row icon={Compass} label="Show me around" caption="A short tour of the pill and the launcher." right={<QuietButton label="Start" onClick={() => startTour()} />} />

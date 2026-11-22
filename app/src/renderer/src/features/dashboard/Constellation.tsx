@@ -49,6 +49,22 @@ const LEGEND: Array<{ state: NodeState; due?: boolean; word: string }> = [
   { state: 'mastered', due: true, word: 'Review due' }
 ]
 
+/**
+ * Redraft round 2 (Adrian: no dot by each track, "something to show each skill visually in its name"): a small ring
+ * that fills as the track's skills are mastered, green only once all of them are (green = passed), plus "3 of 5".
+ */
+function TrackRing({ mastered, total }: { mastered: number; total: number }): ReactNode {
+  const r = 6.5
+  const c = 2 * Math.PI * r
+  const f = total ? Math.max(0, Math.min(1, mastered / total)) : 0
+  return (
+    <svg aria-hidden width={18} height={18} viewBox="0 0 18 18" className="block shrink-0">
+      <circle cx={9} cy={9} r={r} fill="none" stroke={fill.hairline} strokeWidth={2} />
+      {f > 0 && <circle cx={9} cy={9} r={r} fill="none" stroke={f >= 1 ? color.green : color.text} strokeWidth={2} strokeLinecap="round" strokeDasharray={`${c * f} ${c}`} transform="rotate(-90 9 9)" />}
+    </svg>
+  )
+}
+
 function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: (id: string) => boolean; width: number }): ReactNode {
   const t = g.track
   const selected = useDash((s) => (s.selected?.track === t.track ? s.selected.id : undefined))
@@ -82,10 +98,13 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
   return (
     <section data-track={t.track} aria-label={trackHeadline(t)} className="flex flex-col gap-[8px]">
       <div className="flex items-center gap-[8px]">
-        <span aria-hidden className="block shrink-0" style={{ width: 8, height: 8, borderRadius: radius2.round, background: tones[tone].fg }} />
+        <TrackRing mastered={t.skills.filter((s) => s.state === 'mastered').length} total={t.skills.length} />
         <h3 className="m-0 min-w-0 truncate" style={{ ...h2, fontSize: type2.md }}>
           {g.title}
         </h3>
+        <span className="shrink-0" style={{ ...caption, fontVariantNumeric: 'tabular-nums' }}>
+          {t.skills.filter((s) => s.state === 'mastered').length} of {t.skills.length}
+        </span>
         {g.kicker && (
           <span className="shrink-0 truncate" style={caption}>
             {g.kicker}
@@ -149,12 +168,12 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
                 onBlur={() => setHover((h0) => (h0 === s.id ? undefined : h0))}
                 onClick={() => select(on ? undefined : { track: t.track, id: s.id })}
                 className="absolute flex cursor-pointer flex-col items-center gap-[4px] text-center outline-none"
-                style={{ left: p.x - colW / 2 + 4, top: p.y - GLYPH / 2, width: colW - 8, opacity: st === 'locked' ? 0.4 : 1 }}
+                style={{ left: p.x - colW / 2 + 4, top: p.y - GLYPH / 2, width: colW - 8, opacity: st === 'locked' ? 0.55 : 1 }}
               >
                 <NodeGlyph state={st} due={due} selected={on} />
                 <span
                   className="line-clamp-3 w-full"
-                  style={{ fontSize: type2.xs, lineHeight: '15px', overflowWrap: 'break-word', color: st === 'available' || st === 'locked' ? color.label : color.text, fontWeight: on ? 600 : 400 }}
+                  style={{ fontSize: type2.sm, lineHeight: '17px', overflowWrap: 'break-word', color: st === 'available' || st === 'locked' ? color.label : color.text, fontWeight: on ? 600 : 500 }}
                 >
                   <CodeText text={s.label} />
                 </span>
@@ -192,7 +211,7 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
   )
 }
 
-export function Constellation({ data, review, loading, children, bare }: { data?: DashData; review: ReviewEntry[]; loading: boolean; children?: ReactNode; /** no box of its own and no inner scroll: the page scrolls */ bare?: boolean }): ReactNode {
+export function Constellation({ data, review, loading, children, bare, titled = true }: { data?: DashData; review: ReviewEntry[]; loading: boolean; children?: ReactNode; /** no box of its own and no inner scroll: the page scrolls */ bare?: boolean; /** false on the Skills page, whose own title already says Skills (the legend stays) */ titled?: boolean }): ReactNode {
   const [ref, width] = useWidth<HTMLDivElement>()
   const groups = groupTracks(data)
   const tracks = data?.tracks ?? []
@@ -214,7 +233,7 @@ export function Constellation({ data, review, loading, children, bare }: { data?
       style={bare ? undefined : { minHeight: 0, padding: 20, borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}
     >
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-x-[16px] gap-y-[6px]">
-        <h2 id="dash-skills" style={{ ...h2, fontSize: bare ? type2.xs : type2.lg, color: bare ? color.label : color.text, fontWeight: bare ? 500 : 600, letterSpacing: bare ? '0.02em' : undefined }}>
+        <h2 id="dash-skills" className={titled ? undefined : 'sr-only'} style={{ ...h2, fontSize: bare ? type2.xs : type2.lg, color: bare ? color.label : color.text, fontWeight: bare ? 500 : 600, letterSpacing: bare ? '0.02em' : undefined }}>
           Skills
         </h2>
         {tracks.length > 0 && (

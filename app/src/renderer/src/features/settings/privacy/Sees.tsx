@@ -5,11 +5,9 @@
  */
 import { Bug, ChartColumn, CodeXml, Folder, KeyRound, Link, Monitor, Search, Server, SquareCode, UserRound, Video, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { here } from '../here'
 import { Group, Note, Plain, Row } from '../ui'
-import { bridge } from '../../../bridge'
-import { FACTS, KEYS_NO_KEYCHAIN, ROUTE, onThisComputer, type FactId } from './facts'
-
-const ON_MAC = bridge.platform.os === 'mac'
+import { FACTS, KEYS_NO_KEYCHAIN, ROUTE, type FactId } from './facts'
 
 const ICON: Record<FactId, LucideIcon> = {
   screen: Monitor,
@@ -37,8 +35,8 @@ export function Sees({ secure }: { secure?: boolean }): ReactNode {
             minH={64}
             icon={ICON[f.id]}
             label={f.label}
-            caption={f.id === 'keys' && secure === false ? KEYS_NO_KEYCHAIN : onThisComputer(f.line, ON_MAC)}
-            right={<Plain>{onThisComputer(f.where, ON_MAC)}</Plain>}
+            caption={here(f.id === 'keys' && secure === false ? KEYS_NO_KEYCHAIN : f.line)}
+            right={<Plain>{here(f.where)}</Plain>}
           />
         ))}
       </Group>

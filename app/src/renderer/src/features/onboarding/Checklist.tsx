@@ -5,7 +5,7 @@
  */
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { color, fill, font, spring, status as tone, type2 } from '../../core/theme'
+import { color, fill, font, highlight, radius2, spring, status as tone, surface, type2 } from '../../core/theme'
 import { QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Footer, ReadyCount, rise, stagger } from './parts'
@@ -51,10 +51,17 @@ export function Checklist({ rows, sum, onGuide, onStart, mark, again }: { rows: 
   return (
     <div data-onb-view="checklist" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
       <SheetHeader title="Review setup" rows={rows} sum={sum} mark={mark} />
-      <motion.div role="list" className="mt-[24px] flex flex-col gap-[8px]" variants={stagger(0.04)} initial="hidden" animate="shown">
-        {rows.map((r) => (
+      <motion.div
+        role="list"
+        className="mt-[24px] flex flex-col overflow-hidden"
+        style={{ borderRadius: radius2.chip, background: surface.row, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${fill.hairline}` }}
+        variants={stagger(0.04)}
+        initial="hidden"
+        animate="shown"
+      >
+        {rows.map((r, i) => (
           <motion.div key={r.id} role="none" variants={rise}>
-            <Row row={r} variant="card" />
+            <Row row={r} variant="card" last={i === rows.length - 1} />
           </motion.div>
         ))}
       </motion.div>

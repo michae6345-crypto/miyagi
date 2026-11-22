@@ -17,6 +17,7 @@ import type { HealthItem, PermissionKind } from '../../../../../../../shared/con
 import { openOnboarding } from '../../../core/surfaces'
 import { PrimaryButtonV2, QuietButton, StatusGlyph, StatusWord } from '../../../core/ui/atoms'
 import { color, copy, type2 } from '../../../core/theme'
+import { isMac } from '../here'
 import { openPermission, useHealth, usePermissions, type PermissionState } from '../permissions'
 import { count, Group, Note, OnWord, PageHeader, Row } from '../ui'
 import { COMPANION, PERMISSION_COPY } from '../words'
@@ -34,8 +35,13 @@ const PERMS: { kind: PermissionKind; icon: LucideIcon; label: string; caption: s
 export function Permissions({ live }: { live: boolean }): ReactNode {
   const perms = usePermissions(live)
   const health = useHealth(live)
+  // Screen Recording and Accessibility are macOS switches. Windows has nothing to grant (main reads them as unknown
+  // there), so a PC lists only the companion, when the engine reports it.
+  const mac = isMac()
 
-  const items: Item[] = PERMS.map((p) => ({ id: p.kind, icon: p.icon, label: p.label, caption: p.caption, state: fromPermission(perms?.[p.kind]), fix: () => openPermission(p.kind) }))
+  const items: Item[] = mac
+    ? PERMS.map((p) => ({ id: p.kind, icon: p.icon, label: p.label, caption: p.caption, state: fromPermission(perms?.[p.kind]), fix: () => openPermission(p.kind) }))
+    : []
   // Hidden without a probe: only an engine that reports the companion can say whether it's on.
   const companion = health.companion
   if (companion)
@@ -43,7 +49,9 @@ export function Permissions({ live }: { live: boolean }): ReactNode {
 
   const known = items.filter((i) => i.state === 'on' || i.state === 'off')
   const on = known.filter((i) => i.state === 'on').length
-  const caption = !perms
+  const caption = !mac
+    ? 'Windows asks for nothing extra.'
+    : !perms
     ? 'All in one place.'
     : known.length && on === known.length
       ? 'All in one place. All on.'
@@ -61,19 +69,27 @@ export function Permissions({ live }: { live: boolean }): ReactNode {
   return (
     <>
       <PageHeader title="Permissions" caption={caption} />
-      <Group label="Permissions miyagi needs" inset={64}>
-        {items.map((i) => (
-          <Row
-            key={i.id}
-            minH={72}
-            icon={i.icon}
-            label={i.label}
-            caption={i.caption}
-            right={<Right item={i} primary={i.id === firstOff} />}
-          />
-        ))}
-      </Group>
-      {perms?.external ? <Note>{copy.name} runs from Terminal here, so macOS asks Terminal for these.</Note> : note ? <Note>{note}</Note> : null}
+      {items.length > 0 && (
+        <Group label="Permissions miyagi needs" inset={64}>
+          {items.map((i) => (
+            <Row
+              key={i.id}
+              minH={72}
+              icon={i.icon}
+              label={i.label}
+              caption={i.caption}
+              right={<Right item={i} primary={i.id === firstOff} />}
+            />
+          ))}
+        </Group>
+      )}
+      {!mac ? (
+        <Note>Screen Recording and Accessibility are Mac settings. A PC has nothing to turn on.</Note>
+      ) : perms?.external ? (
+        <Note>{copy.name} runs from Terminal here, so macOS asks Terminal for these.</Note>
+      ) : note ? (
+        <Note>{note}</Note>
+      ) : null}
     </>
   )
 }

@@ -10,9 +10,12 @@
  * and an empty slot of the same width balances it on the right, so the dots sit on the window's center line. The tree
  * sits in its slot from guided setup on, and leaves it for the sidebar at the end.
  * Not interactive: it is a progress line, not navigation (Back lives in the footer).
+ * Windows (onboarding/device.ts): no Screen Recording or Accessibility grants exist there, so a PC's strip is three dots,
+ * Sign in, VS Code, Ready, the same steps the guided walk has on that computer.
  */
 import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
+import { needsGrants, osNow, type Os } from '../../onboarding/device'
 import { Dots, type DotItem } from '../../onboarding/Dots'
 import type { Row } from '../../onboarding/rows'
 import type { GuidedStepId } from '../../onboarding/store'
@@ -30,14 +33,23 @@ export const STRIP: ReadonlyArray<{ id: StripId; label: string }> = [
   { id: 'ready', label: 'Ready' }
 ]
 
+/** This computer's strip: all five on a Mac, without the two macOS grants on Windows. */
+export function stripItems(os: Os = osNow()): ReadonlyArray<{ id: StripId; label: string }> {
+  return needsGrants(os) ? STRIP : STRIP.filter((it) => it.id !== 'screen' && it.id !== 'accessibility')
+}
+
 const MARK = 18
 const SLOT_GAP = 10
 
 /** Which strip item is current for this phase and guided step. */
-export function currentItem(phase: FlowPhase, step: GuidedStepId | undefined): StripId {
+export function currentItem(phase: FlowPhase, step: GuidedStepId | undefined, os: Os = osNow()): StripId {
   if (phase === 'login' || phase === 'intro' || phase === 'pending') return 'login'
   if (phase === 'consent') return 'consent'
-  if (phase === 'setup') return !step || step === 'engine' ? (step ? 'ready' : 'screen') : step
+  if (phase === 'setup') {
+    if (step === 'engine') return 'ready'
+    if (!step) return needsGrants(os) ? 'screen' : 'companion'
+    return step
+  }
   return 'ready'
 }
 
@@ -68,7 +80,7 @@ export function Strip({
   const reduce = useReducedMotion()
   const current = currentItem(phase, step)
   const withMark = mark && (phase === 'setup' || phase === 'ready')
-  const items: DotItem[] = STRIP.map((it) => ({ id: it.id, label: it.label, state: it.id === current ? 'current' : itemDone(it.id, phase, rows, skipped) ? 'done' : 'next' }))
+  const items: DotItem[] = stripItems().map((it) => ({ id: it.id, label: it.label, state: it.id === current ? 'current' : itemDone(it.id, phase, rows, skipped) ? 'done' : 'next' }))
   return (
     <motion.nav aria-label="Setup progress" data-flow-strip={current} className="flex items-center" initial={reduce ? false : { opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={stripIn}>
       <span className="block shrink-0" style={{ width: MARK, height: MARK, marginRight: SLOT_GAP }}>

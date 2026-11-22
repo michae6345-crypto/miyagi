@@ -23,11 +23,9 @@ import { color, copy, fill, radius2, type2 } from '../../../core/theme'
 import type { KeyFlow } from '../account'
 import { KEY_LABEL, REQUIRED, SHOWN, type KeyInfo, type KeyName } from '../keys'
 import { useSettings } from '../store'
+import { keysNote } from '../here'
 import { Group, Note, PageHeader } from '../ui'
 import { OWN_KEY } from '../words'
-
-/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
-const ON_MAC = bridge.platform.os === 'mac'
 
 const isRequired = (k: KeyName): boolean => REQUIRED.includes(k)
 
@@ -92,7 +90,7 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
         </Group>
       </div>
 
-      <Note icon={Lock}>{view && !view.secure ? 'Not saved: no secure storage. Kept for this run only.' : ON_MAC ? 'Kept in your Mac’s Keychain, never on our servers.' : 'Kept encrypted on this computer, never on our servers.'}</Note>
+      <Note icon={Lock}>{view && !view.secure ? 'Not saved: no secure storage. Kept for this run only.' : keysNote()}</Note>
 
       <div className="flex min-h-[36px] items-center gap-[8px]">
         <span className="flex min-w-0 flex-1 items-center gap-[7px]" style={{ fontSize: type2.xs, color: color.label }}>
@@ -111,19 +109,12 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
               <span className="truncate">{flow.saved}</span>
             </motion.span>
           )}
-          {/* Why Test is off, said out loud: a disabled button's tooltip rarely shows and screen readers never read it. */}
-          {!footNote && !flow.saved && !testable && live && (
-            <span id={TEST_WHY} className="min-w-0 truncate" data-test-why>
-              Save a key to test it.
-            </span>
-          )}
           {!footNote && !flow.saved && <HelpLink label="Where do I find my key?" onClick={() => bridge.invoke('open:external', KEY_HELP).catch(() => {})} />}
         </span>
-        {/* The title sits on a wrapper: hover on a disabled button never reaches its own title. */}
-        <span className="flex shrink-0" title={testable ? undefined : 'Save a key first, then test it'}>
-          <QuietButton label="Test" busy={flow.testing} disabled={!testable || flow.testing || !live} onClick={() => void flow.test()} />
-        </span>
-        <PrimaryButtonV2 label="Save key" busy={flow.saving} disabled={!flow.dirty || flow.saving} onClick={() => void flow.save()} />
+        {/* Redraft (Michael's audit: "disabled-looking buttons"): each button shows only when it can do something. Test
+            once there is a key to test; Save key once a field has changed (and while it saves). */}
+        {testable && <QuietButton label="Test" busy={flow.testing} disabled={flow.testing || !live} onClick={() => void flow.test()} />}
+        {(flow.dirty || flow.saving) && <PrimaryButtonV2 label="Save key" busy={flow.saving} disabled={flow.saving} onClick={() => void flow.save()} />}
       </div>
     </>
   )

@@ -6,18 +6,15 @@
  * Enter still starts); no Level row (the engine doesn't send one); the step's check name is not in the contract, so a
  * step shows its minutes when the engine sends them.
  */
-import { ChevronLeft, CircleCheck, Play } from 'lucide-react'
+import { ChevronLeft, Play } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { color, fill, font, radius2, surface, type2 } from '../../core/theme'
 import { youtubeId, youtubeWatchUrl } from './sanitize'
-import { TOOL_NAME, ToolTile, minutesLabel, soft, stepsLabel } from './parts'
+import { TOOL_NAME, minutesLabel, soft, stepsLabel } from './parts'
 import { closeDetail, itemFor, start, useLibrary } from './store'
-
-/** The Windows build says the same about its own machine: "this computer", never "this Mac" or the Keychain. */
-const ON_MAC = bridge.platform.os === 'mac'
-const HERE = ON_MAC ? 'this Mac' : 'this computer'
+import { thisDevice } from '../onboarding/device'
 
 const KICKER = { youtube: 'Lesson from a YouTube tutorial', goal: 'Lesson built for a goal', library: 'Lesson from the library' } as const
 
@@ -91,7 +88,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
       <div className="flex h-full w-full flex-col" style={{ color: color.text }}>
         {bar}
         <div className="flex flex-1 items-center justify-center" style={{ fontSize: type2.sm, color: color.label }}>
-          {loaded ? `That lesson isn’t on ${HERE}.` : 'Loading…'}
+          {loaded ? `That lesson isn’t on ${thisDevice()}.` : 'Loading…'}
         </div>
       </div>
     )
@@ -103,45 +100,52 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
   const src = item.source
   const by = src?.channel ?? item.by
   const vid = src?.kind === 'youtube' ? youtubeId(src.url) : undefined
-  const editorNear = item.tools.includes('vscode') || item.tools.includes('jupyter')
+  // Redraft round 2: the caption only speaks when something is wrong (no reassurance copy under the button).
   // Nothing says "can't start" until library:caps has answered; the line keeps its height meanwhile.
-  const caption =
-    err ??
-    (capsKnown && !canStart
-      ? 'This engine can’t start saved lessons yet.'
-      : !item.ready
-        ? `Not ready on ${HERE} yet.`
-        : !capsKnown
-          ? ' '
-          : editorNear
-            ? 'Sits beside VS Code. Never covers your files.'
-            : 'Sits beside your work. Never covers your files.')
+  const caption = err ?? (capsKnown && !canStart ? 'This engine can’t start saved lessons yet.' : !item.ready ? 'Not ready yet.' : ' ')
 
+  // One gray line under the title: the tools in words, the steps, the minutes, who made it.
+  const meta = [item.tools.map((t) => TOOL_NAME[t]).join(', '), stepsLabel(stepCount), mins, item.by ? `by ${item.by}` : ''].filter(Boolean).join(' · ')
+
+  // Redraft (Michael's audit: "a large empty area on the left, a tiny preview box at top right; hard to scan"): one
+  // centered column, as on Home. The title, one meta line, Start lesson right under it (no trip to the bottom-right
+  // corner), then the steps. A YouTube lesson shows its video under the start row.
   return (
     <div className="flex h-full w-full flex-col" style={{ color: color.text }}>
       {bar}
-      <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: '1fr 320px' }}>
-        <section aria-labelledby="lib-title" className="flex min-h-0 flex-col overflow-y-auto" style={{ padding: '32px 40px' }}>
+      <section aria-labelledby="lib-title" className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '40px 40px 56px' }}>
           <div style={{ fontSize: type2.xs, color: color.label }}>{KICKER[src?.kind ?? 'library']}</div>
           <h1 id="lib-title" className="m-0 font-semibold" style={{ marginTop: 8, fontSize: type2.xxl, lineHeight: 1.2, letterSpacing: '-0.015em' }}>
             {item.title}
           </h1>
+          <div style={{ marginTop: 8, fontSize: type2.sm, color: color.label }}>{meta}</div>
           {detail?.overview && (
-            <p className="m-0" style={{ marginTop: 12, fontSize: type2.md, lineHeight: 1.5, color: soft, maxWidth: 520 }}>
+            <p className="m-0" style={{ marginTop: 14, fontSize: type2.md, lineHeight: 1.5, color: soft, maxWidth: 560 }}>
               {detail.overview}
             </p>
           )}
-          <h2 className="m-0 font-semibold uppercase" style={{ margin: '32px 0 8px', fontSize: type2.micro, letterSpacing: '0.04em', color: color.label }}>
-            {stepsLabel(stepCount)}
+          <div className="flex flex-wrap items-center gap-[12px]" style={{ marginTop: 22 }}>
+            <PrimaryButton label="Start lesson" icon={Play} busy={busy} disabled={!ready || (!!starting && !busy)} onClick={() => void start(id)} />
+            {caption.trim() && (
+              <span role={err ? 'status' : undefined} style={{ fontSize: type2.xs, color: color.label }}>
+                {caption}
+              </span>
+            )}
+          </div>
+          {vid && (
+            <div style={{ marginTop: 28, maxWidth: 360 }}>
+              <Video vid={vid} by={by} />
+            </div>
+          )}
+          <h2 className="m-0 font-medium" style={{ margin: '36px 0 6px', fontSize: type2.xs, color: color.label }}>
+            Steps
           </h2>
           {steps.length > 0 ? (
-            <ol className="m-0 list-none p-0" style={{ borderTop: `1px solid ${surface.border}` }}>
+            <ol className="m-0 list-none p-0">
               {steps.map((st, i) => (
-                <li key={`${st.index}-${i}`} className="flex items-center gap-[16px]" style={{ height: 52, borderBottom: i === steps.length - 1 ? 'none' : `1px solid ${surface.border}` }}>
-                  <span
-                    className="flex shrink-0 items-center justify-center tabular-nums"
-                    style={{ width: 28, height: 28, borderRadius: radius2.round, boxShadow: `inset 0 0 0 1px ${fill.trackNextMini}`, fontSize: type2.xs, color: soft }}
-                  >
+                <li key={`${st.index}-${i}`} className="flex items-center gap-[14px]" style={{ height: 48, borderBottom: i === steps.length - 1 ? 'none' : `1px solid ${fill.hairline}` }}>
+                  <span className="w-[20px] shrink-0 text-right tabular-nums" style={{ fontSize: type2.sm, color: color.label }}>
                     {i + 1}
                   </span>
                   <span className="min-w-0 flex-1 truncate" style={{ fontSize: type2.md }}>
@@ -154,56 +158,8 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
           ) : (
             <div style={{ fontSize: type2.sm, color: color.label }}>{detail === undefined ? (failed ? 'The steps show once the engine answers.' : 'Loading the steps…') : 'The steps show once the lesson starts.'}</div>
           )}
-        </section>
-
-        <aside className="flex min-h-0 flex-col gap-[24px] overflow-y-auto" style={{ padding: '32px 24px', borderLeft: `1px solid ${surface.border}`, background: surface.well }}>
-          {vid && <Video vid={vid} by={by} />}
-
-          <dl className="m-0 grid gap-x-[16px] gap-y-[12px]" style={{ gridTemplateColumns: 'auto 1fr', fontSize: type2.sm }}>
-            {mins && (
-              <>
-                <dt style={{ color: color.label }}>Time</dt>
-                <dd className="m-0">{mins}</dd>
-              </>
-            )}
-            <dt style={{ color: color.label }}>Steps</dt>
-            <dd className="m-0">{stepCount}</dd>
-            {item.by && (
-              <>
-                <dt style={{ color: color.label }}>Made by</dt>
-                <dd className="m-0">{item.by}</dd>
-              </>
-            )}
-          </dl>
-
-          {item.tools.length > 0 && (
-            <div>
-              <div style={{ fontSize: type2.xs, color: color.label, marginBottom: 8 }}>Works in</div>
-              <div className="flex flex-wrap gap-[8px]">
-                {item.tools.map((t) => (
-                  <span key={t} className="inline-flex items-center gap-[8px]" style={{ height: 28, padding: '0 10px 0 4px', borderRadius: radius2.control, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, fontSize: type2.xs, color: soft }}>
-                    <ToolTile tool={t} size={20} />
-                    {TOOL_NAME[t]}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="mt-auto flex flex-col gap-[12px]">
-            {ready && (
-              <div className="flex items-center gap-[8px]" style={{ fontSize: type2.xs, color: soft }}>
-                <CircleCheck aria-hidden size={14} strokeWidth={1.8} />
-                Ready instantly. Saved on {HERE}.
-              </div>
-            )}
-            <PrimaryButton label="Start lesson" size="lg" block busy={busy} disabled={!ready || (!!starting && !busy)} onClick={() => void start(id)} />
-            <div role={err ? 'status' : undefined} className="text-center" style={{ fontSize: type2.xs, color: color.label }}>
-              {caption}
-            </div>
-          </div>
-        </aside>
-      </div>
+        </div>
+      </section>
     </div>
   )
 }
