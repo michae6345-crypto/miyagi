@@ -17,6 +17,7 @@
  *   errors/             the local error log, the launch marker, a pending crash report (features/errors.ts)
  *   crash-reports/      saved crash reports (features/errors.ts)
  *   telemetry/          the usage sender's state (features/telemetry.ts)
+ *   funnel/             activation milestone times (features/funnel.ts)
  * Electron's own storage (cookies, localStorage, IndexedDB, the HTTP cache) is cleared through the session API, not
  * here (accountDelete.ts): the YouTube player's iframe runs in the default session, so its cookies go with it.
  * logs (~/Library/Logs/miyagi): island.log, the push-to-talk log (main/index.ts, features/ptt.ts)
@@ -50,7 +51,7 @@ export const USER_DATA_FILES = [
   'updates.json',
   'player-bounds.json'
 ] as const
-export const USER_DATA_DIRS = ['errors', 'crash-reports', 'telemetry'] as const
+export const USER_DATA_DIRS = ['errors', 'crash-reports', 'telemetry', 'funnel'] as const
 /** Under the engine's source tree (localEngine.ts KEPT_DIRS and what the engine writes there). */
 export const ENGINE_CACHE_DIRS = [
   ['demo', 'cache', 'search'],

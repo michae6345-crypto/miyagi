@@ -26,7 +26,7 @@ Cloud side: branch `claude/eng-proxy-funnel` (PR into `claude/eng-proxy-next`): 
   replays, core helpers). Full app suite: 578 passed. `npm run typecheck` green.
 
 ## Core requests
-1. **Account delete**: add `'funnel'` to `USER_DATA_DIRS` in `main/features/accountDelete/wipe.ts` (and its test), so
+1. **Account delete**: DONE in this lane: `'funnel'` is in `USER_DATA_DIRS` (accountDelete/wipe.ts + wipe.test.ts), so
    `userData/funnel/` is wiped with the account (the cloud rows already are).
 2. **Privacy facts**: one line under "usage" in `renderer/src/features/settings/privacy/facts.ts`: "With usage on and
    signed in: when you first launched, signed in, granted permissions, and started, passed and finished a lesson.
