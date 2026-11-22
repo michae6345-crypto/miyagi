@@ -50,6 +50,8 @@ Screens: `/Users/tripi/sand hacks/miyagi-v2/screens/round3/updates-*.jpg` (offer
 4. **integrator: `agents/ports.json`**: add `"updates": 5611`.
 
 ## Signed-app path (when the Apple Developer account exists)
+Design, flag and inert code: `agents/auto-update.md` (`features/updates/auto.ts`, `main/features/autoUpdate.ts`, off behind `AUTO_UPDATE_ENABLED`).
+
 Today: no auto-install, by design. Once the app is signed with a Developer ID and notarized (DISTRIBUTION-PLAN section 3), switch to in-place updates:
 
 1. `npm i electron-updater` (a dependency, not dev).
