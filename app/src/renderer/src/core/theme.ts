@@ -50,7 +50,11 @@ export const brand = {
    * the "Best" label. Ink text on them. They never mean status (green = passed, amber = off track stay as is),
    * and the chrome stays black and white. No gradients or glow.
    */
-  pastel: { pink: '#F9C5D5', sky: '#C5E4F9', lilac: '#D9D2FF', pinkDeep: '#F4A7BF', skyDeep: '#9CCFF2', apricot: '#FFC4A3', mint: '#BFE6DA', peach: '#FFC4A3', sand: '#E9DFC6' }
+  pastel: { pink: '#F9C5D5', sky: '#C5E4F9', lilac: '#D9D2FF', pinkDeep: '#F4A7BF', skyDeep: '#9CCFF2', apricot: '#FFC4A3', mint: '#BFE6DA', peach: '#FFC4A3', sand: '#E9DFC6',
+    /** Option fills (Adrian, Nov 21): Diagram and Watch each get their own pastel. peachLight is lighter than the tone peach (that one is the apricot that read orange). */
+    seafoam: '#BFEBE6',
+    peachLight: '#FBD5BE'
+  }
 } as const
 
 /** The overlay follows macOS: dark HUD glass by default, light when the system is light. */
@@ -91,6 +95,8 @@ const palette: Record<string, readonly [string, string]> = {
   'c-hairline': [hud.dark.hairline, `rgba(${INK},.10)`],
   'c-accent': [hud.dark.button, hud.light.button],
   'c-on-accent': [hud.dark.buttonText, hud.light.buttonText],
+  // Ink on a solid option pastel: fixed in both appearances (c-on-accent is paper in light, unreadable on a pastel).
+  'c-on-pastel': [brand.ink, brand.ink],
   'c-offtrack': [brand.offTrack, brand.ink],
   'c-offtrack-tint': [brand.offTrackTint, `rgba(${INK},.06)`],
   'c-green': [brand.pass, '#22A24B'],
@@ -121,6 +127,7 @@ const palette: Record<string, readonly [string, string]> = {
   'f-skeleton': ['rgba(255,255,255,.06)', `rgba(${INK},.06)`],
   'f-rule': ['rgba(255,255,255,.08)', `rgba(${INK},.08)`],
   'f-on-accent-key': ['rgba(0,0,0,.1)', 'rgba(255,255,255,.2)'],
+  'f-on-pastel-key': ['rgba(0,0,0,.1)', 'rgba(0,0,0,.1)'],
   'f-track': ['rgba(255,255,255,.18)', `rgba(${INK},.14)`],
   'f-track-soft': ['rgba(255,255,255,.14)', `rgba(${INK},.10)`],
   'f-ring': ['rgba(255,255,255,.28)', `rgba(${INK},.28)`],
@@ -231,6 +238,8 @@ export const rawThumb = { dark: palette['f-thumb'][0], light: palette['f-thumb']
 export const color = {
   accent: 'var(--c-accent)',
   onAccent: 'var(--c-on-accent)',
+  /** Ink text and icons on a solid option pastel (actionTone): the same in light and dark. */
+  onPastel: 'var(--c-on-pastel)',
   /** Off track: white, shown as a ring (the name stays `amber` so call sites don't change). */
   amber: 'var(--c-offtrack)',
   amberTint: 'var(--c-offtrack-tint)',
@@ -303,6 +312,8 @@ export const fill = {
   rule: 'var(--f-rule)',
   /** A keycap sitting on a white (accent) or pastel button: ink at 10%. */
   onAccentKey: 'var(--f-on-accent-key)',
+  /** A keycap on a solid option pastel (ink at 10% in both appearances). */
+  onPastelKey: 'var(--f-on-pastel-key)',
   clear: 'rgba(255,255,255,0)',
   /** Ring / spinner tracks and the empty check circle. */
   track: 'var(--f-track)',
@@ -341,13 +352,14 @@ export const fill = {
 
 /**
  * The pastel options mapping (Adrian, Sat: "the same action is the same color everywhere"). Options only,
- * never status. sky = understand (Explain, Diagram, Watch) · lilac = Show me · pink = Hint.
+ * never status. Each option its own pastel (Adrian, Nov 21): sky = Explain · seafoam = Diagram · peach = Watch ·
+ * lilac = Show me · pink = Hint.
  * The ONE primary action per surface is white + ink (PrimaryButton). Chrome and navigation stay neutral.
  */
 export const actionTone = {
   explain: brand.pastel.sky,
-  diagram: brand.pastel.sky,
-  watch: brand.pastel.sky,
+  diagram: brand.pastel.seafoam,
+  watch: brand.pastel.peachLight,
   show_me: brand.pastel.lilac,
   hint: brand.pastel.pink
 } as const

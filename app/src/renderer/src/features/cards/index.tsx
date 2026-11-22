@@ -484,7 +484,7 @@ function KindTile({ k, size = 24 }: { k: Tile; size?: number }): ReactNode {
   return (
     <span
       className="grid shrink-0 place-items-center"
-      style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), ...(k.tone ? { background: k.tone, color: color.onAccent } : { background: fill.tile, color: color.text }) }}
+      style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), ...(k.tone ? { background: k.tone, color: color.onPastel } : { background: fill.tile, color: color.text }) }}
       aria-label={k.label}
       title={k.label}
     >

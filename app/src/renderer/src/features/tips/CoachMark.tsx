@@ -140,7 +140,7 @@ function Part({ part }: { part: BodyPart }): ReactNode {
   return (
     <span
       className="inline-flex items-center whitespace-nowrap font-medium"
-      style={{ height: 20, padding: '0 7px', borderRadius: radius2.keycap, background: actionTone[part.option], color: color.onAccent, fontSize: type2.xs, verticalAlign: 1 }}
+      style={{ height: 20, padding: '0 7px', borderRadius: radius2.keycap, background: actionTone[part.option], color: color.onPastel, fontSize: type2.xs, verticalAlign: 1 }}
     >
       {LABEL[part.option]}
     </span>

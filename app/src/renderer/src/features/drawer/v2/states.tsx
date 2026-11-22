@@ -84,7 +84,7 @@ export function HintBox({
         style={{ background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}, ${highlight.topSoft}`, borderRadius: radius2.card, padding: '12px 12px 12px 16px' }}
       >
         <div className="flex items-center gap-[8px]">
-          <span className="inline-flex h-[20px] items-center" style={{ padding: '0 8px', borderRadius: radius2.round, background: actionTone.hint, color: color.onAccent, fontSize: type2.micro, fontWeight: 600 }}>
+          <span className="inline-flex h-[20px] items-center" style={{ padding: '0 8px', borderRadius: radius2.round, background: actionTone.hint, color: color.onPastel, fontSize: type2.micro, fontWeight: 600 }}>
             Hint
           </span>
           {n && of && of > 1 ? (

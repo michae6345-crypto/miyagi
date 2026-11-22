@@ -1,7 +1,7 @@
 /**
  * Core (v2, W0-3): the "Need help" row of the lesson panel (Les-Working): Explain, Hint, Show me, Diagram, Watch.
- * Five equal OptionTiles, gap 8, each a solid pastel (BRAND.md mapping, theme.actionTone: sky = Explain / Diagram /
- * Watch, pink = Hint, lilac = Show me) with an ink label and its keycap from the platform inside the tile. Watch has
+ * Five equal OptionTiles, gap 8, each a solid pastel (BRAND.md mapping, theme.actionTone: sky = Explain, seafoam =
+ * Diagram, peach = Watch, pink = Hint, lilac = Show me) with an ink label and its keycap from the platform inside the tile. Watch has
  * no shortcut (decision 3).
  * Options only: never a status, never the primary.
  *
@@ -65,7 +65,7 @@ export function OptionTile({ action, onClick, label, busy, disabled, hideKey, gl
         padding: '0 4px',
         borderRadius: radius2.card,
         background: actionTone[action],
-        color: color.onAccent,
+        color: color.onPastel,
         opacity: disabled ? 0.4 : 1,
         // Polish: busy drops the lift and keeps the base edge; the held press tint is .mg-press[aria-busy="true"]::after (styles.css).
         // Disabled is flat (no edges, no lift), the same as a disabled Base in buttons.tsx.
@@ -76,11 +76,11 @@ export function OptionTile({ action, onClick, label, busy, disabled, hideKey, gl
       onMouseDown={(e) => e.preventDefault()}
       onClick={busy ? undefined : onClick}
     >
-      {busy ? <Spinner size={12} c={color.onAccent} track={fill.onAccentKey} /> : glyph ? I ? <I size={12} strokeWidth={1.8} aria-hidden /> : <WatchIcon size={12} /> : null}
+      {busy ? <Spinner size={12} c={color.onPastel} track={fill.onPastelKey} /> : glyph ? I ? <I size={12} strokeWidth={1.8} aria-hidden /> : <WatchIcon size={12} /> : null}
       <span className="max-w-full truncate" style={{ fontSize: type2.xs, fontWeight: 600, lineHeight: 1.2 }}>
         {label ?? LABEL[action]}
       </span>
-      {k && <Keycap k={k} on="accent" size="sm" />}
+      {k && <Keycap k={k} on="pastel" size="sm" />}
     </motion.button>
   )
 }

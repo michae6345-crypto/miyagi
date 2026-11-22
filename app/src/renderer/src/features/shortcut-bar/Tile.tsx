@@ -24,7 +24,7 @@ export type Look = { background: string; color: string; track: string; glass: bo
  * on glass.button in both appearances).
  */
 export const look = {
-  option: (kind: OptionAction): Look => ({ background: actionTone[kind], color: color.onAccent, track: fill.onAccentKey, glass: false }),
+  option: (kind: OptionAction): Look => ({ background: actionTone[kind], color: color.onPastel, track: fill.onPastelKey, glass: false }),
   neutral: { background: glass.fieldHover, color: glass.text, track: glass.track, glass: true } as Look,
   quiet: { background: glass.field, color: glass.label, track: glass.track, glass: true } as Look,
   primary: { background: glass.button, color: glass.buttonText, track: `color-mix(in srgb, ${glass.buttonText} 18%, transparent)`, glass: true } as Look
