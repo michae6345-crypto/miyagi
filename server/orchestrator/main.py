@@ -96,6 +96,11 @@ try:
 except Exception as _e:  # noqa: BLE001
     log.warning("progress unavailable: %s", _e)
     progress_mod = None  # type: ignore[assignment]
+try:
+    from server.sessions import review as review_mod
+except Exception as _e:  # noqa: BLE001
+    log.warning("spaced review unavailable: %s", _e)
+    review_mod = None  # type: ignore[assignment]
 
 
 # ============================================================================ v2 wire (BUILD-PLAN E2)
@@ -111,11 +116,12 @@ def _engine_version() -> str:
 ENGINE_VERSION = _engine_version()
 CONTRACT_VERSION = getattr(contract, "CONTRACT_VERSION", None) or "2026-11-20"  # W0-1: the shapes this engine sends
 V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
-               "panel.state")
-# answered at once, beside the command queue (reads, a layout note); library.start changes the lesson, so it queues
-V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start"}
+               "panel.state", "review.start")
+# answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
+# they queue
+V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"})
-LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start"})  # each replaces a running build
+LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
 # Nov 21 (launch-quiet): what counts as the learner asking for a lesson on this connection (session.learner_asked)
 LEARNER_ASKS = LESSON_STARTS
 LEARNER_ASK_ACTIONS = frozenset({"start", "resume", "build"})  # Start, Continue, the preflight card's Build (a pick)
@@ -130,6 +136,7 @@ _CONTRACT_COMMANDS: dict = getattr(contract, "APP_COMMANDS", {})
 KEYS_FAILED = "Couldn't read those keys. Check them and try again."
 V2_FAILED = "Couldn't answer that just now. Try again."
 LIBRARY_GONE = "That lesson isn't on this Mac any more."
+REVIEW_GONE = "That review isn't ready. Try again after your next lesson."
 LIBRARY_FAILED = "Couldn't start this lesson. Try again."
 
 
@@ -363,6 +370,11 @@ def _parse_v2(type_: str, payload: Any) -> SimpleNamespace:
         if not isinstance(lid, str) or not LIBRARY_ID_RE.fullmatch(lid):
             raise ValueError(f"{type_}: not a library id")
         return SimpleNamespace(id=lid)
+    if type_ == "review.start":  # {skillId?, label?}: both optional (none = the first review due); bad types read as absent
+        def _t(v: Any) -> str:
+            return " ".join(v.split())[:80] if isinstance(v, str) else ""
+
+        return SimpleNamespace(skillId=_t(p.get("skillId")), label=_t(p.get("label")))
     if type_ == "panel.state":
         if not isinstance(p.get("open"), bool):
             raise ValueError("panel.state: open must be true or false")
@@ -506,7 +518,8 @@ def contract_library_detail(found: dict | None) -> dict | None:
 
 def contract_progress(p: dict | None) -> dict:
     """progress {skills: [{track, mastered, total, items: [{label, state}]}], completed: [{lessonId, title, at}]}.
-    Nothing recorded yet: {} (the app's empty states). No week or review fields: no scheduler records them."""
+    Nothing recorded yet: {} (the app's empty states). No week field: nothing records it. `review` {due, items} is the
+    spaced-review schedule (sessions/review.py), present only when a skill has been mastered."""
     if not isinstance(p, dict):
         return {}
     skills = []
@@ -526,6 +539,8 @@ def contract_progress(p: dict | None) -> dict:
     out: dict[str, Any] = {"skills": skills, "completed": completed}
     if isinstance(p.get("inProgress"), list):
         out["inProgress"] = p["inProgress"]
+    if isinstance(p.get("review"), dict):  # additive: spaced review {due, items} (sessions/review.py), only once a skill is mastered
+        out["review"] = p["review"]
     return out
 
 
@@ -745,6 +760,8 @@ class Engine:
             caps += ["library.list", "library.get", "library.start"]
         if progress_mod is not None:
             caps.append("progress.get")
+        if review_mod is not None and library_mod is not None:  # Start review replays the lesson's own cached steps
+            caps.append("review.start")
         if hasattr(self.session, "panel_state"):
             caps.append("panel.state")
         return caps
@@ -913,7 +930,52 @@ class Engine:
         log.info("library.start: %s (lesson %s)", lid, lesson.get("id"))
         await s._run_build("", title, factory=lambda: self._load_library(graph, title))
 
-    async def _load_library(self, graph: dict, title: str) -> None:
+    async def review_start(self, skill_id: str, label: str) -> None:
+        """review.start {skillId?, label?}: a quick spaced review of one mastered skill, with no build and no model call.
+        The steps behind the skill are replayed from its lesson's cached graph (sessions/review.py), in that lesson's own
+        folder so the checks run on the learner's own code. The result (a pass / a skipped step) goes to the schedule."""
+        s = self.session
+        s.note_app_v2("review.start")
+        self.ensure_status()
+        graph = await asyncio.to_thread(self._review_graph, skill_id, label)
+        if graph is None:
+            log.info("review.start: nothing to review for %r / %r", skill_id, label)
+            await self._emit("error", {"message": REVIEW_GONE})
+            return
+        folder = graph["lesson"].pop("_folder", None)
+        title = str(graph["lesson"].get("title") or "Review")
+        if s._same_lesson_running(graph):
+            log.info("review.start: %s is already running: continuing", graph["lesson"].get("id"))
+            for type_, payload in s.snapshot():
+                await s.emit(type_, payload)
+            return
+        if s.graph is not None or s.phase in ("building", "searching"):
+            await s.end_lesson("new lesson")
+        s.query = title
+        s.results, s.pending_pick = {}, None
+        log.info("review.start: %s (lesson %s)", (graph["lesson"].get("review") or {}).get("label"), graph["lesson"].get("id"))
+        await s._run_build("", title, factory=lambda: self._load_library(graph, title, folder=folder))
+
+    def _review_graph(self, skill_id: str, label: str) -> dict | None:
+        """The review lesson for a skill (blocking: reads the schedule and the cached lesson). None: no such skill, or its
+        lesson is no longer cached."""
+        if review_mod is None or library_mod is None:
+            return None
+        row = review_mod.find({"skillId": skill_id, "label": label})
+        if row is None or not isinstance(row.get("_lessonId"), str):
+            return None
+        lib_id = library_mod.index_by_lesson_id().get(row["_lessonId"])
+        source = library_mod.load_graph(lib_id) if lib_id else None
+        if not isinstance(source, dict):
+            return None
+        graph = review_mod.review_graph(source, row["label"], row["_key"], skill_id=row["skillId"])
+        if graph is None:
+            return None
+        graph["lesson"].pop("workdir", None)
+        graph["lesson"]["_folder"] = _library_folder(source)  # the finished lesson's own folder: the learner's code is there
+        return graph
+
+    async def _load_library(self, graph: dict, title: str, folder: str | None = None) -> None:
         """Mirrors the curated start (session._load_curated): the folder, the last run's files set aside on a fresh
         start, "Lesson ready", then the lesson."""
         from . import workspace as wsmod
@@ -928,9 +990,12 @@ class Engine:
         try:
             s.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
             await s.emit("lesson.building", s.build_progress)
-            folder = await asyncio.to_thread(_library_folder, graph)
-            if not s._continues_save(graph):  # a fresh start: no step passes on the last run's files
-                await asyncio.to_thread(wsmod.set_aside_previous, folder, graph)
+            if folder is None:
+                folder = await asyncio.to_thread(_library_folder, graph)
+                if not s._continues_save(graph):  # a fresh start: no step passes on the last run's files
+                    await asyncio.to_thread(wsmod.set_aside_previous, folder, graph)
+            else:  # a review (review_start): the learner's own files are what its checks look at: never set aside
+                await asyncio.to_thread(Path(folder).mkdir, parents=True, exist_ok=True)
             graph["lesson"]["workdir"] = folder
             s.build_progress = None
             await s.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
@@ -1025,6 +1090,8 @@ class Engine:
                 await self._offer_saved_lesson(ws, reply)
         elif msg.type == "library.start":
             await self.library_start(p.id)
+        elif msg.type == "review.start":
+            await self.review_start(p.skillId, p.label)
         elif msg.type == "learn":
             await s.learn(p.query, getattr(p, "mode", None))
         elif msg.type == "learn_url":

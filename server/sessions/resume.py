@@ -33,7 +33,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from . import mastery, store
+from . import mastery, review, store
 
 log = logging.getLogger("sessions")
 
@@ -172,14 +172,21 @@ class Resumer:
                 self.save_now()
             elif type_ == "step.passed":
                 p = payload or {}
-                if not p.get("skipped"):  # E23: what this step practised, evidence for later lessons' prerequisites
+                rev = review.review_of(self.s.graph)  # a spaced review replays old steps: its result goes to the schedule
+                if rev is not None and p.get("skipped"):
+                    review.record_result_safely(rev["key"], False)  # a failed check: back to the 1-day box at once
+                if not p.get("skipped") and rev is None:  # E23: what this step practised, evidence for later lessons' prerequisites
                     mastery.record_step_safely(self.s.graph or {}, p.get("stepId"))
                 if p.get("nextStepId") or p.get("pending"):
                     self.save_now(self.s.idx + 1)  # quit before the advance -> resume on the next step
                 else:
                     store.clear()  # lesson complete: nothing to resume
                     skipped = set(getattr(self.s, "skipped_steps", None) or []) | ({p.get("stepId")} if p.get("skipped") else set())
-                    store.record_completed(self.s.graph or {}, skipped)  # evidence for later lessons' prerequisites
+                    if rev is not None:  # never a "finished lesson" of its own: a pass moves the skill up a box
+                        if not skipped:
+                            review.record_result_safely(rev["key"], True)
+                    else:
+                        store.record_completed(self.s.graph or {}, skipped)  # evidence for later lessons' prerequisites
             elif type_ == "lesson.ended":
                 if (payload or {}).get("reason") == INTERRUPTED:  # a deploy's end: the place stays (POST /end saved it
                     self._pending = self._pending or store.load() is not None  # just before), resumed after the restart

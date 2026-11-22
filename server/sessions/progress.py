@@ -13,8 +13,9 @@ Where it comes from (all on this Mac, all written by the engine as the learner w
 - recent.json (store.recent()): unfinished lessons a newer one replaced (no graph kept, so no skills from them).
 
 Never invented (BUILD-PLAN A8, "empty states when /progress is null"): a skill is mastered only when a skill map
-said so; a track with no map has no row; there is no activity minutes, streak or review list until a scheduler
-records them, so those fields are absent rather than zero. Skipped steps are counted as skipped, never passed.
+said so; a track with no map has no row; there is no activity minutes or streak until something records them, so those
+fields are absent rather than zero. `review` (sessions/review.py, the spaced-review scheduler: due and upcoming skills) is
+added only when at least one skill has been mastered. Skipped steps are counted as skipped, never passed.
 
 Skill states on the wire: "mastered" | "practicing" | "not_started" (SkillMap's mastered / learning / next). The
 same skill in two lessons keeps its best state. Contract shape (W0-1 `progress`): app/agents/eng-modules.md.
@@ -187,11 +188,13 @@ def _active_row(s: dict, index: dict[str, str]) -> dict | None:
 
 
 def build(history: list[dict], current: dict | None = None, current_graph: dict | None = None,
-          recent: list[dict] | None = None, index: dict[str, str] | None = None) -> dict | None:
+          recent: list[dict] | None = None, index: dict[str, str] | None = None,
+          review: dict | None = None) -> dict | None:
     """ProgressPayload from data already read (pure). None when there is nothing at all to show.
 
     history: store.completed() (oldest first); current / current_graph: store.load() / load_graph();
-    recent: store.recent(); index: lesson.id -> library id (library.index_by_lesson_id())."""
+    recent: store.recent(); index: lesson.id -> library id (library.index_by_lesson_id()); review: review.payload()
+    ({due, items}), passed through as is when given."""
     index = index or {}
     history = [e for e in history or [] if isinstance(e, dict)]
     newest_first = list(reversed(history))
@@ -220,7 +223,10 @@ def build(history: list[dict], current: dict | None = None, current_graph: dict 
     skills = tracks(maps)
     if not skills and not completed and not active:
         return None
-    return {"skills": skills, "completed": completed, "inProgress": active}
+    out: dict[str, Any] = {"skills": skills, "completed": completed, "inProgress": active}
+    if isinstance(review, dict) and review.get("items"):
+        out["review"] = review
+    return out
 
 
 def progress() -> dict | None:
@@ -241,5 +247,12 @@ def progress() -> dict | None:
     except Exception as e:  # noqa: BLE001 - linking to the library is a nicety
         log.debug("progress: no library index: %s", e)
         index = {}
-    out = build(history, current, graph, recent, index)
+    try:
+        from . import review
+
+        due = review.payload()
+    except Exception as e:  # noqa: BLE001 - the schedule is an extra: progress still answers without it
+        log.warning("progress: no review schedule: %s", e)
+        due = None
+    out = build(history, current, graph, recent, index, due)
     return library.scrub(out) if out is not None else None
