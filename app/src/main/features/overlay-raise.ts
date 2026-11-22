@@ -23,13 +23,14 @@
  *    seconds (features/shortcut-bar/front.ts decides, from main/features/front-app.ts), the renderer says
  *    'overlay:away': the overlay is click-through everywhere, this poll grabs nothing and a renderer hover can't
  *    take the mouse either. It ends when the renderer says so (a lesson app is in front again, the pointer reached
- *    the bar's handle) or the pointer rests on the island for REST_MS (main broadcasts 'overlay:wake').
+ *    the bar's handle) or the pointer rests on the island for REST_MS (REST_NOTCH_MS in the notch) (main broadcasts 'overlay:wake').
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac.
  */
 import { app, screen } from 'electron'
 import { defineMainFeature } from '../context'
-import { withinGrab } from '../../renderer/src/core/notchGeometry'
+import { createOtherOpenMute, withinGrab } from '../../renderer/src/core/notchGeometry'
+import { getNotchService } from '../notch'
 
 const isMac = process.platform === 'darwin'
 const accessory = isMac && process.env.MIYAGI_REGULAR_APP !== '1'
@@ -44,6 +45,8 @@ const POLL_MS = 15 // test 8: a move-and-click at once on a card's Hint landed b
 const MARGIN = 12
 /** Away (A8): the pointer resting this long on the island wakes the overlay; passing over it doesn't. */
 const REST_MS = 500
+/** In the notch rect hover wakes the overlay from away almost at once (and the peek opens with it). */
+export const REST_NOTCH_MS = 120
 
 type Box = { x: number; y: number; w: number; h: number }
 /**
@@ -51,7 +54,8 @@ type Box = { x: number; y: number; w: number; h: number }
  * display top is grabbed only +-6 pt sideways and 12 pt below, never into the menu bar beside the notch, so the menu
  * items next to it stay clickable. Below the menu bar it is MARGIN all round, as ever (core/notchGeometry.ts withinGrab).
  */
-const within = (p: { x: number; y: number }, r: Box, notch = false, displayTop = 0): boolean => withinGrab(p, r, { notch, displayTop, margin: MARGIN })
+const within = (p: { x: number; y: number }, r: Box, notch = false, displayTop = 0, opts?: { coexist?: boolean; notch?: { x: number; width: number; height: number } }): boolean =>
+  withinGrab(p, r, { notch, displayTop, margin: MARGIN }, opts)
 
 export default defineMainFeature({
   id: 'overlay-raise',
@@ -127,6 +131,10 @@ export default defineMainFeature({
       grabbed = false
       if (!ctx.overlay.isDestroyed()) ctx.overlay.setIgnoreMouseEvents(true, { forward: true })
     })
+    // Another notch app shares the notch (private flag from main/notch.ts): its core is not ours to grab, and while its
+    // panel looks open (pointer dwelling in the core) we grab nothing until the pointer has left its open zone.
+    const mute = createOtherOpenMute()
+    let muteOn = false
     const timer = setInterval(() => {
       if (ctx.overlay.isDestroyed()) return clearInterval(timer)
       if (!ctx.overlay.isVisible()) return
@@ -140,17 +148,34 @@ export default defineMainFeature({
       // A hidden island (no mode, or the launcher has it) is not a click target: no ghost box eating clicks.
       const island = shown ? { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + (inNotch ? (top ?? 0) : ctx.platform.pillTop) + dy, w, h } : { x: -1e6, y: -1e6, w: 0, h: 0 }
       const p = screen.getCursorScreenPoint()
+      // Notch rect in screen coordinates, only while sharing the notch.
+      const svc = getNotchService()
+      const g = inNotch && svc?.coexist() ? svc.geometryFor(ctx.display()) : undefined
+      const shared = g ? { coexist: true, notch: { x: d.x + g.x, width: g.width, height: g.height } } : undefined
+      const nowMuted = shared ? mute.step(Date.now(), p, shared.notch, d.y) : (mute.reset(), false)
+      if (nowMuted !== muteOn) {
+        muteOn = nowMuted
+        ctx.broadcast('overlay:other-open', muteOn)
+      }
+      if (muteOn) {
+        restSince = 0
+        if (grabbed) {
+          grabbed = false
+          if (!wants) ctx.overlay.setIgnoreMouseEvents(true, { forward: true })
+        }
+        return
+      }
       if (away) {
         // Grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
-        if (!shown || !within(p, island, inNotch, d.y)) restSince = 0
+        if (!shown || !within(p, island, inNotch, d.y, shared)) restSince = 0
         else if (!restSince) restSince = Date.now()
-        else if (restSince > 0 && Date.now() - restSince >= REST_MS) {
+        else if (restSince > 0 && Date.now() - restSince >= (inNotch ? REST_NOTCH_MS : REST_MS)) {
           restSince = -1 // once per rest
           ctx.broadcast('overlay:wake')
         }
         return
       }
-      const now = (shown && within(p, island, inNotch, d.y)) || (hits ?? ctx.overlayRects()).some((r) => within(p, r, inNotch, d.y))
+      const now = (shown && within(p, island, inNotch, d.y, shared)) || (hits ?? ctx.overlayRects()).some((r) => within(p, r, inNotch, d.y, shared))
       if (now && !grabbed) {
         grabbed = true
         ctx.overlay.setIgnoreMouseEvents(false)

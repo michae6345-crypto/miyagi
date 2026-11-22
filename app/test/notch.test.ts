@@ -26,7 +26,7 @@ test('16-inch MacBook Pro notch', () => {
   assert.deepEqual(n, { hasNotch: true, x: (1728 - 204) / 2, width: 204, height: 32 })
 })
 
-test('external display: fake notch 185 wide, height is the menu-bar band', () => {
+test('external display: placeholder 185 wide, height is the menu-bar band, no notch', () => {
   const n = notchFor(disp(2, 2560, 1440, 25), screen(2, 2560, 1440, 0, null, false))
   assert.deepEqual(n, { hasNotch: false, x: (2560 - 185) / 2, width: 185, height: 25 })
 })
@@ -35,7 +35,13 @@ test('fake notch band is at least 24 (hidden menu bar)', () => {
   assert.equal(notchFor(disp(2, 1920, 1080, 0), undefined).height, 24)
 })
 
-test('helper failure (no info) gives the fake notch', () => {
+test('no-notch display uses the helper safeTop for the band, not the work area', () => {
+  const n = notchFor(disp(2, 1920, 1080, 0), screen(2, 1920, 1080, 24, null, false))
+  assert.equal(n.hasNotch, false)
+  assert.equal(n.height, 24)
+})
+
+test('helper failure (no info) gives the placeholder, not a notch', () => {
   const n = notchFor(disp(1, 1512, 982, 38))
   assert.equal(n.hasNotch, false)
   assert.equal(n.width, 185)
@@ -47,11 +53,11 @@ test('safeTop without aux areas is not a notch', () => {
 })
 
 test('effective place', () => {
-  assert.equal(effectivePlace('notch', true, false), 'notch')
-  assert.equal(effectivePlace(undefined, true, false), 'notch')
-  assert.equal(effectivePlace('below', true, false), 'below')
-  assert.equal(effectivePlace('notch', true, true), 'below') // Boring Notch is running
-  assert.equal(effectivePlace('notch', false, false), 'below') // Windows
+  assert.equal(effectivePlace('notch', true, true), 'notch') // notched display, whatever else runs
+  assert.equal(effectivePlace(undefined, true, true), 'notch')
+  assert.equal(effectivePlace('below', true, true), 'below') // the pref wins
+  assert.equal(effectivePlace('notch', true, false), 'below') // no notch on this display
+  assert.equal(effectivePlace('notch', false, true), 'below') // not a Mac
 })
 
 test('parseScreens reads the helper line', () => {
@@ -79,7 +85,7 @@ test('island pref is validated', () => {
 })
 
 test('stage notch presets', () => {
-  assert.deepEqual(stageNotch(null, 1600), { hasNotch: true, x: 700, width: 200, height: 32, place: 'notch', boringNotch: false })
+  assert.deepEqual(stageNotch(null, 1600), { hasNotch: true, x: 700, width: 200, height: 32, place: 'notch', coexist: false, boringNotch: false })
   assert.equal(stageNotch('fake', 1600).hasNotch, false)
   assert.equal(stageNotch('below', 1600).place, 'below')
 })

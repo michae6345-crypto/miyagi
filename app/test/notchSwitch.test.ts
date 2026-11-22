@@ -1,55 +1,163 @@
-// Boring Notch quitting: the island must move into the notch at once (service state, recheck, pref change).
+// The notch service: last-good cache per display, retry, persistence, no fake first layout, coexist flag (log-only).
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
+import type { ScreenInfo } from '../src/common/notch'
 import { recheckThenResend, startNotch } from '../src/main/notch'
 
 const display = { id: 1, bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 38, width: 1512, height: 944 } }
+const ext = { id: 2, bounds: { x: 1512, y: 0, width: 2560, height: 1440 }, workArea: { x: 1512, y: 25, width: 2560, height: 1415 } }
+const scr = (id: number, w: number, safeTop: number, aux: number | null): ScreenInfo => ({
+  id,
+  frame: { x: 0, y: 0, w, h: 982 },
+  visible: { x: 0, y: 0, w, h: 944 },
+  safeTop,
+  auxLeft: aux,
+  auxRight: aux,
+  scale: 2,
+  builtin: safeTop > 0
+})
+const builtin = scr(1, 1512, 32, 661)
+const external = scr(2, 2560, 0, null)
 
-function harness(initial: boolean) {
-  const state = { boring: initial, changes: 0, lookups: 0 }
+const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms))
+
+function harness(reads: (ScreenInfo[] | null)[], other = false, extra: Record<string, unknown> = {}) {
+  const state = { changes: 0, reads: 0, other }
   const svc = startNotch({
     helperBin: '/nonexistent',
     mac: true,
     onChange: () => state.changes++,
-    isBoring: async () => (state.lookups++, state.boring),
-    pollMs: 1_000_000
+    read: async () => reads[Math.min(state.reads++, reads.length - 1)],
+    isOther: async () => state.other,
+    pollMs: 1_000_000,
+    debounceMs: 5,
+    retryMs: 2,
+    ...extra
   })
   return { state, svc }
 }
-const tick = () => new Promise((r) => setTimeout(r, 5))
 
-test('boring true -> false: recheck flips place to notch and fires onChange', async () => {
-  const { state, svc } = harness(true)
-  await tick()
+test('first layout carries no fake geometry: below until the first read lands, then notch', async () => {
+  const { state, svc } = harness([[builtin, external]])
+  assert.equal(svc.ready(), false)
   assert.equal(svc.layoutFor(display, 'notch').place, 'below')
-  assert.equal(svc.layoutFor(display, 'notch').boringNotch, true)
+  assert.equal(svc.layoutFor(display, 'notch').hasNotch, false)
+  await tick()
+  assert.equal(svc.ready(), true)
+  assert.equal(state.changes, 1)
+  const l = svc.layoutFor(display, 'notch')
+  assert.equal(l.place, 'notch')
+  assert.equal(l.hasNotch, true)
+  assert.equal(l.width, 1512 - 661 * 2 + 4)
+  svc.stop()
+})
+
+test('keyed per display: external display stays below, built-in gets the notch', async () => {
+  const { svc } = harness([[builtin, external]])
+  await tick()
+  assert.equal(svc.layoutFor(display, 'notch').place, 'notch')
+  assert.equal(svc.layoutFor(ext, 'notch').place, 'below')
+  assert.equal(svc.layoutFor(ext, 'notch').hasNotch, false)
+  svc.stop()
+})
+
+test('a helper failure keeps the previous geometry (and does not re-emit)', async () => {
+  const { state, svc } = harness([[builtin], null, null])
+  await tick()
   const before = state.changes
-  state.boring = false // user quit Boring Notch; the poll has not run yet
+  svc.refresh()
+  await tick(40)
+  assert.equal(state.changes, before)
+  assert.equal(svc.layoutFor(display, 'notch').place, 'notch')
+  assert.equal(svc.layoutFor(display, 'notch').hasNotch, true)
+  svc.stop()
+})
+
+test('a failed read is retried once', async () => {
+  const { state, svc } = harness([null, [builtin]])
+  await tick(40)
+  assert.equal(state.reads, 2)
+  assert.equal(svc.layoutFor(display, 'notch').place, 'notch')
+  svc.stop()
+})
+
+test('a timeout (never-resolving read is modelled as null) keeps geometry across displays', async () => {
+  const { svc } = harness([[builtin], null, null])
+  await tick()
+  svc.refresh()
+  await tick(40)
+  assert.equal(svc.layoutFor(display, 'notch').hasNotch, true)
+  svc.stop()
+})
+
+test('last good geometry is persisted and used before the helper answers', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'notch-'))
+  const file = join(dir, 'notch-cache.json')
+  const a = harness([[builtin]], false, { cacheFile: file })
+  await tick()
+  a.svc.stop()
+  assert.match(readFileSync(file, 'utf8'), /"safeTop":32/)
+  const b = harness([null, null], false, { cacheFile: file })
+  assert.equal(b.svc.ready(), true)
+  assert.equal(b.svc.layoutFor(display, 'notch').place, 'notch')
+  await tick(40) // the helper keeps failing: the persisted geometry stays
+  assert.equal(b.svc.layoutFor(display, 'notch').hasNotch, true)
+  b.svc.stop()
+})
+
+test('a corrupt cache file is no cache', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'notch-'))
+  const file = join(dir, 'c.json')
+  writeFileSync(file, 'garbage')
+  const { svc } = harness([null], false, { cacheFile: file })
+  assert.equal(svc.ready(), false)
+  svc.stop()
+})
+
+test('refresh is debounced', async () => {
+  const { state, svc } = harness([[builtin]], false, { debounceMs: 30 })
+  await tick()
+  const reads = state.reads
+  svc.refresh()
+  svc.refresh()
+  svc.refresh()
+  await tick(80)
+  assert.equal(state.reads, reads + 1)
+  svc.stop()
+})
+
+test('coexist is a private flag: it never changes the place', async () => {
+  const { state, svc } = harness([[builtin]], true)
+  await tick()
+  const l = svc.layoutFor(display, 'notch')
+  assert.equal(l.coexist, true)
+  assert.equal(l.place, 'notch')
+  const before = state.changes
+  state.other = false
   await svc.recheck()
   assert.equal(state.changes, before + 1)
+  assert.equal(svc.layoutFor(display, 'notch').coexist, false)
   assert.equal(svc.layoutFor(display, 'notch').place, 'notch')
-  assert.equal(svc.layoutFor(display, 'notch').boringNotch, false)
   svc.stop()
 })
 
-test('recheck with no change does not fire onChange', async () => {
-  const { state, svc } = harness(false)
+test('non-mac: always below, no work', async () => {
+  const state = { reads: 0 }
+  const svc = startNotch({ helperBin: '/x', mac: false, onChange: () => undefined, read: async () => (state.reads++, [builtin]) })
   await tick()
-  const before = state.changes
-  await svc.recheck()
-  assert.equal(state.changes, before)
+  assert.equal(state.reads, 0)
+  assert.equal(svc.layoutFor(display, 'notch').place, 'below')
   svc.stop()
 })
 
-test('pref change: rechecks first, then resends the layout with the fresh answer', async () => {
-  const { state, svc } = harness(true)
+test('pref change: recheck, then resend the layout', async () => {
+  const { svc } = harness([[builtin]])
   await tick()
-  state.boring = false
   const seen: string[] = []
-  const lookups = state.lookups
   await recheckThenResend(svc, () => seen.push(svc.layoutFor(display, 'notch').place))
-  assert.equal(state.lookups, lookups + 1)
   assert.deepEqual(seen, ['notch'])
   svc.stop()
 })
@@ -58,8 +166,4 @@ test('pref change still resends when there is no service', async () => {
   let n = 0
   await recheckThenResend(undefined, () => n++)
   assert.equal(n, 1)
-})
-
-test('poll default is short', () => {
-  assert.match(readFileSync(new URL('../src/main/notch.ts', import.meta.url), 'utf8'), /BORING_POLL_MS = 5_000/)
 })

@@ -9,7 +9,7 @@ import { pill } from './theme'
 
 type Box = { x: number; y: number; w: number; h: number }
 
-/** Boring Notch's radii: closed (at rest, ears) and open (peek, cards). The shape animates between them. */
+/** The notch's radii: closed (at rest, ears) and open (peek, cards). The shape animates between them. */
 export const NOTCH_RADII = { closed: { top: 6, bottom: 14 }, open: { top: 19, bottom: 24 } } as const
 export type Radii = { top: number; bottom: number }
 
@@ -49,7 +49,7 @@ export function islandBottomAt(layout: { notch?: NotchLayout }, pillTop: number)
 export const radiiFor = (open: boolean): Radii => (open ? NOTCH_RADII.open : NOTCH_RADII.closed)
 
 /**
- * Boring Notch's notch path in the element's own coordinates: concave top "ears" (`top` radius) and convex bottom
+ * The notch path in the element's own coordinates: concave top "ears" (`top` radius) and convex bottom
  * corners (`bottom` radius), quadratic curves. `strip` extra pixels sit above the shape (the black seam strip), so the
  * element is `h + strip` tall and the shape is shifted down by `strip`. Radii are clamped to what fits.
  */
@@ -106,14 +106,75 @@ export function viewWith(view: NotchView, hover: boolean): NotchView {
 /** Open radii for a peek, a drop or a card; closed for rest and ears. */
 export const isOpenView = (kind: 'card' | 'pill', view: NotchView): boolean => kind === 'card' || view === 'drop' || view === 'ears+drop'
 
+/** Hover timing while another notch app shares the notch: its 300 ms open delay, and a short cancellable close grace. */
+export const COEXIST_HOVER = { openMs: 300, closeMs: 100 } as const
+/** The other app's open panel: this far either side of the notch centre, this deep from the display top. */
+export const OTHER_OPEN_ZONE = { half: 320, depth: 190 } as const
+/** The pointer must stay outside the open zone this long before the grab is unmuted. */
+export const OTHER_OPEN_MUTE_MS = 150
+
+type Pt = { x: number; y: number }
+type NotchRect = { x: number; width: number; height: number }
+
+/** Is the point in the notch core (the hardware notch itself)? `notch` and `p` share one coordinate space; the notch's top is `displayTop`. */
+export function inNotchCore(p: Pt, notch: NotchRect, displayTop = 0): boolean {
+  return p.x >= notch.x && p.x <= notch.x + notch.width && p.y >= displayTop && p.y < displayTop + notch.height
+}
+
+/** Is the point where another notch app's open panel would be (notch centre +-320, y 0..190 from the display top)? */
+export function inBoringOpenZone(p: Pt, notch: NotchRect, displayTop = 0): boolean {
+  const cx = notch.x + notch.width / 2
+  return Math.abs(p.x - cx) <= OTHER_OPEN_ZONE.half && p.y >= displayTop && p.y <= displayTop + OTHER_OPEN_ZONE.depth
+}
+
 /**
  * Main's grab test (features/overlay-raise.ts). Below the menu bar: `margin` all round, as before. In the notch,
- * a rect that touches the display top (the island) is grabbed ±GRAB.side horizontally and GRAB.below under it only,
+ * a rect that touches the display top (the island) is grabbed +-GRAB.side horizontally and GRAB.below under it only,
  * never above or into the menu bar beside it; other rects keep the margin.
+ * `opts.coexist` (with `opts.notch`, in the coordinate space of `p` and `r`): another notch app owns the notch core, so
+ * the core is never grabbed; the ears (the island beside the notch) and the strip under it are.
  */
-export function withinGrab(p: { x: number; y: number }, r: Box, o: { notch: boolean; displayTop: number; margin: number }): boolean {
+export function withinGrab(p: Pt, r: Box, o: { notch: boolean; displayTop: number; margin: number }, opts?: { coexist?: boolean; notch?: NotchRect }): boolean {
   if (o.notch && r.y <= o.displayTop + STRIP) {
+    if (opts?.coexist && opts.notch && inNotchCore(p, opts.notch, o.displayTop)) return false
     return p.x >= r.x - GRAB.side && p.x <= r.x + r.w + GRAB.side && p.y >= o.displayTop && p.y <= r.y + r.h + GRAB.below
   }
   return p.x >= r.x - o.margin && p.x <= r.x + r.w + o.margin && p.y >= r.y - o.margin && p.y <= r.y + r.h + o.margin
+}
+
+/** In the core this long means the other app has probably opened its panel. */
+export const OTHER_CORE_DWELL_MS = 250
+
+/**
+ * The mute that keeps miyagi's grab and peek away while another notch app's panel is open: it starts when the pointer
+ * has stayed in the notch core for OTHER_CORE_DWELL_MS, and ends when the pointer has been outside the open zone for
+ * OTHER_OPEN_MUTE_MS. Pure: call `step` on every poll with the clock and the pointer.
+ */
+export function createOtherOpenMute(): { step(now: number, p: Pt, notch: NotchRect, displayTop?: number): boolean; reset(): void } {
+  let muted = false
+  let coreSince = 0
+  let outsideSince = 0
+  return {
+    step(now, p, notch, displayTop = 0) {
+      if (!muted) {
+        if (!inNotchCore(p, notch, displayTop)) coreSince = 0
+        else if (!coreSince) coreSince = now
+        else if (now - coreSince >= OTHER_CORE_DWELL_MS) {
+          muted = true
+          outsideSince = 0
+        }
+      } else if (inBoringOpenZone(p, notch, displayTop)) outsideSince = 0
+      else if (!outsideSince) outsideSince = now
+      else if (now - outsideSince >= OTHER_OPEN_MUTE_MS) {
+        muted = false
+        coreSince = 0
+      }
+      return muted
+    },
+    reset() {
+      muted = false
+      coreSince = 0
+      outsideSince = 0
+    }
+  }
 }
