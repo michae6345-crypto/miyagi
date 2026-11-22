@@ -16,6 +16,7 @@ import {
   peekOpen,
   STRETCH_IDLE,
   stretchScale,
+  stretchKeepsWheel,
   stretchWheel,
   type HoverState
 } from '../src/renderer/src/core/hoverIntent'
@@ -182,4 +183,15 @@ describe('wheel stretch', () => {
     assert.equal(stretchWheel(r.state, 10).commit, false)
     assert.equal(stretchScale({ progress: -500, committed: false }), 0.6)
   })
+})
+
+describe('stretch keeps the wheel only over the island shape', () => {
+  const rect = { left: 100, right: 300, bottom: 40 }
+  test('down-wheel over the shape is kept', () => assert.equal(stretchKeepsWheel(rect, 200, 10, 30), true))
+  test('the hover margin and the strip below pass through to the app', () => {
+    assert.equal(stretchKeepsWheel(rect, 103, 10, 30), false)
+    assert.equal(stretchKeepsWheel(rect, 297, 10, 30), false)
+    assert.equal(stretchKeepsWheel(rect, 200, 37, 30), false)
+  })
+  test('an up-wheel passes through', () => assert.equal(stretchKeepsWheel(rect, 200, 10, -30), false))
 })

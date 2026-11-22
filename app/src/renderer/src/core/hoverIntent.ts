@@ -133,5 +133,13 @@ export function stretchWheel(s: Stretch, deltaY: number): { state: Stretch; comm
   const commit = !s.committed && progress >= STRETCH.commit
   return { state: { progress, committed: s.committed || commit }, commit }
 }
+/**
+ * Does the island keep a wheel event for its own stretch? Only a down-wheel whose pointer is over the island's drawn
+ * shape: its transparent hover margin (either side and below) and an up-wheel are the app underneath's to scroll.
+ * `rect` is the stretch element's box, which includes that margin.
+ */
+export function stretchKeepsWheel(rect: { left: number; right: number; bottom: number }, x: number, y: number, deltaY: number, margin: number = HOVER.margin): boolean {
+  return deltaY > 0 && x >= rect.left + margin && x <= rect.right - margin && y <= rect.bottom - margin
+}
 /** The island's scale while stretching: it grows with the wheel, never below 0.6. */
 export const stretchScale = (s: Stretch): number => Math.max(STRETCH.minScale, 1 + s.progress * 0.01)

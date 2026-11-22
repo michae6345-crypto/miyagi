@@ -78,6 +78,9 @@ export function islandPlan(i: { nm: { width: number; height: number }; coexist: 
 /** Another notch app is present (layout.notch.coexist, set by main). Only ever a layout flag; never shown. */
 export const coexistOf = (n: unknown): boolean => (n as { coexist?: unknown } | undefined)?.coexist === true
 
+/** Sharing the notch only means something when the island is in it: a pill below the bar has nothing to share. */
+export const coexistIn = (nm: NotchLayout | undefined, layoutNotch: unknown): boolean => !!nm && coexistOf(layoutNotch)
+
 /**
  * The notch to draw: the layout's, or, when the layout momentarily has no usable notch on a display that has one (full
  * screen, a display change), the last good one. So the island never collapses to nothing on a notched display.

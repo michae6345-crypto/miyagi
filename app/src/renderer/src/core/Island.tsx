@@ -53,7 +53,7 @@ import {
   stretchWheel,
   type HoverState
 } from './hoverIntent'
-import { coexistOf, coreMask, coreCut, HOVER_SCALE, islandPlan, NOTCH_SPRING, restViewFor, seamRect, stickyNotch } from './islandRest'
+import { coexistIn, coexistOf, coreMask, coreCut, HOVER_SCALE, islandPlan, NOTCH_SPRING, restViewFor, seamRect, stickyNotch } from './islandRest'
 import type { NotchLayout } from '../../../common/notch'
 import { beat, ease, fade, instant, sizeMove, spring, springOut } from './ui/motion'
 
@@ -80,7 +80,11 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // Hover is a pure state machine (./hoverIntent.ts): `drive` applies one transition and arms its one timer.
   const [hi, setHi] = useState<HoverState>(HOVER_IDLE)
   const hiRef = useRef<HoverState>(HOVER_IDLE)
-  const coexist = coexistOf(layout.notch)
+  // Declared first: coexist depends on being in the notch at all (a pill below the bar has nothing to share).
+  const lastNm = useRef<NotchLayout | undefined>(undefined)
+  const nm = stickyNotch(layout, lastNm.current)
+  if (notchOf(layout)) lastNm.current = notchOf(layout)
+  const coexist = coexistIn(nm, layout.notch)
   const cfgRef = useRef(cfgFor(coexist))
   cfgRef.current = cfgFor(coexist)
   const hover = peekOpen(hi)
@@ -126,9 +130,6 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // In the notch (layout.notch.place 'notch'): the island is anchored at the display top and drawn in the notch shape.
   // Undefined = the pill below the menu bar, which is exactly what this file did before.
   // A notched display never loses its notch for a moment (full screen, a display change): the last good one stands in.
-  const lastNm = useRef<NotchLayout | undefined>(undefined)
-  const nm = stickyNotch(layout, lastNm.current)
-  if (notchOf(layout)) lastNm.current = notchOf(layout)
   const nmKey = nm ? `${nm.x},${nm.width},${nm.height}` : ''
   const views = islandModes.map((m): NotchView => (m.notch ? m.notch.useView() : 'drop'))
   // Moving into the notch: at rest the island is invisible on the hardware notch, so the move would look like nothing
@@ -475,7 +476,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     return () => document.removeEventListener('visibilitychange', visible)
   }, [])
 
-  if (!mode) return nm ? <RestingIsland top={0} layout={layout} /> : null
+  if (!mode) return nm ? <RestingIsland top={0} layout={layout} notch={nm} /> : null
   const { Content } = mode
 
   const open = nm ? isOpenView(kind, view) : false
@@ -743,8 +744,9 @@ export function RestingPill(): ReactNode {
  * The whole island failed (its render threw): a static resting pill under the menu bar, so the top of the screen is
  * never just empty and the real one gets its retry a second later (Overlay.tsx's Boundary).
  */
-export function RestingIsland({ top, layout }: { top: number; layout?: Layout }): ReactNode {
-  const nm = notchOf(layout)
+export function RestingIsland({ top, layout, notch }: { top: number; layout?: Layout; notch?: NotchLayout }): ReactNode {
+  // `notch` is the island's sticky notch (it outlives a momentary invalid layout); without it, derive from the layout.
+  const nm = notch ?? notchOf(layout)
   // In the notch: just the notch rect in notch black (it sits on the hardware notch, so it is invisible there).
   // (Nothing when the notch is shared: the core is the other app's.)
   if (nm)

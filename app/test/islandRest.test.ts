@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import type { NotchLayout } from '../src/common/notch'
-import { coexistOf, coreCut, coreMask, HOVER_SCALE, islandPlan, NOTCH_SHADOW, NOTCH_SPRING, restViewFor, seamRect, shadowFor, stickyNotch } from '../src/renderer/src/core/islandRest'
+import { coexistIn, coexistOf, coreCut, coreMask, HOVER_SCALE, islandPlan, NOTCH_SHADOW, NOTCH_SPRING, restViewFor, seamRect, shadowFor, stickyNotch } from '../src/renderer/src/core/islandRest'
 import { EAR_W, earsSize, restSize } from '../src/renderer/src/core/notchGeometry'
 
 const nm = { width: 189, height: 32 }
@@ -101,5 +101,21 @@ describe('layout flags', () => {
     // below, or a display with no notch: never a fake one.
     assert.equal(stickyNotch({ notch: { ...real, place: 'below' } }, real), undefined)
     assert.equal(stickyNotch({ notch: { ...broken, hasNotch: false } }, real), undefined)
+  })
+})
+
+describe('coexist only in the notch', () => {
+  const sharedBelow: NotchLayout = { hasNotch: true, x: 769.5, width: 189, height: 32, place: 'below', coexist: true } as NotchLayout
+  const sharedIn = { ...real, coexist: true } as NotchLayout
+  test('place below with coexist true behaves as non-coexist', () => {
+    assert.equal(coexistOf(sharedBelow), true)
+    assert.equal(coexistIn(stickyNotch({ notch: sharedBelow }, undefined), sharedBelow), false)
+    assert.equal(coexistIn(undefined, sharedBelow), false)
+  })
+  test('in the notch it follows the layout; a sticky notch keeps it', () => {
+    assert.equal(coexistIn(stickyNotch({ notch: sharedIn }, undefined), sharedIn), true)
+    assert.equal(coexistIn(real, real), false)
+    const blip = { ...sharedIn, width: 0 } as NotchLayout
+    assert.equal(coexistIn(stickyNotch({ notch: blip }, sharedIn), blip), true)
   })
 })

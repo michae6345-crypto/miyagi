@@ -13,6 +13,7 @@ import { cmd } from '../../../common/wire'
 import { bridge } from '../bridge'
 import { gateIsOpen, useGateOpen } from './gate'
 import { Island, RestingIsland } from './Island'
+import { stretchKeepsWheel } from './hoverIntent'
 import { islandTop } from './islandEdge'
 import { perf } from './perf'
 import { getOverlayLayers } from './registry'
@@ -174,7 +175,8 @@ export function useClickThrough(): void {
     // hand the mouse back for a moment so the next wheel ticks reach it (main holds its grab off as well).
     const wheel = (e: WheelEvent): void => {
       // The island's own down-wheel stretch (Island.tsx) keeps the mouse.
-      if ((e.target as Element | null)?.closest?.('[data-stretch]')) return
+      const stretchEl = (e.target as Element | null)?.closest?.('[data-stretch]')
+      if (stretchEl && stretchKeepsWheel(stretchEl.getBoundingClientRect(), e.clientX, e.clientY, e.deltaY)) return
       if (canScroll(e.target as Element | null, e.deltaX, e.deltaY)) return
       set(false)
       tellMain('overlay:pass', PASS_MS)
