@@ -214,10 +214,11 @@ function CheckWord({ status, tone }: { status: CheckItem['status']; tone: (typeo
   const word = status === 'pass' ? 'Passed' : status === 'fail' ? 'Not yet' : 'Watching'
   const c = status === 'pass' ? tone.pass : status === 'fail' ? tone.notYet : color.gray
   return (
-    <span data-part="check-word" className="flex shrink-0 items-center gap-[4px] whitespace-nowrap text-[12px] font-medium leading-[18px]" style={{ color: c }}>
+    <span data-part="check-word" title={word} className="flex shrink-0 items-center gap-[4px] whitespace-nowrap text-[12px] font-medium leading-[18px]" style={{ color: c }}>
       {status === 'pending' && <Eye size={12} strokeWidth={1.9} className="shrink-0" />}
       {status === 'fail' && <NotYetRing c={c} />}
-      {word}
+      {/* Overlay round: a pending check shows only the eye (the word made narrow rows wrap); screen readers still hear it. */}
+      {status === 'pending' ? <span className="sr-only">{word}</span> : word}
     </span>
   )
 }
