@@ -488,7 +488,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
 }
 
 /**
- * The notch shape (Boring Notch's): black, clipped to a path with concave top "ears" and convex bottom corners. Width,
+ * The notch shape (the standard MacBook notch shape): black, clipped to a path with concave top "ears" and convex bottom corners. Width,
  * height and both radii spring together on the house spring inside the fixed overlay window (the window never resizes);
  * the clip path is rebuilt from the live values every frame. One black pixel sits above the display (STRIP) so no seam
  * shows. Open (the peek and cards) gets a soft drop shadow; at rest there is none, so it fuses with the hardware notch.

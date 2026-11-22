@@ -8,7 +8,7 @@
  * Works with reads the engine's health rows when it has them; nothing is shown that the engine didn't say.
  */
 import { CodeXml, Compass, NotebookText, Wrench } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { VOICE_ENABLED } from '../../../../../common/flags'
 import type { IslandPlace } from '../../../../../common/notch'
 import { useLesson } from '../../../core/lesson'
@@ -40,25 +40,17 @@ function IslandRow(): ReactNode {
   const place = usePrefs((s) => s.island?.place ?? 'notch')
   const info = useNotchInfo((s) => s.notch)
   const mac = bridge.platform.os === 'mac'
-  // A short "Saved." after a choice (the row saves as you click; this just says so).
-  const [saved, setSaved] = useState(false)
-  useEffect(() => {
-    if (!saved) return
-    const t = setTimeout(() => setSaved(false), 2500)
-    return () => clearTimeout(t)
-  }, [saved])
   if (!mac) return null
   if (info && !info.hasNotch) {
-    return <Row label="Island" caption="This display has no notch, so miyagi is below the menu bar." right={<span style={{ fontSize: type2.xs, color: color.label }}>Not available</span>} />
+    return <Row label="Island" caption="miyagi is below the menu bar now" right={<span style={{ fontSize: type2.xs, color: color.label }}>Not available</span>} />
   }
-  // What main actually did with the choice (layout.notch.place), so a click never looks like it did nothing.
+  // What main actually did with the choice (layout.notch.place).
   const actual = info?.place ?? place
   const where = actual === 'notch' ? 'miyagi is in the notch now' : 'miyagi is below the menu bar now'
-  const caption = place !== actual ? 'Moving miyagi…' : saved ? `Saved. ${where}` : where
   return (
     <Row
       label="Island"
-      caption={caption}
+      caption={where}
       right={
         <Segmented
           label="Island"
@@ -66,7 +58,6 @@ function IslandRow(): ReactNode {
           value={place}
           onChange={(p) => {
             setPrefs({ island: { place: p } })
-            setSaved(true)
           }}
         />
       }

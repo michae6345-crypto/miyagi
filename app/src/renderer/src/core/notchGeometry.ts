@@ -9,7 +9,7 @@ import { pill } from './theme'
 
 type Box = { x: number; y: number; w: number; h: number }
 
-/** Boring Notch's radii: closed (at rest, ears) and open (peek, cards). The shape animates between them. */
+/** The standard notch radii: closed (at rest, ears) and open (peek, cards). The shape animates between them. */
 export const NOTCH_RADII = { closed: { top: 6, bottom: 14 }, open: { top: 19, bottom: 24 } } as const
 export type Radii = { top: number; bottom: number }
 
@@ -49,7 +49,7 @@ export function islandBottomAt(layout: { notch?: NotchLayout }, pillTop: number)
 export const radiiFor = (open: boolean): Radii => (open ? NOTCH_RADII.open : NOTCH_RADII.closed)
 
 /**
- * Boring Notch's notch path in the element's own coordinates: concave top "ears" (`top` radius) and convex bottom
+ * The notch path in the element's own coordinates: concave top "ears" (`top` radius) and convex bottom
  * corners (`bottom` radius), quadratic curves. `strip` extra pixels sit above the shape (the black seam strip), so the
  * element is `h + strip` tall and the shape is shifted down by `strip`. Radii are clamped to what fits.
  */
