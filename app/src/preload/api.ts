@@ -49,7 +49,7 @@ export type Layout = {
   pillTop?: number
   /**
    * The notch island's geometry (display-local points, y = 0 is the display top) and where the island lives now.
-   * `place` is the EFFECTIVE place: 'below' on Windows, when the pref says so, or while Boring Notch is running.
+   * `place` is the EFFECTIVE place: 'below' on Windows, on a Mac without a notch, or when the pref says so.
    * Main re-sends the layout when any of it changes.
    */
   notch: NotchLayout

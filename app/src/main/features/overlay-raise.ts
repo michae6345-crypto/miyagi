@@ -29,7 +29,7 @@
  */
 import { app, screen } from 'electron'
 import { defineMainFeature } from '../context'
-import { createOtherOpenMute, withinGrab } from '../../renderer/src/core/notchGeometry'
+import { createOtherOpenMute, GRAB, withinGrab } from '../../renderer/src/core/notchGeometry'
 import { getNotchService } from '../notch'
 
 const isMac = process.platform === 'darwin'
@@ -165,11 +165,15 @@ export default defineMainFeature({
         }
         return
       }
+      // The quick wake (REST_NOTCH_MS) applies only while the pointer is on the notch itself (its rect, with the grab
+      // margins); cards and the pill body below it keep the ordinary REST_MS.
+      const ng = inNotch ? (svc?.geometryFor(ctx.display()) ?? g) : undefined
+      const inNotchRect = !!ng && p.x >= d.x + ng.x - GRAB.side && p.x <= d.x + ng.x + ng.width + GRAB.side && p.y >= d.y && p.y <= d.y + ng.height + GRAB.below
       if (away) {
         // Grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
         if (!shown || !within(p, island, inNotch, d.y, shared)) restSince = 0
         else if (!restSince) restSince = Date.now()
-        else if (restSince > 0 && Date.now() - restSince >= (inNotch ? REST_NOTCH_MS : REST_MS)) {
+        else if (restSince > 0 && Date.now() - restSince >= (inNotchRect ? REST_NOTCH_MS : REST_MS)) {
           restSince = -1 // once per rest
           ctx.broadcast('overlay:wake')
         }

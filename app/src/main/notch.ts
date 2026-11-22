@@ -151,6 +151,9 @@ export function startNotch(opts: StartNotchOpts): NotchService {
     if (stopped) return
     if (!list?.length) return // failed twice: keep the last good geometry as it is
     const before = JSON.stringify([...good])
+    // A successful read lists every display now attached: forget the ones that are gone (ids can be recycled).
+    const ids = new Set(list.map((s) => s.id))
+    for (const id of [...good.keys()]) if (!ids.has(id)) good.delete(id)
     for (const s of list) good.set(s.id, s)
     if (JSON.stringify([...good]) === before) return
     saveCache(opts.cacheFile, good)
@@ -176,7 +179,10 @@ export function startNotch(opts: StartNotchOpts): NotchService {
     poll.unref?.()
   }
 
-  const geometryFor = (display: Display): NotchGeom => notchFor(display, good.get(display.id))
+  /** An entry fits a display only if its frame is that display's size: an id Electron reassigned must not lend its notch to another screen. */
+  const fits = (s: ScreenInfo | undefined, display: Display): ScreenInfo | undefined =>
+    s && Math.abs(s.frame.w - display.bounds.width) < 2 && Math.abs(s.frame.h - display.bounds.height) < 2 ? s : undefined
+  const geometryFor = (display: Display): NotchGeom => notchFor(display, fits(good.get(display.id), display))
   const svc: NotchService = {
     layoutFor(display, pref) {
       const geom = geometryFor(display)

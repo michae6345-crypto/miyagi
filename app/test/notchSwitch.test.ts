@@ -167,3 +167,14 @@ test('pref change still resends when there is no service', async () => {
   await recheckThenResend(undefined, () => n++)
   assert.equal(n, 1)
 })
+
+test('a display that is gone is forgotten, and an entry only fits a display of its own size', async () => {
+  const { svc } = harness([[builtin, external], [builtin]])
+  await tick()
+  assert.equal(svc.layoutFor(ext, 'notch').hasNotch, false)
+  svc.refresh()
+  await tick(40)
+  // id 2 was dropped by the second read; a recycled id on a screen of another size never borrows the old notch
+  assert.equal(svc.layoutFor({ ...display, bounds: { ...display.bounds, width: 1920 } }, 'notch').hasNotch, false)
+  assert.equal(svc.layoutFor(display, 'notch').hasNotch, true)
+})

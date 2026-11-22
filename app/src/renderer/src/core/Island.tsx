@@ -23,6 +23,7 @@ import { NotchContext } from './notchContext'
 import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
 import { color, notchDrop, pill, shadows } from './theme'
 import {
+  COEXIST_HOVER,
   EAR_W,
   HOVER,
   isOpenView,
@@ -160,7 +161,12 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       bridge.on('island:yield', () => setYielded(true)),
       bridge.on('island:return', () => setYielded(false)),
       // Main: wake from sleep, unlock, a display change, a hung overlay renderer.
-      bridge.on('island:collapse', () => collapseRef.current())
+      bridge.on('island:collapse', () => collapseRef.current()),
+      // Main: the pointer is in the other notch app's open panel: step back to rest until it has left.
+      bridge.onFeature('overlay:other-open', (open) => {
+        otherOpen.current = open === true
+        if (otherOpen.current) collapseRef.current()
+      })
     ]
     return () => {
       offs.forEach((off) => off())
@@ -282,17 +288,22 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     if ((Object.keys(next) as (keyof IslandBox)[]).some((k) => cur[k] !== next[k])) useIslandBoxStore.setState(next)
   }, [layout.width, size.w, size.h, offset.x, offset.y, top, modeId, isPill, yielded])
 
+  // Another notch app shares the notch (layout.notch.coexist, private): hover opens after its 300 ms and closes after a
+  // short grace, and while its own panel is open (main's 'overlay:other-open') hover never opens.
+  const timing = nm && layout.notch.coexist ? COEXIST_HOVER : HOVER
+  const otherOpen = useRef(false)
   const enter = (): void => {
     clearTimeout(hoverTimer.current)
     leaving.current = false
+    if (otherOpen.current) return
     setPointerIn(true)
-    hoverTimer.current = setTimeout(() => setHover(true), HOVER.openMs)
+    hoverTimer.current = setTimeout(() => setHover(true), timing.openMs)
   }
   const leave = (): void => {
     clearTimeout(hoverTimer.current)
     leaving.current = true
     setPointerIn(false)
-    hoverTimer.current = setTimeout(() => setHover(false), HOVER.closeMs)
+    hoverTimer.current = setTimeout(() => setHover(false), timing.closeMs)
   }
   const press = (): void => {
     clearTimeout(pressTimer.current)
@@ -488,7 +499,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
 }
 
 /**
- * The notch shape (Boring Notch's): black, clipped to a path with concave top "ears" and convex bottom corners. Width,
+ * The notch shape: black, clipped to a path with concave top "ears" and convex bottom corners. Width,
  * height and both radii spring together on the house spring inside the fixed overlay window (the window never resizes);
  * the clip path is rebuilt from the live values every frame. One black pixel sits above the display (STRIP) so no seam
  * shows. Open (the peek and cards) gets a soft drop shadow; at rest there is none, so it fuses with the hardware notch.

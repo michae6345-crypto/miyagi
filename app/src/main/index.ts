@@ -8,7 +8,7 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, systemPreferences, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
@@ -37,6 +37,8 @@ import {
   raise,
   returnFocus,
   setupApp,
+  OVERLAY_RESTORE_MS,
+  trackOverlayLifecycle,
   type ShortcutKind
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
@@ -68,9 +70,9 @@ const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.en
 let stopLocalEngine: () => Promise<void> | void = () => undefined
 /** R44: the most a quit waits for the engine to go (SIGTERM, QUIT_GRACE_MS, SIGKILL, QUIT_CONFIRM_MS), plus a margin. */
 const QUIT_ENGINE_DEADLINE_MS = QUIT_GRACE_MS + QUIT_CONFIRM_MS + 1000
-/** Notch geometry + Boring Notch state (main/notch.ts); started at launch. */
+/** Notch geometry and the other-notch-app flag (main/notch.ts); started at launch. */
 let notchService: NotchService | undefined
-/** Every window gets its layout again (Settings > General shows whether Boring Notch is using the notch). Module level: the first notch read can land before whenReady has finished. */
+/** Every window gets its layout again (Settings > General shows where the island is). Module level: the first notch read can land before whenReady has finished. */
 const resendLayout = (): void =>
   forEachWindow((w) => {
     const l = layoutFor(w)
@@ -81,7 +83,7 @@ const resendLayout = (): void =>
 let lastIslandLine = ''
 function logIsland(why: string, l: ReturnType<typeof layoutFor>): void {
   const n = l.notch
-  const line = `pref=${getPrefs().island?.place} place=${n.place} hasNotch=${n.hasNotch} boring=${n.boringNotch} notch=${n.x},${n.width}x${n.height} service=${notchService ? 'on' : 'off'}`
+  const line = `pref=${getPrefs().island?.place} place=${n.place} hasNotch=${n.hasNotch} coexist=${n.coexist ? 1 : 0} notch=${n.x},${n.width}x${n.height} service=${notchService ? 'on' : 'off'}`
   if (line === lastIslandLine && why === 'resend') return
   lastIslandLine = line
   try {
@@ -306,7 +308,7 @@ function layoutFor(win: BrowserWindow): Layout {
   const b = win.getBounds()
   const display = screen.getDisplayMatching(b)
   const wa = display.workArea
-  const notch = notchService?.layoutFor(display, getPrefs().island.place) ?? { ...notchFor(display), place: 'below' as const, boringNotch: false }
+  const notch = notchService?.layoutFor(display, getPrefs().island.place) ?? { ...notchFor(display), place: 'below' as const, coexist: false, boringNotch: false }
   return { notch, origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
 }
 
@@ -509,8 +511,8 @@ app.whenReady().then(async () => {
   // window exists: every renderer gets pillTop in its launch arguments.
   basePillTop = platform.pillTop
   platform.pillTop = fitPillTop(basePillTop, displayNow())
-  // The notch geometry (miyagi-listen --screens) and Boring Notch detection; a change re-sends the layout to every core window.
-  notchService = startNotch({ helperBin: helperPath(), mac: platform.os === 'mac', onChange: () => resendLayout() })
+  // The notch geometry (miyagi-listen --screens, persisted last-good in userData) and the other-notch-app flag; a change re-sends the layout to every core window.
+  notchService = startNotch({ helperBin: helperPath(), mac: platform.os === 'mac', cacheFile: join(app.getPath('userData'), 'notch-cache.json'), onChange: () => resendLayout() })
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 
@@ -632,55 +634,58 @@ app.whenReady().then(async () => {
   // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
   // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
   // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
-  // Choosing "In the notch" must act now: look for Boring Notch afresh (it may have quit since the last poll), then resend
-  // the layout whatever the answer, so the island moves at once without waiting for the poll.
+  // Choosing "In the notch" must act now: read the geometry afresh, then resend the layout whatever the answer, so the
+  // island moves at once without waiting for a poll.
   onPrefsChange(() => void recheckThenResend(notchService, resendLayout))
   ipcMain.handle('feat:notch:recheck', async (e) => {
     if (!trustedSender(e)) return false
     await notchService?.recheck()
-    return notchService?.boringNotch() ?? false
+    return true
   })
-  // Back from another app (maybe the one that quit Boring Notch): look again.
+  // Back from another app: look again (rate limited in the service).
   app.on('browser-window-focus', () => void notchService?.recheck())
   app.on('activate', () => void notchService?.recheck())
-  let refitTimer: ReturnType<typeof setTimeout> | undefined
-  const refit = (): void => {
-    clearTimeout(refitTimer)
-    notchService?.refresh()
-    refitTimer = setTimeout(() => {
-      platform.pillTop = fitPillTop(basePillTop, displayNow())
-      for (const w of [overlay, launcher]) {
-        if (w.isDestroyed()) continue
-        w.setBounds(overlayBounds(displayNow()))
-        raise(w)
-        send(w, 'layout', layoutFor(w))
-      }
-    }, 150)
+  /** Re-apply the display's bounds and the pill's fitted top to both core windows, raise them, send the layout. */
+  const applyDisplay = (): void => {
+    platform.pillTop = fitPillTop(basePillTop, displayNow())
+    for (const w of [overlay, launcher]) {
+      if (w.isDestroyed()) continue
+      w.setBounds(overlayBounds(displayNow()))
+      raise(w)
+      send(w, 'layout', layoutFor(w))
+    }
   }
   // Every way the island can be left half-open by the system: collapse it to rest (core/Island.tsx collapseAll).
   const collapseIsland = (): void => send(overlay, 'island:collapse')
   overlay.webContents.on('responsive', collapseIsland)
-  screen.on('display-metrics-changed', () => {
+  // The overlay itself: hidden while displays swap and while locked, shown again ~150 ms later, re-raised on a space
+  // change (platform.ts trackOverlayLifecycle). Its refit is applyDisplay.
+  const stopLifecycle = trackOverlayLifecycle(overlay, { screen, powerMonitor, systemPreferences }, applyDisplay)
+  app.on('before-quit', stopLifecycle)
+  // Display events, wake and unlock: collapse the island and ask for one geometry read (the service debounces it
+  // 250 ms, so a burst of display events is one helper call); a changed answer re-sends the layout through onChange.
+  let refitTimer: ReturnType<typeof setTimeout> | undefined
+  const displayChanged = (): void => {
     collapseIsland()
-    refit()
-  })
-  screen.on('display-added', () => {
-    collapseIsland()
-    refit()
-  })
-  screen.on('display-removed', () => {
-    collapseIsland()
-    refit()
-  })
-  // Wake and unlock: macOS can drop the panels' level and the renderer's frames; re-raise and re-send the layout.
+    notchService?.refresh()
+    // Off macOS there is no lifecycle tracker: re-fit the windows here (debounced, a plug fires several events).
+    if (platform.os !== 'mac') {
+      clearTimeout(refitTimer)
+      refitTimer = setTimeout(applyDisplay, OVERLAY_RESTORE_MS)
+    }
+  }
+  screen.on('display-metrics-changed', displayChanged)
+  screen.on('display-added', displayChanged)
+  screen.on('display-removed', displayChanged)
+  // Wake: macOS can drop the panels' level and the renderer's frames; re-fit, re-raise, re-send the layout.
   powerMonitor.on('resume', () => {
-    collapseIsland()
-    refit()
+    displayChanged()
+    setTimeout(applyDisplay, OVERLAY_RESTORE_MS)
     wake()
   })
+  // Unlock: the lifecycle shows the overlay again; here the island collapses and the link is checked.
   powerMonitor.on('unlock-screen', () => {
-    collapseIsland()
-    refit()
+    displayChanged()
     wake()
   })
   let wasOnline = net.isOnline()
