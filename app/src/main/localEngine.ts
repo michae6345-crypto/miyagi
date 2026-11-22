@@ -20,12 +20,16 @@
  *      environment to VS Code and to the learner's commands, which must see the user's own Python setup.
  *   5. Older bundles (install.sh + src/, no python/): run `install.sh --src … --no-app --no-vscode --no-start --yes`
  *      once (uv + Python + packages: about a minute, needs the network), then start the launcher it writes.
- *   6. Quit → stop only the engine this app started.
- *   7. Port taken by an engine THIS app started on an earlier launch (miyagi was force-quit or crashed, so step 6 never
- *      ran): that engine still wants the old launch's token and would refuse this launch forever. Its pid file
- *      (~/miyagi/engine/run/app-engine.json; app-engine-dev.json for `npm run dev`, so a dev app never reclaims the
- *      installed app's engine, nor the reverse), its exact command line (this app's Python or launcher, never just the
- *      module name) and its start time say it's ours, so stop it and start a fresh one.
+ *   6. Quit → stop only the engine this app started (R44, main/engineProcess.ts): SIGTERM its process group, SIGKILL
+ *      the group if it's still there after QUIT_GRACE_MS (a hung or `kill -STOP`ped engine), and index.ts holds the
+ *      quit until then. The pid file goes only once the engine and its group are confirmed gone.
+ *   7. An engine THIS app started on an earlier launch is still running (it outlived a quit, or miyagi was force-quit
+ *      or crashed, so step 6 never finished): that engine still wants the old launch's token and would refuse this
+ *      launch forever, and it may still be reading the screen. Checked on every boot, before the port: a hung engine
+ *      may not answer, and its children hold no port. Its pid file (~/miyagi/engine/run/app-engine.json;
+ *      app-engine-dev.json for `npm run dev`, so a dev app never reclaims the installed app's engine, nor the reverse),
+ *      its exact command line (this app's Python or launcher, never just the module name) and its start time say it's
+ *      ours, so stop its group and start a fresh one. A pid the OS gave to another process is never touched.
  *      Anything else on the port (an engine started in Terminal) stays the user's: step 2.
  *   8. The engine this app starts (bundled Python or launcher) always gets ORCH_AUTO_RESUME=0 and ORCH_AUTOSTART=0
  *      (hard in a built app: a launch starts from new, never reloads the last lesson) and an explicit MIYAGI_STATE_DIR
@@ -52,12 +56,25 @@
 import { app, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 import { cp, rename, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { EngineLink } from './engine'
+import {
+  groupMembers,
+  isOwnEngineCommand,
+  processAlive,
+  processInfo,
+  reclaimLeftover,
+  removePidRecord,
+  signalTree,
+  stopTree,
+  taskkillTree,
+  writePidRecord,
+  type ProcInfo
+} from './engineProcess'
 
 export type LocalEngineState = 'off' | 'checking' | 'installing' | 'starting' | 'running' | 'external' | 'missing' | 'failed'
 /**
@@ -73,6 +90,10 @@ export const ENGINE_FAILED_LINE = "miyagi couldn't start its engine."
 const START_TIMEOUT_MS = 60_000
 /** A Restart sends SIGTERM; still alive this long after (as in reclaimOwnLeftover), it gets SIGKILL. */
 const KILL_AFTER_MS = 5000
+/** R44: quitting sends SIGTERM to the engine's group; still there this long after, the group gets SIGKILL. */
+export const QUIT_GRACE_MS = 3000
+/** And this long for SIGKILL to land before the quit goes on without it (the pid file then stays for the next launch). */
+export const QUIT_CONFIRM_MS = 2000
 const UNMANAGED_TIMEOUT_MS = 12_000
 
 /** Michael's installer (docs/INSTALL.md), for a Mac where the app carries no engine. */
@@ -356,6 +377,18 @@ export type LocalEngineDeps = {
   killAfterMs: number
   /** Started (or restarted) and no answer this long: failed, with Retry. */
   startTimeoutMs: number
+  /** R44, engineProcess.ts. Signal 0 (negative = the group); tests pass a fake. */
+  alive: (pid: number) => boolean
+  /** Windows: taskkill /T /F (no process groups there). */
+  taskkill: (pid: number) => void
+  /** A pid's command line and start time (ps; PowerShell on Windows), to prove a leftover is this app's engine. */
+  procInfo: (pid: number) => Promise<ProcInfo | undefined>
+  /** The processes left in a group whose leader is gone. */
+  groupMembers: (pgid: number) => Promise<Array<{ pid: number; command: string }>>
+  /** Quit: SIGTERM, this long, then SIGKILL the group (QUIT_GRACE_MS). */
+  quitGraceMs: number
+  /** Quit: this long for SIGKILL to land (QUIT_CONFIRM_MS). */
+  quitConfirmMs: number
 }
 
 /** Keys, tokens and secrets never leave in "Copy details", even if the engine printed one. */
@@ -384,6 +417,9 @@ export function engineDetails(status: LocalEngineStatus, facts: readonly string[
 /**
  * `trusted`: main's sender check (index.ts trustedSender). Every handler here answers only our own windows; an
  * untrusted sender gets undefined / false and, for restart, nothing is stopped or spawned.
+ *
+ * → the quit step (index.ts, will-quit). It sends the first signal at once and returns a promise that settles once the
+ * engine is confirmed gone (or SIGKILL had QUIT_CONFIRM_MS to land); undefined when there is nothing to wait for.
  */
 export function setupLocalEngine(
   engine: EngineLink,
@@ -391,7 +427,7 @@ export function setupLocalEngine(
   broadcast: (channel: string, payload: unknown) => void,
   trusted: (e: IpcMainInvokeEvent) => boolean,
   deps: Partial<LocalEngineDeps> = {}
-): () => void {
+): () => Promise<void> | void {
   const d: LocalEngineDeps = {
     listening,
     spawn,
@@ -401,6 +437,12 @@ export function setupLocalEngine(
     kill: (pid, signal) => void process.kill(pid, signal),
     killAfterMs: KILL_AFTER_MS,
     startTimeoutMs: START_TIMEOUT_MS,
+    alive: processAlive,
+    taskkill: taskkillTree,
+    procInfo: (pid) => processInfo(pid),
+    groupMembers: (pgid) => groupMembers(pgid),
+    quitGraceMs: QUIT_GRACE_MS,
+    quitConfirmMs: QUIT_CONFIRM_MS,
     ...deps
   }
   const packaged = app.isPackaged
@@ -653,112 +695,35 @@ export function setupLocalEngine(
     }
   }
 
-  const forgetPid = (): void => {
-    try {
-      rmSync(pidFile, { force: true })
-    } catch {
-      // A stale pid file is checked against the process before it's ever used.
-    }
-  }
+  /** Only once the engine and its group are confirmed gone (or never ran): R44, a quit it outlived keeps the file. */
+  const forgetPid = (): void => removePidRecord(pidFile)
   const rememberPid = (pid: number | undefined): void => {
     if (pid === undefined) return
-    try {
-      mkdirSync(join(home, 'run'), { recursive: true })
-      writeFileSync(pidFile, JSON.stringify({ pid, port, runtime, at: new Date().toISOString() }))
-    } catch {
-      // Without it a force-quit leaves an engine the next launch can't reclaim: the pill says so, nothing breaks.
-    }
+    // Without it a force-quit leaves an engine the next launch can't reclaim: the pill says so, nothing breaks.
+    writePidRecord(pidFile, { pid, port, runtime, at: new Date().toISOString() })
   }
 
   /**
-   * Whether `cmd` (a `ps -o command=` line) is an engine this app starts, and never anyone else's. The module name
-   * alone also matches a dev engine (`.../run-live/.venv/bin/python -m server.orchestrator.main`), so it isn't enough.
-   * Bundled: the exact Python inside this app. Launcher: the launcher script itself, or (when it `exec`s into Python)
-   * an interpreter under this app's engine home running the engine module.
-   */
-  const isOwnEngineCommand = (cmd: string, kind: unknown): boolean => {
-    const line = cmd.trim()
-    if (kind !== 'launcher' && line.startsWith(`${python} `)) return true
-    if (kind === 'bundled') return false
-    const shells = ['', '/bin/bash ', 'bash ', '/bin/sh ', 'sh ', '/bin/zsh ']
-    if (shells.some((sh) => line === `${sh}${launcher}` || line.startsWith(`${sh}${launcher} `))) return true
-    return line.startsWith(`${home}/`) && /\s-m\s+server\.orchestrator\.main(\s|$)/.test(line)
-  }
-
-  /**
-   * The pid started within a few seconds of the pid file's `at` (`ps -o lstart=`, C locale, local time), so a pid the
-   * OS has since handed to another process (a dev engine started later from a shell) is never taken for ours.
-   */
-  const startedWhenSaved = async (pid: number, at: unknown): Promise<boolean> => {
-    const saved = typeof at === 'string' ? Date.parse(at) : NaN
-    if (!Number.isFinite(saved)) return false
-    const ps = await run('/usr/bin/env', ['LC_ALL=C', '/bin/ps', '-o', 'lstart=', '-p', String(pid)], 2000)
-    const began = ps.ok ? Date.parse(ps.out.trim().replace(/\s+/g, ' ')) : NaN
-    return Number.isFinite(began) && Math.abs(saved - began) <= 10_000
-  }
-
-  /**
-   * Step 7: the port is taken. If the pid file names a live process whose command line is this app's own engine
-   * (isOwnEngineCommand) and which started when the file was written (startedWhenSaved), it's ours from an earlier
-   * launch: stop its group (SIGTERM, then SIGKILL after 5 s) and wait for the port. Anything else is never touched.
-   * → true when the port is free now.
+   * Step 7 (R44, engineProcess.ts reclaimLeftover): on every boot, before the port is looked at. If the pid file names
+   * a live process whose command line is this app's own engine (isOwnEngineCommand) and which started when the file
+   * was written (startedNear), it's ours from an earlier launch: stop its group (SIGTERM, then SIGKILL after
+   * killAfterMs) and wait until it is gone. Anything else is never touched. → true when one was stopped.
    */
   const reclaimOwnLeftover = async (): Promise<boolean> => {
-    let pid = 0
-    let at: unknown
-    let kind: unknown
-    try {
-      const saved = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid?: unknown; at?: unknown; runtime?: unknown }
-      pid = Number(saved.pid) || 0
-      at = saved.at
-      kind = saved.runtime
-    } catch {
-      return false
-    }
-    const alive = (): boolean => {
-      try {
-        process.kill(pid, 0)
-        return true
-      } catch {
-        return false
-      }
-    }
-    if (pid <= 1 || pid === process.pid || !alive()) {
-      forgetPid()
-      return false
-    }
-    const ps = await run('/bin/ps', ['-o', 'command=', '-p', String(pid)], 2000)
-    if (!ps.ok || !isOwnEngineCommand(ps.out, kind) || !(await startedWhenSaved(pid, at))) {
-      // The pid was reused by something else, or can't be proven ours: never touch it.
-      forgetPid()
-      return false
-    }
-    note(`port ${port} held by this app's engine from an earlier launch (pid ${pid}): stopping it`)
-    const signal = (sig: NodeJS.Signals): void => {
-      try {
-        process.kill(-pid, sig)
-      } catch {
-        try {
-          process.kill(pid, sig)
-        } catch {
-          // Already gone.
-        }
-      }
-    }
-    const freed = async (ms: number): Promise<boolean> => {
-      for (const until = Date.now() + ms; Date.now() < until; ) {
-        if (!(await d.listening(port, 300))) return true
-        await new Promise((r) => setTimeout(r, 250))
-      }
-      return !(await d.listening(port, 300))
-    }
-    signal('SIGTERM')
-    if (!(await freed(5000))) {
-      signal('SIGKILL')
-      if (!(await freed(2000))) return false
-    }
-    forgetPid()
-    return true
+    const result = await reclaimLeftover(pidFile, (cmd, kind) => isOwnEngineCommand(cmd, kind, { python, launcher, home }), {
+      platform: d.platform,
+      kill: d.kill,
+      taskkill: d.taskkill,
+      alive: d.alive,
+      info: d.procInfo,
+      members: d.groupMembers,
+      graceMs: d.killAfterMs,
+      confirmMs: QUIT_CONFIRM_MS,
+      note,
+      self: process.pid
+    })
+    if (result === 'foreign') note(`the pid in ${pidFile} now belongs to another process: not touched, file removed`)
+    return result === 'stopped'
   }
 
   /** Started, but no answer yet: after START_TIMEOUT_MS say so (the engine keeps running; a late connect still wins). */
@@ -772,6 +737,9 @@ export function setupLocalEngine(
   }
 
   const start = (): void => {
+    // A boot still under way when the app quits (copying the source, reclaiming a leftover) never starts an engine
+    // nothing would stop.
+    if (stopping) return
     set({ state: 'starting', runtime })
     try {
       child = spawnEngine()
@@ -790,8 +758,9 @@ export function setupLocalEngine(
       clearTimeout(forceKill)
       forceKill = undefined
       child = undefined
-      forgetPid()
+      // Quitting: the quit step forgets the pid only once the whole group is gone (the leader can die first).
       if (stopping) return set({ state: 'off' })
+      forgetPid()
       if (restarting) {
         restarting = false
         return start()
@@ -823,20 +792,15 @@ export function setupLocalEngine(
     })
   }
 
+  /** The engine's whole process group (taskkill /T /F on Windows); the child alone when there's no group to signal. */
   const killGroup = (c: ChildProcess, sig: NodeJS.Signals = 'SIGTERM'): void => {
     if (c.pid === undefined) return
-    try {
-      d.kill(-c.pid, sig)
-    } catch {
-      try {
-        c.kill(sig)
-      } catch {
-        // Already gone.
-      }
-    }
+    signalTree(c.pid, sig, d, (s) => c.kill(s))
   }
 
   restart = () => {
+    // Quitting: the quit step owns the engine now (recover.ts's hung check could still fire while it waits).
+    if (stopping) return { ok: false, state: status.state }
     if (status.state === 'external') return { ok: false, state: 'external' }
     if (child && !child.killed) {
       // A restart already under way waits for its exit; one that failed (the engine never stopped) may try again.
@@ -904,13 +868,13 @@ export function setupLocalEngine(
   const boot = async (): Promise<void> => {
     stopHolding()
     set({ state: 'checking' })
+    // Step 7 first, port or not (R44): an engine an earlier launch left running may be hung (no answer on the port)
+    // and may still be reading the screen. Once it is gone, whatever still answers on the port isn't this app's.
+    await reclaimOwnLeftover()
     if (await d.listening(port)) {
-      const ours = await reclaimOwnLeftover()
-      if (!ours) {
-        if (!adoptExternal({ packaged, mode: chosen.mode, ours })) return hold()
-        note(`port ${port} already has an engine this app didn't start: using it, and leaving it running on quit`)
-        return set({ state: 'external' })
-      }
+      if (!adoptExternal({ packaged, mode: chosen.mode, ours: false })) return hold()
+      note(`port ${port} already has an engine this app didn't start: using it, and leaving it running on quit`)
+      return set({ state: 'external' })
     }
     const installedFromBundle = existsSync(marker)
     // The user's own install (the one-liner: a launcher and no BUNDLED marker) always wins.
@@ -944,7 +908,7 @@ export function setupLocalEngine(
 
   return () => {
     // Only the engine this app started (never one the user runs in Terminal). SIGTERM lets uvicorn close its
-    // sockets; the whole group, in case the launcher didn't `exec` into Python.
+    // sockets; the whole group, in case the launcher didn't `exec` into Python, and for everything the engine started.
     if (slow) clearTimeout(slow)
     stopHolding()
     // Quitting: a respawn waiting to start never starts (and an exit from here on is ours, not a crash).
@@ -956,12 +920,26 @@ export function setupLocalEngine(
     if (waiting && !child) set({ state: 'off' })
     clearTimeout(forceKill)
     forceKill = undefined
-    if (!child || child.killed || child.pid === undefined) return
-    // A Restart under way already sent SIGTERM and it is still alive: it ignores SIGTERM, so SIGKILL.
-    killGroup(child, restarting ? 'SIGKILL' : 'SIGTERM')
-    // Electron exits before the child's 'exit' handler runs, so forget the pid now: a stale file would name a pid
-    // the OS can later hand to someone else's process.
-    forgetPid()
+    // No child: it exited (its exit handler cleared it and the pid file), never started, or failed to spawn.
+    const target = child
+    if (!target || target.pid === undefined) return
+    const pid = target.pid
+    const posix = d.platform !== 'win32'
+    // R44: SIGTERM, QUIT_GRACE_MS, then SIGKILL the group (a hung or stopped engine ignores SIGTERM). A Restart under
+    // way already sent SIGTERM and it is still alive: it ignores SIGTERM, so SIGKILL at once. Gone means the exit
+    // handler ran (Node reaped it) and nothing is left in its group. index.ts holds the quit until this settles.
+    return stopTree({
+      signal: (sig) => killGroup(target, sig),
+      gone: () => child !== target && !(posix && d.alive(-pid)),
+      first: restarting ? 'SIGKILL' : 'SIGTERM',
+      graceMs: d.quitGraceMs,
+      confirmMs: d.quitConfirmMs,
+      onEscalate: () => note(`quit: the engine (pid ${pid}) ignored SIGTERM for ${d.quitGraceMs / 1000} s; sending SIGKILL to its group`)
+    }).then((outcome) => {
+      // Still there after SIGKILL: keep the pid file, so the next launch stops it (step 7) instead of losing track.
+      if (outcome === 'alive') return note(`quit: the engine (pid ${pid}) is still running after SIGKILL; keeping ${pidFile} for the next launch`)
+      forgetPid()
+    })
   }
 }
 
