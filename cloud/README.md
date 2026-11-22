@@ -293,7 +293,8 @@ peaks and get short 429s (the SDKs retry them, but the scene look and diagrams u
 ## Accounts: `POST /v1/link`
 
 Links an install to the signed-in miyagi account so its caps are counted per user. Installs that never link keep
-using the proxy with the anonymous caps, and signing out in the app never unlinks.
+using the proxy with the anonymous caps (unless `REQUIRE_SIGNIN=1`, see "Sign-in required"), and signing out in the
+app never unlinks.
 
 ```
 POST /v1/link
@@ -599,6 +600,8 @@ alert, to check the channel reaches both founders' phones.
 | `mints_high` | new installs in one hour reach the warning line | `GLOBAL_MINTS_WARN_PER_HOUR` |
 | `brake` | the global spend brake is reached (only when `DAILY_USD_CAP` is set) | `DAILY_USD_CAP` |
 
+Setting up the webhook and Render's own alerts (deploy failures, health check, 5xx) step by step: `ALERTS.md`.
+
 The alert line is a D13 decision; 25 keeps the old breaker's number as a warning instead of a stop. A daily
 check from outside the service (R01 step 6: a cron that reads `/admin/usage` and pings a dead-man's switch) is
 still to do, so a silent service is noticed too.
@@ -847,7 +850,9 @@ All SQL lives in `store.py`. Write a `PostgresStore` with the same methods (`add
 `set_setting`, `paused`, `set_paused`, `ping`, `new_installs_on`, `claim_alert`, `alerts_on`; `admit_call`,
 `settle`, `mint_check`, `put_candidate`, `link_user_capped` and `add_events` need one transaction with a row lock,
 and `claim_alert` an insert that only one caller wins) and return it
-from `open_store()` when `DATABASE_URL` is set. The tables port as they are.
+from `open_store()` when `DATABASE_URL` is set. The tables port as they are. The lesson cache tables are already
+written out as Postgres DDL in `migrations/supabase/0001_lesson_cache.sql` (own schema, RLS on, no policies, service
+role only). It is a file only: nothing applies it.
 
 ## How the app and the engine use it
 
