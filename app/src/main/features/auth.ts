@@ -55,7 +55,10 @@
  * code, state, error, error_code and error_description (each once). A matching-state callback whose code is refused
  * (bad_code_verifier, flow_state_not_found, a junk code) or that carries an error does NOT end the flow: the tab says
  * why (with Try again), main broadcasts auth:attempt {reason, message}, and the listener stays until the 5-minute
- * timeout, which then answers with the last reason. At most 5 callbacks per flow, then 404; only a callback that passed
+ * timeout, which then answers with the last reason (or TIMEOUT_MESSAGE when nothing came back). The renderer ends its
+ * "Waiting for Google…" on auth:attempt right away (R20), so Cancel on Google's page (a bare access_denied: reason
+ * 'cancelled', CANCELLED_MESSAGE) never leaves the learner waiting; only Google's own not-a-tester wording gets the
+ * tester message (explainCallbackError). At most 5 callbacks per flow, then 404; only a callback that passed
  * every check (this flow's state included) counts, so requests without the state can't use the turns up. On success
  * the listener lets go of 47217 when the response closes (finished or dropped by the browser). If 127.0.0.1:47217 is
  * still taken (EADDRINUSE) after ~3 s of retries, the sign-in stops with a plain reason and the browser never opens.
@@ -211,15 +214,38 @@ function plain(v: unknown, max = 200): string | undefined {
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
 const NOT_ALLOWED = "This Google account isn't allowed yet. Ask to be added as a tester, or continue without an account."
+/** Cancel on Google's page (R20): calm, no blame, no tester talk. Ends in "Try again." (the app shows a Try again link). */
+export const CANCELLED_MESSAGE = 'Sign-in was cancelled in the browser. Try again.'
+const ADMIN_BLOCKED = 'Your school or work account blocks this sign-in. Use a personal Google account, or continue without an account.'
+/** The 5-minute wait ran out with nothing back from the browser (a closed tab, a Google page that never redirected). */
+export const TIMEOUT_MESSAGE = `No answer from Google after ${WAIT_MS / 60_000} minutes, so miyagi stopped waiting. Try again.`
+/**
+ * Google's own "this account is not on the app's test-user list" wording (an unverified app in Testing: "can only be
+ * accessed by developer-approved testers", "The developer hasn't given you access to this app"). Only this wording,
+ * carried in error_description, earns the tester message: a bare access_denied is what Google sends when the learner
+ * presses Cancel (OAuth 2.0: the resource owner denied the request).
+ */
+const NOT_A_TESTER = /\btesters?\b|\btest users?\b|not completed the google verification|(?:hasn.t|has not) given you access/i
+/** A Workspace admin (a school account, an internal-only app) blocks the app: Google's error codes for that. */
+const ADMIN_CODES = new Set(['admin_policy_enforced', 'org_internal'])
 
 /**
  * What an OAuth error that came back on the loopback means, in plain words. Supabase sends Google's error (and its
  * own) as ?error=…&error_code=…&error_description=… (also in the #fragment, which never reaches this server).
+ *
+ * access_denied is three different things (R20): Google's Cancel (no error_code, no tester wording) → 'cancelled';
+ * Google's not-a-tester error (its description says so) → 'denied' with the tester message; Supabase's own refusals
+ * (error_code signup_disabled, user_banned, provider_email_needs_verification) → 'failed' with Supabase's description.
  */
-function explainCallbackError(error: string | null, errorCode: string | null, description: string | null): { reason: string; message: string } {
+export function explainCallbackError(error: string | null, errorCode: string | null, description: string | null): { reason: string; message: string } {
   // "Unable to exchange external code: 4/0A…": Supabase appends the start of Google's code; never show that part.
   const desc = plain(description)?.replace(/^(Unable to exchange external code)\b.*$/i, '$1')
-  if (error === 'access_denied') return { reason: 'denied', message: NOT_ALLOWED }
+  const code = plain(errorCode, 80)
+  if ((error && ADMIN_CODES.has(error)) || (code && ADMIN_CODES.has(code))) return { reason: 'denied', message: ADMIN_BLOCKED }
+  if (error === 'access_denied' || code === 'access_denied') {
+    if (desc && NOT_A_TESTER.test(desc)) return { reason: 'denied', message: NOT_ALLOWED }
+    if (!code || code === 'access_denied') return { reason: 'cancelled', message: CANCELLED_MESSAGE }
+  }
   if (desc && /unable to exchange external code/i.test(desc)) {
     // Supabase could not trade Google's code for a Google token: the Google client secret (or client ID) saved in
     // Supabase's Google provider does not match the Google Cloud OAuth client.
@@ -543,12 +569,17 @@ export default defineMainFeature({
           const focusApp = (): void => {
             if (process.platform === 'darwin') ctx.app.focus({ steal: true })
           }
-          /** A failed attempt: the tab says why (with Try again), the app hears it, and the flow keeps listening. */
+          /**
+           * A failed attempt: the tab says why (with Try again), the app hears it, and the flow keeps listening. The
+           * renderer (features/auth/store.ts) stops showing "Waiting for Google…" the moment auth:attempt arrives, so a
+           * Cancel on Google's page ends the wait at once; this listener staying up only keeps the tab's Try again
+           * working and a forged error from ending a real sign-in.
+           */
           const failed = (why: { reason: string; message: string }): void => {
             f.last = why
             ctx.broadcast('auth:attempt', why)
             try {
-              res.writeHead(200, PAGE_HEADERS).end(PAGE('Sign-in did not finish', why.message, authorize))
+              res.writeHead(200, PAGE_HEADERS).end(PAGE(why.reason === 'cancelled' ? 'Sign-in cancelled' : 'Sign-in did not finish', why.message, authorize))
             } catch {
               /* the browser went away */
             }
@@ -637,7 +668,7 @@ export default defineMainFeature({
             if (f.aborted) return closeServer(server) // cancelled while it came up: nothing opens
             timer = setTimeout(() => {
               // The last failed attempt's reason, if there was one (a timeout after "access denied" says that).
-              if (flow === f) stopFlow(f.last ? { ok: false, ...f.last } : { ok: false, reason: 'timeout' })
+              if (flow === f) stopFlow(f.last ? { ok: false, ...f.last } : { ok: false, reason: 'timeout', message: TIMEOUT_MESSAGE })
             }, WAIT_MS)
             void openAuthorize(authorize).then((ok) => {
               if (!ok && flow === f) stopFlow({ ok: false, reason: 'failed' })
