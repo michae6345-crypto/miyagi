@@ -33,7 +33,7 @@ import httpx
 
 from server.finder import youtube
 from server.finder.env import CACHE_DIR, Keys, resolve_keys
-from server.untrusted import DATA_RULE, wrap
+from server.untrusted import EXTRACT_RULE, wrap
 
 from . import meta as meta_mod
 
@@ -95,7 +95,7 @@ firstHandsOnChapter: index of the FIRST chapter where the learner starts doing s
 loading data, writing the first code or first click). Skip only a pure intro / sponsor / preview; usually
 0 or 1. Never skip hands-on chapters to reach the "main" part. -1 if there are no chapters.
 libraries: languages, libraries, platforms and apps the video uses (<= 8, short names).
-The metadata and the skim note arrive inside <untrusted> blocks. """ + DATA_RULE
+The metadata and the skim note arrive inside <untrusted> blocks. """ + EXTRACT_RULE
 
 
 def _fmt(secs: int | None) -> str:

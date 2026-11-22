@@ -2478,7 +2478,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return None
         code = (step.get("code") or "").strip()
         lines = [ln for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")]
-        if not lines or all(self.SHELL_CMD.match(ln) for ln in lines):
+        if not lines or self._shell_code(lines):
             return None
         rc = (step.get("run_command") or "").strip()
         file = (self._step_file(step) or "").strip()
@@ -2546,13 +2546,22 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     RUN_WORDS = re.compile(r"\b(run|execute|terminal)\b", re.I)
 
+    @staticmethod
+    def _shell_code(lines: list[str]) -> bool:
+        """A step's code lines are a shell command: the one rule the lesson filter uses too (server.untrusted
+        is_shell_code: every line starts like a command, and none is Python such as `node = Node(1)` or
+        `go = True`), so code that runs as shell is code strip_injection checked against the run allowlist."""
+        from server.untrusted import is_shell_code
+
+        return is_shell_code(lines)
+
     def _run_command(self, step: dict) -> str:
         """The shell command a "run it" step asks for ('' for a typing step). A step with BOTH code and a
         run_command is a run step when its code is already in the file or its words say run / terminal."""
         rc = (step.get("run_command") or "").strip()
         code = (step.get("code") or "").strip()
         lines = [ln for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")]
-        if lines and all(self.SHELL_CMD.match(ln) for ln in lines):
+        if lines and self._shell_code(lines):
             return self._python3("\n".join(ln.strip().lstrip("$ ").strip() for ln in lines))
         if rc and (not code or self._step_code_in_file(step)
                    or self.RUN_WORDS.search(f"{step.get('title', '')} {step.get('details', '')} "
