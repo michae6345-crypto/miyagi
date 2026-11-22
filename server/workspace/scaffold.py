@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from jsonschema import Draft202012Validator
-from server.safety.packages import ARCHIVE_SUFFIXES
+from server.safety.packages import ARCHIVE_SUFFIXES, decode_requirements
 from server.safety.patterns import safe_compile
 
 log = logging.getLogger("server.workspace")
@@ -44,6 +44,9 @@ TEXT_NAMES = {"Makefile", "Dockerfile", "Cargo.toml", "Gemfile", ".gitignore", "
 # folder open, .envrc on cd, .github/workflows on push); dotfiles are refused except DOTFILE_ALLOW (server.safety.paths).
 FORBIDDEN_PARTS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".miyagi-state", ".vscode", ".idea",
                    ".github", ".devcontainer", ".envrc", ".tool-versions"}
+# A starter file at the top of the folder named like pip or pytest (or a module of them) would run in their place for
+# `python -m pip` / `python -m pytest` (the folder is first on sys.path): never scaffolded
+SHADOW_TOP = {"pip", "pip.py", "pytest", "pytest.py", "_pytest", "_pytest.py", "py.py", "pluggy", "pluggy.py"}
 # npm runs these on `npm install` / `npm ci` / publish: a scaffolded package.json never has them
 NPM_LIFECYCLE = {"preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare", "prepublish",
                  "prepublishOnly", "prepack", "postpack", "preuninstall", "uninstall", "postuninstall", "dependencies"}
@@ -234,6 +237,8 @@ def _safe_rel(path: str) -> str | None:
     parts = PurePosixPath(p).parts
     if ".." in parts or any(x.casefold() in FORBIDDEN_PARTS for x in parts):  # APFS: Node_Modules is node_modules
         return None
+    if parts[0].casefold() in SHADOW_TOP:  # a top-level pip.py / pytest.py would run in place of pip / pytest
+        return None
     from server.safety.paths import rel_problem
 
     if rel_problem(p, write=True) is not None:  # dotfiles (bar .gitignore, .editorconfig, .nvmrc, .python-version)
@@ -258,6 +263,8 @@ def content_problem(path: str, content: str) -> str | None:
             return f"package.json runs hidden pre / post scripts ({', '.join(hooks)})"
         return None
     if name.startswith("requirements") and name.endswith(".txt"):
+        if (why := decode_requirements(content or "")[1]) is not None:  # pip would read it differently (A08)
+            return f"requirements file: {why}"
         for raw in (content or "").splitlines():
             line = raw.strip()
             if line.startswith("-") or line.lower().startswith("git+") or "://" in line:

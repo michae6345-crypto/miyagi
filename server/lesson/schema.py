@@ -28,6 +28,13 @@ PRECISION_TYPES = ["file_exists", "file_contains", "command_exit_ok", "output_co
 CHECK_TYPES = sorted(set(SCREEN_TYPES) | set(PRECISION_TYPES))
 SCREEN_APPS = ["Code", "Terminal", "iTerm2", "Google Chrome", "Safari", "Jupyter", "PyCharm", "Cursor"]
 MAX_SCREEN_PATTERN = 80  # long regexes break on OCR noise
+# validate_untrusted_lesson keeps at most this many checks per list (checks / precision_checks) of a step and this
+# many check patterns in a whole lesson (the shipped lessons have at most 8 per step and ~50 per lesson)
+MAX_STEP_CHECKS = 24
+MAX_LESSON_PATTERNS = 400
+# ... and at most this many targets per step (the shipped lessons have at most 2). A target's `match` counts as one of
+# the lesson's MAX_LESSON_PATTERNS: screen.match and workspace.anchor_line search with it.
+MAX_STEP_TARGETS = 24
 
 
 @lru_cache(maxsize=1)
@@ -56,14 +63,18 @@ def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> l
         `..`, NUL) are dropped; a check reading such a file is dropped
       * a run_command that can never run (server.safety.commands: shell syntax, a URL, curl / bash / npx ..., a path
         out of the folder) is marked step["run_command_manual"] = {command, reason}: Run it for me shows that command, never runs it
-      * checks whose regex is too long or catastrophic ((x+)+, (a|aa)+) are dropped; a target's bad `match` too
+      * checks whose regex is too long or catastrophic ((x+)+, (a|aa)+) are dropped; a target's bad `match` too (on
+        the pattern alone: one that timed out in this engine is skipped at run time, never dropped from the graph)
+      * at most MAX_STEP_CHECKS checks per list of a step, MAX_STEP_TARGETS targets per step and MAX_LESSON_PATTERNS
+        patterns per lesson (a check's pattern and metric_pattern, a target's match)
       * sources whose url is not https are removed
     The sinks check again at run time (parse_run_command, safe_lesson_path, the evaluator's regex guard)."""
-    from server.checks.evaluator import pattern_problem
     from server.safety.commands import is_structural_manual
+    from server.safety.patterns import static_problem as pattern_problem  # never this process's runtime ban
     from server.safety.paths import rel_problem
 
     notes: list[str] = []
+    patterns_seen = 0  # check patterns kept so far (MAX_LESSON_PATTERNS)
     if not isinstance(graph, dict):
         return ["not a lesson graph"]
     les = graph.get("lesson")
@@ -103,6 +114,9 @@ def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> l
             for t in step["targets"]:
                 if not isinstance(t, dict):
                     continue
+                if len(targets) >= MAX_STEP_TARGETS:  # every frame matches the step's targets: a DoS, not a lesson
+                    notes.append(f"{sid} target: over the {MAX_STEP_TARGETS} targets per step a lesson may have")
+                    continue
                 f = t.get("file")
                 if f not in (None, "") and rel_problem(str(f)) is not None:
                     notes.append(f"{sid} target {str(f)[:80]!r}: {rel_problem(str(f))}")
@@ -112,6 +126,13 @@ def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> l
                 if why and not why.startswith("invalid pattern"):
                     notes.append(f"{sid} target match: {why}")
                     t = {k: v for k, v in t.items() if k != "match"}
+                elif isinstance(m, str) and m:
+                    if patterns_seen >= MAX_LESSON_PATTERNS:
+                        notes.append(f"{sid} target match: over the {MAX_LESSON_PATTERNS} patterns per lesson a "
+                                     "lesson may have")
+                        t = {k: v for k, v in t.items() if k != "match"}
+                    else:
+                        patterns_seen += 1
                 targets.append(t)
             step["targets"] = targets
         for key in ("checks", "precision_checks"):
@@ -120,6 +141,12 @@ def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> l
             kept = []
             for c in step[key]:
                 if not isinstance(c, dict):
+                    continue
+                n = sum(isinstance(c.get(k), str) for k in ("pattern", "metric_pattern"))
+                if len(kept) >= MAX_STEP_CHECKS or n and patterns_seen + n > MAX_LESSON_PATTERNS:
+                    # every frame grades the step's checks: a graph with hundreds of patterns is a DoS, not a lesson
+                    notes.append(f"{sid} check {c.get('id')}: over the {MAX_STEP_CHECKS} checks per step / "
+                                 f"{MAX_LESSON_PATTERNS} patterns per lesson a lesson may have")
                     continue
                 f = c.get("file")
                 if f not in (None, "") and rel_problem(str(f)) is not None:
@@ -130,6 +157,7 @@ def validate_untrusted_lesson(graph: dict, workdir_hint: str | None = None) -> l
                 if bad:
                     notes.append(f"{sid} check {c.get('id')}: {bad}")
                     continue
+                patterns_seen += n
                 kept.append(c)
             step[key] = kept
         rc = step.get("run_command")

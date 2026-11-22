@@ -5,14 +5,20 @@ step's code that looks like a shell line. None of it is trusted. parse_run_comma
 runs WITHOUT a shell, or says why the learner should run it themselves:
 
   Allowed(argv)   python | python3 | .venv/bin/python <relative .py in the lesson folder> [plain args]
-                  python -m pytest | pytest [relative paths in the lesson folder] [-q -v -vv -x -s]
+                  python -m pytest | pytest [relative paths in the lesson folder] [-q -v -vv -x -s], never while
+                    the folder has its own pytest.py, _pytest/ ... (SHADOWS) that would run instead
                   node <relative .js / .mjs / .cjs in the lesson folder> [plain args]
                   npm run <a script in the lesson's package.json> | npm start (its start script) | npm test,
                     run with --ignore-scripts, and only when the script has no pre<name> / post<name> hook (npm would
                     run those too, and the card would not show them)
                   pip | pip3 | python -m pip install -r <relative requirements*.txt in the lesson folder> whose every
-                    line is a name on the curated package list
+                    line is a name on the curated package list, run as `pip install <those specs>` (pip never reads
+                    the file; a file pip would decode differently, by a BOM or a coding line, is refused)
                   pip install <names on the curated package list (server/safety/packages.py)>
+                  (`python -m pip` with the lesson's .venv python runs as `python -I -m pip`, so a pip.py in the
+                  lesson folder never runs; with another python (no .venv: -I would also turn off pip's fallback to
+                  a user install) it runs as written, never while the folder has its own pip.py, json.py ... that
+                  `-m pip` would import instead: PIP_SHADOWS)
   Manual(reason)  everything else: several commands, pipes, redirects, substitutions, globs, `~`, URLs, shells and
                   other programs (curl, wget, bash, sudo, rm, open, osascript, npx ...), and paths that leave the
                   lesson folder (symlinks followed)
@@ -26,6 +32,7 @@ import json
 import os
 import re
 import shlex
+import sys
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -145,6 +152,8 @@ def _classify(argv: list[str], workdir: str) -> Allowed | Manual:
 def _python(argv: list[str], workdir: str) -> Allowed | Manual:
     if len(argv) < 2:
         return Manual("an interactive Python")
+    if argv[1] == "-I" and argv[2:4] == ["-m", "pip"]:  # `python -I -m pip ...`: what _pip_argv itself writes
+        return _pip([argv[0], *argv[2:]], 3, workdir)
     if argv[1] == "-m":
         mod = argv[2] if len(argv) > 2 else ""
         if mod == "pytest":
@@ -194,7 +203,24 @@ def _inside(rel: str, workdir: str) -> Manual | None:
     return None
 
 
+# top-level lesson files that would run in place of pytest (`python -m pytest` puts the lesson folder first on
+# sys.path, and pytest inserts it for the tests too, so it can't run isolated like pip)
+SHADOWS = frozenset({"pytest", "pytest.py", "_pytest", "_pytest.py", "py.py", "pluggy", "pluggy.py"})
+
+
+def shadowing(workdir: str) -> str | None:
+    """The first top-level entry of the lesson folder named like pytest or a module of it (pytest.py, _pytest/ ...),
+    compared case-insensitively (APFS), else None."""
+    try:
+        names = os.listdir(workdir)
+    except OSError:
+        return None
+    return next((n for n in sorted(names) if n.casefold() in SHADOWS), None)
+
+
 def _pytest(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
+    if (shadow := shadowing(workdir)) is not None:
+        return Manual(f"the lesson folder has its own {shadow}, which would run instead of pytest", structural=False)
     for a in argv[i:]:
         if a in PYTEST_FLAGS:
             continue
@@ -203,6 +229,64 @@ def _pytest(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
         if (why := _inside(a.split("::", 1)[0], workdir)) is not None:
             return why
     return Allowed(tuple(argv))
+
+
+# what `python -m pip` (no -I) would import from the lesson folder, which is first on its sys.path: pip itself and
+# every standard-library module (pip imports dozens). Python 3.9-3.11 names gone from this Python's list are added;
+# names pip never imports and lessons often use (test.py, turtle.py) are not.
+PIP_SHADOWS = frozenset(
+    {n.casefold() for n in getattr(sys, "stdlib_module_names", ())}
+    | {"pip", "setuptools", "pkg_resources", "_distutils_hack", "distutils", "imp", "asynchat", "asyncore", "smtpd"}
+    | {"json", "os", "re", "random", "logging", "email", "http", "urllib", "ssl", "socket", "tempfile", "typing"}
+) - {"test", "this", "antigravity", "turtle", "turtledemo", "idlelib", "tkinter", "__hello__", "__phello__"}
+_MODULE_SUFFIXES = (".py", ".pyc", ".so", ".pyd")
+
+
+def pip_shadowing(workdir: str) -> str | None:
+    """The first top-level entry of the lesson folder `python -m pip` would import in place of pip or a standard
+    module (pip.py, json.py, random.py, email/ with an __init__.py, a .pyc or .so of one), compared case-insensitively
+    (APFS), else None."""
+    try:
+        names = sorted(os.listdir(workdir))
+    except OSError:
+        return None
+    for n in names:
+        stem = n.split(".", 1)[0].casefold()
+        if stem not in PIP_SHADOWS:
+            continue
+        full = os.path.join(workdir, n)
+        if n.casefold().endswith(_MODULE_SUFFIXES) and not os.path.isdir(full):
+            return n
+        if "." not in n and os.path.isdir(full) and (stem == "pip" or any(
+                os.path.exists(os.path.join(full, f"__init__{x}")) for x in (".py", ".pyc"))):
+            return n
+    return None
+
+
+def _lesson_venv_python(prog: str, workdir: str) -> bool:
+    """Does `prog` run the lesson's own .venv python: its path, or a bare python / python3 when the lesson folder has
+    a .venv (VS Code's terminal and Run it for me put .venv/bin first on PATH, server.workspace.core)."""
+    if prog.startswith((".venv/", "./.venv/")):
+        return True
+    venv = os.path.join(workdir, ".venv")  # (its bin/python links out of the folder: never safe_lesson_path)
+    return os.path.isfile(os.path.join(venv, "pyvenv.cfg")) and os.path.lexists(os.path.join(venv, "bin", "python"))
+
+
+def _pip_argv(argv: list[str], i: int, tail: list[str], workdir: str) -> tuple[str, ...] | Manual:
+    """What runs for `argv[:i] install <tail>`. The lesson's .venv python runs `-m pip` as `python -I -m pip`
+    (isolated mode: the lesson folder is never on sys.path, so a pip.py, pip/ or a stdlib-named module there can't
+    run in place of pip; a venv has no user site to lose). Any other python runs as written (-I implies -s, which
+    turns off pip's fallback to a user install: the Mac's own python3 would fail with a permission error), and only
+    while the folder has nothing `-m pip` would import from it (pip_shadowing). The `pip` console script never has
+    the folder on its path."""
+    head = [a for a in argv[:i] if a != "-I"]
+    if head[0] in PYTHONS:
+        if _lesson_venv_python(head[0], workdir):
+            head.insert(1, "-I")
+        elif (shadow := pip_shadowing(workdir)) is not None:
+            return Manual(f"the lesson folder has its own {shadow}, which `python -m pip` would run instead of "
+                          "Python's own: rename it, then run the command yourself", structural=False)
+    return (*head, "install", *tail)
 
 
 def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
@@ -225,11 +309,16 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
             return why
         path = safe_lesson_path(workdir, req)
         try:
-            text = path.read_text(encoding="utf-8", errors="replace") if path is not None and path.is_file() else None
+            data = path.read_bytes() if path is not None and path.is_file() else None
         except OSError:
-            text = None
-        if text is None:
+            data = None
+        if data is None:
             return Manual(f"{req} isn't in the lesson folder yet", structural=False)
+        # A08: read the bytes the way pip would or not at all (a `# coding: utf-7` line or a BOM made pip see a URL
+        # line the card never showed)
+        text, why = packages.decode_requirements(data)
+        if text is None:
+            return Manual(f"{req}: {why}", structural=False)
         if probs := packages.requirements_problems(text):
             return Manual(f"{req}: {probs[0]}", structural=False)
         if unlisted := packages.requirements_to_confirm(text):
@@ -238,9 +327,18 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
             return Manual(f"{req} lists packages that aren't on miyagi's list of common tutorial packages, so check "
                           "each one first: " + "; ".join(f"{v.name} ({v.url})" for v in unlisted[:8])
                           + (" …" if len(unlisted) > 8 else ""), structural=False)
+        specs = packages.requirement_specs(text)
+        if not specs:
+            return Manual(f"{req} lists no packages, so there's nothing to install", structural=False)
         names = packages.requirement_names(text)
-        return Allowed(tuple(argv), details="Installs: " + (", ".join(names[:12]) + (" …" if len(names) > 12 else "")
-                                             if names else "nothing listed"), fingerprint=_digest(req, text))
+        # pip gets the verified specs themselves, never the file: what it installs is exactly what the card shows,
+        # whatever the file says by the time pip would have read it
+        run = _pip_argv(argv, i, specs, workdir)
+        if isinstance(run, Manual):
+            return run
+        return Allowed(run,
+                       details=f"Installs (from {req}): " + ", ".join(names[:12]) + (" …" if len(names) > 12 else ""),
+                       fingerprint=_digest(req, text))
     for a in rest:
         if a.startswith("-"):
             return Manual(f"pip install {a[:40]} isn't run for you")
@@ -248,7 +346,8 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
         if v.kind != packages.ALLOW:
             extra = f" ({v.url})" if v.name else ""
             return Manual(f"{v.reason}{extra}")
-    return Allowed(tuple(argv))
+    run = _pip_argv(argv, i, rest, workdir)
+    return run if isinstance(run, Manual) else Allowed(run)
 
 
 def npm_scripts(workdir: str | os.PathLike) -> dict[str, str]:

@@ -27,6 +27,7 @@ import asyncio
 import contextvars
 import copy
 import hashlib
+import itertools
 import logging
 import math
 import os
@@ -73,6 +74,7 @@ ALWAYS_SENT = {"lesson.ended"}
 # The step generation an app action started under. An answer card (explain / hint / answer) that lands after the learner
 # moved on to another step belongs to the old step and is dropped, never shown as the current one.
 _GEN: contextvars.ContextVar[int | None] = contextvars.ContextVar("action_gen", default=None)
+_SESSION_SERIAL = itertools.count(1)  # each LessonSession's regex budget key (never a reused id())
 TAGGED_EVENTS = {"status", "error", "card", "offtrack", "check.updated"}  # carry optional epoch / gen (contract: additive)
 ANSWER_CARD_KINDS = {"explain", "hint", "answer"}
 THINKING_MAX_S = 60.0  # a "thinking" status that nothing resolved by then is ended with an error (never an endless spinner)
@@ -89,6 +91,17 @@ OFFTRACK_READ_MAX_AGE_S = float(os.environ.get("ORCH_OFFTRACK_READ_MAX_AGE_S", "
 # t10: an automatic VS Code open this soon after the learner's own Build click skips the "Miyagi is in front" grace
 # (Miyagi is in front because they just clicked Build); keystrokes still hold it
 BUILD_OPEN_FOLLOW_S = float(os.environ.get("ORCH_BUILD_OPEN_FOLLOW_S", "3"))
+
+
+def _run_copy(r: RunInfo) -> RunInfo:
+    """A run's state as of now (its output and metrics copied): what a check grades in a worker thread."""
+    import dataclasses
+
+    try:
+        return dataclasses.replace(r, output_tail=list(r.output_tail),
+                                   metrics={k: list(v) for k, v in dict(r.metrics).items()})
+    except (TypeError, AttributeError):  # not a RunInfo (a test's stand-in): as it is
+        return copy.copy(r)
 
 
 def video_id_from_url(url: str) -> str | None:
@@ -614,6 +627,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.workspace = workspace  # workspace.Workspace (opens VS Code) or None
         self._emit_raw = emit
         self.lesson_epoch = 0  # bumped by load_graph and end_lesson
+        self._regex_serial = next(_SESSION_SERIAL)
+        from server.safety import regex_worker
+
+        # a lesson pattern searched on the event loop (a run's metric, code_gate, the notebook coach, the lesson-end
+        # summary, a target's match) counts against this lesson's regex budget too (regex_worker.set_fallback)
+        regex_worker.set_fallback(self._regex_key)
         self.screen = screen  # ScreenBridge / FakeScreen / None
         self.seen_interval_s = seen_interval_s
         self._last_seen = -1e9
@@ -1051,6 +1070,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.emit("error", {"message": f"No link to open for {tool or 'that app'}."})
             return
         from server.safety import browser_url_allowed
+        from server.safety.commands import visible  # a hidden character in the link is written out, never hidden
 
         if not browser_url_allowed(url):  # a model-made link to an unknown site: shown, never opened for them
             log.info("open_in_browser: %s is not a known host; shown as text", url[:120])
@@ -1058,7 +1078,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                      "title": "From the tutorial: check it before opening",
                                      "body": "I only open sites I know. If this is the right page for "
                                              f"{(item or {}).get('label') or tool or 'the app'}, copy the link into "
-                                             "your browser yourself.", "output": url})
+                                             "your browser yourself.", "output": visible(url)})
             return
         if self.workspace is not None:
             self.workspace.run(["open", url])  # macOS: the default browser
@@ -4262,6 +4282,44 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return tuple(sorted(r.get("checkId", "") for r in failed))
 
     # ------------------------------------------------------------------ evaluation
+    async def _gate_off_loop(self, step: dict, ctx: RunContext, precision: bool) -> dict:
+        """self.m.evaluate_gate in a worker thread (A08 / ReDoS: a lesson's regexes wait on the regex worker's
+        deadlines there, never on the event loop), on a snapshot of the run state (ingest keeps appending to the
+        live one meanwhile), with the lesson's regex budget (server.safety.regex_worker.budget: after a few
+        timeouts in this lesson its other slow-capable patterns stop running)."""
+        from server.safety import regex_worker
+
+        snap = RunContext(workdir=ctx.workdir, runs=[_run_copy(r) for r in ctx.runs], editor=ctx.editor,
+                          screen={k: list(v) if isinstance(v, list) else v for k, v in ctx.screen.items()}
+                          if isinstance(ctx.screen, dict) else ctx.screen)
+        if ctx.last_run is not None:  # the same run as in runs (a `tut run` may be the last one there or not)
+            snap.last_run = next((c for r, c in zip(ctx.runs, snap.runs) if r is ctx.last_run), None) \
+                or _run_copy(ctx.last_run)
+        key = self._regex_key()
+
+        def run() -> dict:
+            with regex_worker.budget(key):
+                return self.m.evaluate_gate(step, snap, snap.screen, precision)
+
+        return await asyncio.to_thread(run)
+
+    def _regex_key(self) -> tuple:
+        """This lesson's regex budget key (server.safety.regex_worker.budget): a new one per loaded lesson."""
+        return ("lesson", self._regex_serial, self.lesson_epoch)
+
+    async def _off_loop(self, fn: Callable, *args: Any, **kw: Any) -> Any:
+        """fn(*args, **kw) in a worker thread under this lesson's regex budget: a lesson regex search (a VS Code
+        check graded on its file or buffer) waits on the regex worker's deadline there, never on the event loop."""
+        from server.safety import regex_worker
+
+        key = self._regex_key()
+
+        def run() -> Any:
+            with regex_worker.budget(key):
+                return fn(*args, **kw)
+
+        return await asyncio.to_thread(run)
+
     async def evaluate(self, trigger: str) -> None:
         """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
         if stage.on(self):  # a Demo lesson: a save passes a typing step, the recorded run grades a run step
@@ -4283,15 +4341,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.engaged = True  # screen changes count once the clip is over (the learner is working)
             ctx = self.context()
             precision = self.precision_mode()
+            gen = self.step_gen
             try:
-                gate = self.m.evaluate_gate(step, ctx, ctx.screen, precision)
+                gate = await self._gate_off_loop(step, ctx, precision)
             except Exception as e:
                 log.exception("evaluate_gate failed")
                 if not self._eval_error_sent:  # once per step, not once per frame
                     self._eval_error_sent = True
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
-            gen = self.step_gen
+            if gen != self.step_gen or self.step is not step or self.passed or self.phase != "active":
+                return  # the step moved on (or ended) while its checks were graded in the worker thread
             if trigger in ("check", "file"):
                 self._buffers.clear()  # Check / a save: VS Code's text now, not the last tick's
             gate = await self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
@@ -6431,10 +6491,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if await stale_advice.line_fix(self, step, diff):  # a line to delete from the file (02:59:22: the `python3
             return  # nn.py` typed into nn.py went to the clipboard): the previewed deletion, never "Command copied"
         if command:  # terminal fix: stage it on the clipboard, the learner presses Enter (never sent for them)
-            ok = await self._clipboard(command)  # the card always shows exactly what went on the clipboard
-            await self._card(step, "Command copied" if ok else "Run this command",
-                             "Check it, then paste it in your terminal (⌘V) and press Enter." if ok
-                             else "Check it, then type it in your terminal.", output=str(command))
+            from server.safety.commands import invisible_char, visible
+
+            command = str(command)
+            if (bad := invisible_char(command.replace("\n", "").replace("\t", ""))) is not None:
+                # a control / zero-width / bidi character: the card could show one command and paste another, so
+                # nothing goes on the clipboard and the card writes every hidden character out
+                log.info("Do it for me: not copying a command with %s", bad)
+                await self._card(step, "Check this command", f"It holds a hidden character ({bad}), so I didn't copy "
+                                 "it. Type the command yourself, without that character.", output=visible(command))
+            else:
+                ok = await self._clipboard(command)  # the card always shows exactly what went on the clipboard
+                await self._card(step, "Command copied" if ok else "Run this command",
+                                 "Check it, then paste it in your terminal (⌘V) and press Enter." if ok
+                                 else "Check it, then type it in your terminal.", output=command)
             if not (file and yours and expected):
                 return  # command-only fix; otherwise continue with the code part below
         if self.lesson_mode and self._run_command(step):
@@ -6853,7 +6923,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
           never OCR (00:55: "import numey as np"); a pass only in the unsaved buffer is held: the save passes it."""
         self._unsaved_holds = set()
         on_file, text_of = self._checks_fn("screen_check_on_file"), self._checks_fn("screen_text")
-        find = self._checks_fn("search_screen")
+        find, windows = self._checks_fn("search_screen"), self._checks_fn("scan_windows")
         if on_file is None or text_of is None:
             return gate
         defs = {c.get("id"): c for c in step.get("checks") or []}
@@ -6861,9 +6931,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         carded = False
         buffers: dict[Path, str | None] = {}  # VS Code's unsaved text per file: asked once per evaluation
 
-        def graded(c: dict, paths: list[Path]) -> dict:  # on the files: a pass from any, else the first one's verdict
+        def graded_sync(c: dict, paths: list[Path]) -> dict:  # on the files: a pass from any, else the first's verdict
             res = [on_file(c, p) for p in paths]
             return next((x for x in res if x.get("status") == "pass"), res[0])
+
+        async def graded(c: dict, paths: list[Path]) -> dict:  # off the event loop, under the lesson's regex budget
+            return await self._off_loop(graded_sync, c, paths)
 
         out = []
         for r in gate.get("checks") or []:
@@ -6874,7 +6947,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             paths = self._check_files(step, c)
             if paths:
                 await self._buffers.refresh(paths, self.workdir)  # once per file per tick
-            exact = editor_text.check_on_editor(c, paths, self._buffers, find, on_file) if paths else None
+            exact = await self._off_loop(editor_text.check_on_editor, c, paths, self._buffers, find, on_file,
+                                         windows) if paths else None
             if exact is not None and (self.lesson_mode or exact[0].get("status") == "pass"):  # video: a pass only
                 r, unsaved = exact  # VS Code has the file open: its exact text decides, never OCR (numpy -> numey)
                 if unsaved:
@@ -6889,9 +6963,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     shown = self._lesson_window_shown()
                 hidden = text_of(ctx.screen, c.get("app")) is None
                 if hidden or (shown is False and self._lesson_window_open()):
-                    r = graded(c, paths)
+                    r = await graded(c, paths)
                     if r.get("status") != "pass" and not (shown or self._lesson_window_open()):
-                        r = on_file(c, paths[0], window_open=False)  # no lesson window anywhere: "Open VS Code …"
+                        # no lesson window anywhere: "Open VS Code …"
+                        r = await self._off_loop(on_file, c, paths[0], window_open=False)
                     elif r.get("status") != "pass" and not carded and self._other_folder(step):
                         carded = True  # the lesson's file typed in another folder: "Wrong folder?" now, not after 20 s
                         self._editor_state_card(step)
@@ -6899,7 +6974,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.latched_pass.add(cid)
                 self._latch_t[cid] = time.time()
             elif cid in self.latched_pass:
-                on_disk = not paths or graded(c, paths).get("status") == "pass"  # the saved file has it too
+                on_disk = not paths or (await graded(c, paths)).get("status") == "pass"  # the saved file has it too
                 if on_disk or not await self._latch_lost(cid, c, paths, buffers):
                     if not on_disk:
                         self._unsaved_holds.add(cid)  # unsaved code: the row stays green, the step waits for a save
@@ -6929,8 +7004,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         on_file, find = self._checks_fn("screen_check_on_file"), self._checks_fn("search_screen")
         for p in paths:
             if (text := buffers.get(p)) is not None:  # the editor's unsaved text decides
-                try:
-                    if find is None or find(check.get("pattern") or "", text):
+                try:  # off the event loop, under the lesson's regex budget
+                    if find is None or await self._off_loop(find, check.get("pattern") or "", text):
                         return False
                 except re.error:
                     return False
@@ -6939,7 +7014,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 saved = p.stat().st_mtime > self._latch_t.get(cid, 0.0)
             except OSError:
                 saved = False  # not on disk (yet): no save can disagree
-            if not saved or on_file is None or on_file(check, p).get("status") == "pass":
+            if not saved or on_file is None or (await self._off_loop(on_file, check, p)).get("status") == "pass":
                 return False
         return True
 

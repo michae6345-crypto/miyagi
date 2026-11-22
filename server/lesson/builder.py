@@ -6,6 +6,7 @@ import asyncio
 import contextvars
 import copy
 import hashlib
+import itertools
 import json
 import logging
 import re
@@ -36,6 +37,7 @@ from .notebook_steps import use_lesson_notebook
 from .venv_steps import use_lesson_venv
 from .workdir import WorkdirInfo, scan
 from server.safety.patterns import safe_search
+from server.safety import regex_worker
 
 # Progress for the UI. Stable stage ids (the app maps them to text; log wording may change):
 #   cache_hit, watching (Gemini watches the video), reading_transcript, writing_steps (Claude),
@@ -65,6 +67,7 @@ RAW_DIR = CACHE_DIR / "raw"  # video-only drafts, reusable across workdirs
 ADAPT_ATTEMPTS = 3
 DETAIL_CONCURRENCY = 2  # free tier: 5 requests/min per model
 
+_BUILD_SERIAL = itertools.count(1)  # each build's regex budget key
 _CHECK_FIELDS = {
     "screen_contains": ("app", "pattern"),
     "screen_absent": ("app", "pattern"),
@@ -110,8 +113,10 @@ async def build_lesson(
     counter = cost.current() if _prebuild else None
     counter = counter or cost.start("prebuild" if _prebuild else "lesson")
     qs = _QuickStart(on_update, vid, source_url, goal, workdir, video_meta) if (on_update and vid) else None
-    # build_cost is emitted however the build ends (ok / failed / cancelled), so its dollars are never lost
-    with cost.build_scope(counter, kind="prebuild" if _prebuild else "video") as scope:
+    # build_cost is emitted however the build ends (ok / failed / cancelled), so its dollars are never lost. The
+    # build's own regex budget: the model's patterns it lints never count against (or stop) the lesson running now
+    with cost.build_scope(counter, kind="prebuild" if _prebuild else "video") as scope, \
+            regex_worker.budget(("build", next(_BUILD_SERIAL))):
         try:
             g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
                                          on_progress=on_progress, video_meta=video_meta, **kw)

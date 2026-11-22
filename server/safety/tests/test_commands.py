@@ -61,9 +61,14 @@ def test_attacks_are_manual(lesson, cmd):
     ("pytest -q tests", ("pytest", "-q", "tests")),
     ("npm run start", ("npm", "run", "start", "--ignore-scripts")),
     ("npm test", ("npm", "test", "--ignore-scripts")),
-    ("pip install -r requirements.txt", ("pip", "install", "-r", "requirements.txt")),
-    ("python3 -m pip install -r requirements.txt", ("python3", "-m", "pip", "install", "-r", "requirements.txt")),
+    # pip gets the verified specs, never the file; the .venv's `python -m pip` runs isolated (-I), another python
+    # (this folder has no .venv) runs as written while nothing in the folder shadows pip
+    ("pip install -r requirements.txt", ("pip", "install", "numpy", "flask>=2")),
+    ("python3 -m pip install -r requirements.txt", ("python3", "-m", "pip", "install", "numpy", "flask>=2")),
     ("pip install numpy pandas", ("pip", "install", "numpy", "pandas")),
+    ("python3 -m pip install numpy", ("python3", "-m", "pip", "install", "numpy")),
+    ("python3 -I -m pip install numpy", ("python3", "-m", "pip", "install", "numpy")),
+    (".venv/bin/python -m pip install numpy", (".venv/bin/python", "-I", "-m", "pip", "install", "numpy")),
     ("node index.js", ("node", "index.js")),
 ])
 def test_lesson_commands_are_allowed_as_argv(lesson, cmd, argv):
