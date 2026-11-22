@@ -1,0 +1,435 @@
+name: release
+# The Mac release (RELEASING.md): on a version tag vX.Y.Z (or by hand), check the app, build the dmg + update zip per
+# arch with app/scripts/release-mac.sh, and publish them with SHA-256 sums and the electron-updater feed
+# (latest-mac.yml). Signed with a Developer ID, hardened runtime, notarized and stapled only when ALL FIVE signing
+# secrets exist (CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID); with none it builds
+# ad hoc and the release says "unsigned"; with some but not all it stops (a half-configured signer is a mistake).
+#
+# Where it publishes (input `target`, or repo variable RELEASE_TARGET for tag pushes; default github):
+#   github         a release on this repo, with the run's GITHUB_TOKEN (only that job gets contents: write)
+#   github-public  a release on a public releases repo (variable RELEASES_REPO, e.g. owner/miyagi-releases), with a
+#                  fine-grained token secret RELEASES_REPO_TOKEN (Contents: read and write on that repo only); for
+#                  when this repo goes private
+#   r2             Cloudflare R2 over its S3 API: secrets R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+#                  variables R2_BUCKET and R2_PREFIX (default mac)
+#   none           build only: the files stay on the run as the "release-<tag>" artifact
+# Draft by default (input `draft`, or RELEASE_DRAFT=false for tag pushes). R2 has no drafts: a draft goes to
+# <prefix>/<tag>/ only; a non-draft also replaces <prefix>/latest/, the feed electron-updater would read.
+#
+# Security: never runs on pull requests (no pull_request / pull_request_target trigger), so no fork code ever sees a
+# secret. permissions: {} at the top; each job asks for what it needs (contents: read, and contents: write only in
+# publish-github). Secrets are passed as env to the steps that use them, never on a command line. Actions are pinned to
+# a commit SHA (comment: the tag it was), tools to a version, and nothing is restored from a cache. The signing and
+# publishing jobs run in the "release" environment, so Adrian can scope the secrets to it and require an approval.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+", "v[0-9]+.[0-9]+.[0-9]+-*"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to publish
+        type: choice
+        options: [github, github-public, r2, none]
+        default: github
+      draft:
+        description: Draft release (github targets); R2 skips the latest/ feed
+        type: boolean
+        default: true
+      intel:
+        description: Also build the Intel (x64) dmg
+        type: boolean
+        default: true
+      engine_ref:
+        description: Engine branch bundled into the app (git ref)
+        type: string
+        default: origin/integration/live
+permissions: {}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  NODE_VERSION: "22"
+  UV_VERSION: "0.13.6"
+jobs:
+  plan:
+    name: plan (version, target, arches)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      target: ${{ steps.plan.outputs.target }}
+      draft: ${{ steps.plan.outputs.draft }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      engine_ref: ${{ steps.plan.outputs.engine_ref }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          IN_TARGET: ${{ inputs.target }}
+          IN_DRAFT: ${{ inputs.draft }}
+          IN_INTEL: ${{ inputs.intel }}
+          IN_ENGINE_REF: ${{ inputs.engine_ref }}
+          VAR_TARGET: ${{ vars.RELEASE_TARGET }}
+          VAR_DRAFT: ${{ vars.RELEASE_DRAFT }}
+          VAR_INTEL: ${{ vars.RELEASE_INTEL }}
+          VAR_ENGINE_REF: ${{ vars.MIYAGI_ENGINE_REF }}
+          ARM64_RUNNER: ${{ vars.MAC_ARM64_RUNNER || 'macos-latest' }}
+          X64_RUNNER: ${{ vars.MAC_X64_RUNNER || 'macos-15-intel' }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./app/package.json').version")"
+          tag="v$version"
+          if [ "$EVENT" = push ] && [ "$REF_NAME" != "$tag" ]; then
+            echo "::error::tag $REF_NAME doesn't match app/package.json version $version (expected $tag). Bump the version, then tag."
+            exit 1
+          fi
+          if [ "$EVENT" = workflow_dispatch ]; then
+            target="$IN_TARGET"; draft="$IN_DRAFT"; intel="$IN_INTEL"; engine_ref="${IN_ENGINE_REF:-origin/integration/live}"
+          else
+            target="${VAR_TARGET:-github}"
+            draft=true; [ "${VAR_DRAFT:-}" = false ] && draft=false
+            intel=true; [ "${VAR_INTEL:-}" = false ] && intel=false
+            engine_ref="${VAR_ENGINE_REF:-origin/integration/live}"
+          fi
+          case "$target" in github|github-public|r2|none) ;; *) echo "::error::unknown target '$target'"; exit 1 ;; esac
+          case "$engine_ref" in *[!A-Za-z0-9._/-]*|"") echo "::error::engine_ref '$engine_ref' isn't a plain git ref"; exit 1 ;; esac
+          prerelease=false; case "$version" in *-*) prerelease=true ;; esac
+          matrix="$(ARM="$ARM64_RUNNER" X64="$X64_RUNNER" INTEL="$intel" node -e '
+            const include = [{ arch: "arm64", runner: process.env.ARM }]
+            if (process.env.INTEL === "true") include.push({ arch: "x64", runner: process.env.X64 })
+            process.stdout.write(JSON.stringify({ include }))')"
+          {
+            echo "version=$version"; echo "tag=$tag"; echo "target=$target"; echo "draft=$draft"
+            echo "prerelease=$prerelease"; echo "engine_ref=$engine_ref"; echo "matrix=$matrix"
+          } >> "$GITHUB_OUTPUT"
+          echo "### miyagi $version → $target (draft: $draft, intel: $intel, engine: $engine_ref)" >> "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    # The app checks ci.yml runs (typecheck, build, unit tests, no secret Supabase keys), on the commit being released.
+    name: app checks
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: no secret Supabase keys in app/ or the build env (R46)
+        run: python3 ../scripts/check_supabase_keys.py --self-test && python3 ../scripts/check_supabase_keys.py --env .
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: no secret Supabase keys in the built app (R46)
+        run: python3 ../scripts/check_supabase_keys.py out
+      - name: unit tests (test/*.test.ts)
+        run: node --import tsx --import ./test/setup.mjs --test --test-force-exit test/*.test.ts
+      - name: unit tests next to the code (src/**/*.test.ts)
+        run: node --import tsx --test --test-force-exit $(find src -name '*.test.ts' | sort)
+
+  build:
+    name: build (${{ matrix.arch }})
+    needs: [plan, checks]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    environment: release
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        # Full history and every branch: bundle-engine.mjs packs the engine from origin/integration/live with git archive.
+        # No credentials left in .git/config (its own `git fetch` then just warns on a private repo and uses these refs).
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with: { version: "${{ env.UV_VERSION }}", enable-cache: false }
+      - name: signing secrets (all five, or none)
+        id: signing
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          have=(); missing=()
+          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then have+=("$v"); else missing+=("$v"); fi
+          done
+          if [ "${#have[@]}" -eq 5 ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"; echo "Developer ID signing + notarization: on"
+          elif [ "${#have[@]}" -eq 0 ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::no signing secrets: building ad hoc; the release is marked unsigned (RELEASING.md)"
+          else
+            echo "::error::signing secrets half set: missing ${missing[*]}. Add them all, or remove them all for an unsigned build."
+            exit 1
+          fi
+      - run: npm ci
+      - name: no secret Supabase keys in app/ or the build env (R46)
+        run: python3 ../scripts/check_supabase_keys.py --env .
+      - name: import the Developer ID certificate into a throwaway keychain
+        id: keychain
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/miyagi-signing.keychain-db"
+          cert="$RUNNER_TEMP/miyagi-signing.p12"
+          kc_pass="$(openssl rand -hex 24)"
+          echo "::add-mask::$kc_pass"
+          # CSC_LINK is the .p12 as base64 (base64 -i DeveloperID.p12 | pbcopy), the way electron-builder takes it.
+          printf '%s' "$CSC_LINK" | base64 --decode > "$cert"
+          security create-keychain -p "$kc_pass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$kc_pass" "$keychain"
+          security import "$cert" -k "$keychain" -P "$CSC_KEY_PASSWORD" -f pkcs12 -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+          rm -f "$cert"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kc_pass" "$keychain" >/dev/null
+          # Ours first, then the user's existing ones (codesign and electron-builder search this list).
+          existing=()
+          while IFS= read -r k; do k="${k#"${k%%[![:space:]]*}"}"; existing+=("${k//\"/}"); done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" "${existing[@]}"
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | grep -F "Developer ID Application:" | grep -F "($APPLE_TEAM_ID)" | head -1 \
+            | sed -E 's/^[^"]*"(.*)"[^"]*$/\1/')"
+          if [ -z "$identity" ]; then
+            echo "::error::no 'Developer ID Application: … ($APPLE_TEAM_ID)' identity in CSC_LINK (wrong certificate type or team?)"
+            exit 1
+          fi
+          echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+      - name: build, sign if possible, package (scripts/release-mac.sh)
+        env:
+          MIYAGI_ENGINE_REF: ${{ needs.plan.outputs.engine_ref }}
+          MIYAGI_UPDATE_FEED_URL: ${{ vars.MIYAGI_UPDATE_FEED_URL }}
+          MIYAGI_SIGN_IDENTITY: ${{ steps.keychain.outputs.identity }}
+          APPLE_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          ARCH: ${{ matrix.arch }}
+        run: bash scripts/release-mac.sh --arch "$ARCH"
+      - name: no secret Supabase keys in the built app (R46)
+        run: python3 ../scripts/check_supabase_keys.py out
+      - name: remove the signing keychain
+        if: always() && steps.keychain.outputs.keychain != ''
+        env:
+          KEYCHAIN: ${{ steps.keychain.outputs.keychain }}
+        run: security delete-keychain "$KEYCHAIN" || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mac-${{ matrix.arch }}
+          path: app/dist/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  assemble:
+    # One folder for every target: the dmgs and zips, latest-mac.yml (both arches), SHA256SUMS.txt and the notes.
+    name: assemble release files
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false, sparse-checkout: .github/scripts }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { pattern: mac-*, path: parts }
+      - name: merge feed, sums and notes
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          feeds=()
+          for arch in arm64 x64; do
+            d="parts/mac-$arch"
+            [ -d "$d" ] || continue
+            cp "$d"/*.dmg "$d"/*.zip "$d"/*.zip.blockmap release/
+            cp "$d/build-$arch.json" release/
+            feeds+=("$d/latest-mac-$arch.yml")
+          done
+          [ "${#feeds[@]}" -gt 0 ] || { echo "::error::no build artifacts"; exit 1; }
+          ruby .github/scripts/merge-mac-feed.rb "${feeds[@]}" > release/latest-mac.yml
+          # Miyagi-Mac.dmg (Apple silicon) first: the app's update check reads the first "sha256:" line of the notes
+          # when an asset has no digest (src/renderer/src/features/updates/manifest.ts).
+          (
+            cd release
+            dmgs=(Miyagi-Mac.dmg); [ -f Miyagi-Mac-x64.dmg ] && dmgs+=(Miyagi-Mac-x64.dmg)
+            sha256sum "${dmgs[@]}" Miyagi-Mac-*.zip Miyagi-Mac-*.zip.blockmap latest-mac.yml > SHA256SUMS.txt
+          )
+          unsigned="$(node -e '
+            const fs = require("node:fs")
+            const builds = fs.readdirSync("release").filter((f) => /^build-.*\.json$/.test(f)).map((f) => JSON.parse(fs.readFileSync("release/" + f, "utf8")))
+            process.stdout.write(builds.some((b) => !b.signed) ? "true" : "false")')"
+          engine="$(node -p 'require("./release/build-arm64.json").engine')"
+          title="miyagi $VERSION"
+          [ "$unsigned" = true ] && title="$title (unsigned)"
+          {
+            echo "Version: $VERSION"
+            echo
+            if [ "$unsigned" = true ]; then
+              echo "**Unsigned build** (ad hoc, no Developer ID, not notarized). First open: open miyagi once, press Done,"
+              echo "then System Settings › Privacy & Security › **Open Anyway**. Every new build asks for Screen Recording again."
+            else
+              echo "Signed with a Developer ID and notarized by Apple."
+            fi
+            echo
+            echo "- Apple silicon: \`Miyagi-Mac.dmg\`"
+            [ -f release/Miyagi-Mac-x64.dmg ] && echo "- Intel: \`Miyagi-Mac-x64.dmg\`"
+            echo "- Engine inside: \`$engine\`"
+            echo
+            echo "SHA-256 (all files in SHA256SUMS.txt):"
+            echo
+            sed -n 's/^\([0-9a-f]\{64\}\)  \(Miyagi-Mac.*\.dmg\)$/sha256: \1 (\2)/p' release/SHA256SUMS.txt
+          } > release/NOTES.md
+          printf '%s' "$title" > release/TITLE.txt
+          printf '%s' "$unsigned" > release/UNSIGNED.txt
+          cat release/NOTES.md >> "$GITHUB_STEP_SUMMARY"
+          ls -l release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ needs.plan.outputs.tag }}
+          path: release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  publish-github:
+    name: publish (GitHub release, this repo)
+    needs: [plan, assemble]
+    if: needs.plan.outputs.target == 'github'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { name: "release-${{ needs.plan.outputs.tag }}", path: release }
+      - name: create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          DRAFT: ${{ needs.plan.outputs.draft }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd release
+          files=(Miyagi-Mac*.dmg Miyagi-Mac-*.zip Miyagi-Mac-*.zip.blockmap latest-mac.yml SHA256SUMS.txt)
+          # A re-run of the same tag updates the release it made (gh finds drafts by tag too).
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+            gh release edit "$TAG" --title "$(cat TITLE.txt)" --notes-file NOTES.md
+          else
+            # --target: a manual run on a branch tags the commit that was built (a tag push already has its tag).
+            args=(--title "$(cat TITLE.txt)" --notes-file NOTES.md --target "$TARGET_SHA")
+            [ "$DRAFT" = true ] && args+=(--draft)
+            [ "$PRERELEASE" = true ] && args+=(--prerelease)
+            gh release create "$TAG" "${args[@]}" "${files[@]}"
+          fi
+          echo "published $TAG to $GH_REPO (draft: $DRAFT)" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-github-public:
+    name: publish (GitHub release, public releases repo)
+    needs: [plan, assemble]
+    if: needs.plan.outputs.target == 'github-public'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { name: "release-${{ needs.plan.outputs.tag }}", path: release }
+      - name: create or update the release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GH_REPO: ${{ vars.RELEASES_REPO }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          DRAFT: ${{ needs.plan.outputs.draft }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          [ -n "$GH_REPO" ] || { echo "::error::set the repo variable RELEASES_REPO (owner/name of the public releases repo)"; exit 1; }
+          [ -n "$GH_TOKEN" ] || { echo "::error::add the secret RELEASES_REPO_TOKEN (fine-grained, Contents: read and write on $GH_REPO only)"; exit 1; }
+          cd release
+          files=(Miyagi-Mac*.dmg Miyagi-Mac-*.zip Miyagi-Mac-*.zip.blockmap latest-mac.yml SHA256SUMS.txt)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+            gh release edit "$TAG" --title "$(cat TITLE.txt)" --notes-file NOTES.md
+          else
+            # No --target: the source commit isn't in that repo. The tag lands on its default branch when published.
+            args=(--title "$(cat TITLE.txt)" --notes-file NOTES.md)
+            [ "$DRAFT" = true ] && args+=(--draft)
+            [ "$PRERELEASE" = true ] && args+=(--prerelease)
+            gh release create "$TAG" "${args[@]}" "${files[@]}"
+          fi
+          echo "published $TAG to $GH_REPO (draft: $DRAFT)" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-r2:
+    name: publish (Cloudflare R2)
+    needs: [plan, assemble]
+    if: needs.plan.outputs.target == 'r2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { name: "release-${{ needs.plan.outputs.tag }}", path: release }
+      - name: upload to R2 (S3 API)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # R2 doesn't take the newer AWS CLI's default request checksums on every call.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          BUCKET: ${{ vars.R2_BUCKET }}
+          PREFIX: ${{ vars.R2_PREFIX || 'mac' }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          DRAFT: ${{ needs.plan.outputs.draft }}
+        run: |
+          set -euo pipefail
+          for v in R2_ACCOUNT_ID AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY BUCKET; do
+            [ -n "${!v}" ] || { echo "::error::$v is empty: add the R2 secrets and the R2_BUCKET variable (RELEASING.md)"; exit 1; }
+          done
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          cd release
+          files=(Miyagi-Mac*.dmg Miyagi-Mac-*.zip Miyagi-Mac-*.zip.blockmap SHA256SUMS.txt NOTES.md)
+          put() { aws s3 cp "$1" "s3://$BUCKET/$2" --endpoint-url "$endpoint" --only-show-errors; }
+          # The feed goes last, so nobody reads a latest-mac.yml whose zip isn't there yet.
+          for f in "${files[@]}" latest-mac.yml; do put "$f" "$PREFIX/$TAG/$f"; done
+          if [ "$DRAFT" != true ]; then
+            for f in "${files[@]}" latest-mac.yml; do put "$f" "$PREFIX/latest/$f"; done
+          fi
+          echo "uploaded $TAG to r2://$BUCKET/$PREFIX/$TAG/ (latest/ updated: $([ "$DRAFT" != true ] && echo yes || echo no))" >> "$GITHUB_STEP_SUMMARY"
