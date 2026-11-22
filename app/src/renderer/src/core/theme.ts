@@ -72,7 +72,9 @@ export const hud = {
    * The open notch panel's glow: black at the notch, deep green at the bottom (Michael, Nov 22: Clicky does a blue that
    * fades into black; ours is green). A try-out: tune or drop it here only.
    */
-  notchGlow: 'linear-gradient(180deg, rgba(0,0,0,0) 38%, rgba(24,84,56,.55) 100%)',
+  // Nov 22, round 2: the brand mint (pastel.mint #BFE6DA) as a soft glow rising from the bottom edge, so it fits the
+  // app's pastels and melts into the black instead of banding.
+  notchGlow: 'radial-gradient(120% 95% at 50% 125%, rgba(191,230,218,.34) 0%, rgba(191,230,218,.12) 45%, rgba(0,0,0,0) 78%)',
   dark: { glass: 'rgba(28,28,30,0.72)', text: '#F4F4F5', muted: 'rgba(255,255,255,0.6)', hairline: 'rgba(255,255,255,0.12)', button: '#F4F4F5', buttonText: '#141414' },
   light: { glass: 'rgba(255,255,255,0.78)', text: '#141414', muted: 'rgba(0,0,0,0.55)', hairline: 'rgba(0,0,0,0.10)', button: '#141414', buttonText: '#F6F6F3' }
 } as const
