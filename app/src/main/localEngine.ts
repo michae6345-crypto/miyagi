@@ -61,12 +61,13 @@
 import { app, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
+import { accessSync, appendFileSync, closeSync, constants, existsSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 import { cp, rename, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import type { EngineLink } from './engine'
+import { cliEnvFor, cliInvocation, findCodeCli as findWinCodeCli, type CodeCli } from './features/vscodeCli'
 import {
   groupMembers,
   isOwnEngineCommand,
@@ -1080,7 +1081,26 @@ function run(file: string, args: string[], timeout: number): Promise<{ ok: boole
  * only inside /Applications or ~/Applications: never a copy in Downloads, on a mounted dmg or an external volume
  * (a bundle id is just a string anyone can put in an Info.plist).
  */
-async function findCodeCli(): Promise<string | null> {
+async function findCodeCli(): Promise<CodeCli | null> {
+  if (process.platform === 'win32') {
+    return findWinCodeCli({ platform: 'win32', env: process.env, home: homedir(), exists: existsSync, readdir: (p) => readdirSync(p) }) ?? null
+  }
+  const mac = await findMacCodeCli()
+  return mac ? { file: mac, prefix: [], extraEnv: {} } : null
+}
+
+/** One VS Code CLI call: the Mac script as before; on Windows Code.exe + cli.js (or code.cmd) with a minimal env. */
+function runCli(code: CodeCli, args: string[], timeout: number): Promise<{ ok: boolean; out: string }> {
+  if (process.platform !== 'win32') return run(code.file, args, timeout)
+  const inv = cliInvocation(code, args)
+  return new Promise((resolve) => {
+    execFile(inv.file, inv.args, { timeout, maxBuffer: 4 << 20, windowsHide: true, windowsVerbatimArguments: inv.verbatim, env: cliEnvFor('win32', process.env, code.extraEnv) }, (err, stdout) => {
+      resolve({ ok: !err, out: String(stdout ?? '') })
+    })
+  })
+}
+
+async function findMacCodeCli(): Promise<string | null> {
   const inApp = (a: string): string => join(a, CODE_IN_APP, 'code')
   for (const a of VSCODE_APPS) if (executable(inApp(a))) return inApp(a)
   const roots = ['/Applications', join(homedir(), 'Applications')]
@@ -1093,8 +1113,8 @@ async function findCodeCli(): Promise<string | null> {
 }
 
 /** `code --list-extensions --show-versions` → id (lowercase) → version */
-async function listExtensions(code: string): Promise<Map<string, string> | null> {
-  const r = await run(code, ['--list-extensions', '--show-versions'], 30_000)
+async function listExtensions(code: CodeCli): Promise<Map<string, string> | null> {
+  const r = await runCli(code, ['--list-extensions', '--show-versions'], 30_000)
   if (!r.ok) return null
   const m = new Map<string, string>()
   for (const line of r.out.split('\n')) {
@@ -1114,7 +1134,7 @@ function setupCompanion(broadcast: (channel: string, payload: unknown) => void, 
   }
 
   const probe = async (): Promise<CompanionStatus> => {
-    if (process.platform !== 'darwin') return { state: 'unavailable' }
+    if (process.platform !== 'darwin' && process.platform !== 'win32') return { state: 'unavailable' }
     const bundled = bundledCompanion()
     const code = await findCodeCli()
     if (!code) return { state: 'no-vscode', bundled: bundled?.version }
@@ -1136,7 +1156,7 @@ function setupCompanion(broadcast: (channel: string, payload: unknown) => void, 
     // Our own .vsix, from inside the signed app, unless VS Code already has this version or newer.
     if (bundled && (has === undefined || compareVersions(has, bundled.version) < 0)) {
       tell({ state: 'installing', bundled: bundled.version, line: 'Installing the companion' })
-      const r = await run(code, ['--install-extension', bundled.vsix, '--force'], 120_000)
+      const r = await runCli(code, ['--install-extension', bundled.vsix, '--force'], 120_000)
       if (!r.ok) return tell({ state: 'failed', bundled: bundled.version, line: "VS Code didn't install the companion." })
     } else if (!bundled && has === undefined) {
       return tell({ state: 'unavailable' })
@@ -1146,7 +1166,7 @@ function setupCompanion(broadcast: (channel: string, payload: unknown) => void, 
     for (const id of COMPANION_NEEDS) {
       if (before?.has(id)) continue
       tell({ state: 'installing', bundled: bundled?.version, line: id === 'ms-python.python' ? 'Adding Python support' : 'Adding notebook support' })
-      await run(code, ['--install-extension', id], 300_000)
+      await runCli(code, ['--install-extension', id], 300_000)
     }
     return tell(await probe())
   }
