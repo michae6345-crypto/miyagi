@@ -23,7 +23,6 @@
  *            is shown disabled. With no next lesson, Done is the primary.
  * Every number on the card comes from the engine's card, its metric lines or its network diagrams.
  */
-import { BookOpen } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -188,7 +187,7 @@ function Steps({ counts, from = 0 }: { counts?: LessonResult; from?: number }): 
               key={s.id}
               data-complete-step={s.state}
               className="flex shrink-0 items-center gap-[12px]"
-              style={{ height: 26, fontSize: type2.sm, color: s.state === 'passed' ? color.text : color.label }}
+              style={{ height: 24, fontSize: type2.sm, color: s.state === 'passed' ? color.text : color.label }}
               {...enter(from + Math.min(i, ROWS - 1))}
             >
               <StatusGlyph state={s.state} size={16} still />
@@ -224,9 +223,6 @@ function Skills({ card }: { card: CompleteCard }): ReactNode {
         <span className="min-w-0 truncate font-semibold" style={caption}>
           {map.track ? `Skills in ${map.track}` : 'Skills'}
         </span>
-        <span className="shrink-0" style={{ ...caption, ...tab }}>
-          {mastered.length} of {map.nodes.length} mastered
-        </span>
       </div>
       <div className={tight ? 'flex min-w-0 flex-nowrap gap-[6px]' : 'flex flex-wrap gap-[6px]'} data-complete-skills-tight={tight || undefined}>
         {shown.map((n) => (
@@ -234,7 +230,7 @@ function Skills({ card }: { card: CompleteCard }): ReactNode {
             key={n.id}
             title={tight ? `${n.label}${n.detail ? `: ${n.detail}` : ''}` : n.detail}
             className={tight ? 'flex h-[26px] min-w-0 shrink items-center gap-[6px]' : 'flex h-[26px] max-w-full items-center gap-[6px]'}
-            style={{ padding: '0 10px 0 6px', borderRadius: radius2.round, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, fontSize: type2.xs, color: color.text }}
+            style={{ padding: '0 10px 0 0', fontSize: type2.xs, color: color.text }}
           >
             <StatusGlyph state="passed" size={14} />
             <span className="truncate">{n.label}</span>
@@ -261,10 +257,7 @@ function NextUp({ next }: { next: Next }): ReactNode {
       <span className="font-semibold" style={caption}>
         Next up
       </span>
-      <div className="flex items-center gap-[12px]" style={{ padding: 12, borderRadius: radius2.card, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
-        <div className="grid shrink-0 place-items-center" style={{ width: 40, height: 40, borderRadius: radius2.row, background: fill.tile, color: fill.tileGlyph }}>
-          <BookOpen size={18} strokeWidth={1.8} aria-hidden />
-        </div>
+      <div className="flex items-center gap-[12px]" style={{ padding: '12px 14px', borderRadius: radius2.card, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
         <div className="flex min-w-0 flex-col gap-[2px]">
           <span className="truncate font-semibold" style={{ fontSize: type2.md, color: color.text }} title={next.goal}>
             {next.title}
@@ -314,11 +307,14 @@ export function CompletePanel(): ReactNode {
     <section aria-label="Lesson complete" data-complete="panel" className="flex flex-col" style={{ width: w, maxHeight: room, padding: PAD, gap: 20 }}>
       <div className="flex shrink-0 flex-col" style={{ gap: 20 }}>
         <Header />
-        <div className="flex flex-col gap-[8px]">
-          <StatusGlyph state={clean ? 'passed' : 'skipped'} size={40} />
-          <motion.h1 className="m-0 mt-[8px] font-semibold" style={{ fontSize: 24, lineHeight: '30px', letterSpacing: '-0.01em', color: color.text }} data-complete-head {...enter(0)}>
-            {clean ? 'Lesson complete' : 'Lesson finished'}
-          </motion.h1>
+        {/* Overlay round: the check sits beside the title (it was a 40 px glyph on its own line), so the card is shorter. */}
+        <div className="flex flex-col gap-[6px]">
+          <div className="flex items-center gap-[10px]">
+            <StatusGlyph state={clean ? 'passed' : 'skipped'} size={26} />
+            <motion.h1 className="m-0 font-semibold" style={{ fontSize: 22, lineHeight: '28px', letterSpacing: '-0.01em', color: color.text }} data-complete-head {...enter(0)}>
+              {clean ? 'Lesson complete' : 'Lesson finished'}
+            </motion.h1>
+          </div>
           {(subtitle || minutes) && (
             <motion.p className="m-0" style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label, ...tab }} {...enter(1)}>
               {[subtitle, minutes ? `${minutes} min` : ''].filter(Boolean).join(' · ')}

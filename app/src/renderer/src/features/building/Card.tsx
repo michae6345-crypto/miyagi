@@ -13,7 +13,7 @@
  *   meter      a white line at lesson.building progress (scaleX on the house spring), "Usually a few minutes. Only
  *              built once." and about how long is left (etaS). Never invents a number: no etaS, then how long it has
  *              been building (the engine's elapsedS), and with neither, nothing.
- *   footer     "The pill tells you when it is ready." Stop building (quiet, two taps) and Keep working (the one primary).
+ *   footer     Stop building (quiet, two taps) and Keep working (the one primary), right-aligned; no extra copy.
  *              Both are real buttons. Esc (the 'dismiss' UI event) folds the card like Keep working in the browser
  *              stage only: in Electron the overlay window is not focusable, so no key reaches it (launcher.md Core request 16).
  *
@@ -84,7 +84,8 @@ export function BuildCard(): ReactNode {
   const eta = etaLabel(b.build?.etaS) ?? elapsedLabel(b.elapsed)
   return (
     <div data-build-card style={{ padding: `16px ${PAD}px ${PAD - 4}px` }}>
-      <div className="flex items-center justify-center gap-[8px]" style={{ fontSize: type2.xs, color: color.label }}>
+      {/* Overlay round: the header sits on the same left edge as the rows (it was centered over left-aligned content). */}
+      <div className="flex items-center gap-[8px]" style={{ fontSize: type2.xs, color: color.label }}>
         <span className="h-[8px] w-[8px] rounded-full" style={{ background: status.watching }} />
         Building lesson
       </div>
@@ -108,15 +109,13 @@ export function BuildCard(): ReactNode {
           />
         </div>
         <div className="flex justify-between gap-[12px]" style={{ fontSize: type2.xs, color: color.label }}>
-          <span>Usually a few minutes. Only built once.</span>
+          <span>Only built once.</span>
           {eta && <span className="shrink-0 tabular-nums">{eta}</span>}
         </div>
       </div>
 
-      <div className="mt-[20px] flex items-center justify-between gap-[16px]">
-        <span className="min-w-0" style={{ fontSize: type2.sm, color: color.label }}>
-          The pill tells you when it is ready.
-        </span>
+      {/* One line of copy above (the meter's), the two actions on the right: the pill already says when it is ready. */}
+      <div className="mt-[20px] flex items-center justify-end gap-[16px]">
         <div className="flex shrink-0 gap-[8px]">
           <QuietButton
             size="lg"

@@ -21,11 +21,11 @@ import { Caption, Inline, tone } from './ui'
 export function StepIntro({ title, instructions }: { title: string; instructions: string }): ReactNode {
   return (
     <div data-part="panel-step" className="flex flex-col gap-[8px]" style={{ padding: '20px 20px 0' }}>
-      <h2 className="m-0 break-words" style={{ fontSize: type2.xl, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.01em', color: tone.text }}>
+      <h2 className="m-0 break-words [text-wrap:pretty]" style={{ fontSize: type2.xl, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.01em', color: tone.text }}>
         {title}
       </h2>
       {instructions && (
-        <p className="m-0 break-words" style={{ fontSize: type2.md, lineHeight: '20px', color: tone.body }}>
+        <p className="m-0 break-words [text-wrap:pretty]" style={{ fontSize: type2.md, lineHeight: '20px', color: tone.body }}>
           <Inline text={instructions} />
         </p>
       )}
