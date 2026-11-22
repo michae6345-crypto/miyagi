@@ -2,11 +2,11 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import auth, { accessToken } from '../src/main/features/auth'
 import cloud, { installToken } from '../src/main/features/cloud'
 import cloudLink, { createLinker, jwtClaims, readRecord, type LinkerDeps } from '../src/main/features/cloudLink'
-import { CLOUD, FakeCloud, FakeSupabase, hitCallback, makeHarness, makeJwt, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
+import { CLOUD, FakeCloud, FakeSupabase, hitCallback, makeHarness, makeJwt, lockSignInPort, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
 
 const ALICE = { sub: 'user-alice', email: 'alice@example.com', name: 'Alice Test' }
 const BOB = { sub: 'user-bob', email: 'bob@example.com', name: 'Bob Test' }
@@ -17,6 +17,16 @@ let fake: FakeCloud
 let h: Harness
 let restore: () => void
 let logs: string[]
+
+// This file signs in on 127.0.0.1:47217; so may other test files and other checkouts' runs, in parallel. Hold the
+// machine-wide lock for the whole file (see lockSignInPort).
+let unlockPort: () => Promise<void>
+before(async () => {
+  unlockPort = await lockSignInPort()
+})
+after(async () => {
+  await unlockPort?.()
+})
 
 beforeEach(() => {
   supa = new FakeSupabase()

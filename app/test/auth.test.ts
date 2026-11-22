@@ -7,10 +7,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import auth, { accessToken, assertPkce, authorizeUrl, FLOW_TYPE, listenRetry, MAX_CALLBACKS, needsLogin, onSignedIn, REDIRECT, redirectTo, WAIT_MS } from '../src/main/features/auth'
 import { opened, safeStorage } from './fakes/electron'
-import { FakeCloud, FakeSupabase, challengeOf, hitCallback, makeHarness, makeJwt, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
+import { FakeCloud, FakeSupabase, challengeOf, hitCallback, makeHarness, makeJwt, lockSignInPort, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
 
 const ALICE = { sub: 'user-alice', email: 'alice@example.com', name: 'Alice Test' }
 
@@ -18,6 +18,16 @@ let supa: FakeSupabase
 let h: Harness
 let restore: () => void
 let hooked = 0
+
+// This file signs in on 127.0.0.1:47217; so may other test files and other checkouts' runs, in parallel. Hold the
+// machine-wide lock for the whole file (see lockSignInPort).
+let unlockPort: () => Promise<void>
+before(async () => {
+  unlockPort = await lockSignInPort()
+})
+after(async () => {
+  await unlockPort?.()
+})
 
 beforeEach(() => {
   supa = new FakeSupabase()
@@ -374,8 +384,8 @@ test('makeJwt is not a real token (sanity for the fakes)', () => {
   assert.equal(makeJwt({ sub: 'x', exp: 1 }).split('.').length, 3)
 })
 
-// Last in the file: these hold the port longest (cloudLink.test.ts, run in parallel, also signs in on 47217; auth.ts
-// retries a taken port for ~3 s, so a short overlap is fine).
+// Last in the file: these hold or squat the port, and two use fake timers (a listen retry would never fire). The file
+// holds lockSignInPort throughout, so no other test process is on 47217 meanwhile.
 describe('the sign-in port and the flow’s lifetime', () => {
   test('a second click right after the first restarts the flow without a port error', async () => {
     auth.setup(h.ctx)
@@ -448,8 +458,7 @@ describe('the sign-in port and the flow’s lifetime', () => {
       if (Date.now() > end) throw new Error('could not take the port for the test')
       await new Promise((r) => setTimeout(r, 50))
     }
-    // The real window is ~3 s of retries; two quick tries here, so the port isn't held long while cloudLink.test.ts
-    // (run in parallel) may want it.
+    // The real window is ~3 s of retries; two quick tries here keep the test short.
     assert.ok(listenRetry.tries * listenRetry.ms >= 2000, 'a port that frees up within ~2 s is waited for')
     const saved = { ...listenRetry }
     Object.assign(listenRetry, { tries: 2, ms: 20 })

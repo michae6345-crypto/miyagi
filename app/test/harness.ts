@@ -4,6 +4,7 @@
  */
 import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer as createNetServer, type Server as NetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MainContext } from '../src/main/context'
@@ -194,17 +195,87 @@ export function writeSession(dir: string, s: Record<string, unknown>, project = 
   writeFileSync(join(dir, 'auth.bin'), safeStorage.encryptString(JSON.stringify(raw)))
 }
 
-/** Start auth:google and wait until it asks to open the browser. */
+/** The sign-in loopback auth.ts listens on (a constant there: it is the Supabase redirect allowlist entry). */
+export const SIGN_IN_PORT = 47217
+/** A second loopback port held, never served, as a machine-wide lock on SIGN_IN_PORT between test processes. */
+const LOCK_PORT = 47219
+
+/** Listen on 127.0.0.1:port. true: it is ours now; false: EADDRINUSE (anything else throws). */
+function tryListen(server: NetServer, port: number): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: NodeJS.ErrnoException): void => {
+      server.off('listening', onListening)
+      if (err.code === 'EADDRINUSE') resolve(false)
+      else reject(err)
+    }
+    const onListening = (): void => {
+      server.off('error', onError)
+      resolve(true)
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    server.listen({ port, host: '127.0.0.1', exclusive: true })
+  })
+}
+
+const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Take the sign-in port for a whole test file. `node --test` runs every test file in its own process at once, and other
+ * checkouts on this Mac may run the suite too; auth.test.ts and cloudLink.test.ts both sign in on 127.0.0.1:47217. Two
+ * processes on that port meant one's callback reaching the other's listener, a fake-timer test whose listen retry never
+ * fires, or a sign-in that gave up with reason 'port' while startGoogle waited for a browser forever: the run hung.
+ *
+ * The lock is a listener on LOCK_PORT: one process at a time can hold it, and the OS frees it if the holder dies (a
+ * killed run never leaves a stale lock). Once held, it also waits for 47217 itself to be free (a previous holder's
+ * listener still closing). Call in before(); call the returned release in after().
+ */
+export async function lockSignInPort(waitMs = 120_000): Promise<() => Promise<void>> {
+  const lock = createNetServer()
+  const end = Date.now() + waitMs
+  while (!(await tryListen(lock, LOCK_PORT))) {
+    if (Date.now() > end) throw new Error(`another test run held the sign-in port lock (127.0.0.1:${LOCK_PORT}) for ${waitMs} ms`)
+    await realSleep(25)
+  }
+  lock.unref()
+  const release = (): Promise<void> => new Promise((r) => lock.close(() => r()))
+  const probe = createNetServer()
+  const portEnd = Date.now() + 15_000
+  while (!(await tryListen(probe, SIGN_IN_PORT))) {
+    if (Date.now() > portEnd) {
+      await release()
+      throw new Error(`127.0.0.1:${SIGN_IN_PORT} stayed taken for 15 s (a running miyagi app mid sign-in?)`)
+    }
+    await realSleep(25)
+  }
+  await new Promise<void>((r) => probe.close(() => r()))
+  return release
+}
+
+/** Start auth:google and wait until it asks to open the browser. Fails (never hangs) if the flow answers first. */
 export async function startGoogle(h: Harness): Promise<{ result: Promise<unknown>; authorize: URL; callback: URL; state: string; challenge: string }> {
+  let fn!: (u: string) => void
   const asked = new Promise<string>((resolve) => {
-    const fn = (u: string): void => {
+    fn = (u: string): void => {
       openListeners.delete(fn)
       resolve(u)
     }
     openListeners.add(fn)
   })
   const result = h.invoke('auth:google')
-  const authorize = new URL(await asked)
+  // A flow that ends before opening the browser (reason 'port', say) would otherwise leave `asked` pending forever.
+  const endedFirst = result.then(
+    (r) => Promise.reject(new Error(`auth:google answered before opening the browser: ${JSON.stringify(r)}`)),
+    (err: unknown) => Promise.reject(err)
+  )
+  let url: string
+  try {
+    url = await Promise.race([asked, endedFirst])
+  } catch (err) {
+    openListeners.delete(fn)
+    throw err
+  }
+  const authorize = new URL(url)
   const callback = new URL(authorize.searchParams.get('redirect_to') ?? '')
   return { result, authorize, callback, state: callback.searchParams.get('state') ?? '', challenge: authorize.searchParams.get('code_challenge') ?? '' }
 }
