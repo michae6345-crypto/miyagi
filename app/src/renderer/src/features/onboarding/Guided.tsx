@@ -90,8 +90,9 @@ function Status({ row, advancing }: { row: Row; advancing: boolean }): ReactNode
     <div
       data-onb-status={row.state}
       aria-live="polite"
-      className="relative flex min-h-[44px] items-center gap-[10px] overflow-hidden px-[14px] py-[10px]"
-      style={{ borderRadius: radius2.chip, background: surface.row, boxShadow: `inset 0 1px 0 ${fill.highlight}, inset 0 0 0 1px ${fill.hairline}` }}
+      className="relative mx-auto flex min-h-[44px] max-w-full items-center justify-center gap-[10px] overflow-hidden px-[4px] py-[10px]"
+      // As wide as its words: the soft progress and the moving-on hairline run under the line, not across the window.
+      style={{ width: 'fit-content' }}
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.span key={row.state} className="flex" initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, transition: fade.instant }} transition={spring}>
@@ -129,21 +130,13 @@ export function regrantLines(id: StepId): string[] {
   return ['Already on? Switch miyagi off and on again.', 'Still stuck? Remove it with the minus, then add it back.']
 }
 
-/** The pastel wash behind each step's picture (soft tints beyond options are allowed now; never status). */
-const WASH: Record<StepId, string> = { screen: brand.pastel.sky, accessibility: brand.pastel.lilac, companion: brand.pastel.pink, engine: brand.pastel.sky }
-
-/** The picture's stage: a soft tinted floor with depth, the live picture floating on it. */
+/**
+ * The picture's stage: the live picture floating on the window, nothing behind it (redraft, Adrian Nov 21: the tinted
+ * floor per step read as decoration; the picture already has its own surface and shadow).
+ */
 function Stage({ row }: { row: Row }): ReactNode {
   return (
-    <div
-      data-onb-stage
-      className="relative flex w-full items-center justify-center overflow-hidden px-[24px] py-[22px]"
-      style={{
-        borderRadius: radius2.sheet,
-        background: `color-mix(in srgb, ${WASH[row.id]} 24%, ${surface.sheet})`,
-        boxShadow: `${highlight.top}, inset 0 0 0 1px ${fill.hairline}, ${elevation.overlay}`
-      }}
-    >
+    <div data-onb-stage className="relative flex w-full items-center justify-center px-[24px] py-[8px]">
       <div className="w-full max-w-[320px] text-left">
         <Illustration row={row} />
       </div>
