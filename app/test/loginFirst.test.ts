@@ -7,13 +7,15 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
+import { makeConsent } from '../src/common/consent'
 import type { MainContext } from '../src/main/context'
 import auth from '../src/main/features/auth'
 import launch from '../src/main/features/launch'
 import onboarding from '../src/main/features/onboarding'
 import { gateCore, gateIsOpen, resetGateForTests } from '../src/main/gate'
+import { patchPrefs, resetPrefsForTests } from '../src/main/prefs'
 import { globalShortcut, promptCalls, shortcuts, trays } from './fakes/electron'
 import { FakeCloud, FakeSupabase, stubFetch, writeSession } from './harness'
 
@@ -151,11 +153,13 @@ beforeEach(() => {
   supa = new FakeSupabase()
   restore = stubFetch(supa, new FakeCloud())
   resetGateForTests()
+  resetPrefsForTests()
 })
 afterEach(() => {
   for (const l of launches) l.quit()
   restore()
   resetGateForTests()
+  resetPrefsForTests()
   rmSync(dir, { recursive: true, force: true })
   for (const k of ENV) {
     if (envBefore[k] === undefined) delete process.env[k]
@@ -177,7 +181,9 @@ const relaunch = (): Launch => {
   return start()
 }
 const write = (name: string, v: unknown): void => writeFileSync(join(dir, name), JSON.stringify(v))
-type Get = { login: boolean; flow: boolean; gate: { login: boolean; setup: boolean; open: boolean } }
+/** prefs.json already holds this build's consent (main/prefs.ts reads the file only in setupPrefs, which tests skip). */
+const agreedBefore = (): void => void patchPrefs({ consent: makeConsent() })
+type Get = { login: boolean; flow: boolean; consent: boolean; gate: { login: boolean; consent: boolean; setup: boolean; open: boolean } }
 
 describe('a launch starts from new: login first, nothing else', () => {
   test("Michael's Mac: stale prefs onboarded, setup not done, no session, an old login.json", async () => {
@@ -189,7 +195,8 @@ describe('a launch starts from new: login first, nothing else', () => {
     assert.equal(gateIsOpen(), false)
     const got = (await l.invoke('onboarding:get')) as Get
     assert.equal(got.login, true, 'onboarding:get says the login is needed')
-    assert.deepEqual(got.gate, { login: false, setup: false, open: false })
+    assert.equal(got.consent, false, 'and consent')
+    assert.deepEqual(got.gate, { login: false, consent: false, setup: false, open: false })
     assert.deepEqual(l.opened, ['library'], 'only the home window opens (its flow starts at the login)')
     assert.equal(l.overlayShown(), 0, 'the overlay is never shown')
     assert.equal(shortcuts.has(LAUNCHER_KEY), false, 'the launcher key is never registered')
@@ -198,27 +205,31 @@ describe('a launch starts from new: login first, nothing else', () => {
     assert.deepEqual(JSON.parse(readFileSync(join(dir, 'login.json'), 'utf8')), { decided: true }, 'the old login.json is left alone')
   })
 
-  test('the guest path: Continue without an account, then Set up later, opens the gate; the next launch asks again', async () => {
+  test('the guest path: Continue without an account, consent, then Set up later, opens the gate; the next launch asks again', async () => {
     write('onboarding.json', { done: false })
     const l = start()
     assert.equal(gateIsOpen(), false)
 
     await l.invoke('auth:continue')
-    assert.equal(gateIsOpen(), false, 'setup is still ahead')
+    assert.equal(gateIsOpen(), false, 'consent and setup are still ahead')
     assert.equal(l.overlayShown(), 0)
     await l.invoke('onboarding:later')
+    assert.equal(gateIsOpen(), false, '"Set up later" never skips consent')
+    assert.equal(l.overlayShown(), 0)
+    await l.invoke('onboarding:agree')
     assert.equal(gateIsOpen(), true)
     assert.equal(l.overlayShown(), 1, 'the overlay shows once the gate opens')
     assert.equal(shortcuts.has(LAUNCHER_KEY), true, 'the launcher key registers')
     assert.deepEqual(l.trayLabels(), ['Open miyagi', 'Start a lesson', 'Show me around', 'Settings…', 'Quit miyagi'])
     const gates = l.broadcasts.filter(([c]) => c === 'onboarding:gate').map(([, v]) => v)
-    assert.deepEqual(gates.at(-1), { login: true, setup: true, open: true }, 'feat:onboarding:gate carries the clean view')
+    assert.deepEqual(gates.at(-1), { login: true, consent: true, setup: true, open: true }, 'feat:onboarding:gate carries the clean view')
 
     const again = relaunch()
     assert.equal(gateIsOpen(), false, 'the guest choice lasts one run')
     const got = (await again.invoke('onboarding:get')) as Get
     assert.equal(got.login, true)
-    assert.deepEqual(got.gate, { login: false, setup: true, open: false })
+    assert.equal(got.consent, true, 'consent is kept (prefs.consent), so it is not asked again')
+    assert.deepEqual(got.gate, { login: false, consent: true, setup: true, open: false })
     assert.equal(again.overlayShown(), 0)
     assert.equal(shortcuts.has(LAUNCHER_KEY), false)
     assert.deepEqual(again.opened, ['library'], 'home opens at the login, setup already put off')
@@ -226,16 +237,17 @@ describe('a launch starts from new: login first, nothing else', () => {
     assert.deepEqual(readdirSync(dir).sort(), ['onboarding.json'])
   })
 
-  test('a stored session and setup done: the gate opens without any login screen', async () => {
+  test('a stored session, consent and setup done: the gate opens without any login screen', async () => {
     write('onboarding.json', { done: true, introSeen: true })
     writeSession(dir, supa.session({ sub: 'user-alice', email: 'alice@example.com', name: 'Alice Test' }))
+    agreedBefore()
     const l = start()
 
     assert.equal(gateIsOpen(), true)
     const got = (await l.invoke('onboarding:get')) as Get
     assert.equal(got.login, false)
     assert.equal(got.flow, false)
-    assert.deepEqual(got.gate, { login: true, setup: true, open: true })
+    assert.deepEqual(got.gate, { login: true, consent: true, setup: true, open: true })
     assert.equal(l.overlayShown(), 1)
     assert.equal(shortcuts.has(LAUNCHER_KEY), true)
     assert.deepEqual(promptCalls, [])
@@ -244,6 +256,7 @@ describe('a launch starts from new: login first, nothing else', () => {
   test('a sign-out closes the gate: the overlay hides, the key goes, the tray shrinks', async () => {
     write('onboarding.json', { done: true, introSeen: true })
     writeSession(dir, supa.session({ sub: 'user-alice', email: 'alice@example.com', name: 'Alice Test' }))
+    agreedBefore()
     const l = start()
     assert.equal(gateIsOpen(), true)
     await l.invoke('auth:sign-out')
@@ -270,7 +283,7 @@ describe('prompts come only from a setup click', () => {
       for (const e of readdirSync(d, { withFileTypes: true })) {
         const p = join(d, e.name)
         if (e.isDirectory()) walk(p)
-        else if (/\.tsx?$/.test(e.name) && !/web\.ts$/.test(e.name) && readFileSync(p, 'utf8').includes("'onboarding:prompt'")) hits.push(p.slice(src.length + 1))
+        else if (/\.tsx?$/.test(e.name) && !/web\.ts$/.test(e.name) && readFileSync(p, 'utf8').includes("'onboarding:prompt'")) hits.push(p.slice(src.length + 1).split(sep).join('/'))
       }
     }
     walk(src)

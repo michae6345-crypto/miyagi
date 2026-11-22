@@ -4,6 +4,7 @@
  * Nothing secret ever reaches the renderer: main keeps the session (safeStorage) and answers `auth:get` with
  * {name, email, avatarInitial} only. No token, code or email goes into a URL, localStorage or a log.
  */
+import { LEGAL_URL } from '../../../../common/consent'
 import { LOGIN_ENABLED } from '../../../../common/flags'
 
 /** The login exists at all (common/flags.ts LOGIN_ENABLED; main also honors MIYAGI_LOGIN=0). Separate from v2Cloud. */
@@ -18,8 +19,11 @@ export type User = { name?: string; email?: string; avatarInitial: string }
 export const LIVE: Record<Provider, boolean> = { google: true, apple: false, github: false }
 export const PROVIDER_LABEL: Record<Provider, string> = { google: 'Google', apple: 'Apple', github: 'GitHub' }
 
-/** Fixed pages the login links to (open:external, allowlisted miyagi.study). Nothing is ever appended. */
-export const LEGAL = { terms: 'https://miyagi.study/terms', privacy: 'https://miyagi.study/privacy' } as const
+/**
+ * Fixed pages the login, the consent screen and Settings link to (open:external, allowlisted miyagi.study). Nothing
+ * is ever appended. One source: common/consent.ts LEGAL_URL (https://miyagi.study/terms and /privacy).
+ */
+export const LEGAL = LEGAL_URL
 
 /** Main's answer to auth:google. */
 export type SignInResult = { ok: true; user: unknown } | { ok: false; reason?: string; message?: string }

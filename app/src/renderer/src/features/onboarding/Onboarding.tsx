@@ -2,6 +2,7 @@
  * Feature: onboarding. The setup app window (route `onboarding`, kind 'app'; BUILD-PLAN decision 4).
  *
  *   intro      the first launch only: the branded intro (Intro.tsx, ~2.5 s, any key or click skips), then setup
+ *   consent    stands in for setup, ready and the checklist until the learner agreed (Consent.tsx, R05 and R06)
  *   setup      guided setup, one step per screen (Guided.tsx): Screen Recording, Accessibility, VS Code, engine
  *   ready      "You're ready" and Start (Ready.tsx), once nothing the learner can fix is left
  *   checklist  Review setup (Checklist.tsx): every row on one sheet; Settings and a later run open this
@@ -22,6 +23,7 @@ import { useLesson } from '../../core/lesson'
 import { useWindowArgs } from '../../core/surfaces'
 import { color, copy, font } from '../../core/theme'
 import { Checklist } from './Checklist'
+import { Consent } from './Consent'
 import { Guided } from './Guided'
 import { Intro } from './Intro'
 import { Ready } from './Ready'
@@ -134,11 +136,16 @@ export function Onboarding({ layout }: { layout: Layout }): ReactNode {
 
   // Review setup with every row green, or the walk's end: You're ready. The walk's end with something left that the
   // learner can fix shows the checklist instead (never "ready" when it isn't).
-  const shown: Phase | undefined = phase === 'checklist' && sum.allOk ? 'ready' : phase === 'ready' && !sum.canStart ? 'checklist' : phase
+  const fixed: Phase | undefined = phase === 'checklist' && sum.allOk ? 'ready' : phase === 'ready' && !sum.canStart ? 'checklist' : phase
+  // Consent first (R05, R06): until the learner agreed, the consent screen stands in for every view with a button that
+  // could ask macOS for something (setup, the checklist, ready). Agreeing flips `consent`, and the view it covered shows.
+  const consent = useOnboarding((s) => s.consent)
+  const shown: Phase | 'consent' | undefined = fixed && fixed !== 'intro' && !consent ? 'consent' : fixed
 
   return (
     <div data-onb-window data-phase={shown} className="relative flex h-full w-full select-none overflow-hidden" style={{ background: color.window, color: color.text, fontFamily: font.ui }}>
       <AnimatePresence>{shown === 'intro' && <Intro key="intro" onDone={endIntro} hold={hold} />}</AnimatePresence>
+      {shown === 'consent' && <Consent chrome="window" enterDelay={fromIntro ? 0.24 : 0} onDone={() => undefined} />}
       {shown === 'setup' && <Guided rows={rows} width={layout.width} height={layout.height} enterDelay={fromIntro ? 0.24 : 0} onFinish={() => setPhase('ready')} />}
       {shown === 'ready' && <Ready rows={rows} sum={sum} />}
       {shown === 'checklist' && <Checklist rows={rows} sum={sum} onGuide={() => setPhase('setup')} />}

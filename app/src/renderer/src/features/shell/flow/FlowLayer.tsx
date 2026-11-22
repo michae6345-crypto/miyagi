@@ -6,8 +6,9 @@
  *            Review setup (whose Start stays off while something is left, so it is never a dead end). Below
  *            COMPACT_W (the window's minimum is 560) the strip shows only the current step's label, the others as
  *            ticks and dots, so it never runs into "Set up later".
- *   body     intro (the whole window) → Sign in → guided setup → You're ready (or Review setup when something the
- *            learner can fix is left)
+ *   body     intro (the whole window) → Sign in → consent (what miyagi sends, "By continuing you agree"; R05, R06)
+ *            → guided setup → You're ready (or Review setup when something the learner can fix is left). Consent
+ *            has no "Set up later": no prompt and no capture come before it.
  *
  * The views are the features' own (onboarding Intro / Guided / Ready / Checklist, auth Login), in flow mode: no
  * header of their own, and the end hands over to home instead of opening another window.
@@ -31,6 +32,7 @@ import { beat, fade } from '../../../core/ui/motion'
 import { Keycap } from '../../../core/ui/Keycap'
 import { Login } from '../../auth/Login'
 import { Checklist } from '../../onboarding/Checklist'
+import { Consent } from '../../onboarding/Consent'
 import { Guided } from '../../onboarding/Guided'
 import { Intro } from '../../onboarding/Intro'
 import { useLive } from '../../onboarding/Onboarding'
@@ -40,7 +42,7 @@ import { markDone, noteSetupShown, useOnboarding } from '../../onboarding/store'
 import { arriveDelay, layerIn, layerOut, leave, screenOut } from './motion'
 import { Strip } from './Strip'
 import './web'
-import { backToSetup, endIntro, endLogin, finishFlow, flowCovers, leaveAgain, toReady, useFlow } from './store'
+import { backToSetup, endConsent, endIntro, endLogin, finishFlow, flowCovers, leaveAgain, toReady, useFlow } from './store'
 
 /** Below this window width the strip is compact (current label, ticks and dots). */
 const COMPACT_W = 760
@@ -164,6 +166,11 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             {phase === 'login' && (
               <View key="login" id="login">
                 <Login onContinue={endLogin} />
+              </View>
+            )}
+            {phase === 'consent' && (
+              <View key="consent" id="consent">
+                <Consent chrome="flow" enterDelay={arriveDelay} onDone={endConsent} />
               </View>
             )}
             {phase === 'setup' && (

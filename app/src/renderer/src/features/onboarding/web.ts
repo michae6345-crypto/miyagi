@@ -8,7 +8,8 @@
  *
  * ?onb=<variant> picks a stage fixture:
  *   intro    the branded intro, held on its last frame (a key or click moves on to setup)
- *   full     the real first launch: the intro, then guided setup from step 1 with nothing granted yet
+ *   full     the real first launch: the intro, the consent screen, then guided setup from step 1 with nothing granted
+ *   consent  the consent screen (R05, R06), then guided setup from step 1
  *   step1-4  guided setup opened on that step (the steps before it are done)
  *   mixed    Review setup: Screen Recording on, Accessibility Watching, the companion missing
  *   ready    every row green: You're ready
@@ -22,6 +23,8 @@
  *
  * ?flow=1&step=<step> is the one-window first run (features/shell/flow): the HOME window opens (never the setup window)
  * and the flow layer covers it, starting at that step:
+ *   consent the consent screen, then setup (onboarding:agree stands in for main; consent is needed from intro,
+ *           login and consent, and given for every later step)
  *   intro   the intro, then Sign in        login   Sign in (intro seen)       screen  Screen Recording (signed out
  *   access  Accessibility (Screen on)      vscode  VS Code (both grants on)   engine  Getting miyagi ready (access 2.5 s)
  *   ready   You're ready                   done    You're ready, then Start by itself (the hand-off to home)
@@ -33,10 +36,12 @@ import { openWindow } from '../../core/surfaces'
 import { windowSize } from '../../core/theme'
 import { markAsked, refreshCloud, useOnboarding, type CloudView } from './store'
 
-export type StageVariant = 'intro' | 'full' | 'step1' | 'step2' | 'step3' | 'step4' | 'mixed' | 'ready' | 'recovery'
-const VARIANTS: readonly StageVariant[] = ['intro', 'full', 'step1', 'step2', 'step3', 'step4', 'mixed', 'ready', 'recovery']
+export type StageVariant = 'intro' | 'full' | 'consent' | 'step1' | 'step2' | 'step3' | 'step4' | 'mixed' | 'ready' | 'recovery'
+const VARIANTS: readonly StageVariant[] = ['intro', 'full', 'consent', 'step1', 'step2', 'step3', 'step4', 'mixed', 'ready', 'recovery']
 /** The variants that open guided setup (at the first-run size). */
-const GUIDED: readonly StageVariant[] = ['intro', 'full', 'step1', 'step2', 'step3', 'step4']
+const GUIDED: readonly StageVariant[] = ['intro', 'full', 'consent', 'step1', 'step2', 'step3', 'step4']
+/** The variants that start before the learner agreed (a real first launch, and the consent screen itself). */
+const BEFORE_CONSENT: readonly StageVariant[] = ['intro', 'full', 'consent']
 
 /** The first launch's window (intro and guided setup). main/features/onboarding.ts uses the same numbers. */
 export const FIRST_RUN_SIZE = { w: 944, h: 640 } as const
@@ -49,10 +54,10 @@ export function stageWindowSize(): { w: number; h: number } {
   return stageVariant && GUIDED.includes(stageVariant) ? FIRST_RUN_SIZE : windowSize.onboarding
 }
 
-export type FlowStep = 'intro' | 'login' | 'screen' | 'access' | 'vscode' | 'engine' | 'ready' | 'done'
-const FLOW_STEPS: readonly FlowStep[] = ['intro', 'login', 'screen', 'access', 'vscode', 'engine', 'ready', 'done']
+export type FlowStep = 'intro' | 'login' | 'consent' | 'screen' | 'access' | 'vscode' | 'engine' | 'ready' | 'done'
+const FLOW_STEPS: readonly FlowStep[] = ['intro', 'login', 'consent', 'screen', 'access', 'vscode', 'engine', 'ready', 'done']
 /** Each flow step as the guided variant it starts from (grants and the mock segment). */
-const FLOW_VARIANT: Record<FlowStep, StageVariant> = { intro: 'full', login: 'full', screen: 'step1', access: 'step2', vscode: 'step3', engine: 'step4', ready: 'ready', done: 'ready' }
+const FLOW_VARIANT: Record<FlowStep, StageVariant> = { intro: 'full', login: 'full', consent: 'consent', screen: 'step1', access: 'step2', vscode: 'step3', engine: 'step4', ready: 'ready', done: 'ready' }
 
 /** ?flow=1&step=…: the stage's one-window first run, or undefined. */
 export function stageFlowStep(): FlowStep | undefined {
@@ -68,7 +73,19 @@ function setupWeb(): void {
   let later = false
   let savedStep: string | undefined
   const login = flowStep === 'intro' || flowStep === 'login'
-  registerWebHandler('onboarding:get', () => ({ done, introSeen, ...(flowStep ? { flow: !done && !later, login, step: savedStep } : {}) }))
+  const raw0 = new URLSearchParams(location.search).get('onb')
+  const variant0 = flowStep ? FLOW_VARIANT[flowStep] : VARIANTS.find((v) => v === raw0)
+  // Consent (main: prefs.consent): needed on a real first launch and on the consent screen's own fixtures; the later
+  // fixtures (a step, ready, the checklist) start agreed. Memory only, like the other flags.
+  let consent = !(variant0 && BEFORE_CONSENT.includes(variant0))
+  // The store may have asked onboarding:get before this module registered it: set its consent directly too.
+  useOnboarding.setState({ consent })
+  registerWebHandler('onboarding:get', () => ({ done, introSeen, consent, ...(flowStep ? { flow: !done && !later, login, step: savedStep } : {}) }))
+  registerWebHandler('onboarding:agree', () => {
+    consent = true
+    console.info('[onboarding] stage: would record prefs.consent {version, at} in main')
+    return true
+  })
   registerWebHandler('onboarding:step', (step) => {
     savedStep = typeof step === 'string' ? step : undefined
     return true
@@ -90,6 +107,8 @@ function setupWeb(): void {
     return true
   })
   registerWebHandler('onboarding:prompt', (kind) => {
+    // Like main: nothing is asked before consent.
+    if (!consent) return false
     console.info(`[onboarding] stage: would ask macOS for ${String(kind)}`)
     return true
   })
@@ -99,8 +118,7 @@ function setupWeb(): void {
   })
   registerWebHandler('onboarding:install-companion', () => ({ ok: false, reason: 'no-vsix' }))
 
-  const raw = new URLSearchParams(location.search).get('onb')
-  const variant = flowStep ? FLOW_VARIANT[flowStep] : VARIANTS.find((v) => v === raw)
+  const variant = variant0
   if (!variant) return
   stageVariant = variant
   const guided = GUIDED.includes(variant)

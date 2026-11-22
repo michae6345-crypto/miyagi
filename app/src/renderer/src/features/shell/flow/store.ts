@@ -6,6 +6,9 @@
  *   pending  a first open of the home window on this Mac: it asks main whether the flow is on (onboarding:get)
  *   intro    the branded intro (features/onboarding Intro), the first time only
  *   login    "Sign in to miyagi" (features/auth Login), while main says the login is needed
+ *   consent  what miyagi sends, that it is AI, "By continuing you agree" (features/onboarding Consent, R05 and R06),
+ *            while main says this build's policy version isn't agreed to yet. Always before setup: no macOS prompt
+ *            and no capture before it
  *   setup    guided setup (features/onboarding Guided): Screen Recording, Accessibility, VS Code, Getting miyagi ready
  *   ready    You're ready (or Review setup when something the learner can fix is left)
  *   leaving  the hand-off: the flow fades, the sidebar slides in, the bonsai lands in the sidebar, Home rises
@@ -36,13 +39,16 @@ import { setSetupOpener } from '../../../core/surfaces'
 import { markDone, markIntroSeen, useOnboarding, type GuidedStepId } from '../../onboarding/store'
 import { stageFlowStep } from '../../onboarding/web'
 import { ARRIVE_MS } from './motion'
+import { phaseAfter } from './phases'
 
-export type FlowPhase = 'pending' | 'intro' | 'login' | 'setup' | 'ready' | 'leaving' | 'off'
+export type FlowPhase = 'pending' | 'intro' | 'login' | 'consent' | 'setup' | 'ready' | 'leaving' | 'off'
 
 type State = {
   phase: FlowPhase
   /** The login screen is part of this run (main: login on, nobody signed in, no choice made yet). */
   login: boolean
+  /** The consent screen is part of this run (main: this build's policy version not agreed to yet). */
+  consent: boolean
   /** The guided step saved before a relaunch: the walk opens there. */
   resume?: GuidedStepId
   /** Setup reopened over home (reopenFlow): home stays mounted under the flow, the bonsai stays in the sidebar. */
@@ -72,12 +78,12 @@ function writeOff(off: boolean): void {
 /** The stage's ?flow=1 always plays the flow (its localStorage outlives a run). */
 const stageFlow = !isElectron && !!stageFlowStep()
 
-export const useFlow = create<State>(() => ({ phase: !isElectron && !stageFlow && readOff() ? 'off' : 'pending', login: false, again: false }))
+export const useFlow = create<State>(() => ({ phase: !isElectron && !stageFlow && readOff() ? 'off' : 'pending', login: false, consent: false, again: false }))
 const set = useFlow.setState
 const get = useFlow.getState
 
 /** onboarding:get, as main/features/onboarding.ts answers it. */
-type FlowGet = { done?: boolean; introSeen?: boolean; flow?: boolean; login?: boolean; step?: string; gate?: unknown }
+type FlowGet = { done?: boolean; introSeen?: boolean; flow?: boolean; login?: boolean; consent?: boolean; step?: string; gate?: unknown }
 
 const STEPS: readonly GuidedStepId[] = ['screen', 'accessibility', 'companion', 'engine']
 const asStep = (s: unknown): GuidedStepId | undefined => STEPS.find((x) => x === s)
@@ -85,7 +91,10 @@ const asStep = (s: unknown): GuidedStepId | undefined => STEPS.find((x) => x ===
 const GET_WAIT_MS = 1500
 
 /** The flow layer is up (pending shows only the window's plain paper: neither home nor the flow, for a few ms). */
-export const flowCovers = (p: FlowPhase): boolean => p === 'intro' || p === 'login' || p === 'setup' || p === 'ready'
+export const flowCovers = (p: FlowPhase): boolean => p === 'intro' || p === 'login' || p === 'consent' || p === 'setup' || p === 'ready'
+
+/** The consent screen is still needed: the gate's consent part when main sends a gate, else onboarding:get's consent. */
+const consentNeeded = (gate: GateView | undefined, r: FlowGet | undefined): boolean => (gate ? !gate.consent : r?.consent === false)
 
 let started = false
 /** 'off' is a guess (remembered, or main took too long), not the learner's choice: main's answer may still start the flow. */
@@ -119,7 +128,8 @@ export function initFlow(): void {
       if (p !== 'pending' && !(p === 'off' && guessed)) return
       guessed = false
       const login = gate ? firstNeeded(gate) === 'login' : r?.login === true
-      set({ login, resume: asStep(r?.step), again: false, phase: !r?.introSeen ? 'intro' : login ? 'login' : 'setup' })
+      const consent = consentNeeded(gate, r)
+      set({ login, consent, resume: asStep(r?.step), again: false, phase: !r?.introSeen ? 'intro' : phaseAfter('intro', { login, consent }) })
     })
     .catch(() => {
       clearTimeout(fallback)
@@ -129,16 +139,28 @@ export function initFlow(): void {
 
 export function endIntro(): void {
   markIntroSeen()
-  set({ phase: get().login ? 'login' : 'setup' })
+  set({ phase: phaseAfter('intro', get()) })
 }
 
 /**
- * Signed in, or "Continue without an account" (auth:continue already told main): on to setup, or straight home when
- * setup is already done or put off on this Mac (a later launch: the login was all the gate still needed).
+ * Signed in, or "Continue without an account" (auth:continue already told main): on to consent while it is needed,
+ * else setup, or straight home when setup is already done or put off on this Mac (a later launch: the login was all
+ * the gate still needed).
  */
 export function endLogin(): void {
+  if (get().consent) return set({ phase: 'consent', login: false })
   if (get().gate?.setup) return handHome()
   set({ phase: 'setup', login: false })
+}
+
+/**
+ * The consent screen's Continue, after main recorded it (onboarding/store agree()): on to setup, or straight home when
+ * setup is already done or put off (a build with a newer policy version asking again).
+ */
+export function endConsent(): void {
+  set({ consent: false })
+  if (get().gate?.setup) return handHome()
+  set({ phase: 'setup' })
 }
 
 /** Back to home with nothing marked (no done, no later): the gate opens on main's side by itself. */
@@ -227,9 +249,10 @@ bridge.onFeature('onboarding:gate', (raw) => {
   if (!started || gate.open || get().phase !== 'off') return
   clearTimeout(arriveTimer)
   const login = firstNeeded(gate) === 'login'
+  const consent = !gate.consent
   guessed = false
   writeOff(false)
-  set({ login, resume: undefined, again: false, phase: login ? 'login' : 'setup' })
+  set({ login, consent, resume: undefined, again: false, phase: login ? 'login' : phaseAfter('login', { login, consent }) })
 })
 
 // Remember the guided step on screen (main writes it to onboarding.json) while the flow runs, so a relaunch for

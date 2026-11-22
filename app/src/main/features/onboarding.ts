@@ -19,21 +19,31 @@
  *   - Prompts happen ONLY here and ONLY on a click (BUILD-PLAN Section 6): onboarding:prompt(kind). Screen Recording:
  *     one tiny capture makes macOS ask; Accessibility: isTrustedAccessibilityClient(true). System Settings itself opens
  *     through core's permissions:open(kind) (fixed URLs in main/safeOpen.ts), never a URL from a renderer.
+ *   - Consent first (launch register R05, R06): no prompt and no capture before the learner continued past the consent
+ *     screen ("By continuing you agree to the terms and privacy policy") for this build's CONSENT_VERSION
+ *     (common/consent.ts). onboarding:prompt refuses until then, and the launch gate's 'consent' part stays closed, so
+ *     no overlay, launcher or lesson exists either. onboarding:agree stamps prefs.consent {version, at} with main's own
+ *     clock (main/prefs.ts patchPrefs; a renderer's prefs:set can't write it). A build with a newer CONSENT_VERSION
+ *     finds the old record, closes the gate and asks again.
  *   - The VS Code companion (DISTRIBUTION-PLAN 2): VS Code's own CLI at its fixed path inside the app bundle, run with
  *     execFile (no shell) and a minimal environment, installs the bundled .vsix from Resources/vscode/ plus the Python
  *     and Jupyter extensions. No .vsix bundled (dev, until bundle-engine ships one) → {ok:false, reason:'no-vsix'} and
  *     the renderer falls back to the engine's own fix. Never another editor.
  *
  * Handles (bridge.invoke; ctx.handle checks the sender):
- *   onboarding:get                  → { done, introSeen, flow, login, step, gate }   flow: the home window runs the
- *                                     first run; login: the login is needed (always, flow or not); gate: the launch
- *                                     gate's view (common/gate.ts GateView)
+ *   onboarding:get                  → { done, introSeen, flow, login, consent, step, gate }   flow: the home window
+ *                                     runs the first run; login: the login is needed (always, flow or not); consent:
+ *                                     the learner agreed to this build's policy version; gate: the launch gate's view
+ *                                     (common/gate.ts GateView)
+ *   onboarding:agree                the consent screen's Continue: prefs.consent = {version: CONSENT_VERSION, at: now}
+ *                                   (kept if already current) → true
  *   onboarding:step (step)          the guided step on screen, saved for a relaunch → true
  *   onboarding:later                "Set up later": home on launch from now on, setup still not done → true
  *   onboarding:resume               setup again over home (home's Finish setup, Settings' Open setup): forget "later" → true
  *   onboarding:done                 write the flag → true
  *   onboarding:intro-seen           the intro played (or was skipped) → true
- *   onboarding:prompt (kind)        the macOS prompt for 'screen' | 'accessibility' → boolean (asked)
+ *   onboarding:prompt (kind)        the macOS prompt for 'screen' | 'accessibility' → boolean (asked); false, with
+ *                                   nothing asked or captured, until consent is current
  *   onboarding:tour (what)          'start' | 'end' open or close the first-lesson walkthrough in the overlay (broadcast
  *                                   feat:onboarding:tour {open}); 'seen' remembers it (onboarding.json tourSeen) → true
  *   onboarding:relaunch            app.relaunch() + quit (macOS applies a Screen Recording grant after one)
@@ -42,8 +52,9 @@
  * Broadcast: feat:onboarding:gate  GateView (cleanGate) on every change of the launch gate (main/gate.ts).
  *
  * Launch gate (main/gate.ts, part 'setup'): open once setup is done or put off ("Set up later"), closed again by
- * onboarding:resume until it is done or put off again. A launch with the gate closed opens the home window (its flow
- * starts at the login, then setup), whatever onboarding.json says.
+ * onboarding:resume until it is done or put off again. Part 'consent': open once prefs.consent is this build's version.
+ * A launch with the gate closed opens the home window (its flow starts at the login, then consent, then setup),
+ * whatever onboarding.json says.
  *
  * UNVERIFIED in Electron (cost freeze; no live run in this package): the TCC prompts, the relaunch, the CLI install.
  */
@@ -52,9 +63,11 @@ import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { CONSENT_VERSION, consentCurrent, makeConsent } from '../../common/consent'
 import { cleanGate } from '../../common/gate'
 import { defineMainFeature } from '../context'
 import { gateIsOpen, gateView, onGate, setGatePart } from '../gate'
+import { getPrefs, onPrefsChange, patchPrefs } from '../prefs'
 import { needsLogin, onLoginDone } from './auth'
 
 /** The guided steps a relaunch may come back to (renderer onboarding/steps.ts STEP_ORDER). */
@@ -142,6 +155,12 @@ export default defineMainFeature({
     const flowOn = (): boolean => !skip && !flag.done && !flag.later
     /** The launch gate's setup part: done, put off, or skipped. Called after every change of the flag. */
     const reportSetup = (): void => setGatePart('setup', skip || flag.done || flag.later === true)
+    /** The learner agreed to this build's terms and privacy policy version (prefs.consent, written only by main). */
+    const consented = (): boolean => skip || consentCurrent(getPrefs().consent)
+    /** The launch gate's consent part. Called at launch and after every prefs change (onboarding:agree writes it). */
+    const reportConsent = (): void => setGatePart('consent', consented())
+    reportConsent()
+    onPrefsChange(reportConsent)
     reportSetup()
     // Every window hears the gate (the home window's flow, the overlay's renderer store).
     onGate((_open, view) => ctx.broadcast('onboarding:gate', cleanGate(view)))
@@ -197,7 +216,24 @@ export default defineMainFeature({
       } else if (what === 'start' || what === 'end') ctx.broadcast('onboarding:tour', { open: what === 'start' })
       return true
     })
-    ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true, tourSeen: flag.tourSeen === true, flow: flowOn(), login: needsLogin(), step: flag.step, gate: gateView() }))
+    ctx.handle('onboarding:get', () => ({
+      done: flag.done,
+      introSeen: flag.introSeen === true,
+      tourSeen: flag.tourSeen === true,
+      flow: flowOn(),
+      login: needsLogin(),
+      consent: consented(),
+      consentVersion: CONSENT_VERSION,
+      step: flag.step,
+      gate: gateView()
+    }))
+    // The consent screen's Continue ("By continuing you agree to the terms and privacy policy"). Main stamps the record
+    // itself: this build's version and main's clock, never a version or time from a window.
+    ctx.handle('onboarding:agree', () => {
+      if (!consentCurrent(getPrefs().consent)) patchPrefs({ consent: makeConsent() })
+      reportConsent()
+      return true
+    })
     ctx.handle('onboarding:step', (step: unknown) => {
       if (isStep(step) && flag.step !== step && !flag.done) {
         flag = { ...flag, step }
@@ -237,8 +273,13 @@ export default defineMainFeature({
       return true
     })
 
-    // Only on the learner's click (the renderer calls this from a button handler, never from a poll).
+    // Only on the learner's click (the renderer calls this from a button handler, never from a poll), and only once
+    // the learner has agreed (R05): before that nothing is asked and nothing is captured, not even the 1x1 thumbnail.
     ctx.handle('onboarding:prompt', async (kind: unknown) => {
+      if (!consented()) {
+        console.warn('[onboarding] a permission prompt was asked for before consent; refused')
+        return false
+      }
       if (process.platform !== 'darwin') return false
       if (kind === 'accessibility') {
         try {

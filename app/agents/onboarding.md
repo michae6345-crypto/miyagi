@@ -2,6 +2,18 @@
 
 **Status:** one-window first run (lane oneflow, Nov 21: the flow layer in the home window, see below); before that, intro + guided setup pass done (lane intro-setup): typecheck green, brand lint clean, stage flows walked end to end headless (intro, skip, reduced motion, steps 1-4 with auto-advance, Back, Review setup, Walk me through it, You're ready, Start). Electron not run (cost freeze) · **Priority:** P0 (first run) · **Port:** 5402 (this lane; 5188 before) · **Branch:** `michael/app-intro-setup` (from `michael/v2-integration`; earlier `michael/app-onboarding`, draft #171) · **PR:** draft into `adrian/shell`
 
+## Consent before capture (R05, R06; Nov 21, branch `adrian/consent-agree`)
+After the login and before guided setup, the flow shows **"A few things first"** (`Consent.tsx`, copy in
+`consentCopy.ts`): your screen and your code go to Anthropic (Claude) during a lesson; close private apps and tabs
+first; miyagi is AI and can be wrong; "By continuing you agree to the terms and privacy policy" (both linked) and one
+primary, Continue. Anthropic only at launch (D1, `common/flags.ts` GEMINI_ENABLED false). Continue calls
+`onboarding:agree`: main writes `prefs.consent = {version: CONSENT_VERSION, at}` itself (`common/consent.ts`; a
+renderer's prefs:set can't), and the launch gate's new `consent` part opens. Until then `onboarding:prompt` refuses
+(nothing asked, nothing captured), "Set up later" can't open the gate, and the standalone setup window shows the consent
+screen in place of setup, ready and the checklist. A newer CONSENT_VERSION asks again on the next launch. Tests:
+`test/consent.test.ts`. Stage: `?scenario=onboarding&flow=1&step=consent` (or `step=login`, then Continue without an
+account), `?scenario=onboarding&onb=consent`. Shots: `agents/shots/consent-*.png`.
+
 ## One window from start to finish (lane oneflow, Nov 21, branch `michael/app-one-flow`)
 Michael: it must feel like ONE app; a login window floating over home ("two separate pages") is out. The first run now
 happens inside the home window (route `library`, the app shell): a full-window **flow layer**
