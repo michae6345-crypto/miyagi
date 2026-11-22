@@ -27,7 +27,7 @@ import { ageForgotten } from './agegate'
 import { accessToken, refreshedAccessToken } from './auth'
 import { forgetInstall, installToken } from './cloud'
 import { deleteOnServer, type AccountOutcome } from './accountDelete/server'
-import { allowedRoots, eraseTargets, wipe, type Where } from './accountDelete/wipe'
+import { allowedRoots, engineHome, eraseTargets, insideRoots, wipe, type Where } from './accountDelete/wipe'
 
 export type DeleteAccountResult = { ok: true; account: AccountOutcome; local: boolean } | { ok: false; reason: 'unreachable' | 'busy' }
 
@@ -84,9 +84,9 @@ export default defineMainFeature({
       const storage = await clearBrowserStorage()
       // Put back the lessons the app ships (the wipe took the engine's whole lesson cache), only into an engine source
       // tree that is there (the managed engine's ~/miyagi/engine/src).
-      const engineSrc = join(w.env.MIYAGI_HOME?.trim() || join(w.home, 'miyagi', 'engine'), 'src')
+      const engineSrc = join(engineHome(w), 'src')
       const shipped = bundledCache()
-      if (existsSync(engineSrc) && existsSync(shipped)) {
+      if (insideRoots(engineSrc, allowedRoots(w)) && existsSync(engineSrc) && existsSync(shipped)) {
         try {
           cpSync(shipped, join(engineSrc, 'demo', 'cache'), { recursive: true, force: false, errorOnExist: false })
         } catch {

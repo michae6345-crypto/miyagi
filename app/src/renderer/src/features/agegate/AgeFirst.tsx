@@ -18,7 +18,7 @@
  * the shared MARK_ID, stays put between them). Back runs the other way. Blocked arrives as a slower rise (8 px, fade
  * slow). Reduced motion (MotionConfig reducedMotion="user", main.tsx) drops the travel and keeps the fades.
  */
-import { AnimatePresence, motion, type Variants } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { color, type2 } from '../../core/theme'
 import { beat, enter, fade } from '../../core/ui/motion'
@@ -39,7 +39,7 @@ const views: Variants = {
   gone: (dir: number) => ({ opacity: 0, x: -AGE_MOTION.outX * dir, transition: fade.out })
 }
 const blocked: Variants = {
-  from: { opacity: 0, y: AGE_MOTION.blockedRise },
+  from: (dir: number) => (dir === 0 ? { opacity: 0 } : { opacity: 0, y: AGE_MOTION.blockedRise }),
   shown: { opacity: 1, x: 0, y: 0, transition: enter(AGE_MOTION.delay, fade.slow) },
   gone: { opacity: 0, transition: fade.out }
 }
@@ -57,6 +57,9 @@ export function AgeFirst({ children }: { children: ReactNode }): ReactNode {
   /** Bumped by Esc on the birthday screen: the pickers start empty again. */
   const [round, setRound] = useState(0)
   const user = useAuth((s) => s.user)
+  // Reduced motion: MotionConfig would snap an exit's x to its end in one frame; here nothing travels at all (0).
+  const reduce = useReducedMotion() ?? false
+  const travel = reduce ? 0 : dir
 
   useEffect(() => void loadAge(), [])
 
@@ -105,13 +108,13 @@ export function AgeFirst({ children }: { children: ReactNode }): ReactNode {
 
   return (
     <div data-age-step={view ?? 'loading'} className="absolute inset-0">
-      <AnimatePresence custom={dir} initial={false}>
+      <AnimatePresence custom={travel} initial={false}>
         {view && (
           <motion.div
             key={view}
             data-age-view={view}
             className="absolute inset-0"
-            custom={dir}
+            custom={travel}
             variants={view === 'blocked' ? blocked : views}
             initial="from"
             animate="shown"

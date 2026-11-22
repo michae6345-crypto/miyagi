@@ -74,6 +74,9 @@ export type Where = {
 
 const expand = (p: string, home: string): string => resolve(p.startsWith('~') ? join(home, p.slice(1)) : p)
 
+/** The engine's home (localEngine.ts): MIYAGI_HOME, else ~/miyagi/engine. */
+export const engineHome = (w: Pick<Where, 'env' | 'home'>): string => (w.env.MIYAGI_HOME?.trim() ? expand(w.env.MIYAGI_HOME.trim(), w.home) : join(w.home, 'miyagi', 'engine'))
+
 /** Every target, in the order they are removed. */
 export function eraseTargets(w: Where): Target[] {
   const t: Target[] = []
@@ -85,7 +88,7 @@ export function eraseTargets(w: Where): Target[] {
   t.push({ path: w.logs, kind: 'contents', what: 'logs' })
   if (w.crashDumps) t.push({ path: w.crashDumps, kind: 'contents', what: 'crash dumps' })
 
-  const engine = w.env.MIYAGI_HOME?.trim() ? expand(w.env.MIYAGI_HOME.trim(), w.home) : join(w.home, 'miyagi', 'engine')
+  const engine = engineHome(w)
   for (const parts of ENGINE_CACHE_DIRS) t.push({ path: join(engine, 'src', ...parts), kind: 'dir', what: parts.join('/') })
   t.push({ path: join(engine, 'logs'), kind: 'dir', what: 'engine logs' })
   const state = w.env.MIYAGI_STATE_DIR?.trim() ? expand(w.env.MIYAGI_STATE_DIR.trim(), w.home) : join(w.home, 'miyagi', w.packaged ? 'state' : 'state-dev')

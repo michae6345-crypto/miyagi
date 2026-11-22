@@ -28,7 +28,7 @@ export const COPY = {
   future: 'That day hasn’t come yet.',
   notReal: 'That day isn’t on the calendar.',
   agree: { lead: 'By continuing you agree to the ', terms: 'Terms', and: ' and ', privacy: 'Privacy', end: '.' },
-  guardianTitle: 'Ask a parent or guardian',
+  guardianTitle: 'Before you sign in',
   guardianLead: 'Ask a parent or guardian to read the ',
   guardianEnd: ' with you.',
   guardianBox: 'My parent or guardian agrees',
