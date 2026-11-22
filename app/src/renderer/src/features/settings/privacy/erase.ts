@@ -11,8 +11,12 @@
  */
 import type { DeleteResult } from '../keys'
 
-/** done: the account and this Mac's data are gone. pending: this Mac's are, the account goes within 30 days. */
-export type EraseStep = 'done' | 'pending' | 'offline'
+/**
+ * done: the account and this Mac's data are gone. pending: this Mac's are, the account goes within 30 days.
+ * offline: the server couldn't be reached. refused: signed in, and the server couldn't delete the account (401 after a
+ * refresh). In both of those nothing was deleted anywhere.
+ */
+export type EraseStep = 'done' | 'pending' | 'offline' | 'refused'
 export type AccountOutcome = 'deleted' | 'none' | 'pending'
 
 export type Erase = {
@@ -42,7 +46,7 @@ function clean(raw: unknown): MainAnswer | undefined {
 
 export async function deleteAccount(invoke: Invoke, opts: { lessons: boolean }): Promise<Erase> {
   const r = clean(await invoke('account:delete', { lessons: opts.lessons === true }).catch(() => undefined))
-  if (!r?.ok) return { step: 'offline', local: true, signedOut: false }
+  if (!r?.ok) return { step: r?.reason === 'account' ? 'refused' : 'offline', local: true, signedOut: false }
   const deleted = (await invoke('settings:delete').catch(() => undefined)) as DeleteResult | undefined
   const signedOut = await invoke('auth:sign-out').then(
     (v) => v === true,

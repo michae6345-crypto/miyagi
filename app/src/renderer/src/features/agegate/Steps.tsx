@@ -6,7 +6,8 @@
  *              the three make a real day that isn't in the future. "By continuing you agree to the Terms and Privacy".
  *   Guardian   13 to 17: "Ask a parent or guardian to read the Terms and Privacy with you." and the box "My parent or
  *              guardian agrees", which starts unchecked and must be checked to continue. Back.
- *   Blocked    under 13: "miyagi is for people 13 and up" and one kind line. Final: no button, nothing sent.
+ *   Blocked    under 13 (Blocked.tsx): "miyagi is for people 13 and up" and one kind line. Final: nothing sent, no
+ *              way past it; Quit miyagi, and Delete my account when signed in.
  *
  * The picked date lives only in Birthday's own state (gone when it unmounts): it is never stored, sent or logged;
  * only the result leaves (AgeFirst → store.saveAge). Neutral chrome only (BRAND.md): white primary, no hue.
@@ -41,7 +42,7 @@ export const COPY = {
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const
 
 /** The screens' shared frame: the bonsai (shared element), the title and its line, centered like the login. */
-function Frame({ title, line, children, footer }: { title: string; line?: ReactNode; children?: ReactNode; footer?: ReactNode }): ReactNode {
+export function Frame({ title, line, children, footer }: { title: string; line?: ReactNode; children?: ReactNode; footer?: ReactNode }): ReactNode {
   return (
     <section aria-labelledby="age-title" className="absolute inset-0 flex flex-col items-center justify-center" style={{ padding: '40px 40px 28px' }}>
       <div className="flex w-full max-w-[380px] flex-col items-center">
@@ -193,9 +194,4 @@ export function Guardian({ onDone, onBack }: { onDone: () => void; onBack: () =>
       </div>
     </Frame>
   )
-}
-
-/** Under 13: calm and final. Nothing to press, nothing sent. */
-export function Blocked(): ReactNode {
-  return <Frame title={COPY.blockedTitle} line={COPY.blockedLine} />
 }

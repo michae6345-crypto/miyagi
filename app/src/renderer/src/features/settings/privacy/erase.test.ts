@@ -29,6 +29,12 @@ test('server unreachable: offline, and nothing else is called (nothing deleted, 
   assert.deepEqual(f.calls, [['account:delete', { lessons: true }]])
 })
 
+test('signed in and the account could not be deleted: refused, and nothing else is called', async () => {
+  const f = fake({ 'account:delete': { ok: false, reason: 'account' }, 'settings:delete': keysGone, 'auth:sign-out': true })
+  assert.deepEqual(await deleteAccount(f.invoke, { lessons: false }), { step: 'refused', local: true, signedOut: false })
+  assert.equal(f.calls.length, 1)
+})
+
 test('an IPC failure or a junk answer is offline too', async () => {
   for (const a of [new Error('ipc'), undefined, null, 'ok', { ok: true }, { ok: true, account: 'gone' }]) {
     const f = fake({ 'account:delete': a })

@@ -23,9 +23,10 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { color, type2 } from '../../core/theme'
 import { beat, enter, fade } from '../../core/ui/motion'
 import { TextLink } from '../account/ui'
-import { useAuth } from '../auth/store'
+import { loadAuth, useAuth } from '../auth/store'
 import { ageCleared, bandRecord, blockActive, decide, todayOf, type Birth } from './age'
-import { Birthday, Blocked, COPY, Guardian } from './Steps'
+import { Blocked } from './Blocked'
+import { Birthday, COPY, Guardian } from './Steps'
 import { loadAge, saveAge, useAge } from './store'
 
 export type AgeView = 'birthday' | 'guardian' | 'blocked' | 'through'
@@ -61,7 +62,10 @@ export function AgeFirst({ children }: { children: ReactNode }): ReactNode {
   const reduce = useReducedMotion() ?? false
   const travel = reduce ? 0 : dir
 
-  useEffect(() => void loadAge(), [])
+  useEffect(() => {
+    void loadAge()
+    void loadAuth() // the blocked screen offers Delete my account to a signed-in learner
+  }, [])
 
   // What the record says, whenever it changes (main's answer, Delete account's wipe): a block always wins.
   const fromRecord: AgeView | undefined = !loaded ? undefined : blockActive(record, today) ? 'blocked' : ageCleared(record, today) ? 'through' : 'birthday'

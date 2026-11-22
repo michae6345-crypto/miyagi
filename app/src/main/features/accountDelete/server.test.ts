@@ -46,9 +46,36 @@ test('signed out: the body is {} and the install is deleted', async () => {
   assert.deepEqual(c.calls[0].body, {})
 })
 
-test('401: the install is already gone, which counts as success', async () => {
+test('401 signed out: the install is already gone, which counts as success', async () => {
   const c = cloud([[401, { error: 'bad_install_token' }]])
-  assert.deepEqual(await deleteOnServer(deps(c.fetch)), { ok: true, account: 'none', via: 'install-gone' })
+  assert.deepEqual(await deleteOnServer(deps(c.fetch, { accessToken: async () => undefined })), { ok: true, account: 'none', via: 'install-gone' })
+  assert.equal(c.calls.length, 1)
+})
+
+test('401 signed in: refresh once and send again; a 200 then is success', async () => {
+  const c = cloud([[401], [200, { install: false, account: 'deleted' }]])
+  let refreshed = 0
+  const r = await deleteOnServer(deps(c.fetch, { refreshedAccessToken: async () => (refreshed++, 'jwt-new') }))
+  assert.deepEqual(r, { ok: true, account: 'deleted', via: 'deleted', install: false })
+  assert.equal(refreshed, 1)
+  assert.deepEqual(c.calls.map((x) => x.body), [{ access_token: 'jwt-old' }, { access_token: 'jwt-new' }])
+})
+
+test('401 signed in, still 401 after the refresh: the account could not be deleted (no signed-out fallback)', async () => {
+  const c = cloud([[401], [401]])
+  assert.deepEqual(await deleteOnServer(deps(c.fetch)), { ok: false, reason: 'account' })
+  assert.equal(c.calls.length, 2)
+})
+
+test('401 signed in and the refresh fails: account, nothing else sent', async () => {
+  const c = cloud([[401]])
+  assert.deepEqual(await deleteOnServer(deps(c.fetch, { refreshedAccessToken: async () => undefined })), { ok: false, reason: 'account' })
+  assert.equal(c.calls.length, 1)
+})
+
+test('200 without ok (the new contract): install false means only the account went; still success', async () => {
+  const c = cloud([[200, { install: false, account: 'pending' }]])
+  assert.deepEqual(await deleteOnServer(deps(c.fetch)), { ok: true, account: 'pending', via: 'deleted', install: false })
 })
 
 test('403 bad_access_token: refresh once and send again', async () => {
@@ -103,10 +130,10 @@ test('a refresh that goes offline mid-way is unreachable too', async () => {
   assert.deepEqual(await deleteOnServer(deps(c.fetch)), { ok: false, reason: 'unreachable' })
 })
 
-test('no install token: signed out is fine (nothing there), signed in is unreachable', async () => {
+test('no install token: signed out is fine (nothing there), signed in can not delete the account', async () => {
   const c = cloud([])
   assert.deepEqual(await deleteOnServer(deps(c.fetch, { install: () => undefined, accessToken: async () => undefined })), { ok: true, account: 'none', via: 'no-install' })
-  assert.deepEqual(await deleteOnServer(deps(c.fetch, { install: () => undefined })), { ok: false, reason: 'unreachable' })
+  assert.deepEqual(await deleteOnServer(deps(c.fetch, { install: () => undefined })), { ok: false, reason: 'account' })
   assert.equal(c.calls.length, 0)
 })
 

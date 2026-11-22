@@ -135,6 +135,7 @@ export const DELETE = {
   undo: 'Cannot be undone.',
   lessons: 'Also delete my lesson folders in ~/miyagi',
   offline: 'Couldn’t reach miyagi’s server. Nothing was deleted.',
+  refused: 'Couldn’t delete your account. Nothing was deleted.',
   done: 'Your account and this Mac’s data are deleted.',
   pending: 'Deleted from this Mac. Your account goes within 30 days.',
   partial: 'Account deleted. Some files on this Mac stayed.',

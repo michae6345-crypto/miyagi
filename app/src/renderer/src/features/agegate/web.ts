@@ -39,6 +39,10 @@ if (!isElectron) {
   else if (v === 'keep') mem = read()
   write(mem)
   registerWebHandler('agegate:get', () => mem ?? null)
+  registerWebHandler('agegate:quit', () => {
+    console.log('[stage] agegate:quit (a built app quits here)')
+    return true
+  })
   registerWebHandler('agegate:set', (next) => {
     const merged = mergeRecord(mem, next, todayOf())
     if (merged) mem = merged

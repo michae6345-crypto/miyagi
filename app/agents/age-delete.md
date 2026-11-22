@@ -91,10 +91,34 @@ Headless sampling of `[data-age-view]` computed opacity/transform every frame fo
   extensions. privacy.md's "Open" list (install token, account link, error log, crash reports, onboarding.json,
   telemetry state) is now all covered.
 
+## Fix round 1 (coordinator, Nov 21)
+1. **No age result = the login is still needed** (auth.ts `needsLogin`: `!ageStepCleared() || (!signedIn && !decided)`,
+   re-reported on every age change via agegate.ts `onAgeChange`). A learner signed in before this lane (auth.bin, no
+   age.json) gets the flow at the login on the next launch, where the step comes first; nothing past login-first opens
+   until a result exists. 13+ then sees "You're signed in" and Continue (no second sign-in); the gate opens at once.
+   Under 13 while signed in: blocked, the gate stays closed (no overlay, lessons or sync), and the blocked screen
+   (`agegate/Blocked.tsx`) offers **Delete my account** (two-step, Cancel focused, Esc backs out) running the same
+   signed-in delete, plus a quiet **Quit miyagi** (`agegate:quit`). Deviation: the session is kept until that delete
+   instead of signing out first, because a sign-out would throw away the access token the account delete needs; the
+   delete itself signs out. The block survives Delete account (accountDelete.ts writes it back after the wipe).
+   Tests: `test/ageGate.test.ts` (stored session, no age.json: login needed and gate closed, Continue refused; under
+   13: gate closed, token kept; a result opens the gate; a relaunch with the result starts open).
+2. **Cloud contract #241**: 200 may come without `ok` and with `install:false` (accepted). 401 is success only when
+   signed out; signed in: refresh once and resend; still 401 or no session: `{ok:false, reason:'account'}`, nothing
+   deleted locally, the row (and the blocked screen) says "Couldn't delete your account. Nothing was deleted." with
+   Try again. No install token while signed in is 'account' too. server.test.ts covers each case.
+3. **#237 consent**: a quiet "Not now" beside Continue quits miyagi cleanly (`agegate:quit`, app.quit after a beat).
+   Small edit in `onboarding/Consent.tsx` (listed below). Esc still does nothing there.
+4. Pricing: Core request below; code untouched.
+Shots: `age-blocked-signedin.png`, `age-blocked-delete-confirm.png`, `age-blocked-deleted.png`, `consent-not-now.png`,
+`delete-refused.png` (headless, 8 more checks, all pass).
+
 ## Test
 `npm run dev:web -- --port 5733 --strictPort`, then
-- `http://localhost:5733/?scenario=agegate&flow=1&step=login&size=1440x900&clean` (birthday; `&age=blocked|teen|adult|keep`)
-- `http://localhost:5733/?scenario=settings&settings=privacy&confirm=delete` (`&delete=pending|offline|partial`)
+- `http://localhost:5733/?scenario=agegate&flow=1&step=login&size=1440x900&clean` (birthday; `&age=blocked|teen|adult|keep`;
+  `&age=blocked&auth=signedin` for the blocked screen's Delete my account)
+- `http://localhost:5733/?scenario=onboarding&flow=1&step=consent&size=1440x900&clean` (Not now)
+- `http://localhost:5733/?scenario=settings&settings=privacy&confirm=delete` (`&delete=pending|offline|refused|partial`)
 - Unit: `cd app && node --import tsx --import ./test/setup.mjs --test --test-force-exit test/*.test.ts`
   (`test/ageDelete.test.ts` imports age.test, agegate/store.test, accountDelete/server.test, wipe.test and checks the
   IPC gate; `test/privacy.test.ts` runs the new privacy/erase.test).
@@ -103,15 +127,19 @@ Headless sampling of `[data-age-view]` computed opacity/transform every frame fo
   `-blocked-during`, `-blocked`, `-reduced-during`; `delete-row`, `-confirm`, `-deleting`, `-done`, `-offline`, `-pending`.
 
 ## Core requests (edits made outside the lane, kept minimal)
-1. `src/main/features/auth.ts` (auth lane), +14 lines: import `ageStepCleared`; `auth:google` answers
-   `{ok:false, reason:'age'}` and `auth:continue` answers `{next:'none'}` before the age step; new export
-   `refreshedAccessToken()` (one forced refresh, for the 403 retry).
+1. `src/main/features/auth.ts` (auth lane), +22 lines: `auth:google` answers `{ok:false, reason:'age'}` and
+   `auth:continue` `{next:'none'}` before the age step; `needsLogin()` also true while no age result is on file, and
+   `onAgeChange(report)` re-reports the gate; new export `refreshedAccessToken()` (one forced refresh, 401/403 retry).
 2. `src/main/features/cloud.ts` (cloud lane), +22 lines: new export `forgetInstall()` (token out of memory, engine and
    install.bin; no re-mint for RETRY_MS).
 3. `src/renderer/src/features/auth/Login.tsx` (auth lane): the `AgeFirst` wrapper (old body renamed `SignIn`) and the
    "Google shares your name, email and photo with miyagi." line in the idle slot under the button.
 4. `web/privacy.md` (privacy lane): "Deleting your data" rewritten to match (facts.test.ts requires the quotes).
-5. Asks (not done): the policy's "Children and teens" [CHECK] can go once this merges; `agents/ports.json` could list
+5. `src/renderer/src/features/onboarding/Consent.tsx` (#237, Adrian's consent lane): a quiet "Not now" QuietButton
+   beside Continue that quits miyagi (`agegate:quit`). Adrian may want its own channel or copy.
+6. **For Adrian (account lane, v2Cloud):** `account/Pricing.tsx` says "Cancel anytime." but there is no cancel path
+   (no billing yet). Either drop the line or add a real cancel before the flag turns on. Code untouched here.
+7. Asks (not done): the policy's "Children and teens" [CHECK] can go once this merges; `agents/ports.json` could list
    5733.
 
 ## Audit (report only)
@@ -120,13 +148,12 @@ Headless sampling of `[data-age-view]` computed opacity/transform every frame fo
   `ptt.enabled` defaults true (push-to-talk, on-device; not a sharing switch).
 - Cancellable: Settings (Esc, Cancel), Upgrade (Not now + Esc), crash card (Don't save + Esc), guided setup (Back from
   step 2, Set up later; Esc only when reopened over home). #237's consent step has no Back, Cancel or Esc by design
-  ("quit miyagi to leave"); the first screen of the flow (now the birthday) has nothing before it.
+  ("quit miyagi to leave"): fix round 1 added a quiet Not now that quits. The first screen of the flow (now the
+  birthday) has nothing before it.
 - "Cancel anytime." in `account/Pricing.tsx` (v2Cloud flag, off in normal builds): no cancel path exists (no billing).
 
 ## Open
 - Not run in Electron: the relaunch after delete, the session API clears, the real engine paths, the main IPC gate.
 - miyagi-cloud's /v1/account/delete is mocked to the stated contract; check the real answers once it deploys.
-- Signed-in sessions from before this lane, and `MIYAGI_LOGIN=0` / `MIYAGI_SKIP_LOGIN=1` runs, never pass the login
-  screen, so they never see the age step.
+- `MIYAGI_LOGIN=0` / `MIYAGI_SKIP_LOGIN=1` runs (dev) skip the login, so they skip the age step.
 - The engine may write ~/miyagi/state again between the wipe and the relaunch if a lesson is running.
-- 401 with a signed-in learner reports success though the account itself was not part of that call (per the contract).

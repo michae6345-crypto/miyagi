@@ -76,7 +76,7 @@ import { LOGIN_ENABLED } from '../../common/flags'
 import { color } from '../../renderer/src/core/theme'
 import { defineMainFeature } from '../context'
 import { setGatePart } from '../gate'
-import { ageStepCleared } from './agegate'
+import { ageStepCleared, onAgeChange } from './agegate'
 import { supabaseConfig } from '../publicConfig'
 import { isAllowedUrl, openLinkInBrowser, safeOpenExternal } from '../safeOpen'
 
@@ -291,8 +291,12 @@ let signedIn = false
 let decided = false
 let afterLogin: (() => BrowserWindow | undefined) | undefined
 
-/** The login should show: it is on, not skipped, nobody is signed in, and the learner hasn't chosen in this run. */
-export const needsLogin = (): boolean => loginEnabled() && !skipLogin() && !signedIn && !decided
+/**
+ * The login should show: it is on, not skipped, and nobody is signed in and the learner hasn't chosen in this run; or
+ * there is no age step result on this Mac yet (age-delete lane: a learner signed in before the step existed sees it
+ * once, at the login, before anything else).
+ */
+export const needsLogin = (): boolean => loginEnabled() && !skipLogin() && (!ageStepCleared() || (!signedIn && !decided))
 
 /** Tell the launch gate whether the login is through. */
 const report = (): void => setGatePart('login', !needsLogin())
@@ -359,6 +363,8 @@ export default defineMainFeature({
     }
     signedIn = !!session
     report()
+    // age-delete lane: the step done (or wiped by Delete account) changes whether the login is still needed.
+    onAgeChange(report)
 
     const persist = (): void => {
       try {

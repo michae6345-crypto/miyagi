@@ -36,7 +36,7 @@ import { here } from '../here'
 import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
 
 /** offline: the server couldn't be reached, nothing was deleted. done / pending: deleted; a restart follows. */
-type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'offline'
+type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'offline' | 'refused'
 /** How long the deleted line shows before the app starts again (account:restart). */
 const RESTART_MS = 2600
 
@@ -59,7 +59,7 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
 
   // From the confirm, or Try again after the server couldn't be reached (the learner confirmed already; same choice).
   const erase = async (): Promise<void> => {
-    if (step !== 'confirm' && step !== 'offline') return
+    if (step !== 'confirm' && step !== 'offline' && step !== 'refused') return
     setStep('deleting')
     const r = await deleteAccount((channel, payload) => bridge.invoke<unknown>(channel, payload), { lessons })
     if (r.deleted) {
@@ -92,6 +92,8 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
     return () => removeEventListener('keydown', h, true)
   }, [step])
 
+  /** The server couldn't be reached, or couldn't delete the account: nothing was deleted, Try again runs it again. */
+  const retry = step === 'offline' || step === 'refused'
   const deletedLine = step === 'pending' ? DELETE.pending : leftovers ? DELETE.partial : DELETE.done
 
   return (
@@ -155,9 +157,9 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
               minH={64}
               label={DELETE.label}
               caption={
-                step === 'offline' ? (
+                step === 'offline' || step === 'refused' ? (
                   <span role="alert" style={{ color: color.text }}>
-                    {DELETE.offline}
+                    {step === 'offline' ? DELETE.offline : DELETE.refused}
                   </span>
                 ) : step === 'done' || step === 'pending' ? (
                   <span role="status" style={{ color: color.text }}>
@@ -171,7 +173,7 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
                 step === 'done' || step === 'pending' ? (
                   <OnWord>Deleted</OnWord>
                 ) : (
-                  <OutlineButton label={step === 'offline' ? 'Try again' : 'Delete'} aria={step === 'offline' ? 'Try deleting again' : DELETE.label} onClick={step === 'offline' ? () => void erase() : open} />
+                  <OutlineButton label={retry ? 'Try again' : 'Delete'} aria={retry ? 'Try deleting again' : DELETE.label} onClick={retry ? () => void erase() : open} />
                 )
               }
             />

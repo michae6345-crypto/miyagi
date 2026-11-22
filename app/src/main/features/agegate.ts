@@ -6,6 +6,10 @@
  *                 quitting or relaunching and picking another date can't lift it (agegate/store.ts, age.ts mergeRecord)
  *   broadcast feat:agegate (AgeRecord | null) after every change, and after Delete account wipes it (accountDelete.ts)
  *
+ *   agegate:quit  quit miyagi cleanly (the blocked screen's Quit miyagi, the consent step's Not now)
+ *
+ * The launch gate: auth.ts counts the login as needed until a result is on file (needsLogin), also for a learner who
+ * was signed in before the step existed, so the first-run flow opens on the login, where the step comes first.
  * The renderer sends only the result: the birth date never leaves the screen's memory. auth.ts asks ageStepCleared()
  * before a Google sign-in or "Continue without an account", so nothing gets past the step through IPC either.
  */
@@ -16,6 +20,22 @@ import { AGE_FILE, readAge, writeAge } from './agegate/store'
 
 let file: string | undefined
 let publish: (() => void) | undefined
+const changed = new Set<() => void>()
+
+/** auth.ts: re-report the launch gate's login part whenever the record changes (the step done, or wiped). */
+export function onAgeChange(fn: () => void): () => void {
+  changed.add(fn)
+  return () => changed.delete(fn)
+}
+const tell = (): void => {
+  for (const fn of changed) {
+    try {
+      fn()
+    } catch {
+      console.warn('[agegate] a listener failed')
+    }
+  }
+}
 
 /**
  * The step is through on this Mac: a band on file and no block in force. auth.ts refuses a sign-in or the guest path
@@ -28,6 +48,7 @@ export function ageStepCleared(): boolean {
 /** accountDelete.ts: age.json is gone; tell the windows (the next login asks again). */
 export function ageForgotten(): void {
   publish?.()
+  tell()
 }
 
 export default defineMainFeature({
@@ -41,7 +62,13 @@ export default defineMainFeature({
     ctx.handle('agegate:set', (next) => {
       writeAge(f, next, todayOf())
       publish?.()
+      tell()
       return now()
+    })
+    // Quit, cleanly: the blocked screen's and the consent step's "Not now" / "Quit miyagi" (nothing is a trap).
+    ctx.handle('agegate:quit', () => {
+      setTimeout(() => ctx.app.quit(), 150) // a beat, so the renderer's invoke resolves first
+      return true
     })
   }
 })

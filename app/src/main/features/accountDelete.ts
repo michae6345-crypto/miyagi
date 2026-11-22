@@ -3,7 +3,9 @@
  *
  *   account:delete ({lessons: boolean}) → DeleteAccountResult
  *     1. the server first (accountDelete/server.ts): POST /v1/account/delete with the install token and the Supabase
- *        access token. Unreachable or refused: {ok: false, reason: 'unreachable'} and NOTHING is deleted here.
+ *        access token. Unreachable: {ok: false, reason: 'unreachable'}; signed in and the account could not be
+ *        deleted (401 after a refresh): {ok: false, reason: 'account'}. Either way NOTHING is deleted here.
+ *        An under-13 block in force (age.json) is put back after the wipe: deleting can't lift it.
  *     2. then everything miyagi keeps on this Mac (accountDelete/wipe.ts eraseTargets): the files and folders in
  *        userData, the logs, the engine's caches and state, ~/miyagi/lessons only when `lessons` is true. The install
  *        token leaves memory and the engine too (cloud.ts forgetInstall). Electron's storage goes through the session
@@ -24,12 +26,14 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
 import { ageForgotten } from './agegate'
+import { AGE_FILE, readAge, writeAge } from './agegate/store'
+import { blockActive, todayOf } from '../../renderer/src/features/agegate/age'
 import { accessToken, refreshedAccessToken } from './auth'
 import { forgetInstall, installToken } from './cloud'
 import { deleteOnServer, type AccountOutcome } from './accountDelete/server'
 import { allowedRoots, engineHome, eraseTargets, insideRoots, wipe, type Where } from './accountDelete/wipe'
 
-export type DeleteAccountResult = { ok: true; account: AccountOutcome; local: boolean } | { ok: false; reason: 'unreachable' | 'busy' }
+export type DeleteAccountResult = { ok: true; account: AccountOutcome; local: boolean } | { ok: false; reason: 'unreachable' | 'account' | 'busy' }
 
 function where(lessons: boolean): Where {
   let crashDumps: string | undefined
@@ -76,10 +80,12 @@ export default defineMainFeature({
 
     const run = async (lessons: boolean): Promise<DeleteAccountResult> => {
       const server = await deleteOnServer({ fetch: (i, init) => fetch(i, init), install: installToken, accessToken, refreshedAccessToken })
-      if (!server.ok) return { ok: false, reason: 'unreachable' }
+      if (!server.ok) return { ok: false, reason: server.reason }
 
       forgetInstall()
       const w = where(lessons)
+      const ageFile = join(w.userData, AGE_FILE)
+      const age = readAge(ageFile, todayOf())
       const files = wipe(eraseTargets(w), allowedRoots(w))
       const storage = await clearBrowserStorage()
       // Put back the lessons the app ships (the wipe took the engine's whole lesson cache), only into an engine source
@@ -93,6 +99,8 @@ export default defineMainFeature({
           console.warn('[account-delete] could not put the built-in lessons back')
         }
       }
+      // A child's block outlives the delete (the account and data go; the answer that stopped them stays).
+      if (blockActive(age, todayOf())) writeAge(ageFile, age, todayOf())
       ageForgotten()
       if (!files.ok) console.warn(`[account-delete] left behind: ${files.failed.join(', ')}`)
       if (files.skipped.length) console.warn(`[account-delete] skipped (outside miyagi's folders): ${files.skipped.join(', ')}`)
