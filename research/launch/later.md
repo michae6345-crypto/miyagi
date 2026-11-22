@@ -29,22 +29,25 @@ were dropped from this list and are named at the bottom.
 - `main/localEngine.ts:69`: the copied "install the engine" `curl | bash` points at a mutable branch where the script
   doesn't exist. [A]
 - `main/prefs.ts:45`, `main/features/reminders.ts:72`: written in place, not temp-then-rename; a crash mid-write resets
-  prefs and turns launch at login off. [A]
+  prefs and turns launch at login off. [A; #202 R08]
 - The single-instance lock is taken inside features that load after auth, cloud and the windows
-  (`main/features/launch.ts:76`, `windows.ts:78`); dev runs share userData with the installed app (`main/identity.ts:21`). [A]
+  (`main/features/launch.ts:76`, `windows.ts:78`); dev runs share userData with the installed app (`main/identity.ts:21`). [A; #202 R18, R20]
 - The ⌥Space launcher key often belongs to Alfred, Raycast or ChatGPT; registration fails with only a log line
   (`main/index.ts:481-482`), and `prefs.shortcuts` is never applied. [A]
-- Lesson shortcut keys stay registered when the engine drops without `lesson.ended` (`main/index.ts:402-406`). [A]
+- Lesson shortcut keys stay registered when the engine drops without `lesson.ended` (`main/index.ts:402-406`). [A; #202 R03]
 - After an engine crash the app stays on "external" and needs a manual Retry; restart it automatically once or twice
-  (`main/localEngine.ts:641-651, 670, 685-688`). [A, E]
+  (`main/localEngine.ts:641-651, 670, 685-688`). [A, E; #202 R05]
 - One listener or `onOpen` hook that throws stops the fan-out to the rest (`main/engine.ts:242, 298`); the `whenReady`
   chain has no catch (`main/index.ts:379`). [A]
 - `main/features/recover.ts:32-35` stops reloading a crashed renderer after 3 tries a minute and never tries again. [A]
-- Displays: `pillTop` is set once (`main/index.ts:393`); no `display-added` or `display-removed` handlers; the player
-  isn't re-docked. [A]
+- Displays: unplugging a monitor, closing the lid or changing the primary display leaves the overlay and launcher on
+  the old frame, so the pill lands in the wrong place and the rects sent to the engine stop matching (only
+  `display-metrics-changed` is handled, `main/index.ts:491-496`); `pillTop` is set once (`:393`); no `display-added` or
+  `display-removed` handlers; the player isn't re-docked. Fix: refit both core windows to the primary display on all
+  three events and recompute `pillTop`. [A; #202 R09, R27]
 - `main/features/overlay-raise.ts:132`: a 15 ms cursor poll runs for the app's whole life. [A]
 - The in-memory engine event log grows for the whole lesson and is replayed into every window on `ui:ready`
-  (`main/engine.ts:297`, `main/index.ts:441`). [A]
+  (`main/engine.ts:297`, `main/index.ts:441`). [A; #202 R16]
 - Settings: other windows keep showing the old key state after Delete or Save (no broadcast,
   `main/features/settings.ts:168-187`). [A]
 - Truncation can split an emoji in titles and names (`renderer/src/features/library/sanitize.ts:213`,
@@ -55,6 +58,24 @@ were dropped from this list and are named at the bottom.
 - Offer `app.moveToApplicationsFolder()` on first launch (App Translocation leaves venvs pointing at a vanished
   path). [C]
 - One network timeout (about 30 s) for mint, auth and updates instead of 10 s and 15 s. [C]
+- First launch after an update on a low disk: the engine copy fails with ENOSPC and the engine never starts, though the
+  old copy is intact (`main/localEngine.ts:407-432, 697`). Start the old engine and say "Free some disk space to finish
+  the update"; check free space first; rename the kept folders instead of copying them. [#202 R11]
+- A second launch (Windows, or `open -n` on a Mac) opens the launcher and Home at once (`main/index.ts:485`,
+  `main/features/launch.ts:179`). [#202 R17]
+- Update Download has no in-flight guard in main, so two windows open two downloads (`main/features/updates.ts:166-171`). [#202 R21]
+- Library's Start lesson says the wrong thing offline, and any unrelated `error` or `lesson.ready` settles it
+  (`main/features/library.ts:164-167`, `renderer/src/features/library/store.ts:143-158`). [#202 R22]
+- v2 commands are dropped silently between a reconnect and `engine.hello` (`main/engine.ts:172, 240`). [#202 R23]
+- The launcher hotkey pressed during the close animation is swallowed (`main/index.ts:268-270, 481`,
+  `renderer/src/features/launcher/Launcher.tsx:265-267`). [#202 R24]
+- The reconnect hold is 2 s, so a slow engine replay resets and re-animates the lesson panel
+  (`renderer/src/core/lesson.ts:163-181`, suspected). [#202 R25]
+- The launcher field has no length cap, so a pasted file goes to the engine as the query (`Launcher.tsx:545`). [#202 R29]
+- The overlay polls every data-hit rect every 100 ms, even with no lesson (`renderer/src/core/Overlay.tsx:95-115`); it
+  competes with VS Code and the engine on slow machines (suspected). [#202 R30]
+- Windows: global hotkeys may auto-repeat when held (`main/index.ts:318`, `renderer/src/core/shortcuts.ts:45-51`,
+  suspected). [#202 R31]
 
 ## Sign-in
 
@@ -64,7 +85,7 @@ were dropped from this list and are named at the bottom.
 - Closing the sign-in window mid-wait doesn't cancel the loopback listener (the 5-minute timeout still applies). [A]
 - A stale or late sign-in tab gets a blank 404 (`main/features/auth.ts:447-449`); token expiry uses the Mac's clock
   (`:124`, `cloudLink.ts:117`); reopening the login window clears "Waiting" mid-flow (`renderer/src/features/auth/AuthView.tsx:37`,
-  `store.ts:63-64`). [A]
+  `store.ts:63-64`); starting sign-in from a second window silently cancels the first (`auth.ts:429`). [A; #202 R19]
 - `/v1/link` isn't in `cloud/app.py` yet, so `cloudLink.ts` resends the Supabase token on every launch while it 404s. [C]
 - Split the Google Cloud project into dev and prod. [C]
 - If Sign in with Apple is ever added, rotate Supabase's Apple secret every 6 months. [B]
@@ -149,12 +170,14 @@ were dropped from this list and are named at the bottom.
 
 ## Law and policy to watch
 
+- CCPA/CPRA and the other state comprehensive privacy laws: miyagi is below their thresholds today; recheck when users
+  or revenue grow. [B; #202 legal 13]
 - California AB 1043 / AB 1856: from 2027-01-01 desktop apps must request the OS age signal; check whether direct
   downloads are covered. [B]
 - California AB 2246 (replaces the AADC, 2027-01-01) and Vermont's design code: "likely accessed by" under-18s;
   private defaults, no profiling. [B]
 - SB 243 / SB 1119 companion-chatbot rules: stay out by keeping the coach task-focused (no friend persona, no
-  relationship memory). [B]
+  relationship memory). [B; #202 legal 18]
 - EU AI Act Art. 50: machine-readable marking of AI text if EU use grows (the disclosure itself is R05); Annex III
   high-risk only with credentials or school grading. [B]
 - UK Data (Use and Access) Act 2025: a complaints process with a 30-day acknowledgement if UK users are served; the
@@ -170,7 +193,7 @@ were dropped from this list and are named at the bottom.
   analytics. [B]
 - Washington MHMDA: the policy says we don't seek or infer health data and discard incidental captures (already in
   the draft). [B]
-- School deals: FERPA school-official terms, the SDPC National Data Privacy Agreement, SOPIPA if marketed for K-12. [B]
+- School deals: FERPA school-official terms, the SDPC National Data Privacy Agreement, SOPIPA if marketed for K-12. [B; #202 legal 16]
 
 ## Dropped because a risk covers them
 

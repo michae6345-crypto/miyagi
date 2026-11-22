@@ -11,6 +11,135 @@ options and a recommendation come first.
 - *Placeholder* rows point to Michael's private notes for the parts that would show how to exploit them.
 - Not legal advice.
 
+## Fixes so far (Nov 21, late evening)
+
+Michael's work after the register landed (2:30 PM), plus Adrian's site changes. Each branch was read against the
+risk's fix steps and Verify line here, by four independent code reviews and spot checks. Exploitable details are kept
+out of this file.
+
+The cloud fixes aren't live. Production looks like `claude/eng-proxy`. The rate limiter, dollar caps, request
+allowlists and reviewed cache are on `claude/eng-proxy-next` and `claude/eng-proxy-sec2` (`cba57786`), neither merged
+into it. Only the key-trim hotfix (`d793a7fe`) is on `eng-proxy`. Its message says every Anthropic call returned 502
+from 19:22 UTC on Nov 21, so confirm that it's deployed.
+
+Engine branches are all merged into `integration/live` (`fd443938`). App branches are all merged into
+`michael/v2-integration` (`2e4b7e1d`), including two whose PRs are still drafts (#219, #221).
+
+Adrian's fixes from tonight are open PRs into Michael's branches, none merged yet: #226, #227, #229, #230, #233, #234 and #237 into `michael/v2-integration`; #228 and #232 into `integration/live`; #238 into `claude/eng-proxy-next` (it needs Michael's Render checklist before deploy). The site changes are live on miyagi.study. Rows below say **Open PR** or **Live** where they apply.
+
+| R | What landed, and where | What's left | Owner |
+|---|---|---|---|
+| R01 | Dollar caps counted and reserved on the server, persisted in SQLite: $1 a day per anonymous install, $3 per linked user, $5 per minting network, $25 a day globally. Request caps, persisted mint limits, request-shape and admin fixes. All on `eng-proxy-sec2` `cba57786` (via #222); **not deployed**. **Open PR #238:** the role header is only a label, a daily new-install cap (500), a runtime kill switch, an alerts webhook, 2400 calls a token an hour, `/healthz` commit and booleans | Michael's Render checklist, then merge and deploy #238 and sec2; measure one real lesson and check it fits; set `ALERT_WEBHOOK_URL` | Michael |
+| R02 | Server-tool and cache-write prices in the proxy table (`cba57786`) | Gemini prices are still placeholders, so the dollar caps undercount Gemini. No `PRICES_JSON`. The console steps are unconfirmed | Michael |
+| R03 | Nothing. A new 400 when a thinking budget is at or above the clamped cap. **Open PR #238:** `MAX_TOKENS_CAP` 32000, Gemini off by default (D1) | Merge and deploy; one cloud build of a 20-minute tutorial with no key in Settings | Michael |
+| R04 | The site's Mac tip now says Open Anyway (`67a40f0`). **Open PRs #230, #228:** CI runs the real tests (2488 engine, 347 app) | Freeze a launch SHA; Test 1 on clean macOS 15, 26 and 27; run every UNVERIFIED feature once | Michael (Mac), Adrian (CI) |
+| R05 | The panel names Anthropic, Google, Supabase and miyagi, plus an account-link row (`michael/app-privacy` `8e1522e5`). **Open PRs #237, #226:** the consent screen before Screen Recording, capture blocked until consent, "AI can be wrong"; push to talk off for launch. The site FAQ says screenshots go to Anthropic | A pause control; the panel's editor, code, YouTube and questions rows | Adrian (consent, site), Michael (panel facts, push-to-talk) |
+| R06 | The policy draft fixes review points 1-3 (`8e1522e5`). **Live:** the beta policy and terms at `/privacy/` and `/terms/`, footer links (site `c2f5eb9`, `c0f45fc`). **Open PR #237:** the "I agree" step with a versioned `prefs.consent`, honest delete wording | A lawyer read; the LLC as operator (R09); the app's `/pricing`, `/teams`, `/account` links; re-check the policy against the release commit | Adrian (site, terms), Michael (policy facts) |
+| R07 | Companion 0.0.7 posts events only to a loopback engine (`b0e51c59`); more launches get a secret-stripped environment (`a61ef766`, `57118618`). **Open PR #232:** companion 0.0.8, `engineUrl` and `port` machine-scoped (A03 done once merged) | The engine's key-handling and token gaps (private notes) | Michael (engine), Adrian (companion) |
+| R08 | Nothing | Versions, one publisher, the update card in the build, and the cloud's minimum-version answer | Adrian, Michael |
+| R10 | Small: a ^C'd run no longer counts as an error, and a run's output window ends at the next command line (`claude/eng-checks` `e06234a9`) | The "No errors" row still reads the visible terminal, so fix-then-rerun still fails. No "looks correct" coach outcome. E14, E16, E20, E24, E25 untouched. **New bug:** a pattern that misses its 250 ms deadline once is refused for the session and dropped from the saved lesson | Michael |
+| R11 | An engine-enforced "Run this command?" confirm per distinct command; an allow-list; no shell; refusals for shell metacharacters, URLs, hidden characters, `rm`, `sudo`, `curl` and paths outside the lesson folder; a curated pip list with typosquat refusal; untrusted-text fencing (`claude/eng-agency` `57118618`, `claude/eng-untrusted` `35cb1a17`). The cache isn't in the engine | What an allowed command runs isn't checked (details private). No folder snapshot. Off-list pip names install on a second press. Brew allows any core formula. The confirm card has no plain explanation | Michael |
+| R12 | Persisted mint limits, 20 an hour and 60 a day per network (`cba57786`), not deployed | The staging check of the client IP; `api.miyagi.study` and `net.fetch` in the app | Michael, Adrian |
+| R13 | Gemini narrowed to YouTube-only file input with no grounding (`cba57786`). **Decided:** D1, Claude only. **Open PRs #237, #238:** the Gemini key field hidden; Gemini off in the cloud | Merge and deploy; unset `GEMINI_API_KEY` on Render | Founders, Michael |
+| R15 | Nine Electron fuses in the build config (`claude/app-harden` `f2ea2c21`) | Signing and notarization once the LLC enrolls; the fuse test reads the config, not the built app | LLC, Michael, Adrian |
+| R16 | Per-token and global in-flight caps, body caps, a read timeout, a 2 MB Gemini body cap (`cba57786`) | SQLite still on the event loop, with more queries per call now; no load test; not deployed | Michael |
+| R17 | Fetched pages fenced as untrusted; queries drop detected secrets (`claude/eng-harden` `e93c67ea`). **Decided:** D19, off. **Open PR #227:** the packaged engine pins `COACH_WEB=0` | Merge; before turning it back on, an honest user agent, guarded redirects and disclosure | Michael, Adrian |
+| R18 | Redaction of coach requests, screen text, selections, `.env` step files and secret rows in screenshots (`e93c67ea`) | The project scan sent to lesson builds isn't redacted (`credentials.json`, `.py` files with keys), and lesson-build calls bypass redaction. The private-app list isn't extended, and the fallback capture keeps pixels. Home paths aren't stripped. Several key formats are missed (private). Multi-line keys shift line numbers | Michael |
+| R19 | **Done.** Windows button off, `/live/` deleted, phones and tablets see "runs on a Mac for now", the windows release says Mac-only, windows-sync `publishNext` false (site `67a40f0`) | #188 still has Windows steps (only matters if #188 ships) | Adrian |
+| R20 | The auth callback tightened (`f2ea2c21`). **Open PR #234:** Cancel and Esc end the wait; honest tester and timeout copy | The Google and Supabase console steps, branding and the button colors | Adrian, Michael |
+| R21 | Nothing | The policy draft claims an age step the app doesn't have | Michael, Adrian |
+| R22 | Bright Data removed (`2db52c69`) | Browser user agents in five engine files; decision D4 | Founders, Michael |
+| R26 | A test keeps all link opening in `safeOpen.ts` (`f2ea2c21`). **Open PR #234:** only exact official release URLs; `MIYAGI_UPDATE_URL` ignored in packaged builds | The SHA-256 check (TODO in #234); the console steps; one official link and SHA-256s on miyagi.study | Adrian |
+| R27 | Nothing (the allowlist drops `metadata`) | The per-install `metadata.user_id` | Michael |
+| R28 | Delete my data removes the sign-in files and revokes the session locally, and the copy matches (`8e1522e5`) | `install.bin`, onboarding and reminders files, logs, crash reports, telemetry state, browser storage; re-mint; `scope=global`. No `DELETE /v1/me` on any cloud branch, and `user=` is still in cloud logs. **New:** each token's minting network is now stored with no expiry, which needs retention and disclosure | Adrian, Michael |
+| R29 | The app restarts a crashed engine (3 tries in 3 minutes) or a hung one (after 30 s), and the heartbeat handles sleep (`michael/app-reconnect` `efb2ce41`). The engine drops a stalled client after 5 s (`claude/eng-island-latency` `bb74206c`) | The Check watchdog, model-call timeouts, the build deadline, Check queued behind Explain | Adrian, Michael |
+| R30 | Fixed messages for credential, billing, rate and server errors in the proxy (`cba57786`) | A pause still blocks new installs. Engine raw errors (E12) untouched. New technical refusal text ("U+200B", "polynomial backtracking") reaches learners | Michael, Adrian |
+| R31 | **Open PR #227:** `MIYAGI_NET_PROBE` set to the cloud host (E28) | The Accessibility gate, VS Code in Downloads, the trust dialog, Homebrew Python, the developer-tools stub, tkinter, proxies, certificates, the second display | Adrian, Michael |
+| R32 | Small: run output bounded by the next command line; a "no errors" row waits while no notebook exists (`e06234a9`) | E18, E21, E22, E23. **New bug:** a regex timeout passes a "no errors" row once | Michael |
+| R33 | Fuses, DevTools off, a debug-flag quit (`f2ea2c21`); the engine's cloud URL pinned, dev routes gated, loopback bind (`fd443938`). **Open PRs #227, #233, #234:** env overrides ignored in packaged builds (A12); Electron 45.4.1; the YouTube player in a sandboxed host page with no app bridge (A14) | The engine-side items in the private notes; the security-flag order | Adrian, Michael |
+| R34 | **Live:** hello@miyagi.study forwarding; `/.well-known/security.txt` (site `5b40fcb`); footer links | SECURITY.md and private vulnerability reporting on both repos; the issue form; `/help`; the runbook | Adrian |
+| R35 | Opt-in counts and crash kinds, off by default, disclosed in the panel and policy (`claude/telemetry` `5724db80`, merged though #221 is a draft) | The cloud's field allowlist drops most event fields, so a crash arrives as its kind only. The panel doesn't say events tie to the account. No main `unhandledRejection` handler, funnel counts or wire-level canary. The policy says the switch shouldn't ship before the route is live | Adrian, Michael |
+| R36 | Nothing | **Wider:** Site v2 says "turns any tutorial into a lesson", "any app on your screen (blender, figma, sheets)" and "ask anything". #188's claims are unchanged | Adrian |
+| R38 | Nothing | Site v2 keeps downloads behind early access | Adrian |
+| R42 | Phones and tablets see "runs on a Mac for now" (#225); no YouTube embed left, so no consent question (Site v2, `fbe3d6f`); integrity hashes on the CDN imports (`93b8df2`) | The plain hero sentence | Adrian |
+| R44 | Restart escalates to SIGKILL (`efb2ce41`). **Open PR #229:** quit stops a hung engine's group; the next launch reclaims a stray one | The engine exits when its parent dies; the Mac check | Adrian, Michael |
+| R45 | Nothing (coach fixtures and selections are redacted). **Open PR #227:** `ORCH_RECORD=0` in the packaged engine | Log rotation, file modes, a scrubbed Copy details | Michael |
+| R46 | CI actions pinned to commits (`a61ef766`). **Open PRs #230, #228:** gitleaks over the full history; a check against secret Supabase keys | Confirm secret scanning and push protection; scan each release asset | Adrian |
+
+### Michael's gaps (engine, cloud, consoles)
+
+1. **Review and merge Adrian's PRs into your branches:**
+   - into `michael/v2-integration`: #226, #227, #229, #230, #233, #234, #237;
+   - into `integration/live`: #228, #232;
+   - into `claude/eng-proxy-next`: #238, after your Render checklist.
+
+   Then deploy the cloud and confirm the key-trim fix is live. Before any engine reads the lesson cache, see the
+   private notes (R11).
+2. **R01 after deploy:** measure one real lesson and check it fits the caps; set `ALERT_WEBHOOK_URL` and the
+   new-install cap on Render; unset `GEMINI_API_KEY` (D1).
+3. **R02:** the Haiku long-prompt tier, real Gemini prices if Gemini ever returns, and the console steps (prepaid
+   credit, workspace limit, alerts).
+4. **R08 step 4:** the app version on every call, and 426 below a floor.
+5. **R27:** a per-install `metadata.user_id`.
+6. **R28:** `DELETE /v1/me` plus Supabase user deletion; retention limits, including the minting-network column; no
+   `user=` in logs.
+7. **R30:** keep minting while paused; plain engine errors (E12); plain refusal text.
+8. **R40:** the region block.
+9. **R10 grading:**
+   - the "No errors" row reads the newest run (E15);
+   - a "looks correct" coach outcome (E17);
+   - E14, E16, E20, E24, E25;
+   - the three regex-deadline bugs.
+10. **R11 Run it for me:** check what an allowed command runs (private), snapshot the folder first, catalog-only pip
+    and brew, and a plain explanation on the confirm card.
+11. **R18 redaction:** redact the lesson-build project scan and the lesson-build calls; extend the private-app list;
+    strip home paths; the missed key formats (private).
+12. **R07 and R33:** the engine's key-handling, token and LAN-bind items in the private notes.
+13. **R22:** remove the browser user agents. **R45:** rotate the log, set file modes, scrub Copy details.
+14. **R29:** model-call timeouts, a build deadline, and Check that doesn't queue behind Explain.
+15. **R44 engine half:** exit when the parent dies.
+16. **Consoles:** Anthropic and Gemini limits (R02); the staging IP test and the Render plan (R12, R16); the Google
+    app and Supabase checks (R20); secret scanning and push protection (R46); release immutability (R26).
+
+### Adrian's gaps (app, companion, site)
+
+Done tonight as open PRs, waiting on Michael's merge:
+- **#237:** the consent screen, AI line and "I agree" step (R05, R06), and the hidden Gemini key field (R13).
+- **#226:** push to talk off.
+- **#227:** the packaged-engine pins (R17, R45, R31) and env overrides ignored (R33).
+- **#229:** the quit fix (R44).
+- **#233:** Electron 45.4.1 and the bridgeless YouTube player (R33).
+- **#234:** the sign-in Cancel fix (R20) and exact release URLs (R26).
+- **#230, #232:** CI tests and gitleaks (R04, R46), and the companion's machine-scoped settings (R07).
+
+Live on the site: the policy, terms, footer links, `security.txt`, the FAQ data line, and the Windows and `/live/`
+removal.
+
+Still open:
+1. **R05:** a pause control; the panel's editor, code, YouTube and questions rows.
+2. **R06:**
+   - a lawyer read;
+   - name the LLC as operator once it exists;
+   - point or remove the app's `/pricing`, `/teams` and `/account` links;
+   - re-check the live policy against the release commit, since it was written before #237.
+3. **R20:** the Google button colors, and branding with Michael.
+4. **R26:** the SHA-256 check (TODO in #234); one official download link and the SHA-256s on miyagi.study.
+5. **R35 telemetry:**
+   - a main `unhandledRejection` handler, Boundary errors sent to main, funnel counts, a wire-level canary;
+   - the panel caption says events link to the account;
+   - hold the switch until the cloud route is live.
+6. **R28 erase:** the remaining files and browser storage, re-minting the install token, `scope=global`.
+7. **R36 copy:** Site v2's "any tutorial", "any app" and "ask anything" need a dated evidence note or narrower words.
+8. **Site:**
+   - **R42:** the plain hero sentence;
+   - **R34:** SECURITY.md, private vulnerability reporting, the issue form, `/help`, the runbook;
+   - **R38:** early access off on launch morning.
+9. **R04:** freeze a launch SHA; Test 1 and the UNVERIFIED pass with Michael.
+10. **R12 app side:** `api.miyagi.study` as the default cloud URL, and `net.fetch`.
+11. **R14:** durable choices in main prefs (E01).
+12. **R31:** the other first-run items (the Accessibility gate, VS Code in Downloads, the suggested-lesson card,
+    tkinter, proxies).
+
 ## The plan on one page
 
 ### Critical path to posting publicly
@@ -690,7 +819,10 @@ transcripts never stored on the cloud, shared or committed; every lesson credits
    turtle and tkinter (`app/scripts/bundle-engine.mjs:104-105`). Adrian.
 9. E37: `net.fetch` (R12) and the system proxy passed to pip. Adrian, Michael.
 10. E39: if Test 1 step 12 fails, set `SSL_CERT_FILE` to certifi's bundle in lesson terminals. Adrian.
-- **Verify:** Test 1 variants V1 to V9 pass.
+11. Second display (#202 R10): when VS Code's window is on a non-primary display, say "Move VS Code to the main
+    display" (the engine knows the window's bounds); later, follow the editor's display (`main/index.ts:61-62`,
+    `features/player.ts:60`). Michael (engine), Adrian (card).
+- **Verify:** Test 1 variants V1 to V9 pass; with VS Code on a second monitor, the card appears.
 
 ### R32
 **Wrong work marked right.** Michael · S (E18) to M · E18 before public launch, the rest after
@@ -916,11 +1048,11 @@ The six the brief asked for come first. Each has its options and trade-offs in t
 
 | # | Decision | Recommendation | Risk |
 |---|---|---|---|
-| D1 | **Gemini's 18+ terms vs our 13+ gate** | Claude only for everyone at launch; keep 13+; Gemini off in the cloud and in Settings. Revisit Vertex AI once an entity holds the account | R13 |
+| D1 | **Gemini's 18+ terms vs our 13+ gate** | **Decided Nov 21: Claude only.** Claude only for everyone at launch; keep 13+; Gemini off in the cloud and in Settings. Revisit Vertex AI once an entity holds the account | R13 |
 | D2 | **The entity and who signs** | Form a manager-managed California LLC before public launch (a parent as sole manager, each founder's units held by a parent as CUTMA custodian), then move every account into it with the parent signing "for" the LLC. Until then open nothing new in anyone's own name, and don't move existing accounts to a parent (uncapped vendor indemnities). Which parent is the manager is the founders' and parents' call | R09 |
 | D3 | **The Miyagi Labs name collision** | Drop every Karate Kid cue now; a clearance opinion before the public post; if it comes back high-risk, rebrand before posting, not after | R23 |
 | D4 | **How lessons get transcripts (YouTube scraping)** | Keep the on-device fetch with the four limits for launch, after a short lawyer read; work toward creator-connected captions | R22 |
-| D5 | **The Windows download** | Off the site for launch: "mac only for now. windows is next." | R19 |
+| D5 | **The Windows download** | **Decided Nov 21: off.** Off the site for launch: "mac only for now. windows is next." | R19 |
 | D6 | **The download code gate** | Keep it for the private beta; remove it on public launch morning, once R01 and R02 are live | R38 |
 | D7 | Signed or unsigned public launch | Unsigned, if Test 1 passes on macOS 26 and 27 and the first-launch capture check ships; sign as soon as the LLC holds an Apple organization account. Not a parent's individual enrollment | R15 |
 | D8 | Capture scope | Editor and tutorial windows only, as the post-launch target; before launch, exclude private apps on every path and scrub secrets | R18 |
@@ -934,8 +1066,9 @@ The six the brief asked for come first. Each has its options and trade-offs in t
 | D16 | Posting account and dates | The founder account that passes `/showlim`; Show HN on a Sunday around 4-5 PM PT; Product Hunt a week later | R43 |
 | D17 | Where disputes go | California courts with small claims, no arbitration (mass-arbitration fees run about $8,125 a campaign); a 30-day informal step first | R06 |
 | D18 | Insurance before launch | Yes, bought by the LLC before the public post: claims-made policies don't cover acts before their start date | R24 |
-| D19 | The coach's web search | Off in the launch build (`COACH_WEB=0`); turn it back on once it's disclosed and its page text is treated as untrusted | R17 |
+| D19 | The coach's web search | **Decided Nov 21: off.** Off in the launch build (`COACH_WEB=0`); turn it back on once it's disclosed and its page text is treated as untrusted | R17 |
 | D20 | This register on the public repo | Your call. It aggregates weaknesses already in the public area files; exploitable details stay private either way. If you'd rather not, keep `RISKS.md` and `SOLUTIONS.md` off the public repo until R01, R02 and R12 land | — |
+| D21 | Push to talk at launch | **Decided Nov 21: off** (PR #226), until the consent screen, panel, policy and site disclose the mic, Input Monitoring and the key listener | R05 |
 
 ## Needs a lawyer
 

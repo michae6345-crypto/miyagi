@@ -11,10 +11,10 @@ to do, in what order, and who does it.
 | File | What it is |
 |---|---|
 | [`RISKS.md`](RISKS.md) | The ranked, deduped register: 49 risks (R01-R49) built from the 170 area rows and the independent review, the top 10, what changed in severity and why, where the areas disagreed and which holds, a coverage table from every area row to its risk, and the independent review |
-| [`SOLUTIONS.md`](SOLUTIONS.md) | The fix for each risk (steps, owner, effort, dependencies, how to verify), seven lanes, the plan by phase (Today, before private beta, before public launch, after launch), the critical path, and three lists: founders' decisions, needs a lawyer, needs Michael's Mac or consoles |
+| [`SOLUTIONS.md`](SOLUTIONS.md) | "Fixes so far" (what has landed against each risk, and the gap lists for Michael and Adrian), then the fix for each risk (steps, owner, effort, dependencies, how to verify), seven lanes, the plan by phase (Today, before private beta, before public launch, after launch), the critical path, and three lists: founders' decisions, needs a lawyer, needs Michael's Mac or consoles |
 | [`launch-checklist.md`](launch-checklist.md) | Must be true before we post publicly, merged from every area: blockers first, then "should be true", each linked to its risk |
 | [`later.md`](later.md) | Every area's Later section, merged and deduped, plus the register rows that wait |
-| [`risks.json`](risks.json) | The register as data for the visual map: `{id, title, areas, severity, likelihood, owner, effort, phase, sourceRows, solution, decision, lawyer}` |
+| [`risks.json`](risks.json) | The register as data for the visual map: `{id, rank, title, areas, severity, likelihood, owner, effort, phase, status, fixedIn, sourceRows, solution, decision, lawyer}` |
 
 ### By area (the research the register is built from)
 

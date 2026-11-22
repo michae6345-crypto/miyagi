@@ -27,7 +27,7 @@ ranks them. The fix for each one is in [`SOLUTIONS.md`](SOLUTIONS.md). The pre-l
 | Likelihood | **High**: happens at launch unless fixed (or is true today). **Medium**: needs a common trigger. **Low**: needs an unusual trigger or a motivated attacker. **Unknown**: a console or Mac check decides it. |
 | Owner | Who does the fix. Engine and cloud work is Michael's (written as plans). App, companion and site work is Adrian's. "Founders" means a decision for both. |
 | Phase | The deadline for the whole fix: Today, Before private beta, Before public launch, After launch. Earlier steps inside a fix are in `SOLUTIONS.md`. |
-| Status | `open` (work to do), `check` (needs a console or Michael's Mac first), `decision` (founders choose first), `drafts` (text exists, not live), `verify` (fixed in code, needs a Mac check), `gate` (don't post publicly until it passes). |
+| Status | `open` (work to do), `partial` (some fix steps landed; see "Fixes so far" in `SOLUTIONS.md`), `check` (needs a console or Michael's Mac first), `decision` (founders choose first), `drafts` (text exists, not live), `verify` (fixed in code, needs a Mac check), `gate` (don't post publicly until it passes), `done` (shipped and checked). Statuses as of Nov 21, late evening; `verify` here means fixed in code or in an open PR, waiting on a merge and a Mac or console check. |
 | Sources | The area rows merged into this risk. Every one of the 170 area rows is mapped in [Coverage](#coverage). |
 
 ## Top 10
@@ -73,52 +73,52 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 
 | R | Risk | Sev | Likelihood | Owner | Phase | Status | Sources |
 |---|---|---|---|---|---|---|---|
-| [R01](#r01) | Anyone can use miyagi-cloud as free AI | P0 | High | Michael | Before private beta | open | A01, A02, A11, A22, C02, C38, D18 |
-| [R02](#r02) | No provider spend caps or alerts | P0 | High | Michael | Today | check | A10, C02, C27, D19 |
-| [R03](#r03) | Cloud lesson builds likely fail | P0 | High | Michael | Before private beta | check | C03, C26, E08 |
-| [R04](#r04) | Launch build untested (clean Mac, Electron, CI) | P0 | High | Michael, Adrian | Before private beta | open | C39, D02, D39, E38, E41 |
-| [R05](#r05) | No consent before capture, no AI disclosure | P0 | High | Adrian, Michael | Before private beta | open | B01, B11, D04 |
-| [R06](#r06) | No live privacy policy or terms | P0 | High | Adrian, Michael | Before private beta | drafts | A16, B04, B10, C31, D05 |
-| [R07](#r07) | *Placeholder:* companion configuration and engine key handling | P0 | Medium | Adrian, Michael | Before private beta | open | A03, A04 |
+| [R01](#r01) | Anyone can use miyagi-cloud as free AI | P0 | High | Michael | Before private beta | verify | A01, A02, A11, A22, C02, C38, D18 |
+| [R02](#r02) | No provider spend caps or alerts | P0 | High | Michael | Today | partial | A10, C02, C27, D19 |
+| [R03](#r03) | Cloud lesson builds likely fail | P0 | High | Michael | Before private beta | verify | C03, C26, E08 |
+| [R04](#r04) | Launch build untested (clean Mac, Electron, CI) | P0 | High | Michael, Adrian | Before private beta | partial | C39, D02, D39, E38, E41 |
+| [R05](#r05) | No consent before capture, no AI disclosure | P0 | High | Adrian, Michael | Before private beta | partial | B01, B11, D04 |
+| [R06](#r06) | No live privacy policy or terms | P0 | High | Adrian, Michael | Before private beta | partial | A16, B04, B10, C31, D05 |
+| [R07](#r07) | *Placeholder:* companion configuration and engine key handling | P0 | Medium | Adrian, Michael | Before private beta | partial | A03, A04 |
 | [R08](#r08) | No fix path to installed users | P0 | High | Adrian, Michael | Before private beta | open | C15, C16, C18, C19, D31, D40 |
 | [R09](#r09) | No company: families carry the liability | P0 | Medium | Founders, parents, lawyer | Before public launch | decision | B07, C12, C37 |
-| [R10](#r10) | Correct work marked wrong | P1 | High | Michael | Before public launch | gate | E14, E15, E16, E17, E20, E24, E25 |
-| [R11](#r11) | One-click model-written commands; shared cache | P1 | Medium | Michael, Adrian | Before private beta | open | A08, A19, B12, B18 |
-| [R12](#r12) | New installs may be refused | P1 | Unknown | Michael, Adrian | Before private beta | check | A07, A20, C05, C23, C38 |
-| [R13](#r13) | Gemini terms vs teens | P1 | Medium | Founders, Michael, Adrian | Before private beta | decision | B02, C07, C08, D20 |
+| [R10](#r10) | Correct work marked wrong | P1 | High | Michael | Before public launch | open | E14, E15, E16, E17, E20, E24, E25 |
+| [R11](#r11) | One-click model-written commands; shared cache | P1 | Medium | Michael, Adrian | Before private beta | partial | A08, A19, B12, B18 |
+| [R12](#r12) | New installs may be refused | P1 | Unknown | Michael, Adrian | Before private beta | partial | A07, A20, C05, C23, C38 |
+| [R13](#r13) | Gemini terms vs teens | P1 | Medium | Founders, Michael, Adrian | Before private beta | verify | B02, C07, C08, D20 |
 | [R14](#r14) | Progress and settings get lost | P1 | High | Adrian, Michael | Before public launch | open | E01, E03, E13, E29 |
-| [R15](#r15) | Unsigned Mac app | P1 | High | Parent, Michael, Adrian | Before public launch | decision | C09, C11, C12, C13, E06 |
-| [R16](#r16) | miyagi-cloud capacity and plan | P1 | Medium | Michael | Before public launch | check | A23, C04, C21, C22, C24, C25, C41, D24, D25 |
-| [R17](#r17) | Undisclosed DuckDuckGo search in the coach | P1 | High | Michael, Adrian | Before private beta | open | the review |
-| [R18](#r18) | Capture takes more than the lesson needs | P1 | High | Michael | Before public launch | open | B01 |
-| [R19](#r19) | Windows download and `/live/`, live today | P1 | High | Adrian | Today | decision | C06, C37, C38, D01, D10, D14 |
-| [R20](#r20) | Google sign-in and Supabase not launch-ready | P1 | Medium | Michael, Adrian | Before public launch | check | A18, B10, C29, C30, C31, C32, C42, D35 |
+| [R15](#r15) | Unsigned Mac app | P1 | High | Parent, Michael, Adrian | Before public launch | partial | C09, C11, C12, C13, E06 |
+| [R16](#r16) | miyagi-cloud capacity and plan | P1 | Medium | Michael | Before public launch | partial | A23, C04, C21, C22, C24, C25, C41, D24, D25 |
+| [R17](#r17) | Undisclosed DuckDuckGo search in the coach | P1 | High | Michael, Adrian | Before private beta | verify | the review |
+| [R18](#r18) | Capture takes more than the lesson needs | P1 | High | Michael | Before public launch | partial | B01 |
+| [R19](#r19) | Windows download and `/live/`, live today | P1 | High | Adrian | Today | done | C06, C37, C38, D01, D10, D14 |
+| [R20](#r20) | Google sign-in and Supabase not launch-ready | P1 | Medium | Michael, Adrian | Before public launch | partial | A18, B10, C29, C30, C31, C32, C42, D35 |
 | [R21](#r21) | No age gate, teen-safety or crisis safeguards | P1 | Medium | Michael, Adrian | Before public launch | open | B03, B20, C28, C33 |
 | [R22](#r22) | YouTube scraping | P1 | Medium | Founders, Michael | Before public launch | decision | B06 |
 | [R23](#r23) | Name collision with Miyagi Labs | P1 | Medium | Founders, lawyer | Before public launch | decision | B08 |
 | [R24](#r24) | No insurance | P1 | Medium | Parent, founders | Before public launch | decision | B21 |
 | [R25](#r25) | Nobody holds clean title to the code | P1 | Medium | Founders, parents, lawyer | Before public launch | open | B16, B19 |
-| [R26](#r26) | Release integrity and fake installers | P1 | Low | Adrian, Michael | Before private beta | open | A13, C01, C17 |
+| [R26](#r26) | Release integrity and fake installers | P1 | Low | Adrian, Michael | Before private beta | partial | A13, C01, C17 |
 | [R27](#r27) | One shared Anthropic key | P1 | Medium | Michael | Before public launch | open | the review |
-| [R28](#r28) | Delete my data; no server deletion | P1 | High | Adrian, Michael | Before public launch | open | A16, B05 |
-| [R29](#r29) | Spinners and builds with no way out | P1 | Medium | Adrian, Michael | Before public launch | open | E02, E09, E10, E11 |
-| [R30](#r30) | Raw or wrong errors when the cloud fails | P1 | High | Adrian, Michael | Before public launch | open | C20, D25, E12, E40 |
-| [R31](#r31) | First run on a real student's Mac | P1 | Medium | Adrian, Michael | Before public launch | open | E28, E30, E31, E32, E33, E34, E35, E36, E37, E39 |
-| [R32](#r32) | Wrong work marked right | P1 | Medium | Michael | Before public launch | open | E18, E19, E21, E22, E23 |
-| [R33](#r33) | Local access hardening (mostly *placeholder*) | P1 | Low | Michael, Adrian | Before public launch | open | A05, A06, A12, A14, C38, C40 |
-| [R34](#r34) | No support, security or privacy contact | P1 | High | Adrian, Michael | Before public launch | open | A17, B17, C34, D06, D26, D27, D28 |
-| [R35](#r35) | Launch-day blindness | P1 | High | Michael, Adrian | Before public launch | open | C22, D21, D22, D23, D38, E04 |
+| [R28](#r28) | Delete my data; no server deletion | P1 | High | Adrian, Michael | Before public launch | partial | A16, B05 |
+| [R29](#r29) | Spinners and builds with no way out | P1 | Medium | Adrian, Michael | Before public launch | partial | E02, E09, E10, E11 |
+| [R30](#r30) | Raw or wrong errors when the cloud fails | P1 | High | Adrian, Michael | Before public launch | partial | C20, D25, E12, E40 |
+| [R31](#r31) | First run on a real student's Mac | P1 | Medium | Adrian, Michael | Before public launch | partial | E28, E30, E31, E32, E33, E34, E35, E36, E37, E39 |
+| [R32](#r32) | Wrong work marked right | P1 | Medium | Michael | Before public launch | partial | E18, E19, E21, E22, E23 |
+| [R33](#r33) | Local access hardening (mostly *placeholder*) | P1 | Low | Michael, Adrian | Before public launch | partial | A05, A06, A12, A14, C38, C40 |
+| [R34](#r34) | No support, security or privacy contact | P1 | High | Adrian, Michael | Before public launch | partial | A17, B17, C34, D06, D26, D27, D28 |
+| [R35](#r35) | Launch-day blindness | P1 | High | Michael, Adrian | Before public launch | partial | C22, D21, D22, D23, D38, E04 |
 | [R36](#r36) | Copy over-promises; cheating read | P1 | High | Adrian | Before public launch | open | B14, B15, D07, D14, D29, D30, D34, E26 |
 | [R37](#r37) | macOS permission prompts | P1 | Medium | Adrian, Michael | Before public launch | check | C14, E05, E07 |
-| [R38](#r38) | Download code gate | P1 | High | Adrian | Before public launch | decision | D03 |
+| [R38](#r38) | Download code gate | P1 | High | Adrian | Before public launch | open | D03 |
 | [R39](#r39) | Personal accounts are single points of failure | P1 | Low | Adrian, Michael | Today | open | C10, C22, C35 |
 | [R40](#r40) | Where miyagi is offered | P1 | Medium | Founders, Michael | Before public launch | decision | B11, B13 |
 | [R41](#r41) | Creators' content in the repo, no DMCA agent | P1 | Low | Michael, Adrian | Before public launch | open | B12 |
-| [R42](#r42) | Site doesn't say what miyagi is | P1 | High | Adrian | Before public launch | open | D08, D09, D11 |
+| [R42](#r42) | Site doesn't say what miyagi is | P1 | High | Adrian | Before public launch | partial | D08, D09, D11 |
 | [R43](#r43) | Launch channel rules | P1 | Medium | Founders | Before public launch | check | D15, D16, D17, D32, D33, D36 |
-| [R44](#r44) | Engine keeps running with no UI | P1 | Low | Michael, Adrian | Before public launch | verify | A15, B09 |
-| [R45](#r45) | Local logs keep questions, code and paths | P1 | High | Michael, Adrian | Before public launch | open | A21, D28 |
-| [R46](#r46) | Keep secrets out of the repo and builds | P1 | Low | Michael, Adrian | Before public launch | open | A09 |
+| [R44](#r44) | Engine keeps running with no UI | P1 | Low | Michael, Adrian | Before public launch | partial | A15, B09 |
+| [R45](#r45) | Local logs keep questions, code and paths | P1 | High | Michael, Adrian | Before public launch | partial | A21, D28 |
+| [R46](#r46) | Keep secrets out of the repo and builds | P1 | Low | Michael, Adrian | Before public launch | partial | A09 |
 | [R47](#r47) | Fixed ports (8787, 47217) | P1 | Medium | Adrian, Michael | Before public launch | open | C36, D41 |
 | [R48](#r48) | Licenses and third-party notices | P2 | Low | Adrian, Michael | After launch | open | B16 |
 | [R49](#r49) | Site polish: load, accessibility, a second download button | P2 | Medium | Adrian | After launch | open | D11, D12, D13 |
@@ -126,7 +126,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 ## P0: blocks launch, leaks data, exposes a key, or an unbounded bill
 
 ### R01
-**Anyone can use miyagi-cloud as free AI.** P0 · High · Michael · open
+**Anyone can use miyagi-cloud as free AI.** P0 · High · Michael · verify
+- **Fix status (Nov 21, late):** **Verify.** Adrian's PR #238 (into `claude/eng-proxy-next`, open) finishes the code: dollar caps per install, user and network with the role header only a label, a daily new-install cap (`miyagi_full`), a runtime kill switch, an alerts webhook, the per-token hourly limit at 2400, the commit and booleans in `/healthz`. Left: Michael's Render checklist, merge and deploy, then one measured lesson.
 - **What goes wrong:** miyagi-cloud forwards Claude and Gemini calls for any install, and there is no server-side
   spend cap yet (C02). Area A holds more cost-control findings privately (A01, A02, A22). Stopping abuse takes a
   redeploy and nobody is told (A11). And nobody has measured what one real lesson costs through the proxy, so any cap
@@ -139,7 +140,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P0:** an unbounded bill on a service that is reachable today.
 
 ### R02
-**No provider-side spend caps or alerts.** P0 · High · Michael · check
+**No provider-side spend caps or alerts.** P0 · High · Michael · partial
+- **Fix status (Nov 21, 9 PM):** Server-tool and cache-write prices landed (`cba57786`); Gemini prices are still placeholders, so the dollar caps undercount Gemini. The console steps are unconfirmed.
 - **What goes wrong:** until R01 ships, the provider caps are the only brake, and nobody knows whether they are set.
   If they aren't, the first stop is the default tier cap (about $500 a month on Anthropic Start, about $250 on
   Gemini Tier 1), after which every learner gets 429 until the 1st. Gemini's project cap lags about 10 minutes, and
@@ -151,7 +153,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P0:** it's the only thing between a leak and an unbounded bill today, and it is free and takes an hour.
 
 ### R03
-**Lesson builds through miyagi-cloud likely fail.** P0 · High · Michael · check
+**Lesson builds through miyagi-cloud likely fail.** P0 · High · Michael · verify
+- **Fix status (Nov 21, late):** **Verify.** PR #238 sets `MAX_TOKENS_CAP` to 32000 and turns Gemini off in the cloud. Left: merge, deploy, and one cloud build of a 20-minute tutorial.
 - **What goes wrong:** the proxy cuts every Claude reply to 4096 output tokens, thinking included. The lesson builder
   asks for 32000 with adaptive thinking and raises on a cut reply; starter files ask for 16000. Video watching asks
   for `gemini-4-hydrogen`, which isn't on the proxy's allowlist (only `gemini-3.8-flash`), so every video lesson
@@ -164,7 +167,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   or one build confirms it; neither is needed to start the fix.
 
 ### R04
-**The launch build is untested: never installed on a clean Mac, much of it never run in Electron, and no tests in CI.** P0 · High · Michael, Adrian · open
+**The launch build is untested: never installed on a clean Mac, much of it never run in Electron, and no tests in CI.** P0 · High · Michael, Adrian · partial
+- **Fix status (Nov 21, late):** CI now runs the real tests (2488 engine, 347 app) in PRs #230 and #228 (open). Left: freeze a launch SHA, Test 1 on clean macOS 15, 26 and 27, and the pass over every UNVERIFIED feature.
 - **What goes wrong:** the public `mac` and `windows` releases are the pre-v2 app (`1b6ddcb`, Nov 19-20: no cloud,
   no sign-in, needs an Anthropic key), and `windows-sync/state.json` says `macVerified: false`: nobody has opened the
   public Mac file on a real Mac. In an Aug 2026 test on macOS 26.6.1, an ad-hoc-signed app launched from quarantine
@@ -183,7 +187,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   been run end to end.
 
 ### R05
-**Learners aren't told before capture that their screen and code go to Anthropic, and nothing says it's AI.** P0 · High · Adrian, Michael · open
+**Learners aren't told before capture that their screen and code go to Anthropic, and nothing says it's AI.** P0 · High · Adrian, Michael · partial
+- **Fix status (Nov 21, late):** PR #237 (open) adds the consent screen before Screen Recording (Anthropic, close private apps, AI can be wrong) and blocks capture and the prompts until consent; PR #226 turns push to talk off for launch; the site's FAQ now says screenshots go to Anthropic. Left: a pause control, and the panel's editor, code, YouTube and questions rows.
 - **What goes wrong:** during a lesson the engine sends a 1280-px screenshot of the whole display, a crop around the
   cursor, screen text, the editor buffer (unsaved edits too), any "Explain this" selection and a scan of up to
   60,000 characters of lesson files to Anthropic through miyagi-cloud. Setup asks for Screen Recording without saying
@@ -195,7 +200,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   HN question, and a breach of a provider rule we must follow.
 
 ### R06
-**No live privacy policy or terms.** P0 · High · Adrian, Michael · drafts
+**No live privacy policy or terms.** P0 · High · Adrian, Michael · partial
+- **Fix status (Nov 21, late):** The beta privacy policy and terms are live at `/privacy/` and `/terms/` with footer links (site `c2f5eb9`, `c0f45fc`); PR #237 (open) adds the "I agree" step with a versioned consent and honest delete wording. Left: a lawyer read, the operator named as the LLC once it exists (today "the miyagi team", R09), the app's `/pricing`, `/teams` and `/account` links, and a re-check of the policy against the release commit.
 - **What goes wrong:** the sign-in screen says users accept the Terms and Privacy Policy and links to
   `miyagi.study/terms` and `/privacy`, which return 404, as do `/pricing`, `/teams` and `/account`. "Continue without
   an account" skips even the link, and there is no "I agree" step. CalOPPA requires a posted policy with no size
@@ -209,7 +215,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P0:** a legal requirement from the first user, already promised in the app.
 
 ### R07
-***Placeholder:* VS Code companion configuration, and engine handling of learner-provided keys.** P0 · Medium · Adrian, Michael · open
+***Placeholder:* VS Code companion configuration, and engine handling of learner-provided keys.** P0 · Medium · Adrian, Michael · partial
+- **Fix status (Nov 21, late):** PR #232 (open) ships companion 0.0.8 with `engineUrl` and `port` as machine settings, which closes A03's settings gap. The engine's key-handling and token gaps remain (private notes).
 - **What goes wrong:** two findings held privately (A03, A04; sent to Michael on Nov 21). One is in the shipping
   VS Code companion (0.0.6), one affects learners who add their own key. Both can expose learner data or keys.
 - **Evidence and where:** in the private notes. Checked Nov 21: `integration/live` still ships companion 0.0.6, so
@@ -218,6 +225,7 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 
 ### R08
 **No way to get a fix to people who installed.** P0 · High · Adrian, Michael · open
+- **Fix status (Nov 21, 9 PM):** Not addressed: no versions, no update card in the build, no minimum-version answer from the cloud.
 - **What goes wrong:** every build is `0.1.0`. Releases are a rolling `mac` tag uploaded with `--clobber` (no history
   or rollback, about 30 s of 404s per upload), fed from two places (the CI zip artifact from `main` and `ship-mac.sh`
   from any branch). The update card (#189, still open) needs a `.dmg` and a parseable version, so it can never offer
@@ -253,6 +261,7 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 
 ### R10
 **Correct work gets "Not yet", then the coach tells the learner to change working code.** P1 · High · Michael · open · a measured gate before public launch
+- **Fix status (Nov 21, 9 PM):** Mostly not addressed. A ^C'd run no longer counts as an error and a run's output window ends at the next command line (`e06234a9`), but the "No errors" row still reads the whole visible terminal, the coach has no "looks correct" outcome, and E14, E16, E20, E24, E25 are untouched. New bug: a transient regex timeout drops a check from the saved lesson for good.
 - **What goes wrong:** several checks fail correct learners. "No errors in the terminal" reads the whole visible
   terminal, so a learner who hits an error, fixes it and reruns still fails while the old traceback is on screen
   (E15). Run checks match the model's guessed last line exactly, so random numbers, `input()`, dates and floats fail
@@ -269,7 +278,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   publicly until no correct step in those lessons stays red after a rerun.
 
 ### R11
-**One-click commands written by a model from someone else's video, and a shared lesson cache that could feed them.** P1 · Medium · Michael, Adrian · open (cache: gate)
+**One-click commands written by a model from someone else's video, and a shared lesson cache that could feed them.** P1 · Medium · Michael, Adrian · partial
+- **Fix status (Nov 21, 9 PM):** Mostly done on `integration/live` (`57118618`, `35cb1a17`): an engine-enforced confirm per command, an allow-list, no shell, refusals for metacharacters, `rm`, `sudo`, `curl` and paths outside the folder, a curated pip list, untrusted-text fencing. Missing: what an allowed command runs isn't checked (details private), no folder snapshot, off-list pip names install on a second press.
 - **What goes wrong:** "Run it for me" runs a model-written shell command with one click: it types it into VS Code's
   terminal or runs it through `/bin/sh -c`, and the card says "Running it" only after the fact (checked Nov 21). The
   lesson text comes from a stranger's tutorial, so a video built to steer the model, or a model that simply gets a
@@ -288,7 +298,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   founders' largest personal-liability item (B18). **P0 if the cache merges before A08 is fixed.**
 
 ### R12
-**New installs may be refused on launch day.** P1 · Unknown · Michael, Adrian · check
+**New installs may be refused on launch day.** P1 · Unknown · Michael, Adrian · partial
+- **Fix status (Nov 21, 9 PM):** Persisted mint limits, 20 an hour and 60 a day per network, in `cba57786` (not deployed). The staging check of the client IP isn't done; the app side is untouched.
 - **What goes wrong:** `/v1/install` allows only a few new installs per network per hour (C05). A classroom, club or
   judging hall runs out quickly, and the app says "Couldn't set up access. Check your
   connection." Whether the limit reads the real client IP behind Render's proxy is unverified; if it doesn't, new
@@ -302,7 +313,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   critical path; the fix may not be.
 
 ### R13
-**Gemini's terms bar under-18 users and under-18 account holders.** P1 · Medium · Founders, Michael, Adrian · decision (today)
+**Gemini's terms bar under-18 users and under-18 account holders.** P1 · Medium · Founders, Michael, Adrian · verify
+- **Fix status (Nov 21, late):** **Verify.** D1 is decided: Claude only. PR #237 hides the Gemini key field (`GEMINI_ENABLED = false`) and PR #238 turns Gemini off in the cloud. Left: merge, deploy, and unset the key on Render.
 - **What goes wrong:** the Gemini API Additional Terms say "You must be 18 years of age or older to use the APIs" and
   forbid use in an app "directed towards or is likely to be accessed by individuals under the age of 18". miyagi
   plans a 13+ gate, is built for students, and its founders are minors who hold the key. Through the proxy, Gemini
@@ -335,7 +347,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   complaint in tutoring apps.
 
 ### R15
-**The Mac app is unsigned.** P1 · High · Parent, Michael, Adrian · decision
+**The Mac app is unsigned.** P1 · High · Parent, Michael, Adrian · partial
+- **Fix status (Nov 21, 9 PM):** Nine Electron fuses are in the build config (`f2ea2c21`); no signing or notarization, and the fuse test reads the config, not the built app.
 - **What goes wrong:** no Developer ID and no notarization, so every install goes through Open Anyway (open the app,
   System Settings, Open Anyway within about an hour, password). Every ad-hoc update is a new app to macOS: Screen
   Recording is asked again, Accessibility silently stops, the Keychain likely prompts (Deny signs the learner out),
@@ -350,7 +363,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   recoverable. It becomes **P0 if Test 1 shows no Open Anyway on macOS 26 or 27**.
 
 ### R16
-**miyagi-cloud capacity, provider tiers and plan.** P1 · Medium · Michael · check
+**miyagi-cloud capacity, provider tiers and plan.** P1 · Medium · Michael · partial
+- **Fix status (Nov 21, 9 PM):** In-flight and body caps and a read timeout landed (`cba57786`, not deployed); SQLite still runs on the event loop and there's no load test.
 - **What goes wrong:** the Render plan and disk are unconfirmed; on Free the service sleeps (the app gives up minting
   after 10 s) and every restart wipes all install tokens and usage (C04). It's one instance with a disk, so every
   deploy is downtime, and a modest number of simultaneous builds exhausts its upstream connections for everyone
@@ -365,7 +379,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   **P0 if the live service is on Free.**
 
 ### R17
-**The coach now searches DuckDuckGo and reads web pages by default, and nothing discloses it.** P1 · High · Michael, Adrian · open
+**The coach now searches DuckDuckGo and reads web pages by default, and nothing discloses it.** P1 · High · Michael, Adrian · verify
+- **Fix status (Nov 21, late):** **Verify.** D19 is decided: off. PR #227 (open) pins `COACH_WEB=0` in the packaged engine. The user agent and redirect guards only matter if it's turned back on.
 - **What goes wrong:** since `2db52c69` (on `integration/live`, after the area snapshots), the coach detects the
   library and symbol from any error on screen and searches DuckDuckGo's HTML endpoint with a Chrome browser user
   agent, then fetches docs and Stack Overflow, GitHub and Reddit pages and puts their text into the coach prompt. It's
@@ -378,7 +393,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   only Anthropic goes live**, because then the policy is false.
 
 ### R18
-**Screen capture takes more than the lesson needs.** P1 · High · Michael · open · lawyer before scaling
+**Screen capture takes more than the lesson needs.** P1 · High · Michael · partial · lawyer before scaling
+- **Fix status (Nov 21, 9 PM):** Redaction now covers coach requests, screen text, selections, `.env` step files and secret rows in screenshots (`e93c67ea`). The project scan sent to lesson builds isn't redacted, the private-app list wasn't extended, and several key formats are missed (private).
 - **What goes wrong:** the coach sends the whole primary display, not the editor and the tutorial. Password managers,
   Keychain and Messages are blacked out only when ScreenCaptureKit works; the fallback capture keeps them. Slack,
   WhatsApp, Signal, Mail and browsers are never excluded. Redaction is text-only (emails, SSNs, phones, card
@@ -391,7 +407,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   still the biggest trust question on launch day and the policy must not claim a blackout the fallback doesn't do.
 
 ### R19
-**Two problems live on the site right now: a Windows download that can't run a lesson, and an old app build at `/live/`.** P1 · High · Adrian · decision (fix today)
+**Two problems live on the site right now: a Windows download that can't run a lesson, and an old app build at `/live/`.** P1 · High · Adrian · done
+- **Fix status (Nov 21, late):** **Done** (site `67a40f0`, D5 decided): the Windows button is off, `/live/` is deleted, phones and tablets see "runs on a Mac for now", the windows release says Mac-only, windows-sync `publishNext` is false. #188 still has Windows steps.
 - **What goes wrong:** miyagi.study shows "download for windows" as an equal button, but the engine is macOS only
   (`localEngine.ts:214` returns "not macOS"), so a Windows install can't build or check a lesson. The installer is
   unsigned, and Smart App Control blocks it outright with no per-app override (it's on, enforcing, on Adrian's own
@@ -406,7 +423,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   so they're in the Today plan.
 
 ### R20
-**Google sign-in and Supabase aren't launch-ready.** P1 · Medium · Michael, Adrian · check
+**Google sign-in and Supabase aren't launch-ready.** P1 · Medium · Michael, Adrian · partial
+- **Fix status (Nov 21, late):** PR #234 (open): Cancel and Esc end the sign-in wait, and the tester and timeout copy is honest. Left: the Google and Supabase console steps, branding, the Google button colors.
 - **What goes wrong:** the Google consent screen will say "continue to `wssdpsdbaqtnfhoyimit.supabase.co`", which
   looks like phishing to a parent or school IT, and brand verification can't pass with that domain. The app isn't
   published "In production", the privacy and terms pages are 404, the homepage links neither, the domain isn't in
@@ -420,6 +438,7 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 
 ### R21
 **No age gate, teen-safety or crisis safeguards.** P1 · Medium · Michael, Adrian · open
+- **Fix status (Nov 21, 9 PM):** Not addressed; the policy draft claims an age step that doesn't exist.
 - **What goes wrong:** no branch asks for age (checked Nov 21: no age or birth-date code in the v2 app; the planned
   `michael/app-signin-gate` isn't on origin), though the policy draft says 13+. Anthropic lets an app serve minors
   only if it **must** disclose AI and **should** verify age, moderate, monitor and publish a COPPA statement, and it
@@ -437,6 +456,7 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 
 ### R22
 **The engine scrapes YouTube for transcripts.** P1 · Medium · Founders, Michael · decision · lawyer if kept past beta
+- **Fix status (Nov 21, 9 PM):** Bright Data is gone (`2db52c69`); browser user agents remain in five engine files, and the decision is open.
 - **What goes wrong:** the engine fetches watch pages, caption tracks (`timedtext`, `youtube-transcript-api`, a
   browser user agent) and results pages from the learner's Mac, and sends the transcript to Anthropic when Gemini
   isn't used, which per R03 is every video build through the proxy today. Since Nov 21 the coach also searches
@@ -486,7 +506,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   nothing.
 
 ### R26
-**One personal account controls what every install is offered, and nothing tells a real download from a fake.** P1 · Low · Adrian, Michael · open
+**One personal account controls what every install is offered, and nothing tells a real download from a fake.** P1 · Low · Adrian, Michael · partial
+- **Fix status (Nov 21, late):** PR #234 (open): the update card accepts only exact official release URLs and ignores `MIYAGI_UPDATE_URL` in packaged builds. Left: the SHA-256 check (a TODO in the PR), the console steps (immutability, passkey, token), one official link and SHA-256s on the site.
 - **What goes wrong:** the update channel trusts whoever controls `adrian-erlikhman/miyagi` or the token that
   publishes to it (the windows-sync agent publishes from this laptop): release immutability is off, the update card
   accepts any `github.com` URL, and the sha256 it shows comes from the same API as the file (A13, C01). Every build
@@ -500,6 +521,7 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 
 ### R27
 **One shared Anthropic key: a few abusive users could get miyagi suspended for everyone.** P1 · Medium · Michael · open
+- **Fix status (Nov 21, 9 PM):** Not addressed: the cloud's request allowlist drops `metadata` and adds no user id.
 - **What goes wrong:** every install's calls go out under one Anthropic organization key. Launch-day visitors will
   try to make a teen-built tutor say something worth a screenshot, through the free-text goal or "Explain this", and
   Anthropic's enforcement acts on the organization. Nothing tells Anthropic which end user sent a request (no
@@ -510,7 +532,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P1:** an enforcement action is unlikely in week one, but it would stop every lesson at once.
 
 ### R28
-**Delete my data is misleading, and nothing can be deleted on the server.** P1 · High · Adrian, Michael · open
+**Delete my data is misleading, and nothing can be deleted on the server.** P1 · High · Adrian, Michael · partial
+- **Fix status (Nov 21, 9 PM):** Delete my data now removes the sign-in files and matches its copy (`8e1522e5`). No server delete on any cloud branch, `user=` still in cloud logs, and the cloud now keeps each token's minting network with no expiry.
 - **What goes wrong:** the button asks "Delete everything on this Mac?" but removes only API keys and prefs. The
   learner stays signed in, the install stays linked to their account on the cloud, and lessons, transcripts, logs and
   file backups stay in `~/miyagi`. The cloud has no delete or retention for tokens, links, usage or builds, sign-out
@@ -522,7 +545,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   are served, or once the age gate has to delete an under-13 account.**
 
 ### R29
-**Spinners and builds with no way out.** P1 · Medium · Adrian, Michael · open
+**Spinners and builds with no way out.** P1 · Medium · Adrian, Michael · partial
+- **Fix status (Nov 21, 9 PM):** The app restarts a crashed or hung engine and handles sleep (`efb2ce41`); the engine drops a stalled client (`bb74206c`). No Check watchdog, model-call timeouts or build deadline.
 - **What goes wrong:** "Checking" has no client timeout, so an engine that hangs leaves Check dead until quit (E02).
   Since the area snapshot the app gained a socket heartbeat that drops a half-open socket on sleep or a network change
   (`V2:app/src/main/engine.ts:279`), which covers part of E02; a hung engine that still answers pings isn't covered. After the 8 s placeholder step, nothing times out the
@@ -534,7 +558,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   gets much more likely if R03 is real.
 
 ### R30
-**When the cloud or a provider fails, learners see raw or wrong errors, and the first setup never retries.** P1 · High · Adrian, Michael · open
+**When the cloud or a provider fails, learners see raw or wrong errors, and the first setup never retries.** P1 · High · Adrian, Michael · partial
+- **Fix status (Nov 21, 9 PM):** The proxy returns fixed messages for credential, billing, rate and server errors (`cba57786`). A pause still blocks new installs, engine raw errors are untouched, and new technical refusal text reaches learners.
 - **What goes wrong:** engine exceptions show as raw text ("check_step: KeyError ...", E12). Spend-limit, allowlist
   and 5xx errors pass through as provider text, and one shared rate limit hits everyone at once (D25). Paused, 429,
   502 and timeouts during a build all read "Couldn't read this video: both engines failed"; text lessons show the
@@ -545,20 +570,23 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P1:** every outage or cap becomes a confusing dead end, which reads as "broken" on launch day.
 
 ### R31
-**First run on a real student's Mac.** P1 · Medium · Adrian, Michael · open
+**First run on a real student's Mac.** P1 · Medium · Adrian, Michael · partial
+- **Fix status (Nov 21, late):** PR #227 (open) sets `MIYAGI_NET_PROBE` to the cloud host (E28). The other first-run items are open.
 - **What goes wrong:** a school filter that blocks api.anthropic.com makes the engine decide it's offline, so Check
   waits for a network it doesn't need (E28; the app never sets `MIYAGI_NET_PROBE`). "You're ready" suggests whichever
   cached lesson is newest, and 7 of 8 need tools a fresh Mac lacks (E30). Declining Accessibility locks Home (E31).
   VS Code opened from Downloads reads as missing (E32). Answering No to VS Code's trust dialog quietly breaks the
   lesson's `.venv` (E33). Homebrew Python hits PEP 668 (E34). Read-only setup checks pop the developer-tools dialog
   and then call the stub "installed" (E35). The bundled Python has no tkinter or turtle (E36). A system proxy or PAC
-  file reads as "No internet" and breaks the mint (E37). HTTPS from a lesson venv may fail certificate checks (E39).
-- **Where:** `IL:server/orchestrator/system_status.py:21, 48, 110`; `renderer/src/features/onboarding/store.ts:159-166`; `steps.ts:73-75`; `main/localEngine.ts:795-805`; `IL:server/workspace/setup.py:368-377, 680-721`; `app/scripts/bundle-engine.mjs:104-105`.
+  file reads as "No internet" and breaks the mint (E37). HTTPS from a lesson venv may fail certificate checks (E39). And the engine watches only the primary display, so
+  VS Code dragged to a second monitor goes unseen and its checks and off-track judgement fail (#202 R10).
+- **Where:** `IL:server/orchestrator/system_status.py:21, 48, 110`; `renderer/src/features/onboarding/store.ts:159-166`; `steps.ts:73-75`; `main/localEngine.ts:795-805`; `IL:server/workspace/setup.py:368-377, 680-721`; `app/scripts/bundle-engine.mjs:104-105`; `V2:app/src/main/index.ts:61-62` ("the engine watches the PRIMARY display only"), `features/player.ts:60`.
 - **Why P1 (E28 said P0 for school networks):** each one stops part of the audience, not the launch, and most fixes
   are small. E28's fix is one env var, so it's on the checklist.
 
 ### R32
-**Wrong work marked right.** P1 · Medium · Michael · open
+**Wrong work marked right.** P1 · Medium · Michael · partial
+- **Fix status (Nov 21, 9 PM):** Small fixes (`e06234a9`); E18, E21, E22, E23 untouched. New bug: a regex timeout can pass a "no errors" row once.
 - **What goes wrong:** pressing Check in a video lesson lets one Haiku call (confidence 0.6+) overrule failing machine
   checks, even with a traceback on screen, and text in the learner's file can count as evidence (E18). A run passes
   on any exit code 0 and output checks read the whole terminal, so an earlier correct run passes a wrong new one
@@ -570,7 +598,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P1:** it hurts learning more than launch trust, except E18, which a reviewer will notice.
 
 ### R33
-**Local access hardening for the engine, companion and app (mostly *placeholder*).** P1 · Low · Michael, Adrian · open
+**Local access hardening for the engine, companion and app (mostly *placeholder*).** P1 · Low · Michael, Adrian · partial
+- **Fix status (Nov 21, late):** PRs #227 and #234 (open) make packaged builds ignore `ENGINE_URL`, an env-set `MIYAGI_CLOUD_URL` and `MIYAGI_UPDATE_URL` (A12); PR #233 bumps Electron to 45.4.1 and runs the YouTube player in a sandboxed host page with no app bridge (A14). The engine-side items in the private notes remain.
 - **What goes wrong:** held privately: engine and companion local access control (A05), engines started outside the
   app in dev and demo setups (A06), packaged-app configuration (A12), and one app-to-engine connection item (C38).
   Public: the YouTube IFrame API loader runs inside the app's own origin with the full `window.tut` bridge, so a
@@ -582,7 +611,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   a hand-started engine. **A06 is P0 for any demo at a venue.**
 
 ### R34
-**No support, security or privacy contact.** P1 · High · Adrian, Michael · open
+**No support, security or privacy contact.** P1 · High · Adrian, Michael · partial
+- **Fix status (Nov 21, late):** `hello@miyagi.study` forwarding is set up, `/.well-known/security.txt` is live (site `5b40fcb`) and the footer links the policy, terms and hello@. Left: SECURITY.md and private vulnerability reporting, the issue form, `/help`, the runbook.
 - **What goes wrong:** the only contacts on the site are two minors' personal Gmail addresses; miyagi.study has no MX,
   SPF or DMARC, so there's no support@ and anyone can spoof the domain (C34, D06). There's no in-app report, issue
   form or help page (D26). There's no `security.txt`, no SECURITY.md, and private vulnerability reporting is off on
@@ -594,7 +624,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   unbounded bill. The personal Gmails of minors on a launch page are a safety issue on their own.
 
 ### R35
-**Launch-day blindness.** P1 · High · Michael, Adrian · open
+**Launch-day blindness.** P1 · High · Michael, Adrian · partial
+- **Fix status (Nov 21, 9 PM):** Opt-in counts and crash kinds, off by default and disclosed in the panel and policy (`5724db80`, merged though #221 is a draft). The cloud drops most event fields, events tie to the account, and there's no `unhandledRejection` handler or wire-level canary.
 - **What goes wrong:** no crash upload, no usage counts and no uptime check, so on launch day nobody knows installs,
   activation, where setup stops or that the cloud is down (D21, D22, D23, E04). The app has no `unhandledRejection`
   handler and drops renderer errors in packaged builds. Adding Sentry or PostHog with default settings would upload
@@ -606,6 +637,7 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 
 ### R36
 **Site and launch copy over-promise, the demo is scripted, and a screen-seeing tutor can read as a cheating tool.** P1 · High · Adrian · open
+- **Fix status (Nov 21, 9 PM):** Not addressed, and wider: Site v2 says "turns any tutorial into a lesson", "any app on your screen" and "ask anything".
 - **What goes wrong:** "ask for anything", "learn anything" and "any tutorial", while lessons are coding tutorials in
   VS Code on Apple-silicon Macs (D07). "It checks your work as you type" while R10 and R32 are open, and "say what
   you want to learn" while voice is off (D claims table, B14). #188's FAQ makes unverified claims ("install in 30
@@ -628,7 +660,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P1:** it hits new installs on 27.3 and every learner monthly, with a confusing message.
 
 ### R38
-**The download code gate.** P1 · High · Adrian · decision
+**The download code gate.** P1 · High · Adrian · open
+- **Fix status (Nov 21, 9 PM):** Unchanged: Site v2 keeps downloads behind early access.
 - **What goes wrong:** the first click swaps the buttons for "enter the code to download", with nothing saying what
   the code is or how to get one. Show HN asks for no barriers, and Product Hunt doesn't feature closed betas. It
   isn't access control either: the code is guessable from the page and the releases are public on GitHub.
@@ -669,7 +702,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P1:** a takedown or a creator's complaint is plausible once lessons are visible; the fix is cheap.
 
 ### R42
-**The site doesn't say what miyagi is, and phones get desktop downloads.** P1 · High · Adrian · open
+**The site doesn't say what miyagi is, and phones get desktop downloads.** P1 · High · Adrian · partial
+- **Fix status (Nov 21, 9 PM):** Phones and tablets see "runs on a Mac for now" (#225), Site v2 has no YouTube embed so no consent question (`fbe3d6f`), and the CDN imports carry integrity hashes (`93b8df2`). The plain hero sentence is left.
 - **What goes wrong:** the first screen is a 3D tree with "watching isn't learning", and the lines that describe
   miyagi are `aria-hidden`; on a phone it's the tree and "scroll" (D08). Phones get the desktop buttons and could
   download a 130 MB desktop file (D09). The YouTube embed in the story autoplays (muted) under a drawn cursor and
@@ -692,7 +726,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P1 (D15 said P0 for HN):** it can sink the HN channel, not the launch; X and Product Hunt remain.
 
 ### R44
-**The engine keeps running with no UI.** P1 · Low · Michael, Adrian · verify
+**The engine keeps running with no UI.** P1 · Low · Michael, Adrian · partial
+- **Fix status (Nov 21, late):** PR #229 (open): quit stops a hung engine's process group, and the next launch reclaims a stray one. Left: the engine exiting when its parent dies, and the Mac check.
 - **What goes wrong:** after a crash or force quit the engine keeps running, detached. Per the code, screen capture
   pauses 3 s after the app goes, but the file watcher, the VS Code poll, any build in flight (spend) and keys in
   memory stay alive until the next launch; a clean quit sends SIGTERM with no escalation (A15). B09 (the engine kept
@@ -701,7 +736,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P1:** it would be P0 if capture kept going; the code says it doesn't, and a Mac check confirms it.
 
 ### R45
-**Local logs keep questions, code and paths forever.** P1 · High · Michael, Adrian · open
+**Local logs keep questions, code and paths forever.** P1 · High · Michael, Adrian · partial
+- **Fix status (Nov 21, late):** PR #227 (open) pins `ORCH_RECORD=0` in the packaged engine. Left: log rotation and metadata-only logs, file modes, a scrubbed Copy details.
 - **What goes wrong:** `~/miyagi/engine/logs/engine.log` keeps the first 60 characters of every question and query,
   card titles, OCR'd code and failed payloads; it's append-only, never rotated and 0644 by default, and the run
   recorder is on by default. Keys and tokens aren't logged (A21). The engine's "Copy details" text goes through
@@ -712,7 +748,8 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
 - **Why P1:** local only, but it's what a shared-Mac user or a public bug report exposes.
 
 ### R46
-**Keep secrets out of the repo and the builds.** P1 · Low · Michael, Adrian · open
+**Keep secrets out of the repo and the builds.** P1 · Low · Michael, Adrian · partial
+- **Fix status (Nov 21, late):** PRs #230 and #228 (open) run gitleaks over the full history and refuse a secret Supabase key in CI. Left: confirm secret scanning and push protection, and scan each release asset.
 - **What goes wrong:** a key committed to a public repo or built into an app is harvested within minutes. The Nov 21
   scan of all 1,907 commits, every branch and PR ref, the site repo, a fresh build and the Windows `app.asar` found
   nothing live, but nothing stops the next one: secret scanning and push protection are unconfirmed, there's no
@@ -789,6 +826,16 @@ Every area row and where it went. "later" means [`later.md`](later.md).
 | C | C01, C17 → R26 · C15, C16, C18, C19 → R08 · C02 → R01, R02 · C03, C26 → R03 · C04, C21, C24, C25, C41 → R16 · C05, C23 → R12 · C06 → R19 · C07, C08 → R13 · C09, C11, C12, C13 → R15 · C10, C35 → R39 · C14 → R37 · C20 → R30 · C22 → R16, R35, R39 · C27 → R02 · C28, C33 → R21 · C29, C30, C31, C32, C42 → R20 · C34 → R34 · C36 → R47 · C37 → R19, R09 · C38 → R01, R12, R19, R33 · C39 → R04 · C40 → R33 · C43, C44 → later |
 | D | D01, D10, D14 → R19 · D02, D39 → R04 · D03 → R38 · D04 → R05 · D05 → R06 · D06, D26, D27, D28 → R34 · D07, D14, D29, D30, D34 → R36 · D08, D09 → R42 · D11 → R42, R49 · D12, D13 → R49 · D15, D16, D17, D32, D33, D36 → R43 · D18 → R01 · D19 → R02 · D20 → R13 · D21, D22, D23, D38 → R35 · D24 → R16 · D25 → R30, R16 · D28 → R45 · D31, D40 → R08 · D35 → R20 · D37 → checked · D41 → R47 |
 | E | E01, E03, E13, E29 → R14 · E02, E09, E10, E11 → R29 · E04 → R35 · E05, E07 → R37 · E06 → R15 · E08 → R03 · E12, E40 → R30 · E14, E15, E16, E17, E20, E24, E25 → R10 · E18, E19, E21, E22, E23 → R32 · E26 → R36 · E27 → checked · E28, E30-E37, E39 → R31 · E38, E41 → R04 |
+
+### From #202
+
+The email agent's first pass (#202, branch `origin/adrian/michael-risk-list`) had its own ids. The left side is #202's
+id; the right side is this register's risk, or `later` for [`later.md`](later.md), where each line carries its #202 tag.
+
+| #202 file | Rows → risk |
+|---|---|
+| `docs/BUG-RISKS.md` | #202 R01 → R14 · R02 → R29 · R03 → later · R04 → R44 · R05 → later · R06 → R44 · R07 → later · R08 → later · R09 → later · R10 → R31 · R11 → later · R12 → R15 · R13 → R28 · R14 → R30 · R15 → R29 · R16 → later · R17 → later · R18 → later · R19 → later · R20 → later · R21 → later · R22 → later · R23 → later · R24 → later · R25 → later · R26 → R37 · R27 → later · R28 → R45 · R29 → later · R30 → later · R31 → later · R32 → R14 |
+| `docs/legal/RISKS.md` | 1 Gemini terms → R13 · 2 minor founders, no entity → R09 · 3 YouTube scraping → R22 · 4 COPPA and the 13+ gate → R21 · 5 screen capture → R05, R18 · 6 policy truthfulness → R06 · 7 Anthropic usage policy → R05, R21, R40 · 8 Google OAuth → R20 · 9 Apple notarization → R15 · 10 DMCA agent → R41 · 11 trademark → R23 · 12 open-source licenses → R48 · 13 state privacy laws → later · 14 GDPR and UK GDPR → R40 · 15 site cookies → R42 · 16 FERPA → later · 17 AI output and the ToS → R06, R36 · 18 SB 243 → later |
 
 ## Review
 

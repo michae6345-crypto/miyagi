@@ -75,7 +75,7 @@ independent review). Each item links to its risk in [`RISKS.md`](RISKS.md); the 
 ## Should be true
 
 ### Today, already
-- [ ] No Windows download on the site; the `windows` release says lessons need a Mac; `/live/` is gone.
+- [x] No Windows download on the site; the `windows` release says lessons need a Mac; `/live/` is gone (site `67a40f0`, Nov 21).
       ([R19](RISKS.md#r19))
 - [ ] Release immutability on, 2FA with a passkey, a single-repo publishing token. ([R26](RISKS.md#r26))
 - [ ] miyagi.study is verified on GitHub Pages; Porkbun has 2FA and auto-renew; a second person can reach the Render
