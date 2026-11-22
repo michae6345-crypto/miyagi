@@ -28,7 +28,11 @@ export const PANEL_INSET = 8
  * `--f-group` is re-pointed at a quiet wash so grouped rows (Settings) still read as a group on the white light panel.
  */
 export const PANEL: CSSProperties = {
-  background: 'var(--l-raised)',
+  backgroundColor: 'var(--l-raised)',
+  // A fine dot grid, faded out toward the sides and the bottom so cards sit on it and the page stays calm.
+  backgroundImage: 'radial-gradient(ellipse 85% 75% at 50% 0%, transparent 25%, var(--l-raised) 100%), radial-gradient(var(--d-dot) 1px, transparent 1.4px)',
+  backgroundSize: '100% 100%, 20px 20px',
+  backgroundPosition: '0 0, 10px 10px',
   borderRadius: radius2.group,
   boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}, ${elevation.raised}`,
   ['--f-group' as string]: 'var(--s-row)'
@@ -38,7 +42,7 @@ export const PANEL: CSSProperties = {
 export const CARD: CSSProperties = {
   background: 'var(--l-overlay)',
   borderRadius: radius2.group,
-  boxShadow: `${highlight.top}, inset 0 0 0 1px ${surface.border}, ${elevation.raised}`
+  boxShadow: `${highlight.top}, inset 0 0 0 1px ${surface.border}, ${elevation.overlay}`
 }
 
 /** The page column: roomy, capped so a full-screen window stays calm. */

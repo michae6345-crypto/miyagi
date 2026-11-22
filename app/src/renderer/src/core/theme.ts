@@ -113,16 +113,18 @@ const palette: Record<string, readonly [string, string]> = {
   'c-green-tint': [brand.passTint, 'rgba(31,155,69,.12)'],
   'c-on-green': [brand.ink, brand.ink],
   'c-glass': ['rgb(28,28,30)', 'rgb(252,251,249)'],
-  'c-window': ['rgb(28,28,30)', 'rgb(243,242,238)'],
+  'c-window': ['rgb(21,20,18)', 'rgb(238,236,231)'],
   'c-white': ['#FFFFFF', brand.ink], // Tailwind's text-white / bg-white/10 in features follow the theme through this
   'c-focus': ['rgba(255,255,255,.88)', 'rgba(20,20,20,.88)'],
   // ---- which bonsai / wordmark cut shows (core/ui/Mark.tsx): the dark cut on dark, the light cut on light ----
   'mk-dark': ['inline-block', 'none'],
   'mk-light': ['none', 'inline-block'],
   // ---- layers, back to front: base (window), raised (content), overlay (sheets, popovers, menus) ----
-  'l-base': ['rgb(28,28,30)', 'rgb(243,242,238)'],
-  'l-raised': ['rgb(37,37,39)', '#FFFFFF'],
-  'l-overlay': ['rgb(44,44,46)', '#FFFFFF'],
+  'l-base': ['rgb(21,20,18)', 'rgb(238,236,231)'],
+  'l-raised': ['rgb(30,29,27)', 'rgb(251,250,248)'],
+  'l-overlay': ['rgb(40,39,36)', '#FFFFFF'],
+  // The fine dot grid on the content panel (website: radial dots, 22px). Low contrast; PANEL fades it toward the edges.
+  'd-dot': ['rgba(255,248,235,.085)', `rgba(${INK},.13)`],
   // ---- fill.* ----
   'f-field': ['rgba(255,255,255,.06)', `rgba(${INK},.045)`],
   'f-field-border': ['rgba(255,255,255,.09)', `rgba(${INK},.10)`],
@@ -143,9 +145,9 @@ const palette: Record<string, readonly [string, string]> = {
   'f-key': ['rgba(255,255,255,.1)', `rgba(${INK},.06)`],
   'f-key-text': ['rgba(255,255,255,.62)', `rgba(${INK},.6)`],
   'f-button': ['rgba(255,255,255,.09)', `rgba(${INK},.06)`],
-  'f-thumb': ['#1C1C1E', '#E7E5DF'],
-  'f-thumb-art': ['#3A3A3C', '#CFCCC3'],
-  'f-group': ['rgba(255,255,255,.05)', '#FFFFFF'],
+  'f-thumb': ['#181715', '#E7E5DF'],
+  'f-thumb-art': ['#3A3834', '#CFCCC3'],
+  'f-group': ['rgba(255,248,235,.05)', '#FFFFFF'],
   'f-nav-active': ['rgba(255,255,255,.12)', `rgba(${INK},.07)`],
   'f-segment-on': ['rgba(255,255,255,.18)', '#FFFFFF'],
   'f-segment-track': ['rgba(255,255,255,.06)', `rgba(${INK},.06)`],
@@ -158,7 +160,7 @@ const palette: Record<string, readonly [string, string]> = {
   'f-toggle-off': ['rgba(255,255,255,.16)', `rgba(${INK},.16)`],
   // ---- surface.* ----
   's-panel': ['rgba(28,28,30,0.96)', 'rgba(253,252,250,0.97)'],
-  's-sheet': ['#2C2C2E', '#FFFFFF'],
+  's-sheet': ['#282724', '#FFFFFF'],
   's-row': ['rgba(255,255,255,.06)', `rgba(${INK},.04)`],
   's-row-hover': ['rgba(255,255,255,.1)', `rgba(${INK},.07)`],
   's-well': ['rgba(0,0,0,.26)', `rgba(${INK},.05)`],

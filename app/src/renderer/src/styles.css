@@ -15,8 +15,8 @@
   --font-brand: "Google Sans Flex", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   /* v2 (W0-2, core/theme.ts surface / paper): app windows and light surfaces. */
-  --color-window: rgb(28, 28, 30);
-  --color-sheet: #2C2C2E;
+  --color-window: rgb(21, 20, 18);
+  --color-sheet: #282724;
   --color-paper-surface: #FFFFFF;
   --color-pass-text: #1C8A3C;
 }

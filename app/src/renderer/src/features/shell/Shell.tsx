@@ -321,7 +321,7 @@ export function Shell(): ReactNode {
             ))}
             <AnimatePresence>
               {openId && (
-                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="absolute inset-0 z-20" style={{ background: PANEL.background }}>
+                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="absolute inset-0 z-20" style={{ backgroundColor: PANEL.backgroundColor, backgroundImage: PANEL.backgroundImage, backgroundSize: PANEL.backgroundSize, backgroundPosition: PANEL.backgroundPosition }}>
                   <Detail id={openId} back={backLabel} />
                 </motion.div>
               )}
