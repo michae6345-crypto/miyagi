@@ -660,7 +660,7 @@ app.whenReady().then(async () => {
   overlay.webContents.on('responsive', collapseIsland)
   // The overlay itself: hidden while displays swap and while locked, shown again ~150 ms later, re-raised on a space
   // change (platform.ts trackOverlayLifecycle). Its refit is applyDisplay.
-  const stopLifecycle = trackOverlayLifecycle(overlay, { screen, powerMonitor, systemPreferences }, applyDisplay)
+  const stopLifecycle = trackOverlayLifecycle(overlay, { screen, powerMonitor, systemPreferences, canShow: gateIsOpen }, applyDisplay)
   app.on('before-quit', stopLifecycle)
   // Display events, wake and unlock: collapse the island and ask for one geometry read (the service debounces it
   // 250 ms, so a burst of display events is one helper call); a changed answer re-sends the layout through onChange.

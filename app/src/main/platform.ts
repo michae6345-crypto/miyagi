@@ -184,12 +184,18 @@ export const OVERLAY_RESTORE_MS = 150
  */
 export function trackOverlayLifecycle(
   win: WinLike,
-  deps: { screen: Emitter; powerMonitor: Emitter; systemPreferences?: { subscribeWorkspaceNotification?: (name: string, cb: () => void) => number; unsubscribeWorkspaceNotification?: (id: number) => void } },
+  deps: { screen: Emitter; powerMonitor: Emitter; canShow?: () => boolean; systemPreferences?: { subscribeWorkspaceNotification?: (name: string, cb: () => void) => number; unsubscribeWorkspaceNotification?: (id: number) => void } },
   refit: () => void
 ): () => void {
   if (!isMac()) return () => undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let locked = false
+  // Only a window this lifecycle hid or faded may be shown again; a window that was hidden before (the launch gate
+  // keeps the overlay hidden while signed out, main/gate.ts) stays hidden. `canShow` is the gate's say-so as well.
+  let wasVisible: boolean | undefined
+  const remember = (): void => {
+    if (wasVisible === undefined) wasVisible = win.isVisible()
+  }
   const live = (): boolean => !win.isDestroyed()
   const reassert = (): void => {
     if (!live()) return
@@ -201,13 +207,17 @@ export function trackOverlayLifecycle(
     timer = setTimeout(() => {
       if (!live() || locked) return
       refit()
-      if (!win.isVisible()) win.showInactive()
+      const show = wasVisible === true && (deps.canShow?.() ?? true)
+      wasVisible = undefined
+      if (show && !win.isVisible()) win.showInactive()
+      if (!win.isVisible()) return
       reassert()
       win.setOpacity(1)
     }, OVERLAY_RESTORE_MS)
   }
   const swap = (): void => {
     if (!live()) return
+    remember()
     win.setOpacity(0)
     restoreSoon()
   }
@@ -215,6 +225,7 @@ export function trackOverlayLifecycle(
     locked = true
     clearTimeout(timer)
     if (live()) {
+      remember()
       win.setOpacity(0)
       win.hide()
     }
