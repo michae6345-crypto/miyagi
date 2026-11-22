@@ -16,7 +16,7 @@
  *
  * Continue comes from dashboard/continue.ts, the same list Lessons and Progress read.
  */
-import { ArrowRight, CloudOff, Play, RotateCcw } from 'lucide-react'
+import { ArrowRight, ChevronRight, CloudOff, Play, RotateCcw } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -36,7 +36,7 @@ import { groupTracks, nodeStates, relDay } from '../dashboard/model'
 import { canReview, startReview, useDash } from '../dashboard/store'
 import type { DashData } from '../dashboard/types'
 import { summarize, useRows } from '../onboarding/rows'
-import { CARD, Row, SectionHead, TextAction, caption } from '../shell/ui'
+import { CARD, Row, RowChevron, SectionHead, TextAction, caption } from '../shell/ui'
 import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText, setupFix, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
 import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
@@ -194,6 +194,7 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
   const connected = useLesson((s) => s.connected)
   const input = useRef<HTMLInputElement>(null)
   const [focused, setFocused] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const read = readAsk(ask.text, items, canStart)
   const ideas = pickIdeas(data)
   const go = (): void => {
@@ -207,7 +208,9 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
       aria-label="Learn something new"
       data-home-ask
       className="flex flex-col overflow-hidden"
-      style={{ borderRadius: radius2.group, background: fill.field, boxShadow: `inset 0 0 0 ${focused ? 1.5 : 1}px ${focused ? color.label : fill.ring}`, transition: 'box-shadow 140ms ease' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ borderRadius: radius2.group, background: fill.field, boxShadow: `inset 0 0 0 ${focused ? 1.5 : 1}px ${focused || hovered ? color.label : fill.ring}`, transition: 'box-shadow 140ms ease' }}
     >
       <form
         className="flex cursor-text items-center gap-[12px]"
@@ -313,7 +316,14 @@ function UpNext({ skip, done }: { skip: Set<string>; done: Set<string> }): React
   if (loaded && !ready.length) return null
   return (
     <section aria-labelledby="home-next" data-home-ready>
-      <SectionHead id="home-next" right={more ? <TextAction onClick={() => setSection('library')}>All lessons</TextAction> : undefined}>
+      <SectionHead id="home-next" right={
+          more ? (
+            <TextAction onClick={() => setSection('library')}>
+              All lessons
+              <ChevronRight aria-hidden size={13} strokeWidth={1.8} />
+            </TextAction>
+          ) : undefined
+        }>
         Up next
       </SectionHead>
       {!loaded ? (
@@ -331,6 +341,7 @@ function UpNext({ skip, done }: { skip: Set<string>; done: Set<string> }): React
                     {lessonLine(i)}
                   </span>
                 </span>
+                <RowChevron />
               </Row>
             </Rise>
           ))}
@@ -361,10 +372,11 @@ function Recents({ rows, now, max = 4 }: { rows: Recent[]; now: number; max?: nu
                 {r.title}
               </span>
               {r.at && (
-                <span className="relative shrink-0" style={{ fontSize: type2.xs, color: color.faint }}>
+                <span className="relative shrink-0" style={{ fontSize: type2.xs, color: color.faint, fontVariantNumeric: 'tabular-nums' }}>
                   {relDay(r.at, now)}
                 </span>
               )}
+              {r.libraryId && <RowChevron />}
             </Row>
           </Rise>
         ))}
@@ -390,6 +402,7 @@ function ReviewLine({ data, now }: { data?: DashData; now: number }): ReactNode 
             {names.slice(0, 3).join(', ')}
           </span>
         </span>
+        <RowChevron />
       </Row>
       {can && (
         <Ring>
@@ -415,7 +428,11 @@ function splitLine(line: string): { count?: string; sub: string } {
  */
 function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }): ReactNode {
   const { count, sub } = splitLine(view.line)
-  const frac = !view.blocked && view.total ? Math.max(0, Math.min(1, (view.done ?? 0) / view.total)) : undefined
+  // Building (round 3): the status sits under the title with the spinner, the build's own progress rides the bottom
+  // edge, and there is no right-hand column (nothing to press until it is ready; the island shows each stage).
+  const building = hero.kind === 'building'
+  const clamp = (n: number): number => Math.max(0, Math.min(1, n))
+  const frac = building ? (hero.fraction !== undefined ? clamp(hero.fraction) : undefined) : !view.blocked && view.total ? clamp((view.done ?? 0) / view.total) : undefined
   return (
     <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="relative flex flex-col overflow-hidden" style={{ ...CARD, padding: '20px 20px 22px 24px' }}>
       <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[14px]">
@@ -433,14 +450,17 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
             {view.title}
           </h2>
           {sub && (
-            <span className="truncate" style={{ marginTop: 3, fontSize: type2.sm, color: color.label }}>
-              {sub}
+            <span className="flex min-w-0 items-center gap-[8px]" style={{ marginTop: building ? 6 : 3, fontSize: type2.sm, color: color.label }}>
+              {building && <Spinner size={12} c={color.label} />}
+              <span className="truncate">{sub}</span>
             </span>
           )}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-[6px]">
-          <ContAction hero={hero} fix={fix} />
-        </div>
+        {!building && (
+          <div className="flex shrink-0 flex-col items-end gap-[6px]">
+            <ContAction hero={hero} fix={fix} />
+          </div>
+        )}
       </div>
       {frac !== undefined && (
         <div role="img" aria-label={count ?? `${view.done ?? 0} of ${view.total} steps`} className="absolute inset-x-0 bottom-0" style={{ height: 3, background: fill.hairline }}>
@@ -457,12 +477,15 @@ type BodyProps = { view: View | null | 'loading'; hero: Hero; fix?: Fix; skip: S
 
 function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): ReactNode {
   return (
-    <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '0 40px 56px', gap: 40 }}>
-      <div className="flex justify-center" style={{ paddingTop: 'clamp(24px, 6vh, 64px)', marginBottom: -12 }}>
-        <MiyagiMark size={36} />
+    // Round 3 rhythm: the bonsai, Continue and the ask read as one group (14 apart); the lists below sit 36 apart.
+    <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '0 40px 56px', gap: 36 }}>
+      <div className="flex flex-col" style={{ gap: 14 }}>
+        <div className="flex justify-center" style={{ paddingTop: 'clamp(20px, 5vh, 48px)', paddingBottom: 10 }}>
+          <MiyagiMark size={32} />
+        </div>
+        {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
+        <Ask primary={!view || view === 'loading'} data={data} />
       </div>
-      {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
-      <Ask primary={!view || view === 'loading'} data={data} />
       <ReviewLine data={data} now={now} />
       <UpNext skip={skip} done={done} />
       <Recents rows={recent} now={now} />
