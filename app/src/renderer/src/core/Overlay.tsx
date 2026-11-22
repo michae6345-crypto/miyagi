@@ -173,6 +173,8 @@ export function useClickThrough(): void {
     // Desktop test 9, A1: a scroll over overlay UI that can't scroll itself (a card, the bar) goes to the app below:
     // hand the mouse back for a moment so the next wheel ticks reach it (main holds its grab off as well).
     const wheel = (e: WheelEvent): void => {
+      // The island's own down-wheel stretch (Island.tsx) keeps the mouse.
+      if ((e.target as Element | null)?.closest?.('[data-stretch]')) return
       if (canScroll(e.target as Element | null, e.deltaX, e.deltaY)) return
       set(false)
       tellMain('overlay:pass', PASS_MS)

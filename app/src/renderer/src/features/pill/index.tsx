@@ -36,6 +36,7 @@ import { bridge } from '../../bridge'
 import { shellName } from '../onboarding/device'
 import { useDock } from '../../core/dock'
 import { notify, useCurrentStep, useLesson, useStepPhase, useThinking } from '../../core/lesson'
+import { restViewFor } from '../../core/islandRest'
 import type { NotchView } from '../../core/notchGeometry'
 import { defineFeature } from '../../core/registry'
 import { color, copy, dock, fill } from '../../core/theme'
@@ -592,9 +593,10 @@ function SavedLine(): ReactNode {
 }
 
 /**
- * In the notch (core/Island.tsx, layout.notch.place 'notch'): the island at rest is just the notch. When there is
- * something to show it grows an ear each side (bonsai left, status right); anything with words (offline, getting ready,
- * a saved lesson to continue, notices, the mini line) drops its usual line under the notch, and a hover peek does the same.
+ * In the notch (core/Island.tsx, layout.notch.place 'notch'): while the engine is connected or a lesson is loaded the
+ * island keeps one quiet ear each side of the notch (bonsai left, status dot right), so it is plainly there; with
+ * nothing going on it is just the notch. Anything with words (offline, getting ready, a saved lesson to continue,
+ * notices, the mini line) drops its usual line under the notch, and a hover peek does the same.
  */
 function useIdleView(): NotchView {
   const offline = usePill((s) => s.offline)
@@ -603,18 +605,22 @@ function useIdleView(): NotchView {
   const bootIn = useBootInput()
   const setupPending = useSetupPending()
   const thinking = useThinking()
+  const connected = useLesson((s) => s.connected)
+  const lessonLoaded = useLesson((s) => !!s.lesson)
   const firstOrSetup = !bootIn.everOpen || setupPending
   // Exactly Idle's own conditions (above): drop a line only when it says something other than "ask miyagi". Before,
   // 'failed' and an offer Idle didn't show dropped a plain "ask miyagi" pill under the notch, which looked like the
   // old pill below the menu bar, so choosing "In the notch" seemed to do nothing (Michael, Nov 21).
   const gettingReady = !bootIn.connected && firstOrSetup && (boot.phase === 'starting' || boot.phase === 'reconnecting')
-  if (offline || gettingReady || (offer && !offline)) return 'drop'
-  return thinking ? 'ears' : 'rest'
+  return restViewFor({ wantsDrop: offline || gettingReady || (offer && !offline), connected, lessonLoaded, thinking })
 }
 
-/** The right ear: the engine is thinking (the small spinner). Nothing otherwise. */
-function ThinkingEar(): ReactNode {
-  return useThinking() ? <Spinner size={14} /> : null
+/** The right ear at rest: the spinner while the engine is thinking, else the quiet status dot (watching). */
+function IdleEar(): ReactNode {
+  const thinking = useThinking()
+  const live = useLesson((s) => s.connected || !!s.lesson)
+  if (thinking) return <Spinner size={14} />
+  return live ? <StatusMark mark="watching" /> : null
 }
 
 /** The right ear of a lesson line: the phase glyph (checking, not yet, passed), the spinner while thinking, else the status dot. */
@@ -636,7 +642,7 @@ export default defineFeature({
   islandModes: [
     // No step and nothing building. Also a lesson that's set but stopped building before its first step (a failed or
     // dropped build after lesson.ready): no mode covered that, and the island drew nothing (review A20: "blank").
-    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.stepId && !s.building), Content: Idle, notch: { useView: useIdleView, Right: ThinkingEar } },
+    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.stepId && !s.building), Content: Idle, notch: { useView: useIdleView, Right: IdleEar } },
     { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact, notch: { useView: () => 'ears', Right: StatusEar } },
     // Over compact while a new build is being planned (a lesson started from the launcher during another one); otherwise
     // building (no step yet) and compact (a step) never overlap.

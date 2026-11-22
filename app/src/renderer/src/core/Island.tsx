@@ -21,7 +21,7 @@ import { getIslandModes, type IslandMode } from './registry'
 import { perf } from './perf'
 import { NotchContext } from './notchContext'
 import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
-import { color, notchDrop, pill, shadows } from './theme'
+import { color, pill, shadows } from './theme'
 import {
   EAR_W,
   HOVER,
@@ -31,10 +31,30 @@ import {
   notchSize,
   radiiFor,
   restSize,
-  STRIP,
   viewWith,
   type NotchView
 } from './notchGeometry'
+import {
+  cfgFor,
+  HOVER_IDLE,
+  hoverCancel,
+  hoverDeadline,
+  hoverEnter,
+  hoverLeave,
+  hoverOpenNow,
+  hoverPoint,
+  hoverReset,
+  hoverTick,
+  inHoverZone,
+  peekOpen,
+  STRETCH,
+  STRETCH_IDLE,
+  stretchScale,
+  stretchWheel,
+  type HoverState
+} from './hoverIntent'
+import { coexistOf, coreMask, coreCut, HOVER_SCALE, islandPlan, NOTCH_SPRING, restViewFor, seamRect, stickyNotch } from './islandRest'
+import type { NotchLayout } from '../../../common/notch'
 import { beat, ease, fade, instant, sizeMove, spring, springOut } from './ui/motion'
 
 /** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
@@ -57,7 +77,13 @@ export function useIslandBox<T>(select?: (b: IslandBox) => T): T | IslandBox {
 export const islandBoxNow = (): IslandBox => useIslandBoxStore.getState()
 
 export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
-  const [hover, setHover] = useState(false)
+  // Hover is a pure state machine (./hoverIntent.ts): `drive` applies one transition and arms its one timer.
+  const [hi, setHi] = useState<HoverState>(HOVER_IDLE)
+  const hiRef = useRef<HoverState>(HOVER_IDLE)
+  const coexist = coexistOf(layout.notch)
+  const cfgRef = useRef(cfgFor(coexist))
+  cfgRef.current = cfgFor(coexist)
+  const hover = peekOpen(hi)
   // Reduce Motion: the shape snaps to its new size (MotionConfig drops transforms, not sizes); the content still fades.
   const reduced = useReducedMotion()
   const [landing, setLanding] = useState(false)
@@ -66,8 +92,21 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   /** The launcher (its own focusable window) has grown out of the island: hide until it hands back. */
   const [yielded, setYielded] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  /** A leave is pending (the 300ms grace): the outside-move check below doesn't restart it. */
-  const leaving = useRef(false)
+  const drive = (fn: (s: HoverState, now: number) => HoverState): void => {
+    const next = fn(hiRef.current, Date.now())
+    if (next === hiRef.current) return
+    hiRef.current = next
+    setHi(next)
+    clearTimeout(hoverTimer.current)
+    const at = hoverDeadline(next, cfgRef.current)
+    if (at !== undefined) hoverTimer.current = setTimeout(() => driveRef.current((s, now) => hoverTick(s, now, cfgRef.current)), Math.max(0, at - Date.now()))
+  }
+  const driveRef = useRef(drive)
+  driveRef.current = drive
+  const cancelHover = (): void => drive((s) => hoverCancel(s))
+  const [stretch, setStretch] = useState(1)
+  const stretchRef = useRef(STRETCH_IDLE)
+  const stretchTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const islandEl = useRef<HTMLDivElement>(null)
   const wrapper = useRef<HTMLDivElement>(null)
   const passFlash = useLesson((s) => s.passFlash)
@@ -86,7 +125,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const mode = at < 0 ? undefined : islandModes[at]
   // In the notch (layout.notch.place 'notch'): the island is anchored at the display top and drawn in the notch shape.
   // Undefined = the pill below the menu bar, which is exactly what this file did before.
-  const nm = notchOf(layout)
+  // A notched display never loses its notch for a moment (full screen, a display change): the last good one stands in.
+  const lastNm = useRef<NotchLayout | undefined>(undefined)
+  const nm = stickyNotch(layout, lastNm.current)
+  if (notchOf(layout)) lastNm.current = notchOf(layout)
   const nmKey = nm ? `${nm.x},${nm.width},${nm.height}` : ''
   const views = islandModes.map((m): NotchView => (m.notch ? m.notch.useView() : 'drop'))
   // Moving into the notch: at rest the island is invisible on the hardware notch, so the move would look like nothing
@@ -100,7 +142,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     return () => clearTimeout(t)
   }, [inNotch])
   const modeView: NotchView = at < 0 ? 'rest' : views[at]
-  const baseView: NotchView = notchLanding && modeView === 'rest' ? 'ears' : modeView
+  const baseView: NotchView = notchLanding && modeView === 'rest' ? restViewFor({ connected: false, lessonLoaded: false, landing: true }) : modeView
   /** The active mode's layer shows nothing (or its Boundary fell back): the island is the pill, not a card-wide bar. */
   const [layerEmpty, setLayerEmpty] = useState(false)
   // In the notch an empty card stays a card (its zero-height content sizes it to the notch): flipping it to a pill would
@@ -121,7 +163,8 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     setLastHeld(heldCard)
     if (lastHeld && !heldCard && hover) {
       clearTimeout(hoverTimer.current)
-      setHover(false)
+      hiRef.current = hoverCancel(hiRef.current)
+      setHi(hiRef.current)
     }
   }
 
@@ -131,10 +174,8 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // number of times: it only ever sets rest values. Called by the watchdog, a disconnect, sleep/wake, a display change,
   // the window going hidden or losing focus, and main's 'island:collapse'.
   const collapseAll = (): void => {
-    clearTimeout(hoverTimer.current)
     clearTimeout(pressTimer.current)
-    leaving.current = false
-    setHover(false)
+    drive((s) => hoverReset(s))
     setPointerIn(false)
     setPressHold(false)
     setEpoch((n) => n + 1)
@@ -283,31 +324,31 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   }, [layout.width, size.w, size.h, offset.x, offset.y, top, modeId, isPill, yielded])
 
   const enter = (): void => {
-    clearTimeout(hoverTimer.current)
-    leaving.current = false
     setPointerIn(true)
-    hoverTimer.current = setTimeout(() => setHover(true), HOVER.openMs)
+    drive((s, now) => hoverEnter(s, now, cfgRef.current))
   }
   const leave = (): void => {
-    clearTimeout(hoverTimer.current)
-    leaving.current = true
     setPointerIn(false)
-    hoverTimer.current = setTimeout(() => setHover(false), HOVER.closeMs)
+    drive((s, now) => hoverLeave(s, now, cfgRef.current))
   }
   const press = (): void => {
     clearTimeout(pressTimer.current)
     setPressHold(true)
     pressTimer.current = setTimeout(() => setPressHold(false), PRESS_HOLD_MS)
   }
-  useEffect(() => () => clearTimeout(pressTimer.current), [])
+  useEffect(
+    () => () => {
+      clearTimeout(pressTimer.current)
+      clearTimeout(hoverTimer.current)
+      clearTimeout(stretchTimer.current)
+    },
+    []
+  )
   // Esc or a ✕ (the 'dismiss' UI event) closes surfaces; it never opens the hover card, even with the pointer resting on
   // the island (or its hover timer still running). Hover comes back on the next entry.
   useEffect(
     () =>
-      onUi('dismiss', () => {
-        clearTimeout(hoverTimer.current)
-        setHover(false)
-      }),
+      onUi('dismiss', () => driveRef.current((s) => hoverCancel(s))),
     []
   )
 
@@ -333,12 +374,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // or any shortcut (a bar press, a key: a card is on its way), collapses it at once.
   useEffect(() => {
     if (!hover) return
-    const collapse = (): void => {
-      clearTimeout(hoverTimer.current)
-      setHover(false)
-    }
+    const collapse = (): void => cancelHover()
+    // When the notch is shared the pointer position (not DOM enter/leave) decides: see the effect below.
     const move = (e: MouseEvent): void => {
-      if (!leaving.current && !islandEl.current?.contains(e.target as Node)) leave()
+      if (!cfgRef.current.coexist && hiRef.current.inside && !islandEl.current?.contains(e.target as Node)) leave()
     }
     const offShortcut = onUi('shortcut', () => void collapse())
     window.addEventListener('mousemove', move)
@@ -352,6 +391,37 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hover])
+
+  // A shared notch: another app owns the core, so DOM enter/leave on our (partly ungrabbed) shape can't be trusted. The
+  // pointer's position decides instead (hoverIntent.inHoverZone: the ears and the strip under the notch, plus the open
+  // island itself), and a pointer that dwells in the core mutes the island while the other app's panel is open.
+  const boxRef = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 })
+  boxRef.current = { x: (layout.width - size.w) / 2 + (nm ? nm.x + nm.width / 2 - layout.width / 2 : 0), y: 0, w: size.w, h: size.h }
+  useEffect(() => {
+    if (!nm || !coexist) return
+    const notch = { x: nm.x, width: nm.width, height: nm.height }
+    const move = (e: MouseEvent): void => {
+      const p = { x: e.clientX, y: e.clientY }
+      const zone = inHoverZone(p, notch, hiRef.current.open ? boxRef.current : undefined)
+      const was = hiRef.current.inside
+      drive((s, now) => {
+        const c = hoverPoint(s, now, cfgRef.current, p, notch)
+        return zone && !c.inside ? hoverEnter(c, now, cfgRef.current) : !zone && c.inside ? hoverLeave(c, now, cfgRef.current) : c
+      })
+      if (zone !== was) setPointerIn(zone)
+    }
+    const out = (): void => {
+      setPointerIn(false)
+      drive((s, now) => hoverLeave(hoverPoint(s, now, cfgRef.current, { x: -1e6, y: -1e6 }, notch), now, cfgRef.current))
+    }
+    window.addEventListener('mousemove', move)
+    document.addEventListener('mouseleave', out)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseleave', out)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coexist, nmKey])
 
   // Safety net (core/islandState.ts): an extended size with no card mode claiming it, or a hover card whose pointer is
   // gone or has been still for a long time, collapses on its own. The snapshot ref keeps one interval for the island's life.
@@ -368,10 +438,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       const r = watchdogStep(state, { ...snap.current, lastActivity: lastActivity.current, now: Date.now() })
       state = r.state
       if (r.action !== NO_ACTION) {
-        if (r.action.clearHover) {
-          clearTimeout(hoverTimer.current)
-          setHover(false)
-        }
+        if (r.action.clearHover) driveRef.current((s) => hoverCancel(s))
         if (r.action.resetSize) collapseRef.current()
       }
     }, WATCHDOG_TICK_MS)
@@ -404,10 +471,25 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     return () => document.removeEventListener('visibilitychange', visible)
   }, [])
 
-  if (!mode) return null
+  if (!mode) return nm ? <RestingIsland top={0} layout={layout} /> : null
   const { Content } = mode
 
   const open = nm ? isOpenView(kind, view) : false
+  const muted = hi.muted
+  /** The down-wheel over a closed island leans it open; past STRETCH.commit it opens (./hoverIntent.ts). */
+  const onWheel = (e: React.WheelEvent): void => {
+    if (!nm || open || muted) return
+    const r = stretchWheel(stretchRef.current, e.deltaY)
+    stretchRef.current = r.state
+    setStretch(stretchScale(r.state))
+    clearTimeout(stretchTimer.current)
+    stretchTimer.current = setTimeout(() => {
+      stretchRef.current = STRETCH_IDLE
+      setStretch(1)
+    }, STRETCH.endMs)
+    if (r.commit) drive((s, now) => hoverOpenNow(s, now, cfgRef.current))
+  }
+  const plan = nm ? islandPlan({ nm, coexist, view, open, hovering: hi.light, w: size.w, h: size.h }) : undefined
   const radii = radiiFor(open)
   const shown = landing && nm ? restSize(nm) : size
   const layers = (
@@ -421,10 +503,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         animate={{ opacity: passFlash ? [0, 0.25, 0] : 0 }}
         transition={{ duration: 0.6, ease: ease.inOut }}
       />
-      {showEars && <NotchEars key="ears" mode={mode} top={STRIP} h={nm!.height} notchW={nm!.width} />}
+      {showEars && <NotchEars key="ears" mode={mode} top={0} h={nm!.height} notchW={nm!.width} />}
       <AnimatePresence initial={false}>
         {showLayer && (
-          <Layer key={mode.id} id={mode.id} width={mode.width} onEmpty={setLayerEmpty} top={nm ? STRIP + nm.height : 0} quiet={!!nm}>
+          <Layer key={mode.id} id={mode.id} width={mode.width} onEmpty={setLayerEmpty} top={nm ? nm.height : 0} quiet={!!nm}>
             {/* A mode that throws renders nothing: the island falls back to the pill (./islandSize.ts) and the mode gets a
                 fresh try a second later, so a crashed card isn't an empty black shape until another mode takes over. */}
             <Boundary name={`island mode ${mode.id}`} retryMs={1000} fallback={nm ? null : <RestingPill />}>
@@ -450,16 +532,18 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         // Hidden while another surface has it (launcher, settings): not a click target either, or the invisible island
         // keeps eating clicks through overlay.bounds / main's click-catching poll.
         data-hit={!nm && !yielded ? true : undefined}
+        data-stretch={nm ? true : undefined}
         className={`${yielded ? 'pointer-events-none' : 'pointer-events-auto'} relative`}
         // In the notch the hover zone is the island plus a margin (HOVER.margin) either side and below; the margin is
         // transparent and only catches the pointer. Main's grab clamps to the same +-6 / +12 (features/overlay-raise.ts).
-        style={nm ? { padding: `0 ${HOVER.margin}px ${HOVER.margin}px`, margin: `0 -${HOVER.margin}px`, opacity: yielded || !sized ? 0 : 1 } : undefined}
-        onMouseEnter={enter}
-        onMouseLeave={leave}
+        style={nm ? { padding: `0 ${HOVER.margin}px ${HOVER.margin}px`, margin: `0 -${HOVER.margin}px`, opacity: yielded || !sized || muted ? 0 : 1, transition: 'opacity .15s ease-out' } : undefined}
+        onMouseEnter={coexist ? undefined : enter}
+        onMouseLeave={coexist ? undefined : leave}
+        onWheel={onWheel}
         onPointerDownCapture={press}
       >
         {nm ? (
-          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} open={open} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded}>
+          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={stretch !== 1 ? stretch : hi.light && !open ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
             {layers}
           </NotchShape>
         ) : (
@@ -488,30 +572,41 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
 }
 
 /**
- * The notch shape (Boring Notch's): black, clipped to a path with concave top "ears" and convex bottom corners. Width,
- * height and both radii spring together on the house spring inside the fixed overlay window (the window never resizes);
- * the clip path is rebuilt from the live values every frame. One black pixel sits above the display (STRIP) so no seam
- * shows. Open (the peek and cards) gets a soft drop shadow; at rest there is none, so it fuses with the hardware notch.
+ * The notch shape: black, clipped to a path with concave top "ears" and convex bottom corners. Width, height and both
+ * radii spring together inside the fixed overlay window (the window never resizes): opening on a livelier spring,
+ * closing critically damped; the clip path is rebuilt from the live values every frame. The shape is its own compositing
+ * layer (filter and will-change on the wrapper) before the hover lean scales it from the top. Open or hovered it
+ * gets a soft shadow; at rest there is none, so it fuses with the hardware notch. When another notch app shares the
+ * notch, the core band is masked out: nothing of ours is drawn there. A 1 px seam sits inside the top of the shape.
  */
-function NotchShape({ w, h, rt, rb, open, snap, reduced, lift, hit, children }: { w: number; h: number; rt: number; rb: number; open: boolean; snap: boolean; reduced: boolean; lift: boolean; hit: boolean; children: ReactNode }): ReactNode {
+function NotchShape({ w, h, rt, rb, open, nm, coexist, shadow, scale, snap, reduced, lift, hit, children }: { w: number; h: number; rt: number; rb: number; open: boolean; nm: NotchLayout; coexist: boolean; shadow: string; scale: number; snap: boolean; reduced: boolean; lift: boolean; hit: boolean; children: ReactNode }): ReactNode {
   const W = useMotionValue(w)
   const H = useMotionValue(h)
   const RT = useMotionValue(rt)
   const RB = useMotionValue(rb)
   useEffect(() => {
-    const t = snap || reduced ? instant : spring
+    const t = snap || reduced ? instant : open ? NOTCH_SPRING.open : NOTCH_SPRING.close
     const to = lift ? { ...t, velocity: 0 } : t
     const runs = [animate(W, w, to), animate(H, h, to), animate(RT, rt, to), animate(RB, rb, to)]
     return () => runs.forEach((r) => r.stop())
-  }, [w, h, rt, rb, snap, reduced, lift, W, H, RT, RB])
-  const clip = useTransform([W, H, RT, RB], ([cw, ch, ct, cb]: number[]) => notchClip(cw, ch, ct, cb, STRIP))
-  const boxH = useTransform(H, (v) => v + STRIP)
+  }, [w, h, rt, rb, open, snap, reduced, lift, W, H, RT, RB])
+  const clip = useTransform([W, H, RT, RB], ([cw, ch, ct, cb]: number[]) => notchClip(cw, ch, ct, cb, 0))
+  const mask = useTransform(W, (cw) => (coexist ? coreMask(coreCut(cw, nm)) : 'none'))
+  const seam = useTransform([W, RT], ([cw, ct]: number[]) => seamRect(cw, ct))
+  const seamLeft = useTransform(seam, (r) => r.left)
+  const seamWidth = useTransform(seam, (r) => r.width)
   return (
-    <div style={{ filter: open ? notchDrop : 'none' }}>
-      <motion.div data-hit={hit ? true : undefined} className="relative overflow-hidden text-white" style={{ width: W, height: boxH, top: -STRIP, background: color.island, clipPath: clip }}>
+    <motion.div
+      style={{ filter: shadow, transformOrigin: '50% 0%', willChange: 'transform, filter' }}
+      initial={false}
+      animate={{ scale }}
+      transition={reduced ? instant : NOTCH_SPRING.hover}
+    >
+      <motion.div data-hit={hit ? true : undefined} className="relative overflow-hidden text-white" style={{ width: W, height: H, background: color.island, clipPath: clip, mask, WebkitMask: mask }}>
+        <motion.span aria-hidden className="pointer-events-none absolute" style={{ top: 0, height: 1, left: seamLeft, width: seamWidth, background: color.island }} />
         {children}
       </motion.div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -647,10 +742,11 @@ export function RestingPill(): ReactNode {
 export function RestingIsland({ top, layout }: { top: number; layout?: Layout }): ReactNode {
   const nm = notchOf(layout)
   // In the notch: just the notch rect in notch black (it sits on the hardware notch, so it is invisible there).
+  // (Nothing when the notch is shared: the core is the other app's.)
   if (nm)
-    return (
+    return coexistOf(layout?.notch) ? null : (
       <div className="pointer-events-none absolute flex justify-center" style={{ top: 0, left: nm.x, width: nm.width }}>
-        <div style={{ width: nm.width, height: nm.height + STRIP, marginTop: -STRIP, background: color.island, clipPath: notchClip(nm.width, nm.height, radiiFor(false).top, radiiFor(false).bottom, STRIP) }} />
+        <div style={{ width: nm.width, height: nm.height, background: color.island, clipPath: notchClip(nm.width, nm.height, radiiFor(false).top, radiiFor(false).bottom, 0) }} />
       </div>
     )
   return (
