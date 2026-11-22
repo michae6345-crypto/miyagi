@@ -21,6 +21,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any
+from server.safety.patterns import safe_compile
 
 OUT_TAIL_LINES = 3  # per cell: the last printed lines (the accuracy line, the error) are what a diagnosis needs
 OUT_TAIL_CHARS = 240
@@ -358,7 +359,7 @@ def step_cells(cs: list[dict], step: dict) -> list[dict]:
     for c in (step.get("checks") or []) + (step.get("precision_checks") or []):
         if c.get("pattern") and not _is_output_check(c, c):
             try:
-                pats.append(re.compile(c["pattern"]))
+                pats.append(safe_compile(c["pattern"]))  # never a catastrophic lesson pattern
             except re.error:
                 continue
     return [c for c in cs if c.get("type") == "code" and any(p.search(c.get("source") or "") for p in pats)]

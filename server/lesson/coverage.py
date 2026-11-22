@@ -26,6 +26,7 @@ import re
 import tokenize
 
 from .schema import MAX_SCREEN_PATTERN
+from server.safety.patterns import safe_compile
 
 MAX_CHECKS = 8  # screen checks per step once definitions are covered (defs first, then assignments, in code order)
 MAX_PRECISION = 10
@@ -99,7 +100,7 @@ def _collapsed(text: str) -> tuple[str, list[int]]:
 def _spans(pattern: str, text: str) -> list[tuple[int, int]]:
     """Where `pattern` matches `text` (re.M, as the checks are graded), as offsets in `text`."""
     try:
-        rx = re.compile(pattern, re.M)
+        rx = safe_compile(pattern, re.M)  # the build runs this on the model's checks before they are validated
     except re.error:
         return []
     spans = [m.span() for m in rx.finditer(text) if m.end() > m.start()]

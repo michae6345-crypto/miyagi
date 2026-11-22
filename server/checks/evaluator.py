@@ -16,7 +16,9 @@ Status semantics (``CheckStatus`` in ``shared/contracts/events.ts``):
 """
 from __future__ import annotations
 
+import bisect
 import dataclasses
+import json
 import math
 import os
 import re
@@ -25,6 +27,8 @@ import statistics
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
+
+from server.safety.patterns import MAX_PATTERN_LEN, pattern_problem, safe_compile  # noqa: F401 - re-exported
 
 from .notebook import Notebook, find_notebook, read_notebook
 from .screen import extract_metrics, screen_lines, screen_text, search_screen, search_wrapped
@@ -141,11 +145,112 @@ def _fmt(v: float) -> str:
 
 
 def _resolve(workdir: str, rel: str) -> str:
-    return rel if os.path.isabs(rel) else os.path.normpath(os.path.join(workdir, rel))
+    """workdir/rel when it stays in the lesson folder (server.safety.paths: relative, no `..` / `~`, symlinks
+    followed), else "": a lesson's check never reads ~/.aws/credentials or ../../.ssh/id_rsa."""
+    from server.safety.paths import safe_lesson_path
+
+    if not rel or os.path.isabs(rel) or safe_lesson_path(workdir or ".", rel) is None:
+        return ""
+    return os.path.normpath(os.path.join(workdir, rel))
 
 
 def _compile(pattern: str) -> re.Pattern[str]:
-    return re.compile(pattern, re.MULTILINE)
+    return safe_compile(pattern, re.MULTILINE)  # re.error for a refused (catastrophic / too long) pattern
+
+
+# ---------------------------------------------------------------- regex safety (ReDoS)
+# A lesson's patterns come from a model (or a stored / shared lesson) and run on every screen frame and file save.
+# server.safety.patterns refuses a catastrophic shape before it runs (no `regex` module, so no timeout), and the text
+# a pattern scans is capped here, which bounds what an accepted pattern can cost.
+SCREEN_SCAN_CHARS = 4096  # a screen pattern sees at most the last 4 KB of a window's text
+FILE_SCAN_CHARS = 64 * 1024  # a file / notebook / run output: its last 64 KB
+LINE_SCAN_CHARS = 2048  # and no line longer than 2 KB (a notebook's base64 image, a minified bundle)
+
+
+LINE_OVERLAP_CHARS = 256  # a long line is split into 2 KB pieces that overlap this much (a match across a split)
+
+
+@dataclass(frozen=True)
+class Scan:
+    """Text as a lesson pattern may search it (scan()), and how to map a match back to the original line."""
+    text: str
+    dropped_lines: int = 0  # whole lines cut from the top (only the last `limit` characters are kept)
+    breaks: tuple[int, ...] = ()  # offsets in `text` of the newlines scan() inserted to split long lines
+
+    def line_of(self, pos: int) -> int:
+        """The 1-based line, in the original text, of offset `pos` in `text`."""
+        inserted = bisect.bisect_left(self.breaks, pos)
+        return self.dropped_lines + self.text.count("\n", 0, pos) - inserted + 1
+
+
+def scan(text: str | None, limit: int = FILE_SCAN_CHARS) -> Scan:
+    """`text` as a lesson pattern may search it: its last `limit` characters (cut at a line start), with every line
+    longer than LINE_SCAN_CHARS split into overlapping pieces (one-line JSON notebooks, minified bundles, base64), so
+    no pattern ever scans more than 64 KB or a line over 2 KB."""
+    if not text:
+        return Scan("")
+    dropped = 0
+    if len(text) > limit:
+        tail = text[-limit:]
+        cut = tail.find("\n")
+        if 0 <= cut < len(tail) - 1:
+            tail = tail[cut + 1:]
+        dropped = text.count("\n", 0, len(text) - len(tail))
+        text = tail
+    if len(text) <= LINE_SCAN_CHARS or not any(len(ln) > LINE_SCAN_CHARS for ln in text.split("\n")):
+        return Scan(text, dropped)
+    out: list[str] = []
+    breaks: list[int] = []
+    pos = 0
+    step = LINE_SCAN_CHARS - LINE_OVERLAP_CHARS
+    for k, ln in enumerate(text.split("\n")):
+        if k:
+            out.append("\n")
+            pos += 1
+        pieces = [ln[i:i + LINE_SCAN_CHARS] for i in range(0, max(len(ln) - LINE_OVERLAP_CHARS, 1), step)] or [""]
+        for j, piece in enumerate(pieces):
+            if j:
+                breaks.append(pos)
+                out.append("\n")
+                pos += 1
+            out.append(piece)
+            pos += len(piece)
+    return Scan("".join(out), dropped, tuple(breaks))
+
+
+def scan_text(text: str | None, limit: int = FILE_SCAN_CHARS) -> str:
+    """scan(text, limit).text: what a lesson pattern may search."""
+    return scan(text, limit).text
+
+
+def read_for_scan(path: str | os.PathLike) -> str:
+    """A lesson file's text for its checks: a notebook without its image / binary output payloads (base64 PNGs are
+    most of an .ipynb and never what a pattern looks for), so the 64 KB scan keeps its code and printed text.
+    OSError as open() raises it."""
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    if not os.fspath(path).lower().endswith(".ipynb") or len(text) <= FILE_SCAN_CHARS:
+        return text
+    try:
+        nb = json.loads(text)
+    except ValueError:
+        return text
+    for cell in nb.get("cells") or [] if isinstance(nb, dict) else []:
+        for out in (cell.get("outputs") or []) if isinstance(cell, dict) else []:
+            data = out.get("data") if isinstance(out, dict) else None
+            if isinstance(data, dict):
+                for k in [k for k in data if not str(k).startswith("text/")]:
+                    data[k] = ""
+    return json.dumps(nb, indent=1, ensure_ascii=False)
+
+
+def unsafe_patterns(check: dict) -> str | None:
+    """Why one of a check's regexes (pattern, metric_pattern) may not run, else None."""
+    for key in ("pattern", "metric_pattern"):
+        p = check.get(key)
+        if p is not None and (why := pattern_problem(p)) is not None:
+            return f"{key}: {why}"
+    return None
 
 
 # ---------------------------------------------------------------- per type
@@ -153,6 +258,8 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
     rel = check.get("file")
     if not rel:
         return _result(check, "fail", "check has no 'file'")
+    if not _resolve(ctx.workdir, rel):
+        return _result(check, "fail", f"{rel} is outside the lesson folder")
     if os.path.exists(_resolve(ctx.workdir, rel)):
         return _result(check, "pass", f"{rel} exists")
     return _result(check, "fail", f"{rel} not found")
@@ -163,23 +270,25 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
     if not rel or not pattern:
         return _result(check, "fail", "check needs 'file' and 'pattern'")
     path = _resolve(ctx.workdir, rel)
+    if not path:
+        return _result(check, "fail", f"{rel} is outside the lesson folder")
     if rel.strip().lower().endswith(".ipynb") and not os.path.exists(path) and os.path.isabs(str(ctx.workdir or "")):
         # t10: the video's Untitled.ipynb is the learner's mnist.ipynb ("Still to do: evaluate saved in notebook")
         if (found := find_notebook(ctx.workdir, [rel])) is not None:
             path, rel = str(found), found.name
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            text = fh.read()
+        full = read_for_scan(path)
     except FileNotFoundError:
         return _result(check, "fail", f"{rel} not found")
     except OSError as exc:
         return _result(check, "fail", f"cannot read {rel}: {exc.strerror}")
+    sc = scan(full)  # the last 64 KB, no line over 2 KB: what a lesson pattern may cost is bounded
     try:
-        m = _compile(pattern).search(text)
+        m = _compile(pattern).search(sc.text)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if m:
-        line = text.count("\n", 0, m.start()) + 1
+        line = sc.line_of(m.start())
         return _result(check, "pass", f"found in {rel}:{line}")
     return _result(check, "fail", f"not in {rel} yet")
 
@@ -233,7 +342,7 @@ def _output_contains(check: dict, ctx: RunContext) -> CheckResult:
     pattern = check.get("pattern")
     if not pattern:
         return _result(check, "fail", "check has no 'pattern'")
-    text = ctx.output_text()
+    text = scan_text(ctx.output_text())
     try:
         m = _compile(pattern).search(text)
     except re.error as exc:
@@ -515,13 +624,13 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     nb = ctx.notebook if isinstance(ctx.notebook, Notebook) and app not in _TERMINAL_APPS else None
     output = not absent and app not in _TERMINAL_APPS and is_output_check(check)
     try:
-        if nb is not None and absent and nb.errors and (e := search_screen(pattern, "\n".join(nb.errors))):
+        if nb is not None and absent and nb.errors and (e := search_screen(pattern, scan_text("\n".join(nb.errors)))):
             return _result(check, "fail", f"the cell printed {e.group(0)[:80]!r}")  # t9 V3: a cell's error output
         if nb is not None and absent and not nb.executed:
             # t10: "No predict errors · not showing on screen" passed before the step's cell existed: no run, no verdict
             return _result(check, "pending", "checked when the cell runs")
         if nb is not None and not absent:  # t9 V2/V3: the notebook's cells as typed / what they printed decide first
-            if search_wrapped(pattern, nb.output_text if output else nb.source_text):
+            if search_wrapped(pattern, scan_text(nb.output_text if output else nb.source_text)):
                 return _result(check, "pass", f"{'printed' if output else 'typed'} in {nb.path.name}")
             if output and _plotted(pattern, nb):
                 return _result(check, "pass", f"plotted in {nb.path.name}")
@@ -536,6 +645,7 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         return _not_visible(check, ctx, absent)
     if output:  # t9 V3: the print() line on screen is code, never the output it promises
         text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code")))
+    text = scan_text(text, SCREEN_SCAN_CHARS)  # the newest 4 KB of the window(s): never a whole scrollback
     try:
         m = search_screen(pattern, text) if absent else search_wrapped(pattern, text)
     except re.error as exc:
@@ -569,11 +679,11 @@ def _plotted(pattern: str, nb: Notebook) -> bool:
     notebook holds, and OCR sees it only once the learner scrolls the plot into view). Passes when one of the step's
     cells ran without an error, displayed an image, and its source puts those words on the plot (set_title, xlabel,
     legend ...). OCR of the plot stays a second way to pass."""
-    rx = re.compile(pattern, re.MULTILINE)
+    rx = _compile(pattern)
     for c in nb.cells:
         if not c.executed or c.errors or not any(str(m).startswith("image/") for m in c.images):
             continue
-        if any(_PLOT_TEXT.search(ln) and rx.search(ln) for ln in c.source.splitlines()):
+        if any(_PLOT_TEXT.search(ln) and rx.search(ln) for ln in scan_text(c.source).splitlines()):
             return True
     return False
 
@@ -620,7 +730,7 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
 def _on_run_output(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     """A terminal check the screen can't read, graded on the output of the step's last finished run."""
     try:
-        m = search_screen(str(check.get("pattern") or ""), ctx.output_text())
+        m = search_screen(str(check.get("pattern") or ""), scan_text(ctx.output_text()))
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if absent:
@@ -692,6 +802,8 @@ def evaluate_check(check: dict, ctx: RunContext) -> CheckResult:
     handler = _HANDLERS.get(check.get("type", ""))
     if handler is None:
         return _result(check, "fail", f"unsupported check type {check.get('type')!r}")
+    if why := unsafe_patterns(check):  # a lesson that skipped validation still never runs a catastrophic regex
+        return _result(check, "fail", f"invalid pattern: {why}")
     try:
         return handler(check, ctx)
     except Exception as exc:  # noqa: BLE001 — a malformed check must never crash the engine
@@ -814,7 +926,7 @@ def _anchors(step: dict) -> tuple[list[re.Pattern[str]], list[re.Pattern[str]]]:
     output check's (that is what it prints), plus its notebook file_contains patterns)."""
     def rx(p: str) -> re.Pattern[str] | None:
         try:
-            return re.compile(p, re.MULTILINE)
+            return _compile(p)
         except re.error:
             return None
 
@@ -838,6 +950,7 @@ def step_cells(nb: Notebook, step: dict) -> list[int]:
     targets, code = _anchors(step)
 
     def hits(rxs: list[re.Pattern[str]], src: str) -> int:
+        src = scan_text(src)
         flat = re.sub(r"\s+", " ", src)
         return sum(1 for r in rxs if r.search(src) or r.search(flat))
 
@@ -957,8 +1070,7 @@ def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_ope
     text, readable = "", False
     if path:
         try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                text, readable = fh.read(), True
+            text, readable = scan_text(read_for_scan(path)), True
         except OSError:
             text = ""
     try:
@@ -1040,8 +1152,8 @@ def run_output(lines: Iterable[str], expect: Iterable[str] = ()) -> tuple[bool, 
     the step didn't ask for. An expected pattern found in the error lines ("run it and see the ZeroDivisionError")
     makes the crash the step's point, not a failure; expected output printed before a crash doesn't."""
     lines = [str(x) for x in lines]
-    text = "\n".join(lines)
-    errs = "\n".join(x for x in lines if _RUN_ERROR.search(x))
+    text = scan_text("\n".join(lines))
+    errs = scan_text("\n".join(x for x in lines if _RUN_ERROR.search(x)))
     shows = wanted = False
     for pattern in expect:
         try:

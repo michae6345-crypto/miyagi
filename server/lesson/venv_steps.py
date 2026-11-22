@@ -23,6 +23,7 @@ Idempotent: a second pass changes nothing. Returns the ids of the steps it chang
 from __future__ import annotations
 
 import re
+from server.safety.patterns import safe_search
 
 VENV = ".venv"
 _SPLIT = re.compile(r"\s*(?:&&|;|\n)\s*")
@@ -118,7 +119,7 @@ def _pip_check(c: dict) -> bool:
     if c.get("type") != "screen_contains" or not c.get("pattern"):
         return False
     try:
-        return any(re.search(c["pattern"], s) for s in _PIP_OUTPUT)
+        return any(safe_search(c["pattern"], s) for s in _PIP_OUTPUT)
     except re.error:
         return False
 

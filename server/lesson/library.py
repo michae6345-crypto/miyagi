@@ -171,7 +171,13 @@ def load_graph(lid: Any, root: Path | None = None) -> dict | None:
     """The cached step graph for `lid`, for library.start (the engine's own use: it holds the graph's workdir, so it
     is never sent to the app as is). None for a bad id, a missing file or a graph that isn't ready."""
     p = resolve(lid, root)
-    return _read_graph(p) if p is not None else None
+    g = _read_graph(p) if p is not None else None
+    if g is not None:
+        from .schema import validate_untrusted_lesson
+
+        for note in validate_untrusted_lesson(g):  # LLM06: a cached graph is untrusted
+            log.warning("library lesson %s: %s", lid, note)
+    return g
 
 
 # ------------------------------------------------------------------------------------------------ fields

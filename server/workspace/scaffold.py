@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from jsonschema import Draft202012Validator
+from server.safety.packages import ARCHIVE_SUFFIXES
+from server.safety.patterns import safe_compile
 
 log = logging.getLogger("server.workspace")
 
@@ -38,7 +40,28 @@ TEXT_EXT = {
     ".csv", ".tsv", ".r", ".jl", ".lua", ".env.example", ".gitignore", ".xml", ".svg", ".mod", ".lock",
 }
 TEXT_NAMES = {"Makefile", "Dockerfile", "Cargo.toml", "Gemfile", ".gitignore", ".gitattributes", ".editorconfig", ".nvmrc", ".python-version"}
-FORBIDDEN_PARTS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".miyagi-state"}
+# LLM06: a starter file never configures the editor, CI, a dev container or the shell (.vscode/tasks.json runs on
+# folder open, .envrc on cd, .github/workflows on push); dotfiles are refused except DOTFILE_ALLOW (server.safety.paths).
+FORBIDDEN_PARTS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".miyagi-state", ".vscode", ".idea",
+                   ".github", ".devcontainer", ".envrc", ".tool-versions"}
+# npm runs these on `npm install` / `npm ci` / publish: a scaffolded package.json never has them
+NPM_LIFECYCLE = {"preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare", "prepublish",
+                 "prepublishOnly", "prepack", "postpack", "preuninstall", "uninstall", "postuninstall", "dependencies"}
+# npm's own commands: pre<command> / post<command> scripts run around them (prestart, posttest, preversion ...)
+NPM_COMMANDS = {"install", "ci", "uninstall", "publish", "pack", "version", "test", "start", "stop", "restart",
+                "shrinkwrap", "prepare", "prepublish", "prepublishOnly", "dependencies", "rebuild", "run"}
+
+
+def npm_hooks(scripts: dict) -> list[str]:
+    """The scripts npm runs by itself around another one: pre<name> / post<name> for a script in the file or an npm
+    command (prestart, posttest, prebuild next to a build script). `prettier` or `postcss` alone are plain scripts."""
+    out = []
+    for k in scripts:
+        for lead in ("pre", "post"):
+            rest = str(k)[len(lead):]
+            if str(k).startswith(lead) and rest and (rest in scripts or rest in NPM_COMMANDS):
+                out.append(str(k))
+    return sorted(set(out))
 # Screen checks in these apps read terminal/browser output, not files: starter files can't satisfy them.
 NON_EDITOR_APPS = {"terminal", "iterm", "iterm2", "warp", "ghostty", "kitty", "alacritty", "hyper",
                    "safari", "google chrome", "chrome", "firefox", "arc", "microsoft edge", "brave browser"}
@@ -182,7 +205,7 @@ def learner_projects(graph: dict) -> set[str]:
 
 def _compile(pattern: str) -> re.Pattern | None:
     try:
-        rx = re.compile(pattern, re.MULTILINE)
+        rx = safe_compile(pattern, re.MULTILINE)  # a lesson's catastrophic regex never runs on a starter file
     except (re.error, TypeError):
         return None
     return None if rx.search("") else rx  # a pattern matching "" passes anyway: not a leak signal
@@ -209,9 +232,53 @@ def _safe_rel(path: str) -> str | None:
     if not p or path.startswith(("/", "~")) or re.match(r"^[A-Za-z]:", path):
         return None
     parts = PurePosixPath(p).parts
-    if ".." in parts or any(x in FORBIDDEN_PARTS for x in parts):
+    if ".." in parts or any(x.casefold() in FORBIDDEN_PARTS for x in parts):  # APFS: Node_Modules is node_modules
+        return None
+    from server.safety.paths import rel_problem
+
+    if rel_problem(p, write=True) is not None:  # dotfiles (bar .gitignore, .editorconfig, .nvmrc, .python-version)
         return None
     return p
+
+
+def content_problem(path: str, content: str) -> str | None:
+    """Why a starter file's content is refused (None: fine): a package.json with install-time scripts or pre / post
+    hooks (or that doesn't parse), a requirements file with option lines (-i, --index-url, -e ...), VCS, URL, archive
+    or local-path requirements (./pkg, pkg/, name @ ./x), a .python-version / .nvmrc that isn't a plain version."""
+    name = PurePosixPath(path).name.casefold()  # case-insensitive APFS: Package.JSON is the package.json npm reads
+    if name == "package.json":
+        try:
+            data = json.loads(content or "{}")
+        except ValueError:
+            return "package.json doesn't parse"
+        scripts = data.get("scripts") if isinstance(data, dict) else None
+        if isinstance(scripts, dict) and (bad := sorted(set(scripts) & NPM_LIFECYCLE)):
+            return f"package.json runs code on install ({', '.join(bad)})"
+        if isinstance(scripts, dict) and (hooks := npm_hooks(scripts)):  # npm start would also run prestart
+            return f"package.json runs hidden pre / post scripts ({', '.join(hooks)})"
+        return None
+    if name.startswith("requirements") and name.endswith(".txt"):
+        for raw in (content or "").splitlines():
+            line = raw.strip()
+            if line.startswith("-") or line.lower().startswith("git+") or "://" in line:
+                return f"requirements line {line[:60]!r} installs from outside PyPI or changes pip's options"
+            req = line.split("#", 1)[0].strip()
+            if req.lower().endswith(ARCHIVE_SUFFIXES):  # pip builds a local x.tar.gz
+                return f"requirements line {line[:60]!r} installs a local archive, not a PyPI package"
+            # ./pkg, pkg/, name @ ./x, ~/x: pip builds a local folder by running its setup.py
+            if req.startswith((".", "~")) or any(ch in req for ch in "/\\@") or not req.isprintable():
+                return f"requirements line {line[:60]!r} installs a local path, not a PyPI package"
+    if name in (".python-version", ".nvmrc"):
+        # pyenv / nvm read these as a version name; a crafted relative one ran code (pyenv CVE-2022-35861)
+        for raw in (content or "").splitlines():
+            v = raw.strip()
+            if v and not (_VERSION_LINE.fullmatch(v) or name == ".nvmrc" and _NVM_LTS.fullmatch(v)):
+                return f"{name} line {v[:40]!r} isn't a plain version"
+    return None
+
+
+_VERSION_LINE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")  # 3.11.6, v20.10.0, system (never .., never a path)
+_NVM_LTS = re.compile(r"lts/(?:\*|[a-z]+)")  # nvm's own aliases: lts/*, lts/iron
 
 
 def _is_text_name(p: str) -> bool:
@@ -274,6 +341,9 @@ def vet(raw: dict, graph: dict) -> tuple[Scaffold, list[str]]:
             return None
         if not _is_text_name(p):
             sc.dropped.append(f"{p}: not a text file type")
+            return None
+        if why := content_problem(p, content):
+            sc.dropped.append(f"{p}: {why}")
             return None
         size = len(content.encode())
         if size > MAX_FILE_BYTES or total + size > MAX_TOTAL_BYTES:

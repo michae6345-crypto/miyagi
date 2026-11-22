@@ -243,11 +243,14 @@ async def research(goal: str) -> dict:
 async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: bool = True, refresh: bool = False) -> dict:
     """See module docstring. Returns the complete graph; on_update(graph, complete) gets step 1 first.
     A fresh cost counter per build; build_cost is emitted however the build ends (ok / failed / cancelled)."""
+    from .builder import _untrusted, _validated_updates  # LLM06: the model's graph is checked like a video lesson's
+
     counter = cost.start()
     with cost.build_scope(counter, kind="text") as scope:
-        g = await _build_text_lesson(goal, workdir, on_update, counter, cache=cache, refresh=refresh)
+        g = await _build_text_lesson(goal, workdir, _validated_updates(on_update, workdir), counter, cache=cache,
+                                     refresh=refresh)
         scope["lesson_id"] = (g.get("lesson") or {}).get("id")
-        return g
+        return _untrusted(g, workdir)
 
 
 async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, *, cache: bool, refresh: bool) -> dict:

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from rapidfuzz import fuzz
 
 from .types import OVERLAY_ROLES, Block, Rect, ScreenObservation, Window
+from server.safety.patterns import safe_compile
 
 # ----------------------------------------------------------------- apps
 
@@ -266,7 +267,7 @@ def _as_regex(match: str) -> re.Pattern | None:
     if not _REGEX_HINT.search(match):
         return None
     try:
-        return re.compile(match, re.IGNORECASE)
+        return safe_compile(match, re.IGNORECASE)  # a lesson's target: never a catastrophic regex
     except re.error:
         return None
 
@@ -448,7 +449,7 @@ def screen_contains(obs: ScreenObservation, pattern: str, app: str | None = None
     """
     text = obs.text(app)
     try:
-        rx = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
+        rx = safe_compile(pattern, re.IGNORECASE | re.MULTILINE)  # re.error for a catastrophic lesson pattern
         if rx.search(text) or rx.search("\n".join(norm(t) for t in text.splitlines())):
             return True
     except re.error:

@@ -34,6 +34,7 @@ from typing import Any
 from server.lesson.skillmap import attach_skill_map
 
 from .card_copy import ran
+from server.safety.patterns import safe_compile
 
 log = logging.getLogger("orchestrator.lesson_end")
 
@@ -126,7 +127,7 @@ def _patterns(s: Any) -> list[tuple[str, re.Pattern]]:
         for c in (st.get("checks") or []) + (st.get("precision_checks") or []):
             if c.get("metric") and c.get("metric_pattern"):
                 try:
-                    out.append((_norm(str(c["metric"])), re.compile(str(c["metric_pattern"]))))
+                    out.append((_norm(str(c["metric"])), safe_compile(str(c["metric_pattern"]))))
                 except re.error:
                     continue
     return out
