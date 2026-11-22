@@ -97,8 +97,18 @@ if not ADMIN_ENABLED:
     log.error("ADMIN_TOKEN is %s: every /admin route answers 503 until it is replaced with "
               "python -c 'import secrets;print(secrets.token_urlsafe(32))'", ADMIN_PROBLEM)
 
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+def _env_key(name: str) -> str:
+    """An upstream API key from the environment, trimmed. A pasted key often ends in a newline or space, and httpx
+    then refuses to send the header at all (h11 LocalProtocolError, every call a 502). Logs only that it was trimmed."""
+    raw = os.environ.get(name, "")
+    key = raw.strip().strip('"').strip("'").strip()
+    if key != raw:
+        log.warning("%s had surrounding whitespace or quotes; trimmed (%d chars removed)", name, len(raw) - len(key))
+    return key
+
+
+ANTHROPIC_KEY = _env_key("ANTHROPIC_API_KEY")
+GEMINI_KEY = _env_key("GEMINI_API_KEY")
 PROXY_ENABLED = _env_bool("PROXY_ENABLED", True)
 ALLOWED_ANTHROPIC = _env_list("ALLOWED_ANTHROPIC_MODELS", "claude-sonnet-5-5,claude-haiku-5-5")
 ALLOWED_GEMINI = _env_list("ALLOWED_GEMINI_MODELS", "gemini-3.8-flash")
@@ -1193,7 +1203,9 @@ async def forward(call: Call, url: str, headers: dict, params: dict, body: bytes
         # hanging up while we wait): the provider may be answering, and billing, right now.
         call.finish(None if isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)) else usage)
         if isinstance(e, httpx.HTTPError):
-            log.warning("upstream %s unreachable: %s", provider, type(e).__name__)
+            # the exception text can quote a header value (the key), so log only which header names were refused
+            bad = [k for k, v in headers.items() if not isinstance(v, str) or v != v.strip() or any(c in v for c in "\r\n\0")]
+            log.warning("upstream %s unreachable: %s%s", provider, type(e).__name__, f" (bad header: {', '.join(bad)})" if bad else "")
             return error(502, "upstream_unreachable", f"Could not reach the {provider} API. Try again.")
         raise
 
