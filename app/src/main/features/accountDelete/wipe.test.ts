@@ -29,7 +29,7 @@ test('the list names every file the code keeps in userData (read from the code, 
     assert.ok(names.includes(f), f)
     assert.ok(names.includes(`${f}.tmp`), `${f}.tmp`)
   }
-  for (const d of ['errors', 'crash-reports', 'telemetry', 'logs', 'crash dumps', 'demo/cache/search', 'demo/cache/lessons', 'demo/cache/transcripts', 'demo/runs', 'engine logs', 'engine state', 'spoken lines']) assert.ok(names.includes(d), d)
+  for (const d of ['errors', 'crash-reports', 'telemetry', 'funnel', 'logs', 'crash dumps', 'demo/cache/search', 'demo/cache/lessons', 'demo/cache/transcripts', 'demo/runs', 'engine logs', 'engine state', 'spoken lines']) assert.ok(names.includes(d), d)
   assert.ok(!names.includes('engine.json'), 'engine.json is a machine setting, kept')
 })
 
@@ -52,6 +52,8 @@ test('the wipe removes everything on the list and keeps the rest', () => {
   touch(join(w.userData, 'errors', 'errors.json'))
   touch(join(w.userData, 'crash-reports', 'r1.txt'))
   touch(join(w.userData, 'telemetry', 'state.json'))
+  touch(join(w.userData, 'funnel', 'state.json'))
+  touch(join(w.userData, 'funnel', 'state.json.tmp'))
   touch(join(w.userData, 'engine.json'))
   touch(join(w.logs, 'island.log'))
   touch(join(w.home, 'miyagi/engine/src/demo/cache/search/q.json'))
