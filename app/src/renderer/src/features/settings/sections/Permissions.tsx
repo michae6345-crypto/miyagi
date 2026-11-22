@@ -84,7 +84,7 @@ export function Permissions({ live }: { live: boolean }): ReactNode {
         </Group>
       )}
       {!mac ? (
-        <Note>Screen Recording and Accessibility are Mac settings. A PC has nothing to turn on.</Note>
+        <Note>Screen Recording and Accessibility are Mac settings. Nothing to turn on here.</Note>
       ) : perms?.external ? (
         <Note>{copy.name} runs from Terminal here, so macOS asks Terminal for these.</Note>
       ) : note ? (
