@@ -12,14 +12,13 @@
  * Login off: miyagi runs on this Mac, with your own key or the cloud setup.
  * Nothing here can block a lesson, and nothing is sent from here: main and the sheet do that.
  */
-import { ChevronRight, LogOut } from 'lucide-react'
+import { ChevronRight, LogOut, type LucideIcon } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../../bridge'
 import { color, copy, fill, radius2, type2 } from '../../../core/theme'
 import { PrimaryButton, QuietButton } from '../../../core/ui/buttons'
-import { planLabel, resetDay, v2Cloud, type HelpMeter } from '../../account/model'
+import { initialOf, planLabel, resetDay, v2Cloud, type HelpMeter } from '../../account/model'
 import { loadAccount, useAccount } from '../../account/store'
-import { PersonGlyph } from '../../account/ui'
 import { Avatar } from '../../auth/Avatar'
 import { authOn } from '../../auth/model'
 import { loadAuth, useAuth } from '../../auth/store'
@@ -58,9 +57,10 @@ function Group({ children, label }: { children: ReactNode; label: string }): Rea
 }
 
 /** A row of a group: the label, then its value in gray, then its action (a button, or the whole row opens). */
-function Line({ label, value, action, onClick, last }: { label: string; value?: ReactNode; action?: ReactNode; onClick?: () => void; last?: boolean }): ReactNode {
+function Line({ label, value, action, onClick, last, icon: Icon, chevron = true }: { label: string; value?: ReactNode; action?: ReactNode; onClick?: () => void; last?: boolean; icon?: LucideIcon; chevron?: boolean }): ReactNode {
   const inner = (
     <>
+      {Icon && <Icon aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label }} />}
       <span className="relative shrink-0" style={{ fontSize: type2.md, color: color.text }}>
         {label}
       </span>
@@ -68,7 +68,7 @@ function Line({ label, value, action, onClick, last }: { label: string; value?: 
         {value}
       </span>
       {action}
-      {onClick && !action && <ChevronRight aria-hidden size={14} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.faint }} />}
+      {onClick && !action && chevron && <ChevronRight aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label, opacity: 0.55 }} />}
     </>
   )
   const style = { minHeight: 52, padding: '8px 14px 8px 16px', borderBottom: last ? undefined : `1px solid ${fill.hairline}` }
@@ -102,11 +102,12 @@ function Who({ avatar, name, email }: { avatar: ReactNode; name: string; email?:
   )
 }
 
+/** Sign out: its own one-row group under the account (round 3: no bordered button floating under the list). */
 function SignOut(): ReactNode {
   return (
-    <div>
-      <QuietButton icon={LogOut} label="Sign out" onClick={() => openSheet('signout')} />
-    </div>
+    <Group label="Sign out">
+      <Line icon={LogOut} label="Sign out" onClick={() => openSheet('signout')} chevron={false} last />
+    </Group>
   )
 }
 
@@ -210,6 +211,19 @@ function helpLeft(help: HelpMeter): string {
   return [left === 0 ? 'None left' : `${left} left`, day ? `resets ${day}` : ''].filter(Boolean).join(' · ')
 }
 
+/** What is left, with a slim meter of what is used (the same reading as the account sheet's meter). */
+function HelpValue({ help }: { help: HelpMeter }): ReactNode {
+  const used = help.limit ? Math.max(0, Math.min(1, help.used / help.limit)) : 0
+  return (
+    <span className="inline-flex items-center justify-end gap-[10px]">
+      <span aria-hidden className="relative block shrink-0 overflow-hidden" style={{ width: 56, height: 4, borderRadius: radius2.round, background: fill.hairline }}>
+        <span className="absolute inset-y-0 left-0 block" style={{ width: `${used * 100}%`, background: color.label, borderRadius: radius2.round }} />
+      </span>
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{helpLeft(help)}</span>
+    </span>
+  )
+}
+
 /** v2Cloud: the plans, pricing and usage mock (features/account). */
 function CloudAccount(): ReactNode {
   const account = useAccount((s) => s.account)
@@ -237,11 +251,7 @@ function CloudAccount(): ReactNode {
   return (
     <Wrap>
       <Who
-        avatar={
-          <span className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 44, borderRadius: radius2.round, background: fill.navActive, color: color.text }}>
-            <PersonGlyph size={22} />
-          </span>
-        }
+        avatar={<Avatar initial={initialOf(account.name ?? account.email)} size={44} />}
         name={account.name ?? account.email ?? 'Signed in'}
         email={account.email && account.name ? account.email : undefined}
       />
@@ -249,9 +259,9 @@ function CloudAccount(): ReactNode {
         <Line
           label="Plan"
           value={planLabel(account.plan)}
-          action={free ? <PrimaryButton label="Upgrade to Pro" onClick={() => openSheet('plans')} /> : <QuietButton label="See plans" onClick={() => openSheet('plans')} />}
+          action={<QuietButton label={free ? 'Upgrade' : 'See plans'} onClick={() => openSheet('plans')} />}
         />
-        {help ? <Line label="Help this month" value={helpLeft(help)} /> : <Line label="Help this month" value="Checks never count" />}
+        {help ? <Line label="Help this month" value={<HelpValue help={help} />} /> : <Line label="Help this month" value="Checks never count" />}
         <KeyLine />
       </Group>
       <SignOut />
