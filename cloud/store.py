@@ -9,8 +9,11 @@ This module is the only place that touches the database. The app calls the metho
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import logging
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -91,11 +94,13 @@ CREATE INDEX IF NOT EXISTS events_day ON events (day);
 CREATE TABLE IF NOT EXISTS lesson_candidates (
     video_id   TEXT NOT NULL,
     schema     INTEGER NOT NULL,
-    uploader   TEXT NOT NULL,              -- token hash of the install that uploaded it
+    uploader   TEXT NOT NULL,              -- token hash of the install that uploaded it ('deleted-<random>' once
+                                           -- that install deleted itself: an approved lesson stays, unattributed)
     body       TEXT NOT NULL,              -- the lesson JSON (validated, UTF-8, ensure_ascii off)
     bytes      INTEGER NOT NULL,
     body_hash  TEXT NOT NULL,              -- sha256 of the normalized lesson JSON (sorted keys)
-    net        TEXT NOT NULL,              -- the uploader's network (IPv4 /24, IPv6 /48) for auto-approval
+    net        TEXT NOT NULL,              -- keyed hash (Store.hash_net) of the uploader's network (IPv4 /24, IPv6 /48),
+                                           -- for auto-approval and the per-network pending bound; '' once approved
     status     TEXT NOT NULL DEFAULT 'pending',  -- pending | approved
     created_at REAL NOT NULL,
     hits       INTEGER NOT NULL DEFAULT 0,
@@ -112,7 +117,7 @@ CREATE TABLE IF NOT EXISTS lesson_puts (
 -- Install tokens minted per client network bucket and hour (epoch hours), so a deploy does not reset the limit.
 -- Rows older than two days are pruned.
 CREATE TABLE IF NOT EXISTS mints (
-    bucket TEXT NOT NULL,                  -- client IP (IPv4) or its /64 (IPv6)
+    bucket TEXT NOT NULL,                  -- keyed hash (Store.hash_net) of the client network: never the address
     hour   INTEGER NOT NULL,               -- unix time // 3600
     n      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (bucket, hour)
@@ -169,7 +174,39 @@ CREATE TABLE IF NOT EXISTS alerts_sent (
     sent_at REAL NOT NULL,
     PRIMARY KEY (day, key)
 );
+-- Accounts whose local data is already wiped (POST /v1/account/delete) but whose Supabase auth user could not be
+-- deleted yet (no SUPABASE_SERVICE_ROLE_KEY, or Supabase failed). /admin/deletions lists and retries them; a row
+-- goes away as soon as the Supabase user is gone.
+CREATE TABLE IF NOT EXISTS deletion_requests (
+    user_id       TEXT PRIMARY KEY,
+    requested_day TEXT NOT NULL
+);
 """
+
+log = logging.getLogger("miyagi.cloud")
+
+# Per-install detail rows (usage, role_usage, events, event_props, builds) are kept this many days; older usage and
+# event rows are folded into per-day totals under AGGREGATE (no install), the rest deleted. At least 35: the monthly
+# build cap and the 30-day admin view read them.
+MIN_RETAIN_DAYS = 35
+SHORT_RETAIN_DAYS = 2  # rows only today's caps read (event_intake, moved_usage, lesson_puts, alerts_sent)
+AGGREGATE = "*"  # the token_hash of folded per-day totals: no install
+
+NET_HASH_PREFIX = "n1:"
+_NET_PLAIN = ("", "legacy", "unknown")  # placeholders, not networks: never hashed
+
+
+def net_key_from_env() -> tuple[bytes, str]:
+    """The secret the network hashes are keyed with, and where it came from. NET_HASH_KEY when set; else derived
+    from ADMIN_TOKEN (a strong secret every deploy has); else random per process (the hashes then change on every
+    restart: the mint and per-network limits reset, nothing else breaks)."""
+    k = os.environ.get("NET_HASH_KEY", "").strip()
+    if k:
+        return k.encode(), "NET_HASH_KEY"
+    a = os.environ.get("ADMIN_TOKEN", "").strip()
+    if a:
+        return hmac.new(a.encode(), b"miyagi-cloud net hash v1", hashlib.sha256).digest(), "ADMIN_TOKEN"
+    return secrets.token_bytes(32), "random"
 
 PLANS = ("free", "pro")  # free: the caps in app.py apply; pro: no caps
 
@@ -207,8 +244,14 @@ def default_db_path() -> str:
 class Store:
     """SQLite store. Calls are short and serialized by a lock; fine for one Render instance."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, net_key: bytes | None = None) -> None:
         self.path = path
+        if net_key is None:
+            net_key, source = net_key_from_env()
+            if source == "random":
+                log.warning("no NET_HASH_KEY or ADMIN_TOKEN: network hashes use a per-process key (mint and "
+                            "per-network limits reset on restart)")
+        self._net_key = net_key
         self._lock = threading.Lock()
         self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._db.row_factory = sqlite3.Row
@@ -221,7 +264,34 @@ class Store:
             self._db.execute("ALTER TABLE tokens ADD COLUMN mint_net TEXT")
         self._db.execute("CREATE INDEX IF NOT EXISTS tokens_mint_net ON tokens (mint_net)")
         self._migrate_first_writer_lessons()
+        self._minimise_stored_networks()
         self._pruned_hour = -1
+
+    # network hashes -------------------------------------------------------------
+    def hash_net(self, net: str | None) -> str | None:
+        """A keyed hash (HMAC-SHA256, 96 bits) of a client network bucket. The proxy groups by it (mint limits, the
+        anonymous per-network spend ceiling, the pending-lesson bound and auto-approval) and never stores the
+        address or prefix itself. Idempotent: an existing hash, a placeholder ('', 'legacy', 'unknown') or None
+        comes back unchanged."""
+        if net is None or net in _NET_PLAIN or net.startswith(NET_HASH_PREFIX):
+            return net
+        return NET_HASH_PREFIX + hmac.new(self._net_key, net.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
+
+    def _minimise_stored_networks(self) -> None:
+        """Databases from before the hashes: every stored address or prefix becomes its keyed hash (so the limits
+        keep grouping the same networks), approved lessons drop theirs, linked installs drop their mint network
+        (only anonymous installs are capped by it), and the client-chosen install_id becomes the token prefix."""
+        self._db.create_function("net_hash", 1, self.hash_net, deterministic=True)
+        raw = f"NOT LIKE '{NET_HASH_PREFIX}%'"
+        self._db.execute(f"UPDATE tokens SET mint_net = net_hash(mint_net) WHERE mint_net IS NOT NULL AND mint_net {raw}")
+        self._db.execute("UPDATE tokens SET mint_net = NULL WHERE mint_net IS NOT NULL "
+                         "AND token_hash IN (SELECT token_hash FROM links)")
+        self._db.execute(f"UPDATE mints SET bucket = net_hash(bucket) WHERE bucket {raw}")
+        self._db.execute(f"UPDATE moved_usage SET from_net = net_hash(from_net) WHERE from_net IS NOT NULL AND from_net {raw}")
+        self._db.execute(f"UPDATE lesson_candidates SET net = net_hash(net) WHERE status = 'pending' AND net {raw}")
+        self._db.execute("UPDATE lesson_candidates SET net = '' WHERE status = 'approved' AND net != ''")
+        self._db.execute(f"UPDATE tokens SET install_id = substr(token_hash, 1, {PREFIX_LEN}) "
+                         f"WHERE install_id != substr(token_hash, 1, {PREFIX_LEN})")
 
     def _migrate_first_writer_lessons(self) -> None:
         """Lessons cached by the first-upload-wins version become pending candidates: nobody reviewed them."""
@@ -243,9 +313,12 @@ class Store:
 
     # tokens ---------------------------------------------------------------
     def add_token(self, token_hash: str, install_id: str, app_version: str, platform: str, mint_net: str | None = None) -> None:
-        """mint_net: the client network it was minted from (IPv4 address or IPv6 /48), for the anonymous per-network cap."""
+        """mint_net: the client network it was minted from (IPv4 address or IPv6 /48), for the anonymous per-network cap;
+        stored as its keyed hash only. install_id is not kept: the column holds the token prefix (a client-chosen id
+        would be one more identifier with no use here)."""
+        del install_id
         self._q("INSERT INTO tokens (token_hash, install_id, app_version, platform, created_at, mint_net) VALUES (?, ?, ?, ?, ?, ?)",
-                (token_hash, install_id, app_version, platform, time.time(), mint_net))
+                (token_hash, token_hash[:PREFIX_LEN], app_version, platform, time.time(), self.hash_net(mint_net)))
 
     def get_token(self, token_hash: str) -> dict | None:
         rows = self._q("SELECT token_hash, disabled, plan, mint_net FROM tokens WHERE token_hash = ?", (token_hash,))
@@ -290,6 +363,7 @@ class Store:
         uploader network (0 = no bound; the uploader's own candidate it replaces does not count). Returns None when
         stored, else the bound hit: "pending_total" | "pending_net"."""
         size, now = len(body.encode("utf-8")), time.time()
+        net = self.hash_net(net)
         mine = "NOT (video_id = ? AND schema = ? AND uploader = ?)"
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
@@ -333,8 +407,8 @@ class Store:
     def _approve_row(self, video_id: str, schema: int, uploader: str) -> None:
         self._db.execute("UPDATE lesson_candidates SET status = 'pending' WHERE video_id = ? AND schema = ? AND status = 'approved'",
                          (video_id, schema))
-        self._db.execute("UPDATE lesson_candidates SET status = 'approved' WHERE video_id = ? AND schema = ? AND uploader = ?",
-                         (video_id, schema, uploader))
+        self._db.execute("UPDATE lesson_candidates SET status = 'approved', net = '' WHERE video_id = ? AND schema = ? "
+                         "AND uploader = ?", (video_id, schema, uploader))
 
     def approve_lesson(self, video_id: str, hash_prefix: str, schema: int | None = None) -> list[dict]:
         """Approve the candidate of `video_id` whose body hash starts with `hash_prefix` (and schema, when given).
@@ -362,7 +436,7 @@ class Store:
                                 (video_id, schema)).fetchone():
                 return False
             row = self._db.execute("SELECT COUNT(DISTINCT uploader) AS u, COUNT(DISTINCT net) AS nets FROM lesson_candidates "
-                                   "WHERE video_id = ? AND schema = ? AND body_hash = ? AND net NOT IN ('legacy', 'unknown')",
+                                   "WHERE video_id = ? AND schema = ? AND body_hash = ? AND net NOT IN ('', 'legacy', 'unknown')",
                                    (video_id, schema, body_hash)).fetchone()
             if row["u"] < n or row["nets"] < n:
                 return False
@@ -398,7 +472,7 @@ class Store:
                 return False, used
             self._db.execute("INSERT INTO lesson_puts (token_hash, day, n) VALUES (?, ?, 1) "
                              "ON CONFLICT (token_hash, day) DO UPDATE SET n = n + 1", (token_hash, day))
-            self._db.execute("DELETE FROM lesson_puts WHERE day < ?", (_days_ago(2),))
+            self._db.execute("DELETE FROM lesson_puts WHERE day < ?", (_days_ago(SHORT_RETAIN_DAYS),))
             return True, used + 1
 
     # install token minting (POST /v1/install, /v1/register) --------------
@@ -412,6 +486,7 @@ class Store:
         Returns {"hit": None | "new_installs" | "hour" | "day" | "global", "used", "cap", "retry_s",
         "global": mints this hour}."""
         t = time.time() if now is None else now
+        bucket = self.hash_net(bucket)
         hour = int(t // 3600)
         to_next_hour = (hour + 1) * 3600 - t
         day = _utc_day(t)
@@ -509,6 +584,7 @@ class Store:
         Returns (None, 0, 0) when admitted, else (the cap hit: "global_usd" | "daily" | "usd" | "net_usd", used, cap)
         with nothing counted."""
         day = today()
+        net = self.hash_net(net)
         reserve_usd = max(float(reserve_usd), 0.0)
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
@@ -599,13 +675,14 @@ class Store:
     # alerts ------------------------------------------------------------------
     def claim_alert(self, key: str, day: str | None = None) -> bool:
         """Record that alert `key` fires today. True only for the first claim of that key on that UTC day (across
-        processes and restarts), so each alert is sent at most once a day. Rows older than 30 days are pruned."""
+        processes and restarts), so each alert is sent at most once a day. Rows older than SHORT_RETAIN_DAYS are pruned
+        (only today's are read, and a token:<prefix> key names an install)."""
         d = day or today()
         with self._lock:
             n = self._db.execute("INSERT OR IGNORE INTO alerts_sent (day, key, sent_at) VALUES (?, ?, ?)",
                                  (d, key, time.time())).rowcount
             if n:
-                self._db.execute("DELETE FROM alerts_sent WHERE day < ?", (_days_ago(30),))
+                self._db.execute("DELETE FROM alerts_sent WHERE day < ?", (_days_ago(SHORT_RETAIN_DAYS),))
             return n == 1
 
     def alerts_on(self, day: str | None = None) -> list[str]:
@@ -748,6 +825,8 @@ class Store:
                 self._db.execute("INSERT INTO links (token_hash, user_id, linked_at) VALUES (?, ?, ?) "
                                  "ON CONFLICT (token_hash) DO UPDATE SET user_id = excluded.user_id, linked_at = excluded.linked_at "
                                  "WHERE links.user_id != excluded.user_id", (token_hash, user_id, time.time()))
+                # a linked install is capped per user, never by its mint network (and never unlinks): drop it
+                self._db.execute("UPDATE tokens SET mint_net = NULL WHERE token_hash = ?", (token_hash,))
                 self._db.execute("COMMIT")
                 return True
             except BaseException:
@@ -758,6 +837,140 @@ class Store:
     def get_link(self, token_hash: str) -> dict | None:
         rows = self._q("SELECT user_id, linked_at FROM links WHERE token_hash = ?", (token_hash,))
         return dict(rows[0]) if rows else None
+
+    # account deletion (POST /v1/account/delete) --------------------------------
+    def installs_of(self, user_id: str) -> list[str]:
+        return [r["token_hash"] for r in self._q("SELECT token_hash FROM links WHERE user_id = ?", (user_id,))]
+
+    def delete_account(self, token_hash: str | None, user_id: str | None = None) -> dict:
+        """Delete every row tied to install `token_hash` (None: none) and, with `user_id`, to that user and every install linked to
+        it, in one transaction. Returns {"installs": n, <table>: rows deleted or scrubbed}.
+
+        Kept, with nothing that points back at anyone:
+        - an approved shared lesson the install uploaded: its uploader becomes 'deleted-<random>' and its network
+          hash is cleared. Its body is the lesson for a public video (shared, reviewed content), not the learner's.
+        - today's spend of the deleted installs, folded into the per-day total row (token_hash AGGREGATE), so the
+          global brake and spend alerts still see what today cost; and, for an anonymous install, today's spend
+          against its mint network's hash (moved_usage, no install, pruned after SHORT_RETAIN_DAYS), so deleting and
+          re-minting cannot reset ANON_DAILY_USD_PER_NETWORK. Older usage rows are deleted outright."""
+        day = today()
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                hashes = {token_hash} if token_hash else set()
+                if user_id:
+                    hashes |= {r[0] for r in self._db.execute("SELECT token_hash FROM links WHERE user_id = ?", (user_id,))}
+                hs = sorted(hashes)
+                inn = f"IN ({','.join('?' * len(hs))})"
+                n: dict[str, int] = {"installs": len(hs)}
+
+                anon = self._db.execute(f"SELECT t.mint_net, COALESCE(SUM(u.requests), 0), COALESCE(SUM(u.usd), 0) FROM tokens t "
+                                        f"JOIN usage u ON u.token_hash = t.token_hash AND u.day = ? WHERE t.token_hash {inn} "
+                                        f"AND t.mint_net IS NOT NULL AND t.token_hash NOT IN (SELECT token_hash FROM links) "
+                                        f"GROUP BY t.mint_net", (day, *hs)).fetchall()
+                for net, reqs, usd in anon:
+                    if int(reqs) or float(usd):
+                        self._db.execute("INSERT INTO moved_usage (token_hash, day, from_user, from_net, requests, usd) "
+                                         "VALUES (?, ?, NULL, ?, ?, ?)", (AGGREGATE, day, net, int(reqs), float(usd)))
+                self._db.execute(f"INSERT INTO usage (token_hash, day, provider, model, requests, input_tokens, output_tokens, usd) "
+                                 f"SELECT ?, day, provider, model, SUM(requests), SUM(input_tokens), SUM(output_tokens), SUM(usd) "
+                                 f"FROM usage WHERE day = ? AND token_hash {inn} GROUP BY day, provider, model "
+                                 f"ON CONFLICT (token_hash, day, provider, model) DO UPDATE SET requests = requests + excluded.requests, "
+                                 f"input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + "
+                                 f"excluded.output_tokens, usd = usd + excluded.usd", (AGGREGATE, day, *hs))
+
+                for table in ("usage", "role_usage", "builds", "events", "event_props", "event_intake", "lesson_puts"):
+                    n[table] = self._db.execute(f"DELETE FROM {table} WHERE token_hash {inn}", hs).rowcount
+                n["moved_usage"] = self._db.execute(f"UPDATE moved_usage SET token_hash = ? WHERE token_hash {inn}",
+                                                    (AGGREGATE, *hs)).rowcount  # what they moved away from OTHER scopes
+                if user_id:
+                    n["moved_usage"] += self._db.execute("DELETE FROM moved_usage WHERE from_user = ?", (user_id,)).rowcount
+                n["lesson_candidates"] = self._db.execute(f"DELETE FROM lesson_candidates WHERE uploader {inn} "
+                                                          f"AND status != 'approved'", hs).rowcount
+                n["lessons_scrubbed"] = 0
+                for table, extra in (("lesson_candidates", ", net = ''"), ("lessons", "")):
+                    for (rowid,) in self._db.execute(f"SELECT rowid FROM {table} WHERE uploader {inn}", hs).fetchall():
+                        self._db.execute(f"UPDATE {table} SET uploader = ?{extra} WHERE rowid = ?",
+                                         ("deleted-" + secrets.token_hex(8), rowid))
+                        n["lessons_scrubbed"] += 1
+                n["alerts_sent"] = self._db.execute(f"DELETE FROM alerts_sent WHERE key {inn}",
+                                                    [f"token:{h[:PREFIX_LEN]}" for h in hs]).rowcount
+                link_sql, link_args = f"DELETE FROM links WHERE token_hash {inn}", list(hs)
+                if user_id:
+                    link_sql, link_args = link_sql + " OR user_id = ?", [*hs, user_id]
+                n["links"] = self._db.execute(link_sql, link_args).rowcount
+                n["tokens"] = self._db.execute(f"DELETE FROM tokens WHERE token_hash {inn}", hs).rowcount
+                self._db.execute("COMMIT")
+                return n
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
+
+    def add_deletion_request(self, user_id: str) -> None:
+        self._q("INSERT OR IGNORE INTO deletion_requests (user_id, requested_day) VALUES (?, ?)", (user_id, today()))
+
+    def deletion_requests(self) -> list[dict]:
+        return [dict(r) for r in self._q("SELECT user_id, requested_day FROM deletion_requests ORDER BY requested_day, user_id")]
+
+    def clear_deletion_request(self, user_id: str) -> None:
+        self._q("DELETE FROM deletion_requests WHERE user_id = ?", (user_id,))
+
+    # retention -------------------------------------------------------------------
+    def prune(self, retain_days: int = MIN_RETAIN_DAYS, pending_max_age_s: float = 0, now: float | None = None,
+              mint_net_days: float = 0) -> dict:
+        """Drop what no cap, limit or view needs any more, in one transaction (run hourly and at startup):
+        - usage, events, event_props older than retain_days (at least MIN_RETAIN_DAYS): folded into per-day totals
+          under AGGREGATE (no install), then deleted; role_usage and builds that old: deleted;
+        - event_intake, moved_usage, lesson_puts, alerts_sent older than SHORT_RETAIN_DAYS; mints older than 48 hours;
+        - pending lesson candidates older than pending_max_age_s (0 = keep);
+        - the mint network hash of installs minted more than mint_net_days ago (0 = keep while the install is
+          anonymous; linking or deleting drops it anyway). Such an install is then capped per install only.
+        Returns {table: rows deleted}."""
+        t = time.time() if now is None else now
+        keep = max(int(retain_days), MIN_RETAIN_DAYS)
+        cut = datetime.fromtimestamp(t - keep * 86400, timezone.utc).strftime("%Y-%m-%d")
+        short = datetime.fromtimestamp(t - SHORT_RETAIN_DAYS * 86400, timezone.utc).strftime("%Y-%m-%d")
+        n: dict[str, int] = {}
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                old = "day < ? AND token_hash != ?"
+                self._db.execute(f"INSERT INTO usage (token_hash, day, provider, model, requests, input_tokens, output_tokens, usd) "
+                                 f"SELECT ?, day, provider, model, SUM(requests), SUM(input_tokens), SUM(output_tokens), SUM(usd) "
+                                 f"FROM usage WHERE {old} GROUP BY day, provider, model "
+                                 f"ON CONFLICT (token_hash, day, provider, model) DO UPDATE SET requests = requests + excluded.requests, "
+                                 f"input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + "
+                                 f"excluded.output_tokens, usd = usd + excluded.usd", (AGGREGATE, cut, AGGREGATE))
+                self._db.execute(f"INSERT INTO events (token_hash, day, name, count) SELECT ?, day, name, SUM(count) FROM events "
+                                 f"WHERE {old} GROUP BY day, name ON CONFLICT (token_hash, day, name) "
+                                 f"DO UPDATE SET count = count + excluded.count", (AGGREGATE, cut, AGGREGATE))
+                self._db.execute(f"INSERT INTO event_props (token_hash, day, name, key, value, count, total) "
+                                 f"SELECT ?, day, name, key, value, SUM(count), SUM(total) FROM event_props WHERE {old} "
+                                 f"GROUP BY day, name, key, value ON CONFLICT (token_hash, day, name, key, value) "
+                                 f"DO UPDATE SET count = count + excluded.count, total = total + excluded.total",
+                                 (AGGREGATE, cut, AGGREGATE))
+                for table in ("usage", "events", "event_props"):
+                    n[table] = self._db.execute(f"DELETE FROM {table} WHERE {old}", (cut, AGGREGATE)).rowcount
+                n["role_usage"] = self._db.execute("DELETE FROM role_usage WHERE day < ?", (cut,)).rowcount
+                n["builds"] = self._db.execute("DELETE FROM builds WHERE created_at < ?", (t - keep * 86400,)).rowcount
+                for table in ("event_intake", "moved_usage", "lesson_puts", "alerts_sent"):
+                    n[table] = self._db.execute(f"DELETE FROM {table} WHERE day < ?", (short,)).rowcount
+                n["mints"] = self._db.execute("DELETE FROM mints WHERE hour < ?", (int(t // 3600) - 48,)).rowcount
+                n["mint_net"] = 0
+                if mint_net_days > 0:
+                    n["mint_net"] = self._db.execute("UPDATE tokens SET mint_net = NULL WHERE mint_net IS NOT NULL "
+                                                     "AND created_at < ?", (t - mint_net_days * 86400,)).rowcount
+                n["lesson_candidates"] = 0
+                if pending_max_age_s > 0:
+                    n["lesson_candidates"] = self._db.execute("DELETE FROM lesson_candidates WHERE status = 'pending' "
+                                                              "AND created_at < ?", (t - pending_max_age_s,)).rowcount
+                self._db.execute("COMMIT")
+                return n
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
 
     def usage_report(self, days: int = 30) -> dict:
         """Totals per token-hash prefix, per day, and per (day, prefix, model) for the last `days` days."""

@@ -20,6 +20,7 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `POST /v1/install` | none; 20 per network per hour and 60 per day, shared with `/v1/register`; `NEW_INSTALLS_PER_DAY` (500) in all per UTC day | What the desktop app calls. Body `{app, os, arch}` (all optional, extra fields ignored) → `{token, token_id}`. `token` is `mi_` + 32 random bytes urlsafe (46 characters); `token_id` is the first 12 hex characters of its sha256, the same id the admin views and `/admin/tokens/{prefix}/disable` use. Past the daily new-install cap: 429 `miyagi_full` (see "Install minting"). |
 | `POST /v1/register` | same limits | Older form. Body `{install_id, app_version, platform}` → `{token, token_id}`, same token shape. |
 | `POST /v1/link` | install token | Links the install to a Google-signed-in miyagi account. See "Accounts" below. |
+| `POST /v1/account/delete` | install token (+ the Supabase access token when signed in) | Deletes everything the cloud holds for the install and, signed in, for the whole account, then the Supabase auth user. See "Deleting an account". |
 | `POST /v1/anthropic/messages` (also `/v1/anthropic/v1/messages`) | install token | Messages API through our key, request body rebuilt from an allowlist (below). |
 | `POST /v1/gemini/{model}:generateContent` and `:streamGenerateContent` (also under `/v1/gemini/v1beta/models/`) | install token | **Off by default** (D1: Claude only): 403 `gemini_disabled`. With `ALLOWED_GEMINI_MODELS` set: generateContent through our key, body rebuilt from an allowlist (below). |
 | `GET /v1/lessons/{video_id}?schema=N` | install token | Shared lesson cache: an approved lesson, or 404 `lesson_not_cached` (its `error.builds` says how many free builds are left). Free. |
@@ -38,6 +39,8 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `POST /admin/lessons/{video_id}/approve` | `X-Admin-Token` | Body `{"hash": "<8+ hex of the body hash>", "schema": N?}`. Serve that candidate (replaces any approved one). |
 | `DELETE /admin/lessons/by-uploader/{prefix}` | `X-Admin-Token` | Drop every lesson one install uploaded (approved or pending). |
 | `DELETE /admin/lessons/{video_id}` | `X-Admin-Token` | Drop every candidate of a video (every schema). |
+| `GET /admin/deletions` | `X-Admin-Token` | Account deletions whose Supabase user is not deleted yet: `{pending: [{user_id, requested_day}], service_key}`. |
+| `POST /admin/deletions/retry` | `X-Admin-Token` | Retry them all (wipes again whatever the account linked since, then deletes the Supabase user). `{deleted, pending}`. |
 
 The install token is read from `Authorization: Bearer <token>`, or from `x-api-key` / `x-goog-api-key`,
 which is where the engine's Anthropic and google-genai SDKs put it. The client's headers are never
@@ -156,7 +159,7 @@ how much of it still overlaps: O(1) per key):
 | Per client IP | `RATE_LIMIT_PER_IP_PER_HOUR` | 100 | Every `/v1/*` and `/admin*` request. `/healthz` is never limited. |
 | Per install token | `RATE_LIMIT_PER_TOKEN_PER_HOUR` | 2400 | Above a normal lesson's busiest hour (scene looks alone are up to 720 an hour, plus the judge, screen picks, coach cards and events); 600 stopped real lessons. `/v1/anthropic/*`, `/v1/gemini/*`, `/v1/lessons/*`, `/v1/events`, counted per token instead of per IP, but only when the presented token (Bearer, `x-api-key` or `x-goog-api-key`) is a known, enabled one. A missing or unknown token counts against the IP, so guessing tokens is IP-limited, and a school behind one IP is not limited to 100 calls. |
 | Admin per IP | `ADMIN_RATE_LIMIT_PER_IP_PER_HOUR` | 20 | Every `/admin*` request (on top of the IP limit). |
-| Admin lockout | `ADMIN_LOCKOUT_FAILURES` | 5 | Wrong admin tokens (header or form) from one IP within an hour. Then every `/admin*` request from that IP gets 429 `admin_lockout`, the right token included, until the oldest of those failures is an hour old. Each failure logs a WARNING with the IP, never what was presented. Holds even with `RATE_LIMIT_ENABLED=0`. |
+| Admin lockout | `ADMIN_LOCKOUT_FAILURES` | 5 | Wrong admin tokens (header or form) from one IP within an hour. Then every `/admin*` request from that IP gets 429 `admin_lockout`, the right token included, until the oldest of those failures is an hour old. Each failure logs a WARNING with the network's keyed hash (`n1:...`), never the IP or what was presented. Holds even with `RATE_LIMIT_ENABLED=0`. |
 
 `RATE_LIMIT_ENABLED=1` (the default) turns the limiter on. Over a limit the answer is a 429 in `error()`'s shape:
 
@@ -216,7 +219,8 @@ Steps: deploy to staging, call `/v1/install` once from a normal connection, and 
 ### Install minting
 
 `/v1/install` and `/v1/register` mint tokens. Their limit lives in SQLite (table `mints`, per network bucket
-and clock hour, rows older than two days pruned), so a deploy does not reset it:
+and clock hour), so a deploy does not reset it. The bucket is stored as its keyed hash, never the address, and a
+row for clock hour H is deleted once the current hour passes H + 48 (at most 49 hours):
 
 | Env | Default | |
 |---|---|---|
@@ -241,7 +245,8 @@ keep working all day. Past the cap, `/v1/install` and `/v1/register` answer:
 with `retry-after` (seconds to UTC midnight) and `x-should-retry: false`. No counts: the route is public. The app
 shows the message as is (R01 step 8). The `installs_full` alert fires when the cap is reached (see "Alerts").
 
-Each token row keeps the network it was minted from (`tokens.mint_net`), and `ANON_DAILY_USD_PER_NETWORK` (5.00)
+Each anonymous token row keeps the keyed hash of the network it was minted from (`tokens.mint_net`; linking or
+deleting the install drops it, and `MINT_NET_RETAIN_DAYS` can drop it sooner), and `ANON_DAILY_USD_PER_NETWORK` (5.00)
 caps the estimated spend of every *unlinked* install minted from one network together per UTC day (429
 `miyagi_quota`, `limit: daily_spend`, `scope: network`). Without it one IPv4 address could mint 60 installs a day
 x `FREE_DAILY_USD` = $120 a day. A school behind one address shares
@@ -324,8 +329,82 @@ Verification (`supabase_auth.py`, PyJWT with the `cryptography` backend):
   Supabase Auth only; `user_metadata` is editable by the user and is never read.
 - `exp`, `iat` and `nbf` allow 30 s of clock skew (`LEEWAY_S`).
 - The access token is never logged or stored. The table `links (token_hash, user_id, linked_at)` holds the
-  result; the request log line gains `user=<user_id>` for linked installs, and `/admin/usage` `by_token` rows
-  carry `user_id` (null when unlinked).
+  result; the request log line gains `linked=1` for linked installs (never the user id), and `/admin/usage`
+  `by_token` rows carry `user_id` (null when unlinked).
+
+## Deleting an account: `POST /v1/account/delete`
+
+```
+POST /v1/account/delete
+Authorization: Bearer <mi_ install token>
+{"access_token": "<Supabase user access token (JWT)>"}    signed in
+{}                                                       signed out (an empty body or "access_token": null too)
+
+200 {"ok": true, "install": true, "account": "deleted" | "none" | "pending"}
+401 {"error": "bad_install_token"}    unknown or disabled install token; also every call after a successful one
+                                      (the token is gone): the app treats it as already deleted
+403 {"error": "bad_access_token"}     not a valid Google sign-in for this project: nothing deleted
+400 {"error": "bad_request"}          the body is not a JSON object: nothing deleted
+413                                   body over 16 KB (the /v1/link cap)
+503 {"error": "delete_unavailable"}   the JWT cannot be verified right now (no JWKS): nothing deleted, retry
+```
+
+Same install-token check, body cap and JWT verifier as `/v1/link`; rate limited per client IP like it.
+
+- Signed in: every row tied to the user id and to every install linked to it, plus the calling install, then the
+  Supabase auth user (`DELETE ${SUPABASE_URL}/auth/v1/admin/users/{id}` with `SUPABASE_SERVICE_ROLE_KEY`; a 404
+  counts as deleted). `account` is `"deleted"`.
+- Signed out: the calling install's rows only. `account` is `"none"`.
+- Without the key, or when Supabase fails: the cloud data is deleted anyway, the user id goes into
+  `deletion_requests (user_id, requested_day)`, the `account_delete_pending` alert fires (no user id in it), and
+  `account` is `"pending"`. `GET /admin/deletions` lists them, `POST /admin/deletions/retry` retries.
+
+Rows deleted: `tokens`, `links`, `usage`, `builds`, `role_usage`, `events`, `event_props`, `event_intake`,
+`lesson_puts`, the install's `alerts_sent` keys, `moved_usage` rows naming the user (`from_user`), and the
+installs' pending `lesson_candidates` with their network hash. `install_days` and `mints` hold no install or user.
+Kept, with nothing pointing back at anyone:
+
+- An approved shared lesson the install uploaded stays served: its `uploader` becomes `deleted-<random>` and its
+  network is cleared. It holds only the lesson built from a public video, reviewed by an operator, and other
+  learners use it; deleting it would make the next learner pay for a rebuild and would not remove anything about
+  the person.
+- Today's spend of the deleted installs is folded into the day's total row (`token_hash = '*'`), so the spend
+  alerts and `DAILY_USD_CAP` still see what today cost; an anonymous install's spend today also stays against its
+  mint network's hash (`moved_usage`, pruned after 2 days), so delete-and-re-mint cannot reset
+  `ANON_DAILY_USD_PER_NETWORK`. Older usage rows are deleted outright.
+
+## Data we keep
+
+The server never stores an IP address or prefix: client networks are stored only as a keyed hash
+(`n1:` + 24 hex of HMAC-SHA256 under `NET_HASH_KEY`, else a key derived from `ADMIN_TOKEN`), which groups requests
+from one network for the limits below and cannot be turned back into an address without the server's key. Databases
+from before this version are converted on startup. Per-install rows are pruned at startup and every hour
+(`PRUNE_EVERY_S`): rows older than `RETAIN_DAYS` (35, never less) are folded into per-day totals with no install
+(`token_hash = '*'`) or deleted.
+
+| Table: columns | Why | How long |
+|---|---|---|
+| `tokens`: token_hash, install_id (= the token prefix; the client's own id is not kept), app_version, platform, created_at, disabled, plan | Authenticate the install; plan and disable switch; app version and OS to know which clients still call before an API change | Until the install deletes itself (or an operator disables it) |
+| `tokens.mint_net` (keyed hash) | `ANON_DAILY_USD_PER_NETWORK`: one network cannot multiply the free cap by minting installs | While the install is anonymous: dropped on link or delete, or after `MINT_NET_RETAIN_DAYS` when set |
+| `links`: token_hash, user_id, linked_at | Per-account caps | Until account delete |
+| `usage`: token_hash, day, provider, model, requests, tokens, usd | Daily dollar caps, spend alerts, the admin view | 35 days per install, then folded into per-day totals |
+| `role_usage`: token_hash, day, role, requests | The admin view's role label | 35 days |
+| `builds`: token_hash, month, video_id, created_at | The monthly build cap; only a builder may upload that lesson | 35 days |
+| `events`, `event_props`: token_hash, day, name, (key, value), count, total | Product counts (allowlisted names and enum-like props) | 35 days per install, then folded into per-day totals |
+| `event_intake`: token_hash, day, taken | `EVENTS_PER_DAY_PER_INSTALL` | 2 days |
+| `moved_usage`: token_hash, day, from_user, from_net (keyed hash), requests, usd | Relinking cannot reset a cap | 2 days |
+| `lesson_puts`: token_hash, day, n | `LESSON_PUTS_PER_DAY` | 2 days |
+| `lesson_candidates`: video_id, schema, uploader, body, bytes, body_hash, net (keyed hash), status, created_at, hits | The shared lesson cache and its review | Pending: `LESSON_PENDING_MAX_DAYS` (14). Approved: kept; `net` cleared on approval, `uploader` scrubbed on account delete |
+| `lessons` | Legacy first-upload cache, emptied into `lesson_candidates` on startup | Empty |
+| `mints`: bucket (keyed hash), hour, n | Mint limits per network | At most 49 hours |
+| `install_days`: day, n | `NEW_INSTALLS_PER_DAY` (a count, no install) | Kept (one row a day) |
+| `alerts_sent`: day, key (`token:<prefix>` names an install) | One alert per key a day | 2 days |
+| `settings`: key, value | The runtime pause | Kept |
+| `deletion_requests`: user_id, requested_day | Finish a deletion Supabase refused | Until the Supabase user is deleted |
+
+Logs: method, path, status, latency, model, token counts, the 12-hex token-hash prefix and `linked=1`. Never a
+token, an access token, a user id, a body or an IP address. Alerts carry dollar amounts, counts and at most the
+12-hex install prefix.
 
 ## Free tier caps (ROADMAP 3.7, A01)
 
@@ -570,6 +649,8 @@ Extra top-level fields (the app sends `source`, `app`, `platform`) are ignored. 
 - `new_installs_today`, `paused` (the runtime pause), `alerts_today` (the alert keys sent today)
 - `events`: product events per UTC day and name, with how many installs sent them
 
+`/admin` also shows how many account deletions are pending (see "Deleting an account").
+
 USD is an estimate from the `PRICES` table in `app.py` (Anthropic list prices; the Gemini rows are placeholders
 to check against Google's pricing). Override or add models with
 `PRICES_JSON='{"model": [input_per_mtok, output_per_mtok]}'`.
@@ -630,6 +711,11 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `SUPABASE_URL` | `https://wssdpsdbaqtnfhoyimit.supabase.co` | JWKS URL and expected `iss` derive from it. |
 | `SUPABASE_ALLOW_HS256` | empty (off) | `1` to accept legacy HS256 tokens (needs `SUPABASE_JWT_SECRET`). |
 | `SUPABASE_JWT_SECRET` | empty | Only with `SUPABASE_ALLOW_HS256=1`. Dashboard only. |
+| `SUPABASE_SERVICE_ROLE_KEY` | empty | The Supabase secret (service_role) key: `/v1/account/delete` deletes the auth user with it. Dashboard only (`sync: false`); trimmed like the upstream keys. Unset: deletions are `"pending"`. |
+| `NET_HASH_KEY` | derived from `ADMIN_TOKEN` | The key network hashes use. Optional; changing it (or `ADMIN_TOKEN` without it) regroups networks once. |
+| `RETAIN_DAYS` | `35` | Per-install rows older than this are folded into per-day totals or deleted. Never below 35. |
+| `PRUNE_EVERY_S` | `3600` | How often the prune runs (also at startup). |
+| `MINT_NET_RETAIN_DAYS` | `0` (keep while anonymous) | Drop an anonymous install's mint network hash this many days after minting; that install is then capped per install only. |
 | `EVENTS_PER_DAY_PER_INSTALL` | `2000` | Events kept per install per UTC day. 0 = no cap. |
 | `EVENT_NAMES` | the app's 11 names | Comma-separated event names `/v1/events` counts. |
 | `EVENT_PROP_KEYS` | `kind,mode,reason,source,built_by,step_kind,level,cached,provider,model,usd,steps,minutes,seconds` | Prop keys kept (as counts or sums). |
@@ -673,6 +759,7 @@ Secrets (never in the repo; `sync: false` in `render.yaml`):
 | `DAILY_USD_CAP` | leave unset (the brake is off), or a figure far above the alert line | `sync: false`. Delete any old low value (a value of 25 left from before would stop everyone on a busy day). |
 | `ALERT_WEBHOOK_URL` | a Discord or Slack incoming-webhook URL | `sync: false`. Unset: no alerts. |
 | `SUPABASE_JWT_SECRET` | only if `SUPABASE_ALLOW_HS256=1` | Not needed: access tokens are verified against the JWKS. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase project `wssdpsdbaqtnfhoyimit` › Settings › API keys › the secret (service_role) key | `POST /v1/account/delete` deletes the Supabase auth user with it. Without it every signed-in deletion is `"pending"` (see `/admin/deletions`). |
 
 Check `ADMIN_TOKEN`: Render generates a long random value (`generateValue: true`), which passes. If someone set it
 by hand to something short, `/admin` now answers 503 and the log says why; replace it with the output of
