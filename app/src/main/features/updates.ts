@@ -2,14 +2,19 @@
  * Main-process feature: updates (agents/updates.md). Updates people never have to think about, without auto-install:
  * the app is ad-hoc signed, so electron-updater cannot swap it on the Mac. We only look, then offer the installer.
  *
- *   1. Where: updateSource() (features/updates/manifest.ts). MIYAGI_UPDATE_URL (a manifest, https) or the GitHub
- *      Releases API for MIYAGI_RELEASE_REPO (default adrian-erlikhman/miyagi, the repo ship-mac.sh publishes to), tag
- *      "mac" / "windows". MIYAGI_UPDATE_URL=off = never look.
+ *   1. Where: sourceForRun() (features/updates/manifest.ts). A packaged app: always the GitHub Releases API for the
+ *      official repo (adrian-erlikhman/miyagi, the repo ship-mac.sh publishes to), tag "mac" / "windows"; the
+ *      environment is ignored (A12, R33: a launchctl setenv must not point the check elsewhere or switch it off).
+ *      A dev run: MIYAGI_UPDATE_URL (a manifest, https; http only for localhost) or the Releases API for
+ *      MIYAGI_RELEASE_REPO; MIYAGI_UPDATE_URL=off = never look.
  *   2. When: CHECK_DELAY_MS after launch (never competes with the engine start), then every 6 h, and on wake when the
  *      last check is older than that. Only in a packaged app, unless MIYAGI_UPDATE_URL is set (dev manifests).
  *   3. What: a GET with no cookies and a generic User-Agent; nothing about the learner is sent. The answer is read with
- *      readRelease(), compared with app.getVersion() (semver), and kept only if its installer URL passes the safeOpen
- *      allowlist (github.com, miyagi.study and its subdomains such as downloads.miyagi.study).
+ *      readRelease(), compared with app.getVersion() (semver), and kept only if its installer URL is an official
+ *      release asset (R26): exactly https://github.com/adrian-erlikhman/miyagi/releases/download/<tag>/<asset> with
+ *      this platform's asset name (manifest.ts officialInstaller). Anything else: no offer, no card. In a dev run a
+ *      MIYAGI_RELEASE_REPO or MIYAGI_UPDATE_URL override changes where the metadata is read, never what may be opened.
+ *      The SHA-256 is not verified against the file yet (TODO(R26) at updates:download).
  *   4. Offer: the renderer's card (features/updates) waits until no lesson runs. Download opens the installer URL that
  *      main holds (the renderer never passes a URL). Later snoozes the card for 24 h (userData/updates.json).
  *
@@ -27,9 +32,11 @@ import { join } from 'node:path'
 import {
   CHECK_EVERY_MS,
   isNewer,
+  isOfficialInstaller,
+  OFFICIAL_RELEASE_REPO,
   readRelease,
   SNOOZE_MS,
-  updateSource,
+  sourceForRun,
   type Release,
   type UpdateOs,
   type UpdatePhase,
@@ -83,10 +90,13 @@ export default defineMainFeature({
   id: 'updates',
   setup(ctx) {
     const os: UpdateOs = process.platform === 'win32' ? 'windows' : 'mac'
-    const explicit = !!process.env.MIYAGI_UPDATE_URL?.trim()
-    const source = ctx.app.isPackaged || explicit ? updateSource(process.env, os) : undefined
+    // Packaged: always the official release source; MIYAGI_UPDATE_URL / MIYAGI_RELEASE_REPO are ignored (A12, R33: a
+    // launchctl setenv must not steer the check). Dev: only with MIYAGI_UPDATE_URL set, and then as it says.
+    const source = sourceForRun(ctx.app.isPackaged === true, process.env, os)
     const current = ctx.app.getVersion()
     const file = join(ctx.app.getPath('userData'), 'updates.json')
+    /** Openable: an official release asset for this platform (R26) AND on safeOpen's allowlist (it opens it). */
+    const trusted = (url: string): boolean => isOfficialInstaller(url, os) && isAllowedUrl(url)
     let saved = readSaved(file)
     let phase: UpdatePhase = source ? 'idle' : 'off'
     let latest: Release | undefined
@@ -131,8 +141,13 @@ export default defineMainFeature({
       const text = await res.text()
       if (text.length > MAX_BYTES) throw new Error('update check: answer too large')
       const rel = readRelease(JSON.parse(text), os, process.arch)
-      // Only an installer we would actually open (https on the allowlist) counts.
-      return rel && isAllowedUrl(rel.url) ? rel : undefined
+      // Only an official release asset counts (R26: readRelease already pins it; checked again here, where it is kept).
+      // Anything else is no offer at all: the card shows nothing.
+      if (rel && !trusted(rel.url)) {
+        console.warn(`[updates] ignored a release whose installer is not an official ${OFFICIAL_RELEASE_REPO} asset`)
+        return undefined
+      }
+      return rel
     }
 
     function check(manual: boolean): Promise<UpdateView> {
@@ -168,6 +183,19 @@ export default defineMainFeature({
     ctx.handle('updates:check', () => check(true))
     ctx.handle('updates:download', async () => {
       if (phase !== 'available' || !latest) return view()
+      // The pin once more at the moment of opening: never anything but an official asset, even if a later edit lets
+      // something else into `latest`. Refused: the offer goes away (nothing to show).
+      if (!trusted(latest.url)) {
+        console.warn('[updates] refused to open an installer that is not an official release asset')
+        latest = undefined
+        phase = 'current'
+        return publish()
+      }
+      // TODO(R26): the SHA-256 is not verified against the installer. latest.sha256 (the asset's `digest`, or a
+      // "sha256:" line) is read, but the BROWSER downloads the file, so main never holds the bytes to hash, and the
+      // digest comes from the same GitHub answer as the URL (a hijacked release would change both). R26 step 4 is the
+      // fix: a signed miyagi.study/update/latest.json (Ed25519, public key built into the app) carrying version, url
+      // and sha256, then an in-app download that hashes the file and opens it only on a match.
       const ok = await safeOpenExternal(latest.url)
       if (ok) save({ openedVersion: latest.version })
       return publish()

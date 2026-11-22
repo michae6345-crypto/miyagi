@@ -20,7 +20,7 @@
 import { create } from 'zustand'
 import { openAccount, openLogin } from '../../core/surfaces'
 import { authOn } from '../auth/model'
-import { cancelSignIn, say, useAuth } from '../auth/store'
+import { leaveSignIn, say } from '../auth/store'
 
 export type SheetKind = 'signin' | 'account' | 'signout' | 'plans'
 export const SHEET_KINDS: readonly SheetKind[] = ['signin', 'account', 'signout', 'plans']
@@ -44,7 +44,8 @@ export function openSheet(kind: SheetKind, back?: SheetKind): void {
 export function closeSheet(): void {
   if (!useSheet.getState().kind) return
   // Leaving mid-flow cancels the browser sign-in (main closes its loopback listener), as the login window does.
-  if (useAuth.getState().pending) cancelSignIn()
+  // Quietly, and also when the wait already ended but main is still listening (R20).
+  leaveSignIn()
   // An error from a failed sign-in belongs to this sheet session; reopening starts clean.
   say(undefined)
   useSheet.setState({ kind: null, back: undefined })

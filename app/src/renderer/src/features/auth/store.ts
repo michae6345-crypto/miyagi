@@ -10,7 +10,7 @@
  */
 import { create } from 'zustand'
 import { bridge } from '../../bridge'
-import { cleanUser, LEGAL, LIVE, PROVIDER_LABEL, reasonLine, type Mode, type Provider, type SignInResult, type User } from './model'
+import { BACK_LINE, CANCELLED_LINE, cleanUser, LEGAL, LIVE, PROVIDER_LABEL, reasonLine, type Mode, type Provider, type SignInResult, type User } from './model'
 
 type State = {
   phase: 'intro' | 'login'
@@ -46,6 +46,25 @@ export async function loadAuth(): Promise<void> {
 // a sign-in that happened in the login window.
 bridge.onFeature('auth:changed', (u) => useAuth.setState({ user: cleanUser(u), loaded: true }))
 
+// ---- the browser round trip (R20: a Cancel, a closed tab or a timeout never leaves the learner waiting) ----------
+/**
+ * turn: which signInWith call owns the screen. The wait can end before main answers (Cancel here, Cancel on Google's
+ * page, coming back to miyagi); bumping turn then drops that call's late failure, so it never overwrites the line
+ * shown or a newer try. A late SUCCESS still signs in (main finished a real sign-in; the tab's Try again can do that).
+ * open: auth:google calls not answered yet in this window (main may still be listening after the wait ended).
+ * away: when this window lost focus during the current wait (see the focus listeners below).
+ */
+let turn = 0
+let open = 0
+let away: number | undefined
+
+/** End the wait now with this line (undefined: no line). Main is told separately (or keeps listening on purpose). */
+function endWait(line: string | undefined): void {
+  turn++
+  useAuth.setState({ pending: undefined })
+  say(line, true)
+}
+
 export async function signInWith(p: Provider): Promise<void> {
   if (useAuth.getState().pending) return
   if (!LIVE[p]) {
@@ -53,21 +72,71 @@ export async function signInWith(p: Provider): Promise<void> {
     return
   }
   say(undefined)
+  const mine = ++turn
+  away = undefined
   useAuth.setState({ pending: p })
+  open++
   try {
     const r = await bridge.invoke<SignInResult>(`auth:${p}`, { mode: useAuth.getState().mode })
-    if (r && r.ok) useAuth.setState({ user: cleanUser(r.user) })
-    else say(reasonLine(r?.reason, r?.message), true)
+    if (r && r.ok) {
+      useAuth.setState({ user: cleanUser(r.user) })
+      say(undefined)
+    } else if (mine === turn) say(reasonLine(r?.reason, r?.message), true)
   } catch {
-    say(reasonLine(), true)
+    if (mine === turn) say(reasonLine(), true)
   } finally {
-    useAuth.setState({ pending: undefined })
+    open--
+    if (mine === turn) useAuth.setState({ pending: undefined })
   }
 }
 
-/** Stop waiting for the browser (main closes its loopback listener). */
+/** The Cancel link and Esc: the wait ends at once with a calm line (Try again under it), and main stops listening. */
 export function cancelSignIn(): void {
+  if (useAuth.getState().pending) endWait(CANCELLED_LINE)
   bridge.invoke('auth:cancel').catch(() => undefined)
+}
+
+/** A browser sign-in runs in this window, shown as waiting or not (main may still be listening after the wait ended). */
+export const signInOpen = (): boolean => !!useAuth.getState().pending || open > 0
+
+/** Leaving the login (it unmounts, its window closes): stop quietly. Nothing is left on screen for a later visit. */
+export function leaveSignIn(): void {
+  if (!signInOpen()) return
+  endWait(undefined)
+  bridge.invoke('auth:cancel').catch(() => undefined)
+}
+
+// Main tells every window when a browser attempt came back without a sign-in (feat:auth:attempt): Cancel on Google's
+// page, Google's or Supabase's error, a refused code. The window that is waiting stops at once and says why. Main keeps
+// its listener up on purpose (the tab's Try again still works; a forged error callback can't end a real sign-in), so
+// a later success there still signs in. Another try from the tab that fails again just updates the line.
+bridge.onFeature('auth:attempt', (raw) => {
+  if (!signInOpen()) return
+  const why = (raw && typeof raw === 'object' ? raw : {}) as { reason?: unknown; message?: unknown }
+  endWait(reasonLine(typeof why.reason === 'string' ? why.reason : undefined, why.message))
+})
+
+/**
+ * Closing the browser tab sends nothing back: the only sign is the learner coming back to miyagi. If this window lost
+ * focus while waiting (the browser came up) for at least AWAY_MS and then gets it back, the wait ends after BACK_MS
+ * with "Didn't finish in the browser? Try again." A real sign-in brings miyagi forward too, but its answer lands well
+ * inside BACK_MS, so it never flashes the line; one finished later in the still-open tab still signs in.
+ */
+const AWAY_MS = 2000
+const BACK_MS = 1500
+if (typeof window !== 'undefined') {
+  window.addEventListener('blur', () => {
+    if (useAuth.getState().pending) away = Date.now()
+  })
+  window.addEventListener('focus', () => {
+    const left = away
+    away = undefined
+    if (left === undefined || !useAuth.getState().pending || Date.now() - left < AWAY_MS) return
+    const mine = turn
+    setTimeout(() => {
+      if (mine === turn && useAuth.getState().pending && document.hasFocus()) endWait(BACK_LINE)
+    }, BACK_MS)
+  })
 }
 
 export function signOut(): void {
