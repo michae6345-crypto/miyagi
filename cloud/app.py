@@ -205,6 +205,15 @@ LINKED_DAILY_USD = _env_float("LINKED_DAILY_USD", 3.00)
 # far above a lesson's calls.
 FREE_DAILY_REQUESTS = _env_int("FREE_DAILY_REQUESTS", 0)
 LINKED_DAILY_REQUESTS = _env_int("LINKED_DAILY_REQUESTS", 0)
+# Tokens (input, cache reads and writes included, plus output) per linked user per UTC day, every install of theirs
+# together: a backstop under LINKED_DAILY_USD in case a price in PRICES is wrong. A heavy day of lessons is a few
+# million tokens (scene looks are ~2k-token Haiku calls, up to 720 an hour), so 20M only stops a runaway client.
+# Counted from settled usage (not reserved): parallel calls can pass it by about PER_TOKEN_INFLIGHT calls. 0 = off.
+LINKED_DAILY_TOKENS = _env_int("LINKED_DAILY_TOKENS", 20_000_000)
+# Sign-in required for model calls (default off: the app offers "Continue without an account" and the privacy policy
+# says signing in is optional). On: /v1/anthropic, /v1/gemini and POST /v1/lessons/{id}/build answer 401
+# signin_required unless the install is linked to a Supabase user (POST /v1/link). Every other route stays open.
+REQUIRE_SIGNIN = _env_bool("REQUIRE_SIGNIN", False)
 LINK_MAX_INSTALLS_PER_USER = _env_int("LINK_MAX_INSTALLS_PER_USER", 10)
 # Every anonymous install minted from one network (mint bucket: IPv4 address or IPv6 /48) together, per UTC day,
 # so minting many installs cannot multiply FREE_DAILY_USD. 0 = off.
@@ -831,6 +840,23 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     return h, None
 
 
+SIGNIN_REQUIRED = {"error": "signin_required", "message": "Sign in to keep using miyagi."}
+
+
+def authenticate_model_call(request: Request) -> tuple[str | None, JSONResponse | None]:
+    """authenticate() for the routes that spend money (/v1/anthropic, /v1/gemini, POST /v1/lessons/{id}/build). With
+    REQUIRE_SIGNIN on, an install that is not linked to a Supabase user (the links table, POST /v1/link) gets
+    401 {"error": "signin_required", ...} after the token checks (unknown 401, disabled 403) and before anything else.
+    The flat shape is the one /v1/link uses. Caution: the engine on integration/live reads every cloud 401 as an
+    unknown token and asks the app to mint a new one; it must read this error first before the flag is turned on."""
+    token_hash, denied = authenticate(request)
+    if denied:
+        return None, denied
+    if REQUIRE_SIGNIN and not request.state.linked:
+        return None, JSONResponse(SIGNIN_REQUIRED, status_code=401, headers={"x-should-retry": "false"})
+    return token_hash, None
+
+
 def _next_utc_midnight() -> datetime:
     now = datetime.now(UTC)
     return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -848,7 +874,7 @@ def _iso(t: datetime) -> str:
 def quota_error(kind: str, limit: str, used: int | float, cap: int | float, resets: datetime, message: str,
                 **extra) -> JSONResponse:
     """429 in error()'s shape plus what the app needs to show it: `limit` (lesson_builds | daily_requests |
-    daily_spend | daily_usd | lesson_uploads), `used`, `cap` and `resets_at`. `x-should-retry: false`
+    daily_spend | daily_usd | lesson_uploads | user_daily_cap), `used`, `cap` and `resets_at`. `x-should-retry: false`
     stops the SDKs' automatic retries. The engine reads type `miyagi_quota` (server/config.py CLOUD_ERRORS) and
     `miyagi_lesson_quota` (lesson cache)."""
     body = {"type": "error", "error": {"type": kind, "status": kind.upper(), "code": 429, "message": message,
@@ -874,12 +900,17 @@ def _caps(token_hash: str) -> dict:
     row = store.get_token(token_hash) or {}
     none = {"net": None, "net_usd_cap": 0.0}
     if row.get("plan") == "pro":
-        return {"daily_cap": 0, "usd_cap": 0.0, "user_id": None, **none}
+        return {"daily_cap": 0, "usd_cap": 0.0, "token_cap": 0, "user_id": None, **none}
     link = store.get_link(token_hash)
     if link:
-        return {"daily_cap": LINKED_DAILY_REQUESTS, "usd_cap": LINKED_DAILY_USD, "user_id": link["user_id"], **none}
-    return {"daily_cap": FREE_DAILY_REQUESTS, "usd_cap": FREE_DAILY_USD, "user_id": None,
+        return {"daily_cap": LINKED_DAILY_REQUESTS, "usd_cap": LINKED_DAILY_USD, "token_cap": LINKED_DAILY_TOKENS,
+                "user_id": link["user_id"], **none}
+    return {"daily_cap": FREE_DAILY_REQUESTS, "usd_cap": FREE_DAILY_USD, "token_cap": 0, "user_id": None,
             "net": row.get("mint_net"), "net_usd_cap": ANON_DAILY_USD_PER_NETWORK}
+
+
+USER_DAILY_CAP_MESSAGE = "You've used today's free help. It resets at midnight UTC."
+_USER_CAP_UNIT = {"daily": "requests", "usd": "usd", "tokens": "tokens"}
 
 
 def check_quota(token_hash: str, role: str | None, provider: str, model: str, reserve_usd: float = 0.0,
@@ -889,16 +920,24 @@ def check_quota(token_hash: str, role: str | None, provider: str, model: str, re
     so parallel calls cannot overshoot them. `role` is recorded as a label only.
 
     1. DAILY_USD_CAP, the global abuse brake (off by default): every install together, pro included.
-    2. Every call whatever its role: anonymous installs FREE_DAILY_USD each; linked installs LINKED_DAILY_USD per
-       Supabase user, all their installs together. Pro: none. (FREE_DAILY_REQUESTS / LINKED_DAILY_REQUESTS: optional
-       request counts on the same scopes, off by default.)
+    2. Every call whatever its role: anonymous installs FREE_DAILY_USD each; linked installs LINKED_DAILY_USD and
+       LINKED_DAILY_TOKENS per Supabase user, all their installs together. Pro: none. (FREE_DAILY_REQUESTS /
+       LINKED_DAILY_REQUESTS: optional request counts on the same scopes, off by default.)
     3. Anonymous installs: ANON_DAILY_USD_PER_NETWORK for every unlinked install minted from the same network.
-    The lesson build cap lives on POST /v1/lessons/{id}/build, the new-install cap on POST /v1/install."""
+    The lesson build cap lives on POST /v1/lessons/{id}/build, the new-install cap on POST /v1/install.
+
+    A linked user's caps answer limit "user_daily_cap" (unit usd | tokens | requests, scope account) with the
+    "today's free help" message; the type stays miyagi_quota, which is what the engine shows its limit card for."""
     c = _caps(token_hash)
     hit, used, cap = store.admit_call(token_hash, provider, model, role, c["daily_cap"], usd_cap=c["usd_cap"],
                                       user_id=c["user_id"], global_usd_cap=DAILY_USD_CAP, reserve_usd=reserve_usd,
-                                      net=c["net"], net_usd_cap=c["net_usd_cap"], dry_run=dry_run)
+                                      net=c["net"], net_usd_cap=c["net_usd_cap"], token_cap=c["token_cap"],
+                                      dry_run=dry_run)
     scope = "account" if c["user_id"] else "install"
+    if c["user_id"] and hit in _USER_CAP_UNIT:
+        unit = _USER_CAP_UNIT[hit]
+        return quota_error("miyagi_quota", "user_daily_cap", round(used, 4) if unit == "usd" else int(used), cap,
+                           _next_utc_midnight(), USER_DAILY_CAP_MESSAGE, scope="account", unit=unit)
     if hit == "global_usd":
         log.warning("daily USD brake reached: est. $%.2f of $%.2f", used, DAILY_USD_CAP)
         alert("brake", f"miyagi-cloud: the global spend brake (DAILY_USD_CAP ${DAILY_USD_CAP:.2f}) is reached at est. "
@@ -2070,7 +2109,7 @@ async def healthz():
         db_ok = False
     paused = runtime_paused() if db_ok else False
     return {"ok": True, "version": VERSION, "commit": DEPLOYED_COMMIT, "proxy_enabled": PROXY_ENABLED and not paused,
-            "paused": paused, "db_ok": db_ok, "gemini_enabled": bool(ALLOWED_GEMINI),
+            "paused": paused, "db_ok": db_ok, "gemini_enabled": bool(ALLOWED_GEMINI), "require_signin": REQUIRE_SIGNIN,
             "keys_configured": {"anthropic": bool(ANTHROPIC_KEY), "gemini": bool(GEMINI_KEY)}}
 
 
@@ -2256,7 +2295,7 @@ async def account_delete(request: Request):
 @app.post("/v1/anthropic/messages")
 @app.post("/v1/anthropic/v1/messages")  # so the Anthropic SDK works with base_url=<proxy>/v1/anthropic
 async def anthropic_messages(request: Request):
-    token_hash, denied = authenticate(request)
+    token_hash, denied = authenticate_model_call(request)
     if denied:
         return denied
     if not ANTHROPIC_KEY:
@@ -2315,7 +2354,7 @@ _GEMINI_MODEL_RE = re.compile(r"[a-z0-9][a-z0-9.\-]{0,63}")
 @app.post("/v1/gemini/{target}")
 @app.post("/v1/gemini/v1beta/models/{target}")  # so google-genai works with base_url=<proxy>/v1/gemini
 async def gemini(target: str, request: Request):
-    token_hash, denied = authenticate(request)
+    token_hash, denied = authenticate_model_call(request)
     if denied:
         return denied
     if not ALLOWED_GEMINI:
@@ -2613,11 +2652,19 @@ def lesson_disk_full() -> bool:
     return u.total > 0 and u.used * 100 / u.total > LESSON_DISK_MAX_PCT
 
 
-def _build_quota(token_hash: str) -> dict:
-    """This install's new-lesson builds this month. cap 0 means no cap (the pro plan, or the cap turned off)."""
+def _build_user(token_hash: str) -> str | None:
+    """The Supabase user whose builds this install's count with (None: anonymous, the install's own count)."""
+    link = store.get_link(token_hash)
+    return link["user_id"] if link else None
+
+
+def _build_quota(token_hash: str, user_id: str | None = None) -> dict:
+    """New-lesson builds this month: this install's, or with `user_id` every install linked to that user together
+    (distinct videos). cap 0 means no cap (the pro plan, or the cap turned off)."""
     row = store.get_token(token_hash) or {}
     cap = 0 if row.get("plan") == "pro" else max(FREE_LESSON_BUILDS_PER_MONTH, 0)
-    return {"used": store.builds_in_month(token_hash), "cap": cap, "month": this_month(), "resets_at": _iso(_next_utc_month())}
+    return {"used": store.builds_in_month(token_hash, user_id=user_id), "cap": cap, "month": this_month(),
+            "resets_at": _iso(_next_utc_month())}
 
 
 @app.get("/v1/lessons/{video_id}")
@@ -2634,7 +2681,7 @@ async def get_lesson(video_id: str, request: Request):
     if row is None:
         body = {"type": "error", "error": {"type": "lesson_not_cached", "status": "LESSON_NOT_CACHED", "code": 404,
                                            "message": "No shared lesson for this video yet.",
-                                           "builds": _build_quota(token_hash)}}  # so the app can say how many are left
+                                           "builds": _build_quota(token_hash, _build_user(token_hash))}}  # builds left
         return JSONResponse(body, status_code=404)
     request.state.model = "lesson-cache"
     # the stored body is a validated JSON object: splice it in rather than parse and re-encode it
@@ -2644,14 +2691,16 @@ async def get_lesson(video_id: str, request: Request):
 
 @app.post("/v1/lessons/{video_id}/build")
 async def claim_lesson_build(video_id: str, request: Request):
-    """Use one of this month's new-lesson builds for `video_id` (free for a video already claimed this month)."""
-    token_hash, denied = authenticate(request)
+    """Use one of this month's new-lesson builds for `video_id` (free for a video already claimed this month). The
+    gate to the expensive build calls, so it needs a sign-in when REQUIRE_SIGNIN is on."""
+    token_hash, denied = authenticate_model_call(request)
     if denied:
         return denied
     if not VIDEO_ID_RE.fullmatch(video_id):
         return error(400, "invalid_request_error", _BAD_VIDEO_ID)
-    quota = _build_quota(token_hash)
-    ok, used = store.claim_build(token_hash, video_id, quota["cap"])
+    user_id = _build_user(token_hash)
+    quota = _build_quota(token_hash, user_id)
+    ok, used = store.claim_build(token_hash, video_id, quota["cap"], user_id=user_id)
     if not ok:
         return quota_error("miyagi_lesson_quota", "lesson_builds", used, quota["cap"], _next_utc_month(),
                            f"You've built your {quota['cap']} free lessons this month. "

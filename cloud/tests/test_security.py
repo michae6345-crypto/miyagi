@@ -108,7 +108,8 @@ def test_linked_caps_count_every_install_of_the_user(make_cloud):
         app_mod.store.link_user(app_mod.hash_token(h["Authorization"][7:]), "user-1")
     assert [anthropic(client, h, role=None).status_code for h in (a, b, a)] == [502] * 3
     r = anthropic(client, b, role=None)
-    assert r.status_code == 429 and r.json()["error"]["limit"] == "daily_requests" and r.json()["error"]["scope"] == "account"
+    err = r.json()["error"]
+    assert r.status_code == 429 and err["limit"] == "user_daily_cap" and err["unit"] == "requests" and err["scope"] == "account"
     assert anthropic(client, loner, role=None).status_code == 502  # unlinked: its own anonymous cap
 
 

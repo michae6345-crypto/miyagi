@@ -118,6 +118,13 @@ services:
         value: "0"
       - key: LINKED_DAILY_REQUESTS
         value: "0"
+      - key: LINKED_DAILY_TOKENS   # per signed-in user per UTC day (input + output): a backstop under LINKED_DAILY_USD
+        value: "20000000"
+      # Sign-in required for model calls. "1" breaks "Continue without an account" in the app and contradicts the
+      # privacy policy (signing in is optional): turn it on only with Michael's yes, an app/engine that handles
+      # 401 signin_required, and an updated policy.
+      - key: REQUIRE_SIGNIN
+        value: "0"
       - key: FREE_LESSON_BUILDS_PER_MONTH
         value: "3"
       - key: NEW_INSTALLS_PER_DAY  # new installs per UTC day, every network; past it "miyagi is full today" (D13)

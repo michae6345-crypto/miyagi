@@ -531,28 +531,41 @@ class Store:
                 raise
 
     # lesson build quota ----------------------------------------------------
-    def builds_in_month(self, token_hash: str, month: str | None = None) -> int:
-        rows = self._q("SELECT COUNT(*) AS n FROM builds WHERE token_hash = ? AND month = ?", (token_hash, month or this_month()))
+    def builds_in_month(self, token_hash: str, month: str | None = None, user_id: str | None = None) -> int:
+        """Distinct videos claimed this month by this install, or with `user_id` by every install linked to that user."""
+        scope, arg = self._build_scope(token_hash, user_id)
+        rows = self._q(f"SELECT COUNT(DISTINCT video_id) AS n FROM builds WHERE month = ? AND {scope}", (month or this_month(), arg))
         return int(rows[0]["n"])
+
+    @staticmethod
+    def _build_scope(token_hash: str, user_id: str | None) -> tuple[str, str]:
+        if user_id:
+            return "token_hash IN (SELECT token_hash FROM links WHERE user_id = ?)", user_id
+        return "token_hash = ?", token_hash
 
     def has_build(self, token_hash: str, video_id: str) -> bool:
         """This install claimed a build of this video (any month)."""
         return bool(self._q("SELECT 1 FROM builds WHERE token_hash = ? AND video_id = ? LIMIT 1", (token_hash, video_id)))
 
-    def claim_build(self, token_hash: str, video_id: str, cap: int) -> tuple[bool, int]:
-        """Use one of this month's builds for `video_id`, atomically. A video already claimed this month is free.
-        cap <= 0 means no cap. Returns (allowed, builds used this month after the call)."""
+    def claim_build(self, token_hash: str, video_id: str, cap: int, user_id: str | None = None) -> tuple[bool, int]:
+        """Use one of this month's builds for `video_id`, atomically. cap <= 0 means no cap. Returns (allowed, builds
+        used this month after the call). Counted per install, or with `user_id` per user: distinct videos claimed by
+        every install linked to that user, so linking more Macs does not multiply the cap. A video already claimed this
+        month in that scope is free (another of the user's installs gets its own row, which PUT needs)."""
         month = this_month()
+        scope, arg = self._build_scope(token_hash, user_id)
         with self._lock:
-            n = self._db.execute("SELECT COUNT(*) FROM builds WHERE token_hash = ? AND month = ?", (token_hash, month)).fetchone()[0]
+            n = self._db.execute(f"SELECT COUNT(DISTINCT video_id) FROM builds WHERE month = ? AND {scope}", (month, arg)).fetchone()[0]
             if self._db.execute("SELECT 1 FROM builds WHERE token_hash = ? AND month = ? AND video_id = ?",
                                 (token_hash, month, video_id)).fetchone():
                 return True, n
-            if cap > 0 and n >= cap:
+            claimed = self._db.execute(f"SELECT 1 FROM builds WHERE month = ? AND video_id = ? AND {scope}",
+                                       (month, video_id, arg)).fetchone()
+            if not claimed and cap > 0 and n >= cap:
                 return False, n
             self._db.execute("INSERT INTO builds (token_hash, month, video_id, created_at) VALUES (?, ?, ?, ?)",
                              (token_hash, month, video_id, time.time()))
-            return True, n + 1
+            return True, n if claimed else n + 1
 
     # per-role daily requests ------------------------------------------------
     def count_role(self, token_hash: str, role: str) -> None:
@@ -566,7 +579,8 @@ class Store:
     # admission: caps checked and counted in one step -------------------------
     def admit_call(self, token_hash: str, provider: str, model: str, role: str | None, daily_cap: int = 0, *,
                    usd_cap: float = 0.0, user_id: str | None = None, global_usd_cap: float = 0.0, reserve_usd: float = 0.0,
-                   net: str | None = None, net_usd_cap: float = 0.0, dry_run: bool = False) -> tuple[str | None, float, float]:
+                   net: str | None = None, net_usd_cap: float = 0.0, token_cap: int = 0,
+                   dry_run: bool = False) -> tuple[str | None, float, float]:
         """Count one forwarded AI call unless a cap is reached, and reserve its estimated cost. Check, count and
         reserve happen under one lock and one transaction, so parallel calls cannot all slip in under a cap.
 
@@ -577,11 +591,14 @@ class Store:
         global_usd_cap: every install together per UTC day, reservations included (0 = none: the abuse brake).
         daily_cap / usd_cap: calls / estimated USD per UTC day (0 = none), for this install, or with `user_id` for
         every install linked to that user together.
+        token_cap: settled tokens (input, cache included, plus output) per UTC day on the same scope (0 = none). Tokens
+        are written when a call settles, not reserved, so parallel calls can pass it by the calls in flight.
         net / net_usd_cap: estimated USD per UTC day of every unlinked install minted from network `net` together
         (0 or no net = none); the caller passes them for anonymous installs only.
         reserve_usd is added to this call's usage row now; settle() swaps it for the real cost when the call ends.
         dry_run: check only, count nothing.
-        Returns (None, 0, 0) when admitted, else (the cap hit: "global_usd" | "daily" | "usd" | "net_usd", used, cap)
+        Returns (None, 0, 0) when admitted, else (the cap hit: "global_usd" | "daily" | "usd" | "tokens" | "net_usd",
+        used, cap)
         with nothing counted."""
         day = today()
         net = self.hash_net(net)
@@ -594,13 +611,15 @@ class Store:
                     if spent >= global_usd_cap or spent + reserve_usd > global_usd_cap:
                         self._db.execute("ROLLBACK")
                         return "global_usd", spent, global_usd_cap
-                if daily_cap > 0 or usd_cap > 0:
+                if daily_cap > 0 or usd_cap > 0 or token_cap > 0:
                     if user_id:
                         scope, arg = "token_hash IN (SELECT token_hash FROM links WHERE user_id = ?)", user_id
                     else:
                         scope, arg = "token_hash = ?", token_hash
-                    reqs, usd = self._db.execute(f"SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM usage "
-                                                 f"WHERE day = ? AND {scope}", (day, arg)).fetchone()
+                    reqs, usd, toks = self._db.execute(
+                        f"SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0), "
+                        f"COALESCE(SUM(input_tokens + output_tokens), 0) FROM usage WHERE day = ? AND {scope}",
+                        (day, arg)).fetchone()
                     if user_id:  # what installs relinked away from this user had used today
                         mr, mu = self._db.execute("SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM moved_usage "
                                                   "WHERE day = ? AND from_user = ?", (day, user_id)).fetchone()
@@ -611,6 +630,9 @@ class Store:
                     if usd_cap > 0 and (float(usd) >= usd_cap or float(usd) + reserve_usd > usd_cap):
                         self._db.execute("ROLLBACK")
                         return "usd", float(usd), usd_cap
+                    if token_cap > 0 and int(toks) >= token_cap:
+                        self._db.execute("ROLLBACK")
+                        return "tokens", int(toks), token_cap
                 if net and net_usd_cap > 0:
                     net_usd = float(self._db.execute(
                         "SELECT COALESCE(SUM(u.usd), 0) FROM usage u JOIN tokens t ON t.token_hash = u.token_hash "
