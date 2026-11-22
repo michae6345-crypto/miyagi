@@ -197,7 +197,7 @@ export function Login({ onContinue }: { onContinue?: () => void } = {}): ReactNo
           {user ? "You're signed in" : `Sign in to ${copy.name}`}
         </h1>
         <p className="m-0 mt-[8px] text-center" style={{ fontSize: type2.body, lineHeight: '22px', color: color.label }}>
-          Your lessons and progress follow you to any Mac.
+          Your lessons and progress follow you to any computer.
         </p>
 
         <div className="mt-[32px] flex w-full flex-col items-center">

@@ -7,15 +7,23 @@
  *   3 companion      VS Code companion  (Install in VS Code; Get VS Code or Skip when VS Code isn't on this Mac)
  *   4 engine         engine + cloud     (nothing to click: it advances on its own once it is green)
  *
- * The step list never changes length (stable steps): when the engine has no companion probe yet the companion step
- * reads Checking, and Not sure yet (with Continue) when this engine can't tell at all.
+ * The step list never changes length on one computer (stable steps): when the engine has no companion probe yet the
+ * companion step reads Checking, and Not sure yet (with Continue) when this engine can't tell at all.
+ * Windows (device.ts): Screen Recording and Accessibility are macOS grants, so a PC walks two steps, VS Code then the
+ * engine. Same screens, same order, same copy otherwise.
  * Copy: short, calm, no em dashes, the brand lowercase. VS Code is the one editor miyagi names.
  */
 import { Code, Monitor, MousePointer2, Settings2, type LucideIcon } from 'lucide-react'
+import { needsGrants, osNow, type Os } from './device'
 import type { Row, RowId } from './rows'
 
 export type StepId = RowId
 export const STEP_ORDER: readonly StepId[] = ['screen', 'accessibility', 'companion', 'engine']
+
+/** The steps this computer walks: all four on a Mac, VS Code and the engine on Windows. */
+export function stepOrder(os: Os = osNow()): readonly StepId[] {
+  return needsGrants(os) ? STEP_ORDER : STEP_ORDER.filter((id) => id !== 'screen' && id !== 'accessibility')
+}
 
 export type StepCopy = { title: string; body: string; icon: LucideIcon; short: string }
 
@@ -33,9 +41,9 @@ export function companionPlaceholder(canAsk: boolean): Row {
     : { id: 'companion', label: 'VS Code companion', why: STEP_COPY.companion.body, state: 'unknown', word: 'Not sure yet', detail: "miyagi can't check this from here." }
 }
 
-/** The four steps in order: the live row for each, the placeholder for a companion the engine hasn't reported. */
-export function guidedRows(rows: Row[], canAskHealth: boolean): Row[] {
-  return STEP_ORDER.map((id) => rows.find((r) => r.id === id) ?? companionPlaceholder(canAskHealth))
+/** This computer's steps in order: the live row for each, the placeholder for a companion the engine hasn't reported. */
+export function guidedRows(rows: Row[], canAskHealth: boolean, os: Os = osNow()): Row[] {
+  return stepOrder(os).map((id) => rows.find((r) => r.id === id) ?? companionPlaceholder(canAskHealth))
 }
 
 /** Done for the walk: green, or skipped by the learner (the companion only). */
@@ -69,7 +77,7 @@ export function statusLine(row: Row): string {
   return row.detail.replace(/^(Not yet|Watching)\. /, '')
 }
 
-/** The companion can be skipped only when VS Code itself isn't on this Mac (Not sure yet already offers Continue). */
+/** The companion can be skipped only when VS Code itself isn't on this computer (Not sure yet already offers Continue). */
 export function canSkip(row: Row): boolean {
   return row.id === 'companion' && row.state !== 'passed' && row.action?.id === 'get-vscode'
 }

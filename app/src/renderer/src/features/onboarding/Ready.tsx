@@ -13,6 +13,7 @@ import { PrimaryButton } from '../../core/ui/buttons'
 import { QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { startTour } from '../tips/tourStore'
+import { thisDevice } from './device'
 import { LauncherHint, rise, stagger } from './parts'
 import type { Row as RowData, Summary } from './rows'
 import { startLearning } from './store'
@@ -43,7 +44,7 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
           You&apos;re ready
         </motion.h1>
         <motion.p variants={rise} className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }}>
-          miyagi is set up on this Mac.
+          miyagi is set up on {thisDevice()}.
         </motion.p>
         {!again && (
           <motion.button

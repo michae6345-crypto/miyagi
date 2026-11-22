@@ -16,6 +16,7 @@ import { useLesson } from '../../core/lesson'
 import { color, fill, radius2, spring, surface, type2 } from '../../core/theme'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
+import { osNow, shellName, thisDevice } from './device'
 import type { Row } from './rows'
 import { useOnboarding } from './store'
 import { fade } from '../../core/ui/motion'
@@ -130,17 +131,21 @@ type Part = { id: string; label: string; state: StatusState; word: string }
 function useEngineParts(row: Row): Part[] {
   const l = useLesson(useShallow((s) => ({ connected: s.connected, local: s.localEngine?.state })))
   const cloud = useOnboarding((s) => s.cloud)
+  // "this Mac" / "this PC" (device.ts). Windows ships no engine yet: a missing one there is gray, not a failure.
+  const here = thisDevice()
+  const win = osNow() === 'win'
+  const label = `Engine on ${here}`
   const engine: Part = l.connected
-    ? { id: 'engine', label: 'Engine on this Mac', state: 'passed', word: l.local === 'external' ? 'In Terminal' : 'Running' }
+    ? { id: 'engine', label, state: 'passed', word: l.local === 'external' ? `In ${shellName()}` : 'Running' }
     : l.local === 'failed' || l.local === 'missing'
-      ? { id: 'engine', label: 'Engine on this Mac', state: 'notyet', word: 'Not yet' }
-      : { id: 'engine', label: 'Engine on this Mac', state: 'watching', word: l.local === 'external' ? 'Waiting' : 'Starting' }
+      ? { id: 'engine', label, state: win ? 'unknown' : 'notyet', word: win ? 'Not running' : 'Not yet' }
+      : { id: 'engine', label, state: 'watching', word: l.local === 'external' ? 'Waiting' : 'Starting' }
   const parts = [engine]
   if (cloud?.configured || (cloud && cloud.state !== 'off')) {
     const c = cloud.state
     const state: StatusState = !l.connected ? 'next' : c === 'minting' ? 'checking' : c === 'failed' ? 'notyet' : row.state === 'passed' ? 'passed' : row.state === 'notyet' ? 'notyet' : 'checking'
     const word = state === 'passed' ? 'Ready' : state === 'checking' ? 'Setting up' : state === 'next' ? 'Next' : 'Not yet'
-    parts.push({ id: 'cloud', label: 'Access for this Mac', state, word })
+    parts.push({ id: 'cloud', label: `Access for ${here}`, state, word })
   }
   return parts
 }
