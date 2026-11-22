@@ -22,7 +22,15 @@ const STAGE_ITEMS: LibraryItem[] = [
   { id: 'stage_plot', title: 'Plot your data with matplotlib', by: '[CREATOR NAME]', steps: 6, estMinutes: 15, tools: ['jupyter'], ready: true },
   { id: 'stage_func', title: 'Write your first Python function', by: '[CREATOR NAME]', steps: 4, estMinutes: 10, tools: ['vscode'], ready: true }
 ]
-const STAGE_STEPS = ['Open the project', 'Set things up', 'Write the first part', 'Run it', 'Read the output', 'Change one thing', 'Try it on new input']
+const STAGE_STEPS: [string, string][] = [
+  ['Open the project', 'Start in the folder you will work in'],
+  ['Set things up', 'Install what the lesson needs'],
+  ['Write the first part', 'Type the opening lines'],
+  ['Run it', 'See it work once'],
+  ['Read the output', 'Match each line to its code'],
+  ['Change one thing', 'Edit a value and run it again'],
+  ['Try it on new input', 'Feed it something fresh']
+]
 
 function stageDetail(id: string): LibraryDetail | undefined {
   const item = STAGE_ITEMS.find((i) => i.id === id)
@@ -30,7 +38,7 @@ function stageDetail(id: string): LibraryDetail | undefined {
   return {
     item,
     overview: 'Follow the video one step at a time. miyagi checks each step you run.',
-    steps: STAGE_STEPS.slice(0, item.steps).map((title, index) => ({ index, title }))
+    steps: STAGE_STEPS.slice(0, item.steps).map(([title, what], index) => ({ index, title, what, estMinutes: 3 }))
   }
 }
 

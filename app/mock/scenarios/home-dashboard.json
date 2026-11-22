@@ -12,7 +12,9 @@
   "library.start:hd_pandas": "hd_start_pandas",
   "library.start:hd_venv": "hd_start_venv",
   "library.start:hd_plot": "hd_start_plot",
-  "library.start:hd_cnn": "hd_start_cnn"
+  "library.start:hd_cnn": "hd_start_cnn",
+  "library.get:hd_mnist": "hd_get_mnist",
+  "library.get:hd_pandas": "hd_get_pandas"
  },
  "segments": {
   "step_hd": [
@@ -921,7 +923,7 @@
      "id": "hd_v1",
      "kind": "video",
      "title": "Pandas groupby, step by step",
-     "meta": "Video \u00b7 Example Channel \u00b7 18:20",
+     "meta": "Video · Example Channel · 18:20",
      "score": 0.93,
      "reason": "Best tutorial"
     }
@@ -933,7 +935,7 @@
      "id": "hd_v2",
      "kind": "video",
      "title": "Group and aggregate data in pandas",
-     "meta": "Video \u00b7 Example Channel \u00b7 12:05",
+     "meta": "Video · Example Channel · 12:05",
      "score": 0.84
     }
    },
@@ -944,7 +946,7 @@
      "id": "hd_v3",
      "kind": "video",
      "title": "Split, apply, combine with pandas",
-     "meta": "Video \u00b7 Example Channel \u00b7 22:41",
+     "meta": "Video · Example Channel · 22:41",
      "score": 0.78
     }
    },
@@ -1158,6 +1160,137 @@
     "type": "status",
     "payload": {
      "state": "watching"
+    }
+   }
+  ],
+  "hd_get_mnist": [
+   {
+    "wait": 120,
+    "type": "library.item",
+    "payload": {
+     "item": {
+      "id": "hd_mnist",
+      "title": "Code your first neural network with TensorFlow",
+      "steps": 7,
+      "estMinutes": 25,
+      "tools": [
+       "jupyter",
+       "vscode"
+      ],
+      "ready": true,
+      "progress": {
+       "stepIndex": 3,
+       "stepTitle": "Train it",
+       "total": 7
+      }
+     },
+     "overview": "Build a small neural network that reads handwritten digits, one checked step at a time.",
+     "steps": [
+      {
+       "index": 0,
+       "title": "Open a notebook",
+       "what": "Start a fresh Jupyter notebook in your folder",
+       "estMinutes": 2
+      },
+      {
+       "index": 1,
+       "title": "Load the digits",
+       "what": "Read the MNIST images into arrays",
+       "estMinutes": 3
+      },
+      {
+       "index": 2,
+       "title": "Shape the data",
+       "what": "Scale pixels to 0 to 1 and flatten",
+       "estMinutes": 3
+      },
+      {
+       "index": 3,
+       "title": "Build the model",
+       "what": "Stack two dense layers",
+       "estMinutes": 4
+      },
+      {
+       "index": 4,
+       "title": "Train it",
+       "what": "Fit the model for five passes",
+       "estMinutes": 5
+      },
+      {
+       "index": 5,
+       "title": "Check accuracy",
+       "what": "Score it on images it has not seen",
+       "estMinutes": 4
+      },
+      {
+       "index": 6,
+       "title": "Try your own digit",
+       "what": "Draw one and see what it guesses",
+       "estMinutes": 4
+      }
+     ]
+    }
+   }
+  ],
+  "hd_get_pandas": [
+   {
+    "wait": 120,
+    "type": "library.item",
+    "payload": {
+     "item": {
+      "id": "hd_pandas",
+      "title": "Clean a CSV with pandas",
+      "steps": 6,
+      "estMinutes": 20,
+      "tools": [
+       "jupyter"
+      ],
+      "ready": true,
+      "progress": {
+       "stepIndex": 2,
+       "stepTitle": "Drop the empty rows",
+       "total": 6
+      }
+     },
+     "overview": "Clean a messy CSV with pandas, one checked step at a time.",
+     "steps": [
+      {
+       "index": 0,
+       "title": "Open the file",
+       "what": "Read the CSV into a table",
+       "estMinutes": 3
+      },
+      {
+       "index": 1,
+       "title": "Look at the shape",
+       "what": "Count rows and columns",
+       "estMinutes": 2
+      },
+      {
+       "index": 2,
+       "title": "Find the gaps",
+       "what": "List columns with empty cells",
+       "estMinutes": 3
+      },
+      {
+       "index": 3,
+       "title": "Drop the empty rows",
+       "what": "Remove rows missing a value",
+       "estMinutes": 4
+      },
+      {
+       "index": 4,
+       "title": "Fix the types",
+       "what": "Turn text dates into real dates",
+       "estMinutes": 4
+      },
+      {
+       "index": 5,
+       "title": "Save the clean file",
+       "what": "Write the cleaned CSV back out",
+       "estMinutes": 4
+      }
+     ]
     }
    }
   ]

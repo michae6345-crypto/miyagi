@@ -7,12 +7,13 @@
  * step shows its minutes when the engine sends them.
  */
 import { ChevronLeft, Play } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { color, copy, fill, font, radius2, surface, type2 } from '../../core/theme'
 import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, minutesLabel, soft, stepsLabel } from './parts'
+import { foldLabel, previewSteps } from './stepsPreview'
 import { closeDetail, itemFor, start, useLibrary } from './store'
 import { thisDevice } from '../onboarding/device'
 
@@ -51,6 +52,9 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
   const loaded = useLibrary((s) => s.loaded)
   const ready = !!item?.ready && canStart
   const busy = starting === id
+  // The step preview folds after a few rows; a different lesson starts folded again.
+  const [open, setOpen] = useState<{ id: string; all: boolean }>({ id, all: false })
+  const expanded = open.id === id && open.all
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -99,6 +103,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
   const steps = detail?.steps ?? []
   // Once a step list came back, its length is the count (the page never says 7 steps above 3 rows).
   const stepCount = steps.length || item.steps
+  const shown = previewSteps(steps, expanded)
   const mins = minutesLabel(item.estMinutes)
   const src = item.source
   const by = src?.channel ?? item.by
@@ -145,19 +150,37 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
             {stepCount ? stepsLabel(stepCount) : 'Steps'}
           </h2>
           {steps.length > 0 ? (
-            <ol className="m-0 list-none p-0">
-              {steps.map((st, i) => (
-                <li key={`${st.index}-${i}`} className="flex items-center gap-[14px]" style={{ height: 48, borderBottom: i === steps.length - 1 ? 'none' : `1px solid ${fill.hairline}` }}>
-                  <span className="w-[20px] shrink-0 text-right tabular-nums" style={{ fontSize: type2.sm, color: color.label }}>
-                    {i + 1}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate" style={{ fontSize: type2.md }}>
-                    {st.title}
-                  </span>
-                  {st.estMinutes ? <span style={{ fontSize: type2.xs, color: color.label, fontFamily: font.mono }}>{st.estMinutes} min</span> : null}
-                </li>
-              ))}
-            </ol>
+            <>
+              <ol className="m-0 list-none p-0" aria-label="Steps">
+                {shown.rows.map((st, i) => (
+                  <li key={`${st.index}-${i}`} className="flex items-start gap-[14px]" style={{ minHeight: 48, padding: '12px 0', borderBottom: i === shown.rows.length - 1 && !shown.hidden ? 'none' : `1px solid ${fill.hairline}` }}>
+                    <span className="w-[20px] shrink-0 text-right tabular-nums" style={{ fontSize: type2.sm, lineHeight: '22px', color: color.label }}>
+                      {i + 1}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-[2px]">
+                      <span className="truncate" style={{ fontSize: type2.md, lineHeight: '22px' }}>
+                        {st.title}
+                      </span>
+                      {st.what && st.what !== st.title && (
+                        <span style={{ fontSize: type2.sm, lineHeight: 1.4, color: color.label }}>{st.what}</span>
+                      )}
+                    </span>
+                    {st.estMinutes ? <span style={{ fontSize: type2.xs, lineHeight: '22px', color: color.label, fontFamily: font.mono }}>{st.estMinutes} min</span> : null}
+                  </li>
+                ))}
+              </ol>
+              {steps.length > shown.rows.length || expanded ? (
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() => setOpen({ id, all: !expanded })}
+                  className="cursor-pointer self-start outline-offset-1 transition-colors hover:bg-[var(--s-row-hover)] focus-visible:outline-2 focus-visible:outline-solid"
+                  style={{ marginTop: 8, marginLeft: 30, height: 30, padding: '0 10px', borderRadius: radius2.control, color: color.label, fontSize: type2.sm, outlineColor: color.text }}
+                >
+                  {foldLabel(steps.length, expanded)}
+                </button>
+              ) : null}
+            </>
           ) : (
             <p className="m-0" style={{ fontSize: type2.sm, lineHeight: 1.5, color: color.label, maxWidth: 520 }}>
               {detail === undefined ? (failed ? `The steps show once ${copy.name} answers.` : 'Loading the steps…') : 'They open one at a time, each checked before the next.'}
