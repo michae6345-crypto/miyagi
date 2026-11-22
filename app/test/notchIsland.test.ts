@@ -13,6 +13,8 @@ import {
   notchPath,
   notchSize,
   PEEK,
+  NOTCH_RADII,
+  radiiFor,
   viewWith,
   withinGrab
 } from '../src/renderer/src/core/notchGeometry'
@@ -70,8 +72,8 @@ describe('notchSize', () => {
     assert.deepEqual(notchSize(real, 'pill', 'ears', undefined, { w: 999, h: 99 }), { w: 189 + 2 * EAR_W, h: 32 })
   })
   test('a drop is the notch row plus the content row, at least the peek wide', () => {
-    assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 190, h: 34 }), { w: PEEK.w, h: 66 })
-    assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 380, h: 34 }), { w: 380 + 38, h: 66 })
+    assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 190, h: 34 }), { w: PEEK.w, h: 66 + PEEK.pad })
+    assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 380, h: 34 }), { w: 380 + 38, h: 66 + PEEK.pad })
     assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, undefined), { w: PEEK.w, h: 32 + PEEK.drop })
   })
   test('a card keeps its width and grows down from the notch; an empty one is the notch', () => {
@@ -149,4 +151,11 @@ describe('watchdog in the notch', () => {
     assert.equal(r.action, NO_ACTION)
     assert.equal(r.state.ownerlessSince, 0)
   })
+})
+
+test('a short open shape uses the gentler peek radii (no trapezoid), a tall one the open radii', () => {
+  assert.deepEqual(radiiFor(true, 74), NOTCH_RADII.peek)
+  assert.deepEqual(radiiFor(true, 194), NOTCH_RADII.open)
+  assert.deepEqual(radiiFor(false, 74), NOTCH_RADII.closed)
+  assert.deepEqual(radiiFor(true), NOTCH_RADII.open)
 })

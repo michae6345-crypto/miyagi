@@ -10,13 +10,16 @@ import { pill } from './theme'
 type Box = { x: number; y: number; w: number; h: number }
 
 /** The notch's radii: closed (at rest, ears) and open (peek, cards). The shape animates between them. */
-export const NOTCH_RADII = { closed: { top: 6, bottom: 14 }, open: { top: 19, bottom: 24 } } as const
+export const NOTCH_RADII = { closed: { top: 6, bottom: 14 }, open: { top: 19, bottom: 24 }, peek: { top: 10, bottom: 18 } } as const
+/** An open shape shorter than this uses the peek radii: the big top flare on a short shape read as an upside-down trapezoid (Michael, Nov 22). */
+export const SHORT_OPEN_H = 120
 export type Radii = { top: number; bottom: number }
 
 /** How far each ear grows sideways, at the notch's own height. */
 export const EAR_W = 36
 /** The peek: this wide (at least), and this much taller than the notch. */
-export const PEEK = { w: 300, drop: 28 } as const
+/** `pad`: extra room under a dropped line, so an open peek comes down past its words instead of hugging them. */
+export const PEEK = { w: 320, drop: 40, pad: 8 } as const
 /** The pointer counts as over the notch within this margin; the peek opens after OPEN_MS and closes CLOSE_MS after leaving. */
 export const HOVER = { margin: 6, openMs: 150, closeMs: 100 } as const
 /** Main's grab zone in notch mode: this far either side of the island, this far below it, never above (the menu bar). */
@@ -46,7 +49,7 @@ export function islandBottomAt(layout: { notch?: NotchLayout }, pillTop: number)
 }
 
 /** Radii for a state: open for the peek and cards, closed otherwise. */
-export const radiiFor = (open: boolean): Radii => (open ? NOTCH_RADII.open : NOTCH_RADII.closed)
+export const radiiFor = (open: boolean, h?: number): Radii => (!open ? NOTCH_RADII.closed : h !== undefined && h < SHORT_OPEN_H ? NOTCH_RADII.peek : NOTCH_RADII.open)
 
 /**
  * The notch path in the element's own coordinates: concave top "ears" (`top` radius) and convex bottom
@@ -95,7 +98,7 @@ export function notchSize(n: NotchLayout, kind: 'card' | 'pill', view: NotchView
   if (view === 'rest') return restSize(n)
   if (view === 'ears') return earsSize(n)
   if (!measured || !(measured.w > 0) || !(measured.h > 0)) return { w: PEEK.w, h: n.height + PEEK.drop }
-  return { w: Math.max(PEEK.w, Math.ceil(measured.w) + 2 * NOTCH_RADII.open.top), h: n.height + Math.ceil(measured.h) }
+  return { w: Math.max(PEEK.w, Math.ceil(measured.w) + 2 * NOTCH_RADII.open.top), h: n.height + Math.ceil(measured.h) + PEEK.pad }
 }
 
 /** A pill-sized mode's view with hover applied: the pointer over a rest or ears view opens the peek. */

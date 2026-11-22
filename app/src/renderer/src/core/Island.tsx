@@ -318,7 +318,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
       bridge.emit('island:size', {
         ...reportedBox(hasMode && !yielded, size, offset.x, offset.y),
         // The notch: main grabs from the display top and the launcher / Settings start from this exact shape.
-        ...(nm ? { top: 0, place: 'notch' as const, radii: radiiFor(isOpenView(kind, view)) } : {})
+        ...(nm ? { top: 0, place: 'notch' as const, radii: radiiFor(isOpenView(kind, view), size.h) } : {})
       })
     })
     return () => cancelAnimationFrame(raf)
@@ -497,7 +497,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     if (r.commit) drive((s, now) => hoverOpenNow(s, now, cfgRef.current))
   }
   const plan = nm ? islandPlan({ nm, coexist, view, open, hovering: hi.light, w: size.w, h: size.h }) : undefined
-  const radii = radiiFor(open)
+  const radii = radiiFor(open, size.h)
   const shown = landing && nm ? restSize(nm) : size
   const layers = (
     <NotchContext.Provider value={!!nm}>
@@ -546,6 +546,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         style={nm ? { padding: `0 ${HOVER.margin}px ${HOVER.margin}px`, margin: `0 -${HOVER.margin}px`, opacity: yielded || !sized || muted ? 0 : 1, transition: 'opacity .15s ease-out' } : undefined}
         onMouseEnter={coexist ? undefined : enter}
         onMouseLeave={coexist ? undefined : leave}
+        // A link dragged onto the notch opens it (the home panel takes the drop), like Boring Notch's shelf. preventDefault
+        // so the drop lands in the page instead of the window trying to open the link.
+        onDragEnter={nm && !coexist ? enter : undefined}
+        onDragOver={nm ? (e) => e.preventDefault() : undefined}
         onWheel={onWheel}
         onPointerDownCapture={press}
       >
