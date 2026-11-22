@@ -226,8 +226,8 @@ const OFFTRACK_OPTIONS = [
 ] as const
 
 /**
- * The shortcut bar is on screen with its help tiles (Explain, Diagram, Show me, Hint): it shows for the whole lesson
- * (ShortcutBar's `on`). While it does, a card never repeats them (Michael's review A11: the same actions showed 2-3
+ * A lesson surface carries the help options (the video drawer's help row, the "Just teach me" panel's Help row; the
+ * bottom bar is gone). While a lesson is on, a card never repeats them (Michael's review A11: the same actions showed 2-3
  * times at once); a card carries only its own action (Do it for me, Run it, Install, Continue, Check…).
  */
 const useBarHelp = (): boolean => useLesson((l) => !!l.lesson)

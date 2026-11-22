@@ -78,8 +78,8 @@ export function grow(r: Rect, by: number): Rect {
 /** The player docks in the right 40% of the work area. */
 export const DOCK_FRACTION = 0.4
 const DOCK_INSET = 8
-/** Shortcut bar (80) + its 24px gap + a little air, so the bar never covers the chapter list. */
-const DOCK_BAR_CLEARANCE = 112
+/** No bottom bar any more (Nov 21): the player ends at the work area's inset, like the drawer. */
+const DOCK_BAR_CLEARANCE = 0
 
 /**
  * Where the player docks: the right 40% of the work area, inset 8px, ending above the shortcut bar. Shared by main

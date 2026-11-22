@@ -31,3 +31,21 @@ Untouched: "Just teach me" lessons (v2 panel, no bar, no player; their "type her
 - The slim row while the drawer has yielded to a spotlight (open but hidden) stays slim.
 - Light appearance, Windows and real engine OCR re-sends (only the mock). Shot 4 (drawer closed) was not compared against light mode. The slim caption is hover, focus or Alt only (headless shots cannot show it), so with the drawer open a first-time learner sees icons until they hover; spec screen 28 lists a labelled bar there. Decision for Michael: keep icons-only (calm) or show labels once per lesson.
 - The Hint or Explain arm is one-shot and 4 s: a re-send after the fade does not bring the box back.
+
+
+## Update Nov 21: no bottom bar (Michael)
+The shortcut bar is gone from every lesson (no overlay layer; `ShortcutBar`, `Tile`, `lift`, `slim`, `fold`, `press`, `Busy`, `Equalizer`, `keys` deleted; `shortcut-bar/front.ts` stays for the front-app state). The slim-icon-row section above is history. Player and drawer no longer leave 112px at the bottom (`core/geometry.ts`, `drawer/geometry.ts`), and the diagram flyout no longer dodges a bar.
+
+Where each former bar action lives now:
+| Action | Now |
+| --- | --- |
+| ask miyagi | launcher key, the notch island / pill (unchanged) |
+| Back, Explain, Diagram, Show me, Hint | their keys (`triggerShortcut`); video lessons: the new help row at the foot of the steps drawer (`drawer/VideoHelp.tsx`: four OptionButtons with `bridge.platform.keys` keycaps, plus neutral Back); "Just teach me": the panel's Help row (`drawer/v2/Help.tsx`) and Back in its keys row |
+| Check my work, Skip step | the player's waiting state (primary Check) and neutral pills in the drawer help row (available while the clip plays too) |
+| End lesson | the launcher's footer `EndLink` (two taps) and the player's top bar |
+| Voice | off by flag, unchanged |
+
+Tour marks (`features/tips`) pointed only at the lesson panel, nothing at the bar. Test: the slim-bar case left `test/calm.test.ts`.
+
+Shots (stage `?scenario=full`, Ctrl+K, topic, Enter, Enter, headless Brave over CDP): `shots/no-bottom-bar-1-before.png`, `shots/no-bottom-bar-2-after.png`.
+Not verified: Electron; light appearance; the drawer's help row does not dim under the link gate (the Help v2 row does).

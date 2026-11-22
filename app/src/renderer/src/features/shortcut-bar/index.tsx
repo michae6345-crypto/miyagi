@@ -1,20 +1,11 @@
-/** Feature: shortcut bar. Bottom bar during a lesson: Ask Miyagi + Back / Explain / Diagram / Show me / Hint / Voice. */
-import type { ReactNode } from 'react'
-import type { Layout } from '../../../../preload/api'
+/**
+ * Feature: shortcut bar, retired (Michael, Nov 21: no bottom bar in any lesson). It draws nothing: no overlay layer.
+ * Every action it offered lives elsewhere (see agents/video-calm.md): ask miyagi (the launcher key and the notch
+ * island), Back / Explain / Diagram / Show me / Hint (their keys, the steps drawer's help row in a video lesson, the
+ * lesson panel's Help row in "Just teach me"), Check my work and Skip step (the player, the drawer's help row),
+ * End lesson (the launcher's footer). front.ts stays: the front-app state the spotlight and the cards read.
+ */
 import { defineFeature } from '../../core/registry'
-import { ABOVE_DOCK, useLift } from './lift'
-import { BAR_HEIGHT, ShortcutBar } from './ShortcutBar'
-import { SLIM_HEIGHT } from './slim'
-import { useSlim } from './useSlim'
+import './front'
 
-
-function BarLayer({ layout }: { layout: Layout }): ReactNode {
-  // Lifted above the spotlight's hole when it reaches into the bar (./lift.ts).
-  const dock = layout.height - (layout.workArea.y + layout.workArea.height)
-  const bottom = dock + ABOVE_DOCK
-  const slim = useSlim()
-  const lift = useLift(layout, bottom, slim ? SLIM_HEIGHT : BAR_HEIGHT)
-  return <ShortcutBar bottom={bottom} dock={dock} lift={lift} slim={slim} />
-}
-
-export default defineFeature({ id: 'shortcut-bar', overlayLayers: [{ id: 'shortcut-bar', z: 60, Component: BarLayer }] })
+export default defineFeature({ id: 'shortcut-bar' })

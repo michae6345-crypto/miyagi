@@ -32,6 +32,7 @@ import { count, lessonOutline, planTotal, useJustEnded, useStepDetail, useStepSt
 import { closeDrawer, isWebLink, linkHost, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 import { enter, fade } from '../../core/ui/motion'
+import { useVideoHelp, VideoHelp } from './VideoHelp'
 
 /**
  * Row geometry: icon column, gap, time column. The current step's checks line up with its title. A plan row with no
@@ -157,6 +158,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
   const [scrolled, setScrolled] = useState(false)
   const away = (side === 'left' ? -1 : 1) * (rect.w + 24)
   const drag = useSideDrag(side)
+  const videoHelp = useVideoHelp()
   // The panel hugs its content (up to rect.h, then the list scrolls). Report the real height so the
   // spotlight check covers only what's on screen. offsetHeight ignores the slide's transform.
   useLayoutEffect(() => {
@@ -278,6 +280,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
           </>
         )}
       </div>
+      {videoHelp && <VideoHelp />}
     </motion.div>
   )
 }

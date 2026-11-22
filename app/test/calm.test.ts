@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { CALM_MS, calmGate, isTyping, type Timers } from '../src/renderer/src/features/spotlight/calm'
-import { SLIM_HEIGHT, isSlim } from '../src/renderer/src/features/shortcut-bar/slim'
 
 /** Manual clock: timers fire only when advance() passes them. */
 function clock(): { timers: Timers; advance: (ms: number) => void; pending: () => number } {
@@ -116,11 +115,4 @@ test('calm: only real typing counts as a keystroke', () => {
   assert.equal(isTyping({ key: 'k', ctrlKey: true }), false)
   assert.equal(isTyping({ key: 's', metaKey: true }), false)
   assert.equal(isTyping({ key: 'Escape' }), false)
-})
-
-test('slim bar: only while the drawer is open in a lesson with a player', () => {
-  assert.equal(isSlim(true, false), true)
-  assert.equal(isSlim(false, false), false)
-  assert.equal(isSlim(true, true), false)
-  assert.ok(SLIM_HEIGHT < 78)
 })

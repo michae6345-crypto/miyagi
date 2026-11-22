@@ -22,7 +22,6 @@ import { actionTone, color, glass, radius, spring, springOut } from '../../core/
 import { DiagramBody } from '../diagrams/Diagram'
 import { closeDiagram, isLiveNetwork, useDiagram, type DiagramPayload } from '../diagrams/store'
 import { DiagramTabs, titleOf } from '../diagrams/Tabs'
-import { useBarTop } from '../shortcut-bar/lift'
 import { NetBody } from './LiveNet'
 import { RUN_DROP, RUN_SHARE } from './runTuck'
 import type { Side } from './store'
@@ -40,8 +39,6 @@ const PAD = 16
 const ISLAND_W = 600
 /** A run step's box starts where the old floating card did: under the notch band, then RUN_DROP lower. */
 const RUN_TOP = 24
-/** Air between the box and the shortcut bar's top edge. */
-const BAR_GAP = 12
 /** The resting step pill: about this far either side of the screen's center, this tall, from the island's top. */
 const PILL_HALF = 180
 /** The old step pill was 36 tall against the island's 34: the flyout keeps those 2 px of air under it. */
@@ -54,7 +51,6 @@ const PILL_GAP = 10
  */
 export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Side; anchor: Rect; run: boolean }): ReactNode {
   const d = useDiagram((s) => s.diagram)
-  const barTop = useBarTop(layout)
   const wa = layout.workArea
   // A video lesson's player is docked on the right (player/dock.ts) and is wider than the drawer: the flyout never
   // covers it. With the drawer on the right it opens beside the player's left edge, toward the code; on the left it
@@ -74,7 +70,7 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
   const underPill = x0 < layout.width / 2 + PILL_HALF && x0 + Math.min(FLY_W, room) > layout.width / 2 - PILL_HALF
   const pillClear = islandBottom(layout) + PILL_SLACK + PILL_GAP
   const top = run ? wa.y + RUN_TOP + RUN_DROP : underPill ? Math.max(anchor.y, pillClear) : anchor.y
-  const bottom = run ? Math.min(wa.y + wa.height * RUN_SHARE, barTop - BAR_GAP) : anchor.y + anchor.h
+  const bottom = run ? wa.y + wa.height * RUN_SHARE : anchor.y + anchor.h
   const maxH = Math.max(160, bottom - top)
   const base = Math.max(Math.min(MIN_W, room), Math.min(FLY_W, room))
   // Too tall for its box (a run step's room above the terminal): narrower, so the scaled drawing gets shorter.

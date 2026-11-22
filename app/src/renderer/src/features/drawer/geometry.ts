@@ -32,8 +32,8 @@ export const PANEL_W = 340
  */
 export const PANEL_W_LESSON = 420
 const INSET = 8
-/** Same clearance as the player dock: the shortcut bar (88) + its 24px gap. */
-const BAR_CLEARANCE = 112
+/** Same clearance as the player dock (core/geometry.ts): none, the bottom bar is gone. */
+const BAR_CLEARANCE = 0
 
 /** The visible bar: 4×40, 6px from the right edge, vertically centered on the work area. */
 export const TAB = { w: 4, h: 40, edge: 6 } as const

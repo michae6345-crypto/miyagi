@@ -136,7 +136,7 @@ input {
 [data-part="drawer-tab"],
 [data-part="diagram-flyout"],
 [data-part="drawer-concept"],
-[data-shortcut-bar] {
+[data-part="drawer-video-help"] {
   --mg-focus: var(--glass-text);
 }
 
