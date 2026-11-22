@@ -3,7 +3,8 @@
  * the key's name, never a label. A name the platform doesn't have renders nothing (never a guess).
  *
  *   <Keycap k="explain" />                 on a dark surface (panel, island, window)
- *   <Keycap k="hint" on="accent" />        inside a white or pastel button (ink at 10%)
+ *   <Keycap k="hint" on="accent" />        inside a white button (follows the theme)
+ *   <Keycap k="hint" on="pastel" />        inside a solid option pastel (ink at 10%, both appearances)
  *   <Keycap k="dismiss" on="paper" />      on a light surface
  */
 import type { ReactNode } from 'react'
@@ -12,7 +13,7 @@ import { bridge } from '../../bridge'
 import { fill, highlight, paper, radius2, type2 } from '../theme'
 
 export type { KeyName }
-export type KeycapOn = 'dark' | 'accent' | 'paper'
+export type KeycapOn = 'dark' | 'accent' | 'pastel' | 'paper'
 
 /** The label for a key name, or undefined when this platform has none. */
 export function keyLabel(k: KeyName): string | undefined {
@@ -24,6 +25,7 @@ export function keyLabel(k: KeyName): string | undefined {
 const TONE: Record<KeycapOn, { bg: string; fg: string; border?: string; lip?: string }> = {
   dark: { bg: fill.keycap, fg: fill.keycapText, border: fill.keycapBorder, lip: `${highlight.keyLip}, ${highlight.topSoft}` },
   accent: { bg: fill.onAccentKey, fg: 'inherit' },
+  pastel: { bg: fill.onPastelKey, fg: 'inherit' },
   paper: { bg: paper.group, fg: paper.muted, border: paper.hairline, lip: highlight.base }
 }
 
@@ -40,7 +42,7 @@ export function Keycap({ k, on = 'dark', size = 'md' }: { k: KeyName; on?: Keyca
         height: h,
         minWidth: h,
         padding: '0 6px',
-        borderRadius: on === 'accent' ? radius2.round : radius2.keycap,
+        borderRadius: on === 'accent' || on === 'pastel' ? radius2.round : radius2.keycap,
         background: t.bg,
         color: t.fg,
         boxShadow: [t.lip, t.border && `inset 0 0 0 1px ${t.border}`].filter(Boolean).join(', ') || undefined,

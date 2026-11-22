@@ -95,6 +95,8 @@ const palette: Record<string, readonly [string, string]> = {
   'c-hairline': [hud.dark.hairline, `rgba(${INK},.10)`],
   'c-accent': [hud.dark.button, hud.light.button],
   'c-on-accent': [hud.dark.buttonText, hud.light.buttonText],
+  // Ink on a solid option pastel: fixed in both appearances (c-on-accent is paper in light, unreadable on a pastel).
+  'c-on-pastel': [brand.ink, brand.ink],
   'c-offtrack': [brand.offTrack, brand.ink],
   'c-offtrack-tint': [brand.offTrackTint, `rgba(${INK},.06)`],
   'c-green': [brand.pass, '#22A24B'],
@@ -125,6 +127,7 @@ const palette: Record<string, readonly [string, string]> = {
   'f-skeleton': ['rgba(255,255,255,.06)', `rgba(${INK},.06)`],
   'f-rule': ['rgba(255,255,255,.08)', `rgba(${INK},.08)`],
   'f-on-accent-key': ['rgba(0,0,0,.1)', 'rgba(255,255,255,.2)'],
+  'f-on-pastel-key': ['rgba(0,0,0,.1)', 'rgba(0,0,0,.1)'],
   'f-track': ['rgba(255,255,255,.18)', `rgba(${INK},.14)`],
   'f-track-soft': ['rgba(255,255,255,.14)', `rgba(${INK},.10)`],
   'f-ring': ['rgba(255,255,255,.28)', `rgba(${INK},.28)`],
@@ -235,6 +238,8 @@ export const rawThumb = { dark: palette['f-thumb'][0], light: palette['f-thumb']
 export const color = {
   accent: 'var(--c-accent)',
   onAccent: 'var(--c-on-accent)',
+  /** Ink text and icons on a solid option pastel (actionTone): the same in light and dark. */
+  onPastel: 'var(--c-on-pastel)',
   /** Off track: white, shown as a ring (the name stays `amber` so call sites don't change). */
   amber: 'var(--c-offtrack)',
   amberTint: 'var(--c-offtrack-tint)',
@@ -307,6 +312,8 @@ export const fill = {
   rule: 'var(--f-rule)',
   /** A keycap sitting on a white (accent) or pastel button: ink at 10%. */
   onAccentKey: 'var(--f-on-accent-key)',
+  /** A keycap on a solid option pastel (ink at 10% in both appearances). */
+  onPastelKey: 'var(--f-on-pastel-key)',
   clear: 'rgba(255,255,255,0)',
   /** Ring / spinner tracks and the empty check circle. */
   track: 'var(--f-track)',

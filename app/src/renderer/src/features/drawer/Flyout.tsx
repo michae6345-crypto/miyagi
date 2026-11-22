@@ -130,7 +130,7 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
     >
       <div ref={content} className="pb-[12px] pt-[12px]">
         <div className="flex min-w-0 items-center gap-[10px] pb-[10px]">
-          <span className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onAccent }}>
+          <span className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onPastel }}>
             <Waypoints size={13} strokeWidth={1.9} />
           </span>
           <DiagramTabs glassy fallback={<span className="min-w-0 truncate text-[14px] font-semibold" style={{ color: glass.text }}>{titleOf(d)}</span>} />

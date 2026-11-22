@@ -172,10 +172,10 @@ function HelpTile({
         padding: '0 6px',
         borderRadius: radius2.card,
         background: actionTone[action],
-        color: color.onAccent,
+        color: color.onPastel,
         opacity: disabled ? 0.4 : 1,
         boxShadow: pressed
-          ? `0 0 0 2px ${actionTone[action]}, inset 0 0 0 2px ${color.onAccent}`
+          ? `0 0 0 2px ${actionTone[action]}, inset 0 0 0 2px ${color.onPastel}`
           : disabled
             ? undefined
             : busy
@@ -191,7 +191,7 @@ function HelpTile({
         {label}
       </span>
       <span className="flex h-[18px] items-center justify-center gap-[4px]" aria-hidden>
-        {busy ? <Spinner size={12} c={color.onAccent} track={fill.onAccentKey} /> : k ? <Keycap k={k} on="accent" size="sm" /> : action === 'watch' ? <WatchIcon size={14} /> : null}
+        {busy ? <Spinner size={12} c={color.onPastel} track={fill.onPastelKey} /> : k ? <Keycap k={k} on="pastel" size="sm" /> : action === 'watch' ? <WatchIcon size={14} /> : null}
         {!busy && host && (
           <span data-link-host className="whitespace-nowrap text-[11px] font-medium leading-[14px]">
             {host}

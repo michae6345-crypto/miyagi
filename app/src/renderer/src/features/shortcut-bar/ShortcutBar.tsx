@@ -2,7 +2,7 @@
  * Bottom shortcut bar: "Ask Miyagi" + the commands. Only visible during a lesson. Sits 24px above the dock / taskbar.
  *
  * Pass 3 (Adrian: "simpler"): each tile is its glyph + label + keycap; hover or ⌥ held brightens the keycap (Tile.tsx).
- * Options wear their pastel (theme.actionTone): Explain / Diagram sky, Show me lilac, Hint pink, ink glyphs.
+ * Options wear their pastel (theme.actionTone): Explain sky, Diagram seafoam, Watch peach, Show me lilac, Hint pink, ink glyphs.
  * Back and Voice are neutral chrome (Voice on = glass.button). Step controls after one hairline: Check is the one
  * primary, Skip step / End lesson are quiet. (Adrian picked this over a "More" menu for Back / Skip / End, Sat.)
  * A card with its own step controls (Yes / Skip step / Can I move on?) quiets Check too; while the launcher is open

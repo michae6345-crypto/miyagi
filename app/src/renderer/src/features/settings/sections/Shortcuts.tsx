@@ -114,7 +114,7 @@ function Line({
   }
 
   const label = row.option ? (
-    <span className="inline-flex h-[24px] items-center px-[10px] font-medium" style={{ borderRadius: radius2.round, background: actionTone[row.option], color: color.onAccent, fontSize: type2.xs }}>
+    <span className="inline-flex h-[24px] items-center px-[10px] font-medium" style={{ borderRadius: radius2.round, background: actionTone[row.option], color: color.onPastel, fontSize: type2.xs }}>
       {row.label}
     </span>
   ) : (

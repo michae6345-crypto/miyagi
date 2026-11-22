@@ -31,7 +31,7 @@ export function DiagramView(): ReactNode {
   return (
     <div className="px-[20px] pb-[16px] pt-[16px]">
       <div className="flex items-center gap-[10px]">
-        <span className="grid h-[24px] w-[24px] place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onAccent }}>
+        <span className="grid h-[24px] w-[24px] place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onPastel }}>
           <Waypoints size={13} strokeWidth={1.9} />
         </span>
         <DiagramTabs fallback={<span className="text-[14px] font-semibold">{title}</span>} />

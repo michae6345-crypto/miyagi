@@ -290,7 +290,7 @@ export function OptionButton({ action, label, kbd, onClick, icon }: { action: Op
     <motion.button
       type="button"
       className={`mg-press mg-press-light flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full pl-[11px] text-[13px] font-medium ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
-      style={{ backgroundColor: actionTone[action], color: color.onAccent, boxShadow: SLAB }}
+      style={{ backgroundColor: actionTone[action], color: color.onPastel, boxShadow: SLAB }}
       {...pressMotion()}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
@@ -298,7 +298,7 @@ export function OptionButton({ action, label, kbd, onClick, icon }: { action: Op
       <I size={13} strokeWidth={1.8} className="shrink-0" />
       {label}
       {kbd && (
-        <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onAccentKey }}>
+        <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onPastelKey }}>
           {kbd}
         </span>
       )}
