@@ -18,6 +18,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Empty, Row, RowChevron } from '../shell/ui'
 import { color, copy, fill, focus, highlight, radius2, surface, type2 } from '../../core/theme'
+import { Column, Pane, rhythm } from './layout'
 import { Ring, Rise } from './motion'
 import { FILTER_TOOLS, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { contLine, continueList, type Cont } from '../dashboard/continue'
@@ -103,7 +104,7 @@ function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
             {contLine(c)}
           </span>
         </span>
-        <span className="relative hidden items-center @[620px]:flex" style={{ marginRight: 6 }}>
+        <span className="relative hidden items-center @min-[640px]/pane:flex" style={{ marginRight: 6 }}>
           <ProgressLine done={c.passed} total={c.total} />
         </span>
       </Row>
@@ -205,85 +206,89 @@ export function Lessons(): ReactNode {
   const nothing = s.loaded && s.items.length === 0
   const offline = nothing && !connected
   return (
-    <div data-lessons className="flex flex-col gap-[32px] @container" style={{ padding: '8px 40px 48px', color: color.text }}>
-      {!s.loaded ? (
-        <div className="flex flex-col gap-[10px]" aria-busy aria-label="Loading your lessons">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} h={48} />
-          ))}
-        </div>
-      ) : offline ? (
-        <Empty mark={<CloudOff aria-hidden size={28} strokeWidth={1.6} style={{ color: color.label }} />} title={`${copy.name} is offline.`} line="Your saved lessons show here when it connects." />
-      ) : nothing ? (
-        <Empty
-          mark={<MiyagiMark size={44} />}
-          title="No lessons yet"
-          line="Ask for a goal or paste a YouTube link."
-          action={
-            <Ring>
-              <PrimaryButton label="New lesson" keyName="launcher" onClick={openLauncher} />
-            </Ring>
-          }
-        />
-      ) : (
-        <>
-          {continuing.length > 0 && (
-            <Rise i={0}>
-              <section aria-labelledby="lib-cont">
-                <Head id="lib-cont" title="In progress">
-                  <span className="ml-auto">
-                    <StartError />
-                  </span>
+    // The shared 720 column (layout.tsx), centered in the pane like Home and the preview: at full screen the rows no
+    // longer run 1400 px from the title to its chevron. Sections sit 40 apart, the page ends 64 under the last row.
+    <Pane data-lessons style={{ color: color.text }}>
+      <Column className="flex flex-col" style={{ gap: rhythm.section, paddingTop: 24, paddingBottom: rhythm.bottom }}>
+        {!s.loaded ? (
+          <div className="flex flex-col gap-[10px]" aria-busy aria-label="Loading your lessons">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} h={48} />
+            ))}
+          </div>
+        ) : offline ? (
+          <Empty mark={<CloudOff aria-hidden size={28} strokeWidth={1.6} style={{ color: color.label }} />} title={`${copy.name} is offline.`} line="Your saved lessons show here when it connects." />
+        ) : nothing ? (
+          <Empty
+            mark={<MiyagiMark size={44} />}
+            title="No lessons yet"
+            line="Ask for a goal or paste a YouTube link."
+            action={
+              <Ring>
+                <PrimaryButton label="New lesson" keyName="launcher" onClick={openLauncher} />
+              </Ring>
+            }
+          />
+        ) : (
+          <>
+            {continuing.length > 0 && (
+              <Rise i={0}>
+                <section aria-labelledby="lib-cont">
+                  <Head id="lib-cont" title="In progress">
+                    <span className="ml-auto">
+                      <StartError />
+                    </span>
+                  </Head>
+                  <ul style={list}>
+                    {continuing.map((c, i) => (
+                      <li key={c.libraryId}>
+                        <ContinueRow c={c} first={i === 0} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              </Rise>
+            )}
+            <Rise i={1}>
+              <section aria-labelledby="lib-ready">
+                <Head id="lib-ready" title="Ready to run">
+                  <ToolFilter />
+                  {continuing.length === 0 && s.startError ? <StartError /> : null}
                 </Head>
                 <ul style={list}>
-                  {continuing.map((c, i) => (
-                    <li key={c.libraryId}>
-                      <ContinueRow c={c} first={i === 0} />
-                    </li>
+                  {ready.map((i, n) => (
+                    <Rise key={i.id} as="li" i={n} style={divided(n > 0)}>
+                      <div style={{ marginInline: -10 }}>
+                        <LessonRow item={i} />
+                      </div>
+                    </Rise>
                   ))}
+                  {filtered && ready.length === 0 ? (
+                    <li className="flex items-center gap-[12px]" style={{ padding: '14px 10px' }}>
+                      <span style={{ ...meta, fontSize: type2.sm }}>No lessons match.</span>
+                      <Ring>
+                        <QuietButton
+                          label="Show all"
+                          onClick={() => {
+                            setTool('all')
+                            setQuery('')
+                          }}
+                        />
+                      </Ring>
+                    </li>
+                  ) : (
+                    <li style={divided(ready.length > 0)}>
+                      <div style={{ marginInline: -10 }}>
+                        <PasteRow />
+                      </div>
+                    </li>
+                  )}
                 </ul>
               </section>
             </Rise>
-          )}
-          <Rise i={1}>
-            <section aria-labelledby="lib-ready">
-              <Head id="lib-ready" title="Ready to run">
-                <ToolFilter />
-                {continuing.length === 0 && s.startError ? <StartError /> : null}
-              </Head>
-              <ul style={list}>
-                {ready.map((i, n) => (
-                  <Rise key={i.id} as="li" i={n} style={divided(n > 0)}>
-                    <div style={{ marginInline: -10 }}>
-                      <LessonRow item={i} />
-                    </div>
-                  </Rise>
-                ))}
-                {filtered && ready.length === 0 ? (
-                  <li className="flex items-center gap-[12px]" style={{ padding: '14px 10px' }}>
-                    <span style={{ ...meta, fontSize: type2.sm }}>No lessons match.</span>
-                    <Ring>
-                      <QuietButton
-                        label="Show all"
-                        onClick={() => {
-                          setTool('all')
-                          setQuery('')
-                        }}
-                      />
-                    </Ring>
-                  </li>
-                ) : (
-                  <li style={divided(ready.length > 0)}>
-                    <div style={{ marginInline: -10 }}>
-                      <PasteRow />
-                    </div>
-                  </li>
-                )}
-              </ul>
-            </section>
-          </Rise>
-        </>
-      )}
-    </div>
+          </>
+        )}
+      </Column>
+    </Pane>
   )
 }

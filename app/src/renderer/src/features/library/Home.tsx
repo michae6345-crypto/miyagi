@@ -18,12 +18,12 @@
  */
 import { ArrowRight, ChevronRight, CloudOff, Play, RotateCcw } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
-import { color, copy, fill, radius2, tone, type Tone, type2 } from '../../core/theme'
+import { color, copy, elevation, fill, highlight, radius2, surface, tone, type Tone, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
@@ -36,8 +36,9 @@ import { groupTracks, nodeStates, relDay } from '../dashboard/model'
 import { canReview, startReview, useDash } from '../dashboard/store'
 import type { DashData } from '../dashboard/types'
 import { summarize, useRows } from '../onboarding/rows'
-import { CARD, Row, RowChevron, SectionHead, TextAction, caption } from '../shell/ui'
+import { Row, RowChevron, SectionHead, TextAction, caption } from '../shell/ui'
 import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText, setupFix, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
+import { Column, PAGE_TOP, Pane, rhythm } from './layout'
 import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
@@ -202,7 +203,7 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
   }
   const Btn = primary ? PrimaryButton : QuietButton
   const actionLabel = read.kind === 'link' ? (read.match ? 'Start lesson' : 'Build lesson') : 'Teach me'
-  const h = 56
+  const h = 52
   return (
     <section
       aria-label="Learn something new"
@@ -210,11 +211,13 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
       className="flex flex-col overflow-hidden"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ borderRadius: radius2.group, background: fill.field, boxShadow: `inset 0 0 0 ${focused ? 1.5 : 1}px ${focused || hovered ? color.label : fill.ring}`, transition: 'box-shadow 140ms ease' }}
+      // The same lifted surface as the Continue card (one card treatment on the page, light and dark), radius 12. Its
+      // edge brightens on hover and turns into a 2px ring of the text color on focus (never an accent hue).
+      style={{ ...SURFACE, borderRadius: radius2.card, boxShadow: `${highlight.topSoft}, inset 0 0 0 ${focused ? 2 : 1}px ${focused ? color.faint : hovered ? fill.ring : surface.border}, ${elevation.raised}`, transition: 'box-shadow 140ms ease' }}
     >
       <form
         className="flex cursor-text items-center gap-[12px]"
-        style={{ height: h, padding: '0 10px 0 16px' }}
+        style={{ height: h, padding: '0 8px 0 16px' }}
         onClick={() => input.current?.focus()}
         onSubmit={(e) => {
           e.preventDefault()
@@ -236,7 +239,7 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[var(--c-label)]"
-          style={{ fontSize: type2.lg - 1, color: color.text }}
+          style={{ fontSize: type2.body, color: color.text }}
         />
         {read.kind === 'idle' ? (
           <span className="flex shrink-0 items-center" style={{ paddingRight: 4 }}>
@@ -254,13 +257,13 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
             whileTap={{ scale: press.scale }}
             transition={enter()}
             className="flex shrink-0 cursor-pointer items-center justify-center"
-            style={{ width: h - 16, height: h - 16, borderRadius: radius2.control, background: color.accent, color: color.onAccent }}
+            style={{ width: 36, height: 36, borderRadius: radius2.control, background: color.accent, color: color.onAccent }}
           >
             {ask.sending ? <Spinner size={13} c={color.onAccent} /> : <ArrowRight size={15} strokeWidth={2} aria-hidden />}
           </motion.button>
         )}
       </form>
-      <div className="flex flex-wrap items-center justify-center gap-[8px]" style={{ padding: '12px 14px 14px', minHeight: 56, borderTop: `1px solid ${fill.hairline}` }}>
+      <div className="flex flex-wrap items-center justify-center gap-[8px]" style={{ padding: '12px 16px', minHeight: 56, borderTop: `1px solid ${fill.hairline}` }}>
         {read.kind === 'idle' ? (
           ideas.map((t) => (
             <Press
@@ -271,7 +274,7 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
                 input.current?.focus()
               }}
               className="flex items-center"
-              style={{ height: 30, padding: '0 13px', borderRadius: radius2.round, background: tone[t.tone].bg, fontSize: type2.sm - 0.5, color: tone[t.tone].fg }}
+              style={{ height: 32, padding: '0 12px', borderRadius: radius2.round, background: tone[t.tone].bg, fontSize: type2.sm, color: tone[t.tone].fg }}
             >
               <span className="relative">{t.text}</span>
             </Press>
@@ -422,9 +425,16 @@ function splitLine(line: string): { count?: string; sub: string } {
 }
 
 /**
+ * The page's surface for its two cards (Continue, the ask box): the overlay layer (white in light), the top highlight,
+ * a hairline and the soft raised shadow. One treatment, so Home never shows a white card over a gray well.
+ */
+const SURFACE: CSSProperties = { background: 'var(--l-overlay)', boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}, ${elevation.raised}` }
+
+/**
  * The one lifted card on the page (redraft round 2, Adrian: "the continue tab doesn't look that good"). One row: where
  * you are on the left (Continue · Step 4 of 7, the lesson, the step you're on), the one action on the right, and the
  * lesson's progress as a hairline along the card's bottom edge instead of a row of dashes. Wraps under a narrow window.
+ * Layout spec: radius 16, padding 24, title 17/24 semibold.
  */
 function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }): ReactNode {
   const { count, sub } = splitLine(view.line)
@@ -434,8 +444,8 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
   const clamp = (n: number): number => Math.max(0, Math.min(1, n))
   const frac = building ? (hero.fraction !== undefined ? clamp(hero.fraction) : undefined) : !view.blocked && view.total ? clamp((view.done ?? 0) / view.total) : undefined
   return (
-    <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="relative flex flex-col overflow-hidden" style={{ ...CARD, padding: '20px 20px 22px 24px' }}>
-      <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[14px]">
+    <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="relative flex flex-col overflow-hidden" style={{ ...SURFACE, borderRadius: radius2.group, padding: 24 }}>
+      <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[16px]">
         <div className="flex min-w-0 flex-1 flex-col" style={{ minWidth: 240 }}>
           <span className="flex items-center gap-[6px]" style={caption}>
             <span>{view.head}</span>
@@ -446,18 +456,18 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
               </>
             )}
           </span>
-          <h2 id="home-continue" className="m-0 line-clamp-2 font-semibold" style={{ marginTop: 5, fontSize: 19, lineHeight: '25px', letterSpacing: '-0.012em', color: color.text }}>
+          <h2 id="home-continue" className="m-0 line-clamp-2 font-semibold" style={{ marginTop: 4, fontSize: type2.lg, lineHeight: '24px', letterSpacing: '-0.2px', color: color.text }}>
             {view.title}
           </h2>
           {sub && (
-            <span className="flex min-w-0 items-center gap-[8px]" style={{ marginTop: building ? 6 : 3, fontSize: type2.sm, color: color.label }}>
+            <span className="flex min-w-0 items-center gap-[8px]" style={{ marginTop: building ? 8 : 4, fontSize: type2.sm, lineHeight: '18px', color: color.label }}>
               {building && <Spinner size={12} c={color.label} />}
               <span className="truncate">{sub}</span>
             </span>
           )}
         </div>
         {!building && (
-          <div className="flex shrink-0 flex-col items-end gap-[6px]">
+          <div className="flex shrink-0 flex-col items-end gap-[8px]">
             <ContAction hero={hero} fix={fix} />
           </div>
         )}
@@ -475,21 +485,32 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
 
 type BodyProps = { view: View | null | 'loading'; hero: Hero; fix?: Fix; skip: Set<string>; done: Set<string>; data?: DashData; now: number; recent: Recent[] }
 
+/** The shell's drag strip above Home (Shell.tsx Header: Home has no title, only a 20 px strip) plus the panel inset. */
+const SHELL_STRIP = 20 + 8
+
+/**
+ * One centered column (layout spec, Nov 22), top-anchored, never centered vertically. The bonsai, Continue and the ask
+ * read as one group (12 apart); the lists sit 40 under it and 40 apart. The bonsai's top is 80 from the window's top,
+ * where every other page's title sits. The same 720 column at every window size (layout.tsx).
+ */
 function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): ReactNode {
   return (
-    // Round 3 rhythm: the bonsai, Continue and the ask read as one group (14 apart); the lists below sit 36 apart.
-    <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '0 40px 56px', gap: 36 }}>
-      <div className="flex flex-col" style={{ gap: 14 }}>
-        <div className="flex justify-center" style={{ paddingTop: 'clamp(20px, 5vh, 48px)', paddingBottom: 10 }}>
-          <MiyagiMark size={32} />
+    <Column data-home-column style={{ paddingTop: PAGE_TOP - SHELL_STRIP, paddingBottom: rhythm.bottom }}>
+      <div className="flex flex-col" style={{ gap: rhythm.section }}>
+        <div data-home-main className="flex min-w-0 flex-col" style={{ gap: 12 }}>
+          <div className="flex justify-center" style={{ paddingBottom: 12 }}>
+            <MiyagiMark size={32} />
+          </div>
+          {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
+          <Ask primary={!view || view === 'loading'} data={data} />
         </div>
-        {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
-        <Ask primary={!view || view === 'loading'} data={data} />
+        <div data-home-lists className="flex min-w-0 flex-col empty:hidden" style={{ gap: rhythm.section }}>
+          <ReviewLine data={data} now={now} />
+          <UpNext skip={skip} done={done} />
+          <Recents rows={recent} now={now} />
+        </div>
       </div>
-      <ReviewLine data={data} now={now} />
-      <UpNext skip={skip} done={done} />
-      <Recents rows={recent} now={now} />
-    </div>
+    </Column>
   )
 }
 
@@ -509,14 +530,16 @@ export function Home(): ReactNode {
   const skip = new Set(conts.map((c) => c.libraryId))
   if (hero.kind === 'resume' || hero.kind === 'fresh') skip.add(hero.id)
   return (
-    <div data-home className="@container flex min-h-0 flex-1 flex-col overflow-y-auto" style={{ color: color.text }}>
+    <Pane data-home className="flex flex-1 flex-col overflow-y-auto" style={{ color: color.text, scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
       {offline && (
-        <p role="status" data-home-offline className="m-0 mx-auto flex w-full items-center gap-[8px]" style={{ ...caption, maxWidth: 700, padding: '12px 40px 0' }}>
-          <CloudOff aria-hidden size={14} strokeWidth={1.8} />
-          {copy.name} is offline. Your lessons show when it connects.
-        </p>
+        <Column>
+          <p role="status" data-home-offline className="m-0 flex items-center gap-[8px]" style={{ ...caption, paddingTop: 12 }}>
+            <CloudOff aria-hidden size={14} strokeWidth={1.8} />
+            {copy.name} is offline. Your lessons show when it connects.
+          </p>
+        </Column>
       )}
       <Body view={view} hero={hero} fix={fix} skip={skip} done={finishedIds(data)} data={data} now={now} recent={load === 'loading' ? [] : recentActivity(data)} />
-    </div>
+    </Pane>
   )
 }

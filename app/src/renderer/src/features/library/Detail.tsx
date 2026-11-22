@@ -6,11 +6,12 @@
  * Enter still starts); no Level row (the engine doesn't send one); the step's check name is not in the contract, so a
  * step shows its minutes when the engine sends them.
  */
-import { ChevronLeft, Play } from 'lucide-react'
+import { ArrowUpRight, ChevronLeft, Play } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
-import { color, copy, fill, font, radius2, surface, type2 } from '../../core/theme'
+import { color, copy, fill, highlight, radius2, surface, type2 } from '../../core/theme'
+import { Column, PAGE_TOP, Pane, rhythm } from './layout'
 import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, minutesLabel, soft, stepsLabel } from './parts'
 import { foldLabel, previewSteps } from './stepsPreview'
@@ -22,21 +23,28 @@ const KICKER = { youtube: 'Lesson from a YouTube tutorial', goal: 'Lesson built 
 /** `vid`: a checked 11-character YouTube id. Only the canonical watch link built from it is opened, never the engine's URL. */
 function Video({ vid, by }: { vid: string; by?: string }): ReactNode {
   return (
-    <div className="flex flex-col gap-[8px]">
-      <button
-        type="button"
-        aria-label="Open the original video in your browser"
-        onClick={() => void bridge.invoke('open:external', youtubeWatchUrl(vid)).catch(() => undefined)}
-        className="relative flex cursor-pointer items-center justify-center overflow-hidden"
-        style={{ height: 152, borderRadius: radius2.card, background: fill.thumb, boxShadow: `inset 0 0 0 1px ${surface.border}` }}
-      >
+    <button
+      type="button"
+      aria-label="Open the original video in your browser"
+      onClick={() => void bridge.invoke('open:external', youtubeWatchUrl(vid)).catch(() => undefined)}
+      className="mg-press flex w-full cursor-pointer items-center gap-[16px] text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
+      // Home's card surface (white in light), radius 16 around an 8 px inset, so the thumbnail's 8 is concentric.
+      style={{ padding: 8, borderRadius: radius2.group, background: 'var(--l-overlay)', boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}`, outlineColor: color.text }}
+    >
+      <span className="relative flex shrink-0 items-center justify-center overflow-hidden" style={{ width: 160, height: 90, borderRadius: radius2.control, background: fill.thumb }}>
         <img src={`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`} alt="" draggable={false} referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" />
-        <span className="relative flex items-center justify-center" style={{ width: 44, height: 44, borderRadius: radius2.round, background: fill.thumbArt, color: color.text }}>
-          <Play aria-hidden size={16} fill="currentColor" strokeWidth={0} />
+        <span className="relative flex items-center justify-center" style={{ width: 32, height: 32, borderRadius: radius2.round, background: fill.thumbArt, color: color.text }}>
+          <Play aria-hidden size={12} fill="currentColor" strokeWidth={0} />
         </span>
-      </button>
-      {by && <span style={{ fontSize: type2.xs, color: color.label }}>Original video by {by}</span>}
-    </div>
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-[4px]">
+        <span style={{ fontSize: type2.md, lineHeight: '20px', color: color.text }}>The original video</span>
+        <span className="truncate" style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}>
+          {by ? `By ${by} · opens in your browser` : 'Opens in your browser'}
+        </span>
+      </span>
+      <ArrowUpRight aria-hidden size={16} strokeWidth={1.8} className="shrink-0" style={{ color: color.label, marginRight: 8 }} />
+    </button>
   )
 }
 
@@ -74,30 +82,32 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
 
   // Round 3: one back control ("‹ Lessons", chevron and name together, a row-style hover), and no rule under the bar:
   // no other page has a hairline under its header, spacing does the grouping.
+  // Layout spec: the back control lives in the page's own column, its chevron on the column's left edge (the title's
+  // edge), inside the 52 px drag strip. Clear of the traffic lights: the column never starts left of 80 px.
   const bar = (
-    <div data-drag className="flex shrink-0 items-center" style={{ height: 52, padding: back ? '0 12px' : '0 12px 0 84px' }}>
+    <Column data-drag className="flex shrink-0 items-center" style={{ height: 52 }}>
       <button
         type="button"
         data-no-drag
         aria-label={`Back to ${back ?? 'Library'}`}
         onClick={closeDetail}
         className="flex cursor-pointer items-center gap-[2px] outline-offset-1 transition-colors hover:bg-[var(--s-row-hover)] focus-visible:outline-2 focus-visible:outline-solid"
-        style={{ height: 30, padding: '0 10px 0 4px', borderRadius: radius2.control, color: color.label, fontSize: type2.sm, outlineColor: color.text }}
+        style={{ height: 30, marginLeft: -10, padding: '0 10px 0 4px', borderRadius: radius2.control, color: color.label, fontSize: type2.sm, outlineColor: color.text }}
       >
         <ChevronLeft aria-hidden size={16} strokeWidth={1.8} />
         {back ?? 'Library'}
       </button>
-    </div>
+    </Column>
   )
 
   if (!item)
     return (
-      <div className="flex h-full w-full flex-col" style={{ color: color.text }}>
+      <Pane className="flex h-full flex-col" style={{ color: color.text }}>
         {bar}
         <div className="flex flex-1 items-center justify-center" style={{ fontSize: type2.sm, color: color.label }}>
           {loaded ? `That lesson isn’t on ${thisDevice()}.` : 'Loading…'}
         </div>
-      </div>
+      </Pane>
     )
 
   const steps = detail?.steps ?? []
@@ -117,23 +127,25 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
 
   // Redraft (Michael's audit: "a large empty area on the left, a tiny preview box at top right; hard to scan"): one
   // centered column, as on Home. The title, one meta line, Start lesson right under it (no trip to the bottom-right
-  // corner), then the steps. A YouTube lesson shows its video under the start row.
+  // corner), then the steps. A YouTube lesson shows its video as a source row under the start row.
+  // Layout spec (Nov 22): the same 720 column as Home and Lessons, back link included; the kicker's top is 80 from the
+  // window's top (8 panel inset + 52 strip + 20), where every page's first line sits; steps 40 under the start row.
   return (
-    <div className="flex h-full w-full flex-col" style={{ color: color.text }}>
+    <Pane className="flex h-full flex-col" style={{ color: color.text }}>
       {bar}
-      <section aria-labelledby="lib-title" className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '28px 40px 56px' }}>
-          <div style={{ fontSize: type2.xs, color: color.label }}>{KICKER[src?.kind ?? 'library']}</div>
-          <h1 id="lib-title" className="m-0 font-semibold" style={{ marginTop: 8, fontSize: type2.xxl, lineHeight: 1.2, letterSpacing: '-0.015em' }}>
+      <section aria-labelledby="lib-title" className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
+        <Column className="flex flex-col" style={{ paddingTop: PAGE_TOP - 8 - 52, paddingBottom: rhythm.bottom }}>
+          <div style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}>{KICKER[src?.kind ?? 'library']}</div>
+          <h1 id="lib-title" className="m-0 font-semibold" style={{ marginTop: 8, fontSize: 26, lineHeight: '32px', letterSpacing: '-0.4px' }}>
             {item.title}
           </h1>
-          <div style={{ marginTop: 8, fontSize: type2.sm, color: color.label }}>{meta}</div>
+          <div style={{ marginTop: 8, fontSize: type2.sm, lineHeight: '18px', color: color.label }}>{meta}</div>
           {detail?.overview && (
-            <p className="m-0" style={{ marginTop: 14, fontSize: type2.md, lineHeight: 1.5, color: soft, maxWidth: 560 }}>
+            <p className="m-0" style={{ marginTop: 16, fontSize: type2.md, lineHeight: '22px', color: soft, maxWidth: 560 }}>
               {detail.overview}
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-[12px]" style={{ marginTop: 22 }}>
+          <div className="flex flex-wrap items-center gap-[12px]" style={{ marginTop: 24 }}>
             <PrimaryButton label="Start lesson" icon={Play} busy={busy} disabled={!ready || (!!starting && !busy)} onClick={() => void start(id)} />
             {caption.trim() && (
               <span role={err ? 'status' : undefined} style={{ fontSize: type2.xs, color: color.label }}>
@@ -142,11 +154,11 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
             )}
           </div>
           {vid && (
-            <div style={{ marginTop: 28, maxWidth: 360 }}>
+            <div style={{ marginTop: 32 }}>
               <Video vid={vid} by={by} />
             </div>
           )}
-          <h2 className="m-0 font-medium" style={{ margin: '36px 0 8px', fontSize: type2.xs, color: color.label }}>
+          <h2 className="m-0 font-medium" style={{ margin: `${rhythm.section}px 0 4px`, fontSize: type2.xs, lineHeight: '16px', color: color.label }}>
             {stepCount ? stepsLabel(stepCount) : 'Steps'}
           </h2>
           {steps.length > 0 ? (
@@ -165,7 +177,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
                         <span style={{ fontSize: type2.sm, lineHeight: 1.4, color: color.label }}>{st.what}</span>
                       )}
                     </span>
-                    {st.estMinutes ? <span style={{ fontSize: type2.xs, lineHeight: '22px', color: color.label, fontFamily: font.mono }}>{st.estMinutes} min</span> : null}
+                    {st.estMinutes ? <span className="shrink-0" style={{ fontSize: type2.xs, lineHeight: '22px', color: color.label, fontVariantNumeric: 'tabular-nums' }}>{st.estMinutes} min</span> : null}
                   </li>
                 ))}
               </ol>
@@ -175,7 +187,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
                   aria-expanded={expanded}
                   onClick={() => setOpen({ id, all: !expanded })}
                   className="cursor-pointer self-start outline-offset-1 transition-colors hover:bg-[var(--s-row-hover)] focus-visible:outline-2 focus-visible:outline-solid"
-                  style={{ marginTop: 8, marginLeft: 30, height: 30, padding: '0 10px', borderRadius: radius2.control, color: color.label, fontSize: type2.sm, outlineColor: color.text }}
+                  style={{ marginTop: 8, marginLeft: 24, height: 30, padding: '0 10px', borderRadius: radius2.control, color: color.label, fontSize: type2.sm, outlineColor: color.text }}
                 >
                   {foldLabel(steps.length, expanded)}
                 </button>
@@ -186,8 +198,8 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
               {detail === undefined ? (failed ? `The steps show once ${copy.name} answers.` : 'Loading the steps…') : 'They open one at a time, each checked before the next.'}
             </p>
           )}
-        </div>
+        </Column>
       </section>
-    </div>
+    </Pane>
   )
 }
