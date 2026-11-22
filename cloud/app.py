@@ -32,7 +32,7 @@ import anyio
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.datastructures import Headers
 
 from store import PLANS, PREFIX_LEN, Store, lesson_hash, open_store, this_month, today
@@ -132,6 +132,10 @@ GEMINI_MAX_THINKING_TOKENS = _env_int("GEMINI_MAX_THINKING_TOKENS", 2048)  # cla
 # Reservation estimates (the cost held while a call is in flight; settled to the real usage when it ends).
 # Input tokens held for a YouTube fileData part without both offsets (about 30 minutes at the engine's 0.5 fps).
 GEMINI_VIDEO_RESERVE_TOKENS = _env_int("GEMINI_VIDEO_RESERVE_TOKENS", 300_000)
+# videoMetadata.fps is clamped to this before forwarding (the engine samples at 0.5 fps, and 2 fps for a step's clip).
+GEMINI_MAX_FPS = _env_float("GEMINI_MAX_FPS", 2.0)
+# The most input one Gemini call can bill (the model's context window): the cap on any input reservation.
+GEMINI_CONTEXT_TOKENS = _env_int("GEMINI_CONTEXT_TOKENS", 1_048_576)
 IMAGE_RESERVE_TOKENS = 5_000  # one base64 image (a screenshot is ~1.6k tokens on Claude; held high on purpose)
 WEB_SEARCH_RESERVE_TOKENS = 8_000  # the result blocks one web search adds to the input
 CHARS_PER_TOKEN = 3  # the input estimate: forwarded JSON bytes / 3 (real text is ~4 per token: errs high)
@@ -226,10 +230,13 @@ SERVER_TOOL_USD = 0.01  # one web search ($10 per 1,000); any other server tool 
 
 
 def estimate_usd(model: str, inp: int, out: int, cache_read: int = 0, cache_write: int = 0, server_tool_uses: int = 0,
-                 price: tuple[float, float] | None = None) -> float:
+                 price: tuple[float, float] | None = None, cache_write_1h: int = 0) -> float:
+    """cache_write: every cache-write token (5-minute writes 1.25x input); cache_write_1h: those of them written with
+    a 1-hour ttl, 2x input (the proxy strips that ttl, so this only guards against a provider-side default)."""
     pin, pout = price or PRICES.get(model, DEFAULT_PRICE)
     plain = max(inp - cache_read - cache_write, 0)
-    tokens = (plain * pin + cache_read * pin * 0.1 + cache_write * pin * 1.25 + out * pout) / 1_000_000
+    h1 = min(max(cache_write_1h, 0), cache_write)
+    tokens = (plain * pin + cache_read * pin * 0.1 + (cache_write - h1) * pin * 1.25 + h1 * pin * 2.0 + out * pout) / 1_000_000
     return tokens + max(server_tool_uses, 0) * SERVER_TOOL_USD
 
 
@@ -557,6 +564,32 @@ def _is_admin(path: str) -> bool:
     return path == "/admin" or path.startswith("/admin/")
 
 
+# Routes that only ever take a few hundred bytes (install metadata, an admin form or JSON field): their declared and
+# running body size is held to this in Guard, before anything is buffered, and their handlers read the body under
+# BODY_READ_TIMEOUT_S. A stalled or oversized install body can no longer pin megabytes per request.
+SMALL_BODY_MAX = 4 * 1024
+SMALL_BODY_PATHS = ("/v1/install", "/v1/register")
+
+
+def body_limit(path: str) -> int:
+    """The most body bytes Guard lets a request to `path` send (declared Content-Length and running count)."""
+    if path in SMALL_BODY_PATHS or _is_admin(path):
+        return SMALL_BODY_MAX
+    if path == "/v1/link":
+        return LINK_MAX_BODY
+    if path == "/v1/events":
+        return EVENTS_MAX_BYTES
+    return MAX_GEMINI_BODY if path.startswith("/v1/gemini/") else MAX_BODY
+
+
+def _size(n: int) -> str:
+    return f"{n // (1024 * 1024)} MB" if n >= 1024 * 1024 else f"{n // 1024} KB"
+
+
+def too_large(limit: int) -> JSONResponse:
+    return error(413, "request_too_large", f"Request body over {_size(limit)}.")
+
+
 class Guard:
     """Pure ASGI middleware: kill switch, no browser origins on /v1, admin off for a weak ADMIN_TOKEN, body size
     limit, one log line per request (RateLimit's 429s included: Guard is the outer middleware).
@@ -588,10 +621,10 @@ class Guard:
             if _is_admin(path) and not ADMIN_ENABLED:
                 return await error(503, "admin_disabled", "Admin is disabled: ADMIN_TOKEN is too weak. "
                                    "Set a strong one (32+ random characters).")(scope, receive, send_logged)
-            limit = MAX_GEMINI_BODY if path.startswith("/v1/gemini/") else MAX_BODY
+            limit = body_limit(path)
             declared = headers.get("content-length", "")
             if declared.isdigit() and int(declared) > limit:
-                return await error(413, "request_too_large", f"Request body over {limit // (1024 * 1024)} MB.")(scope, receive, send_logged)
+                return await too_large(limit)(scope, receive, send_logged)
             seen = [0]
 
             async def receive_limited():
@@ -605,7 +638,7 @@ class Guard:
                 await self.app(scope, receive_limited, send_logged)
             except BodyTooLarge:
                 if status[0] == 0:
-                    await error(413, "request_too_large", f"Request body over {limit // (1024 * 1024)} MB.")(scope, receive, send_logged)
+                    await too_large(limit)(scope, receive, send_logged)
         finally:
             extra = "".join(f" {k}={state[k]}" for k in ("model", "tokens_in", "tokens_out", "held", "tok", "user", "rl")
                             if state.get(k) is not None)
@@ -976,11 +1009,28 @@ async def read_body(request: Request) -> bytes | None:
 
 def small_body_too_large(request: Request, max_bytes: int) -> JSONResponse | None:
     """413 when a route that only takes a small body (a login form, a JWT) declares a bigger one. Guard's running
-    count still stops a body that lies about its length at MAX_BODY."""
+    count still stops a body that lies about its length at body_limit(path)."""
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > max_bytes:
-        return error(413, "request_too_large", f"Request body over {max_bytes // 1024} KB.")
+        return too_large(max_bytes)
     return None
+
+
+async def read_model(request: Request, model: type[BaseModel], max_bytes: int = SMALL_BODY_MAX):
+    """A small JSON body validated as `model`, read under BODY_READ_TIMEOUT_S and at most `max_bytes`: the model
+    instance, or the response to send (413, 408, or 422 for a body that is not that JSON object). Routes take this
+    instead of a Pydantic body parameter, which FastAPI would read in full, with no time limit, before the handler."""
+    if too_big := small_body_too_large(request, max_bytes):
+        return too_big
+    raw = await read_body(request)
+    if raw is None:
+        return request_timeout()
+    if len(raw) > max_bytes:
+        return too_large(max_bytes)
+    try:
+        return model.model_validate(parse_json_object(raw, max_objects=64))
+    except (BadBody, ValidationError):
+        return error(422, "invalid_request_error", f"Body must be a JSON object with the fields of {model.__name__}.")
 
 
 def mint_token(request: Request, install_id: str | None, app_version: str, platform: str) -> tuple[str, str] | JSONResponse:
@@ -1019,7 +1069,7 @@ def _warn_mints(this_hour: int) -> None:
 
 # --------------------------------------------------------------------------- usage sniffing
 
-_USAGE_RE = re.compile(r'"(input_tokens|output_tokens|cache_read_input_tokens|cache_creation_input_tokens|'
+_USAGE_RE = re.compile(r'"(input_tokens|output_tokens|cache_read_input_tokens|cache_creation_input_tokens|ephemeral_1h_input_tokens|'
                        r'web_search_requests|web_fetch_requests|code_execution_requests|'
                        r'promptTokenCount|candidatesTokenCount|thoughtsTokenCount|cachedContentTokenCount)"\s*:\s*(\d+)')
 _MODEL_RE = re.compile(r'"(?:model|modelVersion)"\s*:\s*"([A-Za-z0-9._\-]{1,80})"')
@@ -1109,11 +1159,12 @@ class Usage:
             cr, cw = f.get("cache_read_input_tokens", 0), f.get("cache_creation_input_tokens", 0)
             inp, out = f.get("input_tokens", 0) + cr + cw, f.get("output_tokens", 0)
             tools = f.get("web_search_requests", 0) + f.get("web_fetch_requests", 0) + f.get("code_execution_requests", 0)
+            h1 = f.get("ephemeral_1h_input_tokens", 0)
         else:
-            cr, cw, tools = f.get("cachedContentTokenCount", 0), 0, 0
+            cr, cw, tools, h1 = f.get("cachedContentTokenCount", 0), 0, 0, 0
             inp, out = f.get("promptTokenCount", 0), f.get("candidatesTokenCount", 0) + f.get("thoughtsTokenCount", 0)
         request.state.model, request.state.tokens_in, request.state.tokens_out = model, inp, out
-        return model, inp, out, estimate_usd(model, inp, out, cr, cw, tools, price=price)
+        return model, inp, out, estimate_usd(model, inp, out, cr, cw, tools, price=price, cache_write_1h=h1)
 
 
 # --------------------------------------------------------------------------- forwarding
@@ -1338,11 +1389,19 @@ _MAX_BLOCK_DEPTH = 32
 _MODEL_DATA_BLOCKS = ("tool_use", "server_tool_use")  # their `input` is the model's own JSON, not content blocks
 
 
+def _cache_control(cc) -> dict:
+    """A cache breakpoint as forwarded: {"type": "ephemeral"}, with ttl "5m" kept when given and any other ttl
+    dropped. A 1-hour cache write costs 2x input, against the 1.25x the caps price every cache write at."""
+    if not isinstance(cc, dict) or cc.get("type") != "ephemeral":
+        raise BadBody('cache_control must be {"type": "ephemeral"}.')
+    return {"type": "ephemeral", "ttl": "5m"} if cc.get("ttl") == "5m" else {"type": "ephemeral"}
+
+
 def _check_blocks(content, depth: int = 0) -> None:
     """Content may not make Anthropic fetch a URL or read an uploaded file, or mount a container upload, at any
     depth: every object and list under the content is walked (a document's source.content, a tool result's
     content, a search result's content, ...), not only the `content` keys. Nesting deeper than _MAX_BLOCK_DEPTH
-    is refused rather than left unchecked."""
+    is refused rather than left unchecked. Every cache_control on the way is rewritten in place (_cache_control)."""
     if depth > _MAX_BLOCK_DEPTH:
         raise BadBody("Message content is nested too deep.")
     if isinstance(content, list):
@@ -1357,6 +1416,8 @@ def _check_blocks(content, depth: int = 0) -> None:
     if isinstance(src, dict) and src.get("type") in ("url", "file"):
         raise BadBody(f"{src.get('type')} sources are not allowed on this proxy; send base64 data.")
     skip = "input" if content.get("type") in _MODEL_DATA_BLOCKS else None
+    if content.get("cache_control") is not None:
+        content["cache_control"] = _cache_control(content["cache_control"])
     for k, v in content.items():
         if k != skip and isinstance(v, (dict, list)):
             _check_blocks(v, depth + 1)
@@ -1375,8 +1436,8 @@ def _clean_tool(t: dict) -> tuple[dict, int, int]:
             out["description"] = t["description"]
         if isinstance(t.get("strict"), bool):
             out["strict"] = t["strict"]
-        if isinstance(t.get("cache_control"), dict):
-            out["cache_control"] = t["cache_control"]
+        if t.get("cache_control") is not None:
+            out["cache_control"] = _cache_control(t["cache_control"])
         return out, 0, 0
     m = _WEB_TOOL_RE.fullmatch(kind) if isinstance(kind, str) else None
     if m and m.group(1) in ANTHROPIC_SERVER_TOOLS:
@@ -1387,9 +1448,11 @@ def _clean_tool(t: dict) -> tuple[dict, int, int]:
         for key in ("allowed_domains", "blocked_domains"):
             if isinstance(t.get(key), list) and all(isinstance(d, str) for d in t[key]):
                 out[key] = t[key][:64]
-        for key in ("user_location", "citations", "cache_control"):
+        for key in ("user_location", "citations"):
             if isinstance(t.get(key), dict):
                 out[key] = t[key]
+        if t.get("cache_control") is not None:
+            out["cache_control"] = _cache_control(t["cache_control"])
         if m.group(1) == "web_fetch":  # always bounded: without it one fetch may pull a whole page in as input
             mct = t.get("max_content_tokens")
             out["max_content_tokens"] = (min(mct, WEB_FETCH_MAX_CONTENT_TOKENS) if _is_int(mct) and mct > 0
@@ -1570,22 +1633,29 @@ _OFFSET_RE = re.compile(r"\s*(\d{1,6}(?:\.\d{1,9})?)s\s*")
 
 
 def _offset_s(v) -> float | None:
+    """Seconds from a videoMetadata offset ("600s" or a number); None when unparseable, negative or not finite."""
     if _is_num(v):
-        return float(v)
+        return float(v) if math.isfinite(v) and v >= 0 else None
     m = _OFFSET_RE.fullmatch(v) if isinstance(v, str) else None
     return float(m.group(1)) if m else None
 
 
 def _video_tokens(part: dict, low: bool) -> int:
-    """Input tokens one YouTube fileData part may cost. With an end offset (the engine's windows): its seconds x
-    (fps x frame tokens + 32 audio tokens a second), frames at 258 tokens (70 at MEDIA_RESOLUTION_LOW). Without
-    one (a whole video): GEMINI_VIDEO_RESERVE_TOKENS."""
+    """Input tokens one YouTube fileData part may cost, at most GEMINI_CONTEXT_TOKENS. Per second: fps x frame tokens
+    (258, or 70 at MEDIA_RESOLUTION_LOW) + 32 audio tokens; fps defaults to Gemini's 1 and is clamped to
+    GEMINI_MAX_FPS. With a window (an end offset after its start: the engine's windows) its seconds at that rate.
+    Without one (no end, an unparseable offset, or end <= start): a whole video, GEMINI_VIDEO_RESERVE_TOKENS (sized
+    for about 30 minutes at the engine's 0.5 fps), scaled up when this part's rate is higher than that one."""
     vm = part.get("videoMetadata") if isinstance(part.get("videoMetadata"), dict) else {}
+    fps = vm.get("fps")
+    fps = min(float(fps), GEMINI_MAX_FPS) if _is_num(fps) and math.isfinite(fps) and fps > 0 else 1.0
+    per_s = fps * (70 if low else 258) + 32
     start, end = _offset_s(vm.get("startOffset", 0)), _offset_s(vm.get("endOffset"))
-    if start is None or end is None:
-        return GEMINI_VIDEO_RESERVE_TOKENS
-    fps = float(vm["fps"]) if _is_num(vm.get("fps")) and vm["fps"] > 0 else 1.0
-    return int(max(end - start, 0) * (fps * (70 if low else 258) + 32))
+    if start is None or end is None or end <= start:
+        tokens = GEMINI_VIDEO_RESERVE_TOKENS * max(per_s / (0.5 * 258 + 32), 1.0)  # never below the flat reserve
+    else:
+        tokens = (end - start) * per_s
+    return int(min(tokens, GEMINI_CONTEXT_TOKENS))
 
 
 def gemini_reserve(clean: dict, model: str, payload_len: int) -> float:
@@ -1599,7 +1669,7 @@ def gemini_reserve(clean: dict, model: str, payload_len: int) -> float:
     video = sum(_video_tokens(p, low) for p in parts if "fileData" in p)
     budget = (gen.get("thinkingConfig") or {}).get("thinkingBudget")
     out = max(gen.get("maxOutputTokens", GEMINI_MAX_OUTPUT_TOKENS), budget if _is_int(budget) else 0)
-    inp = input_tokens_estimate(payload_len, clean) + video
+    inp = min(input_tokens_estimate(payload_len, clean) + video, GEMINI_CONTEXT_TOKENS)  # no call can bill more
     return inp * input_price(model) + out * output_price(model)
 
 
@@ -1619,6 +1689,55 @@ def _youtube_uri(uri) -> str:
     return f"https://www.youtube.com/watch?v={m.group(1)}"
 
 
+# Keys that make Gemini read a file or fetch a URL, in either JSON spelling (the API accepts proto snake_case too).
+# They may appear only as a validated top-level fileData; anywhere else in a part (a functionResponse's parts, a
+# functionCall's args, ...) the body is refused, so nothing nested can reach Google unchecked.
+_GEMINI_FILE_KEYS = frozenset({"fileData", "file_data", "fileUri", "file_uri"})
+
+
+def _no_file_refs(value, depth: int = 0) -> None:
+    if depth > _MAX_BLOCK_DEPTH:
+        raise BadBody("A part is nested too deep.")
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if k in _GEMINI_FILE_KEYS:
+                raise BadBody("fileData is only allowed as a top-level part holding a YouTube video.")
+            _no_file_refs(v, depth + 1)
+    elif isinstance(value, list):
+        for v in value:
+            _no_file_refs(v, depth + 1)
+
+
+def _function_response(fr) -> dict:
+    """{id?, name, response} only. A multimodal functionResponse.parts (file_data / inline_data the model would read)
+    is refused: the engine never sends one, and it would carry files past the YouTube-only fileData check."""
+    if not isinstance(fr, dict) or not isinstance(fr.get("name"), str):
+        raise BadBody("functionResponse needs a name and a response object.")
+    if "parts" in fr:
+        raise BadBody("functionResponse.parts is not allowed on this proxy.")
+    out = {"name": fr["name"][:128], "response": fr.get("response") if isinstance(fr.get("response"), dict) else {}}
+    if isinstance(fr.get("id"), str):
+        out["id"] = fr["id"][:128]
+    return out
+
+
+def _video_metadata(vm) -> dict:
+    """startOffset / endOffset / fps only, fps clamped to GEMINI_MAX_FPS (the engine uses at most 2). A window that
+    ends before it starts is refused: it would reserve nothing."""
+    if not isinstance(vm, dict):
+        raise BadBody("videoMetadata must be an object.")
+    out = {k: vm[k] for k in ("startOffset", "endOffset") if k in vm and (_is_num(vm[k]) or isinstance(vm[k], str))}
+    start, end = _offset_s(out.get("startOffset", 0)), _offset_s(out.get("endOffset"))
+    if start is not None and end is not None and end < start:
+        raise BadBody("videoMetadata.endOffset must not be before startOffset.")
+    if "fps" in vm:
+        fps = vm["fps"]
+        if not _is_num(fps) or not math.isfinite(fps) or fps <= 0:
+            raise BadBody("videoMetadata.fps must be a positive number.")
+        out["fps"] = min(float(fps), GEMINI_MAX_FPS)
+    return out
+
+
 def _gemini_parts(parts) -> list:
     if not isinstance(parts, list):
         raise BadBody("parts must be a list.")
@@ -1627,6 +1746,13 @@ def _gemini_parts(parts) -> list:
         if not isinstance(p, dict):
             raise BadBody("Each part must be an object.")
         cp = {k: p[k] for k in GEMINI_PART_KEYS if k in p}
+        if "functionResponse" in cp:
+            cp["functionResponse"] = _function_response(cp["functionResponse"])
+        if "videoMetadata" in cp:
+            cp["videoMetadata"] = _video_metadata(cp["videoMetadata"])
+        for k, v in cp.items():  # everything but the top-level fileData checked below
+            if k != "fileData":
+                _no_file_refs(v)
         if "fileData" in cp:
             fd = cp["fileData"]
             if not isinstance(fd, dict):
@@ -1745,7 +1871,10 @@ class RegisterBody(BaseModel):
 
 
 @app.post("/v1/register")
-async def register(body: RegisterBody, request: Request):
+async def register(request: Request):
+    body = await read_model(request, RegisterBody)
+    if isinstance(body, JSONResponse):
+        return body
     minted = mint_token(request, body.install_id, body.app_version, body.platform)
     if isinstance(minted, JSONResponse):
         return minted
@@ -1761,7 +1890,10 @@ class InstallBody(BaseModel):
 
 
 @app.post("/v1/install")
-async def install(body: InstallBody, request: Request):
+async def install(request: Request):
+    body = await read_model(request, InstallBody)
+    if isinstance(body, JSONResponse):
+        return body
     platform = "/".join(x for x in (body.os.strip(), body.arch.strip()) if x)
     minted = mint_token(request, None, body.app.strip(), platform)
     if isinstance(minted, JSONResponse):
@@ -2412,12 +2544,15 @@ class PlanBody(BaseModel):
 
 
 @app.post("/admin/tokens/{prefix}/plan")
-async def admin_set_plan(prefix: str, body: PlanBody, request: Request):
+async def admin_set_plan(prefix: str, request: Request):
     """Move one install between the free tier (caps apply) and pro (no per-install caps)."""
     if denied := require_admin(request):
         return denied
     if not _PREFIX_RE.fullmatch(prefix):
         return error(400, "invalid_request_error", _BAD_PREFIX)
+    body = await read_model(request, PlanBody)
+    if isinstance(body, JSONResponse):
+        return body
     if body.plan not in PLANS:
         return error(400, "invalid_request_error", f"plan must be one of: {', '.join(PLANS)}.")
     matched = store.set_plan(prefix, body.plan)
@@ -2478,12 +2613,15 @@ class ApproveBody(BaseModel):
 
 
 @app.post("/admin/lessons/{video_id}/approve")
-async def admin_approve_lesson(video_id: str, body: ApproveBody, request: Request):
+async def admin_approve_lesson(video_id: str, request: Request):
     """Serve one candidate of this video, chosen by its body hash (prefix from /admin/lessons/pending)."""
     if denied := require_admin(request):
         return denied
     if not VIDEO_ID_RE.fullmatch(video_id):
         return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    body = await read_model(request, ApproveBody)
+    if isinstance(body, JSONResponse):
+        return body
     groups = store.approve_lesson(video_id, body.hash, body.schema_)
     if not groups:
         return error(404, "not_found_error", "No candidate of that video has that hash.")
@@ -2546,7 +2684,7 @@ async def admin_page():
     return _page(_LOGIN)
 
 
-ADMIN_FORM_MAX_BODY = 4096  # the login form: one token field
+ADMIN_FORM_MAX_BODY = SMALL_BODY_MAX  # the login form: one token field
 
 
 @app.post("/admin")

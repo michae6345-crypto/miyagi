@@ -465,12 +465,14 @@ def test_anonymous_spend_is_capped_per_minting_network(make_cloud):
     # another network is not affected
     other = client.post("/v1/install", headers=xff("2001:db8:cd::1"), json={}).json()["token"]
     assert client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {other}"}, json=body).status_code == 502
-    # a linked install from that network counts per user instead, and its usage leaves the network's sum
+    # a linked install from that network counts per user instead, but what it spent today before linking stays in
+    # the network's sum: linking a spent install does not free the pool for the others
     app_mod.store.link_user(hashes[0][1], "user-1")
     r = client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {hashes[0][0]}"}, json=body)
     assert r.status_code == 502
-    assert client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {hashes[2][0]}"},
-                       json=body).status_code == 502  # the network is at $0.25 now (only unlinked installs count)
+    r = client.post("/v1/anthropic/v1/messages", headers={"Authorization": f"Bearer {hashes[2][0]}"}, json=body)
+    assert r.status_code == 429 and r.json()["error"]["scope"] == "network"
+    assert r.json()["error"]["used"] == pytest.approx(0.5)  # not more: its spend after linking counts per user
     _, app_mod = make_cloud(unset=("ANON_DAILY_USD_PER_NETWORK",))
     assert app_mod.ANON_DAILY_USD_PER_NETWORK == 5.0
 
