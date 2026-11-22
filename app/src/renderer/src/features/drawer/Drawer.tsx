@@ -39,7 +39,8 @@ import { enter, fade } from '../../core/ui/motion'
  */
 const ROW = { h: 38, wrapH: 32, wrapPadY: 6, padX: 10, icon: 18, gap: 11 } as const
 /** Section labels: mockup 01's small caps (the eyebrow's style), faint. */
-const CAPS = 'text-[11px] font-semibold uppercase tracking-[0.06em]'
+/** Section labels: 12 px medium, sentence case, the label color (overlay round: the same as the home window's SectionHead). */
+const CAPS = 'text-[12px] font-medium'
 /**
  * Every color is a glass token (theme.glass: CSS variables that flip with Settings → Appearance), never color.* /
  * fill.* (those are the black island's). Hover goes through a CSS variable so it stays a token too.
@@ -207,7 +208,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
         <div className="flex items-start gap-[12px]">
           <div className="min-w-0 flex-1">
             {lessonMode && (
-              <div data-part="drawer-eyebrow" className="mb-[3px] truncate text-[11px] font-semibold uppercase leading-[15px] tracking-[0.06em]" style={{ color: glass.faint }}>
+              <div data-part="drawer-eyebrow" className="mb-[3px] truncate text-[12px] font-medium leading-[16px]" style={{ color: glass.label }}>
                 {/* Michael, test 7: nothing on screen names the mode (a Demo take read "Just teach me"). */}
                 {topic || 'Lesson'}
               </div>
@@ -264,7 +265,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
         )}
         <NeedsChip />
         <PrimerSection />
-        <Label part="drawer-plan" right={plan.total ? `${plan.done} of ${plan.total} done` : plan.done > 0 ? `${plan.done} done` : undefined}>
+        <Label part="drawer-plan" right={plan.skipped ? `${plan.skipped} skipped` : undefined}>
           {lessonMode ? 'The plan' : 'Steps'}
         </Label>
         <Steps scroller={scroller} />
@@ -284,7 +285,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
 function Label({ children, right, part }: { children: ReactNode; right?: ReactNode; part?: string }): ReactNode {
   return (
     <div data-part={part} className="flex items-baseline justify-between gap-[8px] px-[10px] pb-[4px] pt-[14px] leading-[16px]">
-      <span className={CAPS} style={{ color: glass.faint }}>
+      <span className={CAPS} style={{ color: glass.label }}>
         {children}
       </span>
       {right && (

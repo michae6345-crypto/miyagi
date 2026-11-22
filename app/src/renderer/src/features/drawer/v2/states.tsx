@@ -41,12 +41,12 @@ export function NotYetBox({ lines }: { lines: string[] }): ReactNode {
           <span style={{ fontSize: type2.md, fontWeight: 600, color: tone.text }}>Not yet</span>
         </div>
         {first && (
-          <p className="m-0 break-words" style={{ paddingLeft: 20, fontSize: type2.sm, lineHeight: '20px', color: tone.text }}>
+          <p className="m-0 break-words [text-wrap:pretty]" style={{ paddingLeft: 20, fontSize: type2.sm, lineHeight: '20px', color: tone.text }}>
             <Inline text={first} />
           </p>
         )}
         {rest.map((t, i) => (
-          <p key={i} className="m-0 break-words" style={{ paddingLeft: 20, fontSize: type2.sm, lineHeight: '20px', color: tone.label }}>
+          <p key={i} className="m-0 break-words [text-wrap:pretty]" style={{ paddingLeft: 20, fontSize: type2.sm, lineHeight: '20px', color: tone.label }}>
             <Inline text={t} />
           </p>
         ))}
@@ -111,12 +111,12 @@ export function HintBox({
         <AnimatePresence initial={false} mode="popLayout">
           <motion.div key={n ?? 0} className="flex flex-col gap-[8px]" style={{ paddingRight: 4 }} initial={r.initial} animate={r.animate} exit={r.exit} transition={r.transition}>
             {first && (
-              <p className="m-0 break-words" style={{ fontSize: type2.body, lineHeight: '22px', color: tone.text }}>
+              <p className="m-0 break-words [text-wrap:pretty]" style={{ fontSize: type2.body, lineHeight: '22px', color: tone.text }}>
                 <Inline text={first} />
               </p>
             )}
             {rest.map((t, i) => (
-              <p key={i} className="m-0 break-words" style={{ fontSize: type2.sm, lineHeight: '20px', color: tone.label }}>
+              <p key={i} className="m-0 break-words [text-wrap:pretty]" style={{ fontSize: type2.sm, lineHeight: '20px', color: tone.label }}>
                 <Inline text={t} />
               </p>
             ))}
@@ -188,7 +188,7 @@ export function PassedBody({ summary, upNext, total }: { summary?: string; upNex
             {copy.passed}
           </h2>
           {summary && (
-            <p className="m-0 break-words" style={{ fontSize: type2.sm, lineHeight: '20px', color: tone.label }}>
+            <p className="m-0 break-words [text-wrap:pretty]" style={{ fontSize: type2.sm, lineHeight: '20px', color: tone.label }}>
               <Inline text={summary} codeColor={tone.text} />
             </p>
           )}
@@ -208,7 +208,7 @@ export function PassedBody({ summary, upNext, total }: { summary?: string; upNex
               {upNext.title}
             </span>
             {upNext.what && upNext.what !== upNext.title && (
-              <span className="break-words" style={{ fontSize: type2.sm, lineHeight: '20px', color: tone.body }}>
+              <span className="break-words [text-wrap:pretty]" style={{ fontSize: type2.sm, lineHeight: '20px', color: tone.body }}>
                 <Inline text={upNext.what} />
               </span>
             )}
