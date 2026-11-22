@@ -18,7 +18,6 @@ import { useShallow } from 'zustand/react/shallow'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
 import { color, copy, elevation, fill, highlight, radius2, tone, type Tone, type2 } from '../../core/theme'
-import { enter, press } from '../../core/ui/motion'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
@@ -34,6 +33,7 @@ import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText,
 import { Press, Ring, Rise } from './motion'
 import { Skeleton, ToolTag, minutesLabel, soft, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
+import { enter, press } from '../../core/ui/motion'
 
 const caption = { fontSize: type2.xs, lineHeight: '16px', color: color.label } as const
 

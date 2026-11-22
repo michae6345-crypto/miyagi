@@ -7,7 +7,7 @@ import { emitUi } from '../bus'
 import { usePressed } from '../shortcuts'
 import { actionTone, brand, color, duration, ease, fill, font, glass, highlight, spring, type OptionAction } from '../theme'
 import { GlassCheck, GlassSpinner } from './glass'
-import { pressMotion, sizeMove, twoBeats } from './motion'
+import { draw, pressMotion, sizeMove, twoBeats } from './motion'
 
 /** A white or pastel slab on the island (options, the island's primary): lit top edge, ink base line. No drop: the island is black. */
 const SLAB = `${highlight.onLight}, ${highlight.base}`
@@ -84,9 +84,7 @@ export function CheckIcon({ status, active }: { status: CheckItem['status']; act
           strokeLinecap="round"
           strokeLinejoin="round"
           // Polish: pathLength is a stroke-dash draw MotionConfig cannot turn off, so reduced motion fades the tick in instead (as StatusGlyph).
-          initial={reduce ? { opacity: 0 } : { pathLength: 0, opacity: 0 }}
-          animate={reduce ? { opacity: 1 } : { pathLength: 1, opacity: 1 }}
-          transition={{ duration: duration.slow, ease: ease.out, delay: 0.08, opacity: { duration: duration.instant, delay: 0.08 } }}
+          {...draw(reduce)}
         />
       </motion.svg>
     )
