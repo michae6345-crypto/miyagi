@@ -131,7 +131,8 @@ export type TrackLayout = { nodes: Placed[]; cols: number; rows: number; crossCo
  * No edges: one column per node in track order (the track is a line), so nothing is drawn that the engine didn't say.
  * Cross links get a column of their own on the left.
  */
-export function layoutTrack(t: DashTrack): TrackLayout {
+/** `withCross` false: no ghost column for another track's ideas (the Skills page names them in the track's header). */
+export function layoutTrack(t: DashTrack, withCross = true): TrackLayout {
   const ids = t.skills.map((s) => s.id)
   const depth: Record<string, number> = Object.fromEntries(ids.map((id, i) => [id, t.edges.length ? 0 : i]))
   if (t.edges.length) {
@@ -147,7 +148,7 @@ export function layoutTrack(t: DashTrack): TrackLayout {
       if (!moved) break
     }
   }
-  const crossCol = t.cross.length > 0
+  const crossCol = withCross && t.cross.length > 0
   const shift = crossCol ? 1 : 0
   const rowsIn: Record<number, number> = {}
   const nodes: Placed[] = ids.map((id) => {
@@ -157,7 +158,7 @@ export function layoutTrack(t: DashTrack): TrackLayout {
     return { id, col, row }
   })
   const cols = Math.max(1, ...nodes.map((n) => n.col + 1))
-  const rows = Math.max(1, t.cross.length, ...Object.values(rowsIn))
+  const rows = Math.max(1, crossCol ? t.cross.length : 1, ...Object.values(rowsIn))
   return { nodes, cols, rows, crossCol }
 }
 
