@@ -7,7 +7,7 @@
  */
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
-import { ArrowRight, GraduationCap, Play, Presentation, Square, type LucideIcon } from 'lucide-react'
+import { GraduationCap, Play, Presentation, Square, type LucideIcon } from 'lucide-react'
 import { bridge } from '../../bridge'
 import { color, fill, radius2, spring } from '../../core/theme'
 import { Keycap as CoreKeycap, keyLabel as coreKeyLabel, type KeyName } from '../../core/ui/Keycap'
@@ -159,14 +159,14 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
 }
 
 /**
- * Home-Launcher's section label ("From your link", "Continue", "Try asking", "Ready to run"): 11 px, semibold,
- * uppercase, the label gray. Words only where the mockup has them; the rows under it carry the rest.
+ * The launcher's section label ("From your link", "Continue", "Try asking", "Ready to run"): 12 px, medium, sentence
+ * case, the label gray, as on Home (redraft, Adrian Nov 21: uppercase tracked labels read as template UI).
  */
 export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }): ReactNode {
   return (
     <div
       data-section-label
-      className={`px-[24px] pb-[8px] text-[11px] font-semibold uppercase tracking-[0.04em] ${first ? 'pt-[8px]' : 'pt-[16px]'}`}
+      className={`px-[16px] pb-[6px] text-[12px] font-medium ${first ? 'pt-[10px]' : 'pt-[18px]'}`}
       style={{ color: color.label }}
     >
       {children}
@@ -178,9 +178,10 @@ export function SectionLabel({ children, first = false }: { children: ReactNode;
 export const ASK_H = 44
 
 /**
- * One "Try asking" line (Home-Launcher): an arrow and the words, 44 high. No fill of its own: the list draws one
- * highlight (the hover tint, never a hue) under the active line, which the arrow keys and the pointer both move. The
- * active line shows the Enter keycap: Enter runs it. Lines rise in a beat apart; a press dips on the house spring.
+ * One "Try asking" line (Home-Launcher): the words, 44 high (redraft: no arrow, no Enter keycap on the line; the
+ * footer's Open carries Enter). No fill of its own: the list draws one highlight (the hover tint, never a hue) under
+ * the active line, which the arrow keys and the pointer both move. Lines rise in a beat apart; a press dips on the
+ * house spring.
  */
 function AskLine({
   text,
@@ -213,11 +214,7 @@ function AskLine({
       onMouseMove={onHover}
       {...rest}
     >
-      <ArrowRight size={16} strokeWidth={1.8} className="shrink-0" style={{ color: active ? color.text : color.label }} />
       <span className="min-w-0 flex-1 truncate">{text}</span>
-      <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
-        <NavKey>{navKey('enter')}</NavKey>
-      </motion.span>
     </motion.button>
   )
 }

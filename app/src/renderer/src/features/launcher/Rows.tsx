@@ -4,7 +4,7 @@
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { CircleAlert, CirclePlay, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
+import { CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Thumb } from '../../core/ui/atoms'
@@ -175,13 +175,12 @@ export function ResumeRow({
   )
 }
 
-/** The idle list's active line shows the Enter keycap; it fades in and out as ↑↓ move, so the cue sits on the row Enter runs. */
-function EnterCue({ active }: { active: boolean }): ReactNode {
-  return (
-    <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
-      <NavKey>{navKey('enter')}</NavKey>
-    </motion.span>
-  )
+/**
+ * The idle list's active line used to show an Enter keycap. Redraft (Adrian, Nov 21): one keycap for Enter, in the
+ * footer's Open; the moving highlight already says which line Enter runs. Kept as a no-op so callers stay unchanged.
+ */
+function EnterCue(_: { active: boolean }): ReactNode {
+  return null
 }
 
 /** Typing a settings word ("sett", "keys", "pref", "appear"…): the one way into Settings from the launcher. */
@@ -262,7 +261,6 @@ export function LinkPreview({ link, match, onPick }: { link: YouTubeLink; match?
 }
 
 /** Two letters for the tool a cached lesson runs in (Home-Launcher's "Jn" tile). */
-const TOOL_TAG: Record<string, string> = { jupyter: 'Jn', vscode: 'VS', terminal: '>_', excel: 'Xl' }
 
 /**
  * Home-Launcher "Continue": a cached lesson started on this Mac and not finished. Its tool's tag, the title, where it
@@ -284,19 +282,9 @@ export function LibraryContinueRow({
   onPick: () => void
 }): ReactNode {
   const p = item.progress
-  const done = p ? Math.min(1, Math.max(0, p.stepIndex / Math.max(1, p.total))) : 0
   return (
     <RowShell slot={slot} onHover={onHover} onPick={onPick}>
-      <span
-        className="grid h-[32px] w-[32px] shrink-0 place-items-center rounded-[8px] text-[11px]"
-        style={{ background: fill.tile, boxShadow: `inset 0 0 0 1px ${fill.hairline}`, color: fill.keycapText, fontFamily: font.mono }}
-      >
-        {TOOL_TAG[item.tools?.[0] ?? ''] ?? <CirclePlay size={14} strokeWidth={1.6} />}
-      </span>
       <Text title={item.title} meta={p ? `Step ${p.stepIndex + 1} of ${p.total}${p.stepTitle ? ` · ${p.stepTitle}` : ''}` : `${item.steps} steps`} />
-      <span className="h-[4px] w-[96px] shrink-0 overflow-hidden rounded-full" style={{ background: fill.hairline }}>
-        <span className="block h-full rounded-full" style={{ width: `${Math.round(done * 100)}%`, background: color.text }} />
-      </span>
       <EnterCue active={active} />
     </RowShell>
   )
