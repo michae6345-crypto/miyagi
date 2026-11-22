@@ -91,6 +91,34 @@ describe('the engine environment: no auto-resume, no autostart, a fixed save fol
   })
 })
 
+describe('launch pins (R17, R31, R45)', () => {
+  test('packaged: web search off, no run recording, the network check probes our cloud', () => {
+    for (const e of [le.pythonEnv({ COACH_WEB: '1', ORCH_RECORD: '1' }, '/h', '/p', 8787, true), le.launcherEnv({ COACH_WEB: '1' }, true)]) {
+      assert.equal(e.COACH_WEB, '0')
+      assert.equal(e.ORCH_RECORD, '0')
+      assert.equal(e.MIYAGI_NET_PROBE, 'miyagi-cloud.onrender.com:443')
+    }
+  })
+  test('packaged: the probe follows an https MIYAGI_CLOUD_URL, never an http or junk one', () => {
+    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'https://api.miyagi.study/v1' }), 'api.miyagi.study:443')
+    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'https://cloud.example:8443' }), 'cloud.example:8443')
+    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'http://127.0.0.1:9000' }), 'miyagi-cloud.onrender.com:443')
+    assert.equal(le.netProbe({ MIYAGI_CLOUD_URL: 'junk' }), 'miyagi-cloud.onrender.com:443')
+  })
+  test('packaged with the cloud off: web search and recording still off, the engine keeps its own probe', () => {
+    const e = le.launcherEnv({ MIYAGI_CLOUD_URL: 'off' }, true)
+    assert.equal(e.COACH_WEB, '0')
+    assert.equal(e.ORCH_RECORD, '0')
+    assert.equal(e.MIYAGI_NET_PROBE, undefined)
+  })
+  test('npm run dev: the engine keeps its own defaults', () => {
+    const e = le.pythonEnv({}, '/h', '/p', 8787, false)
+    assert.equal(e.COACH_WEB, undefined)
+    assert.equal(e.ORCH_RECORD, undefined)
+    assert.equal(e.MIYAGI_NET_PROBE, undefined)
+  })
+})
+
 describe('pid file per build', () => {
   test('app-engine.json when packaged, app-engine-dev.json when not', () => {
     assert.equal(le.pidFileName(true), 'app-engine.json')
