@@ -33,7 +33,7 @@
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.3.0",
     "concurrently": "^10.0.7",
-    "electron": "^45.4.1",
+    "electron": "^45.3.2",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
     "lucide-react": "^1.73.0",
