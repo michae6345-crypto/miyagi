@@ -81,12 +81,33 @@ export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, di
         data-slim=""
         disabled={disabled}
         title={tip}
+        onPointerEnter={() => setHover(true)}
+        onPointerLeave={() => setHover(false)}
+        onFocus={(e) => setHover(e.currentTarget.matches(':focus-visible'))}
+        onBlur={() => setHover(false)}
         animate={{ scale: dip && !disabled ? PRESS_SCALE : 1 }}
         whileTap={disabled ? undefined : { scale: PRESS_SCALE }}
         transition={spring}
         onPointerDown={onDown && !disabled ? (e) => e.button === 0 && onClick() : undefined}
         onClick={onDown ? (e) => e.detail === 0 && onClick() : onClick}
       >
+        {(hover || alt) && (hover || keycap) && (
+          // The full tile's label and keycap, as a caption over the tile: on hover or focus the label and key, with ⌥ held
+          // (keys.ts) every tile's key. Instant, unlike the title tooltip, so the icon row is learnable.
+          <span
+            data-part="slim-caption"
+            aria-hidden
+            className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-[6px] -translate-x-1/2 whitespace-nowrap rounded-[8px] border px-[7px] py-[4px] text-[11.5px] font-medium leading-none"
+            style={{ background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, color: glass.text }}
+          >
+            {hover ? label : ''}
+            {keycap && (
+              <span style={{ color: hover ? glass.keyText : glass.text, marginLeft: hover ? 6 : 0 }} data-keycap="">
+                {keycap}
+              </span>
+            )}
+          </span>
+        )}
         <span className="relative grid h-[28px] w-[28px] place-items-center rounded-[8px]" style={{ background: l.background, color: l.color }}>
           {dot && <span data-part="tile-dot" aria-hidden className="absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full" style={{ background: glass.text }} />}
           {busyKind ? (

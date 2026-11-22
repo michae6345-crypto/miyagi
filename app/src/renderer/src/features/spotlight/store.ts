@@ -121,6 +121,22 @@ onUi('reset', forgetShowMe)
 onMessage('step.started', forgetShowMe)
 onMessage('step.passed', forgetShowMe)
 
+/**
+ * The last Hint or Explain press: the engine answers them by spotlighting the card's targets[0], so in a video lesson
+ * that spotlight must get past the calm gate even after the step-start box has faded. One-shot (the first spotlight
+ * that uses it consumes it), so the engine's later re-sends of the same box do not keep re-opening a faded one.
+ */
+const POINT_MS = 30_000
+let pointPressedAt = 0
+usePressed.subscribe((s) => {
+  if (s.kind) pointPressedAt = s.kind === 'hint' || s.kind === 'explain' ? s.at : 0
+})
+const takePointPress = (): boolean => {
+  const asked = pointPressedAt > 0 && Date.now() - pointPressedAt < POINT_MS
+  pointPressedAt = 0
+  return asked
+}
+
 /** Clear, but give a replacement that's already on its way a beat to arrive (no dim flash). */
 function clearSoon(): void {
   if (!current) return clearNow()
@@ -134,6 +150,7 @@ const validTargets = (t: CoachTarget[] | undefined): CoachTarget[] =>
 onUi('reset', () => {
   gate.reset()
   refused = undefined
+  pointPressedAt = 0
   clearNow()
 }) // dev reset, reconnect, and engine lesson.ended (core turns it into a reset)
 onMessage('lesson.ready', () => (gate.reset(), (refused = undefined), clearNow()))
@@ -150,6 +167,7 @@ onMessage('spotlight', (p) => {
   if (calmApplies()) {
     // A Show me answer pins the box (old lifetime); anything else needs the gate open (step start, Not yet).
     if (answersShowMe()) gate.arm(true)
+    else if (takePointPress()) gate.arm()
     else if (!gate.admit()) {
       refused = { t: next, at: Date.now() }
       return
@@ -166,12 +184,8 @@ onMessage('spotlight', (p) => {
   if (calmApplies()) gate.shown()
 })
 
-// The coach's targets: the engine spotlights targets[0]; the rest are drawn as extra cut-outs while it's up.
-onMessage('card', (p) => set({ targets: validTargets(p.targets) }))
-onMessage('offtrack', (p) => {
-  set({ targets: validTargets(p.targets) })
-  // Not yet is a reason to point again: open the gate, and show the box that came a moment before it.
-  if (!calmApplies()) return
+/** Something asked to point again (Not yet, a Hint or Explain card): open the gate, and show the box that came a moment before. */
+function reopen(): void {
   gate.arm()
   const r = refused
   refused = undefined
@@ -179,4 +193,17 @@ onMessage('offtrack', (p) => {
     put(r.t, false)
     gate.shown()
   }
+}
+
+// The coach's targets: the engine spotlights targets[0]; the rest are drawn as extra cut-outs while it's up.
+onMessage('card', (p) => {
+  const targets = validTargets(p.targets)
+  set({ targets })
+  // A card that points (Hint, Explain) is a reason to spotlight in a video lesson: arm the gate for its box.
+  if (targets.length && calmApplies()) reopen()
+})
+onMessage('offtrack', (p) => {
+  set({ targets: validTargets(p.targets) })
+  // Not yet is a reason to point again: open the gate, and show the box that came a moment before it.
+  if (calmApplies()) reopen()
 })
