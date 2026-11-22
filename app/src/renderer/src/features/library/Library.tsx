@@ -9,7 +9,8 @@
  * States: loading = three skeleton cards; offline with nothing cached = one calm line; empty = the paste card says
  * "No lessons on this Mac yet."; a filter with no match = "No lessons match." with Show all.
  */
-import { CloudOff, Play, Plus, Search } from 'lucide-react'
+import { ChevronRight, CloudOff, Play, Plus, Search } from 'lucide-react'
+import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { bridge } from '../../bridge'
@@ -106,7 +107,7 @@ function LessonRow({ item }: { item: LibraryItem }): ReactNode {
   const mins = minutesLabel(item.estMinutes)?.replace('About ', '')
   const line = [item.tools.map((t) => TOOL_NAME[t]).join(', '), stepsLabel(item.steps), mins, item.by ? `by ${item.by}` : '', !item.ready ? 'Not ready yet' : ''].filter(Boolean).join(' \u00b7 ')
   return (
-    <Row onClick={() => openDetail(item.id)} label={`${item.title}. ${line}. Open its preview.`} data={{ 'data-lesson': item.id }} style={{ padding: '10px 10px' }}>
+    <Row onClick={() => openDetail(item.id)} label={`${item.title}. ${line}. Open its preview.`} data={{ 'data-lesson': item.id }} style={{ padding: '12px 10px' }}>
       <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
         <span className="truncate" style={titleText}>
           {item.title}
@@ -115,6 +116,16 @@ function LessonRow({ item }: { item: LibraryItem }): ReactNode {
           {line}
         </span>
       </span>
+      {/* Redraft round 2 (Adrian: "clear to click on each of those"): a chevron that wakes up on hover, like a list in Settings. */}
+      <motion.span
+        aria-hidden
+        className="relative flex shrink-0 items-center"
+        variants={{ rest: { opacity: 0.5, x: 0 }, hover: { opacity: 1, x: 2 }, press: { opacity: 1, x: 2 } }}
+        transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.9 }}
+        style={{ color: color.label }}
+      >
+        <ChevronRight size={16} strokeWidth={1.8} />
+      </motion.span>
     </Row>
   )
 }
@@ -230,8 +241,10 @@ export function Lessons(): ReactNode {
               </Head>
               <ul style={list}>
                 {ready.map((i, n) => (
-                  <Rise key={i.id} as="li" i={n}>
-                    <LessonRow item={i} />
+                  <Rise key={i.id} as="li" i={n} style={n ? { borderTop: `1px solid ${fill.hairline}`, marginInline: 10, paddingInline: 0 } : { marginInline: 10 }}>
+                    <div style={{ marginInline: -10 }}>
+                      <LessonRow item={i} />
+                    </div>
                   </Rise>
                 ))}
                 {filtered && ready.length === 0 ? (
