@@ -14,6 +14,7 @@
  *   canAutoInstall(...)                  lock 2, with a plain reason when it says no
  *   parseChannel / updaterChannel        stable | beta → electron-updater's "latest" | "beta" (latest-mac.yml, beta-mac.yml)
  *   feedFor(os, packaged, env)           the generic feed electron-updater reads (pinned in a packaged build)
+ *   configureUpdater(u, feed, channel)   feed + channel onto electron-updater, allowDowngrade false set LAST
  *   readVersionPolicy / policyVerdict    miyagi-cloud's minimum-version answer → "required" forces "Update miyagi"
  */
 import { compareSemver, findVersion, parseSemver, type UpdateOs } from './manifest'
@@ -141,6 +142,40 @@ export function feedFor(os: UpdateOs, packaged: boolean, env: { MIYAGI_UPDATE_FE
   } catch {
     return undefined
   }
+}
+
+// ---- updater settings ---------------------------------------------------------------------------------------------
+
+/** The part of electron-updater's AppUpdater that configureUpdater() writes (so this file needs no electron-updater). */
+export type UpdaterSettings = {
+  autoDownload: boolean
+  autoInstallOnAppQuit: boolean
+  allowDowngrade: boolean
+  allowPrerelease: boolean
+  channel: string | null
+  logger: unknown
+  setFeedURL(options: Feed & { channel?: string }): void
+}
+
+/**
+ * Point electron-updater at the feed and channel. Called at start and again on every channel switch.
+ *
+ * ORDER MATTERS: electron-updater's `channel` setter also sets `allowDowngrade = true` (its docs: set allowDowngrade
+ * explicitly after the channel). So the channel and the feed go first and `allowDowngrade = false` goes LAST. Set it
+ * any earlier and every build, stable included, would accept a downgrade: a beta tester who picks Stable would be
+ * moved back to an older stable build, and rollback (agents/auto-update.md) would stop being roll-forward only.
+ * test/autoUpdate.test.ts pins this with a fake updater whose `channel` setter flips allowDowngrade the same way.
+ */
+export function configureUpdater(u: UpdaterSettings, feed: Feed, channel: UpdateChannel): void {
+  const name = updaterChannel(channel)
+  u.logger = null
+  u.autoDownload = true
+  u.autoInstallOnAppQuit = true
+  u.allowPrerelease = channel === 'beta'
+  u.channel = name
+  u.setFeedURL({ ...feed, channel: name })
+  // Last, after the channel setter. Rollback is a newer build carrying the old code, never a downgrade.
+  u.allowDowngrade = false
 }
 
 // ---- minimum version (miyagi-cloud) -------------------------------------------------------------------------------

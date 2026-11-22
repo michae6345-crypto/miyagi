@@ -16,7 +16,8 @@
  * When on:
  *   - feed: features/updates/auto.ts feedFor() (generic provider, https://downloads.miyagi.study/<os>, pinned when
  *     packaged); channel stable | beta (userData/auto-update.json, autoUpdate:channel) → latest-mac.yml | beta-mac.yml
- *   - autoDownload, autoInstallOnAppQuit, allowDowngrade false (rollback is a newer build, never a downgrade)
+ *   - autoDownload, autoInstallOnAppQuit, allowDowngrade false (rollback is a newer build, never a downgrade), all
+ *     set by configureUpdater(), which sets allowDowngrade after the channel (the channel setter flips it to true)
  *   - checks 60 s after launch, then every 6 h (CHECK_EVERY_MS, same as the card)
  *   - miyagi-cloud's minimum-version answer (GET <cloud>/v1/app/version) sets `required`; the renderer turns that into
  *     the one "Update miyagi" card (renderer side not built yet: agents/auto-update.md, Left to build)
@@ -33,16 +34,17 @@ import {
   autoUpdateRequested,
   canAutoInstall,
   channelFor,
+  configureUpdater,
   feedFor,
   parseChannel,
   parseCodesign,
   policyVerdict,
   readVersionPolicy,
-  updaterChannel,
   type AutoPhase,
   type AutoView,
   type Signature,
-  type UpdateChannel
+  type UpdateChannel,
+  type UpdaterSettings
 } from '../../renderer/src/features/updates/auto'
 import { CHECK_EVERY_MS, type UpdateOs } from '../../renderer/src/features/updates/manifest'
 import { cloudUrl } from './cloud'
@@ -53,14 +55,7 @@ const POLICY_TIMEOUT_MS = 10_000
 const MAX_POLICY_BYTES = 16 * 1024
 
 /** The part of electron-updater's AppUpdater this file uses (so it compiles without the package). */
-type UpdaterLike = {
-  autoDownload: boolean
-  autoInstallOnAppQuit: boolean
-  allowDowngrade: boolean
-  allowPrerelease: boolean
-  channel: string | null
-  logger: unknown
-  setFeedURL(options: { provider: 'generic'; url: string; channel?: string }): void
+type UpdaterLike = UpdaterSettings & {
   checkForUpdates(): Promise<unknown>
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
   on(event: string, fn: (...args: unknown[]) => void): unknown
@@ -193,14 +188,8 @@ export default defineMainFeature({
     function configure(u: UpdaterLike): boolean {
       const feed = feedFor(os, packaged, process.env)
       if (!feed) return false
-      u.logger = null
-      u.autoDownload = true
-      u.autoInstallOnAppQuit = true
-      // Rollback is a newer build carrying the old code (agents/auto-update.md, Rollback), never a downgrade.
-      u.allowDowngrade = false
-      u.allowPrerelease = channel() === 'beta'
-      u.channel = updaterChannel(channel())
-      u.setFeedURL({ ...feed, channel: updaterChannel(channel()) })
+      // Sets allowDowngrade = false after the channel (electron-updater's channel setter turns it back on).
+      configureUpdater(u, feed, channel())
       return true
     }
 

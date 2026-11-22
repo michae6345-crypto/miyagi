@@ -15,7 +15,7 @@ Today none of this runs. The check-only card (`agents/updates.md`, ROADMAP 1.2) 
 ## Owns (this PR)
 | File | What |
 |---|---|
-| `app/src/renderer/src/features/updates/auto.ts` | Pure (no Electron, no electron-updater): the flag, both locks, `codesign` parsing, channel, feed, miyagi-cloud's version policy, `AutoView` |
+| `app/src/renderer/src/features/updates/auto.ts` | Pure (no Electron, no electron-updater): the flag, both locks, `codesign` parsing, channel, feed, `configureUpdater()`, miyagi-cloud's version policy, `AutoView` |
 | `app/src/main/features/autoUpdate.ts` | Main feature (auto-discovered). Off: registers `autoUpdate:get` only (phase `off`) and nothing else runs: no timer, no network, no `codesign`. On: drives electron-updater |
 | `app/test/autoUpdate.test.ts` | Offline tests for the pure part, plus one proving the feature does nothing while the flag is off |
 | `app/agents/auto-update.md` | This brief |
@@ -38,7 +38,7 @@ If both locks are open and electron-updater is missing or fails to load, the pha
 | Install | `autoInstallOnAppQuit = true`: the update goes in when the learner quits. `autoUpdate:restart` (phase `ready` only) calls `quitAndInstall(false, true)` for "Restart to update". The renderer must call it only when no lesson, build or pause is running (the same gate the update card uses). |
 | Integrity | electron-updater checks the zip's sha512 from the yml (https only). Squirrel.Mac then checks that the new app's code signature matches this one's designated requirement (the same Developer ID team). This also closes the update card's open TODO(R26): the app now holds and verifies the bytes. |
 | What is sent | The feed GETs, plus the version-policy GET below. No install token, no user, no cookies. |
-| Downgrades | `allowDowngrade = false`, always. Rollback means shipping a newer build (see Rollback). |
+| Downgrades | `allowDowngrade = false`, always. Rollback means shipping a newer build (see Rollback). `configureUpdater()` sets it last, after `channel`: electron-updater's `channel` setter quietly sets `allowDowngrade = true`. A test pins the order with a fake updater that does the same. |
 
 ### Minimum version (miyagi-cloud)
 `GET <cloud>/v1/app/version?os=mac&channel=stable`. The host comes from `cloudUrl()` (`main/features/cloud.ts`), so env overrides are ignored when packaged. It sends no token. Answer:
@@ -70,18 +70,28 @@ If both locks are open and electron-updater is missing or fails to load, the pha
 
 ## Core requests (for Adrian)
 1. **package.json:** add `electron-updater` to `dependencies` (not dev: main loads it at run time from the asar). Nothing else changes. `autoUpdate.ts` already loads it with a dynamic import. Once installed, the local `UpdaterLike` type can be swapped for `import type { AppUpdater } from 'electron-updater'`.
-2. **electron-builder.yml (only once the Developer ID exists, DISTRIBUTION-PLAN section 3):**
+2. **electron-builder.yml (only once the Developer ID exists, DISTRIBUTION-PLAN section 3):** this merges with DISTRIBUTION-PLAN section 3's `mac:` block (keep its `gatekeeperAssess: false` and the rest); it does not replace it.
    ```yaml
    mac:
      target: [dmg, zip]          # Squirrel.Mac installs from the zip
      identity: "Developer ID Application: <Name> (<TEAMID>)"
      hardenedRuntime: true
-     notarize: true
+     entitlements: build/entitlements.mac.plist
+     entitlementsInherit: build/entitlements.mac.plist
+     notarize: true              # electron-builder 26: reads APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER
    publish:
      provider: generic
      url: https://downloads.miyagi.study/mac
    generateUpdatesFilesForAllChannels: true
    ```
+   Without the two `entitlements` lines the hardened runtime blocks things miyagi needs. `build/entitlements.mac.plist` (it does not exist yet) should hold:
+   - `com.apple.security.cs.allow-jit` and `com.apple.security.cs.allow-unsigned-executable-memory` (Electron, pyobjc's libffi)
+   - `com.apple.security.automation.apple-events` (AppleScript to VS Code)
+   - `com.apple.security.device.audio-input` (push to talk: miyagi-listen records while Fn+Control is held). DISTRIBUTION-PLAN section 3 is missing this one too; add it there.
+   - `com.apple.security.cs.disable-library-validation` only if Python's `.so` extensions fail to load under the hardened runtime
+
+   **Nested code.** Everything executable under `Contents/Resources` must be re-signed with the Developer ID, the hardened runtime and a secure timestamp (`codesign --force --options runtime --timestamp --sign "Developer ID Application: …" --entitlements build/entitlements.mac.plist`), or notarization fails. That means the bundled Python (`Resources/engine/python`: the interpreter and every `.so` / `.dylib`) and `Resources/helpers/miyagi-listen`, which `native/listen/build.sh` signs ad hoc today. electron-builder signs some of these from `extraResources` on its own; check the notarytool log, which lists every unsigned or ad-hoc binary, and sign the rest (an `afterPack` hook or `mac.binaries`) before the app is sealed.
+
    Also remove the ad-hoc `codesign --force --deep -s -` from `ship-mac.sh` (it overwrites the real signature) and keep `resetAdHocDarwinSignature` only for unsigned CI builds. The fuses stay as they are: electron-builder flips them before it signs.
 3. **Release pipeline:** upload `latest-mac.yml` (or `beta-mac.yml`), the zip and its blockmap to the feed after notarization, last of all the yml (so a client never sees a yml whose zip is not there yet). Bump `package.json` `version` for every published build. Secrets (`APPLE_API_KEY*`, R2 keys) live in CI secrets, never in the repo or the app.
 4. **Flag:** move `AUTO_UPDATE_ENABLED` to `common/flags.ts` beside `VOICE_ENABLED` and the rest, and turn it on in the first signed release.
