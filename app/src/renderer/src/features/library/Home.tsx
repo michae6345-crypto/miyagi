@@ -18,7 +18,7 @@
  */
 import { ArrowRight, CloudOff, Play, RotateCcw } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useRef, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
@@ -32,11 +32,11 @@ import { enter, press } from '../../core/ui/motion'
 import { StatusGlyph } from '../../core/ui/status'
 import { continueList, type Cont } from '../dashboard/continue'
 import { useDashView } from '../dashboard/Dashboard'
-import { relDay } from '../dashboard/model'
+import { groupTracks, nodeStates, relDay } from '../dashboard/model'
 import { canReview, startReview, useDash } from '../dashboard/store'
 import type { DashData } from '../dashboard/types'
 import { summarize, useRows } from '../onboarding/rows'
-import { CARD, Row, SectionHead, StepBar, TextAction, caption } from '../shell/ui'
+import { CARD, Row, SectionHead, TextAction, caption } from '../shell/ui'
 import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText, setupFix, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
 import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
@@ -159,30 +159,68 @@ const IDEAS: Array<{ text: string; tone: Tone }> = [
   { text: 'Build a tiny web server', tone: 'lilac' },
   { text: 'Train an image classifier', tone: 'pink' }
 ]
+const IDEA_TONES: Tone[] = ['sky', 'lilac', 'pink']
 
-function Ask({ primary = false }: { primary?: boolean }): ReactNode {
+/**
+ * The chips, personal first (Adrian: "should eventually be personalized based on the lessons"): the skills the
+ * learner is ready for next (every prerequisite mastered, not started yet), named with their track ("Broadcasting in
+ * numpy"), from the same progress data as the Skills page. Topped up with the general ideas, always three.
+ */
+function pickIdeas(data: DashData | undefined): Array<{ text: string; tone: Tone }> {
+  const mine: string[] = []
+  for (const g of groupTracks(data)) {
+    const st = nodeStates(g.track)
+    const where = g.kicker ?? g.track.track
+    for (const s of g.track.skills) {
+      if (st[s.id] !== 'available') continue
+      const label = s.label.split(String.fromCharCode(96)).join('')
+      const text = label.toLowerCase().includes(where.toLowerCase()) ? label : `${label} in ${where}`
+      if (!mine.includes(text)) mine.push(text)
+    }
+  }
+  const texts = [...mine.slice(0, 3), ...IDEAS.map((i) => i.text)].slice(0, 3)
+  return texts.map((text, i) => ({ text, tone: IDEA_TONES[i % IDEA_TONES.length] }))
+}
+
+/**
+ * Ask (redraft round 2): one surface, the field on top and the chips centered under it inside the same frame, so the
+ * suggestions read as part of the ask. The field is taller, led by the bonsai, with a clearer edge and placeholder,
+ * and the frame lights up on focus, so it reads as a place to type.
+ */
+function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }): ReactNode {
   const ask = useAsk()
   const items = useLibrary((s) => s.items)
   const canStart = useLibrary((s) => s.caps.start)
   const connected = useLesson((s) => s.connected)
   const input = useRef<HTMLInputElement>(null)
+  const [focused, setFocused] = useState(false)
   const read = readAsk(ask.text, items, canStart)
+  const ideas = pickIdeas(data)
   const go = (): void => {
     if (!submitAsk(connected) && !useAsk.getState().sending) input.current?.focus()
   }
   const Btn = primary ? PrimaryButton : QuietButton
   const actionLabel = read.kind === 'link' ? (read.match ? 'Start lesson' : 'Build lesson') : 'Teach me'
-  const h = 48
+  const h = 56
   return (
-    <section aria-label="Learn something new" data-home-ask className="flex flex-col">
+    <section
+      aria-label="Learn something new"
+      data-home-ask
+      className="flex flex-col overflow-hidden"
+      style={{ borderRadius: radius2.group, background: fill.field, boxShadow: `inset 0 0 0 ${focused ? 1.5 : 1}px ${focused ? color.label : fill.ring}`, transition: 'box-shadow 140ms ease' }}
+    >
       <form
-        className="flex items-center gap-[10px]"
-        style={{ height: h, padding: '0 8px 0 14px', borderRadius: radius2.card, background: fill.field, boxShadow: `inset 0 0 0 1px ${fill.fieldBorder}` }}
+        className="flex cursor-text items-center gap-[12px]"
+        style={{ height: h, padding: '0 10px 0 16px' }}
+        onClick={() => input.current?.focus()}
         onSubmit={(e) => {
           e.preventDefault()
           go()
         }}
       >
+        <span aria-hidden className="flex shrink-0">
+          <MiyagiMark size={18} />
+        </span>
         <input
           ref={input}
           aria-label={copy.launcherPlaceholder}
@@ -192,8 +230,10 @@ function Ask({ primary = false }: { primary?: boolean }): ReactNode {
           value={ask.text}
           disabled={!!ask.sending}
           onChange={(e) => setAskText(e.target.value)}
-          className="min-w-0 flex-1 bg-transparent outline-none"
-          style={{ fontSize: type2.body, color: color.text }}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[var(--c-label)]"
+          style={{ fontSize: type2.lg - 1, color: color.text }}
         />
         {read.kind === 'idle' ? (
           <span className="flex shrink-0 items-center" style={{ paddingRight: 4 }}>
@@ -217,9 +257,9 @@ function Ask({ primary = false }: { primary?: boolean }): ReactNode {
           </motion.button>
         )}
       </form>
-      <div className="flex flex-wrap items-center gap-[8px]" style={{ marginTop: 12, minHeight: 28 }}>
+      <div className="flex flex-wrap items-center justify-center gap-[8px]" style={{ padding: '12px 14px 14px', minHeight: 56, borderTop: `1px solid ${fill.hairline}` }}>
         {read.kind === 'idle' ? (
-          IDEAS.map((t) => (
+          ideas.map((t) => (
             <Press
               key={t.text}
               data-idea
@@ -228,7 +268,7 @@ function Ask({ primary = false }: { primary?: boolean }): ReactNode {
                 input.current?.focus()
               }}
               className="flex items-center"
-              style={{ height: 28, padding: '0 11px', borderRadius: radius2.round, background: tone[t.tone].bg, fontSize: type2.xs, color: tone[t.tone].fg }}
+              style={{ height: 30, padding: '0 13px', borderRadius: radius2.round, background: tone[t.tone].bg, fontSize: type2.sm - 0.5, color: tone[t.tone].fg }}
             >
               <span className="relative">{t.text}</span>
             </Press>
@@ -362,33 +402,51 @@ function ReviewLine({ data, now }: { data?: DashData; now: number }): ReactNode 
 
 // ---- the continue card ----------------------------------------------------------------------------------
 
-function Where({ view, width }: { view: View; width: number }): ReactNode {
-  return (
-    <div className="flex items-center gap-[12px]">
-      {!view.blocked && view.total ? <StepBar done={view.done ?? 0} total={view.total} width={width} /> : null}
-      {view.line && (
-        <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
-          {view.line}
-        </span>
-      )}
-    </div>
-  )
+/** "Step 4 of 7 · Train it" → the count for the top line and the step's own title for the line under the title. */
+function splitLine(line: string): { count?: string; sub: string } {
+  const m = /^(Step \d+ of \d+)(?: · (.+))?$/.exec(line)
+  return m ? { count: m[1], sub: m[2] ?? '' } : { sub: line }
 }
 
-/** The one lifted card on the page. */
+/**
+ * The one lifted card on the page (redraft round 2, Adrian: "the continue tab doesn't look that good"). One row: where
+ * you are on the left (Continue · Step 4 of 7, the lesson, the step you're on), the one action on the right, and the
+ * lesson's progress as a hairline along the card's bottom edge instead of a row of dashes. Wraps under a narrow window.
+ */
 function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }): ReactNode {
+  const { count, sub } = splitLine(view.line)
+  const frac = !view.blocked && view.total ? Math.max(0, Math.min(1, (view.done ?? 0) / view.total)) : undefined
   return (
-    <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="flex flex-col" style={{ ...CARD, padding: '24px 28px 26px' }}>
-      <span style={caption}>{view.head}</span>
-      <h2 id="home-continue" className="m-0 line-clamp-2 font-semibold" style={{ marginTop: 6, fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
-        {view.title}
-      </h2>
-      <div style={{ marginTop: 10 }}>
-        <Where view={view} width={140} />
+    <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="relative flex flex-col overflow-hidden" style={{ ...CARD, padding: '20px 20px 22px 24px' }}>
+      <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[14px]">
+        <div className="flex min-w-0 flex-1 flex-col" style={{ minWidth: 240 }}>
+          <span className="flex items-center gap-[6px]" style={caption}>
+            <span>{view.head}</span>
+            {count && (
+              <>
+                <span aria-hidden>·</span>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+              </>
+            )}
+          </span>
+          <h2 id="home-continue" className="m-0 line-clamp-2 font-semibold" style={{ marginTop: 5, fontSize: 19, lineHeight: '25px', letterSpacing: '-0.012em', color: color.text }}>
+            {view.title}
+          </h2>
+          {sub && (
+            <span className="truncate" style={{ marginTop: 3, fontSize: type2.sm, color: color.label }}>
+              {sub}
+            </span>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-[6px]">
+          <ContAction hero={hero} fix={fix} />
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-[12px]" style={{ marginTop: 22 }}>
-        <ContAction hero={hero} fix={fix} />
-      </div>
+      {frac !== undefined && (
+        <div role="img" aria-label={count ?? `${view.done ?? 0} of ${view.total} steps`} className="absolute inset-x-0 bottom-0" style={{ height: 3, background: fill.hairline }}>
+          <div style={{ width: `${frac * 100}%`, height: '100%', background: color.text, borderRadius: `0 ${radius2.round}px ${radius2.round}px 0` }} />
+        </div>
+      )}
     </section>
   )
 }
@@ -404,7 +462,7 @@ function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): Re
         <MiyagiMark size={36} />
       </div>
       {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
-      <Ask primary={!view || view === 'loading'} />
+      <Ask primary={!view || view === 'loading'} data={data} />
       <ReviewLine data={data} now={now} />
       <UpNext skip={skip} done={done} />
       <Recents rows={recent} now={now} />
