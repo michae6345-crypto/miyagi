@@ -45,7 +45,7 @@ function StartError({ k }: { k: string }): ReactNode {
 export function Review({ data, due, later, now, route }: { data?: DashData; due: ReviewEntry[]; later: ReviewEntry[]; now: number; route: AppRoute }): ReactNode {
   const can = canReview()
   return (
-    <Card id="dash-review" title="Review" right={due.length ? <span className="tabular-nums" style={caption}>{due.length} due</span> : undefined}>
+    <Card id="dash-review" title="Review">
       {!data?.review ? (
         <Empty title="Nothing to review yet" body="Mastered skills come back here at 3, 7, 21 and 60 days." />
       ) : !due.length && !later.length ? (
@@ -55,7 +55,6 @@ export function Review({ data, due, later, now, route }: { data?: DashData; due:
           <ul className="m-0 flex list-none flex-col p-0">
             {due.slice(0, 3).map((r, i) => (
               <li key={`d-${r.label}-${i}`} data-review-item="due" className="flex items-center gap-[10px] py-[8px]" style={i ? row : undefined}>
-                <span className="block shrink-0" style={{ width: 7, height: 7, borderRadius: radius2.round, background: color.text }} />
                 <div className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate" style={{ fontSize: type2.sm, color: color.text }}>
                     <CodeText text={r.label} />
@@ -77,14 +76,11 @@ export function Review({ data, due, later, now, route }: { data?: DashData; due:
               </li>
             ))}
           </ul>
-          {due.length > 0 && (
-            <QuietButton
-              label="Start review"
-              block
-              disabled={!can}
-              title={can ? `One short step on ${due[0].label.split(String.fromCharCode(96)).join('')}` : 'miyagi can’t start reviews yet'}
-              onClick={() => startReview(due[0], route)}
-            />
+          {/* Only when the engine can take a review: a button that can never be pressed reads as broken (redraft). */}
+          {due.length > 0 && can && (
+            <div>
+              <QuietButton label="Start review" title={`One short step on ${due[0].label.split(String.fromCharCode(96)).join('')}`} onClick={() => startReview(due[0], route)} />
+            </div>
           )}
         </>
       )}
@@ -128,19 +124,23 @@ function NextRow({ n, data, primary, route, first }: { n: DashNext; data?: DashD
   const Btn = primary === key ? PrimaryButton : QuietButton
   const unlocks = unlockLabels(data, n.unlocks)
   return (
-    <li data-next={n.title} className="flex flex-col gap-[8px]" style={first ? undefined : { ...row, paddingTop: 12 }}>
-      <div className="flex min-w-0 flex-col gap-[2px]">
+    <li data-next={n.title} className="flex flex-wrap items-center gap-x-[12px] gap-y-[6px]" style={first ? undefined : { ...row, paddingTop: 12 }}>
+      <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
         <span style={{ fontSize: type2.sm, fontWeight: 500, color: color.text }}>{n.title}</span>
-        {unlocks.length > 0 && (
+        {(unlocks.length > 0 || n.estMinutes) && (
           <span style={caption}>
-            Unlocks <CodeText text={unlocks.join(', ')} />
+            {unlocks.length > 0 && (
+              <>
+                Unlocks <CodeText text={unlocks.join(', ')} />
+              </>
+            )}
+            {unlocks.length > 0 && n.estMinutes ? ' · ' : ''}
+            {n.estMinutes ? `${n.estMinutes} min` : ''}
           </span>
         )}
-        {n.estMinutes ? <span style={{ fontSize: type2.micro, color: color.faint }}>About {n.estMinutes} min</span> : null}
       </div>
       <Btn
         label="Start"
-        block
         busy={!!n.id && starting === n.id}
         disabled={!!starting}
         title={n.id ? 'Saved on this Mac' : 'miyagi builds this lesson for you'}
