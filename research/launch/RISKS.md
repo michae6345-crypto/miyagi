@@ -552,8 +552,9 @@ The top 10 is ranked by severity first, then by how likely it is and how much of
   VS Code opened from Downloads reads as missing (E32). Answering No to VS Code's trust dialog quietly breaks the
   lesson's `.venv` (E33). Homebrew Python hits PEP 668 (E34). Read-only setup checks pop the developer-tools dialog
   and then call the stub "installed" (E35). The bundled Python has no tkinter or turtle (E36). A system proxy or PAC
-  file reads as "No internet" and breaks the mint (E37). HTTPS from a lesson venv may fail certificate checks (E39).
-- **Where:** `IL:server/orchestrator/system_status.py:21, 48, 110`; `renderer/src/features/onboarding/store.ts:159-166`; `steps.ts:73-75`; `main/localEngine.ts:795-805`; `IL:server/workspace/setup.py:368-377, 680-721`; `app/scripts/bundle-engine.mjs:104-105`.
+  file reads as "No internet" and breaks the mint (E37). HTTPS from a lesson venv may fail certificate checks (E39). And the engine watches only the primary display, so
+  VS Code dragged to a second monitor goes unseen and its checks and off-track judgement fail (#202 R10).
+- **Where:** `IL:server/orchestrator/system_status.py:21, 48, 110`; `renderer/src/features/onboarding/store.ts:159-166`; `steps.ts:73-75`; `main/localEngine.ts:795-805`; `IL:server/workspace/setup.py:368-377, 680-721`; `app/scripts/bundle-engine.mjs:104-105`; `V2:app/src/main/index.ts:61-62` ("the engine watches the PRIMARY display only"), `features/player.ts:60`.
 - **Why P1 (E28 said P0 for school networks):** each one stops part of the audience, not the launch, and most fixes
   are small. E28's fix is one env var, so it's on the checklist.
 
@@ -789,6 +790,16 @@ Every area row and where it went. "later" means [`later.md`](later.md).
 | C | C01, C17 → R26 · C15, C16, C18, C19 → R08 · C02 → R01, R02 · C03, C26 → R03 · C04, C21, C24, C25, C41 → R16 · C05, C23 → R12 · C06 → R19 · C07, C08 → R13 · C09, C11, C12, C13 → R15 · C10, C35 → R39 · C14 → R37 · C20 → R30 · C22 → R16, R35, R39 · C27 → R02 · C28, C33 → R21 · C29, C30, C31, C32, C42 → R20 · C34 → R34 · C36 → R47 · C37 → R19, R09 · C38 → R01, R12, R19, R33 · C39 → R04 · C40 → R33 · C43, C44 → later |
 | D | D01, D10, D14 → R19 · D02, D39 → R04 · D03 → R38 · D04 → R05 · D05 → R06 · D06, D26, D27, D28 → R34 · D07, D14, D29, D30, D34 → R36 · D08, D09 → R42 · D11 → R42, R49 · D12, D13 → R49 · D15, D16, D17, D32, D33, D36 → R43 · D18 → R01 · D19 → R02 · D20 → R13 · D21, D22, D23, D38 → R35 · D24 → R16 · D25 → R30, R16 · D28 → R45 · D31, D40 → R08 · D35 → R20 · D37 → checked · D41 → R47 |
 | E | E01, E03, E13, E29 → R14 · E02, E09, E10, E11 → R29 · E04 → R35 · E05, E07 → R37 · E06 → R15 · E08 → R03 · E12, E40 → R30 · E14, E15, E16, E17, E20, E24, E25 → R10 · E18, E19, E21, E22, E23 → R32 · E26 → R36 · E27 → checked · E28, E30-E37, E39 → R31 · E38, E41 → R04 |
+
+### From #202
+
+The email agent's first pass (#202, branch `origin/adrian/michael-risk-list`) had its own ids. The left side is #202's
+id; the right side is this register's risk, or `later` for [`later.md`](later.md), where each line carries its #202 tag.
+
+| #202 file | Rows → risk |
+|---|---|
+| `docs/BUG-RISKS.md` | #202 R01 → R14 · R02 → R29 · R03 → later · R04 → R44 · R05 → later · R06 → R44 · R07 → later · R08 → later · R09 → later · R10 → R31 · R11 → later · R12 → R15 · R13 → R28 · R14 → R30 · R15 → R29 · R16 → later · R17 → later · R18 → later · R19 → later · R20 → later · R21 → later · R22 → later · R23 → later · R24 → later · R25 → later · R26 → R37 · R27 → later · R28 → R45 · R29 → later · R30 → later · R31 → later · R32 → R14 |
+| `docs/legal/RISKS.md` | 1 Gemini terms → R13 · 2 minor founders, no entity → R09 · 3 YouTube scraping → R22 · 4 COPPA and the 13+ gate → R21 · 5 screen capture → R05, R18 · 6 policy truthfulness → R06 · 7 Anthropic usage policy → R05, R21, R40 · 8 Google OAuth → R20 · 9 Apple notarization → R15 · 10 DMCA agent → R41 · 11 trademark → R23 · 12 open-source licenses → R48 · 13 state privacy laws → later · 14 GDPR and UK GDPR → R40 · 15 site cookies → R42 · 16 FERPA → later · 17 AI output and the ToS → R06, R36 · 18 SB 243 → later |
 
 ## Review
 

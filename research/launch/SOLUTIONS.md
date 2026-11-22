@@ -690,7 +690,10 @@ transcripts never stored on the cloud, shared or committed; every lesson credits
    turtle and tkinter (`app/scripts/bundle-engine.mjs:104-105`). Adrian.
 9. E37: `net.fetch` (R12) and the system proxy passed to pip. Adrian, Michael.
 10. E39: if Test 1 step 12 fails, set `SSL_CERT_FILE` to certifi's bundle in lesson terminals. Adrian.
-- **Verify:** Test 1 variants V1 to V9 pass.
+11. Second display (#202 R10): when VS Code's window is on a non-primary display, say "Move VS Code to the main
+    display" (the engine knows the window's bounds); later, follow the editor's display (`main/index.ts:61-62`,
+    `features/player.ts:60`). Michael (engine), Adrian (card).
+- **Verify:** Test 1 variants V1 to V9 pass; with VS Code on a second monitor, the card appears.
 
 ### R32
 **Wrong work marked right.** Michael · S (E18) to M · E18 before public launch, the rest after
