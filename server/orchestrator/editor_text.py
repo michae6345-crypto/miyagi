@@ -129,11 +129,12 @@ class EditorBuffers:
 
 
 def check_on_editor(check: dict, paths: list[Path], bufs: EditorBuffers, search: Callable | None,
-                    on_file: Callable | None) -> tuple[dict, bool] | None:
+                    on_file: Callable | None, windows: Callable | None = None) -> tuple[dict, bool] | None:
     """Grade a VS Code screen_contains check on the exact text of its files: the editor's buffer of each file VS Code
     has open (unsaved edits included), else the file on disk. -> (result, unsaved): `unsaved` = the pass is only in
     an unsaved buffer, the file on disk lacks it (the save passes the step). None when VS Code has none of the files
-    open (the screen decides, as before)."""
+    open (the screen decides, as before). `windows` (server.checks' scan_windows): a buffer is searched in the same
+    64 KB windows as the file on disk (up to 1 MB), never a multi-MB buffer in one regex worker request."""
     pattern = check.get("pattern")
     texts = [(p, bufs.text(p)) for p in paths]
     if not pattern or search is None or on_file is None or all(t is None for _, t in texts):
@@ -144,7 +145,8 @@ def check_on_editor(check: dict, paths: list[Path], bufs: EditorBuffers, search:
             res = on_file(check, p)
         else:
             try:
-                hit = search(pattern, text) is not None
+                pieces = [sc.text for _, sc in windows(text)] if windows is not None else [text]
+                hit = any(search(pattern, piece) is not None for piece in pieces)
             except re.error as e:
                 return _result(check, "fail", f"invalid pattern: {e}"), False
             if hit:

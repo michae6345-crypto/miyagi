@@ -6923,7 +6923,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
           never OCR (00:55: "import numey as np"); a pass only in the unsaved buffer is held: the save passes it."""
         self._unsaved_holds = set()
         on_file, text_of = self._checks_fn("screen_check_on_file"), self._checks_fn("screen_text")
-        find = self._checks_fn("search_screen")
+        find, windows = self._checks_fn("search_screen"), self._checks_fn("scan_windows")
         if on_file is None or text_of is None:
             return gate
         defs = {c.get("id"): c for c in step.get("checks") or []}
@@ -6947,8 +6947,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             paths = self._check_files(step, c)
             if paths:
                 await self._buffers.refresh(paths, self.workdir)  # once per file per tick
-            exact = await self._off_loop(editor_text.check_on_editor, c, paths, self._buffers, find, on_file) \
-                if paths else None
+            exact = await self._off_loop(editor_text.check_on_editor, c, paths, self._buffers, find, on_file,
+                                         windows) if paths else None
             if exact is not None and (self.lesson_mode or exact[0].get("status") == "pass"):  # video: a pass only
                 r, unsaved = exact  # VS Code has the file open: its exact text decides, never OCR (numpy -> numey)
                 if unsaved:

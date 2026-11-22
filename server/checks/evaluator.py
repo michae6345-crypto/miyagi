@@ -28,6 +28,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
+from server.safety import regex_worker
 from server.safety.patterns import MAX_PATTERN_LEN, pattern_problem, safe_compile  # noqa: F401 - re-exported
 
 from .notebook import Notebook, find_notebook, read_notebook
@@ -820,7 +821,13 @@ def _screen_contains(check: dict, ctx: RunContext) -> CheckResult:
 
 
 def _screen_absent(check: dict, ctx: RunContext) -> CheckResult:
-    return _screen(check, ctx, absent=True)
+    # a search that timed out (or was skipped right after a strike) answers "no match" without having looked: an
+    # absent row would pass while a Traceback may be showing, so it waits for the next frame instead
+    with regex_worker.count_skips() as skipped:
+        res = _screen(check, ctx, absent=True)
+    if res["status"] == "pass" and skipped[0]:
+        return _result(check, "pending", "couldn't finish checking in time: checking again")
+    return res
 
 
 def _visual(check: dict, ctx: RunContext) -> CheckResult:

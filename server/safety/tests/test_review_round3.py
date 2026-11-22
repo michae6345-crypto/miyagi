@@ -67,6 +67,7 @@ def test_pip_gets_the_verified_names_never_the_file(tmp_path):
     assert isinstance(res, Allowed) and res.argv == ("pip", "install", "numpy>=1.26", "flask")
     assert "-r" not in res.argv and res.details == "Installs (from requirements.txt): numpy, flask"
     assert res.command == "pip install 'numpy>=1.26' flask"  # the card shows (and the terminal gets) just that
+    _venv(tmp_path)
     py = parse_run_command("python3 -m pip install -r requirements.txt", tmp_path)
     assert py.argv == ("python3", "-I", "-m", "pip", "install", "numpy>=1.26", "flask")
     # a rewritten command without specifiers parses to itself
@@ -74,6 +75,13 @@ def test_pip_gets_the_verified_names_never_the_file(tmp_path):
     py = parse_run_command("python3 -m pip install -r requirements.txt", tmp_path)
     assert parse_run_command(py.command, tmp_path).argv == py.argv == ("python3", "-I", "-m", "pip", "install",
                                                                      "numpy", "flask")
+
+
+def _venv(folder):
+    """A lesson .venv as `python -m venv` leaves it (bin/python links out of the folder)."""
+    (folder / ".venv" / "bin").mkdir(parents=True)
+    (folder / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin\ninclude-system-site-packages = false\n")
+    os.symlink(sys.executable, folder / ".venv" / "bin" / "python")
 
 
 def test_a_requirements_file_with_no_packages_runs_nothing(tmp_path):
@@ -84,8 +92,9 @@ def test_a_requirements_file_with_no_packages_runs_nothing(tmp_path):
 
 # ------------------------------------------------------------------ 2. pip / pytest can't be shadowed by lesson files
 
-def test_python_m_pip_always_runs_isolated(tmp_path):
+def test_the_lesson_venvs_python_m_pip_always_runs_isolated(tmp_path):
     (tmp_path / "pip.py").write_text("print('HIJACKED')\n")
+    _venv(tmp_path)
     for cmd in ("python3 -m pip install numpy", ".venv/bin/python -m pip install numpy pandas"):
         res = parse_run_command(cmd, tmp_path)
         assert isinstance(res, Allowed) and res.argv[1:4] == ("-I", "-m", "pip"), res
@@ -194,7 +203,8 @@ def test_a_budget_holds_in_the_thread_its_context_runs_in_only():
     assert seen[2] is None
 
 
-def test_one_timeout_is_a_strike_not_a_ban():
+def test_one_timeout_is_a_strike_not_a_ban(monkeypatch):
+    monkeypatch.setattr(regex_worker, "STRIKE_GAP_S", 0.0)  # (one strike per 5 s: test_agency_round5)
     p = _slow(999)
     assert safe_compile(p).search(SLOW_TEXT) is None  # timed out once (a stalled Mac looks the same)
     assert pattern_problem(p) is None and regex_worker.is_bad(p) is None
@@ -206,6 +216,7 @@ def test_bans_are_kept_as_hashes_without_a_small_cap(monkeypatch):
     monkeypatch.setattr(regex_worker, "_BAD", {})
     monkeypatch.setattr(regex_worker, "_STRIKES", {})
     monkeypatch.setattr(regex_worker, "MAX_REMEMBERED", 6000)
+    monkeypatch.setattr(regex_worker, "STRIKE_GAP_S", 0.0)
     for i in range(5000):  # past the old 4096 cap
         for _ in range(regex_worker.BAN_STRIKES):
             regex_worker.strike(f"pattern-{i}")

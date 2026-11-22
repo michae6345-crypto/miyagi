@@ -45,7 +45,8 @@ def test_a_slow_pattern_is_cut_off_at_the_deadline_and_refused_after(tmp_path, p
     assert time.monotonic() - t0 < BOUND_S
 
 
-def test_a_pattern_that_timed_out_twice_is_refused_everywhere_after():
+def test_a_pattern_that_timed_out_twice_is_refused_everywhere_after(monkeypatch):
+    monkeypatch.setattr(regex_worker, "STRIKE_GAP_S", 0.0)  # two checks far enough apart (test_agency_round5)
     p = "-?" * 26 + "-" * 26 + "y"
     rx = safe_compile(p, re.MULTILINE)
     for _ in range(regex_worker.BAN_STRIKES):  # one timeout is a strike (the Mac may have stalled), not a ban

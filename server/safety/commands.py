@@ -15,7 +15,10 @@ runs WITHOUT a shell, or says why the learner should run it themselves:
                     line is a name on the curated package list, run as `pip install <those specs>` (pip never reads
                     the file; a file pip would decode differently, by a BOM or a coding line, is refused)
                   pip install <names on the curated package list (server/safety/packages.py)>
-                  (`python -m pip` always runs as `python -I -m pip`: a pip.py in the lesson folder never runs)
+                  (`python -m pip` with the lesson's .venv python runs as `python -I -m pip`, so a pip.py in the
+                  lesson folder never runs; with another python (no .venv: -I would also turn off pip's fallback to
+                  a user install) it runs as written, never while the folder has its own pip.py, json.py ... that
+                  `-m pip` would import instead: PIP_SHADOWS)
   Manual(reason)  everything else: several commands, pipes, redirects, substitutions, globs, `~`, URLs, shells and
                   other programs (curl, wget, bash, sudo, rm, open, osascript, npx ...), and paths that leave the
                   lesson folder (symlinks followed)
@@ -29,6 +32,7 @@ import json
 import os
 import re
 import shlex
+import sys
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -227,13 +231,61 @@ def _pytest(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
     return Allowed(tuple(argv))
 
 
-def _pip_argv(argv: list[str], i: int, tail: list[str]) -> tuple[str, ...]:
-    """What runs for `argv[:i] install <tail>`: `python -m pip` as `python -I -m pip` (isolated mode: the lesson
-    folder is never on sys.path, so a pip.py, pip/ or a stdlib-named module there can't run in place of pip). The
-    `pip` console script never has the folder on its path."""
-    head = list(argv[:i])
-    if head[0] in PYTHONS and "-I" not in head:
-        head.insert(1, "-I")
+# what `python -m pip` (no -I) would import from the lesson folder, which is first on its sys.path: pip itself and
+# every standard-library module (pip imports dozens). Python 3.9-3.11 names gone from this Python's list are added;
+# names pip never imports and lessons often use (test.py, turtle.py) are not.
+PIP_SHADOWS = frozenset(
+    {n.casefold() for n in getattr(sys, "stdlib_module_names", ())}
+    | {"pip", "setuptools", "pkg_resources", "_distutils_hack", "distutils", "imp", "asynchat", "asyncore", "smtpd"}
+    | {"json", "os", "re", "random", "logging", "email", "http", "urllib", "ssl", "socket", "tempfile", "typing"}
+) - {"test", "this", "antigravity", "turtle", "turtledemo", "idlelib", "tkinter", "__hello__", "__phello__"}
+_MODULE_SUFFIXES = (".py", ".pyc", ".so", ".pyd")
+
+
+def pip_shadowing(workdir: str) -> str | None:
+    """The first top-level entry of the lesson folder `python -m pip` would import in place of pip or a standard
+    module (pip.py, json.py, random.py, email/ with an __init__.py, a .pyc or .so of one), compared case-insensitively
+    (APFS), else None."""
+    try:
+        names = sorted(os.listdir(workdir))
+    except OSError:
+        return None
+    for n in names:
+        stem = n.split(".", 1)[0].casefold()
+        if stem not in PIP_SHADOWS:
+            continue
+        full = os.path.join(workdir, n)
+        if n.casefold().endswith(_MODULE_SUFFIXES) and not os.path.isdir(full):
+            return n
+        if "." not in n and os.path.isdir(full) and (stem == "pip" or any(
+                os.path.exists(os.path.join(full, f"__init__{x}")) for x in (".py", ".pyc"))):
+            return n
+    return None
+
+
+def _lesson_venv_python(prog: str, workdir: str) -> bool:
+    """Does `prog` run the lesson's own .venv python: its path, or a bare python / python3 when the lesson folder has
+    a .venv (VS Code's terminal and Run it for me put .venv/bin first on PATH, server.workspace.core)."""
+    if prog.startswith((".venv/", "./.venv/")):
+        return True
+    venv = os.path.join(workdir, ".venv")  # (its bin/python links out of the folder: never safe_lesson_path)
+    return os.path.isfile(os.path.join(venv, "pyvenv.cfg")) and os.path.lexists(os.path.join(venv, "bin", "python"))
+
+
+def _pip_argv(argv: list[str], i: int, tail: list[str], workdir: str) -> tuple[str, ...] | Manual:
+    """What runs for `argv[:i] install <tail>`. The lesson's .venv python runs `-m pip` as `python -I -m pip`
+    (isolated mode: the lesson folder is never on sys.path, so a pip.py, pip/ or a stdlib-named module there can't
+    run in place of pip; a venv has no user site to lose). Any other python runs as written (-I implies -s, which
+    turns off pip's fallback to a user install: the Mac's own python3 would fail with a permission error), and only
+    while the folder has nothing `-m pip` would import from it (pip_shadowing). The `pip` console script never has
+    the folder on its path."""
+    head = [a for a in argv[:i] if a != "-I"]
+    if head[0] in PYTHONS:
+        if _lesson_venv_python(head[0], workdir):
+            head.insert(1, "-I")
+        elif (shadow := pip_shadowing(workdir)) is not None:
+            return Manual(f"the lesson folder has its own {shadow}, which `python -m pip` would run instead of "
+                          "Python's own: rename it, then run the command yourself", structural=False)
     return (*head, "install", *tail)
 
 
@@ -281,7 +333,10 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
         names = packages.requirement_names(text)
         # pip gets the verified specs themselves, never the file: what it installs is exactly what the card shows,
         # whatever the file says by the time pip would have read it
-        return Allowed(_pip_argv(argv, i, specs),
+        run = _pip_argv(argv, i, specs, workdir)
+        if isinstance(run, Manual):
+            return run
+        return Allowed(run,
                        details=f"Installs (from {req}): " + ", ".join(names[:12]) + (" …" if len(names) > 12 else ""),
                        fingerprint=_digest(req, text))
     for a in rest:
@@ -291,7 +346,8 @@ def _pip(argv: list[str], i: int, workdir: str) -> Allowed | Manual:
         if v.kind != packages.ALLOW:
             extra = f" ({v.url})" if v.name else ""
             return Manual(f"{v.reason}{extra}")
-    return Allowed(_pip_argv(argv, i, rest))
+    run = _pip_argv(argv, i, rest, workdir)
+    return run if isinstance(run, Manual) else Allowed(run)
 
 
 def npm_scripts(workdir: str | os.PathLike) -> dict[str, str]:
