@@ -76,6 +76,7 @@ import { LOGIN_ENABLED } from '../../common/flags'
 import { color } from '../../renderer/src/core/theme'
 import { defineMainFeature } from '../context'
 import { setGatePart } from '../gate'
+import { ageStepCleared } from './agegate'
 import { supabaseConfig } from '../publicConfig'
 import { isAllowedUrl, openLinkInBrowser, safeOpenExternal } from '../safeOpen'
 
@@ -316,6 +317,15 @@ export function accessToken(): Promise<string | undefined> {
   return currentAccess ? currentAccess() : Promise.resolve(undefined)
 }
 
+let currentRefresh: (() => Promise<string | undefined>) | undefined
+/**
+ * age-delete lane: refresh the session now, once, and return the new access token (undefined: signed out, or the
+ * refresh failed). features/accountDelete.ts calls it when miyagi-cloud says 403 bad_access_token. Main only.
+ */
+export function refreshedAccessToken(): Promise<string | undefined> {
+  return currentRefresh ? currentRefresh() : Promise.resolve(undefined)
+}
+
 let signedInHook: (() => void) | undefined
 /** features/cloudLink.ts: runs right after each successful Google sign-in (the session is stored by then). */
 export function onSignedIn(fn: () => void): void {
@@ -452,6 +462,7 @@ export default defineMainFeature({
       return refreshing
     }
 
+    currentRefresh = async () => ((await refresh()) ? session?.access : undefined)
     currentAccess = async () => {
       if (!session) return undefined
       if (session.expiresAt - Date.now() < 60_000) await refresh()
@@ -692,12 +703,14 @@ export default defineMainFeature({
     }
 
     ctx.handle('auth:get', () => (loginEnabled() && session ? { signedIn: true, ...publicUser(session.user) } : null))
-    ctx.handle('auth:google', () => google())
+    // age-delete lane: no sign-in and no guest path before the age step (main/features/agegate.ts).
+    ctx.handle('auth:google', () => (ageStepCleared() ? google() : { ok: false, reason: 'age', message: 'Answer the birthday question first.' }))
     ctx.handle('auth:cancel', () => {
       stopFlow({ ok: false, reason: 'cancelled' })
       return true
     })
     ctx.handle('auth:continue', () => {
+      if (!ageStepCleared()) return { next: 'none' }
       decide()
       const login = ctx.appWindow('auth')
       const next = afterLogin?.()

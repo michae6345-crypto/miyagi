@@ -9,11 +9,12 @@
  *     once. On (and only once the login gate is open): main/features/telemetry.ts sends crash kinds and lesson counts
  *     (numbers and enums only, a crash is just {kind, app_version}) to miyagi-cloud POST /v1/events; the error text
  *     never leaves this Mac.
- *   - Delete my data is an in-place two-step confirm and erases what lives on this Mac: the keys (main, keys.bin), the
- *     sign-in (main removes auth.bin, login.json and cloud-link.json, then auth:sign-out, awaited, forgets the
- *     session and revokes it) and the preferences. privacy/erase.ts picks the step: a sign-out that fails is "partial", never "Deleted".
- *     It says "on this Mac" because that is all it can reach; lesson folders in ~/miyagi stay (the learner's own
- *     work, kept by the engine) and the confirm says so.
+ *   - Delete account and data (age-delete lane; it replaced Delete my data, which only reached this Mac): an in-place
+ *     two-step confirm, no red. The confirm holds "Also delete my lesson folders in ~/miyagi", UNCHECKED (the learner's
+ *     own work). privacy/erase.ts runs it: main asks miyagi-cloud to delete the account and this install first; if the
+ *     server can't be reached nothing is deleted anywhere and the row offers Try again. Then main wipes everything miyagi
+ *     keeps on this Mac (main/features/accountDelete/wipe.ts), the keys leave settings.ts's memory, the session signs
+ *     out, and a moment later a built app starts again from the first-run screen (account:restart).
  */
 import { motion } from 'motion/react'
 import { Activity } from 'lucide-react'
@@ -27,18 +28,23 @@ import { pressMotion } from '../../../core/ui/motion'
 import { openLegal, useAuth } from '../../auth/store'
 import { stage } from '../env'
 import type { KeysView } from '../keys'
-import { eraseData } from '../privacy/erase'
+import { deleteAccount } from '../privacy/erase'
 import { DELETE, POLICY_LINE } from '../privacy/facts'
+import '../privacy/deleteWeb'
 import { Sees } from '../privacy/Sees'
 import { here } from '../here'
 import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
 
-
-/** partial: keys and settings went, but a sign-in file could not be removed (main says signIn: false). */
-type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'partial' | 'failed'
+/** offline: the server couldn't be reached, nothing was deleted. done / pending: deleted; a restart follows. */
+type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'offline'
+/** How long the deleted line shows before the app starts again (account:restart). */
+const RESTART_MS = 2600
 
 export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v: KeysView) => void }): ReactNode {
   const [step, setStep] = useState<Step>(stage.confirm === 'delete' ? 'confirm' : 'idle')
+  // Unchecked by default, and again every time the confirm opens: lesson folders are the learner's own work.
+  const [lessons, setLessons] = useState(false)
+  const [leftovers, setLeftovers] = useState(false)
   const cancelBox = useRef<HTMLSpanElement>(null)
   const share = usePrefs((s) => s.shareTelemetry)
   // The confirm opens with focus on Cancel (the safe default): Enter or Space backs out, Esc too.
@@ -46,19 +52,31 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
     if (step === 'confirm') cancelBox.current?.querySelector('button')?.focus({ preventScroll: true })
   }, [step])
 
+  const open = (): void => {
+    setLessons(false)
+    setStep('confirm')
+  }
+
+  // From the confirm, or Try again after the server couldn't be reached (the learner confirmed already; same choice).
   const erase = async (): Promise<void> => {
-    if (step !== 'confirm') return
+    if (step !== 'confirm' && step !== 'offline') return
     setStep('deleting')
-    // privacy/erase.ts: delete the files, then await auth:sign-out (main's auth feature owns the session in memory).
-    // A sign-out that fails or doesn't answer true shows "partial": auth.ts would still hold the session.
-    const r = await eraseData((channel) => bridge.invoke<unknown>(channel))
+    const r = await deleteAccount((channel, payload) => bridge.invoke<unknown>(channel, payload), { lessons })
     if (r.deleted) {
       onDeleted(r.deleted.keys)
       setPrefs({ ...DEFAULT_PREFS })
     }
     if (r.signedOut) useAuth.setState({ user: null })
+    setLeftovers(!r.local)
     setStep(r.step)
   }
+
+  // Deleted: the line shows for a moment, then a built app starts again from the first-run screen.
+  useEffect(() => {
+    if (step !== 'done' && step !== 'pending') return
+    const t = setTimeout(() => void bridge.invoke('account:restart').catch(() => undefined), RESTART_MS)
+    return () => clearTimeout(t)
+  }, [step])
 
   // Esc backs out of the confirm before it closes the sheet. Window capture phase, because focus is usually
   // outside this section (the first Delete never takes focus), so a local onKeyDown would never see it.
@@ -73,6 +91,8 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
     addEventListener('keydown', h, true)
     return () => removeEventListener('keydown', h, true)
   }, [step])
+
+  const deletedLine = step === 'pending' ? DELETE.pending : leftovers ? DELETE.partial : DELETE.done
 
   return (
     <>
@@ -93,37 +113,69 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
       <Group label="Your data">
         <Row minH={64} label="Privacy policy" caption={POLICY_LINE} right={<TextButton label="Open" onClick={() => openLegal('privacy')} />} />
         {step === 'confirm' || step === 'deleting' ? (
-          <Row
-            minH={64}
-            label={DELETE.confirmLabel}
-            caption={DELETE.confirm}
-            right={
-              // The safe choice is the default: Cancel is the white primary and takes focus; Delete is only an outline.
-              <div className="flex shrink-0 items-center gap-[8px]">
-                {step === 'deleting' ? (
-                  <QuietButton label="Deleting" busy disabled onClick={() => undefined} />
-                ) : (
-                  <OutlineButton label="Delete" aria={DELETE.confirmLabel} onClick={() => void erase()} />
-                )}
-                <span ref={cancelBox} className="contents">
-                  <PrimaryButtonV2 label="Cancel" onClick={() => setStep('idle')} disabled={step === 'deleting'} keyName="dismiss" />
+          <div data-delete-step={step}>
+            <Row
+              minH={64}
+              label={DELETE.confirmLabel}
+              caption={
+                <span className="flex flex-col gap-[10px]">
+                  <span>
+                    {here(DELETE.confirm)} {DELETE.undo}
+                  </span>
+                  <label data-delete-lessons className="flex min-h-[28px] cursor-pointer items-center gap-[10px]" style={{ fontSize: type2.sm, color: color.text }}>
+                    <input
+                      type="checkbox"
+                      checked={lessons}
+                      disabled={step === 'deleting'}
+                      onChange={(e) => setLessons(e.target.checked)}
+                      style={{ width: 16, height: 16, margin: 0, accentColor: color.accent }}
+                    />
+                    {DELETE.lessons}
+                  </label>
                 </span>
-              </div>
-            }
-          />
+              }
+              right={
+                // The safe choice is the default: Cancel is the white primary and takes focus; Delete is only an outline.
+                <div className="flex shrink-0 items-center gap-[8px]">
+                  {step === 'deleting' ? (
+                    <QuietButton label="Deleting" busy disabled onClick={() => undefined} />
+                  ) : (
+                    <OutlineButton label="Delete" aria={DELETE.confirmLabel} onClick={() => void erase()} />
+                  )}
+                  <span ref={cancelBox} className="contents">
+                    <PrimaryButtonV2 label="Cancel" onClick={() => setStep('idle')} disabled={step === 'deleting'} keyName="dismiss" />
+                  </span>
+                </div>
+              }
+            />
+          </div>
         ) : (
-          <Row
-            minH={64}
-            label="Delete my data"
-            caption={
-              step === 'failed' || step === 'partial' ? (
-                <span style={{ color: color.text }}>{step === 'failed' ? DELETE.failed : DELETE.partial}</span>
-              ) : (
-                here(DELETE.row)
-              )
-            }
-            right={step === 'done' ? <OnWord>{here('Deleted from this Mac')}</OnWord> : <OutlineButton label="Delete" onClick={() => setStep('confirm')} />}
-          />
+          <div data-delete-step={step}>
+            <Row
+              minH={64}
+              label={DELETE.label}
+              caption={
+                step === 'offline' ? (
+                  <span role="alert" style={{ color: color.text }}>
+                    {DELETE.offline}
+                  </span>
+                ) : step === 'done' || step === 'pending' ? (
+                  <span role="status" style={{ color: color.text }}>
+                    {here(deletedLine)} {DELETE.restart}
+                  </span>
+                ) : (
+                  DELETE.row
+                )
+              }
+              right={
+                step === 'done' || step === 'pending' ? (
+                  <OnWord>Deleted</OnWord>
+                ) : (
+                  <OutlineButton label={step === 'offline' ? 'Try again' : 'Delete'} aria={step === 'offline' ? 'Try deleting again' : DELETE.label} onClick={step === 'offline' ? () => void erase() : open} />
+                )
+              }
+            />
+          </div>
         )}
       </Group>
     </>
@@ -131,7 +183,7 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
 }
 
 /** Delete is always an outline, never the white primary: the first one only asks, the second one is not the default. */
-function OutlineButton({ label, onClick, aria = 'Delete my data' }: { label: string; onClick: () => void; aria?: string }): ReactNode {
+function OutlineButton({ label, onClick, aria = DELETE.label }: { label: string; onClick: () => void; aria?: string }): ReactNode {
   return (
     <motion.button
       type="button"

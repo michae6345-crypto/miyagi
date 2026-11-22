@@ -118,18 +118,27 @@ export function onThisComputer(text: string, mac: boolean): string {
 export const ROUTE = 'AI calls go through miyagi’s server, or direct with your key.'
 
 /**
- * Delete my data (Privacy.tsx's two-step confirm, main settings:delete). The policy quotes these too. Exactly what the
- * code erases (checked Nov 21, R06/A16): keys.bin, the sign-in files (auth.bin, login.json, cloud-link.json) and the
- * session (auth:sign-out), and the preferences reset to their defaults. What stays: lessons and progress in ~/miyagi,
- * setup's onboarding.json, the logs in userData, the consent record (prefs.consent, main's own) and everything on
- * miyagi's server. The full erase is R28. Never "everything".
+ * Delete account (Privacy.tsx's two-step confirm; main account:delete, then settings:delete and auth:sign-out). The
+ * policy quotes these too. Exactly what the code erases (age-delete lane, Nov 21; main/features/accountDelete/wipe.ts):
+ * the account and this install on miyagi's server first (POST /v1/account/delete), then on this Mac every file and
+ * folder miyagi keeps in userData (keys, sign-in, the account link note, the install token, setup, the age step,
+ * preferences, reminders, the error log and crash reports, usage state), the app's logs, the browser storage (the
+ * YouTube player's cookies included), the engine's caches (searches, lessons, captions), runs, logs and saved progress.
+ * ~/miyagi/lessons only when ticked. What stays: VS Code and its extensions, userData/engine.json (which engine to
+ * run). Server unreachable: nothing at all is deleted.
  */
 export const DELETE = {
-  row: 'Erases keys, settings and sign-in on this Mac. Cannot be undone.',
-  confirmLabel: 'Delete keys, settings and sign-in?',
-  confirm: 'Signs you out. Lessons and progress in ~/miyagi stay. Cannot be undone.',
-  partial: 'Keys and settings deleted. Couldn’t clear sign-in.',
-  failed: 'Couldn’t delete. Nothing was removed.'
+  label: 'Delete account and data',
+  row: 'Deletes your account and everything miyagi keeps. Cannot be undone.',
+  confirmLabel: 'Delete your miyagi account?',
+  confirm: 'Deletes your account, what our server keeps, and this Mac’s data.',
+  undo: 'Cannot be undone.',
+  lessons: 'Also delete my lesson folders in ~/miyagi',
+  offline: 'Couldn’t reach miyagi’s server. Nothing was deleted.',
+  done: 'Your account and this Mac’s data are deleted.',
+  pending: 'Deleted from this Mac. Your account goes within 30 days.',
+  partial: 'Account deleted. Some files on this Mac stayed.',
+  restart: 'miyagi starts again in a moment.'
 } as const
 
 /** The published policy (opened through the existing external-link path, allowlisted miyagi.study). */
