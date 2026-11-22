@@ -25,6 +25,7 @@ import { loadAuth, useAuth } from '../../auth/store'
 import { openSheet } from '../sheet'
 import { setPage, setSettingsSection } from '../store'
 import { thisDevice } from '../../onboarding/device'
+import { PageColumn } from './Column'
 
 const caption = { fontSize: type2.sm, lineHeight: '20px', color: color.label } as const
 
@@ -38,11 +39,11 @@ const toYourKey = (): void => {
  * number"): the page is a header (who you are) and one grouped list, as in Settings. No floating cards.
  */
 function Wrap({ children }: { children: ReactNode }): ReactNode {
+  // The shared page column (Column.tsx), centered in the panel. The groups fill it, as Settings' do, so the cards keep
+  // the same left and right edges when you switch between the two pages.
   return (
-    <div data-shell-account-page className="flex flex-col" style={{ padding: '8px 40px 40px' }}>
-      <div className="flex w-full flex-col gap-[24px]" style={{ maxWidth: 560 }}>
-        {children}
-      </div>
+    <div data-shell-account-page className="@container w-full">
+      <PageColumn gap={24}>{children}</PageColumn>
     </div>
   )
 }
