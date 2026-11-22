@@ -1,0 +1,24 @@
+{
+ "id": "terminal-git-s2-only-in-video",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Only the tutorial video (in Chrome) shows 'Initialized empty Git repository'; the learner's own Terminal has `git init` typed, not run.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s2"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Google Chrome": [
+    "YouTube",
+    "$ git init",
+    "Initialized empty Git repository in /home/demo/.git/"
+   ],
+   "Terminal": [
+    "tripi@mac project1 % git init"
+   ]
+  }
+ }
+}

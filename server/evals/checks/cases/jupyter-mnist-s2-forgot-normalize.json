@@ -1,0 +1,38 @@
+{
+ "id": "jupyter-mnist-s2-forgot-normalize",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: imports and load_data ran, but the two `/ 255` normalisation lines are missing.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s2"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 1,
+     "replace": [
+      [
+       0,
+       "\ntrain_images = train_images.astype('float32') / 255\ntest_images = test_images.astype('float32') / 255",
+       ""
+      ]
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "import tensorflow as tf",
+    "from tensorflow.keras import layers, models",
+    "import matplotlib.pyplot as plt",
+    "import numpy as np",
+    "(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()"
+   ]
+  }
+ }
+}

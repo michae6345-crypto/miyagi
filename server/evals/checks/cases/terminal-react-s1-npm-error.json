@@ -1,0 +1,24 @@
+{
+ "id": "terminal-react-s1-npm-error",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "An earlier dev server's output is still in the scrollback, but the learner's latest `npm run dev` (in the wrong folder) failed with npm ERR!.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "VITE v5.4.10  ready in 312 ms",
+    "➜  Local:   http://localhost:5173/",
+    "^C",
+    "tripi@mac Desktop % npm run dev",
+    "npm ERR! code ENOENT",
+    "npm ERR! enoent Could not read package.json"
+   ]
+  }
+ }
+}

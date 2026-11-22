@@ -1,0 +1,35 @@
+{
+ "id": "jupyter-mnist-s7-below-95",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: evaluate ran but test accuracy is 93.10%, below the step's 95% bar.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 5,
+     "append": [
+      {
+       "source": "test_loss, test_accuracy = model.evaluate(test_images, test_labels)\nprint(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+       "stdout": "313/313 ━━━━━━━━━━━━━━━━━━━━ 0s 324us/step - accuracy: 0.9310 - loss: 0.2411\nAccuracy of the neural network on the 10000 test images: 93.10%\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "model.compile(optimizer='adam',",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['accuracy'])"
+   ]
+  }
+ }
+}

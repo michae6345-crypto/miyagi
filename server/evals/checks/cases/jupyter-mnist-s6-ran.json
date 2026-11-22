@@ -1,0 +1,29 @@
+{
+ "id": "jupyter-mnist-s6-ran",
+ "kind": "jupyter",
+ "trap": "none",
+ "expected": "pass",
+ "why": "The predict cell ran: 1/1 progress line and the Class Probability figure (PNG) are its outputs; the plot is off screen.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 5
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "model.compile(optimizer='adam',",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['accuracy'])"
+   ]
+  }
+ }
+}

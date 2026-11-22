@@ -1,0 +1,29 @@
+{
+ "id": "jupyter-mnist-s5-trained",
+ "kind": "jupyter",
+ "trap": "none",
+ "expected": "pass",
+ "why": "T10 blocker: 5 epochs ran in the notebook, final accuracy 0.9858 >= 0.95 (ANSI Keras output); the screen only shows the compile call.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 4
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "model.compile(optimizer='adam',",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['accuracy'])"
+   ]
+  }
+ }
+}
