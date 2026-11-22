@@ -141,6 +141,16 @@ const installListeners = new Set<() => void>()
 /** The current install token, or undefined (off, not minted yet, or being replaced). Never to a renderer or a log. */
 export const installToken = (): InstallInfo | undefined => current
 
+let forgetRef: (() => void) | undefined
+/**
+ * age-delete lane (features/accountDelete.ts, after miyagi-cloud deleted this install): drop the token from memory,
+ * from the engine and from disk (install.bin), and don't mint a new one for RETRY_MS (Delete account relaunches the
+ * app, which starts fresh). Main process only.
+ */
+export function forgetInstall(): void {
+  forgetRef?.()
+}
+
 /** Called whenever the install token appears or changes (first mint, self-heal). Returns what unsubscribes. */
 export function onInstallToken(fn: () => void): () => void {
   installListeners.add(fn)
@@ -261,6 +271,18 @@ export default defineMainFeature({
     ctx.engine.onEvent((e) => {
       if (e.type === 'config.status' && e.payload.cloud === 'ok') healer.cancel()
     })
+
+    forgetRef = () => {
+      healer.cancel()
+      stored = undefined
+      lastTry = Date.now()
+      try {
+        for (const f of [file, `${file}.tmp`]) rmSync(f, { force: true })
+      } catch {
+        console.warn('[cloud] could not remove install.bin') // never the path's error: it names the home folder
+      }
+      apply()
+    }
 
     apply()
     void mint()

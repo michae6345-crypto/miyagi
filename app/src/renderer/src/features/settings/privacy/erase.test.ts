@@ -1,20 +1,21 @@
 /**
- * Delete my data, the renderer's flow: which step the row shows, and that sign-out is awaited and checked.
+ * Delete account, the renderer's flow: the server goes first, nothing else runs when it can't be reached, and the
+ * sign-out is awaited and checked.
  *   cd app && node --import tsx --test src/renderer/src/features/settings/privacy/erase.test.ts
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { DeleteResult, KeysView } from '../keys'
-import { eraseData, eraseStep } from './erase'
+import { deleteAccount } from './erase'
 
 const keys = { keys: {}, secure: true } as unknown as KeysView
-const ok: DeleteResult = { ok: true, keys, signIn: true }
+const keysGone: DeleteResult = { ok: true, keys, signIn: true }
 
 /** A fake bridge.invoke: each channel answers with a value, or throws when the answer is an Error. */
-function fake(answers: Record<string, unknown>): { invoke: (c: string) => Promise<unknown>; calls: string[] } {
-  const calls: string[] = []
-  const invoke = async (c: string): Promise<unknown> => {
-    calls.push(c)
+function fake(answers: Record<string, unknown>): { invoke: (c: string, p?: unknown) => Promise<unknown>; calls: [string, unknown][] } {
+  const calls: [string, unknown][] = []
+  const invoke = async (c: string, p?: unknown): Promise<unknown> => {
+    calls.push([c, p])
     const a = answers[c]
     if (a instanceof Error) throw a
     return a
@@ -22,53 +23,60 @@ function fake(answers: Record<string, unknown>): { invoke: (c: string) => Promis
   return { invoke, calls }
 }
 
-test('eraseStep: ok false or no answer is failed', () => {
-  assert.equal(eraseStep({ ok: false }, true), 'failed')
-  assert.equal(eraseStep(undefined, true), 'failed')
-  assert.equal(eraseStep(null, false), 'failed')
+test('server unreachable: offline, and nothing else is called (nothing deleted, still signed in)', async () => {
+  const f = fake({ 'account:delete': { ok: false, reason: 'unreachable' }, 'settings:delete': keysGone, 'auth:sign-out': true })
+  assert.deepEqual(await deleteAccount(f.invoke, { lessons: true }), { step: 'offline', local: true, signedOut: false })
+  assert.deepEqual(f.calls, [['account:delete', { lessons: true }]])
 })
 
-test('eraseStep: a sign-in file that stayed, or a sign-out that failed, is partial', () => {
-  assert.equal(eraseStep({ ok: true, signIn: false }, true), 'partial')
-  assert.equal(eraseStep({ ok: true, signIn: true }, false), 'partial')
-  assert.equal(eraseStep({ ok: true }, false), 'partial')
+test('signed in and the account could not be deleted: refused, and nothing else is called', async () => {
+  const f = fake({ 'account:delete': { ok: false, reason: 'account' }, 'settings:delete': keysGone, 'auth:sign-out': true })
+  assert.deepEqual(await deleteAccount(f.invoke, { lessons: false }), { step: 'refused', local: true, signedOut: false })
+  assert.equal(f.calls.length, 1)
 })
 
-test('eraseStep: files gone and signed out is done', () => {
-  assert.equal(eraseStep({ ok: true, signIn: true }, true), 'done')
-  assert.equal(eraseStep({ ok: true }, true), 'done')
-})
-
-test('eraseData: ok false is failed, and nothing signs out', async () => {
-  const f = fake({ 'settings:delete': { ok: false, keys }, 'auth:sign-out': true })
-  assert.deepEqual(await eraseData(f.invoke), { step: 'failed', signedOut: false })
-  assert.deepEqual(f.calls, ['settings:delete'])
-})
-
-test('eraseData: a delete that throws is failed', async () => {
-  const f = fake({ 'settings:delete': new Error('ipc'), 'auth:sign-out': true })
-  assert.equal((await eraseData(f.invoke)).step, 'failed')
-  assert.deepEqual(f.calls, ['settings:delete'])
-})
-
-test('eraseData: signIn false is partial (still signs out the session)', async () => {
-  const f = fake({ 'settings:delete': { ...ok, signIn: false }, 'auth:sign-out': true })
-  const r = await eraseData(f.invoke)
-  assert.equal(r.step, 'partial')
-  assert.equal(r.signedOut, true)
-  assert.deepEqual(f.calls, ['settings:delete', 'auth:sign-out'])
-})
-
-test('eraseData: a sign-out that throws or answers other than true is partial', async () => {
-  for (const answer of [new Error('ipc'), false, undefined, { ok: true }]) {
-    const r = await eraseData(fake({ 'settings:delete': ok, 'auth:sign-out': answer }).invoke)
-    assert.equal(r.step, 'partial', String(answer))
-    assert.equal(r.signedOut, false)
-    assert.equal(r.deleted, ok) // the keys did go: the caller still applies them
+test('an IPC failure or a junk answer is offline too', async () => {
+  for (const a of [new Error('ipc'), undefined, null, 'ok', { ok: true }, { ok: true, account: 'gone' }]) {
+    const f = fake({ 'account:delete': a })
+    assert.equal((await deleteAccount(f.invoke, { lessons: false })).step, 'offline')
+    assert.equal(f.calls.length, 1)
   }
 })
 
-test('eraseData: deleted and signed out is done', async () => {
-  const f = fake({ 'settings:delete': ok, 'auth:sign-out': true })
-  assert.deepEqual(await eraseData(f.invoke), { step: 'done', deleted: ok, signedOut: true })
+test('deleted: then the keys and the sign-out, in that order; lessons passed through as asked', async () => {
+  const f = fake({ 'account:delete': { ok: true, account: 'deleted', local: true }, 'settings:delete': keysGone, 'auth:sign-out': true })
+  const r = await deleteAccount(f.invoke, { lessons: false })
+  assert.deepEqual(r, { step: 'done', account: 'deleted', local: true, deleted: keysGone, signedOut: true })
+  assert.deepEqual(
+    f.calls.map((c) => c[0]),
+    ['account:delete', 'settings:delete', 'auth:sign-out']
+  )
+  assert.deepEqual(f.calls[0][1], { lessons: false })
+})
+
+test('pending: the local wipe is done, the step says the account goes later', async () => {
+  const f = fake({ 'account:delete': { ok: true, account: 'pending', local: true }, 'settings:delete': keysGone, 'auth:sign-out': true })
+  const r = await deleteAccount(f.invoke, { lessons: false })
+  assert.equal(r.step, 'pending')
+  assert.equal(r.account, 'pending')
+})
+
+test('signed out already (account none) is done', async () => {
+  const f = fake({ 'account:delete': { ok: true, account: 'none', local: true }, 'settings:delete': keysGone, 'auth:sign-out': true })
+  assert.equal((await deleteAccount(f.invoke, { lessons: false })).step, 'done')
+})
+
+test('leftovers on this Mac and a failed sign-out are reported, never hidden', async () => {
+  const f = fake({ 'account:delete': { ok: true, account: 'deleted', local: false }, 'settings:delete': new Error('x'), 'auth:sign-out': new Error('y') })
+  const r = await deleteAccount(f.invoke, { lessons: true })
+  assert.equal(r.step, 'done')
+  assert.equal(r.local, false)
+  assert.equal(r.signedOut, false)
+  assert.equal(r.deleted, undefined)
+})
+
+test('the lessons option is strictly opt-in: anything but true is false', async () => {
+  const f = fake({ 'account:delete': { ok: false } })
+  await deleteAccount(f.invoke, { lessons: 'yes' as unknown as boolean })
+  assert.deepEqual(f.calls[0][1], { lessons: false })
 })

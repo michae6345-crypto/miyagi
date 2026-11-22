@@ -216,22 +216,24 @@ you send to improve its products, and people may read it.
 
 ## Deleting your data
 
-In Settings › Privacy, Delete my data:
+In Settings › Privacy, Delete account and data:
 
-> Erases keys, settings and sign-in on this Mac. Cannot be undone.
+> Deletes your account and everything miyagi keeps. Cannot be undone.
 
 Before it deletes, it asks once more:
 
-> Signs you out. Lessons and progress in ~/miyagi stay. Cannot be undone.
+> Deletes your account, what our server keeps, and this Mac’s data.
 
-It also removes the note of your account link on this Mac. It does not yet remove your install token, the account
-link kept on miyagi-cloud, the app's YouTube cookies, cached searches and lessons, the engine log or crash reports, or
-the VS Code extensions. To remove everything on your Mac: quit miyagi, delete the
-app, delete the `miyagi` folder in your home folder, and remove the miyagi extension from VS Code. [CHECK: list the
-app-data folder for Mac and Windows.]
+It asks miyagi-cloud first to delete your account and this Mac's install record. If miyagi can't reach the server,
+nothing is deleted, here or there, and you can try again. Then it deletes everything miyagi keeps on your Mac: your
+keys, your sign-in, the note of your account link, the install token, setup, your age step answer, your settings,
+reminders, the local error log and saved crash reports, the app's logs, the app's YouTube cookies and storage, cached
+searches, lessons and captions, the engine's log and your saved progress. It signs you out and starts miyagi again from
+the first screen. Your lesson folders in `~/miyagi/lessons` are your own work: they are deleted only if you tick "Also
+delete my lesson folders in ~/miyagi". It does not remove the app itself or the VS Code extensions.
 
-To delete your account and anything kept on miyagi-cloud, email us (see Contact). We'll confirm and finish within 30
-days. [TBD: in-app account deletion needs a miyagi-cloud endpoint; register B05.]
+If the server can only finish later, the app says so: your account is deleted within 30 days. [CHECK: matches
+miyagi-cloud's /v1/account/delete once it ships.]
 
 ## Your choices and rights
 
