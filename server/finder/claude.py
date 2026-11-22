@@ -33,7 +33,16 @@ _clients: dict[str, anthropic.AsyncAnthropic] = {}
 
 
 def model() -> str:
-    return os.environ.get("FINDER_CLAUDE_MODEL", "claude-haiku-5-5")
+    try:
+        from server.models import model_for  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - the finder run on its own
+        return os.environ.get("FINDER_CLAUDE_MODEL", "claude-haiku-5-5")
+    return model_for("finder")
+
+
+def _cached(text: str) -> list[dict]:
+    """A system prompt as one cached block (a prompt under the model's minimum just does not cache)."""
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
 
 def search_tool() -> str:
@@ -142,7 +151,7 @@ async def search(key: str, goal: str, *, timeout: float = 12.0, max_uses: int = 
         key,
         model=model(),
         max_tokens=3000,
-        system=VIDEO_SEARCH_SYSTEM if videos_only else SEARCH_SYSTEM,
+        system=_cached(VIDEO_SEARCH_SYSTEM if videos_only else SEARCH_SYSTEM),
         tools=[{"type": search_tool(), "name": "web_search", "max_uses": 2 if videos_only else max_uses}],
         output_config={"effort": "low"},
         messages=[{"role": "user", "content": f"Learner's goal: {goal}"}],
@@ -233,7 +242,7 @@ async def score(key: str, goal: str, cands: list[dict], *, system: str, prompt: 
         key,
         model=model(),
         max_tokens=4000,
-        system=system + "\n" + DATA_RULE,
+        system=_cached(system + "\n" + DATA_RULE),
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCORE_SCHEMA}},
         messages=[{"role": "user", "content": prompt.format(goal=goal, items=wrap("search_results", json.dumps(items, ensure_ascii=False)))}],
         timeout=timeout,
@@ -299,7 +308,7 @@ async def read(key: str, goal: str, item: dict, text: str, *, timeout: float = 8
         key,
         model=model(),
         max_tokens=2000,
-        system=READ_SYSTEM,
+        system=_cached(READ_SYSTEM),
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": READ_SCHEMA}},
         messages=[{"role": "user", "content": READ_PROMPT.format(
             goal=goal, host=_host(item["url"]) or "an unknown site",

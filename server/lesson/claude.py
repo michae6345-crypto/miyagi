@@ -15,7 +15,9 @@ import anthropic
 from jsonschema import Draft202012Validator
 
 from server import config as server_config
-from server.untrusted import strip_injection, wrap
+from server import models as model_table
+from server import prompt_cache
+from server.untrusted import strip_injection, wrap, wrap_stable
 
 from . import cost, gemini
 from .schema import ADAPTED_SCHEMA, VIDEO_DRAFT_SCHEMA
@@ -23,12 +25,12 @@ from .transcript import _mmss as _ts
 
 log = logging.getLogger("server.lesson")
 
-DEFAULT_MODEL = "claude-sonnet-5-5"  # cost: never Opus by default (an Opus default once cost ~$80 in an hour)
+DEFAULT_MODEL = model_table.SONNET  # cost: never Opus by default (an Opus default once cost ~$80 in an hour)
 OPUS_MODEL = "claude-opus-5-5"
-# Cheapest model that holds quality per job; Opus only when a quality check fails (escalation).
-ROLE_MODELS = {"segment": "claude-sonnet-5-5", "detail": "claude-haiku-5-5", "adapt": "claude-haiku-5-5", "judge": "claude-haiku-5-5",
-               "escalate": "claude-sonnet-5-5"}
-ESCALATION_MODEL = "claude-sonnet-5-5"  # Opus only with LESSON_ALLOW_OPUS=1
+# Cheapest model that holds quality per job (the table is server/models.py); Opus only when a quality check fails
+# (escalation) and only with LESSON_ALLOW_OPUS=1.
+ROLE_MODELS = {r: model_table.default_for(f"lesson.{r}") for r in ("segment", "detail", "adapt", "judge", "escalate")}
+ESCALATION_MODEL = model_table.default_for("lesson.escalate")  # Opus only with LESSON_ALLOW_OPUS=1
 last_model: str | None = None  # model that served the most recent successful call (for build.model)
 _client: anthropic.AsyncAnthropic | None = None
 _override_key: str | None = None
@@ -61,7 +63,8 @@ def model(role: str | None = None) -> str:
         return DEFAULT_MODEL
     if role == "escalate":
         return escalation_model()
-    return _guard(os.environ.get(f"LESSON_CLAUDE_MODEL_{role.upper()}", ROLE_MODELS.get(role, DEFAULT_MODEL)))
+    return model_table.model_for(f"lesson.{role}", allow=opus_allowed()) if f"lesson.{role}" in model_table.ROUTES \
+        else _guard(os.environ.get(f"LESSON_CLAUDE_MODEL_{role.upper()}", DEFAULT_MODEL))
 
 
 def escalation_model() -> str:
@@ -139,7 +142,7 @@ def _sem():
     return _sems[loop]
 
 
-async def _call(mid: str, system: str, prompt: str, *, effort: str, schema: dict | None):
+async def _call(mid: str, system: str | tuple[str, ...], prompt: "str | list[dict]", *, effort: str, schema: dict | None):
     """One Claude request: at most CONCURRENCY in flight per process, and 429s (incl. "Number of
     concurrent requests") retried with backoff, honoring retry-after."""
     import asyncio
@@ -164,16 +167,28 @@ class _RateLimited(Exception):
         self.retry_after = retry_after
 
 
-def cached_system(system: str) -> list[dict] | str:
-    """The system prompt as one block with a cache breakpoint. The lesson prompts (WATCH_SYSTEM, ADAPT_SYSTEM)
-    repeat across a build's segment, per-step and adapt calls, so later calls read them from the cache. A
-    prompt under the model's minimum (512 tokens on current models) just does not cache; no error."""
-    if not system:
-        return system
-    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+def _user_content(prefix: str, rest: str):
+    """The user message: the stable `prefix` as a cached block, then `rest`. LESSON_PROMPT_CACHE_USER=0 sends one
+    plain string instead (a cache write costs 1.25x, so a prefix nothing re-reads is a small loss)."""
+    if os.environ.get("LESSON_PROMPT_CACHE_USER", "1") == "0":
+        return (prefix + "\n\n" + rest) if prefix else rest
+    return prompt_cache.user_blocks(prefix, rest)
 
 
-async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema: dict | None):
+def cached_system(system: "str | tuple[str, ...]") -> list[dict] | str:
+    """The system prompt as a cached block. The lesson prompts (WATCH_SYSTEM, ADAPT_SYSTEM) repeat across a build's
+    segment, per-step and adapt calls, so later calls read them from the cache. A tuple is several blocks, each a
+    breakpoint (at most 2 are used): the shared prompt first, then what only some calls add (the JSON schema), so a
+    call without the extra still reads the shared block another call wrote. A prompt under the model's minimum
+    just does not cache; no error."""
+    parts = (system,) if isinstance(system, str) else tuple(system)
+    parts = tuple(p for p in parts if p)
+    if not parts:
+        return ""
+    return [prompt_cache.text_block(p, cache=True) for p in parts]
+
+
+async def _call_once(mid: str, system: "str | tuple[str, ...]", prompt: "str | list[dict]", *, effort: str, schema: dict | None):
     global _fast_ok
     output_config: dict = {"effort": effort}
     if schema is not None:
@@ -254,12 +269,15 @@ def extract_json(text: str) -> dict:
 
 
 async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str = "high", structured: bool = True,
-                         role: str | None = None, escalate: bool = True, check=None) -> dict:
+                         role: str | None = None, escalate: bool = True, check=None, prefix: str = "") -> dict:
     """Run on the role's (cheap) model; if the reply fails validation or `check(obj)` returns a problem,
-    retry once on the escalation model (Opus)."""
+    retry once on the escalation model (Opus).
+    `prefix`: the part of the user message that stays the same across calls (a transcript, a lesson outline); it
+    becomes a cached block placed before `prompt`, the part that changes. Nothing volatile may be in it."""
     mid = model(role)
+    px = {"prefix": prefix} if prefix else {}
     try:
-        obj = await _generate_json_on(mid, system, prompt, schema, effort=effort, structured=structured)
+        obj = await _generate_json_on(mid, system, prompt, schema, effort=effort, structured=structured, **px)
         problem = check(obj) if check else None
     except RuntimeError as e:
         if not escalate or mid == escalation_model() or "rejected the API key" in str(e) or "rate-limited" in str(e):
@@ -270,20 +288,21 @@ async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str 
     if not escalate or mid == escalation_model():
         raise RuntimeError(f"{mid}: {problem}")
     log.info("%s output failed a quality check (%s); escalating to %s", mid, problem, escalation_model())
-    obj = await _generate_json_on(escalation_model(), system, prompt, schema, effort=effort, structured=structured)
+    obj = await _generate_json_on(escalation_model(), system, prompt, schema, effort=effort, structured=structured, **px)
     if check and (p2 := check(obj)):
         raise RuntimeError(f"{escalation_model()}: {p2}")
     return obj
 
 
-async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *, effort: str, structured: bool) -> dict:
+async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *, effort: str, structured: bool,
+                            prefix: str = "") -> dict:
     """Structured output when the API accepts the schema; otherwise (\"Schema is too complex\") the
     schema goes in the prompt and the reply is validated client-side, with one corrective retry."""
     global last_model
     key = json.dumps(schema, sort_keys=True)
     if structured and key not in _schema_too_complex:
         try:
-            msg, text = await _call(mid, system, prompt, effort=effort, schema=schema)
+            msg, text = await _call(mid, system, _user_content(prefix, prompt), effort=effort, schema=schema)
             last_model = getattr(msg, "model", None) or mid
             return json.loads(text)
         except _SchemaTooComplex:
@@ -291,13 +310,14 @@ async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *,
             log.info("structured output schema too complex for the API; using prompt-described JSON + client validation")
 
     validator = Draft202012Validator(schema)
-    # the schema rides in the cached system block (same bytes on every per-step call), not after the prompt
-    sys_schema = (system + "\n\nReply with ONE JSON object (no prose, no code fence) that validates against this JSON Schema:\n"
+    # the schema rides in a cached system block of its own (same bytes on every per-step call), after the shared
+    # system prompt's block, which the segment call (no schema in the prompt) also writes
+    sys_schema = (system, "Reply with ONE JSON object (no prose, no code fence) that validates against this JSON Schema:\n"
                   + json.dumps(schema, sort_keys=True))
     ask = prompt
     errors: list[str] = []
     for _attempt in range(2):
-        msg, text = await _call(mid, sys_schema, ask, effort=effort, schema=None)
+        msg, text = await _call(mid, sys_schema, _user_content(prefix, ask), effort=effort, schema=None)
         try:
             obj = extract_json(text)
             errors = [f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}" for e in validator.iter_errors(obj)]
@@ -348,13 +368,11 @@ Break this tutorial into 4-10 sequential steps a learner can code along with. Re
 - libraries: every library/tool used, with the version if mentioned, else your best estimate ("18.x").
 """
 
-STEP_PROMPT = """Learner's goal: {goal}. Tutorial: "{lesson}". Its steps: {outline}
+# STEP_HEAD is the same for every step of a build (goal, outline and the fixed rules), so it is the cached part of the
+# user message; STEP_BODY is what changes from step to step. Anything volatile belongs in STEP_BODY.
+STEP_HEAD = """Learner's goal: {goal}. Tutorial: "{lesson}". Its steps: {outline}
 
-Fill in step {index}: "{title}" ({start}-{end}). {instructions}
-Transcript of this step (with a little context either side):
-{slice}
-
-Return for THIS step only:
+For the step you are asked to fill in, return for THIS step only:
 - file: the file edited (if any); code: the key lines written, as the presenter evidently types them;
   run_command: only a plain run of the lesson's own files, `python3 <file>`, `pytest` or `npm run <script>`, else "";
   never a pipeline, curl/wget, sudo, a brew tap or a URL installer (other commands go in the instructions, in
@@ -370,6 +388,12 @@ Return for THIS step only:
 - explanations: MM:SS moments in this slice where a concept is explained.
 - hints: 2-4, gentlest first. common_mistakes: concrete ones for this step.
 """
+STEP_BODY = """Fill in step {index}: "{title}" ({start}-{end}). {instructions}
+Transcript of this step (with a little context either side):
+{slice}
+"""
+
+STEP_PROMPT = STEP_HEAD + "\n\n" + STEP_BODY  # the two joined (tests and docs read the whole prompt)
 
 STEP_DETAIL_SCHEMA = {
     "type": "object",
@@ -384,17 +408,17 @@ MATERIALS_STEP_CHARS = 9_000  # the tutorial's own code per step prompt (materia
 def video_info_prompt(info: dict) -> str:
     """The video's title, length, chapters, description and timestamped transcript for a prompt (the same lines as
     transcript.format_for_prompt), with every piece of YouTube text in its own <untrusted> block."""
-    lines = ["Title:\n" + wrap("title", info.get("title") or "")]
+    lines = ["Title:\n" + wrap_stable("title", info.get("title") or "")]
     if info.get("length_s"):
         lines.append(f"Length: {_ts(info['length_s'])}")
     if info.get("chapters"):
         lines.append("Chapters (from the description):\n"
-                     + wrap("chapters", "\n".join(f"  {_ts(c['t'])} {c['title']}" for c in info["chapters"])))
+                     + wrap_stable("chapters", "\n".join(f"  {_ts(c['t'])} {c['title']}" for c in info["chapters"])))
     desc = (info.get("description") or "").strip()
     if desc:
-        lines.append("Description:\n" + wrap("description", desc[:3000]))
+        lines.append("Description:\n" + wrap_stable("description", desc[:3000]))
     body = "\n".join(f"[{_ts(s['t'])}] {s['text']}" for s in info.get("transcript") or [])
-    lines.append("Transcript (start time, then the spoken text):\n" + wrap("transcript", body))
+    lines.append("Transcript (start time, then the spoken text):\n" + wrap_stable("transcript", body))
     return "\n".join(lines)
 
 
@@ -421,8 +445,11 @@ async def watch_transcript(info: dict, goal: str) -> dict:
 
     files = info.get("materials") or []  # the tutorial's own code (materials.collect), already capped and screened
     seg_extra = ("\n\n" + materials.overview(files)) if files else ""
-    seg = await _generate_json(gemini.WATCH_SYSTEM, SEGMENT_PROMPT.format(goal=goal) + "\n\n" + TRANSCRIPT_NOTE + "\n\n" + video_info_prompt(info) + seg_extra,
-                               SEGMENT_SCHEMA, effort=effort_seg, role="segment", check=seg_ok)
+    # the video's text first (stable: a retry, an escalation or a second learner's goal on the same video reads it from
+    # the cache), then the learner's goal and the step rules
+    seg = await _generate_json(gemini.WATCH_SYSTEM, SEGMENT_PROMPT.format(goal=goal),
+                               SEGMENT_SCHEMA, effort=effort_seg, role="segment", check=seg_ok,
+                               prefix=TRANSCRIPT_NOTE + "\n\n" + video_info_prompt(info) + seg_extra)
     seg = strip_injection(seg)  # its titles / instructions go into every detail prompt: no AI-directed sentence in them
     steps = seg.get("steps") or []
     outline = "; ".join(f"{i}. {s.get('title')}" for i, s in enumerate(steps, 1))
@@ -431,17 +458,17 @@ async def watch_transcript(info: dict, goal: str) -> dict:
     async def detail(i: int, st: dict) -> dict:
         a, b = parse_ts(st.get("start")), parse_ts(st.get("end"))
         lines = [ln for ln in info["transcript"] if a is not None and b is not None and a - 15 <= ln["t"] <= b + 10]
-        prompt = STEP_PROMPT.format(goal=goal, lesson=seg.get("title", ""), outline=outline, index=i, title=st.get("title", ""),
+        head = STEP_HEAD.format(goal=goal, lesson=seg.get("title", ""), outline=outline, stack_guide=gemini.STACK_GUIDE)
+        prompt = STEP_BODY.format(index=i, title=st.get("title", ""),
                                     start=st.get("start"), end=st.get("end"), instructions=st.get("instructions", ""),
-                                    slice=wrap("transcript", "\n".join(f"[{_mmss(ln['t'])}] {ln['text']}" for ln in lines) or "(no transcript lines)"),
-                                    stack_guide=gemini.STACK_GUIDE)
+                                    slice=wrap("transcript", "\n".join(f"[{_mmss(ln['t'])}] {ln['text']}" for ln in lines) or "(no transcript lines)"))
         if files:  # the real code for this step: the files whose names and identifiers match it best
             focus = " ".join([st.get("title", ""), st.get("instructions", "")] + [ln["text"] for ln in lines])
             prompt += "\n\n" + materials.for_prompt(files, focus, MATERIALS_STEP_CHARS)
         async with sem:
             # too many optional fields for structured output: skip the guaranteed 400, validate client-side
             d = await _generate_json(gemini.WATCH_SYSTEM, prompt, STEP_DETAIL_SCHEMA, effort=effort_detail, structured=False,
-                                     role="detail", check=lambda o: None if o.get("checks") else "no checks")
+                                     role="detail", check=lambda o: None if o.get("checks") else "no checks", prefix=head)
         return {**st, **{k: v for k, v in d.items() if k not in ("start", "end", "title", "instructions")}}
 
     filled = await asyncio.gather(*(detail(i, st) for i, st in enumerate(steps, 1)))
