@@ -287,8 +287,10 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
             "with a metric_pattern that parses those lines"
         )
     if steps and vague_setup(steps[0]):
-        problems.append(f"{steps[0].get('id', 's1')}: setup step says to clone/download/get the tutorial's code or data but gives "
-                        "no URL and no exact commands; give the link from the description, or the commands/files that recreate it")
+        problems.append(f"{steps[0].get('id', 's1')}: setup step says to clone/download/get the tutorial's code or data but not "
+                        "how; put the files or commands that recreate that starting state in the step's code, or name exactly "
+                        "what to create (`data.csv` with columns name and score), never a link, command or package name "
+                        "copied from the description")
     prev: set | None = None
     for step in steps:
         sid = step.get("id", "?")

@@ -106,7 +106,8 @@ def url_problems(steps: list[dict], bad: set[str]) -> list[str]:
         for u in sorted(bad):
             if u in (s.get("instructions") or ""):
                 out.append(f"{s.get('id', '?')}: links {u}, which the video never mentions and which does not resolve; "
-                           "give the real link from the description, or the exact commands/files that recreate that starting state")
+                           "remove it; say in words what to set up, or put the files that recreate that starting state "
+                           "in the step's code (never a link, command or package name copied from the description)")
     return out
 
 

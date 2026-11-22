@@ -38,6 +38,7 @@ from .venv_steps import use_lesson_venv
 from .workdir import WorkdirInfo, scan
 from server.safety.patterns import safe_search
 from server.safety import regex_worker
+from server.untrusted import flag_injection
 
 # Progress for the UI. Stable stage ids (the app maps them to text; log wording may change):
 #   cache_hit, watching (Gemini watches the video), reading_transcript, writing_steps (Claude),
@@ -216,6 +217,9 @@ def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -
         hands_on = [c for c in chapters if not (_INTRO.search(c["title"]) or _SETUP_CHAPTER.search(c["title"]))]
         c = hands_on[0] if hands_on else (chapters[1] if len(chapters) > 1 else chapters[0])
         start, title = float(c["t"]), c["title"]
+    if title and flag_injection(title):  # the uploader's text talking to an AI: never the learner's step title
+        log.warning("provisional step: chapter title dropped (talks to an AI): %r", title[:120])
+        title = ""
     nxt = [c["t"] for c in chapters if c["t"] > start]
     end = min(nxt[0] if nxt else start + 300, length or start + 300, start + 600)
     end = max(end, start + 30)
