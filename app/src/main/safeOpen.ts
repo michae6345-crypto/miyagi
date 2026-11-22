@@ -15,8 +15,7 @@
  * Renderer: bridge.invoke('open:external', url) → boolean; bridge.invoke('open:external', {setup: url}) → SetupOpen.
  * System Settings only via permissions:open(kind) (main/permissions.ts), which calls openSystemSettings here.
  *
- * This file is the ONLY place that calls shell.openExternal: test/safeOpenGrep.test.ts fails on any other, except
- * features/player.ts (Adrian's A14).
+ * This file is the ONLY place that calls shell.openExternal: test/safeOpenGrep.test.ts fails on any other.
  */
 import { shell } from 'electron'
 import type { PermissionKind } from '../../../shared/contracts/events'
@@ -116,7 +115,8 @@ const underPage = (path: string, page: string): boolean => (page === '/' ? path 
  */
 export function isSetupDownloadUrl(raw: unknown): boolean {
   const u = parse(raw)
-  if (!u || !isPlainHttps(u) || u.search || u.hash || ENCODED_TRAVERSAL.test(u.pathname)) return false
+  // href, not search/hash: those read '' for a bare '?' or '#', which href keeps.
+  if (!u || !isPlainHttps(u) || /[?#]/.test(u.href) || ENCODED_TRAVERSAL.test(u.pathname)) return false
   const host = u.hostname.toLowerCase().replace(/^www\./, '')
   if (host === 'github.com') {
     // One trailing slash is the same page. After the repo: nothing, releases or releases/latest; anything else is refused.

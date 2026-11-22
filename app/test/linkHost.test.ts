@@ -16,7 +16,7 @@ import * as React from 'react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { LinkText } from '../src/renderer/src/features/cards/LinkText'
-import { isWebLink, linkHost } from '../src/renderer/src/features/drawer/links'
+import { HOST_MAX, HOST_MAX_NARROW, isWebLink, linkHost, shownHost } from '../src/renderer/src/features/drawer/links'
 
 // tsx compiles the renderer's JSX in classic mode here (app/tsconfig.json only lists references): React.createElement.
 ;(globalThis as Record<string, unknown>).React = React
@@ -67,6 +67,25 @@ describe('a citation link keeps its host in view', () => {
     assert.equal(isWebLink('http://a.example'), true)
     assert.equal(isWebLink('file:///x'), false)
   })
+
+  test('a long host keeps its end, never only its harmless-looking start (it is never clamped)', () => {
+    const evil = `docs.python.org.${'a'.repeat(60)}.evil.example`
+    const shown = linkHost(`https://${evil}/downloads/`) ?? ''
+    assert.ok(shown.length <= HOST_MAX + 1, shown)
+    assert.ok(shown.startsWith('…') && shown.endsWith('.evil.example'), shown)
+    assert.doesNotMatch(shown, /python/)
+    // Whole labels when three fit; a short host is untouched.
+    assert.equal(shownHost('a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.example.co.uk'), '…i.j.k.l.m.n.o.p.q.example.co.uk')
+    assert.equal(shownHost(`${'x'.repeat(40)}.example.co.uk`), '…example.co.uk')
+    assert.equal(shownHost(`www2.${'x'.repeat(40)}.co.uk`), `…${'x'.repeat(26)}.co.uk`)
+    assert.equal(linkHost('https://docs.python.org/3/'), 'docs.python.org')
+    // The narrow Watch tile: shorter still, same end.
+    const narrow = linkHost(`https://${evil}/`, HOST_MAX_NARROW) ?? ''
+    assert.ok(narrow.length <= HOST_MAX_NARROW + 1 && narrow.endsWith('evil.example'), narrow)
+    // Rendered: the host element carries the shortened end.
+    const html = renderToStaticMarkup(createElement(LinkText, { label: 'Python docs', url: `https://${evil}/` }))
+    assert.match(html, /data-link-host[^>]*>[^<]*…[^<]*evil\.example</)
+  })
 })
 
 describe('drawer sources and the Watch tile show where they open', () => {
@@ -82,7 +101,7 @@ describe('drawer sources and the Watch tile show where they open', () => {
 
   test('the Watch tile shows linkHost of the URL openSource gets', () => {
     const code = src('v2/Help.tsx')
-    assert.match(code, /host=\{a === 'watch' \? linkHost\(watch\) : undefined\}/)
+    assert.match(code, /host=\{a === 'watch' \? linkHost\(watch, HOST_MAX_NARROW\) : undefined\}/)
     assert.match(code, /onClick=\{\(\) => \(a === 'watch' \? watch && openSource\(watch\)/)
     assert.match(code, /<span data-link-host className="whitespace-nowrap[^"]*">\s*\{host\}/)
   })

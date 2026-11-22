@@ -33,6 +33,7 @@ import { Sees } from '../privacy/Sees'
 import { here } from '../here'
 import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
 
+
 /** partial: keys and settings went, but a sign-in file could not be removed (main says signIn: false). */
 type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'partial' | 'failed'
 

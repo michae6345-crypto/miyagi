@@ -7,10 +7,25 @@ import { existsSync, readFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, mock, test } from 'node:test'
-import auth, { accessToken, assertPkce, authorizeUrl, FLOW_TYPE, listenRetry, MAX_CALLBACKS, needsLogin, onSignedIn, REDIRECT, redirectTo, WAIT_MS } from '../src/main/features/auth'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
+import auth, {
+  accessToken,
+  assertPkce,
+  authorizeUrl,
+  CANCELLED_MESSAGE,
+  explainCallbackError,
+  FLOW_TYPE,
+  listenRetry,
+  MAX_CALLBACKS,
+  needsLogin,
+  onSignedIn,
+  REDIRECT,
+  redirectTo,
+  TIMEOUT_MESSAGE,
+  WAIT_MS
+} from '../src/main/features/auth'
 import { opened, safeStorage } from './fakes/electron'
-import { FakeCloud, FakeSupabase, challengeOf, hitCallback, makeHarness, makeJwt, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
+import { FakeCloud, FakeSupabase, challengeOf, hitCallback, makeHarness, makeJwt, lockSignInPort, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
 
 const ALICE = { sub: 'user-alice', email: 'alice@example.com', name: 'Alice Test' }
 
@@ -18,6 +33,16 @@ let supa: FakeSupabase
 let h: Harness
 let restore: () => void
 let hooked = 0
+
+// This file signs in on 127.0.0.1:47217; so may other test files and other checkouts' runs, in parallel. Hold the
+// machine-wide lock for the whole file (see lockSignInPort).
+let unlockPort: () => Promise<void>
+before(async () => {
+  unlockPort = await lockSignInPort()
+})
+after(async () => {
+  await unlockPort?.()
+})
 
 beforeEach(() => {
   supa = new FakeSupabase()
@@ -161,6 +186,12 @@ describe('Google sign-in (PKCE, loopback)', () => {
     auth.setup(h.ctx)
     const g = await startGoogle(h)
     let page = await hitCallback(g.callback, { error: 'access_denied' })
+    assert.match(page.text, /Sign-in cancelled/)
+    // R20: a bare access_denied is Google's Cancel, told to the app (which ends its wait), never "ask to be a tester".
+    assert.deepEqual(lastAttempt(), { reason: 'cancelled', message: CANCELLED_MESSAGE })
+    assert.equal(await isPending(g.result), true)
+
+    page = await hitCallback(g.callback, { error: 'access_denied', error_description: 'This app can only be accessed by developer-approved testers.' })
     assert.match(page.text, /Sign-in did not finish/)
     assert.equal(lastAttempt()?.reason, 'denied')
     assert.equal(await isPending(g.result), true)
@@ -276,6 +307,53 @@ describe('Google sign-in (PKCE, loopback)', () => {
     assert.ok(supa.calls.some((c) => c.url.endsWith('/auth/v1/token?grant_type=pkce')))
   })
 
+  test('R20 Cancel on Google’s page: told at once as a calm cancel (tab and app), no tester line, and a retry signs in', async () => {
+    auth.setup(h.ctx)
+    const first = await startGoogle(h)
+    // What Supabase sends back after Google's Cancel: access_denied, an empty description, no error_code.
+    const page = await hitCallback(first.callback, { error: 'access_denied', error_description: '' })
+    assert.equal(page.status, 200)
+    assert.match(page.text, /<title>Sign-in cancelled<\/title>/)
+    assert.ok(page.text.includes('Sign-in was cancelled in the browser.'))
+    assert.match(page.text, />Try again<\/a>/)
+    assert.deepEqual(lastAttempt(), { reason: 'cancelled', message: CANCELLED_MESSAGE })
+    assert.ok(!/tester/i.test(page.text + JSON.stringify(h.broadcasts)), 'no tester talk on a plain Cancel')
+    assert.equal(supa.calls.length, 0, 'nothing exchanged')
+    // The app's Try again (a new auth:google) replaces the old flow at once; the new one signs in.
+    const g = await startGoogle(h)
+    assert.deepEqual(await first.result, { ok: false, reason: 'cancelled' })
+    supa.codes.set('after-cancel', { challenge: g.challenge, user: ALICE })
+    assert.match((await hitCallback(g.callback, { code: 'after-cancel' })).text, /Back to miyagi/)
+    assert.equal(((await g.result) as { ok: boolean }).ok, true)
+  })
+
+  test('R20 explainCallbackError: the tester line only for Google’s own not-a-tester error', () => {
+    const tester = /Ask to be added as a tester/
+    const cases: [string | null, string | null, string | null, string, RegExp | string][] = [
+      ['access_denied', null, null, 'cancelled', CANCELLED_MESSAGE],
+      ['access_denied', null, '', 'cancelled', CANCELLED_MESSAGE],
+      ['access_denied', 'access_denied', 'The user denied the request', 'cancelled', CANCELLED_MESSAGE],
+      ['access_denied', null, 'Access blocked: this app can only be accessed by developer-approved testers', 'denied', tester],
+      ['access_denied', null, "The developer hasn't given you access to this app.", 'denied', tester],
+      ['access_denied', null, 'miyagi has not completed the Google verification process', 'denied', tester],
+      // Supabase's own access_denied refusals carry an error_code: its words, never the tester line, never "cancelled".
+      ['access_denied', 'signup_disabled', 'Signups not allowed for this instance', 'failed', /Signups not allowed for this instance/],
+      ['access_denied', 'user_banned', 'User is banned', 'failed', /User is banned/],
+      ['admin_policy_enforced', null, null, 'denied', /school or work account/],
+      ['server_error', null, 'Unable to exchange external code: 4/0Asecret', 'provider', /not set up correctly/],
+      [null, null, null, 'failed', /did not send a sign-in code/]
+    ]
+    for (const [error, code, desc, reason, message] of cases) {
+      const r = explainCallbackError(error, code, desc)
+      const label = `${error} / ${code} / ${desc}`
+      assert.equal(r.reason, reason, label)
+      if (typeof message === 'string') assert.equal(r.message, message, label)
+      else assert.match(r.message, message, label)
+      if (message !== tester) assert.doesNotMatch(r.message, tester, label)
+      assert.ok(!r.message.includes('4/0A'), label)
+    }
+  })
+
   test('cancel while the browser is open, then a second try works', async () => {
     auth.setup(h.ctx)
     let g = await startGoogle(h)
@@ -374,9 +452,40 @@ test('makeJwt is not a real token (sanity for the fakes)', () => {
   assert.equal(makeJwt({ sub: 'x', exp: 1 }).split('.').length, 3)
 })
 
-// Last in the file: these hold the port longest (cloudLink.test.ts, run in parallel, also signs in on 47217; auth.ts
-// retries a taken port for ~3 s, so a short overlap is fine).
+// Last in the file: these hold or squat the port, and two use fake timers. The file holds lockSignInPort throughout, so
+// no other test process that takes the lock is on 47217 meanwhile; a process that ignores it (an older checkout's run, a
+// real miyagi mid sign-in) still can be, so the fake-clock tests never rely on the lock alone (startGoogleOnFakeClock).
 describe('the sign-in port and the flow’s lifetime', () => {
+  /** A fake-clock test can't hang the run: node:test's own timeout still fires while setTimeout is mocked. */
+  const FAKE_CLOCK_TEST = { timeout: 20_000 }
+
+  /**
+   * startGoogle with mock.timers on (left on for the test; the caller resets it). The fake clock must be on before the
+   * listener comes up (that is when the WAIT_MS timer starts), but auth.ts's listen retry is a setTimeout too and would
+   * never fire on it: a port another process held for a moment hung the run. So each attempt listens once (a taken port
+   * answers reason 'port' at once and startGoogle rejects), and a taken port gets real timers, a real pause and another
+   * attempt, for up to 10 s.
+   */
+  async function startGoogleOnFakeClock(): Promise<Awaited<ReturnType<typeof startGoogle>>> {
+    const saved = { ...listenRetry }
+    Object.assign(listenRetry, { tries: 1 })
+    const end = Date.now() + 10_000 // Date is not mocked (apis: setTimeout only)
+    try {
+      for (;;) {
+        mock.timers.enable({ apis: ['setTimeout'] })
+        try {
+          return await startGoogle(h)
+        } catch (err) {
+          mock.timers.reset()
+          if (!/"reason":"port"/.test(String((err as Error)?.message)) || Date.now() > end) throw err
+          await new Promise((r) => setTimeout(r, 50))
+        }
+      }
+    } finally {
+      Object.assign(listenRetry, saved)
+    }
+  }
+
   test('a second click right after the first restarts the flow without a port error', async () => {
     auth.setup(h.ctx)
     const first = await startGoogle(h) // listening on 47217, browser open
@@ -401,10 +510,11 @@ describe('the sign-in port and the flow’s lifetime', () => {
       }
       return real(url, call)
     }
-    // Two quick tries: before the fix the old listener kept 47217 for the rest of the run, and the second sign-in
-    // failed with reason 'port'; it must not hang the test meanwhile.
+    // ~300 ms of tries, not the real ~3 s: before the fix the old listener kept 47217 for the rest of the run, and the
+    // second sign-in failed with reason 'port' (still caught here); it must not hang the test meanwhile. Not 2 tries:
+    // another process that grabs 47217 for a moment (an older checkout's run) would fail it.
     const saved = { ...listenRetry }
-    Object.assign(listenRetry, { tries: 2, ms: 20 })
+    Object.assign(listenRetry, { tries: 10, ms: 30 })
     try {
       auth.setup(h.ctx)
       const g = await startGoogle(h)
@@ -436,7 +546,7 @@ describe('the sign-in port and the flow’s lifetime', () => {
   })
 
   test('ATTACK port 47217 already taken (EADDRINUSE): sign-in stops with a clear reason and the browser never opens', async () => {
-    const blocker = createNetServer()
+    const blocker = createNetServer((c) => c.destroy()) // close() waits for accepted sockets: never keep one
     // Another process squatting the port (it would receive Google's code if the browser opened).
     const end = Date.now() + 5000
     for (;;) {
@@ -448,8 +558,7 @@ describe('the sign-in port and the flow’s lifetime', () => {
       if (Date.now() > end) throw new Error('could not take the port for the test')
       await new Promise((r) => setTimeout(r, 50))
     }
-    // The real window is ~3 s of retries; two quick tries here, so the port isn't held long while cloudLink.test.ts
-    // (run in parallel) may want it.
+    // The real window is ~3 s of retries; two quick tries here keep the test short.
     assert.ok(listenRetry.tries * listenRetry.ms >= 2000, 'a port that frees up within ~2 s is waited for')
     const saved = { ...listenRetry }
     Object.assign(listenRetry, { tries: 2, ms: 20 })
@@ -469,16 +578,17 @@ describe('the sign-in port and the flow’s lifetime', () => {
     }
   })
 
-  test('the flow expires after 5 minutes (fake timers): timeout, and the listener lets go of the port', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
+  test('the flow expires after 5 minutes (fake timers): timeout, and the listener lets go of the port', FAKE_CLOCK_TEST, async () => {
     let g: Awaited<ReturnType<typeof startGoogle>>
     try {
       auth.setup(h.ctx)
-      g = await startGoogle(h)
+      g = await startGoogleOnFakeClock()
       mock.timers.tick(WAIT_MS - 1000)
       assert.equal(await isPending(g.result), true, 'still waiting at 4:59')
       mock.timers.tick(1000)
-      assert.deepEqual(await g.result, { ok: false, reason: 'timeout' })
+      // R20: says plainly what happened (nothing came back in 5 minutes), never the tester line.
+      assert.deepEqual(await g.result, { ok: false, reason: 'timeout', message: TIMEOUT_MESSAGE })
+      assert.match(TIMEOUT_MESSAGE, /^No answer from Google after 5 minutes, so miyagi stopped waiting\./)
     } finally {
       mock.timers.reset()
     }
@@ -486,12 +596,13 @@ describe('the sign-in port and the flow’s lifetime', () => {
     await assert.rejects(raw(`/auth/callback?state=${g.state}&code=late`), /ECONNREFUSED|ECONNRESET|socket hang up/)
   })
 
-  test('a timeout after a failed attempt answers with that attempt’s reason (fake timers)', async () => {
-    mock.timers.enable({ apis: ['setTimeout'] })
+  test('a timeout after a failed attempt answers with that attempt’s reason (fake timers)', FAKE_CLOCK_TEST, async () => {
     try {
       auth.setup(h.ctx)
-      const g = await startGoogle(h)
-      const page = await raw(`/auth/callback?state=${g.state}&error=access_denied`)
+      const g = await startGoogleOnFakeClock()
+      // Google's real not-a-tester error (its description says so): that, and only that, is the tester line.
+      const desc = encodeURIComponent("The developer hasn't given you access to this app.")
+      const page = await raw(`/auth/callback?state=${g.state}&error=access_denied&error_description=${desc}`)
       assert.equal(page.status, 200)
       assert.equal(await isPending(g.result), true)
       mock.timers.tick(WAIT_MS)

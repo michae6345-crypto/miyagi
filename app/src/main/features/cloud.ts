@@ -24,7 +24,7 @@
  *
  * Handles: cloud:get → CloudView (no token), cloud:retry → CloudView. Broadcasts feat:cloud CloudView.
  */
-import { safeStorage } from 'electron'
+import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
@@ -50,7 +50,7 @@ const OFF_RE = /^(off|0|false|no)$/i
  * The proxy's host: env MIYAGI_CLOUD_URL, else DEFAULT_CLOUD_URL; undefined (off) for `off` / `0` / `false` / `no` or
  * a URL that fails the checks. No trailing slash and no trailing /v1 (the API root form is accepted too).
  */
-export function cloudUrl(raw = process.env.MIYAGI_CLOUD_URL): string | undefined {
+export function cloudUrl(raw = envCloudUrl()): string | undefined {
   const t = raw?.trim() || DEFAULT_CLOUD_URL
   if (OFF_RE.test(t)) return undefined
   try {
@@ -62,6 +62,17 @@ export function cloudUrl(raw = process.env.MIYAGI_CLOUD_URL): string | undefined
   } catch {
     return undefined
   }
+}
+
+/**
+ * MIYAGI_CLOUD_URL as this build may use it. A packaged app ignores an environment-set host (risk A12, launch register
+ * R33: a `launchctl setenv` could point every install token and AI call at another server) and honors only the off
+ * values, which can't send anything anywhere. `npm run dev` keeps any value.
+ */
+export function envCloudUrl(env: NodeJS.ProcessEnv = process.env, packaged: boolean = app.isPackaged): string | undefined {
+  const v = env.MIYAGI_CLOUD_URL
+  if (packaged && v !== undefined && !OFF_RE.test(v.trim())) return undefined
+  return v
 }
 
 /** What the engine gets as config.keys.miyagiCloud: the proxy's API root (server/config.py cloud_url()). */

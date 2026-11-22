@@ -4,6 +4,9 @@
  *
  *   bridge.invoke('prefs:get')            → Prefs
  *   bridge.invoke('prefs:set', patch)     → Prefs (merged, saved, broadcast to every window as feat:prefs)
+ *   patchPrefs(patch)                     main's own change, the same way (the consent record: features/onboarding.ts)
+ *
+ * `consent` (common/consent.ts) is main's alone: prefs:set from a window drops it (fromRenderer).
  *
  * Side effects in main: appearance → nativeTheme.themeSource (so vibrancy and prefers-color-scheme follow),
  * launchAtLogin → app.setLoginItemSettings.
@@ -48,6 +51,38 @@ export function onPrefsChange(fn: (p: Prefs) => void): () => void {
   return () => listeners.delete(fn)
 }
 
+/**
+ * What a renderer's prefs:set may change: every known pref except `consent`. The consent record (common/consent.ts) is
+ * written only by main (features/onboarding.ts onboarding:agree, through patchPrefs), with main's clock and this
+ * build's version, so no window can claim an agreement the learner never gave.
+ */
+export function fromRenderer(patch: unknown): Partial<Prefs> {
+  const { consent: _mainOnly, ...rest } = sanitizePrefs(patch)
+  return rest
+}
+
+/** setupPrefs's writer (merge, save, apply, broadcast, listeners). Unset before setupPrefs runs (tests). */
+let write: ((clean: Partial<Prefs>) => Prefs) | undefined
+
+/**
+ * Main's own change to the prefs (anything sanitizePrefs keeps, consent included), saved and broadcast like a
+ * prefs:set. Before setupPrefs has run (offline tests) it changes the in-memory prefs and tells the listeners.
+ */
+export function patchPrefs(patch: Partial<Prefs>): Prefs {
+  const clean = sanitizePrefs(patch)
+  if (write) return write(clean)
+  current = { ...current, ...clean }
+  listeners.forEach((fn) => fn(current))
+  return current
+}
+
+/** Tests only: back to the defaults, no listeners, no writer. */
+export function resetPrefsForTests(): void {
+  current = DEFAULT_PREFS
+  listeners.clear()
+  write = undefined
+}
+
 /** `trusted`: main's sender check (index.ts trustedSender); an untrusted sender reads nothing and changes nothing. */
 export function setupPrefs(broadcast: (channel: string, payload: unknown) => void, trusted: (e: IpcMainInvokeEvent) => boolean): void {
   const file = join(app.getPath('userData'), 'prefs.json')
@@ -69,10 +104,8 @@ export function setupPrefs(broadcast: (channel: string, payload: unknown) => voi
   current = prefs
   apply()
 
-  ipcMain.handle('feat:prefs:get', (e) => (trusted(e) ? prefs : undefined))
-  ipcMain.handle('feat:prefs:set', (e, patch: unknown) => {
-    if (!trusted(e)) return undefined
-    prefs = { ...prefs, ...sanitizePrefs(patch) }
+  write = (clean: Partial<Prefs>): Prefs => {
+    prefs = { ...prefs, ...clean }
     try {
       writeFileSync(file, JSON.stringify(prefs, null, 2))
     } catch (err) {
@@ -83,5 +116,9 @@ export function setupPrefs(broadcast: (channel: string, payload: unknown) => voi
     broadcast('prefs', prefs)
     listeners.forEach((fn) => fn(prefs))
     return prefs
-  })
+  }
+
+  ipcMain.handle('feat:prefs:get', (e) => (trusted(e) ? prefs : undefined))
+  // A renderer never writes the consent record (fromRenderer drops it); main does, through patchPrefs.
+  ipcMain.handle('feat:prefs:set', (e, patch: unknown) => (trusted(e) && write ? write(fromRenderer(patch)) : undefined))
 }

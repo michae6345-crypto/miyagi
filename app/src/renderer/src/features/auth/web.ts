@@ -4,7 +4,9 @@
  *   ?window=auth&view=intro         the first run: the branded intro, then the login
  *   ?window=auth&view=login         the login, no intro
  *   ?auth=signedin                  auth:get answers a fixture learner (also the shell's Account page and chip)
- *   ?auth=fail                      auth:google answers a failure (reason 'timeout')
+ *   ?auth=fail                      auth:google answers a failure (reason 'timeout', main's 5-minute line)
+ *   ?auth=cancel                    Cancel on Google's page (in Electron main broadcasts auth:attempt and the wait
+ *                                   ends; here auth:google answers the same reason and line)
  *   ?auth=unset                     auth:google answers reason 'not-configured'
  * auth:google waits 1.6 s (the browser round trip) and signs in the fixture. auth:continue from the login window opens
  * guided setup (onboarding, view setup) and closes the login; in the one-window flow (no login window) it does nothing
@@ -31,7 +33,8 @@ function setupWeb(): void {
         pending = resolve
         timer = setTimeout(() => {
           pending = undefined
-          if (variant === 'fail') return resolve({ ok: false, reason: 'timeout' })
+          if (variant === 'fail') return resolve({ ok: false, reason: 'timeout', message: 'No answer from Google after 5 minutes, so miyagi stopped waiting. Try again.' })
+          if (variant === 'cancel') return resolve({ ok: false, reason: 'cancelled', message: 'Sign-in was cancelled in the browser. Try again.' })
           if (variant === 'unset') return resolve({ ok: false, reason: 'not-configured' })
           user = FIXTURE
           resolve({ ok: true, user: FIXTURE })

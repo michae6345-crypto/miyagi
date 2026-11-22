@@ -13,8 +13,12 @@ import { isNewer, readRelease, SNOOZE_MS, type UpdateOs, type UpdateView } from 
 
 const CURRENT = '0.1.0'
 
-const SAMPLE_RELEASE = {
-  tag_name: 'mac',
+/**
+ * The rolling release for one platform, like api.github.com/repos/adrian-erlikhman/miyagi/releases/tags/<os>. Its
+ * official installer is the only asset the card may offer; the extra zip and the stray .exe are ignored (R26).
+ */
+const sampleRelease = (os: UpdateOs): Record<string, unknown> => ({
+  tag_name: os,
   name: 'miyagi 0.2.0',
   draft: false,
   prerelease: false,
@@ -27,28 +31,36 @@ const SAMPLE_RELEASE = {
     '',
     'Version: 0.2.0'
   ].join('\n'),
-  assets: [
-    {
-      name: 'Miyagi-Mac.dmg',
-      size: 182_400_000,
-      digest: 'sha256:6f1c2b0e9a8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b',
-      browser_download_url: 'https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.dmg'
-    },
-    {
-      name: 'Miyagi-Windows.exe',
-      size: 141_000_000,
-      browser_download_url: 'https://github.com/adrian-erlikhman/miyagi/releases/download/windows/Miyagi-Windows.exe'
-    },
-    { name: 'Miyagi-Mac.zip', size: 176_000_000, browser_download_url: 'https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip' }
-  ]
-}
+  assets:
+    os === 'mac'
+      ? [
+          {
+            name: 'Miyagi-Mac.dmg',
+            size: 182_400_000,
+            state: 'uploaded',
+            digest: 'sha256:6f1c2b0e9a8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b',
+            browser_download_url: 'https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.dmg'
+          },
+          { name: 'Miyagi-Mac.zip', size: 176_000_000, state: 'uploaded', browser_download_url: 'https://github.com/adrian-erlikhman/miyagi/releases/download/mac/Miyagi-Mac.zip' }
+        ]
+      : [
+          { name: 'Miyagi-Windows.exe', size: 141_000_000, state: 'uploaded', browser_download_url: 'https://github.com/someone-else/miyagi/releases/download/windows/Miyagi-Windows.exe' },
+          {
+            name: 'Miyagi-Windows-Setup.exe',
+            size: 141_000_000,
+            state: 'uploaded',
+            browser_download_url: 'https://github.com/adrian-erlikhman/miyagi/releases/download/windows/Miyagi-Windows-Setup.exe'
+          }
+        ]
+})
 
 function setupWeb(): void {
   const params = new URLSearchParams(location.search)
   const on = params.get('scenario') === 'updates' || params.has('upd')
   const mode = params.get('upd') ?? 'available'
   const os: UpdateOs = params.get('os') === 'win' ? 'windows' : 'mac'
-  const rel = readRelease(mode === 'pre' ? { ...SAMPLE_RELEASE, prerelease: true } : SAMPLE_RELEASE, os, 'arm64')
+  const sample = sampleRelease(os)
+  const rel = readRelease(mode === 'pre' ? { ...sample, prerelease: true } : sample, os, 'arm64')
   const offer = rel && isNewer(rel, CURRENT) ? rel : undefined
 
   let snoozedUntil = mode === 'snoozed' ? Date.now() + SNOOZE_MS : undefined

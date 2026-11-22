@@ -13,10 +13,9 @@ const SRC = join(__dirname, '..', 'src')
 /**
  * Files allowed to call shell.openExternal themselves.
  *   main/safeOpen.ts          the one gate
- *   main/features/player.ts   Adrian A14: the YouTube player page's own window-open override (Adrian's claim; it moves
- *                             to safeOpen in that lane). Remove this line when it does.
+ * (main/features/player.ts had its own window-open override until R33: the player window now uses core's handler.)
  */
-const ALLOWED = new Set(['main/safeOpen.ts', 'main/features/player.ts'])
+const ALLOWED = new Set(['main/safeOpen.ts'])
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -36,7 +35,7 @@ function codeLines(text: string): { n: number; line: string }[] {
 
 const files = walk(SRC).map((p) => ({ rel: relative(SRC, p).split(sep).join('/'), text: readFileSync(p, 'utf8') }))
 
-test('no shell.openExternal in app/src outside safeOpen.ts (player.ts allowlisted: Adrian A14)', () => {
+test('no shell.openExternal in app/src outside safeOpen.ts', () => {
   assert.ok(files.length > 50, 'the walk found the source tree')
   const hits: string[] = []
   for (const f of files) {
