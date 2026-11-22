@@ -18,7 +18,7 @@
 import { motion } from 'motion/react'
 import { SquarePen } from 'lucide-react'
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { color, fill, focus, highlight, radius2, spring, surface, type2 } from '../../core/theme'
+import { color, fill, focus, highlight, layout, radius2, spring, surface, type2, typeScale } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
 import { openLauncher } from '../library/Library'
 import { initialOf, planLabel, v2Cloud } from '../account/model'
@@ -31,10 +31,12 @@ import { SidebarBrand } from './flow/SidebarBrand'
 import { openSheet, useSheet } from './sheet'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
-export const SIDEBAR_W = 232
+export const SIDEBAR_W = layout.sidebar.w
 /** Between compact and full (Michael's audit at 1024x700: "the sidebar takes a large share"): labels stay, less width. */
-export const SIDEBAR_NARROW_W = 196
-export const SIDEBAR_COMPACT_W = 64
+export const SIDEBAR_NARROW_W = layout.sidebar.narrowW
+export const SIDEBAR_COMPACT_W = layout.sidebar.compactW
+/** A row: 30 tall, 10 px text inset (the row's highlight is itself inset 10 from the sidebar's edge). */
+const ROW = layout.sidebar.row
 
 /**
  * Redraft (Adrian, Nov 21): the main nav is the learner's pages (Home, Lessons, Skills, Progress). Settings sits at the
@@ -52,12 +54,12 @@ function NewLesson({ compact }: { compact: boolean }): ReactNode {
       aria-label="New lesson"
       className="mg-press relative flex cursor-pointer items-center text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
       style={{
-        height: 34,
+        ...typeScale.nav,
+        height: ROW,
         gap: 10,
         padding: compact ? 0 : '0 6px 0 10px',
         justifyContent: compact ? 'center' : undefined,
         borderRadius: radius2.control,
-        fontSize: type2.sm,
         color: color.text,
         outlineColor: focus.dark
       }}
@@ -83,12 +85,12 @@ function NavRow({ id, label, Icon, on, compact, index }: { id: PageId; label: st
       aria-keyshortcuts={`Meta+${index + 1} Control+${index + 1}`}
       className={`${on ? '' : 'mg-press'} relative flex cursor-pointer items-center text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid`}
       style={{
-        height: 34,
+        ...typeScale.nav,
+        height: ROW,
         gap: 10,
         padding: compact ? 0 : '0 10px',
         justifyContent: compact ? 'center' : undefined,
         borderRadius: radius2.control,
-        fontSize: type2.sm,
         color: on ? color.text : color.label,
         outlineColor: focus.dark
       }}
@@ -100,7 +102,8 @@ function NavRow({ id, label, Icon, on, compact, index }: { id: PageId; label: st
           layoutId="shell-nav-selection"
           aria-hidden
           className="absolute inset-0"
-          style={{ background: fill.navActive, borderRadius: radius2.control, boxShadow: highlight.topSoft }}
+          // Selected: a quiet fill only (no hue, no edge, no left bar), so the content stays first.
+          style={{ background: fill.navOn, borderRadius: radius2.control }}
           transition={spring}
         />
       )}
@@ -130,7 +133,7 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
     nav.querySelector<HTMLButtonElement>(`[data-shell-nav="${page}"]`)?.focus()
   }, [page])
   return (
-    <nav ref={ref} aria-label="Pages" className="flex flex-col gap-[2px]" onKeyDown={onKey}>
+    <nav ref={ref} aria-label="Pages" className="flex flex-col" style={{ gap: layout.sidebar.rowGap }} onKeyDown={onKey}>
       {PAGES.map((p, i) =>
         FOOT.has(p.id) ? null : <NavRow key={p.id} id={p.id} label={p.label} Icon={p.icon} on={p.id === page} compact={compact} index={i} />
       )}
@@ -203,8 +206,7 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
         padding: compact ? 6 : '6px 8px',
         justifyContent: compact ? 'center' : undefined,
         borderRadius: radius2.row,
-        background: on ? fill.navActive : 'transparent',
-        boxShadow: on ? highlight.topSoft : undefined,
+        background: on ? fill.navOn : 'transparent',
         outlineColor: focus.dark
       }}
       {...pressMotion()}
@@ -245,18 +247,19 @@ export function Sidebar({ compact, short, blocked = false, width = SIDEBAR_W }: 
       inert={blocked}
       className="flex h-full shrink-0 flex-col"
       // The sidebar is the window itself (the lowest layer); the content panel beside it is the raised one.
-      style={{ width: compact ? SIDEBAR_COMPACT_W : width, padding: compact ? '0 10px 10px' : '0 8px 10px 10px' }}
+      // 10 px each side, so every row's highlight is inset 10 from the edge; the foot sits 12 above the bottom.
+      style={{ width: compact ? SIDEBAR_COMPACT_W : width, padding: `0 ${layout.sidebar.pad}px ${layout.sidebar.foot}px` }}
     >
       {/* The window's own traffic lights sit here (hiddenInset); this strip drags the window. */}
       <div data-drag className="mg-lights shrink-0" />
       <div data-drag className="flex shrink-0 items-center gap-[8px]" style={{ padding: compact ? '4px 0 18px' : '4px 10px 18px', justifyContent: compact ? 'center' : undefined }}>
         <SidebarBrand compact={compact} />
       </div>
-      <div className="flex flex-col" style={{ gap: 14 }}>
+      <div className="flex flex-col" style={{ gap: 12 }}>
         <NewLesson compact={compact} />
         <Nav compact={compact} />
       </div>
-      <div className="mt-auto flex flex-col gap-[4px]" style={{ paddingTop: 16 }}>
+      <div className="mt-auto flex flex-col" style={{ gap: layout.sidebar.rowGap, paddingTop: layout.sidebar.groupGap }}>
         {!compact && !short && <StatusArea plan={false} />}
         <NavRow id={S.id} label={S.label} Icon={S.icon} on={page === 'settings'} compact={compact} index={settings} />
         <AccountChip compact={compact} />

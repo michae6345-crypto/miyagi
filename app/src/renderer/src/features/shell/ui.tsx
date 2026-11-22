@@ -3,7 +3,10 @@
  * pastel, calm copy"). Every page of the home window builds from these, so the pages read as one app:
  *
  *   PANEL       the content surface: one raised layer inset from the window, the sidebar sits on the window itself
- *   PageTitle   a page's title row (no hairline under it; spacing does the grouping)
+ *   PageHeader  the page header every page gets from the shell: the title (and its actions) on the page column
+ *   PageBody    a page's content stack in the shell's column: the vertical rhythm (title gap, sections 40 apart)
+ *   PageColumn  the same column for a page that scrolls inside itself (centered, 820 + gutters, top-anchored)
+ *   PageTitle   a title row inside a page (no hairline under it; spacing does the grouping)
  *   SectionHead a quiet section header with an optional right-hand action
  *   StepBar     "Step 4 of 7" as seven short segments: done in ink/white, the current one outlined, never green
  *   Row         a list row that lifts one level on hover (Linear / Notion rows, no border box)
@@ -15,48 +18,117 @@
 import { ChevronRight } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { CSSProperties, ReactNode } from 'react'
-import { color, elevation, fill, highlight, radius2, surface, type2 } from '../../core/theme'
+import { color, elevation, fill, highlight, layout, radius2, surface, type2, typeScale } from '../../core/theme'
 import { fade, press, spring } from '../../core/ui/motion'
 
 // ---- the content panel ------------------------------------------------------------------------------------------
 
 /** The gap between the window edge and the raised content panel (the sidebar fills the rest of the window). */
-export const PANEL_INSET = 8
+export const PANEL_INSET = layout.pane.inset
 
 /**
- * The content panel's surface: the raised layer, its top highlight, a hairline and the soft wide shadow. Inside it,
- * `--f-group` is re-pointed at a quiet wash so grouped rows (Settings) still read as a group on the white light panel.
+ * The content pane (Linear's inverted L): one step lighter than the sidebar, inset 8 from the window's top, right and
+ * bottom, radius 12, a faint outline and no shadow in dark (the tone step separates it from the sidebar; light adds a
+ * hairline lift). The dot grid (PR #242) stays, quieter, as a halo under the page header that fades out before the
+ * content's middle, so cards never sit on noise.
  */
 export const PANEL: CSSProperties = {
   backgroundColor: 'var(--l-raised)',
-  // A fine dot grid, faded out toward the sides and the bottom so cards sit on it and the page stays calm.
-  backgroundImage: 'radial-gradient(ellipse 85% 75% at 50% 0%, transparent 25%, var(--l-raised) 100%), radial-gradient(var(--d-dot) 1px, transparent 1.4px)',
+  backgroundImage: 'radial-gradient(ellipse 70% 60% at 50% 0%, transparent 0%, var(--l-raised) 100%), radial-gradient(var(--d-dot) 1px, transparent 1.4px)',
   backgroundSize: '100% 100%, 20px 20px',
   backgroundPosition: '0 0, 10px 10px',
-  borderRadius: radius2.group,
-  boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}, ${elevation.raised}`,
-  ['--f-group' as string]: 'var(--s-row)'
+  borderRadius: layout.pane.radius,
+  boxShadow: `${highlight.card}, inset 0 0 0 1px var(--l-edge), ${elevation.pane}`
 }
 
-/** A card lifted one more level off the panel (the Continue card, gallery tiles). */
+/**
+ * A card on the pane (the Continue card, gallery tiles): one tone step up, a 1 px border and the faintest top edge. No
+ * drop shadow in dark, a soft two-layer lift in light, so it matches the white Settings groups.
+ */
 export const CARD: CSSProperties = {
   background: 'var(--l-overlay)',
   borderRadius: radius2.group,
-  boxShadow: `${highlight.top}, inset 0 0 0 1px ${surface.border}, ${elevation.overlay}`
+  boxShadow: `${highlight.card}, inset 0 0 0 1px var(--l-border), ${elevation.tile}`
 }
 
-/** The page column: roomy, capped so a full-screen window stays calm. */
-export const COLUMN: CSSProperties = { maxWidth: 760, padding: '0 40px' }
+/** The page column's full width (content + both gutters) and the CSS that centers it in the pane. */
+export const COLUMN_W = layout.page.column + 2 * layout.page.gutter
+export const WIDE_W = layout.page.wide + 2 * layout.page.gutter
+/**
+ * `--page-inset`: how far the page column sits in from each side of the pane, set by the shell on every page frame.
+ * Zero until the pane is wider than the column, then half the spare room, so every page shares one centered column
+ * and the title's left edge never moves when you switch pages (it used to jump from x 272 to 656 at full screen).
+ */
+export const pageInset = (w: number = COLUMN_W): string => `max(0px, calc((100% - ${w}px) / 2))`
+
+/** The page column for a page that scrolls inside itself: centered, capped, with the house gutters. */
+export const COLUMN: CSSProperties = { width: '100%', maxWidth: COLUMN_W, marginInline: 'auto', paddingInline: layout.page.gutter }
 
 export const caption: CSSProperties = { fontSize: type2.xs, lineHeight: '16px', color: color.label }
 
 // ---- headers ----------------------------------------------------------------------------------------------------
 
+/**
+ * The page header (the shell renders it above every page but Home): the title and the page's own actions, on the same
+ * column as the page below it (its left edge is the content's left edge at every width). The top strip drags the
+ * window (40 px, 24 in macOS full screen: styles.css .mg-page-head); title to first section is 32.
+ */
+export function PageHeader({ title, caption: sub, right }: { title: ReactNode; caption?: ReactNode; right?: ReactNode }): ReactNode {
+  return (
+    <header
+      data-drag
+      data-page-header
+      className="mg-page-head flex shrink-0 items-center gap-[16px]"
+      style={{ paddingInline: `calc(var(--page-inset, 0px) + ${layout.page.gutter}px)`, paddingBottom: layout.page.titleGap }}
+    >
+      <div className="flex min-w-0 items-baseline gap-[12px]">
+        <h1 className="m-0 shrink-0" style={{ ...typeScale.pageTitle, color: color.text }}>
+          {title}
+        </h1>
+        {sub && (
+          <span className="truncate" style={{ ...typeScale.nav, fontWeight: 400, color: color.label }}>
+            {sub}
+          </span>
+        )}
+      </div>
+      {right && (
+        <div data-no-drag className="ml-auto flex min-w-0 items-center gap-[12px]">
+          {right}
+        </div>
+      )}
+    </header>
+  )
+}
+
+/**
+ * A page's content inside the shell's column: the house vertical rhythm (sections 40 apart, 64 at the bottom) and the
+ * gutters. `width`: 'column' (820, every page by default), 'form' (560, forms and long text, left inside the column).
+ * The shell already centers the column (`--page-inset`), so this never centers itself.
+ */
+export function PageBody({ children, width = 'column', gap = layout.page.section, style }: { children: ReactNode; width?: 'column' | 'form'; gap?: number; style?: CSSProperties }): ReactNode {
+  return (
+    <div data-page-body className="flex w-full flex-col" style={{ padding: `8px ${layout.page.gutter}px ${layout.page.bottom}px`, gap, ...style }}>
+      <div className="flex w-full flex-col" style={{ maxWidth: width === 'form' ? layout.page.form : undefined, gap }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** The column for a page that scrolls inside itself (its scrollbar stays at the pane's edge): centered, top-anchored. */
+export function PageColumn({ children, wide = false, style }: { children: ReactNode; wide?: boolean; style?: CSSProperties }): ReactNode {
+  return (
+    <div data-page-column className="flex flex-col" style={{ ...COLUMN, maxWidth: wide ? WIDE_W : COLUMN_W, paddingBottom: layout.page.bottom, ...style }}>
+      {children}
+    </div>
+  )
+}
+
 export function PageTitle({ children, right, sub }: { children: ReactNode; right?: ReactNode; sub?: ReactNode }): ReactNode {
   return (
     <div className="flex min-h-[36px] items-center gap-[16px]">
       <div className="flex min-w-0 flex-col" style={{ gap: 2 }}>
-        <h1 className="m-0 truncate font-semibold" style={{ fontSize: type2.xxl - 4, lineHeight: '30px', letterSpacing: '-0.015em', color: color.text }}>
+        <h1 className="m-0 truncate" style={{ ...typeScale.pageTitle, color: color.text }}>
           {children}
         </h1>
         {sub && <span style={{ fontSize: type2.sm, color: color.label }}>{sub}</span>}
@@ -68,8 +140,8 @@ export function PageTitle({ children, right, sub }: { children: ReactNode; right
 
 export function SectionHead({ id, children, right }: { id?: string; children: ReactNode; right?: ReactNode }): ReactNode {
   return (
-    <div className="flex min-h-[24px] items-center gap-[8px]" style={{ marginBottom: 6 }}>
-      <h2 id={id} className="m-0 font-medium" style={{ fontSize: type2.xs, color: color.label }}>
+    <div className="flex min-h-[26px] items-center gap-[8px]" style={{ marginBottom: 8 }}>
+      <h2 id={id} className="m-0" style={{ ...typeScale.section, color: color.label }}>
         {children}
       </h2>
       {right && <div className="ml-auto flex items-center">{right}</div>}

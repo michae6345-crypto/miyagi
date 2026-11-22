@@ -38,7 +38,7 @@ import { RotateCcw } from 'lucide-react'
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { useWindowArgs } from '../../core/surfaces'
-import { color, duration, fill, highlight, radius2, spring, stagger, surface, type2 } from '../../core/theme'
+import { color, duration, fill, highlight, layout, radius2, spring, stagger, surface, type2 } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { riseIn } from '../../core/ui/motion'
 import { Detail } from '../library/Detail'
@@ -57,13 +57,13 @@ import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
 import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
-import { PANEL, PANEL_INSET } from './ui'
+import { PageHeader, PANEL, PANEL_INSET, pageInset } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
-const COMPACT_W = 880
+const COMPACT_W = layout.sidebar.compactBelow
 /** Below this window width the sidebar keeps its labels but narrows (SIDEBAR_NARROW_W). */
-const NARROW_W = 1100
+const NARROW_W = layout.sidebar.narrowBelow
 const SHORT_H = 520 // the sidebar needs ~420 px; keep the Ready line at mid heights (round 3: it vanished at 1024x700)
 
 // ---- page header ------------------------------------------------------------------------------------------------
@@ -73,29 +73,10 @@ const CAPTION: Partial<Record<PageId, string>> = {}
 
 function Header({ page }: { page: PageId }): ReactNode {
   const label = PAGES.find((p) => p.id === page)?.label ?? ''
-  const caption = CAPTION[page]
   // Home has no title (Michael's brief: no greeting, no date, and the sidebar already says where you are): only the
   // strip that drags the window.
   if (page === 'home') return <header data-drag className="shrink-0" style={{ height: 20 }} />
-  return (
-    <header data-drag className="flex shrink-0 items-end gap-[16px]" style={{ height: 76, padding: '0 40px 10px' }}>
-      <div className="flex min-w-0 items-baseline gap-[12px]">
-        <h1 className="m-0 shrink-0 font-semibold" style={{ fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
-          {label}
-        </h1>
-        {caption && (
-          <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
-            {caption}
-          </span>
-        )}
-      </div>
-      {page === 'lessons' && (
-        <div data-no-drag className="ml-auto flex min-w-0 items-center gap-[12px]">
-          <LessonSearch />
-        </div>
-      )}
-    </header>
-  )
+  return <PageHeader title={label} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : undefined} />
 }
 
 // ---- error boundary -----------------------------------------------------------------------------------------------
@@ -135,6 +116,14 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 /** Home and Skills scroll inside themselves (Home's container queries, the constellation's own list). */
 const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
 
+/**
+ * Pages that place their own column (Home centers its own 700 px one, inside its own scroller so the scrollbar stays at
+ * the pane's edge). Every other page gets the shared column from the frame: `--page-inset` padding on both sides of
+ * its body, so the header and the content share one centered column. A page that adopts ui.tsx PageColumn inside its
+ * own scroller joins this set.
+ */
+const OWN_COLUMN: ReadonlySet<PageId> = new Set(['home'])
+
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
   switch (page) {
     case 'home':
@@ -172,13 +161,14 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
       initial={reduce ? (active ? 'shown' : 'hidden') : 'hidden'}
       animate={active ? 'shown' : 'hidden'}
       className="absolute inset-0 flex flex-col"
-      style={{ visibility: active ? 'visible' : 'hidden', color: color.text }}
+      // One centered column for every page (layout lane): the header and the body pad in by --page-inset.
+      style={{ visibility: active ? 'visible' : 'hidden', color: color.text, ['--page-inset' as string]: OWN_COLUMN.has(page) ? '0px' : pageInset() }}
     >
       <Header page={page} />
       <div
         data-shell-body={page}
         className={`min-h-0 flex-1 ${SELF_SCROLL.has(page) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
-        style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
+        style={{ paddingInline: 'var(--page-inset)', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
       >
         <PageBoundary page={page}>
           <Body page={page} active={active && !covered} />

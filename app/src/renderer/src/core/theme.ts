@@ -63,9 +63,10 @@ export const hud = {
    * The notch black: the island, its cards and the pill-to-sheet morphs. Pure #000 because that is what the notch's
    * hardware is (the display is off there), so the pill fuses with it. Opaque, never translucent or vibrant (nothing
    * of the desktop may show through), and the same in the light and dark app themes: the island pins data-theme="dark".
-   * Relation to the app's dark windows: the windows are system gray rgb(28,28,30), a deliberate step lighter, one
-   * notch up (raised rgb(37,37,39), sheet rgb(44,44,46)). So black = the island and nothing else; every window, panel
-   * and sheet is gray, never #000, and no surface inside the island may paint a gray fill (use white alphas on it).
+   * Relation to the app's dark windows: they are one warm-neutral ramp a few steps above black (layout lane, Nov 22:
+   * chrome #141413, content #1B1B1A, card #222221, popover #2C2B2A; R−B ≤ 1 so nothing reads blue or brown). So black =
+   * the island and nothing else; every window, panel and sheet is gray, never #000, and no surface inside the island
+   * may paint a gray fill (use white alphas on it).
    */
   notch: '#000000',
   /**
@@ -112,19 +113,26 @@ const palette: Record<string, readonly [string, string]> = {
   'c-green-text': [brand.pass, '#187A37'],
   'c-green-tint': [brand.passTint, 'rgba(31,155,69,.12)'],
   'c-on-green': [brand.ink, brand.ink],
-  'c-glass': ['rgb(28,28,30)', 'rgb(252,251,249)'],
-  'c-window': ['rgb(21,20,18)', 'rgb(238,236,231)'],
+  // Glass (launcher, lesson panel, account menu): the same neutral ramp as the windows (it was the cool iOS 28,28,30,
+  // which read blue next to the warm windows).
+  'c-glass': ['rgb(30,30,29)', 'rgb(252,251,249)'],
+  'c-window': ['#141413', '#F3F2EE'],
   'c-white': ['#FFFFFF', brand.ink], // Tailwind's text-white / bg-white/10 in features follow the theme through this
   'c-focus': ['rgba(255,255,255,.88)', 'rgba(20,20,20,.88)'],
   // ---- which bonsai / wordmark cut shows (core/ui/Mark.tsx): the dark cut on dark, the light cut on light ----
   'mk-dark': ['inline-block', 'none'],
   'mk-light': ['none', 'inline-block'],
-  // ---- layers, back to front: base (window), raised (content), overlay (sheets, popovers, menus) ----
-  'l-base': ['rgb(21,20,18)', 'rgb(238,236,231)'],
-  'l-raised': ['rgb(30,29,27)', 'rgb(251,250,248)'],
-  'l-overlay': ['rgb(40,39,36)', '#FFFFFF'],
-  // The fine dot grid on the content panel (website: radial dots, 22px). Low contrast; PANEL fades it toward the edges.
-  'd-dot': ['rgba(255,248,235,.085)', `rgba(${INK},.13)`],
+  // ---- layers, back to front: base (window chrome, the sidebar), raised (the content pane), overlay (cards on it) ----
+  // Layout lane (Nov 22, Linear / Notion dark): one warm-neutral ramp with very low chroma (R−B ≤ 1; more read muddy),
+  // each step about 7 levels apart. Light: the sidebar a soft stone, the pane near-white, cards white.
+  'l-base': ['#141413', '#F3F2EE'],
+  'l-raised': ['#1B1B1A', '#FAF9F7'],
+  'l-overlay': ['#222221', '#FFFFFF'],
+  // Edges: the pane's own outline (no divider beside the sidebar: the tone step separates them) and a card's border.
+  'l-edge': ['rgba(255,255,255,.06)', `rgba(${INK},.07)`],
+  'l-border': ['rgba(255,255,255,.08)', `rgba(${INK},.08)`],
+  // The fine dot grid on the content pane (PR #242). Neutral and quiet; PANEL fades it out away from the top.
+  'd-dot': ['rgba(255,255,255,.05)', `rgba(${INK},.09)`],
   // ---- fill.* ----
   'f-field': ['rgba(255,255,255,.06)', `rgba(${INK},.045)`],
   'f-field-border': ['rgba(255,255,255,.09)', `rgba(${INK},.10)`],
@@ -147,8 +155,10 @@ const palette: Record<string, readonly [string, string]> = {
   'f-button': ['rgba(255,255,255,.09)', `rgba(${INK},.06)`],
   'f-thumb': ['#181715', '#E7E5DF'],
   'f-thumb-art': ['#3A3834', '#CFCCC3'],
-  'f-group': ['rgba(255,248,235,.05)', '#FFFFFF'],
+  'f-group': ['rgba(255,255,255,.04)', '#FFFFFF'],
   'f-nav-active': ['rgba(255,255,255,.12)', `rgba(${INK},.07)`],
+  /** The app sidebar's selected row: a quiet fill, no hue, no edge (Linear's dimmed sidebar). */
+  'f-nav-on': ['rgba(255,255,255,.07)', `rgba(${INK},.055)`],
   'f-segment-on': ['rgba(255,255,255,.18)', '#FFFFFF'],
   'f-segment-track': ['rgba(255,255,255,.06)', `rgba(${INK},.06)`],
   'f-keycap': ['rgba(255,255,255,.12)', `rgba(${INK},.05)`],
@@ -159,8 +169,8 @@ const palette: Record<string, readonly [string, string]> = {
   'f-practicing': ['rgba(255,255,255,.55)', `rgba(${INK},.5)`],
   'f-toggle-off': ['rgba(255,255,255,.16)', `rgba(${INK},.16)`],
   // ---- surface.* ----
-  's-panel': ['rgba(28,28,30,0.96)', 'rgba(253,252,250,0.97)'],
-  's-sheet': ['#282724', '#FFFFFF'],
+  's-panel': ['rgba(30,30,29,0.96)', 'rgba(253,252,250,0.97)'],
+  's-sheet': ['#2C2B2A', '#FFFFFF'],
   's-row': ['rgba(255,255,255,.06)', `rgba(${INK},.04)`],
   's-row-hover': ['rgba(255,255,255,.1)', `rgba(${INK},.07)`],
   's-well': ['rgba(0,0,0,.26)', `rgba(${INK},.05)`],
@@ -169,10 +179,15 @@ const palette: Record<string, readonly [string, string]> = {
   'e-raised': ['0 1px 1px rgba(0,0,0,.3), 0 2px 4px rgba(0,0,0,.22), 0 6px 14px rgba(0,0,0,.2)', `0 0 0 .5px rgba(${SHADOW},.05), 0 1px 2px rgba(${SHADOW},.05), 0 4px 12px rgba(${SHADOW},.06)`],
   'e-overlay': ['0 1px 2px rgba(0,0,0,.3), 0 4px 10px rgba(0,0,0,.22), 0 12px 28px rgba(0,0,0,.24)', `0 0 0 .5px rgba(${SHADOW},.06), 0 2px 5px rgba(${SHADOW},.05), 0 10px 26px rgba(${SHADOW},.09), 0 22px 48px rgba(${SHADOW},.06)`],
   'e-panel': ['0 1px 2px rgba(0,0,0,.3), 0 6px 14px rgba(0,0,0,.24), 0 18px 40px rgba(0,0,0,.3), 0 36px 80px rgba(0,0,0,.32)', `0 0 0 .5px rgba(${SHADOW},.07), 0 3px 8px rgba(${SHADOW},.06), 0 16px 36px rgba(${SHADOW},.1), 0 40px 88px rgba(${SHADOW},.13)`],
+  // The content pane and the cards on it: no drop shadow in dark (depth comes from the tone steps, a border and a top
+  // highlight), a soft two-layer lift in light.
+  'e-pane': ['none', `0 0 0 .5px rgba(${SHADOW},.03), 0 1px 2px rgba(${SHADOW},.04)`],
+  'e-tile': ['none', `0 1px 2px rgba(${SHADOW},.04), 0 4px 12px rgba(${SHADOW},.03)`],
   'e-card': [`0 0 0 0.5px ${hud.notch}, 0 2px 4px rgba(0,0,0,.3), 0 12px 28px rgba(0,0,0,.34), 0 32px 72px rgba(0,0,0,.42)`, `0 0 0 .5px rgba(${SHADOW},.08), 0 3px 8px rgba(${SHADOW},.07), 0 18px 40px rgba(${SHADOW},.12), 0 44px 96px rgba(${SHADOW},.16)`],
   // ---- highlight edges ----
   'h-top': ['inset 0 1px 0 rgba(255,255,255,.1)', 'inset 0 1px 0 rgba(255,255,255,.95)'],
   'h-top-soft': ['inset 0 1px 0 rgba(255,255,255,.06)', 'inset 0 1px 0 rgba(255,255,255,.8)'],
+  'h-card': ['inset 0 1px 0 rgba(255,255,255,.04)', 'inset 0 1px 0 rgba(255,255,255,.9)'],
   'h-on-light': ['inset 0 1px 0 rgba(255,255,255,.55)', 'inset 0 1px 0 rgba(255,255,255,.3)'],
   'h-well': ['inset 0 1px 3px rgba(0,0,0,.4)', `inset 0 1px 3px rgba(${SHADOW},.12)`],
   'h-key-lip': ['inset 0 -1px 0 rgba(0,0,0,.35)', `inset 0 -1px 0 rgba(${SHADOW},.16)`],
@@ -206,7 +221,7 @@ const palette: Record<string, readonly [string, string]> = {
   'tone-peach-wash': [alphaHex(brand.pastel.peach, 0.055), alphaHex('#FCE3D2', 0.6)],
   'tone-sand-wash': [alphaHex(brand.pastel.sand, 0.055), alphaHex('#EFE8D8', 0.6)],
   // ---- glass panels (theme.glass): the same surfaces, as before ----
-  'glass-bg': ['rgba(28, 28, 30, 0.96)', 'rgba(252, 251, 249, 0.97)'],
+  'glass-bg': ['rgba(30, 30, 29, 0.96)', 'rgba(252, 251, 249, 0.97)'],
   'glass-text': [hud.dark.text, brand.ink],
   'glass-label': ['rgba(255,255,255,.6)', 'rgba(0,0,0,.56)'],
   'glass-faint': ['rgba(255,255,255,.42)', 'rgba(0,0,0,.38)'],
@@ -354,6 +369,8 @@ export const fill = {
   hairline: 'var(--c-hairline)',
   /** The selected sidebar row (Settings, Library). */
   navActive: 'var(--f-nav-active)',
+  /** The app window sidebar's selected row (features/shell Sidebar): quieter than navActive. */
+  navOn: 'var(--f-nav-on)',
   /** The selected segment of a Segmented control, and its track. */
   segmentOn: 'var(--f-segment-on)',
   segmentTrack: 'var(--f-segment-track)',
@@ -544,6 +561,52 @@ export const type2 = { micro: 11, xs: 12, sm: 13, md: 14, body: 15, lg: 17, xl: 
 /** v2 radii (the brand's 14 / 20 / 28 plus the small ones the mockups use). */
 export const radius2 = { keycap: 6, control: 8, row: 10, card: 12, chip: 14, group: 16, panel: 20, sheet: 24, launcher: 28, round: 999 } as const
 
+/**
+ * The app windows' layout system (layout lane, Nov 22; features/shell owns the frame, ui.tsx Page / PageHeader use it).
+ * Michael: "the centering is off, especially in full screen". One spacing scale, one page column for every page,
+ * centered in the content pane (not the window), top-anchored (never vertically centered), and one header pattern.
+ *
+ *   space      the only spacing steps (px): 4 8 12 16 20 24 32 40 56 80 (Linear's 4/8 grid)
+ *   sidebar    232 wide, 196 below a 1100 px window, icons only (64) below 860; rows 30 tall, 10 px inset, 2 apart
+ *   pane       the content pane, inset 8 from the window's top, right and bottom, radius 12, no divider beside the sidebar
+ *   page       one column: 820 of content inside 40 px gutters (24 when the pane is under 760), centered in the pane;
+ *              forms and long text cap at 560 and stay left inside it (the column centers, its text never does).
+ *              `top` is the header's top strip (it drags the window), `topFull` the same in macOS full screen.
+ */
+export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40, 14: 56, 20: 80 } as const
+export const layout = {
+  sidebar: { w: 232, narrowW: 196, compactW: 64, narrowBelow: 1100, compactBelow: 860, pad: 10, row: 30, rowGap: 2, groupGap: 20, foot: 12 },
+  pane: { inset: 8, radius: 12 },
+  page: {
+    column: 820,
+    wide: 1040,
+    form: 560,
+    gutter: 40,
+    gutterTight: 24,
+    tightBelow: 760,
+    top: 40,
+    topFull: 24,
+    titleGap: 24,
+    section: 40,
+    label: 12,
+    bottom: 64
+  }
+} as const
+
+/**
+ * The app windows' type ramp (system font; Linear's scale, layout lane Nov 22). Spread one into a style:
+ * `style={{ ...typeScale.pageTitle, color: color.text }}`. Sentence case everywhere, no uppercase labels.
+ */
+export const typeScale = {
+  pageTitle: { fontSize: 26, lineHeight: '32px', fontWeight: 650, letterSpacing: '-0.4px' },
+  cardTitle: { fontSize: 17, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.2px' },
+  section: { fontSize: 13, lineHeight: '18px', fontWeight: 600 },
+  body: { fontSize: 14, lineHeight: '20px', fontWeight: 450 },
+  row: { fontSize: 14, lineHeight: '20px', fontWeight: 500 },
+  nav: { fontSize: 13, lineHeight: '18px', fontWeight: 500 },
+  meta: { fontSize: 12, lineHeight: '16px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }
+} as const
+
 /** Which bonsai cut to use at which size (see core/ui/Mark.tsx). */
 export const markLevel = (px: number): 'small' | 'icon' | 'full' => (px <= 32 ? 'small' : px <= 140 ? 'icon' : 'full')
 
@@ -583,6 +646,10 @@ export function alpha(hex: string, a: number): string {
  */
 export const elevation = {
   flat: 'none',
+  /** The app window's content pane: none in dark, a hairline lift in light. */
+  pane: 'var(--e-pane)',
+  /** A card on the pane: none in dark (border + top highlight do it), soft in light. */
+  tile: 'var(--e-tile)',
   raised: 'var(--e-raised)',
   overlay: 'var(--e-overlay)',
   panel: 'var(--e-panel)'
@@ -599,6 +666,8 @@ export const elevation = {
 export const highlight = {
   top: 'var(--h-top)',
   topSoft: 'var(--h-top-soft)',
+  /** A card on the app's content pane: the faintest top edge (layout lane: dark cards carry no shadow). */
+  card: 'var(--h-card)',
   onLight: 'var(--h-on-light)',
   base: 'inset 0 -1px 0 rgba(0,0,0,.1)',
   well: 'var(--h-well)',

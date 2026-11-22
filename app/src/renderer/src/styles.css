@@ -15,8 +15,8 @@
   --font-brand: "Google Sans Flex", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   /* v2 (W0-2, core/theme.ts surface / paper): app windows and light surfaces. */
-  --color-window: rgb(21, 20, 18);
-  --color-sheet: #282724;
+  --color-window: #141413;
+  --color-sheet: #2C2B2A;
   --color-paper-surface: #FFFFFF;
   --color-pass-text: #1C8A3C;
 }
@@ -88,6 +88,13 @@ html[data-kind="app"] [data-no-drag] {
 html[data-fullscreen] .mg-lights { height: 12px; }
 html[data-fullscreen] .mg-flow-head { height: 48px; }
 html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
+/*
+ * The app window's page header (features/shell ui.tsx PageHeader; core/theme.ts layout.page.top / topFull): a 40 px
+ * strip above the title that drags the window. Full screen has no title bar to drag, so it tightens to 24; the column
+ * never centers vertically (top-anchored at every size).
+ */
+.mg-page-head { padding-top: 40px; }
+html[data-fullscreen] .mg-page-head { padding-top: 24px; }
 
 /* Paper surfaces (Plan-Pricing, theme.paper) inside any window. */
 [data-surface="paper"] {
