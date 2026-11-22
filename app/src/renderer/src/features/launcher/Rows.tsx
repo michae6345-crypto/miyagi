@@ -7,6 +7,8 @@ import type { ReactNode } from 'react'
 import { CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { StepBar } from '../shell/ui'
+import { TOOL_NAME } from '../library/parts'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, font, spring } from '../../core/theme'
 import { toolsLabel, type LibraryItem } from './library'
@@ -176,11 +178,20 @@ export function ResumeRow({
 }
 
 /**
- * The idle list's active line used to show an Enter keycap. Redraft (Adrian, Nov 21): one keycap for Enter, in the
- * footer's Open; the moving highlight already says which line Enter runs. Kept as a no-op so callers stay unchanged.
+ * The idle list's active line shows what Enter does there: the Enter keycap, and on a Continue line the word
+ * ("Continue ↵"). It fades in and out as ↑↓ move, so the cue sits on the line Enter runs.
  */
-function EnterCue(_: { active: boolean }): ReactNode {
-  return null
+function EnterCue({ active, label }: { active: boolean; label?: string }): ReactNode {
+  return (
+    <motion.span className="flex shrink-0 items-center gap-[6px]" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
+      {label && (
+        <span className="text-[12px] font-medium" style={{ color: color.text }}>
+          {label}
+        </span>
+      )}
+      <NavKey>{navKey('enter')}</NavKey>
+    </motion.span>
+  )
 }
 
 /** Typing a settings word ("sett", "keys", "pref", "appear"…): the one way into Settings from the launcher. */
@@ -285,7 +296,8 @@ export function LibraryContinueRow({
   return (
     <RowShell slot={slot} onHover={onHover} onPick={onPick}>
       <Text title={item.title} meta={p ? `Step ${p.stepIndex + 1} of ${p.total}${p.stepTitle ? ` · ${p.stepTitle}` : ''}` : `${item.steps} steps`} />
-      <EnterCue active={active} />
+      {p && <StepBar done={p.stepIndex} total={p.total} width={84} />}
+      <EnterCue active={active} label="Continue" />
     </RowShell>
   )
 }
@@ -329,7 +341,7 @@ export function ReadyRow({
     >
       <span className="min-w-0 flex-1 truncate text-[14px] text-white">{item.title}</span>
       <span className="shrink-0 text-[12px]" style={{ color: color.label }}>
-        {item.steps === 1 ? '1 step' : `${item.steps} steps`}
+        {[(item.tools ?? []).map((t) => TOOL_NAME[t]).join(', '), item.steps === 1 ? '1 step' : `${item.steps} steps`, item.estMinutes ? `${item.estMinutes} min` : ''].filter(Boolean).join(' · ')}
       </span>
       <EnterCue active={active} />
     </motion.button>

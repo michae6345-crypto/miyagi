@@ -840,7 +840,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     ? activeItem.kind === 'continue'
       ? 'resume'
       : activeItem.kind === 'lib'
-        ? 'open'
+        ? activeItem.item.progress
+          ? 'resume'
+          : 'open'
         : activeItem.kind === 'question'
           ? 'ask'
           : 'none'

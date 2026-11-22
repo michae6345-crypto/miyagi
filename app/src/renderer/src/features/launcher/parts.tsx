@@ -178,10 +178,10 @@ export function SectionLabel({ children, first = false }: { children: ReactNode;
 export const ASK_H = 44
 
 /**
- * One "Try asking" line (Home-Launcher): the words, 44 high (redraft: no arrow, no Enter keycap on the line; the
- * footer's Open carries Enter). No fill of its own: the list draws one highlight (the hover tint, never a hue) under
- * the active line, which the arrow keys and the pointer both move. Lines rise in a beat apart; a press dips on the
- * house spring.
+ * One "Try asking" line (Home-Launcher): the words, 44 high (redraft: no arrow). The active line shows the Enter
+ * keycap: Enter runs it. No fill of its own: the list draws one highlight (the hover tint, never a hue) under the
+ * active line, which the arrow keys and the pointer both move. Lines rise in a beat apart; a press dips on the house
+ * spring.
  */
 function AskLine({
   text,
@@ -215,6 +215,9 @@ function AskLine({
       {...rest}
     >
       <span className="min-w-0 flex-1 truncate">{text}</span>
+      <motion.span className="shrink-0" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
+        <NavKey>{navKey('enter')}</NavKey>
+      </motion.span>
     </motion.button>
   )
 }
