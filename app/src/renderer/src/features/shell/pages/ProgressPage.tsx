@@ -1,14 +1,14 @@
 /**
- * Feature: shell. The Progress page: the Progress window's body (features/progress Window.tsx renders the dashboard)
- * inline, so nothing opens a second window from here. Today ring, this week, reps and rhythm on top; the skills with
- * Continue, Review and Up next beside them; milestones at the foot. Each part has its own loading and empty state
- * (features/dashboard); the engine away with nothing cached says so once, above it.
+ * Feature: shell. The Progress page (redraft round 3): Review, Up next, the skills as one line per track and the
+ * finished lessons, as plain lists (features/dashboard Overview.tsx). The skill graphs live on the Skills page only,
+ * so the two pages no longer repeat each other. Each part has its own loading and empty state; the engine away with
+ * nothing cached says so once, above it.
  */
 import { CloudOff } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useLesson } from '../../../core/lesson'
 import { color, copy, fill, highlight, radius2, surface, type2 } from '../../../core/theme'
-import { Dashboard } from '../../dashboard/Dashboard'
+import { ProgressOverview } from '../../dashboard/Overview'
 import { useDash } from '../../dashboard/store'
 
 export function ProgressPage(): ReactNode {
@@ -25,7 +25,7 @@ export function ProgressPage(): ReactNode {
         </div>
       )}
       <div className="min-h-0 flex-1" style={{ padding: 0 }}>
-        <Dashboard route="library" withContinue={false} />
+        <ProgressOverview route="library" />
       </div>
     </div>
   )
