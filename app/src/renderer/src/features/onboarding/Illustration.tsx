@@ -117,7 +117,7 @@ function CompanionCard({ row }: { row: Row }): ReactNode {
       </div>
       <div className="mt-[12px] flex items-center gap-[8px]">
         <StatusGlyph state={row.state} size={16} />
-        <span style={{ fontSize: type2.xs, color: row.state === 'passed' ? color.green : color.label }}>{word}</span>
+        <span style={{ fontSize: type2.xs, color: row.state === 'passed' ? color.greenText : color.label }}>{word}</span>
         <span className="flex-1" />
         <Code size={14} strokeWidth={1.6} color={color.faint} />
       </div>
@@ -172,7 +172,7 @@ function EngineCard({ row }: { row: Row }): ReactNode {
             <AnimatePresence mode="wait" initial={false}>
               <motion.span
                 key={p.word}
-                style={{ fontSize: type2.xs, color: p.state === 'passed' ? color.green : color.label }}
+                style={{ fontSize: type2.xs, color: p.state === 'passed' ? color.greenText : color.label }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: fade.instant }}

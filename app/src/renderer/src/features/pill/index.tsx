@@ -33,6 +33,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
+import { shellName } from '../onboarding/device'
 import { useDock } from '../../core/dock'
 import { notify, useCurrentStep, useLesson, useStepPhase, useThinking } from '../../core/lesson'
 import type { NotchView } from '../../core/notchGeometry'
@@ -150,7 +151,7 @@ function Idle(): ReactNode {
     if (ready) return bridge.emit('launcher:toggle')
     if (cont) return resumeSaved()
     if (offline && local?.state === 'missing') {
-      void bridge.invoke('engine-local:copy').then(() => notify('Install command copied. Paste it in Terminal.')).catch(() => undefined)
+      void bridge.invoke('engine-local:copy').then(() => notify(`Install command copied. Paste it in ${shellName()}.`)).catch(() => undefined)
       return
     }
     if (offline && local?.state === 'failed') {
