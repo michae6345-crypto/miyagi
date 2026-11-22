@@ -120,6 +120,22 @@ describe('setup downloads (a setup card from the engine)', () => {
     }
   })
 
+  test('ATTACK a query or fragment on a listed page is refused (no open redirect through an allowlisted host)', async () => {
+    for (const u of [
+      'https://www.python.org/downloads/?url=https://evil.example',
+      'https://sheets.google.com/?q=1',
+      'https://zapier.com/app/home?next=https://evil.example',
+      'https://platform.openai.com/#https://evil.example',
+      'https://github.com/nvm-sh/nvm/releases?after=x',
+      'https://github.com/nvm-sh/nvm#readme',
+      'https://www.python.org/downloads/%252e%252e/evil', // double-encoded traversal
+      'https://www.python.org/downloads/%25'
+    ]) {
+      assert.equal(isSetupDownloadUrl(u), false, u)
+      assert.deepEqual(await opens(() => openSetupDownload(u)), [], u)
+    }
+  })
+
   test('ATTACK lookalikes, userinfo, other ports and schemes, any GitHub org are refused', async () => {
     for (const u of [
       'https://youtube.com@evil.example/', // userinfo: the browser goes to evil.example

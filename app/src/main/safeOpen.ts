@@ -91,9 +91,10 @@ export const SETUP_GITHUB_REPOS = ['python/cpython', 'nodejs/node', 'nvm-sh/nvm'
 
 /**
  * A percent-encoded "/", "\" or "." in a path: the URL parser keeps it, but a server that decodes it first (nginx)
- * walks out of the allowed page (/downloads/..%2F..%2Fevil). No real download page needs one.
+ * walks out of the allowed page (/downloads/..%2F..%2Fevil). An encoded "%" too, so a double-encoded %252e can't get
+ * past a server that decodes twice. No real download page needs one.
  */
-const ENCODED_TRAVERSAL = /%(?:2f|5c|2e)/i
+const ENCODED_TRAVERSAL = /%(?:2f|5c|2e|25)/i
 
 function parse(raw: unknown): URL | undefined {
   if (typeof raw !== 'string' || raw.length > MAX_URL) return undefined
@@ -109,11 +110,13 @@ const underPage = (path: string, page: string): boolean => (page === '/' ? path 
 
 /**
  * Would a setup card's Download / Open button open this? Plain https on one of SETUP_PAGES, or one of
- * SETUP_GITHUB_REPOS' repo page, /releases or /releases/latest. A percent-encoded "/", "\" or "." in the path is refused.
+ * SETUP_GITHUB_REPOS' repo page, /releases or /releases/latest. A percent-encoded "/", "\", "." or "%" in the path is
+ * refused, and so is any query or fragment: no setup page needs one, and on an allowlisted host or login page a
+ * ?url= / #next= could redirect anywhere.
  */
 export function isSetupDownloadUrl(raw: unknown): boolean {
   const u = parse(raw)
-  if (!u || !isPlainHttps(u) || ENCODED_TRAVERSAL.test(u.pathname)) return false
+  if (!u || !isPlainHttps(u) || u.search || u.hash || ENCODED_TRAVERSAL.test(u.pathname)) return false
   const host = u.hostname.toLowerCase().replace(/^www\./, '')
   if (host === 'github.com') {
     // One trailing slash is the same page. After the repo: nothing, releases or releases/latest; anything else is refused.
