@@ -163,11 +163,19 @@ class BuildStage(logging.Handler):
         self.text = "Watching the video"
         self.structured = False  # once the builder reports stages, ignore log matching
         self.cache_hit = False  # E2 answered from its lesson cache (nothing was built: no "ready" moment to linger on)
+        self.transcript_only = False  # "Try transcript only": the status line says so for the whole build
+
+    TRANSCRIPT_ONLY_TEXT = "Building from the transcript only"
 
     def on_progress(self, stage: str, message: str = "") -> None:
         """E2's progress callback: honest, stable stage ids."""
         self.structured = True
         msg = (message or "").strip()
+        if stage == "transcript_only":
+            self.transcript_only = True
+        if self.transcript_only and stage in ("transcript_only", "reading_transcript", "writing_steps"):
+            self.text = self.TRANSCRIPT_ONLY_TEXT
+            return
         if stage == "cache_hit":
             self.cache_hit = True
         if stage == "engine_switch":
@@ -1984,9 +1992,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         url = picked[0].get("url", "") if picked else ""
         await self._pick(url, picked[0] if picked else None)
 
-    async def learn_url(self, url: str, skip_preflight: bool = False) -> None:
+    async def learn_url(self, url: str, skip_preflight: bool = False, transcript_only: bool = False) -> None:
         if stage.forced():  # MIYAGI_STAGE=1: a pasted link starts the Demo lesson too
             await self.learn_demo(stage.GOAL)
+            return
+        if transcript_only:  # Build failed card's "Try transcript only": the learner chose; no preflight card, no video model
+            await self._run_build(url, self.query, transcript_only=True)
             return
         if skip_preflight:  # e.g. the demo's autostart: no learner pick to confirm
             await self._run_build(url, self.query)
@@ -2070,7 +2081,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._status("idle")  # the app reopens the launcher on the result list
 
     async def _run_build(self, url: str, goal: str, video_meta: dict | None = None, *,
-                         factory: Callable[[], Awaitable[None]] | None = None) -> None:
+                         factory: Callable[[], Awaitable[None]] | None = None, transcript_only: bool = False) -> None:
         """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight. The command returns as
         soon as the lesson is live (a progressive build's step 1): the rest builds on in the background, so the
         learner's presses (Install, Diagram, Check) don't queue behind it (perf.until_loaded)."""
@@ -2078,7 +2089,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.end_lesson("new lesson")
         await self.cancel_build()
         self._loaded_evt = asyncio.Event()  # set by load_graph
-        task = asyncio.ensure_future(factory() if factory is not None else self._build(url, goal, video_meta))
+        task = asyncio.ensure_future(
+            factory() if factory is not None else self._build(url, goal, video_meta, transcript_only=transcript_only))
         self._build_task = task
         task.add_done_callback(lambda t: setattr(self, "_build_task", None) if self._build_task is t else None)
         if not await perf.until_loaded(task, self._loaded_evt):
@@ -2153,16 +2165,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     CACHED_READY_HOLD_S = 0.6  # the "Lesson ready" hold for a lesson E2 served from its cache (as _load_curated's)
 
-    async def _build(self, url: str, goal: str, video_meta: dict | None = None) -> None:
+    async def _build(self, url: str, goal: str, video_meta: dict | None = None, *, transcript_only: bool = False) -> None:
         """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
         events). Any failure, timeout or cancellation ends with `error` (human wording), a final
         `lesson.building {failed: true}` and `status idle`, so the app never stays on "building"."""
         self.phase = "building"
         self._build_start(text=False, url=url)  # v2: Home-Building's source and checklist
+        if transcript_only and getattr(self, "_build_v2", None) is not None:
+            self._build_v2["transcript_only"] = True  # a failure must not offer "Try transcript only" again
         await self._status("thinking", detail="Building your lesson")
         done = asyncio.Event()
         t0 = self._build_t0 = self.clock()  # t10: the learner's Build click (_auto_open_editor skips its grace)
         stage = BuildStage()
+        if transcript_only:
+            stage.transcript_only, stage.text = True, BuildStage.TRANSCRIPT_ONLY_TEXT  # the status line from the first tick
         self.build_progress = {"message": "Starting the lesson builder", "progress": 0.0}
 
         async def ticker() -> None:
@@ -2220,7 +2236,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 with stage.listening():
                     graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
                                                       on_progress=stage.on_progress, on_update=on_update,
-                                                      video_meta=video_meta)
+                                                      video_meta=video_meta,
+                                                      **({"transcript_only": True} if transcript_only else {}))
             finally:
                 self._parts_building = False
             # E2 lazy parts: a long video comes back with complete=false and later parts "pending"
@@ -3328,6 +3345,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if info and info.get("source"):
                 payload["source"] = dict(info["source"])
             alts = await asyncio.to_thread(library_alternatives)
+            # "Try transcript only": offered for a YouTube build that failed for a reason other than missing captions
+            # and was not itself a transcript-only build. The app sends learn_url {url, transcriptOnly: true}.
+            if (info and info.get("url") and not info.get("text") and not info.get("transcript_only")
+                    and video_id_from_url(info["url"]) and payload["failCode"] != "no_captions"):
+                alts = [{"kind": "transcript", "title": "Try transcript only", "url": info["url"],
+                         "meta": "Builds steps from what the teacher says. Checks may be looser."}] + alts
             if alts:
                 payload["alternatives"] = alts
         except Exception:  # noqa: BLE001 - the failure itself must reach the app

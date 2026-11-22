@@ -170,7 +170,7 @@ export interface SkillMap { track: string; headline: string; nodes: SkillNode[];
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
   "learn": { query: string; mode?: "video" | "lesson" | "demo" };   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video"); mode "demo": the launcher's Demo option, the staged neural-net lesson for any goal (server/orchestrator/stage.py: typing steps pass on a save or Check my work, runs are recorded, one planned off-track on Train it)
-  "learn_url": { url: string };                     // pasted YouTube link
+  "learn_url": { url: string; transcriptOnly?: boolean };   // pasted YouTube link; transcriptOnly: the Build failed card's "Try transcript only": skip the video model, build from the transcript + title/chapters (offered by lesson.building.alternatives kind "transcript"; optional, older engines ignore it)
   "build_lesson": { resultIds: string[] };
   /** explain: no text = explain the current step (Explain button / shortcut, unchanged). text = the learner's selection (the drawer's "Explain more" pop-up on selected lesson text):
    *  the engine answers with a card {kind: "explain", title: "About `<start of the selection>`", body}: the selection explained, the current step as context. VS Code's "Miyagi: Explain this" gives the same card (it reaches the engine over POST /vscode/event, not this socket). */

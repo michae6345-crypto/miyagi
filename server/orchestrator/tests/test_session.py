@@ -3423,3 +3423,78 @@ def test_run_step_passes_from_vscode_integrated_terminal_output(tmp_path, monkey
 
     run(go())
     assert rig.of("step.passed")[-1]["stepId"] == "s2"
+
+
+# ---------------------------------------------------------------- Build failed: "Try transcript only"
+
+def test_learn_url_transcript_only_builds_without_preflight_and_says_so(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    rig = Rig(tmp_path)
+    rig.s.clock = RealClock()
+    rig.s.build_tick_s = 0.03
+    seen = {}
+
+    async def build(url, goal, workdir, on_progress=None, **kw):
+        seen["kw"] = kw
+        on_progress("transcript_only", "no video analysis")
+        await asyncio.sleep(0.07)
+        on_progress("reading_transcript", "")
+        await asyncio.sleep(0.07)
+        on_progress("writing_steps", "212 transcript lines")
+        await asyncio.sleep(0.07)
+        return stubs.load_fixture_lesson()
+
+    async def no_preflight(*a, **k):
+        raise AssertionError("the learner already chose: no preflight card")
+
+    rig.s.m.build_lesson = build
+    rig.s.m.preflight = no_preflight
+    run(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk", transcript_only=True))
+    assert seen["kw"].get("transcript_only") is True
+    msgs = [b["message"] for b in rig.of("lesson.building")]
+    assert "Building from the transcript only" in msgs and "Watching the video" not in msgs
+    assert rig.of("lesson.ready") and not rig.of("card")
+
+
+def test_normal_learn_url_passes_no_transcript_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    rig = Rig(tmp_path)
+    seen = {}
+
+    async def build(url, goal, workdir, on_progress=None, **kw):
+        seen["kw"] = kw
+        return stubs.load_fixture_lesson()
+
+    rig.s.m.build_lesson = build
+    run(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk", skip_preflight=True))
+    assert "transcript_only" not in seen["kw"]
+
+
+def _failed_payload(rig, transcript_only, error):
+    async def build(url, goal, workdir, on_progress=None, **kw):
+        raise error
+
+    rig.s.m.build_lesson = build
+    run(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk", skip_preflight=True, transcript_only=transcript_only))
+    failed = [b for b in rig.of("lesson.building") if b.get("failed")]
+    assert failed
+    return failed[-1]
+
+
+def test_build_failed_offers_transcript_only_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    first = _failed_payload(Rig(tmp_path), False, RuntimeError("Gemini call failed: 429 RESOURCE_EXHAUSTED quota"))
+    alt = [a for a in first["alternatives"] if a["kind"] == "transcript"]
+    assert alt == [{"kind": "transcript", "title": "Try transcript only", "url": "https://www.youtube.com/watch?v=abcdefghijk",
+                    "meta": "Builds steps from what the teacher says. Checks may be looser."}]
+    again = _failed_payload(Rig(tmp_path), True, RuntimeError("couldn't build from the transcript alone: 429 quota"))
+    assert not [a for a in again.get("alternatives", []) if a["kind"] == "transcript"]  # no retry loop on the same button
+    no_caps = _failed_payload(Rig(tmp_path), False, RuntimeError("no transcript for abcdefghijk"))
+    assert no_caps["failCode"] == "no_captions"
+    assert not [a for a in no_caps.get("alternatives", []) if a["kind"] == "transcript"]  # it would fail the same way
+
+
+def test_app_command_learn_url_accepts_transcript_only():
+    cmd = parse_app_message({"type": "learn_url", "payload": {"url": "https://youtu.be/abcdefghijk", "transcriptOnly": True}})
+    assert cmd.payload.transcriptOnly is True
+    assert parse_app_message({"type": "learn_url", "payload": {"url": "https://youtu.be/abcdefghijk"}}).payload.transcriptOnly is None

@@ -1028,7 +1028,7 @@ class Engine:
         elif msg.type == "learn":
             await s.learn(p.query, getattr(p, "mode", None))
         elif msg.type == "learn_url":
-            await s.learn_url(p.url)
+            await s.learn_url(p.url, transcript_only=getattr(p, "transcriptOnly", None) is True)
         elif msg.type == "build_lesson":
             await s.build_lesson(p.resultIds)
         elif msg.type == "action":

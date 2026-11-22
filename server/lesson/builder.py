@@ -44,9 +44,10 @@ from server.untrusted import flag_injection
 #   cache_hit, watching (Gemini watches the video), reading_transcript, writing_steps (Claude),
 #   engine_switch (Gemini failed/slow -> transcript path; message says why), steps_ready (message = engine),
 #   adapting (fitting checks to the learner's project), done
+#   transcript_only (the learner chose "Try transcript only": no video model runs; message = why)
 #   long videos also: planning (msg = "N parts"), first_steps (part 1 ready), more_steps (msg = "part k/N")
 STAGES = ("cache_hit", "watching", "reading_transcript", "writing_steps", "engine_switch", "steps_ready", "adapting", "done",
-          "planning", "first_steps", "more_steps", "provisional")
+          "planning", "first_steps", "more_steps", "provisional", "transcript_only")
 _progress: contextvars.ContextVar = contextvars.ContextVar("lesson_progress", default=None)
 
 
@@ -92,6 +93,7 @@ async def build_lesson(
     on_update=None,
     on_progress=None,
     video_meta: dict | None = None,
+    transcript_only: bool = False,
     _prebuild: bool = False,
     **kw,
 ) -> dict:
@@ -106,7 +108,8 @@ async def build_lesson(
     vid = gemini.youtube_id(source_url)
     if vid and not _prebuild:
         prebuild.cancel(except_vid=vid)  # a lesson is starting: stop speculating on the other results
-        attached = await prebuild.attach(vid, workdir, on_update, on_progress)
+        # transcript_only never attaches: a speculative prebuild may be Gemini watching the video
+        attached = None if transcript_only else await prebuild.attach(vid, workdir, on_update, on_progress)
         if attached is not None:
             return _untrusted(attached, workdir)
     from . import cost
@@ -120,7 +123,8 @@ async def build_lesson(
             regex_worker.budget(("build", next(_BUILD_SERIAL))):
         try:
             g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
-                                         on_progress=on_progress, video_meta=video_meta, **kw)
+                                         on_progress=on_progress, video_meta=video_meta,
+                                         transcript_only=transcript_only, **kw)
             if not g.get("build", {}).get("cost") and counter.get("tokens"):
                 g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens + dollars per model
             scope["lesson_id"] = (g.get("lesson") or {}).get("id")
@@ -253,6 +257,7 @@ async def _build_lesson_impl(
     on_progress=None,
     on_update=None,
     video_meta: dict | None = None,
+    transcript_only: bool = False,
 ) -> dict:
     """Return a step graph that validates against shared/contracts/step-graph.schema.json.
 
@@ -269,6 +274,10 @@ async def _build_lesson_impl(
       Step ids never change once sent. The return value is always the complete graph.
     video_meta: what preflight (S8) already knows, to skip a watch-page fetch: {title?, description?,
       length_s|duration_s?, chapters?: [{t|start|startSeconds, title}], firstHandsOn?: seconds}.
+    transcript_only: the learner's "Try transcript only" (Build failed card): no video or visual analysis. Only
+      Claude runs, over the transcript + title/description/chapters; Gemini is never called, long videos are not
+      split into Gemini parts, and nothing is read from or written to the lesson / draft caches (its looser checks
+      must never be served to a normal build). A video with no transcript fails; nothing is made up.
     refresh: rebuild everything (new video pass). readapt: reuse the cached video draft, redo only
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
@@ -284,6 +293,9 @@ async def _build_lesson_impl(
     vid = gemini.youtube_id(source_url)
     if not vid:
         raise ValueError(f"only YouTube sources are supported for now: {source_url!r}")
+    if transcript_only:
+        cache, detail = False, False  # see the docstring: no cache reads or writes, no per-step Gemini clips
+        _emit("transcript_only", "no video analysis")
     info = scan(workdir)
     key = cache_key(source_url, goal, workdir, info)
     path = CACHE_DIR / f"{key}.json"
@@ -310,7 +322,7 @@ async def _build_lesson_impl(
             meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
         except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
             pass
-    if ((meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and engine_mode() != "claude-first"
+    if (not transcript_only and (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and engine_mode() != "claude-first"
             and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0):
         try:
             graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
@@ -324,12 +336,13 @@ async def _build_lesson_impl(
 
     goal_task = asyncio.ensure_future(progressive.goal_match(goal, meta)) if meta.get("title") else None
     try:
-        draft = await _video_draft(source_url, vid, goal, refresh=refresh or not cache, detail=detail, write=cache)
+        draft = await _video_draft(source_url, vid, goal, refresh=refresh or not cache, detail=detail, write=cache,
+                                   transcript_only=transcript_only)
     except RuntimeError as e:
         if goal_task:
             goal_task.cancel()
         # a mid-length video Gemini couldn't finish in one go: build it in parts (shorter clips are what it handles)
-        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
+        if not transcript_only and (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
             log.warning("one-pass build failed (%s); building in parts", str(e)[:150])
             _emit("planning", "retrying in parts")
             try:
@@ -357,6 +370,8 @@ async def _build_lesson_impl(
     graph["lesson"]["workdir"] = workdir
     graph["sources"] = [{"id": "src1", "kind": "video", "title": draft.get("title") or "Tutorial", "url": source_url, "videoId": vid}]
     graph["lesson"]["complete"] = True
+    if transcript_only:
+        graph["lesson"]["transcriptOnly"] = True
     if goal_task is not None:
         try:
             graph["lesson"]["goalMatch"] = await asyncio.wait_for(goal_task, 10)
@@ -458,7 +473,10 @@ def find_cached(vid: str, workdir: str, info: WorkdirInfo) -> Path | None:
 # --------------------------------------------------------------------------- #
 
 
-async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: bool, write: bool = True) -> dict:
+async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: bool, write: bool = True,
+                       transcript_only: bool = False) -> dict:
+    if transcript_only:  # never the cached draft (may be a Gemini one), never written: see _build_lesson_impl
+        return await _watch(url, vid, goal, transcript_only=True)
     gh = hashlib.sha256(" ".join(goal.lower().split()).encode()).hexdigest()[:8]
     raw_path = RAW_DIR / f"{vid}-{gh}.json"
     if raw_path.is_file() and not refresh:
@@ -496,12 +514,12 @@ def engines() -> list[str]:
     return {"gemini": ["gemini"], "claude": ["claude"], "claude-first": ["claude", "gemini"]}.get(engine_mode(), ["gemini", "claude"])
 
 
-async def _watch(url: str, vid: str, goal: str) -> dict:
+async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False) -> dict:
     """Video pass. In auto mode Gemini (watching the video, capped at LESSON_GEMINI_TIMEOUT) races the
     Claude transcript path, which starts at t=0: Gemini's draft wins if it arrives in time (it sees the
     screen); otherwise Claude's is used, usually already finished. Errors from every engine are raised
     together; nothing is made up."""
-    order = engines()
+    order = ["claude"] if transcript_only else engines()
     errors: list[str] = []
 
     async def claude_draft() -> dict:
@@ -549,6 +567,15 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
         draft["_built_by"] = f"{gemini.last_model} (watched the video)"
         draft["_engine"] = "gemini"
         return draft
+
+    if transcript_only:  # the transcript path alone: no Gemini task is even created
+        try:
+            d = await claude_draft()
+        except Exception as e:  # noqa: BLE001
+            e = e if isinstance(e, RuntimeError) else RuntimeError(f"{type(e).__name__}: {e}")
+            raise RuntimeError("couldn't build from the transcript alone:\n" + f"claude: {str(e)[:300]}") from e
+        _emit("steps_ready", "claude")
+        return d
 
     if engine_mode() == "claude-first":
         # Michael's rule: pay for Gemini only when the transcript route can't do it

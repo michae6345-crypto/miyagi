@@ -654,6 +654,7 @@ class Learn(_Model):
 
 class LearnUrl(_Model):
     url: str
+    transcriptOnly: bool | None = None  # the Build failed card's "Try transcript only": build from the transcript + title/chapters, no video model
 
 
 class BuildLesson(_Model):

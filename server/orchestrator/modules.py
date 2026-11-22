@@ -250,7 +250,7 @@ class Modules:
         return g
 
     async def build_lesson(self, source_url: str, goal: str, workdir: str, on_progress: Any = None,
-                           on_update: Any = None, video_meta: dict | None = None) -> dict:
+                           on_update: Any = None, video_meta: dict | None = None, transcript_only: bool = False) -> dict:
         if self.demo:
             # ORCH_LESSON > a cached lesson for the PICKED video > lesson.json > the newest cache > stub
             if (g := self._lesson_file()) is not None:
@@ -279,6 +279,10 @@ class Modules:
             kwargs["on_progress"] = on_progress  # E2: stage ids for the launcher's progress line
         if fn is not None and video_meta and _accepts(fn, "video_meta"):
             kwargs["video_meta"] = video_meta  # S8's preflight (duration, chapters, firstHandsOn): part 1 skips the intro
+        if transcript_only:  # "Try transcript only": no video model. A builder that can't honor it must fail, not watch.
+            if fn is None or not _accepts(fn, "transcript_only"):
+                raise ModuleUnavailable("this build of miyagi can't build from the transcript alone")
+            kwargs["transcript_only"] = True
         first_part = asyncio.Event()
         if fn is not None and on_update is not None and _accepts(fn, "on_update"):
             async def on_update_marked(graph: Any, complete: bool) -> None:  # E2: long videos build progressively
