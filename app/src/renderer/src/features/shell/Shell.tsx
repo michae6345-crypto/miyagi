@@ -56,12 +56,14 @@ import { FlowLayer } from './flow/FlowLayer'
 import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
-import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_W } from './Sidebar'
+import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
 import { PANEL, PANEL_INSET } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
 const COMPACT_W = 880
+/** Below this window width the sidebar keeps its labels but narrows (SIDEBAR_NARROW_W). */
+const NARROW_W = 1100
 const SHORT_H = 700
 
 // ---- page header ------------------------------------------------------------------------------------------------
@@ -277,7 +279,7 @@ export function Shell(): ReactNode {
   const home = phase === 'off' || phase === 'leaving' || again
   const covered = flowCovers(phase)
   const compact = size.w < COMPACT_W
-  const sideW = compact ? SIDEBAR_COMPACT_W : SIDEBAR_W
+  const sideW = compact ? SIDEBAR_COMPACT_W : size.w < NARROW_W ? SIDEBAR_NARROW_W : SIDEBAR_W
   const enter = arriving.current
   // The sidebar rides above the flow's fading paper on the way in (z 3) and under the flow during setup again (z 1).
   // With the flow gone it takes no z-index at all: the account chip lifts itself to z 45 while the avatar flies home
@@ -297,7 +299,7 @@ export function Shell(): ReactNode {
             animate={{ x: 0, opacity: 1 }}
             transition={sidebarIn}
           >
-            <Sidebar compact={compact} short={size.h < SHORT_H} blocked={sheet} />
+            <Sidebar compact={compact} short={size.h < SHORT_H} blocked={sheet} width={sideW} />
           </motion.div>
         )}
         {/* While the sheet is open the sidebar stays lit but inert; a click on it closes the sheet. */}

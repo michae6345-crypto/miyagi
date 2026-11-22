@@ -32,6 +32,8 @@ import { openSheet, useSheet } from './sheet'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 export const SIDEBAR_W = 232
+/** Between compact and full (Michael's audit at 1024x700: "the sidebar takes a large share"): labels stay, less width. */
+export const SIDEBAR_NARROW_W = 196
 export const SIDEBAR_COMPACT_W = 64
 
 /**
@@ -232,7 +234,7 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
   )
 }
 
-export function Sidebar({ compact, short, blocked = false }: { compact: boolean; short: boolean; /** the account sheet is open: lit, but inert */ blocked?: boolean }): ReactNode {
+export function Sidebar({ compact, short, blocked = false, width = SIDEBAR_W }: { compact: boolean; short: boolean; /** the account sheet is open: lit, but inert */ blocked?: boolean; /** full width, or SIDEBAR_NARROW_W in a mid-size window */ width?: number }): ReactNode {
   const page = useShell((s) => s.page)
   const settings = PAGES.findIndex((p) => p.id === 'settings')
   const S = PAGES[settings]
@@ -242,7 +244,7 @@ export function Sidebar({ compact, short, blocked = false }: { compact: boolean;
       inert={blocked}
       className="flex h-full shrink-0 flex-col"
       // The sidebar is the window itself (the lowest layer); the content panel beside it is the raised one.
-      style={{ width: compact ? SIDEBAR_COMPACT_W : SIDEBAR_W, padding: compact ? '0 10px 10px' : '0 10px 10px 12px' }}
+      style={{ width: compact ? SIDEBAR_COMPACT_W : width, padding: compact ? '0 10px 10px' : '0 8px 10px 10px' }}
     >
       {/* The window's own traffic lights sit here (hiddenInset); this strip drags the window. */}
       <div data-drag className="mg-lights shrink-0" />
