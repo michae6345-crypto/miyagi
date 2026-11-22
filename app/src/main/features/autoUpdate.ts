@@ -7,7 +7,8 @@
  *   2. canAutoInstall(): a packaged Mac build signed with a Developer ID, in a folder it can replace. Today's builds are
  *      ad-hoc signed (electron-builder.yml mac.identity null + ship-mac.sh codesign -s -), and Squirrel.Mac refuses to
  *      update those, so this answers "off" and the check-only card (features/updates.ts) stays the update path.
- * While off: one handle (autoUpdate:get → phase "off"), no timer, no network, no child process.
+ * While off: the four handles answer from memory and userData/auto-update.json (phase "off"); no timer, no network,
+ * no child process, no broadcast.
  *
  * electron-updater is NOT a dependency yet (Core request in agents/auto-update.md). It is loaded with a dynamic import
  * of a non-literal name, so this file type-checks and bundles without it; with both locks open and the package
@@ -18,13 +19,18 @@
  *     packaged); channel stable | beta (userData/auto-update.json, autoUpdate:channel) → latest-mac.yml | beta-mac.yml
  *   - autoDownload, autoInstallOnAppQuit, allowDowngrade false (rollback is a newer build, never a downgrade), all
  *     set by configureUpdater(), which sets allowDowngrade after the channel (the channel setter flips it to true)
- *   - checks 60 s after launch, then every 6 h (CHECK_EVERY_MS, same as the card)
+ *   - checks 60 s after launch, then every 6 h (CHECK_EVERY_MS, same as the card). These timers start as soon as lock 1
+ *     is open, before lock 2 is read: every tick asks miyagi-cloud's minimum-version policy, and also checks the feed
+ *     once electron-updater is loaded. So `required` works in phase off (lock 2 closed) and unavailable too.
  *   - miyagi-cloud's minimum-version answer (GET <cloud>/v1/app/version) sets `required`; the renderer turns that into
  *     the one "Update miyagi" card (renderer side not built yet: agents/auto-update.md, Left to build)
  *
- * Handles: autoUpdate:get → AutoView · autoUpdate:check → AutoView · autoUpdate:restart (phase ready only; the renderer
- * calls it only with no lesson running) → boolean · autoUpdate:channel ('stable' | 'beta') → AutoView.
- * Broadcasts feat:autoUpdate AutoView after every change.
+ * Handles, registered in every build (flag on or off), so the renderer (Settings "Updates" row) never hits
+ * "No handler registered":
+ *   autoUpdate:get → AutoView · autoUpdate:check → AutoView (flag off: the view, nothing else) · autoUpdate:restart
+ *   (phase ready only; the renderer calls it only with no lesson running; flag off: false) → boolean ·
+ *   autoUpdate:channel ('stable' | 'beta') → AutoView (flag off: saved, nothing else).
+ * Broadcasts feat:autoUpdate AutoView after every change (flag off: never).
  */
 import { execFile } from 'node:child_process'
 import { accessSync, constants, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -142,10 +148,27 @@ export default defineMainFeature({
       return v
     }
 
-    ctx.handle('autoUpdate:get', () => view())
+    // Lock 1. Off today: the handles below answer without a timer, codesign or network call.
+    const enabled = autoUpdateRequested(packaged, process.env)
 
-    // Lock 1. Off today: nothing below runs (no timer, no codesign, no network).
-    if (!autoUpdateRequested(packaged, process.env)) return
+    ctx.handle('autoUpdate:get', () => view())
+    ctx.handle('autoUpdate:check', () => (enabled ? check() : view()))
+    ctx.handle('autoUpdate:restart', () => {
+      if (!enabled || phase !== 'ready' || !updater) return false
+      const u = updater
+      // A beat so the renderer's invoke resolves before the windows close.
+      setTimeout(() => u.quitAndInstall(false, true), 150)
+      return true
+    })
+    ctx.handle('autoUpdate:channel', (raw) => {
+      saved = { ...saved, channel: parseChannel(raw) }
+      writeSaved(file, saved)
+      if (!enabled) return view()
+      if (updater && configure(updater)) void check()
+      return publish()
+    })
+
+    if (!enabled) return
 
     async function askPolicy(): Promise<void> {
       const host = cloudUrl()
@@ -193,23 +216,12 @@ export default defineMainFeature({
       return true
     }
 
-    ctx.handle('autoUpdate:check', () => check())
-    ctx.handle('autoUpdate:restart', () => {
-      if (phase !== 'ready' || !updater) return false
-      const u = updater
-      // A beat so the renderer's invoke resolves before the windows close.
-      setTimeout(() => u.quitAndInstall(false, true), 150)
-      return true
-    })
-    ctx.handle('autoUpdate:channel', (raw) => {
-      saved = { ...saved, channel: parseChannel(raw) }
-      writeSaved(file, saved)
-      if (updater && configure(updater)) void check()
-      return publish()
-    })
-
-    let first: ReturnType<typeof setTimeout> | undefined
-    let tick: ReturnType<typeof setInterval> | undefined
+    // With lock 1 open the timers run whatever lock 2 says: check() always asks the version policy, and checks the
+    // feed only once `updater` is set below. So `required` also reaches phase off (lock 2 closed) and unavailable.
+    const first = setTimeout(() => void check(), CHECK_DELAY_MS)
+    first.unref?.()
+    const tick = setInterval(() => void check(), CHECK_EVERY_MS)
+    tick.unref?.()
     ctx.app.on('before-quit', () => {
       clearTimeout(first)
       clearInterval(tick)
@@ -270,10 +282,6 @@ export default defineMainFeature({
       })
       phase = 'idle'
       publish()
-      first = setTimeout(() => void check(), CHECK_DELAY_MS)
-      first.unref?.()
-      tick = setInterval(() => void check(), CHECK_EVERY_MS)
-      tick.unref?.()
     })()
   }
 })

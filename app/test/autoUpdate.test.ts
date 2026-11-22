@@ -6,12 +6,13 @@
  *   feed       pinned when packaged; a dev override must be https (or http on localhost)
  *   configure  allowDowngrade stays false after the channel is set (electron-updater's setter flips it to true)
  *   policy     miyagi-cloud's minimum version and pulled builds → "required"
- *   main       with the flag off the feature is inert: autoUpdate:get only, no broadcast, no timer
+ *   main       with the flag off all four handles exist and are inert: no timer, no codesign, no network, no broadcast
  *
  * Run from app/: node --import tsx --import ./test/setup.mjs --test --test-force-exit test/autoUpdate.test.ts
  */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import childProcess from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import autoUpdate from '../src/main/features/autoUpdate'
@@ -211,19 +212,60 @@ describe('minimum version', () => {
 })
 
 describe('main feature with the flag off', () => {
-  test('inert: only autoUpdate:get, phase off, nothing broadcast', async () => {
+  test('inert: all four handles answer, and none starts a timer, codesign, a network call or a broadcast', async () => {
     const before = process.env.MIYAGI_AUTO_UPDATE
     delete process.env.MIYAGI_AUTO_UPDATE
+    const timers: string[] = []
+    const spawned: string[] = []
+    const fetched: string[] = []
+    const real = { setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval, fetch: globalThis.fetch, execFile: childProcess.execFile }
+    globalThis.setTimeout = ((...a: Parameters<typeof setTimeout>) => {
+      timers.push('setTimeout')
+      return real.setTimeout(...a)
+    }) as typeof setTimeout
+    globalThis.setInterval = ((...a: Parameters<typeof setInterval>) => {
+      timers.push('setInterval')
+      return real.setInterval(...a)
+    }) as typeof setInterval
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      fetched.push(String(input instanceof Request ? input.url : input))
+      return new Response('{}', { status: 200 })
+    }) as typeof fetch
+    // autoUpdate.ts calls execFile through the module object (CommonJS under tsx), so this catches a codesign run.
+    ;(childProcess as { execFile: unknown }).execFile = ((file: string) => {
+      spawned.push(file)
+      throw new Error(`unexpected child process ${file}`)
+    }) as unknown
     const h = makeHarness()
     try {
       autoUpdate.setup(h.ctx)
       const v = (await h.invoke('autoUpdate:get')) as AutoView
       assert.equal(v.phase, 'off')
       assert.equal(v.required, false)
-      await assert.rejects(h.invoke('autoUpdate:check'), /no handler/)
-      await assert.rejects(h.invoke('autoUpdate:restart'), /no handler/)
+      const checked = (await h.invoke('autoUpdate:check')) as AutoView
+      assert.equal(checked.phase, 'off')
+      assert.equal(await h.invoke('autoUpdate:restart'), false)
+      const file = join(h.dir, 'auto-update.json')
+      assert.equal(existsSync(file), false)
+      // The harness runs 0.0.0-test, a prerelease, so the view says beta whatever is saved (channelFor).
+      const stable = (await h.invoke('autoUpdate:channel', 'stable')) as AutoView
+      assert.equal(stable.phase, 'off')
+      assert.equal(stable.channel, 'beta')
+      assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { channel: 'stable' }, 'the choice is saved even while off')
+      const beta = (await h.invoke('autoUpdate:channel', 'beta')) as AutoView
+      assert.equal(beta.channel, 'beta')
+      assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { channel: 'beta' })
+      // Let anything the handles might have queued run before counting.
+      await new Promise((r) => setImmediate(r))
+      assert.deepEqual(timers, [])
+      assert.deepEqual(spawned, [])
+      assert.deepEqual(fetched, [])
       assert.deepEqual(h.broadcasts, [])
     } finally {
+      globalThis.setTimeout = real.setTimeout
+      globalThis.setInterval = real.setInterval
+      globalThis.fetch = real.fetch
+      ;(childProcess as { execFile: unknown }).execFile = real.execFile
       h.close()
       if (before !== undefined) process.env.MIYAGI_AUTO_UPDATE = before
     }
