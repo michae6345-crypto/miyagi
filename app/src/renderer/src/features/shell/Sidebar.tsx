@@ -21,7 +21,7 @@ import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { color, fill, focus, highlight, radius2, spring, surface, type2 } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
 import { openLauncher } from '../library/Library'
-import { planLabel, v2Cloud } from '../account/model'
+import { initialOf, planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { authOn } from '../auth/model'
 import { loadAuth, useAuth } from '../auth/store'
@@ -179,6 +179,7 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
     signedIn = !!account?.signedIn
     name = signedIn ? (account?.name ?? account?.email ?? 'Signed in') : 'Not signed in'
     line = signedIn ? `${planLabel(account!.plan)} plan` : 'Sign in to sync'
+    initial = signedIn ? initialOf(name) : undefined
   } else if (login) {
     signedIn = !!user
     name = user ? (user.name ?? user.email ?? 'Signed in') : 'Not signed in'

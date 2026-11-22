@@ -11,7 +11,7 @@
  * watching is the gray dashed ring (miyagi waits for the learner's switch); unknown is gray too and never blocks the
  * start (an engine started in Terminal: macOS grants belong to that Terminal, so the app can't tell).
  * Copy: short, calm, no em dashes. Editor labels go through copy.editorName (never an unsupported editor's name).
- * Mac and Windows (device.ts): the computer is "this Mac" or "this PC"; Screen Recording and Accessibility are macOS
+ * Mac and Windows (device.ts): the computer is "this Mac" or "this computer"; Screen Recording and Accessibility are macOS
  * grants, so on Windows those rows don't exist. Windows ships no engine yet: when none answers there, the engine row
  * says so plainly in gray (unknown, so it never traps setup) and keeps Retry for an engine started by hand.
  */

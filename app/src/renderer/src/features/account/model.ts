@@ -49,6 +49,9 @@ export type AccountLink = 'pricing' | 'upgrade' | 'teams' | 'terms' | 'privacy' 
 const PLAN_LABEL: Record<PlanId, string> = { free: 'Free', pro: 'Pro', teams: 'Teams' }
 export const planLabel = (p: PlanId): string => PLAN_LABEL[p] ?? 'Free'
 
+/** The avatar's letter: the first letter of the name (or email), so a signed-in learner never shows the anonymous glyph. */
+export const initialOf = (name?: string): string | undefined => name?.trim().match(/\p{L}/u)?.[0]?.toUpperCase()
+
 /** A plain, bounded copy of what came over IPC: unknown fields dropped, strings capped, numbers finite. */
 export function cleanAccount(raw: unknown): Account | null {
   if (!raw || typeof raw !== 'object') return null

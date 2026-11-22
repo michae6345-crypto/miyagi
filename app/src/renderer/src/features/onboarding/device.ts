@@ -3,7 +3,7 @@
  * You're ready read the same on both (Adrian, Nov 21: "consistent for windows and mac, not just mac").
  *
  *   Mac      "this Mac", System Settings, Terminal; setup asks for Screen Recording and Accessibility
- *   Windows  "this PC", no permission steps (Windows has no such grants to ask for), PowerShell
+ *   Windows  "this computer" (Michael's word in 926bf30a), no permission steps (Windows has no such grants to ask for), PowerShell
  *
  * The OS comes from bridge.platform (main/platform.ts; the stage takes ?os=win). Pure helpers over that one value.
  */
@@ -13,8 +13,8 @@ export type Os = 'mac' | 'win'
 
 export const osNow = (): Os => (bridge.platform?.os === 'win' ? 'win' : 'mac')
 
-/** "this Mac" / "this PC": every place setup names the computer. */
-export const thisDevice = (os: Os = osNow()): string => (os === 'win' ? 'this PC' : 'this Mac')
+/** "this Mac" / "this computer": every place setup names the computer. */
+export const thisDevice = (os: Os = osNow()): string => (os === 'win' ? 'this computer' : 'this Mac')
 
 /** Where an engine started by hand runs: macOS Terminal, Windows PowerShell. */
 export const shellName = (os: Os = osNow()): string => (os === 'win' ? 'PowerShell' : 'Terminal')

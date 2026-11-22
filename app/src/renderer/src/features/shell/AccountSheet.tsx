@@ -33,10 +33,10 @@ import { color, copy, duration, elevation, fill, focus, highlight, paper, radius
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { pressMotion, riseItem } from '../../core/ui/motion'
-import { planLabel, v2Cloud } from '../account/model'
+import { initialOf, planLabel, v2Cloud } from '../account/model'
 import { Pricing } from '../account/Pricing'
 import { loadAccount, signOut as signOutMock, useAccount } from '../account/store'
-import { AppleGlyph, Chip, GoogleGlyph, MeterGroup, Note, TextLink } from '../account/ui'
+import { AppleGlyph, GoogleGlyph, MeterGroup, Note, TextLink } from '../account/ui'
 import { Avatar } from '../auth/Avatar'
 import { LIVE, PROVIDER_LABEL, type Mode, type Provider } from '../auth/model'
 import { cancelSignIn, loadAuth, openLegal, setMode, signInWith, signOut as signOutAuth, useAuth } from '../auth/store'
@@ -353,7 +353,10 @@ function AccountBody(): ReactNode {
       </motion.div>
       {v2Cloud && account?.signedIn && (
         <motion.div variants={riseItem}>
-          <Ring>{account.plan === 'free' ? <PrimaryButton size="lg" block label="Upgrade to Pro" onClick={() => openSheet('plans')} /> : <QuietButton size="lg" block label="See plans" onClick={() => openSheet('plans')} />}</Ring>
+          {/* Round 3: calm (mock plans behind v2Cloud); the sheet is a menu, its rows do the work. */}
+          <Ring>
+            <QuietButton size="lg" block label={account.plan === 'free' ? 'Upgrade to Pro' : 'See plans'} onClick={() => openSheet('plans')} />
+          </Ring>
         </motion.div>
       )}
     </>
@@ -389,7 +392,8 @@ function useWho(): Who {
   const account = useAccount((s) => s.account)
   // v2Cloud (mock): the mock account when it has one; otherwise the real login below, like the shipped build.
   if (v2Cloud && account?.signedIn) {
-    return { signedIn: true, name: account.name ?? account.email ?? 'Signed in', email: account.name ? account.email : undefined, plan: planLabel(account.plan) }
+    const name = account.name ?? account.email ?? 'Signed in'
+    return { signedIn: true, name, email: account.name ? account.email : undefined, initial: initialOf(name), plan: planLabel(account.plan) }
   }
   if (!user) return { signedIn: false }
   return { signedIn: true, name: user.name ?? user.email, email: user.name ? user.email : undefined, initial: user.avatarInitial }
@@ -399,7 +403,8 @@ function headerFor(kind: SheetKind, who: Who, signedInHere: boolean): { title: s
   if (kind === 'signout') return { title: `Sign out of ${copy.name}?`, sub: `Your lessons and progress stay on ${thisDevice()}.` }
   if (kind === 'signin' && !who.signedIn) return { title: 'Sign in to sync', sub: `Your lessons and progress, ${acrossMachines()}.` }
   if (kind === 'signin' && signedInHere) return { title: 'You’re signed in', sub: who.email ?? who.name ?? '' }
-  return { title: who.name ?? 'Signed in', sub: who.email ?? (who.plan ? `${who.plan} plan` : 'Signed in') }
+  // Round 3: the plan rides in the sub line ("sam@example.edu · Free plan"), not a pill beside the name.
+  return { title: who.name ?? 'Signed in', sub: [who.email, who.plan ? `${who.plan} plan` : ''].filter(Boolean).join(' · ') || 'Signed in' }
 }
 
 /** A line of header text that crossfades (and rises 4 px) when it changes, e.g. Account → Sign out. */
@@ -495,7 +500,6 @@ function DarkSheet({ kind }: { kind: SheetKind }): ReactNode {
                   {head.title}
                 </Swap>
               </h2>
-              {who.plan && shown === 'account' && <Chip>{who.plan}</Chip>}
             </span>
             <Swap id={head.sub} style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label }}>
               {head.sub}

@@ -131,7 +131,7 @@ type Part = { id: string; label: string; state: StatusState; word: string }
 function useEngineParts(row: Row): Part[] {
   const l = useLesson(useShallow((s) => ({ connected: s.connected, local: s.localEngine?.state })))
   const cloud = useOnboarding((s) => s.cloud)
-  // "this Mac" / "this PC" (device.ts). Windows ships no engine yet: a missing one there is gray, not a failure.
+  // "this Mac" / "this computer" (device.ts). Windows ships no engine yet: a missing one there is gray, not a failure.
   const here = thisDevice()
   const win = osNow() === 'win'
   const label = `Engine on ${here}`

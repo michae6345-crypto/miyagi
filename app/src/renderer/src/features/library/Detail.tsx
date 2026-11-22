@@ -10,7 +10,7 @@ import { ChevronLeft, Play } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
-import { color, fill, font, radius2, surface, type2 } from '../../core/theme'
+import { color, copy, fill, font, radius2, surface, type2 } from '../../core/theme'
 import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, minutesLabel, soft, stepsLabel } from './parts'
 import { closeDetail, itemFor, start, useLibrary } from './store'
@@ -68,18 +68,21 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
     return () => removeEventListener('keydown', onKey)
   }, [id, ready, starting])
 
+  // Round 3: one back control ("‹ Lessons", chevron and name together, a row-style hover), and no rule under the bar:
+  // no other page has a hairline under its header, spacing does the grouping.
   const bar = (
-    <div data-drag className="flex shrink-0 items-center gap-[16px]" style={{ height: 52, padding: back ? '0 16px' : '0 16px 0 84px', borderBottom: `1px solid ${surface.border}` }}>
+    <div data-drag className="flex shrink-0 items-center" style={{ height: 52, padding: back ? '0 12px' : '0 12px 0 84px' }}>
       <button
         type="button"
+        data-no-drag
         aria-label={`Back to ${back ?? 'Library'}`}
         onClick={closeDetail}
-        className="flex cursor-pointer items-center justify-center"
-        style={{ width: 44, height: 36, borderRadius: radius2.control, color: soft }}
+        className="flex cursor-pointer items-center gap-[2px] outline-offset-1 transition-colors hover:bg-[var(--s-row-hover)] focus-visible:outline-2 focus-visible:outline-solid"
+        style={{ height: 30, padding: '0 10px 0 4px', borderRadius: radius2.control, color: color.label, fontSize: type2.sm, outlineColor: color.text }}
       >
         <ChevronLeft aria-hidden size={16} strokeWidth={1.8} />
+        {back ?? 'Library'}
       </button>
-      <span style={{ fontSize: type2.sm, color: color.label }}>{back ?? 'Library'}</span>
     </div>
   )
 
@@ -114,7 +117,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
     <div className="flex h-full w-full flex-col" style={{ color: color.text }}>
       {bar}
       <section aria-labelledby="lib-title" className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '40px 40px 56px' }}>
+        <div className="mx-auto flex w-full flex-col" style={{ maxWidth: 700, padding: '28px 40px 56px' }}>
           <div style={{ fontSize: type2.xs, color: color.label }}>{KICKER[src?.kind ?? 'library']}</div>
           <h1 id="lib-title" className="m-0 font-semibold" style={{ marginTop: 8, fontSize: type2.xxl, lineHeight: 1.2, letterSpacing: '-0.015em' }}>
             {item.title}
@@ -138,8 +141,8 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
               <Video vid={vid} by={by} />
             </div>
           )}
-          <h2 className="m-0 font-medium" style={{ margin: '36px 0 6px', fontSize: type2.xs, color: color.label }}>
-            Steps
+          <h2 className="m-0 font-medium" style={{ margin: '36px 0 8px', fontSize: type2.xs, color: color.label }}>
+            {stepCount ? stepsLabel(stepCount) : 'Steps'}
           </h2>
           {steps.length > 0 ? (
             <ol className="m-0 list-none p-0">
@@ -156,7 +159,9 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
               ))}
             </ol>
           ) : (
-            <div style={{ fontSize: type2.sm, color: color.label }}>{detail === undefined ? (failed ? 'The steps show once the engine answers.' : 'Loading the steps…') : 'The steps show once the lesson starts.'}</div>
+            <p className="m-0" style={{ fontSize: type2.sm, lineHeight: 1.5, color: color.label, maxWidth: 520 }}>
+              {detail === undefined ? (failed ? `The steps show once ${copy.name} answers.` : 'Loading the steps…') : 'They open one at a time, each checked before the next.'}
+            </p>
           )}
         </div>
       </section>

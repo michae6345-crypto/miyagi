@@ -7,10 +7,12 @@
  *   SectionHead a quiet section header with an optional right-hand action
  *   StepBar     "Step 4 of 7" as seven short segments: done in ink/white, the current one outlined, never green
  *   Row         a list row that lifts one level on hover (Linear / Notion rows, no border box)
+ *   RowChevron  the trailing chevron on a Row that opens something: half strength at rest, full and nudged on hover
  *
  * Sleek and minimal (Adrian, Nov 21: "a lot seems very AI slop-ish"): type, spacing and one raised surface do the work.
  * No icon tiles or tool pills on rows; color stays for options (pastel chips) and passed (green). Tokens only.
  */
+import { ChevronRight } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { CSSProperties, ReactNode } from 'react'
 import { color, elevation, fill, highlight, radius2, surface, type2 } from '../../core/theme'
@@ -153,5 +155,23 @@ export function Empty({ mark, title, line, action }: { mark?: ReactNode; title: 
       {line && <span style={{ fontSize: type2.sm, color: color.label, maxWidth: 360 }}>{line}</span>}
       {action && <div style={{ marginTop: 10 }}>{action}</div>}
     </div>
+  )
+}
+
+/**
+ * The one "this row opens something" mark (redraft round 3: every clickable list reads the same on every page). Put it
+ * last inside a <Row onClick>: it rides the Row's rest / hover / press variants, so it wakes up with the row.
+ */
+export function RowChevron(): ReactNode {
+  return (
+    <motion.span
+      aria-hidden
+      className="relative flex shrink-0 items-center"
+      variants={{ rest: { opacity: 0.45, x: 0 }, hover: { opacity: 1, x: 2 }, press: { opacity: 1, x: 2 } }}
+      transition={spring}
+      style={{ color: color.label }}
+    >
+      <ChevronRight size={16} strokeWidth={1.8} />
+    </motion.span>
   )
 }

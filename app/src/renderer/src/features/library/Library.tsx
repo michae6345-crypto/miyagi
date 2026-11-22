@@ -9,15 +9,14 @@
  * States: loading = three skeleton cards; offline with nothing cached = one calm line; empty = the paste card says
  * "No lessons on this Mac yet."; a filter with no match = "No lessons match." with Show all.
  */
-import { ChevronRight, CloudOff, Play, Plus, Search } from 'lucide-react'
-import { motion } from 'motion/react'
-import type { ReactNode } from 'react'
+import { CloudOff, Play, Plus, Search } from 'lucide-react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { bridge } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { Empty, Row, StepBar } from '../shell/ui'
+import { Empty, Row, RowChevron } from '../shell/ui'
 import { color, copy, fill, focus, highlight, radius2, surface, type2 } from '../../core/theme'
 import { Ring, Rise } from './motion'
 import { FILTER_TOOLS, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
@@ -62,7 +61,7 @@ const meta = { fontSize: type2.xs, color: color.label } as const
 /** A section header: the title, then whatever the section puts beside it (filters, a note). */
 function Head({ id, title, children }: { id: string; title: string; children?: ReactNode }): ReactNode {
   return (
-    <div className="flex flex-wrap items-center gap-[6px]" style={{ marginBottom: 6, minHeight: 30 }}>
+    <div className="flex flex-wrap items-center gap-[6px]" style={{ marginBottom: 8, minHeight: 30 }}>
       <h2 id={id} className="m-0 font-medium" style={{ fontSize: type2.xs, marginRight: 10, color: color.label }}>
         {title}
       </h2>
@@ -73,7 +72,20 @@ function Head({ id, title, children }: { id: string; title: string; children?: R
 
 const titleText = { fontSize: type2.md, color: color.text } as const
 
-/** A lesson left mid-way: title, where it stands, its steps, and Continue (the first one is the page's primary). */
+/**
+ * Where a lesson stands, as Home's Continue card shows it: one continuous hairline, a fixed width so every row's line
+ * starts and ends at the same x (round 3: the segmented bars were as wide as their step counts and never lined up).
+ */
+function ProgressLine({ done, total }: { done: number; total: number }): ReactNode {
+  const f = total ? Math.max(0, Math.min(1, done / total)) : 0
+  return (
+    <span role="img" aria-label={`${done} of ${total} steps done`} className="relative block shrink-0 overflow-hidden" style={{ width: 88, height: 3, borderRadius: radius2.round, background: fill.hairline }}>
+      <span className="absolute inset-y-0 left-0 block" style={{ width: `${f * 100}%`, background: color.text, borderRadius: radius2.round }} />
+    </span>
+  )
+}
+
+/** A lesson left mid-way: title, where it stands, its progress, and Continue (the first one is the page's primary). */
 function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
   const item = useLibrary((s) => s.items.find((i) => i.id === c.libraryId))
   const starting = useLibrary((s) => s.starting)
@@ -82,7 +94,7 @@ function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
   const Btn = first ? PrimaryButton : QuietButton
   return (
     <div data-continue={c.libraryId} className="flex items-center gap-[12px]" style={{ paddingRight: 10 }}>
-      <Row onClick={() => openDetail(c.libraryId)} label={`${c.title}. ${contLine(c)}. Open its preview.`} style={{ flex: 1, minWidth: 0, padding: '10px 10px' }}>
+      <Row onClick={() => openDetail(c.libraryId)} label={`${c.title}. ${contLine(c)}. Open its preview.`} style={{ flex: 1, minWidth: 0, padding: '12px 10px' }}>
         <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
           <span className="truncate" style={titleText}>
             {c.title}
@@ -91,12 +103,12 @@ function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
             {contLine(c)}
           </span>
         </span>
-        <span className="relative hidden @[620px]:flex">
-          <StepBar done={c.passed} total={c.total} width={96} />
+        <span className="relative hidden items-center @[620px]:flex" style={{ marginRight: 6 }}>
+          <ProgressLine done={c.passed} total={c.total} />
         </span>
       </Row>
       <Ring>
-        <Btn label="Continue" icon={first ? Play : undefined} busy={busy} disabled={!canStart || (!!starting && !busy)} title={canStart ? undefined : 'Open the lesson to see why it can\u2019t start'} onClick={() => void start(c.libraryId)} />
+        <Btn label="Continue" icon={Play} busy={busy} disabled={!canStart || (!!starting && !busy)} title={canStart ? undefined : 'Open the lesson to see why it can\u2019t start'} onClick={() => void start(c.libraryId)} />
       </Ring>
     </div>
   )
@@ -116,16 +128,7 @@ function LessonRow({ item }: { item: LibraryItem }): ReactNode {
           {line}
         </span>
       </span>
-      {/* Redraft round 2 (Adrian: "clear to click on each of those"): a chevron that wakes up on hover, like a list in Settings. */}
-      <motion.span
-        aria-hidden
-        className="relative flex shrink-0 items-center"
-        variants={{ rest: { opacity: 0.5, x: 0 }, hover: { opacity: 1, x: 2 }, press: { opacity: 1, x: 2 } }}
-        transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.9 }}
-        style={{ color: color.label }}
-      >
-        <ChevronRight size={16} strokeWidth={1.8} />
-      </motion.span>
+      <RowChevron />
     </Row>
   )
 }
@@ -133,10 +136,13 @@ function LessonRow({ item }: { item: LibraryItem }): ReactNode {
 /** The last row of the list: paste a YouTube link (the launcher builds it). */
 function PasteRow(): ReactNode {
   return (
-    <Row onClick={openLauncher} label="Paste a YouTube link" data={{ 'data-lessons-paste': '' }} style={{ padding: '12px 10px' }}>
-      <Plus aria-hidden size={15} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label }} />
-      <span className="relative" style={{ fontSize: type2.md, color: color.label }}>
-        Paste a YouTube link
+    <Row onClick={openLauncher} label="Paste a YouTube link to build a lesson" data={{ 'data-lessons-paste': '' }} style={{ padding: '14px 10px' }}>
+      <Plus aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label, marginLeft: -2 }} />
+      <span className="relative flex min-w-0 flex-1 items-baseline gap-[8px]">
+        <span style={{ fontSize: type2.md, color: color.text }}>Paste a YouTube link</span>
+        <span className="truncate" style={meta}>
+          {copy.name} turns it into a lesson
+        </span>
       </span>
     </Row>
   )
@@ -153,6 +159,12 @@ function StartError(): ReactNode {
 }
 
 const list = { margin: 0, padding: 0, listStyle: 'none', marginInline: -10 } as const
+
+/**
+ * A list item whose hairline runs exactly under the text column (the list sits 10px outside it so a row's hover fill
+ * can bleed past the text; the item steps back in, and its row steps out again with marginInline -10).
+ */
+const divided = (rule: boolean): CSSProperties => ({ marginInline: 10, borderTop: rule ? `1px solid ${fill.hairline}` : undefined })
 
 /** The tool filter: a small segmented control (chrome: neutral, the selected segment lifts). */
 function ToolFilter(): ReactNode {
@@ -193,7 +205,7 @@ export function Lessons(): ReactNode {
   const nothing = s.loaded && s.items.length === 0
   const offline = nothing && !connected
   return (
-    <div data-lessons className="flex flex-col gap-[30px] @container" style={{ padding: '8px 40px 48px', color: color.text }}>
+    <div data-lessons className="flex flex-col gap-[32px] @container" style={{ padding: '8px 40px 48px', color: color.text }}>
       {!s.loaded ? (
         <div className="flex flex-col gap-[10px]" aria-busy aria-label="Loading your lessons">
           {[0, 1, 2, 3].map((i) => (
@@ -241,7 +253,7 @@ export function Lessons(): ReactNode {
               </Head>
               <ul style={list}>
                 {ready.map((i, n) => (
-                  <Rise key={i.id} as="li" i={n} style={n ? { borderTop: `1px solid ${fill.hairline}`, marginInline: 10, paddingInline: 0 } : { marginInline: 10 }}>
+                  <Rise key={i.id} as="li" i={n} style={divided(n > 0)}>
                     <div style={{ marginInline: -10 }}>
                       <LessonRow item={i} />
                     </div>
@@ -261,8 +273,10 @@ export function Lessons(): ReactNode {
                     </Ring>
                   </li>
                 ) : (
-                  <li>
-                    <PasteRow />
+                  <li style={divided(ready.length > 0)}>
+                    <div style={{ marginInline: -10 }}>
+                      <PasteRow />
+                    </div>
                   </li>
                 )}
               </ul>

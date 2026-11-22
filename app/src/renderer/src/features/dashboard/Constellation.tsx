@@ -1,6 +1,7 @@
 /**
  * Feature: dashboard. The skill constellation: one cluster per track, nodes in columns by prerequisite depth, edges as
- * thin gray lines (green once both ends are mastered), another track's shared idea as a dashed ghost on the left.
+ * thin gray lines (green once both ends are mastered). Another track's idea a track builds on is named in its header
+ * ("Builds on Loops in Python"), not drawn as a ghost node: the dashed lines crossed the graph (redraft round 3).
  * Hover a node for its label, state and detail; click it for its card (lessons that teach it, Start).
  *
  *   mastered    green, a check            practicing  a white ring
@@ -15,8 +16,8 @@ import { caption, Empty, h2, NodeGlyph, STATE_WORD } from './parts'
 import { select, useDash } from './store'
 import type { DashData, DashTrack, ReviewEntry } from './types'
 
-const ROW_H = 84
-const NODE_TOP = 6
+const ROW_H = 80
+const NODE_TOP = 14
 const GLYPH = 28
 const MIN_COL = 120
 const MAX_COL = 176
@@ -53,7 +54,7 @@ const LEGEND: Array<{ state: NodeState; due?: boolean; word: string }> = [
  * Redraft round 2 (Adrian: no dot by each track, "something to show each skill visually in its name"): a small ring
  * that fills as the track's skills are mastered, green only once all of them are (green = passed), plus "3 of 5".
  */
-function TrackRing({ mastered, total }: { mastered: number; total: number }): ReactNode {
+export function TrackRing({ mastered, total }: { mastered: number; total: number }): ReactNode {
   const r = 6.5
   const c = 2 * Math.PI * r
   const f = total ? Math.max(0, Math.min(1, mastered / total)) : 0
@@ -69,7 +70,7 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
   const t = g.track
   const selected = useDash((s) => (s.selected?.track === t.track ? s.selected.id : undefined))
   const [hover, setHover] = useState<string>()
-  const lay = layoutTrack(t)
+  const lay = layoutTrack(t, false)
   const states = nodeStates(t)
   const colW = Math.max(MIN_COL, Math.min(MAX_COL, Math.floor(width / lay.cols)))
   const w = Math.max(width, lay.cols * colW)
@@ -82,10 +83,6 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
       return [n.id, { x: Math.round((w - lay.cols * colW) / 2 + n.col * colW + colW / 2), y: Math.round(offset + n.row * ROW_H + NODE_TOP + GLYPH / 2) }]
     })
   )
-  const ghostPos = (i: number): { x: number; y: number } => ({
-    x: Math.round((w - lay.cols * colW) / 2 + colW / 2),
-    y: Math.round(((lay.rows - t.cross.length) / 2) * ROW_H + i * ROW_H + NODE_TOP + GLYPH / 2)
-  })
   const skill = (id: string): DashTrack['skills'][number] | undefined => t.skills.find((s) => s.id === id)
   const curve = (a: { x: number; y: number }, b: { x: number; y: number }, r1: number, r2: number): string => {
     const x1 = a.x + r1
@@ -102,18 +99,20 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
         <h3 className="m-0 min-w-0 truncate" style={{ ...h2, fontSize: type2.md }}>
           {g.title}
         </h3>
-        <span className="shrink-0" style={{ ...caption, fontVariantNumeric: 'tabular-nums' }}>
-          {t.skills.filter((s) => s.state === 'mastered').length} of {t.skills.length}
-        </span>
         {g.kicker && (
           <span className="shrink-0 truncate" style={caption}>
             {g.kicker}
           </span>
         )}
+        {t.cross.length > 0 && (
+          <span className="min-w-0 truncate" style={{ ...caption, color: color.faint }} title={t.cross.map((c) => c.note).filter(Boolean).join(' ')}>
+            Builds on {t.cross.map((c) => `${c.label.split(String.fromCharCode(96)).join('')}${c.track ? ` in ${c.track}` : ''}`).join(', ')}
+          </span>
+        )}
       </div>
       <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: tones[tone].wash }}>
-        <div className="relative" style={{ width: w, height: h + 8 }}>
-          <svg width={w} height={h + 8} className="pointer-events-none absolute inset-0" aria-hidden>
+        <div className="relative" style={{ width: w, height: h + 12 }}>
+          <svg width={w} height={h + 12} className="pointer-events-none absolute inset-0" aria-hidden>
             {t.edges.map((e) => {
               const a = pos.get(e.from)
               const b = pos.get(e.to)
@@ -121,32 +120,7 @@ function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: 
               const both = states[e.from] === 'mastered' && states[e.to] === 'mastered'
               return <path key={`${e.from}-${e.to}`} data-edge={both ? 'mastered' : 'open'} d={curve(a, b, 13, 13)} fill="none" stroke={both ? alpha(status.passed, 0.7) : fill.ring} strokeWidth={both ? 1.6 : 1.2} />
             })}
-            {t.cross.map((c, i) => {
-              const b = pos.get(c.to)
-              if (!b) return null
-              return <path key={`x-${i}`} data-edge="cross" d={curve(ghostPos(i), b, 8, 13)} fill="none" stroke={fill.ring} strokeWidth={1.2} strokeDasharray="3 3" />
-            })}
           </svg>
-          {t.cross.map((c, i) => {
-            const g = ghostPos(i)
-            return (
-              <div
-                key={`g-${i}`}
-                data-cross={c.track}
-                title={c.note}
-                className="absolute flex flex-col items-center gap-[4px] text-center"
-                style={{ left: g.x - colW / 2 + 4, top: g.y - GLYPH / 2 + 7, width: colW - 8 }}
-              >
-                <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden>
-                  <circle cx="7" cy="7" r="5.6" fill="none" stroke={status.watching} strokeWidth="1.2" strokeDasharray="2 2" />
-                </svg>
-                <span className="line-clamp-2" style={{ fontSize: type2.micro, lineHeight: '13px', color: color.faint, marginTop: 7 }}>
-                  {c.track ? `${c.track}: ` : ''}
-                  {c.label}
-                </span>
-              </div>
-            )
-          })}
           {t.skills.map((s) => {
             const p = pos.get(s.id)
             if (!p) return null
@@ -232,16 +206,16 @@ export function Constellation({ data, review, loading, children, bare, titled = 
       className="relative flex min-w-0 flex-col gap-[16px]"
       style={bare ? undefined : { minHeight: 0, padding: 20, borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}
     >
-      <div className="flex shrink-0 flex-wrap items-end justify-between gap-x-[16px] gap-y-[6px]">
+      <div className={`flex shrink-0 flex-wrap items-end gap-x-[16px] gap-y-[6px] ${titled ? 'justify-between' : 'justify-end'}`}>
         <h2 id="dash-skills" className={titled ? undefined : 'sr-only'} style={{ ...h2, fontSize: bare ? type2.xs : type2.lg, color: bare ? color.label : color.text, fontWeight: bare ? 500 : 600, letterSpacing: bare ? '0.02em' : undefined }}>
           Skills
         </h2>
         {tracks.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[4px]" style={caption}>
+          <div aria-label="Key" className="flex flex-wrap items-center gap-x-[14px] gap-y-[4px]" style={{ ...caption, color: color.faint }}>
             {LEGEND.map((l) => (
               <span key={l.word} className="flex items-center gap-[4px]">
                 <span style={{ opacity: l.state === 'locked' ? 0.4 : 1, display: 'inline-flex' }}>
-                  <NodeGlyph state={l.state} due={l.due} size={16} />
+                  <NodeGlyph state={l.state} due={l.due} size={14} />
                 </span>
                 {l.word}
               </span>
@@ -258,7 +232,7 @@ export function Constellation({ data, review, loading, children, bare, titled = 
           </div>
         ) : (
           width > 0 && (
-            <div className="flex flex-col gap-[20px]" style={{ paddingBottom: 4 }}>
+            <div className="flex flex-col gap-[28px]" style={{ paddingBottom: 4 }}>
               {groups.map((g, i) => (
                 <Cluster key={g.key} g={g} tone={trackTone(g.key)} width={width} dueOf={(id) => dueIdx.has(`${g.track.track}\u0000${id}`)} />
               ))}
