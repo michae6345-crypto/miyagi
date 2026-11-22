@@ -9,7 +9,8 @@
  *
  * Continue calls the store's agree() (main stamps prefs.consent with this build's version and its own clock) and only
  * then onDone(): setup and its prompts come after. Nothing is captured while this is on screen. Enter presses Continue
- * unless focus is on a link. There is no Skip: without consent the gate stays closed (quit miyagi to leave).
+ * unless focus is on a link. There is no Skip: without consent the gate stays closed. "Not now" (quiet, beside
+ * Continue) quits miyagi cleanly, so leaving is never hard (age-delete lane, main agegate:quit).
  * Used by the home window's first-run flow (features/shell/flow, chrome 'flow') and the standalone setup window
  * (Onboarding.tsx, chrome 'window': a drag strip under the traffic lights instead of the flow's step strip).
  * Neutral chrome only (BRAND.md): no pastel, no hue; the icons sit in neutral tiles.
@@ -18,12 +19,13 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { AppWindow, Info, Monitor, Video, type LucideIcon } from 'lucide-react'
 import { color, fill, font, highlight, radius2, spring, surface, type2 } from '../../core/theme'
-import { PrimaryButton } from '../../core/ui/buttons'
+import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { fade } from '../../core/ui/motion'
 import { TextLink } from '../account/ui'
 import { openLegal } from '../auth/store'
 import { AGREE, AGREE_FAILED, CONSENT_ROWS, CONSENT_TITLE, CONTINUE, type ConsentRowId } from './consentCopy'
+import { bridge } from '../../bridge'
 import { MARK_ID } from './Intro'
 import { rise, stagger } from './parts'
 import { agree } from './store'
@@ -116,8 +118,14 @@ export function Consent({ onDone, chrome = 'flow', enterDelay = 0 }: { onDone: (
             {failed ? AGREE_FAILED : null}
           </span>
         </span>
-        <span data-onb-primary data-label={CONTINUE}>
-          <PrimaryButton size="lg" label={CONTINUE} busy={busy} disabled={busy} onClick={() => void go()} />
+        <span className="flex shrink-0 items-center gap-[8px]">
+          {/* age-delete lane: never a trap. Not now quits miyagi cleanly (agegate:quit); nothing was agreed or sent. */}
+          <span data-consent-not-now>
+            <QuietButton size="lg" label="Not now" disabled={busy} onClick={() => void bridge.invoke('agegate:quit').catch(() => undefined)} />
+          </span>
+          <span data-onb-primary data-label={CONTINUE}>
+            <PrimaryButton size="lg" label={CONTINUE} busy={busy} disabled={busy} onClick={() => void go()} />
+          </span>
         </span>
       </motion.footer>
     </div>

@@ -76,6 +76,7 @@ import { LOGIN_ENABLED } from '../../common/flags'
 import { color } from '../../renderer/src/core/theme'
 import { defineMainFeature } from '../context'
 import { setGatePart } from '../gate'
+import { ageStepCleared, onAgeChange } from './agegate'
 import { supabaseConfig } from '../publicConfig'
 import { isAllowedUrl, openLinkInBrowser, safeOpenExternal } from '../safeOpen'
 
@@ -290,8 +291,12 @@ let signedIn = false
 let decided = false
 let afterLogin: (() => BrowserWindow | undefined) | undefined
 
-/** The login should show: it is on, not skipped, nobody is signed in, and the learner hasn't chosen in this run. */
-export const needsLogin = (): boolean => loginEnabled() && !skipLogin() && !signedIn && !decided
+/**
+ * The login should show: it is on, not skipped, and nobody is signed in and the learner hasn't chosen in this run; or
+ * there is no age step result on this Mac yet (age-delete lane: a learner signed in before the step existed sees it
+ * once, at the login, before anything else).
+ */
+export const needsLogin = (): boolean => loginEnabled() && !skipLogin() && (!ageStepCleared() || (!signedIn && !decided))
 
 /** Tell the launch gate whether the login is through. */
 const report = (): void => setGatePart('login', !needsLogin())
@@ -314,6 +319,15 @@ let currentAccess: (() => Promise<string | undefined>) | undefined
  */
 export function accessToken(): Promise<string | undefined> {
   return currentAccess ? currentAccess() : Promise.resolve(undefined)
+}
+
+let currentRefresh: (() => Promise<string | undefined>) | undefined
+/**
+ * age-delete lane: refresh the session now, once, and return the new access token (undefined: signed out, or the
+ * refresh failed). features/accountDelete.ts calls it when miyagi-cloud says 403 bad_access_token. Main only.
+ */
+export function refreshedAccessToken(): Promise<string | undefined> {
+  return currentRefresh ? currentRefresh() : Promise.resolve(undefined)
 }
 
 let signedInHook: (() => void) | undefined
@@ -349,6 +363,8 @@ export default defineMainFeature({
     }
     signedIn = !!session
     report()
+    // age-delete lane: the step done (or wiped by Delete account) changes whether the login is still needed.
+    onAgeChange(report)
 
     const persist = (): void => {
       try {
@@ -452,6 +468,7 @@ export default defineMainFeature({
       return refreshing
     }
 
+    currentRefresh = async () => ((await refresh()) ? session?.access : undefined)
     currentAccess = async () => {
       if (!session) return undefined
       if (session.expiresAt - Date.now() < 60_000) await refresh()
@@ -692,12 +709,14 @@ export default defineMainFeature({
     }
 
     ctx.handle('auth:get', () => (loginEnabled() && session ? { signedIn: true, ...publicUser(session.user) } : null))
-    ctx.handle('auth:google', () => google())
+    // age-delete lane: no sign-in and no guest path before the age step (main/features/agegate.ts).
+    ctx.handle('auth:google', () => (ageStepCleared() ? google() : { ok: false, reason: 'age', message: 'Answer the birthday question first.' }))
     ctx.handle('auth:cancel', () => {
       stopFlow({ ok: false, reason: 'cancelled' })
       return true
     })
     ctx.handle('auth:continue', () => {
+      if (!ageStepCleared()) return { next: 'none' }
       decide()
       const login = ctx.appWindow('auth')
       const next = afterLogin?.()

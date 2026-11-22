@@ -26,6 +26,7 @@ import { StatusGlyph } from '../../core/ui/status'
 import { ease, pressMotion } from '../../core/ui/motion'
 import { AppleGlyph, GoogleGlyph, TextLink } from '../account/ui'
 import { MARK_ID } from '../onboarding/Intro'
+import { AgeFirst } from '../agegate/AgeFirst'
 import { Avatar } from './Avatar'
 import { cancelSignIn, continueToSetup, leaveSignIn, openLegal, signInWith, signOut, useAuth } from './store'
 
@@ -182,7 +183,16 @@ function useCancelOnEsc(): void {
   }, [])
 }
 
-export function Login({ onContinue }: { onContinue?: () => void } = {}): ReactNode {
+/** The age step (features/agegate) comes first in every host, before Google and before the guest path. */
+export function Login(props: { onContinue?: () => void } = {}): ReactNode {
+  return (
+    <AgeFirst>
+      <SignIn {...props} />
+    </AgeFirst>
+  )
+}
+
+function SignIn({ onContinue }: { onContinue?: () => void }): ReactNode {
   useCancelOnEsc()
   const pending = useAuth((s) => s.pending)
   const user = useAuth((s) => s.user)
@@ -233,7 +243,10 @@ export function Login({ onContinue }: { onContinue?: () => void } = {}): ReactNo
                     ) : note ? (
                       <Failure key="fail" text={note} onWithout={done} />
                     ) : (
-                      null
+                      // What signing in shares, plainly (age-delete lane).
+                      <motion.span key="shares" data-auth-shares style={{ fontSize: type2.sm, color: color.label }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}>
+                        Google shares your name, email and photo with miyagi.
+                      </motion.span>
                     )}
                   </AnimatePresence>
                 </div>
