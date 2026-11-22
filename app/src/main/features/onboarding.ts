@@ -25,7 +25,7 @@
  *     no overlay, launcher or lesson exists either. onboarding:agree stamps prefs.consent {version, at} with main's own
  *     clock (main/prefs.ts patchPrefs; a renderer's prefs:set can't write it). A build with a newer CONSENT_VERSION
  *     finds the old record, closes the gate and asks again.
- *   - The VS Code companion (DISTRIBUTION-PLAN 2): VS Code's own CLI at its fixed path inside the app bundle, run with
+ *   - The VS Code companion (DISTRIBUTION-PLAN 2): VS Code's own CLI (mac: fixed path in the app bundle; Windows: see vscodeCli.ts), run with
  *     execFile (no shell) and a minimal environment, installs the bundled .vsix from Resources/vscode/ plus the Python
  *     and Jupyter extensions. No .vsix bundled (dev, until bundle-engine ships one) → {ok:false, reason:'no-vsix'} and
  *     the renderer falls back to the engine's own fix. Never another editor.
@@ -69,6 +69,7 @@ import { defineMainFeature } from '../context'
 import { gateIsOpen, gateView, onGate, setGatePart } from '../gate'
 import { getPrefs, onPrefsChange, patchPrefs } from '../prefs'
 import { needsLogin, onLoginDone } from './auth'
+import { cliEnvFor, cliInvocation, findCodeCli, stepLabel, type CodeCli } from './vscodeCli'
 
 /** The guided steps a relaunch may come back to (renderer onboarding/steps.ts STEP_ORDER). */
 const STEPS = ['screen', 'accessibility', 'companion', 'engine'] as const
@@ -89,11 +90,15 @@ function startedAtLogin(app: App): boolean {
   }
 }
 
-/** VS Code's own CLI inside the app bundle: present even when `code` was never added to PATH. */
-function codeCli(): string | undefined {
-  if (process.platform !== 'darwin') return undefined
-  const rel = 'Visual Studio Code.app/Contents/Resources/app/bin/code'
-  return [join('/Applications', rel), join(homedir(), 'Applications', rel)].find((p) => existsSync(p))
+/** VS Code's own CLI (mac: inside the app bundle; Windows: Code.exe + cli.js or code.cmd): see vscodeCli.ts. */
+function codeCli(): CodeCli | undefined {
+  return findCodeCli({
+    platform: process.platform,
+    env: process.env,
+    home: homedir(),
+    exists: existsSync,
+    readdir: (p) => readdirSync(p)
+  })
 }
 
 /** The companion shipped inside miyagi.app (Resources/vscode/miyagi*.vsix), if this build has one. */
@@ -108,21 +113,19 @@ function bundledVsix(): string | undefined {
   }
 }
 
-/** Only what VS Code's CLI needs: never our keys or the engine token. */
-function cliEnv(): NodeJS.ProcessEnv {
-  const keep = ['HOME', 'USER', 'LOGNAME', 'LANG', 'TMPDIR']
-  const env: NodeJS.ProcessEnv = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }
-  for (const k of keep) if (process.env[k]) env[k] = process.env[k]
-  return env
-}
-
-function run(file: string, args: string[]): Promise<boolean> {
+function run(cli: CodeCli, args: string[]): Promise<boolean> {
+  const inv = cliInvocation(cli, args)
   return new Promise((resolve) => {
-    execFile(file, args, { env: cliEnv(), timeout: INSTALL_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 }, (err) => {
-      // Never the output: it can carry paths. Only that it failed.
-      if (err) console.warn('[onboarding] VS Code CLI step failed:', args[0], args[1]?.startsWith('/') ? '(bundled companion)' : args[1])
-      resolve(!err)
-    })
+    execFile(
+      inv.file,
+      inv.args,
+      { env: cliEnvFor(process.platform, process.env, cli.extraEnv), timeout: INSTALL_TIMEOUT_MS, windowsHide: true, windowsVerbatimArguments: inv.verbatim, maxBuffer: 1024 * 1024 },
+      (err) => {
+        // Never the output or the .vsix path: they carry the user's folders. Only that it failed.
+        if (err) console.warn('[onboarding] VS Code CLI step failed:', args[0], stepLabel(args[1]))
+        resolve(!err)
+      }
+    )
   })
 }
 

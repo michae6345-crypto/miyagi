@@ -115,6 +115,8 @@ win:
       filter:
         - "**/*"
         - "!vscode{,/**/*}"
+    # The VS Code companion .vsix (same file as the Mac build; a .vsix is a zip, not platform code). Onboarding installs
+    # it with Code.exe + cli.js or code.cmd (main/features/vscodeCli.ts).
     - from: build/engine/vscode
       to: vscode
 # The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts miyagi when done.
