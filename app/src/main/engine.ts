@@ -32,10 +32,10 @@ export const HANDSHAKE_TIMEOUT_MS = 4000
 
 /**
  * Timings, for tests only: heartbeatMs (ping interval), deadMs (silence that drops the socket), probeMs (the wake
- * probe) and handshakeMs (an attempt nobody answers). Everywhere else main/heartbeat.ts's PING_MS, DEAD_MS and
- * PROBE_MS, and HANDSHAKE_TIMEOUT_MS.
+ * probe), handshakeMs (an attempt nobody answers) and retryMs (the fast retry). Everywhere else main/heartbeat.ts's
+ * PING_MS, DEAD_MS and PROBE_MS, HANDSHAKE_TIMEOUT_MS and FAST_RETRY_MS.
  */
-export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number; handshakeMs?: number }
+export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number; handshakeMs?: number; retryMs?: number }
 
 /**
  * Where the socket is, for the pill (review A16: never say "can't reach" before an attempt has actually failed).
@@ -378,7 +378,7 @@ export class EngineLink {
     clearTimeout(this.timer)
     if (this.stopped) return
     const fast = Date.now() - this.downSince < FAST_WINDOW_MS
-    const delay = fast ? FAST_RETRY_MS : (this.slow = Math.min(SLOW_RETRY_MAX_MS, this.slow ? this.slow * 2 : 2000))
+    const delay = fast ? (this.timings.retryMs ?? FAST_RETRY_MS) : (this.slow = Math.min(SLOW_RETRY_MAX_MS, this.slow ? this.slow * 2 : 2000))
     this.timer = setTimeout(() => this.connect(), delay)
     this.emitLink()
   }
