@@ -120,7 +120,8 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
-INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"})
+INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
+                     "ask.warm"})  # ask.warm: Fn+Control key-down; never waits behind a build (coach/fast_ask.py)
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
 # Nov 21 (launch-quiet): what counts as the learner asking for a lesson on this connection (session.learner_asked)
 LEARNER_ASKS = LESSON_STARTS
@@ -1119,6 +1120,10 @@ class Engine:
                 await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})
         elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
             await s.card_seen(msg.type == "card.shown", p.stepId, p.title, p.kind, getattr(p, "by", None))
+        elif msg.type == "ask.warm":  # fast circle to ask: open the keep-alive client, warm the cache (fire and forget)
+            from server.coach import fast_ask
+
+            fast_ask.warm_soon(getattr(p, "source", None))
 
 
 # config.keys -> server.config (get_key) + the env vars modules read. Memory only; never logged.
