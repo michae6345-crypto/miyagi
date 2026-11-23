@@ -8,7 +8,7 @@ import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { GlassCard } from '../../core/ui/GlassCard'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { color, copy, fill, radius2, surface, type2 } from '../../core/theme'
+import { color, copy, fill, layer, radius2, surface, type2 } from '../../core/theme'
 import { looksLikeEmail } from './model'
 import { openLink, say } from './store'
 import { AppleGlyph, GlyphButton, GoogleGlyph, TextLink } from './ui'
@@ -26,7 +26,7 @@ export function SignIn(): ReactNode {
   }
   const where = bridge.platform.os === 'mac' ? 'on every Mac' : 'on every computer'
   return (
-    <GlassCard surface="panel" width={400} padding={32} style={{ display: 'flex', borderRadius: radius2.launcher }}>
+    <GlassCard surface="panel" width={400} padding={32} style={{ display: 'flex', borderRadius: radius2.launcher, background: layer.overlay.background }}>
       <section aria-labelledby="account-si-title" className="flex w-full flex-col gap-[20px]">
         <div className="flex flex-col items-center gap-[8px] text-center">
           <span style={{ marginBottom: 8 }}>
