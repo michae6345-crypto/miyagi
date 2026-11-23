@@ -1,7 +1,9 @@
 /**
- * Feature: buddy, pass 2: the pointing branch. Brief: app/agents/buddy.md
+ * Feature: buddy. The marks, and the stroke the buddy draws round one. Brief: app/agents/buddy.md
  *
- * Pure (no React, no DOM, no timers): the marks the engine asks for, and the shape the branch draws to reach one.
+ * Pure (no React, no DOM, no timers): the marks the engine asks for, and the shape of the stroke that reaches one.
+ * The stroke starts where the buddy sits (Companion.tsx lands it beside the mark first); in the comments below,
+ * "the bonsai" is that starting point, from when the stroke grew out of the notch.
  *   validMarks / keyOf  which marks can be drawn, and how a mark is known again when the engine re-sends it
  *   mergeMarks          a new annotate replaces the drawn set; a known mark keeps its birth (it is not drawn again);
  *                       a mark that already faded this step stays gone
@@ -194,25 +196,33 @@ export function createReach(): { move(p: Point, boxes: readonly Box[], now: numb
  *                one line of code (about 18 tall) gets a loop that stays in that line's own leading, like the
  *                spotlight's hole, and does not strike through the lines around it.
  *   minW / minH  a one-word target still gets a loop you can see.
+ *   bulge        the most the loop swells past the middle of the target's short side (px, before the pad): a block
+ *                of code or a panel gets a squarer loop that stays by it, not an ellipse through the lines around it.
  *   wobble       how far from a perfect ring it strays, as a share of its radius. Only ever outward, and
  *   drift        the loop grows this much from start to end, so the end passes outside the start, not onto it.
  *                Both push out from the target, so the stroke never cuts its corners; together they stay small
  *                enough that a one-line loop still fits between the lines above and below.
+ *   strayPx      on a big loop those shares would be many px: together they are kept to this much on its short side.
  *   lead         the branch joins the loop this far past the point nearest the bonsai (a share of the loop's length,
  *                kept between leadPx), so it comes in along the loop and not straight at it.
  *   overlap      how far past a full turn the loop goes (same units, kept between overlapPx).
  */
-export const RING = { padX: 9, padY: 7, minW: 40, minH: 20, wobble: 0.02, drift: 0.05, lead: 0.07, leadPx: [8, 40], overlap: 0.09, overlapPx: [12, 56], points: 64 } as const
+export const RING = { padX: 9, padY: 7, minW: 40, minH: 20, bulge: 8, wobble: 0.02, drift: 0.05, strayPx: 6, lead: 0.07, leadPx: [8, 40], overlap: 0.09, overlapPx: [12, 56], points: 64 } as const
 /** How finely the loop's outline is measured before it is walked at an even pace. */
 const STEPS = 240
 
 /**
  * A long, flat target gets a squarer loop, so a line of code is not wrapped in a huge ellipse: the exponent goes from
  * 2 (an ellipse) to 4 by an aspect of 6, and on to 6 by 14 (a whole line), where the loop hugs the line's own box.
+ * A big target gets a squarer loop too (up to 8): an ellipse through the corners of a block of code swells a line or
+ * two past its top and bottom, so the exponent also goes up until that swell is RING.bulge px.
  */
 function axes(r: Rect, within?: Rect): { n: number; a: number; b: number } {
   const aspect = Math.max(r.w / r.h, r.h / r.w)
-  let n = 2 + 2 * clamp((aspect - 1.6) / 4.4, 0, 1) + 2 * clamp((aspect - 6) / 8, 0, 1)
+  const byShape = 2 + 2 * clamp((aspect - 1.6) / 4.4, 0, 1) + 2 * clamp((aspect - 6) / 8, 0, 1)
+  const short = Math.min(r.w, r.h) / 2
+  const byBulge = short > 0 ? Math.LN2 / Math.log(1 + RING.bulge / short) : 0
+  let n = clamp(Math.max(byShape, byBulge), 2, 8)
   const k = Math.pow(2, 1 / n) // what a superellipse of exponent n needs to pass through the rect's corners
   const padY = clamp((r.h - 18) * 0.25, 0, RING.padY)
   let a = Math.max(RING.minW / 2, (r.w / 2) * k + RING.padX)
@@ -340,11 +350,13 @@ export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN
   const seed = seedOf(key)
   const p1 = seed * Math.PI * 2
   const p2 = ((seed * 7.13) % 1) * Math.PI * 2
+  // A big loop strays less, as a share: never more than strayPx past its outline on its short side.
+  const calm = Math.min(1, RING.strayPx / (Math.min(a, b) * (GROWN - 1)))
   const pts: Point[] = []
   for (let i = 0; i <= RING.points; i++) {
     const t = i / RING.points
     const th = angleAt(begin + turn * total * t)
-    pts.push(at(th, (1 + RING.drift * t) * (1 + RING.wobble * (1.6 + Math.sin(2 * th + p1) + 0.6 * Math.sin(3 * th + p2)))))
+    pts.push(at(th, (1 + RING.drift * calm * t) * (1 + RING.wobble * calm * (1.6 + Math.sin(2 * th + p1) + 0.6 * Math.sin(3 * th + p2)))))
   }
 
   const join = pts[0]

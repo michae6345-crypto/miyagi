@@ -1,12 +1,13 @@
 /**
  * Feature: buddy. The character sheet, only in the browser stage with ?buddy=cast (index.tsx). Not an app window.
- * Each candidate (Character.tsx) in every mood and pose, big on the island's black, and at its real size over a dark
- * and a light app, so Adrian can pick one from what it actually looks like.
+ * Each candidate (Character.tsx) in every mood and pose, big on the island's black, and at the size it is on the
+ * screen (trip.ts BODY.size) over a dark and a light app, so Adrian can pick one from what it actually looks like.
  */
 import type { ReactNode } from 'react'
 import { brand } from '../../core/theme'
 import { Character, CHARACTERS, type CharacterKind, type CharacterProps } from './Character'
 import { TINTS, type Tint } from './palette'
+import { BODY } from './trip'
 
 const POSES: { name: string; props: CharacterProps }[] = [
   { name: 'calm', props: {} },
@@ -32,7 +33,7 @@ export function CastStage(): ReactNode {
   return (
     <div data-hit data-theme="dark" style={{ position: 'absolute', inset: 0, background: '#161615', padding: '22px 26px', overflow: 'hidden', color: '#F4F4F5' }}>
       <div style={{ font: '600 20px -apple-system, "Segoe UI", sans-serif', marginBottom: 2 }}>The buddy: three characters to pick from</div>
-      <div style={{ ...LABEL, fontSize: 13, marginBottom: 14 }}>None of them is the bonsai. Same face, moods and motion on each. On the screen it is 54 px.</div>
+      <div style={{ ...LABEL, fontSize: 13, marginBottom: 14 }}>None of them is the bonsai. Same face, moods and motion on each. On the screen it is {BODY.size} px.</div>
       {CHARACTERS.map((kind) => (
         <div key={kind} data-cast={kind} style={{ marginBottom: 14 }}>
           <div style={{ ...LABEL, fontSize: 13, color: '#F4F4F5', marginBottom: 6 }}>{NOTE[kind]}</div>
@@ -46,9 +47,9 @@ export function CastStage(): ReactNode {
             {(['dark', 'light'] as const).map((tone) => (
               <div key={tone} style={{ background: tone === 'dark' ? '#1E1E1E' : brand.paper, borderRadius: 14, padding: '12px 10px 8px', display: 'grid', justifyItems: 'center', alignContent: 'space-between', gap: 6 }}>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <Character kind={kind} size={44} />
-                  <Character kind={kind} size={44} mood="happy" />
-                  <Character kind={kind} size={32} mood="curious" look={{ x: -0.8, y: 0 }} />
+                  <Character kind={kind} size={BODY.size} />
+                  <Character kind={kind} size={BODY.size} mood="happy" />
+                  <Character kind={kind} size={BODY.size} mood="curious" look={{ x: -0.8, y: 0 }} />
                 </div>
                 <span style={{ ...LABEL, color: tone === 'dark' ? '#8F8F88' : '#66665F' }}>real size, {tone} app</span>
               </div>

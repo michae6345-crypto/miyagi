@@ -250,6 +250,24 @@ describe('reach', () => {
     for (const p of loop(reach(from, line, 'k').d)) assert.ok(Math.abs(p.y - mid) < 12, `the loop reaches ${Math.abs(p.y - mid).toFixed(1)} px from the line's middle`)
   })
 
+  test('a block of code: the loop stays by the block and does not swell a line or two past it', () => {
+    // Seven 18 px lines. An ellipse through its corners would pass 30 px and more above and below it.
+    const block = { x: 130, y: 207, w: 450, h: 126 }
+    const most = RING.bulge + RING.padY + RING.strayPx
+    for (const key of ['k', 'a', 'tour-2']) {
+      const pts = loop(reach(from, block, key).d)
+      for (const p of pts) {
+        const past = Math.max(block.y - p.y, p.y - (block.y + block.h))
+        assert.ok(past <= most + 0.5, `the loop is ${past.toFixed(1)} px past the block`)
+        assert.ok(!(p.x > block.x && p.x < block.x + block.w && p.y > block.y && p.y < block.y + block.h), 'inside the block')
+      }
+    }
+    // A big panel too: its loop's box is the panel and a little, not half as wide again.
+    const panel = { x: 60, y: 60, w: 300, h: 220 }
+    const box = ringBox(panel)
+    assert.ok(box.w < panel.w + 70 && box.h < panel.h + 50, `${box.w} x ${box.h}`)
+  })
+
   test('the branch meets the loop on the side facing the bonsai, not across the target', () => {
     for (const t of targets) {
       const r = reach(from, t, 'k')

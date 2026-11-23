@@ -11,13 +11,13 @@
  *   say        a sentence of its own: an answer card's first sentence, said beside what the answer points at.
  * And the learner can answer back without talking: the chips in its bubble (reply()).
  *
- * Wired to what is really there today: the engine's status (thinking), push to talk's state, answer cards, Esc.
- * The browser stage's try-out (PointStage.tsx) drives the same functions by hand.
+ * Wired to what is really there today: answer cards and Esc here (the bus), and in wire.ts the engine's status
+ * (thinking), the Explain action and push to talk's state. This file imports nothing that needs the app's bridge,
+ * so it is checked offline (test/buddyTalk.test.ts). The browser stage's try-out (PointStage.tsx) drives the same
+ * functions by hand.
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
-import { useLesson } from '../../core/lesson'
-import { sendAction } from '../../core/shortcuts'
 import { fade, reached, usePointing } from './pointing'
 import { firstSentence } from './trip'
 
@@ -85,15 +85,31 @@ let responder: ((kind: ReplyKind, key: string) => boolean) | undefined
 export function setResponder(fn: typeof responder): void {
   responder = fn
 }
+/** The engine's side of Explain: whether there is a lesson to explain, and the ask itself. Set by wire.ts. */
+export type Engine = { canExplain: () => boolean; explain: (label?: string) => void }
+let engine: Engine | undefined
+export function setEngine(e: Engine | undefined): void {
+  engine = e
+}
 export function canExplain(): boolean {
-  return !!responder || !!useLesson.getState().lesson
+  return !!responder || !!engine?.canExplain()
 }
 export function reply(kind: ReplyKind, key: string): void {
   if (responder?.(kind, key)) return
   if (kind === 'got') return reached([key])
   if (kind === 'next') return fade([key])
+  if (!engine) return
   setActivity('thinking')
-  sendAction('explain', usePointing.getState().marks.find((m) => m.key === key)?.label)
+  engine.explain(usePointing.getState().marks.find((m) => m.key === key)?.label)
+}
+
+/**
+ * The engine started or stopped thinking (wire.ts). It is the buddy's thinking only when the learner asked the
+ * buddy something; when the engine stops, so does the buddy.
+ */
+export function engineThinking(now: boolean): void {
+  if (now && asked && get().summoned) setActivity('thinking')
+  else if (!now && get().activity === 'thinking') setActivity('idle')
 }
 
 // ---- wired to what is really there ---------------------------------------------------------------------------
@@ -105,13 +121,6 @@ usePointing.subscribe((s, prev) => {
   const about = get().sayFor
   if (about && !s.marks.some((m) => m.key === about)) set({ say: undefined, sayFor: undefined })
   if (s.marks.length !== prev.marks.length) stay()
-})
-
-// The engine is thinking about what the learner asked; when it stops, so does the buddy.
-useLesson.subscribe((s, prev) => {
-  if (s.engineState === prev.engineState) return
-  if (s.engineState === 'thinking' && asked && get().summoned) setActivity('thinking')
-  else if (prev.engineState === 'thinking' && get().activity === 'thinking') setActivity('idle')
 })
 
 // An answer card while the buddy is out: it says the first sentence, beside the mark the answer points at if one is
@@ -127,20 +136,3 @@ onUi('dismiss', () => {
 })
 onUi('reset', sendHome)
 onMessage('lesson.ended', sendHome)
-
-// Push to talk (Michael's features/ptt): the buddy comes over and listens while the keys are held, and thinks from
-// the moment they are let go. Loaded late: this feature loads early (features load A to Z) and a static import
-// would pull ptt's own import chain in out of order.
-if (typeof window !== 'undefined') {
-  void import('../ptt/store')
-    .then(({ usePtt }) => {
-      usePtt.subscribe((s, prev) => {
-        const now = s.ptt.phase
-        if (now === prev.ptt.phase && s.ptt.text === prev.ptt.text) return
-        if (now === 'arming' || now === 'listening') setActivity('listening', s.ptt.text)
-        else if (now === 'sending') setActivity('thinking')
-        else if (prev.ptt.phase === 'arming' || prev.ptt.phase === 'listening') setActivity('idle')
-      })
-    })
-    .catch(() => undefined)
-}

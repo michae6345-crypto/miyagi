@@ -1,0 +1,38 @@
+/**
+ * Feature: buddy. The back and forth (talk.ts), wired to the app: the engine's status, the Explain action, and push
+ * to talk. Loaded for its side effects by index.tsx. Kept apart from talk.ts because these imports need the app's
+ * bridge, and talk.ts is checked offline.
+ */
+import { useLesson } from '../../core/lesson'
+import { sendAction } from '../../core/shortcuts'
+import { engineThinking, setActivity, setEngine } from './talk'
+
+// Explain from the bubble is the step's Explain action; the mark's label goes with it.
+setEngine({
+  canExplain: () => !!useLesson.getState().lesson,
+  explain: (label) => sendAction('explain', label)
+})
+
+// The engine is thinking about what the learner asked; when it stops, so does the buddy.
+useLesson.subscribe((s, prev) => {
+  if (s.engineState === prev.engineState) return
+  if (s.engineState === 'thinking') engineThinking(true)
+  else if (prev.engineState === 'thinking') engineThinking(false)
+})
+
+// Push to talk (Michael's features/ptt): the buddy comes over and listens while the keys are held, and thinks from
+// the moment they are let go. Loaded late: this feature loads early (features load A to Z) and a static import
+// would pull ptt's own import chain in out of order.
+if (typeof window !== 'undefined') {
+  void import('../ptt/store')
+    .then(({ usePtt }) => {
+      usePtt.subscribe((s, prev) => {
+        const now = s.ptt.phase
+        if (now === prev.ptt.phase && s.ptt.text === prev.ptt.text) return
+        if (now === 'arming' || now === 'listening') setActivity('listening', s.ptt.text)
+        else if (now === 'sending') setActivity('thinking')
+        else if (prev.ptt.phase === 'arming' || prev.ptt.phase === 'listening') setActivity('idle')
+      })
+    })
+    .catch(() => undefined)
+}

@@ -1,11 +1,15 @@
 /**
  * Feature: buddy. Brief: app/agents/buddy.md
  *
- * The living bonsai (LivingMark, Buddy, usePointerLean, useBuddy) and its pointing branch (Reach.tsx, pointing.ts,
- * marks.ts). The bonsai has no window or island mode of its own: the notch ears and other surfaces import it. The
- * branch is an overlay layer under the island (z 30: over the spotlight's dim, behind the notch it grows out of);
- * it draws nothing while features/annotate is mounted (Reach.tsx), so a mark is never circled twice.
- * Previews, only in the browser stage: ?buddy (every state of the mark) and ?buddy=point (try the pointing).
+ * Two things live here:
+ *   - The living bonsai (LivingMark, Buddy, usePointerLean, useBuddy): the logo in the notch, alive. No window or
+ *     island mode of its own; the notch ears and other surfaces import it.
+ *   - The buddy: a character of its own (Character.tsx), not the logo. It comes out of the island, flies to what the
+ *     coach points at, circles it, says what it is, listens, thinks and answers (Companion.tsx, talk.ts, wire.ts,
+ *     trip.ts), and draws its loops (Reach.tsx, pointing.ts, marks.ts).
+ * Both overlay layers draw nothing while features/annotate is mounted (Reach.tsx), so a mark is never circled twice.
+ * Previews, only in the browser stage: ?buddy (every state of the living mark), ?buddy=point (try the buddy) and
+ * ?buddy=cast (the character sheet).
  */
 import { defineFeature } from '../../core/registry'
 import { CastStage } from './CastStage'
@@ -13,6 +17,7 @@ import { CompanionLayer } from './Companion'
 import { PointStage, POINT_STAGE } from './PointStage'
 import { ReachLayer } from './Reach'
 import { BuddyStage } from './Stage'
+import './wire' // the back and forth, wired to the engine and push to talk
 
 const preview = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('buddy') : null
 
