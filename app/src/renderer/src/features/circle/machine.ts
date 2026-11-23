@@ -8,7 +8,8 @@
  *             which the overlay is interactive. It ends on release, Esc, blur, an error, or ARMED_MAX_MS, whatever comes
  *             first, so the learner's mouse can never stay stuck.
  *   sealed    released with ink: waiting for the spoken words (or the news that there were none).
- *   asking    the ask went out (askId); the ink stays while the engine thinks.
+ *   asking    the ask went out (askId); the ink stays while the engine thinks. answer.delta text for this askId
+ *             gathers in `stream` (the card opens beside the circle on the first words; "Looking" until then).
  *   answered  the answer card sits beside the circle until it is closed, Esc, a new hold, or ANSWER_MS.
  *
  * Asking and answered keep the hold's push-to-talk session: its final words, if they come late (after "What is this?"
@@ -25,10 +26,16 @@ export const ARMED_MAX_MS = 8000
 export const WORDS_WAIT_MS = 1500
 /** Sealed while the learner keeps talking: a backstop past push to talk's own hard cap (65 s). */
 export const SEALED_MAX_MS = 70_000
-/** No answer by now: the ink fades and the pill says so. */
+/**
+ * No answer by now: the ink fades and the pill says so. A card that comes later is dropped (the ask is closed), so the
+ * engine's answer budget (ANSWER_WITHIN_S, about 25 s, server/orchestrator/circle_ask.py) must stay under this. Raise
+ * this first if the engine budget ever goes up.
+ */
 export const ASK_MAX_MS = 30_000
 /** An answer nobody closes goes by itself (short: Esc does not reach the overlay after release, see the brief). */
 export const ANSWER_MS = 25_000
+/** The most streamed text one answer keeps: past it, more words are dropped (a runaway engine cannot grow the card). */
+export const MAX_STREAM = 4000
 /** The ask when nothing was said (the contract's default too). */
 export const DEFAULT_ASK = 'What is this?'
 
@@ -36,11 +43,14 @@ export type PttPhase = 'idle' | 'arming' | 'listening' | 'sending' | 'error'
 
 export type Answer = { title?: string; body: string }
 
+/** The answer as it streams in (answer.delta): the text so far, whether the last delta came, and when the newest came. */
+export type Stream = { text: string; done: boolean; at: number }
+
 export type CircleState =
   | { k: 'idle' }
   | { k: 'armed'; session: string; since: number; strokes: Pt[][]; down: boolean; words?: string }
   | { k: 'sealed'; session: string; since: number; strokes: Pt[][]; box: Box; wordsBy?: number }
-  | { k: 'asking'; session: string; askId: string; since: number; strokes: Pt[][]; box: Box; text: string }
+  | { k: 'asking'; session: string; askId: string; since: number; strokes: Pt[][]; box: Box; text: string; stream?: Stream }
   | { k: 'answered'; session: string; askId: string; since: number; strokes: Pt[][]; box: Box; text: string; answer: Answer }
 
 export const IDLE: CircleState = { k: 'idle' }
@@ -63,6 +73,8 @@ export type CircleEvent =
   | { t: 'tick' }
   /** The engine answered: card {kind: "answer", askId}. */
   | { t: 'answer'; askId?: string; answer: Answer }
+  /** A piece of the answer: answer.delta {askId, text, done?}. `text` is only the new words. */
+  | { t: 'delta'; askId: string; text: string; done?: boolean }
 
 export type Ask = { askId: string; text: string; box: Box }
 
@@ -87,6 +99,9 @@ export type Step = {
 /** The overlay takes the mouse only while armed. */
 export const interactive = (s: CircleState): boolean => s.k === 'armed'
 
+/** The streamed answer to show now ('' = none yet: the "Looking" chip). Leading space is not shown. */
+export const shown = (s: CircleState): string => (s.k === 'asking' && s.stream ? s.stream.text.trimStart() : '')
+
 /** The ink that is on screen. */
 export const inkOf = (s: CircleState): Pt[][] => (s.k === 'idle' ? [] : s.strokes)
 
@@ -110,6 +125,14 @@ function endHold(s: Extract<CircleState, { k: 'armed' }>, ctx: Ctx, pttOver: boo
   // Push to talk ended with no words to come (empty, short, keypress, timeout): ask now.
   if (pttOver && lastCancel) return send(s.session, s.strokes, box, undefined, ctx)
   return { state: { k: 'sealed', session: s.session, since: ctx.now, strokes: s.strokes, box, wordsBy: pttOver ? ctx.now + WORDS_WAIT_MS : undefined } }
+}
+
+/** Cut at MAX_STREAM, never in the middle of a two-part character. */
+function capText(t: string): string {
+  if (t.length < MAX_STREAM) return t
+  const c = t.charCodeAt(MAX_STREAM - 1)
+  // 55296 to 56319: the first half of a surrogate pair (an emoji, say).
+  return t.slice(0, c >= 55296 && c <= 56319 ? MAX_STREAM - 1 : MAX_STREAM)
 }
 
 export function step(s: CircleState, e: CircleEvent, ctx: Ctx): Step {
@@ -167,9 +190,23 @@ export function step(s: CircleState, e: CircleEvent, ctx: Ctx): Step {
     case 'tick':
       if (s.k === 'armed' && ctx.now - s.since >= ARMED_MAX_MS) return endHold({ ...s, down: false }, ctx, false)
       if (s.k === 'sealed' && ((s.wordsBy !== undefined && ctx.now >= s.wordsBy) || ctx.now - s.since >= SEALED_MAX_MS)) return send(s.session, s.strokes, s.box, undefined, ctx)
-      if (s.k === 'asking' && ctx.now - s.since >= ASK_MAX_MS) return { state: IDLE, timedOut: true }
+      if (s.k === 'asking' && ctx.now - Math.max(s.since, s.stream?.at ?? 0) >= ASK_MAX_MS) {
+        // The words came but the card never did: keep what was said as the answer, never drop it.
+        if (shown(s)) return { state: { k: 'answered', session: s.session, askId: s.askId, since: ctx.now, strokes: s.strokes, box: s.box, text: s.text, answer: { body: shown(s) } } }
+        return { state: IDLE, timedOut: true }
+      }
       if (s.k === 'answered' && ctx.now - s.since >= ANSWER_MS) return { state: IDLE }
       return { state: s }
+    case 'delta': {
+      // Only the ask on screen, only before its card and its last delta. Anything else (an older ask, a closed one,
+      // a delta after the card or after done) is dropped.
+      if (s.k !== 'asking' || e.askId !== s.askId || s.stream?.done) return { state: s }
+      const had = s.stream?.text ?? ''
+      // Past MAX_STREAM the words are dropped (done still ends the stream).
+      const add = typeof e.text === 'string' ? e.text.slice(0, Math.max(0, MAX_STREAM - had.length)) : ''
+      if (!add && !e.done) return { state: s }
+      return { state: { ...s, stream: { text: capText(had + add), done: !!e.done, at: ctx.now } } }
+    }
     case 'answer':
       if (s.k !== 'asking') return { state: s }
       if (e.askId === s.askId) return { state: { k: 'answered', session: s.session, askId: s.askId, since: ctx.now, strokes: s.strokes, box: s.box, text: s.text, answer: e.answer } }

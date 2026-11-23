@@ -498,6 +498,17 @@ class AnnotateClear(_Model):
 Annotate = AnnotateMarks | AnnotateClear
 
 
+class AnswerDelta(_Model):
+    """answer.delta (Circle to ask, streamed, Nov 22): the answer to action ask {askId} as the model writes it. text: the
+    NEW text to append (never the whole text so far), the answer card's body, plain prose. done: true on the last delta
+    (its text may be ""). The full answer still follows as card {kind: "answer", askId, region}, which replaces the
+    streamed text even when it differs (cleaned text, or a fallback card). The engine may send no deltas at all."""
+
+    askId: str
+    text: str = ""
+    done: bool | None = None
+
+
 class VideoSeek(_Model):
     t: float
     play: bool
@@ -1011,6 +1022,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "screen.seen": ScreenSeen,
     "screen.avoid": ScreenAvoid,
     "annotate": TypeAdapter(Annotate),  # Buddy draws (Nov 22)
+    "answer.delta": AnswerDelta,  # Circle to ask, streamed (Nov 22)
     "video.seek": VideoSeek,
     "video.pause": Empty,
     "video.play": Empty,
@@ -1037,6 +1049,7 @@ ENGINE_EVENTS: dict[str, Any] = {
 
 EngineEventType = Literal[
     "annotate",
+    "answer.delta",
     "cloud.token_invalid",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",

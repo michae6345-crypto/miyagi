@@ -1,7 +1,7 @@
 /** features/circle, offline: ink to box, box to screen points, the card's place, and the circle-to-ask state machine. */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { addPoint, bounds, clampBox, fromRegion, inkPath, loopPoints, MIN_INK, placeCard, strokeBox, toOverlay, toRegion, type Pt } from '../src/renderer/src/features/circle/geometry'
+import { addPoint, bounds, CARD_RESERVE_H, cardPlace, clampBox, fromRegion, holdCard, inkPath, loopPoints, MIN_INK, openCard, overlaps, placeCard, strokeBox, toOverlay, toRegion, type Pt } from '../src/renderer/src/features/circle/geometry'
 import { ANSWER_MS, ARMED_MAX_MS, ASK_MAX_MS, DEFAULT_ASK, IDLE, interactive, step, WORDS_WAIT_MS, type CircleEvent, type CircleState, type Ctx } from '../src/renderer/src/features/circle/machine'
 
 const loop = (x: number, y: number, w: number, h: number): Pt[] => loopPoints(x, y, w, h)
@@ -97,6 +97,133 @@ describe('clamping and the card place', () => {
       assert.ok(p.x >= 16 && p.y >= 16, JSON.stringify({ box, p }))
       assert.ok(p.x + card.w <= area.w - 16 && p.y + card.h <= area.h - 16, JSON.stringify({ box, p }))
     }
+  })
+})
+
+describe('the card while its words stream in (holdCard)', () => {
+  const area = { w: 1440, h: 900 }
+  const card = (h: number): { w: number; h: number; x: number; y: number } => ({ x: 0, y: 0, w: 300, h })
+  const at = (p: { x: number; y: number }, h: number) => ({ x: p.x, y: p.y, w: 300, h })
+
+  test('right of the circle: the top stays put as lines are added (placeCard alone would move it)', () => {
+    const box = { x: 200, y: 300, w: 200, h: 100 }
+    const hold = openCard(box, card(60), area)
+    assert.equal(hold.side, 'right')
+    const first = holdCard(box, card(60), area, hold)
+    for (const h of [80, 100, 140, 200]) {
+      const p = holdCard(box, card(h), area, hold)
+      assert.deepEqual(p, { x: first.x, y: first.y, side: 'right' }, `h ${h}`)
+      assert.notEqual(placeCard(box, card(h), area).y, first.y, 'centring would have moved it')
+    }
+  })
+
+  test('the side is picked for the final card, not the first words: a wide circle opens above, not below', () => {
+    const box = { x: 40, y: 560, w: 1360, h: 200 }
+    assert.equal(placeCard(box, card(60), area).side, 'below', 'the first words alone would pick below')
+    const hold = openCard(box, card(60), area)
+    assert.deepEqual(hold, { side: 'above', edge: 560 - 14 })
+    for (const h of [60, 100, CARD_RESERVE_H]) {
+      const p = holdCard(box, card(h), area, hold)
+      assert.equal(p.side, 'above')
+      assert.equal(p.y + h, 560 - 14, `h ${h}: the bottom edge stays just over the circle`)
+      assert.ok(!overlaps(at(p, h), box), `h ${h} covers the circle`)
+    }
+  })
+
+  test('above holds the bottom edge, so the card grows up, away from the circle (a wide terminal at the bottom)', () => {
+    const box = { x: 40, y: 700, w: 1360, h: 150 }
+    const hold = openCard(box, card(60), area)
+    assert.deepEqual(hold, { side: 'above', edge: 700 - 14 })
+    const first = holdCard(box, card(60), area, hold)
+    assert.equal(first.y, 700 - 14 - 60)
+    const last = holdCard(box, card(200), area, hold)
+    assert.equal(last.y, 700 - 14 - 200, 'grew up; pinning the top would have covered y 700 to 826')
+    assert.ok(!overlaps(at(last, 200), box))
+  })
+
+  test('only the screen edge moves it', () => {
+    const box = { x: 200, y: 700, w: 200, h: 100 }
+    const hold = openCard(box, card(60), area)
+    const first = holdCard(box, card(60), area, hold)
+    const p = holdCard(box, card(400), area, hold)
+    assert.equal(p.side, first.side)
+    assert.equal(p.x, first.x)
+    assert.equal(p.y + 400, area.h - 16, 'kept inside the bottom edge')
+  })
+
+  test('a held side that would cover the circle at this height is placed again, not clamped over it', () => {
+    const box = { x: 40, y: 560, w: 1360, h: 200 }
+    const hold = { side: 'below' as const, edge: 560 + 200 + 14 }
+    const p = holdCard(box, card(200), area, hold)
+    assert.deepEqual(p, placeCard(box, card(200), area))
+    assert.equal(p.side, 'above')
+    assert.ok(!overlaps(at(p, 200), box))
+  })
+})
+
+describe('the card when the streamed answer ends (cardPlace)', () => {
+  const area = { w: 1440, h: 900 }
+  type Hold = Parameters<typeof cardPlace>[3]
+  /** One AnswerCard's renders, as Layer runs them: [height or undefined (not measured yet), streaming]. */
+  const life = (box: { x: number; y: number; w: number; h: number }, renders: [number | undefined, boolean][]) => {
+    let hold: Hold
+    return renders.map(([h, streaming]) => {
+      const r = cardPlace(box, { w: 300, h: h ?? 140 }, area, hold, streaming, h !== undefined)
+      hold = r.hold
+      return r.p
+    })
+  }
+
+  test('right of the circle: a taller final card with a title keeps the side and top it opened with', () => {
+    const box = { x: 200, y: 300, w: 200, h: 100 }
+    // unmeasured, opened on the first words, more words, then the final card (a title line and a longer body)
+    const ps = life(box, [[undefined, true], [60, true], [120, true], [200, false], [200, false]])
+    const opened = ps[1]
+    assert.equal(opened.side, 'right')
+    for (const p of ps.slice(2)) assert.deepEqual(p, opened)
+    assert.notEqual(placeCard(box, { w: 300, h: 200 }, area).y, opened.y, 'placing it again would have moved it up')
+  })
+
+  test('a wide circle: the card opens above and never covers the circle through the final card', () => {
+    const box = { x: 40, y: 560, w: 1360, h: 200 }
+    const hs = [60, 100, 220]
+    const ps = life(box, hs.map((h, i) => [h, i < 2]))
+    ps.forEach((p, i) => {
+      assert.equal(p.side, 'above')
+      assert.equal(p.x, ps[0].x)
+      assert.equal(p.y + hs[i], 560 - 14, `render ${i}: the bottom edge holds`)
+      assert.ok(!overlaps({ x: p.x, y: p.y, w: 300, h: hs[i] }, box), `render ${i} covers the circle`)
+    })
+  })
+
+  test('a wide terminal at the bottom: the final card does not grow down over it', () => {
+    const box = { x: 40, y: 700, w: 1360, h: 150 }
+    const hs = [60, 120, 200]
+    const ps = life(box, hs.map((h, i) => [h, i < 2]))
+    ps.forEach((p, i) => {
+      assert.equal(p.side, 'above')
+      assert.ok(!overlaps({ x: p.x, y: p.y, w: 300, h: hs[i] }, box), `render ${i} covers the circle`)
+    })
+  })
+
+  test('never over the circle, for any box where the usual final card fits beside it', () => {
+    const boxes = [
+      { x: 200, y: 300, w: 200, h: 100 }, { x: 1200, y: 300, w: 200, h: 100 }, { x: 40, y: 100, w: 1360, h: 200 },
+      { x: 40, y: 560, w: 1360, h: 200 }, { x: 40, y: 700, w: 1360, h: 150 }, { x: 40, y: 30, w: 1360, h: 300 },
+      { x: 300, y: 800, w: 840, h: 80 }, { x: 0, y: 400, w: 1440, h: 120 }
+    ]
+    for (const box of boxes) {
+      const hs = [60, 90, 140, 180, 220]
+      const ps = life(box, hs.map((h, i) => [h, i < hs.length - 1]))
+      ps.forEach((p, i) => assert.ok(!overlaps({ x: p.x, y: p.y, w: 300, h: hs[i] }, box), JSON.stringify({ box, h: hs[i], p })))
+    }
+  })
+
+  test('a card that never streamed is placed fresh (placeCard)', () => {
+    const box = { x: 200, y: 300, w: 200, h: 100 }
+    const ps = life(box, [[undefined, false], [180, false], [240, false]])
+    assert.deepEqual(ps[1], placeCard(box, { w: 300, h: 180 }, area))
+    assert.deepEqual(ps[2], placeCard(box, { w: 300, h: 240 }, area))
   })
 })
 
