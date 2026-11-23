@@ -4,7 +4,7 @@ Routes (cloud/app.py "shared lesson cache"; every call is `Authorization: Bearer
 engine already uses, config.cloud_url() / config.cloud_token(), so config.py's host allowlist applies):
 
     GET  {cloud}/lessons/{video_id}?schema=N   200 {video_id, schema, created_at, lesson} | 404 lesson_not_cached
-    POST {cloud}/lessons/{video_id}/build      claim a build (free for a video this install already claimed this
+    POST {cloud}/lessons/{video_id}/build?schema=N  claim a build (free for a video this install already claimed this
                                                month): 200 {ok, builds} | 401 signin_required | 429 lesson_builds
     PUT  {cloud}/lessons/{video_id}            {schema, lesson}: 201 {stored, status: pending|approved} | 4xx/5xx
 
@@ -517,7 +517,7 @@ async def claim(vid: str) -> str:
         return "error"
     try:
         async with _client(CLAIM_TIMEOUT_S) as c:
-            r = await c.post(_url(vid, "/build"), headers=_headers())
+            r = await c.post(_url(vid, "/build"), params={"schema": LESSON_SCHEMA_VERSION}, headers=_headers())
     except (httpx.HTTPError, OSError) as e:
         _cool_down()
         _note(f"cloud unreachable ({type(e).__name__})")
