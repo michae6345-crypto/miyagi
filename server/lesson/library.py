@@ -298,9 +298,38 @@ def summary(g: dict, lid: str, updated_at: float | None = None) -> dict:
         out["builtBy"] = les["builtBy"]
     if les.get("curated"):
         out["curated"] = True
+    out.update(skill_tags(g)[0])
     if isinstance(updated_at, (int, float)):
         out["updatedAt"] = round(float(updated_at), 3)
     return out
+
+
+def skill_tags(g: dict) -> tuple[dict, dict[str, list[str]]]:
+    """Nov 22 (Skills page): ({teaches?, unlocks?}, stepId -> skill ids), from the lesson's own steps (skillmap.node_steps:
+    pure, no model call). teaches: the skills its steps build; unlocks: the first skill that follows them. `uses` (skills a
+    lesson needs first) is not derived: nothing records it. Anything that cannot be worked out is left out."""
+    try:
+        from server.lesson.skillmap import node_steps
+        from server.sessions.skills_graph import skill_id
+
+        ns = node_steps(g)
+        by_step: dict[str, list[str]] = {}
+        teaches: list[str] = []
+        for t in ns["taught"]:
+            sid = skill_id(ns["track"], t["label"])
+            if sid not in teaches:
+                teaches.append(sid)
+            for step_id in t["steps"]:
+                by_step.setdefault(step_id, []).append(sid)
+        tags: dict[str, Any] = {}
+        if teaches:
+            tags["teaches"] = teaches
+            if ns["next"]:
+                tags["unlocks"] = [skill_id(ns["track"], ns["next"][0]["label"])]
+        return tags, by_step
+    except Exception as e:  # noqa: BLE001 - tags are an extra: a library row never fails on them
+        log.debug("no skill tags for a library lesson: %s", e)
+        return {}, {}
 
 
 def detail(g: dict, lid: str, updated_at: float | None = None) -> dict:
@@ -314,8 +343,11 @@ def detail(g: dict, lid: str, updated_at: float | None = None) -> dict:
     if outcome := _text(b.get("outcome")):
         out["outcome"] = outcome
     rows = []
+    by_step = skill_tags(g)[1]
     for i, st in enumerate(_steps(g)[:MAX_STEPS_SHOWN]):
         row: dict[str, Any] = {"n": i + 1, "title": _text(st.get("title"), 200) or f"Step {i + 1}"}
+        if by_step.get(st.get("id")):
+            row["skillIds"] = by_step[st["id"]]
         check = next((c for c in st.get("checks") or [] if isinstance(c, dict) and _text(c.get("label"))), None)
         if check is not None:
             row["check"] = _text(check.get("label"), 160)

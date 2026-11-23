@@ -241,6 +241,61 @@ def _nn_map(lesson: dict, steps: list[dict], status: dict[str, str], proof: str 
 
 
 def _lesson_map(lesson: dict, steps: list[dict], status: dict[str, str], proof: str = "") -> dict:
+    groups = _lesson_groups(steps)
+    nodes: list[dict] = []
+    taken: set[str] = set()
+    for g in groups:
+        state = _state(g["steps"], status)
+        detail = g["detail"] if state != LEARNING else _skipped_detail(g["steps"], steps, status)
+        nodes.append(_node(_slug(g["label"], taken), g["label"], state, detail))
+    taught = len(nodes)
+    nxt = _next_topics(lesson)
+    for item in nxt:
+        nodes.append(_node(_slug(item["title"], taken), _words(item["title"], MAX_LABEL_WORDS), NEXT,
+                           item.pop("_detail", "")))
+    track = _track_name(lesson)
+    return _finish(track, _lead(lesson, nodes[:taught]), nodes, [], nxt, proof)
+
+
+def node_steps(graph: dict) -> dict:
+    """What a lesson teaches, from its steps alone (pure, no model): {"track", "taught": [{id, label, steps: [stepId]}],
+    "next": [{id, label}]} with the node ids and labels skill_map() gives. The Skills page's step.skillIds and
+    LibraryItem.teaches / unlocks come from here. Nothing known: {"track": "", "taught": [], "next": []}."""
+    graph = graph if isinstance(graph, dict) else {}
+    lesson = graph.get("lesson") if isinstance(graph.get("lesson"), dict) else {}
+    steps = [s for s in graph.get("steps") or [] if isinstance(s, dict) and s.get("id")]
+    if not steps:
+        return {"track": "", "taught": [], "next": []}
+    m = skill_map(graph, None)
+    if _is_nn(lesson, steps):
+        ids_by = {n["id"]: n for n in m["nodes"]}
+        taught = [{"id": cid, "label": label, "steps": list(cover)} for cid, label, _d, cover in _nn_covers(steps)
+                  if cid in ids_by]
+    else:
+        taken: set[str] = set()
+        taught = [{"id": _slug(g["label"], taken), "label": g["label"], "steps": list(g["steps"])}
+                  for g in _lesson_groups(steps)]
+    have = {t["id"] for t in taught}
+    return {"track": m["track"], "taught": taught,
+            "next": [{"id": n["id"], "label": n["label"]} for n in m["nodes"] if n["id"] not in have]}
+
+
+def _nn_covers(steps: list[dict]) -> list[tuple[str, str, str, list[str]]]:
+    """(id, label, detail, the step ids behind it) for each NN concept some step teaches."""
+    ids = {s["id"] for s in steps}
+    out: list[tuple[str, str, str, list[str]]] = []
+    for cid, label, detail, curated_steps, words in _NN_CONCEPTS:
+        cover = [s for s in curated_steps if s in ids]
+        if not cover:  # not the curated graph: the steps whose text names the concept
+            rx = re.compile(words, re.I)
+            cover = [s["id"] for s in steps if rx.search(_step_text(s))]
+        if cover:
+            out.append((cid, label, detail, cover))
+    return out
+
+
+def _lesson_groups(steps: list[dict]) -> list[dict]:
+    """One group per idea: {label, detail, steps}. A run step joins the step it runs; the same idea twice is one group."""
     groups: list[dict] = []  # {label, detail, steps}
     for i, st in enumerate(steps):
         if st.get("kind") == "run" and groups:
@@ -255,19 +310,7 @@ def _lesson_map(lesson: dict, steps: list[dict], status: dict[str, str], proof: 
         what = _words(str(st.get("what") or ""), MAX_DETAIL_WORDS)
         groups.append({"label": label, "detail": what if what and what.lower() != label.lower() else "",
                        "steps": [st["id"]]})
-    nodes: list[dict] = []
-    taken: set[str] = set()
-    for g in groups:
-        state = _state(g["steps"], status)
-        detail = g["detail"] if state != LEARNING else _skipped_detail(g["steps"], steps, status)
-        nodes.append(_node(_slug(g["label"], taken), g["label"], state, detail))
-    taught = len(nodes)
-    nxt = _next_topics(lesson)
-    for item in nxt:
-        nodes.append(_node(_slug(item["title"], taken), _words(item["title"], MAX_LABEL_WORDS), NEXT,
-                           item.pop("_detail", "")))
-    track = _track_name(lesson)
-    return _finish(track, _lead(lesson, nodes[:taught]), nodes, [], nxt, proof)
+    return groups
 
 
 def _next_topics(lesson: dict) -> list[dict]:
