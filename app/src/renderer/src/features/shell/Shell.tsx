@@ -134,7 +134,7 @@ const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
  * before them the pages still carry their old 40 px left padding and sit left of the centered title.
  */
 function pageWidth(page: PageId, skills: boolean): number {
-  return page === 'skills' && skills ? WIDE_W : COLUMN_W
+  return (page === 'skills' && skills) || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
 }
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {

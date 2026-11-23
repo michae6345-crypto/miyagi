@@ -10,7 +10,7 @@
  */
 import { motion, useReducedMotion, type HTMLMotionProps, type Variants } from 'motion/react'
 import { forwardRef, type CSSProperties, type ReactNode } from 'react'
-import { color, fill } from '../../core/theme'
+import { color, fill, radius2 } from '../../core/theme'
 import { enter, fade, press, spring, stagger, staggerDelay } from '../../core/ui/motion'
 
 export const rise: Variants = {
@@ -44,6 +44,45 @@ export function Ring({ children }: { children: ReactNode }): ReactNode {
     >
       {children}
     </span>
+  )
+}
+
+/**
+ * A card that lifts 2 px on hover and settles back on the house spring (transform only). Reduced motion: no lift.
+ * Use it on cards that are not themselves buttons (a Press is already pressable).
+ */
+export function Lift({ children, className = '', style }: { children: ReactNode; className?: string; style?: CSSProperties }): ReactNode {
+  const reduce = useReducedMotion()
+  return (
+    <motion.div whileHover={reduce ? undefined : { y: -2 }} transition={spring} className={className} style={style}>
+      {children}
+    </motion.div>
+  )
+}
+
+/**
+ * A card born in the page's stagger: it rises in as the i-th of its group AND lifts on hover. One wrapper so every
+ * page's cards enter and respond the same way (Home, Progress, Account).
+ */
+export function Tile({ i = 0, children, className = '', style, ...rest }: { i?: number; children: ReactNode; className?: string; style?: CSSProperties } & Record<`data-${string}`, string | undefined>): ReactNode {
+  return (
+    <Rise i={i} className={className} style={style} {...rest}>
+      <Lift className="h-full">{children}</Lift>
+    </Rise>
+  )
+}
+
+/**
+ * A skeleton card: an opacity pulse (styles.css .mg-skeleton: no sweep and no travel, so it is already reduced-motion
+ * safe; the pulse is opacity only and the page waits on it, never on a transform). `lines` placeholder lines inside.
+ */
+export function SkeletonCard({ h = 120, lines = 0 }: { h?: number; lines?: number }): ReactNode {
+  return (
+    <div aria-hidden className="mg-skeleton flex flex-col" style={{ height: h, borderRadius: radius2.group, background: fill.skeleton, padding: lines ? 20 : 0, gap: 12 }}>
+      {Array.from({ length: lines }, (_, k) => (
+        <div key={k} style={{ height: 10, width: `${80 - k * 18}%`, borderRadius: radius2.round, background: fill.skeleton }} />
+      ))}
+    </div>
   )
 }
 

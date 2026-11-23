@@ -15,11 +15,11 @@
  *
  * Compact (narrow window): icons only, 64 px, labels as tooltips. Navigation is chrome: neutral fills, never a hue.
  */
-import { motion } from 'motion/react'
-import { SquarePen } from 'lucide-react'
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { ChevronRight, SquarePen } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { color, fill, focus, highlight, layout, radius2, spring, status, surface, type2, typeScale } from '../../core/theme'
-import { pressMotion } from '../../core/ui/motion'
+import { fade, pressMotion } from '../../core/ui/motion'
 import { openLauncher } from '../library/Library'
 import { initialOf, planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
@@ -92,6 +92,7 @@ function NavRow({ id, label, Icon, on, compact, index }: { id: PageId; label: st
         justifyContent: compact ? 'center' : undefined,
         borderRadius: radius2.control,
         color: on ? color.text : color.label,
+        fontWeight: on ? 600 : undefined,
         outlineColor: focus.dark
       }}
       {...pressMotion(on)}
@@ -103,7 +104,7 @@ function NavRow({ id, label, Icon, on, compact, index }: { id: PageId; label: st
           aria-hidden
           className="absolute inset-0"
           // Selected: a quiet fill only (no hue, no edge, no left bar), so the content stays first.
-          style={{ background: fill.navOn, borderRadius: radius2.control }}
+          style={{ background: fill.trackSoft, borderRadius: radius2.control }}
           transition={spring}
         />
       )}
@@ -113,30 +114,99 @@ function NavRow({ id, label, Icon, on, compact, index }: { id: PageId; label: st
   )
 }
 
+/**
+ * The nav's sections (Notion-style): a quiet label over its rows, collapsible with the chevron. The state is a
+ * preference of this window only (localStorage, wrapped: it can be blocked), and a collapsed section still shows the
+ * page you are on, so the selection never disappears. Compact (icons only) shows every row and no labels.
+ */
+const GROUPS: ReadonlyArray<{ id: string; label: string; pages: readonly PageId[] }> = [
+  { id: 'learn', label: 'Learn', pages: ['home', 'lessons'] },
+  { id: 'track', label: 'Track', pages: ['skills', 'progress'] }
+]
+const COLLAPSE_KEY = 'miyagi.sidebar.collapsed'
+
+function readCollapsed(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function GroupLabel({ label, open, onToggle, id }: { label: string; open: boolean; onToggle: () => void; id: string }): ReactNode {
+  return (
+    <button
+      type="button"
+      data-shell-group={id}
+      aria-expanded={open}
+      onClick={onToggle}
+      className="mg-press group relative flex cursor-pointer items-center text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
+      style={{ height: 24, gap: 4, padding: '0 10px', borderRadius: radius2.control, fontSize: type2.micro, letterSpacing: '0.02em', color: color.label, outlineColor: focus.dark }}
+    >
+      <span className="relative">{label}</span>
+      <motion.span aria-hidden className="relative flex opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" animate={{ rotate: open ? 90 : 0 }} transition={spring}>
+        <ChevronRight size={12} strokeWidth={2} />
+      </motion.span>
+    </button>
+  )
+}
+
 function Nav({ compact }: { compact: boolean }): ReactNode {
   const page = useShell((s) => s.page)
   const ref = useRef<HTMLElement>(null)
-  // The arrows walk the main pages only (Settings and the account live at the foot).
-  const main = PAGES.filter((p) => !FOOT.has(p.id))
+  const reduce = useReducedMotion()
+  const [closed, setClosed] = useState<string[]>(readCollapsed)
+  const toggle = (id: string): void =>
+    setClosed((c) => {
+      const next = c.includes(id) ? c.filter((x) => x !== id) : [...c, id]
+      try {
+        localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next))
+      } catch {
+        /* storage blocked: the section still folds for this session */
+      }
+      return next
+    })
+  // A row is shown unless its section is folded and it is not the page on show.
+  const shown = (g: (typeof GROUPS)[number], id: PageId): boolean => compact || !closed.includes(g.id) || id === page
+  // The arrows walk the rows on show (Settings and the account live at the foot).
+  const main = GROUPS.flatMap((g) => g.pages.filter((id) => shown(g, id)))
   const onKey = (e: KeyboardEvent<HTMLElement>): void => {
-    const i = main.findIndex((p) => p.id === page)
+    if ((e.target as HTMLElement).closest('[data-shell-group]')) return
+    const i = main.indexOf(page)
     const last = main.length - 1
     const to = e.key === 'ArrowDown' ? Math.min(last, i + 1) : e.key === 'ArrowUp' ? Math.max(0, i - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? last : -1
     if (to < 0) return
     e.preventDefault()
-    setPage(main[to].id)
+    setPage(main[to])
   }
-  // Keep keyboard focus on the selected row when the arrows (or ⌘1..⌘6 while the nav has focus) move it.
+  // Keep keyboard focus on the selected row when the arrows (or the number shortcuts while the nav has focus) move it.
   useEffect(() => {
     const nav = ref.current
     if (!nav || !nav.contains(document.activeElement)) return
     nav.querySelector<HTMLButtonElement>(`[data-shell-nav="${page}"]`)?.focus()
   }, [page])
   return (
-    <nav ref={ref} aria-label="Pages" className="flex flex-col" style={{ gap: layout.sidebar.rowGap }} onKeyDown={onKey}>
-      {PAGES.map((p, i) =>
-        FOOT.has(p.id) ? null : <NavRow key={p.id} id={p.id} label={p.label} Icon={p.icon} on={p.id === page} compact={compact} index={i} />
-      )}
+    <nav ref={ref} aria-label="Pages" className="flex flex-col" style={{ gap: compact ? layout.sidebar.rowGap : 8 }} onKeyDown={onKey}>
+      {GROUPS.map((g) => {
+        const open = compact || !closed.includes(g.id)
+        const rows = g.pages.filter((id) => shown(g, id))
+        return (
+          <div key={g.id} role="group" aria-label={g.label} className="flex flex-col" style={{ gap: layout.sidebar.rowGap }}>
+            {!compact && <GroupLabel id={g.id} label={g.label} open={open} onToggle={() => toggle(g.id)} />}
+            <AnimatePresence initial={false}>
+              {rows.map((id) => {
+                const p = PAGES.find((x) => x.id === id)!
+                return (
+                  <motion.div key={id} layout={!reduce} initial={{ opacity: 0 }} animate={{ opacity: 1, transition: fade.in }} exit={{ opacity: 0, transition: fade.out }} transition={spring}>
+                    <NavRow id={p.id} label={p.label} Icon={p.icon} on={p.id === page} compact={compact} index={PAGES.findIndex((x) => x.id === id)} />
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+          </div>
+        )
+      })}
     </nav>
   )
 }

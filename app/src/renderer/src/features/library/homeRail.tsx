@@ -22,7 +22,8 @@ import { setPage } from '../shell/store'
 import { setAskText } from './homeModel'
 import { tipFor } from './homeTips'
 import { SectionLabel } from './layout'
-import { Rise } from './motion'
+import { Lift, Rise } from './motion'
+import { Meter } from './parts'
 
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -72,10 +73,11 @@ function Stat({ n, label }: { n: number; label: string }): ReactNode {
   )
 }
 
-/** This week: the bars and three counts. Nothing tracked yet = one inviting line, no zeros. */
+/** This week: the bars, today against the goal, and three counts. */
 export function WeekCard({ data, now, goal }: { data?: DashData; now: number; goal: number }): ReactNode {
   const days = weekStrip(data?.activity ?? null, now, goal)
   const steps = days.reduce((n, d) => n + d.reps, 0)
+  const today = days.find((d) => d.today)?.reps ?? 0
   const finished = data?.completed.length ?? 0
   const mastered = (data?.tracks ?? []).reduce((n, t) => n + t.skills.filter((s) => s.state === 'mastered').length, 0)
   return (
@@ -84,17 +86,20 @@ export function WeekCard({ data, now, goal }: { data?: DashData; now: number; go
         This week
       </SectionLabel>
       <Bars days={days} />
-      {steps > 0 ? (
-        <div className="flex" style={{ gap: 12, paddingTop: 12, borderTop: `1px solid ${fill.hairline}` }}>
-          <Stat n={steps} label={steps === 1 ? 'step' : 'steps'} />
-          <Stat n={finished} label={finished === 1 ? 'lesson done' : 'lessons done'} />
-          <Stat n={mastered} label={mastered === 1 ? 'mastered' : 'mastered'} />
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        <div className="flex items-baseline justify-between" style={{ fontSize: type2.xs, color: color.label }}>
+          <span>Today</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {today} of {goal} {goal === 1 ? 'step' : 'steps'}
+          </span>
         </div>
-      ) : (
-        <p className="m-0" style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label }}>
-          Pass a step and your week starts here.
-        </p>
-      )}
+        <Meter fraction={goal ? today / goal : 0} label={`${today} of ${goal} steps today`} />
+      </div>
+      <div className="flex" style={{ gap: 12, paddingTop: 12, borderTop: `1px solid ${fill.hairline}` }}>
+        <Stat n={steps} label={steps === 1 ? 'step' : 'steps'} />
+        <Stat n={finished} label={finished === 1 ? 'lesson done' : 'lessons done'} />
+        <Stat n={mastered} label="mastered" />
+      </div>
     </section>
   )
 }
@@ -135,7 +140,7 @@ export function QuickActions(): ReactNode {
 export function TipCard({ now }: { now: number }): ReactNode {
   const tip = tipFor(now)
   return (
-    <section aria-label="Tip" data-home-tip className="flex items-start" style={{ gap: 12, padding: '4px 8px' }}>
+    <section aria-label="Tip" data-home-tip className="flex items-start" style={{ ...CARD, gap: 12, padding: 16 }}>
       <span aria-hidden className="flex shrink-0" style={{ paddingTop: 2 }}>
         <MiyagiMark size={16} />
       </span>
@@ -157,13 +162,19 @@ export function Rail({ data, now, goal }: { data?: DashData; now: number; goal: 
   return (
     <aside data-home-rail aria-label="At a glance" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
       <Rise i={2}>
-        <WeekCard data={data} now={now} goal={goal} />
+        <Lift>
+          <WeekCard data={data} now={now} goal={goal} />
+        </Lift>
       </Rise>
       <Rise i={3}>
-        <QuickActions />
+        <Lift>
+          <QuickActions />
+        </Lift>
       </Rise>
-      <Rise i={4} className="@max-[940px]/pane:hidden">
-        <TipCard now={now} />
+      <Rise i={4}>
+        <Lift>
+          <TipCard now={now} />
+        </Lift>
       </Rise>
     </aside>
   )

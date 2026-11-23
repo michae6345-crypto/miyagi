@@ -20,20 +20,22 @@ import { QuietButton } from '../../core/ui/buttons'
 import { StatusGlyph } from '../../core/ui/status'
 import type { AppRoute } from '../../core/surfaces'
 import { color, fill, type2 } from '../../core/theme'
-import { Row, RowChevron, SectionHead, TextAction } from '../shell/ui'
+import { CARD, Row, RowChevron, SectionHead, TextAction } from '../shell/ui'
 import { setPage } from '../shell/store'
 import { openDetail } from '../library/store'
-import { Skeleton } from '../library/parts'
+import { SkeletonCard, Tile } from '../library/motion'
 import { Portfolio } from '../skills/extras/Portfolio'
 import { WeekRecap } from '../skills/extras/WeekRecap'
-import { ProgressSummary } from './Summary'
+import { HeatmapCard, MilestoneCard, ProgressTiles, WeekStripCard } from './Summary'
 import { TrackRing } from './Constellation'
-import { Milestones, useDashView } from './Dashboard'
+import { useDashView } from './Dashboard'
 import { groupTracks, milestones, nodeStates, relDay, relInLine, unlockLabels, type SkillGroup } from './model'
 import { Empty } from './parts'
 import { canReview, startGoal, startReview, startSaved, useDash } from './store'
 import type { DashData, DashNext, ReviewEntry } from './types'
 
+/** A section card: the shell's card with 20 px inside, so the lists' 10 px row wash stays 10 from its edge. */
+const panel = { ...CARD, padding: 20 } as const
 const list = { margin: 0, padding: 0, listStyle: 'none', marginInline: -10 } as const
 const title = { fontSize: type2.md, color: color.text } as const
 const meta = { fontSize: type2.xs, lineHeight: '16px', color: color.label } as const
@@ -47,10 +49,16 @@ function Li({ i, n, children }: { i: number; n: number; children: ReactNode }): 
 
 function Loading(): ReactNode {
   return (
-    <div aria-busy aria-label="Reading your progress" className="flex flex-col gap-[10px]">
-      <Skeleton h={18} />
-      <Skeleton h={40} />
-      <Skeleton h={40} />
+    <div aria-busy aria-label="Reading your progress" className="flex flex-col gap-[16px]">
+      <div className="grid grid-cols-2 gap-[12px] @min-[760px]:grid-cols-4">
+        {[0, 1, 2, 3].map((k) => (
+          <SkeletonCard key={k} h={80} />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-[16px] @min-[760px]:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <SkeletonCard h={200} lines={3} />
+        <SkeletonCard h={200} lines={3} />
+      </div>
     </div>
   )
 }
@@ -67,7 +75,7 @@ function ReviewPart({ data, due, later, now, route }: { data?: DashData; due: Re
   const can = canReview()
   const rows = [...due.slice(0, 3).map((r) => ({ r, due: true })), ...later.slice(0, due.length ? 2 : 4).map((r) => ({ r, due: false }))]
   return (
-    <section aria-labelledby="prog-review" data-prog-review>
+    <section aria-labelledby="prog-review" data-prog-review style={panel}>
       <SectionHead id="prog-review" right={due.length > 0 && can ? <QuietButton label="Start review" title={`One short step on ${plain(due[0].label)}`} onClick={() => startReview(due[0], route)} /> : undefined}>
         Review
       </SectionHead>
@@ -107,7 +115,7 @@ function NextPart({ data, route }: { data?: DashData; route: AppRoute }): ReactN
   const startErr = useDash((s) => s.startError)
   const next = (data?.next ?? []).slice(0, 3)
   return (
-    <section aria-labelledby="prog-next" data-prog-next>
+    <section aria-labelledby="prog-next" data-prog-next style={panel}>
       <SectionHead id="prog-next">Up next</SectionHead>
       {!next.length ? (
         <Empty title="Nothing queued yet" body="Finish a lesson and miyagi suggests what comes next." />
@@ -162,7 +170,7 @@ function SkillsPart({ data, route }: { data?: DashData; route: AppRoute }): Reac
   const groups = groupTracks(data)
   const open = route === 'library' ? () => setPage('skills') : undefined
   return (
-    <section aria-labelledby="prog-skills" data-prog-skills>
+    <section aria-labelledby="prog-skills" data-prog-skills style={panel}>
       <SectionHead id="prog-skills" right={open ? <TextAction onClick={open}>All skills</TextAction> : undefined}>
         Skills
       </SectionHead>
@@ -201,10 +209,10 @@ function SkillsPart({ data, route }: { data?: DashData; route: AppRoute }): Reac
 
 function DonePart({ data, now, route }: { data?: DashData; now: number; route: AppRoute }): ReactNode {
   const done = [...(data?.completed ?? [])].sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0)).slice(0, 6)
-  if (!done.length) return null
   return (
-    <section aria-labelledby="prog-done" data-prog-done>
+    <section aria-labelledby="prog-done" data-prog-done style={panel}>
       <SectionHead id="prog-done">Finished</SectionHead>
+      {!done.length ? <Empty title="No finished lessons yet" body="Lessons you finish are kept here." /> : (
       <ul style={list}>
         {done.map((d, i) => {
           const open = route === 'library' && d.libraryId ? () => openDetail(d.libraryId!) : undefined
@@ -228,6 +236,7 @@ function DonePart({ data, now, route }: { data?: DashData; now: number; route: A
           )
         })}
       </ul>
+      )}
     </section>
   )
 }
@@ -238,21 +247,46 @@ export function ProgressOverview({ route }: { route: AppRoute }): ReactNode {
   const { data, load, now, goals, r, due, later } = useDashView()
   const loading = load === 'loading'
   const ms = loading ? [] : milestones(data, r, now)
+  const open = route === 'library' ? () => setPage('skills') : undefined
   return (
-    <div data-progress-overview className="h-full overflow-y-auto" style={{ color: color.text, scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
-      <div className="flex w-full flex-col gap-[32px]" style={{ padding: '8px 40px 48px', maxWidth: 1040 }}>
+    <div data-progress-overview className="@container h-full overflow-y-auto" style={{ color: color.text, scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
+      <div className="flex w-full flex-col gap-[16px]" style={{ padding: '8px 40px 56px', maxWidth: 1040 }}>
         {loading ? (
           <Loading />
         ) : (
           <>
-            <ProgressSummary data={data} now={now} goal={goals.daily} due={due} />
-            <WeekRecap head={<SectionHead id="prog-week">This week</SectionHead>} />
-            {(data?.review || due.length > 0) && <ReviewPart data={data} due={due} later={later} now={now} route={route} />}
-            <NextPart data={data} route={route} />
-            <SkillsPart data={data} route={route} />
-            <DonePart data={data} now={now} route={route} />
-            <Portfolio head={<SectionHead id="prog-portfolio">Projects</SectionHead>} onOpenGoal={route === 'library' ? () => setPage('skills') : undefined} />
-            {ms.some((m) => m.done) && <Milestones list={ms} />}
+            <ProgressTiles data={data} now={now} due={due} />
+            <div className="grid grid-cols-1 gap-[16px] @min-[760px]:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <Tile i={4}>
+                <HeatmapCard data={data} now={now} goal={goals.daily} />
+              </Tile>
+              <Tile i={5}>
+                <WeekStripCard data={data} now={now} goal={goals.daily} />
+              </Tile>
+            </div>
+            <div className="grid grid-cols-1 items-start gap-[16px] @min-[760px]:grid-cols-2">
+              <div className="flex min-w-0 flex-col gap-[16px]">
+                <Tile i={6}>
+                  <NextPart data={data} route={route} />
+                </Tile>
+                {(data?.review || due.length > 0) && (
+                  <Tile i={7}>
+                    <ReviewPart data={data} due={due} later={later} now={now} route={route} />
+                  </Tile>
+                )}
+                <Tile i={8}>
+                  <DonePart data={data} now={now} route={route} />
+                </Tile>
+              </div>
+              <div className="flex min-w-0 flex-col gap-[16px]">
+                <Tile i={6}>
+                  <SkillsPart data={data} route={route} />
+                </Tile>
+                <MilestoneCard list={ms} />
+                <WeekRecap head={<SectionHead id="prog-week">Weekly recap</SectionHead>} />
+                <Portfolio head={<SectionHead id="prog-portfolio">Projects</SectionHead>} onOpenGoal={open} />
+              </div>
+            </div>
           </>
         )}
       </div>

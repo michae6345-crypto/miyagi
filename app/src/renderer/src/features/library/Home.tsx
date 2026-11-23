@@ -42,6 +42,7 @@ import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText,
 import { Column, Pane, SectionLabel, firstLine, rhythm } from './layout'
 import { Press, Ring, Rise } from './motion'
 import { ProgressRing, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
+import { ActivityCard } from './homeActivity'
 import { Rail } from './homeRail'
 import { openDetail, setSection, start, useLibrary } from './store'
 import { setPage } from '../shell/store'
@@ -533,6 +534,7 @@ function Body({ goal, view, hero, fix, skip, done, data, now, recent }: BodyProp
             <ReviewLine data={data} now={now} />
             <UpNext skip={skip} done={done} />
             <Recents rows={recent} now={now} />
+            <ActivityCard data={data} now={now} />
           </div>
         </div>
         <Rail data={data} now={now} goal={goal} />
