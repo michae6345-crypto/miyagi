@@ -1067,6 +1067,25 @@ ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_tog
                      "retry", "start", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
 
 
+class AskCapture(_Model):
+    """Circle to ask, fast path (Nov 22): the circled region, already captured by the app's helper (miyagi-listen) while
+    the keys were still held, so the engine skips its own capture after release. Rides on action ask with a region.
+
+    path: a 0600 JPEG, cap-<uuid>.jpg in the per-user temp folder miyagi-capture (0700). The engine checks it (realpath
+    inside that folder, that name, a regular file of this user with mode 0600), reads it and deletes it; the helper
+    deletes it anyway about 30 s after writing. w / h: its pixels (long edge <= 1092). rect: the box really captured,
+    in screen points (margin added, clamped to the display): crop pixel (px, py) -> screen point
+    (rect.x + px * rect.w / w, rect.y + py * rect.h / h). None, or a file that is gone or fails a check: the engine
+    captures as before. Used for this one ask only, never stored or logged. Reader: shared/capture_file.py.
+    """
+
+    path: str
+    w: int
+    h: int
+    rect: ScreenRect
+    displayId: int
+
+
 class Action(_Model):
     kind: ActionKind
     # explain + text: text = the learner's selection (the drawer's "Explain more"): the engine answers with a card
@@ -1080,6 +1099,7 @@ class Action(_Model):
     region: ScreenRegion | None = None
     source: str | None = None  # "typed" | "voice" | "circle"; a plain str so a new tag from the app is not rejected
     askId: str | None = None  # the app's id for this ask; the answer card echoes it
+    capture: AskCapture | None = None  # ask + region (circle to ask): the region the app already captured (AskCapture)
 
 
 class VideoState(_Model):
