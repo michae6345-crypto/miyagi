@@ -115,7 +115,7 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 // ---- pages --------------------------------------------------------------------------------------------------------
 
 /** Home and Skills scroll inside themselves (Home's container queries, the constellation's own list). */
-const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
+const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress', 'settings'])
 
 /**
  * The column each page's title sits on (content + gutters): 720 for every page (ui.tsx COLUMN_W). Skills takes the wide
@@ -134,7 +134,8 @@ const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
  * before them the pages still carry their old 40 px left padding and sit left of the centered title.
  */
 function pageWidth(page: PageId, skills: boolean): number {
-  return page === 'skills' && skills ? WIDE_W : COLUMN_W
+  // Settings is a two-pane page (list + panel), so it takes the wide column too.
+  return (page === 'skills' && skills) || page === 'settings' ? WIDE_W : COLUMN_W
 }
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {

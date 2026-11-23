@@ -1,58 +1,51 @@
 /**
- * Feature: shell. The Settings page: the settings sheet's five sections (features/settings sections/*) inline, so
- * nobody hunts for a separate window. General, Permissions, Privacy, Your key, Shortcuts, picked with a segmented
- * control. The sheet that grows from the pill (openSettings, the tray, the pill's gear) is unchanged.
+ * Feature: shell. The Settings page: Notion-style settings inside the home window. A left list of panels in groups with
+ * search on top, the panel on the right (features/settings Content.tsx, the same panels as the sheet that grows from the
+ * pill, which is unchanged). The page scrolls its panel, not the list, so the list stays in reach.
  *
  * `live` is true only while this page is on show: permissions poll, health asks, Save and Test run then and never
  * while the page sits hidden. The key flow (drafts, Save, Test) is the sheet's own hook; drafts live while the window
- * does and are never stored.
+ * does and are never stored. `useShell.settings` (openPage('settings', section)) picks the panel when it changes.
  */
-import { motion } from 'motion/react'
-import { useEffect, useState, type ReactNode } from 'react'
-import type { SettingsSection } from '../../../core/surfaces'
-import { Segmented } from '../../../core/ui/controls'
-import { riseIn } from '../../../core/ui/motion'
+import { useEffect, type ReactNode } from 'react'
+import { fill, layout } from '../../../core/theme'
 import { useKeyFlow } from '../../settings/account'
-import { Account } from '../../settings/sections/Account'
-import { General } from '../../settings/sections/General'
-import { Permissions } from '../../settings/sections/Permissions'
-import { Privacy } from '../../settings/sections/Privacy'
-import { Shortcuts } from '../../settings/sections/Shortcuts'
-import { NAV } from '../../settings/Sidebar'
-import { InlineSettings } from '../../settings/ui'
-import { setSettingsSection, useShell } from '../store'
-import { PageBody } from '../ui'
-import { BODY_TOP, SECTION_GAP, UNDER_TABS } from './Column'
-
-const OPTIONS = NAV.map((n) => ({ value: n.id, label: n.label }))
+import { Content } from '../../settings/Content'
+import { setPagePanel, setQuery, useNav } from '../../settings/nav'
+import { Nav } from '../../settings/Sidebar'
+import { SearchField } from '../../settings/Search'
+import { useShell } from '../store'
+import { PageColumn } from '../ui'
 
 export function SettingsPage({ active }: { active: boolean }): ReactNode {
-  const section = useShell((s) => s.settings)
+  const shellSection = useShell((s) => s.settings)
+  const panel = useNav((s) => s.page)
   const flow = useKeyFlow(active)
-  // The section the page opened on doesn't rise (the page's own entrance covers it); a later one does.
-  const [first] = useState<SettingsSection>(section)
-  const [moved, setMoved] = useState(false)
   useEffect(() => {
-    if (section !== first) setMoved(true)
-  }, [section, first])
+    setPagePanel(shellSection)
+  }, [shellSection])
+  useEffect(() => {
+    if (!active) setQuery('')
+  }, [active])
   return (
-    <InlineSettings.Provider value>
-      {/* The shared page column (ui.tsx PageBody, centered under the title). The section control spans the column, so
-          its right edge lines up with the groups under it; the groups are SECTION_GAP apart. */}
-      <div data-shell-settings={section} className="w-full">
-        <PageBody gap={UNDER_TABS} style={{ paddingTop: BODY_TOP }}>
-          <div className="flex shrink-0 [&>[role=radiogroup]]:flex [&>[role=radiogroup]]:w-full [&_[role=radio]]:flex-1">
-            <Segmented<SettingsSection> label="Settings sections" options={OPTIONS} value={section} onChange={setSettingsSection} />
+    <PageColumn wide bottom={16} className="min-h-0 flex-1" data={{ 'data-shell-settings': panel }}>
+      <div className="flex min-h-0 flex-1" style={{ gap: layout.page.gutter }}>
+        <aside className="flex w-[200px] shrink-0 flex-col gap-[12px]" aria-label="Settings">
+          <SearchField />
+          <div className="min-h-0 flex-1 overflow-y-auto pb-[16px]" style={{ scrollbarWidth: 'none' }}>
+            <Nav section={panel} onSelect={(p) => setPagePanel(p)} focusOnMount={false} />
           </div>
-          <motion.div key={section} initial={moved ? riseIn.initial : false} animate={riseIn.animate} transition={riseIn.transition} className="flex flex-col" style={{ gap: SECTION_GAP }}>
-            {section === 'general' && <General live={active} />}
-            {section === 'permissions' && <Permissions live={active} />}
-            {section === 'privacy' && <Privacy secure={flow.view?.secure} onDeleted={flow.replaceView} />}
-            {section === 'account' && <Account flow={flow} live={active} />}
-            {section === 'shortcuts' && <Shortcuts />}
-          </motion.div>
-        </PageBody>
+        </aside>
+        <div
+          id="settings-panel"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${panel}`}
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-[48px] pr-[4px]"
+          style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
+        >
+          <Content panel={panel} onPick={(p) => setPagePanel(p)} flow={flow} live={active} />
+        </div>
       </div>
-    </InlineSettings.Provider>
+    </PageColumn>
   )
 }

@@ -7,6 +7,7 @@ import type { LucideIcon } from 'lucide-react'
 import { Check, Info } from 'lucide-react'
 import { createContext, useContext, Fragment, type ReactNode } from 'react'
 import { color, fill, highlight, radius2, type2 } from '../../core/theme'
+import { ROW_HEIGHT, useLocal } from './local'
 
 /** True inside the home window's Settings page (features/shell): there the page title and the section control already
  * name the section, so a section's own header keeps only its right-hand actions. */
@@ -61,7 +62,7 @@ export function Row({
   label,
   caption,
   right,
-  minH = 56,
+  minH,
   tight,
   mono
 }: {
@@ -75,14 +76,16 @@ export function Row({
   /** The caption is a file name or version. */
   mono?: boolean
 }): ReactNode {
+  // Density (Settings > Appearance): compact rows are shorter and tighter, in every section and in the Settings page.
+  const compact = useLocal((s) => s.density) === 'compact'
   return (
-    <div className="flex items-center gap-[16px]" style={{ minHeight: minH, padding: tight ? '0 8px 0 16px' : '0 16px' }}>
+    <div className="flex items-center gap-[16px]" style={{ minHeight: minH ?? ROW_HEIGHT[compact ? 'compact' : 'comfortable'], padding: tight ? '0 8px 0 16px' : '0 16px' }}>
       {I && (
         <span aria-hidden className="grid h-[32px] w-[32px] shrink-0 place-items-center" style={{ borderRadius: radius2.control, background: fill.segmentTrack, color: color.text }}>
           <I size={16} strokeWidth={1.5} />
         </span>
       )}
-      <div className="flex min-w-0 flex-1 flex-col gap-[2px] py-[10px]">
+      <div className="flex min-w-0 flex-1 flex-col gap-[2px]" style={{ paddingBlock: compact ? 6 : 10 }}>
         {/* 14 / 13 (Michael's audit: "text is very small on settings"; it was 13 / 12). */}
         <span className="font-medium" style={{ fontSize: type2.md, color: color.text }}>
           {label}

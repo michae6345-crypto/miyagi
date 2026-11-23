@@ -421,3 +421,24 @@ input {
     scroll-behavior: auto;
   }
 }
+
+/*
+ * Settings > Appearance > Reduce motion (features/settings/apply.ts sets <html data-reduce-motion>): the same softening
+ * as the OS setting above, for CSS transitions. motion's springs follow MotionConfig (features/settings Content.tsx).
+ */
+:root[data-stage-zoom] .mg-page-frame {
+  zoom: var(--mg-text-scale);
+}
+:root[data-reduce-motion] .mg-press::after {
+  transition-duration: 0ms;
+}
+:root[data-reduce-motion] .mg-lift:hover,
+:root[data-reduce-motion] .mg-lift:active {
+  transform: none;
+}
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  scroll-behavior: auto;
+  transition-duration: 0.01ms !important;
+}
