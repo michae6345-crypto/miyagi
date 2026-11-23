@@ -27,6 +27,22 @@ export interface Prerequisite { id: string; title: string; why: string; status: 
 export interface OutlineStep { index: number; title: string; kind?: StepKind; what?: string; estMinutes?: number }
 export interface LessonOutline { count: number; steps: OutlineStep[]; estMinutes?: number }   // estMinutes: the whole lesson (the sum of the rows'), when every row has one
 export interface LearnFirstItem { title: string; minutes: number; kind: "notebook" | "interactive" | "video" | "read"; covers: string }   // a short mini-lesson for a prerequisite not passed yet; covers: Prerequisite.id; the app starts one with learn {query: title, mode: "lesson"} ("video" kind: mode "video")
+/** Circle to ask (Nov 22): the bounding box of the ink the learner drew while holding the push-to-talk keys (Fn+Control).
+ *  Screen POINTS, TOP-LEFT origin, in Electron's global screen space (the spotlight.rect space: the primary display's frame
+ *  starts at 0,0; another display has its own offset, maybe negative). displayId: Electron's Display.id, which on macOS is the
+ *  CGDirectDisplayID the engine captures (server/screen/sck.py capture(display_id)). scale: that display's scaleFactor (pixels per point). */
+export interface ScreenRegion { x: number; y: number; w: number; h: number; displayId: number; scale: number }
+/** Where an ask came from. Absent: typed (or an older app). "circle": a circled region (action ask with region). */
+export type AskSource = "typed" | "voice" | "circle"
+/** Buddy draws (Nov 22): one thing the app circles on screen with a hand-drawn stroke grown from the island (event `annotate`).
+ *  x / y / w / h: screen points, the ScreenRegion space. displayId absent = the primary display (the spotlight.rect convention).
+ *  why "answer": the thing a circle-to-ask answer names, inside the circled region (askId = that ask). The engine sends only
+ *  "answer" marks today. why "point" is reserved: the coach's pointing already reaches the app as spotlight {rect, caption},
+ *  card.targets and offtrack targets, and the buddy draws from those on the app side; the engine does not repeat them as annotate.
+ *  label: <= 4 words, optional; the app may show it by the circle.
+ *  id: stable per mark, so a re-sent annotate can keep a circle still drawn instead of drawing it again. */
+export interface Annotation { id?: string; x: number; y: number; w: number; h: number; displayId?: number; label?: string;
+                              why: "point" | "answer"; askId?: string; stepId?: string }
 
 // ---------- Engine -> App events ----------
 export interface EngineEvents {
@@ -69,6 +85,11 @@ export interface EngineEvents {
    *  overlay: move the card and the step pill off these rects. Same space as spotlight.rect (screen points, top-left origin). Sent only while a
    *  lesson is active and only when the set changes; rects [] = it closed: clear it (also drop it on lesson.ended). */
   "screen.avoid": { rects: { kind: "quickpick"; x: number; y: number; w: number; h: number }[] };
+  /** Buddy draws (Nov 22): circle these on screen. The app draws a thin stroke from the island to each mark and a loose circle
+   *  around it; the overlay stays click-through. A new annotate replaces the marks drawn before. The app fades them when the
+   *  learner clicks inside one, the step changes, lesson.ended, or after holdMs (absent: the app's default, a few seconds).
+   *  { clear: true }: fade every mark now. An app that ignores this event loses nothing (spotlight / targets still come). */
+  "annotate": { marks: Annotation[]; holdMs?: number } | { clear: true };
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
@@ -94,6 +115,8 @@ export interface EngineEvents {
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
             guidingQuestion?: string;
+            askId?: string;               // Circle to ask (Nov 22): kind "answer" to action ask {askId}: the app matches the answer to its circle
+            region?: ScreenRegion;        // Circle to ask: the circled region the answer is about, echoed back so the card sits next to it
             source?: "judge";              // E5's step judge made it ("Looks done?" / "Not yet" / "Already ahead?" / "Save so I can check"): a step-status card, never an answer to the learner (sent as kind "step"); don't let it replace an answer card
             verdict?: "done" | "not_done"; // source "judge": Claude's verdict on the WHOLE step. done -> "Looks done?" (confirm = Yes); not_done -> "Not yet" (hint / show_me)
             checkIds?: string[];           // source "judge": the checks it is about (done: what Yes vouches for; not_done: what is still missing)
@@ -183,8 +206,16 @@ export interface AppCommands {
   "learn_url": { url: string; transcriptOnly?: boolean };   // pasted YouTube link; transcriptOnly: the Build failed card's "Try transcript only": skip the video model, build from the transcript + title/chapters (offered by lesson.building.alternatives kind "transcript"; optional, older engines ignore it)
   "build_lesson": { resultIds: string[] };
   /** explain: no text = explain the current step (Explain button / shortcut, unchanged). text = the learner's selection (the drawer's "Explain more" pop-up on selected lesson text):
-   *  the engine answers with a card {kind: "explain", title: "About `<start of the selection>`", body}: the selection explained, the current step as context. VS Code's "Miyagi: Explain this" gives the same card (it reaches the engine over POST /vscode/event, not this socket). */
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "install_all" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "start" | "have_it" | "get_it" | "alternative"; text?: string };  // have_it / get_it / alternative: a setup row of a licensed app (text = its tool id; none: the first app row waiting)  // install_all (t9 V12): the setup card's "Install all": every missing row, one after another (each row gets its own setup.progress)  // start: "Start the lesson" on the "Before you start" sheet: a "Just teach me" lesson with build / flow / prerequisites / learnFirst holds step 1 (VS Code opens under the sheet; no checks, boxes, idle timers, stuck cards or off-tracks) from a lesson.ready whose first step.started is step 1 until this, a key / click with the lesson's editor in front (the sheet's own Start / Esc land there, the overlay can't take focus), the first edit of the step file, or a step control (show_me, hint, check_step, skip_step, run_command, open_editor ...); optional for the app  // retry: the "Couldn't reach Claude" card's Try again: the engine re-sends the learner's last ask / explain / hint (no text needed)  // run_command: "Run it for me" on a run step (the engine runs the step's command in the lesson folder, max 10 s, and shows the output)  // use_this_folder: the learner is editing the lesson file in another folder; adopt that folder as the lesson folder (copies only missing files, never overwrites)  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+   *  the engine answers with a card {kind: "explain", title: "About `<start of the selection>`", body}: the selection explained, the current step as context. VS Code's "Miyagi: Explain this" gives the same card (it reaches the engine over POST /vscode/event, not this socket).
+   *  ask + region (Circle to ask, Nov 22): the learner held Fn+Control and circled part of the screen. text = the spoken words, or
+   *  "What is this?" when nothing was said (the engine uses that too when text is empty). source "circle". askId: the app's id for
+   *  this ask; the answer card echoes it. Works with or without a lesson. The engine crops region, reads the text boxes inside it,
+   *  and answers with a card {kind: "answer", askId, region}, then maybe annotate {marks: [{why: "answer", askId, ...}]}. The crop is
+   *  used for this one ask only, never stored or logged. Timing: the engine answers each circle ask within about 25 s (capture 3 s +
+   *  model 10 s + connection retries 12 s), so the app's pending-circle timeout can be set a little above that. The overlay's
+   *  click-through hard timeout covers only the drawing: it goes back to click-through on release, without waiting for the answer. */
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "install_all" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "start" | "have_it" | "get_it" | "alternative"; text?: string;
+              region?: ScreenRegion; source?: AskSource; askId?: string };  // region / source / askId: Circle to ask (kind "ask", see above)   // have_it / get_it / alternative: a setup row of a licensed app (text = its tool id; none: the first app row waiting)  // install_all (t9 V12): the setup card's "Install all": every missing row, one after another (each row gets its own setup.progress)  // start: "Start the lesson" on the "Before you start" sheet: a "Just teach me" lesson with build / flow / prerequisites / learnFirst holds step 1 (VS Code opens under the sheet; no checks, boxes, idle timers, stuck cards or off-tracks) from a lesson.ready whose first step.started is step 1 until this, a key / click with the lesson's editor in front (the sheet's own Start / Esc land there, the overlay can't take focus), the first edit of the step file, or a step control (show_me, hint, check_step, skip_step, run_command, open_editor ...); optional for the app  // retry: the "Couldn't reach Claude" card's Try again: the engine re-sends the learner's last ask / explain / hint (no text needed)  // run_command: "Run it for me" on a run step (the engine runs the step's command in the lesson folder, max 10 s, and shows the output)  // use_this_folder: the learner is editing the lesson file in another folder; adopt that folder as the lesson folder (copies only missing files, never overwrites)  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };

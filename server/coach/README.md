@@ -160,6 +160,41 @@ Every coach answer about the screen carries `targets` (`[{boxId, label, text, re
 - `await coach.explain(step, q, {"screen": s, "on_targets": cb})` points in parallel with the Opus text. `cb` fires first: live, at 1.7 s, against a 3.1 s card. Opus gets text only.
 - `await coach.point(step, screen, about=...)` is the shared helper. An exact match takes about 0 ms. Otherwise `claude-haiku-5-5` (thinking disabled, text only, 3 s cap) picks box ids, live in 1.0–1.8 s. If nothing matches, `where` is either derived from the step (file, `.ipynb`, or the terminal command) or Haiku's 12-word instruction.
 
+## Circle to ask (circle.py, Nov 22)
+
+The learner holds Fn+Control and circles part of the screen. The app sends the existing ask command with the circle's bounding box: `action {kind: "ask", text, region: ScreenRegion, source: "circle", askId}`. `text` is the spoken words, or "What is this?" when nothing was said; the engine uses that default for an empty text too. It works with or without a lesson.
+
+```python
+out = await coach.circle_ask(step, "What is this?", region, obs=obs, image=pil,
+                             context={"lesson": ..., "memory": ..., "lesson_folder": ...}, ask_id="a1")
+# -> {kind: "answer", title, body, askId, region, stepId?, marks: [Annotation], _meta}
+```
+
+- **Engine path.** `main.py` passes `region`, `askId` and `source` to `LessonSession.action`. `_action` hands an ask that has a region to `server/orchestrator/circle_ask.py`, ahead of the "No lesson is running yet." check. Because it runs inside `action()`, proactive cards wait while the question is answered, the same as a typed ask.
+- **One frame.** `ScreenBridge.ask_frame(region.displayId, region)` -> `ScreenReader.capture_once` captures and OCRs one frame now (~0.3-0.5 s, capped at 3 s) on the display the learner circled on. If that display id is not active, it reads the active display that holds most of the circle (`macos.pick_display`). If no display holds it or it can't be captured, it reads the usual display (`macos.target_display_id`). It always tries: the reader's last error (`down_reason`) can be stale while it is paused, so it only picks the words of the "can't see" card when nothing was captured. The learner asked, so it also captures while the reader is paused (no lesson step). It only checks the macOS permission and never prompts. The frame is published nowhere: no `on_screen` / `screen.seen` / check / spotlight from it, and the reader's last frame, display key and blank streak stay as they were. A blank frame gives no picture. If the capture fails but the last frame is under 5 s old and live, the answer uses that frame's text, with no picture.
+- **DEMO fixture.** With `DEMO=1` and no Screen Recording the reader swaps in a fixture PNG (`source "fixture:..."`). A circle ask never explains that: it gets the plain "I can't see your screen" card. Only an explicit `TUT_SCREEN_FIXTURE` (dev, tests) is read as the screen.
+- **Region.** `clamp_region` makes the numbers finite and the size positive. It keeps the part on the captured display (a region off that display gets "I couldn't read that screen"), caps each side at 1200 points around the centre, and makes a tap at least 24 points, slid back inside the display. The prompt says when part of the circle was cut.
+- **Boxes.** Only the OCR / accessibility boxes with at least 30% of their area inside the region plus 12 points are kept, through the shared `ScreenContext`. The crop blacks out every secret row of the whole frame (also a long key row with only a sliver inside the circle) and other projects' VS Code windows, as everywhere else.
+- **Prompt.** It carries the step (context only), the lesson's memory notes (`server/context`, only with a lesson), the circled text and box list inside `<untrusted source="screen">` blocks with `DATA_RULE` in the system prompt, the learner's words, and a JPEG crop of the region (long side 1280 px or less) when the frame has a picture. Model: Haiku (`coach.circle_ask`, `COACH_MODEL_CIRCLE_ASK`), thinking off, effort low, `max_tokens` 600, 10 s timeout, with the connection retries every learner question gets (12 s budget). With the 3 s capture, every circle ask is answered within about 25 s (`circle_ask.ANSWER_WITHIN_S`, also in the contract), so the app can set its pending-circle timeout to match.
+- **The crop** is built in memory for this one request. It is never written to disk, logged, recorded as a fixture image, or put in the card or `_meta`. The session record keeps only the question and the region's size.
+- **Answer.** The card is `card {kind: "answer", title (6 words or fewer), body (about 45 words), askId, region}`, with the region echoed as the app sent it so the card sits next to the circle. A body sentence that talks to an AI (`flag_injection`) is dropped.
+- **Buddy circle.** When the answer names one box inside the region (the model's `box_id`, and either the label shares a real word with that box's text or the body says at least half of its real words; stop words like "the", "to" or "is" never count), `annotate {marks: [{id, x, y, w, h, displayId, label, why: "answer", askId, stepId?}], holdMs: 6000}` follows. There is no mark when that box is the only thing in the circle, because the learner's own ink already shows it.
+- **No model** (no key, `DEMO=1` / offline, an API error, a stubbed coach): the card is "Here's what I read" with up to 20 words of the circled text, or "Nothing to read there". It never raises "Couldn't reach Claude".
+- **No screen** (no Screen Recording, no reader, display asleep): "I can't see your screen", with "Turn on Screen Recording for miyagi in System Settings." when it is the permission.
+- **Every circle gets a card with its askId.** A failed ask gets "Claude couldn't answer" (with Try again, in a lesson) or "I couldn't read that", stamped with `askId` and `region`. If the learner changed step while it was answered, a short "We moved on" card (no `stepId`) goes out instead of the old step's answer. Only an ask whose lesson ended meanwhile gets no card: the app's pending-circle timeout covers that one.
+- **Before you start.** A circle ask while the "Before you start" sheet is up does not begin the lesson: circling the screen is not a step control.
+- **Typed and voice asks** with an `askId` get it echoed on their answer card. Nothing else changes for them.
+- **Keystrokes stay work.** Only a typed ask marks the learner's recent keys as typed into miyagi (E5 `inputs.mark_foreign`). A circle ask (with a region) or a voice ask types nothing there, so their VS Code keys still count as lesson work.
+- **`why: "point"` marks** are reserved in the contract. The engine sends only `"answer"` marks. The coach's pointing reaches the app through `spotlight`, `card.targets` and `offtrack` targets, and the buddy draws from those on the app side.
+
+**Not verified yet.** Everything above ran only in offline tests with fakes (`server/coach/tests/test_circle.py`, `server/orchestrator/tests/test_circle_ask.py`, `server/screen/tests/test_capture_once.py`). Nothing ran in Electron, against a real multi-monitor setup, or against a live model. Still open:
+- whether Electron's `Display.id` equals the CGDirectDisplayID on every Mac setup (mirrored displays, Sidecar);
+- the real OCR boxes and crop alignment on a Retina display;
+- Haiku's answer quality, and how often it picks a `box_id` the answer really names;
+- the end-to-end latency.
+
+The app also has to add `'annotate'` to the KNOWN set in `app/src/common/wire.ts` (a core request) before it sees the event.
+
 ## Voice (ElevenLabs track)
 
 `voice.py` speaks short lines only: the step title on `step.started`, the card title on `offtrack`, and "Nice, step passed." on `step.passed`.

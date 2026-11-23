@@ -770,8 +770,9 @@ class ScreenReader:
 
     # ------------------------------------------------------------------ capture + OCR
 
-    def _grab(self):
-        """-> (cgimage, screen_rect, scale, windows, fixture_app, source).
+    def _grab(self, display_id: int | None = None):
+        """-> (cgimage, screen_rect, scale, windows, fixture_app, source). `display_id`: that display (capture_once,
+        circle to ask); None = the display holding the learner's window (macos.target_display_id).
 
         Live capture, unless a fixture was asked for explicitly. Without Screen Recording
         permission this RAISES ScreenPermissionError (and reports it via last_error/on_error);
@@ -785,7 +786,8 @@ class ScreenReader:
         try:
             if not macos.has_permission():
                 raise macos.ScreenPermissionError(macos.PERMISSION_HELP)
-            display_id = macos.target_display_id()  # the display holding the learner's window, not always the primary
+            if display_id is None:
+                display_id = macos.target_display_id()  # the display holding the learner's window, not always the primary
             sck = self._sck_capture(display_id)
             if sck is not None:
                 img, screen, scale, excluded = sck
@@ -850,6 +852,74 @@ class ScreenReader:
             self._sck_retry_at = time.time() + delay
             return None
 
+    def _read_frame(self, img, screen, scale, windows, fixture_app, source, overlay_excluded, overlay, frame: int,
+                    trigger: str) -> tuple[ScreenObservation, float]:
+        """OCR one captured frame into a ScreenObservation. Changes no reader state: observe_now publishes the result,
+        capture_once does not."""
+        from . import macos
+        blocks, ms = macos.ocr_image(img, screen, scale)
+        if not overlay_excluded:  # CG fallback: the overlay is in the pixels, drop its text
+            blocks = M.drop_inside(blocks, overlay)
+        blocks = M.postprocess(M.reading_order(M.assign_windows(blocks, windows)))
+        blocks = repair_code_rows(img, screen, scale, blocks)
+        blocks = [Block(redact(b.text), b.rect, b.confidence, b.app, b.window, b.role) for b in blocks
+                  if not is_private_app(b.app)]
+        from .vscode import scope_to_folder
+        with self._lock:
+            folder = self._lesson_folder
+        blocks, shown, foreign, foreign_rects = scope_to_folder(  # fixture frames (DEMO fallback) are never scoped
+            blocks, windows, folder if source == "live" else None)
+        obs = ScreenObservation(t=time.time(), app=fixture_app or macos.frontmost_app(windows),
+                                windows=shown, blocks=blocks, screen=screen, scale=scale,
+                                ocr_ms=ms, frame=frame, source=source, trigger=trigger,
+                                overlay_excluded=overlay_excluded,
+                                capture=(self.backend or "") if source == "live" else "fixture",
+                                foreign=foreign, foreign_rects=foreign_rects)
+        obs.editor = _editor_info(obs)
+        if source == "live":
+            self._attach_cursor_and_ax(obs)
+        return obs, ms
+
+    def capture_once(self, display_id: int | None = None, trigger: str = "ask", region: dict | None = None):
+        """Circle to ask (Nov 22): capture + OCR one frame now, for one ask only. -> (ScreenObservation, PIL picture
+        with our overlay and other projects' windows blacked out), or (None, None) when the frame is blank.
+
+        Publishes nothing: no subscriber or metric reader sees it, and _latest / _latest_image / the change-detection
+        thumb / the display key / the blank streak / last_error stay as they were. So a lesson's reader (running or
+        paused) is not touched, and no older picture is ever returned in its place. `display_id`: the display the
+        learner circled on (Electron's Display.id, the CGDirectDisplayID on macOS); when it is not an active display,
+        the active display holding most of `region` ({x, y, w, h}, global points: the circle), else the one under its
+        centre; when neither works or it can't be captured, the usual display (macos.target_display_id). Blocking
+        (~0.3-0.5 s): call it in a thread. Raises ScreenPermissionError without Screen Recording (only checked, never
+        prompted)."""
+        from . import health, macos
+        with self._capture_lock:
+            grabbed = None
+            if (display_id is not None or region is not None) and not self.fixture:
+                want = None
+                try:
+                    want = _ask_display(macos, display_id, region)
+                    if want is not None:
+                        grabbed = self._grab(want)
+                    else:
+                        log.info("ask: display %s is not active; reading the usual display", display_id)
+                except macos.ScreenPermissionError:
+                    raise
+                except Exception as e:  # noqa: BLE001 - that display can't be captured: the usual one
+                    log.info("ask: display %s not captured (%s); reading the usual display", want or display_id,
+                             type(e).__name__)
+            if grabbed is None:
+                grabbed = self._grab()
+            img, screen, scale, windows, fixture_app, source, overlay_excluded = grabbed
+            if source == "live" and health.blank_kind(macos.thumbnail(img)):
+                return None, None  # a black / flat frame (a transition, a locked screen): nothing to read
+            with self._lock:
+                overlay = list(self._overlay)
+                frame = self._frame
+            obs, _ms = self._read_frame(img, screen, scale, windows, fixture_app, source, overlay_excluded, overlay,
+                                        frame, trigger)
+        return obs, self._masked_pil(img, obs, overlay)
+
     def observe_now(self, force: bool = True, trigger: str = "manual") -> ScreenObservation | None:
         """Capture + OCR synchronously. With force=False, skips OCR when nothing changed."""
         from . import health, macos
@@ -894,28 +964,9 @@ class ScreenReader:
                 return None
             self._prev_thumb, self._prev_layout = thumb, layout
 
-            blocks, ms = macos.ocr_image(img, screen, scale)
-            if not overlay_excluded:  # CG fallback: the overlay is in the pixels, drop its text
-                blocks = M.drop_inside(blocks, overlay)
-            blocks = M.postprocess(M.reading_order(M.assign_windows(blocks, windows)))
-            blocks = repair_code_rows(img, screen, scale, blocks)
-            blocks = [Block(redact(b.text), b.rect, b.confidence, b.app, b.window, b.role) for b in blocks
-                      if not is_private_app(b.app)]
-            from .vscode import scope_to_folder
-            with self._lock:
-                folder = self._lesson_folder
-            blocks, shown, foreign, foreign_rects = scope_to_folder(  # fixture frames (DEMO fallback) are never scoped
-                blocks, windows, folder if source == "live" else None)
             self._frame += 1
-            obs = ScreenObservation(t=time.time(), app=fixture_app or macos.frontmost_app(windows),
-                                    windows=shown, blocks=blocks, screen=screen, scale=scale,
-                                    ocr_ms=ms, frame=self._frame, source=source, trigger=trigger,
-                                    overlay_excluded=overlay_excluded,
-                                    capture=(self.backend or "") if source == "live" else "fixture",
-                                    foreign=foreign, foreign_rects=foreign_rects)
-            obs.editor = _editor_info(obs)
-            if source == "live":
-                self._attach_cursor_and_ax(obs)
+            obs, ms = self._read_frame(img, screen, scale, windows, fixture_app, source, overlay_excluded, overlay,
+                                       self._frame, trigger)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]
             with self._lock:
                 self._latest, self._latest_image, self._latest_overlay = obs, img, overlay
@@ -997,13 +1048,24 @@ class ScreenReader:
         region in points."""
         return self.latest_frame(region)[0]
 
+    @staticmethod
+    def _masked_pil(img, obs: ScreenObservation, overlay: list[Rect]):
+        """The frame as a PIL image with our overlay and other folders' VS Code windows blacked out."""
+        from PIL import ImageDraw
+
+        from . import macos
+        pil = macos.cgimage_to_pil(img)
+        s = obs.scale
+        d = ImageDraw.Draw(pil)
+        for r in list(overlay) + list(getattr(obs, "foreign_rects", None) or []):  # + other folders' VS Code windows
+            d.rectangle([(r.x - obs.screen.x) * s, (r.y - obs.screen.y) * s,
+                         (r.x2 - obs.screen.x) * s, (r.y2 - obs.screen.y) * s], fill=(0, 0, 0))
+        return pil
+
     def latest_frame(self, region=None):
         """(PIL image of the last frame with our overlay blacked out, the ScreenObservation OCR'd from
         that same frame), or (None, None). For vision prompts whose marks come from the OCR
         (server.screen.target)."""
-        from PIL import ImageDraw
-
-        from . import macos
         with self._lock:
             img, obs = self._latest_image, self._latest
         if img is None:
@@ -1013,12 +1075,8 @@ class ScreenReader:
         overlay = self.overlay_rects()
         if img is None or obs is None:
             return None, None
-        pil = macos.cgimage_to_pil(img)
+        pil = self._masked_pil(img, obs, overlay)
         s = obs.scale
-        d = ImageDraw.Draw(pil)
-        for r in overlay + list(getattr(obs, "foreign_rects", None) or []):  # + other folders' VS Code windows
-            d.rectangle([(r.x - obs.screen.x) * s, (r.y - obs.screen.y) * s,
-                         (r.x2 - obs.screen.x) * s, (r.y2 - obs.screen.y) * s], fill=(0, 0, 0))
         if region is not None:
             r = Rect.from_any(region).clamp(obs.screen)
             pil = pil.crop((int((r.x - obs.screen.x) * s), int((r.y - obs.screen.y) * s),
@@ -1064,6 +1122,25 @@ def repair_code_rows(img, screen: Rect, scale: float, blocks: list[Block], max_r
         out = [x for x in out if x not in row] + [Block(text, r, min(f.confidence for f in fresh), b.app, b.window)]
         log.info("re-read code row %r -> %r", b.text, text)
     return M.reading_order(out)
+
+
+def _ask_display(macos, display_id: int | None, region: dict | None) -> int | None:
+    """Circle to ask: which active display to capture. `display_id` when it is active; else the display holding
+    most of `region` (global points), or the one under its centre (macos.pick_display); None when no active display
+    has any of it (the caller reads the usual display)."""
+    displays = macos.active_displays()
+    if display_id is not None and any(d == int(display_id) for d, _ in displays):
+        return int(display_id)
+    try:
+        rect = Rect(float(region["x"]), float(region["y"]), float(region["w"]), float(region["h"]))
+    except (TypeError, KeyError, ValueError):
+        return None
+    centre = (rect.x + rect.w / 2, rect.y + rect.h / 2)
+    pick = macos.pick_display(displays, rect, centre)
+    for did, b in displays:
+        if did == pick and min(rect.x2, b.x2) >= max(rect.x, b.x) and min(rect.y2, b.y2) >= max(rect.y, b.y):
+            return did  # pick_display falls back to the first display: only a display that holds part of the circle
+    return None
 
 
 def _changed(a: bytes | None, b: bytes, min_pixels: int) -> bool:

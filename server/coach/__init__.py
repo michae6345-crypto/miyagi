@@ -13,6 +13,7 @@ Orchestrator usage:
 
 from . import voice
 from .actions import do_it_for_me, inflight, locate
+from .circle import circle_ask
 from .common import get_lesson, set_lesson, system_blocks
 from .diagnose import diagnose, playbook_card, public
 from .explain import explain
@@ -55,6 +56,7 @@ __all__ = [
     "StepJudge",
     "apply_fix",
     "cancel",
+    "circle_ask",
     "diagnose",
     "do_it_for_me",
     "explain",
