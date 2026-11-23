@@ -18,12 +18,17 @@
  *     new hold, a lesson ending, the engine dropping, or ANSWER_MS. Esc closes it only where the key reaches this
  *     window (the stage): in Electron the overlay never has focus and main does not relay Esc (a core request). Other
  *     cards' close ('dismiss') leaves the circle alone;
- *   - with the engine link down when the hold seals, sends nothing: the ink goes and the pill says so.
+ *   - with the engine link down when the hold seals, sends nothing: the ink goes and the pill says so;
+ *   - captures early (capture.ts): when a stroke is done while the keys are still held, asks main for a JPEG of that
+ *     region at once (bridge.invoke('ptt:capture', region)), and sends it as the ask's `capture` only if it already
+ *     settled ok for the very region asked about. Never waits for it; releases every ok capture it will not send;
+ *   - streams the answer: answer.delta text for the ask on screen fills the answer card as it comes ("Looking" until
+ *     the first words). The final card replaces it. Esc, the card's X or a new hold drops the stream.
  *
  * Inert until the layer mounts (setLayout): features/cards and features/tips import this even when the circle feature
  * is off, and a hold must never take the screen's mouse with nothing there to draw on. Overlay window only (Electron):
  * the launcher and the other windows import this too, and stay inert.
- * The crop is the engine's: the app sends a box, never pixels.
+ * The crop is the engine's: the app sends a box and, at most, the path of a file main's helper wrote; never pixels.
  */
 import { create } from 'zustand'
 import type { Layout } from '../../../../preload/api'
@@ -34,7 +39,9 @@ import { notify, useLesson } from '../../core/lesson'
 import { usePressed } from '../../core/shortcuts'
 import { claimFinals, usePtt } from '../ptt/store'
 import { holdAwake } from '../shortcut-bar/front'
-import { toRegion, type Pt } from './geometry'
+import type { CaptureResult } from '../../../../main/pttProtocol'
+import { createCaptureTracker } from './capture'
+import { strokeBox, toRegion, type Pt } from './geometry'
 import { IDLE, interactive, step, type CircleEvent, type CircleState } from './machine'
 
 /** How often the overlay's "take the mouse" is said again while armed. */
@@ -85,6 +92,14 @@ const scaleOf = (l: LayerLayout): number => {
   return typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1
 }
 
+/** The early capture (Electron only: the browser stage has no helper, so it never asks). */
+const captures = createCaptureTracker({
+  capture: (region) => bridge.invoke<CaptureResult>('ptt:capture', region),
+  release: (id) => {
+    bridge.invoke('ptt:capture-release', id).catch(() => undefined)
+  }
+})
+
 /** Holds whose ask already went out: their words, however late, are never routed again. */
 const spent = new Set<string>()
 
@@ -103,16 +118,27 @@ export function feed(e: CircleEvent): boolean {
     if (spent.size > 20) spent.clear()
     spent.add(r.state.session)
   }
+  const now = r.state
+  // A new hold, or nothing on screen any more: no ask will use what was captured.
+  if ((now.k === 'idle' && before.k !== 'idle') || (now.k === 'armed' && (before.k !== 'armed' || before.session !== now.session))) captures.drop()
+  // A stroke is done and the keys are still held: capture what it circles now, so the file is ready at release.
+  if (e.t === 'up' && isElectron && before.k === 'armed' && before.down && now.k === 'armed') {
+    const box = strokeBox(now.strokes, area.width, area.height)
+    if (box) captures.begin(toRegion(box, area.origin, scaleOf(area), area.displayId))
+  }
   if (r.ask && !useLesson.getState().connected) {
     // Nothing is listening (never connected, or the link is down): no ask into the void, no 30 s "Looking".
+    captures.drop()
     set({ state: IDLE })
     notify(OFFLINE)
   } else if (r.ask) {
     const region = toRegion(r.ask.box, area.origin, scaleOf(area), area.displayId)
+    // Only a capture that is already here and of this very region; never waited for (the engine grabs its own frame).
+    const capture = captures.take(region)
     // Core request: sendAction(kind, text) has no room for region / source / askId yet. Recording the press keeps the
     // "never look dead" spinner rule (what sendAction would do), then the full ask goes out as the contract says.
     usePressed.setState({ kind: 'ask', at: Date.now() })
-    bridge.send(cmd('action', { kind: 'ask', text: r.ask.text, region, source: 'circle', askId: r.ask.askId }))
+    bridge.send(cmd('action', { kind: 'ask', text: r.ask.text, region, source: 'circle', askId: r.ask.askId, ...(capture ? { capture } : {}) }))
     set((s) => ({ asked: s.asked + 1 }))
   }
   if (r.timedOut) notify('No answer yet. Try again.')
@@ -193,6 +219,15 @@ onMessage('card', (c) => {
   if (c.kind !== 'answer') return
   feed({ t: 'answer', askId: c.askId, answer: { title: c.title || undefined, body: c.body ?? '' } })
 })
+
+// The answer as it is written (contract answer.delta): only the ask on screen takes it (machine.ts drops the rest).
+onMessage('answer.delta', (d) => {
+  if (!d || typeof d.askId !== 'string') return
+  feed({ t: 'delta', askId: d.askId, text: typeof d.text === 'string' ? d.text : '', done: d.done === true })
+})
+
+/** For tests: the early capture's newest state. */
+export const captureState = (): ReturnType<typeof captures.peek> => captures.peek()
 
 /** features/cards asks: is this card the answer to a circle on screen? (Then cards leaves it to the circle.) */
 export function circleOwnsCard(c: PayloadOf<'card'>): boolean {

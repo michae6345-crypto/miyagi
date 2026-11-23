@@ -12,7 +12,9 @@
  *                    Light too (mint alone is about 1.3:1 on white). Passive: no pointer events, and NOT data-ui:
  *                    the svg is the whole overlay and its stroke box is exactly the circled region, so reporting either
  *                    in overlay.bounds would make the engine's reader skip (and black out) what was circled.
- *   answer card      the island's coach-mark surface, kept inside the screen edges (geometry placeCard).
+ *   answer card      the island's coach-mark surface, kept inside the screen edges (geometry placeCard). It opens on
+ *                    the first streamed words (answer.delta) and the final card replaces its text in place (same key:
+ *                    no second entrance). "Looking" shows only until the first words.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { X } from 'lucide-react'
@@ -23,7 +25,7 @@ import { pressMotion } from '../../core/ui/motion'
 import { duration, ease } from '../../core/ui/motionTokens'
 import { brand, color, elevation, fill, highlight, radius2, surface, tone, type2 } from '../../core/theme'
 import { inkPath, placeCard, toOverlay, type Box, type Pt } from './geometry'
-import { inkOf, type CircleState } from './machine'
+import { inkOf, shown, type CircleState } from './machine'
 import { cancelCircle, layerGone, pointerDown, pointerMove, pointerUp, setLayout, useCircle } from './store'
 
 /** The answer card's width. */
@@ -71,6 +73,14 @@ export function CircleView({ state, layout }: { state: CircleState; layout: Layo
   const first = ink[0]?.[0]
   const inkKey = first ? `${first.x},${first.y}` : 'none'
   const box: Box | undefined = state.k === 'idle' || state.k === 'armed' ? undefined : state.box
+  const streamed = shown(state)
+  // The card: the final answer, or the words streamed so far. One key per ask, so the final card swaps the text in place.
+  const card =
+    state.k === 'answered'
+      ? { askId: state.askId, box: state.box, question: state.text, title: state.answer.title, body: state.answer.body, streaming: false }
+      : state.k === 'asking' && streamed
+        ? { askId: state.askId, box: state.box, question: state.text, title: undefined, body: streamed, streaming: !state.stream?.done }
+        : undefined
 
   return (
     // data-theme auto: the chip and the answer card follow Settings > Appearance, like the lesson panel (the overlay root
@@ -100,8 +110,8 @@ export function CircleView({ state, layout }: { state: CircleState; layout: Layo
         />
       )}
       <AnimatePresence>{ink.length > 0 && <Ink key={inkKey} strokes={ink} width={layout.width} height={layout.height} />}</AnimatePresence>
-      <AnimatePresence>{state.k === 'asking' && box && <Looking key={state.askId} box={box} area={layout} />}</AnimatePresence>
-      <AnimatePresence>{state.k === 'answered' && <AnswerCard key={state.askId} box={state.box} area={layout} question={state.text} title={state.answer.title} body={state.answer.body} />}</AnimatePresence>
+      <AnimatePresence>{state.k === 'asking' && box && !streamed && <Looking key={state.askId} box={box} area={layout} />}</AnimatePresence>
+      <AnimatePresence>{card && <AnswerCard key={card.askId} box={card.box} area={layout} question={card.question} title={card.title} body={card.body} streaming={card.streaming} />}</AnimatePresence>
     </div>
   )
 }
@@ -154,7 +164,7 @@ function Looking({ box, area }: { box: Box; area: { width: number; height: numbe
   )
 }
 
-function AnswerCard({ box, area, question, title, body }: { box: Box; area: { width: number; height: number }; question: string; title?: string; body: string }): ReactNode {
+function AnswerCard({ box, area, question, title, body, streaming }: { box: Box; area: { width: number; height: number }; question: string; title?: string; body: string; streaming: boolean }): ReactNode {
   const ref = useRef<HTMLDivElement>(null)
   const [h, setH] = useState(CARD_H0)
   const reduced = useReducedMotion()
@@ -175,6 +185,8 @@ function AnswerCard({ box, area, question, title, body }: { box: Box; area: { wi
       data-hit
       data-part="circle-answer"
       data-side={p.side}
+      data-streaming={streaming ? '' : undefined}
+      aria-busy={streaming || undefined}
       role="dialog"
       aria-label={title ?? question}
       className="pointer-events-auto absolute"
