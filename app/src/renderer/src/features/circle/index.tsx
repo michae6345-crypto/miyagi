@@ -14,7 +14,8 @@
  * Off with push to talk (PTT_ENABLED, common/flags.ts): the circle rides on its keys.
  *
  * An overlay layer at z 85: above the island (50) and the tips (70), so the ink and the card sit over everything the
- * overlay draws; below nothing. Passive (data-ui) except the answer card (data-hit).
+ * overlay draws; below nothing. The ink is passive and unreported (not data-ui: its box is the circled region); the
+ * "Looking" chip is data-ui, the answer card data-hit, both beside the circle, never over it.
  */
 import { PTT_ENABLED } from '../../../../common/flags'
 import { isElectron } from '../../bridge'

@@ -10,8 +10,12 @@
  *   - takes the session's final words before push to talk routes them (ptt claimFinals), so they are not asked twice;
  *   - sends action ask {text, region, source: "circle", askId}; the region is screen points (layout.origin added) with
  *     the display's scale and id;
- *   - takes the answer card {kind: "answer", askId} (features/cards skips it: circleOwnsCard) and closes on Esc, a new
- *     hold, the card's X, or a lesson ending.
+ *   - takes the answer card {kind: "answer", askId} (features/cards skips it: circleOwnsCard) and closes on its X, a
+ *     new hold, a lesson ending, the engine dropping, or ANSWER_MS. Esc closes it only where the key reaches this
+ *     window (the stage): in Electron the overlay never has focus and main does not relay Esc (a core request). Other
+ *     cards' close ('dismiss') leaves the circle alone. While the answer shows, "away" is woken so its X stays
+ *     clickable;
+ *   - with the engine link down when the hold seals, sends nothing: the ink goes and the pill says so.
  *
  * Overlay window only (Electron): the launcher and the other windows import this too, and stay inert.
  * The crop is the engine's: the app sends a box, never pixels.
@@ -20,7 +24,7 @@ import { create } from 'zustand'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
-import { onMessage, onUi, type PayloadOf } from '../../core/bus'
+import { onMessage, type PayloadOf } from '../../core/bus'
 import { notify, useLesson } from '../../core/lesson'
 import { usePressed } from '../../core/shortcuts'
 import { claimFinals, usePtt } from '../ptt/store'
@@ -32,6 +36,8 @@ import { IDLE, interactive, step, type CircleEvent, type CircleState } from './m
 export const REASSERT_MS = 200
 /** How often the timers (8 s cap, words wait, answer hold) are checked while something is on screen. */
 const TICK_MS = 150
+/** The pill's line when the engine link is down as the circle is sealed. */
+export const OFFLINE = "miyagi can't see the screen yet."
 
 type Store = {
   state: CircleState
@@ -67,7 +73,11 @@ export function feed(e: CircleEvent): boolean {
   const before = get().state
   const r = step(before, e, { now: Date.now(), width: l.width, height: l.height, newId })
   if (r.state !== before) set({ state: r.state })
-  if (r.ask) {
+  if (r.ask && !useLesson.getState().connected) {
+    // Nothing is listening (never connected, or the link is down): no ask into the void, no 30 s "Looking".
+    set({ state: IDLE })
+    notify(OFFLINE)
+  } else if (r.ask) {
     const region = toRegion(r.ask.box, l.origin, scale(), l.displayId)
     // Core request: sendAction(kind, text) has no room for region / source / askId yet. Recording the press keeps the
     // "never look dead" spinner rule (what sendAction would do), then the full ask goes out as the contract says.
@@ -115,6 +125,8 @@ function sync(): void {
       }, REASSERT_MS)
     } else sayInteractive(false)
   }
+  // Away makes the whole overlay click-through: the answer's X must stay clickable while it shows.
+  if (s.k === 'answered' && useFront.getState().away) wake()
   const ticking = s.k !== 'idle'
   if (ticking && !ticker) ticker = setInterval(() => feed({ t: 'tick' }), TICK_MS)
   else if (!ticking && ticker) {
@@ -135,12 +147,15 @@ export const pointerUp = (): void => void feed({ t: 'up' })
 /** Esc, the card's X. */
 export const cancelCircle = (): void => void feed({ t: 'cancel' })
 
+/** For tests: which of the store's timers run (the mouse's re-say while armed, the state ticker). */
+export const timersRunning = (): { reassert: boolean; ticker: boolean } => ({ reassert: reassert !== undefined, ticker: ticker !== undefined })
+
 // Push to talk: every state (main's broadcast and the stage's mock both land in usePtt).
 usePtt.subscribe((s, prev) => {
   if (s.ptt === prev.ptt) return
   const p = s.ptt
-  if (p.phase === prev.ptt.phase && p.id === prev.ptt.id && p.lastCancel === prev.ptt.lastCancel) return
-  feed({ t: 'ptt', phase: p.phase, id: p.id, lastCancel: p.lastCancel })
+  if (p.phase === prev.ptt.phase && p.id === prev.ptt.id && p.lastCancel === prev.ptt.lastCancel && p.released === prev.ptt.released) return
+  feed({ t: 'ptt', phase: p.phase, id: p.id, lastCancel: p.lastCancel, released: p.released })
 })
 // The final words: offered here before push to talk routes them as a plain ask or a launcher prefill.
 claimFinals((f) => feed({ t: 'final', id: f.id, text: f.text }))
@@ -157,8 +172,13 @@ export function circleOwnsCard(c: PayloadOf<'card'>): boolean {
   return c.kind === 'answer' && !!c.askId && (s.k === 'asking' || s.k === 'answered') && s.askId === c.askId
 }
 
-onUi('dismiss', cancelCircle)
+// Not onUi('dismiss'): that is every other card's close (core/ui/atoms CloseButton, features/complete), and closing one
+// of those must not wipe a circle and its answer. The circle closes on its own X (and Esc where the key arrives).
 onMessage('lesson.ended', cancelCircle)
+// Away turned on while the answer shows: wake at once (sync() also checks on every tick).
+useFront.subscribe((f, prev) => {
+  if (f.away && !prev.away && get().state.k === 'answered') wake()
+})
 // The engine link dropped: nothing will answer, and the mouse must go back.
 let wasConnected = useLesson.getState().connected
 useLesson.subscribe((s) => {
@@ -169,7 +189,7 @@ useLesson.subscribe((s) => {
 if (typeof window !== 'undefined') {
   window.addEventListener('blur', () => feed({ t: 'blur' }))
   document.addEventListener('visibilitychange', () => document.hidden && feed({ t: 'blur' }))
-  // The overlay never has focus in Electron, so Esc reaches it only through main's dismiss (onUi above); in the stage
-  // (and if the overlay ever does get focus) the key itself works too.
+  // The overlay never has focus in Electron and main relays no Esc, so after release this works in the stage only (and
+  // if the overlay ever does get focus). While the keys are held, push to talk's own Esc cancel drops the circle.
   window.addEventListener('keydown', (e) => e.key === 'Escape' && get().state.k !== 'idle' && cancelCircle())
 }

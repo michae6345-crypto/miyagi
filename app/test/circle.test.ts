@@ -226,6 +226,46 @@ describe('the state machine', () => {
     assert.equal(m.asks.length, 0)
   })
 
+  test('released while arming: the mouse goes back at once, the ink waits for the words', () => {
+    // common/pttState keeps phase 'arming' with released: true until the helper says 'listening'.
+    const m = run()
+    m.go({ t: 'ptt', phase: 'arming', id: 's1' })
+    m.drawLoop()
+    m.go({ t: 'ptt', phase: 'arming', id: 's1', released: true })
+    assert.equal(interactive(m.s), false)
+    assert.equal(m.s.k, 'sealed')
+    // The helper opens after the keys are up: the reducer goes straight to sending. Still no new hold, no early ask.
+    m.go({ t: 'ptt', phase: 'sending', id: 's1', released: true })
+    assert.equal(m.s.k, 'sealed')
+    m.wait(WORDS_WAIT_MS * 3)
+    m.go({ t: 'tick' })
+    assert.equal(m.asks.length, 0)
+    m.go({ t: 'final', id: 's1', text: 'and this one?' })
+    assert.deepEqual(m.asks.map((a) => a.text), ['and this one?'])
+  })
+
+  test('released while arming with no ink: back to rest, and it never re-arms', () => {
+    const m = run()
+    m.go({ t: 'ptt', phase: 'arming', id: 's1' })
+    m.go({ t: 'ptt', phase: 'arming', id: 's1', released: true })
+    assert.equal(m.s.k, 'idle')
+    m.go({ t: 'ptt', phase: 'arming', id: 's1', released: true })
+    assert.equal(m.s.k, 'idle')
+    // A quick tap whose first state is already released arms nothing either.
+    const t = run()
+    t.go({ t: 'ptt', phase: 'arming', id: 's2', released: true })
+    assert.equal(t.s.k, 'idle')
+  })
+
+  test('released while arming, then cancelled empty: "What is this?"', () => {
+    const m = run()
+    m.go({ t: 'ptt', phase: 'arming', id: 's1' })
+    m.drawLoop()
+    m.go({ t: 'ptt', phase: 'arming', id: 's1', released: true })
+    m.go({ t: 'ptt', phase: 'idle', lastCancel: 'short' })
+    assert.deepEqual(m.asks.map((a) => a.text), [DEFAULT_ASK])
+  })
+
   test('an error drops the hold', () => {
     const m = run()
     m.go({ t: 'ptt', phase: 'listening', id: 's1' })

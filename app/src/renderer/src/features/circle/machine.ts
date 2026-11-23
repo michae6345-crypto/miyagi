@@ -23,9 +23,9 @@ export const WORDS_WAIT_MS = 1500
 /** Sealed while the learner keeps talking: a backstop past push to talk's own hard cap (65 s). */
 export const SEALED_MAX_MS = 70_000
 /** No answer by now: the ink fades and the pill says so. */
-export const ASK_MAX_MS = 45_000
-/** An answer nobody closes goes by itself. */
-export const ANSWER_MS = 60_000
+export const ASK_MAX_MS = 30_000
+/** An answer nobody closes goes by itself (short: Esc does not reach the overlay after release, see the brief). */
+export const ANSWER_MS = 25_000
 /** The ask when nothing was said (the contract's default too). */
 export const DEFAULT_ASK = 'What is this?'
 
@@ -43,8 +43,11 @@ export type CircleState =
 export const IDLE: CircleState = { k: 'idle' }
 
 export type CircleEvent =
-  /** A push-to-talk state (common/pttState): its phase, session id and why the last session ended. */
-  | { t: 'ptt'; phase: PttPhase; id?: string; lastCancel?: string }
+  /**
+   * A push-to-talk state (common/pttState): its phase, session id, why the last session ended, and whether the keys
+   * came up while the helper was still arming (phase stays 'arming' until it says 'listening').
+   */
+  | { t: 'ptt'; phase: PttPhase; id?: string; lastCancel?: string; released?: boolean }
   | { t: 'down'; p: Pt }
   | { t: 'move'; p: Pt }
   | { t: 'up' }
@@ -109,18 +112,19 @@ function endHold(s: Extract<CircleState, { k: 'armed' }>, ctx: Ctx, pttOver: boo
 export function step(s: CircleState, e: CircleEvent, ctx: Ctx): Step {
   switch (e.t) {
     case 'ptt': {
-      // A new hold starts: arm, whatever was on screen (a new circle replaces the last one and its answer).
-      if (live(e.phase) && e.id) {
+      // A new hold starts: arm, whatever was on screen (a new circle replaces the last one and its answer). Keys that
+      // are already up (released while arming) are no hold: that ends one instead.
+      if (live(e.phase) && e.id && !e.released) {
         if (s.k === 'armed' && s.session === e.id) return { state: s }
         if (s.k === 'sealed' && s.session === e.id) return { state: s }
         return { state: { k: 'armed', session: e.id, since: ctx.now, strokes: [], down: false } }
       }
       if (s.k === 'armed') {
         if (e.phase === 'error') return { state: IDLE }
-        // sending: the keys are up, the words are on their way. idle: the session is over.
+        // sending, or arming with the keys up: the words are on their way. idle: the session is over.
         return endHold(s, ctx, e.phase === 'idle', e.lastCancel)
       }
-      if (s.k === 'sealed' && e.phase !== 'sending') {
+      if (s.k === 'sealed' && (e.phase === 'idle' || e.phase === 'error')) {
         if (e.phase === 'error' || (e.lastCancel && DROPS.has(e.lastCancel))) return { state: IDLE }
         if (e.lastCancel) return send(s.strokes, s.box, undefined, ctx)
         // Over with words: the final is on its way (or already here); wait a moment for it.

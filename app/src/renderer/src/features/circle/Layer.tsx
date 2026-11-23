@@ -6,8 +6,11 @@
  *                    right click: button 2 counts too) and swallows contextmenu. Not data-hit: core would then report
  *                    the whole screen as miyagi's own UI (overlay.bounds) and the engine would read nothing under it.
  *                    store.ts takes the mouse for it instead.
- *   ink              brand mint (tone.mint.solid, the notch's mint, never the pass green), round caps, a faint second
- *                    pass beside it so it reads as drawn by hand. Passive: no pointer events.
+ *   ink              brand mint (tone.mint.solid, the notch's mint, never the pass green), round caps, over a thin
+ *                    neutral casing (brand ink, a plain stroke: no blur, no glow) so it reads on white pages and VS Code
+ *                    Light too (mint alone is about 1.3:1 on white). Passive: no pointer events, and NOT data-ui:
+ *                    the svg is the whole overlay and its stroke box is exactly the circled region, so reporting either
+ *                    in overlay.bounds would make the engine's reader skip (and black out) what was circled.
  *   answer card      the island's coach-mark surface, kept inside the screen edges (geometry placeCard).
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
@@ -17,9 +20,9 @@ import type { Layout } from '../../../../preload/api'
 import { ThinkingDots } from '../../core/ui/atoms'
 import { pressMotion } from '../../core/ui/motion'
 import { duration, ease } from '../../core/ui/motionTokens'
-import { color, elevation, fill, highlight, radius2, surface, tone, type2 } from '../../core/theme'
+import { brand, color, elevation, fill, highlight, radius2, surface, tone, type2 } from '../../core/theme'
 import { inkPath, placeCard, toOverlay, type Box, type Pt } from './geometry'
-import { inkOf } from './machine'
+import { inkOf, type CircleState } from './machine'
 import { cancelCircle, pointerDown, pointerMove, pointerUp, setLayout, useCircle } from './store'
 
 /** The answer card's width. */
@@ -29,13 +32,20 @@ const CARD_H0 = 140
 /** The "looking" chip's size. */
 const CHIP = { w: 104, h: 30 }
 /**
- * The drawing surface's fill: next to nothing, but not fully clear, so macOS hit-tests the transparent window as ours
- * while it is interactive (a fully clear pixel can let a click through). UNVERIFIED in Electron.
+ * The drawing surface's fill (fill.catch): next to nothing, but not fully clear, so macOS hit-tests the transparent
+ * window as ours while it is interactive (a fully clear pixel can let a click through). UNVERIFIED in Electron.
  */
-const CATCH = 'rgba(0,0,0,0.012)'
+const CATCH = fill.catch
+/** The ink's casing under the mint: brand ink, faint, the same on every appearance (the screen under it is the learner's). */
+const CASING = { stroke: brand.ink, opacity: 0.55, width: 5.4 }
 
 export function CircleLayer({ layout }: { layout: Layout }): ReactNode {
   const state = useCircle((s) => s.state)
+  return <CircleView state={state} layout={layout} />
+}
+
+/** The layer for one state (test/circleStore.test.ts renders it on its own). */
+export function CircleView({ state, layout }: { state: CircleState; layout: Layout }): ReactNode {
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => setLayout(layout), [layout])
   const armed = state.k === 'armed'
@@ -60,7 +70,9 @@ export function CircleLayer({ layout }: { layout: Layout }): ReactNode {
   const box: Box | undefined = state.k === 'idle' || state.k === 'armed' ? undefined : state.box
 
   return (
-    <div ref={root} data-part="circle" data-circle={state.k} className="pointer-events-none absolute inset-0">
+    // data-theme auto: the chip and the answer card follow Settings > Appearance, like the lesson panel (the overlay root
+    // pins the island's dark set). The ink's colours are fixed brand tokens either way.
+    <div ref={root} data-theme="auto" data-part="circle" data-circle={state.k} className="pointer-events-none absolute inset-0">
       {armed && (
         <div
           data-part="circle-surface"
@@ -93,7 +105,6 @@ export function CircleLayer({ layout }: { layout: Layout }): ReactNode {
 function Ink({ strokes, width, height }: { strokes: Pt[][]; width: number; height: number }): ReactNode {
   return (
     <motion.svg
-      data-ui
       data-part="circle-ink"
       className="absolute inset-0"
       width={width}
@@ -109,8 +120,8 @@ function Ink({ strokes, width, height }: { strokes: Pt[][]; width: number; heigh
         const d = inkPath(s)
         return (
           <g key={i}>
-            <path d={d} fill="none" stroke={tone.mint.solid} strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" opacity={0.95} />
-            <path d={d} fill="none" stroke={tone.mint.solid} strokeWidth={1.1} strokeLinecap="round" strokeLinejoin="round" opacity={0.4} transform="translate(1.1 0.8)" />
+            <path data-part="circle-casing" d={d} fill="none" stroke={CASING.stroke} strokeWidth={CASING.width} strokeLinecap="round" strokeLinejoin="round" strokeOpacity={CASING.opacity} />
+            <path d={d} fill="none" stroke={tone.mint.solid} strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" />
           </g>
         )
       })}
