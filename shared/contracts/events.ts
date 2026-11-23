@@ -98,8 +98,9 @@ export interface EngineEvents {
    *  card {kind: "answer", askId, region}: it REPLACES the streamed text (title, body, actions), even when it differs (the
    *  engine cleans the full text, or the stream broke and the card is a fallback such as "Couldn't reach Claude"). Drop
    *  deltas for an askId the app no longer waits for, or that come after its card. The engine may send none (a slow or
-   *  buffering cloud, a fallback card): the card alone is enough. An app that ignores this event loses nothing. */
-  "answer.delta": { askId: string; text: string; done?: boolean };
+   *  buffering cloud, a fallback card): the card alone is enough. An app that ignores this event loses nothing.
+   *  text may be missing (events.py AnswerDelta defaults it to ""): read a missing text as "". */
+  "answer.delta": { askId: string; text?: string; done?: boolean };
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
