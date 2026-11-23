@@ -1,7 +1,7 @@
 """Circle to ask, fast path: read the region the app already captured (action ask {capture: AskCapture}).
 
 The app's helper (app/native/listen/Capture.swift) captures the circled region while Fn+Control is still held and
-writes it as a 0600 JPEG, cap-<uuid>.jpg, in the per-user temp folder miyagi-capture (0700). The ask carries
+writes it as a 0600 JPEG, cap-<helper pid>-<uuid>.jpg, in the per-user temp folder miyagi-capture (0700). The ask carries
 capture {path, w, h, rect, displayId}. The engine calls take_capture(capture) instead of its own frame grab:
 
     from shared.capture_file import take_capture, crop_to_screen
@@ -12,7 +12,7 @@ capture {path, w, h, rect, displayId}. The engine calls take_capture(capture) in
                                              # (None: a bad value, skip the mark)
 
 take_capture checks the path (realpath directly inside the capture folder, that name, a regular file owned by this
-user with mode 0600, a JPEG, not too big), reads it and deletes it, whatever the outcome once the path is ours. It
+user with mode 0600, a JPEG whose own frame size is the payload's w x h, not too big), reads it and deletes it, whatever the outcome once the path is ours. It
 never raises and never logs the path or the pixels. It also deletes crops older than 30 s left in the folder by a
 helper that was killed before its own timers ran (purge_stale). No OCR boxes come with it: an annotate for the answer comes from
 the model's [DRAW] line, mapped with crop_to_screen.
@@ -31,7 +31,10 @@ from typing import Any
 
 MAX_EDGE = 1092  # the helper's long edge (CaptureMath.maxEdge)
 MAX_BYTES = 4 * 1024 * 1024  # a 1092 px JPEG at 0.82 is a few hundred KB
-_NAME = re.compile(r"^cap-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$")
+# cap-<helper pid>-<uuid>.jpg (each helper deletes only its own); cap-<uuid>.jpg from older helpers is still read.
+_NAME = re.compile(r"^cap-(?:[0-9]{1,10}-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$")
+# Start-of-frame markers (baseline, extended, progressive, lossless...): not DHT C4, JPG C8 or DAC CC.
+_SOF = frozenset({0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF})
 DIR_NAME = "miyagi-capture"
 STALE_S = 30.0  # the helper's own TTL (CaptureFiles.defaultTTL): anything older was left by a helper that died
 
@@ -123,7 +126,7 @@ def purge_stale(dirs: list[str] | None = None, *, max_age: float = STALE_S, now:
     """Delete the helper's crops older than max_age seconds (by mtime) in the capture folders. The helper deletes each
     one after 30 s with its own timer, but a helper that is SIGKILLed or crashes takes its timers with it, and the files
     would then stay until the next helper start. take_capture calls this on every ask that carries a capture; the
-    engine may also call it at startup. Only cap-<uuid>.jpg regular files owned by this user, directly inside a folder
+    engine may also call it at startup. Only cap-[<pid>-]<uuid>.jpg regular files owned by this user, directly inside a folder
     that is a real directory of this user, are touched. Returns how many were deleted. Never raises, never logs."""
     gone = 0
     try:
@@ -184,7 +187,43 @@ def _read(real: str, capture: Any) -> Capture | None:
         os.close(fd)
     if len(data) != st.st_size or data[:2] != b"\xff\xd8":
         return None
+    if jpeg_size(data) != (w, h):  # a [DRAW] point is mapped with w and h: they must be the image's real size
+        return None
     return Capture(jpeg=data, w=w, h=h, rect=rect, displayId=disp)  # type: ignore[arg-type]
+
+
+def jpeg_size(data: bytes) -> tuple[int, int] | None:
+    """(width, height) from the JPEG's start-of-frame segment (SOF0, SOF2 and the other SOFn), or None: not a JPEG,
+    truncated, or no frame header before the scan. Reads only the marker segments, never the pixels."""
+    n = len(data)
+    if n < 4 or data[0] != 0xFF or data[1] != 0xD8:
+        return None
+    i = 2
+    while i + 1 < n:
+        if data[i] != 0xFF:
+            return None
+        m = data[i + 1]
+        if m == 0xFF:  # fill byte before a marker
+            i += 1
+            continue
+        if m == 0x01 or 0xD0 <= m <= 0xD7:  # standalone markers, no length
+            i += 2
+            continue
+        if m in (0xD8, 0xD9, 0xDA):  # a second SOI, EOI or the scan itself before any frame header
+            return None
+        if i + 4 > n:
+            return None
+        seg = (data[i + 2] << 8) | data[i + 3]
+        if seg < 2 or i + 2 + seg > n:
+            return None
+        if m in _SOF:
+            if seg < 7:
+                return None
+            h = (data[i + 5] << 8) | data[i + 6]
+            w = (data[i + 7] << 8) | data[i + 8]
+            return (w, h) if w > 0 and h > 0 else None
+        i += 2 + seg
+    return None
 
 
 def crop_to_screen(cap: Any, px: float, py: float, r: float = 0.0) -> tuple[float, float, float] | None:
