@@ -396,26 +396,21 @@ class ScreenBridge:
             log.exception("screenshot failed")
             return None
 
-    def ask_frame(self, max_age: float = 0.5) -> tuple[Any, Any]:
-        """Circle to ask (Nov 22): (observation, PIL picture with the overlay blacked out) from one frame captured now,
-        or (None, None). Blocking (capture + OCR, ~0.3-0.5 s): call it in a thread. The learner asked, so it also
-        captures while the reader is paused (no lesson step: launch-quiet starts nothing, it takes one frame; the
-        macOS permission is only checked, never prompted). A paused reader forgets that picture right after
-        (drop_frame): the crop is for this one ask. Raises the reader's ScreenPermissionError without Screen Recording."""
+    def ask_frame(self, display_id: int | None = None) -> tuple[Any, Any]:
+        """Circle to ask (Nov 22): (observation, PIL picture with the overlay blacked out) from one frame captured now
+        on `display_id` (the display the learner circled on; the usual display when that one can't be captured), or
+        (None, None) for a blank frame. Blocking (capture + OCR, ~0.3-0.5 s): call it in a thread.
+
+        ScreenReader.capture_once: the frame is only for this ask. It never reaches the session's on_screen or the
+        metric readers (no screen.seen, no check, no spotlight from it) and never replaces the reader's last frame,
+        so a paused reader keeps no picture and a running one keeps its own display. The learner asked, so it also
+        captures while the reader is paused (launch-quiet starts nothing; the macOS permission is only checked, never
+        prompted). Raises the reader's ScreenPermissionError without Screen Recording."""
         r = self.reader
-        if r is None or not hasattr(r, "latest_frame"):
+        if r is None or not hasattr(r, "capture_once"):
             return None, None
-        paused = self.paused
-        try:
-            if paused or not hasattr(r, "_fresh_obs"):
-                r.observe_now(True, "ask")
-            else:
-                r._fresh_obs(max_age)
-            pil, obs = r.latest_frame()
-            return obs, pil
-        finally:
-            if paused and hasattr(r, "drop_frame"):
-                r.drop_frame()
+        obs, pil = r.capture_once(display_id, "ask")
+        return obs, pil
 
     def poke(self) -> None:
         if self.reader is not None and hasattr(self.reader, "poke"):
@@ -520,8 +515,10 @@ class FakeScreen:
     def screenshot(self) -> Any:
         return None
 
-    def ask_frame(self, max_age: float = 0.5) -> tuple[Any, Any]:
-        """tests: `.ask` = (observation, picture) for circle to ask; `.ask_error` is raised instead when set."""
+    def ask_frame(self, display_id: int | None = None) -> tuple[Any, Any]:
+        """tests: `.ask` = (observation, picture) for circle to ask; `.ask_error` is raised instead when set;
+        `.ask_displays` records each display id asked for."""
+        self.ask_displays = [*getattr(self, "ask_displays", []), display_id]
         if getattr(self, "ask_error", None) is not None:
             raise self.ask_error
         return getattr(self, "ask", (None, None))

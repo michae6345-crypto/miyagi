@@ -5902,8 +5902,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if kind == "start":  # "Start the lesson" on the "Before you start" sheet (E4)
             await self._begin("Start")
             return
-        if kind in self.START_ACTIONS and self.awaiting_start:
-            await self._begin(kind)  # a step control pressed: the sheet is closed
+        if kind in self.START_ACTIONS and self.awaiting_start and region is None:
+            await self._begin(kind)  # a step control pressed: the sheet is closed (a circle on screen is not one)
         if kind in self.ASK_KINDS:
             self._input_was_miyagi()  # E5: the keys just typed went into Miyagi's ask box
         if kind == "resume":
@@ -5957,9 +5957,21 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
             if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
-                card = (stage.fallback_answer(self, kind, text) if curated.active(self) else None) or \
-                    self._ask_failed_card(kind, text, e)  # the curated / Demo lesson: its own answer, never "Couldn't reach"
+                card = (stage.fallback_answer(self, kind, text) if curated.active(self) and region is None else None) \
+                    or self._ask_failed_card(kind, text, e)  # the curated / Demo lesson: its own answer, never "Couldn't reach"
+                if region is not None:  # circle to ask: the app matches the card to its ink by askId + region
+                    from . import circle_ask
+
+                    card = circle_ask.failed_card(self.step, circle_ask._region(region) or {}, ask_id, card)
                 await self._emit_card(card, window_s=0.0)
+            elif kind == "ask" and region is not None:  # a circle without a lesson, or the step moved on: never the
+                from . import circle_ask  # bare error event, which the app can't tie to its pending circle
+
+                reg = circle_ask._region(region) or {}
+                if gen == self.step_gen:
+                    await self._emit_card(circle_ask.failed_card(None, reg, ask_id), window_s=0.0)
+                else:
+                    await circle_ask.moved_on(self, reg, ask_id)
             else:
                 await self.emit("error", {"message": f"{kind}: {e}"})
             if self.step is not None:

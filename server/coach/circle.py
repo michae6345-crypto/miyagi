@@ -8,8 +8,9 @@ space as spotlight.rect and the OCR boxes) and one fresh screen frame (E6 Screen
 
 1. The region is clamped: to the captured display, to at most MAX_SIDE_PT per side around its centre, and to at least
    MIN_SIDE_PT (a tap, not a circle). See clamp_region().
-2. Only the text boxes inside the region plus MARGIN_PT are kept (boxes_in), through the shared ScreenContext, so the
-   picture keeps its secret rows and other projects' windows blacked out.
+2. Only the text boxes inside the region plus MARGIN_PT are kept (boxes_in), through the shared ScreenContext. The
+   picture blacks out every secret row of the whole frame (also one mostly outside the circle) and other projects'
+   windows.
 3. The prompt: the step and lesson (context only), the lesson's memory notes, the circled text as untrusted screen
    data (DATA_RULE), the learner's words, and a JPEG crop of the region when the frame has a picture. Haiku answers
    (llm.model_for("circle_ask")), thinking off, a short output cap.
@@ -36,8 +37,10 @@ from .pointing import lesson_mode
 from .screen import ScreenContext
 
 try:
+    from server.redact import SECRET_MARK
     from server.untrusted import DATA_RULE, flag_injection, wrap
 except ImportError:  # pragma: no cover - coach/ run on its own (from server/)
+    from redact import SECRET_MARK  # type: ignore[no-redef]
     from untrusted import DATA_RULE, flag_injection, wrap  # type: ignore[no-redef]
 
 log = logging.getLogger("coach.circle")
@@ -295,9 +298,9 @@ def reading_card(screen: ScreenContext | None, reason: str = "") -> dict:
 
 def unseen_card(reason: str = "") -> dict:
     """No frame at all (no Screen Recording, no reader, the display asleep)."""
-    if reason == "other_display":
-        return {"kind": "answer", "title": "That's on another screen",
-                "body": "miyagi reads one screen at a time. Circle it on this one.",
+    if reason == "other_display":  # the circled display couldn't be captured (asleep, unplugged, mirrored)
+        return {"kind": "answer", "title": "I couldn't read that screen",
+                "body": "Try circling it again in a moment.",
                 "_meta": {"route": "unseen", "fallback_reason": reason}}
     if reason == "no_permission":
         body = "Turn on Screen Recording for miyagi in System Settings."
@@ -356,13 +359,28 @@ def _finish(card: dict, marks: list[dict], region: Any, ask_id: str | None, step
     return out
 
 
+def _secret_rows(blocks: list) -> list[tuple[float, float, float, float]]:
+    """(x, y, w, h) of EVERY block in the frame whose text held a secret, wherever it lies: a long key row with only
+    a sliver inside the circle is not one of the region's boxes, but its pixels are still in the crop."""
+    rows = []
+    for b in blocks or []:
+        if SECRET_MARK in str(_get(b, "text", "") or ""):
+            r = _rect(_get(b, "rect"))
+            if r is not None and r[2] > 0 and r[3] > 0:
+                rows.append(r)
+    return rows
+
+
 def screen_for(obs: Any, image: Any, region: dict, context: dict | None = None) -> ScreenContext:
-    """The shared ScreenContext over just the region's blocks (cursor at the region's centre)."""
-    blocks = boxes_in(_get(obs, "blocks", []) or [], region)
+    """The shared ScreenContext over just the region's blocks (cursor at the region's centre). Its picture (pil())
+    blacks out the secret rows of the WHOLE frame, not only the region's."""
+    every = _get(obs, "blocks", []) or []
+    blocks = boxes_in(every, region)
     centre = (region["x"] + region["w"] / 2, region["y"] + region["h"] / 2)
     extra = {"lesson_folder": str((context or {}).get("lesson_folder") or "")}
     sc = ScreenContext.from_observation(_region_obs(obs, blocks), image, cursor=centre,
                                         **{k: v for k, v in extra.items() if v})
+    sc._secret = _secret_rows(every)
     if len(sc.boxes) > MAX_BOXES:
         sc.boxes = sc.boxes[:MAX_BOXES]
     return sc
