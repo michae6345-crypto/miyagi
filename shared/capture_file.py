@@ -9,10 +9,12 @@ capture {path, w, h, rect, displayId}. The engine calls take_capture(capture) in
     if cap is not None:
         jpeg = cap.jpeg                      # the image block for the model; crop size cap.w x cap.h pixels
         ...                                  # [DRAW:x,y,r:label] in crop pixels -> crop_to_screen(cap, x, y, r)
+                                             # (None: a bad value, skip the mark)
 
 take_capture checks the path (realpath directly inside the capture folder, that name, a regular file owned by this
 user with mode 0600, a JPEG, not too big), reads it and deletes it, whatever the outcome once the path is ours. It
-never raises and never logs the path or the pixels. No OCR boxes come with it: an annotate for the answer comes from
+never raises and never logs the path or the pixels. It also deletes crops older than 30 s left in the folder by a
+helper that was killed before its own timers ran (purge_stale). No OCR boxes come with it: an annotate for the answer comes from
 the model's [DRAW] line, mapped with crop_to_screen.
 """
 
@@ -23,6 +25,7 @@ import os
 import re
 import stat
 import tempfile
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +33,7 @@ MAX_EDGE = 1092  # the helper's long edge (CaptureMath.maxEdge)
 MAX_BYTES = 4 * 1024 * 1024  # a 1092 px JPEG at 0.82 is a few hundred KB
 _NAME = re.compile(r"^cap-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$")
 DIR_NAME = "miyagi-capture"
+STALE_S = 30.0  # the helper's own TTL (CaptureFiles.defaultTTL): anything older was left by a helper that died
 
 
 @dataclass(frozen=True)
@@ -101,6 +105,7 @@ def take_capture(capture: Any, *, dirs: list[str] | None = None) -> Capture | No
         allowed = [os.path.realpath(d) for d in dirs] if dirs is not None else capture_dirs()
         real = _ours(_get(capture, "path"), allowed)
         if real is None:
+            purge_stale(allowed)
             return None
         try:
             return _read(real, capture)
@@ -109,8 +114,43 @@ def take_capture(capture: Any, *, dirs: list[str] | None = None) -> Capture | No
                 os.unlink(real)  # read or not, the crop goes now (the helper's timer would delete it within 30 s)
             except OSError:
                 pass
+            purge_stale(allowed)
     except Exception:  # noqa: BLE001 - a bad capture is never worse than no capture
         return None
+
+
+def purge_stale(dirs: list[str] | None = None, *, max_age: float = STALE_S, now: float | None = None) -> int:
+    """Delete the helper's crops older than max_age seconds (by mtime) in the capture folders. The helper deletes each
+    one after 30 s with its own timer, but a helper that is SIGKILLed or crashes takes its timers with it, and the files
+    would then stay until the next helper start. take_capture calls this on every ask that carries a capture; the
+    engine may also call it at startup. Only cap-<uuid>.jpg regular files owned by this user, directly inside a folder
+    that is a real directory of this user, are touched. Returns how many were deleted. Never raises, never logs."""
+    gone = 0
+    try:
+        allowed = [os.path.realpath(d) for d in dirs] if dirs is not None else capture_dirs()
+        t = time.time() if now is None else now
+        for d in allowed:
+            try:
+                dst = os.lstat(d)
+                if not stat.S_ISDIR(dst.st_mode) or dst.st_uid != os.getuid():
+                    continue
+                names = os.listdir(d)
+            except OSError:
+                continue
+            for name in names:
+                if not _NAME.match(name):
+                    continue
+                p = os.path.join(d, name)
+                try:
+                    st = os.lstat(p)
+                    if stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and t - st.st_mtime > max_age:
+                        os.unlink(p)
+                        gone += 1
+                except OSError:
+                    continue
+    except Exception:  # noqa: BLE001 - cleanup must never break an ask
+        pass
+    return gone
 
 
 def _read(real: str, capture: Any) -> Capture | None:
@@ -147,17 +187,33 @@ def _read(real: str, capture: Any) -> Capture | None:
     return Capture(jpeg=data, w=w, h=h, rect=rect, displayId=disp)  # type: ignore[arg-type]
 
 
-def crop_to_screen(cap: Any, px: float, py: float, r: float = 0.0) -> tuple[float, float, float]:
-    """A crop pixel (the model's [DRAW:x,y,r]) -> (x, y, r) in screen points. The point is clamped to [0, w] x [0, h]
-    first; a non-finite number counts as 0. Same formula as the helper's CaptureMath.toScreen:
+def crop_to_screen(cap: Any, px: float, py: float, r: float = 0.0) -> tuple[float, float, float] | None:
+    """A crop pixel (the model's [DRAW:x,y,r]) -> (x, y, r) in screen points, or None: skip the mark.
+
+    None when px or py is not a finite number (a bad [DRAW] value must not draw at the crop's corner), or when cap is
+    not usable (w or h not a positive number, rect missing or not finite, rect.w or rect.h <= 0: a raw payload rather
+    than a Capture). The point is clamped to [0, w] x [0, h] and r to [0, max(w, h)] (a non-finite r counts as 0)
+    before scaling. Same formula as the helper's CaptureMath.toScreen:
     x = rect.x + px * rect.w / w, y = rect.y + py * rect.h / h, r_pt = r * rect.w / w."""
-    w, h = float(_get(cap, "w")), float(_get(cap, "h"))
-    rect = _get(cap, "rect")
-    rx, ry, rw, rh = (rect if isinstance(rect, tuple) else tuple(float(_get(rect, k)) for k in ("x", "y", "w", "h")))
-
-    def fin(v: float) -> float:
-        return float(v) if isinstance(v, (int, float)) and math.isfinite(v) else 0.0
-
-    x = min(max(fin(px), 0.0), w)
-    y = min(max(fin(py), 0.0), h)
-    return rx + x * rw / w, ry + y * rh / h, max(fin(r), 0.0) * rw / w
+    try:
+        w, h = _num(_get(cap, "w")), _num(_get(cap, "h"))
+        rect = _get(cap, "rect")
+        if rect is None:
+            return None
+        vals = rect if isinstance(rect, tuple) else tuple(_get(rect, k) for k in ("x", "y", "w", "h"))
+        if len(vals) != 4:
+            return None
+        rx, ry, rw, rh = (_num(v) for v in vals)
+    except Exception:  # noqa: BLE001 - a bad payload means no mark, never a crash
+        return None
+    if w is None or h is None or w <= 0 or h <= 0:
+        return None
+    if rx is None or ry is None or rw is None or rh is None or rw <= 0 or rh <= 0:
+        return None
+    x, y = _num(px), _num(py)
+    if x is None or y is None:
+        return None
+    x = min(max(x, 0.0), w)
+    y = min(max(y, 0.0), h)
+    rr = min(max(_num(r) or 0.0, 0.0), max(w, h))
+    return rx + x * rw / w, ry + y * rh / h, rr * rw / w

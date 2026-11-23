@@ -12,7 +12,7 @@ import tempfile
 import unittest
 import uuid
 
-from shared.capture_file import capture_dirs, crop_to_screen, take_capture
+from shared.capture_file import capture_dirs, crop_to_screen, purge_stale, take_capture
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9"
 
@@ -114,6 +114,39 @@ class TakeCapture(unittest.TestCase):
     def test_missing_file(self) -> None:
         self.assertIsNone(take_capture(self.cap(os.path.join(self.dir, f"cap-{uuid.uuid4()}.jpg")), dirs=self.dirs))
 
+    def test_stale_crops_of_a_killed_helper_are_purged(self) -> None:
+        old = self.put()
+        fresh = self.put()
+        other = self.put(name="notes.jpg")
+        past = os.stat(old).st_mtime - 120
+        os.utime(old, (past, past))
+        os.utime(other, (past, past))
+        self.assertIsNone(take_capture({"path": "nope"}, dirs=self.dirs))  # any ask with a capture sweeps
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(fresh))
+        self.assertTrue(os.path.exists(other))  # not one of the helper's names: never touched
+
+    def test_purge_stale_after_a_good_read(self) -> None:
+        old, p = self.put(), self.put()
+        past = os.stat(old).st_mtime - 31
+        os.utime(old, (past, past))
+        self.assertIsNotNone(take_capture(self.cap(p), dirs=self.dirs))
+        self.assertFalse(os.path.exists(old))
+        self.assertFalse(os.path.exists(p))
+
+    def test_purge_stale_skips_symlinks_and_counts(self) -> None:
+        target = os.path.join(self.root, "keep.jpg")
+        with open(target, "wb") as f:
+            f.write(JPEG)
+        link = os.path.join(self.dir, f"cap-{uuid.uuid4()}.jpg")
+        os.symlink(target, link)
+        a = self.put()
+        now = os.stat(a).st_mtime + 60
+        self.assertEqual(purge_stale(self.dirs, now=now), 1)
+        self.assertTrue(os.path.lexists(link))
+        self.assertTrue(os.path.exists(target))
+        self.assertEqual(purge_stale([os.path.join(self.root, "missing")]), 0)
+
     def test_default_dirs_are_real_paths(self) -> None:
         for d in capture_dirs():
             self.assertEqual(d, os.path.realpath(d))
@@ -130,7 +163,23 @@ class CropToScreen(unittest.TestCase):
 
     def test_clamped_first(self) -> None:
         self.assertEqual(crop_to_screen(self.cap, -50, 9999, -3), (70, 215, 0))
-        self.assertEqual(crop_to_screen(self.cap, float("nan"), float("inf")), (70, 85, 0))
+
+    def test_non_finite_point_is_dropped(self) -> None:
+        for px, py in ((float("nan"), 10), (10, float("inf")), (float("-inf"), 0), (None, 5), ("12", 5), (True, 5)):
+            self.assertIsNone(crop_to_screen(self.cap, px, py, 10), (px, py))  # type: ignore[arg-type]
+
+    def test_radius_clamped_to_the_crop(self) -> None:
+        self.assertEqual(crop_to_screen(self.cap, 0, 0, 10_000), (70, 85, 260))  # r <= max(w, h) = 520 px = 260 pt
+        self.assertEqual(crop_to_screen(self.cap, 0, 0, float("inf")), (70, 85, 0))
+        self.assertEqual(crop_to_screen(self.cap, 0, 0, float("nan")), (70, 85, 0))
+
+    def test_raw_payload_with_zero_or_bad_size_is_none(self) -> None:
+        for bad in ({"w": 0, "h": 260}, {"w": 520, "h": 0}, {"w": None}, {"w": float("nan")}, {"w": -5},
+                    {"rect": {"x": 0, "y": 0, "w": 0, "h": 10}}, {"rect": None}, {"rect": {"x": 0}},
+                    {"rect": {"x": float("inf"), "y": 0, "w": 10, "h": 10}}, {"rect": (1, 2, 3)}):
+            self.assertIsNone(crop_to_screen({**self.cap, **bad}, 10, 10, 5), bad)
+        self.assertIsNone(crop_to_screen({}, 10, 10))
+        self.assertIsNone(crop_to_screen(None, 10, 10))
 
     def test_second_display_negative_origin_1x(self) -> None:
         c = {"w": 400, "h": 300, "rect": {"x": -1000, "y": 0, "w": 400, "h": 300}}
