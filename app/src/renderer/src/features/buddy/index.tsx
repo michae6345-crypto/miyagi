@@ -8,6 +8,7 @@
  * Previews, only in the browser stage: ?buddy (every state of the mark) and ?buddy=point (try the pointing).
  */
 import { defineFeature } from '../../core/registry'
+import { PodLayer } from './Pod'
 import { PointStage, POINT_STAGE } from './PointStage'
 import { ReachLayer } from './Reach'
 import { BuddyStage } from './Stage'
@@ -16,7 +17,11 @@ const preview = typeof location !== 'undefined' ? new URLSearchParams(location.s
 
 export default defineFeature({
   id: 'buddy',
-  overlayLayers: [{ id: 'buddy-reach', z: 30, Component: ReachLayer }],
+  // The loops go under the island (z 30). The buddy itself goes over it (z 55): it lifts out of the notch.
+  overlayLayers: [
+    { id: 'buddy-reach', z: 30, Component: ReachLayer },
+    { id: 'buddy-pod', z: 55, Component: PodLayer }
+  ],
   windows:
     preview === 'point'
       ? [{ route: 'buddy-point', Component: PointStage, stage: POINT_STAGE, z: 40 }]

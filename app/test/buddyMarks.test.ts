@@ -33,7 +33,8 @@ import {
   validMarks,
   type Mark
 } from '../src/renderer/src/features/buddy/marks'
-import { annotate, fade, forget, pointAt, usePointing } from '../src/renderer/src/features/buddy/pointing'
+import { annotate, fade, forget, pointAt, reached, usePointing } from '../src/renderer/src/features/buddy/pointing'
+import { along, flight, FLIGHT, HOME_SCALE, leanToward, perch, POD, podWidth, said, scaleAt, SPEECH, tiltAt } from '../src/renderer/src/features/buddy/trip'
 
 const mark = (over: Partial<Mark> = {}): Mark => ({ x: 100, y: 500, w: 200, h: 20, why: 'point', ...over })
 const shown = (): string[] => usePointing.getState().marks.map((m) => m.key)
@@ -545,11 +546,104 @@ describe('pointing (the annotate event)', () => {
     assert.equal(emitUi('dismiss'), false)
   })
 
+  test('reached: the buddy cheers once, and only those marks fade; reaching nothing is nothing', () => {
+    annotate({ marks: [mark({ id: 'a' }), mark({ id: 'b', x: 700 })] })
+    const before = usePointing.getState().cheer
+    reached([])
+    assert.equal(usePointing.getState().cheer, before)
+    reached(['id:a'])
+    assert.equal(usePointing.getState().cheer, before + 1)
+    assert.deepEqual(shown(), ['id:b'])
+  })
+
+  test('the buddy starts at home', () => {
+    assert.equal(usePointing.getState().trip.phase, 'home')
+  })
+
   test('pointAt: the pose another layer asks for, and its end', () => {
     const box = { x: 10, y: 20, w: 30, h: 40 }
     pointAt(box)
     assert.equal(usePointing.getState().pose, box)
     pointAt()
     assert.equal(usePointing.getState().pose, undefined)
+  })
+})
+
+describe('the buddy’s trips (trip.ts)', () => {
+  const home = { x: 682, y: 16 }
+  const there = { x: 300, y: 572 }
+
+  test('a flight starts at one end, ends at the other, and bows off the straight line toward the top of the screen', () => {
+    const f = flight(home, there, 'out')
+    assert.deepEqual(along(f, 0), home)
+    assert.deepEqual(along(f, 1), there)
+    const mid = along(f, 0.5)
+    const straight = { x: (home.x + there.x) / 2, y: (home.y + there.y) / 2 }
+    assert.ok(Math.hypot(mid.x - straight.x, mid.y - straight.y) > 10, 'it is an arc')
+    assert.ok(f.ctrl.y < straight.y, 'bowed upward')
+    assert.ok(f.ctrl.y >= 8, 'never off the top of the display')
+  })
+
+  test('farther takes longer, within limits', () => {
+    const near = flight(there, { x: 340, y: 560 }, 'hop')
+    const far = flight(home, { x: 1500, y: 950 }, 'out')
+    assert.equal(near.seconds, FLIGHT.min)
+    assert.ok(far.seconds > near.seconds && far.seconds <= FLIGHT.max)
+    assert.equal(flight({ x: 0, y: 0 }, { x: 9000, y: 9000 }, 'out').seconds, FLIGHT.max)
+  })
+
+  test('it leaves home at the ear’s size, is full size by the time it lands, and comes home at the ear’s size', () => {
+    const out = flight(home, there, 'out')
+    assert.ok(Math.abs(scaleAt(out, 0) - HOME_SCALE) < 1e-9)
+    assert.ok(Math.abs(scaleAt(out, 1) - 1) < 1e-9)
+    assert.ok(scaleAt(out, 0.5) > 1, 'a little bigger mid-flight')
+    const back = flight(there, home, 'home')
+    assert.ok(Math.abs(scaleAt(back, 0) - 1) < 1e-9)
+    assert.ok(Math.abs(scaleAt(back, 1) - HOME_SCALE) < 1e-9)
+    const hop = flight(there, { x: 600, y: 494 }, 'hop')
+    assert.ok(Math.abs(scaleAt(hop, 0) - 1) < 1e-9 && Math.abs(scaleAt(hop, 1) - 1) < 1e-9)
+    // Turned round mid-air at 0.8 of full size: it goes on from there.
+    assert.ok(Math.abs(scaleAt(hop, 0, 0.8) - 0.8) < 1e-9 && Math.abs(scaleAt(hop, 1, 0.8) - 1) < 1e-9)
+  })
+
+  test('it leans into the way it is going, most mid-flight, and is upright at both ends', () => {
+    const left = flight(home, there, 'out')
+    assert.ok(Math.abs(tiltAt(left, 0)) < 1e-9 && Math.abs(tiltAt(left, 1)) < 1e-9)
+    assert.ok(tiltAt(left, 0.5) < 0, 'going left leans left')
+    assert.ok(tiltAt(flight(there, { x: 900, y: 500 }, 'hop'), 0.5) > 0)
+    assert.ok(Math.abs(tiltAt(left, 0.5)) <= FLIGHT.tilt + 1e-9)
+  })
+
+  describe('perch', () => {
+    const bounds = { x: 0, y: 32, w: 1600, h: 880 }
+    const ring = { x: 400, y: 400, w: 200, h: 40 }
+
+    test('beside the loop on the circled line, to the right: the tree first, its words after it', () => {
+      const p = perch(ring, 60, bounds)
+      assert.equal(p.side, 'right')
+      assert.equal(p.mirrored, false)
+      assert.equal(p.w, podWidth(60))
+      assert.deepEqual(p.tree, { x: 600 + LABEL.gap + POD.h / 2, y: 420 })
+      assert.ok(leanToward(p.tree, ring) < 0, 'it leans toward the thing, which is on its left')
+    })
+    test('no room on the right or below: to the left, mirrored, the tree still next to the thing', () => {
+      const r = { x: 1400, y: 860, w: 190, h: 40 }
+      const p = perch(r, 60, bounds)
+      assert.equal(p.side, 'left')
+      assert.equal(p.mirrored, true)
+      assert.ok(p.tree.x < r.x && r.x - p.tree.x < POD.h, 'the tree end of the pod is the end by the loop')
+      assert.ok(leanToward(p.tree, r) > 0)
+    })
+    test('nothing to say: the pod is just the tree', () => {
+      assert.equal(perch(ring, 0, bounds).w, POD.h)
+    })
+  })
+
+  test('it says its words one letter at a time, after a beat', () => {
+    assert.equal(said(0, 8), 0)
+    assert.equal(said(SPEECH.afterMs - 1, 8), 0)
+    assert.equal(said(SPEECH.afterMs, 8), 1)
+    assert.equal(said(SPEECH.afterMs + SPEECH.letterMs * 3, 8), 4)
+    assert.equal(said(99_999, 8), 8)
   })
 })
