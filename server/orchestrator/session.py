@@ -957,6 +957,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spawn(asyncio.to_thread(wsmod.ensure_lesson_venv, folder, True))  # fresh Mac: .venv from the bundle
         if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
             self.reqs = items or None
+            await setup_apps.repin_and_tell(self)  # Nov 22: "use FreeCAD" / "I have it" from an earlier lesson
             miss = [it for it in items or [] if it.get("needed") and not it.get("ok")
                     and (it.get("kind") != "editor" or not it.get("installed"))]  # no VS Code at all: its row stays
             card = setup_rows.with_install_all(wsmod.setup_card(miss)) if miss else None
@@ -971,6 +972,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         hold = list((self.step or {}).get("requires") or []) if (self.step or {}).get("setup") else None
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
+            await setup_apps.repin_and_tell(self)  # Nov 22: "use FreeCAD" / "I have it" from an earlier lesson
             missing = [it for it in items if it.get("needed") and not it.get("ok")]
             if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
                 # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
@@ -3307,6 +3309,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         log.info("quick start: the real lesson (%d steps) replaces the placeholder", len(new.get("steps", [])))
         idx = 0  # the placeholder had one step: the learner restarts on the REAL s1
         self.graph = new
+        setup_apps.apply_choice(self)  # Nov 22: the real lesson's AutoCAD checks follow the learner's FreeCAD too
         self.m.set_lesson(new)
         await self.emit("lesson.ready", self._lesson_ready_payload())
         self.waiting_more = False  # even if they skipped the placeholder: the real s1 starts now
@@ -3324,6 +3327,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         new = [copy.deepcopy(st) for st in g.get("steps", []) if st["id"] not in known]
         _use_lesson_venv({"lesson": self.graph.get("lesson") or {}, "steps": new})
         self.graph["steps"].extend(new)
+        setup_apps.apply_choice(self)  # Nov 22: new steps arrive pinned to AutoCAD; the learner may use FreeCAD
         lesson = self.graph.setdefault("lesson", {})
         for k in ("parts", "builtBy", "goalMatch"):
             if k in (g.get("lesson") or {}):
@@ -3578,6 +3582,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """seek_to: resume mid-segment (a restored session) instead of from the segment's start."""
         if not (0 <= idx < len(self.steps)):
             return
+        setup_apps.apply_choice(self)  # Nov 22: never start a step whose checks wait on an app the learner isn't using
         back = self._typing_step_for_empty_run(idx)
         if back is not None:  # "run calculator.py" while calculator.py is still empty: type it first
             idx, empty = back

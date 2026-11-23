@@ -103,6 +103,7 @@ async def have_it(s: Any, item: dict) -> None:
     else:  # the learner's word stands (another folder, a VM, a school machine): never asked again on this Mac
         item["haveIt"] = True
         apps.remember(item["tool"], haveIt=True)
+        await repin_and_tell(s)  # checks pinned to an app this Mac can't see would wait forever
         note = f"Got it. I'll use {label} when it opens."
     await refresh(s, note)
 
@@ -129,6 +130,7 @@ async def use_alternative(s: Any, item: dict) -> None:
         return
     item["using"] = alt["name"]
     apps.remember(item["tool"], choice=f"alternative:{alt['tool']}")
+    await repin_and_tell(s)  # the lesson's AutoCAD checks look at FreeCAD now, and its steps say "in FreeCAD"
     from server.workspace import setup as S
 
     cat = S.CATALOG.get(alt["tool"], {})
@@ -237,6 +239,47 @@ async def on_front(s: Any, app: str) -> bool:
             flipped = True
             await refresh(s, f"{it.get('label') or key} found")
     return flipped
+
+
+def apply_choice(s: Any) -> bool:
+    """What the learner chose moves the lesson's app pin (app_lesson.repin): `using` FreeCAD -> checks and targets
+    pinned to "AutoCAD" look at FreeCAD and the copy says "in FreeCAD"; "I have it" with no AutoCAD found -> the pin
+    goes (the judge decides). Called after each choice, after the setup scan, and at each step start (a progressive
+    build's new steps arrive pinned to AutoCAD). Idempotent; never raises. -> True when the lesson changed."""
+    g = getattr(s, "graph", None)
+    if not g:
+        return False
+    try:
+        from server.lesson import app_lesson
+
+        apps = _apps()
+        changed = False
+        for it in s.reqs or []:
+            if _kind(it) not in APP_KINDS or it.get("kind") == "editor":
+                continue
+            tool = str(it.get("tool") or "")
+            if it.get("using"):
+                alt = apps.alternative(tool) or {}
+                changed |= app_lesson.repin(g, tool, app_lesson.alternative_window(alt.get("tool") or ""), str(it["using"]))
+            elif it.get("haveIt") and not it.get("installed"):
+                changed |= app_lesson.repin(g, tool, None, None)
+        return changed
+    except Exception:  # noqa: BLE001 - a refinement: the lesson runs with its pins as they were
+        log.exception("app choice re-pin failed")
+        return False
+
+
+async def repin_and_tell(s: Any) -> None:
+    """apply_choice, then the drawer's step titles follow (lesson.updated merges steps by id). Never raises."""
+    if not apply_choice(s):
+        return
+    try:
+        steps = list(getattr(s, "steps", None) or [])
+        lesson = (s.graph or {}).get("lesson") or {}
+        await s.emit("lesson.updated", {"steps": [s._step_summary(st, i) for i, st in enumerate(steps)],
+                                        "complete": lesson.get("complete") is not False})
+    except Exception:  # noqa: BLE001
+        log.exception("lesson.updated after an app choice failed")
 
 
 def context_line(s: Any) -> str:

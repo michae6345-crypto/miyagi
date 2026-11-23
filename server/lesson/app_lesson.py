@@ -22,6 +22,10 @@ CODE_FILE = re.compile(r"\.(?:py|ipynb|js|mjs|cjs|ts|tsx|jsx|rs|go|java|kt|c|cc|
 FILE_CHECKS = frozenset({"file_exists", "file_contains", "command_exit_ok", "output_contains"})
 _EDITOR = re.compile(r"\b(?:in|into|inside)\s+(?:your|the)\s+(?:code\s+)?editor\b|\b(?:in|into)\s+VS\s*Code\b", re.I)
 _TYPE_ALONG = re.compile(r"\btype along\b", re.I)
+# a title that is about code even when it names an app ("Automate Excel with Python openpyxl"): used where there are no
+# steps yet to read (builder.provisional_graph's placeholder, before preflight's style is known)
+CODE_TITLE = re.compile(r"\b(?:python|javascript|typescript|java|rust|golang|vba|pandas|openpyxl|numpy|"
+                        r"script(?:s|ing)?|cod(?:e|ing)|program(?:ming)?|api|sdk|macro(?:s)?)\b", re.I)
 
 
 def _apps():
@@ -85,3 +89,62 @@ def adapt(graph: dict) -> dict:
             if isinstance(x, dict) and str(x.get("type") or "screen").startswith("screen") and not x.get("app"):
                 x["app"] = window
     return graph
+
+
+def _app_phrase(names: list[str]) -> re.Pattern:
+    """"in AutoCAD" / "open Autodesk AutoCAD 2025" for any of the app's names (the verb or preposition is kept)."""
+    alts = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    return re.compile(rf"\b(in|into|inside|within|open|launch|start|switch to)\s+(?:Autodesk\s+|Adobe\s+|Microsoft\s+)?"
+                      rf"(?:{alts})(?:\s+(?:LT|20\d\d))?\b", re.I)
+
+
+def repin(graph: dict, tool: str, window: str | None, label: str | None) -> bool:
+    """The learner works in another app than the one the lesson names (Nov 22: FreeCAD for AutoCAD), or said "I have
+    it" while this Mac shows no such app (a VM, a school machine). Screen checks and targets that adapt (or the model)
+    pinned to the lesson's app ("AutoCAD") would wait forever, so they move to `window` ("FreeCAD"), or lose the pin
+    when there is no window name to give (a web alternative, an unfound "I have it"): the judge and "Can I move on?"
+    decide. With `label`, step copy "in AutoCAD" reads "in FreeCAD". In place, idempotent; -> True when anything
+    changed. Code lessons are never touched."""
+    if not tool or has_code(graph):
+        return False
+    apps = _apps()
+    names = [n for n in dict.fromkeys([apps.label(tool), *apps.process_names(tool)]) if len(n) >= 3]
+    if not names:
+        return False
+    low = [n.lower() for n in names]
+    phrase = _app_phrase(names) if label else None
+    changed = False
+    for st in graph.get("steps") or []:
+        if not isinstance(st, dict):
+            continue
+        for x in (st.get("checks") or []) + (st.get("precision_checks") or []) + (st.get("targets") or []):
+            a = x.get("app") if isinstance(x, dict) else None
+            if not isinstance(a, str) or not any(n in a.lower() for n in low):
+                continue
+            if window:
+                x["app"] = window
+            else:
+                x.pop("app")
+            changed = True
+        if phrase is not None:
+            for k in ("title", "instructions"):
+                if isinstance(st.get(k), str) and (new := phrase.sub(lambda m: f"{m.group(1)} {label}", st[k])) != st[k]:
+                    st[k] = new
+                    changed = True
+    les = graph.get("lesson") or {}
+    if isinstance(les.get("app"), dict) and les["app"].get("tool") == tool and label and les["app"].get("using") != label:
+        les["app"]["using"] = label  # additive: the coach sees which app the learner really uses
+        changed = True
+    return changed
+
+
+def alternative_window(alt_tool: str) -> str | None:
+    """The window name a free desktop alternative shows ("FreeCAD", "Blender"); None for a web app or an app whose
+    window name we don't know (its checks then go unpinned)."""
+    apps = _apps()
+    if alt_tool in apps.FREE_APPS:
+        return (apps.process_names(alt_tool) or [None])[0]
+    from server.workspace import setup as S
+
+    cat = S.CATALOG.get(alt_tool) or {}
+    return cat.get("app") if cat.get("kind") == "app" else None

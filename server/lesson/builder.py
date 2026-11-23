@@ -232,8 +232,11 @@ def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -
     label = _clip_words(title or "Follow along with the video", 6)
     # Nov 22: "type along in your editor" only where there is an editor: an AutoCAD video follows along in AutoCAD,
     # a no-code / conceptual one (preflight's style) just follows along
-    app = app_lesson.work_app({"lesson": {"title": meta.get("title") or ""}})
+    # a coding video that names an app ("Automate Excel with Python openpyxl") still types along in the editor, as
+    # app_lesson.adapt never touches a code lesson
     style = str(meta.get("style") or "").lower()
+    coding = style == "coding" or (not style and app_lesson.CODE_TITLE.search(str(meta.get("title") or "")))
+    app = None if coding else app_lesson.work_app({"lesson": {"title": meta.get("title") or ""}})
     along = (f"follow along in {app_lesson._apps().label(app)}" if app
              else "follow along" if style in ("no-code", "no_code", "conceptual") else "type along in your editor")
     step = {

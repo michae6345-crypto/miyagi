@@ -162,7 +162,7 @@ def test_autocad_lesson_card_offers_have_it_get_it_and_freecad_never_install(mac
 
     card = setup_card(items)
     assert card["title"] == "This lesson uses AutoCAD"
-    assert card["body"] == "Have AutoCAD already? Or try FreeCAD, free. Watch while you decide."
+    assert card["body"] == "Have AutoCAD already? Or try FreeCAD, free."  # no "Watch while you decide" yet (setup.py)
     assert len(card["body"].split()) <= 12 and "—" not in card["body"] + card["title"]
     assert "Install" not in card["body"] and "editor" not in card["body"].lower()
     assert card["actions"] == ["have_it", "get_it", "alternative", "skip_setup"]

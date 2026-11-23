@@ -115,10 +115,17 @@ row now has a `setupKind` (`apps.classify`):
 - A title that names its app (`apps.app_in_text`: "AutoCAD - ..." → autocad) adds the row even offline or when Claude
   left it out, for no-code lessons only (a pandas lesson about Excel files is still a code lesson).
 - Card copy for a missing licensed app: title "This lesson uses AutoCAD", body "Have AutoCAD already? Or try FreeCAD,
-  free. Watch while you decide.", actions `have_it`, `get_it`, `alternative`, `skip_setup` (labels in
-  `setup.actionLabels`). No "Install now?", no long "No editor needed: ..." line.
+  free.", actions `have_it`, `get_it`, `alternative`, `skip_setup` (labels in `setup.actionLabels`). No "Install
+  now?", no long "No editor needed: ..." line. " Watch while you decide." is added only once the app honours
+  `setup.holdVideo` (`setup.APP_HONOURS_HOLD_VIDEO`).
 - `setup.holdVideo`: False unless the current step truly needs a missing tool Install can get now (`setup_card(...,
-  hold_for=step.requires)`). Setup is a companion: the app keeps the video playing.
+  hold_for=step.requires)`). Setup is a companion: an app that reads holdVideo keeps the video playing. Pending app
+  work (claim with Adrian first): CardActions must list `have_it` / `get_it` / `alternative`, player/store.ts
+  setupWaiting must hold only when `holdVideo === true` (old rule when the field is missing), and the Drawer's
+  "Waiting on setup" must skip `haveIt` / `using` rows and holdVideo=false cards.
+- Learner works in the alternative (`using`), or said "I have it" but the app was not found: the lesson's app pin
+  moves (`app_lesson.repin`): screen checks and targets pinned to "AutoCAD" look at FreeCAD's window (a web
+  alternative, or an unfound "I have it": no pin, the judge decides), and step copy "in AutoCAD" reads "in FreeCAD".
 - Per-row additive fields: `setupKind`, `actions` (`install | have_it | get_it | alternative | skip`), `vendorUrl`,
   `vendorName`, `alternative {name, url, tool}`, `haveIt`, `using`, `noMac` (contract: events.ts SetupItem).
 - What the learner said is kept per Mac in `<lessons root>/.miyagi-state/mac-apps.json` (`apps.remember / recall`):

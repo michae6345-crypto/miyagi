@@ -72,3 +72,40 @@ def test_placeholder_step_wording_by_style():
     coding = builder.provisional_graph({**meta, "title": "Python calculator"}, "x" * 11, "https://youtu.be/xxxxxxxxxxx", "", "/tmp/w")
     assert coding["steps"][0]["instructions"].endswith("type along in your editor; detailed steps are on the way.")
     assert builder.normalize_video_meta({"title": "t", "style": "no-code"})["style"] == "no-code"
+
+
+def test_repin_moves_app_checks_and_copy_and_is_idempotent():
+    g = app_lesson.adapt(autocad())
+    assert app_lesson.repin(g, "autocad", "FreeCAD", "FreeCAD") is True
+    assert all(x["app"] == "FreeCAD" for s in g["steps"] for x in s["checks"] + s["targets"])
+    assert g["steps"][1]["title"] == "Extrude the body in FreeCAD"
+    assert g["steps"][1]["instructions"].startswith("In FreeCAD, extrude")
+    assert app_lesson.repin(g, "autocad", "FreeCAD", "FreeCAD") is False
+    web = app_lesson.adapt(autocad())
+    assert app_lesson.repin(web, "autocad", None, "Tinkercad") is True
+    assert not any("app" in x for s in web["steps"] for x in s["checks"] + s["targets"])
+    assert web["steps"][0]["instructions"].startswith("Follow along in Tinkercad")
+
+
+def test_repin_never_touches_a_code_lesson():
+    g = autocad()
+    g["steps"][0]["file"] = "car.py"
+    before = copy.deepcopy(g)
+    assert app_lesson.repin(g, "autocad", "FreeCAD", "FreeCAD") is False and g == before
+
+
+def test_alternative_window():
+    assert app_lesson.alternative_window("freecad") == "FreeCAD"
+    assert app_lesson.alternative_window("blender") == "Blender"
+    assert app_lesson.alternative_window("tinkercad") is None and app_lesson.alternative_window("google-sheets") is None
+
+
+def test_placeholder_step_of_a_coding_video_about_an_app_types_along_in_the_editor():
+    """Fix round 1: "Automate Excel with Python openpyxl" is a code lesson: never "follow along in Microsoft Excel"."""
+    meta = {"title": "Automate Excel with Python openpyxl", "length_s": 600, "chapters": CHAPTERS}
+    for m in ({**meta, "style": "coding"}, meta):
+        s1 = builder.provisional_graph(m, "x" * 11, "https://youtu.be/xxxxxxxxxxx", "", "/tmp/w")["steps"][0]
+        assert s1["instructions"].endswith("type along in your editor; detailed steps are on the way."), m
+    excel = builder.provisional_graph({**meta, "title": "Excel pivot tables for beginners", "style": "no-code"},
+                                      "x" * 11, "https://youtu.be/xxxxxxxxxxx", "", "/tmp/w")["steps"][0]
+    assert "follow along in" in excel["instructions"] and "Excel" in excel["instructions"]

@@ -995,6 +995,11 @@ def _last_error(text: str) -> str:
 
 # --------------------------------------------------------------------------- card payload (proposal)
 
+# The app (player/store.ts setupWaiting, Drawer useWaitingOnSetup) still pauses the video under any setup card with
+# actions, whatever setup.holdVideo says. Until it honours holdVideo, the card never promises "Watch while you decide".
+APP_HONOURS_HOLD_VIDEO = False
+
+
 def licensed_line(rows: list[dict]) -> str:
     """The card's sentence for licensed apps that aren't here: never "Install now?" (apps.py). Calm, short, no dashes."""
     if len(rows) > 1:
@@ -1003,7 +1008,8 @@ def licensed_line(rows: list[dict]) -> str:
     alt = _apps.alternative(it["tool"])
     if it.get("noMac"):
         return f"{it['label']} is Windows only." + (f" Try {alt['name']}, free." if alt else "")
-    return f"Have {it['label']} already?" + (f" Or try {alt['name']}, free." if alt else "") + " Watch while you decide."
+    return f"Have {it['label']} already?" + (f" Or try {alt['name']}, free." if alt else "") \
+        + (" Watch while you decide." if APP_HONOURS_HOLD_VIDEO else "")
 
 
 def _row(it: dict) -> dict:
