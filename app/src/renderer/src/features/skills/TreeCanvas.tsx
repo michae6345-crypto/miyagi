@@ -28,8 +28,8 @@ import { SkillNode, TrunkPoint, type NodeAnim } from './SkillNode'
 import { ackEvents, useSkills } from './store'
 
 const ZOOM_MIN = 0.25
-/** Room kept on the right for the zoom controls (32 wide, 16 from the edge); the tree centers in the rest. */
-const RESERVE = 32
+/** Room kept on the right for the zoom controls (32 wide, 16 from the edge) and a gap; the tree centers in the rest. */
+const RESERVE = 44
 const ZOOM_MAX = 2.2
 /** Per event: the fill (280), the edges drawing out (360), a beat between events. */
 const STEP_S = 0.9

@@ -18,13 +18,13 @@ const fallback = buildSkillGraph(scenario('progress').segments.prog_data[0].payl
 
 /**
  * The tree canvas at the Library window's sizes (SkillsView measured on the stage): the canvas between the goal line and
- * the dock, less the zoom controls' 32 px on the right. 1280x800 is the default window.
+ * the dock, less the zoom controls' 44 px on the right. 1280x800 is the default window.
  */
 const WINDOWS: Record<string, { w: number; h: number }> = {
-  '1024x700': { w: 788 - 32, h: 382 },
-  '1280x800': { w: 1008 - 32, h: 482 },
-  '1280x800 (reviewer box)': { w: 1008 - 32, h: 445 },
-  '1728x1080': { w: 1456 - 32, h: 762 }
+  '1024x700': { w: 788 - 44, h: 382 },
+  '1280x800': { w: 1008 - 44, h: 482 },
+  '1280x800 (reviewer box)': { w: 1008 - 44, h: 445 },
+  '1728x1080': { w: 1456 - 44, h: 762 }
 }
 
 function crossingsOf(l: Layout): number {
