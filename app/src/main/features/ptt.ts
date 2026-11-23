@@ -13,7 +13,8 @@
  *   bridge.invoke('ptt:prefill', text) / 'ptt:prefill-take'   the launcher's prefilled text (no lesson running)
  *   bridge.onFeature('ptt:state', cb)   every change of the one PttState
  *   bridge.onFeature('ptt:final', cb)   {id, text}: the words to ask (the overlay routes them, features/ptt/store.ts)
- *   bridge.onFeature('ptt:down', cb)    {id}: the keys went down (before the 250 ms debounce); the engine is told ask.warm
+ *   bridge.onFeature('ptt:down', cb)    {id}: the keys went down (before the 250 ms debounce). The engine is told ask.warm
+ *                                       later, on the helper's 'listening' (the hold passed the minimum), at most every 4 min
  *   bridge.onFeature('ptt:partial', cb) {id, text}: each new partial of the hold in flight (held, and during the release tail)
  *   bridge.onFeature('ptt:prefill', cb) text: the launcher is already open, fill it
  *
@@ -91,8 +92,9 @@ const ERROR_MS = 4000
 /** The second prompt (input) follows the first (mic) after its answer, or this long. */
 const PROMPT_GAP_MS = 10_000
 const PREFILL_TTL_MS = 15_000
-/** ask.warm at most this often: the engine keeps its links and the prompt cache warm for minutes, a hold every second needs no new warm. */
-const WARM_GAP_MS = 20_000
+/** ask.warm at most this often: each one can be a paid prompt-cache write, and the cache lives 5 min. Just under that,
+ *  so a learner asking every few minutes keeps it warm and one who tiles windows (Fn+Control+arrows) pays nothing. */
+const WARM_GAP_MS = 4 * 60_000
 
 export default defineMainFeature({
   id: 'ptt',
@@ -126,11 +128,15 @@ export default defineMainFeature({
     let pendingInput: ReturnType<typeof setTimeout> | undefined
     let lastTerms = ''
     let prefill: { text: string; at: number } | undefined
-    let upAt = 0
+    /** The hold that was released last, and when: for the 'final N ms after release' log line. */
+    let up: { id: string; at: number } | undefined
     let lastWarm = 0
-    /** The keys went down: tell the windows, and let the engine get ready for the ask (contract ask.warm, v2: only if it said so). */
-    const down = (id: string): void => {
-      ctx.broadcast('ptt:down', { id })
+    /**
+     * The hold passed the minimum and the mic opened (the helper's 'listening'): let the engine get ready for the ask
+     * (contract ask.warm, v2: only if it said so). Not on the raw key-down: a tap ('short') or Fn+Control+arrow (window
+     * tiling, 'keypress') never asks, so it must not pay for a cache write. Capture and TLS still get seconds of head start.
+     */
+    const warm = (id: string): void => {
       const now = Date.now()
       if (now - lastWarm < WARM_GAP_MS || !ctx.engine.connected || !ctx.engine.can('ask.warm')) return
       lastWarm = now
@@ -209,10 +215,15 @@ export default defineMainFeature({
             if (ev.input !== 'granted') void ask('input')
           }
           apply(ev)
-          if (ev.type === 'ptt' && ev.state === 'down' && state.id === ev.id) down(ev.id)
-          if (ev.type === 'ptt' && ev.state === 'up') upAt = Date.now()
+          if (ev.type === 'ptt' && ev.state === 'down' && state.id === ev.id) ctx.broadcast('ptt:down', { id: ev.id })
+          if (ev.type === 'listening' && state.id === ev.id) warm(ev.id)
+          if (ev.type === 'ptt' && ev.state === 'up') up = { id: ev.id, at: Date.now() }
           if (ev.type === 'partial' && state.id === ev.id) ctx.broadcast('ptt:partial', { id: ev.id, text: ev.text })
-          if (ev.type === 'final' && upAt) pttLog(`final ${Date.now() - upAt} ms after release`)
+          // Timed per hold: a final of an older hold that ends after a newer release must not log the new one's time.
+          if ((ev.type === 'final' || ev.type === 'cancelled') && up?.id === ev.id) {
+            if (ev.type === 'final') pttLog(`final ${Date.now() - up.at} ms after release`)
+            up = undefined
+          }
         }
       })
       p.stderr.on('data', () => undefined) // drained, never logged: it could hold what was said
