@@ -36,6 +36,13 @@ def app_actions(monkeypatch):
 
 
 @pytest.fixture
+def old_app(monkeypatch):
+    """An app older than the setup-calm merge (Nov 22): no I have it / Try FreeCAD buttons, holds under any setup card."""
+    monkeypatch.setattr(S, "APP_RENDERS_APP_ACTIONS", False)
+    monkeypatch.setattr(S, "APP_HONOURS_HOLD_VIDEO", False)
+
+
+@pytest.fixture
 def mac(monkeypatch):
     m = FakeMac(apps={"com.microsoft.VSCode": "/Applications/Visual Studio Code.app"})
     monkeypatch.setattr(S.shutil, "which", m.which)
@@ -166,7 +173,7 @@ def test_front_app_matches_its_row():
 
 # --------------------------------------------------------------------------- the AutoCAD lesson, end to end
 
-def test_autocad_card_with_todays_app_says_only_what_its_buttons_do(mac):
+def test_autocad_card_with_todays_app_says_only_what_its_buttons_do(mac, old_app):
     """Fix round 2: the app on integration/live draws no I have it / Try FreeCAD button. The card never asks a question
     it can't answer: the row's Get it, FreeCAD's own row with Install, and Skip."""
     items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
@@ -193,14 +200,14 @@ def test_autocad_card_with_todays_app_says_only_what_its_buttons_do(mac):
     engine_message("card", card)
 
 
-def test_autocad_card_without_an_installable_alternative(mac, monkeypatch):
+def test_autocad_card_without_an_installable_alternative(mac, monkeypatch, old_app):
     monkeypatch.setitem(A.LICENSED["autocad"], "alternative", "tinkercad")  # a web alternative gets no row
     items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
     assert [it["tool"] for it in items] == ["vscode", "autocad"]
     assert setup_card(items)["body"] == "AutoCAD is a paid app. Get it, or skip to watch."
 
 
-def test_windows_only_app_with_todays_app(mac):
+def test_windows_only_app_with_todays_app(mac, old_app):
     fc = FakeClient(reqs_reply(editor=False, why="all in 3ds Max.", tools=[tool("3ds Max", "app")]))
     g = load("autocad_toy_car.json")
     g["lesson"]["title"] = g["sources"][0]["title"] = "3ds Max low poly car"
@@ -238,7 +245,7 @@ def test_autocad_lesson_card_offers_have_it_get_it_and_freecad_never_install(mac
     json.dumps(card)
 
 
-def test_autocad_lesson_offline_still_gets_its_app_row(mac, monkeypatch):
+def test_autocad_lesson_offline_still_gets_its_app_row(mac, monkeypatch, old_app):
     monkeypatch.setattr(S, "make_client", lambda: None)  # no key / offline: no Claude at all
     items = requirements(load("autocad_toy_car.json"), run=mac.run)
     assert [(it["tool"], it["setupKind"]) for it in items] == [("vscode", "free_app"), ("autocad", "licensed_app"), ("freecad", "free_app")]
@@ -246,7 +253,7 @@ def test_autocad_lesson_offline_still_gets_its_app_row(mac, monkeypatch):
     assert setup_card(items)["title"] == "This lesson uses AutoCAD"
 
 
-def test_claude_forgetting_the_app_still_offers_it(mac):
+def test_claude_forgetting_the_app_still_offers_it(mac, old_app):
     fc = FakeClient(reqs_reply(editor=False, why="no code here.", tools=[]))
     items = requirements(load("autocad_toy_car.json"), client=fc, run=mac.run)
     assert [it["tool"] for it in items] == ["vscode", "autocad", "freecad"]  # + FreeCAD offered (its own row)
@@ -284,7 +291,7 @@ def test_i_have_it_expires_so_a_mistaken_press_undoes_itself(mac, monkeypatch):
     assert not items[1].get("haveIt") and [it["tool"] for it in missing(items)] == ["autocad"]  # the card asks again
 
 
-def test_choosing_the_alternative_is_remembered(mac):
+def test_choosing_the_alternative_is_remembered(mac, old_app):
     A.remember("autocad", choice="alternative:freecad")
     items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
     assert items[1]["using"] == "FreeCAD"
@@ -296,7 +303,7 @@ def test_choosing_the_alternative_is_remembered(mac):
     assert "uses FreeCAD instead" in A.context_line(items)
 
 
-def test_choosing_the_alternative_with_it_installed_needs_nothing(mac, tmp_path):
+def test_choosing_the_alternative_with_it_installed_needs_nothing(mac, tmp_path, old_app):
     make_app(tmp_path / "Applications", "FreeCAD.app", "1.0.0")
     A.remember("autocad", choice="alternative:freecad")
     items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)

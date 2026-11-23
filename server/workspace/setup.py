@@ -1037,15 +1037,12 @@ def _last_error(text: str) -> str:
 
 # --------------------------------------------------------------------------- card payload (proposal)
 
-# The app (player/store.ts setupWaiting, Drawer useWaitingOnSetup) still pauses the video under any setup card with
-# actions, whatever setup.holdVideo says. Until it honours holdVideo, the card never promises "Watch while you decide".
-APP_HONOURS_HOLD_VIDEO = False
-# The app's CardActions draws only the actions in its ACTION map: no have_it / get_it / alternative yet, so "Have
-# AutoCAD already? Or try FreeCAD" would ask a question with no button to answer it. While False the card says only what
-# its visible buttons do (the row's Get it, the free alternative's own row with Install, Skip), and the card's actions
-# leave those three out. Flip it (and APP_HONOURS_HOLD_VIDEO) when the app's claim PR (I have it / Get it / Try FreeCAD
-# buttons, holdVideo in player/store.ts and the Drawer) has landed. See README "Smart setup".
-APP_RENDERS_APP_ACTIONS = False
+# The app honours setup.holdVideo (setupHold.ts, merged in michael/app-setup-calm, Nov 22), so the card may say
+# "Watch while you decide" for a paid app.
+APP_HONOURS_HOLD_VIDEO = True
+# The app draws have_it / get_it / alternative from the card's and row's actions (setupPlan.ts, same merge), so the
+# card can ask "Have AutoCAD already? Or try FreeCAD" with a button for each answer. Set False only for an older app.
+APP_RENDERS_APP_ACTIONS = True
 
 
 def licensed_line(rows: list[dict], offered: set[str] | frozenset[str] = frozenset()) -> str:

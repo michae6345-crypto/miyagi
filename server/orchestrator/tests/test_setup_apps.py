@@ -236,6 +236,8 @@ def _waiting_cards(rig) -> list[dict]:
 def test_autocad_end_to_end_with_todays_app_installs_freecad_from_its_own_row(rig, monkeypatch):
     """The app on integration/live draws only the rows' Get it / Install and Skip. The card says exactly that; FreeCAD's
     own row installs it; then the learner is using FreeCAD: a passing note, no card left holding the video."""
+    monkeypatch.setattr(S, "APP_RENDERS_APP_ACTIONS", False)  # an app older than the setup-calm merge
+    monkeypatch.setattr(S, "APP_HONOURS_HOLD_VIDEO", False)
     from server.orchestrator import workspace as wsmod
 
     installed: list[str] = []
