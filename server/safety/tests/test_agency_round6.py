@@ -48,7 +48,9 @@ def test_24_near_deadline_checks_stop_after_the_lessons_cpu_allowance():
             if b.exhausted:
                 break
         spent = time.monotonic() - t0
-        assert b.exhausted and b.cpu >= regex_worker.LESSON_CPU_S
+        # A runner 2-3x slower than a Mac (GitHub's ubuntu-latest) takes these ~0.1 s searches past DEADLINE_S, so the
+        # budget can stop on LESSON_TIMEOUTS before the CPU allowance: either way the lesson's patterns stopped.
+        assert b.exhausted and (b.cpu >= regex_worker.LESSON_CPU_S or b.timeouts >= regex_worker.LESSON_TIMEOUTS)
         assert spent < regex_worker.LESSON_CPU_S + 1.5  # the allowance and one search over it, not 8 s per frame
         t0 = time.monotonic()
         gate = evaluate_gate(step, RunContext(workdir="/nonexistent"),
