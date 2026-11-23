@@ -641,6 +641,45 @@
        "libraryId": "linalg"
       }
      ],
+     "next": [
+      {
+       "title": "NumPy in 20 minutes",
+       "goal": "Finish NumPy in 20 minutes: broadcasting",
+       "id": "numpy20",
+       "unlocks": [
+        "broad"
+       ],
+       "estMinutes": 12
+      },
+      {
+       "title": "A single neuron from scratch",
+       "goal": "Build a single neuron from scratch",
+       "id": "nn_neuron",
+       "unlocks": [
+        "neuron"
+       ],
+       "estMinutes": 9
+      },
+      {
+       "title": "PyTorch in 15 minutes",
+       "goal": "Learn PyTorch in 15 minutes",
+       "id": "pytorch15",
+       "unlocks": [
+        "layers",
+        "grad"
+       ],
+       "estMinutes": 15
+      },
+      {
+       "title": "Clean a messy CSV",
+       "goal": "Clean a messy CSV with pandas",
+       "id": "pandas_clean",
+       "unlocks": [
+        "clean"
+       ],
+       "estMinutes": 15
+      }
+     ],
      "review": {
       "due": 3,
       "items": [

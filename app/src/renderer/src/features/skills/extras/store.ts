@@ -16,20 +16,25 @@ import { stageRebase } from '../../dashboard/stage'
 import { requestProgress } from '../../progress/store'
 import { buildSkillGraph, type SkillGraph } from '../model'
 
+/**
+ * `at`: when the engine last sent a `progress` (ms, this window's clock); 0 until it has. Main's cached copy
+ * (progress:last) paints the graph but leaves `at` alone: it can be from before the lesson ended, so the lesson-end
+ * recap never counts it as fresh.
+ */
 type State = { graph?: SkillGraph; at: number }
 export const useSkillGraph = create<State>(() => ({ graph: undefined, at: 0 }))
 const get = useSkillGraph.getState
 
-function take(raw: unknown): void {
+function take(raw: unknown, fresh: boolean): void {
   const graph = buildSkillGraph(stageRebase(raw))
-  if (graph) useSkillGraph.setState({ graph, at: Date.now() })
+  if (graph) useSkillGraph.setState(fresh ? { graph, at: Date.now() } : { graph })
 }
-onMessage('progress', take)
+onMessage('progress', (raw) => take(raw, true))
 
 async function fromMain(): Promise<void> {
   if (get().graph) return
   const last = await bridge.invoke<unknown>('progress:last').catch(() => undefined)
-  if (last && !get().graph) take(last)
+  if (last && !get().graph) take(last, false)
 }
 
 let asked = false

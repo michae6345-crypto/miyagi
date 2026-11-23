@@ -6,6 +6,7 @@
  */
 import { FileCode2 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
+import { bridge } from '../../../bridge'
 import { MiyagiMark } from '../../../core/ui/Mark'
 import { color, fill, layout, radius2, surface, type2 } from '../../../core/theme'
 import { CARD } from '../../shell/ui'
@@ -15,21 +16,63 @@ import { ensureSkillGraph, useSkillGraph } from './store'
 
 const PIC_H = 132
 
-/** A picture the window can show: a data image, a web image, or a file on this Mac (an absolute path). */
-function pictureSrc(path?: string): string | undefined {
-  if (!path) return undefined
-  if (/^data:image\//.test(path) || /^https?:\/\//.test(path) || /^file:\/\//.test(path)) return path
-  if (path.startsWith('/')) return `file://${encodeURI(path)}`
-  return undefined
+/**
+ * The learner's own image. artifact.path is a local path (contract: never a URL), and the renderer's CSP (img-src
+ * 'self' data: blob: …) blocks file:// and other web images, so the window shows only data: images. A local path goes
+ * through main's `skills:artifact-image` (Core request in agents/skills.md: reads the file, returns a size-capped
+ * data: URL). Until main has it, or when it fails, the card keeps the file icon and name.
+ */
+const IMAGE_CHANNEL = 'skills:artifact-image'
+/** A data: URL the card accepts back (about 2 MB of base64). */
+const MAX_DATA_URL = 2_800_000
+/** An <img> runs no script, so an SVG data image is as safe here as a raster one. */
+const isDataImage = (s: unknown): s is string => typeof s === 'string' && s.length <= MAX_DATA_URL && /^data:image\/(png|jpeg|gif|webp|svg\+xml)[;,]/.test(s)
+/** Capability: false once main (or the browser stage) said it has no such handler, so the card stops asking. */
+let canLoad = true
+const loaded = new Map<string, Promise<string | undefined>>()
+function loadImage(path: string): Promise<string | undefined> {
+  let p = loaded.get(path)
+  if (!p) {
+    p = bridge.invoke<unknown>(IMAGE_CHANNEL, path).then(
+      (r) => (isDataImage(r) ? r : undefined),
+      (e: unknown) => {
+        if (/no (web )?handler/i.test(String(e))) canLoad = false
+        return undefined
+      }
+    )
+    loaded.set(path, p)
+  }
+  return p
+}
+
+/** The picture for an image artifact: a data: image as it is, a local file through main, else undefined. */
+function usePicture(path?: string): string | undefined {
+  // An absolute path on this Mac; anything else (a URL, a relative name) never loads.
+  const local = !!path && path.startsWith('/')
+  const [src, setSrc] = useState<string | undefined>(() => (path && isDataImage(path) ? path : undefined))
+  useEffect(() => {
+    if (!path) return setSrc(undefined)
+    if (!local) return setSrc(isDataImage(path) ? path : undefined)
+    setSrc(undefined)
+    if (!canLoad) return
+    let live = true
+    void loadImage(path).then((r) => {
+      if (live) setSrc(r)
+    })
+    return () => {
+      live = false
+    }
+  }, [path, local])
+  return src
 }
 
 const day = (t?: number): string => (t ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '')
 
 function Picture({ item }: { item: SkillGraphPortfolioItem }): ReactNode {
-  const src = item.artifact?.kind === 'image' ? pictureSrc(item.artifact.path) : undefined
+  const src = usePicture(item.artifact?.kind === 'image' ? item.artifact.path : undefined)
   const [broken, setBroken] = useState(false)
   const path = item.artifact?.path
-  const name = path && !/^(data|https?):/.test(path) ? path.split('/').pop() : undefined
+  const name = path && !path.startsWith('data:') ? path.split('/').pop() : undefined
   return (
     <div className="relative flex items-center justify-center overflow-hidden" style={{ height: PIC_H, background: surface.well, borderBottom: `1px solid ${fill.hairline}` }}>
       {src && !broken ? (

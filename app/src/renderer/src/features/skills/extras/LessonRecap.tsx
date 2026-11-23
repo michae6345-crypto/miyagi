@@ -5,27 +5,52 @@
  * fills (SkillRing play). The card's one primary becomes "Next: <skill> · N min" (complete/Panel.tsx Actions).
  */
 import { motion, useReducedMotion } from 'motion/react'
-import { useEffect, useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useLesson } from '../../../core/lesson'
+import { canSend, useLesson } from '../../../core/lesson'
 import { color, fade, spring, type2 } from '../../../core/theme'
 import { lessonRecap, recapWord, type Recap } from './recap'
 import { SkillRing, ringState } from './SkillRing'
 import { refreshSkillGraph, useSkillGraph } from './store'
 
+/** How long the card waits for the engine's fresh graph before it settles for the one it already has. */
+export const RECAP_WAIT_MS = 1500
+
 /**
  * The recap for the open lesson-complete card, or undefined (no graph, or nothing on it belongs to this lesson: the
  * card then keeps its own Skills and Next up). `lessonId`: card.result.lessonId when the engine sent one.
+ * The graph in the store is usually from before the lesson ended (the skill just mastered still practicing, or
+ * missing), so the recap waits for a `progress` that arrived after the card opened (useSkillGraph.at). It settles for
+ * the cached graph after RECAP_WAIT_MS, or at once when the engine can't send progress.get. Until then the card keeps
+ * its own Skills block, so the recap's rows never jump under the learner.
  */
 export function useLessonRecap(open: boolean, lessonId?: string): Recap | undefined {
   const graph = useSkillGraph((s) => s.graph)
+  const at = useSkillGraph((s) => s.at)
   const id = useLesson((s) => s.lesson?.id)
   const skills = useLesson(useShallow((s) => s.steps.flatMap((x) => (x as { skillIds?: string[] }).skillIds ?? [])))
+  // When this card opened, and whether it stopped waiting for a fresh graph. Both reset when the card closes.
+  const [since, setSince] = useState<number>()
+  const [settled, setSettled] = useState(false)
   // The lesson just changed what is mastered: ask for the graph again once per card.
   useEffect(() => {
-    if (open) refreshSkillGraph()
+    if (!open) {
+      setSince(undefined)
+      setSettled(false)
+      return
+    }
+    setSince(Date.now())
+    setSettled(false)
+    refreshSkillGraph()
+    if (!canSend('progress.get')) {
+      setSettled(true)
+      return
+    }
+    const t = setTimeout(() => setSettled(true), RECAP_WAIT_MS)
+    return () => clearTimeout(t)
   }, [open])
-  return useMemo(() => (open ? lessonRecap(graph, { lessonIds: [id ?? '', lessonId ?? ''], skillIds: skills }) : undefined), [open, graph, id, lessonId, skills])
+  const ready = open && since !== undefined && (settled || at >= since)
+  return useMemo(() => (ready ? lessonRecap(graph, { lessonIds: [id ?? '', lessonId ?? ''], skillIds: skills }) : undefined), [ready, graph, id, lessonId, skills])
 }
 
 const caption = { fontSize: type2.xs, color: color.label } as const
