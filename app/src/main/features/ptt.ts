@@ -11,6 +11,9 @@
  *   bridge.invoke('ptt:open-settings', 'mic' | 'input')   the Privacy pane (fixed URL, safeOpen.ts)
  *   bridge.invoke('ptt:cancel')         end the session in flight
  *   bridge.invoke('ptt:prefill', text) / 'ptt:prefill-take'   the launcher's prefilled text (no lesson running)
+ *   bridge.invoke('ptt:capture', region) -> CaptureResult   circle to ask: the circled region as a JPEG file (pttProtocol.ts);
+ *                                       overlay only, at most 2 waiting (else 'busy')
+ *   bridge.invoke('ptt:capture-release', id) -> boolean   the overlay won't send that capture: the helper deletes it now
  *   bridge.onFeature('ptt:state', cb)   every change of the one PttState
  *   bridge.onFeature('ptt:final', cb)   {id, text}: the words to ask (the overlay routes them, features/ptt/store.ts)
  *   bridge.onFeature('ptt:prefill', cb) text: the launcher is already open, fill it
@@ -18,8 +21,12 @@
  * macOS only. If the helper binary is missing (a dev checkout that never built it) the feature stays quiet: no state,
  * no respawns. The helper is respawned with backoff when it dies, and told `quit` (then stdin closes) when the app quits.
  * UNVERIFIED in Electron (typechecked and unit-tested only: no app runs during this lane).
+ *
+ * ptt:capture saves no time yet: nothing calls it (no renderer sends it, no engine reads take_capture), and the 0.3 to
+ * 0.5 s saving is an estimate, not a measurement. The renderer must never wait for a capture at release: if it has not
+ * settled by then, send the ask without it (the engine grabs its own frame), or the 2 s timeout here adds up to 2 s.
  */
-import { app } from 'electron'
+import { app, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -30,14 +37,24 @@ import { defineMainFeature } from '../context'
 import {
   backoffMs,
   CANCEL_COMMAND,
+  CAPTURE_TIMEOUT_MS,
+  captureAdmit,
+  captureCommand,
+  captureLogLine,
+  captureReleaseCommand,
+  captureRequest,
+  type CaptureResult,
   configCommand,
   contextCommand,
   contextTerms,
   GIVE_UP_AFTER,
   HARD_CAP_MS,
   HEALTHY_MS,
+  isCaptureId,
   libraryNames,
   lineBuffer,
+  parseCaptureLine,
+  parseCaptureWarmLine,
   parseLine,
   permissionsCommand,
   QUIT_COMMAND,
@@ -171,7 +188,14 @@ export default defineMainFeature({
       p.stdout.on('data', (chunk: string) => {
         for (const l of buf.push(chunk)) {
           const ev = parseLine(l)
-          if (!ev) continue
+          if (!ev) {
+            const c = parseCaptureLine(l)
+            // A late answer (main already said 'timeout'): nobody will use the file, so it goes now.
+            if (c && !settleCapture(c) && c.ok) send(captureReleaseCommand(c.id))
+            const warm = c ? undefined : parseCaptureWarmLine(l)
+            if (warm) pttLog(`capture warm-up ${warm.ok ? 'ok' : 'failed'} ${warm.ms} ms`)
+            continue
+          }
           if (ev.type === 'ready') pttLog(`ready stt=${ev.stt} locale=${ev.locale} chord=${ev.chord}`)
           else if (ev.type === 'perm') pttLog(`perm mic=${ev.mic} input=${ev.input} assets=${ev.assets ?? '?'}`)
           else if (ev.type === 'error') pttLog(`error ${ev.code}: ${ev.message}`)
@@ -213,6 +237,7 @@ export default defineMainFeature({
         if (child !== p) return
         child = undefined
         buf.reset()
+        for (const id of [...captures.keys()]) settleCapture({ ok: false, id, error: 'unavailable', message: 'The helper stopped.' })
         apply({ type: 'exit' })
         if (Date.now() - startedAt > HEALTHY_MS) failures = 0
         again()
@@ -291,6 +316,55 @@ export default defineMainFeature({
       if (!active(state)) return false
       send(CANCEL_COMMAND)
       apply({ type: 'reset' })
+      return true
+    })
+    // ---- circle to ask: one region of the screen, captured by the helper while the keys are held ----
+    // Never logs pixels or paths: only the size and the time.
+    let captureSeq = 0
+    const captures = new Map<string, { done: (r: CaptureResult) => void; timer: ReturnType<typeof setTimeout>; at: number }>()
+    /** Ids answered ok, so the overlay can release one it no longer needs (a newer stroke, the hold cancelled). */
+    const issued: string[] = []
+    /** Hand the answer to its waiting invoke. false = nobody is waiting any more (it timed out). */
+    function settleCapture(r: CaptureResult): boolean {
+      const p = captures.get(r.id)
+      if (!p) return false
+      captures.delete(r.id)
+      clearTimeout(p.timer)
+      pttLog(captureLogLine(r, Date.now() - p.at)) // the helper's ms and the round trip: the 150 to 400 ms budget, measured
+      if (r.ok) {
+        issued.push(r.id)
+        if (issued.length > 16) issued.shift()
+      }
+      p.done(r)
+      return true
+    }
+    /** Only the overlay's own page asks (the circle lives there): no other window can make the helper read the screen. */
+    const fromOverlay = (e: IpcMainInvokeEvent): boolean =>
+      !ctx.overlay.isDestroyed() && e.sender === ctx.overlay.webContents && !!e.senderFrame && e.senderFrame === e.sender.mainFrame
+    // Not ctx.handle: that one hides the sender, and this needs to know it is the overlay (Core request).
+    ipcMain.handle('feat:ptt:capture', (e, raw): Promise<CaptureResult> => {
+      if (!fromOverlay(e)) throw new Error('untrusted sender')
+      const id = `cap-${++captureSeq}`
+      const req = captureRequest(raw)
+      if (!req) return Promise.resolve({ ok: false, id, error: 'bad_request', message: 'Not a screen region.' })
+      const no = captureAdmit(captures.size, !!child && child.stdin.writable)
+      if (no === 'unavailable') return Promise.resolve({ ok: false, id, error: no, message: 'The helper is not running.' })
+      if (no === 'busy') return Promise.resolve({ ok: false, id, error: no, message: 'A capture is already on its way.' })
+      return new Promise((done) => {
+        const timer = setTimeout(() => {
+          settleCapture({ ok: false, id, error: 'timeout', message: 'The capture took too long.' })
+          send(captureReleaseCommand(id)) // a late file is deleted on arrival, never left in the temp folder
+        }, CAPTURE_TIMEOUT_MS)
+        captures.set(id, { done, timer, at: Date.now() })
+        send(captureCommand(id, req))
+      })
+    })
+    /** The overlay is done with a capture it will not send (a newer stroke, a cancelled hold): delete it now. */
+    ipcMain.handle('feat:ptt:capture-release', (e, id): boolean => {
+      if (!fromOverlay(e)) throw new Error('untrusted sender')
+      if (!isCaptureId(id) || !issued.includes(id)) return false
+      issued.splice(issued.indexOf(id), 1)
+      send(captureReleaseCommand(id))
       return true
     })
     ctx.handle('ptt:prefill', (text) => {
