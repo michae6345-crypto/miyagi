@@ -717,3 +717,12 @@ ADAPTED_SCHEMA = {
     },
     "required": ["steps"],
 }
+
+
+# The shared lesson cache (miyagi-cloud /v1/lessons/{video_id}?schema=N) keys a lesson by video id AND this number.
+# BUMP IT whenever the lesson a build produces changes shape or meaning (a key added, removed or renamed in the draft,
+# the adapted pass, the step graph or the shared form in lesson/cloud_cache.py, or a prompt change that alters what a
+# step means): a lesson built before the change is then never served to an engine that reads it differently, and
+# never mixed into the new one. server/lesson/tests/test_cloud_cache.py fails until the snapshot beside it and this
+# number agree. The cloud accepts only the versions in its LESSON_SCHEMAS (cloud/app.py): tell it before shipping a bump.
+LESSON_SCHEMA_VERSION = 1
