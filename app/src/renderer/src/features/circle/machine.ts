@@ -30,6 +30,8 @@ export const SEALED_MAX_MS = 70_000
 export const ASK_MAX_MS = 30_000
 /** An answer nobody closes goes by itself (short: Esc does not reach the overlay after release, see the brief). */
 export const ANSWER_MS = 25_000
+/** The most streamed text one answer keeps: past it, more words are dropped (a runaway engine cannot grow the card). */
+export const MAX_STREAM = 4000
 /** The ask when nothing was said (the contract's default too). */
 export const DEFAULT_ASK = 'What is this?'
 
@@ -121,6 +123,14 @@ function endHold(s: Extract<CircleState, { k: 'armed' }>, ctx: Ctx, pttOver: boo
   return { state: { k: 'sealed', session: s.session, since: ctx.now, strokes: s.strokes, box, wordsBy: pttOver ? ctx.now + WORDS_WAIT_MS : undefined } }
 }
 
+/** Cut at MAX_STREAM, never in the middle of a two-part character. */
+function capText(t: string): string {
+  if (t.length < MAX_STREAM) return t
+  const c = t.charCodeAt(MAX_STREAM - 1)
+  // 55296 to 56319: the first half of a surrogate pair (an emoji, say).
+  return t.slice(0, c >= 55296 && c <= 56319 ? MAX_STREAM - 1 : MAX_STREAM)
+}
+
 export function step(s: CircleState, e: CircleEvent, ctx: Ctx): Step {
   switch (e.t) {
     case 'ptt': {
@@ -187,9 +197,11 @@ export function step(s: CircleState, e: CircleEvent, ctx: Ctx): Step {
       // Only the ask on screen, only before its card and its last delta. Anything else (an older ask, a closed one,
       // a delta after the card or after done) is dropped.
       if (s.k !== 'asking' || e.askId !== s.askId || s.stream?.done) return { state: s }
-      const add = typeof e.text === 'string' ? e.text : ''
+      const had = s.stream?.text ?? ''
+      // Past MAX_STREAM the words are dropped (done still ends the stream).
+      const add = typeof e.text === 'string' ? e.text.slice(0, Math.max(0, MAX_STREAM - had.length)) : ''
       if (!add && !e.done) return { state: s }
-      return { state: { ...s, stream: { text: (s.stream?.text ?? '') + add, done: !!e.done, at: ctx.now } } }
+      return { state: { ...s, stream: { text: capText(had + add), done: !!e.done, at: ctx.now } } }
     }
     case 'answer':
       if (s.k !== 'asking') return { state: s }

@@ -7,7 +7,7 @@ import { describe, test } from 'node:test'
 import type { ScreenRegion } from '../../shared/contracts/events'
 import type { CaptureResult } from '../src/main/pttProtocol'
 import { createCaptureTracker, sameRegion } from '../src/renderer/src/features/circle/capture'
-import { ASK_MAX_MS, IDLE, shown, step, type CircleState, type Ctx } from '../src/renderer/src/features/circle/machine'
+import { ASK_MAX_MS, IDLE, MAX_STREAM, shown, step, type CircleState, type Ctx } from '../src/renderer/src/features/circle/machine'
 
 // ---- the capture ----
 
@@ -169,6 +169,20 @@ describe('the streamed answer (answer.delta)', () => {
     assert.equal(answered.k, 'answered')
     assert.equal(answered.k === 'answered' && answered.answer.body, 'Clean words.')
     assert.equal(feedAll(answered, { askId: 'a1', text: ' late' }), answered)
+  })
+
+  test('the streamed text stops growing at MAX_STREAM; done still ends it', () => {
+    const big = 'x'.repeat(1500)
+    let s = feedAll(asking(), { askId: 'a1', text: big }, { askId: 'a1', text: big }, { askId: 'a1', text: big })
+    assert.equal(shown(s).length, MAX_STREAM)
+    const full = s
+    s = feedAll(s, { askId: 'a1', text: 'more words' })
+    assert.equal(s, full, 'nothing past the cap, not even a new state')
+    s = feedAll(s, { askId: 'a1', text: 'more', done: true })
+    assert.equal(shown(s).length, MAX_STREAM)
+    assert.equal(s.k === 'asking' && s.stream?.done, true)
+    const emoji = feedAll(asking(), { askId: 'a1', text: 'y'.repeat(MAX_STREAM - 1) + '\u{1F600}' })
+    assert.equal(shown(emoji), 'y'.repeat(MAX_STREAM - 1), 'never half of a two-part character')
   })
 
   test('a delta before the ask is on screen (armed, sealed, idle) is dropped', () => {
