@@ -121,7 +121,8 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
-                     "ask.warm"})  # ask.warm: Fn+Control key-down; never waits behind a build (coach/fast_ask.py)
+                     "ask.warm",  # ask.warm: Fn+Control key-down; never waits behind a build (coach/fast_ask.py)
+                     "ask.region"})  # ask.region: the circle closed; capture it before release (fast_region.py)
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
 # Nov 21 (launch-quiet): what counts as the learner asking for a lesson on this connection (session.learner_asked)
 LEARNER_ASKS = LESSON_STARTS
@@ -1124,6 +1125,10 @@ class Engine:
             from server.coach import fast_ask
 
             fast_ask.warm_soon(getattr(p, "source", None))
+        elif msg.type == "ask.region":  # the circle closed, keys still held: capture + crop it now (fast_region.py)
+            from . import fast_region
+
+            fast_region.remember_soon(s, p.askId, p.region)
 
 
 # config.keys -> server.config (get_key) + the env vars modules read. Memory only; never logged.

@@ -170,16 +170,65 @@ Every coach answer about the screen carries `targets` (`[{boxId, label, text, re
 - **Prefetch:** `voice.prefetch([titles])` right after the lesson loads makes step starts instant.
 - **Gate:** E4 owns it (voice toggled on, and no keystroke in the last 2 s).
 
-## Fast circle to ask, streamed (fast_ask.py, Nov 22)
+## Fast circle to ask, streamed (fast_ask.py + orchestrator/fast_region.py, Nov 22)
 
-Goal: the first words of the answer show within about 1 s of releasing Fn+Control (miyagi-v2/CIRCLE-TO-ASK-SPEED.md). Nothing here is measured live yet.
+Goal: the first words of the answer show within about 1 s of releasing Fn+Control (miyagi-v2/CIRCLE-TO-ASK-SPEED.md). Nothing here is measured live yet. The streaming speed-up also needs `claude/eng-cloud-stream` merged into `claude/eng-proxy-next` (the cloud proxy's streaming).
 
-- **Key-down.** The app sends `ask.warm {source: "keydown"}`. main.py answers it beside the command queue (INSTANT) with `fast_ask.warm_soon()`: the keep-alive client to the miyagi cloud or Anthropic opens (HTTP/2 when the `h2` package is installed, else HTTP/1.1 keep-alive), and at most once per 4 minutes one `max_tokens: 0` request, never streamed, writes the cached prefix (the fixed `SYSTEM_PROMPT`, over 512 tokens, with `cache_control`; the same model, thinking and effort as an ask). In between, a free touch (`GET /healthz` on the cloud, `models.retrieve` direct) keeps the connection open. A Sonnet ask also restarts the 4 minute window.
-- **The ask.** `res = await fast_ask.ask_stream(crop, crop_rect_points, crop_w, crop_h, words, lesson_context, emit=session.emit, ask_id=..., display_id=..., step_id=..., history=...)`. The crop is the JPEG of exactly `crop_rect_points` (bytes, a file path with `consume_file=True`, or a PIL image; long edge at most 1092 px, quality 0.82: `encode_crop()`). `lesson_context`: `{lesson, step, memory, screen_text, app}`; the screen text, app, lesson and memory go in `<untrusted>` blocks.
+- **Key-down.** The app sends `ask.warm {source: "keydown"}`. main.py answers it beside the command queue (INSTANT) with `fast_ask.warm_soon()`: the keep-alive client to the miyagi cloud or Anthropic opens (HTTP/2 when the `h2` package is installed, else HTTP/1.1 keep-alive), and at most once per 4 minutes per (route, model) one `max_tokens: 0` request, never streamed, writes the cached prefix (the fixed `SYSTEM_PROMPT`, about 800 tokens, over the 512 minimum, with `cache_control`; that model's thinking and effort). Both ask models are warmed: Haiku 5.5 (the default "What is this?" ask, about $0.0001) and Sonnet 5.5. In between, a free touch (`GET /healthz` on the cloud, `models.retrieve` direct) keeps the connection open. An ask restarts its own model's 4 minute window. Nothing sends `ask.warm` yet: see Core requests.
+- **The circle closes (keys still held).** The app sends `ask.region {askId, region}`. main.py answers it INSTANT with `fast_region.remember_soon()`: one frame of that display is captured now (`circle_ask.capture`), the region is cropped from the frame's `ScreenContext.pil()` (secret rows blacked out) and encoded, into an in-memory slot keyed by askId (dropped when taken, replaced by a newer ask.region with the same askId, dropped after 10 s, at most 2 slots, never on disk, never logged). The action ask then only sends the words.
+- **The crop.** `jpeg, rect, W, H = fast_ask.crop_region(screen_ctx, clip)`: from `ScreenContext.pil()`, with a 4 pt margin, to whole pixels, clipped to the frame; the integer pixel box goes back to points with the display's origin and scale, so `rect` is exactly what the JPEG shows (also at a clipped edge and on a display whose origin is (-1440, 200)). Long edge at most 1092 px, quality 82. **Never pass the raw frame**, and never a rect you computed yourself: `circle.crop_jpeg` pads, clips and rounds and returns bytes only, so its true rect is unknown and marks drift by up to about 8 pt.
+- **The ask.** `res = await fast_ask.ask_stream(jpeg, rect, W, H, words, lesson_context, emit=session.emit, ask_id=..., display_id=..., step_id=..., release_t=..., should_stop=...)`. `lesson_context`: `{lesson, step, memory, screen_text, app}` as strings (`fast_region.lesson_context()` builds it); the screen text, app, lesson and memory go in `<untrusted>` blocks.
 - **Request.** Image first, then the text (the crop size in pixels, the context, the words), history as text only, `stream: true`, `max_tokens` 1024, effort low, thinking off: Sonnet 5.5 sends `between_tools` (its `disabled` is a 400), Haiku 5.5 sends `disabled`. Haiku answers short simple questions ("what is this?"); Sonnet the rest (`coach.fast_ask` / `coach.fast_ask_simple` in server/models.py).
-- **Stream.** Line 1 is `[DRAW:x,y,r:label]` or `[DRAW:none]` in crop pixels. `DrawStream` parses it as chunks arrive (split tags, malformed, missing). A valid tag is clamped into the crop and mapped to screen points (origin + px * crop points / W), then goes out at once as `annotate {marks: [{why: "answer", askId, ...}], holdMs}` (or to `on_mark`). Each later chunk is `answer.delta {askId, seq, text}`; the end is `answer.done {askId, text, complete, fallback?, reason?}`, whose text (injection sentences dropped) replaces the deltas. The tag is never shown.
-- **Failures.** A dropped connection, a 5xx / overloaded error or a broken stream: one retry of the same request without streaming (`answer.done fallback: true`). A cloud refusal (paused, quota, auth), a 4xx, a refusal, offline mode, no key: no retry. `res.ok` is False; when `res.deltas == 0` nothing reached the app, so the caller answers with its non-streaming path (`circle.circle_ask`).
+- **Stream.** Line 1 is `[DRAW:x,y,r:label]` or `[DRAW:none]` in crop pixels. `DrawStream` parses it as chunks arrive (split tags, malformed, missing, words before the tag on line 1: the first valid tag on line 1 counts). A valid tag is clamped into the crop (a radius of 0 or less to `MIN_R_PX`) and mapped to screen points (origin + px * crop points / W), then goes out at once as `annotate {marks: [{why: "answer", askId, ...}], holdMs}` (or to `on_mark`). Every word is `answer.delta {askId, seq, text}`; the end is `answer.done {askId, text, complete, fallback?, reason?}`. The tag is never shown; only a full, valid `[DRAW:...]` is taken out of the words, so "[drawer]", "[Drawing]", "[draw.io]" and a trailing "[D" stay.
+- **Injection sentences.** Deltas go out as the words arrive (holding a sentence back would cost the 1 s target), so a sentence the engine flags as an injection can show in them. `answer.done.text` never has it, and the contract says the app must replace the deltas with it.
+- **Failures.** A dropped connection, a 5xx / overloaded error or a broken stream: one retry of the same request without streaming (`answer.done fallback: true`). The broken stream's snapshot usage (billed by Anthropic) goes into the session tally first, so it matches what the cloud reserves and settles. A cloud refusal (paused, quota, auth), a 4xx, a refusal, offline mode, no key: no retry. `res.ok` is False; when `res.deltas == 0` nothing reached the app, so the caller answers with its non-streaming path (`circle.circle_ask`).
 - **Metrics.** One `ask.metrics {json}` log line per ask, and `<state dir>/ask-metrics.jsonl` (last 500): key-down to warm, key-down to release, release to request / first byte / first token / mark / done, model, route, token counts. Never the question, the answer or the picture.
+
+### How eng-circle-ask calls it
+
+In `server/orchestrator/circle_ask.answer`, replace the `capture()` call and the coach call with this (the existing paths stay as the fallbacks). `release_t`: `time.monotonic()` stamped in main.py when the `action` message arrives, before the command queue, and passed down through `LessonSession.action` / `_action` to `answer`.
+
+```python
+from server.coach import fast_ask, llm
+from . import fast_region
+
+    gen = session.step_gen
+    pre = await fast_region.frame_for(session, ask_id, reg)   # the ask.region slot, else capture + crop now
+    obs, image, reason = pre.obs, pre.image, pre.reason
+    res = None
+    if reason is None and pre.crop is not None and not llm.offline_mode():
+        jpeg, rect, W, H = pre.crop
+        res = await fast_ask.ask_stream(
+            jpeg, rect, W, H, q, fast_region.lesson_context(session, step, pre.screen_text, pre.app),
+            emit=session.emit, ask_id=ask_id, display_id=_display_id(reg),
+            step_id=step and step["id"], release_t=release_t,
+            should_stop=lambda: step is not None and gen != session.step_gen)
+    if res is not None and (res.error == "moved_on" or (step is not None and gen != session.step_gen)):
+        await moved_on(session, reg, ask_id)   # deltas and answer.done pass the step-gen guard: say so with a card
+        return
+    if res is not None and res.ok:
+        out = {"kind": "answer", "title": res.title, "body": res.text, "marks": []}   # the mark went out already
+    elif res is not None and res.deltas > 0:
+        out = failed_card(step, reg, ask_id)   # words showed, then it broke: no second answer underneath
+    elif reason is not None:
+        out = unseen_answer(step, reason, reg, ask_id)
+    else:   # offline, no key, a cloud refusal, no picture: nothing streamed, answer the non-streaming way
+        out = await session.m.circle_ask(step, q, reg, obs=obs, image=image, context=_context(session, step),
+                                         ask_id=ask_id)
+    # ... then as now: strip "_" keys, pop marks, stamp askId / region / stepId, _emit_card(out), annotate if marks
+```
+
+- The answer card is `{kind: "answer", askId, region, stepId, title, body}` with the same text as `answer.done`, and no extra `annotate`: fast_ask already sent the mark.
+- A step change mid-stream: `answer.delta` and `answer.done` get past the step-gen guard in `session.emit` (it only drops answer cards). `should_stop` ends the stream at the next chunk with `answer.done {complete: false, reason: "moved_on"}`, and the caller follows with `moved_on()`.
+- `pre.reason == "other_display"`: the region is off the captured display; `unseen_answer` says so, as now.
+
+### How app-circle-ask sends ask.region
+
+In `features/circle`: mint the askId when the hold arms (state `armed` gets `askId`), not in `send()`. In `store.ts feed()`, after a `{t: 'up'}` event while the state is still `armed` and `strokeBox(strokes)` is not null, send `bridge.send(cmd('ask.region', {askId, region: toRegion(box, area.origin, scaleOf(area), area.displayId)}))`: the same askId and the same region conversion the action ask uses, while the keys are still held. Send it again on each later pointer-up of the same hold (the engine keeps the newest). `send()` then reuses that askId for `action {kind: "ask", region, source: "circle", askId}`.
+
+### Core requests (Adrian, app core)
+
+- **Send `ask.warm` on key-down.** Nothing sends it today (app-circle-ask and app-buddy-draw do not), so `warm()` and the connection warm-up never run. The Fn+Control key-down is seen in main (the miyagi-listen bridge). Either main sends `ask.warm {source: "keydown"}` to the engine on key-down, or it hands the key-down to the renderer so `features/circle` sends it when the hold arms.
 
 ## Orchestrator contract notes (E4)
 - **Latency.** Web grounding runs only when there is an error message to look up, capped at 4 s, and keeps whatever lookups finished in time. A metric-only failure like the hero goes straight to Opus. Live: card in 3.4 s after `warm()`. Rehearsal had measured 7–8 s while it waited on unused searches.
