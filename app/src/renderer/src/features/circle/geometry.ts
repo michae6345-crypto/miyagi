@@ -131,30 +131,59 @@ export function placeCard(box: Box, card: { w: number; h: number }, area: { w: n
   return { x: Math.round(c.x), y: Math.round(c.y), side: pick.side }
 }
 
-/** Where a card opened: its top and its side (placeCard's y and side). */
-export type CardHold = { y: number; side: CardSide }
+/**
+ * Where a card opened: its side and the edge it keeps while it grows. The edge is the card's top, except for 'above',
+ * where it is the bottom (just over the circle), so a card above grows up, away from the circled thing.
+ */
+export type CardHold = { side: CardSide; edge: number }
 
 /**
- * The card's place while its text streams in: the side and the top it opened with (placeCard), so the words being read
- * never move as lines are added below them. Only the screen edge moves it (kept `margin` px inside, like placeCard).
+ * The height a streaming card's side is picked for: about the usual final card. The first words are only about 60 px
+ * tall; a side picked for them can be too small for the answer, and the card would then grow over the circle.
+ */
+export const CARD_RESERVE_H = 220
+
+/** True when two boxes overlap (touching edges do not count). */
+export function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+}
+
+/**
+ * The hold for a card that opens now: the side placeCard picks for the card at its reserved height (the larger of its
+ * height and `reserve`), and the edge on that side (the top; for 'above' the bottom).
+ */
+export function openCard(box: Box, card: { w: number; h: number }, area: { w: number; h: number }, reserve = CARD_RESERVE_H, gap = 14, margin = 16): CardHold {
+  const h = Math.max(card.h, reserve)
+  const p = placeCard(box, { w: card.w, h }, area, gap, margin)
+  return { side: p.side, edge: p.side === 'above' ? p.y + h : p.y }
+}
+
+/**
+ * The card's place while its text streams in: the side and the edge it opened with (openCard), so the words being read
+ * never move as lines are added. The screen edge can move it (kept `margin` px inside, like placeCard), but never over
+ * the circled box: if the held side would overlap the box at this height, the card is placed again (placeCard).
  */
 export function holdCard(box: Box, card: { w: number; h: number }, area: { w: number; h: number }, hold: CardHold, gap = 14, margin = 16): { x: number; y: number; side: CardSide } {
   const inner = { x: margin, y: margin, w: Math.max(0, area.w - 2 * margin), h: Math.max(0, area.h - 2 * margin) }
   const x = hold.side === 'right' ? box.x + box.w + gap : hold.side === 'left' ? box.x - gap - card.w : box.x + box.w / 2 - card.w / 2
-  const c = clampBox({ x, y: hold.y, w: card.w, h: card.h }, inner)
+  const y = hold.side === 'above' ? hold.edge - card.h : hold.edge
+  const c = clampBox({ x, y, w: card.w, h: card.h }, inner)
+  if (overlaps(c, box)) return placeCard(box, card, area, gap, margin)
   return { x: Math.round(c.x), y: Math.round(c.y), side: hold.side }
 }
 
 /**
  * The answer card's place for one render, and the hold to keep for the next (one per ask: AnswerCard keeps it for the
- * life of its key). A card that opened while its words streamed (`streaming`, once `measured`) keeps that side and top
- * through the rest of the stream AND the final card, so it never jumps when the answer ends; only the screen edge
- * moves it. A card that never streamed (the final card came first) is placed fresh each time (placeCard).
+ * life of its key). A card that opens while its words stream (`streaming`, once `measured`) picks its side for a
+ * reserved height (openCard) and keeps that side and edge through the rest of the stream AND the final card, so it
+ * never jumps when the answer ends and never grows over the circle (holdCard). A card that never streamed (the final
+ * card came first) is placed fresh each time (placeCard).
  */
 export function cardPlace(box: Box, card: { w: number; h: number }, area: { w: number; h: number }, hold: CardHold | undefined, streaming: boolean, measured: boolean): { p: { x: number; y: number; side: CardSide }; hold: CardHold | undefined } {
   if (hold) return { p: holdCard(box, card, area, hold), hold }
-  const p = placeCard(box, card, area)
-  return { p, hold: streaming && measured ? { y: p.y, side: p.side } : undefined }
+  if (!(streaming && measured)) return { p: placeCard(box, card, area), hold: undefined }
+  const opened = openCard(box, card, area)
+  return { p: holdCard(box, card, area, opened), hold: opened }
 }
 
 /** A hand-drawn loop around a box (the browser stage's hand, web.ts, and the tests): a slightly tilted ellipse that wobbles and overshoots its start. */
