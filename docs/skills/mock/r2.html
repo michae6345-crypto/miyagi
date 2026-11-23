@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>miyagi skills mock, round 2</title>
+<style>
+  :root {
+    --font: -apple-system, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --mono: "SF Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --trunk: #5A4433; --pot: #B5603F;
+  }
+  body.light {
+    --bg: #F6F6F3; --side: #F6F6F3; --raised: #FFFFFF; --ink: #141414; --muted: rgba(20,20,20,.62);
+    --faint: rgba(20,20,20,.42); --ghost: rgba(20,20,20,.26); --hair: rgba(20,20,20,.09); --fill: rgba(20,20,20,.045);
+    --fill2: rgba(20,20,20,.08); --track: rgba(20,20,20,.14); --green: #22A24B; --on-green: #141414;
+    --accent: #141414; --on-accent: #F6F6F3; --nav-on: rgba(20,20,20,.07);
+    --band: #EFEFEB; --lock: #F1F1EE; --sh1: rgba(24,22,16,.16); --sh2: rgba(24,22,16,.10);
+    --e-raised: 0 0 0 .5px rgba(24,22,16,.06), 0 1px 2px rgba(24,22,16,.05), 0 6px 16px rgba(24,22,16,.07);
+    --e-panel: 0 0 0 .5px rgba(24,22,16,.07), 0 3px 8px rgba(24,22,16,.06), 0 16px 36px rgba(24,22,16,.1), 0 40px 88px rgba(24,22,16,.12);
+    --sky: #C5E4F9; --pink: #F9C5D5; --on-pastel: #141414;
+  }
+  body.dark {
+    --bg: rgb(30,29,27); --side: rgb(21,20,18); --raised: rgb(44,43,40); --ink: #F4F4F5; --muted: rgba(255,255,255,.62);
+    --faint: rgba(255,255,255,.42); --ghost: rgba(255,255,255,.26); --hair: rgba(255,255,255,.09); --fill: rgba(255,255,255,.055);
+    --fill2: rgba(255,255,255,.09); --track: rgba(255,255,255,.18); --green: #30D158; --on-green: #141414;
+    --accent: #F4F4F5; --on-accent: #141414; --nav-on: rgba(255,255,255,.1);
+    --band: rgb(36,35,33); --lock: rgb(33,32,30); --sh1: rgba(0,0,0,.5); --sh2: rgba(0,0,0,.34);
+    --e-raised: 0 1px 1px rgba(0,0,0,.3), 0 2px 4px rgba(0,0,0,.22), 0 6px 14px rgba(0,0,0,.2);
+    --e-panel: 0 1px 2px rgba(0,0,0,.3), 0 6px 14px rgba(0,0,0,.24), 0 18px 40px rgba(0,0,0,.3), 0 36px 80px rgba(0,0,0,.32);
+    --sky: #C5E4F9; --pink: #F9C5D5; --on-pastel: #141414; --trunk: #A07A5C; --pot: #C2694A;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1440px; height: 900px; overflow: hidden; }
+  body { font-family: var(--font); color: var(--ink); background: var(--side); -webkit-font-smoothing: antialiased; font-size: 13px; }
+  .win { position: absolute; inset: 0; display: flex; }
+  .side { width: 232px; flex: none; background: var(--side); padding: 14px 12px; display: flex; flex-direction: column; border-right: 1px solid var(--hair); }
+  .lights { display: flex; gap: 8px; padding: 4px 6px 18px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--fill2); }
+  .brandrow { display: flex; align-items: center; gap: 7px; padding: 0 8px 16px; }
+  .brandrow img.t { width: 22px; height: 22px; } .brandrow img.w { height: 15px; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav a { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: 8px; color: var(--ink); font-size: 13.5px; }
+  .nav a svg { width: 17px; height: 17px; stroke: var(--muted); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .nav a.on { background: var(--nav-on); font-weight: 560; } .nav a.on svg { stroke: var(--ink); }
+  .nav.top { margin-bottom: 14px; } .grow { flex: 1; }
+  .acct { display: flex; align-items: center; gap: 10px; padding: 8px 10px 2px; }
+  .acct .av { width: 26px; height: 26px; border-radius: 50%; background: var(--fill2); display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+  .acct b { display: block; font-size: 13px; font-weight: 560; } .acct span { font-size: 11.5px; color: var(--muted); }
+  .main { flex: 1; position: relative; background: var(--bg); display: flex; flex-direction: column; min-width: 0; }
+  .hd { padding: 24px 36px 18px; flex: none; border-bottom: 1px solid var(--hair); }
+  .hrow { display: flex; align-items: center; gap: 16px; }
+  h1 { font-size: 26px; font-weight: 680; letter-spacing: -.02em; }
+  .seg { display: flex; background: var(--fill); border-radius: 8px; padding: 2px; }
+  .seg b { font-weight: 500; font-size: 12.5px; padding: 5px 13px; border-radius: 6px; color: var(--muted); }
+  .seg b.on { background: var(--raised); color: var(--ink); box-shadow: var(--e-raised); }
+  .sp { flex: 1; }
+  .tally { font-size: 12.5px; color: var(--muted); } .tally b { color: var(--ink); font-weight: 560; }
+  .search { display: flex; align-items: center; gap: 8px; width: 210px; height: 32px; border-radius: 8px; background: var(--fill); padding: 0 11px; color: var(--faint); font-size: 13px; }
+  .ico { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .strip { display: flex; align-items: center; gap: 16px; margin-top: 18px; }
+  .strip .gicon { width: 40px; height: 40px; border-radius: 11px; border: 1.5px solid var(--ink); display: grid; place-items: center; flex: none; }
+  .strip h2 { font-size: 17px; font-weight: 640; letter-spacing: -.01em; margin-top: 3px; }
+  .strip .gm { font-size: 13px; color: var(--muted); margin-left: 10px; font-weight: 400; }
+  .gbar { display: flex; gap: 3px; margin-top: 8px; }
+  .gbar i { flex: 1; height: 5px; border-radius: 3px; background: var(--track); }
+  .gbar i.g { background: var(--green); } .gbar i.k { background: var(--ink); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; height: 36px; padding: 0 16px; border-radius: 9px; font: 560 13.5px var(--font); border: 0; white-space: nowrap; color: var(--ink); }
+  .btn.primary { background: var(--accent); color: var(--on-accent); }
+  .btn.quiet { background: var(--fill); }
+  .btn.option { background: var(--sky); color: var(--on-pastel); } .btn.option.p { background: var(--pink); }
+  .btn kbd { font: 500 11px var(--font); padding: 2px 6px; border-radius: 5px; background: rgba(127,127,127,.24); }
+  .eyebrow { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); font-weight: 650; }
+  .canvas { position: relative; flex: 1; overflow: hidden; }
+  .canvas svg.g { position: absolute; inset: 0; width: 100%; height: 100%; }
+  svg text { font-family: var(--font); }
+  .lbl { font-size: 13.5px; font-weight: 580; fill: var(--ink); }
+  .lbl.locked { fill: var(--faint); font-weight: 480; }
+  .sub { font-size: 11.5px; fill: var(--muted); } .sub.locked { fill: var(--faint); }
+  .trk { font-size: 10.5px; fill: var(--muted); letter-spacing: .09em; font-weight: 680; }
+  .trk tspan { fill: var(--faint); font-weight: 520; letter-spacing: .02em; }
+  .lift { filter: drop-shadow(0 1px 1px var(--sh1)) drop-shadow(0 4px 7px var(--sh2)); }
+  .dock { flex: none; display: flex; align-items: center; gap: 28px; padding: 16px 36px 20px; border-top: 1px solid var(--hair); }
+  .dock .nx { display: flex; align-items: center; gap: 16px; }
+  .dock .why { font-size: 12.5px; color: var(--muted); line-height: 1.45; } .dock .why b { color: var(--ink); font-weight: 560; }
+  .vr { width: 1px; align-self: stretch; background: var(--hair); }
+  .also { font-size: 12.5px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+  .also div { display: flex; gap: 14px; }
+  .also a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--track); text-underline-offset: 3px; }
+  .fresh { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); } .fresh b { color: var(--ink); font-weight: 560; }
+  .card { position: absolute; background: var(--raised); border-radius: 16px; box-shadow: var(--e-panel); }
+  /* hero: the project at the end of the path */
+  .hero { padding: 20px 20px 18px; display: flex; flex-direction: column; }
+  .hero h2 { font-size: 21px; font-weight: 680; letter-spacing: -.02em; line-height: 1.2; margin: 7px 0 14px; }
+  .hero .plot { display: block; width: 100%; border-radius: 10px; background: var(--fill); }
+  .hero .desc { font-size: 12.5px; color: var(--muted); line-height: 1.45; margin: 10px 0 14px; }
+  .hero .hr { height: 1px; background: var(--hair); margin: 0 -20px; }
+  .hero .stat { padding: 13px 0 12px; font-size: 12.5px; color: var(--muted); } .hero .stat b { color: var(--ink); font-size: 14px; font-weight: 640; }
+  .hero .eta { padding: 0 0 14px; } .hero .eta b { display: block; font-size: 17px; font-weight: 660; letter-spacing: -.01em; } .hero .eta span { font-size: 12.5px; color: var(--muted); }
+  .hero .eyebrow.t { margin: 14px 0 6px; }
+  .togo { display: flex; align-items: center; gap: 9px; font-size: 13px; height: 25px; } .togo em { margin-left: auto; font-style: normal; font-size: 12px; color: var(--muted); } .togo.locked { color: var(--faint); }
+  .hero .btn { margin-top: 12px; height: 34px; }
+  /* skill panel */
+  .panel { right: 22px; top: 16px; bottom: 16px; width: 384px; padding: 20px 24px; display: flex; flex-direction: column; }
+  .ptop { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); } .ptop .x { margin-left: auto; font-size: 18px; color: var(--faint); }
+  .panel h2 { font-size: 24px; font-weight: 680; letter-spacing: -.02em; margin: 8px 0 4px; }
+  .panel .desc { font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+  .panel .eyebrow { margin: 18px 0 8px; }
+  .code { font: 12.5px/1.55 var(--mono); background: var(--fill); border-radius: 10px; padding: 11px 14px; white-space: pre; }
+  .codecap { font-size: 12px; color: var(--muted); margin-top: 7px; }
+  .chk { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hair); margin-top: 10px; font-size: 13px; }
+  .chk code { font: 12px var(--mono); } .chk em { margin-left: auto; font-style: normal; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .pass { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 7px 0; } .pass + .pass { border-top: 1px solid var(--hair); }
+  .pass b { font-weight: 560; } .pass span { color: var(--muted); font-size: 12.5px; } .pass em { margin-left: auto; font-style: normal; font-size: 12px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip { font-size: 12.5px; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--track); color: var(--ink); display: inline-flex; gap: 7px; align-items: center; }
+  .pfoot { margin-top: auto; display: flex; flex-direction: column; gap: 9px; } .pfoot .row { display: flex; gap: 8px; } .pfoot .row .btn { flex: 1; }
+  .pfoot .btn.primary { height: 40px; }
+  /* paste a link */
+  .link { position: absolute; left: 36px; right: 36px; top: 26px; height: 50px; border-radius: 13px; background: var(--raised); box-shadow: var(--e-raised); display: flex; align-items: center; gap: 12px; padding: 0 16px; font-size: 13.5px; }
+  .link .url { font: 13px var(--mono); } .link em { margin-left: auto; font-style: normal; color: var(--muted); font-size: 12.5px; }
+  .pl { left: 36px; top: 96px; width: 344px; padding: 18px 18px 16px; display: flex; flex-direction: column; box-shadow: var(--e-raised); }
+  .pl h3 { font-size: 17px; font-weight: 660; letter-spacing: -.01em; margin: 5px 0 2px; } .pl .m { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+  .vrow { display: flex; align-items: center; gap: 11px; padding: 9px 0; border-top: 1px solid var(--hair); }
+  .vrow .n { width: 22px; height: 22px; border-radius: 7px; background: var(--fill2); display: grid; place-items: center; font-size: 11.5px; font-weight: 620; flex: none; }
+  .vrow b { display: block; font-size: 13px; font-weight: 560; } .vrow span { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .vrow em { margin-left: auto; font-style: normal; font-size: 12px; color: var(--muted); }
+  .pl .foot { display: flex; gap: 8px; margin-top: 12px; } .pl .foot .btn.primary { flex: 1; height: 40px; } .pl .foot .btn.quiet { height: 40px; }
+  .grows { position: absolute; left: 412px; top: 104px; } .grows h2 { font-size: 24px; font-weight: 680; letter-spacing: -.02em; } .grows p { font-size: 13.5px; color: var(--muted); margin-top: 4px; } .grows p b { color: var(--ink); font-weight: 560; }
+  /* frames + boards */
+  .frames { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; padding: 26px 30px 30px; align-content: center; }
+  .frame { height: 640px; }
+  .frame { background: var(--raised); border-radius: 16px; box-shadow: var(--e-raised); display: flex; flex-direction: column; overflow: hidden; }
+  .frame svg { flex: 1; width: 100%; background: var(--bg); }
+  .frame .cap { padding: 14px 18px 16px; border-top: 1px solid var(--hair); } .frame .cap b { display: block; font-size: 14px; font-weight: 640; margin-bottom: 3px; } .frame .cap span { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+  .board { position: absolute; inset: 0; background: var(--bg); padding: 38px 48px 40px; display: flex; flex-direction: column; }
+  .board > h1 { font-size: 26px; } .board > p.lead { font-size: 14px; color: var(--muted); margin: 5px 0 26px; }
+  .two { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; min-height: 0; }
+  .two.short { flex: none; height: 500px; margin-top: 56px; }
+  .cell { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .stage { flex: 1; border-radius: 18px; border: 1px solid var(--hair); display: grid; place-items: center; position: relative; }
+  .acts { display: flex; align-items: center; gap: 8px; } .acts .sp { flex: 1; }
+  .shot { width: 560px; height: 294px; border-radius: 14px; background: var(--raised); box-shadow: var(--e-panel); position: relative; overflow: hidden; }
+  .shot .wm { position: absolute; left: 26px; bottom: 22px; display: flex; align-items: center; gap: 7px; } .shot .wm img.t { width: 22px; } .shot .wm img.w { height: 14px; }
+  .shot .big { position: absolute; left: 26px; top: 26px; } .shot .big b { display: block; font-size: 46px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
+  .shot .big span { display: block; font-size: 15px; font-weight: 560; margin-top: 8px; } .shot .big em { display: block; font-style: normal; font-size: 12.5px; color: var(--muted); margin-top: 5px; line-height: 1.45; }
+  .rules { display: flex; flex-direction: column; gap: 0; } .rule { display: flex; gap: 14px; align-items: center; padding: 13px 0; font-size: 13.5px; line-height: 1.45; } .rule + .rule { border-top: 1px solid var(--hair); }
+  .rule svg { flex: none; } .rule b { font-weight: 600; } .rule span { color: var(--muted); }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<div class="win" id="win">
+  <aside class="side">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="brandrow"><img class="t" data-src="tree-small"><img class="w" data-src="wordmark"></div>
+    <nav class="nav top"><a><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>New lesson</a></nav>
+    <nav class="nav">
+      <a><svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</a>
+      <a><svg viewBox="0 0 24 24"><path d="M5 4v16M10 4v16M15 4.5l4.5 15"/></svg>Lessons</a>
+      <a class="on"><svg viewBox="0 0 24 24"><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="5.5" r="2"/><circle cx="6" cy="5.5" r="2"/><path d="M6 7.5v9M6 13c0-3 3-4 6-4h4"/></svg>Skills</a>
+      <a><svg viewBox="0 0 24 24"><path d="M5 20v-7M12 20V5M19 20v-10"/></svg>Progress</a>
+    </nav>
+    <div class="grow"></div>
+    <nav class="nav"><a><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>Settings</a></nav>
+    <div class="acct"><div class="av">S</div><div><b>Sam Rivera</b><span>Free plan</span></div></div>
+  </aside>
+  <main class="main">
+    <header class="hd" id="hd">
+      <div class="hrow">
+        <h1>Skills</h1>
+        <div class="seg" id="seg"><b data-v="path">Path</b><b data-v="map">Map</b><b data-v="list">List</b></div>
+        <div class="sp"></div>
+        <div class="tally" id="tally"><b>11 of 22</b> skills mastered</div>
+        <div class="search"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Find a skill</div>
+      </div>
+    </header>
+    <section class="canvas" id="canvas"><svg class="g" id="g"></svg></section>
+    <footer class="dock" id="dock">
+      <div class="nx">
+        <button class="btn primary" id="cta">Continue: Broadcasting <kbd>↩</kbd></button>
+        <div class="why" id="why">Step 3 of 4 in <b>NumPy in 20 minutes</b><br>12 min · one of 3 skills that open Layers</div>
+      </div>
+      <div class="vr"></div>
+      <div class="also"><span>Also ready</span><div id="also"><a>A single neuron</a><a>Cleaning rows</a><a>Branches</a></div></div>
+      <div class="fresh"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg><span>Keep fresh: <b>Functions</b>, <b>DataFrames</b> · 4 min</span></div>
+    </footer>
+  </main>
+</div>
+
+<script>
+const q = new URLSearchParams(location.search);
+const S = q.get('s') || 'path', T = q.get('t') || 'light';
+document.body.className = T;
+const dark = T === 'dark';
+const A = n => 'assets/' + n + (dark ? '-dark' : '') + '.svg';
+document.querySelectorAll('img[data-src]').forEach(i => { i.src = A(i.dataset.src); });
+const $ = s => document.querySelector(s);
+const view = { map: 'map', zoom: 'map' }[S] || 'path';
+document.querySelectorAll('#seg b').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function div(cls, html, parent) { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; (parent || $('#canvas')).appendChild(d); return d; }
+const done = s => s === 'mastered' || s === 'review';
+
+// ---------- one edge style: a rounded elbow ----------
+// LR (Path): out sideways, one vertical run in the gap between columns, in sideways. BU (Map): up, one level run between rows, up.
+function hEdge(a, b, ra, rb, bend) {
+  const x0 = a.x + ra, x1 = b.x - rb;
+  if (Math.abs(a.y - b.y) < 1) return `M${x0} ${a.y}H${x1}`;
+  const mx = bend === 's' ? x0 + 24 : bend === 't' ? x1 - 24 : (x0 + x1) / 2, R = Math.min(20, Math.abs(b.y - a.y) / 2, (x1 - x0) / 2), d = b.y > a.y ? 1 : -1;
+  return `M${x0} ${a.y}H${mx - R}Q${mx} ${a.y} ${mx} ${a.y + d * R}V${b.y - d * R}Q${mx} ${b.y} ${mx + R} ${b.y}H${x1}`;
+}
+function vEdge(a, b, ra, rb) {
+  const y0 = a.y - ra, y1 = b.y + rb;
+  if (Math.abs(a.x - b.x) < 1) return `M${a.x} ${y0}V${y1}`;
+  const my = (y0 + y1) / 2, R = Math.min(18, Math.abs(b.x - a.x) / 2, (y0 - y1) / 2), d = b.x > a.x ? 1 : -1;
+  return `M${a.x} ${y0}V${my + R}Q${a.x} ${my} ${a.x + d * R} ${my}H${b.x - d * R}Q${b.x} ${my} ${b.x} ${my - R}V${y1}`;
+}
+function edgeKind(a, b) {
+  if (done(a.s) && done(b.s)) return 'done';
+  if (done(a.s) && (b.s === 'practicing' || b.s === 'ready')) return 'open';
+  return 'locked';
+}
+const EDGE = {
+  done: { stroke: 'var(--green)', 'stroke-width': 3, fill: 'none', 'stroke-linecap': 'round' },
+  open: { stroke: 'var(--ink)', 'stroke-width': 2, fill: 'none', 'stroke-linecap': 'round' },
+  locked: { stroke: 'var(--faint)', 'stroke-width': 1.6, fill: 'none', 'stroke-dasharray': '1.5 6', 'stroke-linecap': 'round' },
+  fresh: { stroke: 'var(--ink)', 'stroke-width': 1.8, fill: 'none', 'stroke-dasharray': '2 6', 'stroke-linecap': 'round' }
+};
+const half = (n, r) => n.kind === 'hero' ? 0 : n.kind === 'cap' ? (n.r || r) + 4 : (n.r || r) + (n.next ? 8 : 2);
+
+// ---------- one node: four states by fill and stroke, never by hue ----------
+function check(g, x, y, k, col) {
+  el('path', { d: `M${x - 5.2 * k} ${y + .4 * k}l${3.6 * k} ${3.6 * k}l${6.8 * k} ${-7.4 * k}`, stroke: col || 'var(--on-green)', 'stroke-width': Math.max(1.6, 2.3 * k), fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
+}
+function arcD(cx, cy, r, f) {
+  const a = f * 2 * Math.PI - Math.PI / 2;
+  return `M${cx} ${cy - r}A${r} ${r} 0 ${f > .5 ? 1 : 0} 1 ${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
+}
+function lockGlyph(g, x, y, k) {
+  const t = el('g', { transform: `translate(${x} ${y + .5 * k}) scale(${k})` }, g);
+  el('path', { d: 'M-3 -1.2v-2.3a3 3 0 0 1 6 0v2.3', stroke: 'var(--faint)', 'stroke-width': 1.5, fill: 'none', 'stroke-linecap': 'round' }, t);
+  el('rect', { x: -4.6, y: -1.2, width: 9.2, height: 7, rx: 2, fill: 'var(--faint)' }, t);
+}
+function node(g, n, o = {}) {
+  const r = n.r || o.r || 22, k = r / 22, { x, y } = n, lk = n.s === 'locked' || n.s === 'new';
+  const b = el('g', { class: lk ? '' : 'lift' }, g);
+  if (n.kind === 'cap') {
+    const w = r * 2 + 4;
+    el('rect', { x: x - w / 2, y: y - w / 2, width: w, height: w, rx: w * .3, fill: lk ? 'var(--lock)' : 'var(--raised)', stroke: lk ? 'var(--faint)' : 'var(--ink)', 'stroke-width': lk ? 1.5 : 2.2, 'stroke-dasharray': lk ? '3.4 3.6' : 'none' }, b);
+    el('image', { href: A('tree-small'), x: x - w * .31, y: y - w * .33, width: w * .62, height: w * .62, opacity: lk ? .55 : 1 }, b);
+  } else if (n.s === 'mastered') {
+    el('circle', { cx: x, cy: y, r, fill: 'var(--green)' }, b); check(b, x, y, k);
+  } else if (n.s === 'review') {
+    el('circle', { cx: x, cy: y, r: r - 2 * k, fill: 'var(--raised)', stroke: 'var(--green)', 'stroke-width': 4 * k }, b); check(b, x, y, k * .82, 'var(--green)');
+  } else if (n.s === 'practicing') {
+    el('circle', { cx: x, cy: y, r, fill: 'var(--raised)' }, b);
+    el('circle', { cx: x, cy: y, r: r - 2.2 * k, fill: 'none', stroke: 'var(--track)', 'stroke-width': 3.6 * k }, b);
+    el('path', { d: arcD(x, y, r - 2.2 * k, n.f[0] / n.f[1]), stroke: 'var(--ink)', 'stroke-width': 3.6 * k, fill: 'none', 'stroke-linecap': 'round' }, b);
+    if (r >= 14) el('text', { x, y: y + 3.8 * k, 'text-anchor': 'middle', 'font-size': 10.5 * Math.max(k, .86), 'font-weight': 680, fill: 'var(--ink)' }, b, `${n.f[0]}/${n.f[1]}`);
+  } else if (n.s === 'ready') {
+    el('circle', { cx: x, cy: y, r: r - 1.2 * k, fill: 'var(--raised)', stroke: 'var(--ink)', 'stroke-width': 2.4 * k }, b);
+    el('path', { d: `M${x - 3 * k} ${y - 5 * k}L${x + 5.4 * k} ${y}L${x - 3 * k} ${y + 5 * k}Z`, fill: 'var(--ink)', stroke: 'var(--ink)', 'stroke-width': 1.4 * k, 'stroke-linejoin': 'round' }, b);
+  } else if (n.s === 'new') {
+    el('circle', { cx: x, cy: y, r: r - 1.2 * k, fill: 'var(--bg)', stroke: 'var(--ink)', 'stroke-width': 1.8 * k, 'stroke-dasharray': '3.4 3.6' }, b);
+    el('path', { d: `M${x - 5 * k} ${y}H${x + 5 * k}M${x} ${y - 5 * k}V${y + 5 * k}`, stroke: 'var(--ink)', 'stroke-width': 2 * k, 'stroke-linecap': 'round' }, b);
+  } else {
+    el('circle', { cx: x, cy: y, r: r - 1.2 * k, fill: 'var(--lock)', stroke: 'var(--faint)', 'stroke-width': 1.5, 'stroke-dasharray': '3.4 3.6' }, b); lockGlyph(b, x, y, k);
+  }
+  if (n.plus) {  // "this link grows it"
+    el('circle', { cx: x + r * .74, cy: y - r * .74, r: 8.5, fill: 'var(--accent)', stroke: 'var(--bg)', 'stroke-width': 2 }, g);
+    el('path', { d: `M${x + r * .74 - 3.6} ${y - r * .74}h7.2M${x + r * .74} ${y - r * .74 - 3.6}v7.2`, stroke: 'var(--on-accent)', 'stroke-width': 1.7, 'stroke-linecap': 'round' }, g);
+  }
+  if (n.next && o.label !== 'right') {  // the one NEXT marker
+    el('circle', { cx: x, cy: y, r: r + 6, fill: 'none', stroke: 'var(--ink)', 'stroke-width': 2 }, g);
+    pill(g, x, y - r - 6 - 15, 'NEXT', 'middle');
+  } else if (n.next) el('circle', { cx: x, cy: y, r: r + 5, fill: 'none', stroke: 'var(--ink)', 'stroke-width': 2 }, g);
+  if (o.label === 'none') return;
+  const sub = n.sub != null ? n.sub : n.kind === 'cap' ? 'project' : n.s === 'review' ? 'review due' : n.s === 'ready' ? 'ready' : n.s === 'practicing' ? `${n.f[0]} of ${n.f[1]} steps` : n.s === 'new' ? 'new' : '';
+  const cls = lk && n.s !== 'new' ? ' locked' : '', fs = o.fs || 13.5, lines = Array.isArray(n.l) ? n.l : [n.l];
+  if (o.label === 'right') {  // Map: text right of the node, clear of the edges that run up the column
+    const lx = x + (n.kind === 'cap' ? r + 2 : r) + 12, ty = sub ? y - 1.5 : y + 4.5;
+    const t = el('text', { x: lx, y: ty, class: 'lbl' + cls, 'font-size': fs }, g, lines.join(' '));
+    if (sub) el('text', { x: lx, y: y + 14, class: 'sub' + cls }, g, sub);
+    if (n.next) pill(g, lx + t.getComputedTextLength() + 9, ty - 4.5, 'NEXT', 'start');
+    return;
+  }
+  let ty = y + (n.kind === 'cap' ? r + 2 : r) + (n.next ? 26 : 21);  // Path: text under the node, clear of the edges that run along the row
+  for (const ln of lines) { el('text', { x, y: ty, 'text-anchor': 'middle', class: 'lbl' + cls, 'font-size': fs }, g, ln); ty += 16; }
+  if (sub) el('text', { x, y: ty, 'text-anchor': 'middle', class: 'sub' + cls }, g, sub);
+}
+function pill(g, x, y, txt, anchor) {
+  const w = txt.length * 6.6 + 15, x0 = anchor === 'middle' ? x - w / 2 : x;
+  el('rect', { x: x0, y: y - 9, width: w, height: 18, rx: 9, fill: 'var(--accent)' }, g);
+  el('text', { x: x0 + w / 2, y: y + 3.7, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 700, 'letter-spacing': '.07em', fill: 'var(--on-accent)' }, g, txt);
+}
+function band(g, x, y, w, h, name, count, lx, end) {
+  el('rect', { x, y, width: w, height: h, rx: 22, fill: 'var(--band)' }, g);
+  const t = el('text', { x: end ? x + w - 20 : lx != null ? lx : x + 20, y: y + 24, class: 'trk', 'text-anchor': end ? 'end' : 'start' }, g, name.toUpperCase());
+  if (count) el('tspan', { dx: 8 }, t, count);
+}
+// opts: dir 'h'|'v', r, label, focus[], dim (opacity for the rest)
+function draw(svg, nodes, edges, o = {}) {
+  const ge = el('g', {}, svg), gn = el('g', {}, svg), r = o.r || 22, mk = o.dir === 'v' ? vEdge : hEdge;
+  const order = { locked: 0, fresh: 1, open: 2, done: 3 };
+  const list = edges.map(([a, b, f, bend]) => ({ a, b, bend, k: f || edgeKind(nodes[a], nodes[b]) })).sort((p, q) => order[p.k] - order[q.k]);
+  for (const { a, b, k, bend } of list) {
+    const A_ = nodes[a], B = nodes[b];
+    const p = el('path', Object.assign({ d: mk(A_, B, half(A_, r), half(B, r), bend) }, EDGE[k]), ge);
+    if (o.focus && !(o.focus.includes(a) && o.focus.includes(b))) p.setAttribute('opacity', o.dim || .25);
+  }
+  for (const id in nodes) {
+    if (nodes[id].kind === 'hero') continue;
+    const g = el('g', {}, gn);
+    if (o.focus && !o.focus.includes(id)) g.setAttribute('opacity', o.dim || .25);
+    node(g, nodes[id], o);
+  }
+}
+function mini(s, sz = 16) {
+  const c = inner => `<svg width="${sz}" height="${sz}" viewBox="0 0 16 16" style="flex:none">${inner}</svg>`;
+  if (s === 'mastered') return c('<circle cx="8" cy="8" r="7.5" fill="var(--green)"/><path d="M4.8 8.1l2.1 2.1 4.2-4.4" stroke="var(--on-green)" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>');
+  if (s === 'review') return c('<circle cx="8" cy="8" r="6.3" fill="none" stroke="var(--green)" stroke-width="2.4"/>');
+  if (s === 'practicing') return c('<circle cx="8" cy="8" r="6.3" fill="none" stroke="var(--track)" stroke-width="2.4"/><path d="M8 1.7A6.3 6.3 0 0 1 14.3 8" stroke="var(--ink)" stroke-width="2.4" fill="none" stroke-linecap="round"/>');
+  if (s === 'ready') return c('<circle cx="8" cy="8" r="6.6" fill="none" stroke="var(--ink)" stroke-width="1.8"/>');
+  if (s === 'new') return c('<circle cx="8" cy="8" r="6.6" fill="none" stroke="var(--ink)" stroke-width="1.4" stroke-dasharray="2.2 2.2"/><path d="M5 8h6M8 5v6" stroke="var(--ink)" stroke-width="1.5" stroke-linecap="round"/>');
+  return c('<circle cx="8" cy="8" r="6.4" fill="none" stroke="var(--faint)" stroke-width="1.3" stroke-dasharray="2.2 2.2"/>');
+}
+function sinePlot(w, h) {
+  const pad = 14, px = t => pad + t / (2 * Math.PI) * (w - 2 * pad), py = v => h / 2 - v * (h / 2 - 18);
+  let d = ''; for (let i = 0; i <= 60; i++) { const t = i / 60 * 2 * Math.PI; d += (i ? 'L' : 'M') + px(t).toFixed(1) + ' ' + py(Math.sin(t)).toFixed(1); }
+  let dots = ''; for (let i = 0; i < 17; i++) { const t = (i + .5) / 17 * 2 * Math.PI, nz = Math.sin(i * 12.9898) * .13; dots += `<circle cx="${px(t).toFixed(1)}" cy="${py(Math.sin(t) + nz).toFixed(1)}" r="2.4" fill="var(--faint)"/>`; }
+  return `<svg class="plot" viewBox="0 0 ${w} ${h}" height="${h}"><path d="M${pad} ${h / 2}H${w - pad}" stroke="var(--track)" stroke-width="1"/>${dots}<path d="${d}" stroke="var(--ink)" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>`;
+}
+function barPlot(w, h) {
+  const hs = [34, 52, 47, 70, 61, 84], bw = (w - 60) / 6;
+  return `<svg class="plot" viewBox="0 0 ${w} ${h}" height="${h}"><path d="M22 ${h - 16}H${w - 16}" stroke="var(--track)"/>${hs.map((v, i) => `<rect x="${30 + i * bw}" y="${h - 16 - v * (h - 34) / 84}" width="${bw - 9}" height="${v * (h - 34) / 84}" rx="3.5" fill="var(--ink)" opacity="${.3 + i * .12}"/>`).join('')}</svg>`;
+}
+
+const svg = $('#g'), cv = $('#canvas');
+const size = () => { const W = cv.clientWidth, H = cv.clientHeight; svg.setAttribute('viewBox', `0 0 ${W} ${H}`); return [W, H]; };
+
+// ---------- PATH: the skills on the way to the goal, on a 7 x 3 grid ----------
+function pathData(H, o = {}) {
+  const cy = Math.round(H / 2) - 4, RP = o.rp || 186, X0 = o.x0 || 78, CP = o.cp || 128;
+  const c = i => X0 + i * CP, row = [cy - RP, cy, cy + RP];
+  const N = {
+    basics: { l: 'Python basics', x: c(0), y: row[1], s: 'mastered' },
+    loops:  { l: 'Loops', x: c(1), y: row[1], s: 'mastered' },
+    func:   { l: 'Functions', x: c(2), y: row[1], s: 'review' },
+    arrays: { l: 'Arrays', x: c(2), y: row[0], s: 'mastered' },
+    index:  { l: 'Indexing', x: c(3), y: row[0], s: 'mastered' },
+    broad:  { l: 'Broadcasting', x: c(4), y: row[0], s: 'practicing', f: [2, 4], next: 1 },
+    vec:    { l: 'Vectors', x: c(2), y: row[2], s: 'mastered' },
+    dot:    { l: 'Dot product', x: c(3), y: row[2], s: 'mastered' },
+    mat:    { l: 'Matrices', x: c(4), y: row[2], s: 'practicing', f: [3, 5] },
+    neuron: { l: 'A single neuron', x: c(4), y: row[1], s: 'ready' },
+    layers: { l: 'Layers', x: c(5), y: row[1], s: 'locked', sub: 'needs 3 skills' },
+    grad:   { l: 'Gradient descent', x: c(6), y: row[1], s: 'locked', sub: 'needs Layers' }
+  };
+  const E = [['basics', 'loops'], ['loops', 'func'], ['loops', 'arrays', 0, 's'], ['loops', 'vec', 0, 's'], ['arrays', 'index'], ['index', 'broad'], ['vec', 'dot'], ['dot', 'mat'],
+    ['func', 'neuron'], ['dot', 'neuron', 0, 's'], ['broad', 'layers', 0, 't'], ['neuron', 'layers'], ['mat', 'layers', 0, 't'], ['layers', 'grad']];
+  return { N, E, c, row, cy };
+}
+function pathBands(g, c, row, counts = 1) {
+  const B = (i0, i1, r, name, cnt, end) => band(g, c(i0) - 56, row[r] - 66, c(i1) - c(i0) + 112, 140, name, counts ? cnt : '', null, end);
+  B(0, 2, 1, 'python', '3 of 3'); B(2, 4, 0, 'numpy', '2 of 3'); B(2, 4, 2, 'math', '2 of 3'); B(4, 6, 1, 'neural networks', '0 of 3', 1);
+}
+const TOGO = [['practicing', 'Broadcasting', '2 of 4'], ['practicing', 'Matrices', '3 of 5'], ['ready', 'A single neuron', 'ready'], ['locked', 'Layers', ''], ['locked', 'Gradient descent', '']];
+function heroCard() {
+  return `<div class="eyebrow">Your goal · project</div><h2>Fit sin(x) with a network</h2>${sinePlot(210, 112)}
+    <div class="desc">A small network you train yourself, in one file.</div><div class="hr"></div>
+    <div class="stat"><b>7 of 12</b> skills mastered<div class="gbar">${'g'.repeat(7).split('').map(() => '<i class="g"></i>').join('')}<i class="k"></i><i class="k"></i><i></i><i></i><i></i></div></div>
+    <div class="eta"><b>About 3 h left</b><span>around Dec 4 at your pace</span></div><div class="hr"></div>
+    <div class="eyebrow t">Still to go</div>${TOGO.map(([s, n, m]) => `<div class="togo${s === 'locked' ? ' locked' : ''}">${mini(s)}${n}<em>${m}</em></div>`).join('')}
+    <button class="btn quiet">Change goal</button>`;
+}
+
+if (S === 'path') {
+  const [W, H] = size(), { N, E, c, row, cy } = pathData(H);
+  const h = div('card hero', heroCard()); h.style.cssText = 'right:28px;width:250px';
+  h.style.top = Math.round(cy - h.offsetHeight / 2) + 'px';
+  N.goal = { kind: 'hero', x: W - 28 - 250, y: cy, s: 'locked' }; E.push(['grad', 'goal']);
+  pathBands(el('g', {}, svg), c, row);
+  draw(svg, N, E, { dir: 'h' });
+}
+
+// ---------- MAP: every track, one tree, grown up from the trunk on a 5 x 8 grid ----------
+function mapData(W, H, o = {}) {
+  const CP = o.cp || 216, RP = o.rp || 76, x0 = o.x0 != null ? o.x0 : Math.round((W - (5 * CP - 8)) / 2) + 34, y0 = o.y0 || H - 92;
+  const c = i => x0 + i * CP, r = j => y0 - j * RP;
+  const col = (i, j0, arr) => arr.map(([id, l, s, extra], k) => [id, Object.assign({ l, s, x: c(i), y: r(j0 + k) }, extra)]);
+  const N = Object.fromEntries([
+    ...col(2, 0, [['basics', 'Python basics', 'mastered'], ['loops', 'Loops', 'mastered'], ['func', 'Functions', 'review']]),
+    ...col(0, 1, [['csv', 'Reading CSVs', 'mastered'], ['dfs', 'DataFrames', 'review'], ['clean', 'Cleaning rows', 'ready'], ['group', 'Group by', 'locked'], ['sales', 'Sales report', 'locked', { kind: 'cap' }]]),
+    ...col(1, 2, [['arrays', 'Arrays', 'mastered'], ['index', 'Indexing', 'mastered'], ['broad', 'Broadcasting', 'practicing', { f: [2, 4], next: 1 }], ['vect', 'Vectorized math', 'locked'], ['blur', 'Blur a photo', 'locked', { kind: 'cap' }]]),
+    ...col(2, 4, [['neuron', 'A single neuron', 'ready'], ['layers', 'Layers', 'locked'], ['grad', 'Gradient descent', 'locked']]),
+    ...col(3, 2, [['vec', 'Vectors', 'mastered'], ['dot', 'Dot product', 'mastered'], ['mat', 'Matrices', 'practicing', { f: [3, 5] }], ['eig', 'Eigenvectors', 'locked'], ['cube', 'Spin a cube', 'locked', { kind: 'cap' }]]),
+    ...col(4, 1, [['git', 'Git basics', 'mastered'], ['commit', 'Commits', 'mastered'], ['branch', 'Branches', 'ready'], ['prs', 'Pull requests', 'locked'], ['ship', 'Ship a pull request', 'locked', { kind: 'cap' }]])
+  ]);
+  const E = [['basics', 'loops'], ['loops', 'func'], ['basics', 'csv'], ['basics', 'git'], ['loops', 'arrays'], ['loops', 'vec'],
+    ['csv', 'dfs'], ['dfs', 'clean'], ['clean', 'group'], ['group', 'sales'], ['arrays', 'index'], ['index', 'broad'], ['broad', 'vect'], ['vect', 'blur'],
+    ['vec', 'dot'], ['dot', 'mat'], ['mat', 'eig'], ['eig', 'cube'], ['git', 'commit'], ['commit', 'branch'], ['branch', 'prs'], ['prs', 'ship'],
+    ['func', 'neuron'], ['dot', 'neuron'], ['broad', 'layers'], ['mat', 'layers'], ['neuron', 'layers'], ['layers', 'grad']];
+  const T = [[2, 0, 2, 'python', '3 of 3'], [0, 1, 5, 'pandas', '2 of 4'], [1, 2, 6, 'numpy', '2 of 4'], [2, 4, 7, 'neural networks', '0 of 3'], [3, 2, 6, 'math', '2 of 4'], [4, 1, 5, 'git', '2 of 4']];
+  return { N, E, T, c, r, CP, RP };
+}
+function mapHero(g, x, y, w, h) {
+  const b = el('g', { class: 'lift' }, g);
+  el('rect', { x: x - 24, y: y - h / 2, width: w, height: h, rx: 16, fill: 'var(--accent)' }, b);
+  el('image', { href: 'assets/tree-small' + (dark ? '' : '-dark') + '.svg', x: x - 13, y: y - 14, width: 26, height: 26 }, b);
+  el('text', { x: x + 24, y: y - 8, 'font-size': 13.5, 'font-weight': 640, fill: 'var(--on-accent)' }, b, 'Fit sin(x)');
+  el('text', { x: x + 24, y: y + 8, 'font-size': 13.5, 'font-weight': 640, fill: 'var(--on-accent)' }, b, 'with a network');
+  el('text', { x: x + 24, y: y + 24, 'font-size': 11.5, fill: 'var(--on-accent)', opacity: .66 }, b, 'your goal · 3 h left');
+}
+if (S === 'map') {
+  const [W, H] = size(), { N, E, T, c, r, CP } = mapData(W, H), R = 16, g0 = el('g', {}, svg);
+  for (const [i, j0, j1, name, cnt] of T) {
+    const top = r(j1) - (name === 'neural networks' ? 78 : 62), bot = r(j0) + 30;
+    band(g0, c(i) - 36, top, CP - 8, bot - top, name, cnt, c(i) + R + 12);
+  }
+  N.goal = { kind: 'hero', x: c(2), y: r(7) + 37, s: 'locked' }; E.push(['grad', 'goal']);
+  draw(svg, N, E, { dir: 'v', r: R, label: 'right', fs: 13 });
+  mapHero(svg, c(2), r(7), CP - 32, 74);
+}
+
+// ---------- PROOF: click a green node, see the code you wrote and the check it passed ----------
+if (S === 'proof') {
+  const [W, H] = size(), { N, E, c, row } = pathData(H, { cp: 112, x0: 70, rp: 186 });
+  pathBands(el('g', {}, svg), c, row, 0);
+  draw(svg, N, E, { dir: 'h', focus: ['dot', 'vec', 'neuron', 'mat'], dim: .3 });
+  el('circle', { cx: N.dot.x, cy: N.dot.y, r: 29, fill: 'none', stroke: 'var(--ink)', 'stroke-width': 2 }, svg);
+  $('#dock').classList.add('hide');
+  div('card panel', `
+    <div class="ptop"><span>math</span><span>·</span><span>Mastered Nov 19</span><span class="x">×</span></div>
+    <h2>Dot product</h2>
+    <div class="desc">Multiply two vectors into one number.</div>
+    <div class="eyebrow">Proof · the code you wrote</div>
+    <div class="code">def dot(a, b):
+    total = 0
+    for x, y in zip(a, b):
+        total += x * y
+    return total</div>
+    <div class="chk">${mini('mastered', 18)}<span>Check passed&nbsp; <code>dot([1,2,3],[4,5,6]) == 32</code></span></div>
+    <div class="eyebrow">Passed on 2 days, no hints</div>
+    <div class="pass">${mini('mastered')}<div><b>Vectors for programmers</b> <span>step 4</span></div><em>Nov 17</em></div>
+    <div class="pass">${mini('mastered')}<div><b>Image filters from scratch</b> <span>step 2</span></div><em>Nov 19</em></div>
+    <div class="eyebrow">Stays fresh</div>
+    <div class="pass">${mini('review')}<div><b>Next review</b> <span>one question, 2 min</span></div><em>around Dec 10</em></div>
+    <div class="eyebrow">Opened</div>
+    <div class="chips"><span class="chip">${mini('ready', 14)}A single neuron</span><span class="chip">${mini('practicing', 14)}Matrices</span></div>
+    <div class="pfoot"><button class="btn primary">Practice again · 2 min <kbd>↩</kbd></button>
+      <div class="row"><button class="btn quiet">Open the lesson</button><button class="btn quiet">Share</button></div></div>`);
+}
+
+// ---------- COURSE: a YouTube playlist is a course, one lesson per video, its project at the end ----------
+if (S === 'course') {
+  $('#tally').classList.add('hide');
+  $('#hd').insertAdjacentHTML('beforeend', `<div class="strip">
+    <div class="gicon"><svg class="ico" style="width:19px;height:19px" viewBox="0 0 24 24"><path d="M4 6h11M4 11h11M4 16h7"/><path d="m16 13 5 3-5 3z" fill="currentColor"/></svg></div>
+    <div><div class="eyebrow">Course · from a YouTube playlist</div><h2>Data analysis with pandas<span class="gm">2 of 8 videos · about 1 h 40 min left · around Nov 29 at your pace</span></h2>
+      <div class="gbar" style="width:236px"><i class="g"></i><i class="g"></i><i class="k"></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="sp"></div><button class="btn quiet">All skills</button></div>`);
+  const [W, H] = size(), X0 = 86, CP = 112, vy = 158, TW = 100, TH = 60, c = i => X0 + i * CP;
+  const V = [
+    ['Loading a CSV', '', '9 min', 'done', [['Reading CSVs', 'mastered']]],
+    ['DataFrames and', 'columns', '14 min', 'done', [['DataFrames', 'review']]],
+    ['Filtering and', 'cleaning rows', '17 min', 'next', [['Cleaning rows', 'ready'], ['Filtering', 'new']]],
+    ['Group by and', 'summarize', '16 min', 'todo', [['Group by', 'locked']]],
+    ['Joining two', 'tables', '19 min', 'todo', [['Joins', 'new']]],
+    ['Pivot tables', '', '12 min', 'todo', [['Pivot tables', 'new']]],
+    ['Charts with', 'matplotlib', '15 min', 'todo', [['Plotting', 'new']]],
+    ['Build the report', '', '22 min', 'todo', []]
+  ];
+  const ge = el('g', {}, svg), gn = el('g', {}, svg), HX = c(7) + TW / 2 + 34;
+  V.forEach(([t1, t2, dur, st, sk], i) => {
+    const x = c(i), g = el('g', {}, gn), todo = st === 'todo';
+    if (i < 7) { const k = st === 'done' && V[i + 1][3] === 'done' ? 'done' : st === 'done' ? 'open' : 'locked'; el('path', Object.assign({ d: `M${x + TW / 2 + (st === 'next' ? 6 : 1)} ${vy}H${c(i + 1) - TW / 2 - (V[i + 1][3] === 'next' ? 6 : 1)}` }, EDGE[k]), ge); }
+    else el('path', Object.assign({ d: `M${x + TW / 2 + 1} ${vy}H${HX}` }, EDGE.locked), ge);
+    const b = el('g', { class: todo ? '' : 'lift' }, g);
+    el('rect', { x: x - TW / 2, y: vy - TH / 2, width: TW, height: TH, rx: 11, fill: todo ? 'var(--lock)' : 'var(--raised)', stroke: todo ? 'var(--faint)' : st === 'next' ? 'var(--ink)' : 'none', 'stroke-width': todo ? 1.4 : 2.2, 'stroke-dasharray': todo ? '3.4 3.6' : 'none' }, b);
+    el('path', { d: `M${x - 6} ${vy - 8}L${x + 8} ${vy}L${x - 6} ${vy + 8}Z`, fill: todo ? 'var(--ghost)' : 'var(--ink)', opacity: st === 'done' ? .3 : 1 }, b);
+    el('text', { x: x - TW / 2 + 10, y: vy - TH / 2 + 17, 'font-size': 11, 'font-weight': 680, fill: todo ? 'var(--faint)' : 'var(--muted)' }, b, String(i + 1));
+    if (st === 'done') { el('circle', { cx: x + TW / 2 - 4, cy: vy - TH / 2 + 4, r: 10, fill: 'var(--green)', stroke: 'var(--bg)', 'stroke-width': 2 }, g); check(g, x + TW / 2 - 4, vy - TH / 2 + 4, .62); }
+    if (st === 'next') { el('rect', { x: x - TW / 2 - 6, y: vy - TH / 2 - 6, width: TW + 12, height: TH + 12, rx: 16, fill: 'none', stroke: 'var(--ink)', 'stroke-width': 2 }, g); pill(g, x, vy - TH / 2 - 6 - 15, 'NEXT', 'middle'); }
+    let ty = vy + TH / 2 + (st === 'next' ? 26 : 21);
+    for (const ln of [t1, t2]) if (ln) { el('text', { x, y: ty, 'text-anchor': 'middle', class: 'lbl' + (todo ? ' locked' : ''), 'font-size': 12.5 }, g, ln); ty += 15.5; }
+    el('text', { x, y: ty, 'text-anchor': 'middle', class: 'sub' + (todo ? ' locked' : '') }, g, dur);
+    // the skills this video grows hang under it
+    let y0 = vy + 104;
+    sk.forEach(([l, s], j) => {
+      const y1 = 366 + j * 126, n = { l, s, x, y: y1, r: 18 };
+      el('path', { d: `M${x} ${y0}V${y1 - 21}`, stroke: done(s) ? 'var(--green)' : s === 'ready' ? 'var(--ink)' : 'var(--ghost)', 'stroke-width': done(s) ? 2.4 : 1.6, 'stroke-dasharray': done(s) || s === 'ready' ? 'none' : '2 6', 'stroke-linecap': 'round' }, ge);
+      node(g, n, { fs: 12.5 }); y0 = y1 + 18 + 21 + (Array.isArray(l) ? 32 : 16) + 22;
+    });
+  });
+  const h = div('card hero', `<div class="eyebrow">Project · video 8</div><h2 style="font-size:19px;margin-bottom:12px">Sales report</h2>${barPlot(188, 104)}
+    <div class="desc">The playlist's own final project. It uses all 7 skills.</div><div class="hr"></div>
+    <div class="stat"><b>2 of 7</b> skills mastered<div class="gbar"><i class="g"></i><i class="g"></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="eta" style="padding-bottom:2px"><b>About 1 h 40 min left</b><span>around Nov 29 at your pace</span></div>`);
+  h.style.cssText = `left:${HX}px;top:${vy - 58}px;width:${W - HX - 28}px`;
+  $('#cta').innerHTML = 'Continue: video 3 <kbd>↩</kbd>';
+  $('#why').innerHTML = '<b>Filtering and cleaning rows</b> · 17 min<br>Grows Cleaning rows and Filtering';
+  $('#also').innerHTML = '<a>Broadcasting</a><a>A single neuron</a><a>Branches</a>';
+}
+
+// ---------- UNLOCKS: paste a link, see which skills it would grow, before you start ----------
+if (S === 'unlocks') {
+  $('#dock').classList.add('hide');
+  const [W, H] = size();
+  div('link', `<svg class="ico" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></svg><span class="url">youtube.com/playlist?list=PLnn-from-scratch</span><em>Playlist · 6 videos · 2 h 5 min</em>`);
+  const vids = [['A neuron from scratch', '18 min', 'ready', 'A single neuron'], ['Layers and shapes', '22 min', 'locked', 'Layers'], ['Activation functions', '16 min', 'new', 'Activations'],
+    ['Measuring loss', '19 min', 'new', 'Loss'], ['Gradient descent by hand', '24 min', 'locked', 'Gradient descent'], ['Train it: fit a curve', '26 min', 'cap', 'your project']];
+  const pl = div('card pl', `<div class="eyebrow">Course</div><h3>Neural networks from scratch</h3><div class="m">One lesson per video, the project at the end.</div>
+    ${vids.map(([t, d, s, k], i) => `<div class="vrow"><div class="n">${i + 1}</div><div><b>${t}</b><span>${s === 'cap' ? '<svg width="14" height="14" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="4.5" fill="none" stroke="var(--ink)" stroke-width="1.6"/></svg>' : mini(s, 14)}${k}</span></div><em>${d}</em></div>`).join('')}
+    <div class="foot"><button class="btn primary">Start course <kbd>↩</kbd></button><button class="btn quiet">Just video 1</button></div>`);
+  div('grows', `<h2>Grows 5 skills and finishes your goal</h2><p><b>3</b> are on the way to Fit sin(x) with a network · <b>2</b> are new · the last video is your project</p>`);
+  const X0 = 474, CP = 124, cy = 96 + Math.round((H - 96) / 2) + 30, RP = 146, c = i => X0 + i * CP, row = [cy - RP, cy, cy + RP];
+  const n = (l, i, r, s, x) => Object.assign({ l, x: c(i), y: row[r], s, r: 18 }, x);
+  const N = {
+    arrays: n('Arrays', 0, 0, 'mastered'), index: n('Indexing', 1, 0, 'mastered'), broad: n('Broadcasting', 2, 0, 'practicing', { f: [2, 4] }),
+    func: n('Functions', 0, 1, 'review'), neuron: n('A single neuron', 2, 1, 'ready', { plus: 1 }),
+    vec: n('Vectors', 0, 2, 'mastered'), dot: n('Dot product', 1, 2, 'mastered'), mat: n('Matrices', 2, 2, 'practicing', { f: [3, 5] }),
+    layers: n('Layers', 3, 1, 'locked', { plus: 1 }), act: n('Activations', 4, 0, 'new'), grad: n('Gradient descent', 4, 1, 'locked', { plus: 1 }), loss: n('Loss', 4, 2, 'new'),
+    goal: n(['Fit sin(x)', 'with a network'], 5, 1, 'locked', { kind: 'cap', r: 24, sub: 'your goal', plus: 1 })
+  };
+  const E = [['arrays', 'index'], ['index', 'broad'], ['vec', 'dot'], ['dot', 'mat'], ['func', 'neuron'], ['dot', 'neuron', 0, 's'], ['broad', 'layers', 0, 't'], ['mat', 'layers', 0, 't'],
+    ['neuron', 'layers'], ['layers', 'grad'], ['grad', 'goal'], ['layers', 'act', 'fresh', 's'], ['layers', 'loss', 'fresh', 's'], ['act', 'goal', 'fresh', 't'], ['loss', 'goal', 'fresh', 't']];
+  draw(svg, N, E, { dir: 'h', r: 18, fs: 13, focus: ['neuron', 'layers', 'grad', 'act', 'loss', 'goal'], dim: .34 });
+}
+
+// ---------- ZOOM: three levels of the same tree ----------
+if (S === 'zoom') {
+  $('#dock').classList.add('hide'); svg.remove();
+  const wrap = div('frames', [['Far · tracks', 'Each track folds into one chip with its share mastered. The whole tree fits in a glance.'],
+    ['Default · skills', 'What Map shows today. One node per skill, its state on the node.'],
+    ['Near · steps', 'Zoom into a skill and its steps open under it, with the lesson each one came from.']]
+    .map(([b, s]) => `<div class="frame"><svg viewBox="0 0 370 500" preserveAspectRatio="xMidYMid meet"></svg><div class="cap"><b>${b}</b><span>${s}</span></div></div>`).join(''));
+  const [f1, f2, f3] = wrap.querySelectorAll('svg');
+  // far: track chips
+  const chip = (g, x, y, name, f, tot, w = 96) => {
+    const b = el('g', { class: 'lift' }, g), rx = x - w / 2 + 20;
+    el('rect', { x: x - w / 2, y: y - 22, width: w, height: 44, rx: 14, fill: 'var(--raised)' }, b);
+    el('circle', { cx: rx, cy: y, r: 9.5, fill: 'none', stroke: f >= tot ? 'var(--green)' : 'var(--track)', 'stroke-width': 3.4 }, b);
+    if (f > 0 && f < tot) el('path', { d: arcD(rx, y, 9.5, f / tot), stroke: 'var(--green)', 'stroke-width': 3.4, fill: 'none', 'stroke-linecap': 'round' }, b);
+    el('text', { x: rx + 17, y: y - 2, 'font-size': 12.5, 'font-weight': 600, fill: 'var(--ink)' }, b, name);
+    el('text', { x: rx + 17, y: y + 13, 'font-size': 11, fill: 'var(--muted)' }, b, `${Math.round(f / tot * 100)}%`);
+    return { x, y, s: f >= tot ? 'mastered' : 'practicing' };
+  };
+  const ge1 = el('g', {}, f1), gn1 = el('g', {}, f1);
+  const C = { py: chip(gn1, 185, 440, 'python', 3, 3), pd: chip(gn1, 53, 340, 'pandas', 2, 4), gt: chip(gn1, 317, 340, 'git', 2, 4), np: chip(gn1, 119, 240, 'numpy', 2, 4), ma: chip(gn1, 251, 240, 'math', 2, 4), nn: chip(gn1, 185, 140, 'neural nets', 0, 3, 118) };
+  for (const [a, b, k] of [['py', 'nn', 'open'], ['py', 'pd', 'done'], ['py', 'gt', 'done'], ['py', 'np', 'done'], ['py', 'ma', 'done']])
+    el('path', Object.assign({ d: vEdge(C[a], C[b], 24, 24) }, EDGE[k]), ge1);
+  const hb = el('g', { class: 'lift' }, gn1);
+  el('rect', { x: 185 - 62, y: 34, width: 124, height: 38, rx: 13, fill: 'var(--accent)' }, hb);
+  el('text', { x: 185, y: 57.5, 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 640, fill: 'var(--on-accent)' }, hb, 'Fit sin(x) · goal');
+  el('path', Object.assign({ d: 'M185 116V74' }, EDGE.locked), ge1);
+  // default: skills
+  const M2 = {
+    arrays: { l: 'Arrays', s: 'mastered', x: 50, y: 440 }, index: { l: 'Indexing', s: 'mastered', x: 50, y: 348 }, broad: { l: 'Broadcasting', s: 'practicing', f: [2, 4], x: 50, y: 256 },
+    vect: { l: 'Vectorized math', s: 'locked', x: 50, y: 164 }, blur: { l: 'Blur a photo', s: 'locked', kind: 'cap', x: 50, y: 72 },
+    neuron: { l: 'A single neuron', s: 'ready', x: 222, y: 256 }, layers: { l: 'Layers', s: 'locked', x: 222, y: 164 }, grad: { l: 'Gradient descent', s: 'locked', x: 222, y: 72 }
+  };
+  draw(f2, M2, [['arrays', 'index'], ['index', 'broad'], ['broad', 'vect'], ['vect', 'blur'], ['broad', 'layers'], ['neuron', 'layers'], ['layers', 'grad']], { dir: 'v', r: 15, label: 'right', fs: 12.5 });
+  // near: steps
+  const g3 = el('g', { transform: 'translate(0 -8)' }, f3), X = 62;
+  el('path', { d: `M${X} 122V214`, stroke: 'var(--green)', 'stroke-width': 3, 'stroke-linecap': 'round' }, g3);
+  el('path', { d: `M${X} 214V292`, stroke: 'var(--green)', 'stroke-width': 3, 'stroke-linecap': 'round' }, g3);
+  el('path', { d: `M${X} 292V370`, stroke: 'var(--ink)', 'stroke-width': 2, 'stroke-linecap': 'round' }, g3);
+  el('path', Object.assign({ d: `M${X} 370V448` }, EDGE.locked), g3);
+  node(g3, { l: 'Broadcasting', s: 'practicing', f: [2, 4], x: X, y: 84, r: 26, sub: 'numpy · 2 of 4 steps' }, { label: 'right', fs: 16 });
+  [['Shapes and axes', 'passed Nov 20 · NumPy in 20 minutes', 'mastered'], ['Add one row to every row', 'passed Nov 21 · NumPy in 20 minutes', 'mastered'],
+    ['Stretch a column across a table', 'you are here · 12 min', 'ready'], ['Normalize a whole image', 'Image filters from scratch', 'locked']].forEach(([l, sub, s], i) =>
+    node(g3, { l, sub, s, x: X, y: 214 + i * 78, r: 12 }, { label: 'right', fs: 13 }));
+}
+
+// ---------- SHARE: export the tree or a finished project as a clean image ----------
+function miniTree(w, h, o = {}) {
+  const { N, E } = mapData(0, 0, { cp: o.cp || 58, rp: o.rp || 29, x0: 0, y0: 0 });
+  let xs = [], ys = []; for (const id in N) { xs.push(N[id].x); ys.push(N[id].y); }
+  const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys) - (o.rp || 29), maxy = Math.max(...ys);
+  const s = document.createElementNS(NS, 'svg'); s.setAttribute('viewBox', `${minx - 14} ${miny - 14} ${maxx - minx + 28} ${maxy - miny + 28}`); s.setAttribute('width', w); s.setAttribute('height', h);
+  const ge = el('g', {}, s), gn = el('g', {}, s), r = o.r || 6.5;
+  N.goal = { x: N.grad.x, y: N.grad.y - (o.rp || 29), s: 'locked', kind: 'cap' }; E.push(['grad', 'goal']);
+  for (const [a, b] of E) { const k = edgeKind(N[a], N[b]); el('path', { d: vEdge(N[a], N[b], 0, 0), fill: 'none', stroke: k === 'done' ? 'var(--green)' : k === 'open' ? 'var(--ink)' : 'var(--ghost)', 'stroke-width': k === 'done' ? 2.2 : 1.4, 'stroke-dasharray': k === 'locked' ? '1.5 4' : 'none', 'stroke-linecap': 'round' }, ge); }
+  for (const id in N) { const n = N[id];
+    if (n.kind === 'cap') el('rect', { x: n.x - r, y: n.y - r, width: 2 * r, height: 2 * r, rx: 3.6, fill: id === 'goal' ? 'var(--ink)' : 'var(--raised)', stroke: id === 'goal' ? 'var(--ink)' : 'var(--faint)', 'stroke-width': 1.3 }, gn);
+    else if (done(n.s)) el('circle', { cx: n.x, cy: n.y, r, fill: 'var(--green)' }, gn);
+    else el('circle', { cx: n.x, cy: n.y, r: r - .8, fill: 'var(--raised)', stroke: n.s === 'locked' ? 'var(--faint)' : 'var(--ink)', 'stroke-width': n.s === 'locked' ? 1.2 : 1.7, 'stroke-dasharray': n.s === 'locked' ? '2 2.4' : 'none' }, gn); }
+  return s;
+}
+function board(title, lead, inner) {
+  $('#win').remove();
+  const b = document.createElement('div'); b.className = 'board';
+  b.innerHTML = `<h1>${title}</h1><p class="lead">${lead}</p>${inner}`; document.body.appendChild(b); return b;
+}
+if (S === 'share') {
+  const wm = `<div class="wm"><img class="t" src="${A('tree-small')}"><img class="w" src="${A('wordmark')}"></div>`;
+  const b = board('Share card', 'Export your tree or a finished project as one clean image, sized for LinkedIn and X. From the Skills menu, and when a project is done.', `<div class="two short">
+    <div class="cell"><div class="eyebrow">Your tree</div><div class="stage"><div class="shot" id="s1">
+      <div class="big"><b>11</b><span>skills mastered</span><em>Sam Rivera · on the way to<br>Fit sin(x) with a network</em></div>${wm}</div></div>
+      <div class="acts"><button class="btn option">Tree</button><button class="btn quiet">Project</button><div class="sp"></div><button class="btn quiet">Copy</button><button class="btn primary">Save image <kbd>↩</kbd></button></div></div>
+    <div class="cell"><div class="eyebrow">A finished project</div><div class="stage"><div class="shot" id="s2">
+      <div class="big"><span style="margin-top:0;font-size:12.5px;color:var(--muted);font-weight:500">Sam Rivera built</span><b style="font-size:34px;margin-top:8px">Sales report</b>
+        <em style="margin-top:14px">${['Reading CSVs', 'DataFrames', 'Cleaning rows', 'Group by'].map(s => `<span style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:500;margin:0 0 7px;color:var(--ink)">${mini('mastered')}${s}</span>`).join('')}</em></div>
+      <div style="position:absolute;right:26px;top:30px;width:236px">${barPlot(236, 176)}<div style="font-size:12px;color:var(--muted);margin-top:10px;text-align:right">Nov 29, 2026 · every check passed</div></div>${wm}</div></div>
+      <div class="acts"><button class="btn quiet">Tree</button><button class="btn option p">Project</button><div class="sp"></div><button class="btn quiet">Copy</button><button class="btn quiet">Save image</button></div></div>
+  </div>`);
+  const t = miniTree(268, 236); t.style.cssText = 'position:absolute;right:22px;top:28px'; $('#s1').appendChild(t);
+}
+
+// ---------- BONSAI: one growth model, each track is a branch of your tree ----------
+if (S === 'bonsai') {
+  const pad = (x, y, k, mode) => {  // the brand's leaf pad: four circles on a flat base
+    const cs = [[-9, 2, 4.6], [-4, -1.6, 6.2], [3, -2.6, 6.8], [9, .4, 5.2]], st = mode === 'out';
+    return `<g transform="translate(${x} ${y}) scale(${k})" ${st ? 'fill="var(--raised)" stroke="var(--green)" stroke-width="1.5"' : 'fill="var(--green)"'}>${st ? `<path d="M-13.6 4.8a4.6 4.6 0 0 1 2.2-6.9a6.2 6.2 0 0 1 9-3.3a6.8 6.8 0 0 1 10.6 2.1a5.2 5.2 0 0 1 5.6 8.1z"/>` : cs.map(([cx, cy, r]) => `<circle cx="${cx}" cy="${cy}" r="${r}"/>`).join('') + '<rect x="-10" y="1" width="20" height="4"/>'}</g>`;
+  };
+  const twig = (n, out) => `<svg width="150" height="84" viewBox="0 0 150 84"><path d="M8 70C40 66 66 58 92 40" stroke="var(--trunk)" stroke-width="5" fill="none" stroke-linecap="round"/>${n > 0 ? pad(96, 34, n === 1 ? .8 : n === 2 ? 1.25 : 1.75, out ? 'out' : '') : ''}</svg>`;
+  const b = board('One tree', 'The bonsai in the notch, on Home and on your share card is your skill tree. Each track is one of its branches.', `<div class="two" style="grid-template-columns:1.05fr 1fr">
+    <div class="cell"><div class="stage" id="bstage"></div></div>
+    <div class="cell" style="justify-content:center"><div class="eyebrow" style="margin-bottom:4px">How a branch grows</div><div class="rules">
+      <div class="rule">${twig(0)}<div><b>A new track starts as a bare branch.</b><br><span>Your first lesson in pandas adds the branch.</span></div></div>
+      <div class="rule">${twig(2)}<div><b>Each mastered skill grows its pad.</b><br><span>numpy at 2 of 4. Green still only means passed.</span></div></div>
+      <div class="rule">${twig(2, 1)}<div><b>Review due, and the pad goes to an outline.</b><br><span>Nothing is lost. Two minutes fills it back in.</span></div></div>
+      <div class="rule">${twig(3)}<div><b>The project finishes the branch.</b><br><span>A full pad is a finished track, and the buddy shows it.</span></div></div>
+    </div></div></div>`);
+  const st = $('#bstage'), TS = 420;
+  st.innerHTML = `<div style="position:relative;width:${TS}px;height:${TS}px"><img src="${A('tree-full')}" width="${TS}" height="${TS}"><svg viewBox="0 0 100 100" width="${TS}" height="${TS}" style="position:absolute;inset:0;overflow:visible" id="call"></svg></div>`;
+  const cs = $('#call'), fs = 3.1;
+  const call = (px, py, lx, ly, name, cnt, anchor) => {
+    el('path', { d: `M${px} ${py}L${lx} ${ly}`, stroke: 'var(--ink)', 'stroke-width': .35 }, cs);
+    el('circle', { cx: px, cy: py, r: .9, fill: 'var(--ink)' }, cs);
+    const tx = lx + (anchor === 'end' ? -1.6 : 1.6);
+    el('text', { x: tx, y: ly + .2, 'text-anchor': anchor, 'font-size': fs, 'font-weight': 640, fill: 'var(--ink)' }, cs, name);
+    el('text', { x: tx, y: ly + 4.1, 'text-anchor': anchor, 'font-size': fs * .86, fill: 'var(--muted)' }, cs, cnt);
+  };
+  call(51, 17, 62, 6, 'neural networks', 'your goal', 'start');
+  call(24, 44, 6, 36, 'numpy', 'branch', 'end');
+  call(77, 34, 95, 28, 'math', 'branch', 'start');
+  call(34, 30, 14, 18, 'pandas', 'branch', 'end');
+  call(71, 52, 94, 56, 'git', 'branch', 'start');
+  call(49, 62, 22, 70, 'python', 'the trunk', 'end');
+}
+</script>
+</body>
+</html>
