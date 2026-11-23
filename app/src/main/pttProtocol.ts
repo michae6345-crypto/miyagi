@@ -3,7 +3,7 @@
  * no I/O, so the parser, the command builders and the term list are tested offline (test/pttProtocol.test.ts).
  *
  *   helper -> main (stdout): ready, perm, ptt, listening, partial, final, cancelled, error
- *   main -> helper (stdin):  config, context, permissions, cancel, quit, capture
+ *   main -> helper (stdin):  config, context, permissions, cancel, quit, capture, capture-release
  *   helper -> main, capture: the answer to one capture request (parseCaptureLine; never a HelperEvent)
  *
  * Whatever comes out of the helper is untrusted input: every line is validated, unknown types and malformed fields
@@ -177,7 +177,7 @@ export function backoffMs(failures: number): number {
 
 // ---- capture (circle to ask) ------------------------------------------------------------------------------------------
 //
-//   main -> helper  {"cmd":"capture","id","rect":{x,y,w,h},"displayId","margin"}
+//   main -> helper  {"cmd":"capture","id","rect":{x,y,w,h},"displayId","margin"}   /   {"cmd":"capture-release","id"}
 //   helper -> main  {"type":"capture","id","path","w","h","pxPerPoint","rect":{x,y,w,h},"displayId","ms"}
 //              or   {"type":"capture","id","error","message","ms"}
 //
@@ -196,7 +196,7 @@ const MAX_COORD = 100_000
 
 export type CaptureRect = { x: number; y: number; w: number; h: number }
 /** The helper's codes, then main's own (no helper running, no answer in time, a request that made no sense). */
-export type CaptureErrorCode = 'screen_denied' | 'no_display' | 'bad_rect' | 'unsupported' | 'failed' | 'unavailable' | 'timeout' | 'bad_request'
+export type CaptureErrorCode = 'screen_denied' | 'no_display' | 'bad_rect' | 'unsupported' | 'failed' | 'unavailable' | 'timeout' | 'bad_request' | 'busy'
 export const HELPER_CAPTURE_ERRORS: readonly CaptureErrorCode[] = ['screen_denied', 'no_display', 'bad_rect', 'unsupported', 'failed']
 
 /** What the circle feature asks for: a ScreenRegion (its scale is ignored: the helper reads the display's own). */
@@ -205,7 +205,8 @@ export type CaptureRequest = CaptureRect & { displayId: number; margin?: number 
 export type CaptureOk = {
   ok: true
   id: string
-  /** Absolute path of a 0600 JPEG in the helper's private folder. The helper deletes it after about 2 minutes or 8 newer captures. */
+  /** Absolute path of a 0600 JPEG in the helper's private folder. The engine deletes it after reading (action ask
+   *  {capture}); the helper deletes it 30 s after writing, on capture-release, or after 8 newer captures. */
   path: string
   /** Pixels. max(w, h) <= MAX_CAPTURE_EDGE. */
   w: number
@@ -274,12 +275,21 @@ export function captureRequest(raw: unknown): CaptureRequest | undefined {
 export const captureCommand = (id: string, req: CaptureRequest): string =>
   line({ cmd: 'capture', id, rect: { x: req.x, y: req.y, w: req.w, h: req.h }, displayId: req.displayId, margin: req.margin ?? CAPTURE_MARGIN })
 
-/**
- * A crop pixel (what the model says, e.g. [DRAW:x,y,r]) back to a screen point: rect origin + px * (rect.w / w).
- * Clamped to the crop. A radius in crop pixels maps with the same factor: r * rect.w / w (that is, r / pxPerPoint).
- */
-export function cropToScreen(c: Pick<CaptureOk, 'rect' | 'w' | 'h'>, px: number, py: number): { x: number; y: number } {
-  const x = Math.min(Math.max(finiteNum(px) ? px : 0, 0), c.w)
-  const y = Math.min(Math.max(finiteNum(py) ? py : 0, 0), c.h)
-  return { x: c.rect.x + (x * c.rect.w) / c.w, y: c.rect.y + (y * c.rect.h) / c.h }
+/** Delete that capture now: main gave up on it (timeout, a late answer) or the circle no longer needs it. */
+export const captureReleaseCommand = (id: string): string => line({ cmd: 'capture-release', id })
+
+/** At most this many captures wait for the helper at once; one more is answered 'busy'. */
+export const MAX_PENDING_CAPTURES = 2
+
+/** Whether a new capture may go to the helper now. undefined = yes; else the code to answer with. */
+export function captureAdmit(pending: number, helperUp: boolean): 'busy' | 'unavailable' | undefined {
+  if (!helperUp) return 'unavailable'
+  return pending >= MAX_PENDING_CAPTURES ? 'busy' : undefined
 }
+
+/** An id main gave out for a capture (what 'ptt:capture-release' accepts). */
+export const isCaptureId = (v: unknown): v is string => isId(v) && /^cap-\d{1,12}$/.test(v)
+
+// Mapping crop pixels back to the screen is the engine's (it reads the model's [DRAW:x,y,r] line):
+// screen = (rect.x + px * rect.w / w, rect.y + py * rect.h / h), r_pt = r * rect.w / w, with (px, py) clamped to
+// [0, w] x [0, h] first. shared/capture_file.py crop_to_screen does exactly this.

@@ -1,11 +1,14 @@
-/** main/pttProtocol.ts, offline: the capture answer parser, the request check, the command and the crop mapping. */
+/** main/pttProtocol.ts, offline: the capture answer parser, the request check, the commands and the admission rule. */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   CAPTURE_MARGIN,
+  captureAdmit,
   captureCommand,
+  captureReleaseCommand,
   captureRequest,
-  cropToScreen,
+  isCaptureId,
+  MAX_PENDING_CAPTURES,
   MAX_CAPTURE_EDGE,
   parseCaptureLine,
   parseLine
@@ -115,18 +118,29 @@ describe('captureCommand', () => {
   })
 })
 
-describe('cropToScreen', () => {
-  const cap = { rect: { x: 70, y: 85, w: 260, h: 130 }, w: 520, h: 260 }
-  test('screen point = rect origin + px * (rect.w / w)', () => {
-    assert.deepEqual(cropToScreen(cap, 0, 0), { x: 70, y: 85 })
-    assert.deepEqual(cropToScreen(cap, 260, 130), { x: 200, y: 150 })
-    assert.deepEqual(cropToScreen(cap, 520, 260), { x: 330, y: 215 })
+describe('captureReleaseCommand', () => {
+  test('one JSON line with the id', () => {
+    const out = captureReleaseCommand('cap-7')
+    assert.ok(out.endsWith('\n') && !out.slice(0, -1).includes('\n'))
+    assert.deepEqual(JSON.parse(out), { cmd: 'capture-release', id: 'cap-7' })
   })
-  test('clamped to the crop; junk reads as 0', () => {
-    assert.deepEqual(cropToScreen(cap, -50, 9999), { x: 70, y: 215 })
-    assert.deepEqual(cropToScreen(cap, Number.NaN, Number.POSITIVE_INFINITY), { x: 70, y: 85 })
+})
+
+describe('captureAdmit', () => {
+  test('the helper down: unavailable', () => {
+    assert.equal(captureAdmit(0, false), 'unavailable')
   })
-  test('a second display to the left (negative origin)', () => {
-    assert.deepEqual(cropToScreen({ rect: { x: -1000, y: 0, w: 400, h: 300 }, w: 400, h: 300 }, 100, 50), { x: -900, y: 50 })
+  test(`at most ${MAX_PENDING_CAPTURES} waiting, then busy`, () => {
+    for (let n = 0; n < MAX_PENDING_CAPTURES; n++) assert.equal(captureAdmit(n, true), undefined)
+    assert.equal(captureAdmit(MAX_PENDING_CAPTURES, true), 'busy')
+    assert.equal(captureAdmit(MAX_PENDING_CAPTURES + 5, true), 'busy')
+  })
+})
+
+describe('isCaptureId', () => {
+  test("main's own ids only", () => {
+    assert.ok(isCaptureId('cap-1'))
+    assert.ok(isCaptureId('cap-123456'))
+    for (const bad of ['', 'cap-', 'cap-x', 'circle-1', '../cap-1', 'cap-1/..', 7, null, 'cap-1234567890123']) assert.equal(isCaptureId(bad), false, String(bad))
   })
 })
