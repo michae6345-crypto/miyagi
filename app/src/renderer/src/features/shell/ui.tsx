@@ -77,15 +77,15 @@ const GUTTER = `var(--page-gutter, ${layout.page.gutter}px)`
 /**
  * THE page column (layout lane, Nov 22: "one shared container for every page"). Centered in the pane (not the window),
  * top-anchored (never centered vertically, even in full screen), capped at 720 (`wide`: 1040) with the house gutters.
- * Its top is layout.page.bodyTop (24) under the shell's header, which with the header's titleGap puts the first section
+ * Its top is layout.page.bodyTop (8) under the shell's header, which with the header's titleGap puts the first section
  * 32 under the title; sections then sit `gap` apart and the page ends layout.page.bottom (64) under its last block.
  * Long text inside it caps at layout.page.form (560) and stays left: the column centers, its text never does.
  *
  * Pages that scroll in the shell's body and pages that scroll inside themselves use it alike: the shell never pads a
  * page's body, so the column always centers in the full pane and its scrollbar stays at the pane's edge.
  *
- * The column's top is `top` and nothing else: a `paddingTop` in `style` is ignored (round 2: pages passed 8, written for
- * an older 24 px title gap, which put their first block 16 under the title). `wide` is the same as `width="wide"`.
+ * The column's top is `top` and nothing else (a `paddingTop` in `style` is ignored), so the 32 under the title is set
+ * in one place. `wide` is the same as `width="wide"`.
  */
 export function PageColumn({
   width,
@@ -152,8 +152,8 @@ const HEAD_TOP_FULL = layout.page.topFull - layout.pane.inset - TITLE_LEAD
  * The page header (the shell renders it above every page but Home): the title and the page's own actions, on the same
  * column as the page below it (its left edge is the content's left edge at every width). The strip above the title
  * drags the window; the title's top is 80 from the window's top (52 in full screen), the line Home's bonsai sits on.
- * The title row is 36 tall; the header ends layout.page.titleGap (8) under the title's line, and the page's column
- * starts layout.page.bodyTop (24) below that, so the first section sits 32 under the title on every page.
+ * The title row is 36 tall; the header ends layout.page.titleGap (24) under the title's line, and the page's column
+ * starts layout.page.bodyTop (8) below that, so the first section sits 32 under the title on every page.
  */
 export function PageHeader({ title, caption: sub, right }: { title: ReactNode; caption?: ReactNode; right?: ReactNode }): ReactNode {
   return (

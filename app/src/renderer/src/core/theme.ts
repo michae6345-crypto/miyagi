@@ -578,8 +578,8 @@ export const radius2 = { keycap: 6, control: 8, row: 10, card: 12, chip: 14, gro
  *              title share one left edge on every page.
  *              `top` / `topFull`: the window's top edge to the page title's top (80, 52 in macOS full screen, where no
  *              title bar needs dragging), the same line Home's first element sits on. Never vertically centered.
- *              Title to first section is 32: the header leaves `titleGap` (8) under the title's line, the page's column
- *              starts `bodyTop` (24) below that.
+ *              Title to first section is 32: the header leaves `titleGap` (24) under the title's line, the page's column
+ *              starts `bodyTop` (8) below that.
  *   radius     cards and ask boxes 12, the one hero card (Home's Continue) 16, the pane 12 (concentric at the 8 inset).
  */
 export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40, 14: 56, 20: 80 } as const
@@ -598,9 +598,9 @@ export const layout = {
     /** The title row's height (a search field on the right fits it); the 32 px title line centers in it. */
     titleRow: 36,
     /** Under the title's 32 px line, inside the header; with the column's bodyTop the title to first section is 32. */
-    titleGap: 8,
+    titleGap: 24,
     /** A page column's own top padding, under the header (PageColumn's default `top`). */
-    bodyTop: 24,
+    bodyTop: 8,
     section: 40,
     label: 12,
     bottom: 64
