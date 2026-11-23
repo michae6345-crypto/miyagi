@@ -54,6 +54,7 @@ from . import box_follow  # t7: the type box waits for the step start's jump, th
 from .lesson_boxes import LessonBoxes
 from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
 from . import box_fit  # t8: row boxes as wide as their text, so the caption beside them fits
+from . import build_metrics  # lane build-metrics: command -> lesson.ready -> step 1, by stage (engine log + jsonl)
 from . import advice_clear  # t8: a Hint / Not yet card goes once the code it is about changed
 from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
 from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
@@ -665,6 +666,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._last_seen = -1e9
         self.m = modules or Modules()
         self.clock = clock
+        self.build_metrics = build_metrics.BuildMetrics(clock=lambda: self.clock())  # a test's clock swap counts too
         self.idle_gate_s = config.IDLE_GATE_S if idle_gate_s is None else idle_gate_s
         self.advance_delay_s = config.ADVANCE_DELAY_S if advance_delay_s is None else advance_delay_s
         self.metric_eval_s = config.METRIC_EVAL_INTERVAL_S if metric_eval_s is None else metric_eval_s
@@ -2090,6 +2092,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.end_lesson("new lesson")
         await self.cancel_build()
         self._loaded_evt = asyncio.Event()  # set by load_graph
+        self.build_metrics.begin("video" if factory is None else "loaded", source=video_id_from_url(url))
         task = asyncio.ensure_future(
             factory() if factory is not None else self._build(url, goal, video_meta, transcript_only=transcript_only))
         self._build_task = task
@@ -2117,6 +2120,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             pass
         finally:
             self._quiet_cancel = False
+        self._metrics("cancel", "cancelled")  # its record (if it never reached step 1) is logged as cancelled
 
     async def end_lesson(self, reason: str = "end_lesson") -> None:
         """Stop everything: cancel the build / diagnosis / timers, clear spotlight + video, record it,
@@ -2134,6 +2138,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         lesson_id = (self.graph or {}).get("lesson", {}).get("id")
         had_lesson = self.graph is not None
         await self.cancel_build()
+        self._metrics("cancel", reason)  # a build still on its way to step 1: logged as cancelled
         self.m.cancel_coach()
         if self.screen is not None:
             self.screen.unwatch()
@@ -2164,6 +2169,26 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
         await self._status("idle")
 
+    def _metrics(self, method: str, *args: Any, **kw: Any) -> Any:
+        """build_metrics.BuildMetrics.<method>(...) for the build in flight; never raises (a helper-only session made
+        with __new__ has no timer)."""
+        bm = getattr(self, "build_metrics", None)
+        if bm is None:
+            return None
+        try:
+            return getattr(bm, method)(*args, **kw)
+        except Exception:  # noqa: BLE001 - metrics never break a lesson
+            log.debug("build metrics %s failed", method, exc_info=True)
+            return None
+
+    def _build_record(self, kind: str, source: str | None = None) -> "build_metrics.BuildRecord":
+        """This build's metrics record: the one _run_build began (now with its real kind), or a new one when a build
+        runs without _run_build (tests)."""
+        bm = self.build_metrics
+        rec = bm.current if bm.current is not None and not bm.current.closed else bm.begin(kind, source)
+        rec.kind = kind
+        return rec
+
     CACHED_READY_HOLD_S = 0.6  # the "Lesson ready" hold for a lesson E2 served from its cache (as _load_curated's)
 
     async def _build(self, url: str, goal: str, video_meta: dict | None = None, *, transcript_only: bool = False) -> None:
@@ -2175,6 +2200,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if transcript_only and getattr(self, "_build_v2", None) is not None:
             self._build_v2["transcript_only"] = True  # a failure must not offer "Try transcript only" again
         await self._status("thinking", detail="Building your lesson")
+        rec = self._build_record("video", video_id_from_url(url))
         done = asyncio.Event()
         t0 = self._build_t0 = self.clock()  # t10: the learner's Build click (_auto_open_editor skips its grace)
         stage = BuildStage()
@@ -2212,8 +2238,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if not progressive["loaded"]:
                 progressive["loaded"] = True
                 done.set()
+                rec.progress("first_steps")  # the first part (or the quick-start placeholder) is the hand-off
                 self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
                 await self.emit("lesson.building", self.build_progress)
+                rec.mark("workspace")
                 first = copy.deepcopy(g)
                 folder = await asyncio.to_thread(wsmod.prepare, first, goal)
                 if not self._continues_save(first):  # a fresh build: no step passes on the last run's files
@@ -2223,6 +2251,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.build_progress = None
                 await self.emit("lesson.building", {"message": "First steps ready; the rest builds while you work",
                                                     "progress": 1.0})
+                rec.mark("hold")
                 await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
                 await self.load_graph(first)
                 return
@@ -2231,12 +2260,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
             await self._extend_lesson(g, complete)
 
+        def on_progress(stage_id: str, message: str = "") -> None:  # E2's stage ids: the status line + the timer
+            stage.on_progress(stage_id, message)
+            rec.progress(stage_id, message)
+
         try:
             self._parts_building = True
             try:
                 with stage.listening():
                     graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
-                                                      on_progress=stage.on_progress, on_update=on_update,
+                                                      on_progress=on_progress, on_update=on_update,
                                                       video_meta=video_meta,
                                                       **({"transcript_only": True} if transcript_only else {}))
             finally:
@@ -2253,9 +2286,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 ok = True
                 return
             done.set()
+            rec.progress("done")  # a builder that never said "done" (a fake): it has returned
             await tick
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
             await self.emit("lesson.building", self.build_progress)
+            rec.mark("workspace")
             folder = await asyncio.to_thread(wsmod.prepare, graph, goal)  # S2: starter files (Claude), 0-25 s
             if not self._continues_save(graph):  # a fresh build: no step passes on the last run's files (Nov 15 7:19)
                 await asyncio.to_thread(wsmod.set_aside_previous, folder, graph)
@@ -2266,6 +2301,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             # let the "ready" moment be seen before the lesson UI; a cached lesson had no build to see finish, so it
             # holds like a curated one (0.6 s): Build -> lesson.ready went 1.5 s -> 0.6 s on a demo re-run
             self._build_cached = stage.cache_hit  # t10: built before: VS Code opens alongside the setup check
+            rec.mark("hold")
             await asyncio.sleep(min(self.ready_hold_s, self.CACHED_READY_HOLD_S) if stage.cache_hit else self.ready_hold_s)
             ok = True
         except BaseException as e:
@@ -2360,10 +2396,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.phase = "building"
         self._build_start(text=True, title=((graph.get("lesson") or {}).get("title") or goal))
         await self._status("thinking", detail="Loading the lesson")
+        rec = self._build_record("curated")
         ok = False
         try:
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
             await self.emit("lesson.building", self.build_progress)
+            rec.mark("workspace")
             demo = stage.on_graph(graph)  # a Demo take never continues a save: step 1, clean nn.py, every time
             kept = None if demo else await asyncio.to_thread(curated.resumable_save, graph)  # Nov 15: an engine
             if kept:  # restart / deploy mid-lesson: its nn.py stays and the Resumer continues at the saved step
@@ -2381,6 +2419,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.info("curated lesson %s for %r in %s", graph["lesson"].get("curated"), goal, graph["lesson"]["workdir"])
             self.build_progress = None
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            rec.mark("hold")
             await asyncio.sleep(min(self.ready_hold_s, 0.6))
             await self.load_graph(graph)
             ok = True
@@ -2405,6 +2444,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.phase = "building"
         self._build_start(text=True, title=goal)  # v2: Home-Building's source and checklist
         await self._status("thinking", detail="Writing your lesson")
+        rec = self._build_record("text")
         t0 = self.clock()
         state = {"text": "Planning your lesson", "loaded": False}
         done = asyncio.Event()
@@ -2427,6 +2467,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         async def start(g: dict) -> None:
             state["loaded"] = True
             done.set()
+            rec.progress("first_steps")  # step 1 is written: the hand-off
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
             await self.emit("lesson.building", self.build_progress)
             first = self._as_text_lesson(g)
@@ -2435,6 +2476,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 first["lesson"]["workdir"] = folder
             self.build_progress = None
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            rec.mark("hold")
             await asyncio.sleep(self.ready_hold_s)
             await self.load_graph(first)
 
@@ -2451,10 +2493,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         def on_progress(stage: str, message: str = "") -> None:  # E2's stage ids
             if stage in labels and not state["loaded"]:
                 state["text"] = labels[stage]
+            rec.progress(stage, message)
 
         ok = False
         try:
             state["text"] = "Setting up your project folder"
+            rec.mark("workspace")  # a text lesson's folder comes first (its stage sits between setup and plan)
             # S2 first: the builder adapts the steps to the starter files it finds in the lesson folder
             seed = {"lesson": {"id": "text-" + hashlib.sha1(goal.strip().lower().encode()).hexdigest()[:10],
                                "title": goal, "goal": goal, "mode": "lesson"}, "steps": [], "sources": []}
@@ -3336,6 +3380,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _build_failed(self, message: str, error: BaseException | None = None) -> None:
         self.build_progress = None
         self.phase = "idle" if self.graph is None else "active"
+        self._metrics("failed", build_fail_code(error if error is not None else message))
         await self.emit("error", {"message": message})
         payload: dict[str, Any] = {"message": message, "progress": 0.0, "failed": True}
         info, self._build_v2 = getattr(self, "_build_v2", None), None
@@ -3393,7 +3438,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
         if self.voice:
             self._prefetch_voice()
-        await self.emit("lesson.ready", self._lesson_ready_payload())
+        ready = self._lesson_ready_payload()
+        build_s = self._metrics("ready", steps=len(self.steps), provisional=True if is_provisional(graph) else None)
+        if isinstance(build_s, (int, float)):
+            ready["buildS"] = build_s  # contract (additive): seconds from the learner's command to this lesson.ready
+        await self.emit("lesson.ready", ready)
         self.editor_open = False
         if self.workspace is not None:  # S2 opens the editor at most once per lesson + folder
             self.workspace.lesson_key = str(graph.get("lesson", {}).get("id") or "")
@@ -3588,6 +3637,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             v = started["video"]  # past it (2:51 -> 4:12, 4:36 -> 7:18): the clip it plays on from starts where it is
             started["video"] = {**v, "start": min(v["start"], max(0.0, float(int(carry)) - 1.0))}
         await self.emit("step.started", started)
+        self._metrics("first_step", idx)  # the build in flight (if any) is complete: log + build-metrics.jsonl
         self._say("step.started", started)
         self._maybe_extend()  # E2 lazy parts: nearing the last built step -> build the next part now
         self._record("step_started", {"title": step.get("title")}, step)

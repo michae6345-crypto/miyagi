@@ -177,6 +177,7 @@ class LessonReady(_Model):
     lesson: LessonInfo
     steps: list[StepSummary]
     replay: bool | None = None  # the SAME lesson again (reconnect / restore): keep its progress, no "Before you start"
+    buildS: float | None = None  # seconds from the learner's command (learn / learn_url / build_lesson) to this lesson.ready; only on a build's first lesson.ready
 
 
 class PartsProgress(_Model):

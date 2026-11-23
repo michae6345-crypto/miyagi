@@ -262,6 +262,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
         g = json.loads(path.read_text(encoding="utf-8"))
         g["lesson"]["workdir"] = workdir
         log.info("text lesson: cache hit %s", path.name)
+        builder._emit("cache_hit", path.name)
         return fill_missing(g)  # a lesson cached by an older builder: complete labels, overview, what / why
 
     research_task = asyncio.ensure_future(_safe_research(goal))
@@ -278,6 +279,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
     overview = _words(plan.get("overview") or "", 60)
     plan_steps = list(plan["steps"])
     steps_plan = plan_runs(order_plan(plan_steps))  # E23: ONE built step per plan step, so the outline is final
+    builder._emit("writing_steps", f"{len(steps_plan)} steps planned")  # build metrics: the plan ends, step 1 starts
     overview = overview or overview_fallback(plan.get("title") or goal, steps_plan)  # the drawer always has one
     build = make_build(plan.get("build") or {}, steps_plan)
     flow = make_flow(plan.get("flow") or [], plan_steps, steps_plan)  # step numbers -> the reordered plan

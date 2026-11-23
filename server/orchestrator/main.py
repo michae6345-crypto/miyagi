@@ -1310,6 +1310,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
             raw = await ws.receive_json()
             if not isinstance(raw, dict):
                 continue
+            if raw.get("type") in LESSON_STARTS:  # build metrics count from the command's arrival (queue wait too)
+                with contextlib.suppress(Exception):
+                    engine.session.build_metrics.command(raw["type"])
             if raw.get("type") in LESSON_STARTS and engine.session.building():
                 await engine.session.cancel_build()  # unblock the queue: the new request replaces the build
             elif raw.get("type") in LESSON_STARTS and _searching(running, engine.session):
