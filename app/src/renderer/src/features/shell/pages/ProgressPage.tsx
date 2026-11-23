@@ -15,7 +15,7 @@ import { color, copy, type2 } from '../../../core/theme'
 import { ProgressOverview } from '../../dashboard/Overview'
 import { useDash } from '../../dashboard/store'
 import { CARD, PageColumn } from '../ui'
-import { InsetSeat } from './Column'
+import { BODY_TOP, InsetSeat } from './Column'
 
 export function ProgressPage(): ReactNode {
   const connected = useLesson((s) => s.connected)
@@ -24,7 +24,7 @@ export function ProgressPage(): ReactNode {
   return (
     <div data-shell-progress className="flex h-full min-h-0 flex-col">
       {offline && (
-        <PageColumn style={{ paddingTop: 8, paddingBottom: 0 }}>
+        <PageColumn style={{ paddingTop: BODY_TOP, paddingBottom: 0 }}>
           <div role="status" className="flex shrink-0 items-center gap-[12px]" style={{ ...CARD, padding: '12px 16px' }}>
             <CloudOff aria-hidden size={16} strokeWidth={1.8} style={{ color: color.label }} />
             <span style={{ fontSize: type2.sm, color: color.text }}>Your progress is safe.</span>

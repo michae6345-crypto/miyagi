@@ -22,7 +22,7 @@ import { NAV } from '../../settings/Sidebar'
 import { InlineSettings } from '../../settings/ui'
 import { setSettingsSection, useShell } from '../store'
 import { PageBody } from '../ui'
-import { SECTION_GAP, UNDER_TABS } from './Column'
+import { BODY_TOP, SECTION_GAP, UNDER_TABS } from './Column'
 
 const OPTIONS = NAV.map((n) => ({ value: n.id, label: n.label }))
 
@@ -40,7 +40,7 @@ export function SettingsPage({ active }: { active: boolean }): ReactNode {
       {/* The shared page column (ui.tsx PageBody, centered under the title). The section control spans the column, so
           its right edge lines up with the groups under it; the groups are SECTION_GAP apart. */}
       <div data-shell-settings={section} className="w-full">
-        <PageBody gap={UNDER_TABS}>
+        <PageBody gap={UNDER_TABS} style={{ paddingTop: BODY_TOP }}>
           <div className="flex shrink-0 [&>[role=radiogroup]]:flex [&>[role=radiogroup]]:w-full [&_[role=radio]]:flex-1">
             <Segmented<SettingsSection> label="Settings sections" options={OPTIONS} value={section} onChange={setSettingsSection} />
           </div>

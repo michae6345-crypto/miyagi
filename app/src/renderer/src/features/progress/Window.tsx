@@ -12,17 +12,26 @@
  */
 import type { ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
-import { color, layout, surface } from '../../core/theme'
+import { color, layout } from '../../core/theme'
 import { ProgressOverview } from '../dashboard/Overview'
 import { InsetSeat } from '../shell/pages/Column'
-import { PageHeader, pageInset } from '../shell/ui'
+import { PageHeader, PANEL, pageInset } from '../shell/ui'
 
 export function ProgressWindow(_: { layout: Layout }): ReactNode {
   return (
     <div
       data-progress="window"
       className="flex h-full w-full flex-col"
-      style={{ background: surface.window, color: color.text, ['--page-inset' as string]: pageInset() }}
+      // The content canvas, as the home window's Progress page (the shell's PANEL ground: layer.raised and its dot
+      // grid), not surface.window (the sidebar's tone): this window has no sidebar, so it is all content (fix round 2).
+      style={{
+        backgroundColor: PANEL.backgroundColor,
+        backgroundImage: PANEL.backgroundImage,
+        backgroundSize: PANEL.backgroundSize,
+        backgroundPosition: PANEL.backgroundPosition,
+        color: color.text,
+        ['--page-inset' as string]: pageInset()
+      }}
     >
       {/* PageHeader measures its top from the home window's pane, which sits layout.pane.inset below the window's top;
           this window has no pane, so the same strip keeps the title on the same line (80, or 52 in full screen). */}

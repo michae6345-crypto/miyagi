@@ -26,7 +26,7 @@ import { openSheet } from '../sheet'
 import { setPage, setSettingsSection } from '../store'
 import { thisDevice } from '../../onboarding/device'
 import { CARD, PageBody } from '../ui'
-import { SECTION_GAP } from './Column'
+import { BODY_TOP, SECTION_GAP } from './Column'
 
 const caption = { fontSize: type2.sm, lineHeight: '20px', color: color.label } as const
 
@@ -44,7 +44,7 @@ function Wrap({ children }: { children: ReactNode }): ReactNode {
   // cards keep the same left and right edges when you switch between the two pages; sections sit SECTION_GAP apart.
   return (
     <div data-shell-account-page className="w-full">
-      <PageBody gap={SECTION_GAP}>{children}</PageBody>
+      <PageBody gap={SECTION_GAP} style={{ paddingTop: BODY_TOP }}>{children}</PageBody>
     </div>
   )
 }

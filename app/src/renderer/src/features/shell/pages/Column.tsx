@@ -11,18 +11,17 @@
  *   Skills              scrolls itself (Shell.tsx SELF_SCROLL): a full-pane Scroller (below), so the scrollbar stays at
  *                       the pane's edge, and in it a ui.tsx PageColumn `wide`. The shell gives Skills' title the same
  *                       wide column (Shell.tsx PAGE_W), so the title and the grid share one left edge at every width.
+ *                       With no skills yet, the empty state starts at that same left edge, 32 under the title (one group).
  *   Progress            its scroller belongs to features/dashboard (Overview.tsx), which pins its own 40 px-gutter
  *                       column left. InsetSeat (below) pads that scroller in by `--page-inset`, so the column lands under
  *                       the title. Until Overview can take the shell's column (a dashboard request from the pages lane), its
  *                       scrollbar sits at the column's edge rather than the pane's.
  *
  * Vertical rhythm (layout spec): the title's top 80 below the window's top (52 in full screen; the shell's PageHeader),
- * 32 from the title to the first block (the header's 24 plus the body's 8), SECTION_GAP between sections, LABEL_GAP
- * between a section's label and its group, 64 at the bottom. Top-anchored: no page centers vertically.
- *
- * The one exception to "never center vertically": onboarding's Ready (features/onboarding/Ready.tsx). It is a one-screen
- * completion dialog (the tree, one line, the sample lesson and its two actions) with nothing to scroll and nothing below
- * it, so it centers as one group, as a macOS completion sheet does. Guided setup is top-anchored (Guided.tsx STAGE_TOP).
+ * exactly 32 from the title's bottom to the first block (TITLE_TO_BODY: the 32 px title line sits 2 px above the bottom of
+ * its 36 px row, then the header's 24, then the body's BODY_TOP 6), SECTION_GAP between sections, LABEL_GAP between a
+ * section's label and its group, 64 at the bottom. Top-anchored: no page and no onboarding screen centers vertically,
+ * not even in full screen (onboarding's Ready uses Guided's top-anchored stage too; fix round 2, Nov 22).
  */
 import type { CSSProperties, ReactNode } from 'react'
 import { fill, layout } from '../../../core/theme'
@@ -32,10 +31,21 @@ export const SECTION_GAP = layout.page.section
 /** Between a section's label and its group (12). */
 export const LABEL_GAP = layout.page.label
 /**
- * Under a page's section control (Settings' segmented control), before the first group: the title's own gap plus the
- * body's top, 32, so the control reads as part of the header and its content starts where any other page's would.
+ * The body's own top padding (6), in place of ui.tsx PageBody's 8: with the title row's 2 and the header's 24 it puts the
+ * first block exactly TITLE_TO_BODY under the title's bottom (fix round 2: it was 34, off the 4/8 scale). Pages pass it
+ * as `style={{ paddingTop: BODY_TOP }}`; a shell-lane change to PageBody's default would make this the default.
  */
-export const UNDER_TABS = layout.page.titleGap + 8
+export const BODY_TOP = 6
+/** From the title's bottom to the first block (32): (titleRow 36 - the 32 px title line) / 2 + titleGap + BODY_TOP. */
+export const TITLE_TO_BODY = (layout.page.titleRow - 32) / 2 + layout.page.titleGap + BODY_TOP
+/**
+ * Under a page's section control (Settings' segmented control), before the first group: the same 32 as the title to the
+ * first block, so the control reads as part of the header and the content under it keeps the page's rhythm.
+ */
+export const UNDER_TABS = TITLE_TO_BODY
+/** features/dashboard Overview pads its scroller's top by 8 (its own, not the shell's). InsetSeat pulls it up by the
+ * difference so its first block also lands TITLE_TO_BODY under the title (a dashboard request: take BODY_TOP). */
+const OVERVIEW_TOP = 8
 
 /** A page that scrolls itself: the whole pane scrolls (thin scrollbar at the pane's edge); the column goes inside it. */
 export function Scroller({ children, style }: { children: ReactNode; style?: CSSProperties }): ReactNode {
@@ -54,7 +64,7 @@ export function Scroller({ children, style }: { children: ReactNode; style?: CSS
  */
 export function InsetSeat({ children, data }: { children: ReactNode; data?: Record<string, string> }): ReactNode {
   return (
-    <div className="min-h-0 flex-1" style={{ paddingInline: 'var(--page-inset, 0px)' }} {...data}>
+    <div className="min-h-0 flex-1" style={{ paddingInline: 'var(--page-inset, 0px)', marginTop: BODY_TOP - OVERVIEW_TOP }} {...data}>
       {children}
     </div>
   )

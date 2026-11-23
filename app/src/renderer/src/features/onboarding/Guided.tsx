@@ -42,13 +42,13 @@ export const ADVANCE_MS = 1100
 /** How long the walk waits for the first permissions answer before it picks a step anyway. */
 const SETTLE_MS = 900
 /** The tallest the step plus its footer grows (Nov 22): a bit more than the first-run window has under its header. */
-const STAGE_MAX_H = 640
+export const STAGE_MAX_H = 640
 /**
  * The room above the step in a tall window (full screen): the block is top-anchored this far under the header, never
  * centered vertically (layout spec: "top-anchored is calm"). In the first-run window (944x640) there is no spare
  * height, so the gap gives way first and the step fills the window as before.
  */
-const STAGE_TOP = 80
+export const STAGE_TOP = 80
 /** In the flow, how long after enterDelay the loading shape may fade in (s): past the login's exit, and usually never
  * seen at all, since the first answer lands before it (the strip and the gliding bonsai carry that beat). */
 const SKELETON_WAIT = 0.3
