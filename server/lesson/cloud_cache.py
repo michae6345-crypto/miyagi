@@ -73,8 +73,9 @@ def enabled() -> bool:
 
 def reset() -> None:
     """Forget cooldown and per-video state (tests)."""
-    global _down_until
+    global _down_until, last_notice
     _down_until = 0.0
+    last_notice = None
     _claimed.clear()
     _shared.clear()
 
@@ -90,6 +91,36 @@ def _note(what: str) -> None:
 def _cool_down() -> None:
     global _down_until
     _down_until = time.monotonic() + COOLDOWN_S
+
+
+_listeners: list[Callable[[dict], Any]] = []
+last_notice: dict | None = None
+
+
+def on_notice(fn: Callable[[dict], Any]) -> Callable[[], None]:
+    """Hear why the cloud would not take a build claim: {"reason": "signin_required" | "lesson_builds" |
+    "anon_daily_cap" | ..., "status": 401|403|429, "resets_at"?: ISO time}. For the app to surface a sign-in prompt
+    or a cap card. The lesson itself is built locally either way. Returns the remover."""
+    _listeners.append(fn)
+    return lambda: _listeners.remove(fn) if fn in _listeners else None
+
+
+def _announce(r: httpx.Response) -> None:
+    """A 401 signin_required (REQUIRE_SIGNIN build/all) or a 429 cap on a claim: tell the listeners. Never a verdict
+    on the install token: no re-mint is asked for, and config.cloud_error is not involved."""
+    global last_notice
+    b = _err_body(r)
+    e = b.get("error") if isinstance(b.get("error"), dict) else {}
+    kind = _err_kind(r)
+    notice = {"reason": str(e.get("limit") or kind or r.status_code)[:60], "status": r.status_code}
+    if isinstance(e.get("resets_at"), str):
+        notice["resets_at"] = e["resets_at"][:40]
+    last_notice = notice
+    for fn in _listeners:
+        try:
+            fn(dict(notice))
+        except Exception:
+            log.debug("shared lesson cache listener failed", exc_info=True)
 
 
 def _url(vid: str, suffix: str = "") -> str:
@@ -499,6 +530,7 @@ async def claim(vid: str) -> str:
     if r.status_code in (401, 403, 429):
         _claimed[vid] = False
         _note(_why(r))
+        _announce(r)
         return "denied"
     if r.status_code >= 500:
         _cool_down()

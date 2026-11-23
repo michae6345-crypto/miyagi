@@ -382,3 +382,23 @@ def test_only_a_good_build_is_shared(fake, cloud, mutate):
     assert cloud_cache.good_build(g, VID) is None
     mutate(g)
     assert cloud_cache.good_build(g, VID) is not None
+
+
+def test_signin_required_and_anon_cap_are_announced_not_treated_as_a_bad_token(fake, cloud, monkeypatch, tmp_path):
+    heard = []
+    off = cloud_cache.on_notice(heard.append)
+    verdicts = []
+    monkeypatch.setattr(config, "cloud_error", lambda *a, **k: verdicts.append(a))
+    cloud.claim_replies = [httpx.Response(401, json={"error": "signin_required", "message": "Sign in"})]
+    g = _build()
+    assert g["lesson"]["complete"] is True and "PUT" not in cloud.verbs
+    assert heard == [{"reason": "signin_required", "status": 401}] and verdicts == []
+    cloud_cache.reset()
+    for f in tmp_path.glob("*.json"):
+        f.unlink()
+    shutil.rmtree(tmp_path / "raw", ignore_errors=True)
+    cloud.claim_replies = [httpx.Response(429, json={"type": "error", "error": {
+        "type": "miyagi_quota", "limit": "anon_daily_cap", "resets_at": "2026-11-23T00:00:00Z"}})]
+    _build()
+    off()
+    assert heard[-1] == {"reason": "anon_daily_cap", "status": 429, "resets_at": "2026-11-23T00:00:00Z"}
