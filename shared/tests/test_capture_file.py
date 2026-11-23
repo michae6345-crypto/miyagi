@@ -12,9 +12,18 @@ import tempfile
 import unittest
 import uuid
 
-from shared.capture_file import capture_dirs, crop_to_screen, purge_stale, take_capture
+from shared.capture_file import capture_dirs, crop_to_screen, jpeg_size, purge_stale, take_capture
 
-JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9"
+
+def make_jpeg(w: int, h: int, sof: int = 0xC0, fill: bool = False) -> bytes:
+    """SOI, an APP0, a start-of-frame segment of w x h (3 components), EOI: enough for the size check."""
+    app0 = b"\xff\xe0" + (16).to_bytes(2, "big") + b"JFIF\x00" + b"\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+    frame = b"\x08" + h.to_bytes(2, "big") + w.to_bytes(2, "big") + b"\x03" + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+    sof_seg = b"\xff" + bytes([sof]) + (2 + len(frame)).to_bytes(2, "big") + frame
+    return b"\xff\xd8" + app0 + (b"\xff" if fill else b"") + sof_seg + b"\xff\xd9"
+
+
+JPEG = make_jpeg(520, 260)
 
 
 class TakeCapture(unittest.TestCase):
@@ -52,7 +61,7 @@ class TakeCapture(unittest.TestCase):
             x, y, w, h = 0, 0, 10, 10
 
         class C:
-            path, w, h, rect, displayId = self.put(), 20, 20, R(), 3
+            path, w, h, rect, displayId = self.put(make_jpeg(20, 20)), 20, 20, R(), 3
 
         c = take_capture(C(), dirs=self.dirs)
         self.assertIsNotNone(c)
@@ -70,6 +79,22 @@ class TakeCapture(unittest.TestCase):
     def test_not_a_jpeg(self) -> None:
         p = self.put(data=b"GIF89a....")
         self.assertIsNone(take_capture(self.cap(p), dirs=self.dirs))
+        self.assertFalse(os.path.exists(p))
+
+    def test_size_must_match_the_jpeg(self) -> None:
+        # w and h scale every [DRAW] point: a payload that disagrees with the image's own frame is refused.
+        for bad in ({"w": 519}, {"h": 261}, {"w": 260, "h": 520}):
+            p = self.put()
+            self.assertIsNone(take_capture(self.cap(p, **bad), dirs=self.dirs), bad)
+            self.assertFalse(os.path.exists(p), bad)
+        p = self.put(b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9")  # no frame header at all
+        self.assertIsNone(take_capture(self.cap(p), dirs=self.dirs))
+        self.assertFalse(os.path.exists(p))
+
+    def test_progressive_jpeg_and_pid_name(self) -> None:
+        p = self.put(make_jpeg(520, 260, sof=0xC2), name=f"cap-{os.getpid()}-{uuid.uuid4()}.jpg")
+        c = take_capture(self.cap(p), dirs=self.dirs)
+        self.assertIsNotNone(c)
         self.assertFalse(os.path.exists(p))
 
     def test_bad_fields_refused_and_deleted(self) -> None:
@@ -191,6 +216,21 @@ class CropToScreen(unittest.TestCase):
         self.assertAlmostEqual(x, 600)
         self.assertAlmostEqual(y, 300)
         self.assertAlmostEqual(r, 100)
+
+
+class JpegSize(unittest.TestCase):
+    def test_sof0_sof2_and_fill_bytes(self) -> None:
+        self.assertEqual(jpeg_size(make_jpeg(1092, 683)), (1092, 683))
+        self.assertEqual(jpeg_size(make_jpeg(364, 1092, sof=0xC2)), (364, 1092))
+        self.assertEqual(jpeg_size(make_jpeg(40, 30, fill=True)), (40, 30))
+
+    def test_not_a_frame(self) -> None:
+        self.assertIsNone(jpeg_size(b""))
+        self.assertIsNone(jpeg_size(b"GIF89a"))
+        self.assertIsNone(jpeg_size(b"\xff\xd8\xff\xe0\x00\x10" + b"\x00" * 14 + b"\xff\xda\x00\x02\xff\xd9"))  # scan first
+        self.assertIsNone(jpeg_size(make_jpeg(520, 260)[:30]))  # cut inside the frame header
+        self.assertIsNone(jpeg_size(make_jpeg(0, 260)))
+        self.assertIsNone(jpeg_size(b"\xff\xd8\xff\xc4\x00\x05\x00\x01\x02\xff\xd9"))  # DHT is not a frame
 
 
 if __name__ == "__main__":
