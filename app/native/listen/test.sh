@@ -4,12 +4,24 @@
 #   2. speaks each line of phrases.tsv to a file with `say -o` (silent), transcribes it with and without --terms,
 #      prints word accuracy (1 - word error rate, case and punctuation ignored)
 #   3. runs the stdin-only protocol tests (test-protocol.py)
-# Usage: native/listen/test.sh [--protocol-only] [--accuracy-only]
+#   4. capture: the pure sizing math (test-capture-math.swift) and the capture protocol in --stdin-only, which writes a
+#      gray image instead of reading the screen (test-capture.py)
+# Usage: native/listen/test.sh [--protocol-only] [--accuracy-only] [--capture-only]
 set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh
 BIN="$PWD/../../build/helpers/miyagi-listen"
 WORK="${TMPDIR:-/tmp}/miyagi-listen-test"; mkdir -p "$WORK"
+
+if [ "${1:-}" = "--capture-only" ]; then
+  echo "== capture math (pure) =="
+  T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+  xcrun swiftc -parse-as-library -swift-version 5 CaptureMath.swift test-capture-math.swift -o "$T/capture-math"
+  "$T/capture-math"
+  echo "== capture protocol (--stdin-only, no screen) =="
+  python3 -I test-capture.py "$BIN"
+  exit 0
+fi
 
 if [ "${1:-}" != "--protocol-only" ]; then
   echo "== accuracy (SpeechAnalyzer, files from say -o) =="
@@ -54,6 +66,12 @@ fi
 if [ "${1:-}" != "--accuracy-only" ]; then
   echo "== protocol (--stdin-only) =="
   python3 -I test-protocol.py "$BIN"
+  echo "== capture math (pure) =="
+  T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+  xcrun swiftc -parse-as-library -swift-version 5 CaptureMath.swift test-capture-math.swift -o "$T/capture-math"
+  "$T/capture-math"
+  echo "== capture protocol (--stdin-only, no screen) =="
+  python3 -I test-capture.py "$BIN"
 fi
 
 if [ "${1:-}" != "--accuracy-only" ]; then
