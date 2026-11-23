@@ -1,7 +1,7 @@
 /** features/circle, offline: ink to box, box to screen points, the card's place, and the circle-to-ask state machine. */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { addPoint, bounds, clampBox, fromRegion, holdCard, inkPath, loopPoints, MIN_INK, placeCard, strokeBox, toOverlay, toRegion, type Pt } from '../src/renderer/src/features/circle/geometry'
+import { addPoint, bounds, cardPlace, clampBox, fromRegion, holdCard, inkPath, loopPoints, MIN_INK, placeCard, strokeBox, toOverlay, toRegion, type Pt } from '../src/renderer/src/features/circle/geometry'
 import { ANSWER_MS, ARMED_MAX_MS, ASK_MAX_MS, DEFAULT_ASK, IDLE, interactive, step, WORDS_WAIT_MS, type CircleEvent, type CircleState, type Ctx } from '../src/renderer/src/features/circle/machine'
 
 const loop = (x: number, y: number, w: number, h: number): Pt[] => loopPoints(x, y, w, h)
@@ -131,6 +131,45 @@ describe('the card while its words stream in (holdCard)', () => {
     assert.equal(p.side, first.side)
     assert.equal(p.x, first.x)
     assert.equal(p.y + 400, area.h - 16, 'kept inside the bottom edge')
+  })
+})
+
+describe('the card when the streamed answer ends (cardPlace)', () => {
+  const area = { w: 1440, h: 900 }
+  type Hold = Parameters<typeof cardPlace>[3]
+  /** One AnswerCard's renders, as Layer runs them: [height or undefined (not measured yet), streaming]. */
+  const life = (box: { x: number; y: number; w: number; h: number }, renders: [number | undefined, boolean][]) => {
+    let hold: Hold
+    return renders.map(([h, streaming]) => {
+      const r = cardPlace(box, { w: 300, h: h ?? 140 }, area, hold, streaming, h !== undefined)
+      hold = r.hold
+      return r.p
+    })
+  }
+
+  test('right of the circle: a taller final card with a title keeps the side and top it opened with', () => {
+    const box = { x: 200, y: 300, w: 200, h: 100 }
+    // unmeasured, opened on the first words, more words, then the final card (a title line and a longer body)
+    const ps = life(box, [[undefined, true], [60, true], [120, true], [200, false], [200, false]])
+    const opened = ps[1]
+    assert.equal(opened.side, 'right')
+    for (const p of ps.slice(2)) assert.deepEqual(p, opened)
+    assert.notEqual(placeCard(box, { w: 300, h: 200 }, area).y, opened.y, 'placing it again would have moved it up')
+  })
+
+  test('a wide circle opened below stays below through the final card', () => {
+    const box = { x: 40, y: 560, w: 1360, h: 200 }
+    const ps = life(box, [[60, true], [100, true], [220, false]])
+    assert.equal(ps[0].side, 'below')
+    assert.equal(placeCard(box, { w: 300, h: 220 }, area).side, 'above', 'placeCard alone would flip it')
+    assert.deepEqual(ps[2], { ...ps[0], y: area.h - 16 - 220 }, 'same side and x; only the bottom edge moves it')
+  })
+
+  test('a card that never streamed is placed fresh (placeCard)', () => {
+    const box = { x: 200, y: 300, w: 200, h: 100 }
+    const ps = life(box, [[undefined, false], [180, false], [240, false]])
+    assert.deepEqual(ps[1], placeCard(box, { w: 300, h: 180 }, area))
+    assert.deepEqual(ps[2], placeCard(box, { w: 300, h: 240 }, area))
   })
 })
 

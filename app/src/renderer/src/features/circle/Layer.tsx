@@ -14,7 +14,8 @@
  *                    in overlay.bounds would make the engine's reader skip (and black out) what was circled.
  *   answer card      the island's coach-mark surface, kept inside the screen edges (geometry placeCard). It opens on
  *                    the first streamed words (answer.delta) and the final card replaces its text in place (same key:
- *                    no second entrance). "Looking" shows only until the first words.
+ *                    no second entrance, and it keeps the side and top it opened with). "Looking" shows only until
+ *                    the first words.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { X } from 'lucide-react'
@@ -24,7 +25,7 @@ import { ThinkingDots } from '../../core/ui/atoms'
 import { pressMotion } from '../../core/ui/motion'
 import { duration, ease } from '../../core/ui/motionTokens'
 import { brand, color, elevation, fill, highlight, radius2, surface, tone, type2 } from '../../core/theme'
-import { holdCard, inkPath, placeCard, toOverlay, type Box, type CardHold, type Pt } from './geometry'
+import { cardPlace, inkPath, placeCard, toOverlay, type Box, type CardHold, type Pt } from './geometry'
 import { inkOf, shown, type CircleState } from './machine'
 import { cancelCircle, layerGone, pointerDown, pointerMove, pointerUp, setLayout, useCircle } from './store'
 
@@ -165,8 +166,9 @@ function Looking({ box, area }: { box: Box; area: { width: number; height: numbe
 }
 
 /**
- * `held`: the words are still streaming in (no final card yet). The card keeps the top and side it opened with (geometry
- * holdCard), so the text being read never shifts as lines come; the final card places it once more (placeCard).
+ * `held`: the words are still streaming in (no final card yet). A card that opened that way keeps the top and side it
+ * opened with for the life of its key (geometry cardPlace), through the stream and the final card, so the text being
+ * read never shifts and the card does not jump when the answer ends. A card that never streamed is placed by placeCard.
  */
 function AnswerCard({ box, area, question, title, body, streaming, held }: { box: Box; area: { width: number; height: number }; question: string; title?: string; body: string; streaming: boolean; held: boolean }): ReactNode {
   const ref = useRef<HTMLDivElement>(null)
@@ -185,9 +187,9 @@ function AnswerCard({ box, area, question, title, body, streaming, held }: { box
   }, [])
   const size = { w: CARD_W, h: h ?? CARD_H0 }
   const screen = { w: area.width, h: area.height }
-  if (!held) hold.current = undefined
-  const p = held && hold.current ? holdCard(box, size, screen, hold.current) : placeCard(box, size, screen)
-  if (held && !hold.current && h !== undefined) hold.current = { y: p.y, side: p.side }
+  const placed = cardPlace(box, size, screen, hold.current, held, h !== undefined)
+  hold.current = placed.hold
+  const p = placed.p
   const from = reduced ? {} : p.side === 'right' ? { x: -8 } : p.side === 'left' ? { x: 8 } : p.side === 'below' ? { y: -8 } : { y: 8 }
   return (
     <motion.div

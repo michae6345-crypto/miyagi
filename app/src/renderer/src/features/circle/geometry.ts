@@ -145,6 +145,18 @@ export function holdCard(box: Box, card: { w: number; h: number }, area: { w: nu
   return { x: Math.round(c.x), y: Math.round(c.y), side: hold.side }
 }
 
+/**
+ * The answer card's place for one render, and the hold to keep for the next (one per ask: AnswerCard keeps it for the
+ * life of its key). A card that opened while its words streamed (`streaming`, once `measured`) keeps that side and top
+ * through the rest of the stream AND the final card, so it never jumps when the answer ends; only the screen edge
+ * moves it. A card that never streamed (the final card came first) is placed fresh each time (placeCard).
+ */
+export function cardPlace(box: Box, card: { w: number; h: number }, area: { w: number; h: number }, hold: CardHold | undefined, streaming: boolean, measured: boolean): { p: { x: number; y: number; side: CardSide }; hold: CardHold | undefined } {
+  if (hold) return { p: holdCard(box, card, area, hold), hold }
+  const p = placeCard(box, card, area)
+  return { p, hold: streaming && measured ? { y: p.y, side: p.side } : undefined }
+}
+
 /** A hand-drawn loop around a box (the browser stage's hand, web.ts, and the tests): a slightly tilted ellipse that wobbles and overshoots its start. */
 export function loopPoints(x: number, y: number, w: number, h: number, n = 48): Pt[] {
   const cx = x + w / 2
