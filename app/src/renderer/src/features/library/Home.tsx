@@ -41,7 +41,9 @@ import { Row, RowChevron, TextAction, caption } from '../shell/ui'
 import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText, setupFix, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
 import { Column, Pane, SectionLabel, firstLine, rhythm } from './layout'
 import { Press, Ring, Rise } from './motion'
-import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
+import { ProgressRing, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
+import { ActivityCard } from './homeActivity'
+import { Rail } from './homeRail'
 import { PacksRow } from './presets/PresetLibraries'
 import { openDetail, setSection, start, useLibrary } from './store'
 import { setPage } from '../shell/store'
@@ -461,7 +463,14 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
   const frac = building ? (hero.fraction !== undefined ? clamp(hero.fraction) : undefined) : !view.blocked && view.total ? clamp((view.done ?? 0) / view.total) : undefined
   return (
     <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="relative flex flex-col overflow-hidden" style={{ background: SURFACE_BG, boxShadow: surfaceShadow(light), borderRadius: radius2.group, padding: 24 }}>
-      <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[16px]">
+      <div className="flex flex-wrap items-center gap-x-[20px] gap-y-[16px]">
+        {!building && frac !== undefined && (
+          <ProgressRing fraction={frac} size={56} label={count ?? `${view.done ?? 0} of ${view.total} steps`}>
+            <span className="font-semibold" style={{ fontSize: type2.sm, color: color.text, fontVariantNumeric: 'tabular-nums' }}>
+              {view.done ?? 0}/{view.total}
+            </span>
+          </ProgressRing>
+        )}
         <div className="flex min-w-0 flex-1 flex-col" style={{ minWidth: 240 }}>
           <span className="flex items-center gap-[6px]" style={caption}>
             <span>{view.head}</span>
@@ -488,7 +497,7 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
           </div>
         )}
       </div>
-      {frac !== undefined && (
+      {building && frac !== undefined && (
         <div role="img" aria-label={count ?? `${view.done ?? 0} of ${view.total} steps`} className="absolute inset-x-0 bottom-0" style={{ height: 3, background: fill.hairline }}>
           <div style={{ width: `${frac * 100}%`, height: '100%', background: color.text, borderRadius: `0 ${radius2.round}px ${radius2.round}px 0` }} />
         </div>
@@ -499,7 +508,7 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
 
 // ---- the page body ----------------------------------------------------------------------------------------------
 
-type BodyProps = { view: View | null | 'loading'; hero: Hero; fix?: Fix; skip: Set<string>; done: Set<string>; data?: DashData; now: number; recent: Recent[] }
+type BodyProps = { goal: number; view: View | null | 'loading'; hero: Hero; fix?: Fix; skip: Set<string>; done: Set<string>; data?: DashData; now: number; recent: Recent[] }
 
 /** The shell's drag strip above Home (Shell.tsx Header: Home has no title, only a 20 px strip) plus the panel inset. */
 const SHELL_STRIP = 20 + 8
@@ -509,23 +518,28 @@ const SHELL_STRIP = 20 + 8
  * read as one group (12 apart); the lists sit 40 under it and 40 apart. The bonsai's top is 80 from the window's top,
  * where every other page's title sits. The same 720 column at every window size (layout.tsx).
  */
-function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): ReactNode {
+function Body({ goal, view, hero, fix, skip, done, data, now, recent }: BodyProps): ReactNode {
   return (
-    <Column data-home-column className="mg-first-line" style={{ ...firstLine(SHELL_STRIP), paddingBottom: rhythm.bottom }}>
-      <div className="flex flex-col" style={{ gap: rhythm.section }}>
-        <div data-home-main className="flex min-w-0 flex-col" style={{ gap: 12 }}>
-          <div className="flex justify-center" style={{ paddingBottom: 12 }}>
-            <MiyagiMark size={32} />
+    <Column wide data-home-column className="mg-first-line" style={{ ...firstLine(SHELL_STRIP), paddingBottom: rhythm.bottom }}>
+      {/* Wide pane: the dashboard (main column + a 300 side column). Narrow: one column, the side cards under the lists. */}
+      <div className="grid grid-cols-1 gap-x-[32px] gap-y-[40px] @min-[940px]/pane:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="flex min-w-0 flex-col" style={{ gap: rhythm.section }}>
+          <div data-home-main className="flex min-w-0 flex-col" style={{ gap: 12 }}>
+            <div className="flex justify-center @min-[940px]/pane:hidden" style={{ paddingBottom: 12 }}>
+              <MiyagiMark size={32} />
+            </div>
+            {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
+            <Ask primary={!view || view === 'loading'} data={data} />
           </div>
-          {view === 'loading' ? <Loading /> : view && <ContinueCard view={view} hero={hero} fix={fix} />}
-          <Ask primary={!view || view === 'loading'} data={data} />
+          <div data-home-lists className="flex min-w-0 flex-col empty:hidden" style={{ gap: rhythm.section }}>
+            <ReviewLine data={data} now={now} />
+            <UpNext skip={skip} done={done} />
+            <PacksRow />
+            <Recents rows={recent} now={now} />
+            <ActivityCard data={data} now={now} />
+          </div>
         </div>
-        <div data-home-lists className="flex min-w-0 flex-col empty:hidden" style={{ gap: rhythm.section }}>
-          <ReviewLine data={data} now={now} />
-          <UpNext skip={skip} done={done} />
-          <PacksRow />
-          <Recents rows={recent} now={now} />
-        </div>
+        <Rail data={data} now={now} goal={goal} />
       </div>
     </Column>
   )
@@ -534,7 +548,7 @@ function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): Re
 // ---- the page -----------------------------------------------------------------------------------------------------
 
 export function Home(): ReactNode {
-  const { data, load, now } = useDashView()
+  const { data, load, now, goals } = useDashView()
   const hero = useHero(data, load === 'loading')
   const connected = useLesson((s) => s.connected)
   const items = useLibrary((s) => s.items)
@@ -556,7 +570,7 @@ export function Home(): ReactNode {
           </p>
         </Column>
       )}
-      <Body view={view} hero={hero} fix={fix} skip={skip} done={finishedIds(data)} data={data} now={now} recent={load === 'loading' ? [] : recentActivity(data)} />
+      <Body goal={goals.daily} view={view} hero={hero} fix={fix} skip={skip} done={finishedIds(data)} data={data} now={now} recent={load === 'loading' ? [] : recentActivity(data)} />
     </Pane>
   )
 }

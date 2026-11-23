@@ -2,6 +2,7 @@
  * Feature: library. Small pieces shared by the list (Home-Library) and the preview (Home-LessonDetail). Neutral
  * fills only: nothing here is a status or an option, so no green and no pastel. Progress is white on the track.
  */
+import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import type { LessonTool, LibraryItem } from '../../../../../../shared/contracts/events'
 import { color, fill, radius2, surface, tone, type Tone, type2 } from '../../core/theme'
@@ -91,6 +92,37 @@ export function Chip({ label, on, onClick, disabled }: { label: string; on?: boo
 }
 
 /** A gray placeholder block while the first answer is on its way. */
-export function Skeleton({ h }: { h: number }): ReactNode {
-  return <div aria-hidden style={{ height: h, borderRadius: radius2.group, background: fill.skeleton }} />
+export function Skeleton({ h, w }: { h: number; w?: number | string }): ReactNode {
+  // .mg-skeleton is an opacity pulse (no gradient sweep); styles.css drops it with reduced motion.
+  return <div aria-hidden className="mg-skeleton" style={{ height: h, width: w, borderRadius: radius2.group, background: fill.skeleton }} />
+}
+
+/**
+ * A progress ring: a hairline track and an ink arc that draws in on first paint (an opacity-free path draw: a plain
+ * snap with reduced motion). Ink, never green: green only means a passed check. `children` sits in the middle.
+ */
+export function ProgressRing({ fraction, size = 56, stroke = 4, label, children }: { fraction: number; size?: number; stroke?: number; label: string; children?: ReactNode }): ReactNode {
+  const reduce = useReducedMotion()
+  const f = Math.max(0, Math.min(1, fraction))
+  const r = (size - stroke) / 2
+  return (
+    <div role="img" aria-label={label} className="relative flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
+      <svg aria-hidden width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={fill.hairline} strokeWidth={stroke} />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color.text}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          initial={{ pathLength: reduce ? f : 0 }}
+          animate={{ pathLength: f }}
+          transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 120, damping: 24 }}
+        />
+      </svg>
+      {children && <div className="absolute inset-0 flex items-center justify-center">{children}</div>}
+    </div>
+  )
 }

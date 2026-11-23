@@ -136,7 +136,7 @@ const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress', 
  */
 function pageWidth(page: PageId, skills: boolean): number {
   // Settings is a two-pane page (list + panel), so it takes the wide column too.
-  return (page === 'skills' && skills) || page === 'settings' ? WIDE_W : COLUMN_W
+  return (page === 'skills' && skills) || page === 'settings' || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
 }
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
