@@ -5,6 +5,16 @@ The app sends the existing ask command with the circle's bounding box:
 main.py passes region / askId / source to LessonSession.action, whose _action hands an ask with a region here. It runs
 inside action(), so proactive cards wait while the question is answered (ASK_KINDS), with or without a lesson.
 
+0. Fast path (Nov 22, coach/fast_ask.py, answer -> _stream): the ask may carry capture (AskCapture), the crop the
+   app's helper made while the keys were held; shared.capture_file.take_capture checks, reads and deletes it, so
+   nothing is captured at release. That crop is the raw screen: fast_region.from_capture runs Vision on it, redacts
+   the text and blacks out every secret row (and greys other projects' windows) in its pixels before it is sent.
+   Without one (or with no OCR, or a private app under the circle), fast_region.frame_for captures + crops now. The
+   answer then streams (answer.delta, an annotate as soon as the model's first line names a spot, answer.done) and
+   the card below carries the same text with no extra annotate. Nothing streamed (offline, no key, a 4xx, no
+   picture): steps 1 to 3, as before, while the deadline allows. Words streamed and then it broke, a refusal, or no
+   time left: a failed card. A miyagi cloud refusal (paused, quota, auth): its own card. Neither calls again.
+   One deadline (ASK_DEADLINE_S after release_t) covers the stream, its retry and steps 1 to 3.
 1. One frame captured now on the display the learner circled on (ScreenBridge.ask_frame(region.displayId, region)
    -> ScreenReader.capture_once: also while the reader is paused, since the learner asked; the frame is never
    published to the session or kept by the reader). It always tries, whatever the reader's last error says (that can
@@ -37,9 +47,14 @@ log = logging.getLogger("orchestrator.circle_ask")
 CAPTURE_S = 3.0  # one capture + OCR is ~0.3-0.5 s; never hold the learner's answer longer than this
 LAST_FRAME_S = 5.0  # a failed capture may still use the last frame's text when it is at most this old
 HOLD_MS = 6000  # how long the buddy's circle stays (the app also fades it on a click there or a step change)
-# The contract's promise (Action ask + region): every circle ask is answered within about this many seconds. Worst
-# case: the capture (CAPTURE_S) + connection retries (llm.RETRY_BUDGET_S) + the last try's timeout (circle.TIMEOUT_S).
+# The contract's promise (Action ask + region): every circle ask is answered within about this many seconds; the
+# app (v2-integration features/circle) gives up at ASK_MAX_MS = 30 s. One deadline, ASK_DEADLINE_S after release_t,
+# covers everything: the app crop's OCR, the stream, its one retry (fast_ask.ask_stream deadline=) and the one-shot
+# answer (capture + session.m.circle_ask). A step starts only when enough of it is left, else the failed card goes.
 ANSWER_WITHIN_S = 25.0
+ASK_DEADLINE_S = 22.0  # after release_t: the last card goes out by then (plus the emit), under ANSWER_WITHIN_S
+MIN_ONESHOT_S = 4.0  # the one-shot answer (session.m.circle_ask) starts only with this much of the deadline left
+MIN_FALLBACK_S = 5.0  # ...and a capture at release before it only with this much
 
 
 def _region(region: Any) -> dict | None:
@@ -81,10 +96,10 @@ def _real(obs: Any, session: Any) -> bool:
 
 
 async def capture(session: Any, display_id: int | None = None,
-                  region: dict | None = None) -> tuple[Any, Any, str | None]:
+                  region: dict | None = None, *, timeout: float = CAPTURE_S) -> tuple[Any, Any, str | None]:
     """-> (observation, picture, None) or (None, None, reason). `display_id`: the display the learner circled on
     (ScreenRegion.displayId); `region`: the circle, so a display id that is not active still reads the display that
-    holds it. Never raises.
+    holds it. `timeout`: at most CAPTURE_S (less when the ask's deadline is near). Never raises.
 
     It always tries a fresh capture: the reader's error state (down_reason) may be left over from a stall, a sleep or
     a permission granted since, and the learner asked now. down_reason only picks the words when nothing was seen."""
@@ -95,7 +110,8 @@ async def capture(session: Any, display_id: int | None = None,
         return None, None, "no_screen"
     box = {k: region[k] for k in ("x", "y", "w", "h") if k in region} if isinstance(region, dict) else None
     try:
-        obs, image = await asyncio.wait_for(asyncio.to_thread(grab, display_id, box or None), CAPTURE_S)
+        obs, image = await asyncio.wait_for(asyncio.to_thread(grab, display_id, box or None),
+                                            max(0.1, min(CAPTURE_S, timeout)))
     except Exception as e:  # noqa: BLE001 - permission, timeout, a dead capture: say so, never crash the ask
         if type(e).__name__ == "ScreenPermissionError":
             return None, None, "no_permission"
@@ -161,6 +177,18 @@ def failed_card(step: dict | None, region: dict, ask_id: str | None, card: dict 
     return out
 
 
+def cloud_card(step: dict | None, code: str) -> dict:
+    """The miyagi cloud turned the ask away (fast_ask error "cloud:<code>": paused, quota, auth): its own words
+    (server.config.CLOUD_ERRORS), the same as every other call's cloud card. No second call: it would be refused too."""
+    try:
+        from server.config import CLOUD_ERRORS
+    except ImportError:  # pragma: no cover
+        CLOUD_ERRORS = {}
+    body = CLOUD_ERRORS.get(code) or "Try circling it again in a moment."
+    return {**({"stepId": step["id"]} if step else {}), "kind": "answer", "title": "I can't answer right now",
+            "body": body}
+
+
 async def moved_on(session: Any, region: dict, ask_id: str | None) -> None:
     """The learner changed step while this was answered: no answer about the old step, but one short card with the
     askId (no stepId), so the app's pending circle is answered instead of waiting for its timeout."""
@@ -185,8 +213,84 @@ def _context(session: Any, step: dict | None) -> dict:
     return ctx
 
 
-async def answer(session: Any, step: dict | None, text: str | None, region: Any, ask_id: str | None = None) -> None:
-    """Action ask with a region (from LessonSession._action): one answer card next to the circle, maybe a mark."""
+def _fast_ok() -> bool:
+    """Can the streamed ask leave the engine? Offline (DEMO / ORCH_STUBS) or no key: the non-streaming path answers."""
+    try:
+        from server.coach import llm
+
+        return not llm.offline_mode() and llm.has_credentials()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _take(capture_payload: Any) -> Any:
+    """The helper's crop (shared.capture_file.take_capture: path checks, read, delete), or None. Never raises."""
+    if capture_payload is None:
+        return None
+    try:
+        from shared.capture_file import take_capture
+
+        return take_capture(capture_payload)
+    except Exception:  # noqa: BLE001 - a bad capture is never worse than no capture
+        log.info("circle ask: the app's capture was not usable")
+        return None
+
+
+async def _stream(session: Any, step: dict | None, q: str, reg: dict, ask_id: str | None, capture_payload: Any,
+                  release_t: float | None, moved: Any, deadline: float | None = None) -> tuple[Any, Any]:
+    """The fast path (coach/fast_ask.py): -> (FastAskResult | None, fast_region.Prepared | None).
+
+    1. The app's own crop (action ask capture: AskCapture), made by the helper while the keys were held: read and
+       deleted now (take_capture), never a capture at release. It is always taken, also offline, so the file goes.
+       The helper's crop is the raw screen: nothing in it is blacked out. fast_region.from_capture runs Vision on it
+       off the event loop, redacts the text (server/screen/privacy), blacks out every row that held a secret and
+       greys out other projects' VS Code windows in its pixels, then encodes it again; the redacted text goes as
+       screen_text. Only that crop is ever sent.
+    2. No app crop, OCR unavailable or failed, or a private app under the circle: capture + crop now
+       (fast_region.frame_for, ask_frame under it: the reader's frame, with the same rows and windows hidden).
+    deadline: the ask's one deadline (time.monotonic), for the stream and its retry (ask_stream).
+    res None: nothing streamed (offline, no key, no picture); Prepared: the frame for the non-streaming answer."""
+    cap = _take(capture_payload)
+    if not _fast_ok():
+        return None, None
+    from server.coach import fast_ask
+
+    from . import fast_region
+
+    pre = None
+    safe = None
+    if cap is not None:  # never sent as is: OCR, secrets blacked out, other projects greyed (fast_region)
+        safe = await fast_region.from_capture(session, cap)
+        display_id = cap.displayId
+    cap = None  # the helper's bytes: only the redacted crop goes on
+    if safe is not None and safe.crop is not None:
+        crop, screen_text, app = safe.crop, safe.screen_text, safe.app
+    else:  # no app crop, no OCR, or a private app under the circle: capture at release (its frame leaves those out)
+        pre = await fast_region.frame_for(session, ask_id, reg)
+        if pre.reason is not None or pre.crop is None:
+            return None, pre
+        crop, screen_text, app, display_id = pre.crop, pre.screen_text, pre.app, _display_id(reg)
+    safe = None
+    jpeg, rect, w, h = crop
+    del crop
+    res = await fast_ask.ask_stream(
+        jpeg, rect, w, h, q, fast_region.lesson_context(session, step, screen_text, app),
+        emit=session.emit, ask_id=ask_id, display_id=display_id, step_id=step["id"] if step else None,
+        release_t=release_t, should_stop=moved, deadline=deadline)
+    return res, pre
+
+
+async def answer(session: Any, step: dict | None, text: str | None, region: Any, ask_id: str | None = None, *,
+                 app_capture: Any = None, release_t: float | None = None) -> None:
+    """Action ask with a region (from LessonSession._action): one answer card next to the circle, maybe a mark.
+
+    Fast path first (coach/fast_ask.py): the answer streams as answer.delta, a mark goes out as soon as the model's
+    first line names one, answer.done closes it, then the card {kind: "answer", askId, region} with the same text and
+    no extra annotate. `app_capture`: the app's crop (AskCapture), used (redacted) instead of a capture at release.
+    `release_t`: time.monotonic() when the action arrived (main.py), for the ask's metrics and its one deadline
+    (ASK_DEADLINE_S later; None: from now). Nothing streamed (offline, no key, a 4xx, no picture): the
+    non-streaming path below (session.m.circle_ask), only while enough of the deadline is left. A refusal or a
+    miyagi cloud refusal with no words: the failed card or the cloud card at once, never a second call."""
     from server.coach.circle import DEFAULT_ASK
 
     reg = _region(region) or {}
@@ -196,21 +300,56 @@ async def answer(session: Any, step: dict | None, text: str | None, region: Any,
     gen = session.step_gen
     if step is not None:
         await session._status("thinking", detail="Looking at that")
-    obs, image, reason = await capture(session, _display_id(reg), reg)
-    if reason is not None:
-        out = unseen_answer(step, reason, reg, ask_id)
-        log.info("circle ask: can't see the screen (%s)", reason)
+
+    def moved() -> bool:
+        return step is not None and gen != session.step_gen
+
+    deadline = (time.monotonic() if release_t is None else float(release_t)) + ASK_DEADLINE_S
+    res, pre = await _stream(session, step, q, reg, ask_id, app_capture, release_t, moved, deadline)
+    if res is not None and (res.error == "moved_on" or moved()):
+        await moved_on(session, reg, ask_id)  # deltas and answer.done pass the step-gen guard: say so with a card
+        return
+    err = str(res.error or "") if res is not None else ""
+    if res is not None and res.ok:
+        out: dict = {"kind": "answer", "title": res.title, "body": res.text, "marks": []}  # the mark went out already
+    elif res is not None and res.deltas > 0:
+        out = failed_card(step, reg, ask_id)  # words showed, then it broke: no second answer underneath
+    elif err == "refusal":  # a second paid call on the same picture would most likely refuse again
+        out = failed_card(step, reg, ask_id)
+    elif err.startswith("cloud:"):  # paused / quota / auth: the one-shot call would be turned away the same way
+        out = failed_card(step, reg, ask_id, cloud_card(step, err[len("cloud:"):]))
+    elif pre is None and deadline - time.monotonic() < MIN_FALLBACK_S:
+        log.info("circle ask: no time left for the one-shot answer (%s)", err or "none")
+        out = failed_card(step, reg, ask_id)
     else:
-        try:
-            out = await session.m.circle_ask(step, q, reg, obs=obs, image=image, context=_context(session, step),
-                                             ask_id=ask_id)
-        except Exception as e:  # noqa: BLE001 - a missing / failing coach: the text read, never "Couldn't reach"
-            log.warning("circle ask: coach failed (%s); answering from the text read", type(e).__name__)
-            out = offline_answer(step, q, reg, obs, None, None, ask_id)
-    image = None  # the picture is done with: nothing holds it while the card goes out
+        if pre is not None:  # the fast path already captured this frame
+            obs, image, reason = pre.obs, pre.image, pre.reason
+        else:
+            obs, image, reason = await capture(session, _display_id(reg), reg,
+                                               timeout=min(CAPTURE_S, deadline - time.monotonic() - MIN_ONESHOT_S))
+        left = deadline - time.monotonic()
+        if reason is not None:
+            out = unseen_answer(step, reason, reg, ask_id)
+            log.info("circle ask: can't see the screen (%s)", reason)
+        elif left < MIN_ONESHOT_S:
+            log.info("circle ask: no time left for the one-shot answer (%.1f s)", left)
+            out = failed_card(step, reg, ask_id)
+        else:
+            try:
+                out = await asyncio.wait_for(
+                    session.m.circle_ask(step, q, reg, obs=obs, image=image, context=_context(session, step),
+                                         ask_id=ask_id), left)
+            except asyncio.TimeoutError:  # past the ask's deadline: the app is about to give up on it
+                log.info("circle ask: the one-shot answer ran past the deadline")
+                out = failed_card(step, reg, ask_id)
+            except Exception as e:  # noqa: BLE001 - a missing / failing coach: the text read, never "Couldn't reach"
+                log.warning("circle ask: coach failed (%s); answering from the text read", type(e).__name__)
+                out = offline_answer(step, q, reg, obs, None, None, ask_id)
+        image = None  # the picture is done with: nothing holds it while the card goes out
+    pre = None
     out = {k: v for k, v in dict(out).items() if not str(k).startswith("_")}
     marks = [m for m in (out.pop("marks", None) or []) if isinstance(m, dict)]
-    if step is not None and gen != session.step_gen:
+    if moved():
         await moved_on(session, reg, ask_id)  # an answer about the old step would mislead; the ink still gets one
         return
     if ask_id:

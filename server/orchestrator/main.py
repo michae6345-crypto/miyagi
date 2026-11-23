@@ -125,7 +125,8 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
-INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"})
+INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
+                     "ask.warm"})  # ask.warm: the push-to-talk hold; never waits behind a build (coach/fast_ask.py)
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
 # Nov 21 (launch-quiet): what counts as the learner asking for a lesson on this connection (session.learner_asked)
 LEARNER_ASKS = LESSON_STARTS
@@ -133,6 +134,7 @@ LEARNER_ASK_ACTIONS = frozenset({"start", "resume", "build"})  # Start, Continue
 SECRET_COMMANDS = frozenset({"config.keys", "config.validate"})  # payloads hold keys: never logged, never echoed
 PERMISSION_KINDS = ("screen", "accessibility", "automation")
 LIBRARY_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+RX_KEY = "_rxT"  # set on an action as it arrives (time.monotonic): the ask's release time, queue wait included
 TOKEN_HEADER = "x-miyagi-token"
 TOKEN_ENV = "MIYAGI_ENGINE_TOKEN"
 _CONTRACT_COMMANDS: dict = getattr(contract, "APP_COMMANDS", {})
@@ -612,6 +614,7 @@ class Engine:
             self.resumer = None
         self.recorder = recorder.Recorder()
         self._ticker: asyncio.Task | None = None
+        self._ask_preload: asyncio.Task | None = None  # fast_ask.preload in a worker thread (start)
         self._avoider: asyncio.Task | None = None  # t9: screen.avoid (quick_pick.py)
         self._replays: set[asyncio.Task] = set()
         self.last_client_gone: float | None = None
@@ -714,6 +717,9 @@ class Engine:
                 self._autostart = asyncio.create_task(self.session.learn_url(url, skip_preflight=True))
         self._ticker = asyncio.create_task(self._tick_loop())
         self._avoider = asyncio.create_task(self._avoid_loop())
+        # fast circle to ask: the SDK imports (often hundreds of ms) in a worker thread now, never on the loop during
+        # the first push-to-talk hold's ask.warm (coach/fast_ask.preload)
+        self._ask_preload = asyncio.create_task(asyncio.to_thread(_preload_fast_ask))
         # screen state is logged by _start_screen: the bridge boots in a thread after this line
         log.info("engine up: demo=%s modules=%s workdir=%s precision=%s", self.modules.demo,
                  self.modules.describe(), self.session.workdir, config.precision_setting())
@@ -785,6 +791,7 @@ class Engine:
         if hasattr(self.session, "panel_state"):
             caps.append("panel.state")
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
+        caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
         return caps
 
     def hello(self, restored: bool = False) -> dict:
@@ -1073,6 +1080,9 @@ class Engine:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+        if self._ask_preload is not None:  # an import in a worker thread: done in well under a second
+            with contextlib.suppress(Exception):
+                await self._ask_preload
 
     async def _tick_loop(self) -> None:
         while True:
@@ -1146,6 +1156,11 @@ class Engine:
                 circle["ask_id"] = p.askId
             if getattr(p, "source", None):
                 circle["source"] = p.source
+            if circle.get("region") is not None:  # fast circle to ask: the helper's crop, and when the keys came up
+                if getattr(p, "capture", None) is not None:
+                    circle["capture"] = p.capture
+                if isinstance(raw.get(RX_KEY), float):
+                    circle["release_t"] = raw[RX_KEY]
             await s.action(p.kind, p.text, **circle)
         elif msg.type == "video.state":
             await s.video_state(p.t, p.playing)
@@ -1163,6 +1178,20 @@ class Engine:
                 await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})
         elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
             await s.card_seen(msg.type == "card.shown", p.stepId, p.title, p.kind, getattr(p, "by", None))
+        elif msg.type == "ask.warm":  # fast circle to ask: open the keep-alive client, warm the cache (fire and forget)
+            from server.coach import fast_ask
+
+            fast_ask.warm_soon(getattr(p, "source", None) or "keydown", ptt_id=getattr(p, "pttId", None))
+
+
+def _preload_fast_ask() -> None:
+    """Engine start, in a worker thread: import coach/fast_ask and the SDK it uses (anthropic, httpx2). Never raises."""
+    try:
+        from server.coach import fast_ask
+
+        fast_ask.preload()
+    except Exception as e:  # noqa: BLE001 - the ask reports a missing SDK on its own path
+        log.info("fast ask preload failed (%s)", type(e).__name__)
 
 
 # config.keys -> server.config (get_key) + the env vars modules read. Memory only; never logged.
@@ -1241,6 +1270,9 @@ def _redact(raw: Any) -> Any:
         return "<not an object>"
     if raw.get("type") in SECRET_COMMANDS:
         return {"type": raw.get("type"), "payload": "<redacted>"}
+    p = raw.get("payload")
+    if isinstance(p, dict) and "capture" in p:  # circle to ask: the helper's crop path is never logged
+        raw = {**raw, "payload": {**p, "capture": "<capture>"}}
     text = repr(raw.get("payload"))
     return raw if len(text) <= 300 else {"type": raw.get("type"), "payload": text[:300] + "…"}
 
@@ -1395,6 +1427,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
             elif raw.get("type") in LESSON_STARTS and _searching(running, engine.session):
                 running["job"].cancel()  # "Just teach me" / a pick / a new query while the search still runs: it
                 # replaces the search (rows so far stay pickable) instead of waiting out its tail (live: 15 s)
+            if raw.get("type") == "action":  # fast circle to ask: the release, before any queue wait (fast_ask metrics)
+                raw[RX_KEY] = time.monotonic()
             if raw.get("type") in INSTANT:
                 try:
                     await engine.dispatch(raw, ws)

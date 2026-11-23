@@ -165,6 +165,16 @@ export interface EngineEvents {
   "library.item": { item: LibraryItem; steps?: OutlineStep[]; overview?: string };
   /** Answer to progress.get (Prog-Progress-Window). Every number comes from passed checks; null fields = not tracked yet. */
   "progress": Progress;
+  /** Fast circle to ask (Nov 22, server/coach/fast_ask.py): the answer to an ask streams in. answer.delta: append `text` to the answer
+   *  for askId (seq counts up from 0 per ask). The model's first-line [DRAW:...] tag never reaches the app: it comes as `annotate`.
+   *  answer.done: the stream is over; `text` is the whole cleaned answer and the app MUST replace what the deltas built with it (deltas go
+   *  out as the words arrive, so a sentence the engine flags as a prompt injection may have shown in them; done.text never has it).
+   *  complete false: cut short (reason "refusal" | "max_tokens" | "error" | "moved_on"; moved_on: the step changed, a "moved on" card
+   *  follows; refusal: text is "" so the declined words leave the screen, and a failed answer card follows). fallback true: the stream failed and a non-streaming retry answered. The answer card
+   *  {kind: "answer", askId} still follows answer.done with the same text, so an app that ignores these loses nothing; a streaming
+   *  app keeps its streamed card for that askId. Nothing streamed (no answer.delta): only the card comes, as before. */
+  "answer.delta": { askId?: string; seq: number; text: string };
+  "answer.done": { askId?: string; text: string; complete?: boolean; fallback?: boolean; reason?: string };
 }
 
 // ---------- v2 shapes ----------
@@ -289,6 +299,16 @@ export interface SkillGraphInfo {
   week?: SkillWeek | null; portfolio?: PortfolioItem[];
 }
 
+/** Circle to ask, fast path (Nov 22): the circled region, already captured by the app's helper (miyagi-listen) while the keys
+ *  were still held, so the engine skips its own capture after release. Rides on action ask {region, source: "circle", askId}.
+ *  path: a 0600 JPEG, cap-<uuid>.jpg in the per-user temp folder miyagi-capture (0700). The engine checks it (realpath inside
+ *  that folder, that name, a regular file of this user with mode 0600), reads it and deletes it; the helper deletes it anyway
+ *  about 30 s after writing. w / h: its pixels (long edge <= 1092). rect: the box really captured, in screen points (the
+ *  ScreenRegion space: margin added, clamped to the display), so crop pixel (px, py) is screen point
+ *  (rect.x + px * rect.w / w, rect.y + py * rect.h / h). Absent, or a file that is gone or fails a check: the engine captures
+ *  as before. Used for this one ask only, never stored or logged. */
+export interface AskCapture { path: string; w: number; h: number; rect: { x: number; y: number; w: number; h: number }; displayId: number }
+
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
   "learn": { query: string; mode?: "video" | "lesson" | "demo" };   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video"); mode "demo": the launcher's Demo option, the staged neural-net lesson for any goal (server/orchestrator/stage.py: typing steps pass on a save or Check my work, runs are recorded, one planned off-track on Train it)
@@ -300,11 +320,12 @@ export interface AppCommands {
    *  "What is this?" when nothing was said (the engine uses that too when text is empty). source "circle". askId: the app's id for
    *  this ask; the answer card echoes it. Works with or without a lesson. The engine crops region, reads the text boxes inside it,
    *  and answers with a card {kind: "answer", askId, region}, then maybe annotate {marks: [{why: "answer", askId, ...}]}. The crop is
-   *  used for this one ask only, never stored or logged. Timing: the engine answers each circle ask within about 25 s (capture 3 s +
-   *  model 10 s + connection retries 12 s), so the app's pending-circle timeout can be set a little above that. The overlay's
+   *  used for this one ask only, never stored or logged. Timing: the engine answers each circle ask within about 25 s: one deadline,
+   *  22 s after the action arrives, covers the streamed answer, its one retry and the one-shot fallback (each starts only when
+   *  enough of it is left, else the failed card goes), so the app's pending-circle timeout (ASK_MAX_MS 30 s) stays above that. The overlay's
    *  click-through hard timeout covers only the drawing: it goes back to click-through on release, without waiting for the answer. */
   "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "install_all" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "start" | "have_it" | "get_it" | "alternative"; text?: string;
-              region?: ScreenRegion; source?: AskSource; askId?: string };  // region / source / askId: Circle to ask (kind "ask", see above)   // have_it / get_it / alternative: a setup row of a licensed app (text = its tool id; none: the first app row waiting)  // install_all (t9 V12): the setup card's "Install all": every missing row, one after another (each row gets its own setup.progress)  // start: "Start the lesson" on the "Before you start" sheet: a "Just teach me" lesson with build / flow / prerequisites / learnFirst holds step 1 (VS Code opens under the sheet; no checks, boxes, idle timers, stuck cards or off-tracks) from a lesson.ready whose first step.started is step 1 until this, a key / click with the lesson's editor in front (the sheet's own Start / Esc land there, the overlay can't take focus), the first edit of the step file, or a step control (show_me, hint, check_step, skip_step, run_command, open_editor ...); optional for the app  // retry: the "Couldn't reach Claude" card's Try again: the engine re-sends the learner's last ask / explain / hint (no text needed)  // run_command: "Run it for me" on a run step (the engine runs the step's command in the lesson folder, max 10 s, and shows the output)  // use_this_folder: the learner is editing the lesson file in another folder; adopt that folder as the lesson folder (copies only missing files, never overwrites)  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+              region?: ScreenRegion; source?: AskSource; askId?: string; capture?: AskCapture };  // region / source / askId / capture: Circle to ask (kind "ask", see above)   // have_it / get_it / alternative: a setup row of a licensed app (text = its tool id; none: the first app row waiting)  // install_all (t9 V12): the setup card's "Install all": every missing row, one after another (each row gets its own setup.progress)  // start: "Start the lesson" on the "Before you start" sheet: a "Just teach me" lesson with build / flow / prerequisites / learnFirst holds step 1 (VS Code opens under the sheet; no checks, boxes, idle timers, stuck cards or off-tracks) from a lesson.ready whose first step.started is step 1 until this, a key / click with the lesson's editor in front (the sheet's own Start / Esc land there, the overlay can't take focus), the first edit of the step file, or a step control (show_me, hint, check_step, skip_step, run_command, open_editor ...); optional for the app  // retry: the "Couldn't reach Claude" card's Try again: the engine re-sends the learner's last ask / explain / hint (no text needed)  // run_command: "Run it for me" on a run step (the engine runs the step's command in the lesson folder, max 10 s, and shows the output)  // use_this_folder: the learner is editing the lesson file in another folder; adopt that folder as the lesson folder (copies only missing files, never overwrites)  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };
@@ -329,6 +350,16 @@ export interface AppCommands {
   /** Nov 22 (Skills page). set_goal: the learner picked a capstone (the engine answers a fresh `progress`). skills.ack: the unlock events up to `until` (an event's `at`) have played. */
   "set_goal": { capstoneId: string };
   "skills.ack": { until: string | number };
+
+  /** Nov 22 (push to talk speed): the learner is holding the push-to-talk keys (Fn+Control) past the minimum hold and
+   *  the mic is open, so an ask (spoken, or a circle) is likely within a few seconds. The engine gets ready for it: open
+   *  or reuse its keep-alive links (app to engine to cloud to Anthropic) and warm the prompt cache for the fixed ask
+   *  system prompt. No reply event, no card, never a learner-visible effect; safe to ignore or repeat. pttId: the hold's
+   *  id (the helper's ptt.id), for logs only. The app sends it on every hold that passes the minimum (never for a tap
+   *  or an aborted chord), and only when engine.hello lists "ask.warm". The engine always opens or reuses the links
+   *  (free; keep-alive links close seconds after their last use) and throttles only the paid prompt-cache write (at
+   *  most once per few minutes, under the 5-minute cache lifetime). */
+  "ask.warm": { pttId?: string; source?: string };   // source: optional tag ("keydown"), for logs only
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;

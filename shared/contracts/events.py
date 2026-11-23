@@ -912,6 +912,32 @@ class Error(_Model):
     gen: int | None = None
 
 
+class AnswerDelta(_Model):
+    """answer.delta (Nov 22, fast circle to ask, server/coach/fast_ask.py): the next words of a streamed answer. Append
+    `text` to the answer for askId; seq counts up from 0 per ask. The model's first-line [DRAW:...] tag never reaches
+    the app (the engine sends it as annotate). The answer card {kind: "answer", askId} still follows answer.done with the
+    same text, so an app that ignores these events loses nothing; nothing streamed: only the card comes, as before."""
+
+    askId: str | None = None
+    seq: int
+    text: str
+
+
+class AnswerDone(_Model):
+    """answer.done: the streamed answer for askId is over. `text` is the whole answer, cleaned: the app MUST replace
+    what the deltas built with it. Deltas are sent as the words arrive, so a sentence the engine flags as a prompt
+    injection may have shown in them; done.text never has it. complete False: cut short (reason "refusal" |
+    "max_tokens" | "error" | "moved_on", a plain str; moved_on: the step changed, a "moved on" card follows; refusal:
+    text is "" so the declined words leave the screen, and a failed answer card follows).
+    fallback True: the stream failed and a non-streaming retry answered."""
+
+    askId: str | None = None
+    text: str
+    complete: bool = True
+    fallback: bool | None = None
+    reason: str | None = None
+
+
 class LessonEnded(_Model):
     lessonId: str | None = None
     reason: str
@@ -1018,6 +1044,8 @@ ENGINE_EVENTS: dict[str, Any] = {
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
+    "answer.delta": AnswerDelta,  # fast circle to ask (Nov 22): streamed words
+    "answer.done": AnswerDone,
 }
 
 EngineEventType = Literal[
@@ -1027,6 +1055,7 @@ EngineEventType = Literal[
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
     "screen.avoid",
+    "answer.delta", "answer.done",
 ]
 
 
@@ -1051,6 +1080,25 @@ ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_tog
                      "retry", "start", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
 
 
+class AskCapture(_Model):
+    """Circle to ask, fast path (Nov 22): the circled region, already captured by the app's helper (miyagi-listen) while
+    the keys were still held, so the engine skips its own capture after release. Rides on action ask with a region.
+
+    path: a 0600 JPEG, cap-<uuid>.jpg in the per-user temp folder miyagi-capture (0700). The engine checks it (realpath
+    inside that folder, that name, a regular file of this user with mode 0600), reads it and deletes it; the helper
+    deletes it anyway about 30 s after writing. w / h: its pixels (long edge <= 1092). rect: the box really captured,
+    in screen points (margin added, clamped to the display): crop pixel (px, py) -> screen point
+    (rect.x + px * rect.w / w, rect.y + py * rect.h / h). None, or a file that is gone or fails a check: the engine
+    captures as before. Used for this one ask only, never stored or logged. Reader: shared/capture_file.py.
+    """
+
+    path: str
+    w: int
+    h: int
+    rect: ScreenRect
+    displayId: int
+
+
 class Action(_Model):
     kind: ActionKind
     # explain + text: text = the learner's selection (the drawer's "Explain more"): the engine answers with a card
@@ -1061,12 +1109,14 @@ class Action(_Model):
     # or without a lesson. The engine crops region, reads the text boxes inside it, answers with a card
     # {kind: "answer", askId, region}, then maybe annotate {marks: [{why: "answer", askId, ...}]}. The crop is used
     # for this one ask only, never stored or logged. Timing: the engine answers each circle ask within about 25 s
-    # (capture 3 s + model 10 s + connection retries 12 s; circle_ask.ANSWER_WITHIN_S), so the app's pending-circle
-    # timeout can be set a little above that. The overlay's click-through hard timeout covers only the drawing: it
+    # (circle_ask.ANSWER_WITHIN_S): one deadline, 22 s after the action arrives (circle_ask.ASK_DEADLINE_S), covers the
+    # streamed answer, its one retry and the one-shot fallback (each starts only when enough of it is left, else the
+    # failed card goes), so the app's pending-circle timeout (ASK_MAX_MS 30 s) stays above that. The overlay's click-through hard timeout covers only the drawing: it
     # goes back to click-through on release, without waiting for the answer.
     region: ScreenRegion | None = None
     source: str | None = None  # "typed" | "voice" | "circle"; a plain str so a new tag from the app is not rejected
     askId: str | None = None  # the app's id for this ask; the answer card echoes it
+    capture: AskCapture | None = None  # ask + region (circle to ask): the region the app already captured (AskCapture)
 
 
 class VideoState(_Model):
@@ -1162,6 +1212,17 @@ class PanelState(_Model):
     rect: ScreenRect | None = None
 
 
+class AskWarm(_Model):
+    """Nov 22 (push to talk speed): the push-to-talk hold passed the minimum and the mic is open; open or reuse the
+    keep-alive links and warm the prompt cache for the ask. The app sends it on every hold that passes the minimum
+    (never for a tap or an aborted chord). The engine always opens or reuses the links (free; keep-alive links close
+    seconds after their last use) and throttles only the paid prompt-cache write (under the 5-minute cache lifetime).
+    No reply. pttId: the hold's id, for logs only."""
+
+    pttId: str | None = Field(default=None, max_length=64)
+    source: str | None = Field(default=None, max_length=32)  # optional tag ("keydown"), for logs only
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
@@ -1183,12 +1244,13 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "panel.state": PanelState,
     "set_goal": SetGoal,
     "skills.ack": SkillsAck,
+    "ask.warm": AskWarm,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
                          "card.shown", "card.closed",
                          "health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
-                         "set_goal", "skills.ack"]
+                         "set_goal", "skills.ack", "ask.warm"]
 
 # v2: the command types an engine may list in engine.hello.capabilities.
 V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state")
