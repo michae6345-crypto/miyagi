@@ -57,7 +57,7 @@ Today: no auto-install, by design. Once the app is signed with a Developer ID an
    ```yaml
    mac:
      target: [dmg, zip]          # Squirrel.Mac installs from the zip; the dmg stays for first downloads
-     identity: "Developer ID Application: <Name> (<TEAMID>)"
+     identity: "<Name> (<TEAMID>)"   # without the "Developer ID Application: " prefix: electron-builder refuses it
      hardenedRuntime: true
      notarize: true
    publish:

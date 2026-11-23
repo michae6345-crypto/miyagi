@@ -65,6 +65,7 @@ jobs:
       prerelease: ${{ steps.plan.outputs.prerelease }}
       engine_ref: ${{ steps.plan.outputs.engine_ref }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      whatsnew: ${{ steps.plan.outputs.whatsnew }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false }
@@ -101,13 +102,17 @@ jobs:
           case "$target" in github|github-public|r2|none) ;; *) echo "::error::unknown target '$target'"; exit 1 ;; esac
           case "$engine_ref" in *[!A-Za-z0-9._/-]*|"") echo "::error::engine_ref '$engine_ref' isn't a plain git ref"; exit 1 ;; esac
           prerelease=false; case "$version" in *-*) prerelease=true ;; esac
+          # What's new: app/RELEASE-NOTES.txt, one plain line per change (no "#" lines, no blanks), first 6 kept. The
+          # in-app update card shows these lines. Optional: no file, no lines. Base64 so it fits on one output line.
+          whatsnew=""
+          [ -f app/RELEASE-NOTES.txt ] && whatsnew="$(awk '!/^[[:space:]]*(#|$)/ && n < 6 { print; n++ }' app/RELEASE-NOTES.txt | base64 -w0)"
           matrix="$(ARM="$ARM64_RUNNER" X64="$X64_RUNNER" INTEL="$intel" node -e '
             const include = [{ arch: "arm64", runner: process.env.ARM }]
             if (process.env.INTEL === "true") include.push({ arch: "x64", runner: process.env.X64 })
             process.stdout.write(JSON.stringify({ include }))')"
           {
             echo "version=$version"; echo "tag=$tag"; echo "target=$target"; echo "draft=$draft"
-            echo "prerelease=$prerelease"; echo "engine_ref=$engine_ref"; echo "matrix=$matrix"
+            echo "prerelease=$prerelease"; echo "engine_ref=$engine_ref"; echo "matrix=$matrix"; echo "whatsnew=$whatsnew"
           } >> "$GITHUB_OUTPUT"
           echo "### miyagi $version → $target (draft: $draft, intel: $intel, engine: $engine_ref)" >> "$GITHUB_STEP_SUMMARY"
 
@@ -262,9 +267,11 @@ jobs:
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           TAG: ${{ needs.plan.outputs.tag }}
+          WHATSNEW_B64: ${{ needs.plan.outputs.whatsnew }}
         run: |
           set -euo pipefail
           mkdir -p release
+          printf '%s' "$WHATSNEW_B64" | base64 -d > release/WHATSNEW.txt
           feeds=()
           for arch in arm64 x64; do
             d="parts/mac-$arch"
@@ -292,6 +299,12 @@ jobs:
           {
             echo "Version: $VERSION"
             echo
+            if [ -s release/WHATSNEW.txt ]; then
+              echo "## What's new"
+              echo
+              sed 's/^/- /' release/WHATSNEW.txt
+              echo
+            fi
             if [ "$unsigned" = true ]; then
               echo "**Unsigned build** (ad hoc, no Developer ID, not notarized). First open: open miyagi once, press Done,"
               echo "then System Settings › Privacy & Security › **Open Anyway**. Every new build asks for Screen Recording again."
@@ -307,6 +320,16 @@ jobs:
             echo
             sed -n 's/^\([0-9a-f]\{64\}\)  \(Miyagi-Mac.*\.dmg\)$/sha256: \1 (\2)/p' release/SHA256SUMS.txt
           } > release/NOTES.md
+          # The rolling "mac" release's notes (publish-github-public): the in-app update card shows the body's plain lines
+          # as "What's new" (manifest.ts cleanNotes drops the Version and sha256 lines), so only user-facing lines here.
+          {
+            echo "Version: $VERSION"
+            echo
+            [ -s release/WHATSNEW.txt ] && sed 's/^/- /' release/WHATSNEW.txt
+            [ "$unsigned" = true ] && echo "- Unsigned build: open it once, then System Settings › Privacy & Security › Open Anyway."
+            echo
+            sed -n 's/^\([0-9a-f]\{64\}\)  Miyagi-Mac\.dmg$/sha256: \1/p' release/SHA256SUMS.txt
+          } > release/ROLLING.md
           printf '%s' "$title" > release/TITLE.txt
           printf '%s' "$unsigned" > release/UNSIGNED.txt
           cat release/NOTES.md >> "$GITHUB_STEP_SUMMARY"
@@ -355,6 +378,7 @@ jobs:
             gh release create "$TAG" "${args[@]}" "${files[@]}"
           fi
           echo "published $TAG to $GH_REPO (draft: $DRAFT)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Users don't download from this repo: miyagi.study and the update card read the rolling mac release on adrian-erlikhman/miyagi (target github-public)." >> "$GITHUB_STEP_SUMMARY"
 
   publish-github-public:
     name: publish (GitHub release, public releases repo)
@@ -383,7 +407,10 @@ jobs:
           files=(Miyagi-Mac*.dmg Miyagi-Mac-*.zip Miyagi-Mac-*.zip.blockmap latest-mac.yml SHA256SUMS.txt)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber
-            gh release edit "$TAG" --title "$(cat TITLE.txt)" --notes-file NOTES.md
+            # A run with draft off publishes the draft an earlier run made (test the draft's dmg first).
+            edit_args=(--title "$(cat TITLE.txt)" --notes-file NOTES.md)
+            [ "$DRAFT" != true ] && edit_args+=(--draft=false)
+            gh release edit "$TAG" "${edit_args[@]}"
           else
             # No --target: the source commit isn't in that repo. The tag lands on its default branch when published.
             args=(--title "$(cat TITLE.txt)" --notes-file NOTES.md)
@@ -392,6 +419,28 @@ jobs:
             gh release create "$TAG" "${args[@]}" "${files[@]}"
           fi
           echo "published $TAG to $GH_REPO (draft: $DRAFT)" >> "$GITHUB_STEP_SUMMARY"
+      - name: refresh the rolling "mac" release (what miyagi.study and the in-app update card download)
+        # Only a published, non-prerelease release replaces what users get: a draft or a beta never touches it.
+        if: needs.plan.outputs.draft != 'true' && needs.plan.outputs.prerelease != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GH_REPO: ${{ vars.RELEASES_REPO }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd release
+          # The update card only trusts adrian-erlikhman/miyagi (manifest.ts OFFICIAL_RELEASE_REPO), and the site's
+          # download link points there too. Anywhere else, users never see this release.
+          [ "$GH_REPO" = adrian-erlikhman/miyagi ] || echo "::warning::RELEASES_REPO is $GH_REPO; the update card and miyagi.study read adrian-erlikhman/miyagi"
+          # Stable names, both Apple silicon: Miyagi-Mac.dmg (update card, OFFICIAL_ASSETS.mac) and Miyagi-Mac.zip (the
+          # site's sealed download link today, and install.sh --app on claude/distribution).
+          cp Miyagi-Mac-arm64.zip Miyagi-Mac.zip
+          if ! gh release view mac >/dev/null 2>&1; then
+            gh release create mac --title "$(cat TITLE.txt)" --notes-file ROLLING.md --latest=false
+          fi
+          gh release upload mac Miyagi-Mac.dmg Miyagi-Mac.zip --clobber
+          gh release edit mac --title "$(cat TITLE.txt)" --notes-file ROLLING.md --latest=false
+          echo "rolling mac release on $GH_REPO now serves $VERSION (Miyagi-Mac.dmg, Miyagi-Mac.zip)" >> "$GITHUB_STEP_SUMMARY"
 
   publish-r2:
     name: publish (Cloudflare R2)
