@@ -2,6 +2,7 @@
  * Feature: cards. Which coach card is showing, plus the live metric series behind the curve.
  * The off-track payload itself lives in core/lesson; core doesn't keep metrics, so they live here.
  */
+import { guardSkip } from '../settings/guard'
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -163,6 +164,8 @@ function settle(kind: CardAction): void {
  * pressed button spinning, until the engine answers (next card or event, status leaves "thinking") or PENDING_MS passes.
  */
 export function cardAct(kind: CardAction, text?: string): void {
+  // Settings > Lessons > Confirm before skipping a step: the first press only arms the button.
+  if (kind === 'skip_step' && !guardSkip()) return
   if (kind === 'install' && text !== undefined) {
     // One install per tool: a double click can't start a second one.
     if (get().installs[text]?.running) return

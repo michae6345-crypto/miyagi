@@ -10,6 +10,7 @@
  */
 import { defineFeature } from '../../core/registry'
 import { Settings } from './Settings'
+import './apply'
 import './store'
 import './web'
 
