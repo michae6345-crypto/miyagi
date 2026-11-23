@@ -13,6 +13,8 @@
  *   bridge.invoke('ptt:prefill', text) / 'ptt:prefill-take'   the launcher's prefilled text (no lesson running)
  *   bridge.onFeature('ptt:state', cb)   every change of the one PttState
  *   bridge.onFeature('ptt:final', cb)   {id, text}: the words to ask (the overlay routes them, features/ptt/store.ts)
+ *   bridge.onFeature('ptt:down', cb)    {id}: the keys went down (before the 250 ms debounce); the engine is told ask.warm
+ *   bridge.onFeature('ptt:partial', cb) {id, text}: each new partial of the hold in flight (held, and during the release tail)
  *   bridge.onFeature('ptt:prefill', cb) text: the launcher is already open, fill it
  *
  * macOS only. If the helper binary is missing (a dev checkout that never built it) the feature stays quiet: no state,
@@ -26,6 +28,7 @@ import { join } from 'node:path'
 import { PTT_ENABLED } from '../../common/flags'
 import { DEFAULT_PREFS, sanitizePrefs, type PttPrefs } from '../../common/prefs'
 import { active, PTT_REST, reducePtt, type PttInput, type PttState } from '../../common/pttState'
+import { cmd } from '../../common/wire'
 import { defineMainFeature } from '../context'
 import {
   backoffMs,
@@ -88,6 +91,8 @@ const ERROR_MS = 4000
 /** The second prompt (input) follows the first (mic) after its answer, or this long. */
 const PROMPT_GAP_MS = 10_000
 const PREFILL_TTL_MS = 15_000
+/** ask.warm at most this often: the engine keeps its links and the prompt cache warm for minutes, a hold every second needs no new warm. */
+const WARM_GAP_MS = 20_000
 
 export default defineMainFeature({
   id: 'ptt',
@@ -121,6 +126,16 @@ export default defineMainFeature({
     let pendingInput: ReturnType<typeof setTimeout> | undefined
     let lastTerms = ''
     let prefill: { text: string; at: number } | undefined
+    let upAt = 0
+    let lastWarm = 0
+    /** The keys went down: tell the windows, and let the engine get ready for the ask (contract ask.warm, v2: only if it said so). */
+    const down = (id: string): void => {
+      ctx.broadcast('ptt:down', { id })
+      const now = Date.now()
+      if (now - lastWarm < WARM_GAP_MS || !ctx.engine.connected || !ctx.engine.can('ask.warm')) return
+      lastWarm = now
+      ctx.engine.send(cmd('ask.warm', { pttId: id }))
+    }
 
     const send = (line: string): void => {
       if (!child || child.killed || !child.stdin.writable) return
@@ -194,6 +209,10 @@ export default defineMainFeature({
             if (ev.input !== 'granted') void ask('input')
           }
           apply(ev)
+          if (ev.type === 'ptt' && ev.state === 'down' && state.id === ev.id) down(ev.id)
+          if (ev.type === 'ptt' && ev.state === 'up') upAt = Date.now()
+          if (ev.type === 'partial' && state.id === ev.id) ctx.broadcast('ptt:partial', { id: ev.id, text: ev.text })
+          if (ev.type === 'final' && upAt) pttLog(`final ${Date.now() - upAt} ms after release`)
         }
       })
       p.stderr.on('data', () => undefined) // drained, never logged: it could hold what was said
