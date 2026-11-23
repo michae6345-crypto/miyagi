@@ -45,7 +45,8 @@ def test_every_purpose_is_haiku_or_sonnet_by_default():
 
 def test_the_table_routes_small_calls_to_haiku_and_reasoning_to_sonnet():
     sonnet = {"lesson.segment", "lesson.escalate", "coach.diagnose", "coach.explain_selection", "screen.coach", "diagrams",
-              "workspace.scaffold"}
+              "workspace.scaffold",
+              "coach.fast_ask"}  # streamed circle to ask (Nov 22): Sonnet, thinking off, low effort; Haiku for simple asks
     for purpose in models.ROUTES:
         want = models.SONNET if purpose in sonnet else models.HAIKU
         assert models.model_for(purpose) == want, purpose
