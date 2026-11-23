@@ -38,7 +38,7 @@ import { RotateCcw } from 'lucide-react'
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { useWindowArgs } from '../../core/surfaces'
-import { color, duration, fill, highlight, radius2, spring, stagger, surface, type2 } from '../../core/theme'
+import { color, duration, fill, highlight, layout, radius2, spring, stagger, surface, type2 } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { riseIn } from '../../core/ui/motion'
 import { Detail } from '../library/Detail'
@@ -57,13 +57,13 @@ import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
 import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
-import { PANEL, PANEL_INSET } from './ui'
+import { COLUMN_W, PageHeader, PANEL, PANEL_INSET, pageInset, WIDE_W } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
-const COMPACT_W = 880
+const COMPACT_W = layout.sidebar.compactBelow
 /** Below this window width the sidebar keeps its labels but narrows (SIDEBAR_NARROW_W). */
-const NARROW_W = 1100
+const NARROW_W = layout.sidebar.narrowBelow
 const SHORT_H = 520 // the sidebar needs ~420 px; keep the Ready line at mid heights (round 3: it vanished at 1024x700)
 
 // ---- page header ------------------------------------------------------------------------------------------------
@@ -73,29 +73,10 @@ const CAPTION: Partial<Record<PageId, string>> = {}
 
 function Header({ page }: { page: PageId }): ReactNode {
   const label = PAGES.find((p) => p.id === page)?.label ?? ''
-  const caption = CAPTION[page]
   // Home has no title (Michael's brief: no greeting, no date, and the sidebar already says where you are): only the
   // strip that drags the window.
   if (page === 'home') return <header data-drag className="shrink-0" style={{ height: 20 }} />
-  return (
-    <header data-drag className="flex shrink-0 items-end gap-[16px]" style={{ height: 76, padding: '0 40px 10px' }}>
-      <div className="flex min-w-0 items-baseline gap-[12px]">
-        <h1 className="m-0 shrink-0 font-semibold" style={{ fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
-          {label}
-        </h1>
-        {caption && (
-          <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
-            {caption}
-          </span>
-        )}
-      </div>
-      {page === 'lessons' && (
-        <div data-no-drag className="ml-auto flex min-w-0 items-center gap-[12px]">
-          <LessonSearch />
-        </div>
-      )}
-    </header>
-  )
+  return <PageHeader title={label} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : undefined} />
 }
 
 // ---- error boundary -----------------------------------------------------------------------------------------------
@@ -135,6 +116,26 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 /** Home and Skills scroll inside themselves (Home's container queries, the constellation's own list). */
 const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
 
+/**
+ * The column each page's title sits on (content + gutters): 720 for every page, 1040 for Skills (its grid, ui.tsx
+ * WIDE_W; features/shell/pages Column.tsx 'wide'). The header pads in by `--page-inset` for this width, so its left
+ * edge is the content's left edge.
+ *
+ * Who centers the content: a page that scrolls inside itself (SELF_SCROLL: Home, Skills, Progress) centers its own
+ * column inside its own scroller (Home's Column, pages/Column.tsx PageColumn), so its scrollbar stays at the pane's edge
+ * and the wheel works over the whole pane: the shell never pads its body (padding it shrank the scroller to the column,
+ * with the scrollbar floating mid-pane and dead gutters either side). Every other page scrolls in the shell's body,
+ * and the body pads in to a centered BODY_BOX (the padding sits inside the scroller, so the scrollbar stays at the
+ * edge), in which the page's own 720 column centers (pages/Column.tsx PageColumn, library layout.tsx Column, ui.tsx
+ * PageBody).
+ *
+ * BODY_BOX is 760, not 720: those columns switch to 24 px gutters below a 760 px container (their page root), so a 720
+ * box flipped them to the tight gutter and their content sat 16 px left of the title (integration check with the pages
+ * and home lanes, Nov 22). At 760 they keep the 40 px gutter and center exactly under the title.
+ */
+const PAGE_W: Partial<Record<PageId, number>> = { skills: WIDE_W }
+const BODY_BOX = Math.max(COLUMN_W, layout.page.tightBelow)
+
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
   switch (page) {
     case 'home':
@@ -171,14 +172,22 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
       variants={frame}
       initial={reduce ? (active ? 'shown' : 'hidden') : 'hidden'}
       animate={active ? 'shown' : 'hidden'}
-      className="absolute inset-0 flex flex-col"
-      style={{ visibility: active ? 'visible' : 'hidden', color: color.text }}
+      // mg-page-frame: the size container the gutter follows (styles.css), the pane's width.
+      className="mg-page-frame absolute inset-0 flex flex-col"
+      // One centered column for every page (layout lane): the header pads in by --page-inset, and so does the body of a
+      // page the shell scrolls, to BODY_BOX (PAGE_W above).
+      style={{
+        visibility: active ? 'visible' : 'hidden',
+        color: color.text,
+        ['--page-inset' as string]: pageInset(PAGE_W[page] ?? COLUMN_W),
+        ['--page-box-inset' as string]: pageInset(BODY_BOX)
+      }}
     >
       <Header page={page} />
       <div
         data-shell-body={page}
         className={`min-h-0 flex-1 ${SELF_SCROLL.has(page) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
-        style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
+        style={{ paddingInline: SELF_SCROLL.has(page) ? undefined : 'var(--page-box-inset)', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
       >
         <PageBoundary page={page}>
           <Body page={page} active={active && !covered} />

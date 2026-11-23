@@ -27,7 +27,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { cmd } from '../../../../../common/wire'
 import { bridge } from '../../../bridge'
 import { canSend } from '../../../core/lesson'
-import { color, type2 } from '../../../core/theme'
+import { color, layout, type2 } from '../../../core/theme'
 import { beat, fade } from '../../../core/ui/motion'
 import { Keycap } from '../../../core/ui/Keycap'
 import { Login } from '../../auth/Login'
@@ -46,6 +46,19 @@ import { backToSetup, endConsent, endIntro, endLogin, finishFlow, flowCovers, le
 
 /** Below this window width the strip is compact (current label, ticks and dots). */
 const COMPACT_W = 760
+/**
+ * The guided setup's column (layout lane, Nov 22): its steps already center an 860 px column, but its footer (Back /
+ * Allow) spread to the window's corners, about 700 px from the copy in full screen. The view is capped to the page
+ * column (720), so the one primary action sits under the content at every size.
+ */
+const SETUP_W = layout.page.column + 2 * layout.page.gutter
+/**
+ * The setup step's height cap, its footer included: what the first-run window (944x640) has under the strip. Guided
+ * centers a step in whatever height it gets, so in a taller window (full screen: 1016) the step floated mid-window,
+ * 320 px under the strip, with Back / Continue pinned to the bottom. Capped and top-anchored instead: the step's art
+ * starts about 120 from the window's top at every size and its footer sits right under it. Never centered vertically.
+ */
+const SETUP_H = 576
 
 /** One phase's view: absolutely placed so the old one can fade while the new one arrives. */
 function View({ id, children }: { id: string; children: ReactNode }): ReactNode {
@@ -175,7 +188,9 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             )}
             {phase === 'setup' && (
               <View key="setup" id="setup">
-                <Guided chrome="flow" rows={rows} width={width} height={height - 64} enterDelay={arriveDelay} resumeAt={resume} onFinish={toReady} />
+                <div data-flow-column className="mx-auto h-full w-full" style={{ maxWidth: SETUP_W, maxHeight: SETUP_H }}>
+                  <Guided chrome="flow" rows={rows} width={Math.min(width, SETUP_W)} height={Math.min(height - 64, SETUP_H)} enterDelay={arriveDelay} resumeAt={resume} onFinish={toReady} />
+                </div>
               </View>
             )}
             {phase === 'ready' && (

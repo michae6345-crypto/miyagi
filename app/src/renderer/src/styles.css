@@ -15,8 +15,8 @@
   --font-brand: "Google Sans Flex", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   /* v2 (W0-2, core/theme.ts surface / paper): app windows and light surfaces. */
-  --color-window: rgb(21, 20, 18);
-  --color-sheet: #282724;
+  --color-window: #141413;
+  --color-sheet: #2C2B2A;
   --color-paper-surface: #FFFFFF;
   --color-pass-text: #1C8A3C;
 }
@@ -88,6 +88,37 @@ html[data-kind="app"] [data-no-drag] {
 html[data-fullscreen] .mg-lights { height: 12px; }
 html[data-fullscreen] .mg-flow-head { height: 48px; }
 html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
+/*
+ * The app window's page header (features/shell ui.tsx PageHeader): the strip above the title drags the window. Its
+ * height comes from core/theme.ts layout.page.top / topFull through the header's own variables: the title's top sits
+ * 80 below the window's top, 52 in full screen (no title bar to drag). Top-anchored at every size, never centered.
+ */
+.mg-page-head { padding-top: var(--page-head-top); }
+html[data-fullscreen] .mg-page-head { padding-top: var(--page-head-top-full); }
+/*
+ * The page column's gutter (ui.tsx GUTTER): 40, and 24 once the content pane is under 760 wide (layout.page.tightBelow;
+ * the same break as features/shell/pages Column.tsx). Each page frame is the size container, so this follows the pane,
+ * not the window.
+ */
+.mg-page-frame { container-type: inline-size; }
+@container (max-width: 759.98px) {
+  .mg-page-head, [data-shell-body] { --page-gutter: 24px; }
+}
+/*
+ * The sidebar's ready line (features/library Status.tsx, rendered in features/shell Sidebar.tsx): "Ready" is the
+ * engine's state, not a check that passed, and green only means passed (BRAND.md). In the sidebar the filled green
+ * tick becomes the neutral gray status dot (--sidebar-ready-dot, status.watching, set by the sidebar).
+ */
+[data-sidebar-status] div[data-status-word="passed"] > [data-status-glyph="passed"] { display: none; }
+[data-sidebar-status] div[data-status-word="passed"]::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 3px;
+  border-radius: 999px;
+  background: var(--sidebar-ready-dot);
+}
 
 /* Paper surfaces (Plan-Pricing, theme.paper) inside any window. */
 [data-surface="paper"] {
