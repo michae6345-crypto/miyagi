@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS lesson_candidates (
     body_hash  TEXT NOT NULL,              -- sha256 of the normalized lesson JSON (sorted keys)
     net        TEXT NOT NULL,              -- keyed hash (Store.hash_net) of the uploader's network (IPv4 /24, IPv6 /48),
                                            -- for auto-approval and the per-network pending bound; '' once approved
-    status     TEXT NOT NULL DEFAULT 'pending',  -- pending | approved
+    status     TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | revoked (never served, never auto-approved)
     created_at REAL NOT NULL,
     hits       INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (video_id, schema, uploader)
@@ -180,6 +180,15 @@ CREATE TABLE IF NOT EXISTS alerts_sent (
 CREATE TABLE IF NOT EXISTS deletion_requests (
     user_id       TEXT PRIMARY KEY,
     requested_day TEXT NOT NULL
+);
+-- Videos (and schema) whose approved lesson an operator revoked (POST /admin/lessons/{video_id}/revoke). Nothing for
+-- them is auto-approved again, whoever uploads it; only an operator's explicit approve serves one. Kept on its own so an
+-- uploader deleting their account (which deletes their non-approved candidates) cannot lift it. Holds no install.
+CREATE TABLE IF NOT EXISTS lesson_revocations (
+    video_id   TEXT NOT NULL,
+    schema     INTEGER NOT NULL,
+    revoked_at REAL NOT NULL,
+    PRIMARY KEY (video_id, schema)
 );
 """
 
@@ -385,7 +394,8 @@ class Store:
                 self._db.execute("INSERT INTO lesson_candidates (video_id, schema, uploader, body, bytes, body_hash, net, status, "
                                  "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?) ON CONFLICT (video_id, schema, uploader) "
                                  "DO UPDATE SET body = excluded.body, bytes = excluded.bytes, body_hash = excluded.body_hash, "
-                                 "net = excluded.net, status = 'pending', created_at = excluded.created_at",
+                                 "net = excluded.net, created_at = excluded.created_at, "
+                                 "status = CASE WHEN lesson_candidates.status = 'revoked' THEN 'revoked' ELSE 'pending' END",
                                  (video_id, schema, uploader, body, size, body_hash, net, now))
                 self._db.execute("COMMIT")
                 return None
@@ -444,6 +454,42 @@ class Store:
                                      "ORDER BY created_at LIMIT 1", (video_id, schema, body_hash)).fetchone()
             self._approve_row(video_id, schema, first["uploader"])
             return True
+
+    def auto_approve_validated(self, video_id: str, schema: int, uploader: str) -> bool:
+        """Approve this uploader's candidate (it passed lesson_safety.review) unless the video and schema already serve
+        an approved lesson, were revoked by an operator, or this candidate itself is revoked. True when approved."""
+        with self._lock:
+            if self._db.execute("SELECT 1 FROM lesson_revocations WHERE video_id = ? AND schema = ?", (video_id, schema)).fetchone():
+                return False
+            if self._db.execute("SELECT 1 FROM lesson_candidates WHERE video_id = ? AND schema = ? AND status = 'approved'",
+                                (video_id, schema)).fetchone():
+                return False
+            row = self._db.execute("SELECT status FROM lesson_candidates WHERE video_id = ? AND schema = ? AND uploader = ?",
+                                   (video_id, schema, uploader)).fetchone()
+            if row is None or row["status"] != "pending":
+                return False
+            self._approve_row(video_id, schema, uploader)
+            return True
+
+    def revoke_lesson(self, video_id: str, schema: int | None = None) -> list[int]:
+        """Stop serving the approved lesson of `video_id` (one schema, or every schema that has one; with a schema and
+        nothing approved, the revocation is still recorded) and stop auto-approval for it. Returns the schemas revoked."""
+        with self._lock:
+            if schema is None:
+                schemas = [r[0] for r in self._db.execute("SELECT DISTINCT schema FROM lesson_candidates WHERE video_id = ? "
+                                                         "AND status = 'approved'", (video_id,)).fetchall()]
+            else:
+                schemas = [schema]
+            for sc in schemas:
+                self._db.execute("UPDATE lesson_candidates SET status = 'revoked' WHERE video_id = ? AND schema = ? "
+                                 "AND status = 'approved'", (video_id, sc))
+                self._db.execute("INSERT INTO lesson_revocations (video_id, schema, revoked_at) VALUES (?, ?, ?) "
+                                 "ON CONFLICT (video_id, schema) DO UPDATE SET revoked_at = excluded.revoked_at",
+                                 (video_id, sc, time.time()))
+            return schemas
+
+    def revoked(self, video_id: str, schema: int) -> bool:
+        return bool(self._q("SELECT 1 FROM lesson_revocations WHERE video_id = ? AND schema = ?", (video_id, schema)))
 
     def pending_lessons(self, limit: int = 200) -> list[dict]:
         """Pending candidates, newest first, with their body (the admin view shows what it installs and runs)."""
@@ -1008,6 +1054,7 @@ class Store:
         total = self._q(f"SELECT {sums} FROM usage WHERE day >= ?", (since,))[0]
         n_tokens = self._q("SELECT COUNT(*) AS n, COALESCE(SUM(disabled), 0) AS disabled FROM tokens")[0]
         lessons = self._q("SELECT COALESCE(SUM(status = 'approved'), 0) AS cached, COALESCE(SUM(status = 'pending'), 0) AS pending, "
+                          "COALESCE(SUM(status = 'revoked'), 0) AS revoked, "
                           "COALESCE(SUM(hits), 0) AS hits, COALESCE(SUM(bytes), 0) AS bytes FROM lesson_candidates")[0]
         builds = self._q("SELECT COUNT(*) AS n FROM builds WHERE month = ?", (this_month(),))[0]
         events = self._q("SELECT day, name, SUM(count) AS count, COUNT(DISTINCT token_hash) AS installs FROM events "

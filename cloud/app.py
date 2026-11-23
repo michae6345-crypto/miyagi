@@ -210,10 +210,21 @@ LINKED_DAILY_REQUESTS = _env_int("LINKED_DAILY_REQUESTS", 0)
 # million tokens (scene looks are ~2k-token Haiku calls, up to 720 an hour), so 20M only stops a runaway client.
 # Counted from settled usage (not reserved): parallel calls can pass it by about PER_TOKEN_INFLIGHT calls. 0 = off.
 LINKED_DAILY_TOKENS = _env_int("LINKED_DAILY_TOKENS", 20_000_000)
-# Sign-in required for model calls (default off: the app offers "Continue without an account" and the privacy policy
-# says signing in is optional). On: /v1/anthropic, /v1/gemini and POST /v1/lessons/{id}/build answer 401
-# signin_required unless the install is linked to a Supabase user (POST /v1/link). Every other route stays open.
-REQUIRE_SIGNIN = _env_bool("REQUIRE_SIGNIN", False)
+# Sign-in required (README, "Sign-in required"), a mode. Default off: the app offers "Continue without an account" and
+# the privacy policy says signing in is optional.
+#   "0" / "off": today's behaviour, guests (unlinked installs) use everything under FREE_DAILY_USD.
+#   "build": starting a new lesson build (POST /v1/lessons/{id}/build) needs an install linked to a Supabase user
+#            (POST /v1/link), else 401 signin_required; guests may still make runtime model calls, capped at
+#            ANON_DAILY_USD per install per UTC day (429 limit anon_daily_cap) instead of FREE_DAILY_USD.
+#   "all" (also "1"): every route that spends money (/v1/anthropic, /v1/gemini, the build claim) needs a link.
+# Every other route stays open in every mode. An unknown value is logged and treated as off.
+_signin_raw = os.environ.get("REQUIRE_SIGNIN", "0").strip().lower()
+REQUIRE_SIGNIN = ("build" if _signin_raw == "build" else "all" if _signin_raw in ("all", "1", "true", "yes", "on")
+                  else "off")
+if _signin_raw not in ("", "0", "off", "false", "no", "build", "all", "1", "true", "yes", "on"):
+    log.error("REQUIRE_SIGNIN=%r is not off, build or all: treated as off", _signin_raw[:20])
+# Guests' runtime model calls in "build" mode, per install per UTC day (the anonymous network pool still applies).
+ANON_DAILY_USD = _env_float("ANON_DAILY_USD", 0.50)
 LINK_MAX_INSTALLS_PER_USER = _env_int("LINK_MAX_INSTALLS_PER_USER", 10)
 # Every anonymous install minted from one network (mint bucket: IPv4 address or IPv6 /48) together, per UTC day,
 # so minting many installs cannot multiply FREE_DAILY_USD. 0 = off.
@@ -254,6 +265,10 @@ MAX_LESSON_BYTES = int(_env_float("MAX_LESSON_KB", 128) * 1024)
 LESSON_SCHEMAS = frozenset(int(x) for x in _env_list("LESSON_SCHEMAS", "1") if x.isdigit())
 LESSON_PUTS_PER_DAY = _env_int("LESSON_PUTS_PER_DAY", 10)
 LESSON_AUTO_APPROVE_N = _env_int("LESSON_AUTO_APPROVE_N", 0)
+# Approve an upload as soon as it passes the engine's untrusted-lesson checks on the server (lesson_safety.review: paths,
+# regex shapes, limits) on top of validate_lesson, unless the video already serves a lesson or an operator revoked it.
+# Off in code; render.yaml turns it on (staging first). A lesson with any problem stays pending for an operator.
+LESSON_AUTO_APPROVE_VALIDATED = _env_bool("LESSON_AUTO_APPROVE_VALIDATED", False)
 LESSON_DISK_MAX_PCT = _env_float("LESSON_DISK_MAX_PCT", 85)
 # Pending (unreviewed) uploads: dropped after this many days, and at most this many bytes in total and per uploader
 # network (IPv4 /24, IPv6 /48), so minted tokens cannot fill the disk (and trip the gate above for honest uploads).
@@ -843,16 +858,18 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
 SIGNIN_REQUIRED = {"error": "signin_required", "message": "Sign in to keep using miyagi."}
 
 
-def authenticate_model_call(request: Request) -> tuple[str | None, JSONResponse | None]:
-    """authenticate() for the routes that spend money (/v1/anthropic, /v1/gemini, POST /v1/lessons/{id}/build). With
-    REQUIRE_SIGNIN on, an install that is not linked to a Supabase user (the links table, POST /v1/link) gets
+def authenticate_model_call(request: Request, build: bool = False) -> tuple[str | None, JSONResponse | None]:
+    """authenticate() for the routes that spend money (/v1/anthropic, /v1/gemini, and with build=True the routes that
+    start a new lesson build: POST /v1/lessons/{id}/build). REQUIRE_SIGNIN "all" (every such route) or "build" (build
+    routes only): an install that is not linked to a Supabase user (the links table, POST /v1/link) gets
     401 {"error": "signin_required", ...} after the token checks (unknown 401, disabled 403) and before anything else.
     The flat shape is the one /v1/link uses. Caution: the engine on integration/live reads every cloud 401 as an
     unknown token and asks the app to mint a new one; it must read this error first before the flag is turned on."""
     token_hash, denied = authenticate(request)
     if denied:
         return None, denied
-    if REQUIRE_SIGNIN and not request.state.linked:
+    gated = REQUIRE_SIGNIN == "all" or (REQUIRE_SIGNIN == "build" and build)
+    if gated and not request.state.linked:
         return None, JSONResponse(SIGNIN_REQUIRED, status_code=401, headers={"x-should-retry": "false"})
     return token_hash, None
 
@@ -874,7 +891,7 @@ def _iso(t: datetime) -> str:
 def quota_error(kind: str, limit: str, used: int | float, cap: int | float, resets: datetime, message: str,
                 **extra) -> JSONResponse:
     """429 in error()'s shape plus what the app needs to show it: `limit` (lesson_builds | daily_requests |
-    daily_spend | daily_usd | lesson_uploads | user_daily_cap), `used`, `cap` and `resets_at`. `x-should-retry: false`
+    daily_spend | daily_usd | lesson_uploads | user_daily_cap | anon_daily_cap), `used`, `cap` and `resets_at`. `x-should-retry: false`
     stops the SDKs' automatic retries. The engine reads type `miyagi_quota` (server/config.py CLOUD_ERRORS) and
     `miyagi_lesson_quota` (lesson cache)."""
     body = {"type": "error", "error": {"type": kind, "status": kind.upper(), "code": 429, "message": message,
@@ -900,16 +917,18 @@ def _caps(token_hash: str) -> dict:
     row = store.get_token(token_hash) or {}
     none = {"net": None, "net_usd_cap": 0.0}
     if row.get("plan") == "pro":
-        return {"daily_cap": 0, "usd_cap": 0.0, "token_cap": 0, "user_id": None, **none}
+        return {"daily_cap": 0, "usd_cap": 0.0, "token_cap": 0, "user_id": None, "guest": False, **none}
     link = store.get_link(token_hash)
     if link:
         return {"daily_cap": LINKED_DAILY_REQUESTS, "usd_cap": LINKED_DAILY_USD, "token_cap": LINKED_DAILY_TOKENS,
-                "user_id": link["user_id"], **none}
-    return {"daily_cap": FREE_DAILY_REQUESTS, "usd_cap": FREE_DAILY_USD, "token_cap": 0, "user_id": None,
-            "net": row.get("mint_net"), "net_usd_cap": ANON_DAILY_USD_PER_NETWORK}
+                "user_id": link["user_id"], "guest": False, **none}
+    guest = REQUIRE_SIGNIN == "build"  # guests keep runtime calls, under the smaller ANON_DAILY_USD
+    return {"daily_cap": FREE_DAILY_REQUESTS, "usd_cap": ANON_DAILY_USD if guest else FREE_DAILY_USD, "token_cap": 0,
+            "user_id": None, "net": row.get("mint_net"), "net_usd_cap": ANON_DAILY_USD_PER_NETWORK, "guest": guest}
 
 
 USER_DAILY_CAP_MESSAGE = "You've used today's free help. It resets at midnight UTC."
+ANON_DAILY_CAP_MESSAGE = "You've used today's free guest help. Sign in to keep going, or come back tomorrow."
 _USER_CAP_UNIT = {"daily": "requests", "usd": "usd", "tokens": "tokens"}
 
 
@@ -926,6 +945,7 @@ def check_quota(token_hash: str, role: str | None, provider: str, model: str, re
     3. Anonymous installs: ANON_DAILY_USD_PER_NETWORK for every unlinked install minted from the same network.
     The lesson build cap lives on POST /v1/lessons/{id}/build, the new-install cap on POST /v1/install.
 
+    REQUIRE_SIGNIN "build": a guest's dollar cap is ANON_DAILY_USD and answers limit "anon_daily_cap".
     A linked user's caps answer limit "user_daily_cap" (unit usd | tokens | requests, scope account) with the
     "today's free help" message; the type stays miyagi_quota, which is what the engine shows its limit card for."""
     c = _caps(token_hash)
@@ -938,6 +958,9 @@ def check_quota(token_hash: str, role: str | None, provider: str, model: str, re
         unit = _USER_CAP_UNIT[hit]
         return quota_error("miyagi_quota", "user_daily_cap", round(used, 4) if unit == "usd" else int(used), cap,
                            _next_utc_midnight(), USER_DAILY_CAP_MESSAGE, scope="account", unit=unit)
+    if c["guest"] and hit == "usd":
+        return quota_error("miyagi_quota", "anon_daily_cap", round(used, 4), cap, _next_utc_midnight(),
+                           ANON_DAILY_CAP_MESSAGE, scope="install", unit="usd")
     if hit == "global_usd":
         log.warning("daily USD brake reached: est. $%.2f of $%.2f", used, DAILY_USD_CAP)
         alert("brake", f"miyagi-cloud: the global spend brake (DAILY_USD_CAP ${DAILY_USD_CAP:.2f}) is reached at est. "
@@ -2161,6 +2184,7 @@ async def install(request: Request):
 # proxy with the anonymous caps, and signing out never unlinks. Errors use the flat {"error": kind} shape the app's
 # link client reads.
 
+import lesson_safety  # noqa: E402  (the engine's untrusted-lesson checks, for LESSON_AUTO_APPROVE_VALIDATED)
 import supabase_auth  # noqa: E402  (kept beside the one route that uses it)
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 
@@ -2692,8 +2716,8 @@ async def get_lesson(video_id: str, request: Request):
 @app.post("/v1/lessons/{video_id}/build")
 async def claim_lesson_build(video_id: str, request: Request):
     """Use one of this month's new-lesson builds for `video_id` (free for a video already claimed this month). The
-    gate to the expensive build calls, so it needs a sign-in when REQUIRE_SIGNIN is on."""
-    token_hash, denied = authenticate_model_call(request)
+    gate to the expensive build calls, so it needs a sign-in when REQUIRE_SIGNIN is "build" or "all"."""
+    token_hash, denied = authenticate_model_call(request, build=True)
     if denied:
         return denied
     if not VIDEO_ID_RE.fullmatch(video_id):
@@ -2755,11 +2779,21 @@ async def put_lesson(video_id: str, request: Request):
                     "the total" if full == "pending_total" else "its network's")
         return error(507, "insufficient_storage", "Too many lessons are waiting for review right now. "
                      "Your lesson still works on this Mac.")
-    approved = store.auto_approve(video_id, schema, digest, LESSON_AUTO_APPROVE_N)
-    if approved:
-        log.info("lesson %s schema %s auto-approved (%d matching uploads)", video_id, schema, LESSON_AUTO_APPROVE_N)
+    problems = lesson_safety.review(lesson)
+    approved = False
+    if LESSON_AUTO_APPROVE_VALIDATED and not problems:
+        approved = store.auto_approve_validated(video_id, schema, token_hash)
+        if approved:
+            log.info("lesson %s schema %s auto-approved (passed the server-side lesson checks)", video_id, schema)
+    if not approved and not problems and LESSON_AUTO_APPROVE_N > 0 and not store.revoked(video_id, schema):
+        approved = store.auto_approve(video_id, schema, digest, LESSON_AUTO_APPROVE_N)
+        if approved:
+            log.info("lesson %s schema %s auto-approved (%d matching uploads)", video_id, schema, LESSON_AUTO_APPROVE_N)
+    if problems:
+        log.info("lesson %s schema %s stays pending: %d problem(s) in the server-side lesson checks", video_id, schema,
+                 len(problems))
     return JSONResponse({"stored": True, "status": "approved" if approved else "pending", "video_id": video_id,
-                         "schema": schema, "hash": digest[:16]}, status_code=201)
+                         "schema": schema, "hash": digest[:16], "problems": problems[:20]}, status_code=201)
 
 
 # --------------------------------------------------------------------------- product events: POST /v1/events
@@ -2965,7 +2999,8 @@ async def admin_pending_lessons(request: Request):
     out = []
     for p in store.pending_lessons():
         try:
-            review = lesson_review(json.loads(p.pop("body")))
+            lesson = json.loads(p.pop("body"))
+            review = {**lesson_review(lesson), "problems": lesson_safety.review(lesson)}
         except ValueError:
             review = {"libraries": [], "commands": [], "files": [], "unreadable": True}
         out.append({**p, **review, "full": f"/admin/lessons/{p['video_id']}/candidates/{p['hash']}"})
@@ -3021,6 +3056,30 @@ async def admin_approve_lesson(video_id: str, request: Request):
         return error(409, "conflict", f"{len(groups)} candidates match; use a longer hash or give the schema.")
     log.info("admin: approved lesson %s schema %s hash %s", video_id, groups[0]["schema"], groups[0]["body_hash"][:16])
     return {"video_id": video_id, "schema": groups[0]["schema"], "hash": groups[0]["body_hash"][:16], "status": "approved"}
+
+
+class RevokeBody(BaseModel):
+    schema_: int | None = Field(default=None, alias="schema")
+
+
+@app.post("/admin/lessons/{video_id}/revoke")
+async def admin_revoke_lesson(video_id: str, request: Request):
+    """Pull the approved lesson of a video (every schema, or `{"schema": N}`): it is no longer served, its candidate
+    is marked revoked, and nothing for that video and schema is auto-approved again (an operator's approve still works).
+    The next learner builds the video again. Body optional ({} or none)."""
+    if denied := require_admin(request):
+        return denied
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    schema = None
+    if request.headers.get("content-length", "0") not in ("", "0"):
+        body = await read_model(request, RevokeBody)
+        if isinstance(body, JSONResponse):
+            return body
+        schema = body.schema_
+    schemas = store.revoke_lesson(video_id, schema)
+    log.warning("admin: revoked lesson %s schema(s) %s", video_id, schemas)
+    return {"video_id": video_id, "revoked": schemas, "status": "revoked"}
 
 
 @app.delete("/admin/lessons/by-uploader/{prefix}")

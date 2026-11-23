@@ -110,16 +110,24 @@ def call(client, h, method, path, body):
 def test_defaults():
     """Read the code defaults, not the test env: the flag is off and the token cap is 20M."""
     src = (CLOUD / "app.py").read_text()
-    assert 'REQUIRE_SIGNIN = _env_bool("REQUIRE_SIGNIN", False)' in src
+    assert 'os.environ.get("REQUIRE_SIGNIN", "0")' in src and 'ANON_DAILY_USD = _env_float("ANON_DAILY_USD", 0.50)' in src
     assert 'LINKED_DAILY_TOKENS = _env_int("LINKED_DAILY_TOKENS", 20_000_000)' in src
     render = (CLOUD / "render.yaml").read_text()
     assert '- key: REQUIRE_SIGNIN\n        value: "0"' in render
+    assert '- key: ANON_DAILY_USD        # a guest' in render
 
 
 def test_flag_defaults_to_off_when_unset(make_cloud):
-    client, app_mod = make_cloud(unset=("REQUIRE_SIGNIN", "LINKED_DAILY_TOKENS"))
-    assert app_mod.REQUIRE_SIGNIN is False and app_mod.LINKED_DAILY_TOKENS == 20_000_000
-    assert client.get("/healthz").json()["require_signin"] is False
+    client, app_mod = make_cloud(unset=("REQUIRE_SIGNIN", "LINKED_DAILY_TOKENS", "ANON_DAILY_USD"))
+    assert app_mod.REQUIRE_SIGNIN == "off" and app_mod.LINKED_DAILY_TOKENS == 20_000_000 and app_mod.ANON_DAILY_USD == 0.5
+    assert client.get("/healthz").json()["require_signin"] == "off"
+
+
+@pytest.mark.parametrize("raw,mode", [("0", "off"), ("off", "off"), ("", "off"), ("build", "build"), ("BUILD", "build"),
+                                      ("all", "all"), ("1", "all"), ("true", "all"), ("builds", "off"), ("yes please", "off")])
+def test_mode_parsing(make_cloud, raw, mode):
+    client, app_mod = make_cloud(REQUIRE_SIGNIN=raw)
+    assert app_mod.REQUIRE_SIGNIN == mode and client.get("/healthz").json()["require_signin"] == mode
 
 
 # --------------------------------------------------------------------------- 1. REQUIRE_SIGNIN
@@ -132,8 +140,9 @@ def test_flag_off_anonymous_installs_still_reach_every_model_route(make_cloud, m
 
 
 @pytest.mark.parametrize("method,path,body,passed", MODEL_ROUTES, ids=ROUTE_IDS)
-def test_flag_on_anonymous_install_gets_signin_required_on_every_model_route(make_cloud, method, path, body, passed):
-    client, app_mod = make_cloud(REQUIRE_SIGNIN="1")
+@pytest.mark.parametrize("mode", ["all", "1"])
+def test_mode_all_anonymous_install_gets_signin_required_on_every_model_route(make_cloud, mode, method, path, body, passed):
+    client, app_mod = make_cloud(REQUIRE_SIGNIN=mode)
     h = install(client)
     r = call(client, h, method, path, body)
     assert r.status_code == 401 and r.json() == SIGNIN_BODY
@@ -143,8 +152,9 @@ def test_flag_on_anonymous_install_gets_signin_required_on_every_model_route(mak
 
 
 @pytest.mark.parametrize("method,path,body,passed", MODEL_ROUTES, ids=ROUTE_IDS)
-def test_flag_on_linked_install_passes_every_model_route(make_cloud, method, path, body, passed):
-    client, app_mod = make_cloud(REQUIRE_SIGNIN="1")
+@pytest.mark.parametrize("mode", ["build", "all"])
+def test_linked_install_passes_every_model_route_in_every_mode(make_cloud, mode, method, path, body, passed):
+    client, app_mod = make_cloud(REQUIRE_SIGNIN=mode)
     h = install(client)
     app_mod.store.link_user(th(app_mod, h), USER)
     r = call(client, h, method, path, body)
@@ -152,7 +162,7 @@ def test_flag_on_linked_install_passes_every_model_route(make_cloud, method, pat
 
 
 def test_flag_on_signing_in_through_v1_link_unlocks_the_install(make_cloud):
-    client, _ = make_cloud(REQUIRE_SIGNIN="1")
+    client, _ = make_cloud(REQUIRE_SIGNIN="all")
     h = install(client)
     assert client.post("/v1/anthropic/v1/messages", headers=h, json=ANTHROPIC_BODY).status_code == 401
     r = client.post("/v1/link", headers=h, json={"access_token": access_token()})
@@ -161,14 +171,15 @@ def test_flag_on_signing_in_through_v1_link_unlocks_the_install(make_cloud):
 
 
 def test_flag_on_gemini_off_still_answers_signin_first(make_cloud):
-    client, _ = make_cloud(REQUIRE_SIGNIN="1", ALLOWED_GEMINI_MODELS="none")
+    client, _ = make_cloud(REQUIRE_SIGNIN="all", ALLOWED_GEMINI_MODELS="none")
     h = install(client)
     r = client.post("/v1/gemini/gemini-3.8-flash:generateContent", headers=h, json=GEMINI_BODY)
     assert r.status_code == 401 and r.json() == SIGNIN_BODY
 
 
-def test_flag_on_token_errors_keep_their_own_answers(make_cloud):
-    client, app_mod = make_cloud(REQUIRE_SIGNIN="1")
+@pytest.mark.parametrize("mode", ["build", "all"])
+def test_flag_on_token_errors_keep_their_own_answers(make_cloud, mode):
+    client, app_mod = make_cloud(REQUIRE_SIGNIN=mode)
     r = client.post("/v1/anthropic/v1/messages", headers={"Authorization": "Bearer mi_unknown"}, json=ANTHROPIC_BODY)
     assert r.status_code == 401 and r.json()["error"]["type"] == "authentication_error"
     r = client.post("/v1/anthropic/v1/messages", json=ANTHROPIC_BODY)
@@ -181,17 +192,68 @@ def test_flag_on_token_errors_keep_their_own_answers(make_cloud):
 
 
 def test_flag_on_pro_is_not_exempt(make_cloud):
-    client, app_mod = make_cloud(REQUIRE_SIGNIN="1")
+    client, app_mod = make_cloud(REQUIRE_SIGNIN="all")
     h = install(client)
     prefix = th(app_mod, h)[:12]
     assert client.post(f"/admin/tokens/{prefix}/plan", json={"plan": "pro"}, headers=ADMIN).status_code == 200
     assert client.post("/v1/anthropic/v1/messages", headers=h, json=ANTHROPIC_BODY).status_code == 401
 
 
-def test_flag_on_non_model_routes_stay_open(make_cloud):
-    client, app_mod = make_cloud(REQUIRE_SIGNIN="1")
+# REQUIRE_SIGNIN=build: the build claim needs a link, runtime calls stay open for guests under ANON_DAILY_USD
+
+RUNTIME_ROUTES = [r for r in MODEL_ROUTES if "/lessons/" not in r[1]]
+
+
+def test_mode_build_guest_gets_signin_required_on_the_build_route(make_cloud):
+    client, app_mod = make_cloud(REQUIRE_SIGNIN="build")
+    h = install(client)
+    r = client.post(f"/v1/lessons/{VID}/build", headers=h)
+    assert r.status_code == 401 and r.json() == SIGNIN_BODY
+    assert app_mod.store.builds_in_month(th(app_mod, h)) == 0
+    r = client.post("/v1/link", headers=h, json={"access_token": access_token()})
+    assert r.status_code == 200
+    assert client.post(f"/v1/lessons/{VID}/build", headers=h).status_code == 200
+
+
+@pytest.mark.parametrize("method,path,body,passed", RUNTIME_ROUTES, ids=[f"{m} {p}" for m, p, _, _ in RUNTIME_ROUTES])
+def test_mode_build_guest_keeps_runtime_model_calls(make_cloud, method, path, body, passed):
+    client, _ = make_cloud(REQUIRE_SIGNIN="build")
+    r = call(client, install(client), method, path, body)
+    assert r.status_code == passed, r.text
+
+
+def test_mode_build_guest_runtime_calls_are_capped_at_anon_daily_usd(make_cloud):
+    client, app_mod = make_cloud(REQUIRE_SIGNIN="build", unset=("ANON_DAILY_USD",), FREE_DAILY_USD="2.00")
+    h, linked = install(client), install(client)
+    app_mod.store.link_user(th(app_mod, linked), USER)
+    app_mod.store.add_tokens(th(app_mod, h), "anthropic", HAIKU, 10, 10, 0.50)
+    app_mod.store.add_tokens(th(app_mod, linked), "anthropic", HAIKU, 10, 10, 0.50)
+    r = client.post("/v1/anthropic/v1/messages", headers=h, json=ANTHROPIC_BODY)
+    assert r.status_code == 429, r.text
+    err = r.json()["error"]
+    assert err["type"] == "miyagi_quota" and err["limit"] == "anon_daily_cap" and err["scope"] == "install"
+    assert err["cap"] == 0.5 and err["used"] == 0.5 and err["unit"] == "usd"
+    assert err["resets_at"] == _midnight_iso() and r.headers["x-should-retry"] == "false"
+    assert "Sign in" in err["message"]
+    assert client.post("/v1/anthropic/v1/messages", headers=linked, json=ANTHROPIC_BODY).status_code == 502  # not a guest
+    assert client.post("/v1/anthropic/v1/messages", headers=install(client), json=ANTHROPIC_BODY).status_code == 502
+
+
+@pytest.mark.parametrize("mode", ["off", "all"])
+def test_anon_daily_usd_only_applies_in_build_mode(make_cloud, mode):
+    client, app_mod = make_cloud(REQUIRE_SIGNIN=mode, ANON_DAILY_USD="0.50", FREE_DAILY_USD="2.00")
+    h = install(client)
+    if mode == "all":
+        app_mod.store.link_user(th(app_mod, h), USER)
+    app_mod.store.add_tokens(th(app_mod, h), "anthropic", HAIKU, 10, 10, 0.50)
+    assert client.post("/v1/anthropic/v1/messages", headers=h, json=ANTHROPIC_BODY).status_code == 502
+
+
+@pytest.mark.parametrize("mode", ["build", "all"])
+def test_flag_on_non_model_routes_stay_open(make_cloud, mode):
+    client, app_mod = make_cloud(REQUIRE_SIGNIN=mode)
     health = client.get("/healthz")
-    assert health.status_code == 200 and health.json()["require_signin"] is True
+    assert health.status_code == 200 and health.json()["require_signin"] == mode
     h = install(client)  # /v1/install
     r = client.post("/v1/register", json={"install_id": "x", "app_version": "1", "platform": "darwin"})
     assert r.status_code == 200

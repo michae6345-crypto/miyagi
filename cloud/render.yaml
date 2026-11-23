@@ -120,11 +120,13 @@ services:
         value: "0"
       - key: LINKED_DAILY_TOKENS   # per signed-in user per UTC day (input + output): a backstop under LINKED_DAILY_USD
         value: "20000000"
-      # Sign-in required for model calls. "1" breaks "Continue without an account" in the app and contradicts the
-      # privacy policy (signing in is optional): turn it on only with Michael's yes, an app/engine that handles
-      # 401 signin_required, and an updated policy.
+      # Sign-in required: "0" off, "build" (new lesson builds need an account; guests keep runtime calls under
+      # ANON_DAILY_USD), "all" (every call that spends money). Not "0" only once the engine reads 401 signin_required
+      # (instead of minting a new token), the app prompts for sign-in, and the privacy policy says so (README).
       - key: REQUIRE_SIGNIN
         value: "0"
+      - key: ANON_DAILY_USD        # a guest install's runtime calls per UTC day, only with REQUIRE_SIGNIN=build
+        value: "0.50"
       - key: FREE_LESSON_BUILDS_PER_MONTH
         value: "3"
       - key: NEW_INSTALLS_PER_DAY  # new installs per UTC day, every network; past it "miyagi is full today" (D13)
@@ -147,6 +149,8 @@ services:
         value: "10"
       - key: LESSON_AUTO_APPROVE_N
         value: "0"
+      - key: LESSON_AUTO_APPROVE_VALIDATED  # approve an upload that passes the server-side lesson checks (lesson_safety.py)
+        value: "1"
       - key: LESSON_DISK_MAX_PCT
         value: "85"
       - key: LESSON_PENDING_MAX_DAYS  # unreviewed uploads older than this are dropped
