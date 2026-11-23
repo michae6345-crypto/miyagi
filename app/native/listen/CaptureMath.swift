@@ -21,7 +21,8 @@ struct CapturePlan: Equatable {
 }
 
 enum CaptureMath {
-    /// 1092 px on the long edge keeps an image at or under about 1,568 tokens, so the API never resizes it.
+    /// 1092 px on the long edge: the API's documented 1:1 size (1092x1092) that it sends as is, never resized. A full
+    /// 1092x1092 crop is about 1,590 tokens (w * h / 750); a wider or taller crop is fewer.
     static let maxEdge = 1092
     static let jpegQuality = 0.82
     /// Smallest box worth sending, in points (a dot of ink is not a question about anything).

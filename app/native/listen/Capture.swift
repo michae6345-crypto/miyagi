@@ -10,6 +10,7 @@ import ScreenCaptureKit
 //   helper -> main  {"type":"capture","id":"cap-1","path":"/.../miyagi-capture/cap-<uuid>.jpg","w":1092,"h":683,
 //                    "pxPerPoint":2.0,"rect":{"x":52,"y":50,"w":416,"h":260},"displayId":1,"ms":142}
 //              or   {"type":"capture","id":"cap-1","error":"screen_denied","message":"...","ms":3}
+//   helper -> main  {"type":"capture-warm","ok":true,"ms":180}   once per process, first chord-down (Capture.warm)
 //
 // rect: global screen points, top-left origin (Electron's screen space; the contract's ScreenRegion). displayId: the
 // CGDirectDisplayID (Electron's Display.id). margin: 0 to 0.5 of the box added on every side. The answer's rect is the
@@ -202,17 +203,65 @@ final class ShareableCache {
     }
 }
 
+/// The once-per-process screenshot warm-up (Capture.warm): claimed by the first key-down, given back if it failed.
+enum ScreenshotWarm {
+    private static let lock = NSLock()
+    private static var claimed = false
+
+    static func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
+    }
+
+    static func failed() {
+        lock.lock(); defer { lock.unlock() }
+        claimed = false
+    }
+}
+
 enum Capture {
     static var simulate = false
 
     static func screenGranted() -> Bool { CGPreflightScreenCaptureAccess() }
 
-    /// Key-down: fetch the shareable content now so the capture at circle-close skips it. Never prompts.
+    /// Key-down: fetch the shareable content now so the capture at circle-close skips it, and once per helper process
+    /// take one tiny throwaway screenshot, because the first SCScreenshotManager.captureImage in a process is the slow
+    /// one (it sets up the capture service). Never prompts: only runs once Screen Recording is granted. The warm-up
+    /// image (16x16 points of a display) is dropped at once: never written, sent or logged. Its time goes to main as
+    /// {"type":"capture-warm","ok","ms"}, which main logs next to each capture's ms. A failed warm-up is tried again
+    /// on the next key-down.
     static func warm() {
         guard !simulate, screenGranted() else { return }
         if #available(macOS 14.0, *) {
-            Task.detached { _ = try? await ShareableCache.shared.get() }
+            let first = ScreenshotWarm.claim()
+            Task.detached {
+                let started = Date()
+                guard let content = try? await ShareableCache.shared.get() else {
+                    if first { ScreenshotWarm.failed() }
+                    return
+                }
+                guard first else { return }
+                let ok = await warmScreenshot(content)
+                if !ok { ScreenshotWarm.failed() }
+                Out.emit("capture-warm", [("ok", ok), ("ms", Int(Date().timeIntervalSince(started) * 1000))])
+            }
         }
+    }
+
+    @available(macOS 14.0, *)
+    static func warmScreenshot(_ content: SCShareableContent) async -> Bool {
+        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
+            return false
+        }
+        let cfg = SCStreamConfiguration()
+        cfg.sourceRect = CGRect(x: 0, y: 0, width: 16, height: 16)
+        cfg.width = 16
+        cfg.height = 16
+        cfg.showsCursor = false
+        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+        return (try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)) != nil
     }
 
     static func num(_ v: Any?) -> Double? {

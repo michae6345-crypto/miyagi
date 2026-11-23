@@ -12,7 +12,8 @@ import CoreGraphics
 //   miyagi-listen --windows --pid N | --owner NAME   print matching windows (layer, bounds, on-screen, z) as one JSON line and exit 0
 //
 // stdin also takes {"cmd":"capture",...}: one region of the screen as a JPEG file for circle to ask, and
-// {"cmd":"capture-release","id"|"path"}: delete that capture now (Capture.swift).
+// {"cmd":"capture-release","id"|"path"}: delete that capture now (Capture.swift). Once per process, on the first
+// chord-down with Screen Recording granted, stdout says {"type":"capture-warm","ok","ms"} (the screenshot warm-up).
 
 setvbuf(stdout, nil, _IOLBF, 0)
 signal(SIGPIPE, SIG_IGN)
@@ -100,7 +101,7 @@ func syncTap() {
 }
 
 tap.onChord = { down in
-    if down { Capture.warm() }   // circle to ask: the capture at circle-close skips the window list fetch
+    if down { Capture.warm() }   // circle to ask: the window list now, and the first (slow) screenshot once per process
     ctl.chordChanged(down: down)
 }
 tap.onKeyDown = { code in ctl.keyDown(keyCode: code) }
