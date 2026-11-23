@@ -36,6 +36,7 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 ```python
 screen = coach.ScreenContext.from_observation(obs, image, cursor=(x, y), file=ax_file, line=ax_line, element=ax_el)
 await coach.warm()                                   # at start and after set_lesson: TLS + cached prefix (both schemas)
+await coach.circle_warm(step)                        # ask.warm (push to talk held): TLS + the circle ask prefix, same thinking/effort
 task = coach.inflight.start("diagnose", coach.diagnose(step, failed, metrics, code, screen=screen,
                                                        on_targets=lambda t: send_spotlight(t[0]["rect"])))
 coach.cancel()                                       # on any real user action: aborts the stream

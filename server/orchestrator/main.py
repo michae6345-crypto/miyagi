@@ -72,6 +72,7 @@ from .session import LessonSession
 from .watcher import Watcher
 from .inputs import Inputs
 from .workspace import Workspace
+from .ask_warm import AskWarm
 
 log = logging.getLogger("orchestrator")
 
@@ -116,7 +117,7 @@ def _engine_version() -> str:
 ENGINE_VERSION = _engine_version()
 CONTRACT_VERSION = getattr(contract, "CONTRACT_VERSION", None) or "2026-11-20"  # W0-1: the shapes this engine sends
 V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
-               "panel.state", "review.start", "data.delete")
+               "panel.state", "review.start", "data.delete", "ask.warm")
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
@@ -375,6 +376,9 @@ def _parse_v2(type_: str, payload: Any) -> SimpleNamespace:
             return " ".join(v.split())[:80] if isinstance(v, str) else ""
 
         return SimpleNamespace(skillId=_t(p.get("skillId")), label=_t(p.get("label")))
+    if type_ == "ask.warm":  # {pttId?}: for logs only; anything else reads as absent (Nov 22, ask_warm.py)
+        pid = p.get("pttId")
+        return SimpleNamespace(pttId=pid if isinstance(pid, str) and LIBRARY_ID_RE.fullmatch(pid) else None)
     if type_ == "panel.state":
         if not isinstance(p.get("open"), bool):
             raise ValueError("panel.state: open must be true or false")
@@ -579,6 +583,7 @@ class Engine:
         # learner answered it (Continue / Start new) or closed it
         self._offered_to: set[Any] = set()
         self._offer_answered = False
+        self.ask_warm = AskWarm(self.session)  # Nov 22: ask.warm (push to talk held: warm links + the circle prefix)
         # E7: the app left: no screen reading / looks / cards (an engine that never had one, e.g. rehearse_boxes, goes on)
         self.session.app_left = lambda: not self.hub.clients and self.last_client_gone is not None
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
@@ -765,6 +770,9 @@ class Engine:
         if hasattr(self.session, "panel_state"):
             caps.append("panel.state")
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
+        warm = getattr(self, "ask_warm", None)
+        if warm is not None and warm.available():  # Nov 22: push to talk warm-up (ask_warm.py); only with the real coach
+            caps.append("ask.warm")
         return caps
 
     def hello(self, restored: bool = False) -> dict:
@@ -877,8 +885,8 @@ class Engine:
         return contract_progress(p) if p is not None else None
 
     async def handle_v2(self, type_: str, p: Any, reply: Any) -> None:
-        """health.get, permission.open, library.list, library.get, progress.get, panel.state, data.delete. Every blocking
-        call runs in a thread; replies go to the app that asked."""
+        """health.get, permission.open, library.list, library.get, progress.get, panel.state, data.delete, ask.warm.
+        Every blocking call runs in a thread; replies go to the app that asked."""
         s = self.session
         s.note_app_v2(type_)  # E3: lesson.paused / blocker / the complete card go out from now on
         self.ensure_status()
@@ -904,6 +912,8 @@ class Engine:
             await reply("progress", await self.progress_payload() or {})
         elif type_ == "panel.state":
             await s.panel_state(p.open, _rect(p.rect))
+        elif type_ == "ask.warm":  # Nov 22: keep-alive links + the circle prefix cached; no reply, never blocks
+            self.ask_warm.kick(getattr(p, "pttId", None))
         elif type_ == "data.delete":  # Settings > Privacy > Delete my data: the engine's local lesson notes go too
             await asyncio.to_thread(_wipe_context_memory, s)  # no reply: the app's sheet already says what it erased
 

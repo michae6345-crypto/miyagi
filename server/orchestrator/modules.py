@@ -657,6 +657,21 @@ class Modules:
                               step, question, region, obs=obs, image=image, context=context, ask_id=ask_id)
         return self._public(out)
 
+    def has_circle_warm(self) -> bool:
+        """ask.warm can do something: the real coach is here (not DEMO, not stubbed)."""
+        return not self.demo and self._real_fn("coach", "circle_warm") is not None
+
+    async def circle_warm(self, step: dict | None) -> dict | None:
+        """ask.warm (ask_warm.py): keep-alive links + the circle prefix in the prompt cache. Best effort, never raises;
+        None when there is nothing to warm (DEMO, stubs, no coach)."""
+        if not self.has_circle_warm():
+            return None
+        try:
+            return await _call(self._real_fn("coach", "circle_warm"), step)
+        except Exception as e:  # noqa: BLE001 - warming is best-effort
+            log.warning("coach.circle_warm failed: %s", type(e).__name__)
+            return None
+
     def has_pointing(self) -> bool:
         return self._real_fn("coach", "show_me") is not None
 

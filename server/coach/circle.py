@@ -55,6 +55,8 @@ MAX_TEXT_CHARS = 4000
 CROP_MAX_PX = 1280  # long side of the JPEG crop sent to Claude
 JPEG_QUALITY = 80
 MAX_TOKENS = 600  # a few calm sentences: a short cap
+EFFORT = "low"
+THINKING = {"type": "disabled"}  # Haiku 5.5 accepts disabled at effort high or below
 TIMEOUT_S = 20.0
 TITLE_WORDS = 6
 BODY_WORDS = 55  # the prompt asks for 45; the clamp only catches a runaway answer
@@ -386,6 +388,28 @@ def screen_for(obs: Any, image: Any, region: dict, context: dict | None = None) 
     return sc
 
 
+def request_shape(step: dict | None, lesson: dict | None = None) -> dict:
+    """The cached prefix of a circle ask: {model, system, schema, effort, thinking}. circle_ask() and warm() both use
+    it, so the push-to-talk warm-up writes the very prefix the ask then reads (thinking and effort are part of it)."""
+    if lesson is None and step is not None:
+        lesson = get_lesson()
+    return {"model": model(), "system": system_blocks(CIRCLE_SYSTEM, lesson, TEACH_STEP_KEYS), "schema": SCHEMA,
+            "effort": EFFORT, "thinking": dict(THINKING)}
+
+
+async def warm(step: dict | None = None) -> dict:
+    """ask.warm (Nov 22, push to talk speed): the learner is holding Fn+Control, a circle ask is likely within seconds.
+    Opens (or reuses) the keep-alive client's connection and writes the circle prefix to the prompt cache with a
+    1-token request (max_tokens 0 is rejected with structured outputs). Best effort, never raises. `step`: the step the
+    ask would be about (None without a lesson). The prefix caches only from 512 tokens (Haiku / Sonnet 5.5): below
+    that the request still opens the links, and `cache` reads 0."""
+    try:
+        return await llm.warm([request_shape(step)])
+    except Exception as e:  # noqa: BLE001 - a warm-up never costs the ask
+        log.info("circle warm: failed (%s)", type(e).__name__)
+        return {"error": type(e).__name__}
+
+
 async def circle_ask(step: dict | None, question: str | None, region: Any, *, obs: Any = None, image: Any = None,
                      context: dict | None = None, ask_id: str | None = None) -> dict:
     """-> {kind: "answer", title, body, askId?, region?, stepId?, marks: [Annotation], _meta}. `region` is the
@@ -403,6 +427,7 @@ async def circle_ask(step: dict | None, question: str | None, region: Any, *, ob
     if not screen.boxes and jpeg is None:  # nothing to read and nothing to look at: no model call
         return _finish(reading_card(screen, "empty"), [], region, ask_id, step)
     lesson = get_lesson() if step is not None else None
+    shape = request_shape(step, lesson)
     user = prompt(step, q, clip, screen, context, lesson, has_picture=jpeg is not None)
     content: list[dict] = [{"type": "text", "text": user}]
     picture = jpeg is not None
@@ -413,15 +438,15 @@ async def circle_ask(step: dict | None, question: str | None, region: Any, *, ob
     try:
         res = await llm.structured_call_retrying(
             purpose="circle_ask",
-            model=model(),
-            system=system_blocks(CIRCLE_SYSTEM, lesson, TEACH_STEP_KEYS),
+            model=shape["model"],
+            system=shape["system"],
             user_text=user,
             user_content=content,
-            schema=SCHEMA,
-            effort="low",
+            schema=shape["schema"],
+            effort=shape["effort"],
             max_tokens=MAX_TOKENS,
             timeout=TIMEOUT_S,
-            thinking={"type": "disabled"},
+            thinking=shape["thinking"],
         )
     except llm.CoachLLMError as e:
         log.info("circle ask: no model (%s); answering from the text read", e.kind)

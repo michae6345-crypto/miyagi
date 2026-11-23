@@ -448,8 +448,8 @@ async def _maybe_await(x: Any) -> None:
 async def warm(requests: list[dict] | None = None) -> dict:
     """Open the TLS connection, then pre-warm the prompt cache for each request shape.
 
-    `requests`: [{"model", "system", "schema", "effort"}], the same values the real call will use
-    (the cached prefix includes the output format). Best effort: never raises; returns timings.
+    `requests`: [{"model", "system", "schema", "effort", "thinking"?}], the same values the real call will use
+    (the cached prefix includes the output format, the thinking setting and the effort). Best effort: never raises; returns timings.
     """
     if offline_mode():
         return {"skipped": "offline"}
@@ -468,7 +468,8 @@ async def warm(requests: list[dict] | None = None) -> dict:
     async def one(r: dict) -> Any:
         # max_tokens=1: writes the cached prefix for one output token (0 is rejected with output_config.format)
         mid = guard(r.get("model") or model_for("diagnose"))
-        api, kwargs = _request(client, mid, r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
+        # thinking and effort are part of the cached prefix: the same values as the real call (circle ask: disabled)
+        api, kwargs = _request(client, mid, r["system"], "warm", r["schema"], r.get("effort", "low"), 1, r.get("thinking"))
         resp = await api.create(**kwargs)
         record_cost(getattr(resp, "model", None) or mid, getattr(resp, "usage", None), label="coach warm")  # cache writes
         return resp
