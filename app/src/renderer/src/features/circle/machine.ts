@@ -26,7 +26,11 @@ export const ARMED_MAX_MS = 8000
 export const WORDS_WAIT_MS = 1500
 /** Sealed while the learner keeps talking: a backstop past push to talk's own hard cap (65 s). */
 export const SEALED_MAX_MS = 70_000
-/** No answer by now: the ink fades and the pill says so. */
+/**
+ * No answer by now: the ink fades and the pill says so. A card that comes later is dropped (the ask is closed), so the
+ * engine's answer budget (ANSWER_WITHIN_S, about 25 s, server/orchestrator/circle_ask.py) must stay under this. Raise
+ * this first if the engine budget ever goes up.
+ */
 export const ASK_MAX_MS = 30_000
 /** An answer nobody closes goes by itself (short: Esc does not reach the overlay after release, see the brief). */
 export const ANSWER_MS = 25_000
