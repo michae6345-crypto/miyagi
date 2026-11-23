@@ -153,7 +153,7 @@ It plays once per event: at the end of a lesson, or on the next visit to Skills 
 With reduced motion, each change is a 150ms crossfade. Later, the bonsai can grow from these events, with a leaf per skill and a branch per capstone. Leaves never fall.
 
 ### 3.7 Review and decay
-- Intervals are 3, 7, 21 and 60 days, which the draft dashboard model already uses. Any unassisted pass on a tagged step, in any lesson, counts as a review. Credit also flows down weighted edges: passing a Bevel step refreshes "Select edges".
+- Intervals are 3, 7, 21 and 60 days (a proposal: the app only reads `review.dueAt`, so the engine sets the schedule). Any unassisted pass on a tagged step, in any lesson, counts as a review. Credit also flows down weighted edges: passing a Bevel step refreshes "Select edges".
 - **Never demote.** Mastered stays mastered, and freshness is a separate fact. A missed review resets the interval to 3 days.
 - The page shows at most three due reviews, under "Keep fresh", and never a total. A review is a 2-3 step task on a starter file.
 
@@ -174,7 +174,7 @@ With reduced motion, each change is a 150ms crossfade. Later, the bonsai can gro
 
 ## 4. Data the engine needs to provide
 
-Today's contract (`shared/contracts/events.ts`: `Progress.skills[] = {track, mastered, total, items[{label, state}]}`, with states `mastered | practicing | not_started`) can't draw a graph. A draft dashboard model in a worktree already reads `edges`, `cross`, `reps`, `masteredAt` and `review.dueAt`, and its `NodeState` already has the four states above (`.claude/worktrees/agent-a2bd5768445c910f1/app/src/renderer/src/features/dashboard/`). Everything below adds to what exists.
+Today's contract (`shared/contracts/events.ts`: `Progress.skills[] = {track, mastered, total, items[{label, state}]}`, with states `mastered | practicing | not_started`) can't draw a graph. The dashboard model already in the app (`app/src/renderer/src/features/dashboard/model.ts`) reads `edges`, `cross`, `reps`, `masteredAt` and `review.dueAt`, and its `NodeState` already has the four states above (`mastered | practicing | available | locked`). Everything below adds to what exists.
 
 **Per skill**
 - `id` (stable, never reused), `label` (1-3 words), `summary` (one line), `track`, `kind: skill | capstone`.
