@@ -4,28 +4,31 @@
  * top right (SkillCard: the lessons that teach it). Loading and offline states come from the constellation itself.
  * The page scrolls; a skill's name wraps inside its column and a wide row scrolls inside its box.
  *
- * Layout (Nov 22): the wide page column (Column.tsx, 1040), centered in the panel like every other page. With no skills
- * yet the page shows one calm empty state (the bonsai, one line, the way to a lesson), not a stray line in a corner.
+ * Layout (Nov 22): the page scrolls itself across the whole pane (Column.tsx Scroller, scrollbar at the pane's edge),
+ * and its content is the shell's wide column (ui.tsx PageColumn `wide`, 1040 with the gutters), centered. The shell puts
+ * Skills' title on the same wide column (Shell.tsx PAGE_W), so the two share one left edge at every width. With no
+ * skills yet the page shows one calm empty state (the bonsai, one line, the way to a lesson).
  */
 import type { ReactNode } from 'react'
-import { color, fill } from '../../../core/theme'
+import { color } from '../../../core/theme'
 import { QuietButton } from '../../../core/ui/buttons'
 import { MiyagiMark } from '../../../core/ui/Mark'
 import { Constellation } from '../../dashboard/Constellation'
 import { useDashView } from '../../dashboard/Dashboard'
 import { SkillCard } from '../../dashboard/Rail'
 import { setPage } from '../store'
-import { Empty } from '../ui'
-import { PageColumn } from './Column'
+import { Empty, PageColumn } from '../ui'
+import { Scroller } from './Column'
 
 export function SkillsPage(): ReactNode {
   const { data, load, now, due } = useDashView()
   const loading = load === 'loading'
   const none = !loading && !(data?.tracks?.length ?? 0)
   return (
-    <div data-shell-skills className="relative h-full min-h-0 @container" style={{ color: color.text }}>
-      <div className="h-full overflow-y-auto @container" style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
-        <PageColumn width="wide">
+    <div data-shell-skills className="relative h-full min-h-0" style={{ color: color.text }}>
+      <Scroller>
+        {/* 8 under the header's 24: the first row sits 32 under the title, as on every page. */}
+        <PageColumn wide style={{ paddingTop: 8 }}>
           {none ? (
             <div data-shell-skills-empty>
               <Empty
@@ -39,7 +42,7 @@ export function SkillsPage(): ReactNode {
             <Constellation data={data} review={due} loading={loading} bare titled={false} />
           )}
         </PageColumn>
-      </div>
+      </Scroller>
       <SkillCard data={data} now={now} route="library" />
     </div>
   )

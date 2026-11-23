@@ -1,53 +1,60 @@
 /**
- * Feature: shell. The one page column every shell page sits in (layout spec, Nov 22: "one shared container for every
- * page"). Before this, each page set its own width and most were pinned left, so the content's left edge moved from
- * page to page and a full-screen window left 400 to 900 px empty on the right.
+ * Feature: shell. How the shell's pages (Settings, Account, Skills, Progress) sit on the page column, and the few helpers
+ * they share. There is ONE column implementation: features/shell ui.tsx (PageBody, PageColumn, `--page-inset`,
+ * GUTTER), sized by core/theme.ts `layout.page` (720 with the 40 px gutters, 1040 for the wide one; 24 px gutters once
+ * the pane is under 760). This file adds no centering and no gutters of its own (fix round 1, Nov 22: a second 720
+ * column here centered the content twice once merged with the shell lane).
  *
- *   PageColumn   centered in the content panel (margin 0 auto inside the panel, not the window), top-anchored (never
- *                centered vertically, even in full screen), 40 px gutters (24 when the panel is narrower than 760)
- *   width        'page' 720 (Settings, Account, Progress) or 'wide' 1040 (the Skills grid), gutters included. Progress
- *                is lists since redraft round 3 (the graphs moved to Skills), so it takes the reading column, not the wide
- *                one: only Skills changes the left edge when you switch pages.
- *   FORM_MAX     long text inside a column caps at 560 and stays left-aligned: the column centers, the text inside it
- *                never does. Grouped rows (Settings, Account) fill the column, so their edges match page to page.
+ * Who centers what:
+ *   Settings, Account   scroll in the shell's body, which pads in to a centered box (Shell.tsx BODY_BOX); the page is a
+ *                       ui.tsx PageBody, which centers the 720 column in it, right under the title.
+ *   Skills              scrolls itself (Shell.tsx SELF_SCROLL): a full-pane Scroller (below), so the scrollbar stays at
+ *                       the pane's edge, and in it a ui.tsx PageColumn `wide`. The shell gives Skills' title the same
+ *                       wide column (Shell.tsx PAGE_W), so the title and the grid share one left edge at every width.
+ *   Progress            its scroller belongs to features/dashboard (Overview.tsx), which pins its own 40 px-gutter
+ *                       column left. InsetSeat (below) pads that scroller in by `--page-inset`, so the column lands under
+ *                       the title. Until Overview can take the shell's column (a dashboard request from the pages lane), its
+ *                       scrollbar sits at the column's edge rather than the pane's.
  *
- * Vertical rhythm (spec §4): 24 from the header to the first block, 40 between sections, 64 at the bottom.
- * PAGE_COLUMN says which width each page uses, so the page title row (Shell.tsx Header) can share the same column and
- * left edge: `columnBox(PAGE_COLUMN[page])`.
+ * Vertical rhythm (layout spec): the title's top 80 below the window's top (52 in full screen; the shell's PageHeader),
+ * 32 from the title to the first block (the header's 24 plus the body's 8), SECTION_GAP between sections, LABEL_GAP
+ * between a section's label and its group, 64 at the bottom. Top-anchored: no page centers vertically.
+ *
+ * The one exception to "never center vertically": onboarding's Ready (features/onboarding/Ready.tsx). It is a one-screen
+ * completion dialog (the tree, one line, the sample lesson and its two actions) with nothing to scroll and nothing below
+ * it, so it centers as one group, as a macOS completion sheet does. Guided setup is top-anchored (Guided.tsx STAGE_TOP).
  */
 import type { CSSProperties, ReactNode } from 'react'
+import { fill, layout } from '../../../core/theme'
 
-export type ColumnWidth = 'page' | 'wide'
+/** Between a page's sections and groups (40). */
+export const SECTION_GAP = layout.page.section
+/** Between a section's label and its group (12). */
+export const LABEL_GAP = layout.page.label
+/**
+ * Under a page's section control (Settings' segmented control), before the first group: the title's own gap plus the
+ * body's top, 32, so the control reads as part of the header and its content starts where any other page's would.
+ */
+export const UNDER_TABS = layout.page.titleGap + 8
 
-/** Outer width of the column, gutters included (so 640 / 960 of content at the 40 px gutter). */
-export const COLUMN_MAX: Record<ColumnWidth, number> = { page: 720, wide: 1040 }
-/** Gutters: 40, and 24 once the panel is under 760 wide. */
-export const GUTTER = 40
-export const GUTTER_NARROW = 24
-export const GUTTER_BREAK = 760
-/** Long text inside a column: left-aligned, capped. */
-export const FORM_MAX = 560
-/** Spacing between a page's sections, and its bottom padding (spec §4). */
-export const SECTION_GAP = 40
-export const PAGE_TOP = 24
-export const PAGE_BOTTOM = 64
-
-/** Which column each shell page uses (Home and Lessons belong to features/library; listed so the header can follow). */
-export const PAGE_COLUMN = { home: 'page', lessons: 'page', skills: 'wide', progress: 'page', settings: 'page', account: 'page' } as const satisfies Record<string, ColumnWidth>
-
-/** The column's box: centered, capped, with the gutter as padding. The gutter narrows through a container query. */
-export function columnBox(width: ColumnWidth = 'page'): CSSProperties {
-  return { width: '100%', maxWidth: COLUMN_MAX[width], marginInline: 'auto' }
+/** A page that scrolls itself: the whole pane scrolls (thin scrollbar at the pane's edge); the column goes inside it. */
+export function Scroller({ children, style }: { children: ReactNode; style?: CSSProperties }): ReactNode {
+  return (
+    <div data-page-scroller className="h-full min-h-0 overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent`, ...style }}>
+      {children}
+    </div>
+  )
 }
 
 /**
- * A page's column. Put it inside an element with `@container` (every page root here is one), so the gutter follows the
- * panel's width rather than the window's. The gutter classes are literal (Tailwind only sees whole class names):
- * px-[24px] is GUTTER_NARROW, @min-[760px] is GUTTER_BREAK and px-[40px] is GUTTER.
+ * Seats a child that scrolls itself and pins its own 40 px-gutter column left (features/dashboard Overview) under the
+ * page title: padded in by `--page-inset`, the same variable the title's header pads by. The percentage inside the
+ * variable resolves against this element's containing block, which must be the pane's full width (a self-scrolling
+ * page's body, or a window's root): never nest it inside a padded column.
  */
-export function PageColumn({ width = 'page', gap, top = PAGE_TOP, bottom = PAGE_BOTTOM, children, style, data }: { width?: ColumnWidth; gap?: number; top?: number; bottom?: number; children: ReactNode; style?: CSSProperties; data?: Record<string, string | boolean | undefined> }): ReactNode {
+export function InsetSeat({ children, data }: { children: ReactNode; data?: Record<string, string> }): ReactNode {
   return (
-    <div data-page-column={width} className="px-[24px] @min-[760px]:px-[40px] flex flex-col" style={{ ...columnBox(width), paddingTop: top, paddingBottom: bottom, gap, ...style }} {...data}>
+    <div className="min-h-0 flex-1" style={{ paddingInline: 'var(--page-inset, 0px)' }} {...data}>
       {children}
     </div>
   )

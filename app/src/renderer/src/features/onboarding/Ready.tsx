@@ -29,9 +29,12 @@ export function Ready({ onStart, onTour, again }: { rows?: RowData[]; sum?: Summ
     startTour()
     ;(onTour ?? home)()
   }
-  // One centered group (Nov 22 layout pass): the tree, the line, the sample lesson and, right under it, the actions, so in
-  // a full-screen window the buttons sit by the card they belong to (they used to be pinned to the bottom, 380 px away,
-  // and overhung the card by 88 px). The launcher hint is a quiet caption at the foot, centered, like the sign-in's terms.
+  // One centered group (Nov 22 layout pass): the tree, the line, the sample lesson and, right under it, the actions, so
+  // in a full-screen window the buttons sit by the card they belong to (they used to be pinned to the bottom, 380 px
+  // away, and overhung the card by 88 px). The launcher hint is a quiet caption at the foot, centered, like the sign-in's
+  // terms. Centered vertically on purpose: the one documented exception to "top-anchored" (shell/pages/Column.tsx), a
+  // one-screen completion dialog with nothing to scroll. Skip and Show me around are both size lg (44 tall, one row);
+  // the quiet button's text stays 13 px at lg in core/ui/buttons.tsx (a core request: lg text 15 for both kinds).
   return (
     <div data-onb-view="ready" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[560px] flex-col px-[32px]">
       <motion.div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center" variants={stagger(0.05)} initial={reduce ? false : 'hidden'} animate="shown">
