@@ -73,7 +73,7 @@ function fakeClock(): TailClock & { tick(ms: number): void } {
 const view = (phase: PttState['phase'], id: string | undefined, text = '', released = false): TailView => ({ phase, id, text, released })
 
 describe("the release tail's safety net (fake clock)", () => {
-  test('released with words and no final from the helper: the last partial goes out exactly SAFETY_MS after the keys come up', () => {
+  test('released with words and no final from the helper: the last partial goes out SAFETY_MS after the last new text', () => {
     const clock = fakeClock()
     const out: { id: string; text: string }[] = []
     const tail = createTail((f) => out.push(f), { clock })
@@ -84,15 +84,16 @@ describe("the release tail's safety net (fake clock)", () => {
     clock.tick(900)
     tail.observe(view('sending', 'a', 'why does the loss', true)) // the keys came up
     clock.tick(120)
-    tail.observe(view('sending', 'a', 'why does the loss go down', true)) // a partial during the tail
-    clock.tick(SAFETY_MS - 121)
+    tail.observe(view('sending', 'a', 'why does the loss go down', true)) // a partial during the tail: the timer restarts
+    clock.tick(SAFETY_MS - 1)
+    tail.observe(view('sending', 'a', 'why does the loss go down', true)) // the same text again does not restart it
     assert.deepEqual(out, [], 'not before the tail')
     clock.tick(1)
     assert.deepEqual(out, [{ id: 'a', text: 'why does the loss go down' }])
     const t = tail.timing()
     assert.equal(t?.via, 'tail')
-    assert.equal(t?.releaseToFinalMs, SAFETY_MS)
-    assert.equal(t?.finalAt! - t?.downAt!, 260 + 900 + SAFETY_MS)
+    assert.equal(t?.releaseToFinalMs, 120 + SAFETY_MS)
+    assert.equal(t?.finalAt! - t?.downAt!, 260 + 900 + 120 + SAFETY_MS)
     clock.tick(5000)
     assert.equal(out.length, 1, 'once')
   })
@@ -170,9 +171,10 @@ describe("the release tail's safety net (fake clock)", () => {
     assert.equal(out.length, 1)
   })
 
-  // The helper's own tail: 300 ms (settled), up to HELPER_TAIL_MAX_MS (still revising, or a cold-start flush). Its
-  // final reaches the renderer some ms later; it must win, not the last partial the renderer already has.
-  for (const helperMs of [300 + 20, 1000 + 20, HELPER_TAIL_MAX_MS + 20]) {
+  // The helper's own tail: the final the moment it comes (about 65 ms), else its cap: 1000 ms, up to HELPER_TAIL_MAX_MS
+  // after a cold-start flush. Its final reaches the renderer some ms later; it must win, not the last partial the
+  // renderer already has.
+  for (const helperMs of [65 + 20, 1000 + 20, HELPER_TAIL_MAX_MS + 20]) {
     test(`the helper's final at ${helperMs} ms after release (its tail + 20 ms of IPC) wins over the net`, () => {
       const clock = fakeClock()
       const out: { id: string; text: string }[] = []
@@ -191,6 +193,49 @@ describe("the release tail's safety net (fake clock)", () => {
       assert.equal(t?.releaseToFinalMs, helperMs)
     })
   }
+
+  // A cold start: the recognizer gets ready after the release, so the helper's tail (counted from then) can end well
+  // past SAFETY_MS after the key-up. Its first partial is the sign it is ready; the net counts from that.
+  test("a cold start: the recognizer is ready 1000 ms after release, the helper's final at 2050 ms still wins", () => {
+    const clock = fakeClock()
+    const out: { id: string; text: string }[] = []
+    const tail = createTail((f) => out.push(f), { clock })
+    tail.observe(view('arming', 'k'))
+    clock.tick(300)
+    tail.observe(view('listening', 'k'))
+    clock.tick(800)
+    tail.observe(view('sending', 'k', '', true)) // the keys came up: t = 0, no words yet
+    clock.tick(1000)
+    tail.observe(view('sending', 'k', 'what does this', true)) // the recognizer is ready: its first partial
+    clock.tick(900) // t = 1900: SAFETY_MS after the key-up, where the old net fired
+    assert.deepEqual(out, [], 'the net does not fire SAFETY_MS after the key-up')
+    clock.tick(150) // t = 2050: the helper's final (ready + its cap + IPC), with the last words
+    const t = tail.final('k', 'helper')
+    tail.observe(view('idle', undefined))
+    clock.tick(SAFETY_MS * 2)
+    assert.deepEqual(out, [], 'the partial was never routed, so the dedupe keeps the helper final')
+    assert.equal(t?.via, 'helper')
+    assert.equal(t?.releaseToFinalMs, 2050)
+  })
+
+  test('a cold start with no final from the helper: the net fires SAFETY_MS after the last partial, past the helper cap', () => {
+    const clock = fakeClock()
+    const out: { id: string; text: string }[] = []
+    const tail = createTail((f) => out.push(f), { clock })
+    tail.observe(view('arming', 'm'))
+    tail.observe(view('listening', 'm'))
+    tail.observe(view('sending', 'm', '', true)) // t = 0
+    clock.tick(1000)
+    tail.observe(view('sending', 'm', 'what does', true)) // ready at t = 1000: the helper cap ends by 1000 + HELPER_TAIL_MAX_MS
+    clock.tick(200)
+    tail.observe(view('sending', 'm', 'what does this do', true))
+    clock.tick(SAFETY_MS - 1)
+    assert.deepEqual(out, [])
+    assert.ok(clock.now() - tail.timing()!.upAt! > 1000 + HELPER_TAIL_MAX_MS, "already past the helper's latest final")
+    clock.tick(1)
+    assert.deepEqual(out, [{ id: 'm', text: 'what does this do' }])
+    assert.equal(tail.timing()?.releaseToFinalMs, 1200 + SAFETY_MS)
+  })
 })
 
 // ---- the store, with a fake Electron bridge ----

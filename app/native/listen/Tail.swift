@@ -16,7 +16,10 @@ import Foundation
 // waiting for the final kept: a flat 300 ms tail (the first cut of this lane) lost 8 to 606 of 606 words, "300 ms, then
 // once the text held still 150 ms" lost 8 to 108; "the final, else the cap" lost at most 1 up to 8x, 8 at 10x warm
 // (0 after a cold-start flush, whose cap is longer).
-// The app's safety net (features/ptt/tail.ts) waits ceilingMs + 400 ms, so it never races this tail.
+// The tail starts at release, or when the recognizer is ready if that is later (a cold start), so its final can land
+// (ready - release) + up to ceilingMs after the key-up. The app's safety net (features/ptt/tail.ts) waits ceilingMs +
+// 400 ms from the last new text it saw while sending, not from the key-up: a partial only comes once the recognizer is
+// ready, so the net fires after this tail's cap and only routes text when this helper sent no final at all.
 // ---------------------------------------------------------------------------------------------------------------------
 enum Tail {
     /** The cap while the recognizer was ready before release (warm). */
