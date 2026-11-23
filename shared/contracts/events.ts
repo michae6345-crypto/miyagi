@@ -91,6 +91,15 @@ export interface EngineEvents {
    *  learner clicks inside one, the step changes, lesson.ended, or after holdMs (absent: the app's default, a few seconds).
    *  { clear: true }: fade every mark now. An app that ignores this event loses nothing (spotlight / targets still come). */
   "annotate": { marks: Annotation[]; holdMs?: number } | { clear: true };
+  /** Circle to ask, streamed (Nov 22): the answer to action ask {askId} as the model writes it, so the first words show about
+   *  1 s after release. text: the NEW text to append to what came before for this askId (never the whole text so far); it is
+   *  the answer card's body, plain prose. done: true on the last delta (its text may be ""). In order on the socket; the
+   *  first delta for an askId opens the answer card, next to the circle. The full answer still comes after as the normal
+   *  card {kind: "answer", askId, region}: it REPLACES the streamed text (title, body, actions), even when it differs (the
+   *  engine cleans the full text, or the stream broke and the card is a fallback such as "Couldn't reach Claude"). Drop
+   *  deltas for an askId the app no longer waits for, or that come after its card. The engine may send none (a slow or
+   *  buffering cloud, a fallback card): the card alone is enough. An app that ignores this event loses nothing. */
+  "answer.delta": { askId: string; text: string; done?: boolean };
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
