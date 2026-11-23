@@ -69,6 +69,8 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | `MIYAGI_SCENE_TIMEOUT_S` | 8 | one look's timeout (a slow look is skipped, never retried) |
 | `ORCH_RECORD` | 1 | record every ingest event to `demo/runs/<run_id>.jsonl` (gitignored) |
 | `MIYAGI_CURATED` | 1 | curated "Just teach me" lessons ([curated.py](curated.py)): a neural-network goal gets the hand-built NN lesson instantly (no build), its network diagrams pushed to the drawer's right-hand panel and redrawn from the learner's run. `0` = build every lesson. See `docs/NN-DEMO.md` |
+| `MIYAGI_CONTEXT_MEMORY` | 1 | lesson memory ([context_memory.py](context_memory.py), `server/context/README.md`): short local notes of checks, files, screen errors, setup and coach cards, given to explain / diagnose / judge as an untrusted "what we know so far" block. `0` = off. Off under pytest unless set to `1` |
+| `MIYAGI_CONTEXT_DIR` | `~/miyagi/state/context` | where those notes and the file-scan cache live (folder 0700, files 0600); Delete my data empties it |
 
 ## Modules
 

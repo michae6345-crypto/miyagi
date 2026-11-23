@@ -615,8 +615,12 @@ async def diagnose(
     file_state: dict | None = None,
     code_source: str = "file",
     active_file: dict | None = None,
+    memory: str = "",
 ) -> dict:
     """Return an `offtrack` payload for the failed step.
+
+    `memory` (server/context recall, via orchestrator/context_memory.block): what this lesson already saw and did,
+    put in the Opus/Sonnet prompt as untrusted data so the card builds on it instead of repeating it.
 
     Holds (no diagnosis, no model call; the card carries `hold` and the orchestrator must NOT show
     it as an offtrack), from Michael's live misdiagnosis of an unsaved, OCR'd `def add(a, b):`:
@@ -689,7 +693,8 @@ async def diagnose(
                 def spot(targets: list[dict], _up=on_targets) -> Any:
                     kept = keep_targets(targets, required)
                     return _up(kept) if kept else None
-            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, spot, cursor, active_file)
+            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, spot, cursor, active_file,
+                               memory=memory)
             if card.get("_meta", {}).get("route") == "opus":
                 card = drop_incidental_rename(card, step, failed_checks)
                 if card["_meta"].get("route") == "guard" and lesson_mode(step):
@@ -806,7 +811,8 @@ def screen_content(screen: Any) -> list[dict]:
             for b in screen.claude_content()]
 
 
-async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None, cursor=None, active_file=None) -> dict:
+async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None, cursor=None, active_file=None,
+                *, memory: str = "") -> dict:
     sources = sources or []
     file = _target_file(step)
     key_error = web.error_line(error_text) if ERROR_SIGNATURE.search(error_text or "") else ""
@@ -827,6 +833,9 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             f"WEB SOURCES (fetched live for this failure):\n{web_sources_fenced(sources)}" if sources else "WEB SOURCES: (none available)",
             f"CITATIONS you may use (id: source):\n{wrap('citations', citation_menu(lesson, sources))}",
             wrap("screen", cursor_text(cursor)) if cursor and screen is None else "",
+            # server/context: earlier in this lesson (checks, files, fixes tried); absent when memory is off
+            f"WHAT WE KNOW SO FAR (earlier in this lesson; don't repeat a fix that already failed):\n{wrap('memory', memory)}"
+            if memory else "",
             LESSON_MODE_RULE if lesson_mode(step) else "",
             _active_file_line(active_file),
             "Write the card.",

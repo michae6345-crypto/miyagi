@@ -1107,7 +1107,11 @@ class Engine:
         elif msg.type == "end_lesson":  # the bar's / launcher's End: stop for now, the saved progress stays resumable
             await s.end_lesson("stopped")  # (the resume card's "Start a new lesson", action end_lesson, keeps it too)
         elif msg.type == "config.keys":
-            await self.hub.emit("config.status", apply_keys(p.model_dump()))
+            keys = p.model_dump()
+            erased = is_delete_my_data(keys)  # read before apply_keys forgets the keys the app held
+            await self.hub.emit("config.status", apply_keys(keys))
+            if erased:
+                await asyncio.to_thread(_wipe_context_memory)
             if server_config.token_invalid_pending():  # the same dead token again (e.g. after a reconnect): say it again
                 await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})
         elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
@@ -1140,6 +1144,24 @@ def apply_keys(keys: dict) -> dict:
         else:
             os.environ.pop(var, None)
     return key_status()
+
+
+def is_delete_my_data(keys: dict) -> bool:
+    """Settings > Privacy > Delete my data (the app's settings:delete): a config.keys with every key empty while the
+    engine still held one of the app's keys. A learner clearing their only key in Settings reads the same; then only
+    the local lesson notes go, which is harmless. App follow-up: an explicit wipe command."""
+    held = any(server_config._app_keys.get(name) for name in KEY_ENV)
+    return held and not any(server_config.usable((keys.get(name) or "").strip()) for name in KEY_ENV)
+
+
+def _wipe_context_memory() -> None:
+    """Delete my data, engine part: every lesson's notes and file-scan cache (server/context). Never raises."""
+    try:
+        from server.context import store as context_store
+
+        context_store.wipe_all()
+    except Exception:  # noqa: BLE001 - the keys already went; a leftover note is logged, never a crash
+        log.exception("context memory wipe failed")
 
 
 def _log_cloud_failure(fut: Any) -> None:
