@@ -3449,6 +3449,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         _metric_labels(graph)  # t10: "at least 95%", never "reaches 0.95" beside "at least 95"
         _app_lesson(graph)  # Nov 22: a cached AutoCAD lesson too talks about AutoCAD and checks the app, never files
         self.graph = graph
+        context_memory.lesson_loaded(self)  # a fresh start (not a Resumer restore) forgets the earlier run's notes
         _session_cost_start(graph)  # roadmap 3.8: the running cost tally (build included) belongs to this lesson
         self.lesson_wall_t0 = None  # v2: set by the first start_step (minutes only from step 1)
         self._build_v2 = None

@@ -314,7 +314,7 @@ def test_session_notes_cards_checks_screen_and_actions(tmp_path):
     assert "1Password" not in text and "vault" not in text
     assert "nn.py runs: not yet (exit 1)" in text
     assert "error on screen: NameError: name 'np' is not defined" in text
-    assert "learner skipped setup" in text and "said they already have autocad" in text
+    assert "learner chose to skip setup" in text and "said they already have autocad" in text
     assert "voice" not in text
 
 
@@ -354,6 +354,124 @@ def test_delete_my_data_wipes_every_note(monkeypatch, tmp_path):
     assert not main.is_delete_my_data(empty)  # a first connect with no keys: nothing was deleted
     main._wipe_context_memory()
     assert not [p for p in store.root().iterdir() if p.is_file()]
+
+
+def _app_delete_payload(cloud: bool = True) -> dict:
+    """What the app really sends on Settings > Privacy > Delete my data (app-redraft settings.ts settings:delete:
+    fullPayload({}) over KEY_NAMES), as main parses it: engine.ts send() folds the install token and cloud URL into
+    every config.keys, and Delete my data keeps them (erase.test.ts)."""
+    from shared.contracts.events import parse_app_message
+
+    payload = {"anthropic": "", "gemini": "", "elevenlabs": ""}
+    if cloud:
+        payload |= {"miyagiToken": "mi_" + "Z9y8X7w6" * 4, "miyagiCloud": "https://cloud.example.invalid/v1"}
+    return parse_app_message({"type": "config.keys", "payload": payload}).payload.model_dump()
+
+
+def test_delete_my_data_with_the_real_app_payload(monkeypatch):
+    from server import config as server_config
+    from server.orchestrator import main
+
+    held = {"anthropic": "sk-ant-api03-held", "miyagiToken": "mi_" + "Z9y8X7w6" * 4}
+    monkeypatch.setattr(server_config, "_app_keys", dict(held))
+    assert main.is_delete_my_data(_app_delete_payload(cloud=True))  # BYOK + cloud: the token riding along is ignored
+    assert main.is_delete_my_data(_app_delete_payload(cloud=False))
+    # a cloud-only learner's connect looks the same as their delete: only data.delete can say it (next test)
+    monkeypatch.setattr(server_config, "_app_keys", {"miyagiToken": held["miyagiToken"]})
+    assert not main.is_delete_my_data(_app_delete_payload(cloud=True))
+
+
+def test_data_delete_command_wipes_every_note():
+    from server.orchestrator import context_memory as cm
+    from server.orchestrator import main
+
+    assert "data.delete" in main.V2_COMMANDS and "data.delete" in main.V2_INSTANT
+    msg = main.parse_command({"type": "data.delete", "payload": {}})
+    assert msg.type == "data.delete"
+    assert "data.delete" in main.Engine.capabilities(SimpleNamespace(session=SimpleNamespace()))
+    st = store.ContextStore("L1")
+    st.add("note", "a", "kept until delete")
+    sess = SimpleNamespace(note_app_v2=lambda t: None, _ctx_store=st, _ctx_scanner=scan.FileScanner("L1"))
+    replies: list = []
+
+    async def reply(type_, payload):
+        replies.append(type_)
+
+    engine = SimpleNamespace(session=sess, ensure_status=lambda: None)
+    asyncio.run(main.Engine.handle_v2(engine, "data.delete", msg.payload, reply))
+    assert not [p for p in store.root().iterdir() if p.is_file()]
+    assert sess._ctx_store is None and sess._ctx_scanner is None and replies == []
+    assert cm.block(SimpleNamespace(graph={"lesson": {"id": "L1"}}, step=None), None) == ""
+
+
+def test_wipe_never_brings_old_outlines_back(tmp_path):
+    from server.orchestrator import context_memory as cm
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "a.py").write_text("import os\n")
+    (root / "b.py").write_text("import sys\n")
+    sc = scan.FileScanner("L1")
+    assert cm._scan("L1", str(root), None, sc) == 2
+    store.wipe_all()  # Delete my data while the session's scanner still holds both outlines in memory
+    (root / "a.py").write_text("import os\nimport re\n")
+    assert cm._scan("L1", str(root), [str(root / "a.py")], sc) == 1  # the next save
+    assert list(json.loads(sc.cache_path.read_text())["files"]) == ["a.py"]  # b.py's old outline is not written back
+    text = recall.what_we_know("L1", "s1")
+    assert "a.py" in text and "b.py" not in text
+    # the same after the lesson's own wipe (a fresh start)
+    sc.scan(root)
+    store.wipe_lesson("L1")
+    sc.scan(root, paths=[str(root / "a.py")])
+    assert list(json.loads(sc.cache_path.read_text())["files"]) == ["a.py"]
+
+
+def test_wipe_during_a_scan_keeps_nothing_of_it(tmp_path, monkeypatch):
+    from server.orchestrator import context_memory as cm
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "a.py").write_text("import os\n")
+    real = scan.file_outline
+
+    def outline_then_wipe(rel, text):
+        got = real(rel, text)
+        store.wipe_all()  # Delete my data lands while the scan thread reads
+        return got
+
+    monkeypatch.setattr(scan, "file_outline", outline_then_wipe)
+    sc = scan.FileScanner("L1")
+    assert cm._scan("L1", str(root), None, sc) == 0
+    assert not sc.cache_path.exists() and recall.what_we_know("L1", "s1") == ""
+
+
+def test_fresh_start_forgets_the_earlier_run_but_a_restore_keeps_it(tmp_path):
+    s, cm = _session(tmp_path)
+    cm.observe(s, "step.passed", {"stepId": "s1"})
+    cm.observe(s, "check.updated", {"stepId": "s2", "checkId": "c1", "label": "nn.py runs", "status": "pass"})
+    cm.on_action(s, "skip_setup", None)
+    cm.observe(s, "card", {"stepId": "s2", "kind": "answer", "title": "Import numpy", "body": "Add it."})
+    assert "s1 passed" in cm.block(s, s.step)
+    s.restoring = True  # the Resumer continues the saved place (engine restart, Continue): kept
+    cm.lesson_loaded(s)
+    assert "s1 passed" in cm.block(s, s.step)
+    cm.observe(s, "lesson.ended", {"lessonId": "L1", "reason": "stopped"})  # End: resumable, still kept
+    assert "s1 passed" in cm.block(s, s.step)
+    s.restoring = False  # then the same lesson starts fresh at step 1 (Start new, a Demo take, a library start)
+    cm.lesson_loaded(s)
+    text = cm.block(s, s.step)
+    for old in ("s1 passed", "nn.py runs", "skip setup", "Import numpy"):
+        assert old not in text
+
+
+def test_actions_are_noted_as_intent_not_outcome():
+    from server.context.extract import action_summary
+
+    for kind, text in (("download", None), ("get_it", "autocad"), ("apply_fix", None), ("undo", None),
+                       ("skip_step", None), ("install", "torch")):
+        summary = action_summary(kind, text)[0]
+        assert summary.startswith(("learner asked", "learner pressed")), summary
+    assert action_summary("get_it", "autocad")[0] == "learner asked to open the download page for autocad"
 
 
 # ---------------------------------------------------------------- file scan

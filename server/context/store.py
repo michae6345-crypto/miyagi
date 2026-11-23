@@ -16,7 +16,9 @@ Rules:
   - deduped: an entry equal to the newest one in its slot (kind + source + step) is not written again;
   - capped: MAX_ENTRIES lines and MAX_BYTES per lesson (the oldest go first), MAX_LESSONS lesson files;
   - expires: a lesson file untouched for TTL_DAYS is removed (prune), a completed lesson's file goes with it, and
-    "Delete my data" removes every file (wipe_all, from the config.keys hook in orchestrator/main.py).
+    "Delete my data" removes every file (wipe_all: the data.delete command, or the config.keys hook, in
+    orchestrator/main.py); a lesson that starts fresh rather than resuming forgets its earlier run (wipe_lesson);
+  - a wipe bumps generation(), so a scanner holding outlines in memory never writes them back.
 
 Off with MIYAGI_CONTEXT_MEMORY=0. Under pytest it is off unless a test sets MIYAGI_CONTEXT_MEMORY=1, so the coach's
 replay fixtures (keyed by the prompt text) never see notes another test left.
@@ -59,6 +61,24 @@ _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 # per lesson file: {"latest": {slot: hash of its newest entry}, "count": lines}; shared by every ContextStore of a file
 _index: dict[str, dict] = {}
+# Wipe generations: wipe_all bumps the global one, wipe_lesson and prune the lesson's. A FileScanner (and a scan already
+# running) compares them, so an outline cached in memory before a wipe is never written back after it.
+_gen_all = 0
+_gen_lesson: dict[str, int] = {}
+
+
+def generation(lesson_id: str | None) -> tuple[int, int]:
+    """(global, this lesson's) wipe generation: it changes whenever this lesson's notes or scan cache were removed."""
+    return _gen_all, _gen_lesson.get(lesson_key(lesson_id), 0)
+
+
+def _bump(key: str | None = None) -> None:
+    global _gen_all
+    with _locks_guard:
+        if key is None:
+            _gen_all += 1
+        else:
+            _gen_lesson[key] = _gen_lesson.get(key, 0) + 1
 
 
 def enabled() -> bool:
@@ -267,6 +287,7 @@ class ContextStore:
             return self._read()
 
     def wipe(self) -> None:
+        _bump(lesson_key(self.lesson_id))
         with _lock(self.path):
             for p in (self.path, self.path.with_name(self.path.name[: -len(".jsonl")] + FILES_SUFFIX)):
                 try:
@@ -285,6 +306,7 @@ def wipe_lesson(lesson_id: str | None) -> None:
 
 def wipe_all() -> int:
     """Delete my data: every lesson's notes and scan cache. → how many files went."""
+    _bump()  # first: a scan finishing during the wipe drops what it read instead of saving it
     d = root()
     n = 0
     if not d.is_dir():
@@ -318,6 +340,7 @@ def prune(*, now: float | None = None, ttl_days: float = TTL_DAYS, max_lessons: 
     gone = 0
     for i, (mtime, p) in enumerate(notes):
         if now - mtime > ttl_days * 86400 or i >= max_lessons:
+            _bump(p.name[: -len(".jsonl")])
             for q in (p, p.with_name(p.name[: -len(".jsonl")] + FILES_SUFFIX)):
                 try:
                     q.unlink()

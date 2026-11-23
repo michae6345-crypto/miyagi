@@ -210,12 +210,17 @@ def setup_summary(p: dict) -> tuple[str, dict] | None:
     return short(f"setup: {tool} failed" + (f": {short(p.get('error'), 120)}" if p.get("error") else "")), {"tool": tool, "ok": "no"}
 
 
+# Noted when the button is pressed, before the action runs (it may still fail or be refused), so each line says what the
+# learner chose or asked for, never that it happened. Outcomes are noted from their own events (setup.progress done/ok,
+# check.updated, step.passed).
 ACTION_WORDS = {
-    "skip_setup": "skipped setup", "have_it": "said they already have {t}", "get_it": "opened the download page for {t}",
-    "alternative": "chose a free alternative to {t}", "skip_step": "skipped the step", "install": "asked to install {t}",
-    "install_all": "asked to install everything missing", "run_command": "pressed Run it for me", "apply_fix": "applied the fix",
-    "undo": "undid the last fix", "use_this_folder": "chose their own folder", "download": "downloaded the tutorial files",
-    "show_me": "asked where to work", "check_step": "asked Can I move on?",
+    "skip_setup": "chose to skip setup", "have_it": "said they already have {t}",
+    "get_it": "asked to open the download page for {t}", "alternative": "chose a free alternative to {t}",
+    "skip_step": "asked to skip the step", "install": "asked to install {t}",
+    "install_all": "asked to install everything missing", "run_command": "pressed Run it for me",
+    "apply_fix": "pressed Apply fix", "undo": "asked to undo the last fix", "use_this_folder": "chose their own folder",
+    "download": "asked to download the tutorial files", "show_me": "asked where to work",
+    "check_step": "asked Can I move on?",
 }
 
 

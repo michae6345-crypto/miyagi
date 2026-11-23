@@ -27,10 +27,19 @@ prompt += f"WHAT WE KNOW SO FAR:\n{wrap('memory', block)}"   # always as untrust
   extra paid call is ever made for memory.
 - **Read by** `coach.explain` (`context["memory"]`), `coach.diagnose` and `coach.judge_step` (`memory=`), each inside
   `<untrusted source="memory">` with DATA_RULE in the system prompt.
+- **Saved as intent:** a button press is noted before its action runs, so it reads "asked to download the tutorial
+  files", "pressed Apply fix"; what really happened comes from the outcome events (setup.progress done/ok, check rows).
 - **Expires:** a completed lesson's notes go at `lesson.ended`; `prune()` at each `lesson.ready`.
-- **Delete my data:** the app's Settings > Privacy delete sends a `config.keys` with every key empty; when the engine
-  held a key before, `wipe_all()` removes every lesson's notes and scan cache (orchestrator/main.py). App follow-up:
-  send an explicit wipe command, and list `PRIVACY_FACT` in the privacy panel's facts.
+- **A fresh start forgets the earlier run:** `LessonSession.load_graph` calls `lesson_loaded`, which wipes the lesson's
+  notes and scan cache unless the Resumer is restoring a saved place (`s.restoring`: an engine restart's save, the
+  resume card's Continue). End then start again, Start new, a curated fresh folder and every Demo take start empty.
+- **Delete my data:** `wipe_all()` removes every lesson's notes and scan cache and bumps the wipe generation
+  (`store.generation`), so a `FileScanner` still holding outlines in memory drops them instead of writing them back.
+  Triggered by the v2 command `data.delete` (listed in `engine.hello.capabilities`), and by a `config.keys` whose BYOK
+  keys (anthropic, gemini, elevenlabs) all went empty while the engine held one (`miyagiToken` / `miyagiCloud`, which
+  the app folds into every send and keeps, are ignored). App follow-ups: `settings:delete` sends `data.delete` when the
+  engine lists it (a cloud-only learner's all-empty keys look like any connect), and the privacy panel lists
+  `PRIVACY_FACT`.
 
 Off with `MIYAGI_CONTEXT_MEMORY=0`; under pytest off unless a test sets it to `1` (replay fixtures are keyed by prompt
 text). `MIYAGI_CONTEXT_DIR` moves the folder (tests).

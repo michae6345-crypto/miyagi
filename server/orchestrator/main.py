@@ -116,7 +116,7 @@ def _engine_version() -> str:
 ENGINE_VERSION = _engine_version()
 CONTRACT_VERSION = getattr(contract, "CONTRACT_VERSION", None) or "2026-11-20"  # W0-1: the shapes this engine sends
 V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
-               "panel.state", "review.start")
+               "panel.state", "review.start", "data.delete")
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
@@ -764,6 +764,7 @@ class Engine:
             caps.append("review.start")
         if hasattr(self.session, "panel_state"):
             caps.append("panel.state")
+        caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
         return caps
 
     def hello(self, restored: bool = False) -> dict:
@@ -876,8 +877,8 @@ class Engine:
         return contract_progress(p) if p is not None else None
 
     async def handle_v2(self, type_: str, p: Any, reply: Any) -> None:
-        """health.get, permission.open, library.list, library.get, progress.get, panel.state. Every blocking read runs
-        in a thread; replies go to the app that asked."""
+        """health.get, permission.open, library.list, library.get, progress.get, panel.state, data.delete. Every blocking
+        call runs in a thread; replies go to the app that asked."""
         s = self.session
         s.note_app_v2(type_)  # E3: lesson.paused / blocker / the complete card go out from now on
         self.ensure_status()
@@ -903,6 +904,8 @@ class Engine:
             await reply("progress", await self.progress_payload() or {})
         elif type_ == "panel.state":
             await s.panel_state(p.open, _rect(p.rect))
+        elif type_ == "data.delete":  # Settings > Privacy > Delete my data: the engine's local lesson notes go too
+            await asyncio.to_thread(_wipe_context_memory, s)  # no reply: the app's sheet already says what it erased
 
     async def library_start(self, lid: str) -> None:
         """library.start: a cached lesson, with no build and no lesson-writing model call. The cached graph's workdir is
@@ -1111,7 +1114,7 @@ class Engine:
             erased = is_delete_my_data(keys)  # read before apply_keys forgets the keys the app held
             await self.hub.emit("config.status", apply_keys(keys))
             if erased:
-                await asyncio.to_thread(_wipe_context_memory)
+                await asyncio.to_thread(_wipe_context_memory, s)
             if server_config.token_invalid_pending():  # the same dead token again (e.g. after a reconnect): say it again
                 await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})
         elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
@@ -1146,20 +1149,28 @@ def apply_keys(keys: dict) -> dict:
     return key_status()
 
 
+# The bring-your-own keys the app's Settings holds and sends (app settings/keys.ts KEY_NAMES). Not miyagiToken /
+# miyagiCloud: engine.ts folds the install token into every config.keys, and Delete my data keeps it (erase.test.ts).
+BYOK_NAMES = ("anthropic", "gemini", "elevenlabs")
+
+
 def is_delete_my_data(keys: dict) -> bool:
-    """Settings > Privacy > Delete my data (the app's settings:delete): a config.keys with every key empty while the
-    engine still held one of the app's keys. A learner clearing their only key in Settings reads the same; then only
-    the local lesson notes go, which is harmless. App follow-up: an explicit wipe command."""
-    held = any(server_config._app_keys.get(name) for name in KEY_ENV)
-    return held and not any(server_config.usable((keys.get(name) or "").strip()) for name in KEY_ENV)
+    """Settings > Privacy > Delete my data (the app's settings:delete) as a config.keys: every BYOK key empty while the
+    engine still held one of them. The install token and cloud URL riding along (they stay) do not count. A learner
+    clearing their only key in Settings reads the same; then only the local lesson notes go, which is harmless.
+    A learner with no BYOK key (the cloud only) sends the same all-empty keys on every connect, so that case needs the
+    explicit command: data.delete (app follow-up: settings:delete sends it when engine.hello lists it)."""
+    held = any(server_config._app_keys.get(name) for name in BYOK_NAMES)
+    return held and not any(server_config.usable((keys.get(name) or "").strip()) for name in BYOK_NAMES)
 
 
-def _wipe_context_memory() -> None:
-    """Delete my data, engine part: every lesson's notes and file-scan cache (server/context). Never raises."""
+def _wipe_context_memory(session: Any = None) -> None:
+    """Delete my data, engine part: every lesson's notes and file-scan cache (server/context), and the running session's
+    hold on them. Never raises."""
     try:
-        from server.context import store as context_store
+        from . import context_memory
 
-        context_store.wipe_all()
+        context_memory.wipe_all(session)
     except Exception:  # noqa: BLE001 - the keys already went; a leftover note is logged, never a crash
         log.exception("context memory wipe failed")
 

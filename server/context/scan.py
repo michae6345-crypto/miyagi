@@ -7,7 +7,9 @@
     sc.outline("nn.py")                                             # the cached FileOutline, or None
 
 A file is re-read only when its (mtime, size) moved, and re-outlined only when its content hash changed (a touch or a
-save with no edit costs a stat and a hash). The cache is <context>/<lesson>.files.json (0600), next to the notes.
+save with no edit costs a stat and a hash). The cache is <context>/<lesson>.files.json (0600), next to the notes. A wipe
+(store.generation moved: Delete my data, a fresh start, prune) drops the in-memory cache too, so a scanner that
+outlived it never writes the old outlines back.
 
 Never read: .venv, node_modules, .git and the other IGNORE_DIRS; hidden folders; secret files (.env, keys:
 server.redact.is_secret_file); binaries and media (by extension, or a NUL byte in the first 4 KB); symlinks out of the
@@ -31,6 +33,7 @@ from server.context.store import (
     _ensure_dir,
     _lock,
     enabled,
+    generation,
     lesson_key,
     root,
 )
@@ -76,11 +79,24 @@ class FileScanner:
         self.lesson_id = str(lesson_id or "")
         self.cache_path = root() / f"{lesson_key(lesson_id)}{FILES_SUFFIX}"
         self._cache: dict[str, FileOutline] | None = None
+        self._gen: tuple[int, int] | None = None  # store.generation when _cache was loaded
         self.stats: dict[str, int] = {"read": 0, "reused": 0, "skipped": 0}
 
     # ------------------------------------------------------------ cache
+    def _fresh(self) -> bool:
+        """No wipe (Delete my data, a fresh start of the lesson, prune) since the cache was loaded."""
+        return self._gen == generation(self.lesson_id)
+
+    @property
+    def wiped(self) -> bool:
+        """A wipe landed after this scanner loaded its cache: what its last scan returned is not to be noted."""
+        return self._gen is not None and not self._fresh()
+
     def _load(self) -> dict[str, FileOutline]:
+        if self._cache is not None and not self._fresh():
+            self._cache = None  # wiped since: what we held in memory is gone too, never written back
         if self._cache is None:
+            self._gen = generation(self.lesson_id)
             self._cache = {}
             try:
                 raw = json.loads(self.cache_path.read_text(encoding="utf-8"))
@@ -95,6 +111,9 @@ class FileScanner:
 
     def _save(self) -> None:
         if self._cache is None:
+            return
+        if not self._fresh():  # a wipe landed while this scan ran: drop what it read
+            self._cache = None
             return
         try:
             d = _ensure_dir()
@@ -203,4 +222,6 @@ class FileScanner:
                 for rel in [k for k in cache if k not in seen]:
                     cache.pop(rel, None)
             self._save()
+            if self._cache is None:  # wiped while it ran: nothing of this scan is kept or noted
+                return []
         return changed

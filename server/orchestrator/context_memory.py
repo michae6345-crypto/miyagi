@@ -4,6 +4,8 @@
     context_memory.on_action(s, "skip_setup", None)       # from LessonSession.action
     context_memory.scan_soon(s, paths)                    # a save / a step start: incremental file outlines, in a thread
     context_memory.block(s, step, "explain")              # "" or "- [check s2] ..." for the coach (wrapped as data there)
+    context_memory.lesson_loaded(s)                       # from LessonSession.load_graph: a fresh start forgets
+    context_memory.wipe_all(s)                            # Delete my data (main.py: data.delete, config.keys)
 
 Everything here is best effort: a failure is logged and never costs the event, the action or the coach call. Nothing
 calls a model: the coach's own cards are the model summary (piggyback), the rest is rule-based (server.context.extract).
@@ -46,6 +48,41 @@ def _store(s: Any) -> store.ContextStore | None:
         except AttributeError:
             pass
     return st
+
+
+def lesson_loaded(s: Any) -> None:
+    """LessonSession.load_graph, before its lesson.ready: a lesson that starts fresh (step 1: End then start again, Start
+    new, a Demo take, a curated fresh folder) forgets the notes of its earlier run, so recall never says "s1 passed" or
+    "you already did X" about a run that is gone. Only a Resumer restore (s.restoring: an engine restart's save, the
+    resume card's Continue) keeps them. Never raises."""
+    if not store.enabled() or getattr(s, "restoring", False):
+        return
+    try:
+        lid = _lesson_id(s)
+        if lid:
+            store.wipe_lesson(lid)  # notes and file outlines; a scanner still holding them drops them (generation)
+        for attr in ("_ctx_store", "_ctx_scanner"):
+            if getattr(s, attr, None) is not None:
+                setattr(s, attr, None)
+    except Exception:  # noqa: BLE001 - memory never costs a lesson start
+        log.debug("context wipe on a fresh start failed", exc_info=True)
+
+
+def wipe_all(s: Any = None) -> int:
+    """Delete my data, engine part: every lesson's notes and scan cache, and what the running session holds of them.
+    → files removed. Never raises."""
+    try:
+        n = store.wipe_all()
+    except Exception:  # noqa: BLE001 - the keys already went; a leftover note is logged, never a crash
+        log.exception("context memory wipe failed")
+        return 0
+    for attr in ("_ctx_store", "_ctx_scanner"):
+        try:
+            if s is not None and getattr(s, attr, None) is not None:
+                setattr(s, attr, None)
+        except AttributeError:
+            pass
+    return n
 
 
 def observe(s: Any, type_: str, payload: dict | None) -> None:
@@ -146,9 +183,13 @@ def on_action(s: Any, kind: str, text: str | None) -> None:
 def _scan(lesson_id: str, folder: str, paths: list[str] | None, scanner: scan.FileScanner) -> int:
     changed = scanner.scan(folder, paths)
     st = store.ContextStore(lesson_id, session=ENGINE_SESSION)
+    n = 0
     for f in changed:
+        if scanner.wiped:  # Delete my data / a fresh start landed mid-scan: nothing read before it is noted
+            break
         st.add("file", f.path, f.summary, f.facts)
-    return len(changed)
+        n += 1
+    return n
 
 
 def scan_soon(s: Any, paths: list[str] | None = None) -> None:
