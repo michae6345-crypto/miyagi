@@ -614,9 +614,11 @@ class AnswerDelta(_Model):
 
 
 class AnswerDone(_Model):
-    """answer.done: the streamed answer for askId is over. `text` is the whole answer, cleaned (it replaces what the
-    deltas built). complete False: cut short (reason "refusal" | "max_tokens" | "error", a plain str). fallback True:
-    the stream failed and a non-streaming retry answered."""
+    """answer.done: the streamed answer for askId is over. `text` is the whole answer, cleaned: the app MUST replace
+    what the deltas built with it. Deltas are sent as the words arrive, so a sentence the engine flags as a prompt
+    injection may have shown in them; done.text never has it. complete False: cut short (reason "refusal" |
+    "max_tokens" | "error" | "moved_on", a plain str; moved_on: the step changed, a "moved on" card follows).
+    fallback True: the stream failed and a non-streaming retry answered."""
 
     askId: str | None = None
     text: str
@@ -760,6 +762,18 @@ class AskWarm(_Model):
     source: str | None = None
 
 
+class AskRegion(_Model):
+    """ask.region (Nov 22, fast circle to ask): the circle closed while the keys are still held. Send it on each
+    pointer-up of the ink while armed, with the askId the action ask will carry and the ink's bounding box (the
+    ScreenRegion shape: x, y, w, h screen points, displayId, scale). The engine captures that display now, crops and
+    encodes the region into memory (kept at most ~10 s, dropped on use, never written to disk), so the release only
+    sends the words. A later ask.region with the same askId replaces the earlier one. No answer is sent back.
+    region: a dict here so this command needs no other contract change; the engine reads x, y, w, h, displayId."""
+
+    askId: str
+    region: dict[str, Any]
+
+
 class CardClosed(_Model):
     """card.closed: that card left the slot. by: "user" | "replaced" | "timeout" | "hidden" (kept a plain str here so
     a new reason from the app is logged, not rejected). "user" / "timeout" lift the hold this card (matched by title)
@@ -783,10 +797,11 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "card.shown": CardShown,
     "card.closed": CardClosed,
     "ask.warm": AskWarm,
+    "ask.region": AskRegion,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
-                         "card.shown", "card.closed", "ask.warm"]
+                         "card.shown", "card.closed", "ask.warm", "ask.region"]
 
 
 class AppMessage(BaseModel):

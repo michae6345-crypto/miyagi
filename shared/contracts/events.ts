@@ -124,8 +124,10 @@ export interface EngineEvents {
   "error": { message: string; epoch?: number; gen?: number };
   /** Fast circle to ask (Nov 22, server/coach/fast_ask.py): the answer to an ask streams in. answer.delta: append `text` to the answer
    *  for askId (seq counts up from 0 per ask). The model's first-line [DRAW:...] tag never reaches the app: it comes as `annotate`.
-   *  answer.done: the stream is over; `text` is the whole cleaned answer and replaces what the deltas built. complete false: cut short
-   *  (reason "refusal" | "max_tokens" | "error"). fallback true: the stream failed and a non-streaming retry answered. The answer card
+   *  answer.done: the stream is over; `text` is the whole cleaned answer and the app MUST replace what the deltas built with it (deltas go
+   *  out as the words arrive, so a sentence the engine flags as a prompt injection may have shown in them; done.text never has it).
+   *  complete false: cut short (reason "refusal" | "max_tokens" | "error" | "moved_on"; moved_on: the step changed, a "moved on" card
+   *  follows). fallback true: the stream failed and a non-streaming retry answered. The answer card
    *  {kind: "answer", askId} still follows answer.done with the same text, so an app that ignores these loses nothing; a streaming
    *  app keeps its streamed card for that askId. Nothing streamed (no answer.delta): only the card comes, as before. */
   "answer.delta": { askId?: string; seq: number; text: string };
@@ -208,6 +210,11 @@ export interface AppCommands {
    *  The engine opens its keep-alive connection to the miyagi cloud / Anthropic and warms the prompt cache for the ask (at most one
    *  billed warm-up per 4 minutes). Nothing is sent back. Optional: an app that never sends it only loses the head start. */
   "ask.warm": { source?: string };   // source: "keydown"
+  /** Fast circle to ask (Nov 22): the circle closed while the keys are still held. Send on each pointer-up of the ink while armed, with
+   *  the askId the action ask will carry and the ink's bounding box (the ScreenRegion shape). The engine captures that display now and
+   *  keeps the encoded crop in memory (about 10 s, dropped on use, never on disk), so the release only sends the words. A later
+   *  ask.region with the same askId replaces the earlier one. Nothing is sent back. Optional: without it the ask captures on release. */
+  "ask.region": { askId: string; region: { x: number; y: number; w: number; h: number; displayId?: number; scale?: number } };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;
