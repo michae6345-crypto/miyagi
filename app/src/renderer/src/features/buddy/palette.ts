@@ -24,6 +24,8 @@ export type Skin = {
   blush: string
   /** The loop it draws, and the numbers of a tour. */
   stroke: string
+  /** How opaque the ink keyline under its loop is, where the usual (Reach.tsx KEYLINE) is not enough over a light app. */
+  keyline?: number
   /** One line for the color sheet. */
   note: string
   /** Is every color of it in the brand kit. */
@@ -39,7 +41,7 @@ const CLAY = '#C2694A'
 
 export const SKINS = {
   mint: { body: MINT, leaf: brand.pastel.mint, blush: PINK, stroke: MINT, note: 'what it is now', kit: false },
-  cream: { body: brand.paper, leaf: brand.paper, blush: PINK, stroke: brand.paper, note: 'the brand paper: white on black, like the buttons', kit: true },
+  cream: { body: brand.paper, leaf: brand.paper, blush: PINK, stroke: brand.paper, keyline: 0.9, note: 'the brand paper: white on black, like the buttons', kit: true },
   sand: { body: brand.pastel.sand, leaf: '#F4EEDC', blush: PINK_DEEP, stroke: brand.pastel.sand, note: 'the kit sand', kit: true },
   butter: { body: '#F6DE8E', leaf: '#FBEDBE', blush: PINK_DEEP, stroke: '#F6DE8E', note: 'a soft yellow; the kit has no yellow', kit: false },
   peach: { body: brand.pastel.peach, leaf: brand.pastel.peachLight, blush: PINK_DEEP, stroke: brand.pastel.peach, note: 'the kit peach (also the Watch option)', kit: true },

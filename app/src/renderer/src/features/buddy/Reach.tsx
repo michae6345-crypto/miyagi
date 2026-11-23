@@ -236,8 +236,8 @@ function Stroke({ mark, r, delay, near, reduced }: Drawn & { near: boolean; redu
   const loopKey = useTransform(state, outline(KEYLINE.wider, [r.split, 1]))
   return (
     <motion.g data-part="branch" data-why={mark.why} data-mark={mark.key} data-near={near || undefined} style={{ opacity: alpha }}>
-      <motion.path data-part="keyline" d={armKey} style={{ fill: color.onAccent, opacity: KEYLINE.opacity }} />
-      <motion.path data-part="keyline" d={loopKey} style={{ fill: color.onAccent, opacity: KEYLINE.opacity }} />
+      <motion.path data-part="keyline" d={armKey} style={{ fill: color.onAccent, opacity: SKIN.keyline ?? KEYLINE.opacity }} />
+      <motion.path data-part="keyline" d={loopKey} style={{ fill: color.onAccent, opacity: SKIN.keyline ?? KEYLINE.opacity }} />
       <motion.path data-part="arm" d={arm} style={{ fill: SKIN.stroke }} />
       <motion.path data-part="bark" d={loop} style={{ fill: SKIN.stroke }} />
     </motion.g>
