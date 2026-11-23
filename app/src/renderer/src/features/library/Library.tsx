@@ -1,9 +1,11 @@
 /**
  * Feature: library. The Lessons page of the home window (features/shell): Continue (lessons left mid-way), Ready to
  * run (every cached lesson, filtered by tool and search), and a last row to paste a link. Redraft (Adrian, Nov 21):
- * plain rows on the content panel (title, then the tool in words, steps and minutes), no cards, tiles or pills. The page
- * header (LessonsHeader, rendered by the shell above the scroller) holds the title and the search field, on the same
- * column as the list. Deviations from the mockup, by rule:
+ * plain rows on the content panel (title, then the tool in words, steps and minutes), no cards, tiles or pills.
+ * The page title and the search field (LessonSearch) are the shell's page header, not this file's. The list sits on the
+ * shared 720 column (layout.tsx), the same column the shell lane's PageHeader (michael/app-layout-shell) puts the title
+ * and search on, so they line up once that lands; with this branch's older shell header they sit at the pane's 40 px
+ * edge instead. Deviations from the mockup, by rule:
  * no Free plan box (plan A6: hidden), no "Your lessons" split (the engine's items don't say who built a lesson), and
  * "Saved on this Mac" instead of "Built once, shared with everyone" (A6: never claim cross-user sharing).
  *
@@ -19,7 +21,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Empty, Row, RowChevron } from '../shell/ui'
 import { color, copy, fill, focus, highlight, radius2, surface, type2 } from '../../core/theme'
-import { Column, Pane, rhythm } from './layout'
+import { Column, Pane, SectionLabel, rhythm } from './layout'
 import { Ring, Rise } from './motion'
 import { FILTER_TOOLS, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { contLine, continueList, type Cont } from '../dashboard/continue'
@@ -58,46 +60,7 @@ export function LessonSearch(): ReactNode {
   )
 }
 
-/**
- * The Lessons page header: the title and the search field on the page's own column (layout.tsx), so the title's left
- * edge is the list's left edge and the search field's right edge is the list's right edge at every window size (the
- * shell's generic header pads 40 from the pane and drifted 344 px off the list in full screen). The whole 76 px strip
- * drags the window; the search field opts out. The shell renders this above the page's scroller in place of its own
- * header for the Lessons page (Shell.tsx Header: `if (page === 'lessons') return <LessonsHeader title={label} />`).
- */
-export function LessonsHeader({ title = 'Lessons' }: { title?: string }): ReactNode {
-  return (
-    <Pane data-drag data-lessons-header className="shrink-0">
-      <header>
-        {/* 76 tall, the row's bottom 8 above the scroller: with the list's 24 top padding, title to first section is 32. */}
-        <Column className="flex items-end" style={{ height: 76, paddingBottom: 8 }}>
-          <div className="flex min-h-[36px] w-full min-w-0 items-center gap-[16px]">
-            <h1 className="m-0 min-w-0 truncate font-semibold" style={{ fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
-              {title}
-            </h1>
-            <div data-no-drag className="ml-auto flex min-w-0 items-center">
-              <LessonSearch />
-            </div>
-          </div>
-        </Column>
-      </header>
-    </Pane>
-  )
-}
-
 const meta = { fontSize: type2.xs, color: color.label } as const
-
-/** A section header: the label (spec section 6: 13/18, semibold, secondary), then what the section puts beside it. */
-function Head({ id, title, children }: { id: string; title: string; children?: ReactNode }): ReactNode {
-  return (
-    <div className="flex flex-wrap items-center gap-[8px]" style={{ marginBottom: 8, minHeight: 32 }}>
-      <h2 id={id} className="m-0 font-semibold" style={{ fontSize: type2.sm, lineHeight: '18px', marginRight: 8, color: color.label }}>
-        {title}
-      </h2>
-      {children}
-    </div>
-  )
-}
 
 const titleText = { fontSize: type2.md, color: color.text } as const
 
@@ -199,7 +162,7 @@ const divided = (rule: boolean): CSSProperties => ({ marginInline: 10, borderTop
 function ToolFilter(): ReactNode {
   const tool = useLibrary((s) => s.tool)
   return (
-    <div role="group" aria-label="Filter by tool" className="ml-auto flex items-center" style={{ padding: 2, gap: 2, borderRadius: radius2.row, background: fill.segmentTrack }}>
+    <div role="group" aria-label="Filter by tool" className="flex items-center" style={{ padding: 2, gap: 2, borderRadius: radius2.row, background: fill.segmentTrack }}>
       {(['all', ...FILTER_TOOLS] as const).map((t) => {
         const on = tool === t
         return (
@@ -236,8 +199,10 @@ export function Lessons(): ReactNode {
   return (
     // The shared 720 column (layout.tsx), centered in the pane like Home and the preview: at full screen the rows no
     // longer run 1400 px from the title to its chevron. Sections sit 40 apart, the page ends 64 under the last row.
+    // Top 8: the shell's page header ends 24 under its title row (shell lane PageHeader, layout.page.titleGap), so the
+    // title to the first section is rhythm.title (32), as on the shell's other pages (PageBody's paddingTop 8).
     <Pane data-lessons style={{ color: color.text }}>
-      <Column className="flex flex-col" style={{ gap: rhythm.section, paddingTop: 24, paddingBottom: rhythm.bottom }}>
+      <Column className="flex flex-col" style={{ gap: rhythm.section, paddingTop: rhythm.title - 24, paddingBottom: rhythm.bottom }}>
         {!s.loaded ? (
           <div className="flex flex-col gap-[8px]" aria-busy aria-label="Loading your lessons">
             {[0, 1, 2, 3].map((i) => (
@@ -262,11 +227,9 @@ export function Lessons(): ReactNode {
             {continuing.length > 0 && (
               <Rise i={0}>
                 <section aria-labelledby="lib-cont">
-                  <Head id="lib-cont" title="In progress">
-                    <span className="ml-auto">
-                      <StartError />
-                    </span>
-                  </Head>
+                  <SectionLabel id="lib-cont" right={<StartError />}>
+                    In progress
+                  </SectionLabel>
                   <ul style={list}>
                     {continuing.map((c, i) => (
                       <li key={c.libraryId}>
@@ -279,10 +242,17 @@ export function Lessons(): ReactNode {
             )}
             <Rise i={1}>
               <section aria-labelledby="lib-ready">
-                <Head id="lib-ready" title="Ready to run">
-                  <ToolFilter />
-                  {continuing.length === 0 && s.startError ? <StartError /> : null}
-                </Head>
+                <SectionLabel
+                  id="lib-ready"
+                  right={
+                    <>
+                      {continuing.length === 0 && s.startError ? <StartError /> : null}
+                      <ToolFilter />
+                    </>
+                  }
+                >
+                  Ready to run
+                </SectionLabel>
                 <ul style={list}>
                   {ready.map((i, n) => (
                     <Rise key={i.id} as="li" i={n} style={divided(n > 0)}>

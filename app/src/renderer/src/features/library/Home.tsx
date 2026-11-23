@@ -37,9 +37,9 @@ import { groupTracks, nodeStates, relDay } from '../dashboard/model'
 import { canReview, startReview, useDash } from '../dashboard/store'
 import type { DashData } from '../dashboard/types'
 import { summarize, useRows } from '../onboarding/rows'
-import { Row, RowChevron, SectionHead, TextAction, caption } from '../shell/ui'
+import { Row, RowChevron, TextAction, caption } from '../shell/ui'
 import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText, setupFix, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
-import { Column, PAGE_TOP, Pane, rhythm } from './layout'
+import { Column, PAGE_TOP, Pane, SectionLabel, rhythm } from './layout'
 import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
@@ -322,7 +322,7 @@ function UpNext({ skip, done }: { skip: Set<string>; done: Set<string> }): React
   if (loaded && !ready.length) return null
   return (
     <section aria-labelledby="home-next" data-home-ready>
-      <SectionHead id="home-next" right={
+      <SectionLabel id="home-next" right={
           more ? (
             // The rows' chevrons sit on the column's right edge (16 px, the row's 10 px inset under a -10 list); the
             // link steps out by its own 8 px padding and uses the same 16 px chevron, so every chevron shares one edge.
@@ -335,7 +335,7 @@ function UpNext({ skip, done }: { skip: Set<string>; done: Set<string> }): React
           ) : undefined
         }>
         Up next
-      </SectionHead>
+      </SectionLabel>
       {!loaded ? (
         <Loading />
       ) : (
@@ -370,7 +370,7 @@ function Recents({ rows, now, max = 4 }: { rows: Recent[]; now: number; max?: nu
   if (!rows.length) return null
   return (
     <section aria-labelledby="home-recent" data-home-recent>
-      <SectionHead id="home-recent">Recent</SectionHead>
+      <SectionLabel id="home-recent">Recent</SectionLabel>
       <ul style={list}>
         {rows.slice(0, max).map((r, i) => (
           <Rise key={r.key} as="li" i={i}>
@@ -403,22 +403,25 @@ function ReviewLine({ data, now }: { data?: DashData; now: number }): ReactNode 
   const names = due.map((r) => r.label.split(String.fromCharCode(96)).join(''))
   const title = due.length === 1 ? 'One skill to review' : `${due.length} skills to review`
   return (
-    <section aria-label="Review" data-home-review className="flex items-center gap-[12px]" style={{ marginInline: -10 }}>
-      <Row onClick={() => setPage('progress')} label={`${title}: ${names.join(', ')}. Open Progress.`} style={{ flex: 1, minWidth: 0 }}>
-        <RotateCcw aria-hidden size={15} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label }} />
-        <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
-          <span style={titleText}>{title}</span>
-          <span className="truncate" style={caption}>
-            {names.slice(0, 3).join(', ')}
+    <section aria-labelledby="home-review" data-home-review>
+      <SectionLabel id="home-review">Review</SectionLabel>
+      <div className="flex items-center gap-[12px]" style={{ marginInline: -10 }}>
+        <Row onClick={() => setPage('progress')} label={`${title}: ${names.join(', ')}. Open Progress.`} style={{ flex: 1, minWidth: 0 }}>
+          <RotateCcw aria-hidden size={15} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label }} />
+          <span className="relative flex min-w-0 flex-1 flex-col gap-[2px]">
+            <span style={titleText}>{title}</span>
+            <span className="truncate" style={caption}>
+              {names.slice(0, 3).join(', ')}
+            </span>
           </span>
-        </span>
-        <RowChevron />
-      </Row>
-      {can && (
-        <Ring>
-          <QuietButton label="Review" onClick={() => startReview(due[0], 'library')} />
-        </Ring>
-      )}
+          <RowChevron />
+        </Row>
+        {can && (
+          <Ring>
+            <QuietButton label="Start review" onClick={() => startReview(due[0], 'library')} />
+          </Ring>
+        )}
+      </div>
     </section>
   )
 }

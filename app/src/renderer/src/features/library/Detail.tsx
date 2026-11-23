@@ -11,7 +11,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { color, copy, fill, highlight, layer, radius2, surface, type2 } from '../../core/theme'
-import { Column, PAGE_TOP, Pane, rhythm } from './layout'
+import { Column, PAGE_TOP, Pane, SectionLabel, pageTitle, rhythm } from './layout'
 import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, minutesLabel, soft, stepsLabel } from './parts'
 import { foldLabel, previewSteps } from './stepsPreview'
@@ -139,7 +139,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
       <section aria-labelledby="lib-title" className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
         <Column className="flex flex-col" style={{ paddingTop: PAGE_TOP - 8 - 52, paddingBottom: rhythm.bottom }}>
           <div style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}>{KICKER[src?.kind ?? 'library']}</div>
-          <h1 id="lib-title" className="m-0 font-semibold" style={{ marginTop: 8, fontSize: 26, lineHeight: '32px', letterSpacing: '-0.4px' }}>
+          <h1 id="lib-title" className="m-0" style={{ ...pageTitle, marginTop: 8 }}>
             {item.title}
           </h1>
           <div style={{ marginTop: 8, fontSize: type2.sm, lineHeight: '18px', color: color.label }}>{meta}</div>
@@ -161,10 +161,8 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
               <Video vid={vid} by={by} />
             </div>
           )}
-          {/* A section label (spec section 6): 13/18, semibold, secondary, 12 above its content. */}
-          <h2 className="m-0 font-semibold" style={{ margin: `${rhythm.section}px 0 ${rhythm.label}px`, fontSize: type2.sm, lineHeight: '18px', color: color.label }}>
-            {stepCount ? stepsLabel(stepCount) : 'Steps'}
-          </h2>
+          {/* The shared section label (layout.tsx): 13/18, semibold, secondary, 12 above its content. */}
+          <SectionLabel style={{ marginTop: rhythm.section }}>{stepCount ? stepsLabel(stepCount) : 'Steps'}</SectionLabel>
           {steps.length > 0 ? (
             <>
               <ol className="m-0 list-none p-0" aria-label="Steps">
