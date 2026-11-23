@@ -142,6 +142,50 @@ def _ocr_float(s: str) -> float | None:
         return None
 
 
+_NONFINITE = r"(?i:[-+]?(?:nan|inf(?:inity)?))"
+
+
+def _value_group_span(pattern: str) -> tuple[int, int] | None:
+    """(start of the group body, index of its closing paren) for the ``(?P<value>...)`` group, or None."""
+    key = "(?P<value>"
+    at = pattern.find(key)
+    if at < 0:
+        return None
+    start, depth, i, in_class = at + len(key), 1, at + len(key), False
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+            if pattern[i + 1:i + 2] == "^":
+                i += 1
+            if pattern[i + 1:i + 2] == "]":
+                i += 1
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return start, i
+        i += 1
+    return None
+
+
+def nonfinite_tolerant(pattern: str) -> str:
+    """A lesson's value class like ``[0-9Oo.eE+-]+`` can't read ``nan``/``inf``, so a diverged loss line was
+    skipped and an older finite value was graded. Let the ``value`` group also match nan/inf (any case, signed);
+    _ocr_float turns them into float values the divergence guard fails on."""
+    span = _value_group_span(pattern)
+    if span is None:
+        return pattern
+    a, b = span
+    return pattern[:a] + _NONFINITE + "|" + pattern[a:b] + pattern[b:]
+
+
 def extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
     """Apply a check's ``metric_pattern`` to terminal text → ``[(step, value), ...]``.
 
@@ -149,7 +193,7 @@ def extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
     group is used, and without ``step`` the line order is the step (0, 1, 2, ...).
     Duplicate steps (the same line visible across screenshots) keep the last value.
     """
-    rx = safe_compile(pattern)
+    rx = safe_compile(nonfinite_tolerant(pattern))
     pts: dict[int, float] = {}
     order = 0
     for line in text.splitlines():

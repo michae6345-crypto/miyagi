@@ -31,6 +31,7 @@ from typing import Any, Literal, TypedDict
 from server.safety import regex_worker
 from server.safety.patterns import MAX_PATTERN_LEN, pattern_problem, safe_compile  # noqa: F401 - re-exported
 
+from .code_text import code_view, lang_of, signatures
 from .notebook import Notebook, find_notebook, read_notebook
 from .screen import extract_metrics, screen_lines, screen_text, search_screen, search_wrapped
 
@@ -320,6 +321,18 @@ def unsafe_patterns(check: dict) -> str | None:
 
 
 # ---------------------------------------------------------------- per type
+def _learner_file(name: str, ctx: RunContext) -> str:
+    """The file name a detail should say: the video's ``Untitled.ipynb`` is the learner's own notebook (``mnist.ipynb``),
+    so name that one when it exists."""
+    if not name.lower().endswith(".ipynb"):
+        return name
+    if isinstance(ctx.notebook, Notebook):
+        return ctx.notebook.path.name
+    if os.path.isabs(str(ctx.workdir or "")) and (found := find_notebook(ctx.workdir, [name])) is not None:
+        return found.name
+    return name
+
+
 def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
     rel = check.get("file")
     if not rel:
@@ -348,12 +361,16 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", f"{rel} not found")
     except OSError as exc:
         return _result(check, "fail", f"cannot read {rel}: {exc.strerror}")
+    view = code_view(full, check, rel, check.get("_sigs")) if lang_of(rel) else full  # no comments, one function
     try:  # 64 KB windows (up to 1 MB), no line over 2 KB: what one lesson search may cost is bounded
-        hit = _search_file(_compile(pattern), full)
+        hit = _search_file(_compile(pattern), view)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if hit:
-        return _result(check, "pass", f"found in {rel}:{hit[1]}")
+        line = hit[1]
+        if view.count("\n") != full.count("\n") and (at := full.find(hit[0].group(0))) >= 0:
+            line = full.count("\n", 0, at) + 1  # the check was scoped to a function: the line in the whole file
+        return _result(check, "pass", f"found in {rel}:{line}")
     return _result(check, "fail", f"not in {rel} yet")
 
 
@@ -519,7 +536,8 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
         msg = f"no '{name}' points at or before step {by_step}"
     if by_step is not None and latest_step >= by_step:
         return _result(check, "fail", msg + f" by step {by_step}")
-    if ctx.run_finished:
+    if ctx.run_finished or (nb is not None and nb.executed and not ctx.running):
+        # a notebook cell that finished (it has run, and nothing is running) below the bar is a fail: stuck-help can fire
         return _result(check, "fail", msg)
     return _result(check, "pending", msg)
 
@@ -600,6 +618,16 @@ def mann_kendall_z(ys: list[float]) -> float:
     return (s - 1) / math.sqrt(var) if s > 0 else (s + 1) / math.sqrt(var)
 
 
+def _window_steps(window: int, pts: list[tuple[int, float]]) -> int:
+    """A trend window is written in steps, but a script logs every N: ``window: 5`` over a loss printed every 100
+    steps holds one point and could never be judged. The window is widened to span at least TREND_MIN_POINTS of the
+    run's own samples (its median logging gap), so it counts what was observed, not raw steps."""
+    gaps = sorted(b[0] - a[0] for a, b in zip(pts, pts[1:]) if b[0] > a[0])
+    if not gaps:
+        return window
+    return max(window, gaps[len(gaps) // 2] * (TREND_MIN_POINTS - 1))
+
+
 def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     """``not_flat`` / ``decreasing`` over the last ``window`` training steps.
 
@@ -632,6 +660,7 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
         if ctx.run_finished:
             return _result(check, "fail", _no_metric(ctx, name))
         return _waiting_for_metric(check, ctx, name)
+    window = _window_steps(window, pts)
     latest = pts[-1][0]
     div = _diverged(ctx, name, check, since_step=latest - window)
     if div:
@@ -694,7 +723,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
             # t10: "No predict errors · not showing on screen" passed before the step's cell existed: no run, no verdict
             return _result(check, "pending", "checked when the cell runs")
         if nb is not None and not absent:  # t9 V2/V3: the notebook's cells as typed / what they printed decide first
-            if search_wrapped(pattern, scan_text(nb.output_text if output else nb.source_text)):
+            src = nb.output_text if output else code_view(nb.source_text, check, ".py", check.get("_sigs"))
+            if search_wrapped(pattern, scan_text(src)):
                 return _result(check, "pass", f"{'printed' if output else 'typed'} in {nb.path.name}")
             if output and _plotted(pattern, nb):
                 return _result(check, "pass", f"plotted in {nb.path.name}")
@@ -707,11 +737,15 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     text = screen_text(ctx.screen, app)
     if text is None:
         return _not_visible(check, ctx, absent)
+    if not absent and not output and app not in _TERMINAL_APPS:  # the learner's code: no comments, one function
+        text = code_view(text, check, check.get("file"), check.get("_sigs"))
+    if not absent and app in _TERMINAL_APPS and not ctx.running:  # typed at the prompt, Enter not pressed: not run
+        text = _without_typed_input(text)
     if output:  # t9 V3: the print() line on screen is code, never the output it promises
         text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code")))
     text = scan_text(text, SCREEN_SCAN_CHARS)  # the newest 4 KB of the window(s): never a whole scrollback
     try:
-        m = search_screen(pattern, text) if absent else search_wrapped(pattern, text)
+        m = _absent_hit(pattern, text) if absent else search_wrapped(pattern, text)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if output and not m:
@@ -729,8 +763,54 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         return _result(check, "fail", "not printed by the last run: run it again" if ctx.run_finished
                        else f"not printed{where} yet")
     # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
-    f = os.path.basename(str(check.get("file") or ""))
+    f = _learner_file(os.path.basename(str(check.get("file") or "")), ctx)
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
+
+
+# What an error looks like in a terminal: a traceback, `XError:` / `XException:`, `Error:` / `error:` starting a line
+# (or a tool's `gcc: error:`), npm's `ERR!`, the shell's "command not found". The bare word anywhere else
+# ("Relative L2 Error: 3.1e-02", "error rate", "no errors") is a number the program prints, not a crash.
+_ERROR_FORM = re.compile(r"Traceback \(most recent call last\)|\b[A-Za-z_]\w*(?:Error|Exception)\s*:"
+                         r"|(?:^|:\s)\s*(?:Error|ERROR|error|Fatal|FATAL|fatal)\b\s*[:!]|\bnpm ERR!|command not found",
+                         re.M)
+_BARE_ERROR_WORD = re.compile(r"(?:errors?|exceptions?|failed|failure|fatal|traceback)", re.I)
+
+
+def _absent_hit(pattern: str, text: str) -> re.Match[str] | None:
+    """The first match of a screen_absent ``pattern`` that is really there. A match that is only the bare word
+    ``Error`` / ``error`` / ``Exception`` counts when its line is an error form (_ERROR_FORM), never when a program
+    prints it as a label (``Relative L2 Error: 3.1e-02``); every longer match (``Traceback``, ``NotImplementedError``,
+    a lesson's own wording) counts as before."""
+    rx = safe_compile(pattern, re.MULTILINE)
+    for hay in (text, re.sub(r"\s+", " ", text)):
+        for m in rx.finditer(hay):
+            if not _BARE_ERROR_WORD.fullmatch(m.group(0).strip()):
+                return m
+            start = hay.rfind("\n", 0, m.start()) + 1
+            end = hay.find("\n", m.end())
+            if _ERROR_FORM.search(hay[start:len(hay) if end < 0 else end]):
+                return m
+    return None
+
+
+def _without_typed_input(text: str) -> str:
+    """Terminal text without its bottom row when that row is a prompt with text after it: a command typed (or being
+    typed) and not run yet. Only a row followed by more output, or by a new prompt, was executed."""
+    lines = text.split("\n")
+    last = max((i for i, ln in enumerate(lines) if ln.strip()), default=None)
+    if last is None:
+        return text
+    words = lines[last].split()
+    if words and words[0] == "➜":  # oh-my-zsh: arrow, <dir>, [git:(branch)], [dirty mark], <command>
+        rest = words[2:]
+        if rest and rest[0].startswith("git:("):
+            rest = rest[1:]
+        if rest and rest[0] == "✗":
+            rest = rest[1:]
+        typed = bool(rest)
+    else:
+        typed = any(w not in _SHELL_JOIN and _after_prompt(w) for w in words[:-1])
+    return "\n".join(lines[:last] + lines[last + 1:]) if typed else text
 
 
 # a plot's own words, set in the cell's source: ax2.set_title('Class Probability'), plt.xlabel("Epoch"), ...
@@ -792,7 +872,11 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
 
 
 def _on_run_output(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
-    """A terminal check the screen can't read, graded on the output of the step's last finished run."""
+    """A terminal check the screen can't read, graded on the output of the step's last finished run, and only when
+    that run is the step's own command (a different script that printed the same line is not the learner's work)."""
+    want = check.get("_run_command")
+    if want and ctx.command and not command_matches(want, ctx.command):
+        return _result(check, "pending", f"the last run was `{ctx.command}`; run `{want}`")
     try:
         m = search_screen(str(check.get("pattern") or ""), scan_text(ctx.output_text()))
     except re.error as exc:
@@ -913,6 +997,13 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
                                            for t in step.get("targets") or []) or _command_step(step)
     checks = [{**c, "run": True} if run and c.get("type") == "screen_absent" and c.get("app") in _TERMINAL_APPS
               else c for c in checks]
+    rc = str(step.get("run_command") or "").strip()
+    if rc and not _CELL_ACTION.search(rc):  # a hidden terminal's output only counts when it is this command's run
+        checks = [{**c, "_run_command": rc} if c.get("app") in _TERMINAL_APPS
+                  and c.get("type") in ("screen_contains", "screen_absent") else c for c in checks]
+    if sigs := signatures(step.get("code")):  # the step's own parameter names: a check reads add(x, y) as add(a, b)
+        checks = [{**c, "_sigs": sigs} if c.get("type") in ("screen_contains", "file_contains")
+                  and c.get("app") not in _TERMINAL_APPS else c for c in checks]
     ctx = _with_step_notebook(step, ctx)
     if isinstance(ctx.notebook, Notebook) and not str(step.get("code") or "").strip():
         # t10-flow's s1 (select the .venv kernel) has no cell of its own: the screen decides, never "when the cell runs"
