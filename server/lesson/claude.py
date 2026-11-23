@@ -167,11 +167,11 @@ class _RateLimited(Exception):
         self.retry_after = retry_after
 
 
-def _user_content(prefix: str, rest: str):
-    """The user message as one plain string, or with LESSON_PROMPT_CACHE_USER=1 the stable `prefix` as a cached block,
-    then `rest`. Off by default: a cache write costs 1.25x and a build rarely re-reads its transcript prefix (the lesson
-    cache skips repeat builds, progressive windows differ, detail calls run in parallel), so it was a net loss."""
-    if os.environ.get("LESSON_PROMPT_CACHE_USER", "0") != "1":
+def _user_content(prefix: str, rest: str, site: str = "lesson.segment"):
+    """The user message as one plain string, or, where models.cache_prefix(site) says this call site's prefix is read
+    again within the TTL, the stable `prefix` as a cached block, then `rest`. All lesson sites are off by default (see
+    models.PREFIX_CACHE): a cache write costs 1.25x and nothing in a build re-reads these prefixes today."""
+    if not prefix or not model_table.cache_prefix(site):
         return (prefix + "\n\n" + rest) if prefix else rest
     return prompt_cache.user_blocks(prefix, rest)
 
@@ -270,13 +270,15 @@ def extract_json(text: str) -> dict:
 
 
 async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str = "high", structured: bool = True,
-                         role: str | None = None, escalate: bool = True, check=None, prefix: str = "") -> dict:
+                         role: str | None = None, escalate: bool = True, check=None, prefix: str = "",
+                         cache_site: str | None = None) -> dict:
     """Run on the role's (cheap) model; if the reply fails validation or `check(obj)` returns a problem,
     retry once on the escalation model (Opus).
     `prefix`: the part of the user message that stays the same across calls (a transcript, a lesson outline); it
-    becomes a cached block placed before `prompt`, the part that changes. Nothing volatile may be in it."""
+    becomes a cached block placed before `prompt`, the part that changes, when models.cache_prefix(`cache_site`) is on
+    (default site: lesson.<role>). Nothing volatile may be in it."""
     mid = model(role)
-    px = {"prefix": prefix} if prefix else {}
+    px = {"prefix": prefix, "site": cache_site or f"lesson.{role or 'segment'}"} if prefix else {}
     try:
         obj = await _generate_json_on(mid, system, prompt, schema, effort=effort, structured=structured, **px)
         problem = check(obj) if check else None
@@ -296,14 +298,14 @@ async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str 
 
 
 async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *, effort: str, structured: bool,
-                            prefix: str = "") -> dict:
+                            prefix: str = "", site: str = "lesson.segment") -> dict:
     """Structured output when the API accepts the schema; otherwise (\"Schema is too complex\") the
     schema goes in the prompt and the reply is validated client-side, with one corrective retry."""
     global last_model
     key = json.dumps(schema, sort_keys=True)
     if structured and key not in _schema_too_complex:
         try:
-            msg, text = await _call(mid, system, _user_content(prefix, prompt), effort=effort, schema=schema)
+            msg, text = await _call(mid, system, _user_content(prefix, prompt, site), effort=effort, schema=schema)
             last_model = getattr(msg, "model", None) or mid
             return json.loads(text)
         except _SchemaTooComplex:
@@ -318,7 +320,7 @@ async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *,
     ask = prompt
     errors: list[str] = []
     for _attempt in range(2):
-        msg, text = await _call(mid, sys_schema, _user_content(prefix, ask), effort=effort, schema=None)
+        msg, text = await _call(mid, sys_schema, _user_content(prefix, ask, site), effort=effort, schema=None)
         try:
             obj = extract_json(text)
             errors = [f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}" for e in validator.iter_errors(obj)]
