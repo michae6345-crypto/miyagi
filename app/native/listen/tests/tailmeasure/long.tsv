@@ -1,0 +1,6 @@
+how do I reshape a numpy array so that the columns become rows and then plot it with matplotlib
+why does my training loss go down for a few epochs and then shoot back up again
+can you explain what this error means and which line of the notebook is causing it
+what is the difference between a list and a tuple and when should I use each one
+I circled the function here, why does it return none instead of the sum of the numbers
+show me how to read this csv file into a pandas data frame and drop the empty rows

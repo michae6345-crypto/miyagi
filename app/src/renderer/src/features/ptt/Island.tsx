@@ -19,6 +19,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
 import { color, duration, ease, pill, type2 } from '../../core/theme'
 import { closeCard, declineInputCard, usePtt } from './store'
+import { stripWake } from './wake'
 
 /** Fixed, so the pill doesn't change width with every partial. */
 export const PILL_W = 300
@@ -55,7 +56,7 @@ function Ring({ live }: { live: boolean }): ReactNode {
 export function ListeningPill(): ReactNode {
   const { phase, text } = usePtt((s) => s.ptt)
   const sending = phase === 'sending'
-  const words = text.trim()
+  const words = stripWake(text) // "hey miyagi" is not shown: only the question (wake.ts)
   // In the notch the ears carry the ring: the line under it is just the words.
   const inNotch = useInNotch()
   return (

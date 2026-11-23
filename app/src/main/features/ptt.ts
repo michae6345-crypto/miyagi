@@ -16,6 +16,9 @@
  *   bridge.invoke('ptt:capture-release', id) -> boolean   the overlay won't send that capture: the helper deletes it now
  *   bridge.onFeature('ptt:state', cb)   every change of the one PttState
  *   bridge.onFeature('ptt:final', cb)   {id, text}: the words to ask (the overlay routes them, features/ptt/store.ts)
+ *   bridge.onFeature('ptt:down', cb)    {id}: the keys went down (before the 250 ms debounce). The engine is told ask.warm
+ *                                       later, on every 'listening' of the helper (the hold passed the minimum)
+ *   bridge.onFeature('ptt:partial', cb) {id, text}: each new partial of the hold in flight (held, and during the release tail)
  *   bridge.onFeature('ptt:prefill', cb) text: the launcher is already open, fill it
  *
  * macOS only. If the helper binary is missing (a dev checkout that never built it) the feature stays quiet: no state,
@@ -33,6 +36,7 @@ import { join } from 'node:path'
 import { PTT_ENABLED } from '../../common/flags'
 import { DEFAULT_PREFS, sanitizePrefs, type PttPrefs } from '../../common/prefs'
 import { active, PTT_REST, reducePtt, type PttInput, type PttState } from '../../common/pttState'
+import { cmd } from '../../common/wire'
 import { defineMainFeature } from '../context'
 import {
   backoffMs,
@@ -138,6 +142,19 @@ export default defineMainFeature({
     let pendingInput: ReturnType<typeof setTimeout> | undefined
     let lastTerms = ''
     let prefill: { text: string; at: number } | undefined
+    /** The hold that was released last, and when: for the 'final N ms after release' log line. */
+    let up: { id: string; at: number } | undefined
+    /**
+     * The hold passed the minimum and the mic opened (the helper's 'listening'): let the engine get ready for the ask
+     * (contract ask.warm, v2: only if it said so). On every such hold: it is one local WebSocket line, and the keep-alive
+     * link it reopens (engine to cloud to Anthropic) closes a few seconds after its last use, so a warm-up from minutes
+     * ago does nothing for this ask. The engine throttles only the paid prompt-cache write. Not on the raw key-down: a
+     * tap ('short') or Fn+Control+arrow (window tiling, 'keypress') never asks. Capture and TLS still get a head start.
+     */
+    const warm = (id: string): void => {
+      if (!ctx.engine.connected || !ctx.engine.can('ask.warm')) return
+      ctx.engine.send(cmd('ask.warm', { pttId: id }))
+    }
 
     const send = (line: string): void => {
       if (!child || child.killed || !child.stdin.writable) return
@@ -218,6 +235,15 @@ export default defineMainFeature({
             if (ev.input !== 'granted') void ask('input')
           }
           apply(ev)
+          if (ev.type === 'ptt' && ev.state === 'down' && state.id === ev.id) ctx.broadcast('ptt:down', { id: ev.id })
+          if (ev.type === 'listening' && state.id === ev.id) warm(ev.id)
+          if (ev.type === 'ptt' && ev.state === 'up') up = { id: ev.id, at: Date.now() }
+          if (ev.type === 'partial' && state.id === ev.id) ctx.broadcast('ptt:partial', { id: ev.id, text: ev.text })
+          // Timed per hold: a final of an older hold that ends after a newer release must not log the new one's time.
+          if ((ev.type === 'final' || ev.type === 'cancelled') && up?.id === ev.id) {
+            if (ev.type === 'final') pttLog(`final ${Date.now() - up.at} ms after release`)
+            up = undefined
+          }
         }
       })
       p.stderr.on('data', () => undefined) // drained, never logged: it could hold what was said

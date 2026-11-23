@@ -23,6 +23,8 @@ import { usePrefs } from '../../core/prefs'
 import { sendAction } from '../../core/shortcuts'
 import { shouldShowInputCard } from './inputCard'
 import { routeFor, type Routed } from './route'
+import { createTail, type PttTiming } from './tail'
+import { stripWake } from './wake'
 
 export type PttCard = 'mic' | 'mic-denied' | 'input'
 
@@ -98,7 +100,9 @@ reoffer.unref?.()
 export function receive(next: PttState): void {
   const prev = get().ptt
   const live = next.phase === 'listening' || next.phase === 'sending'
-  if (live && !get().owned) {
+  tail.observe(next)
+  // A hold the safety net already sent (below) is done for the island, even while the helper is still finishing it.
+  if (live && !get().owned && next.id !== spent) {
     set({ owned: true })
     clearTimeout(cap)
     cap = setTimeout(release, HARD_CAP_MS) // the hard cap: never longer than this, whatever main or the helper do
@@ -164,6 +168,7 @@ export function claimFinals(fn: (f: { id: string; text: string }) => boolean): v
 }
 
 export function routeFinal(f: { id: string; text: string }): Routed {
+  f = { id: f.id, text: stripWake(f.text) } // "hey miyagi, ..." asks only the words after it (wake.ts)
   if (!isRouter() || seen === f.id) return 'none'
   seen = f.id
   const text = f.text.trim()
@@ -190,9 +195,92 @@ bridge.onFeature('ptt:state', (p) => {
 })
 bridge.onFeature('ptt:final', (p) => {
   const f = p as { id?: unknown; text?: unknown } | undefined
-  if (f && typeof f.id === 'string' && typeof f.text === 'string') routeFinal({ id: f.id, text: f.text })
+  if (f && typeof f.id === 'string' && typeof f.text === 'string') finalFromHelper({ id: f.id, text: f.text })
 })
 bridge
   .invoke<PttState>('ptt:get')
   .then((s) => s && typeof s === 'object' && receive(s))
   .catch(() => undefined) // no helper (or the stage without a mock): push to talk stays out of sight
+
+// ---- speed (Nov 22): the release tail's safety net, and the seams circle to ask plugs into ----
+
+/** The hold the safety net sent: the island lets go of it at once. */
+let spent: string | undefined
+
+/** The safety net (tail.ts): if the helper sends no final within SAFETY_MS of the key-up, the last partial is the final. */
+const tail = createTail((f) => {
+  spent = f.id
+  release()
+  routeFinal(f)
+  logTiming()
+})
+
+function logTiming(): void {
+  const t = tail.timing()
+  if (t?.releaseToFinalMs !== undefined) console.info(`[ptt] release to final ${Math.round(t.releaseToFinalMs)} ms (${t.via})`)
+}
+
+/** The helper's final (main's 'ptt:final', or the stage's mock): timed, then routed. A hold the tail already sent is not asked twice (routeFinal's seen id). */
+export function finalFromHelper(f: { id: string; text: string }): Routed {
+  const first = tail.timing()?.id === f.id && tail.timing()?.finalAt === undefined
+  tail.final(f.id, 'helper')
+  if (first) logTiming()
+  return routeFinal(f)
+}
+
+/** The browser stage only: its "send" script holds the Sending face for shots, so the tail must not end it. */
+export const pauseTail = (on: boolean): void => tail.pause(on)
+
+/** The current (or last) hold's timing: down, up, final, which path, release to final in ms. */
+export const pttTiming = (): PttTiming | undefined => tail.timing()
+
+type DownFn = (d: { id: string }) => void
+type PartialFn = (p: { id: string; text: string }) => void
+const downFns = new Set<DownFn>()
+const partialFns = new Set<PartialFn>()
+
+/**
+ * The push-to-talk keys went down (the helper's ptt down, before the 250 ms debounce). Local work only: main asks the
+ * engine to warm up (ask.warm, a paid cache write) later, once the hold passes the minimum and the mic opens
+ * ('listening'), so taps and Fn+Control+arrow presses cost nothing. Circle to ask: prepare the capture for this hold
+ * here (prefetch SCShareableContent and our own windows to exclude), keyed by id. Returns an unsubscribe.
+ */
+export function onPttDown(fn: DownFn): () => void {
+  downFns.add(fn)
+  return () => void downFns.delete(fn)
+}
+
+/** Every new partial of the hold in flight, while the keys are held and during the tail. text has the wake word dropped. Returns an unsubscribe. */
+export function onPttPartial(fn: PartialFn): () => void {
+  partialFns.add(fn)
+  return () => void partialFns.delete(fn)
+}
+
+const call = <T>(fns: Set<(v: T) => void>, v: T): void => {
+  for (const fn of fns) {
+    try {
+      fn(v)
+    } catch (err) {
+      console.warn('[ptt] a listener failed', err)
+    }
+  }
+}
+
+/** main's 'ptt:down' (or the stage's mock). */
+export function receiveDown(d: { id: string }): void {
+  call(downFns, d)
+}
+/** main's 'ptt:partial' (or the stage's mock). Only the current hold's words. */
+export function receivePartial(p: { id: string; text: string }): void {
+  if (p.id !== get().ptt.id) return
+  call(partialFns, { id: p.id, text: stripWake(p.text) })
+}
+
+bridge.onFeature('ptt:down', (p) => {
+  const d = p as { id?: unknown } | undefined
+  if (d && typeof d.id === 'string') receiveDown({ id: d.id })
+})
+bridge.onFeature('ptt:partial', (p) => {
+  const f = p as { id?: unknown; text?: unknown } | undefined
+  if (f && typeof f.id === 'string' && typeof f.text === 'string') receivePartial({ id: f.id, text: f.text })
+})
