@@ -353,3 +353,30 @@ def test_estimator_uses_the_price_table_and_skips_prefixes_under_the_minimum():
     assert before == pytest.approx(cost.usd(seg["before"], seg["system"] + seg["shared"] + seg["own"], seg["output"]))
     tiny = dict(p["judge"])  # 300 + 1200 tokens: under Haiku's minimum, so caching changes nothing
     assert est.stage_cost(p, tiny, caching=True) == pytest.approx(est.stage_cost(p, tiny, caching=False))
+
+
+# ------------------------------------------------------------------------------- per-site prefix cache flags
+
+def test_prefix_cache_is_off_for_every_lesson_site_by_default(monkeypatch):
+    for k in ("LESSON_PROMPT_CACHE_USER", "MIYAGI_CACHE_PREFIX_LESSON_SEGMENT", "MIYAGI_CACHE_PREFIX_LESSON_DETAIL",
+              "MIYAGI_CACHE_PREFIX_LESSON_TEXT_STEP"):
+        monkeypatch.delenv(k, raising=False)
+    assert set(models.PREFIX_CACHE) >= {"lesson.segment", "lesson.detail", "lesson.text_step"}
+    assert not any(models.cache_prefix(s) for s in models.PREFIX_CACHE)
+    assert models.cache_prefix("some.unknown_site") is False
+
+
+def test_one_site_can_be_flipped_without_the_others(monkeypatch):
+    monkeypatch.delenv("LESSON_PROMPT_CACHE_USER", raising=False)
+    monkeypatch.setenv("MIYAGI_CACHE_PREFIX_LESSON_DETAIL", "1")
+    assert models.cache_prefix("lesson.detail") and not models.cache_prefix("lesson.segment")
+    seen = _run_build(monkeypatch, "g")
+    seg, det = seen[0], seen[1]
+    assert isinstance(seg["messages"][0]["content"], str)  # segment: plain string
+    assert "cache_control" in det["messages"][0]["content"][0]  # detail: cached head
+
+
+def test_the_site_flag_beats_the_older_lesson_switch(monkeypatch):
+    monkeypatch.setenv("LESSON_PROMPT_CACHE_USER", "1")
+    monkeypatch.setenv("MIYAGI_CACHE_PREFIX_LESSON_SEGMENT", "0")
+    assert not models.cache_prefix("lesson.segment") and models.cache_prefix("lesson.detail")
