@@ -1,0 +1,209 @@
+{
+  "id": "intro-csharp",
+  "title": "Intro to C#",
+  "group": "language",
+  "topic": "code",
+  "track": "c#",
+  "tool": {
+    "id": "vscode",
+    "label": "VS Code"
+  },
+  "also": [
+    ".NET SDK"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Console apps with lists, classes and LINQ, built with dotnet.",
+  "project": {
+    "title": "A habit tracker",
+    "brief": "Make a console app on your own. A Habit class with a name and a list of days done, a dictionary of habits, and a report of each habit by percent done, highest first.",
+    "checks": [
+      "dotnet run builds and exits with no error",
+      "Each habit prints its name and the percent of days done",
+      "The habits print ordered by percent, highest first"
+    ]
+  },
+  "skills": [
+    {
+      "id": "cs.run",
+      "label": "dotnet new and run",
+      "needs": []
+    },
+    {
+      "id": "cs.types",
+      "label": "Variables, types",
+      "needs": [
+        "cs.run"
+      ]
+    },
+    {
+      "id": "cs.strings",
+      "label": "String formatting",
+      "needs": [
+        "cs.types"
+      ]
+    },
+    {
+      "id": "cs.conditions",
+      "label": "If and switch",
+      "needs": [
+        "cs.types"
+      ]
+    },
+    {
+      "id": "cs.loops",
+      "label": "Loops",
+      "needs": [
+        "cs.conditions"
+      ]
+    },
+    {
+      "id": "cs.methods",
+      "label": "Methods",
+      "needs": [
+        "cs.loops"
+      ]
+    },
+    {
+      "id": "cs.lists",
+      "label": "Lists",
+      "needs": [
+        "cs.loops"
+      ]
+    },
+    {
+      "id": "cs.dicts",
+      "label": "Dictionaries",
+      "needs": [
+        "cs.lists"
+      ]
+    },
+    {
+      "id": "cs.classes",
+      "label": "Classes",
+      "needs": [
+        "cs.methods"
+      ]
+    },
+    {
+      "id": "cs.linq",
+      "label": "LINQ",
+      "needs": [
+        "cs.lists",
+        "cs.methods"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Create and run a console app",
+      "goal": "Teach a complete beginner to create a C# console app with dotnet new console, edit Program.cs in VS Code to print a three-line haiku and run it with dotnet run.",
+      "grows": [
+        "cs.run"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "dotnet run builds the app and prints three lines."
+    },
+    {
+      "title": "Variables and types",
+      "goal": "Teach C# int, double, decimal, bool, string and var by building a currency converter that turns an amount in dollars into euros at a fixed rate.",
+      "grows": [
+        "cs.types"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "100 dollars at a rate of 0.92 prints 92.00 euros."
+    },
+    {
+      "title": "Strings and interpolation",
+      "goal": "Teach C# string interpolation with format and alignment, plus Length and ToUpper, by printing a shop receipt with three items in neat columns.",
+      "grows": [
+        "cs.strings"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The receipt prints three aligned rows with prices to two decimals."
+    },
+    {
+      "title": "If, else and switch",
+      "goal": "Teach C# if, else and the switch expression by writing a season finder that turns a month number into winter, spring, summer or autumn.",
+      "grows": [
+        "cs.conditions"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Months 1, 4, 7 and 10 print winter, spring, summer and autumn."
+    },
+    {
+      "title": "For, while and foreach",
+      "goal": "Teach C# for, while and foreach loops by printing the first 15 Fibonacci numbers, starting from 0 and 1, and then their sum.",
+      "grows": [
+        "cs.loops"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The last number printed is 377 and the sum is 986."
+    },
+    {
+      "title": "Methods",
+      "goal": "Teach C# methods with parameters, return values and optional parameters by building a BMI calculator with one method for the number and one for the label.",
+      "grows": [
+        "cs.methods"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "70 kg at 1.75 m prints a BMI of 22.9 and the label for a healthy weight."
+    },
+    {
+      "title": "Lists",
+      "goal": "Teach the C# List with Add, Remove, Contains, Count, Sort and foreach by building a team lineup that signs players and drops one.",
+      "grows": [
+        "cs.lists"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The lineup prints in alphabetical order with the dropped player gone."
+    },
+    {
+      "title": "Dictionaries",
+      "goal": "Teach the C# Dictionary with add, lookup, TryGetValue and foreach by building a Morse code translator for letters and digits.",
+      "grows": [
+        "cs.dicts"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "SOS prints as three dots, three dashes and three dots."
+    },
+    {
+      "title": "Classes and properties",
+      "goal": "Teach C# classes with properties, a constructor and methods by building a Thermostat class whose target stays between 10 and 30 degrees.",
+      "grows": [
+        "cs.classes"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "Setting the target to 45 leaves it at 30, and to 2 leaves it at 10."
+    },
+    {
+      "title": "LINQ",
+      "goal": "Teach C# LINQ with Where, OrderBy, Select and Average by reporting on marathon results, the runners under four hours sorted by finish time.",
+      "grows": [
+        "cs.linq"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "Only runners under four hours print, fastest first, with the average time."
+    }
+  ]
+}

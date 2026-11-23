@@ -1,0 +1,209 @@
+{
+  "id": "intro-cpp",
+  "title": "Intro to C++",
+  "group": "language",
+  "topic": "code",
+  "track": "c++",
+  "tool": {
+    "id": "vscode",
+    "label": "VS Code"
+  },
+  "also": [
+    "A C++ compiler"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Strings, vectors, references and classes in modern C++.",
+  "project": {
+    "title": "A deck of cards",
+    "brief": "Write cards.cpp on your own. A Card class, a vector that holds all 52 cards, a function that deals five into a hand by reference, and the hand printed in rank order.",
+    "checks": [
+      "cards.cpp compiles with -std=c++17 and runs",
+      "The deck holds 52 different cards",
+      "The hand of five prints sorted by rank"
+    ]
+  },
+  "skills": [
+    {
+      "id": "cpp.compile",
+      "label": "Compile and run",
+      "needs": []
+    },
+    {
+      "id": "cpp.types",
+      "label": "Variables and cout",
+      "needs": [
+        "cpp.compile"
+      ]
+    },
+    {
+      "id": "cpp.strings",
+      "label": "std::string",
+      "needs": [
+        "cpp.types"
+      ]
+    },
+    {
+      "id": "cpp.control",
+      "label": "If and loops",
+      "needs": [
+        "cpp.types"
+      ]
+    },
+    {
+      "id": "cpp.functions",
+      "label": "Functions",
+      "needs": [
+        "cpp.control"
+      ]
+    },
+    {
+      "id": "cpp.refs",
+      "label": "References, const",
+      "needs": [
+        "cpp.functions"
+      ]
+    },
+    {
+      "id": "cpp.vectors",
+      "label": "Vectors",
+      "needs": [
+        "cpp.control"
+      ]
+    },
+    {
+      "id": "cpp.maps",
+      "label": "Maps",
+      "needs": [
+        "cpp.vectors"
+      ]
+    },
+    {
+      "id": "cpp.classes",
+      "label": "Classes",
+      "needs": [
+        "cpp.refs"
+      ]
+    },
+    {
+      "id": "cpp.algorithms",
+      "label": "Sort and lambdas",
+      "needs": [
+        "cpp.vectors",
+        "cpp.functions"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Compile and run your first program",
+      "goal": "Teach a complete beginner to write banner.cpp in VS Code with iostream and std::cout, compile it with clang++ -std=c++17 and run it to print a name in a box of stars.",
+      "grows": [
+        "cpp.compile"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The program prints three lines, a name between two rows of stars."
+    },
+    {
+      "title": "Variables, types and cout",
+      "goal": "Teach C++ int, double, bool, const and auto with arithmetic by building a download time estimator from a file size and a connection speed.",
+      "grows": [
+        "cpp.types"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A 600 megabyte file at 20 megabytes a second prints 30 seconds."
+    },
+    {
+      "title": "Strings",
+      "goal": "Teach std::string in C++, with size, find, substr and replace, by writing a word censor that swaps one word in a sentence for stars.",
+      "grows": [
+        "cpp.strings"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The sentence prints with the chosen word replaced by stars."
+    },
+    {
+      "title": "If, for and while",
+      "goal": "Teach C++ if, else, for and while by writing a coin change counter that breaks an amount in cents into the fewest quarters, dimes, nickels and pennies.",
+      "grows": [
+        "cpp.control"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "87 cents prints 3 quarters, 1 dime, 0 nickels and 2 pennies."
+    },
+    {
+      "title": "Functions",
+      "goal": "Teach C++ functions with parameters, return types, default arguments and overloading by writing time helpers that turn seconds into hours, minutes and seconds.",
+      "grows": [
+        "cpp.functions"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "3725 seconds prints 1 hour, 2 minutes and 5 seconds."
+    },
+    {
+      "title": "References and const",
+      "goal": "Teach C++ references and const references by writing heal and damage functions that change a health bar in place and a print function that only reads it.",
+      "grows": [
+        "cpp.refs"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "Heal and damage take a reference and the print function a const reference."
+    },
+    {
+      "title": "Vectors",
+      "goal": "Teach std::vector in C++, with push_back, size, indexing and the range for loop, by logging lap times and printing the fastest lap and the average.",
+      "grows": [
+        "cpp.vectors"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The fastest lap and the average match the times in the vector."
+    },
+    {
+      "title": "Maps",
+      "goal": "Teach std::map in C++, with insert, lookup, find and looping over pairs, by building a fruit stand price list and totalling an order.",
+      "grows": [
+        "cpp.maps"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The order total matches the prices in the map and a missing fruit is reported."
+    },
+    {
+      "title": "Classes",
+      "goal": "Teach C++ classes with private members, a constructor and const member functions by building a Fraction class that adds two fractions and simplifies the result.",
+      "grows": [
+        "cpp.classes"
+      ],
+      "minutes": 25,
+      "steps": 7,
+      "check": "run",
+      "passes": "One half plus one third prints 5/6."
+    },
+    {
+      "title": "Sort and lambdas",
+      "goal": "Teach std::sort, std::find_if and lambdas from the C++ algorithm header by building a leaderboard that sorts players by score, highest first.",
+      "grows": [
+        "cpp.algorithms"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "code",
+      "passes": "The players print from highest score to lowest, sorted with a lambda."
+    }
+  ]
+}

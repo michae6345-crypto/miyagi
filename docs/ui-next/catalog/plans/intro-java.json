@@ -1,0 +1,208 @@
+{
+  "id": "intro-java",
+  "title": "Intro to Java",
+  "group": "language",
+  "topic": "code",
+  "track": "java",
+  "tool": {
+    "id": "vscode",
+    "label": "VS Code"
+  },
+  "also": [
+    "A JDK"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Types, methods, classes and collections. Your first Java programs.",
+  "project": {
+    "title": "A vending machine",
+    "brief": "Write VendingMachine.java on your own. An Item class, a HashMap of stock by code, and a buy method that throws an exception when money is short or the item is sold out.",
+    "checks": [
+      "VendingMachine.java compiles with javac and runs to the end",
+      "Buying a sold out item prints an error and the program keeps going",
+      "The final stock report lists every item with its count"
+    ]
+  },
+  "skills": [
+    {
+      "id": "java.run",
+      "label": "Compile and run",
+      "needs": []
+    },
+    {
+      "id": "java.types",
+      "label": "Variables, types",
+      "needs": [
+        "java.run"
+      ]
+    },
+    {
+      "id": "java.strings",
+      "label": "Strings",
+      "needs": [
+        "java.types"
+      ]
+    },
+    {
+      "id": "java.conditions",
+      "label": "If and switch",
+      "needs": [
+        "java.types"
+      ]
+    },
+    {
+      "id": "java.loops",
+      "label": "Loops",
+      "needs": [
+        "java.conditions"
+      ]
+    },
+    {
+      "id": "java.methods",
+      "label": "Methods",
+      "needs": [
+        "java.loops"
+      ]
+    },
+    {
+      "id": "java.arrays",
+      "label": "Arrays, ArrayList",
+      "needs": [
+        "java.loops"
+      ]
+    },
+    {
+      "id": "java.classes",
+      "label": "Classes, objects",
+      "needs": [
+        "java.methods"
+      ]
+    },
+    {
+      "id": "java.maps",
+      "label": "HashMap",
+      "needs": [
+        "java.arrays"
+      ]
+    },
+    {
+      "id": "java.exceptions",
+      "label": "Exceptions",
+      "needs": [
+        "java.methods"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Compile and run your first class",
+      "goal": "Teach a complete beginner to write Hello.java in VS Code with a class and a main method, compile it with javac and run it with java to print a three-line welcome sign.",
+      "grows": [
+        "java.run"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Hello.class exists and running it prints three lines."
+    },
+    {
+      "title": "Variables and types",
+      "goal": "Teach Java int, double, boolean and String variables, arithmetic and casting by building a trip fuel cost calculator in FuelCost.java.",
+      "grows": [
+        "java.types"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A 300 km trip at 15 km per litre and 2 dollars a litre prints 40.0."
+    },
+    {
+      "title": "Strings",
+      "goal": "Teach Java String methods, with length, charAt, substring, toLowerCase and equals, by building a username maker from a first and a last name.",
+      "grows": [
+        "java.strings"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Ada Lovelace prints the username alovelace."
+    },
+    {
+      "title": "If, else and switch",
+      "goal": "Teach Java if, else and switch by writing a rock paper scissors judge that takes two moves and prints who wins or that it is a tie.",
+      "grows": [
+        "java.conditions"
+      ],
+      "minutes": 20,
+      "steps": 5,
+      "check": "run",
+      "passes": "Rock against scissors prints a win for rock, and rock against rock a tie."
+    },
+    {
+      "title": "For and while loops",
+      "goal": "Teach Java for and while loops by printing a savings table that grows 1000 dollars at 5 percent a year for ten years.",
+      "grows": [
+        "java.loops"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The table has ten rows and the last balance is 1628.89."
+    },
+    {
+      "title": "Methods",
+      "goal": "Teach Java static methods with parameters, return types and overloading by writing a unit converter for miles to kilometres and pounds to kilograms.",
+      "grows": [
+        "java.methods"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Each conversion is its own method and 10 miles prints 16.09 kilometres."
+    },
+    {
+      "title": "Arrays and ArrayList",
+      "goal": "Teach Java arrays and ArrayList by building a grade book that stores five scores, adds a sixth and prints the highest and the average.",
+      "grows": [
+        "java.arrays"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The grade book prints the highest score and the average of six scores."
+    },
+    {
+      "title": "Classes and objects",
+      "goal": "Teach Java classes with private fields, a constructor, methods and toString by building a BankAccount class with deposit and withdraw.",
+      "grows": [
+        "java.classes"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "A new account prints a balance of 30 after a deposit of 50 and a withdrawal of 20."
+    },
+    {
+      "title": "HashMap",
+      "goal": "Teach the Java HashMap with put, get, getOrDefault and a loop over the keys by counting the votes in a class election and printing the winner.",
+      "grows": [
+        "java.maps"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The vote counts match the ballots and the winner is printed."
+    },
+    {
+      "title": "Exceptions",
+      "goal": "Teach Java try, catch and throw by writing a calculator that divides two numbers given as text and survives a zero and a word that is not a number.",
+      "grows": [
+        "java.exceptions"
+      ],
+      "minutes": 20,
+      "steps": 5,
+      "check": "run",
+      "passes": "Bad input prints an error message and the program ends with no stack trace."
+    }
+  ]
+}

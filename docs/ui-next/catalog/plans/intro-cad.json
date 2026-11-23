@@ -1,0 +1,201 @@
+{
+  "id": "intro-cad",
+  "title": "Intro to CAD",
+  "group": "environment",
+  "topic": "cad",
+  "track": "cad",
+  "tool": {
+    "id": "freecad",
+    "label": "FreeCAD"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Sketch, constrain and pad a real part, then export it to print.",
+  "project": {
+    "title": "A phone stand you could print",
+    "brief": "Design a one-piece phone stand from your own sketch. A base, a back rest at an angle and a front lip, with rounded edges, saved as an STL.",
+    "checks": [
+      "One solid body and every sketch fully constrained",
+      "The slot fits a phone 75 mm wide with a lip of at least 8 mm",
+      "A watertight STL is saved"
+    ]
+  },
+  "skills": [
+    {
+      "id": "cad.navigate",
+      "label": "Workspace",
+      "needs": []
+    },
+    {
+      "id": "cad.sketch",
+      "label": "Sketching",
+      "needs": [
+        "cad.navigate"
+      ]
+    },
+    {
+      "id": "cad.constrain",
+      "label": "Constraints",
+      "needs": [
+        "cad.sketch"
+      ]
+    },
+    {
+      "id": "cad.pad",
+      "label": "Pad",
+      "needs": [
+        "cad.constrain"
+      ]
+    },
+    {
+      "id": "cad.pocket",
+      "label": "Pockets",
+      "needs": [
+        "cad.pad"
+      ]
+    },
+    {
+      "id": "cad.fillet",
+      "label": "Fillets",
+      "needs": [
+        "cad.pad"
+      ]
+    },
+    {
+      "id": "cad.pattern",
+      "label": "Patterns",
+      "needs": [
+        "cad.pocket"
+      ]
+    },
+    {
+      "id": "cad.parametric",
+      "label": "Changing sizes",
+      "needs": [
+        "cad.pocket",
+        "cad.fillet"
+      ]
+    },
+    {
+      "id": "cad.export",
+      "label": "Export to print",
+      "needs": [
+        "cad.parametric"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Find your way around FreeCAD",
+      "goal": "Teach a complete beginner FreeCAD. Make a new document, switch to the Part Design workbench, create a body and move the view.",
+      "grows": [
+        "cad.navigate"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The document has one empty body."
+    },
+    {
+      "title": "Your first sketch",
+      "goal": "Teach FreeCAD sketching by drawing a closed rectangle on the XY plane of a Part Design body.",
+      "grows": [
+        "cad.sketch"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A sketch on the XY plane holds one closed rectangle."
+    },
+    {
+      "title": "Constrain it fully",
+      "goal": "Teach FreeCAD sketch constraints. Add length, width and position until the rectangle is fully constrained at 60 by 40 mm.",
+      "grows": [
+        "cad.constrain"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The sketch has no free movement and measures 60 by 40 mm."
+    },
+    {
+      "title": "Pad it into a plate",
+      "goal": "Teach the Pad tool in FreeCAD Part Design by turning the 60 by 40 mm sketch into a plate 5 mm thick.",
+      "grows": [
+        "cad.pad"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "scene",
+      "passes": "A pad 5 mm long makes a 60 by 40 by 5 mm solid."
+    },
+    {
+      "title": "Sketch on a face and cut holes",
+      "goal": "Teach sketching on a face and the Pocket tool in FreeCAD by cutting two 4 mm screw holes through the plate.",
+      "grows": [
+        "cad.pocket"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "Two 4 mm holes go through the plate."
+    },
+    {
+      "title": "Add the hook",
+      "goal": "Teach adding a second feature in FreeCAD by sketching on the face of the plate and padding a hook 30 mm out.",
+      "grows": [
+        "cad.sketch",
+        "cad.pad"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "A second pad 30 mm long is joined to the plate."
+    },
+    {
+      "title": "Fillets and chamfers",
+      "goal": "Teach the Fillet and Chamfer tools in FreeCAD by rounding the outer edges of the hook by 2 mm.",
+      "grows": [
+        "cad.fillet"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "At least four edges carry a 2 mm fillet."
+    },
+    {
+      "title": "Mirror and pattern",
+      "goal": "Teach the Mirror and Linear Pattern tools in FreeCAD by repeating the screw hole four times along the plate.",
+      "grows": [
+        "cad.pattern"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The plate has four evenly spaced holes made by one pattern."
+    },
+    {
+      "title": "Change a dimension",
+      "goal": "Teach parametric editing in FreeCAD. Reopen the first sketch, change 60 mm to 80 mm and fix what breaks.",
+      "grows": [
+        "cad.parametric"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The plate is 80 mm long and every feature still rebuilds."
+    },
+    {
+      "title": "Export an STL to print",
+      "goal": "Teach exporting a FreeCAD body as an STL for 3D printing and checking the size before you print.",
+      "grows": [
+        "cad.export"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "file",
+      "passes": "A watertight STL of the hook is saved."
+    }
+  ]
+}

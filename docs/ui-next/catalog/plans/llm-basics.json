@@ -1,0 +1,39 @@
+{
+  "id": "llm-basics",
+  "title": "Working with language models",
+  "group": "topic",
+  "topic": "ai",
+  "track": "language models",
+  "tool": { "id": "vscode", "label": "VS Code" },
+  "also": ["Python 3", "An API key"],
+  "level": "next",
+  "needs": ["intro-python"],
+  "line": "Call a model from Python, shape its output and check its work.",
+  "project": {
+    "title": "A quiz maker for your own notes",
+    "brief": "Build quiz.py on your own. It reads a text file of notes, asks a language model API for five quiz questions as JSON, checks the JSON and runs the quiz in the terminal.",
+    "checks": ["quiz.py reads the API key from the environment and not from the code", "The reply is parsed as JSON and checked to hold five questions with answers", "The quiz runs in the terminal and prints a score out of five"]
+  },
+  "skills": [
+    { "id": "llm.keys", "label": "API keys", "needs": ["py.run"] },
+    { "id": "llm.call", "label": "First API call", "needs": ["llm.keys", "py.functions"] },
+    { "id": "llm.messages", "label": "Messages and roles", "needs": ["llm.call", "py.dicts"] },
+    { "id": "llm.system", "label": "System prompts", "needs": ["llm.messages"] },
+    { "id": "llm.json", "label": "JSON output", "needs": ["llm.system"] },
+    { "id": "llm.errors", "label": "Errors and limits", "needs": ["llm.call", "py.errors"] },
+    { "id": "llm.retrieval", "label": "Retrieval", "needs": ["llm.system", "py.files"] },
+    { "id": "llm.tools", "label": "Tool calls", "needs": ["llm.json"] },
+    { "id": "llm.check", "label": "Checking answers", "needs": ["llm.json"] }
+  ],
+  "lessons": [
+    { "title": "Keep your API key out of the code", "goal": "Teach keeping an API key safe. Set the key for a language model API as an environment variable in the VS Code terminal, read it in key_check.py with os.environ and print only whether it is set.", "grows": ["llm.keys"], "minutes": 10, "steps": 4, "check": "run", "passes": "key_check.py prints that the key is set and no .py file contains the key." },
+    { "title": "Make your first API call", "goal": "Teach a first request to a language model API from Python in VS Code. Install the provider's SDK, send one question from ask.py and print only the text of the reply.", "grows": ["llm.call"], "minutes": 15, "steps": 5, "check": "run", "passes": "ask.py runs with no error and prints the reply as plain text." },
+    { "title": "Messages and roles", "goal": "Teach the messages format of a language model API, a list of dictionaries with a role and content, by writing chat.py, a loop that keeps the whole conversation across turns.", "grows": ["llm.messages"], "minutes": 20, "steps": 6, "check": "run", "passes": "The message list in chat.py gains one user and one assistant entry per turn." },
+    { "title": "System prompts", "goal": "Teach system prompts with a language model API by turning chat.py into a patient maths tutor that gives a hint and never the final answer.", "grows": ["llm.system"], "minutes": 15, "steps": 5, "check": "run", "passes": "The request carries a system prompt and the reply to 12 times 12 leaves out 144." },
+    { "title": "Ask for JSON and parse it", "goal": "Teach structured output with a language model API by asking for a recipe as JSON with fixed keys in recipe.py, parsing it with json.loads and catching a reply that is not valid JSON.", "grows": ["llm.json"], "minutes": 20, "steps": 6, "check": "run", "passes": "The reply parses with json.loads into a dict with name, minutes and ingredients." },
+    { "title": "Handle errors and limits", "goal": "Teach handling failures from a language model API in Python with try and except, one retry after a short wait, and a cap on output tokens set on every request.", "grows": ["llm.errors"], "minutes": 15, "steps": 5, "check": "code", "passes": "A failed request is caught and retried once, and each request sets an output cap." },
+    { "title": "Answer questions from a text file", "goal": "Teach simple retrieval with a language model API. In notes_qa.py, split notes.txt into paragraphs, pick the three that share the most words with the question and put only those in the prompt.", "grows": ["llm.retrieval"], "minutes": 25, "steps": 6, "check": "run", "passes": "The prompt sent to the model holds exactly three paragraphs from notes.txt." },
+    { "title": "Let the model call a function", "goal": "Teach tool calling with a language model API. Describe a get_weather function with a JSON schema, run it when the model asks for it and send the result back for the final answer.", "grows": ["llm.tools"], "minutes": 25, "steps": 7, "check": "run", "passes": "The model asks for get_weather, the script runs it and the final reply uses the result." },
+    { "title": "Check the model's answer", "goal": "Teach checking a language model's work in code. Ask a language model API to total a list of prices as JSON, add them up in Python too, and ask again once when the two totals differ.", "grows": ["llm.check"], "minutes": 20, "steps": 6, "check": "run", "passes": "The script prints match when the model's total equals its own sum, else retries once." }
+  ]
+}

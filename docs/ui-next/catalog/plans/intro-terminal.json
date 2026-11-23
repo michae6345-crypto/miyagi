@@ -1,0 +1,200 @@
+{
+  "id": "intro-terminal",
+  "title": "Intro to the terminal",
+  "group": "environment",
+  "topic": "tools",
+  "track": "terminal",
+  "tool": {
+    "id": "terminal",
+    "label": "Terminal"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Move around, handle files and write your first shell script.",
+  "project": {
+    "title": "A script that tidies a messy folder",
+    "brief": "Write tidy.sh on your own. Given a folder name, it makes text and images folders inside it, moves each .txt, .jpg and .png file into the right one and prints how many it moved.",
+    "checks": [
+      "tidy.sh starts with a zsh shebang line and is executable",
+      "After a run no .txt, .jpg or .png file is left loose in the folder",
+      "It prints the number of files it moved"
+    ]
+  },
+  "skills": [
+    {
+      "id": "sh.navigate",
+      "label": "Moving around",
+      "needs": []
+    },
+    {
+      "id": "sh.files",
+      "label": "Files and folders",
+      "needs": [
+        "sh.navigate"
+      ]
+    },
+    {
+      "id": "sh.redirect",
+      "label": "Writing to files",
+      "needs": [
+        "sh.files"
+      ]
+    },
+    {
+      "id": "sh.read",
+      "label": "Reading files",
+      "needs": [
+        "sh.redirect"
+      ]
+    },
+    {
+      "id": "sh.globs",
+      "label": "Wildcards",
+      "needs": [
+        "sh.files"
+      ]
+    },
+    {
+      "id": "sh.pipes",
+      "label": "Pipes and grep",
+      "needs": [
+        "sh.read"
+      ]
+    },
+    {
+      "id": "sh.permissions",
+      "label": "Permissions",
+      "needs": [
+        "sh.files"
+      ]
+    },
+    {
+      "id": "sh.script",
+      "label": "Shell scripts",
+      "needs": [
+        "sh.permissions",
+        "sh.pipes"
+      ]
+    },
+    {
+      "id": "sh.vars",
+      "label": "Variables, loops",
+      "needs": [
+        "sh.script"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Find where you are",
+      "goal": "Teach a complete beginner the macOS Terminal and zsh. Use pwd, ls and cd with tab completion to walk from the home folder to / and back, and show hidden files with ls -a.",
+      "grows": [
+        "sh.navigate"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "run",
+      "passes": "The last pwd prints the home folder, /Users/ and the user name."
+    },
+    {
+      "title": "Make folders and files",
+      "goal": "Teach mkdir, mkdir -p and touch in the macOS Terminal by building a trail-log folder in the home folder with notes and photos folders inside and three empty day notes.",
+      "grows": [
+        "sh.files"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "file",
+      "passes": "trail-log holds notes and photos, and notes holds day1.txt, day2.txt and day3.txt."
+    },
+    {
+      "title": "Copy, move, rename and delete",
+      "goal": "Teach cp, mv, rm and rm -r in the macOS Terminal, and that rm has no undo, by copying day1.txt to day1-backup.txt, renaming day3.txt to summit.txt and removing a scratch folder.",
+      "grows": [
+        "sh.files"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "file",
+      "passes": "notes holds day1-backup.txt and summit.txt, and day3.txt and scratch are gone."
+    },
+    {
+      "title": "Write lines into a file",
+      "goal": "Teach echo with > and >> in the macOS Terminal, and how > overwrites while >> adds, by writing three lines about the weather and the trail into each of the three trail-log notes.",
+      "grows": [
+        "sh.redirect"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "file",
+      "passes": "day1.txt, day2.txt and summit.txt each hold three lines."
+    },
+    {
+      "title": "Read files with cat, less and head",
+      "goal": "Teach reading text in the macOS Terminal with cat, less, head, tail and wc -l, and looking up a flag with man, by checking the three trail-log notes without opening an editor.",
+      "grows": [
+        "sh.read"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "wc -l prints a count of 3 for each of the three notes."
+    },
+    {
+      "title": "Match many files with wildcards",
+      "goal": "Teach the * and ? wildcards in zsh by listing every .txt note in trail-log, copying day1.txt and day2.txt into a backup folder with one cp command and removing day1-backup.txt.",
+      "grows": [
+        "sh.globs"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "file",
+      "passes": "backup holds day1.txt and day2.txt only, and day1-backup.txt is gone."
+    },
+    {
+      "title": "Pipes and grep",
+      "goal": "Teach grep and the pipe in zsh by finding every line that mentions rain across the trail-log notes, sorting the matches, counting them with wc -l and saving the sorted lines to rain.txt.",
+      "grows": [
+        "sh.pipes"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "file",
+      "passes": "rain.txt holds every line from the notes that mentions rain, in sorted order."
+    },
+    {
+      "title": "Permissions and chmod",
+      "goal": "Teach reading the rwx columns of ls -l and changing them with chmod in the macOS Terminal by making private.txt, a note that only its owner can read and write.",
+      "grows": [
+        "sh.permissions"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "file",
+      "passes": "private.txt has mode 600, read and write for the owner only."
+    },
+    {
+      "title": "Write a shell script",
+      "goal": "Teach a first zsh script on macOS. Write newday.sh in nano with a shebang line for zsh, make it executable with chmod +x and have it create a note named with today's date.",
+      "grows": [
+        "sh.script"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Running ./newday.sh makes a file in notes named with today's date."
+    },
+    {
+      "title": "Variables, arguments and a loop",
+      "goal": "Teach shell variables, the $1 argument and a for loop in zsh by writing count.sh, which takes a word and prints how many lines mention it in each trail-log note.",
+      "grows": [
+        "sh.vars"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "./count.sh rain prints one line for each note with its count."
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "intro-python",
+  "title": "Intro to Python",
+  "group": "language",
+  "topic": "code",
+  "track": "python",
+  "tool": { "id": "vscode", "label": "VS Code" },
+  "also": ["Python 3"],
+  "level": "start",
+  "needs": [],
+  "line": "Variables, loops, functions and files. Your first real scripts.",
+  "project": {
+    "title": "A number guessing game",
+    "brief": "Write guess.py on your own. Pick a random number, loop until the guess is right, say higher or lower, and save the best score to a file.",
+    "checks": ["guess.py runs with no error", "The right number ends the game with the number of tries", "The best score is written to scores.txt"]
+  },
+  "skills": [
+    { "id": "py.run", "label": "Running a script", "needs": [] },
+    { "id": "py.variables", "label": "Variables", "needs": ["py.run"] },
+    { "id": "py.strings", "label": "Strings", "needs": ["py.variables"] },
+    { "id": "py.conditions", "label": "If and else", "needs": ["py.variables"] },
+    { "id": "py.loops", "label": "Loops", "needs": ["py.conditions"] },
+    { "id": "py.lists", "label": "Lists", "needs": ["py.loops"] },
+    { "id": "py.functions", "label": "Functions", "needs": ["py.lists"] },
+    { "id": "py.dicts", "label": "Dictionaries", "needs": ["py.lists"] },
+    { "id": "py.files", "label": "Reading files", "needs": ["py.functions"] },
+    { "id": "py.errors", "label": "Reading errors", "needs": ["py.run"] }
+  ],
+  "lessons": [
+    { "title": "Run your first Python file", "goal": "Teach a complete beginner to create hello.py in VS Code, print two lines and run it from the terminal with python3.", "grows": ["py.run"], "minutes": 10, "steps": 4, "check": "run", "passes": "hello.py runs and prints both lines." },
+    { "title": "Variables and numbers", "goal": "Teach Python variables and arithmetic by building a tip calculator in tip.py with a bill, a tip percent and a total.", "grows": ["py.variables"], "minutes": 15, "steps": 5, "check": "run", "passes": "tip.py prints the right total for a 40 dollar bill at 20 percent." },
+    { "title": "Strings and f-strings", "goal": "Teach Python strings, indexing, upper and lower, and f-strings by printing a name badge from two variables.", "grows": ["py.strings"], "minutes": 15, "steps": 5, "check": "run", "passes": "The badge prints the name in capitals inside an f-string." },
+    { "title": "If, elif and else", "goal": "Teach Python comparisons and if, elif, else by writing a ticket price picker for child, adult and senior ages.", "grows": ["py.conditions"], "minutes": 15, "steps": 5, "check": "run", "passes": "Ages 8, 30 and 70 each print the right price." },
+    { "title": "For and while loops", "goal": "Teach Python for loops with range and while loops by printing a times table and a countdown that stops at zero.", "grows": ["py.loops"], "minutes": 20, "steps": 6, "check": "run", "passes": "The times table has ten rows and the countdown ends at zero." },
+    { "title": "Lists", "goal": "Teach Python lists by building a shopping list. Append, remove, sort, slice and loop over it.", "grows": ["py.lists"], "minutes": 20, "steps": 6, "check": "run", "passes": "The list prints sorted with the removed item gone." },
+    { "title": "Functions", "goal": "Teach Python functions with parameters and return values by turning the tip calculator into a function and calling it three times.", "grows": ["py.functions"], "minutes": 20, "steps": 6, "check": "code", "passes": "A function with two parameters returns the total and is called three times." },
+    { "title": "Dictionaries", "goal": "Teach Python dictionaries by counting how often each word appears in a sentence and printing the top three.", "grows": ["py.dicts"], "minutes": 20, "steps": 6, "check": "run", "passes": "The word counts match the sentence." },
+    { "title": "Read and write a file", "goal": "Teach reading and writing text files in Python with open and with, by saving a list of scores to scores.txt and reading it back.", "grows": ["py.files"], "minutes": 20, "steps": 5, "check": "run", "passes": "scores.txt exists and the script prints what it holds." },
+    { "title": "Read an error message", "goal": "Teach a beginner to read Python tracebacks by fixing three small broken scripts, a NameError, a TypeError and an IndexError.", "grows": ["py.errors"], "minutes": 15, "steps": 5, "check": "run", "passes": "All three scripts run with no error." }
+  ]
+}

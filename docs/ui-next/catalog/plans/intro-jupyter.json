@@ -1,0 +1,173 @@
+{
+  "id": "intro-jupyter",
+  "title": "Intro to Jupyter",
+  "group": "environment",
+  "topic": "data",
+  "track": "jupyter",
+  "tool": {
+    "id": "jupyter",
+    "label": "Jupyter"
+  },
+  "also": [
+    "Python 3"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Run cells, write notes, draw a chart and share a notebook.",
+  "project": {
+    "title": "A notebook report on your own numbers",
+    "brief": "Make a new notebook alone about a month of your own numbers, like sleep hours or spending. Give it a title, notes in Markdown and one chart, then export it as HTML.",
+    "checks": [
+      "After Restart Kernel and Run All Cells no cell shows an error",
+      "It has at least two Markdown cells and one chart image in an output",
+      "An HTML export is saved next to the notebook"
+    ]
+  },
+  "skills": [
+    {
+      "id": "jup.cells",
+      "label": "Running cells",
+      "needs": []
+    },
+    {
+      "id": "jup.keys",
+      "label": "Keyboard shortcuts",
+      "needs": [
+        "jup.cells"
+      ]
+    },
+    {
+      "id": "jup.order",
+      "label": "Run order",
+      "needs": [
+        "jup.cells"
+      ]
+    },
+    {
+      "id": "jup.markdown",
+      "label": "Markdown cells",
+      "needs": [
+        "jup.keys"
+      ]
+    },
+    {
+      "id": "jup.magics",
+      "label": "Help and magics",
+      "needs": [
+        "jup.order"
+      ]
+    },
+    {
+      "id": "jup.plot",
+      "label": "Charts in cells",
+      "needs": [
+        "jup.magics"
+      ]
+    },
+    {
+      "id": "jup.kernel",
+      "label": "Restart and run",
+      "needs": [
+        "jup.order"
+      ]
+    },
+    {
+      "id": "jup.export",
+      "label": "Export and share",
+      "needs": [
+        "jup.kernel",
+        "jup.markdown"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Start Jupyter and run a cell",
+      "goal": "Teach a complete beginner Jupyter. Start JupyterLab from the terminal with jupyter lab, make a notebook named steps.ipynb and run one Python cell with Shift+Return.",
+      "grows": [
+        "jup.cells"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "file",
+      "passes": "steps.ipynb has one code cell with a saved output."
+    },
+    {
+      "title": "Command mode and edit mode",
+      "goal": "Teach the two Jupyter notebook modes and the keys A, B, D D, M and Y by adding cells to steps.ipynb that hold a week of step counts in a list and print the total.",
+      "grows": [
+        "jup.keys"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "run",
+      "passes": "The notebook has at least three code cells and the last one prints the week's total."
+    },
+    {
+      "title": "Run order and what the kernel keeps",
+      "goal": "Teach how a Jupyter kernel keeps variables between cells and why run order matters, by changing a daily goal in one cell of steps.ipynb and rerunning the cell that compares the steps to it.",
+      "grows": [
+        "jup.order"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The last output compares the steps against the new goal of 8000."
+    },
+    {
+      "title": "Write notes in Markdown cells",
+      "goal": "Teach Jupyter Markdown cells by giving steps.ipynb a title, a heading for each part, a bullet list that says what the numbers mean and one phrase in bold.",
+      "grows": [
+        "jup.markdown"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "file",
+      "passes": "The notebook has a Markdown title, at least two headings and a bullet list."
+    },
+    {
+      "title": "Help, tab completion and magics",
+      "goal": "Teach finding help inside Jupyter with Tab, Shift+Tab and a question mark, and the %timeit and %whos magics, by timing two ways to total the week of steps.",
+      "grows": [
+        "jup.magics"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Two cells use %timeit and each shows a timing in its output."
+    },
+    {
+      "title": "Install a package and draw a chart",
+      "goal": "Teach installing a package from a Jupyter cell with %pip install matplotlib, then drawing a bar chart of steps per day that shows under the cell, with a title and axis labels.",
+      "grows": [
+        "jup.plot"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "file",
+      "passes": "A cell calls plt.bar on the seven days and its output holds an image."
+    },
+    {
+      "title": "Restart and run all",
+      "goal": "Teach the Jupyter Kernel menu. Use Restart Kernel and Run All Cells on steps.ipynb, find the cell that fails because it leans on a cell that was deleted, and fix the order.",
+      "grows": [
+        "jup.kernel"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Every code cell ran with no error and the run counts go up in order from 1."
+    },
+    {
+      "title": "Export and share the notebook",
+      "goal": "Teach sharing a Jupyter notebook. Rerun steps.ipynb from the top so it is clean, then use Save and Export Notebook As in the File menu to save an HTML copy anyone can open.",
+      "grows": [
+        "jup.export"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "file",
+      "passes": "steps.html is saved and holds the chart and the Markdown notes."
+    }
+  ]
+}

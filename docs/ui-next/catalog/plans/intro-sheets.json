@@ -1,0 +1,190 @@
+{
+  "id": "intro-sheets",
+  "title": "Intro to Google Sheets",
+  "group": "environment",
+  "topic": "tools",
+  "track": "sheets",
+  "tool": {
+    "id": "sheets",
+    "label": "Google Sheets"
+  },
+  "also": [
+    "A Google account"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Formulas, lookups and a pivot table on a club sign-up sheet.",
+  "project": {
+    "title": "A fundraiser tracker",
+    "brief": "Build a fundraiser tracker on your own. Log each donation with a name and a team, look up each team's goal, total the donations by team and chart raised against goal.",
+    "checks": [
+      "At least twelve donation rows with a SUMIF total for each team",
+      "A VLOOKUP or INDEX and MATCH pulls each team's goal",
+      "A chart compares money raised with the goal for each team"
+    ]
+  },
+  "skills": [
+    {
+      "id": "gs.cells",
+      "label": "Cells and ranges",
+      "needs": []
+    },
+    {
+      "id": "gs.formulas",
+      "label": "Formulas",
+      "needs": [
+        "gs.cells"
+      ]
+    },
+    {
+      "id": "gs.references",
+      "label": "Cell references",
+      "needs": [
+        "gs.formulas"
+      ]
+    },
+    {
+      "id": "gs.countif",
+      "label": "COUNTIF and SUMIF",
+      "needs": [
+        "gs.references"
+      ]
+    },
+    {
+      "id": "gs.vlookup",
+      "label": "VLOOKUP",
+      "needs": [
+        "gs.references"
+      ]
+    },
+    {
+      "id": "gs.index_match",
+      "label": "INDEX and MATCH",
+      "needs": [
+        "gs.vlookup"
+      ]
+    },
+    {
+      "id": "gs.sort",
+      "label": "Sort and filter",
+      "needs": [
+        "gs.cells"
+      ]
+    },
+    {
+      "id": "gs.pivot",
+      "label": "Pivot tables",
+      "needs": [
+        "gs.sort"
+      ]
+    },
+    {
+      "id": "gs.chart",
+      "label": "Charts",
+      "needs": [
+        "gs.countif"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Start a sign-up sheet",
+      "goal": "Teach a complete beginner Google Sheets. Make a new spreadsheet named Club sign-ups, add headers for name, grade, event and paid, enter ten rows and freeze the header row.",
+      "grows": [
+        "gs.cells"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "Row 1 holds four headers and is frozen, and ten sign-ups sit below it."
+    },
+    {
+      "title": "Formulas and cell references",
+      "goal": "Teach Google Sheets formulas with the equals sign, cell references, SUM and COUNTA by counting the sign-ups, totalling the money paid and working out the spots left from a cap of 30.",
+      "grows": [
+        "gs.formulas"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "One cell counts names with COUNTA and another subtracts that count from 30."
+    },
+    {
+      "title": "Relative and absolute references",
+      "goal": "Teach relative and absolute references in Google Sheets by filling a formula down that takes each member's payment away from a club fee kept in one cell locked with $ signs.",
+      "grows": [
+        "gs.references"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The owed column is filled down and every formula points at the fee cell with $ signs."
+    },
+    {
+      "title": "COUNTIF and SUMIF",
+      "goal": "Teach COUNTIF and SUMIF in Google Sheets by building a summary that counts the sign-ups and totals the money paid for each event.",
+      "grows": [
+        "gs.countif"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "Each event has a COUNTIF and a SUMIF, and the counts add up to ten."
+    },
+    {
+      "title": "Look up a fee with VLOOKUP",
+      "goal": "Teach VLOOKUP with an exact match in Google Sheets by pulling each event's fee from an Events tab into the sign-up rows in place of the single club fee.",
+      "grows": [
+        "gs.vlookup"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "Each row gets its fee from an exact match VLOOKUP on the Events tab."
+    },
+    {
+      "title": "INDEX and MATCH",
+      "goal": "Teach INDEX and MATCH in Google Sheets by finding which event meets in a given room on the Events tab, a lookup to the left that VLOOKUP cannot do.",
+      "grows": [
+        "gs.index_match"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "A formula with INDEX and MATCH returns the event that meets in the chosen room."
+    },
+    {
+      "title": "Sort and filter",
+      "goal": "Teach sorting and filtering in Google Sheets. Sort the sign-ups by event and then by name, then create a filter that shows only the members who still owe money.",
+      "grows": [
+        "gs.sort"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "Rows are sorted by event then name and a filter hides everyone who owes 0."
+    },
+    {
+      "title": "Count with a pivot table",
+      "goal": "Teach pivot tables in Google Sheets by making one on a new tab with Event in the rows, Grade in the columns and a count of names in the values.",
+      "grows": [
+        "gs.pivot"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "A pivot table on its own tab counts sign-ups by event and grade."
+    },
+    {
+      "title": "Chart the sign-ups",
+      "goal": "Teach charts in Google Sheets by turning the event summary into a bar chart with a chart title and axis titles.",
+      "grows": [
+        "gs.chart"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A bar chart plots sign-ups per event and has a chart title."
+    }
+  ]
+}

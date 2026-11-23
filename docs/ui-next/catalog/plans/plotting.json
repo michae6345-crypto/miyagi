@@ -1,0 +1,39 @@
+{
+  "id": "plotting",
+  "title": "Plotting with matplotlib",
+  "group": "topic",
+  "topic": "data",
+  "track": "plotting",
+  "tool": { "id": "jupyter", "label": "Jupyter" },
+  "also": ["Python 3", "matplotlib"],
+  "level": "next",
+  "needs": ["intro-python"],
+  "line": "Line, scatter and bar charts that read well, saved to a file.",
+  "project": {
+    "title": "A four-panel picture of your week",
+    "brief": "Make one figure with four panels on your own from a week of your own numbers, such as sleep, steps and screen time. Use four kinds of plot, label them and save it.",
+    "checks": ["One figure holds four axes, each with a title and axis labels", "The panels use a line, a bar, a scatter and a histogram", "The figure is saved as a PNG at least 1600 pixels wide"]
+  },
+  "skills": [
+    { "id": "plt.line", "label": "Line plots", "needs": ["py.lists"] },
+    { "id": "plt.labels", "label": "Labels and legends", "needs": ["plt.line"] },
+    { "id": "plt.scatter", "label": "Scatter plots", "needs": ["plt.labels"] },
+    { "id": "plt.bar", "label": "Bar charts", "needs": ["plt.labels"] },
+    { "id": "plt.hist", "label": "Histograms", "needs": ["plt.bar"] },
+    { "id": "plt.subplots", "label": "Subplots", "needs": ["plt.bar"] },
+    { "id": "plt.style", "label": "Styling", "needs": ["plt.labels"] },
+    { "id": "plt.annotate", "label": "Annotations", "needs": ["plt.style"] },
+    { "id": "plt.save", "label": "Saving figures", "needs": ["plt.subplots"] }
+  ],
+  "lessons": [
+    { "title": "Your first line plot", "goal": "Teach matplotlib in Jupyter. Import matplotlib.pyplot as plt, make a figure and axes with plt.subplots and draw a week of temperatures as a line with ax.plot.", "grows": ["plt.line"], "minutes": 15, "steps": 5, "check": "run", "passes": "The cell shows one figure whose axes hold one line of seven points." },
+    { "title": "Titles, labels and a legend", "goal": "Teach ax.set_title, ax.set_xlabel, ax.set_ylabel and ax.legend in matplotlib by plotting two cities' temperatures on one chart and labelling everything.", "grows": ["plt.labels"], "minutes": 15, "steps": 5, "check": "run", "passes": "The chart has a title, both axis labels and a legend with two entries." },
+    { "title": "Scatter plots", "goal": "Teach ax.scatter in matplotlib with the s, c and alpha arguments by plotting hours of sleep against test scores for 50 students.", "grows": ["plt.scatter"], "minutes": 15, "steps": 5, "check": "run", "passes": "The axes hold a scatter of 50 points and both axes are labelled." },
+    { "title": "Bar charts", "goal": "Teach ax.bar and ax.barh in matplotlib by charting the votes for five favourite fruits, sorted from most to fewest.", "grows": ["plt.bar"], "minutes": 15, "steps": 5, "check": "run", "passes": "The chart has five bars in falling order, each with a fruit name." },
+    { "title": "Histograms", "goal": "Teach ax.hist in matplotlib with the bins argument by showing how the sums of 500 rolls of two dice are spread.", "grows": ["plt.hist"], "minutes": 15, "steps": 5, "check": "run", "passes": "The histogram has 11 bars, one for each sum from 2 to 12." },
+    { "title": "Subplots side by side", "goal": "Teach plt.subplots with rows and columns in matplotlib by putting a line plot and a bar chart of the same monthly rainfall side by side under one figure title.", "grows": ["plt.subplots"], "minutes": 20, "steps": 6, "check": "run", "passes": "One figure holds two axes in one row and has a figure title." },
+    { "title": "Colors, markers and line styles", "goal": "Teach styling in matplotlib with color, linestyle, marker, linewidth, ax.grid and figsize by restyling the two-city chart so the lines are easy to tell apart.", "grows": ["plt.style"], "minutes": 20, "steps": 6, "check": "run", "passes": "The two lines differ in color and line style, and the grid is on." },
+    { "title": "Point out what matters", "goal": "Teach ax.annotate, ax.axhline and ax.text in matplotlib by marking the hottest day on the two-city chart with an arrow and a short note.", "grows": ["plt.annotate"], "minutes": 15, "steps": 5, "check": "run", "passes": "The chart has one annotation with an arrow that points at the highest value." },
+    { "title": "Save a figure", "goal": "Teach fig.savefig in matplotlib with dpi and bbox_inches, and fig.tight_layout, by saving the finished two-city chart as a PNG and a PDF.", "grows": ["plt.save"], "minutes": 10, "steps": 4, "check": "file", "passes": "chart.png and chart.pdf exist and the PNG is at least 1000 pixels wide." }
+  ]
+}

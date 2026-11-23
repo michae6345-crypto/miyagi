@@ -1,0 +1,190 @@
+{
+  "id": "intro-figma",
+  "title": "Intro to Figma",
+  "group": "environment",
+  "topic": "design",
+  "track": "figma",
+  "tool": {
+    "id": "figma",
+    "label": "Figma"
+  },
+  "also": [
+    "A free Figma account"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Lay out a phone screen with components, then link and export.",
+  "project": {
+    "title": "A two-screen sign-in flow",
+    "brief": "Design a sign-in screen and a welcome screen alone. Build one button component with two variants, use your own styles, link the screens in a prototype and export both as PNG.",
+    "checks": [
+      "Two phone frames are built with auto layout",
+      "A button component set with two variants is used on both frames",
+      "A prototype link joins the frames and two PNG files are saved"
+    ]
+  },
+  "skills": [
+    {
+      "id": "fig.frames",
+      "label": "Frames and canvas",
+      "needs": []
+    },
+    {
+      "id": "fig.shapes",
+      "label": "Shapes and text",
+      "needs": [
+        "fig.frames"
+      ]
+    },
+    {
+      "id": "fig.layers",
+      "label": "Layers, alignment",
+      "needs": [
+        "fig.shapes"
+      ]
+    },
+    {
+      "id": "fig.autolayout",
+      "label": "Auto layout",
+      "needs": [
+        "fig.layers"
+      ]
+    },
+    {
+      "id": "fig.styles",
+      "label": "Styles",
+      "needs": [
+        "fig.shapes"
+      ]
+    },
+    {
+      "id": "fig.components",
+      "label": "Components",
+      "needs": [
+        "fig.autolayout"
+      ]
+    },
+    {
+      "id": "fig.variants",
+      "label": "Variants",
+      "needs": [
+        "fig.components"
+      ]
+    },
+    {
+      "id": "fig.prototype",
+      "label": "Prototyping",
+      "needs": [
+        "fig.components"
+      ]
+    },
+    {
+      "id": "fig.export",
+      "label": "Export",
+      "needs": [
+        "fig.frames"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Make a file and your first frame",
+      "goal": "Teach a complete beginner Figma. Make a design file named Weather, add a frame with the Frame tool from a phone preset, rename it Home, and practice zooming and panning the canvas.",
+      "grows": [
+        "fig.frames"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The file has one top-level frame named Home at a phone size."
+    },
+    {
+      "title": "Shapes, text and fills",
+      "goal": "Teach Figma shapes and text by drawing a rounded card on Home with the Rectangle tool, a yellow sun with the Ellipse tool and the temperature in large type with the Text tool.",
+      "grows": [
+        "fig.shapes"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "scene",
+      "passes": "Home holds a rectangle with a corner radius, an ellipse and a text layer."
+    },
+    {
+      "title": "Name, group and align layers",
+      "goal": "Teach the Figma Layers panel and the align tools by naming every layer of the weather card, grouping the sun with the temperature and centering the group on the card.",
+      "grows": [
+        "fig.layers"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "No layer on Home has a default name and the sun group is centered on the card."
+    },
+    {
+      "title": "Auto layout for the today card",
+      "goal": "Teach Figma auto layout (Shift+A) by turning the weather card into a vertical auto layout frame with 16 padding and 8 between items, then adding a line of text and watching the card grow.",
+      "grows": [
+        "fig.autolayout"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The card is a vertical auto layout frame with 16 padding and a gap of 8."
+    },
+    {
+      "title": "Color and text styles",
+      "goal": "Teach Figma styles by saving two color styles and two text styles from the weather card, applying them to its layers, then changing one style and watching every layer that uses it update.",
+      "grows": [
+        "fig.styles"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The file has two color styles and two text styles and the card layers use them."
+    },
+    {
+      "title": "Make a component for the day chip",
+      "goal": "Teach Figma components by building a small day chip with a day name and a temperature, making it a component and placing five instances in a row on Home, each with its own text.",
+      "grows": [
+        "fig.components"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "A component named Day chip has five instances in a horizontal row on Home."
+    },
+    {
+      "title": "Add a selected variant",
+      "goal": "Teach Figma variants by adding a second variant to Day chip, naming the property State with the values Default and Selected, and switching one instance on Home to Selected.",
+      "grows": [
+        "fig.variants"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "Day chip is a component set with a State property and two variants."
+    },
+    {
+      "title": "Link two frames in a prototype",
+      "goal": "Teach Figma prototyping by adding a second frame named Details, linking a Day chip to it with an On tap, Navigate to interaction, adding a way back and playing the prototype.",
+      "grows": [
+        "fig.prototype"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "screen",
+      "passes": "In the prototype, a tap on a Day chip opens Details and a tap there goes back."
+    },
+    {
+      "title": "Export the screens",
+      "goal": "Teach exporting from Figma by adding export settings to the Home and Details frames, PNG at 2x, and saving both files to the Mac.",
+      "grows": [
+        "fig.export"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "file",
+      "passes": "Home.png and Details.png are saved at twice the frame size."
+    }
+  ]
+}

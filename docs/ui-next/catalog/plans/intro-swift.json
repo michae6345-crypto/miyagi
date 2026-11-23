@@ -1,0 +1,208 @@
+{
+  "id": "intro-swift",
+  "title": "Intro to Swift",
+  "group": "language",
+  "topic": "code",
+  "track": "swift",
+  "tool": {
+    "id": "xcode",
+    "label": "Xcode"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Optionals, structs and closures, then your first SwiftUI view.",
+  "project": {
+    "title": "A coin toss app",
+    "brief": "Make an app in Xcode on your own. An enum for heads and tails, a Tally struct with a mutating toss method, and a SwiftUI view that shows both counts with a button to toss again.",
+    "checks": [
+      "The project builds in Xcode with no errors",
+      "The view keeps the tally in a property marked @State",
+      "A button action calls toss and the view shows both counts"
+    ]
+  },
+  "skills": [
+    {
+      "id": "sw.run",
+      "label": "Running in Xcode",
+      "needs": []
+    },
+    {
+      "id": "sw.variables",
+      "label": "Let and var",
+      "needs": [
+        "sw.run"
+      ]
+    },
+    {
+      "id": "sw.control",
+      "label": "Control flow",
+      "needs": [
+        "sw.variables"
+      ]
+    },
+    {
+      "id": "sw.functions",
+      "label": "Functions",
+      "needs": [
+        "sw.control"
+      ]
+    },
+    {
+      "id": "sw.collections",
+      "label": "Collections",
+      "needs": [
+        "sw.control"
+      ]
+    },
+    {
+      "id": "sw.optionals",
+      "label": "Optionals",
+      "needs": [
+        "sw.collections"
+      ]
+    },
+    {
+      "id": "sw.structs",
+      "label": "Structs",
+      "needs": [
+        "sw.functions"
+      ]
+    },
+    {
+      "id": "sw.enums",
+      "label": "Enums",
+      "needs": [
+        "sw.structs"
+      ]
+    },
+    {
+      "id": "sw.closures",
+      "label": "Closures",
+      "needs": [
+        "sw.functions",
+        "sw.collections"
+      ]
+    },
+    {
+      "id": "sw.swiftui",
+      "label": "SwiftUI views",
+      "needs": [
+        "sw.structs",
+        "sw.closures"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Run your first Swift program",
+      "goal": "Teach a complete beginner to make a Command Line Tool project in Xcode, write a three-item packing list with print in main.swift and run it.",
+      "grows": [
+        "sw.run"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The Xcode console shows the three lines of the packing list."
+    },
+    {
+      "title": "Let, var and string interpolation",
+      "goal": "Teach Swift let, var, type inference and string interpolation by building a running pace calculator from a distance in kilometres and a time in minutes.",
+      "grows": [
+        "sw.variables"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "10 km in 55 minutes prints a pace of 5.5 minutes per km."
+    },
+    {
+      "title": "If, switch and loops",
+      "goal": "Teach Swift if, switch over ranges and for in loops by printing a postage price table for parcels from 1 to 10 kilograms.",
+      "grows": [
+        "sw.control"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Ten rows print, one per kilogram, each with its price."
+    },
+    {
+      "title": "Functions and argument labels",
+      "goal": "Teach Swift functions with argument labels, default values and return types by writing a hotel stay price function called with and without a nightly rate.",
+      "grows": [
+        "sw.functions"
+      ],
+      "minutes": 20,
+      "steps": 5,
+      "check": "run",
+      "passes": "Three nights at the default rate of 80 prints 240."
+    },
+    {
+      "title": "Arrays and dictionaries",
+      "goal": "Teach Swift arrays and dictionaries, with append, count, subscripts and for in, by building a school timetable of subjects and the room for each.",
+      "grows": [
+        "sw.collections"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Each subject prints with its room, in the order of the array."
+    },
+    {
+      "title": "Optionals",
+      "goal": "Teach Swift optionals with if let, guard let and the nil coalescing operator by writing a locker lookup that handles a missing student and a bad number.",
+      "grows": [
+        "sw.optionals"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "code",
+      "passes": "A known name prints its locker, an unknown one a default, with no force unwrap."
+    },
+    {
+      "title": "Structs",
+      "goal": "Teach Swift structs with properties, a computed property and a mutating method by building a Bus that boards riders and reports the seats left.",
+      "grows": [
+        "sw.structs"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "A 40 seat bus prints 28 seats left after 12 riders board."
+    },
+    {
+      "title": "Enums",
+      "goal": "Teach Swift enums with cases, raw values and switch by building a compass with a method that turns right from north to east to south to west.",
+      "grows": [
+        "sw.enums"
+      ],
+      "minutes": 20,
+      "steps": 5,
+      "check": "run",
+      "passes": "Four right turns from north print east, south, west and north."
+    },
+    {
+      "title": "Closures",
+      "goal": "Teach Swift closures and trailing closure syntax with sorted, filter and map by listing mountains over 4000 metres from tallest to shortest.",
+      "grows": [
+        "sw.closures"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "Only mountains over 4000 m print, tallest first."
+    },
+    {
+      "title": "Your first SwiftUI view",
+      "goal": "Teach a first SwiftUI view in a new Xcode App project, with VStack, Text, Button and an @State property, by building a tap counter.",
+      "grows": [
+        "sw.swiftui"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "code",
+      "passes": "ContentView has an @State count and a Button that adds one to it."
+    }
+  ]
+}

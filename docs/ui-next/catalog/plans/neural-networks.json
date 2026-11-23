@@ -1,0 +1,196 @@
+{
+  "id": "neural-networks",
+  "title": "Neural networks from scratch",
+  "group": "topic",
+  "topic": "ai",
+  "track": "neural networks",
+  "tool": {
+    "id": "jupyter",
+    "label": "Jupyter"
+  },
+  "also": [
+    "Python 3",
+    "numpy"
+  ],
+  "level": "next",
+  "needs": [
+    "numpy"
+  ],
+  "line": "Build a small network with only NumPy and train it yourself.",
+  "project": {
+    "title": "A network that finds a circle",
+    "brief": "Train a network on your own, with only NumPy, to tell whether a 2D point lies inside a circle. Make 200 random points, train a 2-8-1 network and print its accuracy.",
+    "checks": [
+      "The notebook imports numpy and no machine learning library",
+      "The loss printed at the end is lower than the loss at the start",
+      "Accuracy on the 200 points is at least 90 percent"
+    ]
+  },
+  "skills": [
+    {
+      "id": "nn.neuron",
+      "label": "A single neuron",
+      "needs": [
+        "np.matrices"
+      ]
+    },
+    {
+      "id": "nn.activation",
+      "label": "Activations",
+      "needs": [
+        "nn.neuron"
+      ]
+    },
+    {
+      "id": "nn.layer",
+      "label": "Layers as matrices",
+      "needs": [
+        "nn.activation"
+      ]
+    },
+    {
+      "id": "nn.forward",
+      "label": "Forward pass",
+      "needs": [
+        "nn.layer"
+      ]
+    },
+    {
+      "id": "nn.loss",
+      "label": "Loss",
+      "needs": [
+        "nn.forward"
+      ]
+    },
+    {
+      "id": "nn.gradients",
+      "label": "Gradients by hand",
+      "needs": [
+        "nn.loss"
+      ]
+    },
+    {
+      "id": "nn.descent",
+      "label": "Gradient descent",
+      "needs": [
+        "nn.gradients"
+      ]
+    },
+    {
+      "id": "nn.backprop",
+      "label": "Backpropagation",
+      "needs": [
+        "nn.descent"
+      ]
+    },
+    {
+      "id": "nn.training",
+      "label": "Training a network",
+      "needs": [
+        "nn.backprop",
+        "np.random"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "A single neuron",
+      "goal": "Teach what one neuron computes using only NumPy in Jupyter. Write neuron(x, w, b) that returns the dot product of inputs and weights plus a bias, and try it on three inputs.",
+      "grows": [
+        "nn.neuron"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "neuron gives 0.5 for inputs 1, 2, 3 with weights 0.5, -1, 0.5 and bias 0.5."
+    },
+    {
+      "title": "Activation functions",
+      "goal": "Teach sigmoid, tanh and ReLU as NumPy functions that work on whole arrays, then add a sigmoid to the neuron so its output stays between 0 and 1.",
+      "grows": [
+        "nn.activation"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "sigmoid(0) is 0.5, relu(-2) is 0 and the neuron's output lies between 0 and 1."
+    },
+    {
+      "title": "A layer is a matrix",
+      "goal": "Teach a dense layer in NumPy as a weight matrix and a bias vector. Build a layer of 4 neurons that takes 3 inputs and send a batch of 5 samples through it with the @ operator.",
+      "grows": [
+        "nn.layer"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The weights have shape (3, 4) and the layer's output has shape (5, 4)."
+    },
+    {
+      "title": "The forward pass",
+      "goal": "Teach the forward pass of a two-layer network in NumPy. Write forward(X) for a 2-4-1 network that chains a hidden layer with tanh and an output layer with sigmoid.",
+      "grows": [
+        "nn.forward"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "forward returns shape (4, 1) for four samples, with every value between 0 and 1."
+    },
+    {
+      "title": "Measure the error with a loss",
+      "goal": "Teach mean squared error and binary cross-entropy in NumPy by writing both as functions and scoring the untrained network's guesses against the right answers.",
+      "grows": [
+        "nn.loss"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "mse gives 0.25 for predictions 0.5, 0.5 against targets 1, 0."
+    },
+    {
+      "title": "Gradients by hand",
+      "goal": "Teach the chain rule for one sigmoid neuron with squared error. Work out the gradient for the weights and the bias on paper, code it in NumPy and check it against a numerical gradient.",
+      "grows": [
+        "nn.gradients"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "The hand-coded gradient matches the numerical gradient to within 1e-6."
+    },
+    {
+      "title": "Gradient descent",
+      "goal": "Teach gradient descent in NumPy by training the single neuron to act as an AND gate, nudging the weights and bias against the gradient with a learning rate for 2000 steps.",
+      "grows": [
+        "nn.descent"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The loss ends lower than it began and all four AND cases round to the right answer."
+    },
+    {
+      "title": "Backpropagation through two layers",
+      "goal": "Teach backpropagation in NumPy for the 2-4-1 network. Write backward so it returns a gradient for each weight matrix and bias, and check one of them against a numerical gradient.",
+      "grows": [
+        "nn.backprop"
+      ],
+      "minutes": 30,
+      "steps": 7,
+      "check": "run",
+      "passes": "Each gradient has the shape of its parameter and one passes a numerical check."
+    },
+    {
+      "title": "Train a tiny network on XOR",
+      "goal": "Teach a full training loop in NumPy. Train the 2-4-1 network on the four XOR points with forward, loss, backward and update, starting from seeded random weights, and print the loss as it falls.",
+      "grows": [
+        "nn.training"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "After training, the network's outputs round to 0, 1, 1, 0 for the XOR inputs."
+    }
+  ]
+}

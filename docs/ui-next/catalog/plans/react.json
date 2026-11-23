@@ -1,0 +1,41 @@
+{
+  "id": "react",
+  "title": "React",
+  "group": "topic",
+  "topic": "code",
+  "track": "react",
+  "tool": { "id": "vscode", "label": "VS Code" },
+  "also": ["Node.js"],
+  "level": "next",
+  "needs": ["intro-javascript"],
+  "line": "Components, props, state and effects in an app built with Vite.",
+  "project": {
+    "title": "A flashcard app",
+    "brief": "Build a flashcard app with Vite on your own. Cards come from an array, a click flips the card, a form adds new ones and an effect counts the seconds you have studied.",
+    "checks": ["npm run build finishes with no errors", "Cards render from an array with a key on each", "A form adds a card and an effect with a cleanup runs the study timer"]
+  },
+  "skills": [
+    { "id": "re.vite", "label": "Vite project", "needs": ["js.run"] },
+    { "id": "re.jsx", "label": "JSX", "needs": ["re.vite"] },
+    { "id": "re.components", "label": "Components", "needs": ["re.jsx"] },
+    { "id": "re.props", "label": "Props", "needs": ["re.components"] },
+    { "id": "re.events", "label": "Events", "needs": ["re.components"] },
+    { "id": "re.state", "label": "State", "needs": ["re.events"] },
+    { "id": "re.lists", "label": "Lists and keys", "needs": ["re.props", "js.methods"] },
+    { "id": "re.forms", "label": "Forms", "needs": ["re.state"] },
+    { "id": "re.lifting", "label": "Sharing state", "needs": ["re.state", "re.props"] },
+    { "id": "re.effects", "label": "Effects", "needs": ["re.state"] }
+  ],
+  "lessons": [
+    { "title": "Start a React app with Vite", "goal": "Teach a JavaScript learner to create a React app with npm create vite@latest, start it with npm install and npm run dev, and put their own heading in src/App.jsx.", "grows": ["re.vite"], "minutes": 15, "steps": 5, "check": "code", "passes": "package.json lists react and vite and App.jsx returns a new heading." },
+    { "title": "Write JSX", "goal": "Teach JSX in React, with one root element, className and JavaScript in braces, by building an animal fact card that shows a name, a weight and a picture.", "grows": ["re.jsx"], "minutes": 15, "steps": 5, "check": "code", "passes": "App.jsx returns a card with a className and at least two values in braces." },
+    { "title": "Split a page into components", "goal": "Teach React function components, export and import by building a food truck page from Header, Menu and Footer components in their own files.", "grows": ["re.components"], "minutes": 20, "steps": 6, "check": "code", "passes": "Header, Menu and Footer each live in a file and App renders all three." },
+    { "title": "Pass data with props", "goal": "Teach React props and destructuring by writing a MenuItem component with name and price props and using it for three dishes on the food truck page.", "grows": ["re.props"], "minutes": 20, "steps": 5, "check": "code", "passes": "MenuItem reads name and price props and is rendered three times." },
+    { "title": "Clicks and state", "goal": "Teach React click handlers and useState by building a light switch, a button that flips a room between light and dark and changes its own label.", "grows": ["re.events", "re.state"], "minutes": 20, "steps": 6, "check": "code", "passes": "A useState value flips on each click and the label follows it." },
+    { "title": "State that counts", "goal": "Teach updating React state from the previous value, with several useState calls, by building a scoreboard for two teams with a reset button.", "grows": ["re.state"], "minutes": 20, "steps": 6, "check": "code", "passes": "Each team has its own state and reset sets both scores to zero." },
+    { "title": "Render a list", "goal": "Teach rendering lists in React with map and a key by showing a to-do list from an array of objects, with done items struck through.", "grows": ["re.lists"], "minutes": 20, "steps": 6, "check": "code", "passes": "The to-dos render through map and each item has a unique key." },
+    { "title": "Forms and controlled inputs", "goal": "Teach React controlled inputs, onChange and onSubmit by adding a form to the to-do list that appends a new item and clears the box.", "grows": ["re.forms"], "minutes": 25, "steps": 6, "check": "code", "passes": "Submitting the form adds one to-do to state and empties the input." },
+    { "title": "Share state between components", "goal": "Teach lifting state up in React by building a searchable list of dog breeds where a SearchBox and a BreedList share one query held by their parent.", "grows": ["re.lifting"], "minutes": 25, "steps": 6, "check": "code", "passes": "The parent holds the query and passes it to both child components." },
+    { "title": "Effects", "goal": "Teach React useEffect with a dependency array and a cleanup function by building a clock that ticks every second with setInterval.", "grows": ["re.effects"], "minutes": 20, "steps": 6, "check": "code", "passes": "The effect starts one interval and its cleanup calls clearInterval." }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "intro-c",
+  "title": "Intro to C",
+  "group": "language",
+  "topic": "code",
+  "track": "c",
+  "tool": { "id": "vscode", "label": "VS Code" },
+  "also": ["A C compiler"],
+  "level": "start",
+  "needs": [],
+  "line": "Compile by hand, then learn pointers, structs and memory.",
+  "project": {
+    "title": "A train line as a linked list",
+    "brief": "Write line.c on your own. Build a linked list of train stops with malloc, insert a stop in the middle, print the line in order and free every node.",
+    "checks": ["line.c compiles with -Wall and no warnings", "The stops print in order with the inserted stop in the middle", "Every node is freed before the program ends"]
+  },
+  "skills": [
+    { "id": "c.compile", "label": "Compile and run", "needs": [] },
+    { "id": "c.types", "label": "Types and printf", "needs": ["c.compile"] },
+    { "id": "c.control", "label": "If and loops", "needs": ["c.types"] },
+    { "id": "c.functions", "label": "Functions", "needs": ["c.control"] },
+    { "id": "c.arrays", "label": "Arrays", "needs": ["c.control"] },
+    { "id": "c.strings", "label": "Strings", "needs": ["c.arrays"] },
+    { "id": "c.pointers", "label": "Pointers", "needs": ["c.functions", "c.arrays"] },
+    { "id": "c.structs", "label": "Structs", "needs": ["c.pointers"] },
+    { "id": "c.memory", "label": "malloc and free", "needs": ["c.pointers"] },
+    { "id": "c.headers", "label": "Header files", "needs": ["c.functions"] }
+  ],
+  "lessons": [
+    { "title": "Compile and run your first program", "goal": "Teach a complete beginner to write hello.c in VS Code with main and printf, compile it in the terminal with cc hello.c -o hello and run ./hello.", "grows": ["c.compile"], "minutes": 15, "steps": 5, "check": "run", "passes": "The hello program exists, prints one line and exits with code 0." },
+    { "title": "Types and printf", "goal": "Teach C int, double and char variables and printf format specifiers by building a paint calculator that prints the litres needed for a wall to two decimals.", "grows": ["c.types"], "minutes": 15, "steps": 5, "check": "run", "passes": "A 5 by 3 metre wall at 10 square metres a litre prints 1.50 litres." },
+    { "title": "If, for and while", "goal": "Teach C if, else, for and while with the remainder operator by writing a prime finder that prints every prime below 50.", "grows": ["c.control"], "minutes": 20, "steps": 6, "check": "run", "passes": "The program prints the 15 primes below 50 and nothing else." },
+    { "title": "Functions", "goal": "Teach C functions with prototypes, parameters and return values by writing a leap year checker with an is_leap function tested on four years.", "grows": ["c.functions"], "minutes": 20, "steps": 5, "check": "run", "passes": "1900 and 2023 print not leap, 2000 and 2024 print leap." },
+    { "title": "Arrays", "goal": "Teach C arrays, indexing and looping with a length by storing the weights of seven parcels and printing the lightest, the heaviest and the average.", "grows": ["c.arrays"], "minutes": 20, "steps": 6, "check": "run", "passes": "The lightest, heaviest and average match the seven values in the array." },
+    { "title": "Strings", "goal": "Teach C strings as char arrays that end in a zero byte, with strlen from string.h, by writing a palindrome checker.", "grows": ["c.strings"], "minutes": 20, "steps": 6, "check": "run", "passes": "level and racecar print yes, and hello prints no." },
+    { "title": "Pointers", "goal": "Teach C pointers, with the address-of and dereference operators and passing by pointer, by writing a swap function that trades two ints.", "grows": ["c.pointers"], "minutes": 25, "steps": 6, "check": "run", "passes": "After the swap call, the two printed values have traded places." },
+    { "title": "Structs", "goal": "Teach C structs, typedef and the arrow operator by building a product inventory of three items and a function that prints one through a pointer.", "grows": ["c.structs"], "minutes": 20, "steps": 6, "check": "code", "passes": "Three products print with name, price and quantity through a struct pointer." },
+    { "title": "malloc and free", "goal": "Teach C heap memory with malloc, realloc and free by building a list of numbers that doubles its capacity as ten values are added.", "grows": ["c.memory"], "minutes": 25, "steps": 6, "check": "run", "passes": "All ten numbers print and every allocated block is freed." },
+    { "title": "Split code across files", "goal": "Teach C header files, include guards and compiling several files by moving count_vowels and reverse functions into textutil.h and textutil.c.", "grows": ["c.headers"], "minutes": 20, "steps": 5, "check": "run", "passes": "cc main.c textutil.c builds a program that prints a vowel count and a reversed word." }
+  ]
+}

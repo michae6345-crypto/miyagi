@@ -1,0 +1,208 @@
+{
+  "id": "intro-onshape",
+  "title": "Intro to Onshape",
+  "group": "environment",
+  "topic": "cad",
+  "track": "onshape",
+  "tool": {
+    "id": "onshape",
+    "label": "Onshape"
+  },
+  "also": [
+    "A free Onshape account"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Model two parts in the browser and join them in an assembly.",
+  "project": {
+    "title": "A hinge that opens and closes",
+    "brief": "Design a two-leaf hinge alone in one Part Studio. Give each leaf screw holes and rounded corners, join the leaves with a Revolute mate in an assembly and export one leaf as an STL.",
+    "checks": [
+      "The Part Studio has two parts and every sketch is fully defined",
+      "A Revolute mate joins the two leaves in an assembly",
+      "An STL of one leaf is exported"
+    ]
+  },
+  "skills": [
+    {
+      "id": "ons.documents",
+      "label": "Documents and tabs",
+      "needs": []
+    },
+    {
+      "id": "ons.sketch",
+      "label": "Sketching",
+      "needs": [
+        "ons.documents"
+      ]
+    },
+    {
+      "id": "ons.constrain",
+      "label": "Constraints",
+      "needs": [
+        "ons.sketch"
+      ]
+    },
+    {
+      "id": "ons.extrude",
+      "label": "Extrude",
+      "needs": [
+        "ons.constrain"
+      ]
+    },
+    {
+      "id": "ons.cut",
+      "label": "Cuts and holes",
+      "needs": [
+        "ons.extrude"
+      ]
+    },
+    {
+      "id": "ons.fillet",
+      "label": "Fillets",
+      "needs": [
+        "ons.extrude"
+      ]
+    },
+    {
+      "id": "ons.parts",
+      "label": "Multiple parts",
+      "needs": [
+        "ons.cut"
+      ]
+    },
+    {
+      "id": "ons.assembly",
+      "label": "Assemblies",
+      "needs": [
+        "ons.parts"
+      ]
+    },
+    {
+      "id": "ons.mates",
+      "label": "Mates",
+      "needs": [
+        "ons.assembly"
+      ]
+    },
+    {
+      "id": "ons.export",
+      "label": "Versions, export",
+      "needs": [
+        "ons.parts"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Make a document and look around",
+      "goal": "Teach a complete beginner Onshape. Create a document named Wheel stand, set the units to millimeters, find the Part Studio and Assembly tabs and the Feature list, and rename the Part Studio to Parts.",
+      "grows": [
+        "ons.documents"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A document named Wheel stand has a Part Studio tab named Parts set to millimeters."
+    },
+    {
+      "title": "Sketch the bracket outline",
+      "goal": "Teach sketching in an Onshape Part Studio by starting a sketch on the Front plane and drawing the U-shaped outline of a bracket with the Line tool, ending where it began.",
+      "grows": [
+        "ons.sketch"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A sketch on the Front plane holds one closed U-shaped outline."
+    },
+    {
+      "title": "Dimension and constrain the sketch",
+      "goal": "Teach Onshape dimensions and constraints by making the bracket outline 40 mm wide and 50 mm tall with 5 mm walls, using Equal and Symmetric until the sketch turns black.",
+      "grows": [
+        "ons.constrain"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The sketch is fully defined, 40 mm wide and 50 mm tall with 5 mm walls."
+    },
+    {
+      "title": "Extrude the bracket",
+      "goal": "Teach the Extrude tool in Onshape by turning the U-shaped sketch into a solid 20 mm deep and renaming the new part to Bracket in the parts list.",
+      "grows": [
+        "ons.extrude"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "scene",
+      "passes": "The Part Studio has one part named Bracket that is 20 mm deep."
+    },
+    {
+      "title": "Cut the axle holes",
+      "goal": "Teach sketching on a face and Extrude with Remove in Onshape by drawing a 6 mm circle 35 mm up one arm of the Bracket and cutting it through both arms.",
+      "grows": [
+        "ons.cut"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A 6 mm hole goes through both arms of the Bracket, 35 mm above its base."
+    },
+    {
+      "title": "Round the edges with Fillet",
+      "goal": "Teach the Fillet tool in Onshape by rounding the outer corners of the Bracket with a 3 mm radius and finding the new feature in the Feature list.",
+      "grows": [
+        "ons.fillet"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "scene",
+      "passes": "At least four edges of the Bracket carry a 3 mm fillet."
+    },
+    {
+      "title": "Add the wheel as a second part",
+      "goal": "Teach making a second part in one Onshape Part Studio by sketching a 40 mm circle with a 6 mm hole and extruding it 20 mm as a new part named Wheel, centered between the arms.",
+      "grows": [
+        "ons.parts"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The Part Studio has two parts, Bracket and Wheel, and they do not overlap."
+    },
+    {
+      "title": "Put the parts in an assembly",
+      "goal": "Teach Onshape assemblies by inserting the Bracket and the Wheel into the Assembly tab and using Fix to hold the Bracket still.",
+      "grows": [
+        "ons.assembly"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The assembly holds one Bracket, fixed in place, and one Wheel."
+    },
+    {
+      "title": "Join them with a Revolute mate",
+      "goal": "Teach Onshape mates and mate connectors by joining the hole in the Wheel to the hole in the Bracket with a Revolute mate, then dragging the Wheel to see it spin.",
+      "grows": [
+        "ons.mates"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "A Revolute mate joins the Wheel to the Bracket and the Wheel can only spin."
+    },
+    {
+      "title": "Save a version and export an STL",
+      "goal": "Teach Onshape versions and export by saving a version named V1 of the Wheel stand document and exporting the Wheel as an STL file to the Mac.",
+      "grows": [
+        "ons.export"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "file",
+      "passes": "The document has a version named V1 and an STL of the Wheel is downloaded."
+    }
+  ]
+}

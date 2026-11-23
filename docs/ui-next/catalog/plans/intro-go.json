@@ -1,0 +1,208 @@
+{
+  "id": "intro-go",
+  "title": "Intro to Go",
+  "group": "language",
+  "topic": "code",
+  "track": "go",
+  "tool": {
+    "id": "vscode",
+    "label": "VS Code"
+  },
+  "also": [
+    "Go"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Slices, structs, errors and goroutines in small Go programs.",
+  "project": {
+    "title": "A print shop with three printers",
+    "brief": "Write main.go on your own. A Printer struct with paper left, a Print method that returns an error when the paper runs out, and one goroutine per printer that reports on a channel.",
+    "checks": [
+      "go run . finishes with no error and go vet reports nothing",
+      "Printing more pages than the paper left prints an out of paper error",
+      "Main prints one summary per printer, received from a channel"
+    ]
+  },
+  "skills": [
+    {
+      "id": "go.run",
+      "label": "go run and modules",
+      "needs": []
+    },
+    {
+      "id": "go.variables",
+      "label": "Variables, types",
+      "needs": [
+        "go.run"
+      ]
+    },
+    {
+      "id": "go.control",
+      "label": "If, for and switch",
+      "needs": [
+        "go.variables"
+      ]
+    },
+    {
+      "id": "go.functions",
+      "label": "Functions",
+      "needs": [
+        "go.control"
+      ]
+    },
+    {
+      "id": "go.slices",
+      "label": "Slices",
+      "needs": [
+        "go.control"
+      ]
+    },
+    {
+      "id": "go.maps",
+      "label": "Maps",
+      "needs": [
+        "go.slices"
+      ]
+    },
+    {
+      "id": "go.structs",
+      "label": "Structs, methods",
+      "needs": [
+        "go.functions"
+      ]
+    },
+    {
+      "id": "go.errors",
+      "label": "Errors",
+      "needs": [
+        "go.functions"
+      ]
+    },
+    {
+      "id": "go.interfaces",
+      "label": "Interfaces",
+      "needs": [
+        "go.structs"
+      ]
+    },
+    {
+      "id": "go.goroutines",
+      "label": "Goroutines",
+      "needs": [
+        "go.functions"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Run your first Go program",
+      "goal": "Teach a complete beginner to start a module with go mod init, write main.go in VS Code with package main and fmt.Println to print a two-line postcard, and run it with go run.",
+      "grows": [
+        "go.run"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "go.mod exists and go run . prints both lines of the postcard."
+    },
+    {
+      "title": "Variables and types",
+      "goal": "Teach Go var, the short := declaration, const, int, float64 and fmt.Printf by building a map scale converter that turns centimetres on a map into kilometres on the ground.",
+      "grows": [
+        "go.variables"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "4.5 cm at a scale of 1 to 50000 prints 2.25 km."
+    },
+    {
+      "title": "If, for and switch",
+      "goal": "Teach Go if, the for loop in its three forms and switch by printing a grade letter table for the scores 50 to 100 in steps of 10.",
+      "grows": [
+        "go.control"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Six rows print, from 50 with an F up to 100 with an A."
+    },
+    {
+      "title": "Functions and multiple returns",
+      "goal": "Teach Go functions with typed parameters and multiple return values by writing a seating planner that returns both the full rows and the seats left over.",
+      "grows": [
+        "go.functions"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "31 people in rows of 6 prints 5 full rows and 1 left over."
+    },
+    {
+      "title": "Slices",
+      "goal": "Teach Go slices, with append, len, slicing and range, by building a waiting queue for a bakery that adds customers and serves from the front.",
+      "grows": [
+        "go.slices"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "After two are served, the queue prints the remaining names in order."
+    },
+    {
+      "title": "Maps",
+      "goal": "Teach Go maps, with the comma ok check, delete and range, by building a capital city lookup that answers for known countries and reports unknown ones.",
+      "grows": [
+        "go.maps"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "France prints Paris and an unknown country prints a not found message."
+    },
+    {
+      "title": "Structs and methods",
+      "goal": "Teach Go structs and methods with value and pointer receivers by building a robot that moves on a grid and reports its position.",
+      "grows": [
+        "go.structs"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "After moving up twice and right once, the robot prints position 1, 2."
+    },
+    {
+      "title": "Errors",
+      "goal": "Teach Go error values, with errors.New, fmt.Errorf and checking err against nil, by writing an age parser with strconv.Atoi that rejects words and negative numbers.",
+      "grows": [
+        "go.errors"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "42 prints the age, and abc and -5 each print an error message."
+    },
+    {
+      "title": "Interfaces",
+      "goal": "Teach Go interfaces by writing a Notifier interface with email and text message senders and one function that sends through either.",
+      "grows": [
+        "go.interfaces"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "One function takes a Notifier and both senders print their message."
+    },
+    {
+      "title": "Goroutines and channels",
+      "goal": "Teach Go goroutines, channels and sync.WaitGroup by building a kitchen where three cooks each make a dish at once and report back on a channel.",
+      "grows": [
+        "go.goroutines"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "code",
+      "passes": "Three goroutines send on a channel and main prints all three dishes."
+    }
+  ]
+}

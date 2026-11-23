@@ -1,0 +1,209 @@
+{
+  "id": "intro-rust",
+  "title": "Intro to Rust",
+  "group": "language",
+  "topic": "code",
+  "track": "rust",
+  "tool": {
+    "id": "vscode",
+    "label": "VS Code"
+  },
+  "also": [
+    "Rust and Cargo"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Ownership, borrowing, enums and Result, built and run with Cargo.",
+  "project": {
+    "title": "A parking garage",
+    "brief": "Start a project with cargo new on your own. A Garage struct holds a vector of cars, park returns a Result that fails when full, and a match on an enum sets the fee per vehicle kind.",
+    "checks": [
+      "cargo build finishes with no errors or warnings",
+      "Parking in a full garage prints an error and does not panic",
+      "Each vehicle kind prints its own fee"
+    ]
+  },
+  "skills": [
+    {
+      "id": "rs.cargo",
+      "label": "Cargo",
+      "needs": []
+    },
+    {
+      "id": "rs.variables",
+      "label": "Let and mut",
+      "needs": [
+        "rs.cargo"
+      ]
+    },
+    {
+      "id": "rs.functions",
+      "label": "Functions",
+      "needs": [
+        "rs.variables"
+      ]
+    },
+    {
+      "id": "rs.control",
+      "label": "If and loops",
+      "needs": [
+        "rs.variables"
+      ]
+    },
+    {
+      "id": "rs.ownership",
+      "label": "Ownership",
+      "needs": [
+        "rs.functions"
+      ]
+    },
+    {
+      "id": "rs.borrowing",
+      "label": "Borrowing",
+      "needs": [
+        "rs.ownership"
+      ]
+    },
+    {
+      "id": "rs.vectors",
+      "label": "Vectors, strings",
+      "needs": [
+        "rs.borrowing",
+        "rs.control"
+      ]
+    },
+    {
+      "id": "rs.structs",
+      "label": "Structs and impl",
+      "needs": [
+        "rs.borrowing"
+      ]
+    },
+    {
+      "id": "rs.enums",
+      "label": "Enums and match",
+      "needs": [
+        "rs.structs"
+      ]
+    },
+    {
+      "id": "rs.result",
+      "label": "Option and Result",
+      "needs": [
+        "rs.enums"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Start a project with Cargo",
+      "goal": "Teach a complete beginner to make a Rust project with cargo new, open src/main.rs in VS Code, change it to print a name and a favorite number, and run it with cargo run.",
+      "grows": [
+        "rs.cargo"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "cargo run builds the project and prints two lines."
+    },
+    {
+      "title": "Let, mut and types",
+      "goal": "Teach Rust let, mut, shadowing and the i32 and f64 types by building a phone battery tracker that starts full and drains over three apps.",
+      "grows": [
+        "rs.variables"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A full battery after drains of 15, 20 and 30 prints 35 percent left."
+    },
+    {
+      "title": "Functions and expressions",
+      "goal": "Teach Rust functions with typed parameters, return types and a final expression as the return value by writing a pizza deal comparer that prices each pizza per square inch.",
+      "grows": [
+        "rs.functions"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The program prints the price per square inch of two pizzas and the better deal."
+    },
+    {
+      "title": "If, loop, while and for",
+      "goal": "Teach Rust if as an expression and the loop, while and for forms by writing a Collatz counter that prints how many steps 27 takes to reach 1.",
+      "grows": [
+        "rs.control"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Starting from 27 the program prints 111 steps."
+    },
+    {
+      "title": "Ownership and moves",
+      "goal": "Teach Rust ownership and moves with String by writing a stamp function that takes a letter by value, adds a stamp and hands it back to the caller.",
+      "grows": [
+        "rs.ownership"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "code",
+      "passes": "stamp takes a String and returns a String, and the stamped letter prints."
+    },
+    {
+      "title": "Borrowing and references",
+      "goal": "Teach Rust shared and mutable references by building a guest book with one function that reads it by reference and one that signs it through a mutable reference.",
+      "grows": [
+        "rs.borrowing"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "code",
+      "passes": "The book prints with both new names and no function takes it by value."
+    },
+    {
+      "title": "Vectors and strings",
+      "goal": "Teach Rust Vec and String, with the vec macro, push, len, iter and a for loop over a reference, by building a delivery route that totals the distances between stops.",
+      "grows": [
+        "rs.vectors"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The route prints its total distance and its longest leg."
+    },
+    {
+      "title": "Structs and methods",
+      "goal": "Teach Rust structs and impl blocks with self methods by building a water bottle that can drink, refill and report how much is left.",
+      "grows": [
+        "rs.structs"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "Drinking 200 ml from a full 750 ml bottle prints 550 ml left."
+    },
+    {
+      "title": "Enums and match",
+      "goal": "Teach Rust enums and match by building a traffic light with a next method that cycles the colors and a method that gives the wait in seconds.",
+      "grows": [
+        "rs.enums"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "From red, three calls to next print green, yellow and red with their waits."
+    },
+    {
+      "title": "Option, Result and the ? operator",
+      "goal": "Teach Rust Option and Result with match and the question mark operator by writing a price parser that sums prices given as text and reports the first bad one.",
+      "grows": [
+        "rs.result"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "Good prices print their sum and a bad one prints an error with no panic."
+    }
+  ]
+}

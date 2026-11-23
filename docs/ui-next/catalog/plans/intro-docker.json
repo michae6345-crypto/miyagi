@@ -1,0 +1,182 @@
+{
+  "id": "intro-docker",
+  "title": "Intro to Docker",
+  "group": "environment",
+  "topic": "tools",
+  "track": "docker",
+  "tool": {
+    "id": "docker",
+    "label": "Docker Desktop"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Run containers, build your own image and link two with Compose.",
+  "project": {
+    "title": "A WordPress blog in one Compose file",
+    "brief": "Write a compose.yaml alone that runs WordPress and a MariaDB database. Give each a named volume, pass the database settings as environment values and open the blog on port 8080.",
+    "checks": [
+      "docker compose ps shows two running services",
+      "Both services store their data in named volumes",
+      "localhost port 8080 answers with the WordPress setup page"
+    ]
+  },
+  "skills": [
+    {
+      "id": "dk.run",
+      "label": "Running containers",
+      "needs": []
+    },
+    {
+      "id": "dk.ports",
+      "label": "Ports",
+      "needs": [
+        "dk.run"
+      ]
+    },
+    {
+      "id": "dk.manage",
+      "label": "Logs and cleanup",
+      "needs": [
+        "dk.ports"
+      ]
+    },
+    {
+      "id": "dk.dockerfile",
+      "label": "Dockerfiles",
+      "needs": [
+        "dk.manage"
+      ]
+    },
+    {
+      "id": "dk.build",
+      "label": "Building images",
+      "needs": [
+        "dk.dockerfile"
+      ]
+    },
+    {
+      "id": "dk.volumes",
+      "label": "Volumes and mounts",
+      "needs": [
+        "dk.ports"
+      ]
+    },
+    {
+      "id": "dk.compose",
+      "label": "Compose",
+      "needs": [
+        "dk.build",
+        "dk.volumes"
+      ]
+    },
+    {
+      "id": "dk.network",
+      "label": "Services that talk",
+      "needs": [
+        "dk.compose"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Run your first container",
+      "goal": "Teach a complete beginner Docker Desktop on a Mac. Run docker run hello-world in the terminal, then read docker ps -a and docker images to see the container and the image it came from.",
+      "grows": [
+        "dk.run"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "run",
+      "passes": "docker ps -a lists a hello-world container that exited with code 0."
+    },
+    {
+      "title": "Serve a page and map a port",
+      "goal": "Teach detached containers and port mapping in Docker by running nginx with -d, --name web and -p 8080:80, then opening localhost:8080 in the browser to see its welcome page.",
+      "grows": [
+        "dk.ports"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A container named web is running and localhost port 8080 answers."
+    },
+    {
+      "title": "Logs, exec, stop and remove",
+      "goal": "Teach looking after a Docker container. Read docker logs web, open a shell inside it with docker exec -it web sh, then stop and remove it with docker stop and docker rm.",
+      "grows": [
+        "dk.manage"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "run",
+      "passes": "docker ps -a lists no container named web and the nginx image is still there."
+    },
+    {
+      "title": "Write a Dockerfile",
+      "goal": "Teach the Dockerfile instructions FROM and COPY by making a site folder with your own index.html and a Dockerfile that copies it into an nginx:alpine image.",
+      "grows": [
+        "dk.dockerfile"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "code",
+      "passes": "The Dockerfile starts FROM nginx:alpine and copies site into /usr/share/nginx/html."
+    },
+    {
+      "title": "Build and tag your image",
+      "goal": "Teach docker build, tags and the layer cache by building the site as my-site:1.0, running it on port 8080, changing the page and building my-site:1.1.",
+      "grows": [
+        "dk.build"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Images my-site:1.0 and my-site:1.1 exist and a 1.1 container serves the new page."
+    },
+    {
+      "title": "Edit live with a bind mount",
+      "goal": "Teach Docker bind mounts by running nginx with -v so the site folder on the Mac is the folder it serves, then editing index.html and seeing the change with no rebuild.",
+      "grows": [
+        "dk.volumes"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A running container serves the site folder through a bind mount on port 8080."
+    },
+    {
+      "title": "Keep data in a named volume",
+      "goal": "Teach Docker named volumes by adding a line to log.txt in a volume named notes from one alpine container, then from a second, and reading both lines back from a third.",
+      "grows": [
+        "dk.volumes"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A volume named notes exists and its log.txt holds two lines."
+    },
+    {
+      "title": "One file to run it with Compose",
+      "goal": "Teach Docker Compose by writing compose.yaml with one web service that builds the site image, maps port 8080 and mounts the site folder, then using docker compose up -d and down.",
+      "grows": [
+        "dk.compose"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "docker compose ps shows the web service running on port 8080."
+    },
+    {
+      "title": "Add a database service",
+      "goal": "Teach Compose services, environment values and the shared network by adding a Postgres service named db with a password and a named volume, then reaching db by name from web.",
+      "grows": [
+        "dk.network"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "web and db are both running, db uses a named volume and web can reach db by name."
+    }
+  ]
+}

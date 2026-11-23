@@ -1,0 +1,40 @@
+{
+  "id": "intro-godot",
+  "title": "Intro to Godot",
+  "group": "environment",
+  "topic": "3d",
+  "track": "godot",
+  "tool": { "id": "godot", "label": "Godot" },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Build a small 2D coin game with scenes, nodes and GDScript.",
+  "project": {
+    "title": "A key and door room",
+    "brief": "Make a one-room game alone. The player picks up a key that removes a locked door, walks to the exit and a Label says the room is cleared. Export it for Mac.",
+    "checks": ["The player is a CharacterBody2D whose script calls move_and_slide", "A signal from an Area2D key frees a StaticBody2D door", "A Label changes when the player reaches the exit"]
+  },
+  "skills": [
+    { "id": "gd.editor", "label": "Editor and scenes", "needs": [] },
+    { "id": "gd.nodes", "label": "Nodes", "needs": ["gd.editor"] },
+    { "id": "gd.script", "label": "GDScript", "needs": ["gd.nodes"] },
+    { "id": "gd.input", "label": "Input and movement", "needs": ["gd.script"] },
+    { "id": "gd.instancing", "label": "Instancing scenes", "needs": ["gd.nodes"] },
+    { "id": "gd.collision", "label": "Collisions", "needs": ["gd.input"] },
+    { "id": "gd.signals", "label": "Signals", "needs": ["gd.script", "gd.collision"] },
+    { "id": "gd.ui", "label": "Labels and UI", "needs": ["gd.signals"] },
+    { "id": "gd.export", "label": "Exporting", "needs": ["gd.nodes"] }
+  ],
+  "lessons": [
+    { "title": "Make a project and a first scene", "goal": "Teach a complete beginner Godot 4. Make a new project, tour the Scene, FileSystem and Inspector docks, add a Node2D root named Main, save it as main.tscn and set it as the main scene.", "grows": ["gd.editor"], "minutes": 10, "steps": 5, "check": "scene", "passes": "main.tscn has a Node2D root named Main and is the project's main scene." },
+    { "title": "Nodes and the scene tree", "goal": "Teach Godot nodes and parent and child trees by adding a Sprite2D under Main that shows icon.svg, moving it to 200, 150 in the Inspector and running the project.", "grows": ["gd.nodes"], "minutes": 10, "steps": 5, "check": "scene", "passes": "Main has a Sprite2D child with icon.svg as its texture at position 200, 150." },
+    { "title": "Your first GDScript", "goal": "Teach GDScript in Godot 4 by attaching a script to the Sprite2D that prints a line in _ready and spins the sprite in _process using delta and an exported speed variable.", "grows": ["gd.script"], "minutes": 15, "steps": 5, "check": "code", "passes": "The script prints in _ready and changes rotation in _process using delta." },
+    { "title": "A player that moves", "goal": "Teach player movement in Godot 4. Build player.tscn from a CharacterBody2D, a Sprite2D and a CollisionShape2D, then read Input.get_vector, set velocity and call move_and_slide.", "grows": ["gd.input"], "minutes": 20, "steps": 6, "check": "code", "passes": "player.tscn has a CharacterBody2D root and its script calls move_and_slide." },
+    { "title": "Put the player in a walled room", "goal": "Teach instancing scenes and static collisions in Godot 4 by adding player.tscn to Main and boxing it in with four StaticBody2D walls that each have a CollisionShape2D.", "grows": ["gd.instancing", "gd.collision"], "minutes": 20, "steps": 6, "check": "scene", "passes": "Main holds one player.tscn instance and four StaticBody2D walls with shapes." },
+    { "title": "A coin and the body_entered signal", "goal": "Teach Godot signals by building coin.tscn from an Area2D, connecting its body_entered signal to its own script and calling queue_free when the player touches the coin.", "grows": ["gd.signals"], "minutes": 20, "steps": 6, "check": "code", "passes": "coin.tscn has an Area2D root and its body_entered handler calls queue_free." },
+    { "title": "Count coins with your own signal", "goal": "Teach custom signals in GDScript by declaring a collected signal in the coin, emitting it on pickup and connecting five coin instances to one function in Main that adds to a score.", "grows": ["gd.signals"], "minutes": 20, "steps": 6, "check": "code", "passes": "The coin emits collected and five coins in Main are connected to one function." },
+    { "title": "Show the score in a Label", "goal": "Teach Godot UI nodes by adding a CanvasLayer with a Label to Main and setting its text to the word Coins and the score each time a coin is collected.", "grows": ["gd.ui"], "minutes": 15, "steps": 5, "check": "code", "passes": "A Label under a CanvasLayer shows the score and Main sets its text on pickup." },
+    { "title": "A countdown with a Timer node", "goal": "Teach the Godot Timer node and its timeout signal by giving the coin game a 30 second countdown, shown in a second Label, that stops the game when it reaches zero.", "grows": ["gd.signals", "gd.ui"], "minutes": 20, "steps": 6, "check": "code", "passes": "A Timer's timeout signal lowers a countdown shown in a second Label." },
+    { "title": "Export the game for Mac", "goal": "Teach exporting from Godot 4. Download the export templates, add a macOS preset in the Export window, set a bundle identifier and export the coin game as an app you can open.", "grows": ["gd.export"], "minutes": 15, "steps": 5, "check": "file", "passes": "A macOS export of the coin game is saved on disk." }
+  ]
+}

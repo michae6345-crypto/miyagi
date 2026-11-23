@@ -1,0 +1,188 @@
+{
+  "id": "intro-xcode",
+  "title": "Intro to Xcode",
+  "group": "environment",
+  "topic": "code",
+  "track": "xcode",
+  "tool": {
+    "id": "xcode",
+    "label": "Xcode"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Build a small SwiftUI app and run it in the Simulator.",
+  "project": {
+    "title": "A reading list app",
+    "brief": "Build a new iOS app alone that lists five books. Tapping a book opens a detail screen with a button that marks it as read. Run it in the Simulator.",
+    "checks": [
+      "The project builds with no errors",
+      "A List inside a NavigationStack shows at least five rows",
+      "The detail view has a Button that changes a @State value"
+    ]
+  },
+  "skills": [
+    {
+      "id": "xc.project",
+      "label": "Projects and files",
+      "needs": []
+    },
+    {
+      "id": "xc.preview",
+      "label": "Canvas preview",
+      "needs": [
+        "xc.project"
+      ]
+    },
+    {
+      "id": "xc.views",
+      "label": "Views, modifiers",
+      "needs": [
+        "xc.preview"
+      ]
+    },
+    {
+      "id": "xc.stacks",
+      "label": "Stacks and layout",
+      "needs": [
+        "xc.views"
+      ]
+    },
+    {
+      "id": "xc.state",
+      "label": "State and buttons",
+      "needs": [
+        "xc.stacks"
+      ]
+    },
+    {
+      "id": "xc.simulator",
+      "label": "Simulator",
+      "needs": [
+        "xc.project"
+      ]
+    },
+    {
+      "id": "xc.lists",
+      "label": "Lists",
+      "needs": [
+        "xc.stacks"
+      ]
+    },
+    {
+      "id": "xc.navigation",
+      "label": "Navigation",
+      "needs": [
+        "xc.lists"
+      ]
+    },
+    {
+      "id": "xc.errors",
+      "label": "Build errors",
+      "needs": [
+        "xc.simulator"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Make a new SwiftUI project",
+      "goal": "Teach a complete beginner Xcode. Make a new iOS App project named Plants with the SwiftUI interface, then tour the navigator, the editor, the inspector and ContentView.swift.",
+      "grows": [
+        "xc.project"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A project named Plants has an iOS app target and a ContentView.swift file."
+    },
+    {
+      "title": "See changes in the canvas preview",
+      "goal": "Teach the Xcode canvas and the #Preview macro by changing the Hello, world text in ContentView to My plants and watching the preview update as you type.",
+      "grows": [
+        "xc.preview"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "code",
+      "passes": "ContentView shows the text My plants and still has a #Preview block."
+    },
+    {
+      "title": "Text, images and modifiers",
+      "goal": "Teach SwiftUI views and modifiers in Xcode by building a plant header from a Text in the title font and an SF Symbol leaf Image tinted green, with padding around both.",
+      "grows": [
+        "xc.views"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "code",
+      "passes": "The view has a Text with .font and an Image(systemName:) with a color modifier."
+    },
+    {
+      "title": "Lay out a card with stacks",
+      "goal": "Teach VStack, HStack and Spacer in SwiftUI by arranging the leaf, a plant name and a watering note into a PlantCard view with a rounded background, checked in the Xcode canvas.",
+      "grows": [
+        "xc.stacks"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "code",
+      "passes": "A PlantCard view nests a VStack inside an HStack and has a rounded background."
+    },
+    {
+      "title": "A button that changes state",
+      "goal": "Teach @State and Button in SwiftUI by adding a Water button to PlantCard in Xcode that counts how many times the plant was watered and shows the count in a Text.",
+      "grows": [
+        "xc.state"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "code",
+      "passes": "A Button raises a @State integer and a Text shows its value."
+    },
+    {
+      "title": "Run the app in the Simulator",
+      "goal": "Teach running an app from Xcode. Pick an iPhone simulator as the run destination, build and run Plants with Cmd+R, tap Water and read a print line in the debug console, then stop the app.",
+      "grows": [
+        "xc.simulator"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The app runs in an iPhone simulator and the console prints the count on each tap."
+    },
+    {
+      "title": "Show many plants in a List",
+      "goal": "Teach SwiftUI List in Xcode by making a Plant struct that is Identifiable, an array of five plants and a List that shows one row for each with its name and symbol.",
+      "grows": [
+        "xc.lists"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "A List builds its rows from an array of five Identifiable Plant values."
+    },
+    {
+      "title": "Navigate to a detail screen",
+      "goal": "Teach NavigationStack and NavigationLink in SwiftUI by wrapping the plant List in Xcode so each row opens a PlantDetail view with the plant name as its title and the Water button.",
+      "grows": [
+        "xc.navigation"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "The List sits in a NavigationStack and each row links to a PlantDetail view."
+    },
+    {
+      "title": "Read and fix build errors",
+      "goal": "Teach reading Xcode build errors. Break the Plants app in three small ways, find each one in the Issue navigator, use the fix-it where one is offered and build until it is clean.",
+      "grows": [
+        "xc.errors"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The Plants project builds with no errors and no warnings."
+    }
+  ]
+}

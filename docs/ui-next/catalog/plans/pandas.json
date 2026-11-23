@@ -1,0 +1,196 @@
+{
+  "id": "pandas",
+  "title": "pandas",
+  "group": "topic",
+  "topic": "data",
+  "track": "pandas",
+  "tool": {
+    "id": "jupyter",
+    "label": "Jupyter"
+  },
+  "also": [
+    "Python 3",
+    "pandas",
+    "matplotlib"
+  ],
+  "level": "next",
+  "needs": [
+    "intro-python"
+  ],
+  "line": "Load a CSV, clean it, group it and answer questions from a table.",
+  "project": {
+    "title": "A bike share report",
+    "brief": "Analyse a bike share on your own from trips.csv and stations.csv. Clean the trips, add the minutes ridden, name the ten busiest stations and plot trips by hour.",
+    "checks": [
+      "The cleaned trips table has no missing start or end times",
+      "A table lists the ten busiest stations by name with their trip counts",
+      "A plot of trips by hour is saved as a PNG"
+    ]
+  },
+  "skills": [
+    {
+      "id": "pd.read",
+      "label": "Reading a CSV",
+      "needs": [
+        "py.files"
+      ]
+    },
+    {
+      "id": "pd.select",
+      "label": "Selecting data",
+      "needs": [
+        "pd.read"
+      ]
+    },
+    {
+      "id": "pd.filter",
+      "label": "Filtering rows",
+      "needs": [
+        "pd.select"
+      ]
+    },
+    {
+      "id": "pd.missing",
+      "label": "Missing values",
+      "needs": [
+        "pd.select"
+      ]
+    },
+    {
+      "id": "pd.columns",
+      "label": "New columns",
+      "needs": [
+        "pd.missing"
+      ]
+    },
+    {
+      "id": "pd.sort",
+      "label": "Sorting and top n",
+      "needs": [
+        "pd.columns"
+      ]
+    },
+    {
+      "id": "pd.groupby",
+      "label": "Group by",
+      "needs": [
+        "pd.columns"
+      ]
+    },
+    {
+      "id": "pd.merge",
+      "label": "Merging tables",
+      "needs": [
+        "pd.groupby"
+      ]
+    },
+    {
+      "id": "pd.plot",
+      "label": "Quick plots",
+      "needs": [
+        "pd.groupby"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Read a CSV into a DataFrame",
+      "goal": "Teach pandas in Jupyter. Import pandas as pd, load orders.csv from a small coffee shop with pd.read_csv and look at it with head, shape, dtypes and info.",
+      "grows": [
+        "pd.read"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The notebook prints the first five rows and the shape of the DataFrame."
+    },
+    {
+      "title": "Select columns and rows",
+      "goal": "Teach selecting in pandas with square brackets, loc and iloc by pulling the item and price columns and the first ten rows out of the coffee shop orders.",
+      "grows": [
+        "pd.select"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A DataFrame with two columns and ten rows is printed."
+    },
+    {
+      "title": "Filter rows with conditions",
+      "goal": "Teach boolean filtering in pandas with comparisons, the & and | operators and isin by finding every latte that cost more than 4 dollars in the coffee shop orders.",
+      "grows": [
+        "pd.filter"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Every row in the result is a latte with a price above 4."
+    },
+    {
+      "title": "Clean up missing values",
+      "goal": "Teach missing values in pandas with isna, dropna and fillna by counting the gaps in the coffee shop orders, filling missing quantities with 1 and dropping rows with no item.",
+      "grows": [
+        "pd.missing"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The cleaned DataFrame has no missing values in item or quantity."
+    },
+    {
+      "title": "Add new columns",
+      "goal": "Teach making new columns in pandas with arithmetic, pd.to_datetime and the dt accessor by adding a total column and a weekday column to the coffee shop orders.",
+      "grows": [
+        "pd.columns"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The total column equals price times quantity and a weekday column exists."
+    },
+    {
+      "title": "Sort and find the top ten",
+      "goal": "Teach sort_values, nlargest and value_counts in pandas by listing the ten biggest coffee shop orders and the five items ordered most often.",
+      "grows": [
+        "pd.sort"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Ten rows print in falling order of total and five items print with their counts."
+    },
+    {
+      "title": "Group and summarise",
+      "goal": "Teach df.groupby with sum, mean and agg in pandas by working out the sales and the average order size for each item and for each weekday in the coffee shop orders.",
+      "grows": [
+        "pd.groupby"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "A table with one row per item shows its summed total and mean quantity."
+    },
+    {
+      "title": "Merge two tables",
+      "goal": "Teach pd.merge in pandas by joining the coffee shop orders to menu.csv on the item column to add each item's category, then totalling sales by category.",
+      "grows": [
+        "pd.merge"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The merged table has a category column and as many rows as the orders table."
+    },
+    {
+      "title": "Plot from a DataFrame",
+      "goal": "Teach quick plots in pandas with df.plot, which draws with matplotlib, by making a bar chart of coffee shop sales for each weekday and saving it as sales.png.",
+      "grows": [
+        "pd.plot"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "file",
+      "passes": "sales.png exists and shows one bar for each weekday."
+    }
+  ]
+}

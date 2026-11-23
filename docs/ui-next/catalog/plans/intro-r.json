@@ -1,0 +1,202 @@
+{
+  "id": "intro-r",
+  "title": "Intro to R",
+  "group": "language",
+  "topic": "data",
+  "track": "r",
+  "tool": {
+    "id": "rstudio",
+    "label": "RStudio"
+  },
+  "also": [
+    "R"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Vectors, data frames, dplyr and ggplot2. Turn a table into a chart.",
+  "project": {
+    "title": "An air quality report",
+    "brief": "Write report.R on your own with the built-in airquality data. Work out the average wind speed per month with dplyr, save it as a CSV and chart it with ggplot2.",
+    "checks": [
+      "report.R runs from top to bottom with no error",
+      "summary.csv has one row per month with the average wind speed",
+      "A PNG chart made with ggplot2 is saved"
+    ]
+  },
+  "skills": [
+    {
+      "id": "r.script",
+      "label": "Scripts in RStudio",
+      "needs": []
+    },
+    {
+      "id": "r.vectors",
+      "label": "Vectors",
+      "needs": [
+        "r.script"
+      ]
+    },
+    {
+      "id": "r.functions",
+      "label": "Functions",
+      "needs": [
+        "r.vectors"
+      ]
+    },
+    {
+      "id": "r.frames",
+      "label": "Data frames",
+      "needs": [
+        "r.vectors"
+      ]
+    },
+    {
+      "id": "r.csv",
+      "label": "CSV files",
+      "needs": [
+        "r.frames"
+      ]
+    },
+    {
+      "id": "r.dplyr",
+      "label": "Filter and arrange",
+      "needs": [
+        "r.frames"
+      ]
+    },
+    {
+      "id": "r.pipes",
+      "label": "Pipes and mutate",
+      "needs": [
+        "r.dplyr"
+      ]
+    },
+    {
+      "id": "r.summarise",
+      "label": "Group, summarise",
+      "needs": [
+        "r.pipes"
+      ]
+    },
+    {
+      "id": "r.ggplot",
+      "label": "ggplot2 charts",
+      "needs": [
+        "r.frames"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Run your first R script",
+      "goal": "Teach a complete beginner to make an R script in RStudio, store a name and a birth year with the arrow assignment, print an age and run it line by line and all at once.",
+      "grows": [
+        "r.script"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "run",
+      "passes": "The script runs with no error and prints an age as a number."
+    },
+    {
+      "title": "Vectors",
+      "goal": "Teach R vectors, with c, indexing, vectorized math, mean, max and logical filters, by logging a week of commute times and finding the days over 40 minutes.",
+      "grows": [
+        "r.vectors"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The script prints the average, the slowest day and the days over 40 minutes."
+    },
+    {
+      "title": "Functions",
+      "goal": "Teach writing R functions with arguments, default values and return by building a score rescaler that maps a vector of exam scores onto 0 to 100.",
+      "grows": [
+        "r.functions"
+      ],
+      "minutes": 20,
+      "steps": 5,
+      "check": "run",
+      "passes": "The lowest score prints as 0 and the highest as 100."
+    },
+    {
+      "title": "Data frames",
+      "goal": "Teach R data frames, with data.frame, the dollar sign, nrow, str and adding a column, by building a table of five planets with diameter and moons.",
+      "grows": [
+        "r.frames"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The table has five rows and a new column worked out from another."
+    },
+    {
+      "title": "Read and write a CSV",
+      "goal": "Teach reading and writing CSV files in R with write.csv and read.csv by saving the planets table to planets.csv and loading it back.",
+      "grows": [
+        "r.csv"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "file",
+      "passes": "planets.csv exists and loads back as a data frame with five rows."
+    },
+    {
+      "title": "Filter, select and arrange",
+      "goal": "Teach installing and loading dplyr in R and its verbs filter, select and arrange by making a shortlist of fuel-saving cars from the built-in mtcars table.",
+      "grows": [
+        "r.dplyr"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The shortlist holds only cars over 25 mpg, highest mpg first."
+    },
+    {
+      "title": "Pipes and mutate",
+      "goal": "Teach the R pipe and the dplyr verb mutate by building a metric version of the mtcars table with a kilometres per litre column, in one piped chain.",
+      "grows": [
+        "r.pipes"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The piped result has a new column of kilometres per litre."
+    },
+    {
+      "title": "Group and summarise",
+      "goal": "Teach dplyr group_by and summarise in R by building a summary table of the average mpg and the number of cars for each cylinder count in mtcars.",
+      "grows": [
+        "r.summarise"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The summary has three rows, for 4, 6 and 8 cylinders, each with an average mpg."
+    },
+    {
+      "title": "A scatter plot with ggplot2",
+      "goal": "Teach ggplot2 in R, with ggplot, aes, geom_point and labs, by drawing a scatter plot of car weight against mpg and saving it with ggsave.",
+      "grows": [
+        "r.ggplot"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "file",
+      "passes": "A PNG is saved that shows weight against mpg as points with axis labels."
+    },
+    {
+      "title": "A bar chart from a summary",
+      "goal": "Teach geom_col, fill and titles in ggplot2 in R by turning the average mpg per cylinder count into a labeled bar chart saved as a PNG.",
+      "grows": [
+        "r.ggplot",
+        "r.summarise"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "file",
+      "passes": "A PNG is saved with one bar per cylinder count and a title."
+    }
+  ]
+}

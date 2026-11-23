@@ -1,0 +1,207 @@
+{
+  "id": "intro-fusion",
+  "title": "Intro to Fusion",
+  "group": "environment",
+  "topic": "cad",
+  "track": "fusion",
+  "tool": {
+    "id": "fusion",
+    "label": "Fusion"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Sketch, extrude and shape a small box with a lid to print.",
+  "project": {
+    "title": "A cable clip for a desk edge",
+    "brief": "Design a clip alone that grips a 20 mm desk edge and holds one 5 mm cable. Use a fully constrained sketch, extrude it 12 mm, round the outer edges and save it as an STL.",
+    "checks": [
+      "One solid body and every sketch fully constrained",
+      "The clip opening is 20 mm and the cable hole is 5 mm across",
+      "An STL of the clip is saved"
+    ]
+  },
+  "skills": [
+    {
+      "id": "fus.navigate",
+      "label": "Workspace",
+      "needs": []
+    },
+    {
+      "id": "fus.sketch",
+      "label": "Sketching",
+      "needs": [
+        "fus.navigate"
+      ]
+    },
+    {
+      "id": "fus.constrain",
+      "label": "Constraints",
+      "needs": [
+        "fus.sketch"
+      ]
+    },
+    {
+      "id": "fus.extrude",
+      "label": "Extrude",
+      "needs": [
+        "fus.constrain"
+      ]
+    },
+    {
+      "id": "fus.fillet",
+      "label": "Fillets, chamfers",
+      "needs": [
+        "fus.extrude"
+      ]
+    },
+    {
+      "id": "fus.shell",
+      "label": "Shell",
+      "needs": [
+        "fus.extrude"
+      ]
+    },
+    {
+      "id": "fus.hole",
+      "label": "Holes",
+      "needs": [
+        "fus.extrude"
+      ]
+    },
+    {
+      "id": "fus.components",
+      "label": "Components",
+      "needs": [
+        "fus.shell"
+      ]
+    },
+    {
+      "id": "fus.timeline",
+      "label": "Timeline edits",
+      "needs": [
+        "fus.fillet",
+        "fus.hole"
+      ]
+    },
+    {
+      "id": "fus.export",
+      "label": "Export to print",
+      "needs": [
+        "fus.components"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Find your way around Fusion",
+      "goal": "Teach a complete beginner Autodesk Fusion. Start a new design, save it as Box, set the units to millimeters, and tour the Browser, the Timeline and the ViewCube while orbiting the view.",
+      "grows": [
+        "fus.navigate"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A saved design named Box uses millimeters and has no bodies yet."
+    },
+    {
+      "title": "Sketch the outline of the box",
+      "goal": "Teach starting a sketch in Fusion by choosing Create Sketch on the XY plane, drawing a Center Rectangle from the origin for the footprint of a box and finishing the sketch.",
+      "grows": [
+        "fus.sketch"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A sketch on the XY plane holds one closed rectangle centered on the origin."
+    },
+    {
+      "title": "Dimension and constrain the sketch",
+      "goal": "Teach Fusion sketch dimensions and constraints by sizing the box rectangle to 80 by 50 mm with Sketch Dimension and checking that every line turns black, fully constrained.",
+      "grows": [
+        "fus.constrain"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The sketch is fully constrained and measures 80 by 50 mm."
+    },
+    {
+      "title": "Extrude it into a block",
+      "goal": "Teach the Extrude tool in Fusion by pulling the 80 by 50 mm profile up 30 mm into a solid block and finding the new feature in the Timeline.",
+      "grows": [
+        "fus.extrude"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "scene",
+      "passes": "One solid body measures 80 by 50 by 30 mm."
+    },
+    {
+      "title": "Round the corners with Fillet",
+      "goal": "Teach the Fillet tool in Fusion by rounding the four upright edges of the block with a 6 mm radius, and how Fillet differs from Chamfer.",
+      "grows": [
+        "fus.fillet"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The four vertical edges of the body carry a 6 mm fillet."
+    },
+    {
+      "title": "Hollow it out with Shell",
+      "goal": "Teach the Shell tool in Fusion by removing the top face of the block and leaving walls and a floor 2 mm thick, which turns the block into an open box.",
+      "grows": [
+        "fus.shell"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "scene",
+      "passes": "The body is open on top with walls and a floor 2 mm thick."
+    },
+    {
+      "title": "Add a cable hole",
+      "goal": "Teach the Hole tool in Fusion by placing an 8 mm hole through one short wall of the box, centered on that wall, for a charging cable.",
+      "grows": [
+        "fus.hole"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "An 8 mm Hole feature goes through one short wall of the box."
+    },
+    {
+      "title": "Make a lid as a second component",
+      "goal": "Teach Fusion components by turning the box body into a component named Base, then making a new component named Lid and extruding a 3 mm lid from the projected outline of the box.",
+      "grows": [
+        "fus.components"
+      ],
+      "minutes": 25,
+      "steps": 7,
+      "check": "scene",
+      "passes": "The design has components named Base and Lid, each with one body."
+    },
+    {
+      "title": "Change a size from the Timeline",
+      "goal": "Teach parametric editing in Fusion. Reopen the first sketch from the Timeline, change 80 mm to 100 mm and check that the fillets, the shell, the hole and the lid all rebuild.",
+      "grows": [
+        "fus.timeline"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The base and lid are both 100 mm long and the Timeline shows no errors."
+    },
+    {
+      "title": "Export both parts as STL",
+      "goal": "Teach exporting from Fusion for 3D printing by saving the Base and the Lid of the box as two STL mesh files and checking their size before printing.",
+      "grows": [
+        "fus.export"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "file",
+      "passes": "Two STL files are saved, one for the base and one for the lid."
+    }
+  ]
+}

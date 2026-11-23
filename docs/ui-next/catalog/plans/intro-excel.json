@@ -1,0 +1,188 @@
+{
+  "id": "intro-excel",
+  "title": "Intro to Excel",
+  "group": "environment",
+  "topic": "tools",
+  "track": "excel",
+  "tool": {
+    "id": "excel",
+    "label": "Excel"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Formulas, lookups, a pivot table and a chart on a monthly budget.",
+  "project": {
+    "title": "A bake sale sales report",
+    "brief": "Build a sales report for a bake sale on your own. Look up each item's price with XLOOKUP, work out the money per sale, total it by item and chart the result.",
+    "checks": [
+      "Each sale row gets its price from an XLOOKUP on a price list",
+      "A SUMIF or a PivotTable totals sales for each item",
+      "A chart of sales by item has a title"
+    ]
+  },
+  "skills": [
+    {
+      "id": "xl.cells",
+      "label": "Cells and ranges",
+      "needs": []
+    },
+    {
+      "id": "xl.formulas",
+      "label": "Formulas",
+      "needs": [
+        "xl.cells"
+      ]
+    },
+    {
+      "id": "xl.functions",
+      "label": "Functions",
+      "needs": [
+        "xl.formulas"
+      ]
+    },
+    {
+      "id": "xl.references",
+      "label": "Cell references",
+      "needs": [
+        "xl.functions"
+      ]
+    },
+    {
+      "id": "xl.sumif",
+      "label": "SUMIF and COUNTIF",
+      "needs": [
+        "xl.references"
+      ]
+    },
+    {
+      "id": "xl.lookup",
+      "label": "XLOOKUP",
+      "needs": [
+        "xl.references"
+      ]
+    },
+    {
+      "id": "xl.sort",
+      "label": "Sort and filter",
+      "needs": [
+        "xl.cells"
+      ]
+    },
+    {
+      "id": "xl.pivot",
+      "label": "Pivot tables",
+      "needs": [
+        "xl.sort"
+      ]
+    },
+    {
+      "id": "xl.chart",
+      "label": "Charts",
+      "needs": [
+        "xl.sumif"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Enter a budget in cells and ranges",
+      "goal": "Teach a complete beginner Excel on a Mac. Type a month of spending into a new workbook with headers for item, category, planned and actual in row 1 and twelve rows below, then save budget.xlsx.",
+      "grows": [
+        "xl.cells"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "file",
+      "passes": "budget.xlsx holds four headers in A1 to D1 and twelve rows below them."
+    },
+    {
+      "title": "Write your first formulas",
+      "goal": "Teach Excel formulas with the equals sign, cell references and the + - * / operators by working out planned minus actual for the first budget item in E2.",
+      "grows": [
+        "xl.formulas"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "scene",
+      "passes": "E2 holds a formula that subtracts D2 from C2."
+    },
+    {
+      "title": "Totals with SUM, AVERAGE and MAX",
+      "goal": "Teach Excel functions and ranges with SUM, AVERAGE, MIN and MAX by adding a totals row under the budget and finding the average and the largest amount spent.",
+      "grows": [
+        "xl.functions"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "D14 holds a SUM of D2 to D13 and two other cells use AVERAGE and MAX."
+    },
+    {
+      "title": "Relative and absolute references",
+      "goal": "Teach relative and absolute references in Excel. Fill the difference formula down to row 13, then lock the total with $D$14 to work out each item's share of spending.",
+      "grows": [
+        "xl.references"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "F2 to F13 each divide the row's amount by $D$14 and add up to 100 percent."
+    },
+    {
+      "title": "SUMIF and COUNTIF",
+      "goal": "Teach SUMIF and COUNTIF in Excel by building a summary beside the budget that totals the spending and counts the items in each category.",
+      "grows": [
+        "xl.sumif"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "Each category has a SUMIF and a COUNTIF, and the SUMIF totals add up to D14."
+    },
+    {
+      "title": "Look things up with XLOOKUP",
+      "goal": "Teach XLOOKUP in Excel by pulling each category's monthly limit from a small limits table into the budget rows, with a message for a category that is not found.",
+      "grows": [
+        "xl.lookup"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "G2 to G13 use XLOOKUP on the limits table with an if not found value set."
+    },
+    {
+      "title": "Sort and filter",
+      "goal": "Teach Sort and Filter in Excel by sorting the budget from the largest amount to the smallest, then filtering it to show only the Food category.",
+      "grows": [
+        "xl.sort"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The rows are sorted by actual, largest first, and a filter shows only Food."
+    },
+    {
+      "title": "Summarise with a PivotTable",
+      "goal": "Teach PivotTables in Excel by summarising the budget on a new sheet, with Category in the rows and the sum of Actual in the values.",
+      "grows": [
+        "xl.pivot"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "A PivotTable on a new sheet shows the sum of Actual for each category."
+    },
+    {
+      "title": "Make a chart",
+      "goal": "Teach Excel charts by turning the category summary into a column chart with a chart title and axis titles, placed beside the budget.",
+      "grows": [
+        "xl.chart"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A column chart plots the category totals and has a chart title."
+    }
+  ]
+}

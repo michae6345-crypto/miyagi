@@ -1,0 +1,40 @@
+{
+  "id": "cad-3d-printing",
+  "title": "CAD for 3D printing",
+  "group": "topic",
+  "topic": "cad",
+  "track": "cad",
+  "tool": { "id": "freecad", "label": "FreeCAD" },
+  "also": [],
+  "level": "next",
+  "needs": ["intro-cad"],
+  "line": "Clearances, walls and fits for parts that print and go together.",
+  "project": {
+    "title": "A battery holder with a snap-on cover",
+    "brief": "Design a holder for two AA cells on your own, with a cover that snaps on. Choose the walls, clearances and print orientation so both parts print with no supports.",
+    "checks": ["Two bodies, each with walls at least 1.2 mm thick", "The cover joins the holder with a snap fit and 0.2 to 0.4 mm of clearance", "Both parts are saved as STL files and slice with no supports"]
+  },
+  "skills": [
+    { "id": "cadp.clearance", "label": "Clearances", "needs": ["cad.pocket"] },
+    { "id": "cadp.walls", "label": "Wall thickness", "needs": ["cad.pad"] },
+    { "id": "cadp.overhangs", "label": "Overhangs", "needs": ["cadp.walls", "cad.fillet"] },
+    { "id": "cadp.orient", "label": "Print orientation", "needs": ["cadp.overhangs"] },
+    { "id": "cadp.press", "label": "Press fits", "needs": ["cadp.clearance"] },
+    { "id": "cadp.snap", "label": "Snap fits", "needs": ["cadp.press", "cadp.orient"] },
+    { "id": "cadp.enclosure", "label": "Boxes and lids", "needs": ["cadp.walls", "cadp.clearance"] },
+    { "id": "cadp.bosses", "label": "Screw bosses", "needs": ["cadp.enclosure", "cad.pattern"] },
+    { "id": "cadp.slicer", "label": "Slicer check", "needs": ["cadp.orient", "cad.export"] }
+  ],
+  "lessons": [
+    { "title": "Clearance with a peg and three holes", "goal": "Teach clearance for 3D printing in FreeCAD Part Design by modelling a 10 mm peg and a test plate with holes of 10.0, 10.2 and 10.4 mm to find the fit your printer gives.", "grows": ["cadp.clearance"], "minutes": 20, "steps": 6, "check": "scene", "passes": "The plate has holes of 10.0, 10.2 and 10.4 mm and the peg is 10 mm across." },
+    { "title": "Wall thickness", "goal": "Teach wall thickness for 3D printing in FreeCAD by hollowing a 40 mm cube into an open tray with the Part Design Thickness tool, with 1.6 mm walls to suit a 0.4 mm nozzle.", "grows": ["cadp.walls"], "minutes": 15, "steps": 5, "check": "scene", "passes": "The tray is open on top and every wall is 1.6 mm thick." },
+    { "title": "Overhangs and the 45 degree rule", "goal": "Teach overhangs for 3D printing in FreeCAD by adding a shelf to the side of the tray and holding it up with a 45 degree chamfer so it prints with no supports.", "grows": ["cadp.overhangs"], "minutes": 20, "steps": 6, "check": "scene", "passes": "No face of the part overhangs by more than 45 degrees from vertical." },
+    { "title": "Choose a print orientation", "goal": "Teach print orientation in FreeCAD by modelling an L bracket with a screw hole so that its largest flat face sits on the bed and the hole points straight up.", "grows": ["cadp.orient"], "minutes": 20, "steps": 6, "check": "scene", "passes": "The bracket rests on its largest flat face and the hole's axis runs along Z." },
+    { "title": "A press fit for a magnet", "goal": "Teach press fits for 3D printing in FreeCAD by adding a pocket for a 6 mm round magnet to a fridge clip, sized from your clearance test, with a chamfered rim to guide it in.", "grows": ["cadp.press"], "minutes": 20, "steps": 6, "check": "scene", "passes": "The clip has a round pocket 5.9 to 6.2 mm across with a chamfered rim." },
+    { "title": "A snap-fit hook", "goal": "Teach cantilever snap fits in FreeCAD by sketching a thin springy arm with a hooked tip and a slot that catches it, with 0.3 mm of clearance, laid flat so layers run along the arm.", "grows": ["cadp.snap"], "minutes": 25, "steps": 7, "check": "scene", "passes": "The slot is 0.3 mm wider than the arm and the hook catches by at least 1 mm." },
+    { "title": "An enclosure base", "goal": "Teach designing a box for electronics in FreeCAD. Build the base of a 60 by 40 by 20 mm enclosure as its own body, with 2 mm walls, a 2 mm floor and rounded outer corners.", "grows": ["cadp.enclosure"], "minutes": 25, "steps": 6, "check": "scene", "passes": "The base body is 60 by 40 by 20 mm outside with 2 mm walls and a 2 mm floor." },
+    { "title": "A lid that fits", "goal": "Teach mating parts in FreeCAD by adding a second body, a lid with a lip that drops 3 mm into the enclosure base and leaves 0.2 mm of clearance on every side.", "grows": ["cadp.enclosure", "cadp.clearance"], "minutes": 25, "steps": 6, "check": "scene", "passes": "A second body has a 3 mm lip that is 0.2 mm smaller than the opening on each side." },
+    { "title": "Screw bosses", "goal": "Teach screw bosses in FreeCAD by adding four corner posts to the base with 2.5 mm pilot holes for M3 screws, and four matching 3.4 mm clearance holes in the lid.", "grows": ["cadp.bosses"], "minutes": 25, "steps": 7, "check": "scene", "passes": "Four posts with 2.5 mm holes in the base line up with four 3.4 mm holes in the lid." },
+    { "title": "Export and check in a slicer", "goal": "Teach the last checks before printing. Export the base and the lid from FreeCAD as STL files, open them in a slicer such as PrusaSlicer, lay each flat on the bed and slice them.", "grows": ["cadp.slicer"], "minutes": 20, "steps": 6, "check": "file", "passes": "base.stl and lid.stl are saved and a sliced G-code file exists for each." }
+  ]
+}

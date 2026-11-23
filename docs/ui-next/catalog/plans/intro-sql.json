@@ -1,0 +1,40 @@
+{
+  "id": "intro-sql",
+  "title": "Intro to SQL",
+  "group": "language",
+  "topic": "data",
+  "track": "sql",
+  "tool": { "id": "vscode", "label": "VS Code" },
+  "also": ["SQLite"],
+  "level": "start",
+  "needs": [],
+  "line": "Ask questions of a small record shop database with SQLite.",
+  "project": {
+    "title": "A cinema box office database",
+    "brief": "Create cinema.db on your own with films, screenings and tickets. Fill it with rows, then write report.sql to list the takings per film, highest first.",
+    "checks": ["cinema.db has three tables linked by id columns", "report.sql uses JOIN and GROUP BY", "The report returns one row per film, ordered by takings"]
+  },
+  "skills": [
+    { "id": "sql.create", "label": "Tables and rows", "needs": [] },
+    { "id": "sql.select", "label": "SELECT", "needs": ["sql.create"] },
+    { "id": "sql.where", "label": "WHERE", "needs": ["sql.select"] },
+    { "id": "sql.order", "label": "ORDER BY and LIMIT", "needs": ["sql.select"] },
+    { "id": "sql.aggregate", "label": "COUNT, SUM and AVG", "needs": ["sql.where"] },
+    { "id": "sql.group", "label": "GROUP BY", "needs": ["sql.aggregate"] },
+    { "id": "sql.join", "label": "JOIN", "needs": ["sql.where"] },
+    { "id": "sql.outer", "label": "LEFT JOIN", "needs": ["sql.join"] },
+    { "id": "sql.modify", "label": "UPDATE and DELETE", "needs": ["sql.where"] }
+  ],
+  "lessons": [
+    { "title": "Create the record shop database", "goal": "Teach a complete beginner to create shop.db with sqlite3 in the VS Code terminal, using CREATE TABLE and INSERT to add the artists, albums and sales of a small record shop.", "grows": ["sql.create"], "minutes": 25, "steps": 6, "check": "file", "passes": "shop.db has the tables artists, albums and sales, each with rows." },
+    { "title": "SELECT columns", "goal": "Teach SQL SELECT with chosen columns, AS and DISTINCT by writing prices.sql, a price list of every album in the record shop database.", "grows": ["sql.select"], "minutes": 15, "steps": 5, "check": "run", "passes": "The query returns one row per album with only its title and price." },
+    { "title": "Filter rows with WHERE", "goal": "Teach SQL WHERE with comparisons, AND, OR, LIKE and BETWEEN by listing the bargain bin of the record shop, albums under 10 dollars from before 1990.", "grows": ["sql.where"], "minutes": 20, "steps": 6, "check": "run", "passes": "Every row returned costs under 10 dollars and is from before 1990." },
+    { "title": "Sort and limit", "goal": "Teach SQL ORDER BY, ASC, DESC and LIMIT by making a top five chart of the most expensive albums in the record shop.", "grows": ["sql.order"], "minutes": 15, "steps": 5, "check": "run", "passes": "The query returns five albums, most expensive first." },
+    { "title": "Count, sum and average", "goal": "Teach the SQL functions COUNT, SUM, AVG, MIN and MAX by writing a one-row summary of the record shop with the album count, average price and copies sold.", "grows": ["sql.aggregate"], "minutes": 15, "steps": 5, "check": "run", "passes": "One row comes back with the album count, average price and copies sold." },
+    { "title": "GROUP BY and HAVING", "goal": "Teach SQL GROUP BY and HAVING by tallying the copies sold per album in the sales table and keeping only albums that sold more than five.", "grows": ["sql.group"], "minutes": 20, "steps": 6, "check": "run", "passes": "Each row is one album with its copies sold, all above five." },
+    { "title": "Join two tables", "goal": "Teach the SQL inner JOIN with ON and table aliases by printing the record shop catalog, each album title next to the name of its artist.", "grows": ["sql.join"], "minutes": 20, "steps": 6, "check": "run", "passes": "Each row pairs an album title with its artist name through a JOIN." },
+    { "title": "LEFT JOIN and missing rows", "goal": "Teach SQL LEFT JOIN and IS NULL by finding the albums in the record shop that have never sold a copy.", "grows": ["sql.outer"], "minutes": 20, "steps": 5, "check": "run", "passes": "The query returns only albums with no row in the sales table." },
+    { "title": "Join, group and rank", "goal": "Teach joining three tables with GROUP BY and ORDER BY in SQL by building a best sellers chart of copies sold per artist.", "grows": ["sql.join", "sql.group"], "minutes": 25, "steps": 6, "check": "run", "passes": "One row per artist comes back, ordered by copies sold, highest first." },
+    { "title": "Update and delete rows", "goal": "Teach SQL UPDATE and DELETE with a WHERE clause by marking down every album from before 1980 by 2 dollars and removing one refunded sale.", "grows": ["sql.modify"], "minutes": 20, "steps": 5, "check": "run", "passes": "Albums from before 1980 cost 2 dollars less and the refunded sale is gone." }
+  ]
+}

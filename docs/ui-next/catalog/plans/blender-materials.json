@@ -1,0 +1,195 @@
+{
+  "id": "blender-materials",
+  "title": "Blender materials and light",
+  "group": "topic",
+  "topic": "3d",
+  "track": "blender",
+  "tool": {
+    "id": "blender",
+    "label": "Blender"
+  },
+  "also": [],
+  "level": "next",
+  "needs": [
+    "intro-blender"
+  ],
+  "line": "Real-looking surfaces, textures and light for your renders.",
+  "project": {
+    "title": "A bottle on a wooden table",
+    "brief": "Model a simple bottle and a table on your own. Make the bottle glass, put a wood image on the table, light the scene and render it in Cycles with a soft background.",
+    "checks": [
+      "A glass material and an image-textured material are both assigned",
+      "The camera has depth of field on with a focus object set",
+      "A Cycles render is saved as a PNG"
+    ]
+  },
+  "skills": [
+    {
+      "id": "blm.principled",
+      "label": "Principled BSDF",
+      "needs": [
+        "bl.materials"
+      ]
+    },
+    {
+      "id": "blm.glass",
+      "label": "Glass and emission",
+      "needs": [
+        "blm.principled"
+      ]
+    },
+    {
+      "id": "blm.nodes",
+      "label": "Shader nodes",
+      "needs": [
+        "blm.principled"
+      ]
+    },
+    {
+      "id": "blm.uv",
+      "label": "UV unwrapping",
+      "needs": [
+        "bl.edit"
+      ]
+    },
+    {
+      "id": "blm.textures",
+      "label": "Image textures",
+      "needs": [
+        "blm.uv",
+        "blm.nodes"
+      ]
+    },
+    {
+      "id": "blm.world",
+      "label": "HDRI world light",
+      "needs": [
+        "blm.nodes",
+        "bl.lighting"
+      ]
+    },
+    {
+      "id": "blm.three_point",
+      "label": "Three-point light",
+      "needs": [
+        "bl.lighting"
+      ]
+    },
+    {
+      "id": "blm.dof",
+      "label": "Depth of field",
+      "needs": [
+        "blm.three_point"
+      ]
+    },
+    {
+      "id": "blm.engines",
+      "label": "Cycles and Eevee",
+      "needs": [
+        "blm.dof",
+        "bl.render"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Metal, plastic and rubber",
+      "goal": "Teach Blender's Principled BSDF in depth. Make three spheres, one shiny plastic, one brushed metal and one dull rubber, using only Base Color, Metallic and Roughness.",
+      "grows": [
+        "blm.principled"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "Three spheres have three materials and exactly one has Metallic at 1."
+    },
+    {
+      "title": "Glass and glowing things",
+      "goal": "Teach transmission, IOR and emission on Blender's Principled BSDF by making a glass ball with an IOR of 1.52 and a small bulb that glows.",
+      "grows": [
+        "blm.glass"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "One material has full transmission and IOR 1.52, and one has emission above 0."
+    },
+    {
+      "title": "Build a material from nodes",
+      "goal": "Teach Blender's Shader Editor by wiring a Noise Texture through a Color Ramp into the Base Color of a Principled BSDF to make a marble ball.",
+      "grows": [
+        "blm.nodes"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "A Noise Texture feeds a Color Ramp that feeds the material's Base Color."
+    },
+    {
+      "title": "Unwrap a crate",
+      "goal": "Teach UV unwrapping in Blender. Mark seams on a cube-shaped crate in Edit mode, unwrap it and arrange the islands in the UV Editor so none overlap.",
+      "grows": [
+        "blm.uv"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The crate has marked seams and a UV map whose islands do not overlap."
+    },
+    {
+      "title": "Put an image texture on it",
+      "goal": "Teach Image Texture nodes in Blender by putting a wood image on the unwrapped crate through Base Color and adding a roughness map set to Non-Color.",
+      "grows": [
+        "blm.textures"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "An Image Texture feeds Base Color and the roughness image is set to Non-Color."
+    },
+    {
+      "title": "Light the scene with an HDRI",
+      "goal": "Teach world lighting in Blender by loading an HDRI into an Environment Texture node on the World and setting its strength so it lights the crate on its own.",
+      "grows": [
+        "blm.world"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The World uses an Environment Texture node with an HDR or EXR image loaded."
+    },
+    {
+      "title": "Three-point lighting",
+      "goal": "Teach three-point lighting in Blender by placing area lights named Key, Fill and Rim around the crate, with the key at least twice as strong as the fill.",
+      "grows": [
+        "blm.three_point"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "Area lights named Key, Fill and Rim exist and Key has at least twice Fill's power."
+    },
+    {
+      "title": "Depth of field",
+      "goal": "Teach camera depth of field in Blender. Turn it on, set the focus object to the crate and lower the F-Stop to 2.8 so the background goes soft.",
+      "grows": [
+        "blm.dof"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The camera has depth of field on, the crate as focus object and F-Stop 2.8."
+    },
+    {
+      "title": "Cycles and Eevee settings",
+      "goal": "Teach the difference between Cycles and Eevee in Blender by rendering the crate in both, with Cycles at 128 samples and denoising on, and saving the two images.",
+      "grows": [
+        "blm.engines"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "file",
+      "passes": "Two PNG renders are saved, one from Cycles at 128 samples and one from Eevee."
+    }
+  ]
+}

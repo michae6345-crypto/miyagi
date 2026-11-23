@@ -1,0 +1,195 @@
+{
+  "id": "scikit-learn",
+  "title": "scikit-learn",
+  "group": "topic",
+  "topic": "ai",
+  "track": "scikit-learn",
+  "tool": {
+    "id": "jupyter",
+    "label": "Jupyter"
+  },
+  "also": [
+    "Python 3",
+    "scikit-learn"
+  ],
+  "level": "next",
+  "needs": [
+    "pandas"
+  ],
+  "line": "Split your data, fit a model, score it and compare two fairly.",
+  "project": {
+    "title": "A handwritten digit reader",
+    "brief": "Build a digit classifier on your own with load_digits. Hold out a test set, compare two pipelines with cross-validation and report test accuracy for the winner.",
+    "checks": [
+      "A test set is held out with train_test_split before any fitting",
+      "Two pipelines are scored with 5-fold cross-validation",
+      "The chosen model scores at least 0.95 on the test set"
+    ]
+  },
+  "skills": [
+    {
+      "id": "sk.data",
+      "label": "Features, target",
+      "needs": [
+        "pd.select"
+      ]
+    },
+    {
+      "id": "sk.split",
+      "label": "Train, test split",
+      "needs": [
+        "sk.data"
+      ]
+    },
+    {
+      "id": "sk.fit",
+      "label": "Fit and predict",
+      "needs": [
+        "sk.split"
+      ]
+    },
+    {
+      "id": "sk.score",
+      "label": "Scoring",
+      "needs": [
+        "sk.fit"
+      ]
+    },
+    {
+      "id": "sk.regress",
+      "label": "Regression",
+      "needs": [
+        "sk.score"
+      ]
+    },
+    {
+      "id": "sk.pipeline",
+      "label": "Pipelines",
+      "needs": [
+        "sk.score"
+      ]
+    },
+    {
+      "id": "sk.cv",
+      "label": "Cross-validation",
+      "needs": [
+        "sk.pipeline"
+      ]
+    },
+    {
+      "id": "sk.tune",
+      "label": "Grid search",
+      "needs": [
+        "sk.cv"
+      ]
+    },
+    {
+      "id": "sk.compare",
+      "label": "Comparing models",
+      "needs": [
+        "sk.cv"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Load data into X and y",
+      "goal": "Teach how scikit-learn expects data. In Jupyter, load the wine dataset with load_wine(as_frame=True), look at it with pandas and split it into features X and a target y.",
+      "grows": [
+        "sk.data"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "X has shape (178, 13) and y holds 178 labels in three classes."
+    },
+    {
+      "title": "Train and test split",
+      "goal": "Teach train_test_split in scikit-learn with test_size, random_state and stratify by holding out a quarter of the wine data for testing.",
+      "grows": [
+        "sk.split"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "X_train has 133 rows and X_test has 45 rows."
+    },
+    {
+      "title": "Fit and predict",
+      "goal": "Teach the fit and predict pattern in scikit-learn by training a KNeighborsClassifier with 5 neighbours on the wine training set and predicting the test set.",
+      "grows": [
+        "sk.fit"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A fitted KNeighborsClassifier returns 45 predictions for the test set."
+    },
+    {
+      "title": "Score a classifier",
+      "goal": "Teach scoring in scikit-learn with accuracy_score, confusion_matrix and classification_report by measuring the wine classifier on the test set.",
+      "grows": [
+        "sk.score"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The notebook prints the test accuracy and a 3 by 3 confusion matrix."
+    },
+    {
+      "title": "Predict a number with regression",
+      "goal": "Teach regression in scikit-learn with LinearRegression, mean_absolute_error and r2_score by predicting disease progression from the load_diabetes dataset.",
+      "grows": [
+        "sk.regress"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The notebook prints the test mean absolute error and R squared of a fitted model."
+    },
+    {
+      "title": "A pipeline with scaling",
+      "goal": "Teach StandardScaler and make_pipeline in scikit-learn by putting scaling in front of the wine classifier and comparing test accuracy with and without it.",
+      "grows": [
+        "sk.pipeline"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "A pipeline of StandardScaler then KNeighborsClassifier beats the unscaled model."
+    },
+    {
+      "title": "Cross-validation",
+      "goal": "Teach cross_val_score in scikit-learn with cv=5 by scoring the wine pipeline on five folds and printing the mean and the standard deviation.",
+      "grows": [
+        "sk.cv"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Five fold scores print with their mean and standard deviation."
+    },
+    {
+      "title": "Tune a setting with a grid search",
+      "goal": "Teach GridSearchCV in scikit-learn by trying n_neighbors from 1 to 15 in the wine pipeline and reading best_params_ and best_score_.",
+      "grows": [
+        "sk.tune"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "A fitted GridSearchCV prints the best n_neighbors and its score."
+    },
+    {
+      "title": "Compare two models",
+      "goal": "Teach comparing models fairly in scikit-learn by cross-validating the KNN pipeline against a LogisticRegression pipeline on the same folds and naming the better one.",
+      "grows": [
+        "sk.compare"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Mean cross-validation scores print for both models and the higher one is named."
+    }
+  ]
+}

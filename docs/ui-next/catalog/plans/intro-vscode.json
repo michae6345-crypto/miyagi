@@ -1,0 +1,191 @@
+{
+  "id": "intro-vscode",
+  "title": "Intro to VS Code",
+  "group": "environment",
+  "topic": "tools",
+  "track": "vs code",
+  "tool": {
+    "id": "vscode",
+    "label": "VS Code"
+  },
+  "also": [
+    "Node.js"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Open a folder, edit fast, then run and debug a small script.",
+  "project": {
+    "title": "A temperature converter, set up alone",
+    "brief": "Start an empty folder on your own. Write temp.js that turns Celsius into Fahrenheit, add a README and workspace settings that format on save, and run it in the terminal.",
+    "checks": [
+      "The folder holds temp.js, README.md and .vscode/settings.json",
+      "The workspace settings turn on editor.formatOnSave",
+      "node temp.js prints 212 for 100 degrees Celsius"
+    ]
+  },
+  "skills": [
+    {
+      "id": "vsc.folder",
+      "label": "Folders and files",
+      "needs": []
+    },
+    {
+      "id": "vsc.palette",
+      "label": "Command Palette",
+      "needs": [
+        "vsc.folder"
+      ]
+    },
+    {
+      "id": "vsc.multicursor",
+      "label": "Multi-cursor",
+      "needs": [
+        "vsc.folder"
+      ]
+    },
+    {
+      "id": "vsc.search",
+      "label": "Find and replace",
+      "needs": [
+        "vsc.multicursor"
+      ]
+    },
+    {
+      "id": "vsc.terminal",
+      "label": "Terminal",
+      "needs": [
+        "vsc.folder"
+      ]
+    },
+    {
+      "id": "vsc.navigate",
+      "label": "Code navigation",
+      "needs": [
+        "vsc.search",
+        "vsc.terminal"
+      ]
+    },
+    {
+      "id": "vsc.extensions",
+      "label": "Extensions",
+      "needs": [
+        "vsc.palette"
+      ]
+    },
+    {
+      "id": "vsc.settings",
+      "label": "Settings",
+      "needs": [
+        "vsc.extensions"
+      ]
+    },
+    {
+      "id": "vsc.debug",
+      "label": "Debugger",
+      "needs": [
+        "vsc.terminal"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Open a folder and make files",
+      "goal": "Teach a complete beginner VS Code. Open a new folder named recipe-box, tour the Activity Bar and the Explorer, then make README.md and recipe.txt with six ingredient names, one per line.",
+      "grows": [
+        "vsc.folder"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "file",
+      "passes": "The recipe-box folder holds README.md and a recipe.txt with six lines."
+    },
+    {
+      "title": "The Command Palette and Quick Open",
+      "goal": "Teach the VS Code Command Palette (Shift+Cmd+P) and Quick Open (Cmd+P) by jumping between the two files and running Sort Lines Ascending on the ingredients in recipe.txt.",
+      "grows": [
+        "vsc.palette"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "code",
+      "passes": "The six lines of recipe.txt are in A to Z order."
+    },
+    {
+      "title": "Edit many lines at once",
+      "goal": "Teach VS Code multi-cursor editing with Option+click, Cmd+D and Option+Cmd+Down by turning the six plain lines into recipe.json, an array of objects that each have a name and cups.",
+      "grows": [
+        "vsc.multicursor"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "code",
+      "passes": "recipe.json is valid JSON with six objects that each have name and cups."
+    },
+    {
+      "title": "Find and replace across files",
+      "goal": "Teach VS Code find and replace in one file (Cmd+F) and across the whole folder (Shift+Cmd+F) by changing every cups to grams in recipe.json and README.md in one pass.",
+      "grows": [
+        "vsc.search"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "code",
+      "passes": "No file in recipe-box holds the word cups and recipe.json is still valid JSON."
+    },
+    {
+      "title": "Run code in the integrated terminal",
+      "goal": "Teach the VS Code integrated terminal (Ctrl+`). Write scale.js that reads recipe.json and prints each amount doubled, run it with node, then split a second terminal beside the first.",
+      "grows": [
+        "vsc.terminal"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "node scale.js prints six lines, each with twice the grams in recipe.json."
+    },
+    {
+      "title": "Jump around and rename safely",
+      "goal": "Teach VS Code code navigation. Move the doubling into a function in its own file, jump to it with Go to Definition (F12) and rename it to scaleRecipe everywhere with Rename Symbol (F2).",
+      "grows": [
+        "vsc.navigate"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "code",
+      "passes": "A function named scaleRecipe is defined in one file and called from scale.js."
+    },
+    {
+      "title": "Install an extension",
+      "goal": "Teach the VS Code Extensions view (Shift+Cmd+X) by installing Prettier, choosing it as the default formatter and running Format Document on scale.js.",
+      "grows": [
+        "vsc.extensions"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "code",
+      "passes": "The Prettier extension is installed and scale.js matches its formatting."
+    },
+    {
+      "title": "Settings and format on save",
+      "goal": "Teach VS Code settings (Cmd+,) and how user and workspace settings differ by adding .vscode/settings.json to recipe-box with format on save turned on and a tab size of 2.",
+      "grows": [
+        "vsc.settings"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "file",
+      "passes": ".vscode/settings.json sets editor.formatOnSave to true and editor.tabSize to 2."
+    },
+    {
+      "title": "Find a bug with a breakpoint",
+      "goal": "Teach the VS Code debugger. Set a breakpoint in scale.js, start it from Run and Debug with Node.js, step over lines and watch the variables to find why a new 250 gram item doubles to 250250.",
+      "grows": [
+        "vsc.debug"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "node scale.js prints 500 for the 250 gram item, not 250250."
+    }
+  ]
+}

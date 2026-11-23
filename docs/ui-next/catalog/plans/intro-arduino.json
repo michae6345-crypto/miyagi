@@ -1,0 +1,40 @@
+{
+  "id": "intro-arduino",
+  "title": "Intro to Arduino",
+  "group": "environment",
+  "topic": "code",
+  "track": "arduino",
+  "tool": { "id": "arduino", "label": "Arduino IDE" },
+  "also": ["An Arduino Uno", "A breadboard and starter parts"],
+  "level": "start",
+  "needs": [],
+  "line": "Wire an LED, a button and a sensor, and write sketches for them.",
+  "project": {
+    "title": "A light metronome",
+    "brief": "Write a sketch alone that blinks an LED in time. A knob sets the speed from 40 to 200 beats per minute, a button pauses it and the speed prints to the Serial Monitor.",
+    "checks": ["The sketch compiles for the Uno with no errors", "The blink interval comes from analogRead through map and is timed with millis", "The Serial Monitor prints the beats per minute when the knob moves"]
+  },
+  "skills": [
+    { "id": "ard.upload", "label": "Board and upload", "needs": [] },
+    { "id": "ard.output", "label": "Digital output", "needs": ["ard.upload"] },
+    { "id": "ard.serial", "label": "Serial Monitor", "needs": ["ard.upload"] },
+    { "id": "ard.input", "label": "Buttons", "needs": ["ard.output"] },
+    { "id": "ard.analog", "label": "Analog input", "needs": ["ard.serial"] },
+    { "id": "ard.pwm", "label": "PWM", "needs": ["ard.output"] },
+    { "id": "ard.map", "label": "Mapping values", "needs": ["ard.analog", "ard.pwm"] },
+    { "id": "ard.sensor", "label": "Sensors", "needs": ["ard.analog"] },
+    { "id": "ard.timing", "label": "Timing with millis", "needs": ["ard.input"] }
+  ],
+  "lessons": [
+    { "title": "Set up the board and upload Blink", "goal": "Teach a complete beginner the Arduino IDE. Plug in the Uno, pick the board and the port, open the Blink example, change the delay to 250 ms and upload it.", "grows": ["ard.upload"], "minutes": 15, "steps": 5, "check": "code", "passes": "The sketch compiles for the Uno and blinks LED_BUILTIN with a 250 ms delay." },
+    { "title": "Blink your own LED", "goal": "Teach pinMode, digitalWrite and delay in an Arduino sketch by wiring an LED and a 220 ohm resistor to pin 9 on a breadboard and flashing a short, short, long signal.", "grows": ["ard.output"], "minutes": 15, "steps": 6, "check": "code", "passes": "The sketch sets pin 9 as OUTPUT and writes it HIGH and LOW in a three-flash pattern." },
+    { "title": "Print to the Serial Monitor", "goal": "Teach Serial.begin and Serial.println in an Arduino sketch by printing a count that goes up once a second and reading it in the Serial Monitor at 9600 baud.", "grows": ["ard.serial"], "minutes": 10, "steps": 5, "check": "run", "passes": "The board prints a number each second and each is one higher than the last." },
+    { "title": "Read a button", "goal": "Teach digitalRead and INPUT_PULLUP in an Arduino sketch by wiring a push button to pin 2 and lighting the LED on pin 9 only while the button is held down.", "grows": ["ard.input"], "minutes": 15, "steps": 6, "check": "code", "passes": "Pin 2 uses INPUT_PULLUP and the LED on pin 9 is on only while pin 2 reads LOW." },
+    { "title": "Read a knob with analogRead", "goal": "Teach analogRead in an Arduino sketch by wiring a potentiometer to A0 and printing its reading, from 0 to 1023, to the Serial Monitor as you turn it.", "grows": ["ard.analog"], "minutes": 15, "steps": 5, "check": "run", "passes": "The board prints readings that span from near 0 to near 1023 as the knob turns." },
+    { "title": "Fade an LED with PWM", "goal": "Teach analogWrite and the PWM pins of the Arduino Uno by fading the LED on pin 9 up and down with a for loop that runs from 0 to 255 and back.", "grows": ["ard.pwm"], "minutes": 15, "steps": 5, "check": "code", "passes": "The sketch calls analogWrite on pin 9 with values that rise to 255 and fall to 0." },
+    { "title": "Dim the LED with the knob", "goal": "Teach the Arduino map function by turning the knob reading on A0, 0 to 1023, into a brightness from 0 to 255 for the LED on pin 9, which makes a dimmer.", "grows": ["ard.map"], "minutes": 15, "steps": 5, "check": "code", "passes": "analogWrite on pin 9 gets the A0 reading passed through map to the range 0 to 255." },
+    { "title": "Read a light sensor", "goal": "Teach reading a sensor with an Arduino by wiring a photoresistor and a 10k resistor as a voltage divider on A1 and printing the light level twice a second.", "grows": ["ard.sensor"], "minutes": 20, "steps": 6, "check": "run", "passes": "The printed light level changes by at least 100 when the sensor is covered." },
+    { "title": "Blink without delay", "goal": "Teach timing with millis in an Arduino sketch by blinking the LED on pin 9 every half second with no delay call, so the button on pin 2 still answers at once.", "grows": ["ard.timing"], "minutes": 20, "steps": 6, "check": "code", "passes": "The loop compares millis to a saved time and the sketch never calls delay." },
+    { "title": "Build a night light", "goal": "Teach acting on a sensor reading in an Arduino sketch by making a night light. The LED on pin 9 comes on when the light level on A1 drops below a threshold you pick.", "grows": ["ard.sensor"], "minutes": 20, "steps": 6, "check": "code", "passes": "The LED on pin 9 is on only when the A1 reading is below the threshold." }
+  ]
+}

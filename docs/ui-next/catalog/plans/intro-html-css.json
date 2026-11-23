@@ -1,0 +1,41 @@
+{
+  "id": "intro-html-css",
+  "title": "Intro to HTML and CSS",
+  "group": "language",
+  "topic": "code",
+  "track": "web",
+  "tool": { "id": "vscode", "label": "VS Code" },
+  "also": ["A browser"],
+  "level": "start",
+  "needs": [],
+  "line": "Build a page, style it and make it fit a phone.",
+  "project": {
+    "title": "A portfolio page of your own",
+    "brief": "Build index.html and styles.css on your own. A header with a nav bar, a row of three project cards, a contact form and a layout that stacks on a phone.",
+    "checks": ["index.html has header, main and footer and links styles.css", "A flex container lays out at least three cards", "A media query changes the layout below 600 px wide"]
+  },
+  "skills": [
+    { "id": "web.page", "label": "Page structure", "needs": [] },
+    { "id": "web.text", "label": "Headings and lists", "needs": ["web.page"] },
+    { "id": "web.links", "label": "Links and images", "needs": ["web.text"] },
+    { "id": "web.semantic", "label": "Semantic tags", "needs": ["web.links"] },
+    { "id": "web.forms", "label": "Forms", "needs": ["web.text"] },
+    { "id": "web.selectors", "label": "CSS selectors", "needs": ["web.text"] },
+    { "id": "web.type", "label": "Colors and fonts", "needs": ["web.selectors"] },
+    { "id": "web.box", "label": "Box model", "needs": ["web.selectors"] },
+    { "id": "web.flex", "label": "Flexbox", "needs": ["web.box"] },
+    { "id": "web.responsive", "label": "Responsive layout", "needs": ["web.flex"] }
+  ],
+  "lessons": [
+    { "title": "Your first web page", "goal": "Teach a complete beginner to write index.html in VS Code with a doctype, head, title and body, add a heading and a paragraph to make an about me page, and open it in a browser.", "grows": ["web.page"], "minutes": 10, "steps": 4, "check": "code", "passes": "index.html has a doctype, a title, one h1 and one paragraph." },
+    { "title": "Headings, paragraphs and lists", "goal": "Teach HTML headings, paragraphs, strong and em, and ordered and unordered lists by writing a paper plane guide with a list of materials and numbered folding steps.", "grows": ["web.text"], "minutes": 15, "steps": 5, "check": "code", "passes": "The page has an h1, a ul of materials and an ol of steps." },
+    { "title": "Links and images", "goal": "Teach HTML links and images, with href, src, alt text and relative paths, by building a city guide page with three links and two pictures.", "grows": ["web.links"], "minutes": 15, "steps": 5, "check": "code", "passes": "The page has three links with an href and two images with alt text." },
+    { "title": "Semantic page layout", "goal": "Teach the HTML tags header, nav, main, section and footer by laying out the home page of a cafe with a menu section and opening hours.", "grows": ["web.semantic"], "minutes": 15, "steps": 5, "check": "code", "passes": "The page uses header, nav, main and footer, each exactly once." },
+    { "title": "Forms and inputs", "goal": "Teach HTML forms, with label, input types, required and button, by building a table booking form that asks for a name, an email and a number of guests.", "grows": ["web.forms"], "minutes": 15, "steps": 5, "check": "code", "passes": "The form has three labeled inputs, one of type email, and a submit button." },
+    { "title": "Your first stylesheet", "goal": "Teach linking styles.css to an HTML page and CSS element, class and id selectors by styling the headings, the menu and one special dish on the cafe page.", "grows": ["web.selectors"], "minutes": 20, "steps": 6, "check": "code", "passes": "The page links styles.css, which has an element, a class and an id rule." },
+    { "title": "Colors and fonts", "goal": "Teach CSS color, background-color, font-family, font-size and line-height by styling a quote card with a dark background and large serif text.", "grows": ["web.type"], "minutes": 15, "steps": 5, "check": "code", "passes": "The card rule sets color, background-color, font-family and font-size." },
+    { "title": "The box model", "goal": "Teach the CSS box model, with width, padding, border, margin and box-sizing, by building a profile card that is exactly 300 px wide.", "grows": ["web.box"], "minutes": 20, "steps": 6, "check": "code", "passes": "The card is 300 px wide with border-box sizing, padding and a border." },
+    { "title": "Flexbox", "goal": "Teach CSS flexbox, with display flex, justify-content, align-items and gap, by building a navigation bar with a logo on the left and links on the right.", "grows": ["web.flex"], "minutes": 20, "steps": 6, "check": "code", "passes": "The nav rule uses display flex with justify-content set to space-between." },
+    { "title": "Make it fit a phone", "goal": "Teach responsive CSS with the viewport meta tag and a media query by building a three-column pricing section that stacks into one column on a phone.", "grows": ["web.responsive"], "minutes": 25, "steps": 6, "check": "code", "passes": "A media query at 600 px or less switches the columns to a single stack." }
+  ]
+}

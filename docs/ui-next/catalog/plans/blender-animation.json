@@ -1,0 +1,194 @@
+{
+  "id": "blender-animation",
+  "title": "Blender animation basics",
+  "group": "topic",
+  "topic": "3d",
+  "track": "blender",
+  "tool": {
+    "id": "blender",
+    "label": "Blender"
+  },
+  "also": [],
+  "level": "next",
+  "needs": [
+    "intro-blender"
+  ],
+  "line": "Keyframes, easing and a bouncing ball, rendered to video.",
+  "project": {
+    "title": "A rocket launch shot",
+    "brief": "Animate a short rocket launch on your own. A rocket with parented fins lifts off slowly, speeds up and leaves the frame while the camera turns to follow. Render it to video.",
+    "checks": [
+      "The fins are children of the rocket body and only the body is keyed",
+      "The rocket's Z curve starts flat and gets steeper over time",
+      "A video of at least 72 frames is saved"
+    ]
+  },
+  "skills": [
+    {
+      "id": "bla.keyframes",
+      "label": "Keyframes",
+      "needs": [
+        "bl.transform"
+      ]
+    },
+    {
+      "id": "bla.timeline",
+      "label": "Timeline",
+      "needs": [
+        "bla.keyframes"
+      ]
+    },
+    {
+      "id": "bla.easing",
+      "label": "Interpolation",
+      "needs": [
+        "bla.timeline"
+      ]
+    },
+    {
+      "id": "bla.graph",
+      "label": "Graph Editor",
+      "needs": [
+        "bla.easing"
+      ]
+    },
+    {
+      "id": "bla.parenting",
+      "label": "Parenting",
+      "needs": [
+        "bla.keyframes"
+      ]
+    },
+    {
+      "id": "bla.timing",
+      "label": "Timing and spacing",
+      "needs": [
+        "bla.graph"
+      ]
+    },
+    {
+      "id": "bla.dopesheet",
+      "label": "Dope Sheet",
+      "needs": [
+        "bla.timeline"
+      ]
+    },
+    {
+      "id": "bla.camera",
+      "label": "Camera moves",
+      "needs": [
+        "bla.graph",
+        "bl.lighting"
+      ]
+    },
+    {
+      "id": "bla.output",
+      "label": "Rendering to video",
+      "needs": [
+        "bla.camera",
+        "bl.render"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Your first keyframes",
+      "goal": "Teach keyframes in Blender by sliding a cube from X 0 to X 5. Insert Location keyframes with I at frame 1 and at frame 48, then play it back with Space.",
+      "grows": [
+        "bla.keyframes"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "scene",
+      "passes": "The cube has Location keyframes at frames 1 and 48 and sits at X 5 on frame 48."
+    },
+    {
+      "title": "The timeline and frame rate",
+      "goal": "Teach Blender's Timeline. Set the frame rate to 24 fps and the end frame to 72, scrub, jump between keyframes and move the last key so the slide takes 3 seconds.",
+      "grows": [
+        "bla.timeline"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The scene runs at 24 fps, ends at frame 72 and the cube's last key is at frame 72."
+    },
+    {
+      "title": "Linear, Bezier and Constant",
+      "goal": "Teach keyframe interpolation modes in Blender with T by making a clock with a minute hand that ticks in steps using Constant keys and a second hand that sweeps using Linear keys.",
+      "grows": [
+        "bla.easing"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "One hand's rotation keys are Constant and the other hand's are Linear."
+    },
+    {
+      "title": "Shape motion in the Graph Editor",
+      "goal": "Teach Blender's Graph Editor by opening the cube's X Location curve and moving the keyframe handles so the cube starts slowly and overshoots a little before it settles.",
+      "grows": [
+        "bla.graph"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The X Location curve has edited handles and rises above its final value."
+    },
+    {
+      "title": "Parent one object to another",
+      "goal": "Teach parenting in Blender with Ctrl P by building a simple desk fan with three blades parented to a hub, then keying only the hub so the blades spin with it.",
+      "grows": [
+        "bla.parenting"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The blades are children of the hub and only the hub has rotation keyframes."
+    },
+    {
+      "title": "A bouncing ball",
+      "goal": "Teach timing and spacing in Blender by animating a ball from frame 1 to frame 49 that drops and bounces three times, each bounce lower, with sharp turns at the floor in the Graph Editor.",
+      "grows": [
+        "bla.timing"
+      ],
+      "minutes": 30,
+      "steps": 7,
+      "check": "scene",
+      "passes": "The ball's Z curve touches the floor three times and each peak is lower than the last."
+    },
+    {
+      "title": "Retime it in the Dope Sheet",
+      "goal": "Teach Blender's Dope Sheet by selecting all of the ball's keyframes and scaling them so the bounce takes twice as long, then sliding single keys to fix the rhythm.",
+      "grows": [
+        "bla.dopesheet"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The ball's keyframes span 96 frames, twice the 48 they spanned before."
+    },
+    {
+      "title": "Move the camera",
+      "goal": "Teach camera animation in Blender by keying a slow push in toward the ball and adding a Track To constraint aimed at an empty so the shot stays framed.",
+      "grows": [
+        "bla.camera"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The camera has Location keyframes and a Track To constraint aimed at an empty."
+    },
+    {
+      "title": "Render the animation to a video",
+      "goal": "Teach rendering an animation in Blender. Set the frame range to 1 to 96, set the output to an MP4 video with H.264, pick a folder and run Render Animation.",
+      "grows": [
+        "bla.output"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "file",
+      "passes": "An MP4 file of 96 frames at 24 fps is saved."
+    }
+  ]
+}

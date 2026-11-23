@@ -1,0 +1,203 @@
+{
+  "id": "intro-git",
+  "title": "Intro to Git and GitHub",
+  "group": "environment",
+  "topic": "tools",
+  "track": "git",
+  "tool": {
+    "id": "terminal",
+    "label": "Terminal"
+  },
+  "also": [
+    "Git",
+    "A GitHub account"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Save work in commits, branch, merge and share it on GitHub.",
+  "project": {
+    "title": "A film list with a merged pull request",
+    "brief": "Start a new repository alone for a list of your favorite films. Make at least four commits, ignore .DS_Store, add one section on a branch and merge it through a pull request on GitHub.",
+    "checks": [
+      "The GitHub repository has at least four commits on main",
+      "One merged pull request came from a separate branch",
+      "A .gitignore is committed and git status reports a clean working tree"
+    ]
+  },
+  "skills": [
+    {
+      "id": "git.init",
+      "label": "Repositories",
+      "needs": []
+    },
+    {
+      "id": "git.commit",
+      "label": "Commits",
+      "needs": [
+        "git.init"
+      ]
+    },
+    {
+      "id": "git.history",
+      "label": "Log and diff",
+      "needs": [
+        "git.commit"
+      ]
+    },
+    {
+      "id": "git.undo",
+      "label": "Undo and ignore",
+      "needs": [
+        "git.history"
+      ]
+    },
+    {
+      "id": "git.branch",
+      "label": "Branches",
+      "needs": [
+        "git.commit"
+      ]
+    },
+    {
+      "id": "git.merge",
+      "label": "Merging",
+      "needs": [
+        "git.branch"
+      ]
+    },
+    {
+      "id": "git.conflict",
+      "label": "Merge conflicts",
+      "needs": [
+        "git.merge"
+      ]
+    },
+    {
+      "id": "git.remote",
+      "label": "Remotes and push",
+      "needs": [
+        "git.commit"
+      ]
+    },
+    {
+      "id": "git.pr",
+      "label": "Pull requests",
+      "needs": [
+        "git.remote",
+        "git.branch"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Set up Git and make a repository",
+      "goal": "Teach a complete beginner Git in the macOS Terminal. Set user.name and user.email with git config, make a cookbook folder, run git init -b main inside it and read git status.",
+      "grows": [
+        "git.init"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "run",
+      "passes": "cookbook is a Git repository on a branch named main and user.name is set."
+    },
+    {
+      "title": "Stage and commit",
+      "goal": "Teach the Git working tree, the staging area and commits by writing pancakes.md in the cookbook, staging it with git add and saving it with git commit -m.",
+      "grows": [
+        "git.commit"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The repository has one commit and it adds pancakes.md."
+    },
+    {
+      "title": "See what changed with log and diff",
+      "goal": "Teach git diff, git diff --staged and git log --oneline by changing the pancake recipe in the cookbook twice and committing each change with a clear message.",
+      "grows": [
+        "git.history"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "git log shows three commits and git status reports a clean working tree."
+    },
+    {
+      "title": "Undo a change and ignore files",
+      "goal": "Teach git restore, git restore --staged and .gitignore by throwing away a bad edit to pancakes.md, unstaging a file and keeping .DS_Store out of the cookbook for good.",
+      "grows": [
+        "git.undo"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "run",
+      "passes": ".gitignore lists .DS_Store and is committed, and pancakes.md matches the last commit."
+    },
+    {
+      "title": "Work on a branch",
+      "goal": "Teach Git branches with git switch -c and git branch by adding waffles.md to the cookbook on a branch named add-waffles while main stays as it was.",
+      "grows": [
+        "git.branch"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The add-waffles branch has one commit that main does not have."
+    },
+    {
+      "title": "Merge a branch",
+      "goal": "Teach git merge and reading git log --oneline --graph by merging add-waffles into main in the cookbook and deleting the branch once it is merged.",
+      "grows": [
+        "git.merge"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "run",
+      "passes": "main holds waffles.md and the add-waffles branch no longer exists."
+    },
+    {
+      "title": "Fix a merge conflict",
+      "goal": "Teach resolving a Git merge conflict. Change the same line of pancakes.md on main and on a branch, merge, read the conflict markers, choose the final text and commit the merge.",
+      "grows": [
+        "git.conflict"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The last commit has two parents and no file holds conflict markers."
+    },
+    {
+      "title": "Connect to GitHub with an SSH key",
+      "goal": "Teach connecting Git on a Mac to GitHub. Make an ed25519 key with ssh-keygen, add the public key to the GitHub account and test the link with ssh -T git@github.com.",
+      "grows": [
+        "git.remote"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "ssh -T git@github.com greets the learner by their GitHub user name."
+    },
+    {
+      "title": "Push the cookbook to GitHub",
+      "goal": "Teach Git remotes by making an empty repository on GitHub, linking it with git remote add origin and sending the cookbook up with git push -u origin main.",
+      "grows": [
+        "git.remote"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "origin points at GitHub and origin/main matches the local main branch."
+    },
+    {
+      "title": "Open a pull request",
+      "goal": "Teach the GitHub pull request flow. Push a branch that adds syrup.md to the cookbook, open a pull request on github.com, read the diff, merge it and update main with git pull.",
+      "grows": [
+        "git.pr"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The GitHub repository has one merged pull request and local main holds its commits."
+    }
+  ]
+}

@@ -1,0 +1,202 @@
+{
+  "id": "intro-blender",
+  "title": "Intro to Blender",
+  "group": "environment",
+  "topic": "3d",
+  "track": "blender",
+  "tool": {
+    "id": "blender",
+    "label": "Blender"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Find your way around, model a mug, light it and render it.",
+  "project": {
+    "title": "A desk lamp, modeled and rendered",
+    "brief": "Model a simple desk lamp on your own from a cylinder and a cone. Give it two materials, light it and save a render.",
+    "checks": [
+      "At least two mesh objects, one with a Subdivision or Bevel modifier",
+      "Two different materials are assigned",
+      "A render is saved as an image"
+    ]
+  },
+  "skills": [
+    {
+      "id": "bl.navigate",
+      "label": "Viewport",
+      "needs": []
+    },
+    {
+      "id": "bl.transform",
+      "label": "Transforms",
+      "needs": [
+        "bl.navigate"
+      ]
+    },
+    {
+      "id": "bl.edit",
+      "label": "Edit mode",
+      "needs": [
+        "bl.transform"
+      ]
+    },
+    {
+      "id": "bl.extrude",
+      "label": "Extrude and inset",
+      "needs": [
+        "bl.edit"
+      ]
+    },
+    {
+      "id": "bl.loops",
+      "label": "Loops and bevels",
+      "needs": [
+        "bl.edit"
+      ]
+    },
+    {
+      "id": "bl.modifiers",
+      "label": "Modifiers",
+      "needs": [
+        "bl.extrude",
+        "bl.loops"
+      ]
+    },
+    {
+      "id": "bl.materials",
+      "label": "Materials",
+      "needs": [
+        "bl.transform"
+      ]
+    },
+    {
+      "id": "bl.lighting",
+      "label": "Light and camera",
+      "needs": [
+        "bl.transform"
+      ]
+    },
+    {
+      "id": "bl.render",
+      "label": "Rendering",
+      "needs": [
+        "bl.materials",
+        "bl.lighting"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Move around the 3D viewport",
+      "goal": "Teach a complete beginner the Blender viewport. Orbit, pan, zoom, the front, side and top views, and frame the selected object.",
+      "grows": [
+        "bl.navigate"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The cube is framed in the front view."
+    },
+    {
+      "title": "Move, rotate and scale",
+      "goal": "Teach G, R and S in Blender with axis keys and typed numbers by placing a cube, a cone and a sphere at set spots.",
+      "grows": [
+        "bl.transform"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The cube is at X 2, the cone is turned 90 degrees and the sphere is half size."
+    },
+    {
+      "title": "Edit mode: vertices, edges, faces",
+      "goal": "Teach Blender Edit mode and the three select modes by pulling one edge of a cube up to make a wedge.",
+      "grows": [
+        "bl.edit"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "One edge of the cube sits 1 m higher than the others."
+    },
+    {
+      "title": "Extrude and inset: the cup",
+      "goal": "Teach Blender inset and extrude by hollowing a cylinder into the cup of a mug.",
+      "grows": [
+        "bl.extrude"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The cylinder has a hollow with a wall and a floor."
+    },
+    {
+      "title": "Loop cuts and bevels",
+      "goal": "Teach Blender loop cuts and bevel by adding two loops for the handle and beveling the rim of the mug.",
+      "grows": [
+        "bl.loops"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The mug has two new edge loops and a beveled rim."
+    },
+    {
+      "title": "Build the handle",
+      "goal": "Teach extruding faces and bridging edge loops in Blender by growing a handle out of the side of the mug.",
+      "grows": [
+        "bl.extrude",
+        "bl.loops"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The handle joins the mug in two places and the mesh is one piece."
+    },
+    {
+      "title": "Subdivision and smooth shading",
+      "goal": "Teach Blender modifiers by adding Subdivision Surface at level 2 to the mug and turning on smooth shading.",
+      "grows": [
+        "bl.modifiers"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The mug has a Subdivision modifier at level 2 and smooth shading."
+    },
+    {
+      "title": "Give it a material",
+      "goal": "Teach Blender materials with the Principled BSDF by giving the mug a glossy ceramic color.",
+      "grows": [
+        "bl.materials"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The mug has a material with roughness under 0.3."
+    },
+    {
+      "title": "Light it and aim the camera",
+      "goal": "Teach Blender lights and the camera by adding an area light and framing the whole mug in the camera view.",
+      "grows": [
+        "bl.lighting"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The scene has an area light and the camera sees the whole mug."
+    },
+    {
+      "title": "Render and save an image",
+      "goal": "Teach rendering in Blender. Pick a render engine, set the size, render and save a PNG.",
+      "grows": [
+        "bl.render"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "file",
+      "passes": "A PNG render is saved next to the .blend file."
+    }
+  ]
+}

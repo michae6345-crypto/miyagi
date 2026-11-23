@@ -1,0 +1,196 @@
+{
+  "id": "numpy",
+  "title": "NumPy",
+  "group": "topic",
+  "topic": "data",
+  "track": "numpy",
+  "tool": {
+    "id": "jupyter",
+    "label": "Jupyter"
+  },
+  "also": [
+    "Python 3",
+    "numpy"
+  ],
+  "level": "next",
+  "needs": [
+    "intro-python"
+  ],
+  "line": "Fast arrays for numbers. Slice, mask and broadcast with no loops.",
+  "project": {
+    "title": "A tiny image editor",
+    "brief": "Build a 64 by 64 grayscale image as an array on your own. Crop the middle, brighten it, turn it black and white with a mask and print the mean of each row.",
+    "checks": [
+      "The image has shape (64, 64) and the crop has shape (32, 32)",
+      "The black and white image holds only the values 0 and 255",
+      "The notebook has no for or while loop"
+    ]
+  },
+  "skills": [
+    {
+      "id": "np.arrays",
+      "label": "Arrays",
+      "needs": [
+        "py.lists"
+      ]
+    },
+    {
+      "id": "np.shape",
+      "label": "Shape and dtype",
+      "needs": [
+        "np.arrays"
+      ]
+    },
+    {
+      "id": "np.indexing",
+      "label": "Indexing, slicing",
+      "needs": [
+        "np.shape"
+      ]
+    },
+    {
+      "id": "np.masks",
+      "label": "Boolean masks",
+      "needs": [
+        "np.indexing"
+      ]
+    },
+    {
+      "id": "np.axis",
+      "label": "Math along an axis",
+      "needs": [
+        "np.shape"
+      ]
+    },
+    {
+      "id": "np.broadcast",
+      "label": "Broadcasting",
+      "needs": [
+        "np.axis"
+      ]
+    },
+    {
+      "id": "np.random",
+      "label": "Random numbers",
+      "needs": [
+        "np.masks"
+      ]
+    },
+    {
+      "id": "np.vectorise",
+      "label": "Vectorising loops",
+      "needs": [
+        "np.broadcast",
+        "py.loops"
+      ]
+    },
+    {
+      "id": "np.matrices",
+      "label": "Dot and matrices",
+      "needs": [
+        "np.indexing"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Make your first arrays",
+      "goal": "Teach NumPy arrays in Jupyter. Import numpy as np, build arrays with np.array, np.arange, np.zeros and np.linspace, and turn a list of seven Celsius temperatures into Fahrenheit in one line.",
+      "grows": [
+        "np.arrays"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The cell prints a NumPy array of seven Fahrenheit temperatures."
+    },
+    {
+      "title": "Shape, dtype and reshape",
+      "goal": "Teach ndim, shape, dtype, reshape and astype in NumPy by turning the numbers 1 to 12 into a 3 by 4 grid of floats.",
+      "grows": [
+        "np.shape"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The array has shape (3, 4) and dtype float64."
+    },
+    {
+      "title": "Indexing and slicing",
+      "goal": "Teach NumPy indexing and slicing on 2D arrays by pulling one row, one column and the middle 2 by 2 block out of a 4 by 4 grid of the numbers 0 to 15.",
+      "grows": [
+        "np.indexing"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The middle block has shape (2, 2) and holds 5, 6, 9 and 10."
+    },
+    {
+      "title": "Boolean masks",
+      "goal": "Teach NumPy boolean masks and np.where by picking the days above 30 degrees out of a month of temperatures and counting them.",
+      "grows": [
+        "np.masks"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Every selected value is above 30 and the printed count matches the mask."
+    },
+    {
+      "title": "Math along an axis",
+      "goal": "Teach sum, mean, max and argmax with the axis argument in NumPy by finding each student's average and each test's top score in a 5 by 3 table of scores.",
+      "grows": [
+        "np.axis"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The student averages have shape (5,) and the top scores have shape (3,)."
+    },
+    {
+      "title": "Broadcasting",
+      "goal": "Teach NumPy broadcasting rules by subtracting each test's mean from the 5 by 3 table of scores and scaling each column by a different weight, with no loop.",
+      "grows": [
+        "np.broadcast"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The centred table has shape (5, 3) and every column mean is close to 0."
+    },
+    {
+      "title": "Random numbers with a seed",
+      "goal": "Teach NumPy random numbers with np.random.default_rng and a seed by simulating 1000 rolls of two dice and counting how often the sum is 7.",
+      "grows": [
+        "np.random"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Running the notebook twice prints the same count of sevens."
+    },
+    {
+      "title": "Replace a loop with array math",
+      "goal": "Teach vectorising in NumPy by rewriting a Python for loop that finds the distance of 10000 points from the origin as one array expression, then timing both.",
+      "grows": [
+        "np.vectorise"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "np.allclose says both results match and the array version takes less time."
+    },
+    {
+      "title": "Dot product and matrices",
+      "goal": "Teach the dot product and matrix multiplication in NumPy with np.dot and the @ operator by turning a square of four 2D points by 90 degrees with a 2 by 2 matrix.",
+      "grows": [
+        "np.matrices"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The four points turned by 90 degrees match the expected array."
+    }
+  ]
+}

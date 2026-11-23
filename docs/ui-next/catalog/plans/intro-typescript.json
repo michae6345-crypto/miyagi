@@ -1,0 +1,196 @@
+{
+  "id": "intro-typescript",
+  "title": "Intro to TypeScript",
+  "group": "language",
+  "topic": "code",
+  "track": "typescript",
+  "tool": {
+    "id": "vscode",
+    "label": "VS Code"
+  },
+  "also": [
+    "Node.js"
+  ],
+  "level": "next",
+  "needs": [
+    "intro-javascript"
+  ],
+  "line": "Types, interfaces, unions and generics. Catch bugs before you run.",
+  "project": {
+    "title": "A library loan tracker",
+    "brief": "Write loans.ts on your own. An interface for a book, a union type for its status, functions to lend and return, and a generic find by id. Compile it with strict on.",
+    "checks": [
+      "npx tsc finishes with no errors with strict on",
+      "No value in loans.ts is typed any",
+      "The compiled script prints which books are out and which are in"
+    ]
+  },
+  "skills": [
+    {
+      "id": "ts.compile",
+      "label": "Compiling with tsc",
+      "needs": [
+        "js.run"
+      ]
+    },
+    {
+      "id": "ts.config",
+      "label": "tsconfig",
+      "needs": [
+        "ts.compile"
+      ]
+    },
+    {
+      "id": "ts.types",
+      "label": "Type annotations",
+      "needs": [
+        "ts.compile"
+      ]
+    },
+    {
+      "id": "ts.errors",
+      "label": "Type errors",
+      "needs": [
+        "ts.types"
+      ]
+    },
+    {
+      "id": "ts.functions",
+      "label": "Typed functions",
+      "needs": [
+        "ts.types"
+      ]
+    },
+    {
+      "id": "ts.arrays",
+      "label": "Arrays and tuples",
+      "needs": [
+        "ts.types"
+      ]
+    },
+    {
+      "id": "ts.interfaces",
+      "label": "Interfaces",
+      "needs": [
+        "ts.functions",
+        "js.objects"
+      ]
+    },
+    {
+      "id": "ts.unions",
+      "label": "Unions, narrowing",
+      "needs": [
+        "ts.interfaces"
+      ]
+    },
+    {
+      "id": "ts.generics",
+      "label": "Generics",
+      "needs": [
+        "ts.functions",
+        "ts.arrays"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Compile your first TypeScript file",
+      "goal": "Teach a JavaScript learner to install TypeScript with npm, write greet.ts in VS Code with a typed name, compile it with npx tsc greet.ts and run greet.js with node.",
+      "grows": [
+        "ts.compile"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "greet.js sits next to greet.ts and prints the greeting."
+    },
+    {
+      "title": "Set up tsconfig with strict on",
+      "goal": "Teach tsconfig.json by building a starter project. Run npx tsc --init, set rootDir to src, outDir to dist and strict to true, then compile src/index.ts with npx tsc.",
+      "grows": [
+        "ts.config"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "file",
+      "passes": "tsconfig.json has strict set to true and npx tsc writes dist/index.js."
+    },
+    {
+      "title": "Type annotations",
+      "goal": "Teach TypeScript type annotations for string, number and boolean by typing every variable in a taxi fare calculator in taxi.ts.",
+      "grows": [
+        "ts.types"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "taxi.ts compiles with no errors and prints the fare for 8 km at night."
+    },
+    {
+      "title": "Read and fix type errors",
+      "goal": "Teach reading TypeScript compiler errors by fixing a broken invoice script, one error at a time, until npx tsc reports none and no value is typed any.",
+      "grows": [
+        "ts.errors"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "invoice.ts compiles with no errors and prints the invoice total."
+    },
+    {
+      "title": "Typed functions",
+      "goal": "Teach typed functions in TypeScript, with parameter types, return types and optional and default parameters, by writing a sales tax function called three ways.",
+      "grows": [
+        "ts.functions"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "The function has typed parameters and a number return type and prints three totals."
+    },
+    {
+      "title": "Arrays and tuples",
+      "goal": "Teach TypeScript typed arrays and tuples by building a medal table as pairs of a country and a gold count and printing the country in the lead.",
+      "grows": [
+        "ts.arrays"
+      ],
+      "minutes": 20,
+      "steps": 5,
+      "check": "code",
+      "passes": "The table is an array of string and number tuples and the leader prints."
+    },
+    {
+      "title": "Interfaces",
+      "goal": "Teach TypeScript interfaces with optional properties by describing a pet in a shelter roster and writing a function that lists the pets not yet adopted.",
+      "grows": [
+        "ts.interfaces"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "A Pet interface types the roster and only pets not adopted print."
+    },
+    {
+      "title": "Union types and narrowing",
+      "goal": "Teach TypeScript union types, literal types and narrowing with a switch by writing an area calculator for circles, squares and rectangles.",
+      "grows": [
+        "ts.unions"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "One function takes a union of three shapes and prints the right area for each."
+    },
+    {
+      "title": "Generics",
+      "goal": "Teach TypeScript generics by writing first, last and unique helpers that keep the element type, then using them on numbers and on strings.",
+      "grows": [
+        "ts.generics"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "code",
+      "passes": "Each helper has a type parameter and works on both arrays with no any."
+    }
+  ]
+}

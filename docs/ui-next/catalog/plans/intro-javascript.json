@@ -1,0 +1,209 @@
+{
+  "id": "intro-javascript",
+  "title": "Intro to JavaScript",
+  "group": "language",
+  "topic": "code",
+  "track": "javascript",
+  "tool": {
+    "id": "vscode",
+    "label": "VS Code"
+  },
+  "also": [
+    "Node.js"
+  ],
+  "level": "start",
+  "needs": [],
+  "line": "Values, functions, arrays and objects. Scripts you run with Node.",
+  "project": {
+    "title": "A workout log",
+    "brief": "Write workouts.js on your own. Keep a list of workout objects, add to it with a function, total the minutes for each kind with reduce and print a weekly report with template literals.",
+    "checks": [
+      "workouts.js runs with node and no error",
+      "The report prints one line per kind of workout with its minutes",
+      "The grand total equals the sum of every workout"
+    ]
+  },
+  "skills": [
+    {
+      "id": "js.run",
+      "label": "Running with Node",
+      "needs": []
+    },
+    {
+      "id": "js.variables",
+      "label": "Let and const",
+      "needs": [
+        "js.run"
+      ]
+    },
+    {
+      "id": "js.strings",
+      "label": "Template literals",
+      "needs": [
+        "js.variables"
+      ]
+    },
+    {
+      "id": "js.conditions",
+      "label": "If and else",
+      "needs": [
+        "js.variables"
+      ]
+    },
+    {
+      "id": "js.loops",
+      "label": "Loops",
+      "needs": [
+        "js.conditions"
+      ]
+    },
+    {
+      "id": "js.functions",
+      "label": "Functions",
+      "needs": [
+        "js.conditions"
+      ]
+    },
+    {
+      "id": "js.arrays",
+      "label": "Arrays",
+      "needs": [
+        "js.loops"
+      ]
+    },
+    {
+      "id": "js.methods",
+      "label": "Array methods",
+      "needs": [
+        "js.arrays",
+        "js.functions"
+      ]
+    },
+    {
+      "id": "js.objects",
+      "label": "Objects",
+      "needs": [
+        "js.arrays"
+      ]
+    },
+    {
+      "id": "js.async",
+      "label": "Promises and await",
+      "needs": [
+        "js.functions"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Run your first JavaScript file",
+      "goal": "Teach a complete beginner to create hello.js in VS Code, print two lines with console.log and run it from the terminal with node.",
+      "grows": [
+        "js.run"
+      ],
+      "minutes": 10,
+      "steps": 4,
+      "check": "run",
+      "passes": "hello.js runs and prints both lines."
+    },
+    {
+      "title": "Let, const and numbers",
+      "goal": "Teach JavaScript let, const and arithmetic by building a dinner bill splitter in split.js with a total, a number of people and a share each.",
+      "grows": [
+        "js.variables"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "split.js prints 30 as the share of a 120 dollar bill split four ways."
+    },
+    {
+      "title": "Strings and template literals",
+      "goal": "Teach JavaScript strings, length, toUpperCase and template literals by printing a shipping label from a name, a street and a city.",
+      "grows": [
+        "js.strings"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The label prints three lines with the name in capitals."
+    },
+    {
+      "title": "If, else and comparisons",
+      "goal": "Teach JavaScript comparisons, strict equality and if, else if, else by writing a password strength checker that prints weak, okay or strong.",
+      "grows": [
+        "js.conditions"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "Passwords of 4, 9 and 14 characters print weak, okay and strong."
+    },
+    {
+      "title": "For and while loops",
+      "goal": "Teach JavaScript for and while loops and the remainder operator by writing FizzBuzz for the numbers 1 to 30.",
+      "grows": [
+        "js.loops"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The output has 30 lines with Fizz, Buzz and FizzBuzz in the right places."
+    },
+    {
+      "title": "Functions and arrow functions",
+      "goal": "Teach JavaScript functions, parameters, return values and arrow functions by writing a reading time estimator, once as a function declaration and once as an arrow function.",
+      "grows": [
+        "js.functions"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "Both versions print 5 minutes for a text of 1000 words at 200 a minute."
+    },
+    {
+      "title": "Arrays",
+      "goal": "Teach JavaScript arrays by building a playlist. Push, pop, find a song with includes and indexOf, slice the first three and loop with for of.",
+      "grows": [
+        "js.arrays"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The playlist prints with the new song added and the last one removed."
+    },
+    {
+      "title": "Map, filter and reduce",
+      "goal": "Teach the JavaScript array methods map, filter and reduce by pricing a cart. Drop items under 5 dollars, add tax to the rest and sum the total.",
+      "grows": [
+        "js.methods"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The total matches the taxed sum of the items that cost 5 dollars or more."
+    },
+    {
+      "title": "Objects",
+      "goal": "Teach JavaScript objects, properties, methods and arrays of objects by building an address book of three contacts and printing each one.",
+      "grows": [
+        "js.objects"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The script prints the name and phone of all three contacts."
+    },
+    {
+      "title": "Promises and async await",
+      "goal": "Teach JavaScript promises and async await by writing a wait function with setTimeout and a tea timer that prints three steps in order.",
+      "grows": [
+        "js.async"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "The three steps print in order, about one second apart."
+    }
+  ]
+}

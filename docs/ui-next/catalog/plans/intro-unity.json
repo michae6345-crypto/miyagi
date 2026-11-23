@@ -1,0 +1,207 @@
+{
+  "id": "intro-unity",
+  "title": "Intro to Unity",
+  "group": "environment",
+  "topic": "3d",
+  "track": "unity",
+  "tool": {
+    "id": "unity",
+    "label": "Unity"
+  },
+  "also": [],
+  "level": "start",
+  "needs": [],
+  "line": "Build a small coin game with objects, scripts and physics.",
+  "project": {
+    "title": "A marble maze with a finish line",
+    "brief": "Build a marble maze alone. Lay out walls on a floor, roll a ball through with the keyboard and show a finish message on screen when it reaches a goal trigger. Build it for Mac.",
+    "checks": [
+      "The Player has a Rigidbody and at least ten walls have colliders",
+      "A trigger at the goal changes a UI text when the Player enters it",
+      "A macOS build of the game is saved"
+    ]
+  },
+  "skills": [
+    {
+      "id": "un.editor",
+      "label": "Editor windows",
+      "needs": []
+    },
+    {
+      "id": "un.objects",
+      "label": "GameObjects",
+      "needs": [
+        "un.editor"
+      ]
+    },
+    {
+      "id": "un.components",
+      "label": "Components",
+      "needs": [
+        "un.objects"
+      ]
+    },
+    {
+      "id": "un.scripts",
+      "label": "C# scripts",
+      "needs": [
+        "un.components"
+      ]
+    },
+    {
+      "id": "un.input",
+      "label": "Input and movement",
+      "needs": [
+        "un.scripts"
+      ]
+    },
+    {
+      "id": "un.physics",
+      "label": "Physics",
+      "needs": [
+        "un.components"
+      ]
+    },
+    {
+      "id": "un.prefabs",
+      "label": "Prefabs",
+      "needs": [
+        "un.scripts"
+      ]
+    },
+    {
+      "id": "un.collisions",
+      "label": "Triggers",
+      "needs": [
+        "un.physics",
+        "un.prefabs"
+      ]
+    },
+    {
+      "id": "un.ui",
+      "label": "UI text",
+      "needs": [
+        "un.collisions"
+      ]
+    },
+    {
+      "id": "un.build",
+      "label": "Building",
+      "needs": [
+        "un.scripts"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Find your way around the editor",
+      "goal": "Teach a complete beginner the Unity editor. Make a new 3D project, tour the Scene view, Game view, Hierarchy, Inspector and Project window, and save the scene as Main.",
+      "grows": [
+        "un.editor"
+      ],
+      "minutes": 10,
+      "steps": 5,
+      "check": "scene",
+      "passes": "The project has a saved scene named Main with a camera and a light."
+    },
+    {
+      "title": "Build a floor and a player",
+      "goal": "Teach Unity GameObjects and the Transform by adding a Plane named Floor at the origin and a Sphere named Player resting on it, placed by typing position values in the Inspector.",
+      "grows": [
+        "un.objects"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "A Plane named Floor is at the origin and a Sphere named Player is at Y 0.5."
+    },
+    {
+      "title": "Components and materials",
+      "goal": "Teach Unity components by adding a Rigidbody to the Player with Add Component, pressing Play to watch gravity act on it, and giving the Player and the Floor their own colored materials.",
+      "grows": [
+        "un.components"
+      ],
+      "minutes": 15,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The Player has a Rigidbody, and the Player and Floor use two different materials."
+    },
+    {
+      "title": "Write your first C# script",
+      "goal": "Teach Unity C# scripts by making a PlayerController MonoBehaviour, attaching it to the Player and logging a line from Start and the position from Update to the Console.",
+      "grows": [
+        "un.scripts"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "code",
+      "passes": "PlayerController is a MonoBehaviour on the Player and calls Debug.Log in Start."
+    },
+    {
+      "title": "Move the player with the keyboard",
+      "goal": "Teach reading keyboard input in a Unity C# script and moving with physics by rolling the Player with AddForce on its Rigidbody in FixedUpdate, with a public speed field.",
+      "grows": [
+        "un.input"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "PlayerController reads move input and calls AddForce on the Rigidbody in FixedUpdate."
+    },
+    {
+      "title": "Walls and colliders",
+      "goal": "Teach Unity colliders and how a Rigidbody reacts to them by boxing in the Floor with four Cube walls, so the rolling Player bounces back and cannot fall off the edge.",
+      "grows": [
+        "un.physics"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "scene",
+      "passes": "Four cubes with Box Colliders stand along the four edges of the Floor."
+    },
+    {
+      "title": "Make a coin prefab",
+      "goal": "Teach Unity prefabs by shaping a flat Cylinder into a Coin with a script that spins it using Time.deltaTime, saving it as a prefab and placing eight copies on the Floor.",
+      "grows": [
+        "un.prefabs"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "scene",
+      "passes": "The scene has eight instances of one Coin prefab that carries a spin script."
+    },
+    {
+      "title": "Collect coins with triggers",
+      "goal": "Teach Unity trigger colliders and OnTriggerEnter by ticking Is Trigger on the Coin collider, tagging the prefab Coin and hiding each coin the Player touches.",
+      "grows": [
+        "un.collisions"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "The Coin collider is a trigger and OnTriggerEnter hides objects tagged Coin."
+    },
+    {
+      "title": "Show the score on screen",
+      "goal": "Teach Unity UI with a Canvas and a TextMeshPro text by counting collected coins in PlayerController and showing the count in the corner of the Game view.",
+      "grows": [
+        "un.ui"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "code",
+      "passes": "A TextMeshPro text on a Canvas shows the count and PlayerController updates it."
+    },
+    {
+      "title": "Build the game for Mac",
+      "goal": "Teach making a build in Unity. Add the Main scene to the scene list, choose the macOS platform, set the product name to Coin Roll and build an app that opens outside the editor.",
+      "grows": [
+        "un.build"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "file",
+      "passes": "A macOS app named Coin Roll is built and saved."
+    }
+  ]
+}

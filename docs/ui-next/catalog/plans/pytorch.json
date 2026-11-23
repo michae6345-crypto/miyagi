@@ -1,0 +1,199 @@
+{
+  "id": "pytorch",
+  "title": "PyTorch",
+  "group": "topic",
+  "topic": "ai",
+  "track": "pytorch",
+  "tool": {
+    "id": "jupyter",
+    "label": "Jupyter"
+  },
+  "also": [
+    "Python 3",
+    "PyTorch"
+  ],
+  "level": "next",
+  "needs": [
+    "neural-networks"
+  ],
+  "line": "Tensors, autograd and a training loop. Train and save a model.",
+  "project": {
+    "title": "A model that fits a noisy sine wave",
+    "brief": "Train a PyTorch model on your own to fit a noisy sine curve. Make 1000 points, hold out 200 for validation, train from a DataLoader and save the trained model.",
+    "checks": [
+      "The model subclasses nn.Module and trains from a DataLoader",
+      "Validation loss ends below a quarter of its first value",
+      "sine.pt is saved and loads into a fresh model"
+    ]
+  },
+  "skills": [
+    {
+      "id": "pt.tensors",
+      "label": "Tensors",
+      "needs": [
+        "nn.layer"
+      ]
+    },
+    {
+      "id": "pt.autograd",
+      "label": "Autograd",
+      "needs": [
+        "pt.tensors",
+        "nn.gradients"
+      ]
+    },
+    {
+      "id": "pt.module",
+      "label": "nn.Module",
+      "needs": [
+        "pt.autograd",
+        "nn.forward"
+      ]
+    },
+    {
+      "id": "pt.optim",
+      "label": "Loss, optimizers",
+      "needs": [
+        "pt.module",
+        "nn.descent"
+      ]
+    },
+    {
+      "id": "pt.loop",
+      "label": "Training loop",
+      "needs": [
+        "pt.optim",
+        "nn.training"
+      ]
+    },
+    {
+      "id": "pt.data",
+      "label": "Data loaders",
+      "needs": [
+        "pt.loop"
+      ]
+    },
+    {
+      "id": "pt.eval",
+      "label": "Evaluation",
+      "needs": [
+        "pt.data"
+      ]
+    },
+    {
+      "id": "pt.device",
+      "label": "Devices",
+      "needs": [
+        "pt.loop"
+      ]
+    },
+    {
+      "id": "pt.save",
+      "label": "Saving a model",
+      "needs": [
+        "pt.eval"
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "title": "Tensors",
+      "goal": "Teach PyTorch tensors in Jupyter. Make tensors with torch.tensor, torch.zeros and torch.rand, read shape and dtype, and move a 3 by 4 example to NumPy and back.",
+      "grows": [
+        "pt.tensors"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "A float32 tensor of shape (3, 4) prints and converts to a NumPy array and back."
+    },
+    {
+      "title": "Autograd",
+      "goal": "Teach PyTorch autograd with requires_grad and backward by finding the gradient of a one-neuron squared error loss and comparing it with the gradient worked out by hand.",
+      "grows": [
+        "pt.autograd"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "w.grad matches the hand-worked gradient to within 1e-5."
+    },
+    {
+      "title": "Build a model with nn.Module",
+      "goal": "Teach torch.nn.Module in PyTorch. Write a class with two nn.Linear layers, a tanh between them and a forward method for a 2-8-1 network, then count its parameters.",
+      "grows": [
+        "pt.module"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The model has 33 parameters and returns shape (4, 1) for four samples."
+    },
+    {
+      "title": "Loss functions and optimizers",
+      "goal": "Teach nn.BCEWithLogitsLoss and torch.optim.SGD in PyTorch by taking one training step on the four XOR points. Zero the gradients, call backward and step.",
+      "grows": [
+        "pt.optim"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The loss on the XOR points is lower after the optimizer step than before it."
+    },
+    {
+      "title": "Write the training loop",
+      "goal": "Teach the PyTorch training loop. Train the 2-8-1 model on XOR with a forward pass, loss, zero_grad, backward and step in each epoch, and print the loss every 200 epochs.",
+      "grows": [
+        "pt.loop"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The printed loss falls and the model gets all four XOR points right."
+    },
+    {
+      "title": "Datasets and DataLoader",
+      "goal": "Teach TensorDataset and DataLoader in PyTorch by wrapping 1000 random 2D points, labelled by whether they sit above a sine curve, and looping over shuffled batches of 32.",
+      "grows": [
+        "pt.data"
+      ],
+      "minutes": 20,
+      "steps": 6,
+      "check": "run",
+      "passes": "The loader yields 32 batches and the first batch of points has shape (32, 2)."
+    },
+    {
+      "title": "Hold out data and measure accuracy",
+      "goal": "Teach evaluation in PyTorch with random_split, model.eval and torch.no_grad by holding out 200 of the points and printing validation accuracy after each epoch.",
+      "grows": [
+        "pt.eval"
+      ],
+      "minutes": 25,
+      "steps": 6,
+      "check": "run",
+      "passes": "Accuracy on the 200 held-out points is printed each epoch and ends above 0.9."
+    },
+    {
+      "title": "Use the Mac GPU",
+      "goal": "Teach devices in PyTorch on a Mac. Pick mps when torch.backends.mps.is_available() is true and cpu otherwise, then move the model and every batch there with .to(device).",
+      "grows": [
+        "pt.device"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "run",
+      "passes": "The model's parameters and each batch are on the same chosen device."
+    },
+    {
+      "title": "Save and load a model",
+      "goal": "Teach saving in PyTorch with torch.save, state_dict and load_state_dict by writing the trained model to model.pt and loading it into a fresh copy.",
+      "grows": [
+        "pt.save"
+      ],
+      "minutes": 15,
+      "steps": 5,
+      "check": "file",
+      "passes": "model.pt exists and the reloaded model gives the same predictions."
+    }
+  ]
+}
