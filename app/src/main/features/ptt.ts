@@ -11,6 +11,7 @@
  *   bridge.invoke('ptt:open-settings', 'mic' | 'input')   the Privacy pane (fixed URL, safeOpen.ts)
  *   bridge.invoke('ptt:cancel')         end the session in flight
  *   bridge.invoke('ptt:prefill', text) / 'ptt:prefill-take'   the launcher's prefilled text (no lesson running)
+ *   bridge.invoke('ptt:capture', region) -> CaptureResult   circle to ask: the circled region as a JPEG file (pttProtocol.ts)
  *   bridge.onFeature('ptt:state', cb)   every change of the one PttState
  *   bridge.onFeature('ptt:final', cb)   {id, text}: the words to ask (the overlay routes them, features/ptt/store.ts)
  *   bridge.onFeature('ptt:prefill', cb) text: the launcher is already open, fill it
@@ -30,6 +31,10 @@ import { defineMainFeature } from '../context'
 import {
   backoffMs,
   CANCEL_COMMAND,
+  CAPTURE_TIMEOUT_MS,
+  captureCommand,
+  captureRequest,
+  type CaptureResult,
   configCommand,
   contextCommand,
   contextTerms,
@@ -38,6 +43,7 @@ import {
   HEALTHY_MS,
   libraryNames,
   lineBuffer,
+  parseCaptureLine,
   parseLine,
   permissionsCommand,
   QUIT_COMMAND,
@@ -171,7 +177,11 @@ export default defineMainFeature({
       p.stdout.on('data', (chunk: string) => {
         for (const l of buf.push(chunk)) {
           const ev = parseLine(l)
-          if (!ev) continue
+          if (!ev) {
+            const c = parseCaptureLine(l)
+            if (c) settleCapture(c)
+            continue
+          }
           if (ev.type === 'ready') pttLog(`ready stt=${ev.stt} locale=${ev.locale} chord=${ev.chord}`)
           else if (ev.type === 'perm') pttLog(`perm mic=${ev.mic} input=${ev.input} assets=${ev.assets ?? '?'}`)
           else if (ev.type === 'error') pttLog(`error ${ev.code}: ${ev.message}`)
@@ -213,6 +223,7 @@ export default defineMainFeature({
         if (child !== p) return
         child = undefined
         buf.reset()
+        for (const id of [...captures.keys()]) settleCapture({ ok: false, id, error: 'unavailable', message: 'The helper stopped.' })
         apply({ type: 'exit' })
         if (Date.now() - startedAt > HEALTHY_MS) failures = 0
         again()
@@ -292,6 +303,29 @@ export default defineMainFeature({
       send(CANCEL_COMMAND)
       apply({ type: 'reset' })
       return true
+    })
+    // ---- circle to ask: one region of the screen, captured by the helper while the keys are held ----
+    // Never logs pixels or paths: only the size and the time.
+    let captureSeq = 0
+    const captures = new Map<string, { done: (r: CaptureResult) => void; timer: ReturnType<typeof setTimeout> }>()
+    function settleCapture(r: CaptureResult): void {
+      const p = captures.get(r.id)
+      if (!p) return
+      captures.delete(r.id)
+      clearTimeout(p.timer)
+      pttLog(r.ok ? `capture ${r.w}x${r.h} ${r.ms} ms` : `capture failed: ${r.error}`)
+      p.done(r)
+    }
+    ctx.handle('ptt:capture', (raw): Promise<CaptureResult> => {
+      const id = `cap-${++captureSeq}`
+      const req = captureRequest(raw)
+      if (!req) return Promise.resolve({ ok: false, id, error: 'bad_request', message: 'Not a screen region.' })
+      if (!child || !child.stdin.writable) return Promise.resolve({ ok: false, id, error: 'unavailable', message: 'The helper is not running.' })
+      return new Promise((done) => {
+        const timer = setTimeout(() => settleCapture({ ok: false, id, error: 'timeout', message: 'The capture took too long.' }), CAPTURE_TIMEOUT_MS)
+        captures.set(id, { done, timer })
+        send(captureCommand(id, req))
+      })
     })
     ctx.handle('ptt:prefill', (text) => {
       if (typeof text !== 'string' || !text.trim() || text.length > 2000) return false
