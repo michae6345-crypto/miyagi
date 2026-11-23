@@ -32,7 +32,11 @@ from . import layout
 
 log = logging.getLogger("diagrams")
 
-MODEL = os.environ.get("DIAGRAMS_MODEL", "claude-sonnet-5-5")  # steadier than Haiku 5.5 here: 3-5 s vs 2-8 s
+try:
+    from server import models as _models
+    MODEL = _models.configured("diagrams")  # Sonnet: steadier than Haiku 5.5 here, 3-5 s vs 2-8 s (server/models.py)
+except ImportError:  # pragma: no cover - diagrams run on its own
+    MODEL = os.environ.get("DIAGRAMS_MODEL", "claude-sonnet-5-5")
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
@@ -43,6 +47,10 @@ def _model() -> str:
     except ImportError:  # pragma: no cover
         return MODEL
     return guard_model(MODEL)
+
+
+def _system_blocks(text: str) -> list[dict[str, Any]]:
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
 
 def _fallback(model: str) -> dict[str, Any]:
@@ -404,7 +412,7 @@ async def _call(client, step: dict, context: dict) -> tuple[dict, dict]:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": 4000,
-            "system": SYSTEM,
+            "system": _system_blocks(SYSTEM),  # the fixed drawing rules: a cached prefix, the step text after it
             "messages": [{"role": "user", "content": prompt}],
             "output_config": {"effort": EFFORT, "format": {"type": "json_schema", "schema": SCHEMA}},
         }

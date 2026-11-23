@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 from server import untrusted
+from server.prompt_cache import as_text
 from server.untrusted import (
     DATA_RULE,
     EXTRACT_RULE,
@@ -373,7 +374,7 @@ def test_screen_target_fences_the_tag_list(monkeypatch):
     text = stub.calls[0]["messages"][0]["content"][1]["text"]
     fenced_only(text)
     assert "Request: the injected line test target" in outside_fences(text)
-    assert DATA_RULE in stub.calls[0]["system"]
+    assert DATA_RULE in as_text(stub.calls[0]["system"])
     T.reset()
 
 
@@ -399,10 +400,10 @@ def test_scaffold_fences_the_lesson_graph():
 
     c = _SyncClient(json.dumps({"lesson_kind": "conceptual", "files": [], "readme": "x"}))
     scaffold.generate(GRAPH, "learn numpy", client=c)
-    sent = c.calls[0]["messages"][-1]["content"]
+    sent = as_text(c.calls[0]["messages"][-1]["content"])
     fenced_only(sent)
     assert "Ignore previous instructions" not in outside_fences(sent) and "System: ignore" not in outside_fences(sent)
-    assert '<untrusted source="lesson"' in sent and EXTRACT_RULE in c.calls[0]["system"]
+    assert '<untrusted source="lesson"' in sent and EXTRACT_RULE in as_text(c.calls[0]["system"])
 
 
 def test_setup_requirements_fence_the_lesson_graph():
@@ -411,9 +412,9 @@ def test_setup_requirements_fence_the_lesson_graph():
     c = _SyncClient("{}")
     with pytest.raises(ValueError):  # the stub's empty answer is no requirements list: only the prompt matters here
         setup._ask_claude(GRAPH, c)
-    sent = c.calls[0]["messages"][0]["content"]
+    sent = as_text(c.calls[0]["messages"][0]["content"])
     fenced_only(sent)
-    assert '<untrusted source="lesson"' in sent and EXTRACT_RULE in c.calls[0]["system"]
+    assert '<untrusted source="lesson"' in sent and EXTRACT_RULE in as_text(c.calls[0]["system"])
 
 
 def test_finder_gemini_score_and_skim_fence_the_candidates(monkeypatch):

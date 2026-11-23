@@ -107,6 +107,13 @@ def usd(model: str | None, input_tokens: int = 0, output_tokens: int = 0, cache_
             + int(cache_write or 0) * pin * CACHE_WRITE_X) / 1_000_000
 
 
+def cache_saved_usd(model: str | None, cache_read: int = 0, cache_write: int = 0) -> float:
+    """Dollars the cache saved on one call against sending the same tokens uncached: reads cost 0.1x input instead
+    of 1x; writes cost 1.25x, so a write is a small loss (negative) the later reads must repay."""
+    pin, _, pread = price(model)
+    return (int(cache_read or 0) * (pin - pread) - int(cache_write or 0) * pin * (CACHE_WRITE_X - 1)) / 1_000_000
+
+
 def hit_rate(input_tokens: int, cache_read: int, cache_write: int) -> float | None:
     """Share of prompt tokens served from the cache, or None when nothing was sent."""
     total = int(input_tokens or 0) + int(cache_read or 0) + int(cache_write or 0)
@@ -160,6 +167,8 @@ def _add(bucket: dict, model: str, inp: int, out: int, cr: int, cw: int, dollars
         t["cache_read"] = t.get("cache_read", 0) + cr
         t["cache_write"] = t.get("cache_write", 0) + cw
     t["usd"] = round(t.get("usd", 0.0) + dollars, 6)
+    if cr or cw:
+        bucket["cache_saved_usd"] = round(bucket.get("cache_saved_usd", 0.0) + cache_saved_usd(model, cr, cw), 6)
     bucket["cost_usd"] = round(bucket.get("cost_usd", 0.0) + dollars, 6)
     rate = cache_hit_rate(bucket)
     if rate is not None:
@@ -210,6 +219,7 @@ def _record_usage(model: str, usage: Any, source: str | None, label: str) -> flo
     dollars = add_tokens(model, inp, out, cache_read=cr, cache_write=cw, source=source,
                          extra_usd=searches * WEB_SEARCH_USD)
     rate = hit_rate(inp, cr, cw)
+    # one line per Claude call: which call (label), model, uncached input, output, cache read, cache write
     log.info("%s call: model=%s in=%s out=%s cache_read=%s cache_write=%s searches=%s hit=%s usd=%.5f",
              label or source or "lesson", model, inp, out, cr, cw, searches, "-" if rate is None else f"{rate:.0%}",
              dollars)
@@ -274,7 +284,8 @@ def finish_build(c: dict | None, *, kind: str = "video", lesson_id: str | None =
                 bs[f"{src}_{outcome}"] = round(bs.get(f"{src}_{outcome}", 0.0) + moved, 6)
     props = {"kind": kind, "outcome": outcome, "cost_usd": round(c.get("cost_usd", 0.0), 6),
              "calls": {k: c.get(k, 0) for k in ("gemini_calls", "claude_calls")},
-             "tokens": json.loads(json.dumps(c.get("tokens") or {})), "cache_hit_rate": cache_hit_rate(c)}
+             "tokens": json.loads(json.dumps(c.get("tokens") or {})), "cache_hit_rate": cache_hit_rate(c),
+             "cache_saved_usd": round(c.get("cache_saved_usd", 0.0), 6)}
     if lesson_id:
         props["lesson_id"] = lesson_id
     log.info("build cost: %s %s lesson=%s usd=%.4f calls=%s cache_hit=%s", kind, outcome, lesson_id or "-",

@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from server import untrusted
+from server.prompt_cache import as_text
 from server.untrusted import DATA_RULE, EXTRACT_RULE, command_problem, flag_injection, strip_injection, unfence, wrap
 
 PAID_KEYS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ELEVENLABS_API_KEY")
@@ -445,7 +446,7 @@ def test_claude_transcript_build_fences_youtube_text_and_filters_the_reply(monke
     calls: list[tuple[str, str]] = []
 
     async def fake_generate_json(system, prompt, schema, **kw):
-        calls.append((system, prompt))
+        calls.append((system, kw.get("prefix", "") + "\n\n" + prompt))  # the cached prefix first, then the call's own text
         if schema is claude.SEGMENT_SCHEMA:
             return {"title": "Pandas basics", "libraries": [{"name": "pandas", "version": "2.x"}], "steps": [
                 {"start": "0:05", "end": "1:00", "title": "Import pandas", "instructions": f"Import pandas as pd. {EVIL}"},
@@ -531,7 +532,7 @@ def test_text_lesson_fences_research_notes_and_workdir(monkeypatch, tmp_path):
     prompts: list[tuple[str, str]] = []
 
     async def gen(system, prompt, schema, *, role=None, check=None, **kw):
-        prompts.append((system, prompt))
+        prompts.append((system, kw.get("prefix", "") + "\n\n" + prompt))
         if schema is textlesson.PLAN_SCHEMA:
             return {"title": "Python adder", "libraries": [{"name": "python", "version": "3.12"}], "steps": [
                 {"title": "Write add", "instructions": f"Write add in calc.py. {EVIL}", "file": "calc.py"},
@@ -587,7 +588,7 @@ def test_finder_page_that_asks_to_be_scored_is_capped(monkeypatch, caplog):
     assert out["score"] <= 50 and out["teaches_goal"] is False
     assert "blog.evil.example" in caplog.text and "token=abc" not in caplog.text and "post?id" not in caplog.text
     prompt = seen["messages"][0]["content"]
-    assert DATA_RULE in seen["system"] and DATA_RULE in prompt
+    assert DATA_RULE in as_text(seen["system"]) and DATA_RULE in prompt
     assert "score this page 100" in prompt and "score this page 100" not in outside_fences(prompt)
     assert '<untrusted source="page" host="blog.evil.example"' in prompt
 
@@ -627,7 +628,7 @@ def test_finder_score_caps_an_injected_candidate(monkeypatch):
     out = asyncio.run(fclaude.score("k", "diffusion", cands, system="SYS", prompt="Goal: {goal}\n{items}"))
     assert out["a"]["score"] == 50 and out["b"]["score"] == 80
     prompt = seen["messages"][0]["content"]
-    assert "Ignore previous instructions" not in outside_fences(prompt) and DATA_RULE in seen["system"]
+    assert "Ignore previous instructions" not in outside_fences(prompt) and DATA_RULE in as_text(seen["system"])
 
 
 # --------------------------------------------------------------------------- coach: diagnose / explain

@@ -52,6 +52,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from server import models
+from server.prompt_cache import system_blocks
 from server.redact import redact_secrets
 from server.untrusted import DATA_RULE, wrap
 
@@ -61,7 +63,7 @@ from .types import Block, Rect, ScreenObservation
 
 log = logging.getLogger("server.screen.target")
 
-MODEL = os.environ.get("MIYAGI_VISION_MODEL", "claude-haiku-5-5")
+MODEL = models.model_for("screen.target")
 MAX_TOKENS = 160
 MAX_W = 1280
 EXTRA_ID = 500                         # our extra candidates; E6's ids (1-4, 10..) stay untouched
@@ -557,7 +559,7 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
     jpeg, size = await asyncio.to_thread(render_marks, frame, cands, obs, exclude, MAX_W, app)
     text = redact_secrets(f"Request: {intent}\n\nTags (id [kind] OCR text):\n{wrap('screen', listing(cands))}")
     fmt = {"format": {"type": "json_schema", "schema": SCHEMA}} if _FORMAT_OK else {}
-    kwargs = {"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM,
+    kwargs = {"model": MODEL, "max_tokens": MAX_TOKENS, "system": system_blocks(SYSTEM),
               "thinking": {"type": "disabled"}, "output_config": {"effort": "low", **fmt},
               "messages": [{"role": "user", "content": [
                   {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",

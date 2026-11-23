@@ -31,6 +31,7 @@ from typing import Any
 
 import httpx
 
+from server import models, prompt_cache
 from server.finder import youtube
 from server.finder.env import CACHE_DIR, Keys, resolve_keys
 from server.untrusted import EXTRACT_RULE, wrap
@@ -153,11 +154,11 @@ async def classify(key: str, goal: str, m: dict, skim: dict | None, *, timeout: 
         from server.finder import claude as finder_claude
 
         client = finder_claude.client(key)
-    mid = os.environ.get("PREFLIGHT_MODEL", DEFAULT_MODEL)
+    mid = models.model_for("preflight")
     resp = await client.messages.create(
         model=mid,
         max_tokens=1200,
-        system=SYSTEM,
+        system=prompt_cache.system_blocks(SYSTEM),
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": CLASSIFY_SCHEMA}},
         messages=[{"role": "user", "content": _prompt(goal, m, skim, prior)}],
         timeout=timeout,
