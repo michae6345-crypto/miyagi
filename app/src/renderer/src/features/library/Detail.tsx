@@ -10,7 +10,7 @@ import { ArrowUpRight, ChevronLeft, Play } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
-import { color, copy, fill, highlight, radius2, surface, type2 } from '../../core/theme'
+import { color, copy, fill, highlight, layer, radius2, surface, type2 } from '../../core/theme'
 import { Column, PAGE_TOP, Pane, rhythm } from './layout'
 import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, minutesLabel, soft, stepsLabel } from './parts'
@@ -29,7 +29,7 @@ function Video({ vid, by }: { vid: string; by?: string }): ReactNode {
       onClick={() => void bridge.invoke('open:external', youtubeWatchUrl(vid)).catch(() => undefined)}
       className="mg-press flex w-full cursor-pointer items-center gap-[16px] text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
       // Home's card surface (white in light), radius 16 around an 8 px inset, so the thumbnail's 8 is concentric.
-      style={{ padding: 8, borderRadius: radius2.group, background: 'var(--l-overlay)', boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}`, outlineColor: color.text }}
+      style={{ padding: 8, borderRadius: radius2.group, background: layer.overlay.background, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}`, outlineColor: color.text }}
     >
       <span className="relative flex shrink-0 items-center justify-center overflow-hidden" style={{ width: 160, height: 90, borderRadius: radius2.control, background: fill.thumb }}>
         <img src={`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`} alt="" draggable={false} referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" />
@@ -84,20 +84,23 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
   // no other page has a hairline under its header, spacing does the grouping.
   // Layout spec: the back control lives in the page's own column, its chevron on the column's left edge (the title's
   // edge), inside the 52 px drag strip. Clear of the traffic lights: the column never starts left of 80 px.
+  // The whole 52 px strip drags the window (spec section 9), not only the column's 800 px of it.
   const bar = (
-    <Column data-drag className="flex shrink-0 items-center" style={{ height: 52 }}>
-      <button
-        type="button"
-        data-no-drag
-        aria-label={`Back to ${back ?? 'Library'}`}
-        onClick={closeDetail}
-        className="flex cursor-pointer items-center gap-[2px] outline-offset-1 transition-colors hover:bg-[var(--s-row-hover)] focus-visible:outline-2 focus-visible:outline-solid"
-        style={{ height: 30, marginLeft: -10, padding: '0 10px 0 4px', borderRadius: radius2.control, color: color.label, fontSize: type2.sm, outlineColor: color.text }}
-      >
-        <ChevronLeft aria-hidden size={16} strokeWidth={1.8} />
-        {back ?? 'Library'}
-      </button>
-    </Column>
+    <div data-drag data-detail-bar className="shrink-0" style={{ height: 52 }}>
+      <Column className="flex h-full items-center">
+        <button
+          type="button"
+          data-no-drag
+          aria-label={`Back to ${back ?? 'Library'}`}
+          onClick={closeDetail}
+          className="flex cursor-pointer items-center gap-[2px] outline-offset-1 transition-colors hover:bg-[var(--s-row-hover)] focus-visible:outline-2 focus-visible:outline-solid"
+          style={{ height: 30, marginLeft: -10, padding: '0 10px 0 4px', borderRadius: radius2.control, color: color.label, fontSize: type2.sm, outlineColor: color.text }}
+        >
+          <ChevronLeft aria-hidden size={16} strokeWidth={1.8} />
+          {back ?? 'Library'}
+        </button>
+      </Column>
+    </div>
   )
 
   if (!item)
@@ -158,7 +161,8 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
               <Video vid={vid} by={by} />
             </div>
           )}
-          <h2 className="m-0 font-medium" style={{ margin: `${rhythm.section}px 0 4px`, fontSize: type2.xs, lineHeight: '16px', color: color.label }}>
+          {/* A section label (spec section 6): 13/18, semibold, secondary, 12 above its content. */}
+          <h2 className="m-0 font-semibold" style={{ margin: `${rhythm.section}px 0 ${rhythm.label}px`, fontSize: type2.sm, lineHeight: '18px', color: color.label }}>
             {stepCount ? stepsLabel(stepCount) : 'Steps'}
           </h2>
           {steps.length > 0 ? (

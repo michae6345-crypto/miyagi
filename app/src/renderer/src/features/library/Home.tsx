@@ -18,12 +18,13 @@
  */
 import { ArrowRight, ChevronRight, CloudOff, Play, RotateCcw } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { LibraryItem } from '../../../../../../shared/contracts/events'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
-import { color, copy, elevation, fill, highlight, radius2, surface, tone, type Tone, type2 } from '../../core/theme'
+import { useAppearance } from '../../core/prefs'
+import { color, copy, elevation, fill, highlight, layer, radius2, surface, tone, type Tone, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
@@ -195,6 +196,7 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
   const connected = useLesson((s) => s.connected)
   const input = useRef<HTMLInputElement>(null)
   const [focused, setFocused] = useState(false)
+  const light = useAppearance() === 'light'
   const [hovered, setHovered] = useState(false)
   const read = readAsk(ask.text, items, canStart)
   const ideas = pickIdeas(data)
@@ -213,7 +215,7 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
       onMouseLeave={() => setHovered(false)}
       // The same lifted surface as the Continue card (one card treatment on the page, light and dark), radius 12. Its
       // edge brightens on hover and turns into a 2px ring of the text color on focus (never an accent hue).
-      style={{ ...SURFACE, borderRadius: radius2.card, boxShadow: `${highlight.topSoft}, inset 0 0 0 ${focused ? 2 : 1}px ${focused ? color.faint : hovered ? fill.ring : surface.border}, ${elevation.raised}`, transition: 'box-shadow 140ms ease' }}
+      style={{ background: SURFACE_BG, borderRadius: radius2.card, boxShadow: surfaceShadow(light, `inset 0 0 0 ${focused ? 2 : 1}px ${focused ? color.faint : hovered ? fill.ring : surface.border}`), transition: 'box-shadow 140ms ease' }}
     >
       <form
         className="flex cursor-text items-center gap-[12px]"
@@ -263,7 +265,8 @@ function Ask({ primary = false, data }: { primary?: boolean; data?: DashData }):
           </motion.button>
         )}
       </form>
-      <div className="flex flex-wrap items-center justify-center gap-[8px]" style={{ padding: '12px 16px', minHeight: 56, borderTop: `1px solid ${fill.hairline}` }}>
+      {/* Left-aligned like the input above it (text in the column never centers): the first chip's edge is the bonsai's. */}
+      <div className="flex flex-wrap items-center justify-start gap-[8px]" style={{ padding: '12px 16px', minHeight: 56, borderTop: `1px solid ${fill.hairline}` }}>
         {read.kind === 'idle' ? (
           ideas.map((t) => (
             <Press
@@ -321,10 +324,14 @@ function UpNext({ skip, done }: { skip: Set<string>; done: Set<string> }): React
     <section aria-labelledby="home-next" data-home-ready>
       <SectionHead id="home-next" right={
           more ? (
-            <TextAction onClick={() => setSection('library')}>
-              All lessons
-              <ChevronRight aria-hidden size={13} strokeWidth={1.8} />
-            </TextAction>
+            // The rows' chevrons sit on the column's right edge (16 px, the row's 10 px inset under a -10 list); the
+            // link steps out by its own 8 px padding and uses the same 16 px chevron, so every chevron shares one edge.
+            <span className="flex" style={{ marginRight: -8 }}>
+              <TextAction onClick={() => setSection('library')}>
+                All lessons
+                <ChevronRight aria-hidden size={16} strokeWidth={1.8} />
+              </TextAction>
+            </span>
           ) : undefined
         }>
         Up next
@@ -425,10 +432,12 @@ function splitLine(line: string): { count?: string; sub: string } {
 }
 
 /**
- * The page's surface for its two cards (Continue, the ask box): the overlay layer (white in light), the top highlight,
- * a hairline and the soft raised shadow. One treatment, so Home never shows a white card over a gray well.
+ * The page's surface for its two cards (Continue, the ask box): the overlay layer (white in light), the top highlight
+ * and a hairline. One treatment, so Home never shows a white card over a gray well. The soft raised shadow is light
+ * only (spec section 8: dark cards get a border and the top highlight, no drop shadow).
  */
-const SURFACE: CSSProperties = { background: 'var(--l-overlay)', boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}, ${elevation.raised}` }
+const SURFACE_BG = layer.overlay.background
+const surfaceShadow = (light: boolean, edge = `inset 0 0 0 1px ${surface.border}`): string => [highlight.topSoft, edge, light ? elevation.raised : ''].filter(Boolean).join(', ')
 
 /**
  * The one lifted card on the page (redraft round 2, Adrian: "the continue tab doesn't look that good"). One row: where
@@ -442,9 +451,10 @@ function ContinueCard({ view, hero, fix }: { view: View; hero: Hero; fix?: Fix }
   // edge, and there is no right-hand column (nothing to press until it is ready; the island shows each stage).
   const building = hero.kind === 'building'
   const clamp = (n: number): number => Math.max(0, Math.min(1, n))
+  const light = useAppearance() === 'light'
   const frac = building ? (hero.fraction !== undefined ? clamp(hero.fraction) : undefined) : !view.blocked && view.total ? clamp((view.done ?? 0) / view.total) : undefined
   return (
-    <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="relative flex flex-col overflow-hidden" style={{ ...SURFACE, borderRadius: radius2.group, padding: 24 }}>
+    <section aria-labelledby="home-continue" data-home-hero={hero.kind} className="relative flex flex-col overflow-hidden" style={{ background: SURFACE_BG, boxShadow: surfaceShadow(light), borderRadius: radius2.group, padding: 24 }}>
       <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[16px]">
         <div className="flex min-w-0 flex-1 flex-col" style={{ minWidth: 240 }}>
           <span className="flex items-center gap-[6px]" style={caption}>

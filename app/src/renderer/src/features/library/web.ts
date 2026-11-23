@@ -40,7 +40,8 @@ function stageDetail(id: string): LibraryDetail | undefined {
   if (!item) return undefined
   return {
     item,
-    overview: 'Follow the video one step at a time. miyagi checks each step you run.',
+    // Only a lesson built from a video talks about the video.
+    overview: item.source?.kind === 'youtube' ? 'Follow the video one step at a time. miyagi checks each step you run.' : 'One step at a time. miyagi checks each step you run.',
     steps: STAGE_STEPS.slice(0, item.steps).map(([title, what], index) => ({ index, title, what, estMinutes: 3 }))
   }
 }

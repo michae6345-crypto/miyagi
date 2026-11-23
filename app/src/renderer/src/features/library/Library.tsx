@@ -1,8 +1,9 @@
 /**
  * Feature: library. The Lessons page of the home window (features/shell): Continue (lessons left mid-way), Ready to
  * run (every cached lesson, filtered by tool and search), and a last row to paste a link. Redraft (Adrian, Nov 21):
- * plain rows on the content panel (title, then the tool in words, steps and minutes), no cards, tiles or pills. The shell's page header holds
- * the search field (LessonSearch) and New lesson, the one primary on this page. Deviations from the mockup, by rule:
+ * plain rows on the content panel (title, then the tool in words, steps and minutes), no cards, tiles or pills. The page
+ * header (LessonsHeader, rendered by the shell above the scroller) holds the title and the search field, on the same
+ * column as the list. Deviations from the mockup, by rule:
  * no Free plan box (plan A6: hidden), no "Your lessons" split (the engine's items don't say who built a lesson), and
  * "Saved on this Mac" instead of "Built once, shared with everyone" (A6: never claim cross-user sharing).
  *
@@ -57,13 +58,40 @@ export function LessonSearch(): ReactNode {
   )
 }
 
+/**
+ * The Lessons page header: the title and the search field on the page's own column (layout.tsx), so the title's left
+ * edge is the list's left edge and the search field's right edge is the list's right edge at every window size (the
+ * shell's generic header pads 40 from the pane and drifted 344 px off the list in full screen). The whole 76 px strip
+ * drags the window; the search field opts out. The shell renders this above the page's scroller in place of its own
+ * header for the Lessons page (Shell.tsx Header: `if (page === 'lessons') return <LessonsHeader title={label} />`).
+ */
+export function LessonsHeader({ title = 'Lessons' }: { title?: string }): ReactNode {
+  return (
+    <Pane data-drag data-lessons-header className="shrink-0">
+      <header>
+        {/* 76 tall, the row's bottom 8 above the scroller: with the list's 24 top padding, title to first section is 32. */}
+        <Column className="flex items-end" style={{ height: 76, paddingBottom: 8 }}>
+          <div className="flex min-h-[36px] w-full min-w-0 items-center gap-[16px]">
+            <h1 className="m-0 min-w-0 truncate font-semibold" style={{ fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
+              {title}
+            </h1>
+            <div data-no-drag className="ml-auto flex min-w-0 items-center">
+              <LessonSearch />
+            </div>
+          </div>
+        </Column>
+      </header>
+    </Pane>
+  )
+}
+
 const meta = { fontSize: type2.xs, color: color.label } as const
 
-/** A section header: the title, then whatever the section puts beside it (filters, a note). */
+/** A section header: the label (spec section 6: 13/18, semibold, secondary), then what the section puts beside it. */
 function Head({ id, title, children }: { id: string; title: string; children?: ReactNode }): ReactNode {
   return (
-    <div className="flex flex-wrap items-center gap-[6px]" style={{ marginBottom: 8, minHeight: 30 }}>
-      <h2 id={id} className="m-0 font-medium" style={{ fontSize: type2.xs, marginRight: 10, color: color.label }}>
+    <div className="flex flex-wrap items-center gap-[8px]" style={{ marginBottom: 8, minHeight: 32 }}>
+      <h2 id={id} className="m-0 font-semibold" style={{ fontSize: type2.sm, lineHeight: '18px', marginRight: 8, color: color.label }}>
         {title}
       </h2>
       {children}
@@ -104,7 +132,7 @@ function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
             {contLine(c)}
           </span>
         </span>
-        <span className="relative hidden items-center @min-[640px]/pane:flex" style={{ marginRight: 6 }}>
+        <span className="relative hidden items-center @min-[640px]/pane:flex" style={{ marginRight: 8 }}>
           <ProgressLine done={c.passed} total={c.total} />
         </span>
       </Row>
@@ -137,7 +165,7 @@ function LessonRow({ item }: { item: LibraryItem }): ReactNode {
 /** The last row of the list: paste a YouTube link (the launcher builds it). */
 function PasteRow(): ReactNode {
   return (
-    <Row onClick={openLauncher} label="Paste a YouTube link to build a lesson" data={{ 'data-lessons-paste': '' }} style={{ padding: '14px 10px' }}>
+    <Row onClick={openLauncher} label="Paste a YouTube link to build a lesson" data={{ 'data-lessons-paste': '' }} style={{ padding: '16px 10px' }}>
       <Plus aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label, marginLeft: -2 }} />
       <span className="relative flex min-w-0 flex-1 items-baseline gap-[8px]">
         <span style={{ fontSize: type2.md, color: color.text }}>Paste a YouTube link</span>
@@ -211,7 +239,7 @@ export function Lessons(): ReactNode {
     <Pane data-lessons style={{ color: color.text }}>
       <Column className="flex flex-col" style={{ gap: rhythm.section, paddingTop: 24, paddingBottom: rhythm.bottom }}>
         {!s.loaded ? (
-          <div className="flex flex-col gap-[10px]" aria-busy aria-label="Loading your lessons">
+          <div className="flex flex-col gap-[8px]" aria-busy aria-label="Loading your lessons">
             {[0, 1, 2, 3].map((i) => (
               <Skeleton key={i} h={48} />
             ))}
@@ -264,7 +292,7 @@ export function Lessons(): ReactNode {
                     </Rise>
                   ))}
                   {filtered && ready.length === 0 ? (
-                    <li className="flex items-center gap-[12px]" style={{ padding: '14px 10px' }}>
+                    <li className="flex items-center gap-[12px]" style={{ padding: '12px 10px' }}>
                       <span style={{ ...meta, fontSize: type2.sm }}>No lessons match.</span>
                       <Ring>
                         <QuietButton
