@@ -511,6 +511,8 @@ export type PlaceOptions = {
   /** Extra flow distance into and out of a layer that holds a hero (px). */
   heroExtra?: number
   heroLayers?: number[]
+  /** Widen across the flow only when the whole tree shows at this scale or more (below it the view opens zoomed in). */
+  widenFrom?: number
 }
 
 export type Placed = {
@@ -545,21 +547,35 @@ export function placeGraph(l: Layout, o: PlaceOptions): Placed {
   const units = l.max - l.min
   const acrossBefore = o.extent.acrossBefore ?? o.extent.across
   const acrossAfter = o.extent.acrossAfter ?? o.extent.across
-  const half = units > 0 ? clamp((crossBox - acrossBefore - acrossAfter) / units, o.half[0], o.half[1]) : o.half[1]
   const flowAt: number[] = []
   for (let i = 0; i < n; i++) flowAt.push(i ? flowAt[i - 1] + flowGap + extraAt(i - 1) : o.extent.before)
   const flowLen = (n ? flowAt[n - 1] : 0) + o.extent.after
-  const crossLen = units * half + acrossBefore + acrossAfter
-  const at: Record<string, { x: number; y: number }> = {}
-  for (const it of Object.values(l.items)) {
-    const f = flowAt[it.layer]
-    const c = (it.pos - l.min) * half + acrossBefore
-    at[it.id] = vertical ? { x: c, y: flowLen - f } : { x: f, y: c }
+  const fitScale = (w: number, h: number): number => Math.min(1, (o.box.w - 2 * o.pad) / Math.max(1, w), (o.box.h - 2 * o.pad) / Math.max(1, h))
+  const build = (half: number): Placed => {
+    const crossLen = units * half + acrossBefore + acrossAfter
+    const at: Record<string, { x: number; y: number }> = {}
+    for (const it of Object.values(l.items)) {
+      const f = flowAt[it.layer]
+      const c = (it.pos - l.min) * half + acrossBefore
+      at[it.id] = vertical ? { x: c, y: flowLen - f } : { x: f, y: c }
+    }
+    const w = vertical ? crossLen : flowLen
+    const h = vertical ? flowLen : crossLen
+    return { at, w, h, scale: Math.max(0.2, fitScale(w, h)), flowGap, half }
   }
-  const w = vertical ? crossLen : flowLen
-  const h = vertical ? flowLen : crossLen
-  const scale = Math.min(1, (o.box.w - 2 * o.pad) / Math.max(1, w), (o.box.h - 2 * o.pad) / Math.max(1, h))
-  return { at, w, h, scale: Math.max(0.3, scale), flowGap, half }
+  let half = units > 0 ? clamp((crossBox - acrossBefore - acrossAfter) / units, o.half[0], o.half[1]) : o.half[1]
+  let p = build(half)
+  // Scaled down because the flow is long: widen across the flow to fill the view at that scale (never wider on screen
+  // than the max), so a tall tree doesn't stand in a narrow column with empty sides.
+  if (p.scale < 1 && p.scale >= (o.widenFrom ?? 0) && units > 0) {
+    const wide = clamp((crossBox / p.scale - acrossBefore - acrossAfter) / units, half, o.half[1] / p.scale)
+    if (wide > half + 0.5) {
+      half = wide
+      const q = build(half)
+      p = q.scale >= p.scale - 1e-6 ? q : p
+    }
+  }
+  return p
 }
 
 // ---- 6. edges -----------------------------------------------------------------------------------------------------

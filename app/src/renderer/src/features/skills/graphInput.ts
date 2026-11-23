@@ -65,8 +65,8 @@ export type Sizes = {
 }
 
 export const SIZES: Record<TreeView, Sizes> = {
-  path: { orientation: 'right', nodeR: 22, heroR: 44, labelW: 152, heroLabelW: 184, labelGap: 10, labelH: 48, lines: 2, minScale: 0.74 },
-  map: { orientation: 'up', nodeR: 22, heroR: 38, labelW: 140, heroLabelW: 176, labelGap: 8, labelH: 32, lines: 1, minScale: 0.7 }
+  path: { orientation: 'right', nodeR: 22, heroR: 44, labelW: 152, heroLabelW: 184, labelGap: 10, labelH: 48, lines: 2, minScale: 0.72 },
+  map: { orientation: 'up', nodeR: 20, heroR: 34, labelW: 140, heroLabelW: 176, labelGap: 6, labelH: 31, lines: 1, minScale: 0.68 }
 }
 
 /** The focus ring around NEXT: 3 px out, 2 px wide. */
@@ -84,7 +84,7 @@ export const PLACE: Record<TreeView, (box: { w: number; h: number }, l: Layout, 
       pad: 24,
       flow: [s.labelW + 16, 236],
       // A node, its label and the next one's focus ring, stacked: 2 half slots apart at least.
-      half: [Math.ceil((2 * s.nodeR + s.labelGap + s.labelH + 16 + RING_OUT) / 2), 84],
+      half: [Math.ceil((2 * s.nodeR + s.labelGap + s.labelH + 16 + RING_OUT) / 2), 104],
       extent: { before: s.labelW / 2, after: Math.max(s.heroLabelW / 2, s.heroR), across: s.heroR, acrossBefore: s.heroR, acrossAfter: s.heroR + s.labelGap + s.labelH },
       heroExtra: 24,
       heroLayers: heroLayer === undefined ? [] : [heroLayer]
@@ -98,8 +98,8 @@ export const PLACE: Record<TreeView, (box: { w: number; h: number }, l: Layout, 
       orientation: 'up',
       box,
       pad: 24,
-      flow: [2 * s.nodeR + s.labelGap + s.labelH + 14 + RING_OUT, 136],
-      half: [Math.ceil((s.labelW + 12) / 2), 100],
+      flow: [2 * s.nodeR + s.labelGap + s.labelH + 10, 140],
+      half: [Math.ceil((s.labelW + 12) / 2), 124],
       extent: { before: s.nodeR + s.labelGap + s.labelH, after: s.heroR + RING_OUT, across: s.heroLabelW / 2 },
       heroExtra: 2 * (s.heroR - s.nodeR) + 8,
       heroLayers: heroLayer === undefined ? [] : [heroLayer]
