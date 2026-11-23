@@ -51,7 +51,7 @@ CODE_LINES = 80
 def model() -> str:
     """Sonnet teaches (cost policy: never Opus by default). COACH_MODEL_EXPLAIN_SELECTION overrides; an Opus
     override still runs on Sonnet unless MIYAGI_ALLOW_OPUS=1 (the shared guard, llm.guard)."""
-    return llm.guard(os.environ.get("COACH_MODEL_EXPLAIN_SELECTION") or llm.SONNET)
+    return llm.model_for("explain_selection")
 
 
 def _numbered(text: str, first: int, max_lines: int = CODE_LINES) -> str:

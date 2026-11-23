@@ -22,6 +22,7 @@ from pathlib import PurePosixPath
 
 from jsonschema import Draft202012Validator
 
+from server import prompt_cache
 from server.safety.packages import ARCHIVE_SUFFIXES, decode_requirements
 from server.safety.patterns import safe_compile
 from server.untrusted import EXTRACT_RULE, wrap
@@ -416,12 +417,11 @@ def _branch(name) -> str:
 
 def model() -> str:
     """WORKSPACE_CLAUDE_MODEL, through the shared Opus guard (Opus only with MIYAGI_ALLOW_OPUS=1)."""
-    m = os.environ.get("WORKSPACE_CLAUDE_MODEL", DEFAULT_MODEL)
     try:
-        from server.config import guard_model
+        from server.models import model_for
     except Exception:  # pragma: no cover
-        return m
-    return guard_model(m)
+        return os.environ.get("WORKSPACE_CLAUDE_MODEL", DEFAULT_MODEL)
+    return model_for("workspace.scaffold")
 
 
 def _note_cloud(e: BaseException) -> None:
@@ -501,9 +501,17 @@ def record_cost(msg, model_id: str, label: str) -> None:
         log.debug("workspace cost record failed", exc_info=True)
 
 
+def _cache_first(messages: list[dict]) -> list[dict]:
+    """`messages` with a cache breakpoint on the first user message (a copy; the caller keeps appending to its own)."""
+    if not messages or not isinstance(messages[0].get("content"), str):
+        return messages
+    return [{**messages[0], "content": [prompt_cache.text_block(messages[0]["content"], cache=True)]}, *messages[1:]]
+
+
 def _ask(client, messages: list[dict]) -> dict:
     """One Claude call with structured output; falls back to schema-in-prompt if the API rejects it."""
-    kw = dict(model=model(), max_tokens=16000, system=SYSTEM, messages=messages)
+    # the fixed system prompt and the lesson prompt (the first user message) are cached: the leak-fix retry re-sends both
+    kw = dict(model=model(), max_tokens=16000, system=prompt_cache.system_blocks(SYSTEM), messages=_cache_first(messages))
     try:
         msg = client.messages.create(**kw, output_config={"format": {"type": "json_schema", "schema": SCAFFOLD_SCHEMA}})
         record_cost(msg, kw["model"], "workspace scaffold")

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from server.prompt_cache import as_text
 from server.workspace import (
     core,
     folder_name,
@@ -66,7 +67,7 @@ def test_pandas_starter_files_readme_and_state(tmp_path):
                            ("requirements.txt", "pandas\n"), ("pokemon_data.csv", csv)],
                           setup=["pip install -r requirements.txt"], open_file="main.py"))
     wd = prepare(g, "learn pandas", client=fc)
-    assert scaffold.SYSTEM and "lesson.libraries" in fc.calls[0]["messages"][0]["content"]
+    assert scaffold.SYSTEM and "lesson.libraries" in as_text(fc.calls[0]["messages"][0]["content"])
     assert wd.parent == tmp_path / "lessons"
     assert wd.name == folder_name(g) and wd.name.startswith("complete-python-pandas-data-science-tutorial-")
     assert (wd / "main.py").read_text(encoding="utf-8").startswith('"""Pokemon')
@@ -80,9 +81,9 @@ def test_pandas_starter_files_readme_and_state(tmp_path):
     assert open_file_for(wd) == "main.py"
     # the prompt carried the lesson, and asked for structured output
     call = fc.calls[0]
-    assert "Load the Pokemon CSV" in call["messages"][0]["content"]
+    assert "Load the Pokemon CSV" in as_text(call["messages"][0]["content"])
     assert call["output_config"]["format"]["type"] == "json_schema"
-    assert "filtered.csv" in call["messages"][0]["content"]  # learner-created file is listed as forbidden
+    assert "filtered.csv" in as_text(call["messages"][0]["content"])  # learner-created file is listed as forbidden
 
 
 def test_reuse_never_calls_claude_twice_nor_overwrites(tmp_path):
@@ -161,7 +162,7 @@ def test_react_lesson_that_scaffolds_itself_gets_readme_only(tmp_path):
     fc = FakeClient(reply([("my-react-app/package.json", "{}")], stack="node/react", setup=["node -v"]))
     wd = prepare(g, "learn react", client=fc)
     assert sorted(p.name for p in wd.iterdir()) == [".vscode", "README.md"]  # + our workspace settings
-    assert "my-react-app/package.json" in fc.calls[0]["messages"][0]["content"]  # told it's learner-created
+    assert "my-react-app/package.json" in as_text(fc.calls[0]["messages"][0]["content"])  # told it's learner-created
     assert any("learner create" in d for d in read_state(wd)["dropped"])
 
 
