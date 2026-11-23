@@ -62,6 +62,12 @@ type CardsState = {
    * engine's own install_all runs them and the app only follows its setup.progress.
    */
   queue?: { tools: string[]; started: string[]; engine: boolean }
+  /**
+   * The calm setup card (Michael, Nov 22): its ✕ folds it to a pill-sized chip ("Needs AutoCAD") instead of losing it,
+   * while a row still waits. `key` = the folded card (setupKey); `open` = the learner tapped the chip open again. The
+   * chip's own ✕ closes it for good.
+   */
+  setupFold?: { key: string; open: boolean }
 }
 
 export type ResultMeta = Pick<Payload<'search.result'>, 'style' | 'captions' | 'chapters' | 'durationS'>
@@ -69,7 +75,7 @@ export type ResultMeta = Pick<Payload<'search.result'>, 'style' | 'captions' | '
 /** One setup item's install: running (Install button disabled, spinner + latest line) until done; ok once it succeeded. */
 export type Install = { running: boolean; line?: string; error?: string; ok?: boolean; version?: string }
 
-const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, cardFrom: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {}, queue: undefined }
+const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, cardFrom: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {}, queue: undefined, setupFold: undefined }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 
 /**
@@ -343,9 +349,23 @@ export function jumpTo(t: number): void {
   closeTop()
 }
 
+/** A setup card across re-sends (the engine re-sends it with its install status): the same card while its title holds. */
+export const setupKey = (c: Payload<'card'>): string => `setup:${c.stepId ?? ''}:${c.title}`
+/** Needed rows still waiting on the learner (not ok, not settled, not just installed). */
+const setupWaits = (c: Payload<'card'> | undefined, installs: Record<string, Install>): boolean =>
+  c?.kind === 'setup' && (c.setup?.items ?? []).some((x) => x.needed && !x.ok && !x.haveIt && !x.using && !installs[x.tool]?.ok)
+/** The setup card shows as its chip: folded by its ✕ and not tapped open since. */
+export const setupFolded = (s: Pick<CardsState, 'card' | 'setupFold'>): boolean =>
+  s.card?.kind === 'setup' && !!s.setupFold && !s.setupFold.open && s.setupFold.key === setupKey(s.card)
+
 /** Close the card on top; if it opened over the off-track card, that card comes back. */
 function closeTop(): void {
   const s = get()
+  // ✕ on a setup card that still waits on something: fold it to its chip (it grows back on a tap). ✕ on the chip closes.
+  if (s.card?.kind === 'setup' && !setupFolded(s) && setupWaits(s.card, s.installs) && !s.resume) {
+    cancelClose()
+    return set({ setupFold: { key: setupKey(s.card), open: false } })
+  }
   const offtrack = useLesson.getState().offtrack
   // ✕ on the off-track card itself (nothing on top of it): remember it, so a re-send stays closed.
   const closingOfftrack = !s.card && !s.success && !!offtrack

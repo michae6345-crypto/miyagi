@@ -6,7 +6,13 @@ import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Keycap, type KeyName } from '../../core/ui/Keycap'
-import { color, fill, paper, radius2, surface, type2 } from '../../core/theme'
+import { color, elevation, fill, highlight, paper, radius2, surface, type2 } from '../../core/theme'
+
+/**
+ * The account window's cards (menu, sign in, upgrade): one border and a top highlight in dark, no drop shadow (layout lane,
+ * Nov 22); light keeps the soft tile lift. The same recipe as features/shell ui.tsx CARD.
+ */
+export const WINDOW_CARD_SHADOW = `${highlight.card}, inset 0 0 0 1px var(--l-border), ${elevation.tile}`
 import { resetDay, type HelpMeter } from './model'
 import { fade, press, spring } from '../../core/ui/motion'
 
