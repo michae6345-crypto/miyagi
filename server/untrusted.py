@@ -68,6 +68,7 @@ CAPS: dict[str, int] = {
     "screen": 40_000,
     "web": 8_000,
     "citations": 8_000,
+    "memory": 3_000,  # server/context: the lesson's notes so far (recall.py keeps them to ~1200)
     "lesson": 60_000,
 }
 DEFAULT_CAP = 20_000

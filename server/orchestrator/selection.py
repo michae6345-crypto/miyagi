@@ -156,6 +156,8 @@ async def answer(session: Any, step: dict | None, text: str) -> None:
     ctx: dict[str, Any] = {"lesson": (session.graph or {}).get("lesson", {})}
     if step is not None and sel["source"] == "drawer":  # lesson text: the learner's own code helps relate it
         ctx["code"], ctx["file"] = session._coach_excerpt(step, limit=4000)  # a .env step file: values hidden
+    if step is not None and hasattr(session, "_memory_kw"):  # server/context: earlier in this lesson ({} when off)
+        ctx.update(session._memory_kw(step, "explain", {ctx.get("file")} if ctx.get("file") else None))
     card = dict(await session.m.explain_selection(step, sel, ctx))
     if step is not None and gen != session.step_gen:
         return  # the learner moved to another step meanwhile: an answer about the old one would mislead

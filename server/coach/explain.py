@@ -182,6 +182,10 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
             # Nov 22: the setup scan's summary for an app lesson ("AutoCAD 2025 is installed", "uses FreeCAD instead");
             # absent for code lessons. Tool names can come from a model, so it is data.
             f"SETUP ON THIS MAC:\n{wrap('setup', ctx['setup'])}" if ctx.get("setup") else "",
+            # server/context: what this lesson already saw and did (checks, files, fixes, skipped setup), this step's
+            # and the newest first; the learner's files and screen, redacted, so it is data. Absent when memory is off.
+            f"WHAT WE KNOW SO FAR (earlier in this lesson; build on it, don't repeat it):\n{wrap('memory', ctx['memory'])}"
+            if ctx.get("memory") else "",
             f"METRICS:\n{metrics_text}" if ctx.get("metrics_summary") is not None else "",
             f"LEARNER CODE:\n{wrap('code', number_lines(code, 80))}" if code else "",
             wrap("screen", cursor_text(ctx["cursor"])) if ctx.get("cursor") and screen is None else "",

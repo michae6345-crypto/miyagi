@@ -118,7 +118,8 @@ EXACT_FILES = ("VS Code's exact editor text, unsaved edits included: judge the c
 
 
 async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files: dict[str, str] | None,
-               focused_app: str, lesson: dict | None, active_file: dict | None = None, exact_files: bool = False):
+               focused_app: str, lesson: dict | None, active_file: dict | None = None, exact_files: bool = False,
+               memory: str = ""):
     """One Haiku judgment → (data, result, checks, status_by_id, steps), or None when unavailable. exact_files: the
     files are the editor's own text (the VS Code companion's buffer), so OCR never decides whether code is right."""
     sid = step.get("id", "")
@@ -144,6 +145,8 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
         "OTHER STEPS OF THIS LESSON:\n" + "\n".join(f"- {s['id']}: {step_text(s, 'title')}" for s in steps if s["id"] != sid) if len(steps) > 1 else "",
         f"SCREEN NOW:\n{wrap('screen', scr)}" if scr else "SCREEN NOW: (not available)",
         wrap("screen", glance) if glance else "",  # a Haiku glance < 8 s old: context only
+        # server/context: what already happened in this lesson (checks, setup, actions); context, never evidence
+        f"EARLIER IN THIS LESSON (context only, never evidence for a check):\n{wrap('memory', memory)}" if memory else "",
         (f"WORKSPACE FILES ({EXACT_FILES}):\n{wrap('code', fil)}" if exact_files else f"WORKSPACE FILES:\n{wrap('code', fil)}") if fil else "",
         "Judge each check.",
     ] if x)
@@ -237,8 +240,9 @@ def _box_for(screen: Any, text: str) -> dict | None:
 
 async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | None = None, *,
                      check_results: list[dict] | None = None, focused_app: str = "", lesson: dict | None = None,
-                     active_file: dict | None = None, exact_files: bool = False) -> dict | None:
+                     active_file: dict | None = None, exact_files: bool = False, memory: str = "") -> dict | None:
     """The "Check" button (action check_step): judge now, no idle/rate gates (the learner asked).
+    `memory`: server/context's "earlier in this lesson" notes (untrusted data, context only).
 
     → {"checks": {id: {"verdict": "done"|"not_done"|"unsure", "reason", "evidence"}}, "done": bool,
        "missing": whole sentences with the step's exact command (card_text), "where": str | None, "target": {"text", "rect"} | None, "_meta"}
@@ -247,7 +251,8 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
     """
     if llm.offline_mode():
         return _offline_judgment(step, check_results, screen)
-    asked = await _ask(step, check_results, screen, files, focused_app, lesson, active_file, exact_files)
+    asked = await _ask(step, check_results, screen, files, focused_app, lesson, active_file, exact_files,
+                       **({"memory": memory} if memory else {}))
     if asked is None:
         return None
     data, res, checks, status, _steps = asked
@@ -323,14 +328,16 @@ class StepJudge:
 
     async def judge(self, step: dict, check_results: list[dict], *, screen: Any = None, files: dict[str, str] | None = None,
                     focused_app: str = "", lesson: dict | None = None, file_mtimes: dict[str, Any] | None = None,
-                    exact_files: bool = False) -> dict | None:
+                    exact_files: bool = False, memory: str = "") -> dict | None:
         """{"checks": [...], "events": [check.updated...], "card": {...} | None, "done", "summary", "_meta"}, or None.
+        `memory`: as judge_step's (server/context notes, context only).
         `done`: Claude sees the whole step done. `card` is None when it repeats the card the learner already saw
         for this step (card_shown) and no file changed since."""
         sid = step.get("id", "")
         fsig = files_signature(file_mtimes or files)
         self.gate.started(sid, screen=screen_text(screen), files=file_mtimes or files)
-        asked = await _ask(step, check_results, screen, files, focused_app, lesson, exact_files=exact_files)
+        asked = await _ask(step, check_results, screen, files, focused_app, lesson, exact_files=exact_files,
+                           **({"memory": memory} if memory else {}))
         if asked is None:
             return None
         data, res, checks, status, steps = asked

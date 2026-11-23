@@ -86,6 +86,8 @@ def prompt(step: dict | None, sel: dict, context: dict | None = None, lesson: di
                      + wrap("code", _numbered(around["text"], int(around.get("startLine") or 1))))
     elif sel.get("source") != "vscode" and ctx.get("code"):
         parts.append(f"LEARNER CODE (the step's file, context only):\n{wrap('code', _numbered(ctx['code'], 1))}")
+    if ctx.get("memory"):  # server/context: what this lesson already saw and did (absent when memory is off)
+        parts.append(f"WHAT WE KNOW SO FAR (earlier in this lesson, context only):\n{wrap('memory', ctx['memory'])}")
     parts.append("LEARNER ASKS: Explain the selected text.")
     return "\n\n".join(parts)
 

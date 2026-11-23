@@ -354,12 +354,13 @@ class Modules:
 
     async def judge_step(self, step: dict, screen: Any = None, files: dict | None = None, *, check_results: Any = None,
                          focused_app: str = "", lesson: dict | None = None, active_file: dict | None = None,
-                         exact_files: bool = False) -> dict | None:
+                         exact_files: bool = False, memory: str = "") -> dict | None:
         fn = self._real_fn("coach", "judge_step")
         if fn is None:
             return None
         return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson,
-                        active_file=active_file, **({"exact_files": True} if exact_files else {}))
+                        active_file=active_file, **({"exact_files": True} if exact_files else {}),
+                        **({"memory": memory} if memory and _accepts(fn, "memory") else {}))
 
     # -- E2 lazy long-video parts: later parts are built only as the learner nears them
     def lesson_needs_more(self, graph: dict, step_index: int) -> bool:
@@ -470,7 +471,7 @@ class Modules:
     async def diagnose(self, step: dict, failed_checks: list[dict], metrics: dict, code_excerpt: str,
                        error_text: str = "", cursor: dict | None = None, screen: Any = None,
                        on_targets: Callable[[list[dict]], Any] | None = None, file_state: dict | None = None,
-                       code_source: str = "file") -> dict:
+                       code_source: str = "file", memory: str = "") -> dict:
         """`metrics` is the raw series dict {name: [(step, value)]} (what coach.diagnose expects).
         Runs as the coach's cancellable "diagnose" task when the coach supports it."""
         cached = self._cache("coach", f"{step['id']}.json")
@@ -480,7 +481,8 @@ class Modules:
         kwargs: dict[str, Any] = {}
         if fn is not None:
             for name, val in (("error_text", error_text), ("cursor", cursor), ("screen", screen),
-                              ("on_targets", on_targets), ("file_state", file_state), ("code_source", code_source)):
+                              ("on_targets", on_targets), ("file_state", file_state), ("code_source", code_source),
+                              ("memory", memory)):  # memory: server/context's notes (orchestrator/context_memory)
                 if val and _accepts(fn, name):  # E5: file_state / code_source -> holds (unsaved, OCR, wrong folder)
                     kwargs[name] = val
         inflight = getattr(self.real.get("coach"), "inflight", None) if fn is not None else None

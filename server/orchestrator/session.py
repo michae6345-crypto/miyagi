@@ -60,6 +60,7 @@ from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX t
 from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
 from . import setup_rows  # t9 V12: the setup card's rows stay put while it installs; Install all
 from . import setup_apps  # Nov 22: licensed apps (AutoCAD): I have it / Get it / free alternative, noticed when in front
+from . import context_memory  # Nov 22: short local notes of what the lesson saw and did, for context-aware coaching
 from . import nb_coach  # T11: a notebook run still going keeps its output rows pending and the coach quiet
 
 
@@ -887,6 +888,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 payload = await self._v2_shape(type_, dict(payload or {}))
             except Exception:  # noqa: BLE001
                 log.exception("v2 fields for %s failed; sending it without them", type_)
+        context_memory.observe(self, type_, payload)  # never raises; a no-op when memory is off (and under pytest)
         await self._emit_raw(type_, payload or {})
 
     def _tagged(self, type_: str, payload: dict) -> dict:
@@ -3447,6 +3449,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         _metric_labels(graph)  # t10: "at least 95%", never "reaches 0.95" beside "at least 95"
         _app_lesson(graph)  # Nov 22: a cached AutoCAD lesson too talks about AutoCAD and checks the app, never files
         self.graph = graph
+        context_memory.lesson_loaded(self)  # a fresh start (not a Resumer restore) forgets the earlier run's notes
         _session_cost_start(graph)  # roadmap 3.8: the running cost tally (build included) belongs to this lesson
         self.lesson_wall_t0 = None  # v2: set by the first start_step (minutes only from step 1)
         self._build_v2 = None
@@ -5283,7 +5286,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     card = await self.m.diagnose(step, failed_checks, ctx.metrics, _for_coach(code, _file),
                                                  error_text="\n".join(tail),
                                                  cursor=self.cursor_context(), screen=screen, on_targets=on_targets,
-                                                 file_state=file_state, code_source="file" if _file else "screen")
+                                                 file_state=file_state, code_source="file" if _file else "screen",
+                                                 **self._memory_kw(step, "diagnose", {_file} if _file else None))
                     think.cancel()
                 except Exception as e:
                     think.cancel()
@@ -5747,6 +5751,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def on_file_change(self, paths: list[str] | None = None) -> None:
         self._acted()  # a save is a learner action (and a breakpoint)
+        context_memory.scan_soon(self, paths)  # outlines of the saved files (incremental, in a thread; off in tests)
         if self.step is not None:
             await self.evaluate("file")
 
@@ -5890,6 +5895,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                            else "watching")
 
     async def action(self, kind: str, text: str | None = None) -> None:
+        context_memory.on_action(self, kind, text)  # "skipped setup", "has AutoCAD": later answers know (never raises)
         if kind == "start":  # "Start the lesson" on the "Before you start" sheet (E4)
             await self._begin("Start")
             return
@@ -6514,7 +6520,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             # Nov 22: what the setup scan found about the lesson's app ("AutoCAD 2025 is installed"; "the learner uses
             # FreeCAD instead"). "" for a code lesson, so its context is unchanged.
             "setup": setup_apps.context_line(self),
+            # server/context: what this lesson already saw and did ("" when memory is off: the context is unchanged)
+            **self._memory_kw(self.step, "explain", {file} if file else None),
         }
+
+    def _memory_kw(self, step: dict | None, purpose: str, files: Any = None) -> dict:
+        """{"memory": block} for a coach call, or {} when memory is off or knows nothing (fakes in tests never see
+        a new keyword). `files`: names the prompt already carries in full (their notes are left out)."""
+        names = {str(f) for f in (files or ()) if f}
+        mem = context_memory.block(self, step, purpose, files_in_prompt=names)
+        return {"memory": mem} if mem else {}
 
     CARD_GAP_S = 8.0  # never two automatic cards within 8 s
     ASK_KINDS = ("explain", "ask", "hint")  # the learner asked Miyagi: proactive cards wait for the answer
@@ -6922,7 +6937,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             verdict = await self.m.judge_step(step, screen=screen, files=files,
                                               check_results=self._judge_results(), focused_app=self._focused_app(),
                                               lesson=(self.graph or {}).get("lesson"), active_file=active,
-                                              exact_files=exact)
+                                              exact_files=exact, **self._memory_kw(step, "judge", files))
         except Exception as e:  # noqa: BLE001 - the judge is a bonus
             log.info("check_step: no judge (%s)", e)
             verdict = None
@@ -7792,7 +7807,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             j = await self.judge.judge(step, self._judge_results(), screen=screen, files=files,
                                        focused_app=self._focused_app(), lesson=(self.graph or {}).get("lesson"),
                                        file_mtimes=self._judge_gate_kwargs(step)["file_mtimes"],
-                                       **({"exact_files": True} if exact else {}))
+                                       **({"exact_files": True} if exact else {}),
+                                       **self._memory_kw(step, "judge", files))
         except Exception:  # noqa: BLE001
             log.exception("step judge failed")
             j = None
