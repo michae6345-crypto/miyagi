@@ -1111,8 +1111,9 @@ class PanelState(_Model):
 
 
 class AskWarm(_Model):
-    """Nov 22 (push to talk speed): the push-to-talk keys went down; open or reuse the keep-alive links and warm the
-    prompt cache for the ask (at most once per cache lifetime). No reply. pttId: the hold's id, for logs only."""
+    """Nov 22 (push to talk speed): the push-to-talk hold passed the minimum and the mic is open; open or reuse the
+    keep-alive links and warm the prompt cache for the ask. The app sends it at most once every 4 minutes (under the
+    5-minute cache lifetime). No reply. pttId: the hold's id, for logs only."""
 
     pttId: str | None = Field(default=None, max_length=64)
 

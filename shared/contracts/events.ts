@@ -309,11 +309,13 @@ export interface AppCommands {
   /** Nov 22 (Skills page). set_goal: the learner picked a capstone (the engine answers a fresh `progress`). skills.ack: the unlock events up to `until` (an event's `at`) have played. */
   "set_goal": { capstoneId: string };
   "skills.ack": { until: string | number };
-  /** Nov 22 (push to talk speed): the learner just pressed the push-to-talk keys (Fn+Control), so an ask (spoken, or a circle)
-   *  is likely within a few seconds. The engine gets ready for it: open or reuse its keep-alive links (app to engine to cloud
-   *  to Anthropic) and warm the prompt cache for the fixed ask system prompt, at most once per cache lifetime. No reply event,
-   *  no card, never a learner-visible effect; safe to ignore or repeat. pttId: the hold's id (the helper's ptt.id), for logs
-   *  only. The app sends it at most once every few seconds, and only when engine.hello lists "ask.warm". */
+  /** Nov 22 (push to talk speed): the learner is holding the push-to-talk keys (Fn+Control) past the minimum hold and
+   *  the mic is open, so an ask (spoken, or a circle) is likely within a few seconds. The engine gets ready for it: open
+   *  or reuse its keep-alive links (app to engine to cloud to Anthropic) and warm the prompt cache for the fixed ask
+   *  system prompt. No reply event, no card, never a learner-visible effect; safe to ignore or repeat. pttId: the hold's
+   *  id (the helper's ptt.id), for logs only. The app sends it at most once every 4 minutes (under the 5-minute cache
+   *  lifetime; never for a tap or an aborted chord), and only when engine.hello lists "ask.warm". The engine may skip
+   *  a warm-up when its cache is still warm. */
   "ask.warm": { pttId?: string };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
