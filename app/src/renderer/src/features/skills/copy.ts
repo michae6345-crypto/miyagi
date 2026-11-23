@@ -4,16 +4,26 @@
  */
 import { needsLine, type SkillGraph, type SkillGraphNode } from './model'
 
-/** The line under a node's name: what it is now ("ready", "2 of 4 steps", "needs 3 skills", "review"). */
-export function stateLine(n: SkillGraphNode, g: SkillGraph): string {
+/**
+ * The line under a node's name: what it is now ("ready", "2 of 4 steps", "needs 3 skills", "review"). `fits` says
+ * whether a line fits under the node; a "needs <name>" that doesn't becomes "needs 1 skill" (never an ellipsis).
+ */
+export function stateLine(n: SkillGraphNode, g: SkillGraph, fits: (line: string) => boolean = () => true): string {
   if (n.kind === 'capstone') {
     if (n.state === 'mastered') return 'project · done'
-    if (n.isGoal && g.goal) return `project · ${g.goal.mastered} of ${g.goal.total} skills`
+    if (n.isGoal && g.goal) {
+      const line = `project · ${g.goal.mastered} of ${g.goal.total} skills`
+      return fits(line) ? line : `${g.goal.mastered} of ${g.goal.total} skills`
+    }
     const c = g.capstones.find((x) => x.id === n.id)
     const need = (c?.requires.length ? c.requires : n.requires).filter((id) => g.byId[id]?.state !== 'mastered').length
-    return need ? `project · ${need} to go` : 'project · ready'
+    const line = need ? `project · ${need} to go` : 'project · ready'
+    return fits(line) ? line : need ? `${need} to go` : 'ready'
   }
-  if (n.state === 'locked') return needsLine(n, g) ?? 'locked'
+  if (n.state === 'locked') {
+    const line = needsLine(n, g) ?? 'locked'
+    return fits(line) ? line : n.needs.length === 1 ? 'needs 1 skill' : `needs ${n.needs.length} skills`
+  }
   if (n.state === 'practicing') return n.evidence ? `${n.evidence.done} of ${n.evidence.total} steps` : 'practicing'
   if (n.state === 'ready') return 'ready'
   return n.review ? 'review' : 'mastered'

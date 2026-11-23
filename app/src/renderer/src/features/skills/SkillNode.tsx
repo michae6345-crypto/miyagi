@@ -2,13 +2,14 @@
  * Feature: skills. One skill on the tree, and the small glyph the list and panel use.
  *
  * States (no legend: the words sit on the node):
- *   locked      a dashed faint ring on the pane, flat; the line under it says what it needs ("needs 3 skills")
+ *   locked      a dashed ring on the pane, flat; the line under it says what it needs ("needs 3 skills"). In dark the
+ *               ring and the name take the label gray (a faint ring vanished at the Map's scale), still quieter than ready
  *   ready       a lifted disc with a solid ink ring
  *   practicing  the same with an inner ink arc for the evidence so far ("2 of 4 steps")
  *   mastered    a green disc with an ink check (the only green on the page)
  *   review      mastered but due: a hollow green ring and a green check. Never a demotion
  *   capstone    a rounded square with the bonsai, same rules; the goal is the hero, a bigger card
- * NEXT is a ring 3 px outside the node and the word "Next" leading the state line.
+ * NEXT is a ring 3 px outside the node; its state line is in ink and semibold.
  *
  * The label rule: the name centered under the node (two lines at most), the state line under it (one line), both on a
  * plate in the pane's color. Edges never pass behind the words (layout.ts routes them around every label block).
@@ -19,6 +20,7 @@
 import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { color, ease, elevation, fill, highlight, radius2, type2 } from '../../core/theme'
+import { useAppearance } from '../../core/prefs'
 import { MiyagiMark } from '../../core/ui/Mark'
 import type { SkillGraphNode } from './model'
 
@@ -36,6 +38,7 @@ const checkPath = (s: number): string => `M${s * 0.31},${s * 0.52} L${s * 0.44},
 /** A round state glyph, size s (16 in the list, 44 on the tree). Pure SVG: no fill under it for the ring states. */
 export function Glyph({ n, size, anim }: { n: GlyphState; size: number; anim?: NodeAnim }): ReactNode {
   const reduce = useReducedMotion() ?? false
+  const lockedRing = useAppearance() === 'dark' ? color.label : fill.ring
   const s = size
   const c = s / 2
   const sw = s >= 30 ? 2 : 1.5
@@ -86,7 +89,7 @@ export function Glyph({ n, size, anim }: { n: GlyphState; size: number; anim?: N
           cy={c}
           r={r}
           fill="none"
-          stroke={fill.ring}
+          stroke={lockedRing}
           strokeWidth={sw}
           strokeDasharray={s >= 30 ? '3.2 4' : '2 2.4'}
           initial={false}
@@ -139,6 +142,7 @@ export function Glyph({ n, size, anim }: { n: GlyphState; size: number; anim?: N
 
 /** A project's square: the bonsai in a rounded card, the state as its edge. */
 function Capstone({ n, size, hero }: { n: SkillGraphNode; size: number; hero: boolean }): ReactNode {
+  const lockedRing = useAppearance() === 'dark' ? color.label : fill.ring
   const radius = hero ? 24 : radius2.chip
   const locked = n.state === 'locked'
   const done = n.state === 'mastered'
@@ -156,7 +160,7 @@ function Capstone({ n, size, hero }: { n: SkillGraphNode; size: number; hero: bo
     >
       {locked && (
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden className="absolute inset-0">
-          <rect x={1} y={1} width={size - 2} height={size - 2} rx={radius - 1} fill="none" stroke={fill.ring} strokeWidth={hero ? 2 : 1.5} strokeDasharray={hero ? '5 5' : '3.2 4'} />
+          <rect x={1} y={1} width={size - 2} height={size - 2} rx={radius - 1} fill="none" stroke={lockedRing} strokeWidth={hero ? 2 : 1.5} strokeDasharray={hero ? '5 5' : '3.2 4'} />
         </svg>
       )}
       <span style={{ opacity: locked ? 0.62 : 1 }} className="flex">
@@ -274,11 +278,11 @@ export function SkillNode({ n, x, y, r, hero, labelW, labelGap, lines, line, tra
         >
           <span style={plate}>{n.label}</span>
         </span>
-        <span className="block truncate" style={{ fontSize: type2.xs, lineHeight: '15px', color: locked ? color.faint : color.label, maxWidth: labelW, fontVariantNumeric: 'tabular-nums' }}>
-          <span style={plate}>
-            {n.isNext && <span style={{ color: color.text, fontWeight: 600 }}>Next · </span>}
-            {line}
-          </span>
+        <span
+          className="block truncate"
+          style={{ fontSize: type2.xs, lineHeight: '15px', color: n.isNext ? color.text : locked ? color.faint : color.label, fontWeight: n.isNext ? 600 : undefined, maxWidth: labelW, fontVariantNumeric: 'tabular-nums' }}
+        >
+          <span style={plate}>{line}</span>
         </span>
       </div>
     </motion.div>

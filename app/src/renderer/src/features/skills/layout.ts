@@ -1,24 +1,29 @@
 /**
  * Feature: skills. The skill tree's layered layout (Sugiyama style), pure: no React, no DOM, no layout library.
  *
- *   0  rows       (Map) a run of one track's skills, each the only way into the next, lies flat in one layer as a branch
- *                 (`findRows`): one wide item while it is layered and ordered, its steps laid out side by side after
- *   1  layers     longest path from the roots (`assignLayers`), then each node slides to the layer that keeps its edges
- *                 shortest (a node with more ways out than in moves up toward what it opens; the goal stays last)
+ *   0  rows       (optional, no view uses it now) a run of one track's skills lies flat in one layer (`findRows`)
+ *   1  layers     longest path from the roots (`assignLayers`); off the Map each node then slides to the layer that keeps
+ *                 its edges shortest. On the Map every skill stays in the layer of its prerequisite depth
  *   2  dummies    an edge that spans k layers gets k-1 invisible way points, so it routes and orders like a node
  *   3  order      barycenter sweeps down and up, then adjacent swaps (`transpose`), keeping the order with the fewest
- *                 crossings (`countCrossings`); ties keep a track's skills together. Links that still cross are set
- *                 aside (`hidden`) and the layers are taken again without them when that is shorter
+ *                 crossings (`countCrossings`); ties keep a track's skills together. On the Map (`tracks`) the tracks
+ *                 come first: `trackOrder` picks their left-to-right order outward from the trunk (fewest tracks and
+ *                 nodes passed by cross-track links, the trunk's and the goal's tracks on the middle, weight balanced)
+ *                 and every layer keeps it, so each track grows as one branch. Links that still cross are set aside
+ *                 (`hidden`) and the layers are taken again without them when that is shorter
  *   4  straighten each node moves toward the mean of its neighbours (a way point stays between its edge's ends), then
  *                 every layer is packed back into order with its minimum gaps by isotonic regression (pool adjacent
  *                 violators), so long edges run straight and a parent sits centered over its children; a lone root
  *                 (the trunk) and the lone goal sit on the middle; positions end on an integer grid of half slots
- *                 ("even rows"); two unlinked items never share a column in neighbouring layers
+ *                 ("even rows"); two unlinked items never share a column in neighbouring layers. On the Map each track
+ *                 also pulls its skills toward its own column, and among orders with no more crossings the one whose
+ *                 edges pass the fewest nodes they don't touch wins (`passes`)
  *   5  place      `placeGraph` turns layers and slots into pixels for a box: the gaps stretch between a min and a max to
  *                 fill the view, and only past the min does the whole tree scale down (text stays crisp). Each layer
  *                 has a band (its nodes and labels); the space between two bands is the edges' channel
  *   6  edges      `edgeRoute` runs straight through bands and `edgePath` draws one curve style in every channel: a
- *                 cubic whose tangents run along the flow. So no edge ever crosses a node or a label
+ *                 cubic whose tangents run along the flow. So no edge ever crosses a node or a label. `edgePorts` gives
+ *                 each edge its own port at both ends, so no two edges share a line
  *
  * Orientation: 'right' (Path: layer 0 on the left, the goal on the right) or 'up' (Map: layer 0 at the bottom, a tree
  * growing up from its trunk). Units: a node takes 2 half slots across the flow, a way point 1.
@@ -75,7 +80,7 @@ export type Layout = {
  * Layer per node: the longest chain of links into it, then a pass that slides each node toward the side with more
  * links, within its prerequisites and what it opens. Links that close a cycle are dropped (returned in `dropped`).
  */
-export function assignLayers(ids: string[], links: LayoutLink[], lastIds: string[] = []): { layer: Record<string, number>; kept: LayoutLink[]; dropped: LayoutLink[] } {
+export function assignLayers(ids: string[], links: LayoutLink[], lastIds: string[] = [], balance = true): { layer: Record<string, number>; kept: LayoutLink[]; dropped: LayoutLink[] } {
   const known = new Set(ids)
   const seen = new Set<string>()
   const clean = links.filter((l) => known.has(l.from) && known.has(l.to) && l.from !== l.to && !seen.has(`${l.from}>${l.to}`) && seen.add(`${l.from}>${l.to}`))
@@ -120,8 +125,9 @@ export function assignLayers(ids: string[], links: LayoutLink[], lastIds: string
   const top = (): number => Math.max(0, ...ids.filter((id) => !last.has(id)).map((id) => layer[id]))
   if (last.size) for (const id of last) layer[id] = Math.max(layer[id], top() + 1)
 
-  // Balance: slide toward the heavier side while it shortens the edges (a few passes, from the top down).
-  for (let pass = 0; pass < 4; pass++) {
+  // Balance: slide toward the heavier side while it shortens the edges (a few passes, from the top down). Off for the
+  // Map, where every skill sits in the layer of its prerequisite depth.
+  for (let pass = 0; balance && pass < 4; pass++) {
     let moved = false
     for (const id of [...order].reverse()) {
       if (last.has(id)) continue
@@ -178,12 +184,15 @@ function indexOf(layers: string[][]): Map<string, number> {
   return m
 }
 
-function sortBy(layer: string[], key: (id: string) => number | undefined, group: (id: string) => number): string[] {
+/** A fixed rank that outranks every barycenter (tracks kept side by side on the Map), or none. */
+type Rank = ((id: string) => number) | undefined
+
+function sortBy(layer: string[], key: (id: string) => number | undefined, group: (id: string) => number, rank?: Rank): string[] {
   const at = new Map(layer.map((id, i) => [id, i]))
   return [...layer].sort((a, b) => {
     const ka = key(a) ?? at.get(a)!
     const kb = key(b) ?? at.get(b)!
-    return ka - kb || group(a) - group(b) || at.get(a)! - at.get(b)!
+    return (rank ? rank(a) - rank(b) : 0) || ka - kb || group(a) - group(b) || at.get(a)! - at.get(b)!
   })
 }
 
@@ -191,7 +200,7 @@ function sortBy(layer: string[], key: (id: string) => number | undefined, group:
  * Order every layer to remove crossings: barycenter sweeps (each node to the mean index of its neighbours in the layer
  * just placed), then adjacent swaps that lower the count. The best order seen wins; stops early at zero.
  */
-export function orderLayers(input: string[][], down: Seg[][], group: (id: string) => number, rounds = 24): string[][] {
+export function orderLayers(input: string[][], down: Seg[][], group: (id: string) => number, rounds = 24, rank?: Rank): string[][] {
   const preds = new Map<string, string[]>()
   const succs = new Map<string, string[]>()
   for (const segs of down)
@@ -206,23 +215,23 @@ export function orderLayers(input: string[][], down: Seg[][], group: (id: string
   // way never crosses); (b) the same with children reversed; (c) each layer by its parents' places. Each start is
   // refined by sweeps and swaps; the order with the fewest crossings wins (ties: the earlier start).
   const dfsStart = (reverse: boolean): string[][] => {
-    const rank = new Map<string, number>()
+    const seen = new Map<string, number>()
     const visit = (id: string): void => {
-      if (rank.has(id)) return
-      rank.set(id, rank.size)
+      if (seen.has(id)) return
+      seen.set(id, seen.size)
       const kids = [...(succs.get(id) ?? [])].sort((a, b) => group(a) - group(b))
       for (const c of reverse ? kids.reverse() : kids) visit(c)
     }
     const roots = input.flat().filter((id) => !preds.get(id)?.length)
-    for (const r of sortBy(roots, () => undefined, group)) visit(r)
-    return input.map((l) => [...l].sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0)))
+    for (const r of sortBy(roots, () => undefined, group, rank)) visit(r)
+    return input.map((l) => sortBy(l, (id) => seen.get(id), group, rank))
   }
   const baryStart = (): string[][] => {
     const layers = input.map((l) => [...l])
-    layers[0] = sortBy(layers[0], () => undefined, group)
+    layers[0] = sortBy(layers[0], () => undefined, group, rank)
     for (let i = 1; i < layers.length; i++) {
       const index = indexOf(layers)
-      layers[i] = sortBy(layers[i], (id) => bary(preds.get(id), index), group)
+      layers[i] = sortBy(layers[i], (id) => bary(preds.get(id), index), group, rank)
     }
     return layers
   }
@@ -230,7 +239,7 @@ export function orderLayers(input: string[][], down: Seg[][], group: (id: string
   let bestN = Infinity
   for (const start of [dfsStart(false), dfsStart(true), baryStart()]) {
     const layers = start
-    transpose(layers, down)
+    transpose(layers, down, rank)
     let n = countCrossings(layers, down)
     if (n < bestN) {
       bestN = n
@@ -241,14 +250,14 @@ export function orderLayers(input: string[][], down: Seg[][], group: (id: string
       if (downward)
         for (let i = 1; i < layers.length; i++) {
           const index = indexOf(layers)
-          layers[i] = sortBy(layers[i], (id) => bary(preds.get(id), index), group)
+          layers[i] = sortBy(layers[i], (id) => bary(preds.get(id), index), group, rank)
         }
       else
         for (let i = layers.length - 2; i >= 0; i--) {
           const index = indexOf(layers)
-          layers[i] = sortBy(layers[i], (id) => bary(succs.get(id), index), group)
+          layers[i] = sortBy(layers[i], (id) => bary(succs.get(id), index), group, rank)
         }
-      transpose(layers, down)
+      transpose(layers, down, rank)
       n = countCrossings(layers, down)
       if (n < bestN) {
         bestN = n
@@ -261,15 +270,17 @@ export function orderLayers(input: string[][], down: Seg[][], group: (id: string
 }
 
 /** Swap neighbours in a layer while it lowers the crossings with both adjacent layers. */
-function transpose(layers: string[][], down: Seg[][]): void {
+function transpose(layers: string[][], down: Seg[][], rank?: Rank, frozen = -1): void {
   for (let guard = 0; guard < 20; guard++) {
     let improved = false
     for (let i = 0; i < layers.length; i++) {
+      if (i === frozen) continue
       const local = (): number => {
         const index = indexOf(layers)
         return (i > 0 ? crossingsBetween(down[i - 1] ?? [], index) : 0) + crossingsBetween(down[i] ?? [], index)
       }
       for (let j = 0; j + 1 < layers[i].length; j++) {
+        if (rank && rank(layers[i][j]) !== rank(layers[i][j + 1])) continue
         const before = local()
         ;[layers[i][j], layers[i][j + 1]] = [layers[i][j + 1], layers[i][j]]
         if (local() < before) improved = true
@@ -278,6 +289,107 @@ function transpose(layers: string[][], down: Seg[][]): void {
     }
     if (!improved) break
   }
+}
+
+/**
+ * The Map's tracks, left to right (group numbers), so each track grows as one branch beside the next. Every order is
+ * tried (seven tracks or fewer; else a greedy build outward from the middle) and the cheapest wins:
+ *   - a link between two tracks costs the tracks it has to pass, and much more for each node of a passed track in the
+ *     layers it spans (it would cross that branch or run under its nodes)
+ *   - `center` (the trunk's track) and `crown` (the goal's) want the middle
+ *   - the weight of the tracks (their node counts) balances left and right of the middle
+ * Pure; ties keep the input order.
+ */
+export function trackOrder(ids: string[], links: LayoutLink[], layer: Record<string, number>, groupOf: (id: string) => number, center?: number, crown?: number): number[] {
+  const groups = [...new Set(ids.map(groupOf).filter((g) => g >= 0))]
+  const T = groups.length
+  if (T <= 1) return groups
+  const gi = new Map(groups.map((g, i) => [g, i]))
+  const size = groups.map(() => 0)
+  const occ: number[][] = groups.map(() => [])
+  for (const id of ids) {
+    const g = gi.get(groupOf(id))
+    if (g === undefined) continue
+    size[g]++
+    occ[g][layer[id]] = (occ[g][layer[id]] ?? 0) + 1
+  }
+  const span = (g: number, a: number, z: number): number => {
+    let n = 0
+    for (let L = a; L <= z; L++) n += occ[g][L] ?? 0
+    return n
+  }
+  const cross = links
+    .map((l) => ({ a: gi.get(groupOf(l.from)), b: gi.get(groupOf(l.to)), la: layer[l.from], lb: layer[l.to] }))
+    .filter((x): x is { a: number; b: number; la: number; lb: number } => x.a !== undefined && x.b !== undefined && x.a !== x.b)
+  const total = size.reduce((a, n) => a + n, 0)
+  const mid = (T - 1) / 2
+  const ci = center !== undefined ? gi.get(center) : undefined
+  const gk = crown !== undefined ? gi.get(crown) : undefined
+  const cost = (pos: number[]): number => {
+    let c = 0
+    for (const x of cross) {
+      const lo = Math.min(pos[x.a], pos[x.b])
+      const hi = Math.max(pos[x.a], pos[x.b])
+      c += hi - lo
+      for (let g = 0; g < T; g++) if (pos[g] > lo && pos[g] < hi) c += 8 * span(g, Math.min(x.la, x.lb), Math.max(x.la, x.lb))
+    }
+    const c0 = ci !== undefined ? pos[ci] : mid
+    if (ci !== undefined) c += 3 * Math.abs(pos[ci] - mid)
+    if (gk !== undefined) c += 3 * Math.abs(pos[gk] - c0)
+    let torque = 0
+    for (let g = 0; g < T; g++) torque += size[g] * (pos[g] - c0)
+    return c + (6 * Math.abs(torque)) / Math.max(1, total)
+  }
+  let best: number[] = groups.map((_, i) => i)
+  let bestC = cost(best)
+  if (T <= 7) {
+    // Heap's algorithm over positions.
+    const perm = groups.map((_, i) => i)
+    const c = perm.map(() => 0)
+    let i = 0
+    while (i < T) {
+      if (c[i] < i) {
+        const j = i % 2 ? c[i] : 0
+        ;[perm[j], perm[i]] = [perm[i], perm[j]]
+        const k = cost(perm)
+        if (k < bestC - 1e-9) {
+          bestC = k
+          best = [...perm]
+        }
+        c[i]++
+        i = 0
+      } else c[i++] = 0
+    }
+  } else {
+    // Greedy: start from the trunk's track, add the track that costs least at either end.
+    let seq = [ci ?? 0]
+    const left = new Set(groups.map((_, i) => i).filter((i) => i !== seq[0]))
+    while (left.size) {
+      let pick: number[] = []
+      let pc = Infinity
+      for (const g of left)
+        for (const s of [
+          [g, ...seq],
+          [...seq, g]
+        ]) {
+          const rest = [...left].filter((x) => x !== g)
+          const full = [...s, ...rest]
+          const pos = groups.map(() => 0)
+          full.forEach((x, i) => (pos[x] = i))
+          const k = cost(pos)
+          if (k < pc) {
+            pc = k
+            pick = s
+          }
+        }
+      seq = pick
+      for (const g of seq) left.delete(g)
+    }
+    best = groups.map(() => 0)
+    seq.forEach((x, i) => (best[x] = i))
+  }
+  // best[g] is the position of track g: back to groups in left-to-right order.
+  return groups.map((g, i) => ({ g, p: best[i] })).sort((a, b) => a.p - b.p).map((x) => x.g)
 }
 
 // ---- 4. straighten ------------------------------------------------------------------------------------------------
@@ -329,7 +441,12 @@ type RouteLink = { from: string; to: string; pf?: number; pt?: number }
  * Route `drawn` through the layers (way points for long edges) and order them. Fresh arrays each call; `edges[i]` is
  * `drawn[i]`'s.
  */
-function route(ids: string[], layerOf: Record<string, number>, drawn: RouteLink[], groupOf: Map<string, number>, span: Map<string, number>) {
+function route(ids: string[], layerOf: Record<string, number>, drawn: RouteLink[], groupOf: Map<string, number>, span: Map<string, number>, trackPos?: Map<number, number>) {
+  /** With tracks: each item's rank (its track's place; a way point between its edge's two tracks, by layer). */
+  const rankOf = new Map<string, number>()
+  const mid = trackPos && trackPos.size ? (Math.min(...trackPos.values()) + Math.max(...trackPos.values())) / 2 : 0
+  const trackRank = (id: string): number => trackPos?.get(groupOf.get(id) ?? -1) ?? mid
+  if (trackPos) for (const id of ids) rankOf.set(id, trackRank(id))
   const layer: Record<string, number> = { ...layerOf }
   const nLayers = ids.length ? Math.max(...ids.map((id) => layer[id])) + 1 : 0
   const layers: string[][] = Array.from({ length: nLayers }, () => [])
@@ -345,6 +462,11 @@ function route(ids: string[], layerOf: Record<string, number>, drawn: RouteLink[
       const d = `${DUMMY}${l.from}>${l.to}#${k++}`
       layers[i].push(d)
       groupOf.set(d, groupOf.get(l.from) ?? 0)
+      if (trackPos) {
+        const a = trackRank(l.from)
+        const z = trackRank(l.to)
+        rankOf.set(d, a + ((z - a) * (i - layer[l.from])) / (layer[l.to] - layer[l.from]))
+      }
       span.set(d, 1)
       layer[d] = i
       chain.push(d)
@@ -357,7 +479,7 @@ function route(ids: string[], layerOf: Record<string, number>, drawn: RouteLink[
     }
     edges.push({ from: l.from, to: l.to, chain })
   }
-  const ordered = nLayers ? orderLayers(layers, down, (id) => groupOf.get(id) ?? 0) : []
+  const ordered = nLayers ? orderLayers(layers, down, (id) => groupOf.get(id) ?? 0, 24, trackPos ? (id) => rankOf.get(id) ?? mid : undefined) : []
   // Crossings per edge.
   const index = indexOf(ordered)
   const per = edges.map(() => 0)
@@ -372,7 +494,7 @@ function route(ids: string[], layerOf: Record<string, number>, drawn: RouteLink[
           per[segEdge.get(b)!]++
         }
       }
-  return { layer, ordered, down, edges, per, crossings: per.reduce((a, n) => a + n, 0) / 2, nLayers }
+  return { layer, ordered, down, edges, per, crossings: per.reduce((a, n) => a + n, 0) / 2, nLayers, rank: trackPos ? rankOf : undefined }
 }
 
 export type LayoutOptions = {
@@ -385,6 +507,11 @@ export type LayoutOptions = {
   maxRow?: number
   /** Stop laying runs flat once the tree is this many layers or fewer. */
   maxDepth?: number
+  /**
+   * The Map: every skill in the layer of its prerequisite depth (no sliding), each track kept together as a branch,
+   * tracks ordered outward from the trunk (trackOrder) and pulled into their own columns while straightening.
+   */
+  tracks?: { center?: number; crown?: number }
 }
 
 /**
@@ -476,6 +603,9 @@ type Built = {
   nLayers: number
   groupOf: Map<string, number>
   span: Map<string, number>
+  trackPos?: Map<number, number>
+  /** With tracks: each ordered item's rank (orderLayers keeps it). */
+  rank?: Map<string, number>
 }
 
 /** Rows contracted to one wide item each, layered, routed and ordered; links set aside until nothing crosses. */
@@ -507,8 +637,23 @@ function build(ids: string[], links: LayoutLink[], lastIds: string[], baseGroup:
   const { layer } = assignLayers(
     cIds,
     ext.map((l) => ({ from: c(l.from), to: c(l.to) })),
-    lastIds.map(c)
+    lastIds.map(c),
+    !opts.tracks
   )
+  // The Map's tracks left to right (the goal and the trunk point stay out of the weighing: they sit on the middle).
+  let trackPos: Map<number, number> | undefined
+  if (opts.tracks) {
+    const real = cIds.filter((id) => !lastIds.includes(id) && (groupOf.get(id) ?? -1) >= 0)
+    const order = trackOrder(
+      real,
+      ext.filter((l) => real.includes(l.from) && real.includes(l.to)),
+      layer,
+      (id) => groupOf.get(id) ?? -1,
+      opts.tracks.center,
+      opts.tracks.crown
+    )
+    trackPos = new Map(order.map((g, i) => [g, i]))
+  }
   let drawn = ext
   const hidden: LayoutLink[] = []
   const go = () =>
@@ -517,7 +662,8 @@ function build(ids: string[], links: LayoutLink[], lastIds: string[], baseGroup:
       layer,
       drawn.map((l) => ({ from: c(l.from), to: c(l.to), pf: port(l.from), pt: port(l.to) })),
       groupOf,
-      span
+      span,
+      trackPos
     )
   let r = go()
   for (let guard = 0; r.crossings > 0 && guard < ext.length; guard++) {
@@ -538,10 +684,35 @@ function build(ids: string[], links: LayoutLink[], lastIds: string[], baseGroup:
     drawn = drawn.filter((_, i) => i !== pick)
     r = go()
   }
-  return { rows, rowOf, cIds, ordered: r.ordered, down: r.down, edges: r.edges, origs: drawn, flat, hidden, crossings: r.crossings, nLayers: r.nLayers, groupOf, span }
+  return { rows, rowOf, cIds, ordered: r.ordered, down: r.down, edges: r.edges, origs: drawn, flat, hidden, crossings: r.crossings, nLayers: r.nLayers, groupOf, span, trackPos, rank: r.rank }
 }
 
 type Nb = { other: string; mine: number; theirs: number }
+
+/**
+ * How many times an edge runs past a node it doesn't touch, in half slots: between two layers an edge's curve keeps to
+ * its source's side for the lower half of the channel and its target's for the upper half, so a node of either layer
+ * less than one half slot from that stretch has the edge running over or under it.
+ */
+export function passes(ordered: string[][], pos: Map<string, number>, edges: LayoutEdge[]): number {
+  const layerOf = new Map<string, number>()
+  ordered.forEach((row, i) => row.forEach((id) => layerOf.set(id, i)))
+  let n = 0
+  for (const e of edges)
+    for (let i = 0; i + 1 < e.chain.length; i++) {
+      const a = e.chain[i]
+      const z = e.chain[i + 1]
+      const L = layerOf.get(a)
+      if (L === undefined || layerOf.get(z) !== L + 1) continue
+      const pa = pos.get(a)!
+      const pz = pos.get(z)!
+      const mid = (pa + pz) / 2
+      const by = (id: string, x: number, y: number): boolean => !isDummy(id) && id !== a && id !== z && pos.get(id)! > Math.min(x, y) - 1 && pos.get(id)! < Math.max(x, y) + 1
+      for (const id of ordered[L]) if (by(id, pa, mid)) n++
+      for (const id of ordered[L + 1] ?? []) if (by(id, mid, pz)) n++
+    }
+  return n
+}
 
 /**
  * The layout. Layers come from the links (columns by prerequisite depth). When no order draws every link without a
@@ -574,213 +745,269 @@ export function layoutGraph(nodes: LayoutNode[], links: LayoutLink[], opts: Layo
     )
     if (b2.crossings === 0 && !b2.hidden.length && b2.nLayers <= b.nLayers) b = { ...b2, hidden: [...b.hidden, ...b2.hidden] }
   }
-  const { ordered, rowOf, rows, span } = b
+  const { rowOf, rows, span } = b
 
-  // A row's steps run left to right as ordered; one in the left half of its layer turns to run leftward (away from the
-  // middle, like a branch), when only one of its steps leads on (so turning it can't cross its own edges).
-  const flip = new Set<string>()
-  for (const row of ordered)
-    row.forEach((id, j) => {
-      if (!id.startsWith(ROW) || 2 * j >= row.length - 1) return
-      const r = rows.find((x) => ROW + x[0] === id)!
-      if (r.filter((m) => b.origs.some((o) => o.from === m)).length <= 1) flip.add(id)
-    })
-  const offset = (id: string): number => {
-    const r = rowOf.get(id)
-    return r ? (flip.has(r.rid) ? -1 : 1) * (2 * r.i - (r.k - 1)) : 0
-  }
+  /** Steps 4 (straighten) and the clean-ups after it, for one order of the layers: positions in half slots. */
+  const solve = (ordered: string[][]): { pos: Map<string, number>; offset: (id: string) => number } => {
 
-  // 4. Straighten. Neighbours per item with the ports the edge leaves and arrives at (a row's members), both ways.
-  const up = new Map<string, Nb[]>()
-  const dn = new Map<string, Nb[]>()
-  const ends = new Map<string, { a: string; pa: number; b: string; pb: number }>()
-  b.edges.forEach((e, k) => {
-    const o = b.origs[k]
-    const pf = offset(o.from)
-    const pt = offset(o.to)
-    for (let i = 0; i + 1 < e.chain.length; i++) {
-      const x = e.chain[i]
-      const y = e.chain[i + 1]
-      const px = i === 0 ? pf : 0
-      const py = i + 2 === e.chain.length ? pt : 0
-      dn.set(x, [...(dn.get(x) ?? []), { other: y, mine: px, theirs: py }])
-      up.set(y, [...(up.get(y) ?? []), { other: x, mine: py, theirs: px }])
-    }
-    for (const d of e.chain.slice(1, -1)) ends.set(d, { a: e.chain[0], pa: pf, b: e.chain[e.chain.length - 1], pb: pt })
-  })
-  const gapAfter = (row: string[]): number[] => row.slice(0, -1).map((id, i) => Math.ceil((span.get(id)! + span.get(row[i + 1])!) / 2))
-  const pos = new Map<string, number>()
-  for (const row of ordered) {
-    const g = gapAfter(row)
-    let x = 0
-    const xs = row.map((_, i) => (i ? (x += g[i - 1]) : 0))
-    const mid = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 0
-    row.forEach((id, i) => pos.set(id, xs[i] - mid))
-  }
-  /** A dummy stays between its edge's two ends (no loop out past either). */
-  const within = (d: string): [number, number] | undefined => {
-    const e = ends.get(d)
-    if (!e) return undefined
-    const a = pos.get(e.a)! + e.pa
-    const z = pos.get(e.b)! + e.pb
-    return [Math.min(a, z), Math.max(a, z)]
-  }
-  // Anchors: a lone root (the trunk) and a lone pinned last node (the goal) sit on the middle of everything else.
-  const anchors = new Set<string>()
-  const real = (row: string[]): string[] => row.filter((id) => !isDummy(id))
-  if (ordered.length > 1 && real(ordered[0]).length === 1 && ordered[0].length === 1) anchors.add(ordered[0][0])
-  for (const row of ordered) if (row.length === 1 && lastIds.includes(row[0])) anchors.add(row[0])
-  const middle = (): number => {
-    let lo = Infinity
-    let hi = -Infinity
-    for (const row of ordered)
-      for (const id of row) {
-        if (isDummy(id) || anchors.has(id)) continue
-        const half = (span.get(id)! - 2) / 2
-        lo = Math.min(lo, pos.get(id)! - half)
-        hi = Math.max(hi, pos.get(id)! + half)
-      }
-    return lo <= hi ? (lo + hi) / 2 : 0
-  }
-  const weight = (id: string): number => (anchors.has(id) ? 40 : isDummy(id) ? 8 : 1 + (up.get(id)?.length ?? 0) + (dn.get(id)?.length ?? 0))
-  const sweep = (i: number, toward: 'up' | 'dn' | 'both', mid: number): void => {
-    const row = ordered[i]
-    const want = row.map((id) => {
-      if (anchors.has(id)) return mid
-      const nb = [...(toward !== 'dn' ? (up.get(id) ?? []) : []), ...(toward !== 'up' ? (dn.get(id) ?? []) : [])]
-      let w = nb.length ? nb.reduce((a, n) => a + pos.get(n.other)! + n.theirs - n.mine, 0) / nb.length : pos.get(id)!
-      const span = within(id)
-      if (span) w = clamp(w, span[0], span[1])
-      return w
-    })
-    const placed = packLayer(want, row.map(weight), gapAfter(row))
-    row.forEach((id, j) => pos.set(id, placed[j]))
-  }
-  for (let it = 0; it < 10; it++) {
-    const mid = middle()
-    for (let i = 1; i < ordered.length; i++) sweep(i, 'up', mid)
-    for (let i = ordered.length - 2; i >= 0; i--) sweep(i, 'dn', mid)
-  }
-  for (let it = 0; it < 6; it++) {
-    const mid = middle()
-    for (let i = 0; i < ordered.length; i++) sweep(i, 'both', mid)
-  }
-  // Snap to the half-slot grid, layer by layer, then line single parents up with single children where that's free.
-  for (const row of ordered) {
-    const snapped = snapLayer(
-      row.map((id) => pos.get(id)!),
-      gapAfter(row)
-    )
-    row.forEach((id, j) => pos.set(id, snapped[j]))
-  }
-  const mid = Math.round(middle())
-  for (const id of anchors) {
-    // Alone in its layer: free to sit exactly on the middle.
-    pos.set(id, mid)
-  }
-  straightenChains(ordered, pos, up, dn, gapAfter, anchors)
-
-  // Real items of two layers in one column with no edge between them read as linked: move one a half slot aside.
-  const linked = new Set([...b.origs, ...b.flat].map((l) => `${l.from}>${l.to}`))
-  const cols = (id: string): Array<[string, number]> => {
-    if (isDummy(id)) return []
-    const r = id.startsWith(ROW) ? rows.find((x) => ROW + x[0] === id) : undefined
-    return r ? r.map((m) => [m, pos.get(id)! + offset(m)]) : [[id, pos.get(id)!]]
-  }
-  const clash = (lowerRow: string[] | undefined, upperRow: string[] | undefined): Array<[string, string]> => {
-    const out: Array<[string, string]> = []
-    for (const lo of lowerRow ?? [])
-      for (const hi of upperRow ?? [])
-        for (const [a, xa] of cols(lo)) for (const [z, xz] of cols(hi)) if (xa === xz && !linked.has(`${a}>${z}`)) out.push([lo, hi])
-    return out
-  }
-  const room = (row: string[], j: number): [number, number] => {
-    const g = gapAfter(row)
-    return [j > 0 ? pos.get(row[j - 1])! + g[j - 1] : -Infinity, j + 1 < row.length ? pos.get(row[j + 1])! - g[j] : Infinity]
-  }
-  for (let pass = 0; pass < 3; pass++) {
-    let moved = false
-    for (let i = 0; i + 1 < ordered.length; i++)
-      for (const [lo, hi] of clash(ordered[i], ordered[i + 1])) {
-        // Try the upper one, then the lower one, each a half slot either way, keeping order, gaps and anchors.
-        const tries: Array<[string, number]> = [
-          [hi, i + 1],
-          [lo, i]
-        ]
-        for (const [id, li] of tries) {
-          const row = ordered[li]
-          const j = row.indexOf(id)
-          const [a, z] = room(row, j)
-          const x0 = pos.get(id)!
-          const ok = [x0 + 1, x0 - 1].find((x) => {
-            if (x < a || x > z) return false
-            pos.set(id, x)
-            const fine = !clash(ordered[li - 1], ordered[li]).length && !clash(ordered[li], ordered[li + 1]).length
-            pos.set(id, x0)
-            return fine
-          })
-          if (ok !== undefined) {
-            pos.set(id, ok)
-            moved = true
-            break
-          }
-        }
-      }
-    if (!moved) break
-  }
-  // Way points back inside their edge's span where a move above left them out.
-  for (let pass = 0; pass < 4; pass++)
+    // A row's steps run left to right as ordered; one in the left half of its layer turns to run leftward (away from the
+    // middle, like a branch), when only one of its steps leads on (so turning it can't cross its own edges).
+    const flip = new Set<string>()
     for (const row of ordered)
       row.forEach((id, j) => {
-        const s = within(id)
-        if (!s) return
-        const x = pos.get(id)!
-        if (x >= s[0] && x <= s[1]) return
-        const t = Math.round(clamp(x, s[0], s[1]))
-        // Move it there, pushing its neighbours on that side along when they're in the way; keep the move only when it
-        // leaves every other way point inside its span and no unlinked pair sharing a column.
-        const before = new Map(row.map((r) => [r, pos.get(r)!]))
-        pos.set(id, t)
-        const g = gapAfter(row)
-        if (t > x) for (let k = j + 1; k < row.length; k++) pos.set(row[k], Math.max(pos.get(row[k])!, pos.get(row[k - 1])! + g[k - 1]))
-        else for (let k = j - 1; k >= 0; k--) pos.set(row[k], Math.min(pos.get(row[k])!, pos.get(row[k + 1])! - g[k]))
-        const li = ordered.indexOf(row)
-        const fine =
-          row.every((r) => {
-            const w = within(r)
-            return !w || (pos.get(r)! >= w[0] && pos.get(r)! <= w[1]) || pos.get(r) === before.get(r)
-          }) &&
-          !clash(ordered[li - 1], row).length &&
-          !clash(row, ordered[li + 1]).length
-        if (fine) return
-        for (const [r, v] of before) pos.set(r, v)
-        // Else bring one end of the edge over to the way point (an end free to move, by the same rules).
-        const e = ends.get(id)!
-        const allIn = (): boolean =>
-          ordered.every((r) =>
-            r.every((d) => {
-              const w = within(d)
-              return !w || (pos.get(d)! >= w[0] && pos.get(d)! <= w[1]) || d === id
-            })
-          )
-        for (const end of [e.b, e.a]) {
-          const er = ordered.find((r) => r.includes(end))!
-          const k = er.indexOf(end)
-          const [lo, hi] = room(er, k)
-          const port = end === e.a ? e.pa : e.pb
-          const want = x - port
-          const ex = pos.get(end)!
-          if (want < lo || want > hi || anchors.has(end)) continue
-          pos.set(end, want)
-          const li2 = ordered.indexOf(er)
-          const inside = (() => {
-            const w = within(id)!
-            return x >= w[0] && x <= w[1]
-          })()
-          if (inside && allIn() && !clash(ordered[li2 - 1], er).length && !clash(er, ordered[li2 + 1]).length) return
-          pos.set(end, ex)
-        }
+        if (!id.startsWith(ROW) || 2 * j >= row.length - 1) return
+        const r = rows.find((x) => ROW + x[0] === id)!
+        if (r.filter((m) => b.origs.some((o) => o.from === m)).length <= 1) flip.add(id)
       })
+    const offset = (id: string): number => {
+      const r = rowOf.get(id)
+      return r ? (flip.has(r.rid) ? -1 : 1) * (2 * r.i - (r.k - 1)) : 0
+    }
+
+    // 4. Straighten. Neighbours per item with the ports the edge leaves and arrives at (a row's members), both ways.
+    const up = new Map<string, Nb[]>()
+    const dn = new Map<string, Nb[]>()
+    const ends = new Map<string, { a: string; pa: number; b: string; pb: number }>()
+    b.edges.forEach((e, k) => {
+      const o = b.origs[k]
+      const pf = offset(o.from)
+      const pt = offset(o.to)
+      for (let i = 0; i + 1 < e.chain.length; i++) {
+        const x = e.chain[i]
+        const y = e.chain[i + 1]
+        const px = i === 0 ? pf : 0
+        const py = i + 2 === e.chain.length ? pt : 0
+        dn.set(x, [...(dn.get(x) ?? []), { other: y, mine: px, theirs: py }])
+        up.set(y, [...(up.get(y) ?? []), { other: x, mine: py, theirs: px }])
+      }
+      for (const d of e.chain.slice(1, -1)) ends.set(d, { a: e.chain[0], pa: pf, b: e.chain[e.chain.length - 1], pb: pt })
+    })
+    const gapAfter = (row: string[]): number[] => row.slice(0, -1).map((id, i) => Math.ceil((span.get(id)! + span.get(row[i + 1])!) / 2))
+    const pos = new Map<string, number>()
+    for (const row of ordered) {
+      const g = gapAfter(row)
+      let x = 0
+      const xs = row.map((_, i) => (i ? (x += g[i - 1]) : 0))
+      const mid = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 0
+      row.forEach((id, i) => pos.set(id, xs[i] - mid))
+    }
+    /** A dummy stays between its edge's two ends (no loop out past either). */
+    const within = (d: string): [number, number] | undefined => {
+      const e = ends.get(d)
+      if (!e) return undefined
+      const a = pos.get(e.a)! + e.pa
+      const z = pos.get(e.b)! + e.pb
+      return [Math.min(a, z), Math.max(a, z)]
+    }
+    // Anchors: a lone root (the trunk) and a lone pinned last node (the goal) sit on the middle of everything else.
+    const anchors = new Set<string>()
+    const real = (row: string[]): string[] => row.filter((id) => !isDummy(id))
+    if (ordered.length > 1 && real(ordered[0]).length === 1 && ordered[0].length === 1) anchors.add(ordered[0][0])
+    for (const row of ordered) if (row.length === 1 && lastIds.includes(row[0])) anchors.add(row[0])
+    const middle = (): number => {
+      let lo = Infinity
+      let hi = -Infinity
+      for (const row of ordered)
+        for (const id of row) {
+          if (isDummy(id) || anchors.has(id)) continue
+          const half = (span.get(id)! - 2) / 2
+          lo = Math.min(lo, pos.get(id)! - half)
+          hi = Math.max(hi, pos.get(id)! + half)
+        }
+      return lo <= hi ? (lo + hi) / 2 : 0
+    }
+    const weight = (id: string): number => (anchors.has(id) ? 40 : isDummy(id) ? 8 : 1 + (up.get(id)?.length ?? 0) + (dn.get(id)?.length ?? 0))
+    // The Map: each track also pulls its skills toward its own column (the mean of its skills), so a track stands as one
+    // branch instead of leaning after every link out of it.
+    const groupOf = (id: string): number => b.groupOf.get(id) ?? -1
+    const colOf = (): Map<number, number> => {
+      const sum = new Map<number, [number, number]>()
+      for (const row of ordered)
+        for (const id of row) {
+          if (isDummy(id) || anchors.has(id) || groupOf(id) < 0) continue
+          const [a, n] = sum.get(groupOf(id)) ?? [0, 0]
+          sum.set(groupOf(id), [a + pos.get(id)!, n + 1])
+        }
+      return new Map([...sum].map(([g, [a, n]]) => [g, a / n]))
+    }
+    const PULL = 2
+    const sweep = (i: number, toward: 'up' | 'dn' | 'both', mid: number): void => {
+      const row = ordered[i]
+      const cols = b.trackPos ? colOf() : undefined
+      const want = row.map((id) => {
+        if (anchors.has(id)) return mid
+        const nb = [...(toward !== 'dn' ? (up.get(id) ?? []) : []), ...(toward !== 'up' ? (dn.get(id) ?? []) : [])]
+        const col = !isDummy(id) ? cols?.get(groupOf(id)) : undefined
+        const sum = nb.reduce((a, n) => a + pos.get(n.other)! + n.theirs - n.mine, 0) + (col !== undefined ? PULL * col : 0)
+        const cnt = nb.length + (col !== undefined ? PULL : 0)
+        let w = cnt ? sum / cnt : pos.get(id)!
+        const span = within(id)
+        if (span) w = clamp(w, span[0], span[1])
+        return w
+      })
+      const placed = packLayer(want, row.map(weight), gapAfter(row))
+      row.forEach((id, j) => pos.set(id, placed[j]))
+    }
+    for (let it = 0; it < 10; it++) {
+      const mid = middle()
+      for (let i = 1; i < ordered.length; i++) sweep(i, 'up', mid)
+      for (let i = ordered.length - 2; i >= 0; i--) sweep(i, 'dn', mid)
+    }
+    for (let it = 0; it < 6; it++) {
+      const mid = middle()
+      for (let i = 0; i < ordered.length; i++) sweep(i, 'both', mid)
+    }
+    // Snap to the half-slot grid, layer by layer, then line single parents up with single children where that's free.
+    for (const row of ordered) {
+      const snapped = snapLayer(
+        row.map((id) => pos.get(id)!),
+        gapAfter(row)
+      )
+      row.forEach((id, j) => pos.set(id, snapped[j]))
+    }
+    const mid = Math.round(middle())
+    for (const id of anchors) {
+      // Alone in its layer: free to sit exactly on the middle.
+      pos.set(id, mid)
+    }
+    straightenChains(ordered, pos, up, dn, gapAfter, anchors)
+
+    // Real items of two layers in one column with no edge between them read as linked: move one a half slot aside.
+    const linked = new Set([...b.origs, ...b.flat].map((l) => `${l.from}>${l.to}`))
+    const cols = (id: string): Array<[string, number]> => {
+      if (isDummy(id)) return []
+      const r = id.startsWith(ROW) ? rows.find((x) => ROW + x[0] === id) : undefined
+      return r ? r.map((m) => [m, pos.get(id)! + offset(m)]) : [[id, pos.get(id)!]]
+    }
+    const clash = (lowerRow: string[] | undefined, upperRow: string[] | undefined): Array<[string, string]> => {
+      const out: Array<[string, string]> = []
+      for (const lo of lowerRow ?? [])
+        for (const hi of upperRow ?? [])
+          for (const [a, xa] of cols(lo)) for (const [z, xz] of cols(hi)) if (xa === xz && !linked.has(`${a}>${z}`)) out.push([lo, hi])
+      return out
+    }
+    const room = (row: string[], j: number): [number, number] => {
+      const g = gapAfter(row)
+      return [j > 0 ? pos.get(row[j - 1])! + g[j - 1] : -Infinity, j + 1 < row.length ? pos.get(row[j + 1])! - g[j] : Infinity]
+    }
+    for (let pass = 0; pass < 3; pass++) {
+      let moved = false
+      for (let i = 0; i + 1 < ordered.length; i++)
+        for (const [lo, hi] of clash(ordered[i], ordered[i + 1])) {
+          // Try the upper one, then the lower one, each a half slot either way, keeping order, gaps and anchors.
+          const tries: Array<[string, number]> = [
+            [hi, i + 1],
+            [lo, i]
+          ]
+          for (const [id, li] of tries) {
+            if (anchors.has(id)) continue
+            const row = ordered[li]
+            const j = row.indexOf(id)
+            const [a, z] = room(row, j)
+            const x0 = pos.get(id)!
+            const ok = [x0 + 1, x0 - 1].find((x) => {
+              if (x < a || x > z) return false
+              pos.set(id, x)
+              const fine = !clash(ordered[li - 1], ordered[li]).length && !clash(ordered[li], ordered[li + 1]).length
+              pos.set(id, x0)
+              return fine
+            })
+            if (ok !== undefined) {
+              pos.set(id, ok)
+              moved = true
+              break
+            }
+          }
+        }
+      if (!moved) break
+    }
+    // Way points back inside their edge's span where a move above left them out.
+    for (let pass = 0; pass < 4; pass++)
+      for (const row of ordered)
+        row.forEach((id, j) => {
+          const s = within(id)
+          if (!s) return
+          const x = pos.get(id)!
+          if (x >= s[0] && x <= s[1]) return
+          const t = Math.round(clamp(x, s[0], s[1]))
+          // Move it there, pushing its neighbours on that side along when they're in the way; keep the move only when it
+          // leaves every other way point inside its span and no unlinked pair sharing a column.
+          const before = new Map(row.map((r) => [r, pos.get(r)!]))
+          pos.set(id, t)
+          const g = gapAfter(row)
+          if (t > x) for (let k = j + 1; k < row.length; k++) pos.set(row[k], Math.max(pos.get(row[k])!, pos.get(row[k - 1])! + g[k - 1]))
+          else for (let k = j - 1; k >= 0; k--) pos.set(row[k], Math.min(pos.get(row[k])!, pos.get(row[k + 1])! - g[k]))
+          const li = ordered.indexOf(row)
+          const fine =
+            row.every((r) => {
+              const w = within(r)
+              return !w || (pos.get(r)! >= w[0] && pos.get(r)! <= w[1]) || pos.get(r) === before.get(r)
+            }) &&
+            !clash(ordered[li - 1], row).length &&
+            !clash(row, ordered[li + 1]).length
+          if (fine) return
+          for (const [r, v] of before) pos.set(r, v)
+          // Else bring one end of the edge over to the way point (an end free to move, by the same rules).
+          const e = ends.get(id)!
+          const allIn = (): boolean =>
+            ordered.every((r) =>
+              r.every((d) => {
+                const w = within(d)
+                return !w || (pos.get(d)! >= w[0] && pos.get(d)! <= w[1]) || d === id
+              })
+            )
+          for (const end of [e.b, e.a]) {
+            const er = ordered.find((r) => r.includes(end))!
+            const k = er.indexOf(end)
+            const [lo, hi] = room(er, k)
+            const port = end === e.a ? e.pa : e.pb
+            const want = x - port
+            const ex = pos.get(end)!
+            if (want < lo || want > hi || anchors.has(end)) continue
+            pos.set(end, want)
+            const li2 = ordered.indexOf(er)
+            const inside = (() => {
+              const w = within(id)!
+              return x >= w[0] && x <= w[1]
+            })()
+            if (inside && allIn() && !clash(ordered[li2 - 1], er).length && !clash(er, ordered[li2 + 1]).length) return
+            pos.set(end, ex)
+          }
+        })
+
+    return { pos, offset }
+  }
+
+  // The Map: among the orders with no more crossings, prefer one where no edge passes over or under a node it doesn't
+  // touch (a link that runs past a node reads as linked to it). One swap of neighbours of a track at a time, the other
+  // layers re-settled around it; kept when it passes fewer nodes.
+  let ordered = b.ordered
+  let sol = solve(ordered)
+  if (b.rank) {
+    const rank = (id: string): number => b.rank!.get(id) ?? 0
+    let best = passes(ordered, sol.pos, b.edges)
+    for (let round = 0; round < 4 && best > 0; round++) {
+      let improved = false
+      for (let L = 0; L < ordered.length && best > 0; L++)
+        for (let j = 0; j + 1 < ordered[L].length && best > 0; j++) {
+          if (rank(ordered[L][j]) !== rank(ordered[L][j + 1])) continue
+          const cand = ordered.map((row) => [...row])
+          ;[cand[L][j], cand[L][j + 1]] = [cand[L][j + 1], cand[L][j]]
+          transpose(cand, b.down, rank, L)
+          if (countCrossings(cand, b.down) > b.crossings) continue
+          const s2 = solve(cand)
+          const n = passes(cand, s2.pos, b.edges)
+          if (n < best) {
+            best = n
+            ordered = cand
+            sol = s2
+            improved = true
+          }
+        }
+      if (!improved) break
+    }
+  }
+  const { pos, offset } = sol
 
   // Center on 0, then lay each row's members out from its center.
   const all = [...pos.entries()].flatMap(([id, x]) => (id.startsWith(ROW) ? [x - (span.get(id)! - 2) / 2, x + (span.get(id)! - 2) / 2] : [x]))
@@ -867,8 +1094,13 @@ export type PlaceOptions = {
   /** Extra flow distance into and out of a layer that holds a hero (px). */
   heroExtra?: number
   heroLayers?: number[]
-  /** Widen across the flow only when the whole tree shows at this scale or more. */
+  /** Widen across the flow only when the whole tree shows at this scale or more (omit to never widen). */
   widenFrom?: number
+  /**
+   * The smallest scale the view opens at (text stays readable). When the whole tree would need less, it opens at this
+   * scale (its width in view, as many layers as fit) and the view pans along the flow; `whole` still shows all of it.
+   */
+  minScale?: number
 }
 
 export type Placed = {
@@ -879,8 +1111,10 @@ export type Placed = {
   /** Content size (px). */
   w: number
   h: number
-  /** Scale that fits the content into the box (<= 1). */
+  /** Scale the view opens at: the whole content in the box (<= 1), or, below `minScale`, the width at that scale or more. */
   scale: number
+  /** Scale that shows the whole content (Fit). Equal to `scale` unless minScale held it up. */
+  whole: number
   flowGap: number
   half: number
 }
@@ -927,13 +1161,15 @@ export function placeGraph(l: Layout, o: PlaceOptions): Placed {
     }
     const w = vertical ? crossLen : flowLen
     const h = vertical ? flowLen : crossLen
-    return { at, bands, w, h, scale: Math.max(0.2, fitScale(w, h)), flowGap, half }
+    const whole = Math.max(0.2, fitScale(w, h))
+    const scale = o.minScale && whole < o.minScale ? o.minScale : whole
+    return { at, bands, w, h, scale, whole, flowGap, half }
   }
   let half = units > 0 ? clamp((crossBox - acrossBefore - acrossAfter) / units, o.half[0], o.half[1]) : o.half[1]
   let p = build(half)
   // Scaled down because the flow is long: widen across the flow to fill the view at that scale (never wider on screen
   // than the max), so a tall tree doesn't stand in a narrow column with empty sides.
-  if (p.scale < 1 && p.scale >= (o.widenFrom ?? 0) && units > 0) {
+  if (o.widenFrom !== undefined && p.scale < 1 && p.scale >= o.widenFrom && units > 0) {
     const wide = clamp((crossBox / p.scale - acrossBefore - acrossAfter) / units, half, o.half[1] / p.scale)
     if (wide > half + 0.5) {
       half = wide
@@ -976,7 +1212,7 @@ type Pt = { x: number; y: number }
  * band, and arrives at `reach(id).in` before its target (on the Map: under the target's label block). A flat edge (one
  * layer, a row) runs side to side between the two nodes' rims at `reach(id).side`.
  */
-export function edgeRoute(e: LayoutEdge, l: Layout, p: Placed, orientation: Orientation, reach: (id: string) => { out: number; in: number; side: number }): Pt[] {
+export function edgeRoute(e: LayoutEdge, l: Layout, p: Placed, orientation: Orientation, reach: (id: string) => { out: number; in: number; side: number }, port?: { from: number; to: number }): Pt[] {
   const up = orientation === 'up'
   const at = (id: string): Pt => p.at[id]
   if (e.flat) {
@@ -996,21 +1232,61 @@ export function edgeRoute(e: LayoutEdge, l: Layout, p: Placed, orientation: Orie
   /** A point d px further along the flow from c (later layers: up on the Map, right on the Path). */
   const along = (c: Pt, d: number): Pt => (up ? { x: c.x, y: c.y - d } : { x: c.x + d, y: c.y })
   const onFlow = (c: Pt, f: number): Pt => (up ? { x: c.x, y: f } : { x: f, y: c.y })
+  /** A point moved d px across the flow (an edge's own port on a node shared with other edges). */
+  const across = (c: Pt, d: number): Pt => (up ? { x: c.x + d, y: c.y } : { x: c.x, y: c.y + d })
   const pts: Pt[] = []
+  const last = e.chain.length - 1
   e.chain.forEach((id, i) => {
-    const c = at(id)
+    const d = i === 0 ? (port?.from ?? 0) : i === last ? (port?.to ?? 0) : 0
+    const c = across(at(id), d)
     const band = p.bands[l.items[id].layer]
     if (i > 0) {
       pts.push(onFlow(c, band.near))
-      if (i === e.chain.length - 1) pts.push(along(c, -reach(id).in))
+      if (i === last) pts.push(along(c, -reach(id).in))
     }
-    if (i < e.chain.length - 1) {
-      if (i === 0) pts.push(along(c, reach(id).out))
+    if (i < last) {
+      // Off center, the edge leaves the node's round rim, not a point above it.
+      if (i === 0) pts.push(along(c, Math.sqrt(Math.max(0, reach(id).out ** 2 - d * d))))
       pts.push(onFlow(c, band.far))
     }
   })
   // Drop repeats (a node that fills its band) so no segment has zero length.
   return pts.filter((q, i) => i === 0 || Math.abs(q.x - pts[i - 1].x) + Math.abs(q.y - pts[i - 1].y) > 0.5)
+}
+
+/**
+ * Each edge's own port at both ends (px across the flow from the node's center), so edges that share a node never
+ * share a line: the edges leaving a node fan out over its rim, and those arriving under it spread the same way, each
+ * ordered by where its other end lies (so ports never make two edges cross). `room(id)` is how far a port may sit
+ * from the center; ports are at most `gap` px apart.
+ */
+export function edgePorts(l: Layout, p: Placed, orientation: Orientation, room: (id: string) => number, gap = 8): Map<string, { from: number; to: number }> {
+  const across = (id: string): number => (orientation === 'up' ? p.at[id].x : p.at[id].y)
+  const out = new Map<string, { from: number; to: number }>()
+  const key = (e: LayoutEdge): string => `${e.from}>${e.to}`
+  for (const e of l.edges) out.set(key(e), { from: 0, to: 0 })
+  const spread = (es: LayoutEdge[], id: string, end: 'from' | 'to'): void => {
+    if (es.length < 2) return
+    const other = (e: LayoutEdge): number => across(end === 'from' ? e.chain[1] : e.chain[e.chain.length - 2])
+    const sorted = [...es].sort((a, b) => other(a) - other(b))
+    const step = Math.min(gap, (2 * room(id)) / (sorted.length - 1))
+    sorted.forEach((e, i) => (out.get(key(e))![end] = (i - (sorted.length - 1) / 2) * step))
+  }
+  const real = l.edges.filter((e) => !e.flat)
+  for (const id of Object.keys(l.items)) {
+    if (l.items[id].dummy) continue
+    spread(
+      real.filter((e) => e.from === id),
+      id,
+      'from'
+    )
+    spread(
+      real.filter((e) => e.to === id),
+      id,
+      'to'
+    )
+  }
+  return out
 }
 
 /** Points along the curve edgePath draws through `points` (tests: edges against label boxes). */

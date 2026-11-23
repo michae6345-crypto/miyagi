@@ -14,6 +14,8 @@
  *              so an event the Path can't show still plays on the Map. The Map shows every skill: once it has played
  *              (or one view played all of them), the events are acked.
  *   picker     the goal picker is open over the page (Change goal).
+ *   tools      the page shows a tree or the list, so the header's Path | Map | List and search apply (not while the
+ *              payload is on its way, with no skills, or in the goal picker).
  */
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
@@ -41,6 +43,7 @@ type State = {
   acked?: number
   played: Record<'path' | 'map', string[]>
   picker: boolean
+  tools: boolean
 }
 
 const KEY = { view: 'miyagi.skills.view', goal: 'miyagi.skills.goal', acked: 'miyagi.skills.acked', played: 'miyagi.skills.played' } as const
@@ -80,7 +83,8 @@ export const useSkills = create<State>(() => ({
   goal: read(KEY.goal) || undefined,
   acked: Number.isFinite(storedAck) && storedAck > 0 ? storedAck : undefined,
   played: storedPlayed(),
-  picker: false
+  picker: false,
+  tools: false
 }))
 const set = useSkills.setState
 const get = useSkills.getState
@@ -102,6 +106,7 @@ export const setQuery = (query: string): void => set({ query })
 export const select = (id?: string): void => set({ selected: id })
 export const openPicker = (): void => set({ picker: true, selected: undefined })
 export const closePicker = (): void => set({ picker: false })
+export const showTools = (tools: boolean): void => set({ tools })
 
 /** The learner picks a capstone. set_goal when the engine can take it; kept here either way. */
 export function chooseGoal(capstoneId: string): void {

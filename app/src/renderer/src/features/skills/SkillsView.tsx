@@ -1,7 +1,8 @@
 /**
  * Feature: skills. The Skills page.
  *
- *   header      (the shell's page header, right side: SkillsHeaderTools) Path | Map | List and "Find a skill"
+ *   header      (the shell's page header, right side: SkillsHeaderTools) Path | Map | List and "Find a skill", only
+ *               while a view is on show (hidden while progress is on its way, with no skills and in the goal picker)
  *   goal        GoalHeader on the page column, Change goal on its right
  *   view        Path (default: the skills on the way to the goal, left to right, the goal at the right end), Map (every
  *               track grown up from one trunk) or List (one card per track); the trees fill the pane edge to edge
@@ -25,12 +26,14 @@ import { GoalHeader, GoalPicker } from './Goal'
 import { ListView } from './ListView'
 import { SkillPanel } from './Panel'
 import { TreeCanvas } from './TreeCanvas'
-import { chooseGoal, closePicker, openPicker, select, setQuery, setView, useSkills, VIEWS } from './store'
+import { chooseGoal, closePicker, openPicker, select, setQuery, setView, showTools, useSkills, VIEWS } from './store'
 
 /** The shell header's right side on the Skills page: the view switch and the search. */
 export function SkillsHeaderTools(): ReactNode {
   const view = useSkills((s) => s.view)
   const query = useSkills((s) => s.query)
+  const tools = useSkills((s) => s.tools)
+  if (!tools) return null
   return (
     <div className="flex min-w-0 items-center" style={{ gap: 12 }}>
       <Segmented label="Skills view" options={VIEWS} value={view} onChange={setView} />
@@ -127,6 +130,13 @@ export function SkillsView({ g, now }: { g: SkillGraph | undefined; now: number 
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
   }, [active])
+
+  // The header's view switch and search: only over a view (never over the picker, an empty page or a blank wait).
+  const tools = !!g && g.nodes.length > 0 && !!g.goal && !picker
+  useEffect(() => {
+    showTools(tools)
+    return () => showTools(false)
+  }, [tools])
 
   if (!g || !g.nodes.length) return <div ref={ref}>{g ? <NoSkills /> : null}</div>
 

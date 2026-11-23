@@ -4,8 +4,9 @@
  *   top        track · where it stands, the name, one line on what it is
  *   example    what you'll be able to write (the engine's example), in a well
  *   progress   the steps behind it so far ("2 of 4 steps")
- *   needs      for a locked skill: what it still needs, each one opens its own panel
- *   learned in the lessons that build it (the one in progress first)
+ *   needs      every skill it builds on (mastered ones show their check), each one opens its own panel; a link the tree
+ *              sets aside to stay uncrossed is still found here
+ *   learned in the lessons that build it (the one in progress first), titled from the payload, else the Library's list
  *   opens      what it unlocks
  *   project    for a capstone: the brief, the checks, the time, the starter file
  *   action     the panel's one primary: Continue / Start (its saved lesson, else a lesson built for it), Start project;
@@ -18,6 +19,7 @@ import { color, elevation, fill, font, highlight, radius2, spring, surface, type
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { pressMotion } from '../../core/ui/motion'
 import { useDash } from '../dashboard/store'
+import { useLibrary } from '../library/store'
 import { StepBar } from '../shell/ui'
 import type { SkillGraph, SkillGraphNode } from './model'
 import { names, stateWord } from './copy'
@@ -51,6 +53,9 @@ function SkillLink({ n, onOpen }: { n: SkillGraphNode; onOpen: (id: string) => v
 
 export function SkillPanel({ g, id, onClose, onOpen }: { g: SkillGraph; id: string; onClose: () => void; onOpen: (id: string) => void }): ReactNode {
   const reduce = useReducedMotion() ?? false
+  const library = useLibrary((s) => s.items)
+  const titleOf = (l: { title?: string; libraryId?: string; lessonId: string }): string =>
+    l.title ?? library.find((x) => x.id === (l.libraryId ?? l.lessonId) || x.id === l.lessonId)?.title ?? 'A lesson'
   const starting = useDash((s) => s.starting)
   const startError = useDash((s) => s.startError?.text)
   const n = g.byId[id]
@@ -59,6 +64,7 @@ export function SkillPanel({ g, id, onClose, onOpen }: { g: SkillGraph; id: stri
   const cap = n.kind === 'capstone' ? g.capstones.find((c) => c.id === n.id) : undefined
   const opens = g.links.filter((l) => l.from === n.id).map((l) => g.byId[l.to]).filter((x): x is SkillGraphNode => !!x)
   const needs = n.needs.map((x) => g.byId[x]).filter((x): x is SkillGraphNode => !!x)
+  const requires = n.requires.map((x) => g.byId[x]).filter((x): x is SkillGraphNode => !!x)
   const lessons = [...n.lessons].sort((a, b) => Number(b.inProgress) - Number(a.inProgress))
   const pick = g.next?.skillId === n.id ? g.next : undefined
   const lib = pick?.libraryId ?? lessons.find((l) => l.libraryId && l.role !== 'uses')?.libraryId
@@ -140,10 +146,10 @@ export function SkillPanel({ g, id, onClose, onOpen }: { g: SkillGraph; id: stri
           </Section>
         )}
 
-        {needs.length > 0 && (
-          <Section title={n.kind === 'capstone' ? 'Skills to go' : 'Needs first'}>
+        {requires.length > 0 && (
+          <Section title="Needs">
             <div className="flex flex-wrap gap-[6px]">
-              {needs.map((x) => (
+              {requires.map((x) => (
                 <SkillLink key={x.id} n={x} onOpen={onOpen} />
               ))}
             </div>
@@ -155,7 +161,7 @@ export function SkillPanel({ g, id, onClose, onOpen }: { g: SkillGraph; id: stri
             <ul className="m-0 flex list-none flex-col p-0">
               {lessons.map((l, i) => (
                 <li key={l.lessonId} className="flex flex-col py-[8px]" style={i ? { borderTop: `1px solid ${fill.hairline}` } : undefined}>
-                  <span style={{ fontSize: type2.md, fontWeight: 500, color: color.text }}>{l.title ?? 'A lesson'}</span>
+                  <span style={{ fontSize: type2.md, fontWeight: 500, color: color.text }}>{titleOf(l)}</span>
                   <span style={{ fontSize: type2.xs, color: color.label }}>{l.inProgress ? 'In progress' : l.role === 'uses' ? 'Uses it' : l.role === 'practices' ? 'Practices it' : 'Teaches it'}</span>
                 </li>
               ))}

@@ -8,12 +8,15 @@
  * Search keeps the cards with a match and lights the matches.
  */
 import type { ReactNode } from 'react'
-import { color, fill, radius2, type2, typeScale } from '../../core/theme'
+import { color, fill, layout, radius2, type2, typeScale } from '../../core/theme'
 import { CARD, PageColumn } from '../shell/ui'
 import { Scroller } from '../shell/pages/Column'
 import type { SkillGraph, SkillGraphNode, SkillGraphTrack } from './model'
 import { practicedLine } from './copy'
 import { Glyph } from './SkillNode'
+
+/** The List's column (content px). */
+const LIST_W = 720
 
 function TrackBar({ t, g }: { t: SkillGraphTrack; g: SkillGraph }): ReactNode {
   const skills = t.nodeIds.map((id) => g.byId[id]).filter((n) => n?.kind === 'skill')
@@ -75,7 +78,8 @@ export function ListView({ g, query, now, onOpen }: { g: SkillGraph; query: stri
   const tracks = [...g.tracks].sort((a, b) => Number(b.id === goalTrack) - Number(a.id === goalTrack)).filter((t) => t.nodeIds.some((id) => match(g.byId[id])))
   return (
     <Scroller>
-      <PageColumn wide top={16} bottom={32} gap={12}>
+      {/* One centered column of 720 (the brief, mockup 04), not the tree's wide one: cards read as a list, not a table. */}
+      <PageColumn top={16} bottom={32} gap={12} style={{ maxWidth: LIST_W + 2 * layout.page.gutter }}>
         {tracks.map((t) => {
           const ns = t.nodeIds.map((id) => g.byId[id])
           const last = Math.max(0, ...ns.map((n) => n.lastPracticedAt ?? n.masteredAt ?? 0))

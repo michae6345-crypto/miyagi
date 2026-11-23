@@ -1,16 +1,20 @@
 /**
  * Feature: skills. The tree views' one canvas (Path and Map differ only in their input and orientation, graphInput.ts).
  *
- *   fit        on open, on a new size and on Fit: the whole tree, centered; the gaps stretch to fill the view (layout.ts
- *              placeGraph) and the tree scales down only when even its tightest doesn't fit
+ *   fit        on open and on a new size: the whole tree, centered; the gaps stretch to fill the view (layout.ts
+ *              placeGraph) and the tree scales down only when even its tightest doesn't fit. The Map never opens below
+ *              MAP_MIN_SCALE: a tree too tall for that fits the width, opens on the trunk (or, when they can't both show,
+ *              on NEXT) and pans up and down. Fit always shows the whole tree
  *   zoom/pan   + / − / fit buttons (bottom right), pinch or Cmd/Ctrl + wheel to zoom at the pointer, wheel or drag to pan
  *   edges      one curve style (layout.ts edgeRoute + edgePath) under the nodes: green between two mastered skills, ink
- *              into what you can start, dashed and faint into what is still locked. On the Map an edge leaves the top of
- *              a node and arrives under the label block of what it opens, so it never runs through words. Links set
- *              aside to keep the tree flat (layout `hidden`) show only while their node is hovered or open
+ *              into what you can start, dashed and faint into what is still locked. Each edge has its own ports at both
+ *              ends (graphInput edgePoints), so no two share a line. On the Map an edge leaves the top of a node and
+ *              arrives under the label block of what it opens, so it never runs through words. Links set aside to keep
+ *              the tree flat (layout `hidden`) show while their node is hovered or open (and in its panel's Needs)
  *   focus      the open skill keeps its prerequisites and what it opens lit; the rest steps back. Search does the same
  *              for the skills it matches
- *   tracks     no floating track names on the tree: a node's track shows in its panel (and its tooltip)
+ *   tracks     on the Map, one small caps header per track branch on a free spot of the grid (graphInput trackHeaders);
+ *              on the Path a node's track shows in its panel and tooltip
  *   unlock     the unseen events whose skills this view shows play once, oldest first: the node fills green and its edges
  *              draw out, a dashed ring closes, and one line says what happened. Then they're marked played for this view
  *              (store ackEvents). Reduced motion: a short fade, same line
@@ -20,8 +24,8 @@ import { Maximize2, Minus, Plus } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { color, duration, ease, elevation, fill, highlight, radius2, spring, type2 } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
-import { chainLength, edgePath, edgeRoute, isDummy, layoutGraph, placeGraph, type LayoutEdge } from './layout'
-import { estimate, geom, mapInput, pathInput, PLACE, reach, SIZES, TRUNK, type Measure, type TreeView } from './graphInput'
+import { chainLength, edgePath, isDummy, layoutGraph, placeGraph } from './layout'
+import { edgePoints, estimate, estimateState, geom, HEADER_H, hiddenPoints, mapInput, pathInput, PLACE, SIZES, stateFits, trackHeaders, TRUNK, type Measure, type TreeView } from './graphInput'
 import type { SkillGraph, SkillGraphNode } from './model'
 import { stateLine, unlockLine } from './copy'
 import { SkillNode, TrunkPoint, type NodeAnim } from './SkillNode'
@@ -38,20 +42,28 @@ const STEP_S = 0.9
 type View = { k: number; dx: number; dy: number; smooth: boolean }
 const REST: View = { k: 1, dx: 0, dy: 0, smooth: false }
 
-/** Label widths in the page's own font (a canvas measures; the estimate stands in where there is none). */
-function useMeasure(): Measure {
+type Measures = { label: Measure; state: (text: string) => number; header: (text: string) => number }
+
+/** Text widths in the page's own font (a canvas measures; the estimates stand in where there is none). */
+function useMeasure(): Measures {
   return useMemo(() => {
+    const fallback: Measures = { label: estimate, state: estimateState, header: (t) => t.length * 8.2 }
     try {
       const ctx = document.createElement('canvas').getContext('2d')
-      if (!ctx) return estimate
+      if (!ctx) return fallback
       const family = getComputedStyle(document.body).fontFamily || 'system-ui'
-      return (text: string, hero: boolean) => {
-        ctx.font = `${hero ? 600 : 500} ${hero ? 14 : 13}px ${family}`
-        // A hair wide, so a name the browser wraps never fits on fewer lines here.
-        return ctx.measureText(text).width * 1.04 + 1
+      // A hair wide, so a line the browser wraps never fits on fewer lines here.
+      const at = (font: string, text: string, track = 0): number => {
+        ctx.font = `${font} ${family}`
+        return ctx.measureText(text).width * 1.04 + 1 + track * text.length
+      }
+      return {
+        label: (text, hero) => at(`${hero ? 600 : 500} ${hero ? 14 : 13}px`, text),
+        state: (text) => at(`600 ${type2.xs}px`, text),
+        header: (text) => Math.ceil(at(`600 ${type2.xs}px`, text, 0.06 * type2.xs))
       }
     } catch {
-      return estimate
+      return fallback
     }
   }, [])
 }
@@ -88,9 +100,25 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
   const size = SIZES[view]
   const measure = useMeasure()
 
-  const input = useMemo(() => (view === 'path' ? pathInput(g, measure) : mapInput(g, measure)), [g, view, measure])
+  const input = useMemo(() => (view === 'path' ? pathInput(g, measure.label) : mapInput(g, measure.label)), [g, view, measure])
   const layout = useMemo(() => layoutGraph(input.nodes, input.links, input.options), [input])
   const placed = useMemo(() => (box.w && box.h ? placeGraph(layout, PLACE[view]({ w: Math.max(200, box.w - RESERVE), h: box.h }, layout, input)) : undefined), [layout, input, view, box])
+  const edgePts = useMemo(() => (placed ? edgePoints(view, input, layout, placed) : new Map<string, Array<{ x: number; y: number }>>()), [view, input, layout, placed])
+  const headers = useMemo(
+    () =>
+      placed && view === 'map'
+        ? trackHeaders(
+            g.tracks,
+            (id) => g.byId[id]?.track,
+            input,
+            layout,
+            placed,
+            [...edgePts.values()],
+            measure.header
+          )
+        : [],
+    [placed, view, g, input, layout, edgePts, measure]
+  )
 
   // Fit: on a new size, a new view or a new tree (never while the learner is zoomed in on the same one).
   useEffect(() => {
@@ -98,12 +126,28 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
     setV(REST)
   }, [box.w, box.h, view, layout])
 
-  // The whole tree, centered in the view left of the zoom controls.
+  // The opening view, centered in the view left of the zoom controls: the whole tree, or (a Map too tall to show whole
+  // at a readable size) its width, on the trunk when NEXT shows with it, else on NEXT.
+  const nextId = useMemo(() => g.nodes.find((n) => n.isNext && input.nodes.some((x) => x.id === n.id))?.id, [g, input])
   const fit = useMemo(() => {
     if (!placed) return { s: 1, tx: 0, ty: 0 }
     const s = placed.scale
-    return { s, tx: (Math.max(200, box.w - RESERVE) - placed.w * s) / 2, ty: (box.h - placed.h * s) / 2 }
-  }, [placed, box])
+    const vw = Math.max(200, box.w - RESERVE)
+    const tx = (vw - placed.w * s) / 2
+    if (placed.h * s <= box.h) return { s, tx, ty: (box.h - placed.h * s) / 2 }
+    const bottom = box.h - placed.h * s
+    const ny = nextId ? placed.at[nextId]?.y : undefined
+    if (ny === undefined || bottom + ny * s >= box.h * 0.2) return { s, tx, ty: bottom }
+    return { s, tx, ty: Math.min(0, Math.max(bottom, box.h * 0.4 - ny * s)) }
+  }, [placed, box, nextId])
+  // Fit: the whole tree, centered (an offset on top of the opening view).
+  const whole = (): View => {
+    if (!placed) return REST
+    const s = placed.whole
+    const tx = (Math.max(200, box.w - RESERVE) - placed.w * s) / 2
+    const ty = (box.h - placed.h * s) / 2
+    return { k: s / fit.s, dx: tx - fit.tx, dy: ty - fit.ty, smooth: true }
+  }
 
   const scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fit.s * v.k))
   // Zoom keeps the view's center (or the pointer) still: dx/dy are offsets on top of the fitted translate.
@@ -218,9 +262,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
   }, [])
 
   const focusIds = new Set([hover, selected].filter((x): x is string => !!x))
-  const nodeLine = (n: SkillGraphNode): string => stateLine(n, g)
-  const reachOf = (id: string): { out: number; in: number; side: number } => reach(view, input, id)
-  const pointsOf = (e: LayoutEdge): Array<{ x: number; y: number }> => (placed ? edgeRoute(e, layout, placed, size.orientation, reachOf) : [])
+  const nodeLine = (n: SkillGraphNode): string => stateLine(n, g, (line) => stateFits(view, input, n.id, line, measure.state))
 
   return (
     <div
@@ -248,7 +290,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
           <div className="absolute left-0 top-0" style={{ width: placed.w, height: placed.h }}>
             <svg width={placed.w} height={placed.h} className="absolute inset-0 overflow-visible" aria-hidden>
               {layout.edges.map((e) => {
-                const pts = pointsOf(e)
+                const pts = edgePts.get(`${e.from}>${e.to}`) ?? []
                 const look = edgeLook(g.byId[e.from], g.byId[e.to])
                 const dimmed = lit && !(lit.has(e.from) && lit.has(e.to))
                 const a = anims.get(e.from)
@@ -273,15 +315,27 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
               {layout.hidden
                 .filter((l) => focusIds.has(l.from) || focusIds.has(l.to))
                 .map((l) => {
-                  const a = layout.items[l.from]
-                  const b = layout.items[l.to]
-                  if (!a || !b) return null
+                  const pts = hiddenPoints(view, input, layout, placed, l)
+                  if (!pts.length) return null
                   const look = edgeLook(g.byId[l.from], g.byId[l.to])
-                  // Forward across layers: the same route as any edge (straight through the bands between); else node to node.
-                  const pts = a.layer < b.layer ? pointsOf({ from: l.from, to: l.to, chain: [l.from, l.to] }) : [placed.at[l.from], placed.at[l.to]]
                   return <path key={`h-${l.from}>${l.to}`} d={edgePath(pts, size.orientation)} fill="none" stroke={look.stroke} strokeWidth={look.width} strokeDasharray={look.dash} strokeLinecap="round" opacity={look.opacity} />
                 })}
             </svg>
+            {headers.map((h) => (
+              <span
+                key={h.track}
+                aria-hidden
+                data-skills-track={h.track}
+                className="absolute block whitespace-nowrap"
+                style={{ left: h.x, top: h.y, width: h.w, height: h.h, lineHeight: `${HEADER_H}px`, fontSize: type2.xs, fontWeight: 600, letterSpacing: '0.06em', color: color.label, opacity: lit ? 0.4 : 1, transition: 'opacity .18s' }}
+              >
+                {h.lines.map((x) => (
+                  <span key={x} className="block">
+                    {x}
+                  </span>
+                ))}
+              </span>
+            ))}
             {Object.values(layout.items).map((it) => {
               if (isDummy(it.id)) return null
               const at = placed.at[it.id]
@@ -333,7 +387,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
         )}
       </AnimatePresence>
 
-      <ZoomControls onIn={() => zoomAt(1.2)} onOut={() => zoomAt(1 / 1.2)} onFit={() => setV({ ...REST, smooth: true })} />
+      <ZoomControls onIn={() => zoomAt(1.2)} onOut={() => zoomAt(1 / 1.2)} onFit={() => setV(whole())} />
     </div>
   )
 }
