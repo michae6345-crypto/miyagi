@@ -21,6 +21,10 @@
  * macOS only. If the helper binary is missing (a dev checkout that never built it) the feature stays quiet: no state,
  * no respawns. The helper is respawned with backoff when it dies, and told `quit` (then stdin closes) when the app quits.
  * UNVERIFIED in Electron (typechecked and unit-tested only: no app runs during this lane).
+ *
+ * ptt:capture saves no time yet: nothing calls it (no renderer sends it, no engine reads take_capture), and the 0.3 to
+ * 0.5 s saving is an estimate, not a measurement. The renderer must never wait for a capture at release: if it has not
+ * settled by then, send the ask without it (the engine grabs its own frame), or the 2 s timeout here adds up to 2 s.
  */
 import { app, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
