@@ -5895,9 +5895,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                            else "watching")
 
     async def action(self, kind: str, text: str | None = None, *, region: Any = None, ask_id: str | None = None,
-                     source: str | None = None) -> None:
+                     source: str | None = None, capture: Any = None, release_t: float | None = None) -> None:
         """`region` / `ask_id` / `source`: circle to ask (Nov 22, action ask + region; circle_ask.py). `ask_id` on a
-        typed or spoken ask is echoed on its answer card."""
+        typed or spoken ask is echoed on its answer card. `capture` (the helper's crop, AskCapture) and `release_t`
+        (time.monotonic when the command arrived): the fast, streamed circle ask (circle_ask.answer)."""
         context_memory.on_action(self, kind, text)  # "skipped setup", "has AutoCAD": later answers know (never raises)
         if kind == "start":  # "Start the lesson" on the "Before you start" sheet (E4)
             await self._begin("Start")
@@ -5938,6 +5939,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if kind == "retry":  # the "Couldn't reach Claude" card's Try again: the question that failed, once more
             kind, text = self._last_ask or ("explain", None)
             region, ask_id = self._last_ask_region if self._last_ask else (None, None)
+            capture = release_t = None  # the helper's crop was used (and deleted) by the first try
         asking = kind in self.ASK_KINDS and self.step is not None
         if asking:  # hold every proactive card until the answer is out (and drop one the typing guard queued)
             self._last_ask, self.pending_speak = (kind, text), None
@@ -5950,7 +5952,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         answered_token = _ANSWERED.set(answered)
         gen = self.step_gen
         try:
-            circle = {k: v for k, v in (("region", region), ("ask_id", ask_id)) if v is not None}
+            circle = {k: v for k, v in (("region", region), ("ask_id", ask_id), ("capture", capture),
+                                        ("release_t", release_t)) if v is not None}
             await self._action(kind, text, **circle)  # the old call shape when there is no circle / askId
             if not answered & ANSWER_EVENTS and kind not in QUIET_ACTIONS and gen == self.step_gen:
                 await self._notice(kind)  # never silence: a press that changed nothing still gets an answer
@@ -6045,7 +6048,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                   "explain", "diagram", "show_me", "hint", "ask", "retry", "back"})
 
     async def _action(self, kind: str, text: str | None = None, *, region: Any = None,
-                      ask_id: str | None = None) -> None:
+                      ask_id: str | None = None, capture: Any = None, release_t: float | None = None) -> None:
         step = self.step
         if step is not None:
             if kind in self.NOT_WORK_ACTIONS:
@@ -6089,7 +6092,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if kind == "ask" and region is not None:  # circle to ask (Nov 22): the learner circled part of the screen
             from . import circle_ask
 
-            await circle_ask.answer(self, step, text, region, ask_id)  # also without a lesson
+            await circle_ask.answer(self, step, text, region, ask_id,  # also without a lesson
+                                    app_capture=capture, release_t=release_t)
             return
         if step is None:
             await self.emit("error", {"message": "No lesson is running yet."})

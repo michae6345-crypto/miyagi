@@ -1,24 +1,20 @@
-"""Fast circle to ask (lane eng-fast-ask, Nov 22): the circled region is captured, cropped and encoded BEFORE release.
+"""Fast circle to ask (lane eng-fast-ask, Nov 22): the fallback capture + crop when the ask carries no app capture.
 
-The app sends `ask.region {askId, region}` when the ink closes (each pointer-up while Fn+Control is still held).
-main.py answers it beside the command queue (INSTANT) with remember_soon(): one frame of that display is captured
-now (circle_ask.capture: the same permission, fixture and last-frame rules as the ask itself), the region is cropped
-from the frame's ScreenContext (secret rows blacked out) and encoded to a JPEG (fast_ask.crop_region), and the result
-waits in an in-memory slot keyed by askId. The action ask with that askId takes it (take()), so the release only
-costs the words: no capture + OCR (0.3 to 0.5 s, up to CAPTURE_S 3 s) after the keys come up.
+The normal path needs none of this: the app's helper (miyagi-listen) captures the circled region while Fn+Control
+is still held and the action ask carries it (capture: AskCapture); circle_ask.answer reads it with
+shared.capture_file.take_capture and streams at once. frame_for() runs only when that capture is missing or fails
+its checks (an older app, a helper without Screen Recording): one frame of the circled display is captured now
+(circle_ask.capture: the same permission, fixture and last-frame rules as the ask itself), the region is cropped
+from the frame's ScreenContext.pil() (secret rows and other projects' windows blacked out) and encoded to a JPEG
+(fast_ask.crop_region). Memory only, never written to disk or logged (log lines carry timings and sizes).
 
-The slot: memory only, never written to disk or logged (log lines carry timings and sizes). It is dropped when taken,
-when a newer ask.region with the same askId replaces it, after SLOT_TTL_S, or when more than MAX_SLOTS wait. It keeps
-the frame (obs + picture) too, so a region that moved a little at release is cropped again from the same frame
-without a new capture, and the non-streaming path (session.m.circle_ask) gets the same frame.
-
-    pre = await fast_region.frame_for(session, ask_id, reg)   # the slot, else capture + crop now
+    pre = await fast_region.frame_for(session, ask_id, reg)   # capture + crop now
     pre.reason / pre.obs / pre.image                   # what circle_ask.capture returned
     pre.crop -> (jpeg, rect_points, W, H) | None       # fast_ask.ask_stream's first four arguments
     pre.screen_text, pre.app                           # the circled OCR text and the frontmost app
 
-This module needs circle_ask.capture and coach/circle.py (lane eng-circle-ask) for the capture; without them
-remember_soon() does nothing and the ask captures on release as before.
+There is no capture before release here (the ask.region command was dropped for the native capture): one capture
+path while the keys are held (the helper), one fallback at release (this), never a pile of capture threads.
 """
 
 from __future__ import annotations
@@ -28,17 +24,11 @@ import json
 import logging
 import math
 import time
-from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
 log = logging.getLogger("orchestrator.fast_region")
-
-SLOT_TTL_S = 10.0  # a slot nobody asks with is dropped after this long
-MAX_SLOTS = 2  # one hold at a time; a second only while the first is being answered
-WAIT_S = 3.0  # take() waits at most this long for a capture still running (circle_ask.CAPTURE_S)
-REGION_SLOP_PT = 2.0  # the ask's region may differ this much from ask.region's and still use its crop as is
 
 Capture = Callable[[Any, "int | None", "dict | None"], Awaitable[tuple[Any, Any, "str | None"]]]  # circle_ask.capture
 
@@ -70,7 +60,6 @@ class Prepared:
 
 
 _capture: Capture | None = None  # tests: a fake capture; None: circle_ask.capture
-_slots: OrderedDict[str, tuple[float, asyncio.Task]] = OrderedDict()
 
 
 def _capture_fn() -> Capture | None:
@@ -112,12 +101,6 @@ def _display_id(region: dict | None) -> int | None:
     if isinstance(did, bool) or not isinstance(did, (int, float)):
         return None
     return int(did) if float(did).is_integer() else None
-
-
-def _same(a: dict, b: dict) -> bool:
-    if _display_id(a) != _display_id(b):
-        return False
-    return all(abs(float(a[k]) - float(b[k])) <= REGION_SLOP_PT for k in ("x", "y", "w", "h"))
 
 
 def _lesson_folder(session: Any) -> str:
@@ -175,7 +158,7 @@ def prepare(obs: Any, image: Any, region: dict, lesson_folder: str = "") -> Prep
         try:
             crop = fast_ask.crop_region(sc, clip)
         except Exception as e:  # noqa: BLE001 - no picture: the non-streaming path still answers from the text
-            log.info("ask.region: no crop (%s)", type(e).__name__)
+            log.info("fast ask: no crop (%s)", type(e).__name__)
             crop = None
         if crop is not None:
             pre.jpeg, pre.rect, pre.w, pre.h = crop
@@ -184,8 +167,8 @@ def prepare(obs: Any, image: Any, region: dict, lesson_folder: str = "") -> Prep
 
 async def capture_and_crop(session: Any, region: Any, *, capture: Capture | None = None,
                            clock: Callable[[], float] = time.monotonic) -> Prepared | None:
-    """Capture the region's display now and crop it (what ask.region does ahead of time; also the path when no slot
-    is waiting). None when there is no capture to use (lane eng-circle-ask not merged) or the region is unreadable."""
+    """Capture the region's display now and crop it. None when there is no capture to use (lane eng-circle-ask not
+    merged) or the region is unreadable."""
     reg = _region(region)
     cap = capture or _capture_fn()
     if reg is None or cap is None:
@@ -199,107 +182,23 @@ async def capture_and_crop(session: Any, region: Any, *, capture: Capture | None
     try:
         pre = await asyncio.to_thread(prepare, obs, image, reg, folder)
     except Exception as e:  # noqa: BLE001 - the frame is still good for the non-streaming path
-        log.info("ask.region: no crop (%s)", type(e).__name__)
+        log.info("fast ask: no crop (%s)", type(e).__name__)
         pre = Prepared(region=reg, obs=obs, image=image, lesson_folder=folder)
     pre.captured_at = t0
-    log.info("ask.region %s", json.dumps({"captureS": round(t1 - t0, 3), "cropS": round(clock() - t1, 3),
+    log.info("fast ask capture %s", json.dumps({"captureS": round(t1 - t0, 3), "cropS": round(clock() - t1, 3),
                                           "px": [pre.w, pre.h], "picture": pre.jpeg is not None,
                                           "reason": pre.reason}, separators=(",", ":")))  # sizes only
     return pre
 
 
-def remember_soon(session: Any, ask_id: Any, region: Any, *,
-                  clock: Callable[[], float] = time.monotonic) -> asyncio.Task | None:
-    """ask.region: start capture + crop + encode now, into the slot for ask_id (a newer one replaces it). Returns at
-    once (the task), never raises. None: nothing to do (no askId, a bad region, no capture, no running loop)."""
-    reg = _region(region)
-    cap = _capture_fn()
-    if not ask_id or not isinstance(ask_id, str) or reg is None or cap is None:
-        if cap is None:
-            log.info("ask.region: no capture here (lane eng-circle-ask); the ask captures on release")
-        return None
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return None
-    drop(ask_id)
-    task = loop.create_task(capture_and_crop(session, reg, capture=cap, clock=clock))
-    task.add_done_callback(_quiet)
-    _slots[ask_id] = (clock(), task)
-    while len(_slots) > MAX_SLOTS:
-        _, (_, old) = _slots.popitem(last=False)
-        old.cancel()
-    loop.call_later(SLOT_TTL_S, _expire, ask_id, task)
-    return task
-
-
-def _quiet(task: asyncio.Task) -> None:
-    """A failed capture is logged (its type only), never raised into the loop."""
-    if not task.cancelled() and task.exception() is not None:
-        log.info("ask.region: capture failed (%s)", type(task.exception()).__name__)
-
-
-def _expire(ask_id: str, task: asyncio.Task) -> None:
-    entry = _slots.get(ask_id)
-    if entry is not None and entry[1] is task:
-        _slots.pop(ask_id, None)
-        task.cancel()
-
-
-def drop(ask_id: str) -> None:
-    """Forget the slot for ask_id (its capture is cancelled when it still runs)."""
-    entry = _slots.pop(ask_id, None)
-    if entry is not None:
-        entry[1].cancel()
-
-
-def clear() -> None:
-    """Forget every slot (tests, lesson.ended)."""
-    for ask_id in list(_slots):
-        drop(ask_id)
-
-
-async def take(ask_id: Any, region: Any, *, clock: Callable[[], float] = time.monotonic) -> Prepared | None:
-    """The action ask: the slot ask.region filled for ask_id (dropped from the slot now), waiting at most WAIT_S
-    for a capture still running. A region that moved a little is cropped again from the same frame; one on another
-    display, an expired slot, a failed capture: None (the caller captures now, as before)."""
-    if not isinstance(ask_id, str) or not ask_id:
-        return None
-    entry = _slots.pop(ask_id, None)
-    reg = _region(region)
-    if entry is None or reg is None:
-        if entry is not None:
-            entry[1].cancel()
-        return None
-    at, task = entry
-    if clock() - at > SLOT_TTL_S:
-        task.cancel()
-        return None
-    try:
-        pre = await asyncio.wait_for(asyncio.shield(task), WAIT_S)
-    except Exception:  # noqa: BLE001 - a timeout or a failed capture: capture again on release
-        task.cancel()
-        return None
-    if pre is None or _same(pre.region, reg):
-        return pre
-    if _display_id(pre.region) != _display_id(reg) or pre.obs is None:
-        return None
-    again = await asyncio.to_thread(prepare, pre.obs, pre.image, reg, pre.lesson_folder)
-    again.captured_at = pre.captured_at
-    return again
-
-
 async def frame_for(session: Any, ask_id: Any, region: Any, *,
                     clock: Callable[[], float] = time.monotonic) -> Prepared:
-    """The action ask's one call: the slot ask.region filled (take), else a capture + crop now. Always a Prepared:
-    .reason set when there is no frame (circle_ask.capture's reason, "other_display", or "no_screen" without a
-    capture here); .crop None when there is a frame but no picture to send (answer it the non-streaming way)."""
+    """The action ask without a usable app capture: a capture + crop now. Always a Prepared: .reason set when there
+    is no frame (circle_ask.capture's reason, "other_display", or "no_screen" without a capture here); .crop None
+    when there is a frame but no picture to send (answer it the non-streaming way). ask_id: for the caller's logs."""
     reg = _region(region)
     if reg is None:
         return Prepared(region={}, reason="no_frame")
-    pre = await take(ask_id, reg, clock=clock)
-    if pre is not None:
-        return pre
     try:
         pre = await capture_and_crop(session, reg, clock=clock)
     except Exception as e:  # noqa: BLE001 - the caller's own capture path still answers
