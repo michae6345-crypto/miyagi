@@ -77,8 +77,8 @@ class FakeClient:
         self.cloud.calls.append(("GET", url, params, headers, None))
         return self.cloud._reply(self.cloud.get_replies)
 
-    async def post(self, url, headers=None):
-        self.cloud.calls.append(("POST", url, None, headers, None))
+    async def post(self, url, params=None, headers=None):
+        self.cloud.calls.append(("POST", url, params, headers, None))
         return self.cloud._reply(self.cloud.claim_replies)
 
     async def put(self, url, content=None, headers=None):
@@ -168,6 +168,7 @@ def test_a_miss_claims_builds_and_uploads_the_good_build(fake, cloud, caplog):
     assert fake["watch"] == 1 and g["lesson"]["complete"] is True
     assert cloud.verbs == ["GET", "POST", "PUT"]  # looked, claimed before building, uploaded after
     assert cloud.calls[1][1] == f"{CLOUD}/lessons/{VID}/build"
+    assert cloud.calls[1][2] == {"schema": LESSON_SCHEMA_VERSION}  # the claim covers this schema only
     _, url, _, headers, body = cloud.calls[2]
     assert url == f"{CLOUD}/lessons/{VID}" and headers["Authorization"] == "Bearer mi_test_install_token"
     sent = json.loads(body)
