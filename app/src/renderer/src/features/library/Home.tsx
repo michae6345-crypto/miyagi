@@ -42,6 +42,7 @@ import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText,
 import { Column, Pane, SectionLabel, firstLine, rhythm } from './layout'
 import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
+import { PacksRow } from './presets/PresetLibraries'
 import { openDetail, setSection, start, useLibrary } from './store'
 import { setPage } from '../shell/store'
 import { LessonSkills } from '../skills/extras/SkillChips'
@@ -522,6 +523,7 @@ function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): Re
         <div data-home-lists className="flex min-w-0 flex-col empty:hidden" style={{ gap: rhythm.section }}>
           <ReviewLine data={data} now={now} />
           <UpNext skip={skip} done={done} />
+          <PacksRow />
           <Recents rows={recent} now={now} />
         </div>
       </div>
