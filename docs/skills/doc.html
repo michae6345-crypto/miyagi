@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>miyagi skills: a real skill tree</title>
+<style>
+  @page { size: 1440px 900px; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: #141414; background: #F6F6F3; -webkit-font-smoothing: antialiased; }
+  .pg { width: 1440px; height: 900px; padding: 64px 84px; position: relative; overflow: hidden; page-break-after: always; break-after: page; background: #F6F6F3; }
+  .pg:last-child { page-break-after: auto; }
+  .no { position: absolute; right: 44px; bottom: 30px; font-size: 12px; color: rgba(20,20,20,.4); }
+  .brand { position: absolute; left: 84px; bottom: 30px; display: flex; align-items: center; gap: 6px; opacity: .7; }
+  .brand img { height: 14px; }
+  .eyebrow { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: rgba(20,20,20,.45); font-weight: 650; margin-bottom: 14px; }
+  h1 { font-size: 52px; font-weight: 700; letter-spacing: -.03em; line-height: 1.08; }
+  h2 { font-size: 34px; font-weight: 690; letter-spacing: -.02em; margin-bottom: 26px; }
+  h3 { font-size: 17px; font-weight: 650; margin-bottom: 8px; }
+  p, li { font-size: 16px; line-height: 1.55; color: rgba(20,20,20,.78); }
+  ul { padding-left: 20px; }
+  li + li { margin-top: 6px; }
+  b { color: #141414; font-weight: 620; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 64px; }
+  .cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 26px 44px; }
+  .box { background: #fff; border-radius: 16px; padding: 22px 26px; box-shadow: 0 0 0 .5px rgba(24,22,16,.06), 0 4px 14px rgba(24,22,16,.06); }
+  .small p, .small li { font-size: 14px; line-height: 1.5; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { text-align: left; vertical-align: top; padding: 9px 14px 9px 0; font-size: 14px; line-height: 1.45; border-bottom: 1px solid rgba(20,20,20,.08); color: rgba(20,20,20,.78); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: rgba(20,20,20,.45); font-weight: 650; }
+  td b { white-space: nowrap; }
+  .shot { position: absolute; left: 84px; right: 84px; top: 118px; bottom: 56px; display: flex; flex-direction: column; }
+  .shot img { height: 100%; width: auto; align-self: center; border-radius: 14px; box-shadow: 0 0 0 .5px rgba(24,22,16,.1), 0 12px 40px rgba(24,22,16,.14); }
+  .shothead { position: absolute; left: 84px; right: 84px; top: 46px; display: flex; align-items: baseline; gap: 18px; }
+  .shothead h2 { margin: 0; font-size: 28px; }
+  .shothead p { font-size: 15px; }
+  .pair { position: absolute; left: 84px; right: 84px; top: 128px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .pair img { width: 100%; border-radius: 12px; box-shadow: 0 0 0 .5px rgba(24,22,16,.1), 0 10px 30px rgba(24,22,16,.12); }
+  .glyph { display: flex; align-items: center; gap: 14px; }
+  .state { display: grid; grid-template-columns: 44px 150px 1fr; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(20,20,20,.08); }
+  .state p { font-size: 14px; }
+  code { font-family: "SF Mono", ui-monospace, Consolas, monospace; font-size: 13px; background: rgba(20,20,20,.05); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<section class="pg">
+  <div style="position:absolute;left:84px;top:150px;width:640px">
+    <div class="eyebrow">miyagi · desktop app · Nov 22, 2026</div>
+    <h1>Skills, redone as a real skill tree</h1>
+    <p style="font-size:19px;margin-top:22px">Research, mockups in light and dark, the data the engine needs, and the build plan. Before any code, as you asked.</p>
+    <p style="margin-top:34px;font-size:15px">Adrian · for Michael</p>
+  </div>
+  <img src="../../app/agents/shots/skills-01-path-light.png" style="position:absolute;right:-120px;top:120px;width:760px;border-radius:14px;box-shadow:0 0 0 .5px rgba(24,22,16,.1),0 24px 70px rgba(24,22,16,.18)">
+  <div class="brand"><img src="mock/assets/tree-small.svg"><img src="mock/assets/wordmark.svg"></div><div class="no">1</div>
+</section>
+
+<section class="pg">
+  <div class="eyebrow">The problem and the idea</div>
+  <h2>A row of circles doesn't make anyone want to keep going</h2>
+  <div class="cols">
+    <div>
+      <h3>What's wrong today</h3>
+      <ul>
+        <li>It lists <b>one lesson's steps</b>, not skills you built across lessons.</li>
+        <li>Pastel bands as containers. Pastels are for option buttons.</li>
+        <li><b>Five states</b>, three of them near-identical hollow circles, in a legend far from the content.</li>
+        <li>Green on "Review due", though green means passed.</li>
+        <li>Seven cramped columns, one clipped. 70% of the page is empty.</li>
+        <li>No summary, no hierarchy, <b>no next step</b>.</li>
+        <li>Two whites: sidebar and content card don't read as one surface.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>What this design does</h3>
+      <ul>
+        <li><b>A node is a skill</b> ("Broadcasting", "Extrude"), built up across lessons.</li>
+        <li><b>A real graph underneath, a path on top.</b> Path view shows only the skills on the way to your goal, across tracks. Map shows everything. List is cards per track.</li>
+        <li><b>Four states</b> told apart by stroke and fill. Green only on mastered. No legend: the words are on the nodes.</li>
+        <li><b>One NEXT</b> and <b>one primary button</b> that points at it, plus up to three "also ready".</li>
+        <li><b>A project at the end of every branch</b>, visible while locked.</li>
+        <li><b>The unlock moment is motion only.</b> No confetti, no glow.</li>
+        <li><b>Review comes from using a skill</b> in later lessons. Mastered never goes back.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="brand"><img src="mock/assets/tree-small.svg"><img src="mock/assets/wordmark.svg"></div><div class="no">2</div>
+</section>
+
+<section class="pg small">
+  <div class="eyebrow">Research · 1 of 2</div>
+  <h2>What others do, and what miyagi takes from it</h2>
+  <table>
+    <tr><th style="width:190px">Product</th><th>How it shows progress</th><th style="width:430px">What we take</th></tr>
+    <tr><td><b>Duolingo</b></td><td>Moved from a tree you chose from to one path (2022) to cut confusion and build review in. Engagement stayed "equivalent". Choice and overview were lost; users petitioned.</td><td>Path as the default, but keep the map and a way to test out.</td></tr>
+    <tr><td><b>Khan Academy</b></td><td>Attempted, Familiar, Proficient, Mastered. Progress counts only Proficient and up. Weekly streaks. The big knowledge map was retired and people still ask for it.</td><td>Count mastery, not completion. Weekly rhythm. Don't demote.</td></tr>
+    <tr><td><b>Math Academy, ALEKS</b></td><td>A knowledge graph. You choose from the "frontier": topics whose prerequisites you know (about 93% success there). Practicing an advanced topic reviews the simpler ones inside it.</td><td>Show the frontier. Using a skill reviews it.</td></tr>
+    <tr><td><b>Exercism</b></td><td>Concept exercises unlock practice exercises by tags. Learning mode gates; practice mode opens everything. Hidden multi-concept rules confuse people.</td><td>Say what a locked node needs. Gating is a default, not a wall.</td></tr>
+    <tr><td><b>Codecademy, Trailhead</b></td><td>Paths end in portfolio projects. Superbadges are 8-14 hour applied challenges behind prerequisites.</td><td>A real project at the end of every branch.</td></tr>
+    <tr><td><b>Boot.dev, Sololearn, Mimo</b></td><td>XP, chests, leagues, hearts. Mimo found learn, practice, come back beats finishing a section in one go.</td><td>Skip the loot. Spacing is built into "mastered".</td></tr>
+    <tr><td><b>Path of Exile, roadmap.sh</b></td><td>Huge webs. Experts love them; newcomers find them daunting and follow outside guides.</td><td>Never open on a field of 100 dashed circles.</td></tr>
+    <tr><td><b>FFX sphere grid</b></td><td>Looks like an 828-node web, plays almost linearly.</td><td>A web on screen can hide a path underneath.</td></tr>
+    <tr><td><b>Skyrim, Factorio</b></td><td>Skills grow by real use. Factorio's "do the thing" techs failed when the game didn't say what to do.</td><td>miyagi already watches real use. Every node says how to earn it.</td></tr>
+  </table>
+  <div class="brand"><img src="mock/assets/tree-small.svg"><img src="mock/assets/wordmark.svg"></div><div class="no">3</div>
+</section>
+
+<section class="pg">
+  <div class="eyebrow">Research · 2 of 2</div>
+  <h2>What keeps people going, and what pushes them away</h2>
+  <div class="cols3 small">
+    <div class="box"><h3>Goal gradient</h3><p>People speed up near a reward. A card with 2 of 12 stamps filled beat a blank card of 10 (Kivetz 2006). So: a visible goal, counted down.</p></div>
+    <div class="box"><h3>Small area</h3><p>Early on, show what's done; near the end, show what's left (Koo and Fishbach 2012). "6 of 11 mastered" now, "2 skills to go" later.</p></div>
+    <div class="box"><h3>Slow early progress</h3><p>Slow-moving bars early raise drop-off (Villar 2013). "1 of 300" is slow. The path shows 6-15 skills, not all of them.</p></div>
+    <div class="box"><h3>Streaks</h3><p>A broken streak lowers later engagement (Silverman and Barasch 2023). Weekly rhythm, never shown as broken.</p></div>
+    <div class="box"><h3>Mastery and spacing</h3><p>Mastery learning gains about 0.5 SD. Spaced, mixed practice beat blocked practice 72% to 38% (Rohrer 2014). Mastered means passed on 2 different days.</p></div>
+    <div class="box"><h3>Choice overload</h3><p>It grows with complexity and unclear preferences (Chernev 2015), which is a novice facing a big tree. One NEXT, three alternatives.</p></div>
+    <div class="box"><h3>Rewards</h3><p>Expected rewards tied to completion undermine motivation (Deci 1999). Gamification's effects are small. "You can do this now" beats loot.</p></div>
+    <div class="box"><h3>Visible goals</h3><p>Specific, hard goals beat vague ones (Locke and Latham 2002). Every branch ends in a named project.</p></div>
+    <div class="box"><h3>Anti-patterns</h3><p>Sprawl, states that look alike, review debt piles, demotion, hidden unlock rules, hearts and leagues, progress reshuffled when content changes.</p></div>
+  </div>
+  <p style="margin-top:22px;font-size:13px">Full report with every source linked: <code>research/skills-tree/RESEARCH.md</code> (on the draft PR).</p>
+  <div class="brand"><img src="mock/assets/tree-small.svg"><img src="mock/assets/wordmark.svg"></div><div class="no">4</div>
+</section>
+
+<section class="pg">
+  <div class="eyebrow">The rules</div>
+  <h2>Four states, one NEXT, one primary button</h2>
+  <div class="cols">
+    <div>
+      <div class="state"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="10" fill="none" stroke="rgba(20,20,20,.42)" stroke-width="1.3" stroke-dasharray="2.6 2.8"/></svg><b>Locked</b><p>Dashed, faint. Says what it needs: "needs 3 skills".</p></div>
+      <div class="state"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="none" stroke="#141414" stroke-width="1.6"/></svg><b>Ready</b><p>Solid ink outline. Prerequisites mastered.</p></div>
+      <div class="state"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="none" stroke="#141414" stroke-width="1.6"/><path d="M15 7.5A7.5 7.5 0 0 1 22.1 17.4" stroke="#141414" stroke-width="3" fill="none" stroke-linecap="round"/></svg><b>Practicing</b><p>Ink arc inside the ring: the evidence so far. "2 of 4 steps".</p></div>
+      <div class="state"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="#22A24B"/><path d="M10 15.3l3.4 3.4 6.6-7" stroke="#141414" stroke-width="2.1" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><b>Mastered</b><p>The only green. Passed unassisted on 2 different days.</p></div>
+      <div class="state"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="10.6" fill="none" stroke="#22A24B" stroke-width="2.8"/></svg><b>Review (modifier)</b><p>Still mastered, so still green, but hollow. Any later use fills it again. Never demoted.</p></div>
+      <div class="state"><svg width="30" height="30" viewBox="0 0 30 30"><rect x="3" y="3" width="24" height="24" rx="8" fill="none" stroke="rgba(20,20,20,.42)" stroke-width="1.3" stroke-dasharray="3 3"/></svg><b>Project</b><p>A rounded square with the bonsai. Same state rules.</p></div>
+    </div>
+    <div>
+      <h3>NEXT and the button</h3>
+      <p>Exactly one node carries NEXT: a ring offset 3px and the word. The page's one primary button points at it ("Continue: Broadcasting"), with why under it ("Teaches Broadcasting · gets you closer to Layers · 12 min"). Up to three "also ready" links keep a choice without a blank page.</p>
+      <p style="margin-top:12px">The engine picks NEXT in this order: a lesson in progress, then a frontier lesson on the goal path that also uses a due skill, then the frontier lesson closest to the goal, then a short review.</p>
+      <h3 style="margin-top:24px">Brand</h3>
+      <p>Lowercase miyagi. Green only for mastered. No red, yellow or blue. No glows or confetti. Pastels only on option buttons (Explain is sky). Track names are plain small caps, not colored tags. One surface: sidebar and content share the cream paper in light; warm near-black steps in dark (#242).</p>
+      <h3 style="margin-top:24px">Unlock moment</h3>
+      <p>Once per event. Fill green from the center (280 ms), the check draws in, edges draw out (360 ms, 60 ms apart), dashed rings close (240 ms), NEXT glides, one line of copy. Reduced motion: 150 ms crossfades. The house spring for anything that moves.</p>
+    </div>
+  </div>
+  <div class="brand"><img src="mock/assets/tree-small.svg"><img src="mock/assets/wordmark.svg"></div><div class="no">5</div>
+</section>
+
+<!--SHOTS-->
+
+<section class="pg small">
+  <div class="eyebrow">Contract ask</div>
+  <h2>What the engine needs to send</h2>
+  <p style="margin:-12px 0 18px">Today's <code>Progress.skills[]</code> is <code>{track, mastered, total, items[{label, state}]}</code>, and the items are a lesson's step titles. That can't draw a graph. Everything below adds to what exists; the app keeps the old shape as a fallback until this lands.</p>
+  <div class="cols3">
+    <div class="box"><h3>Per skill</h3><ul>
+      <li><code>id</code> (stable, never reused), <code>label</code> (1-3 words), <code>summary</code>, <code>track</code>, <code>kind: skill | capstone</code></li>
+      <li><code>state: locked | ready | practicing | mastered</code></li>
+      <li><code>evidence: {unassisted, days, need}</code> for the arc</li>
+      <li><code>masteredAt</code>, <code>lastPracticedAt</code>, <code>review: {dueAt} | null</code></li>
+      <li><code>lessons: [{lessonId, stepIds, role: teaches | uses}]</code></li>
+      <li><code>example</code> (the "you'll be able to" line), optional <code>layout: {layer, lane}</code></li></ul></div>
+    <div class="box"><h3>Per edge and capstone</h3><ul>
+      <li>Edge: <code>from</code>, <code>to</code>, <code>kind: requires | helps</code> (only requires gates), <code>weight</code> (review credit)</li>
+      <li>Capstone: <code>brief</code>, <code>requires[]</code>, <code>checks[]</code>, <code>starterFile</code>, <code>estMinutes</code>, <code>completedAt</code>, <code>artifact: {thumbnail}</code></li></ul>
+      <h3 style="margin-top:14px">Per track</h3><ul><li><code>id</code>, <code>app</code>, <code>title</code>, <code>counts</code>, <code>capstones[]</code></li></ul></div>
+    <div class="box"><h3>Per learner and lesson</h3><ul>
+      <li><code>goal: capstoneId | null</code> plus a <code>set_goal</code> command</li>
+      <li><code>next: {kind, lessonId, title, teaches[], unlocks[], estMinutes, reason}</code>, <code>alsoReady[]</code> (max 3), <code>keepFresh[]</code> (max 3)</li>
+      <li><code>events[]</code> since <code>seenAt</code> plus an ack, so each unlock plays once</li>
+      <li><code>week: {mastered, refreshed, minutes, days[]}</code>, <code>portfolio[]</code></li>
+      <li>Library items: <code>teaches[]</code>, <code>uses[]</code>, <code>unlocks[]</code></li>
+      <li>Steps: <code>skillIds[]</code> (the tag that makes all of this work)</li></ul></div>
+  </div>
+  <div class="brand"><img src="mock/assets/tree-small.svg"><img src="mock/assets/wordmark.svg"></div><div class="no">NN</div>
+</section>
+
+<section class="pg">
+  <div class="eyebrow">Build plan</div>
+  <h2>How it lands</h2>
+  <div class="cols">
+    <div>
+      <h3>1 · Path, List and the skill panel</h3>
+      <p>New <code>features/skills/</code>: the graph layout (layered, left to right), the four states, NEXT, the dock. SkillsPage.tsx renders it; Constellation retires. Works on today's data by drawing each track as a short chain, and lights up fully when the contract fields arrive. Mock scenario <code>skills.json</code> with this exact learner.</p>
+      <h3 style="margin-top:20px">2 · Map and the goal picker</h3>
+      <p>The whole graph, labels beside nodes with a halo, zoom and fit. The empty state ("What do you want to make first?") sets the goal.</p>
+      <h3 style="margin-top:20px">3 · The unlock moment</h3>
+      <p>Plays at the end of a lesson first, then once on Skills. Needs <code>events</code> plus an ack.</p>
+      <h3 style="margin-top:20px">4 · Around the tree</h3>
+      <p>Skill chips on lesson cards, the lesson-end recap, the weekly recap on Progress, the portfolio. Later, the bonsai buddy grows a leaf per mastered skill.</p>
+    </div>
+    <div>
+      <h3>Files</h3>
+      <p><code>app/src/renderer/src/features/skills/**</code> (new), <code>features/shell/pages/SkillsPage.tsx</code>, <code>features/dashboard/Constellation.tsx</code> (retired). Please keep the layout agents off these.</p>
+      <h3 style="margin-top:20px">What I need from you</h3>
+      <ul>
+        <li>A yes, or changes, on the direction in this PDF.</li>
+        <li>The contract fields on the previous page, starting with <code>skillIds</code> on steps, the skill and edge lists, <code>goal</code> and <code>next</code>.</li>
+        <li>Your call on the mastery rule (2 different days) and the review intervals (3, 7, 21, 60 days).</li>
+        <li>The first capstones per track. My guesses: Model a chair (Blender), Fit sin(x) with a network (Python), Build a budget sheet (Sheets), Design an app screen (Figma).</li>
+      </ul>
+      <h3 style="margin-top:20px">Claim</h3>
+      <p>Draft PR into <code>adrian/shell</code> with this research, the mockups and the brief. Code follows on the same PR.</p>
+    </div>
+  </div>
+  <div class="brand"><img src="mock/assets/tree-small.svg"><img src="mock/assets/wordmark.svg"></div><div class="no">NN</div>
+</section>
+
+<script>
+  const shots = [
+    ['01-path', 'Path (default)', 'Only the skills on the way to your goal, across tracks. The project is at the right end.'],
+    ['02-map', 'Map', 'Every track, grown up from one trunk. The goal path is drawn in ink.'],
+    ['03-panel', 'A skill, opened', 'What it is, what you\'ll be able to do, its steps, the lessons it came from, what it opens.'],
+    ['04-list', 'List', 'One card per track: a mastery meter, its skills in words, when you last practiced.'],
+    ['05-empty', 'A new learner', 'Pick what you want to make first. The path draws from there.'],
+    ['06-unlock', 'The unlock moment', 'Motion only, once per event.'],
+    ['07-extras', 'Around the tree', 'Lesson cards, the lesson-end recap, the weekly recap, the portfolio.']
+  ];
+  let html = '';
+  for (const [f, t, d] of shots) {
+    html += `<section class="pg"><div class="shothead"><h2>${t}</h2><p>${d}</p></div><div class="shot"><img src="../../app/agents/shots/skills-${f}-light.png"></div><div class="no">NN</div></section>`;
+    html += `<section class="pg" style="background:#1E1D1B"><div class="shothead"><h2 style="color:#F4F4F5">${t}, dark</h2></div><div class="shot"><img src="../../app/agents/shots/skills-${f}-dark.png"></div><div class="no" style="color:rgba(255,255,255,.4)">NN</div></section>`;
+  }
+  const marker = [...document.body.childNodes].find(n => n.nodeType === 8 && n.textContent === 'SHOTS');
+  const tmp = document.createElement('div'); tmp.innerHTML = html;
+  [...tmp.children].forEach(c => document.body.insertBefore(c, marker));
+  document.querySelectorAll('.no').forEach((n, i) => { n.textContent = i + 1; });
+  const only = new URLSearchParams(location.search).get('p');  // preview one page: doc.html?p=3
+  if (only) document.querySelectorAll('.pg').forEach((p, i) => { if (i !== +only - 1) p.style.display = 'none'; });
+</script>
+</body>
+</html>
