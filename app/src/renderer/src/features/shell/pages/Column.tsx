@@ -31,13 +31,13 @@ export const SECTION_GAP = layout.page.section
 /** Between a section's label and its group (12). */
 export const LABEL_GAP = layout.page.label
 /**
- * The body's own top padding (6), in place of ui.tsx PageBody's 8: with the title row's 2 and the header's 24 it puts the
- * first block exactly TITLE_TO_BODY under the title's bottom (fix round 2: it was 34, off the 4/8 scale). Pages pass it
- * as `style={{ paddingTop: BODY_TOP }}`; a shell-lane change to PageBody's default would make this the default.
+ * The column's top (8, layout.page.bodyTop): with the header's 24 under the title's line it puts the first block exactly
+ * TITLE_TO_BODY (32) under the title (round 3: this was 6, from before the header measured from the line, and left
+ * Progress at 30). ui.tsx PageColumn applies it itself; a `paddingTop` in a page's `style` is ignored.
  */
-export const BODY_TOP = 6
-/** From the title's bottom to the first block (32): (titleRow 36 - the 32 px title line) / 2 + titleGap + BODY_TOP. */
-export const TITLE_TO_BODY = (layout.page.titleRow - 32) / 2 + layout.page.titleGap + BODY_TOP
+export const BODY_TOP = layout.page.bodyTop
+/** From the title's line to the first block (32): the header's titleGap (24, measured from the line) + the column's bodyTop (8). */
+export const TITLE_TO_BODY = layout.page.titleGap + BODY_TOP
 /**
  * Under a page's section control (Settings' segmented control), before the first group: the same 32 as the title to the
  * first block, so the control reads as part of the header and the content under it keeps the page's rhythm.

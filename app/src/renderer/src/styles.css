@@ -85,7 +85,7 @@ html[data-kind="app"] [data-no-drag] {
 .mg-lights { height: 40px; }
 .mg-flow-head { height: 64px; }
 .mg-lights-pad { padding-left: 88px; }
-html[data-fullscreen] .mg-lights { height: 12px; }
+html[data-fullscreen] .mg-lights { height: 24px; }
 html[data-fullscreen] .mg-flow-head { height: 48px; }
 html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
 /*
@@ -95,6 +95,29 @@ html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
  */
 .mg-page-head { padding-top: var(--page-head-top); }
 html[data-fullscreen] .mg-page-head { padding-top: var(--page-head-top-full); }
+/*
+ * Home's and a lesson preview's first line (features/library layout.tsx firstLine): 80 from the window's top, 52 in full
+ * screen like every page title. The column's top padding and the preview's back bar read their numbers from variables.
+ */
+.mg-first-line { padding-top: var(--first-top); }
+html[data-fullscreen] .mg-first-line { padding-top: var(--first-top-full); }
+.mg-detail-bar { height: var(--bar); }
+/*
+ * The account window's card (features/account AccountWindow): top-anchored, never centered. The window is sized to its card
+ * (720x560 holds the 526 px sign-in card with 16 around it), so there it sits 16 down; in a window 720 tall or more
+ * (a resized one, macOS full screen) the card's top is 80 from the window's top, 52 in full screen, like every page.
+ */
+.mg-account-scroll { container-type: size; }
+.mg-account-stack { padding-top: 16px; }
+@container (min-height: 720px) {
+  .mg-account-stack { padding-top: 80px; }
+}
+html[data-fullscreen] .mg-account-stack { padding-top: 52px; }
+/* The sign-in view (features/auth Login): top-anchored. In its own window the mark is 80 down (52 in full screen); in the first-run flow it sits 40 under the flow's header. */
+.mg-login { padding-top: 80px; }
+html[data-fullscreen] .mg-login { padding-top: 52px; }
+[data-flow-view] .mg-login, html[data-fullscreen] [data-flow-view] .mg-login { padding-top: 40px; }
+html[data-fullscreen] .mg-detail-bar { height: var(--bar-full); }
 /*
  * The page column's gutter (features/shell ui.tsx GUTTER, used by PageHeader and PageColumn): 40, and 24 once the
  * content pane is under 760 wide (layout.page.tightBelow). Each page frame (and a lesson's preview over the pane) is the
@@ -112,12 +135,14 @@ html[data-fullscreen] .mg-page-head { padding-top: var(--page-head-top-full); }
  * library lane in agents/shell.md); drop these two rules when it lands.
  */
 [data-sidebar-status] div[data-status-word="passed"] > [data-status-glyph="passed"] { display: none; }
+/* Every status glyph (14 + 4 margin = 18, then the row's 8 gap) puts the word at x 46 like the nav labels, centered on the nav icons. */
+[data-sidebar-status] [data-status-glyph] { margin: 0 3px 0 1px; }
 [data-sidebar-status] div[data-status-word="passed"]::before {
   content: "";
   flex: none;
   width: 8px;
   height: 8px;
-  margin: 0 3px;
+  margin: 0 6px 0 4px;
   border-radius: 999px;
   background: var(--sidebar-ready-dot);
 }
@@ -268,12 +293,12 @@ input {
   @media (hover: hover) and (pointer: fine) {
     .mg-lift:hover {
       transform: translateY(-1px);
-      box-shadow: var(--h-top), inset 0 0 0 1px var(--s-border), var(--e-overlay) !important;
+      box-shadow: var(--h-top), inset 0 0 0 1px var(--s-border), var(--e-overlay);
     }
   }
   .mg-lift:active {
     transform: translateY(0) scale(0.985);
-    box-shadow: var(--h-top-soft), inset 0 0 0 1px var(--s-border), var(--e-raised) !important;
+    box-shadow: var(--h-top-soft), inset 0 0 0 1px var(--s-border), var(--e-raised);
     transition-duration: 60ms;
   }
 
@@ -393,6 +418,6 @@ input {
   /* No smooth scrolling (a scroll that glides is motion too). JS scrolls check prefersReduced() (core/ui/motion). */
   html,
   * {
-    scroll-behavior: auto !important;
+    scroll-behavior: auto;
   }
 }

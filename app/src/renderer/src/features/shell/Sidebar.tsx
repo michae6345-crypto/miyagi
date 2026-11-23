@@ -142,7 +142,7 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
 }
 
 /** The account chip's avatar. */
-const CHIP_AVATAR = 24
+const CHIP_AVATAR = 20
 
 /** Above the sheet's scrim (z 30) and the sheet itself (z 40) while the avatar flies back into the chip. */
 const FLIGHT_Z = 45
@@ -205,11 +205,11 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
       title={compact ? name : undefined}
       className="mg-press relative flex w-full cursor-pointer items-center text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
       style={{
-        // The avatar's center lines up with the nav icons' and the name with their labels (x 46 in a 232 sidebar).
-        gap: 6,
-        padding: compact ? 6 : '5px 6px',
+        // 4/8 scale. With the 20 px avatar its center lines up with the nav icons' and the name with their labels (x 46 in a 232 sidebar).
+        gap: 8,
+        padding: compact ? 6 : '4px 8px',
         justifyContent: compact ? 'center' : undefined,
-        borderRadius: radius2.row,
+        borderRadius: radius2.control,
         background: on ? fill.navOn : 'transparent',
         outlineColor: focus.dark
       }}

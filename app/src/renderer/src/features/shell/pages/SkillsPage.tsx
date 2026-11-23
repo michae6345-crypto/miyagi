@@ -20,7 +20,7 @@ import { useDashView } from '../../dashboard/Dashboard'
 import { SkillCard } from '../../dashboard/Rail'
 import { setPage } from '../store'
 import { PageColumn } from '../ui'
-import { BODY_TOP, Scroller } from './Column'
+import { Scroller } from './Column'
 
 /** No skills yet: the bonsai, one line, the way to a lesson, on the title's left edge (top-anchored, not centered). */
 function NoSkills(): ReactNode {
@@ -41,12 +41,14 @@ function NoSkills(): ReactNode {
 export function SkillsPage(): ReactNode {
   const { data, load, now, due } = useDashView()
   const loading = load === 'loading'
-  const none = !loading && !(data?.tracks?.length ?? 0)
+  const tracks = data?.tracks?.length ?? 0
+  const none = !loading && !tracks
   return (
     <div data-shell-skills className="relative h-full min-h-0" style={{ color: color.text }}>
       <Scroller>
         {/* BODY_TOP under the header: the first row sits 32 under the title, as on every page. */}
-        <PageColumn wide style={{ paddingTop: BODY_TOP }}>
+        {/* The title's column (Shell.tsx pageWidth): wide only while the grid has skills, so an empty state starts on the 720 title's edge. */}
+        <PageColumn wide={tracks > 0}>
           {none ? (
             <NoSkills />
           ) : (

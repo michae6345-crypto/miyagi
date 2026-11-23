@@ -94,14 +94,19 @@ function alphaHex(hex: string, a: number): string {
  * ink at low alpha. Not an inversion: shadows are warm and wide, highlights are white edges, and the greens are deeper.
  */
 const INK = '20,20,20'
+/** Text in the app windows' dark theme (the island's pinned scope keeps `hud.dark`; see themeCss). */
+const APP_DARK = { text: '#ECEBE8', label: '#A3A29E' } as const
 const SHADOW = '24,22,16'
 const palette: Record<string, readonly [string, string]> = {
   // ---- text and status ----
-  'c-text': [hud.dark.text, brand.ink],
-  'c-label': [hud.dark.muted, `rgba(${INK},.68)`],
+  // The app windows' own text pair (layout lane, Nov 22): dark #ECEBE8 / #A3A29E, light the website's ink and muted.
+  // The island keeps hud.dark.text / hud.dark.muted: themeCss() pins those two back inside [data-theme="dark"].
+  'c-text': [APP_DARK.text, brand.ink],
+  'c-label': [APP_DARK.label, brand.inkMuted],
   // Dark faint is a solid warm gray (layout lane, Nov 22): white .42 was about 4.1:1 on the #1B1B1A pane and 3.8:1 on
   // #222221 cards, under 4.5:1 for the 12 px meta (durations, step counts); #858480 is about 4.8:1 on the pane.
-  'c-faint': ['#858480', `rgba(${INK},.6)`],
+  // Light faint: the website's #8F8F88 is 3.0:1 on the cream pane, so the app uses #6F6F68 (4.7:1 on #F6F6F3, test/lightContrast.test.ts).
+  'c-faint': ['#858480', '#6F6F68'],
   'c-hairline': [hud.dark.hairline, `rgba(${INK},.10)`],
   'c-accent': [hud.dark.button, hud.light.button],
   'c-on-accent': [hud.dark.buttonText, hud.light.buttonText],
@@ -118,7 +123,7 @@ const palette: Record<string, readonly [string, string]> = {
   // Glass (launcher, lesson panel, account menu): the same neutral ramp as the windows (it was the cool iOS 28,28,30,
   // which read blue next to the warm windows).
   'c-glass': ['rgb(30,30,29)', 'rgb(252,251,249)'],
-  'c-window': ['#141413', '#F3F2EE'],
+  'c-window': ['#141413', '#F1EFE9'],
   'c-white': ['#FFFFFF', brand.ink], // Tailwind's text-white / bg-white/10 in features follow the theme through this
   'c-focus': ['rgba(255,255,255,.88)', 'rgba(20,20,20,.88)'],
   // ---- which bonsai / wordmark cut shows (core/ui/Mark.tsx): the dark cut on dark, the light cut on light ----
@@ -126,15 +131,17 @@ const palette: Record<string, readonly [string, string]> = {
   'mk-light': ['none', 'inline-block'],
   // ---- layers, back to front: base (window chrome, the sidebar), raised (the content pane), overlay (cards on it) ----
   // Layout lane (Nov 22, Linear / Notion dark): one warm-neutral ramp with very low chroma (R−B ≤ 1; more read muddy),
-  // each step about 7 levels apart. Light: the sidebar a soft stone, the pane near-white, cards white.
-  'l-base': ['#141413', '#F3F2EE'],
-  'l-raised': ['#1B1B1A', '#FAF9F7'],
+  // each step about 7 levels apart.
+  // Light is the website's cream (Michael, Nov 22): the content canvas is the site's paper #F6F6F3, the sidebar and window
+  // chrome a step deeper (#F1EFE9, also on the site), cards white with a hairline border.
+  'l-base': ['#141413', '#F1EFE9'],
+  'l-raised': ['#1B1B1A', brand.paper],
   'l-overlay': ['#222221', '#FFFFFF'],
   // Edges: the pane's own outline (no divider beside the sidebar: the tone step separates them) and a card's border.
   'l-edge': ['rgba(255,255,255,.06)', `rgba(${INK},.07)`],
   'l-border': ['rgba(255,255,255,.08)', `rgba(${INK},.08)`],
   // The fine dot grid on the content pane (PR #242). Neutral and quiet; PANEL fades it out away from the top.
-  'd-dot': ['rgba(255,255,255,.05)', `rgba(${INK},.09)`],
+  'd-dot': ['rgba(255,255,255,.05)', `rgba(${INK},.06)`],
   // ---- fill.* ----
   'f-field': ['rgba(255,255,255,.06)', `rgba(${INK},.045)`],
   'f-field-border': ['rgba(255,255,255,.09)', `rgba(${INK},.10)`],
@@ -183,8 +190,10 @@ const palette: Record<string, readonly [string, string]> = {
   'e-panel': ['0 1px 2px rgba(0,0,0,.3), 0 6px 14px rgba(0,0,0,.24), 0 18px 40px rgba(0,0,0,.3), 0 36px 80px rgba(0,0,0,.32)', `0 0 0 .5px rgba(${SHADOW},.07), 0 3px 8px rgba(${SHADOW},.06), 0 16px 36px rgba(${SHADOW},.1), 0 40px 88px rgba(${SHADOW},.13)`],
   // The content pane and the cards on it: no drop shadow in dark (depth comes from the tone steps, a border and a top
   // highlight), a soft two-layer lift in light.
-  'e-pane': ['none', `0 0 0 .5px rgba(${SHADOW},.03), 0 1px 2px rgba(${SHADOW},.04)`],
-  'e-tile': ['none', `0 1px 2px rgba(${SHADOW},.04), 0 4px 12px rgba(${SHADOW},.03)`],
+  // "No shadow" is a zero shadow, not `none`: these sit inside a comma list (border + highlight + elevation), where `none`
+  // makes the whole declaration invalid and the card lost its border and top edge in dark.
+  'e-pane': ['0 0 0 0 transparent', `0 0 0 .5px rgba(${SHADOW},.03), 0 1px 2px rgba(${SHADOW},.04)`],
+  'e-tile': ['0 0 0 0 transparent', `0 1px 2px rgba(${SHADOW},.04), 0 4px 12px rgba(${SHADOW},.03)`],
   'e-card': [`0 0 0 0.5px ${hud.notch}, 0 2px 4px rgba(0,0,0,.3), 0 12px 28px rgba(0,0,0,.34), 0 32px 72px rgba(0,0,0,.42)`, `0 0 0 .5px rgba(${SHADOW},.08), 0 3px 8px rgba(${SHADOW},.07), 0 18px 40px rgba(${SHADOW},.12), 0 44px 96px rgba(${SHADOW},.16)`],
   // ---- highlight edges ----
   'h-top': ['inset 0 1px 0 rgba(255,255,255,.1)', 'inset 0 1px 0 rgba(255,255,255,.95)'],
@@ -255,9 +264,12 @@ function decls(i: 0 | 1): string {
  */
 export function themeCss(): string {
   const dark = `${decls(0)}--color-white:var(--c-white);color-scheme:dark;`
+  // The notch island pins this set: its text stays the HUD pair, not the app windows' softer one.
+  const island = `--c-text:${hud.dark.text};--c-label:${hud.dark.muted};`
   const light = `${decls(1)}--color-white:var(--c-white);color-scheme:light;`
   return [
     `:root,[data-theme="dark"],:root[data-appearance="dark"] [data-theme="auto"]{${dark}}`,
+    `[data-theme="dark"]{${island}}`,
     `:root[data-appearance="light"],:root[data-appearance="light"] [data-theme="auto"]{${light}}`
   ].join('\n')
 }
