@@ -3,7 +3,8 @@
  * no I/O, so the parser, the command builders and the term list are tested offline (test/pttProtocol.test.ts).
  *
  *   helper -> main (stdout): ready, perm, ptt, listening, partial, final, cancelled, error
- *   main -> helper (stdin):  config, context, permissions, cancel, quit
+ *   main -> helper (stdin):  config, context, permissions, cancel, quit, capture
+ *   helper -> main, capture: the answer to one capture request (parseCaptureLine; never a HelperEvent)
  *
  * Whatever comes out of the helper is untrusted input: every line is validated, unknown types and malformed fields
  * are dropped (parseLine returns undefined), text is length-capped. Session bookkeeping (a stale id is dropped) lives in
@@ -172,4 +173,113 @@ export const GIVE_UP_AFTER = 8
 
 export function backoffMs(failures: number): number {
   return BACKOFF_MS[Math.min(Math.max(failures, 0), BACKOFF_MS.length - 1)]
+}
+
+// ---- capture (circle to ask) ------------------------------------------------------------------------------------------
+//
+//   main -> helper  {"cmd":"capture","id","rect":{x,y,w,h},"displayId","margin"}
+//   helper -> main  {"type":"capture","id","path","w","h","pxPerPoint","rect":{x,y,w,h},"displayId","ms"}
+//              or   {"type":"capture","id","error","message","ms"}
+//
+// Kept out of HelperEvent on purpose: a capture answer is a reply to one request, not a push-to-talk state change, so it
+// never reaches reducePtt (common/pttState.ts). parseLine drops it; parseCaptureLine reads it.
+// rect is global screen points, top-left origin (the contract's ScreenRegion space; displayId = Electron's Display.id).
+
+/** Long edge of the JPEG, in pixels (the helper never goes above it). */
+export const MAX_CAPTURE_EDGE = 1092
+/** The helper answers in about 50 to 400 ms; past this main gives up and answers 'timeout'. */
+export const CAPTURE_TIMEOUT_MS = 2000
+/** The circle plus this much on every side (the speed plan's 15%). The answer's rect says what was really captured. */
+export const CAPTURE_MARGIN = 0.15
+const MAX_PATH = 1024
+const MAX_COORD = 100_000
+
+export type CaptureRect = { x: number; y: number; w: number; h: number }
+/** The helper's codes, then main's own (no helper running, no answer in time, a request that made no sense). */
+export type CaptureErrorCode = 'screen_denied' | 'no_display' | 'bad_rect' | 'unsupported' | 'failed' | 'unavailable' | 'timeout' | 'bad_request'
+export const HELPER_CAPTURE_ERRORS: readonly CaptureErrorCode[] = ['screen_denied', 'no_display', 'bad_rect', 'unsupported', 'failed']
+
+/** What the circle feature asks for: a ScreenRegion (its scale is ignored: the helper reads the display's own). */
+export type CaptureRequest = CaptureRect & { displayId: number; margin?: number }
+
+export type CaptureOk = {
+  ok: true
+  id: string
+  /** Absolute path of a 0600 JPEG in the helper's private folder. The helper deletes it after about 2 minutes or 8 newer captures. */
+  path: string
+  /** Pixels. max(w, h) <= MAX_CAPTURE_EDGE. */
+  w: number
+  h: number
+  /** Output pixels per point (w / rect.w). */
+  pxPerPoint: number
+  /** The box really captured: margin added, clamped to the display, whole points. Map crop pixels back with this. */
+  rect: CaptureRect
+  displayId: number
+  ms: number
+}
+export type CaptureFail = { ok: false; id: string; error: CaptureErrorCode; message: string; ms?: number }
+export type CaptureResult = CaptureOk | CaptureFail
+
+const finiteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+const parseRect = (v: unknown): CaptureRect | undefined => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+  const r = v as Record<string, unknown>
+  if (!finiteNum(r.x) || !finiteNum(r.y) || !finiteNum(r.w) || !finiteNum(r.h) || r.w <= 0 || r.h <= 0) return undefined
+  if ([r.x, r.y, r.w, r.h].some((n) => Math.abs(n) > MAX_COORD)) return undefined
+  return { x: r.x, y: r.y, w: r.w, h: r.h }
+}
+/** The helper's own file names only: <...>/cap-<uuid>.jpg, absolute, nothing odd in the path. */
+const isCapturePath = (v: unknown): v is string =>
+  isStr(v, MAX_PATH) && v.startsWith('/') && !v.includes('/../') && !/[\u0000-\u001f]/.test(v) && /\/cap-[a-z0-9-]{8,64}\.jpg$/.test(v)
+const isDim = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_CAPTURE_EDGE
+const isDisplayId = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 0xffffffff
+
+/** Parse one stdout line as a capture answer. Anything else (or anything malformed) is undefined. */
+export function parseCaptureLine(text: string): CaptureResult | undefined {
+  if (typeof text !== 'string' || text.length === 0 || text.length > MAX_LINE) return undefined
+  let o: unknown
+  try {
+    o = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined
+  const r = o as Record<string, unknown>
+  if (r.type !== 'capture' || !isId(r.id)) return undefined
+  const ms = finiteNum(r.ms) && r.ms >= 0 ? r.ms : undefined
+  if (r.error !== undefined) {
+    if (!oneOf(r.error, HELPER_CAPTURE_ERRORS)) return undefined
+    return { ok: false, id: r.id, error: r.error, message: isStr(r.message, 300) ? clean(r.message) : '', ...(ms !== undefined ? { ms } : {}) }
+  }
+  const rect = parseRect(r.rect)
+  if (!isCapturePath(r.path) || !isDim(r.w) || !isDim(r.h) || !rect || !isDisplayId(r.displayId)) return undefined
+  if (!finiteNum(r.pxPerPoint) || r.pxPerPoint <= 0 || r.pxPerPoint > 16) return undefined
+  return { ok: true, id: r.id, path: r.path, w: r.w, h: r.h, pxPerPoint: r.pxPerPoint, rect, displayId: r.displayId, ms: ms ?? 0 }
+}
+
+/**
+ * Check a capture request from a renderer (any window can invoke, so it is untrusted). A ScreenRegion passes as is;
+ * margin defaults to CAPTURE_MARGIN and is capped at 0.5. undefined = not a request.
+ */
+export function captureRequest(raw: unknown): CaptureRequest | undefined {
+  const rect = parseRect(raw)
+  if (!rect) return undefined
+  const o = raw as Record<string, unknown>
+  if (!isDisplayId(o.displayId)) return undefined
+  if (o.margin !== undefined && !finiteNum(o.margin)) return undefined
+  const margin = finiteNum(o.margin) ? Math.min(Math.max(o.margin, 0), 0.5) : CAPTURE_MARGIN
+  return { ...rect, displayId: o.displayId, margin }
+}
+
+export const captureCommand = (id: string, req: CaptureRequest): string =>
+  line({ cmd: 'capture', id, rect: { x: req.x, y: req.y, w: req.w, h: req.h }, displayId: req.displayId, margin: req.margin ?? CAPTURE_MARGIN })
+
+/**
+ * A crop pixel (what the model says, e.g. [DRAW:x,y,r]) back to a screen point: rect origin + px * (rect.w / w).
+ * Clamped to the crop. A radius in crop pixels maps with the same factor: r * rect.w / w (that is, r / pxPerPoint).
+ */
+export function cropToScreen(c: Pick<CaptureOk, 'rect' | 'w' | 'h'>, px: number, py: number): { x: number; y: number } {
+  const x = Math.min(Math.max(finiteNum(px) ? px : 0, 0), c.w)
+  const y = Math.min(Math.max(finiteNum(py) ? py : 0, 0), c.h)
+  return { x: c.rect.x + (x * c.rect.w) / c.w, y: c.rect.y + (y * c.rect.h) / c.h }
 }
