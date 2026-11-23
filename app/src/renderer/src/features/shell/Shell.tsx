@@ -47,6 +47,7 @@ import { LessonSearch, Lessons, openLauncher } from '../library/Library'
 import { Ring } from '../library/motion'
 import { v2Cloud } from '../account/model'
 import { useLibrary } from '../library/store'
+import { useDash } from '../dashboard/store'
 import { AccountSheetHost } from './AccountSheet'
 import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
@@ -117,24 +118,24 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
 
 /**
- * The column each page's title sits on (content + gutters): 720 for every page, 1040 for Skills (its grid, ui.tsx
- * WIDE_W; features/shell/pages Column.tsx 'wide'). The header pads in by `--page-inset` for this width, so its left
- * edge is the content's left edge.
+ * The column each page's title sits on (content + gutters): 720 for every page (ui.tsx COLUMN_W). Skills takes the wide
+ * 1040 (WIDE_W) only while its grid has skills to show: with none it is one centered empty state, and a lone title
+ * 160 px left of every other page's hugged the corner of an empty pane. The header pads in by `--page-inset` for this
+ * width, so its left edge is the content's left edge.
  *
- * Who centers the content: a page that scrolls inside itself (SELF_SCROLL: Home, Skills, Progress) centers its own
- * column inside its own scroller (Home's Column, pages/Column.tsx PageColumn), so its scrollbar stays at the pane's edge
- * and the wheel works over the whole pane: the shell never pads its body (padding it shrank the scroller to the column,
- * with the scrollbar floating mid-pane and dead gutters either side). Every other page scrolls in the shell's body,
- * and the body pads in to a centered BODY_BOX (the padding sits inside the scroller, so the scrollbar stays at the
- * edge), in which the page's own 720 column centers (pages/Column.tsx PageColumn, library layout.tsx Column, ui.tsx
- * PageBody).
+ * Who centers the content: every page, through its own column (ui.tsx PageColumn, the one column), centered in the full
+ * pane. The shell never pads a page's body: a padded body shrank the box the columns measure (their gutter flips at a
+ * 760 pane), which is how Lessons sat 20 px and Home 40 px off the title (review round 2, Nov 22). Whether a page
+ * scrolls in the shell's body (Lessons, Settings, Account) or inside itself (SELF_SCROLL), its scrollbar is at the
+ * pane's edge.
  *
- * BODY_BOX is 760, not 720: those columns switch to 24 px gutters below a 760 px container (their page root), so a 720
- * box flipped them to the tight gutter and their content sat 16 px left of the title (integration check with the pages
- * and home lanes, Nov 22). At 760 they keep the 40 px gutter and center exactly under the title.
+ * Landing order: this frame expects the pages' own centered columns (the layout-pages lane: Settings, Account, Progress,
+ * Skills; the layout-home lane: Home, Lessons, the preview). Land this lane with or after those two, never alone:
+ * before them the pages still carry their old 40 px left padding and sit left of the centered title.
  */
-const PAGE_W: Partial<Record<PageId, number>> = { skills: WIDE_W }
-const BODY_BOX = Math.max(COLUMN_W, layout.page.tightBelow)
+function pageWidth(page: PageId, skills: boolean): number {
+  return page === 'skills' && skills ? WIDE_W : COLUMN_W
+}
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
   switch (page) {
@@ -161,6 +162,8 @@ const frame: Variants = {
 
 function PageFrame({ page, active, covered }: { page: PageId; active: boolean; covered: boolean }): ReactNode {
   const off = !active || covered
+  // Skills' grid has something to show (the constellation's tracks): only then does its title take the wide column.
+  const skills = useDash((s) => (s.data?.tracks?.length ?? 0) > 0)
   // Reduced motion: a page is born in its final state (no hidden frame to wait on).
   const reduce = useReducedMotion() ?? false
   return (
@@ -174,20 +177,19 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
       animate={active ? 'shown' : 'hidden'}
       // mg-page-frame: the size container the gutter follows (styles.css), the pane's width.
       className="mg-page-frame absolute inset-0 flex flex-col"
-      // One centered column for every page (layout lane): the header pads in by --page-inset, and so does the body of a
-      // page the shell scrolls, to BODY_BOX (PAGE_W above).
+      // One centered column for every page (layout lane): the header pads in by --page-inset (pageWidth above); the
+      // body is never padded, the page's own PageColumn centers in the full pane.
       style={{
         visibility: active ? 'visible' : 'hidden',
         color: color.text,
-        ['--page-inset' as string]: pageInset(PAGE_W[page] ?? COLUMN_W),
-        ['--page-box-inset' as string]: pageInset(BODY_BOX)
+        ['--page-inset' as string]: pageInset(pageWidth(page, skills))
       }}
     >
       <Header page={page} />
       <div
         data-shell-body={page}
         className={`min-h-0 flex-1 ${SELF_SCROLL.has(page) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
-        style={{ paddingInline: SELF_SCROLL.has(page) ? undefined : 'var(--page-box-inset)', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
+        style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
       >
         <PageBoundary page={page}>
           <Body page={page} active={active && !covered} />
@@ -330,7 +332,7 @@ export function Shell(): ReactNode {
             ))}
             <AnimatePresence>
               {openId && (
-                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="absolute inset-0 z-20" style={{ backgroundColor: PANEL.backgroundColor, backgroundImage: PANEL.backgroundImage, backgroundSize: PANEL.backgroundSize, backgroundPosition: PANEL.backgroundPosition }}>
+                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="mg-page-frame absolute inset-0 z-20" style={{ backgroundColor: PANEL.backgroundColor, backgroundImage: PANEL.backgroundImage, backgroundSize: PANEL.backgroundSize, backgroundPosition: PANEL.backgroundPosition }}>
                   <Detail id={openId} back={backLabel} />
                 </motion.div>
               )}

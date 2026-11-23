@@ -195,11 +195,15 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             )}
             {phase === 'ready' && (
               <View key={sum.canStart ? 'ready' : 'checklist'} id={sum.canStart ? 'ready' : 'checklist'}>
-                {sum.canStart ? (
-                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} onTour={() => finishFlow(true)} />
-                ) : (
-                  <Checklist rows={rows} sum={sum} mark={false} again={again} onGuide={backToSetup} onStart={again ? () => leaveAgain() : start} />
-                )}
+                {/* The same capped, top-anchored column as setup: You're ready (and the checklist) center in at most
+                    SETUP_H, so in full screen they sit under the strip instead of floating mid-window. */}
+                <div data-flow-column className="mx-auto h-full w-full" style={{ maxWidth: SETUP_W, maxHeight: SETUP_H }}>
+                  {sum.canStart ? (
+                    <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} onTour={() => finishFlow(true)} />
+                  ) : (
+                    <Checklist rows={rows} sum={sum} mark={false} again={again} onGuide={backToSetup} onStart={again ? () => leaveAgain() : start} />
+                  )}
+                </div>
               </View>
             )}
           </AnimatePresence>

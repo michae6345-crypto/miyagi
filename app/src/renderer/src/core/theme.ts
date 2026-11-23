@@ -99,7 +99,9 @@ const palette: Record<string, readonly [string, string]> = {
   // ---- text and status ----
   'c-text': [hud.dark.text, brand.ink],
   'c-label': [hud.dark.muted, `rgba(${INK},.68)`],
-  'c-faint': ['rgba(255,255,255,.42)', `rgba(${INK},.6)`],
+  // Dark faint is a solid warm gray (layout lane, Nov 22): white .42 was about 4.1:1 on the #1B1B1A pane and 3.8:1 on
+  // #222221 cards, under 4.5:1 for the 12 px meta (durations, step counts); #858480 is about 4.8:1 on the pane.
+  'c-faint': ['#858480', `rgba(${INK},.6)`],
   'c-hairline': [hud.dark.hairline, `rgba(${INK},.10)`],
   'c-accent': [hud.dark.button, hud.light.button],
   'c-on-accent': [hud.dark.buttonText, hud.light.buttonText],
@@ -571,10 +573,13 @@ export const radius2 = { keycap: 6, control: 8, row: 10, card: 12, chip: 14, gro
  *   pane       the content pane, inset 8 from the window's top, right and bottom, radius 12, no divider beside the sidebar
  *   page       one column: 640 of content inside 40 px gutters (720 in all; 24 px gutters when the pane is under 760),
  *              centered in the pane; Skills takes the wide one (960 + gutters = 1040). Forms and long text cap at 560 and
- *              stay left inside it (the column centers, its text never does). Same numbers as features/shell/pages
- *              Column.tsx (720 / 1040, gutters included), so a page's content and the shell's title share one left edge.
+ *              stay left inside it (the column centers, its text never does). The one column component is
+ *              features/shell ui.tsx PageColumn (720 / 1040, gutters included), so a page's content and the shell's
+ *              title share one left edge on every page.
  *              `top` / `topFull`: the window's top edge to the page title's top (80, 52 in macOS full screen, where no
  *              title bar needs dragging), the same line Home's first element sits on. Never vertically centered.
+ *              Title to first section is 32: the header leaves `titleGap` (8) under the title's line, the page's column
+ *              starts `bodyTop` (24) below that.
  *   radius     cards and ask boxes 12, the one hero card (Home's Continue) 16, the pane 12 (concentric at the 8 inset).
  */
 export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40, 14: 56, 20: 80 } as const
@@ -592,7 +597,10 @@ export const layout = {
     topFull: 52,
     /** The title row's height (a search field on the right fits it); the 32 px title line centers in it. */
     titleRow: 36,
-    titleGap: 24,
+    /** Under the title's 32 px line, inside the header; with the column's bodyTop the title to first section is 32. */
+    titleGap: 8,
+    /** A page column's own top padding, under the header (PageColumn's default `top`). */
+    bodyTop: 24,
     section: 40,
     label: 12,
     bottom: 64

@@ -96,18 +96,20 @@ html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
 .mg-page-head { padding-top: var(--page-head-top); }
 html[data-fullscreen] .mg-page-head { padding-top: var(--page-head-top-full); }
 /*
- * The page column's gutter (ui.tsx GUTTER): 40, and 24 once the content pane is under 760 wide (layout.page.tightBelow;
- * the same break as features/shell/pages Column.tsx). Each page frame is the size container, so this follows the pane,
- * not the window.
+ * The page column's gutter (features/shell ui.tsx GUTTER, used by PageHeader and PageColumn): 40, and 24 once the
+ * content pane is under 760 wide (layout.page.tightBelow). Each page frame (and a lesson's preview over the pane) is the
+ * size container, so this follows the pane, not the window, and reaches everything inside the frame.
  */
 .mg-page-frame { container-type: inline-size; }
 @container (max-width: 759.98px) {
-  .mg-page-head, [data-shell-body] { --page-gutter: 24px; }
+  .mg-page-frame > * { --page-gutter: 24px; }
 }
 /*
  * The sidebar's ready line (features/library Status.tsx, rendered in features/shell Sidebar.tsx): "Ready" is the
  * engine's state, not a check that passed, and green only means passed (BRAND.md). In the sidebar the filled green
  * tick becomes the neutral gray status dot (--sidebar-ready-dot, status.watching, set by the sidebar).
+ * A stopgap: it reaches into features/library's DOM. The fix is a `tone="neutral"` prop on StatusArea (asked of the
+ * library lane in agents/shell.md); drop these two rules when it lands.
  */
 [data-sidebar-status] div[data-status-word="passed"] > [data-status-glyph="passed"] { display: none; }
 [data-sidebar-status] div[data-status-word="passed"]::before {

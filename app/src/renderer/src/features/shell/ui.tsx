@@ -4,9 +4,8 @@
  *
  *   PANEL       the content surface: one raised layer inset from the window, the sidebar sits on the window itself
  *   PageHeader  the page header every page gets from the shell: the title (and its actions) on the page column
- *   PageBody    a page's content stack in the shell's column: the vertical rhythm (title gap, sections 40 apart)
- *   PageColumn  the same column for a page that scrolls inside itself (centered, 720 or 1040 wide, top-anchored)
- *   CARD, HERO  a card on the pane (radius 12) and the one hero card per page (radius 16)
+ *   PageColumn  THE page column (the only one): centered in the pane, 720 or 1040 wide with its gutters, top-anchored
+ *   CARD        a card on the pane (radius 12)
  *   PageTitle   a title row inside a page (no hairline under it; spacing does the grouping)
  *   SectionHead a quiet section header with an optional right-hand action
  *   StepBar     "Step 4 of 7" as seven short segments: done in ink/white, the current one outlined, never green
@@ -52,30 +51,68 @@ export const CARD: CSSProperties = {
   boxShadow: `${highlight.card}, inset 0 0 0 1px var(--l-border), ${elevation.tile}`
 }
 
-/** The one hero card per page (Home's Continue): the same surface as CARD at radius 16 (layout.radius.hero). */
-export const HERO: CSSProperties = { ...CARD, borderRadius: layout.radius.hero }
-
 /**
- * The page column's full width (content + both gutters): 720 (640 of content) for every page, 1040 for the wide one
- * (Skills). The same as features/shell/pages Column.tsx COLUMN_MAX, so a page's content and its title share one edge.
+ * The page column's full width (content + both gutters), from core/theme.ts layout.page: 720 (640 of content) for every
+ * page, 1040 (960) for the wide one (the Skills grid). Every number of the column lives in layout.page; this file is
+ * the only place that turns them into a column, so a page's content and the shell's title share one left edge.
  */
 export const COLUMN_W = layout.page.column + 2 * layout.page.gutter
 export const WIDE_W = layout.page.wide + 2 * layout.page.gutter
+export type ColumnWidth = 'page' | 'wide'
+export const COLUMN_MAX: Record<ColumnWidth, number> = { page: COLUMN_W, wide: WIDE_W }
 /**
- * `--page-inset`: how far the page column sits in from each side of the pane, set by the shell on every page frame.
- * Zero until the pane is wider than the column, then half the spare room, so every page shares one centered column
- * and the title's left edge never moves when you switch pages (it used to jump from x 272 to 656 at full screen).
- * The percentage resolves where the variable is used (the header's or the body's padding: the pane's width).
+ * `--page-inset`: how far the page column sits in from each side of the pane, set by the shell on every page frame for
+ * the header. Zero until the pane is wider than the column, then half the spare room, so the title's left edge is the
+ * column's left edge and never moves when you switch pages (it used to jump from x 272 to 656 at full screen).
+ * The percentage resolves where the variable is used (the header's padding: the pane's width).
  */
 export const pageInset = (w: number = COLUMN_W): string => `max(0px, calc((100% - ${w}px) / 2))`
 /**
- * `--page-gutter`: 40, or 24 once the pane is under 760 (styles.css switches it with a container query on the page
- * frame). Padding on the column's edge uses it, so the shell's title and the pages' own columns agree at every width.
+ * `--page-gutter`: 40, or 24 once the pane is under 760 (layout.page.tightBelow). styles.css switches it with a
+ * container query on the page frame (.mg-page-frame, the pane's width), so the header and every column agree.
  */
-export const GUTTER = `var(--page-gutter, ${layout.page.gutter}px)`
+const GUTTER = `var(--page-gutter, ${layout.page.gutter}px)`
 
-/** The page column for a page that scrolls inside itself: centered, capped, with the house gutters. */
-export const COLUMN: CSSProperties = { width: '100%', maxWidth: COLUMN_W, marginInline: 'auto', paddingInline: GUTTER }
+/**
+ * THE page column (layout lane, Nov 22: "one shared container for every page"). Centered in the pane (not the window),
+ * top-anchored (never centered vertically, even in full screen), capped at 720 (`wide`: 1040) with the house gutters.
+ * Its top is layout.page.bodyTop (24) under the shell's header, which with the header's titleGap puts the first section
+ * 32 under the title; sections then sit `gap` apart and the page ends layout.page.bottom (64) under its last block.
+ * Long text inside it caps at layout.page.form (560) and stays left: the column centers, its text never does.
+ *
+ * Pages that scroll in the shell's body and pages that scroll inside themselves use it alike: the shell never pads a
+ * page's body, so the column always centers in the full pane and its scrollbar stays at the pane's edge.
+ */
+export function PageColumn({
+  width = 'page',
+  gap,
+  top = layout.page.bodyTop,
+  bottom = layout.page.bottom,
+  className = '',
+  style,
+  children,
+  data
+}: {
+  width?: ColumnWidth
+  gap?: number
+  top?: number
+  bottom?: number
+  className?: string
+  style?: CSSProperties
+  children: ReactNode
+  data?: Record<string, string | boolean | undefined>
+}): ReactNode {
+  return (
+    <div
+      data-page-column={width}
+      className={`flex w-full flex-col ${className}`}
+      style={{ maxWidth: COLUMN_MAX[width], marginInline: 'auto', paddingInline: GUTTER, paddingTop: top, paddingBottom: bottom, gap, ...style }}
+      {...data}
+    >
+      {children}
+    </div>
+  )
+}
 
 export const caption: CSSProperties = { fontSize: type2.xs, lineHeight: '16px', color: color.label }
 
@@ -94,7 +131,8 @@ const HEAD_TOP_FULL = layout.page.topFull - layout.pane.inset - TITLE_LEAD
  * The page header (the shell renders it above every page but Home): the title and the page's own actions, on the same
  * column as the page below it (its left edge is the content's left edge at every width). The strip above the title
  * drags the window; the title's top is 80 from the window's top (52 in full screen), the line Home's bonsai sits on.
- * The title row is 36 tall and sits 24 above the first section.
+ * The title row is 36 tall; the header ends layout.page.titleGap (8) under the title's line, and the page's column
+ * starts layout.page.bodyTop (24) below that, so the first section sits 32 under the title on every page.
  */
 export function PageHeader({ title, caption: sub, right }: { title: ReactNode; caption?: ReactNode; right?: ReactNode }): ReactNode {
   return (
@@ -106,7 +144,7 @@ export function PageHeader({ title, caption: sub, right }: { title: ReactNode; c
         ['--page-head-top' as string]: `${HEAD_TOP}px`,
         ['--page-head-top-full' as string]: `${HEAD_TOP_FULL}px`,
         paddingInline: `calc(var(--page-inset, 0px) + ${GUTTER})`,
-        paddingBottom: layout.page.titleGap
+        paddingBottom: layout.page.titleGap - TITLE_LEAD
       }}
     >
       {/* 36 tall whatever sits on the right (a search field), so the title's top is the same on every page. */}
@@ -128,33 +166,6 @@ export function PageHeader({ title, caption: sub, right }: { title: ReactNode; c
         </div>
       )}
     </header>
-  )
-}
-
-/**
- * A page's content inside the shell's column: the house vertical rhythm (sections 40 apart, 64 at the bottom) and the
- * gutters. `width`: 'column' (640, every page by default), 'form' (560, forms and long text, left inside the column).
- * The shell's body is a centered 760 box (Shell.tsx BODY_BOX); this centers the 720 column in it, under the title.
- */
-export function PageBody({ children, width = 'column', gap = layout.page.section, style }: { children: ReactNode; width?: 'column' | 'form'; gap?: number; style?: CSSProperties }): ReactNode {
-  return (
-    <div data-page-body className="flex w-full flex-col" style={{ maxWidth: COLUMN_W, marginInline: 'auto', paddingTop: 8, paddingInline: GUTTER, paddingBottom: layout.page.bottom, gap, ...style }}>
-      <div className="flex w-full flex-col" style={{ maxWidth: width === 'form' ? layout.page.form : undefined, gap }}>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-/**
- * The column for a page that scrolls inside itself (its scrollbar stays at the pane's edge): centered, top-anchored,
- * 720 (or 1040 `wide`) with the gutters. The shell gives such a page's title the same width (Shell.tsx PAGE_W).
- */
-export function PageColumn({ children, wide = false, style }: { children: ReactNode; wide?: boolean; style?: CSSProperties }): ReactNode {
-  return (
-    <div data-page-column className="flex flex-col" style={{ ...COLUMN, maxWidth: wide ? WIDE_W : COLUMN_W, paddingBottom: layout.page.bottom, ...style }}>
-      {children}
-    </div>
   )
 }
 
