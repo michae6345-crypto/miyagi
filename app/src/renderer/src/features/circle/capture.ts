@@ -11,7 +11,9 @@
  *     engine grabs its own frame as before;
  *   - every ok capture that will not be sent is released ('ptt:capture-release'), so the helper deletes the file now.
  *     A capture that is sent is the engine's to delete;
- *   - a failed capture (helper down, busy, timeout, screen denied, a thrown invoke) just means no capture.
+ *   - a failed capture (helper down, busy, timeout, screen denied, a thrown invoke) just means no capture;
+ *   - a capture older than MAX_AGE_MS at release is not sent (and is released): the screen may have moved on, and the
+ *     helper deletes its file 30 s after writing it, while an ask from 'sealed' can go out up to 70 s after the stroke.
  *
  * The region compared is the one this side asked for. The result's own rect is wider (main adds a margin and clamps
  * it to the display), so it never equals the region and is passed through as is: the engine maps pixels back with it.
@@ -24,10 +26,15 @@ export type CaptureIo = {
   capture: (region: ScreenRegion) => Promise<CaptureResult | null | undefined>
   /** bridge.invoke('ptt:capture-release', id). Fire and forget. */
   release: (id: string) => void
+  /** The clock (Date.now by default). */
+  now?: () => number
 }
 
+/** A capture that settled longer ago than this is too old to send (well inside the helper's 30 s file life). */
+export const MAX_AGE_MS = 15_000
+
 type Ok = Extract<CaptureResult, { ok: true }>
-type Slot = { gen: number; region: ScreenRegion; st: 'pending' } | { gen: number; region: ScreenRegion; st: 'ok'; res: Ok } | { gen: number; region: ScreenRegion; st: 'failed' }
+type Slot = { gen: number; region: ScreenRegion; st: 'pending' } | { gen: number; region: ScreenRegion; st: 'ok'; res: Ok; at: number } | { gen: number; region: ScreenRegion; st: 'failed' }
 
 /** Same circled region: whole screen points and the display (scale is not part of what is captured). */
 export const sameRegion = (a: ScreenRegion, b: ScreenRegion): boolean => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && (a.displayId ?? 0) === (b.displayId ?? 0)
@@ -50,6 +57,7 @@ export type CaptureTracker = {
 export function createCaptureTracker(io: CaptureIo): CaptureTracker {
   let gen = 0
   let cur: Slot | undefined
+  const now = (): number => (io.now ? io.now() : Date.now())
 
   const releaseSlot = (s: Slot | undefined): void => {
     if (s?.st === 'ok') io.release(s.res.id)
@@ -62,7 +70,7 @@ export function createCaptureTracker(io: CaptureIo): CaptureTracker {
       if (isOk(r)) io.release(r.id)
       return
     }
-    cur = isOk(r) ? { gen: g, region: live.region, st: 'ok', res: r } : { gen: g, region: live.region, st: 'failed' }
+    cur = isOk(r) ? { gen: g, region: live.region, st: 'ok', res: r, at: now() } : { gen: g, region: live.region, st: 'failed' }
   }
 
   return {
@@ -85,8 +93,8 @@ export function createCaptureTracker(io: CaptureIo): CaptureTracker {
     take(region) {
       const s = cur
       cur = undefined
-      if (s?.st === 'ok' && sameRegion(s.region, region)) return toAskCapture(s.res)
-      releaseSlot(s) // ok but not this region; a pending one is released when it settles (it is stale now)
+      if (s?.st === 'ok' && sameRegion(s.region, region) && now() - s.at <= MAX_AGE_MS) return toAskCapture(s.res)
+      releaseSlot(s) // ok but not this region, or too old; a pending one is released when it settles (it is stale now)
       return undefined
     },
     drop() {

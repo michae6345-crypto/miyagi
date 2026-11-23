@@ -1,12 +1,12 @@
 /**
  * features/circle, offline and pure: the early capture's timing rules (capture.ts) and the streamed answer's assembly
- * (machine.ts, answer.delta). No bridge, no timers: the capture's promises are settled by hand.
+ * (machine.ts, answer.delta). No bridge: the capture's promises are settled by hand, and the age cap uses a mocked clock.
  */
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, mock, test } from 'node:test'
 import type { ScreenRegion } from '../../shared/contracts/events'
 import type { CaptureResult } from '../src/main/pttProtocol'
-import { createCaptureTracker, sameRegion } from '../src/renderer/src/features/circle/capture'
+import { createCaptureTracker, MAX_AGE_MS, sameRegion } from '../src/renderer/src/features/circle/capture'
 import { ASK_MAX_MS, IDLE, MAX_STREAM, shown, step, type CircleState, type Ctx } from '../src/renderer/src/features/circle/machine'
 
 // ---- the capture ----
@@ -118,6 +118,24 @@ describe('the early capture', () => {
     await settle(1, okFor('cap-10'))
     assert.deepEqual(released, ['cap-9', 'cap-10'])
     assert.equal(t.peek(), 'none')
+  })
+
+  test('too old at release (an ask from sealed, long after the stroke): not sent, released', async (t) => {
+    t.after(() => mock.timers.reset())
+    mock.timers.enable({ apis: ['Date'], now: 50_000 })
+    const r = rig()
+    r.t.begin(REGION)
+    await r.settle(0, okFor('cap-11'))
+    mock.timers.tick(MAX_AGE_MS)
+    r.t.begin(REGION)
+    await r.settle(1, okFor('cap-12'))
+    mock.timers.tick(MAX_AGE_MS)
+    assert.ok(r.t.take(REGION), 'just at the cap: still sent')
+    r.t.begin(REGION)
+    await r.settle(2, okFor('cap-13'))
+    mock.timers.tick(MAX_AGE_MS + 1)
+    assert.equal(r.t.take(REGION), undefined, 'older than the cap: the engine grabs its own frame')
+    assert.deepEqual(r.released, ['cap-11', 'cap-13'], 'the old file is released now, not left for the helper')
   })
 
   test('sameRegion: points and display, not scale', () => {
