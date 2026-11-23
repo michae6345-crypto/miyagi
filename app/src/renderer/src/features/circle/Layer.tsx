@@ -24,7 +24,7 @@ import { ThinkingDots } from '../../core/ui/atoms'
 import { pressMotion } from '../../core/ui/motion'
 import { duration, ease } from '../../core/ui/motionTokens'
 import { brand, color, elevation, fill, highlight, radius2, surface, tone, type2 } from '../../core/theme'
-import { inkPath, placeCard, toOverlay, type Box, type Pt } from './geometry'
+import { holdCard, inkPath, placeCard, toOverlay, type Box, type CardHold, type Pt } from './geometry'
 import { inkOf, shown, type CircleState } from './machine'
 import { cancelCircle, layerGone, pointerDown, pointerMove, pointerUp, setLayout, useCircle } from './store'
 
@@ -77,9 +77,9 @@ export function CircleView({ state, layout }: { state: CircleState; layout: Layo
   // The card: the final answer, or the words streamed so far. One key per ask, so the final card swaps the text in place.
   const card =
     state.k === 'answered'
-      ? { askId: state.askId, box: state.box, question: state.text, title: state.answer.title, body: state.answer.body, streaming: false }
+      ? { askId: state.askId, box: state.box, question: state.text, title: state.answer.title, body: state.answer.body, streaming: false, held: false }
       : state.k === 'asking' && streamed
-        ? { askId: state.askId, box: state.box, question: state.text, title: undefined, body: streamed, streaming: !state.stream?.done }
+        ? { askId: state.askId, box: state.box, question: state.text, title: undefined, body: streamed, streaming: !state.stream?.done, held: true }
         : undefined
 
   return (
@@ -111,7 +111,7 @@ export function CircleView({ state, layout }: { state: CircleState; layout: Layo
       )}
       <AnimatePresence>{ink.length > 0 && <Ink key={inkKey} strokes={ink} width={layout.width} height={layout.height} />}</AnimatePresence>
       <AnimatePresence>{state.k === 'asking' && box && !streamed && <Looking key={state.askId} box={box} area={layout} />}</AnimatePresence>
-      <AnimatePresence>{card && <AnswerCard key={card.askId} box={card.box} area={layout} question={card.question} title={card.title} body={card.body} streaming={card.streaming} />}</AnimatePresence>
+      <AnimatePresence>{card && <AnswerCard key={card.askId} box={card.box} area={layout} question={card.question} title={card.title} body={card.body} streaming={card.streaming} held={card.held} />}</AnimatePresence>
     </div>
   )
 }
@@ -164,9 +164,15 @@ function Looking({ box, area }: { box: Box; area: { width: number; height: numbe
   )
 }
 
-function AnswerCard({ box, area, question, title, body, streaming }: { box: Box; area: { width: number; height: number }; question: string; title?: string; body: string; streaming: boolean }): ReactNode {
+/**
+ * `held`: the words are still streaming in (no final card yet). The card keeps the top and side it opened with (geometry
+ * holdCard), so the text being read never shifts as lines come; the final card places it once more (placeCard).
+ */
+function AnswerCard({ box, area, question, title, body, streaming, held }: { box: Box; area: { width: number; height: number }; question: string; title?: string; body: string; streaming: boolean; held: boolean }): ReactNode {
   const ref = useRef<HTMLDivElement>(null)
-  const [h, setH] = useState(CARD_H0)
+  // Undefined until measured (before the first paint): the place it opens with is taken from the measured height.
+  const [h, setH] = useState<number>()
+  const hold = useRef<CardHold | undefined>(undefined)
   const reduced = useReducedMotion()
   useLayoutEffect(() => {
     const el = ref.current
@@ -177,7 +183,11 @@ function AnswerCard({ box, area, question, title, body, streaming }: { box: Box;
     ro?.observe(el)
     return () => ro?.disconnect()
   }, [])
-  const p = placeCard(box, { w: CARD_W, h }, { w: area.width, h: area.height })
+  const size = { w: CARD_W, h: h ?? CARD_H0 }
+  const screen = { w: area.width, h: area.height }
+  if (!held) hold.current = undefined
+  const p = held && hold.current ? holdCard(box, size, screen, hold.current) : placeCard(box, size, screen)
+  if (held && !hold.current && h !== undefined) hold.current = { y: p.y, side: p.side }
   const from = reduced ? {} : p.side === 'right' ? { x: -8 } : p.side === 'left' ? { x: 8 } : p.side === 'below' ? { y: -8 } : { y: 8 }
   return (
     <motion.div

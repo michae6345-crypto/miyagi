@@ -131,6 +131,20 @@ export function placeCard(box: Box, card: { w: number; h: number }, area: { w: n
   return { x: Math.round(c.x), y: Math.round(c.y), side: pick.side }
 }
 
+/** Where a card opened: its top and its side (placeCard's y and side). */
+export type CardHold = { y: number; side: CardSide }
+
+/**
+ * The card's place while its text streams in: the side and the top it opened with (placeCard), so the words being read
+ * never move as lines are added below them. Only the screen edge moves it (kept `margin` px inside, like placeCard).
+ */
+export function holdCard(box: Box, card: { w: number; h: number }, area: { w: number; h: number }, hold: CardHold, gap = 14, margin = 16): { x: number; y: number; side: CardSide } {
+  const inner = { x: margin, y: margin, w: Math.max(0, area.w - 2 * margin), h: Math.max(0, area.h - 2 * margin) }
+  const x = hold.side === 'right' ? box.x + box.w + gap : hold.side === 'left' ? box.x - gap - card.w : box.x + box.w / 2 - card.w / 2
+  const c = clampBox({ x, y: hold.y, w: card.w, h: card.h }, inner)
+  return { x: Math.round(c.x), y: Math.round(c.y), side: hold.side }
+}
+
 /** A hand-drawn loop around a box (the browser stage's hand, web.ts, and the tests): a slightly tilted ellipse that wobbles and overshoots its start. */
 export function loopPoints(x: number, y: number, w: number, h: number, n = 48): Pt[] {
   const cx = x + w / 2

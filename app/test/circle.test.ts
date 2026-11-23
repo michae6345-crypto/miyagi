@@ -1,7 +1,7 @@
 /** features/circle, offline: ink to box, box to screen points, the card's place, and the circle-to-ask state machine. */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { addPoint, bounds, clampBox, fromRegion, inkPath, loopPoints, MIN_INK, placeCard, strokeBox, toOverlay, toRegion, type Pt } from '../src/renderer/src/features/circle/geometry'
+import { addPoint, bounds, clampBox, fromRegion, holdCard, inkPath, loopPoints, MIN_INK, placeCard, strokeBox, toOverlay, toRegion, type Pt } from '../src/renderer/src/features/circle/geometry'
 import { ANSWER_MS, ARMED_MAX_MS, ASK_MAX_MS, DEFAULT_ASK, IDLE, interactive, step, WORDS_WAIT_MS, type CircleEvent, type CircleState, type Ctx } from '../src/renderer/src/features/circle/machine'
 
 const loop = (x: number, y: number, w: number, h: number): Pt[] => loopPoints(x, y, w, h)
@@ -97,6 +97,40 @@ describe('clamping and the card place', () => {
       assert.ok(p.x >= 16 && p.y >= 16, JSON.stringify({ box, p }))
       assert.ok(p.x + card.w <= area.w - 16 && p.y + card.h <= area.h - 16, JSON.stringify({ box, p }))
     }
+  })
+})
+
+describe('the card while its words stream in (holdCard)', () => {
+  const area = { w: 1440, h: 900 }
+  test('right of the circle: the top stays put as lines are added (placeCard alone would move it up)', () => {
+    const box = { x: 200, y: 300, w: 200, h: 100 }
+    const first = placeCard(box, { w: 300, h: 60 }, area)
+    assert.equal(first.side, 'right')
+    const hold = { y: first.y, side: first.side }
+    for (const h of [80, 100, 140, 220]) {
+      const p = holdCard(box, { w: 300, h }, area, hold)
+      assert.deepEqual(p, { x: first.x, y: first.y, side: 'right' }, `h ${h}`)
+      assert.notEqual(placeCard(box, { w: 300, h }, area).y, first.y, 'centring would have moved it')
+    }
+  })
+
+  test('a wide circle opened below keeps below, even once below no longer fits', () => {
+    const box = { x: 40, y: 560, w: 1360, h: 200 }
+    const first = placeCard(box, { w: 300, h: 60 }, area)
+    assert.equal(first.side, 'below')
+    assert.equal(placeCard(box, { w: 300, h: 200 }, area).side, 'above', 'placeCard alone would flip it')
+    const p = holdCard(box, { w: 300, h: 100 }, area, { y: first.y, side: first.side })
+    assert.deepEqual(p, { x: first.x, y: first.y, side: 'below' })
+  })
+
+  test('only the screen edge moves it', () => {
+    const box = { x: 200, y: 700, w: 200, h: 100 }
+    const first = placeCard(box, { w: 300, h: 60 }, area)
+    const hold = { y: first.y, side: first.side }
+    const p = holdCard(box, { w: 300, h: 400 }, area, hold)
+    assert.equal(p.side, first.side)
+    assert.equal(p.x, first.x)
+    assert.equal(p.y + 400, area.h - 16, 'kept inside the bottom edge')
   })
 })
 
