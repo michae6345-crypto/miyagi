@@ -338,13 +338,6 @@ describe('ribbon (a stroke of varying width)', () => {
     assert.equal(ribbon(r, () => 3, [r.split, 1], undefined, [0, r.split]), '', 'the branch part of a stroke that is only its loop')
     assert.notEqual(ribbon(r, () => 3, [r.split, 1], undefined, [r.split, 1]), '')
   })
-
-  test('an exact ring is one clean turn: it ends where it starts, with no wobble', () => {
-    const t = { x: 1200, y: 300, w: 80, h: 28 }
-    const e = reach(from, t, 'a', undefined, undefined, true)
-    assert.ok(Math.hypot(e.tip.x - e.join.x, e.tip.y - e.join.y) < 0.5)
-    assert.equal(e.d, reach(from, t, 'b', undefined, undefined, true).d, 'the key changes nothing')
-  })
 })
 
 describe('forkFor', () => {

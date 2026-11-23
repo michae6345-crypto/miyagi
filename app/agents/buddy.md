@@ -1,6 +1,6 @@
 # buddy
 
-**Status:** pass 1 done (the living bonsai mark). Pass 2 built Nov 22 (the pointing branch) and lined up with Michael's `features/annotate` the same night: same mark rules, one stroke per mark, and the two hooks he asked for. Typecheck green, 49 offline tests, checked in the built stage alone and merged with his branches. Not run in Electron. **Open:** which of the two layers draws in the end, and the stroke's color (see With features/annotate) · **Priority:** P2 · **Branch:** `adrian/buddy` · **Stage port:** 5251 (launch config `buddy-stage`)
+**Status:** pass 1 done (the living bonsai mark). Pass 2 built Nov 22 (the pointing branch), lined up with Michael's `features/annotate` the same night (same mark rules, one stroke per mark, the two hooks he asked for), then refined into the mint look below. The refinement is committed locally and NOT pushed: Michael asked on Nov 22 to hold pass 2 until he and Adrian pick one. Typecheck green, 53 offline tests, checked in the built stage. Not run in Electron. **Open:** which of the two layers draws in the end, and the mint's depth (see With features/annotate) · **Priority:** P2 · **Branch:** `adrian/buddy` · **Stage port:** 5251 (launch config `buddy-stage`)
 
 ## Goal
 miyagi gets a character without a mascot: the bonsai itself is the buddy (Michael, Nov 22). It stays sleek. It has no face, and its personality comes from motion. Pass 1 is the living mark that the notch ears use. Pass 2 is the branch that reaches out and points at the button or line to click. Later, the tree grows a leaf per mastered skill (see `app/agents/skills.md`).
@@ -17,7 +17,7 @@ miyagi gets a character without a mascot: the bonsai itself is the buddy (Michae
     - `PointStage.tsx`: the try-out strip for the browser stage.
   - `Stage.tsx` + `index.tsx`: previews that show only in the browser stage. No app window.
 - `app/mock/scenarios/buddy.json`: `annotate` events through the mock engine (one mark, a jittered re-send, two marks, a clear).
-- `app/test/buddyMarks.test.ts`: 49 offline tests for `marks.ts` and `pointing.ts`.
+- `app/test/buddyMarks.test.ts`: 53 offline tests for `marks.ts` and `pointing.ts`.
 
 ## How to use the mark (Michael wires the notch)
 ```tsx
@@ -30,11 +30,11 @@ In the click-through overlay, the lean needs mouse moves forwarded (`setIgnoreMo
 
 ## Pass 2: what the pointing branch does
 It draws the engine's `annotate` event (Michael's contract, Nov 22, branch `claude/contract-circle-ask`): `{ marks: Annotation[]; holdMs? } | { clear: true }`, marks in screen points like `spotlight.rect`.
-- **The stroke.** One path per mark in the bonsai's bark (`#A07A5C`, the brand kit's Bark on dark), 2.25 px over a faint ink keyline so it reads over a light app. It leaves the bonsai (the left ear when the ears are out, else inside the notch, else the left of the pill) heading down, bends to the mark, meets the loop a little past its nearest point, and goes once round with a little to spare. No glow, no gradient, no arrowhead.
+- **The stroke.** One per mark, in mint (Adrian's pick from the renders, Nov 22: Michael's color). It is shaped like a branch: 3.4 px at the tree, 2.1 px round the loop, and it comes to a fine point at its head and its tail, over an ink keyline so it reads over a light app. It leaves the bonsai (the left ear when the ears are out, else inside the notch, else the left of the pill) heading down, bends to the mark, meets the loop a little past its nearest point, and goes once round with a little to spare. No glow, no gradient, no arrowhead. Drawn as a filled outline from the stroke's spine (`marks.ts` `ribbon`), not as a stroked path.
 - **The loop.** A superellipse walked at an even pace, with a small seeded wobble that only ever pushes outward, so it never cuts the target's corners. One line of code gets a loop that stays inside that line's own leading. By a screen edge the loop is pulled in so it stays on screen.
 - **Several marks.** The first mark's branch is the trunk. A later mark forks off it where it can, starting as the trunk's stroke passes that point. A mark behind the trunk gets its own branch a beat later.
-- **The label.** Up to 4 words on an island-black chip, like the spotlight's caption. It takes the side away from the branch, then below, then the branch's side under the loop's top edge, and above last. Always on screen. Only the label is `data-ui`; the stroke is not, or the engine would stop reading what it points at.
-- **Motion.** `pathLength` on `ease.out`, `duration.draw` plus time for the distance (1 s at most). Leaving, the stroke runs back and fades in `duration.slow`. Reduced motion: nothing travels, the stroke and label fade in place.
+- **The label.** Up to 4 words on an island-black chip, like the spotlight's caption. It sits to the right of the loop on the circled line; when that is off screen, below, then left, and above last. Always on screen. Only the label is `data-ui`; the stroke is not, or the engine would stop reading what it points at.
+- **Motion.** The stroke flies out of the notch on `ease.out` (`duration.draw` plus time for the distance, 1 s at most) and wraps the target. Its tail sets off after its head and follows it in, so once it has landed only the loop is left: no line stays across the screen. As it lands the loop presses in once (45% wider for a third of a second). When the learner's pointer comes onto the mark the loop firms up at once (0.9 px wider), before the 280 ms rest that sends it away. Leaving, the loop is taken off the way it was put on (its tail runs up to its head) while it fades in `duration.slow`. Reduced motion: nothing travels, the loop and label fade in place.
 - **The tree.** While something is pointed at, `<Buddy />` leans toward it.
 
 ### The mark rules (the same as `features/annotate`, number for number)
@@ -58,7 +58,7 @@ Michael claimed "buddy draws" by email at 7:06 PM on Nov 22 and pushed `features
   - `pointAt(box?)`: the point pose. The tree leans toward the box (screen points) until `pointAt()` with nothing. Marks from `annotate` lean the tree on their own, so this is for anything else his layer circles (a bridged spotlight box).
 - **Same rules** (above), so the engine sees one behavior.
 - **Still different, and open:**
-  - The color. This stroke is bark, the tree's own branch. His is `brand.pastel.mint`, and his branch adds a BRAND.md exception that names mint and `features/annotate` as the one allowed stroke. Brand rules are Adrian's to change.
+  - The mint's depth. Both strokes are mint now. This one defaults to the notch glow's mint (`#96E4C8`), which holds up better over a light app; his uses `brand.pastel.mint` (`#BFE6DA`). `?mint=pale` in the stage shows the other. Adrian has not picked the depth. His branch's BRAND.md exception names mint and `features/annotate` as the one allowed stroke; brand rules are Adrian's to change.
   - His has the spotlight bridge and the root frozen at a mark's birth; this one starts from the living mark, forks for a second mark, and fits loops to one line of code and to the screen edge.
 
 Checked merged with his branches (`michael/app-buddy-draw` c0841b36 and `michael/app-circle-ask` 622018dd, its fix round 2, on top of this branch, a throwaway merge that was not pushed): no conflict with this feature's files; typecheck passes; these 49 tests and his 34 pass; in the built stage his layer draws each mark once and this one draws none, for `?scenario=buddy`, `?scenario=annotate` and the try-out strip; the strip's tree leans with his stroke. The only conflict in that merge is between his own two branches, in `app/agents/ports.json` (each adds its port on the same line).
@@ -72,7 +72,7 @@ Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build
 - Shots: `shots/buddy-point-one.png`, `shots/buddy-point-two.png`, `shots/buddy-point-far.png`, `shots/buddy-stage.png`.
 
 ## Checked
-- `npm run typecheck` passes. `test/buddyMarks.test.ts`: 49 of 49 pass. The full suite has one failure, `linkHost.test.ts` (a drawer test that reads only drawer files; untouched here).
+- `npm run typecheck` passes. `test/buddyMarks.test.ts`: 53 of 53 pass. The full suite has one failure, `linkHost.test.ts` (a drawer test that reads only drawer files; untouched here).
 - Built stage in headless Chrome (1600x1000): one mark, two marks forking, an unnamed answer mark, a far corner, the pill below the menu bar, frames mid-draw at 120 and 300 ms, the exit 110 ms after a clear, and a light backdrop.
 - Same stage, by synthetic mouse and key events: a press points there; a pointer already on the mark does not fade it; leaving, coming back and resting fades it (still there at 150 ms, gone by 800 ms); a press inside clears it; Esc clears it; with two marks, reaching the first leaves the second; the strip's tree leans (`--lm-lean` 1) and stands back up after a clear.
 - Reduced motion (emulated): the stroke is whole from its first frame and only fades in.
@@ -86,6 +86,6 @@ Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build
 ## Core requests
 1. **The contract.** `annotate` and `Annotation` are on `claude/contract-circle-ask`, not on this branch. Until they land, `marks.ts` mirrors the type and `pointing.ts` casts `onMessage` to subscribe. Both go when the contract is merged.
 2. **`common/wire.ts` KNOWN needs `'annotate'`**, or the app's parser drops the event in Electron (the browser stage's mock does not go through the parser, so it works there). Michael has this line in b3ffd388 on `michael/app-buddy-draw`.
-3. **A bark token.** `core/theme.ts` has no token for the brand kit's Bark (`#5A4433`, `#A07A5C` on dark). `Reach.tsx` holds the dark value as a local constant.
+3. **A token for the deeper mint.** `core/theme.ts` has `brand.pastel.mint` but the notch glow's mint (rgb 150 228 200) only lives inside the `hud.notchGlow` gradient string. `Reach.tsx` holds it as a local constant.
 4. **A real click.** The overlay is click-through, so in Electron a click inside a mark never reaches this window. Main could broadcast a global left-mouse-down point (screen points); today the pointer resting on the mark stands in for it. Michael asks for the same thing in `agents/app-buddy-draw.md`.
 5. If the ears should use the living mark everywhere, swap `MiyagiMark` for `Buddy` in `core/Island.tsx` (integrator). The branch then starts from a tree that leans with it.

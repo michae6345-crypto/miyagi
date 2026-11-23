@@ -294,7 +294,7 @@ const cubic = (c: Reach['curve'], t: number): Point => {
  * to spare. One path, so it draws in one motion. `within`: the screen, in the same coordinates; a loop by its edge
  * is pulled in to stay on it.
  */
-export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN, within?: Rect, exact = false): Reach {
+export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN, within?: Rect): Reach {
   const { n, a, b } = axes(target, within)
   const cx = target.x + target.w / 2
   const cy = target.y + target.h / 2
@@ -336,8 +336,7 @@ export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN
 
   // Walk it at an even pace, from a little past the nearest point, once round and a little more.
   const begin = s[nearest] + turn * clamp(around * RING.lead, RING.leadPx[0], RING.leadPx[1])
-  // `exact`: a clean ring, exactly once round, no wobble and no drift, so its end meets its start.
-  const total = exact ? around : around + clamp(around * RING.overlap, RING.overlapPx[0], RING.overlapPx[1])
+  const total = around + clamp(around * RING.overlap, RING.overlapPx[0], RING.overlapPx[1])
   const seed = seedOf(key)
   const p1 = seed * Math.PI * 2
   const p2 = ((seed * 7.13) % 1) * Math.PI * 2
@@ -345,7 +344,7 @@ export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN
   for (let i = 0; i <= RING.points; i++) {
     const t = i / RING.points
     const th = angleAt(begin + turn * total * t)
-    pts.push(at(th, exact ? 1 : (1 + RING.drift * t) * (1 + RING.wobble * (1.6 + Math.sin(2 * th + p1) + 0.6 * Math.sin(3 * th + p2)))))
+    pts.push(at(th, (1 + RING.drift * t) * (1 + RING.wobble * (1.6 + Math.sin(2 * th + p1) + 0.6 * Math.sin(3 * th + p2)))))
   }
 
   const join = pts[0]
@@ -373,12 +372,10 @@ export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN
   for (let i = 1; i <= steps; i++) push(cubic(curve, i / steps))
   const branchLen = run[run.length - 1]
   for (let i = 0; i < pts.length - 1; i++) {
-    // An exact ring starts as it ends, along itself, so it closes with no corner where its two ends meet.
-    const p0 = i === 0 ? (exact ? pts[pts.length - 2] : before) : pts[i - 1]
+    const p0 = i === 0 ? before : pts[i - 1]
     const a1 = pts[i]
     const a2 = pts[i + 1]
-    // The last segment of an exact ring heads into the ring's own start, for the same reason.
-    const p3 = pts[i + 2] ?? (exact ? pts[1] : a2)
+    const p3 = pts[i + 2] ?? a2
     const seg: Reach['curve'] = [a1, { x: a1.x + (a2.x - p0.x) / 6, y: a1.y + (a2.y - p0.y) / 6 }, { x: a2.x - (p3.x - a1.x) / 6, y: a2.y - (p3.y - a1.y) / 6 }, a2]
     d += ` C${f(seg[1].x)} ${f(seg[1].y)} ${f(seg[2].x)} ${f(seg[2].y)} ${f(a2.x)} ${f(a2.y)}`
     for (let k = 1; k <= SPINE_SUB; k++) push(cubic(seg, k / SPINE_SUB))
