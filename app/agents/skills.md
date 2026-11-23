@@ -1,6 +1,6 @@
 # skills
 
-**Status:** built on `michael/app-skills-tree` (Nov 22): Path, Map, List, the panel, the dock, the goal header and picker, the unlock motion, zoom/pan/fit and search, in light and dark. Later extras (Library chips, recaps) are another lane · **Priority:** P1 (Michael: "a priority") · **Port:** see ports.json · **Branch:** `adrian/skills-tree`
+**Status:** built in michael/app-skills-tree + michael/app-skills-extras, merged to v2-integration 2026-11-22 (tree lane review not passed; see Leftovers) · **Priority:** P1 (Michael: "a priority") · **Port:** see ports.json · **Branch:** `adrian/skills-tree`
 
 ## Goal
 The Skills page becomes a real skill tree. A node is a skill ("Broadcasting", "Extrude") built up across lessons, not a lesson's steps. A real prerequisite graph runs underneath, across tracks. On top, the default **Path** view shows only the skills on the way to the learner's goal: a project at the right end, drawn left to right. **Map** shows every track grown up from one trunk. **List** shows one card per track. One NEXT and one primary button tell you what to do now. A new learner starts by picking what to make first.
@@ -45,7 +45,7 @@ NEXT is a focus marker on exactly one node: a ring offset 3px plus the word. The
 - **Shots:** `agents/shots/skills-build-*.png` (800 px wide captures of the Browser pane: 1280 / 1024 / 1728 viewports scaled to fit).
 
 ## Core requests
-- None needed. Stage note (dev/, integrator): app windows on the stage are capped at their `windowSize` (Library 1280x820), so the 1728 shots resized the window frame in the DOM; a `?window-size=fill` stage option would make that repeatable.
+- Stage note (dev/, integrator): app windows on the stage are capped at their `windowSize` (Library 1280x820), so the 1728 shots resized the window frame in the DOM; a `?window-size=fill` stage option would make that repeatable.
 - If the unlock motion needs a shared stroke-draw helper, it goes in `core/ui/motion.ts` through the integrator.
 - **`skills:artifact-image` (main handler, Nov 22).** The portfolio card shows a picture of the learner's own file (`PortfolioItem.artifact {kind: "image", path}`; the contract says the path is local, never a URL). The renderer's CSP (`src/renderer/index.html` img-src `'self' data: blob: https://i.ytimg.com`) and webSecurity block `file://`, so the renderer can't show it. Ask: a main handler `skills:artifact-image (path: string) → string | undefined` that returns a `data:image/(png|jpeg|gif|webp);base64,…` URL. It should only read a path the engine reported in the latest `progress.graph` (capstones[].artifact or portfolio[].artifact), only an absolute path with an image extension, real path resolved (no symlink escape), at most ~2 MB on disk (downscale or skip anything larger), and return undefined on any error. The renderer side is done (`features/skills/extras/Portfolio.tsx` `usePicture`): it calls `bridge.invoke('skills:artifact-image', path)`, accepts only a data: image of at most 2.8 MB, stops asking once the handler is missing, and keeps the file icon and name as the fallback. Until the handler lands, every card shows the icon.
 
@@ -57,11 +57,13 @@ NEXT is a focus marker on exactly one node: a ring offset 3px plus the word. The
 - typecheck passes, and the stage at `?scenario=skills` shows each view.
 
 ## Leftovers
-As of the 2026-11-22 merge (v2-integration), only these had landed from `michael/app-skills-tree`: the optional contract fields (`shared/contracts/events.{ts,py}`), `features/skills/model.ts` + `model.test.ts`, the mock learner `app/mock/scenarios/skills.json`, and Adrian's research and mockups. `michael/app-skills-extras` did not exist on origin yet. Still to do:
-- `features/skills/layout.ts`: layered layout (longest-path layers, barycenter sweeps, straightening), zero crossings, even rows, one edge curve, with unit tests.
-- Path, Map and List views, the node component (40-48px, surface + soft shadow, state rendering), capstone hero card with the bonsai, fit-to-view on open, track names as group headers.
-- Skill panel (opens from any node, Esc closes), the dock (NEXT, also ready, keep fresh), goal picker, unlock motion (once per event, reduced motion).
-- `SkillsPage.tsx` still renders the old page; wire it to the new feature and retire `Constellation.tsx` there.
-- Extras lane: skill chips on Library cards, lesson-end recap, weekly recap on Progress.
-- Engine: handle `set_goal` / `skills.ack` and add them to `V2_CAPABILITIES`; send `Progress.graph`.
-- Verify light and dark at 1024, 1280, 1728 on `?scenario=skills`; re-merge both lanes into v2-integration when they finish.
+Merged to v2-integration on 2026-11-22: the whole tree lane (layout, Path/Map/List, node, panel, dock, goal picker, unlock, zoom/pan/fit, search) and the extras lane (skill chips on Library/Home, lesson-end recap, week recap, portfolio, up next). Typecheck and 45 skills tests pass. The tree lane's review did not pass; still to do:
+1. **Map fill and fit (rules 5, 6; blocking).** The Map opens at `MAP_MIN_SCALE` 0.86 on NEXT, cropped top and bottom (no goal, no trunk); labels cut at the canvas edge, headers truncated at 1024, nodes hidden behind the dock, dashed edges running off the top. Fit gives a ~234 px column in a 930 px canvas with 14 px nodes; at 1728 ~40% empty each side. Fix in `graphInput.ts` (`SIZES.map`, `PLACE.map`, `MAP_MIN_SCALE`) and `TreeCanvas.tsx`: compact uniform row pitch, one-line names, a state line only where it says something (Next, practicing, locked "needs N"), 36-40 px Map nodes, smaller edge channel, columns spread to the canvas width. Target: at 1280x800 the whole Map (goal to trunk) shows on open, nodes >= 30 px on screen, no text cut; at 1728 it fills the width. Remove the "open on NEXT and pan" default; add a `layout.test.ts` case that the whole Map fits at 1280x800 at the minimum node size.
+2. **Even Map rows (rule 1).** Map node-center gaps measured 109-130 px because `placeGraph` sizes each layer's band. Use one uniform layer pitch on the Map; add a test that all Map layer gaps are equal.
+3. **Track headers (rule 3).** `trackHeaders` uses free grid spots, so NUMPY sits over one node, not its branch; NEURAL NETWORKS and NUMPY collide or truncate at 1024; headers can clip. Put each header in one consistent spot per branch with reserved room; test that headers never touch each other or the canvas edge at the opening view.
+4. **NEXT marker.** Brief asks for a ring 3 px out plus the word. `SkillNode.tsx` draws it at inset -5 with no word. Make a true 3 px gap and add a small "Next" caption: above the node on the Path, merged into the state line on the Map ("Next · 2 of 4 steps").
+5. **Mastered check color.** The brief says green fill with an ink check; the Glyph uses `color.onGreen` (white in light). Use the ink token, or confirm onGreen in BRAND.md and note it here.
+6. **Shots.** `skills-build-unlock-{light,dark}.png` show the old wide Map; Map shots show the cropped opening. After 1-4, re-shoot Map at 1024/1280/1728 light and dark, Map with Fit, and the unlock.
+7. **Scenario hygiene (nit).** `app/mock/scenarios/new-learner.json` is auto-merged into `full` and relies on sort order to never answer `progress.get`. Move it to a variant in `skills.json` or a stage flag, or guard `full`.
+8. **Core: `skills:artifact-image`** main handler (see Core requests); until it lands portfolio cards show the file icon.
+9. **Engine:** handle `set_goal` / `skills.ack`, add them to `V2_CAPABILITIES`, and send `Progress.graph`.
