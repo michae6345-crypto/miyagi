@@ -150,15 +150,15 @@ check("stale final arrives after the new down and carries the OLD id",
       id1 != id2 and stale_after_new and finals[0]["id"] == id1 and finals[0]["text"] == "first question"
       and finals[1]["id"] == id2, str(ev))
 
-# --- final slower than 1.5 s: best partial is sent, and the late final is dropped ----------------------------------
+# --- final slower than the release tail (300 ms): best partial is sent, and the late final is dropped --------------
 m = h.mark()
 h.sim("down", fakeText="slow one", finalDelayMs=4000); time.sleep(0.45)
 h.sim("up"); t_up = time.time() - h.t0
 h.wait(lambda e: any(x["type"] == "final" for x in e), mark=m)
 tev = h.timed_since(m)
 tf = next((t for t, e in tev if e["type"] == "final"), None)
-check("slow final: best partial sent about 1.5 s after release",
-      tf is not None and 1.3 <= tf - t_up <= 2.2, f"dt={None if tf is None else round(tf - t_up, 2)}")
+check("slow final: best partial sent within the 300 ms tail after release",
+      tf is not None and 0.2 <= tf - t_up <= 0.7, f"dt={None if tf is None else round(tf - t_up, 2)}")
 time.sleep(0.2)
 h.sim("down", fakeText="x"); h.sim("up")   # (short) just flush
 time.sleep(0.4)

@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 OUT="../../build/helpers"
 BIN="$OUT/miyagi-listen"
-SRC=(main.swift Session.swift KeyTap.swift Mic.swift Transcriber.swift Permissions.swift Screens.swift Windows.swift)
+SRC=(main.swift Session.swift Tail.swift KeyTap.swift Mic.swift Transcriber.swift Permissions.swift Screens.swift Windows.swift)
 ARCHS="${MIYAGI_LISTEN_ARCHS:-arm64 x86_64}"
 
 if [ "${1:-}" != "--force" ] && [ -f "$BIN" ]; then

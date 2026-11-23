@@ -43,8 +43,9 @@ struct Config {
     var minHoldMs = 250
     var maxHoldMs = 60_000
     var locale = "en-US"
-    /// How long after release we wait for the final before sending the best partial.
-    var finalWaitMs = 1500
+    /// The release tail: how long after release (or after the STT is ready, if later) we wait for the recognizer's final
+    /// before sending the best text so far. At most Tail.maxMs (300 ms); it used to be a 1500 ms wait.
+    var tailMs = Tail.maxMs
 }
 
 enum Ids {
@@ -54,11 +55,6 @@ enum Ids {
         counter += 1
         return "\(base)-\(counter)"
     }
-}
-
-/// True when the text is worth sending: at least two letters or digits.
-func isMeaningful(_ text: String) -> Bool {
-    text.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.count >= 2
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -232,27 +228,26 @@ final class Session {
         Out.emit("partial", [("id", id), ("text", t)])
     }
 
-    /// Mic is closed and the STT is ready: end the input and wait up to finalWaitMs for the final text.
+    /// Mic is closed and the STT is ready: end the input, then send the final if it comes within the tail (at most
+    /// 300 ms), else the best text recognised so far. Release no longer waits on the recognizer's finalize.
     private func startFinishing() {
         guard let stt = stt, phase == .finishing, !resolved else { return }
         Task { [weak self] in
             let text = await stt.finish()
-            DispatchQueue.main.async { self?.resolve(text, timedOut: false) }
+            DispatchQueue.main.async { self?.resolve(final: text, timedOut: false) }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(config.finalWaitMs)) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Tail.clamp(config.tailMs))) { [weak self] in
             guard let self = self, !self.resolved else { return }
-            self.resolve(stt.bestText(), timedOut: true)
+            self.resolve(final: nil, timedOut: true)
         }
     }
 
-    private func resolve(_ raw: String, timedOut: Bool) {
+    private func resolve(final: String?, timedOut: Bool) {
         guard !resolved else { return }
         resolved = true
         phase = .done
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // On timeout the best partial is what we have; otherwise the final wins unless it came back empty.
-        let best = isMeaningful(text) ? text : lastPartial
-        if isMeaningful(best) {
+        // The final wins when it came back with words; then everything recognised so far; then the last partial.
+        if let best = Tail.pick(final: final, best: stt?.bestText() ?? "", lastPartial: lastPartial) {
             Out.emit("final", [("id", id), ("text", best)])
         } else {
             Out.emit("cancelled", [("id", id), ("reason", "empty")])

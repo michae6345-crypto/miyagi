@@ -8,6 +8,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh
+echo "== release tail (pure) =="
+./test-tail.sh
 BIN="$PWD/../../build/helpers/miyagi-listen"
 WORK="${TMPDIR:-/tmp}/miyagi-listen-test"; mkdir -p "$WORK"
 
