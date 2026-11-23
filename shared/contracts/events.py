@@ -53,6 +53,7 @@ class StepSummary(_Model):
     kind: StepKind | None = None  # code = type in the file, run = run a command, read = learn a concept first
     what: str | None = None  # what this step builds, <= 12 words (shown in the step list as the plan)
     estMinutes: int | None = None  # about how long this step takes, whole minutes ("about 35 min left" = sum over steps not passed)
+    skillIds: list[str] | None = None  # Nov 22 (Skills page): the SkillInfo ids this step builds evidence for
 
 
 class PrimerItem(_Model):
@@ -146,6 +147,7 @@ class OutlineStep(_Model):
     kind: StepKind | None = None
     what: str | None = None
     estMinutes: int | None = None
+    skillIds: list[str] | None = None  # as StepSummary.skillIds
 
 
 class LessonOutline(_Model):
@@ -153,6 +155,103 @@ class LessonOutline(_Model):
     count: int
     steps: list[OutlineStep]
     estMinutes: int | None = None  # the whole lesson, when every row has one
+
+
+# ---------- v2 shapes (BUILD-PLAN W0-1) ----------
+HealthState = Literal["ok", "missing", "off", "checking", "unknown"]  # unknown: can't tell without prompting (gray)
+PermissionKind = Literal["screen", "accessibility", "automation"]
+PauseReason = Literal["editor_closed", "kernel", "network", "permission", "user"]
+BlockerKind = Literal["kernel", "editor_closed", "network"]
+LessonTool = Literal["vscode", "jupyter", "terminal", "excel"]
+SkillProgressState = Literal["mastered", "practicing", "not_started"]
+LIBRARY_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # library ids: never a path
+
+
+class MissingLine(_Model):
+    text: str
+    state: Literal["ok", "missing"]
+
+
+class HintStep(_Model):
+    n: int
+    of: int
+
+
+class LessonResult(_Model):
+    """card kind "complete": what the lesson counted. Skips are skips, never passes."""
+    passed: int
+    skipped: int
+    total: int
+    minutes: int | None = None
+    lessonId: str | None = None
+    title: str | None = None
+
+
+class HealthItem(_Model):
+    id: str  # vscode / companion / python / jupyter / engine / cloud
+    label: str
+    state: HealthState
+    detail: str | None = None
+    fix: str | None = None  # the action kind that fixes it
+
+
+class LibraryProgress(_Model):
+    stepIndex: int
+    stepTitle: str
+    total: int
+
+
+class LibraryItem(_Model):
+    id: str = Field(pattern=LIBRARY_ID_PATTERN)
+    title: str
+    by: str | None = None
+    steps: int
+    estMinutes: int | None = None
+    tools: list[LessonTool] = []
+    ready: bool = True
+    progress: LibraryProgress | None = None
+    source: BuildSource | None = None
+    updatedAt: str | None = None
+    # Nov 22 (Skills page), SkillInfo ids: teaches = skills it builds; uses = skills it needs; unlocks = skills ready once it is done
+    teaches: list[str] | None = None
+    uses: list[str] | None = None
+    unlocks: list[str] | None = None
+
+
+class SkillProgressItem(_Model):
+    label: str
+    state: SkillProgressState
+
+
+class SkillTrackProgress(_Model):
+    track: str
+    mastered: int
+    total: int
+    items: list[SkillProgressItem]
+
+
+class CompletedLesson(_Model):
+    lessonId: str
+    title: str
+    at: str  # ISO date
+
+
+class WeekActivity(_Model):
+    minutes: int | None = None
+    streak: int | None = None
+    days: list[bool] = []
+
+
+class ReviewItem(_Model):
+    label: str
+    file: str | None = None
+    checks: int
+    when: str
+
+
+class ReviewQueue(_Model):
+    due: int
+    items: list[ReviewItem]
 
 
 class LessonInfo(_Model):
@@ -524,6 +623,130 @@ class SkillMap(_Model):
     next: list[SkillNext]
 
 
+# ---------- Skills page: the skill graph (Nov 22, additive; app/agents/skills.md "Contract") ----------
+# A node is a skill built up across lessons, never one lesson's step. Times: ISO text or epoch seconds.
+SkillGraphState = Literal["locked", "ready", "practicing", "mastered"]  # review is a modifier on mastered, never a demotion
+SkillInfoKind = Literal["skill", "capstone"]
+Moment = str | int | float
+
+
+class SkillLessonRef(_Model):
+    lessonId: str
+    libraryId: str | None = None
+    title: str | None = None
+    stepIds: list[str] | None = None  # the steps of that lesson that build this skill
+    role: Literal["teaches", "uses", "practices"] | None = None
+
+
+class SkillEvidence(_Model):
+    done: int
+    total: int
+
+
+class SkillReview(_Model):
+    dueAt: Moment
+
+
+class SkillExample(_Model):
+    code: str | None = None
+    caption: str | None = None
+
+
+class SkillInfo(_Model):
+    id: str
+    label: str  # <= 4 words
+    track: str  # the group header ("numpy")
+    summary: str | None = None  # one line, <= 12 words
+    kind: SkillInfoKind | None = None  # capstone: details in SkillGraphInfo.capstones by the same id
+    state: SkillGraphState | None = None
+    evidence: SkillEvidence | None = None  # steps passed of the steps behind it
+    masteredAt: Moment | None = None
+    lastPracticedAt: Moment | None = None
+    review: SkillReview | None = None
+    lessons: list[SkillLessonRef] | None = None
+    example: SkillExample | None = None
+
+
+class SkillGraphEdge(_Model):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    from_: str = Field(alias="from")  # SkillInfo.id
+    to: str
+    kind: Literal["requires", "helps"] | None = None  # None = requires
+    weight: float | None = None  # 0..1, helps only
+
+
+class SkillArtifact(_Model):
+    kind: Literal["image", "file"]
+    path: str | None = None  # local, never a URL
+    caption: str | None = None
+
+
+class SkillCapstone(_Model):
+    id: str  # the SkillInfo id of the capstone node
+    brief: str | None = None
+    requires: list[str] | None = None  # the skill ids the goal counts; None = every skill upstream of it
+    checks: list[str] | None = None
+    starterFile: str | None = None
+    estMinutes: int | None = None
+    completedAt: Moment | None = None
+    artifact: SkillArtifact | None = None
+
+
+class SkillPick(_Model):
+    """What to do now: one skill and the lesson step that moves it (library.start {libraryId} or learn {query: goal})."""
+    skillId: str
+    lessonId: str | None = None
+    libraryId: str | None = None
+    lessonTitle: str | None = None
+    stepIndex: int | None = None  # 0-based, as LibraryItem.progress.stepIndex
+    stepCount: int | None = None
+    estMinutes: int | None = None
+    goal: str | None = None
+    why: str | None = None  # <= 12 words
+
+
+class SkillEvent(_Model):
+    id: str
+    kind: Literal["mastered", "unlocked", "review_due", "capstone_done"]
+    skillId: str
+    at: Moment
+    from_: str | None = Field(default=None, alias="from")  # the skill whose mastery unlocked this one
+    lessonId: str | None = None
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class SkillWeek(_Model):
+    mastered: int | None = None
+    keptFresh: int | None = None
+    minutes: int | None = None
+    days: list[bool] | None = None  # Monday first
+    weeklyGoal: int | None = None
+    goalAway: int | None = None  # skills left to the goal
+
+
+class PortfolioItem(_Model):
+    capstoneId: str
+    title: str
+    at: Moment
+    track: str | None = None
+    skillIds: list[str] | None = None
+    artifact: SkillArtifact | None = None
+
+
+class SkillGraphInfo(_Model):
+    skills: list[SkillInfo] = []
+    edges: list[SkillGraphEdge] = []
+    capstones: list[SkillCapstone] | None = None
+    goal: str | None = None  # a capstone id (set_goal); None = no goal picked yet
+    next: SkillPick | None = None
+    alsoReady: list[str] | None = None  # <= 3 skill ids
+    keepFresh: list[str] | None = None  # <= 3 skill ids
+    events: list[SkillEvent] | None = None
+    ackedUntil: Moment | None = None  # events newer than this play once; the app then sends skills.ack {until}
+    week: SkillWeek | None = None
+    portfolio: list[PortfolioItem] | None = None
+
+
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
                      "retry", "hint", "show_me", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
@@ -667,6 +890,61 @@ CloudState = Literal["ok", "missing", "paused", "quota", "unauthorized", "offlin
 KeyState = Literal["ok", "missing", "invalid", "env"]  # "env" = falling back to the engine's .env
 
 
+# ---------- v2 events (BUILD-PLAN W0-1) ----------
+class EngineHello(_Model):
+    """First message on every connect. capabilities: the v2 commands this engine understands."""
+    version: str
+    contract: str
+    capabilities: list[str] = []
+    restored: bool | None = None
+
+
+class Health(_Model):
+    items: list[HealthItem]
+    ready: int
+    total: int
+
+
+class LessonPaused(_Model):
+    reason: PauseReason
+    title: str | None = None
+    body: str | None = None
+    stepId: str | None = None
+
+
+class LessonResumed(_Model):
+    reason: PauseReason | None = None
+    stepId: str | None = None
+
+
+class Blocker(_Model):
+    kind: BlockerKind
+    title: str | None = None
+    body: str | None = None
+    action: str | None = None
+    rect: ScreenRect | None = None  # the real control to point at (spotlight.rect space)
+    clear: bool | None = None  # it's gone
+
+
+class Library(_Model):
+    items: list[LibraryItem]
+
+
+class LibraryItemEvent(_Model):
+    item: LibraryItem
+    steps: list[OutlineStep] | None = None
+    overview: str | None = None
+
+
+class ProgressEvent(_Model):
+    """Every number from passed checks; None = not tracked yet (the app shows an empty state)."""
+    skills: list[SkillTrackProgress] = []
+    completed: list[CompletedLesson] = []
+    week: WeekActivity | None = None
+    review: ReviewQueue | None = None
+    graph: SkillGraphInfo | None = None  # Nov 22 (Skills page), additive; None = the app draws `skills` tracks as chains
+
+
 class ConfigStatus(_Model):
     anthropic: KeyState
     gemini: KeyState
@@ -805,6 +1083,54 @@ class CardClosed(_Model):
     by: str | None = None
 
 
+# ---------- v2 commands: the app sends one only when engine.hello.capabilities lists its type ----------
+class HealthGet(_Model):
+    pass
+
+
+class PermissionOpen(_Model):
+    """The engine reports the grant it needs; the APP opens System Settings itself (fixed URLs), never a URL from here."""
+
+    kind: PermissionKind
+
+
+class LibraryList(_Model):
+    pass
+
+
+class LibraryGet(_Model):
+    id: str = Field(pattern=LIBRARY_ID_PATTERN)
+
+
+class LibraryStart(_Model):
+    """Start a cached lesson: zero model calls."""
+
+    id: str = Field(pattern=LIBRARY_ID_PATTERN)
+
+
+class ProgressGet(_Model):
+    pass
+
+
+class SetGoal(_Model):
+    """Nov 22 (Skills page): the learner picked a capstone; answer with a fresh progress."""
+
+    capstoneId: str
+
+
+class SkillsAck(_Model):
+    """Nov 22 (Skills page): the unlock events up to `until` (an event's `at`) have played."""
+
+    until: str | int | float
+
+
+class PanelState(_Model):
+    """The lesson panel docked beside the editor (screen points); rect None = closed."""
+
+    open: bool
+    rect: ScreenRect | None = None
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
@@ -816,10 +1142,26 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "end_lesson": EndLesson,
     "card.shown": CardShown,
     "card.closed": CardClosed,
+    # v2
+    "health.get": HealthGet,
+    "permission.open": PermissionOpen,
+    "library.list": LibraryList,
+    "library.get": LibraryGet,
+    "library.start": LibraryStart,
+    "progress.get": ProgressGet,
+    "panel.state": PanelState,
+    "set_goal": SetGoal,
+    "skills.ack": SkillsAck,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
-                         "card.shown", "card.closed"]
+                         "card.shown", "card.closed",
+                         "health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
+                         "set_goal", "skills.ack"]
+
+# v2: the command types an engine may list in engine.hello.capabilities.
+V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state")
+CONTRACT_VERSION = "2026-11-20"
 
 
 class AppMessage(BaseModel):

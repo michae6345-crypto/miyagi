@@ -13,7 +13,7 @@ export type SourceKind = "video" | "blog" | "notebook" | "paper" | "repo";
 export interface VideoSegment { videoId: string; start: number; end: number } // seconds
 export interface Source { id: string; kind: SourceKind; title: string; url: string; meta?: string; videoId?: string }
 export type StepKind = "code" | "run" | "read";   // code: type in the file · run: run a command · read: learn a concept first
-export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null; kind?: StepKind; what?: string; estMinutes?: number }   // what: what this step builds (<= 12 words), the plan line in the step list   // estMinutes: about how long this step takes (whole minutes); "about 35 min left" = the sum over the steps not passed yet
+export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null; kind?: StepKind; what?: string; estMinutes?: number; skillIds?: string[] }   // skillIds (Nov 22, Skills page): the SkillInfo ids this step builds evidence for   // what: what this step builds (<= 12 words), the plan line in the step list   // estMinutes: about how long this step takes (whole minutes); "about 35 min left" = the sum over the steps not passed yet
 /** "Before you start" concept card (Just teach me): the pre-knowledge the steps rely on. diagramPrompt set = the app may ask for a picture with action {kind:"diagram", text:"primer:<id>"}. */
 export interface PrimerItem { id: string; title: string; body: string; code?: string; diagramPrompt?: string }   // null/absent: no video (a "lesson" mode lesson)
 /** Learn-anything screens (Just teach me; mockups 01 drawer v2, 02 concept panel, 03 "Before you start"). All optional: the app hides a part that is absent.
@@ -24,7 +24,7 @@ export interface Prerequisite { id: string; title: string; why: string; status: 
 /** lesson.ready's outline (E23): EVERY step of the lesson from the first lesson.ready on, while the rest is still being written
  *  (lesson.updated then delivers the steps themselves), so "Step 1 of N · about M min" is right from the start and never jumps.
  *  count = the number of steps the lesson ends with; a row's index = that StepSummary.index once it arrives. */
-export interface OutlineStep { index: number; title: string; kind?: StepKind; what?: string; estMinutes?: number }
+export interface OutlineStep { index: number; title: string; kind?: StepKind; what?: string; estMinutes?: number; skillIds?: string[] }   // skillIds: as StepSummary.skillIds
 export interface LessonOutline { count: number; steps: OutlineStep[]; estMinutes?: number }   // estMinutes: the whole lesson (the sum of the rows'), when every row has one
 export interface LearnFirstItem { title: string; minutes: number; kind: "notebook" | "interactive" | "video" | "read"; covers: string }   // a short mini-lesson for a prerequisite not passed yet; covers: Prerequisite.id; the app starts one with learn {query: title, mode: "lesson"} ("video" kind: mode "video")
 /** Circle to ask (Nov 22): the bounding box of the ink the learner drew while holding the push-to-talk keys (Fn+Control).
@@ -145,6 +145,58 @@ export interface EngineEvents {
   /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
   "lesson.ended": { lessonId?: string; reason: string };
   "error": { message: string; epoch?: number; gen?: number };
+
+  // ---------- v2 (miyagi-v2 BUILD-PLAN W0-1). All additive; an app that ignores them keeps today's behaviour. ----------
+  /** First message on every connect. contract: the contract date this engine speaks ("2026-11-20"); capabilities: the v2 COMMANDS it
+   *  understands (e.g. "health.get", "library.start", "panel.state"). The app sends a v2 command only when it is listed here.
+   *  restored: this connect resumed a lesson the engine kept (a restart / reconnect), not a fresh start. */
+  "engine.hello": { version: string; contract: string; capabilities: string[]; restored?: boolean };
+  /** Onboarding / Settings rows the ENGINE can probe (companion, VS Code, Python, cloud). Polled only on health.get, never prompts. */
+  "health": { items: HealthItem[]; ready: number; total: number };   // ready = items with state "ok"
+  /** The lesson waits for something outside it (VS Code closed, no kernel, offline): no checks run, nothing counts as Not yet. */
+  "lesson.paused": { reason: PauseReason; title?: string; body?: string; stepId?: string };
+  "lesson.resumed": { reason?: PauseReason; stepId?: string };
+  /** One thing in the learner's way, shown in context (Err-KernelInContext / Err-VSCodeClosed / offline pill line).
+   *  clear: true = it is gone (the same kind). rect: the real control to point at (screen points, spotlight.rect space). */
+  "blocker": { kind: BlockerKind; title?: string; body?: string; action?: string; rect?: { x: number; y: number; w: number; h: number }; clear?: boolean };
+  /** Answer to library.list: lessons built once and cached on this Mac (ready to start with zero model calls). */
+  "library": { items: LibraryItem[] };
+  /** Answer to library.get: one lesson's preview (Home-LessonDetail). */
+  "library.item": { item: LibraryItem; steps?: OutlineStep[]; overview?: string };
+  /** Answer to progress.get (Prog-Progress-Window). Every number comes from passed checks; null fields = not tracked yet. */
+  "progress": Progress;
+}
+
+// ---------- v2 shapes ----------
+/** card.kind including the v2 "complete" card (Prog-Completion). Read a card's kind as this where you handle it. */
+export type CardKindV2 = EngineEvents["card"]["kind"] | "complete";
+export type BuildStage = "watching" | "steps" | "checks" | "ready";   // Home-Building: Watching the video · Finding the steps · Writing the checks · Ready to start
+export interface BuildPhase { id: BuildStage; label: string; state: "done" | "active" | "next"; detail?: string }   // detail: "6 steps found", "Step 4 of 6"
+export interface BuildSource { kind: "youtube" | "goal" | "library"; title: string; channel?: string; durationS?: number; url?: string }
+export type BuildFailCode = "unreadable_code" | "no_steps" | "too_long" | "no_captions" | "network" | "provider" | "unknown";
+/** A way out of a failed build: transcript only (learn_url {url, transcriptOnly: true}) or a cached library lesson (library.start {id}). */
+export interface BuildAlternative { kind: "transcript" | "library"; title: string; meta?: string; id?: string; url?: string }
+export interface MissingLine { text: string; state: "ok" | "missing" }
+/** card kind "complete": what the lesson counted. Skips are counted as skips, never as passes. */
+export interface LessonResult { passed: number; skipped: number; total: number; minutes?: number; lessonId?: string; title?: string }
+export type HealthState = "ok" | "missing" | "off" | "checking" | "unknown";   // unknown = cannot tell without prompting (gray, never a failure)
+export interface HealthItem { id: "vscode" | "companion" | "python" | "jupyter" | "engine" | "cloud" | string; label: string; state: HealthState; detail?: string; fix?: string }   // fix: the action kind that fixes it ("install", "open_editor")
+export type PermissionKind = "screen" | "accessibility" | "automation";
+export type PauseReason = "editor_closed" | "kernel" | "network" | "permission" | "user";
+export type BlockerKind = "kernel" | "editor_closed" | "network";
+export type LessonTool = "vscode" | "jupyter" | "terminal" | "excel";
+/** A cached lesson. id matches ^[A-Za-z0-9_-]{1,64}$; never a path. progress: where the learner left it on this Mac. */
+export interface LibraryItem { id: string; title: string; by?: string; steps: number; estMinutes?: number; tools: LessonTool[]; ready: boolean;
+                               progress?: { stepIndex: number; stepTitle: string; total: number }; source?: BuildSource; updatedAt?: string;
+                               teaches?: string[]; uses?: string[]; unlocks?: string[] }   // Nov 22 (Skills page), SkillInfo ids: teaches = skills this lesson builds; uses = skills it needs; unlocks = skills that become ready once it is done
+export type SkillProgressState = "mastered" | "practicing" | "not_started";
+export interface Progress {
+  skills: Array<{ track: string; mastered: number; total: number; items: Array<{ label: string; state: SkillProgressState }> }>;
+  completed: Array<{ lessonId: string; title: string; at: string }>;   // at: ISO date
+  week?: { minutes?: number | null; streak?: number | null; days: boolean[] } | null;   // absent / null: activity not tracked yet (empty state)
+  review?: { due: number; items: Array<{ label: string; file?: string; checks: number; when: string }> } | null;   // absent / null: no review scheduler yet
+  /** Nov 22 (Skills page, app/agents/skills.md "Contract"), additive. absent / null: the app draws today's `skills` tracks as short chains. */
+  graph?: SkillGraphInfo | null;
 }
 
 /** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`. */
@@ -200,6 +252,43 @@ export interface SkillCross { track: string; label: string; to: string; note?: s
 export interface SkillNext { title: string; goal: string }                                     // an up-next lesson; goal = launcher text: start it with learn {query: goal, mode: "lesson"}
 export interface SkillMap { track: string; headline: string; nodes: SkillNode[]; edges: SkillEdge[]; cross: SkillCross[]; next: SkillNext[] }   // track: "Neural networks"; headline: "A 1-4-4-1 network that learns the shape of sin(x). 8 mastered, 5 up next in Neural networks."
 
+// ---------- Skills page: the skill graph (Nov 22, additive; app/agents/skills.md "Contract") ----------
+/** A node is a skill built up across lessons ("Broadcasting"), never one lesson's step. Times are ISO text or epoch seconds.
+ *  Every field but id / label / track is optional: the app derives what is missing (state from edges, review from review.dueAt). */
+export type SkillGraphState = "locked" | "ready" | "practicing" | "mastered";   // review is a modifier on mastered (review.dueAt has come), never a demotion
+export type SkillInfoKind = "skill" | "capstone";                                // capstone: a project node; its details are in SkillGraphInfo.capstones by the same id
+export interface SkillLessonRef { lessonId: string; libraryId?: string; title?: string; stepIds?: string[]; role?: "teaches" | "uses" | "practices" }   // stepIds: the steps of that lesson that build this skill
+export interface SkillInfo {
+  id: string; label: string; track: string;                // label <= 4 words; track: the group header ("numpy")
+  summary?: string;                                          // one line, <= 12 words
+  kind?: SkillInfoKind; state?: SkillGraphState;
+  evidence?: { done: number; total: number };                // steps passed of the steps behind it ("2 of 4 steps")
+  masteredAt?: string | number; lastPracticedAt?: string | number;
+  review?: { dueAt: string | number } | null;                // spaced review; due once dueAt has come
+  lessons?: SkillLessonRef[];
+  example?: { code?: string; caption?: string };             // "You'll be able to": a one-line example and its caption
+}
+export interface SkillGraphEdge { from: string; to: string; kind?: "requires" | "helps"; weight?: number }   // SkillInfo ids; kind absent = requires; weight 0..1 (helps only)
+export interface SkillCapstone {
+  id: string;                                                // the SkillInfo id of the capstone node
+  brief?: string; requires?: string[];                       // requires: the skill ids the goal counts ("6 of 11 skills"); absent = every skill upstream of it
+  checks?: string[]; starterFile?: string; estMinutes?: number;
+  completedAt?: string | number | null;
+  artifact?: { kind: "image" | "file"; path?: string; caption?: string } | null;   // the learner's own result; path is local, never a URL
+}
+/** What to do now: one skill and the lesson step that moves it. The app starts it with library.start {libraryId} or learn {query: goal, mode: "lesson"}. */
+export interface SkillPick { skillId: string; lessonId?: string; libraryId?: string; lessonTitle?: string; stepIndex?: number; stepCount?: number; estMinutes?: number; goal?: string; why?: string }   // stepIndex: 0-based, as LibraryItem.progress.stepIndex; why <= 12 words ("gets you closer to Layers")
+export interface SkillEvent { id: string; kind: "mastered" | "unlocked" | "review_due" | "capstone_done"; skillId: string; at: string | number; from?: string; lessonId?: string }   // from: the skill whose mastery unlocked this one
+export interface SkillWeek { mastered?: number; keptFresh?: number; minutes?: number | null; days?: boolean[]; weeklyGoal?: number; goalAway?: number }   // days: Monday first; goalAway: skills left to the goal
+export interface PortfolioItem { capstoneId: string; title: string; at: string | number; track?: string; skillIds?: string[]; artifact?: SkillCapstone["artifact"] }
+export interface SkillGraphInfo {
+  skills: SkillInfo[]; edges: SkillGraphEdge[]; capstones?: SkillCapstone[];
+  goal?: string | null;                                      // a capstone id (set_goal); null = no goal picked yet (the goal picker shows)
+  next?: SkillPick | null; alsoReady?: string[]; keepFresh?: string[];   // alsoReady, keepFresh: <= 3 skill ids each
+  events?: SkillEvent[]; ackedUntil?: string | number | null;           // events newer than ackedUntil play once; the app then sends skills.ack {until}
+  week?: SkillWeek | null; portfolio?: PortfolioItem[];
+}
+
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
   "learn": { query: string; mode?: "video" | "lesson" | "demo" };   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video"); mode "demo": the launcher's Demo option, the staged neural-net lesson for any goal (server/orchestrator/stage.py: typing steps pass on a save or Check my work, runs are recorded, one planned off-track on Train it)
@@ -227,6 +316,19 @@ export interface AppCommands {
    *  title / kind / stepId: copied from the card's payload; kind "offtrack" for the off-track card. On by "user" / "timeout" the engine lifts the off-track hold that this card (matched by title) caused; "replaced" / "hidden" lift nothing (the engine knows what it sent; a covered card shows again). */
   "card.shown": { stepId?: string; title: string; kind?: string };
   "card.closed": { stepId?: string; title: string; kind?: string; by: "user" | "replaced" | "timeout" | "hidden" };
+
+  // ---------- v2 commands: send one only when engine.hello.capabilities lists its type ----------
+  "health.get": {};                                  // -> health
+  "permission.open": { kind: PermissionKind };       // the engine reports the grant it needs; the APP opens System Settings (main/permissions.ts), never a URL from here
+  "library.list": {};                                // -> library
+  "library.get": { id: string };                     // -> library.item
+  "library.start": { id: string };                   // start a cached lesson: zero model calls; -> lesson.ready (or error)
+  "progress.get": {};                                // -> progress
+  /** The lesson panel docked beside the editor (screen points): the engine keeps boxes and VS Code clear of it. rect absent = closed. */
+  "panel.state": { open: boolean; rect?: { x: number; y: number; w: number; h: number } };
+  /** Nov 22 (Skills page). set_goal: the learner picked a capstone (the engine answers a fresh `progress`). skills.ack: the unlock events up to `until` (an event's `at`) have played. */
+  "set_goal": { capstoneId: string };
+  "skills.ack": { until: string | number };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;
