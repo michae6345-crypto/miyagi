@@ -113,6 +113,7 @@ async def build_lesson(
         # transcript_only never attaches: a speculative prebuild may be Gemini watching the video
         attached = None if transcript_only else await prebuild.attach(vid, workdir, on_update, on_progress)
         if attached is not None:
+            _share_fresh(attached, vid)  # a speculative prebuild the learner just picked: its good build is shared now
             return _untrusted(attached, workdir)
     from . import cost
 
@@ -126,17 +127,31 @@ async def build_lesson(
         try:
             g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
                                          on_progress=on_progress, video_meta=video_meta,
-                                         transcript_only=transcript_only, **kw)
+                                         transcript_only=transcript_only, **({"claim": False} if _prebuild else {}), **kw)
             if not g.get("build", {}).get("cost") and counter.get("tokens"):
                 g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens + dollars per model
             scope["lesson_id"] = (g.get("lesson") or {}).get("id")
             _untrusted(g, workdir)  # a model's (or the cache's) graph: paths, commands, regexes, sources checked
+            if not _prebuild:
+                _share_fresh(g, vid, share=not (kw.get("refresh") or kw.get("readapt")))  # a prebuild keeps its marker for the attach that adopts it
             if qs:
                 await qs.finish(g)
             return g
         finally:
             if qs:
                 qs.stop()
+
+
+def _share_fresh(graph: dict, vid: str | None, share: bool = True) -> None:
+    """A graph this process just built (build.fresh, set where it is written to the cache): upload it to the shared
+    lesson cache in the background when it is a good build. The marker is dropped so it never reaches the app or a
+    saved session. A refresh / readapt build (the learner asked for a new one) is not shared."""
+    build = graph.get("build") if isinstance(graph, dict) else None
+    if not isinstance(build, dict) or not build.pop("fresh", None) or not vid or not share:
+        return
+    from . import cloud_cache
+
+    cloud_cache.share_later(copy.deepcopy(graph), vid)
 
 
 def _untrusted(graph: dict, workdir: str | None) -> dict:
@@ -256,6 +271,7 @@ async def _build_lesson_impl(
     api_key: str | None = None,
     anthropic_key: str | None = None,
     cache: bool = True,
+    claim: bool = True,
     on_progress=None,
     on_update=None,
     video_meta: dict | None = None,
@@ -316,6 +332,9 @@ async def _build_lesson_impl(
             _emit("cache_hit", hit.name)
             _emit("done", hit.name)
             return graph
+        shared = await _shared_lesson(vid, source_url, goal, workdir, info, key, path, claim)
+        if shared is not None:
+            return shared
 
     if api_key:
         gemini.set_api_key(api_key)
@@ -339,6 +358,7 @@ async def _build_lesson_impl(
         if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
             CACHE_DIR.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
+            graph["build"]["fresh"] = True  # build_lesson shares it (never written to the cache file)
         _emit("done", f"{time.time() - t0:.0f}s")
         return graph
 
@@ -360,6 +380,7 @@ async def _build_lesson_impl(
             if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
                 CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
+                graph["build"]["fresh"] = True
             _emit("done", f"{time.time() - t0:.0f}s")
             return graph
         raise RuntimeError(human_error(str(e), meta)) from e
@@ -410,7 +431,40 @@ async def _build_lesson_impl(
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
     log.info("lesson built in %.1fs -> %s (%d warnings)", time.time() - t0, path, len(warnings))
+    graph["build"]["fresh"] = True
     _emit("done", f"{time.time() - t0:.0f}s")
+    return graph
+
+
+async def _shared_lesson(vid: str, source_url: str, goal: str, workdir: str, info: WorkdirInfo, key: str, path: Path,
+                         claim: bool) -> dict | None:
+    """A local cache miss: the shared lesson cache (miyagi-cloud, lesson/cloud_cache.py). A hit is validated, saved to
+    the local library like a built lesson and returned. A miss claims the build (not for a speculative prebuild:
+    claim=False) so two installs do not both pay; when another install holds it, wait briefly for their lesson. Any
+    failure is None (one log line) and the normal build runs. Never raises."""
+    from . import cloud_cache
+
+    if not cloud_cache.enabled():
+        return None
+    fp = workdir_fingerprint(workdir, info)
+
+    async def fetch() -> dict | None:
+        return await cloud_cache.lookup(vid, source_url=source_url, goal=goal, workdir=workdir, key=key, workdir_fp=fp)
+
+    try:
+        graph = await fetch()
+        if graph is None and claim:
+            graph = await cloud_cache.claim_build(vid, fetch)
+        if graph is None:
+            return None
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001  the shared cache is a bonus, never a reason a build fails
+        log.info("shared lesson cache: %s; building locally", type(e).__name__)
+        return None
+    log.info("lesson from the shared cache %s -> %s", vid, path.name)
+    _emit("cache_hit", f"shared-{vid}")
+    _emit("done", f"shared-{vid}")
     return graph
 
 
