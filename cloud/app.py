@@ -679,6 +679,8 @@ def body_limit(path: str) -> int:
         return LINK_MAX_BODY
     if path == "/v1/events":
         return EVENTS_MAX_BYTES
+    if path == "/v1/funnel":
+        return FUNNEL_MAX_BYTES
     return MAX_GEMINI_BODY if path.startswith("/v1/gemini/") else MAX_BODY
 
 
@@ -810,7 +812,7 @@ class RateLimit:
     def check(scope, path: str, admin: bool, bucket: str) -> tuple[str, float] | None:
         if admin and (wait := limiter.hit("admin:" + bucket, ADMIN_RATE_LIMIT_PER_IP_PER_HOUR)):
             return "admin", wait
-        if path.startswith(TOKEN_COUNTED) or path == "/v1/events":
+        if path.startswith(TOKEN_COUNTED) or path in ("/v1/events", "/v1/funnel"):
             if h := _known_token(scope):
                 wait = limiter.hit("tok:" + h, RATE_LIMIT_PER_TOKEN_PER_HOUR)
                 return ("token_hourly", wait) if wait else None
@@ -2880,6 +2882,74 @@ async def events(request: Request):
     return JSONResponse({"ok": True}, status_code=202)
 
 
+# --------------------------------------------------------------------------- activation funnel: POST /v1/funnel
+#
+# The app (main/features/funnel.ts: only while "Share crash reports and usage" is on, the launch gate is open and the
+# install is linked to a signed-in learner) sends the first time each milestone happened on that Mac:
+#   Authorization: Bearer <mi_ install token>
+#   {"milestones": [{"name": "first_launch", "at": "<ISO time>"}, ...]}
+# We keep the earliest time per install and name (table `funnel`). Unknown names and unreadable times are dropped;
+# a time from the future counts as now, one from before FUNNEL_MAX_AGE_DAYS ago is dropped. Names and times only:
+# the user comes from `links`. 202 {"ok": true}; 401 bad token; 413 too big; 400 when the body is not that shape.
+# Download is not a milestone here: the app does not exist yet (count it on the site or release side).
+
+FUNNEL_STEPS = ("first_launch", "signed_in", "permissions_granted", "lesson_started", "step_passed", "lesson_finished")
+FUNNEL_MAX_BYTES = 2 * 1024
+FUNNEL_MAX_AGE_DAYS = 400
+_FUNNEL_SKEW_S = 300
+
+
+def _funnel_time(at, now: float) -> float | None:
+    try:
+        t = datetime.fromisoformat(at) if isinstance(at, str) and len(at) <= 40 else None
+    except ValueError:
+        return None
+    if t is None:
+        return None
+    ts = (t if t.tzinfo else t.replace(tzinfo=UTC)).timestamp()
+    if ts < now - FUNNEL_MAX_AGE_DAYS * 86400:
+        return None
+    return min(ts, now) if ts > now + _FUNNEL_SKEW_S else ts
+
+
+@app.post("/v1/funnel")
+async def funnel(request: Request):
+    token = presented_token(request)
+    h = hash_token(token) if token and len(token) <= 200 else None
+    row = store.get_token(h) if h else None
+    if row is None or row["disabled"]:
+        return error(401, "authentication_error", "Missing or invalid install token.")
+    request.state.tok = h[:PREFIX_LEN]
+    too_big = error(413, "request_too_large", f"At most {len(FUNNEL_STEPS)} milestones and {FUNNEL_MAX_BYTES} bytes.")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > FUNNEL_MAX_BYTES:
+        return too_big
+    raw = await read_body(request)
+    if raw is None:
+        return request_timeout()
+    if len(raw) > FUNNEL_MAX_BYTES:
+        return too_big
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        data = None
+    items = data.get("milestones") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return error(400, "invalid_request_error", 'Body must be {"milestones": [{"name", "at"}, ...]}.')
+    if len(items) > len(FUNNEL_STEPS):
+        return too_big
+    now = _now()
+    kept: dict[str, float] = {}
+    for m in items:
+        if not isinstance(m, dict) or m.get("name") not in FUNNEL_STEPS:
+            continue
+        ts = _funnel_time(m.get("at"), now)
+        if ts is not None:
+            kept[m["name"]] = min(ts, kept.get(m["name"], ts))
+    store.add_funnel(h, list(kept.items()))
+    return JSONResponse({"ok": True}, status_code=202)
+
+
 # --------------------------------------------------------------------------- admin
 
 def admin_ok(request: Request, token: str | None) -> bool:
@@ -2915,6 +2985,16 @@ def _proxy_state() -> dict:
     return {"paused": store.paused(), "proxy_enabled_env": PROXY_ENABLED, "daily_usd_brake": DAILY_USD_CAP or None,
             "new_installs_today": store.new_installs_on(), "new_installs_per_day": NEW_INSTALLS_PER_DAY or None,
             "alert_daily_usd": ALERT_DAILY_USD or None, "alerts": bool(ALERT_WEBHOOK_URL)}
+
+
+@app.get("/admin/funnel")
+async def admin_funnel(request: Request, days: int = 0):
+    """The activation funnel: installs per milestone, share of first launch, median seconds between steps.
+    days > 0: only installs whose first launch is that recent. Opted-in, signed-in installs only (see /v1/funnel)."""
+    if denied := require_admin(request):
+        return denied
+    since = _now() - max(0, min(days, 3650)) * 86400 if days > 0 else 0
+    return store.funnel_report(list(FUNNEL_STEPS), since)
 
 
 @app.get("/admin/proxy")

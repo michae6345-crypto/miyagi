@@ -724,6 +724,31 @@ Extra top-level fields (the app sends `source`, `app`, `platform`) are ignored. 
 
 `/admin/usage` has `events` (per day and name: count and installs), and `/admin` an "Events per day" table.
 
+## Activation funnel: `POST /v1/funnel`
+
+The app (`app/src/main/features/funnel.ts`) sends the first time each milestone happened on that Mac, only while
+"Share crash reports and usage" is on, the launch gate is open and the install is linked to a signed-in learner:
+
+```
+POST /v1/funnel
+Authorization: Bearer <mi_ install token>
+{"milestones": [{"name": "first_launch", "at": "2026-11-22T10:00:00Z"}, ...]}     at most 6 items, 2 KB
+→ 202 {"ok": true}     401 bad token     413 too big     400 not that shape
+```
+
+Milestones, in order: `first_launch`, `signed_in`, `permissions_granted`, `lesson_started`, `step_passed`,
+`lesson_finished`. The table `funnel` keeps the earliest time per install and name: names and times only, the user
+comes from `links`. Unknown names and unreadable times are dropped; a future time counts as now, one older than 400
+days is dropped. Deleted with the account (`delete_account`: the calling install and, signed in, every install linked
+to that user). Retention: `prune()` counts a row whose `first_at` is older than 35 days into `funnel_daily` (UTC day,
+name, installs; no install) and deletes it, like the other per-install rows. No IP, network hash, user id or token is
+stored in either table, and the route logs none. Download is not a milestone (count it on the site or
+release side; `tokens` is every first launch).
+
+`GET /admin/funnel?days=N` (admin token): installs per step, share of the first step and the median seconds from the
+step before, for installs whose first launch is within N days (0 = all). Postgres version of the table:
+`migrations/20261122_funnel.sql` (not applied); dashboard queries: `sql/funnel.sql`.
+
 ## Admin view
 
 `GET /admin/usage` with `X-Admin-Token` returns:
