@@ -22,11 +22,11 @@ import { ArrowUpRight, ChevronsLeft, ChevronsRight, FileCode2, FileText, FolderG
 import type { Source, SourceKind, StepSummary } from '../../../../../../shared/contracts/events'
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
-import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from '../../core/theme'
+import { alpha, clock, color, copy, glass, kindTone, radius, spring, springOut } from '../../core/theme'
 import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { useCards } from '../cards/store'
-import { waitingOnSetup } from '../cards/setupHold'
+import { needsLine } from '../cards/setupPlan'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
 import { count, lessonOutline, planTotal, useJustEnded, useStepDetail, useStepStatuses, type StepStatus } from './plan'
@@ -429,7 +429,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
     const i = s.steps.findIndex((x) => x.id === ended)
     return i >= 0 && (i < s.steps.length - 1 || s.pendingNext || !s.complete) ? ended : undefined
   })
-  const waitingOnSetup = useWaitingOnSetup()
+  const setupNote = useSetupNote()
   const timeW = useTimeWidth(steps, complete)
   // The current step's code arriving after step.started grows the row: keep it in view then too.
   const codeLen = useStepDetail((d) => (d.detail && d.detail.stepId === stepId ? (d.detail.code?.length ?? 0) : -1))
@@ -453,7 +453,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
             checks={open ? checks : undefined}
             instructions={open ? instructions : undefined}
             actions={open && lessonMode}
-            note={status === 'current' && waitingOnSetup ? 'Waiting on setup' : undefined}
+            note={status === 'current' ? setupNote : undefined}
             enterDelay={k < 0 ? undefined : k * 0.04}
           />
         )
@@ -464,13 +464,13 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
 }
 
 /**
- * A setup card with something still missing is up (Michael's review A17): until Install or Skip is chosen (and while an
- * install runs), the current step reads "Waiting on setup". Read-only from the cards store.
+ * A setup card with something still missing is up (Michael's review A17): the current step says what it needs, one
+ * quiet line ("Needs AutoCAD"). The setup card is the one place that says "set up first" (Michael, Nov 22); the step
+ * list reads as usual. Rows the learner settled ("I have it", a free alternative chosen) need nothing. Read-only from
+ * the cards store.
  */
-function useWaitingOnSetup(): boolean {
-  // Smart setup (Nov 22): not under a card that lets the video play (holdVideo false), nor for rows the learner settled
-  // ("I have it", or a free alternative chosen)
-  return useCards((c) => waitingOnSetup(c.card))
+function useSetupNote(): string | undefined {
+  return useCards((c) => needsLine(c.card, (x) => (x.kind === 'editor' ? copy.editorName(x.label) : x.label)))
 }
 
 /**
@@ -617,7 +617,7 @@ function StepRow({
   instructions?: string
   /** The option row (Explain / Diagram / Show me / Hint + Check my work): the current step of a "Just teach me" lesson. */
   actions?: boolean
-  /** A quiet status at the row's end ("Waiting on setup"): faint, no hue. */
+  /** A quiet status at the row's end ("Needs AutoCAD"): faint, no hue. */
   note?: string
   enterDelay?: number
 }): ReactNode {
@@ -679,7 +679,7 @@ function StepRow({
         >
           {line ?? step.title}
         </span>
-        {/* Mockup 01: the current step's "about 4 min" at the row's end; a status note ("Waiting on setup") wins. */}
+        {/* Mockup 01: the current step's "about 4 min" at the row's end; a status note ("Needs AutoCAD") wins. */}
         {(note || (current && estimate)) && (
           <span data-part={note ? 'drawer-step-note' : 'drawer-step-est'} className="shrink-0 text-[12px]" style={{ color: glass.faint }}>
             {note ?? estimate}

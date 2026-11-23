@@ -17,6 +17,8 @@ import { useLesson, useStatus, useThinking } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, usePressed } from '../../core/shortcuts'
 import { clock, color, copy, glass, radius, spring } from '../../core/theme'
+import { useCards } from '../cards/store'
+import { waitingRows } from '../cards/setupPlan'
 import { Spinner } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { usePill } from '../pill/store'
@@ -297,17 +299,22 @@ function BuildingNext(): ReactNode {
   )
 }
 
-/** A setup card is waiting ("Set up first"): the video holds at the clip's start and plays once setup is done or skipped. */
+/**
+ * A setup card holds the video (the step on screen truly needs a tool Install can get now): the video waits at the
+ * clip's start and plays once setup is done or skipped. The setup card is the one place that says "set up first"
+ * (Michael, Nov 22); here, only what the video waits for.
+ */
 function SetupHold(): ReactNode {
+  const tools = useCards((s) => waitingRows(s.card, s.installs).map((x) => (x.kind === 'editor' ? copy.editorName(x.label) : x.label)).slice(0, 2).join(', '))
   return (
     <GlassScrim cover>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         <div className="flex items-center gap-[8px] text-[17px] font-semibold leading-tight">
           <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color.gray }} />
-          Set up first
+          {tools ? `Waiting for ${tools}` : 'Waiting on setup'}
         </div>
         <div className="mt-[8px] text-[13px]" style={{ color: glass.label }}>
-          The video starts when setup is done.
+          It plays once that is ready.
         </div>
       </motion.div>
     </GlassScrim>
@@ -671,6 +678,22 @@ export function PlayerWindow(): ReactNode {
 }
 
 /** Browser stage only: the same panel at the dock rect, under the spotlight/cards like in Electron. */
+/**
+ * Stage only, `?player=frame`: the panel's empty frame at the dock, no video. Screenshots of what sits beside the
+ * player (the setup card, the drawer) without loading or playing anything.
+ */
+const STAGE_FRAME_ONLY = !isElectron && typeof location !== 'undefined' && new URLSearchParams(location.search).get('player') === 'frame'
+
+function FrameOnly(): ReactNode {
+  return (
+    <div
+      data-player-frame
+      className="h-full w-full"
+      style={{ background: glass.bg, borderRadius: radius.card, boxShadow: glass.shadow, border: `1px solid ${glass.hairline}` }}
+    />
+  )
+}
+
 export function StagePlayer({ layout }: { layout: Layout }): ReactNode {
   // No player for a "Just teach me" lesson (lesson.mode "lesson": no video at all).
   const hasLesson = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
@@ -689,7 +712,7 @@ export function StagePlayer({ layout }: { layout: Layout }): ReactNode {
           exit={{ opacity: 0, x: 24 }}
           transition={spring}
         >
-          <PlayerPanel framed />
+          {STAGE_FRAME_ONLY ? <FrameOnly /> : <PlayerPanel framed />}
         </motion.div>
       )}
     </AnimatePresence>

@@ -1,0 +1,169 @@
+{
+ "name": "setup-calm",
+ "on": {
+  "connect": "sca_connect"
+ },
+ "segments": {
+  "sca_connect": [
+   {
+    "wait": 100,
+    "type": "status",
+    "payload": {
+     "state": "idle"
+    }
+   },
+   {
+    "wait": 200,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "sca-toy-car",
+      "title": "Toy car for a 3D printer",
+      "sources": [],
+      "complete": true,
+      "builtBy": "claude",
+      "mode": "video"
+     },
+     "steps": [
+      {
+       "id": "sca1",
+       "index": 0,
+       "title": "Sketch the car profile",
+       "what": "Draw the side profile with lines and arcs",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 0,
+        "end": 300
+       },
+       "estMinutes": 5
+      },
+      {
+       "id": "sca2",
+       "index": 1,
+       "title": "Cut the wheel wells",
+       "what": "Trim two arcs for the wheels",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 300,
+        "end": 540
+       },
+       "estMinutes": 4
+      },
+      {
+       "id": "sca3",
+       "index": 2,
+       "title": "Extrude the body",
+       "what": "Turn the profile into a solid",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 540,
+        "end": 780
+       },
+       "estMinutes": 4
+      },
+      {
+       "id": "sca4",
+       "index": 3,
+       "title": "Export for the printer",
+       "what": "Save the solid as an STL file",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 780,
+        "end": 1056
+       },
+       "estMinutes": 5
+      }
+     ]
+    }
+   },
+   {
+    "wait": 200,
+    "type": "step.started",
+    "payload": {
+     "stepId": "sca1",
+     "index": 0,
+     "title": "Sketch the car profile",
+     "instructions": "Watch 0:00-5:00 and follow along in AutoCAD.",
+     "video": {
+      "videoId": "stand-in-autocad",
+      "start": 0,
+      "end": 300
+     },
+     "kind": "read"
+    }
+   },
+   {
+    "wait": 300,
+    "type": "card",
+    "payload": {
+     "kind": "setup",
+     "title": "This lesson uses AutoCAD",
+     "body": "Have AutoCAD already? Or try FreeCAD, free. Watch while you decide.",
+     "actions": [
+      "have_it",
+      "get_it",
+      "alternative",
+      "skip_setup"
+     ],
+     "setup": {
+      "editorNeeded": false,
+      "editor": "vscode",
+      "editorLabel": "Visual Studio Code",
+      "resources": [],
+      "holdVideo": false,
+      "actionLabels": {
+       "have_it": "I have it",
+       "get_it": "Get AutoCAD",
+       "alternative": "Try FreeCAD",
+       "skip_setup": "Skip"
+      },
+      "items": [
+       {
+        "tool": "vscode",
+        "label": "Visual Studio Code",
+        "kind": "editor",
+        "why": "No editor needed: all the work happens in AutoCAD.",
+        "needed": false,
+        "installed": true,
+        "ok": true,
+        "install": {
+         "method": "brew_cask"
+        },
+        "setupKind": "free_app",
+        "actions": []
+       },
+       {
+        "tool": "autocad",
+        "label": "AutoCAD",
+        "kind": "app",
+        "why": "Draws the car profile, wheels and cutouts.",
+        "needed": true,
+        "installed": false,
+        "ok": false,
+        "install": {
+         "method": "download",
+         "url": "https://www.autodesk.com/products/autocad/free-trial"
+        },
+        "setupKind": "licensed_app",
+        "actions": [
+         "have_it",
+         "get_it",
+         "alternative",
+         "skip"
+        ],
+        "vendorUrl": "https://www.autodesk.com/products/autocad/free-trial",
+        "vendorName": "Autodesk",
+        "alternative": {
+         "name": "FreeCAD",
+         "url": "https://www.freecad.org/downloads.php",
+         "tool": "freecad"
+        }
+       }
+      ]
+     },
+     "stepId": "sca1"
+    }
+   }
+  ]
+ }
+}

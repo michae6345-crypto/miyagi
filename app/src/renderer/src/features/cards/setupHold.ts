@@ -11,11 +11,15 @@ import type { Payload } from '../../../../common/wire'
 type Card = Payload<'card'>
 type Row = NonNullable<Card['items']>[number]
 
-/** A setup card waiting on the learner: the video holds under it ("Set up first"). A passing note (no buttons) is not. */
+/**
+ * A setup card waiting on the learner: the video holds under it. A passing note (no buttons) is not. An older engine
+ * (no holdVideo) holds for a card with something to do, but not for one whose only button is Skip: nothing on it can
+ * get the tool (Michael, Nov 22: "Set up first" over the AutoCAD video, Skip the only button).
+ */
 export function setupWaiting(c: Card | undefined): boolean {
   if (c?.kind !== 'setup') return false
   const hold = c.setup?.holdVideo
-  return hold === undefined ? (c.actions?.length ?? 0) > 0 : hold === true
+  return hold === undefined ? (c.actions ?? []).some((a) => a !== 'skip_setup') : hold === true
 }
 
 /** A row still waiting: needed, not ready, and not settled by the learner (haveIt / using). */

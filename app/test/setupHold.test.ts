@@ -50,6 +50,13 @@ test('holdVideo true holds the video: the step on screen needs a tool Install ca
   assert.equal(waitingOnSetup(card), true)
 })
 
+test('an older engine without holdVideo holds for a card with something to do, never for Skip alone', () => {
+  const skipOnly: Card = { kind: 'setup', title: 'Set up first', body: 'Missing: autocad.', actions: ['skip_setup'],
+    setup: { editorNeeded: false, items: [{ tool: 'autocad', label: 'autocad', kind: 'app', why: 'CAD', needed: true,
+      installed: false, ok: false, install: { method: 'none' } }] } }
+  assert.equal(setupWaiting(skipOnly), false)
+})
+
 test('an older engine without holdVideo keeps the old rule: any setup card with buttons holds', () => {
   const old: Card = { kind: 'setup', title: 'Set up first', body: 'Missing: numpy. Install now?', actions: ['install', 'skip_setup'],
     setup: { editorNeeded: true, items: [{ tool: 'numpy', label: 'NumPy', kind: 'python_package', why: 'imported', needed: true,
@@ -80,8 +87,6 @@ test('the card draws I have it, Get it and the free alternative (CardActions kee
   const src = readFileSync(join(__dirname, '..', 'src', 'renderer', 'src', 'features', 'cards', 'index.tsx'), 'utf8')
   const map = src.slice(src.indexOf('const ACTION:'), src.indexOf('/** Card actions drawn as pastel'))
   for (const a of autocadCard().actions ?? []) assert.match(map, new RegExp(`\\b${a}: \\{ label:`), `ACTION has no ${a}`)
-  // one white primary per surface: I have it is the only primary among them
-  assert.match(map, /have_it: \{ label: 'I have it', Icon: Check, primary: true \}/)
-  assert.doesNotMatch(map, /get_it: \{[^}]*primary/)
-  assert.doesNotMatch(map, /alternative: \{[^}]*primary/)
+  // one white primary per surface: on a setup card the calm plan (setupPlan.ts) picks it, so none of them is a primary kind
+  for (const a of ['have_it', 'get_it', 'alternative']) assert.doesNotMatch(map, new RegExp(`${a}: \\{[^}]*primary`))
 })

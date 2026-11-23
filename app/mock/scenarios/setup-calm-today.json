@@ -1,0 +1,179 @@
+{
+ "name": "setup-calm-today",
+ "on": {
+  "connect": "sct_connect"
+ },
+ "segments": {
+  "sct_connect": [
+   {
+    "wait": 100,
+    "type": "status",
+    "payload": {
+     "state": "idle"
+    }
+   },
+   {
+    "wait": 200,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "sct-toy-car",
+      "title": "Toy car for a 3D printer",
+      "sources": [],
+      "complete": true,
+      "builtBy": "claude",
+      "mode": "video"
+     },
+     "steps": [
+      {
+       "id": "sct1",
+       "index": 0,
+       "title": "Sketch the car profile",
+       "what": "Draw the side profile with lines and arcs",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 0,
+        "end": 300
+       },
+       "estMinutes": 5
+      },
+      {
+       "id": "sct2",
+       "index": 1,
+       "title": "Cut the wheel wells",
+       "what": "Trim two arcs for the wheels",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 300,
+        "end": 540
+       },
+       "estMinutes": 4
+      },
+      {
+       "id": "sct3",
+       "index": 2,
+       "title": "Extrude the body",
+       "what": "Turn the profile into a solid",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 540,
+        "end": 780
+       },
+       "estMinutes": 4
+      },
+      {
+       "id": "sct4",
+       "index": 3,
+       "title": "Export for the printer",
+       "what": "Save the solid as an STL file",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 780,
+        "end": 1056
+       },
+       "estMinutes": 5
+      }
+     ]
+    }
+   },
+   {
+    "wait": 200,
+    "type": "step.started",
+    "payload": {
+     "stepId": "sct1",
+     "index": 0,
+     "title": "Sketch the car profile",
+     "instructions": "Watch 0:00-5:00 and follow along in AutoCAD.",
+     "video": {
+      "videoId": "stand-in-autocad",
+      "start": 0,
+      "end": 300
+     },
+     "kind": "read"
+    }
+   },
+   {
+    "wait": 300,
+    "type": "card",
+    "payload": {
+     "kind": "setup",
+     "title": "This lesson uses AutoCAD",
+     "body": "AutoCAD is paid. Get it, install FreeCAD free, or skip.",
+     "actions": [
+      "install",
+      "skip_setup"
+     ],
+     "setup": {
+      "editorNeeded": false,
+      "editor": "vscode",
+      "editorLabel": "Visual Studio Code",
+      "resources": [],
+      "holdVideo": false,
+      "actionLabels": {
+       "install": "Install",
+       "skip_setup": "Skip"
+      },
+      "items": [
+       {
+        "tool": "vscode",
+        "label": "Visual Studio Code",
+        "kind": "editor",
+        "why": "No editor needed: all the work happens in AutoCAD.",
+        "needed": false,
+        "installed": true,
+        "ok": true,
+        "install": {
+         "method": "brew_cask"
+        },
+        "setupKind": "free_app",
+        "actions": []
+       },
+       {
+        "tool": "autocad",
+        "label": "AutoCAD",
+        "kind": "app",
+        "why": "Draws the car profile, wheels and cutouts.",
+        "needed": true,
+        "installed": false,
+        "ok": false,
+        "install": {
+         "method": "download",
+         "url": "https://www.autodesk.com/products/autocad/free-trial"
+        },
+        "setupKind": "licensed_app",
+        "actions": [
+         "get_it",
+         "skip"
+        ],
+        "vendorUrl": "https://www.autodesk.com/products/autocad/free-trial",
+        "vendorName": "Autodesk",
+        "alternative": {
+         "name": "FreeCAD",
+         "url": "https://www.freecad.org/downloads.php",
+         "tool": "freecad"
+        }
+       },
+       {
+        "tool": "freecad",
+        "label": "FreeCAD",
+        "kind": "app",
+        "why": "Free CAD app, works for this lesson.",
+        "needed": true,
+        "installed": false,
+        "ok": false,
+        "install": {
+         "method": "brew_cask"
+        },
+        "setupKind": "free_app",
+        "actions": [
+         "install"
+        ]
+       }
+      ]
+     },
+     "stepId": "sct1"
+    }
+   }
+  ]
+ }
+}
