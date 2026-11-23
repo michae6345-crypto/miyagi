@@ -272,6 +272,12 @@ export type Reach = {
   /** Where the branch meets the loop, and where the loop ends. */
   join: Point
   tip: Point
+  /**
+   * The stroke's centerline as close points, and how far along the stroke each one is (0 at the bonsai, 1 at the
+   * tip). What ribbon() draws a stroke of varying width from.
+   */
+  spine: Point[]
+  at: number[]
 }
 
 const cubic = (c: Reach['curve'], t: number): Point => {
@@ -288,7 +294,7 @@ const cubic = (c: Reach['curve'], t: number): Point => {
  * to spare. One path, so it draws in one motion. `within`: the screen, in the same coordinates; a loop by its edge
  * is pulled in to stay on it.
  */
-export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN, within?: Rect): Reach {
+export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN, within?: Rect, exact = false): Reach {
   const { n, a, b } = axes(target, within)
   const cx = target.x + target.w / 2
   const cy = target.y + target.h / 2
@@ -330,7 +336,8 @@ export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN
 
   // Walk it at an even pace, from a little past the nearest point, once round and a little more.
   const begin = s[nearest] + turn * clamp(around * RING.lead, RING.leadPx[0], RING.leadPx[1])
-  const total = around + clamp(around * RING.overlap, RING.overlapPx[0], RING.overlapPx[1])
+  // `exact`: a clean ring, exactly once round, no wobble and no drift, so its end meets its start.
+  const total = exact ? around : around + clamp(around * RING.overlap, RING.overlapPx[0], RING.overlapPx[1])
   const seed = seedOf(key)
   const p1 = seed * Math.PI * 2
   const p2 = ((seed * 7.13) % 1) * Math.PI * 2
@@ -338,7 +345,7 @@ export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN
   for (let i = 0; i <= RING.points; i++) {
     const t = i / RING.points
     const th = angleAt(begin + turn * total * t)
-    pts.push(at(th, (1 + RING.drift * t) * (1 + RING.wobble * (1.6 + Math.sin(2 * th + p1) + 0.6 * Math.sin(3 * th + p2)))))
+    pts.push(at(th, exact ? 1 : (1 + RING.drift * t) * (1 + RING.wobble * (1.6 + Math.sin(2 * th + p1) + 0.6 * Math.sin(3 * th + p2)))))
   }
 
   const join = pts[0]
@@ -354,26 +361,86 @@ export function reach(from: Point, target: Rect, key = '', heading: Point = DOWN
   // The loop: a smooth curve through the points (Catmull-Rom as cubic segments). The point "before" the first one
   // continues the branch's direction, so the join has no corner.
   const before = { x: join.x - tan.x * step, y: join.y - tan.y * step }
-  let ringLen = 0
+  // The spine: the branch's cubic walked in steps of about SPINE_STEP px, then each loop segment in SPINE_SUB steps.
+  const spine: Point[] = [from]
+  const run = [0]
+  const push = (p: Point): void => {
+    const q = spine[spine.length - 1]
+    run.push(run[run.length - 1] + Math.hypot(p.x - q.x, p.y - q.y))
+    spine.push(p)
+  }
+  const steps = clamp(Math.ceil(dist / SPINE_STEP), 24, 240)
+  for (let i = 1; i <= steps; i++) push(cubic(curve, i / steps))
+  const branchLen = run[run.length - 1]
   for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = i === 0 ? before : pts[i - 1]
+    // An exact ring starts as it ends, along itself, so it closes with no corner where its two ends meet.
+    const p0 = i === 0 ? (exact ? pts[pts.length - 2] : before) : pts[i - 1]
     const a1 = pts[i]
     const a2 = pts[i + 1]
-    const p3 = pts[i + 2] ?? a2
-    d += ` C${f(a1.x + (a2.x - p0.x) / 6)} ${f(a1.y + (a2.y - p0.y) / 6)} ${f(a2.x - (p3.x - a1.x) / 6)} ${f(a2.y - (p3.y - a1.y) / 6)} ${f(a2.x)} ${f(a2.y)}`
-    ringLen += Math.hypot(a2.x - a1.x, a2.y - a1.y)
+    // The last segment of an exact ring heads into the ring's own start, for the same reason.
+    const p3 = pts[i + 2] ?? (exact ? pts[1] : a2)
+    const seg: Reach['curve'] = [a1, { x: a1.x + (a2.x - p0.x) / 6, y: a1.y + (a2.y - p0.y) / 6 }, { x: a2.x - (p3.x - a1.x) / 6, y: a2.y - (p3.y - a1.y) / 6 }, a2]
+    d += ` C${f(seg[1].x)} ${f(seg[1].y)} ${f(seg[2].x)} ${f(seg[2].y)} ${f(a2.x)} ${f(a2.y)}`
+    for (let k = 1; k <= SPINE_SUB; k++) push(cubic(seg, k / SPINE_SUB))
   }
+  const length = run[run.length - 1]
+  const share = run.map((v) => (length > 0 ? v / length : 0))
+  return { d, length, split: length > 0 ? branchLen / length : 0, ring: { x: cx - a, y: cy - b, w: a * 2, h: b * 2 }, turn, curve, join, tip: pts[pts.length - 1], spine, at: share }
+}
 
-  // The branch's length: its cubic walked in 24 steps.
-  let branchLen = 0
-  let last = from
-  for (let i = 1; i <= 24; i++) {
-    const p = cubic(curve, i / 24)
-    branchLen += Math.hypot(p.x - last.x, p.y - last.y)
-    last = p
+/** How finely the spine follows the stroke: a point about every SPINE_STEP px on the branch, SPINE_SUB per loop segment. */
+const SPINE_STEP = 6
+const SPINE_SUB = 3
+
+/**
+ * A stroke of varying width along a reach, as one closed outline to fill: what makes it a branch (thick at the tree,
+ * thin at the tip) and not a wire.
+ *   show   the part of the stroke that is visible now, as shares of its length [tail, head]. The stroke comes to a
+ *          point over `ends.head` px before its head and `ends.tail` px after its tail, wherever those are, so a
+ *          stroke that is still growing always has a fine tip.
+ *   width  the stroke's full width (px) at a share of its length.
+ *   part   emit only this stretch of it (the branch, or the loop, when the two are drawn apart).
+ * Empty when nothing of `part` is showing.
+ */
+export function ribbon(
+  r: Pick<Reach, 'spine' | 'at' | 'length'>,
+  width: (t: number) => number,
+  show: readonly [number, number] = [0, 1],
+  ends: { head: number; tail: number } = { head: 0, tail: 0 },
+  part: readonly [number, number] = [0, 1]
+): string {
+  const lo = Math.max(show[0], part[0])
+  const hi = Math.min(show[1], part[1])
+  const { spine, at, length } = r
+  if (!(hi - lo > 1e-4) || spine.length < 2 || !(length > 0)) return ''
+  /** The point at a share of the length, between two spine points. */
+  const point = (t: number, i: number): Point => {
+    const span = at[i + 1] - at[i]
+    const k = span > 0 ? (t - at[i]) / span : 0
+    return { x: spine[i].x + (spine[i + 1].x - spine[i].x) * k, y: spine[i].y + (spine[i + 1].y - spine[i].y) * k }
   }
-  const length = branchLen + ringLen
-  return { d, length, split: length > 0 ? branchLen / length : 0, ring: { x: cx - a, y: cy - b, w: a * 2, h: b * 2 }, turn, curve, join, tip: pts[pts.length - 1] }
+  let i0 = 0
+  while (i0 < at.length - 2 && at[i0 + 1] <= lo) i0++
+  let i1 = i0
+  while (i1 < at.length - 2 && at[i1 + 1] < hi) i1++
+  const mid: Array<{ p: Point; t: number; i: number }> = [{ p: point(lo, i0), t: lo, i: i0 }]
+  for (let i = i0 + 1; i <= i1; i++) mid.push({ p: spine[i], t: at[i], i })
+  mid.push({ p: point(hi, i1), t: hi, i: i1 })
+  const fine = (px: number, over: number): number => (over > 0 ? Math.sqrt(clamp(px / over, 0, 1)) : 1)
+  const left: string[] = []
+  const right: string[] = []
+  for (const { p, t, i } of mid) {
+    // The stroke's direction here, from the spine points either side.
+    const a0 = spine[Math.max(0, i - 1)]
+    const a1 = spine[Math.min(spine.length - 1, i + 2)]
+    const len = Math.hypot(a1.x - a0.x, a1.y - a0.y) || 1
+    const nx = -(a1.y - a0.y) / len
+    const ny = (a1.x - a0.x) / len
+    const w = (width(t) / 2) * fine((show[1] - t) * length, ends.head) * fine((t - show[0]) * length, ends.tail)
+    left.push(`${f(p.x + nx * w)} ${f(p.y + ny * w)}`)
+    right.push(`${f(p.x - nx * w)} ${f(p.y - ny * w)}`)
+  }
+  return `M${left.join(' L')} L${right.reverse().join(' L')} Z`
 }
 
 /**

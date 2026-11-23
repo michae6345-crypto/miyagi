@@ -18,16 +18,16 @@
  *
  * Reduced motion: nothing travels. The stroke and the label fade in and out in place.
  */
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { animate, AnimatePresence, motion, useMotionValue, usePresence, useReducedMotion, useTransform } from 'motion/react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { Layout } from '../../../../preload/api'
 import { overlapShare, toLocal, type Point, type Rect } from '../../core/geometry'
 import { islandTop } from '../../core/islandEdge'
 import { notchOf } from '../../core/notchGeometry'
 import { getFeatures } from '../../core/registry'
-import { color, pill, radius, shadows, text } from '../../core/theme'
-import { ease, fade as fades, spring } from '../../core/ui/motion'
-import { createReach, DRAW, drawTime, forkFor, labelAt, reach, timeToDraw, type Reach, type Shown } from './marks'
+import { brand, color, pill, radius, shadows, text } from '../../core/theme'
+import { duration, ease, fade as fades, spring } from '../../core/ui/motion'
+import { createReach, DRAW, drawTime, forkFor, labelAt, reach, ribbon, timeToDraw, type Reach, type Shown } from './marks'
 import { fade, usePointing } from './pointing'
 
 /**
@@ -35,7 +35,42 @@ import { fade, usePointing } from './pointing'
  * overlay is always the dark HUD. There is no theme token for it yet (brief, Core requests).
  */
 const BARK = '#A07A5C'
-const STROKE = { width: 2.25, keyline: 4.75, keylineOpacity: 0.35 } as const
+/** The ink keyline under the stroke, so it reads over a light app: this much wider than the stroke, this opaque. */
+const KEYLINE = { wider: 2.6, opacity: 0.35 } as const
+
+/** How a stroke is drawn, and what is left once it has landed. */
+type Look = {
+  color: string
+  /** The loop: 'loose' (drawn by hand: a little wobble, its end passing its start) or 'exact' (a clean closed ring). */
+  loop: 'loose' | 'exact'
+  /** Full width (px) at the bonsai, where the branch meets the loop, and round the loop: a branch thins as it goes. */
+  width: { root: number; join: number; loop: number }
+  /** Over how many px the stroke comes to a point at its head and at its tail. */
+  ends: { head: number; tail: number }
+  /**
+   * What the branch does once the loop is drawn:
+   *   'stays'    a line from the notch to the mark for as long as the mark is up
+   *   'follows'  its tail runs after its head into the loop, so only the loop is left around the target
+   *   'quiets'   it stays, faint
+   */
+  branch: 'stays' | 'follows' | 'quiets'
+}
+
+const BRANCH: Pick<Look, 'loop' | 'width' | 'ends'> = { loop: 'loose', width: { root: 3.4, join: 2.1, loop: 2.1 }, ends: { head: 26, tail: 34 } }
+/**
+ * The looks to choose from, in the browser stage with ?look=<name> (Adrian picks from renders; the rest then go).
+ * No ?look: 'stay', the look as first built.
+ */
+const LOOKS: Record<string, Look> = {
+  stay: { color: BARK, ...BRANCH, branch: 'stays' },
+  quiet: { color: BARK, ...BRANCH, branch: 'quiets' },
+  comet: { color: BARK, ...BRANCH, branch: 'follows' },
+  'comet-mint': { color: brand.pastel.mint, ...BRANCH, branch: 'follows' },
+  'comet-white': { color: brand.offTrack, loop: 'exact', width: { root: 1.6, join: 1.6, loop: 1.6 }, ends: { head: 18, tail: 26 }, branch: 'follows' }
+}
+const LOOK: Look = LOOKS[(typeof location !== 'undefined' && new URLSearchParams(location.search).get('look')) || 'stay'] ?? LOOKS.stay
+/** A quieted branch keeps this much of its opacity. */
+const QUIET = 0.26
 /** How far off its upright the bonsai leans toward a mark this many px to its side (LivingMark's lean, -1 to 1). */
 const LEAN_REACH = 520
 /** At least this share of a mark must be on this display to draw it here (the rest is another display's). Same as features/annotate. */
@@ -69,8 +104,8 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
     here.forEach((mark, i) => {
       const trunk = out[0]
       const fork = trunk && forkFor(trunk.r, mark.rect)
-      if (trunk && fork) out.push({ mark, r: reach(fork.at, mark.rect, mark.key, fork.heading, screen), delay: trunk.delay + drawTime(trunk.r.length) * timeToDraw(fork.t * trunk.r.split) })
-      else out.push({ mark, r: reach(from, mark.rect, mark.key, undefined, screen), delay: i * DRAW.stagger })
+      if (trunk && fork) out.push({ mark, r: reach(fork.at, mark.rect, mark.key, fork.heading, screen, LOOK.loop === 'exact'), delay: trunk.delay + drawTime(trunk.r.length) * timeToDraw(fork.t * trunk.r.split) })
+      else out.push({ mark, r: reach(from, mark.rect, mark.key, undefined, screen, LOOK.loop === 'exact'), delay: i * DRAW.stagger })
     })
     return out
   }, [here, from, layout.width, layout.height])
@@ -92,44 +127,92 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
       <svg className="absolute inset-0 h-full w-full" style={{ overflow: 'visible' }} aria-hidden>
         <AnimatePresence>
           {show.map((d) => (
-            <Branch key={d.mark.key} {...d} reduced={reduced} />
+            <Stroke key={d.mark.key} {...d} look={LOOK} reduced={reduced} />
           ))}
         </AnimatePresence>
       </svg>
-      <AnimatePresence>{show.map(({ mark, r, delay }) => mark.label && <Label key={mark.key} label={mark.label} r={r} delay={delay} bounds={bounds} reduced={reduced} />)}</AnimatePresence>
+      <AnimatePresence>{show.map(({ mark, r, delay }) => mark.label && <Label key={mark.key} label={mark.label} r={r} delay={delay} bounds={bounds} reduced={reduced} beside={LOOK.branch === 'stays'} />)}</AnimatePresence>
     </div>
   )
 }
 
-/** One stroke: the keyline and the bark on the same path, drawn on together. */
-function Branch({ mark, r, delay, reduced }: Drawn & { reduced: boolean }): ReactNode {
-  const come = reduced ? fades.in : { duration: drawTime(r.length), ease: ease.out, delay }
-  const go = reduced ? fades.out : { duration: DRAW.leave, ease: ease.out }
-  const path = (width: number, style: CSSProperties, part: string): ReactNode => (
-    <motion.path
-      d={r.d}
-      data-part={part}
-      fill="none"
-      strokeWidth={width}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={style}
-      initial={{ pathLength: reduced ? 1 : 0 }}
-      animate={{ pathLength: 1, transition: come }}
-      exit={{ pathLength: reduced ? 1 : 0, transition: go }}
-    />
-  )
+/**
+ * One stroke. Its outline is rebuilt each frame from two numbers, how far its head and its tail have got (marks.ts
+ * ribbon), so it has a fine tip while it grows and the tail can run after the head. Four fills: the branch and the
+ * loop, each over its keyline.
+ */
+function Stroke({ mark, r, delay, look, reduced }: Drawn & { look: Look; reduced: boolean }): ReactNode {
+  const [present, safeToRemove] = usePresence()
+  const follows = look.branch === 'follows'
+  // All four run 0 to 1 and are turned into shares of THIS render's stroke below, so a stroke whose start or target
+  // moved (the bonsai is found a frame after the first render) still ends exactly where its loop begins.
+  /** How far the head has got along the stroke. */
+  const head = useMotionValue(reduced ? 1 : 0)
+  /** How far the tail has followed the head toward the start of the loop (a branch that follows). */
+  const follow = useMotionValue(reduced && follows ? 1 : 0)
+  /** Leaving: how far the tail has run on from there up to the head. */
+  const eat = useMotionValue(0)
+  /** 0 while it draws, 1 once it has landed. */
+  const landed = useMotionValue(reduced ? 1 : 0)
+  const alpha = useMotionValue(reduced ? 0 : 1)
+
+  useEffect(() => {
+    if (!present) {
+      // Leaving: it fades while its tail runs up to its head, so the loop is taken off the way it was put on.
+      const go = reduced ? fades.out : { duration: DRAW.leave, ease: ease.out }
+      const runs = [animate(alpha, 0, go), ...(reduced ? [] : [animate(eat, 1, go)])]
+      void runs[0].then(() => safeToRemove?.())
+      return () => runs.forEach((x) => x.stop())
+    }
+    if (reduced) {
+      const run = animate(alpha, 1, fades.in)
+      return () => run.stop()
+    }
+    const t = drawTime(r.length)
+    const runs = [
+      animate(head, 1, { duration: t, ease: ease.out, delay }),
+      animate(landed, 1, { duration: duration.slow, ease: ease.out, delay: delay + t }),
+      // The tail sets off when the head is well on its way and arrives a moment after it.
+      ...(follows ? [animate(follow, 1, { duration: t * 0.75, ease: ease.inOut, delay: delay + t * 0.4 })] : [])
+    ]
+    return () => runs.forEach((x) => x.stop())
+    // Once per arrival and once per leaving: a mark that only moved keeps its stroke where it has got to.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [present])
+
+  const width = (t: number): number => {
+    if (t >= r.split) return look.width.loop
+    const k = r.split > 0 ? t / r.split : 1
+    return look.width.root + (look.width.join - look.width.root) * (k * k * (3 - 2 * k))
+  }
+  // A clean ring closes on itself: its ends stop being points once it has landed.
+  const ends = (l: number): Look['ends'] => (look.loop === 'exact' ? { head: look.ends.head * (1 - l), tail: look.ends.tail * (1 - l) } : look.ends)
+  /** [head, follow, eat, landed] → the outline of one part of the stroke, `wider` px wider than the stroke. */
+  const outline =
+    (wider: number, part: readonly [number, number]) =>
+    ([h, f, e, l]: number[]): string => {
+      const from = follows ? f * r.split : 0
+      return ribbon(r, (t) => width(t) + wider, [from + (h - from) * e, h], ends(l), part)
+    }
+  const state = [head, follow, eat, landed]
+  const arm = useTransform(state, outline(0, [0, r.split]))
+  const loop = useTransform(state, outline(0, [r.split, 1]))
+  const armKey = useTransform(state, outline(KEYLINE.wider, [0, r.split]))
+  const loopKey = useTransform(state, outline(KEYLINE.wider, [r.split, 1]))
+  const armAlpha = useTransform(landed, (l) => (look.branch === 'quiets' ? 1 - (1 - QUIET) * l : 1))
+  const armKeyAlpha = useTransform(armAlpha, (a) => a * KEYLINE.opacity)
   return (
-    // Leaving, it fades as it runs back, so a fork never hangs in the air after its trunk has passed it.
-    <motion.g data-part="branch" data-why={mark.why} data-mark={mark.key} initial={{ opacity: reduced ? 0 : 1 }} animate={{ opacity: 1, transition: fades.in }} exit={{ opacity: 0, transition: go }}>
-      {path(STROKE.keyline, { stroke: color.onAccent, strokeOpacity: STROKE.keylineOpacity }, 'keyline')}
-      {path(STROKE.width, { stroke: BARK }, 'bark')}
+    <motion.g data-part="branch" data-why={mark.why} data-mark={mark.key} style={{ opacity: alpha }}>
+      <motion.path data-part="keyline" d={armKey} style={{ fill: color.onAccent, opacity: armKeyAlpha }} />
+      <motion.path data-part="keyline" d={loopKey} style={{ fill: color.onAccent, opacity: KEYLINE.opacity }} />
+      <motion.path data-part="arm" d={arm} style={{ fill: look.color, opacity: armAlpha }} />
+      <motion.path data-part="bark" d={loop} style={{ fill: look.color }} />
     </motion.g>
   )
 }
 
 /** The mark's name: a chip on the island's black, like the spotlight's caption, beside the loop and away from the branch. */
-function Label({ label, r, delay: start, bounds, reduced }: { label: string; r: Reach; delay: number; bounds: Rect; reduced: boolean }): ReactNode {
+function Label({ label, r, delay: start, bounds, reduced, beside }: { label: string; r: Reach; delay: number; bounds: Rect; reduced: boolean; beside: boolean }): ReactNode {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 96, h: 26 })
   useLayoutEffect(() => {
@@ -141,8 +224,9 @@ function Label({ label, r, delay: start, bounds, reduced }: { label: string; r: 
     ro.observe(node)
     return () => ro.disconnect()
   }, [])
-  // Away from where its branch comes from (the bonsai, or the fork it left the trunk at).
-  const at = labelAt(r.ring, size, bounds, r.curve[0].x > r.ring.x + r.ring.w / 2 ? 'left' : 'right')
+  // A branch that stays: the label goes on the side away from where it comes in (the bonsai, or its fork). A branch
+  // that is gone or faint by then: to the right, on the circled line, like the spotlight's caption.
+  const at = labelAt(r.ring, size, bounds, beside && r.curve[0].x > r.ring.x + r.ring.w / 2 ? 'left' : 'right')
   // It arrives as the loop closes, from the loop's side.
   const delay = reduced ? 0 : start + drawTime(r.length) * 0.6
   const slide = reduced ? 0 : at.side === 'right' ? -8 : at.side === 'left' ? 8 : 0

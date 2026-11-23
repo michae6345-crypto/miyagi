@@ -25,6 +25,7 @@ import {
   mergeMarks,
   REACH,
   reach,
+  ribbon,
   RING,
   ringBox,
   SAME_PX,
@@ -289,6 +290,60 @@ describe('reach', () => {
     const dx = p[1].x - p[0].x
     const dy = p[1].y - p[0].y
     assert.ok(Math.abs(dx / Math.hypot(dx, dy) - 0.6) < 0.01 && Math.abs(dy / Math.hypot(dx, dy) - 0.8) < 0.01)
+  })
+})
+
+describe('ribbon (a stroke of varying width)', () => {
+  const from = { x: 800, y: 16 }
+  const r = reach(from, { x: 100, y: 563, w: 380, h: 18 }, 'k')
+  /** The outline's corner points, in order. */
+  const corners = (d: string): Array<{ x: number; y: number }> => {
+    const nums = d.match(/-?\d+(\.\d+)?/g)!.map(Number)
+    const out: Array<{ x: number; y: number }> = []
+    for (let i = 0; i + 1 < nums.length; i += 2) out.push({ x: nums[i], y: nums[i + 1] })
+    return out
+  }
+
+  test('the spine runs from the bonsai to the tip, and its shares run from 0 to 1', () => {
+    assert.deepEqual(r.spine[0], from)
+    assert.equal(r.spine.length, r.at.length)
+    assert.equal(r.at[0], 0)
+    assert.ok(Math.abs(r.at[r.at.length - 1] - 1) < 1e-9)
+    for (let i = 1; i < r.at.length; i++) assert.ok(r.at[i] >= r.at[i - 1])
+    const tip = r.spine[r.spine.length - 1]
+    assert.ok(Math.hypot(tip.x - r.tip.x, tip.y - r.tip.y) < 0.5)
+  })
+
+  test('a closed outline, as wide as asked: thick at the tree, thin at the loop', () => {
+    const d = ribbon(r, (t) => (t < r.split ? 4 : 2))
+    assert.ok(d.startsWith('M') && d.endsWith('Z'))
+    const pts = corners(d)
+    // The first and the last corner are the two sides of the stroke at the bonsai; the middle two, at the tip.
+    const root = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y)
+    const mid = pts.length / 2
+    const tip = Math.hypot(pts[mid - 1].x - pts[mid].x, pts[mid - 1].y - pts[mid].y)
+    assert.ok(Math.abs(root - 4) < 0.3, `root ${root}`)
+    assert.ok(Math.abs(tip - 2) < 0.3, `tip ${tip}`)
+  })
+
+  test('it comes to a point at the head and the tail of what is showing', () => {
+    const pts = corners(ribbon(r, () => 3, [0.2, 0.6], { head: 20, tail: 20 }))
+    const mid = pts.length / 2
+    assert.ok(Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 0.2, 'the tail is a point')
+    assert.ok(Math.hypot(pts[mid - 1].x - pts[mid].x, pts[mid - 1].y - pts[mid].y) < 0.2, 'the head is a point')
+  })
+
+  test('nothing showing, or nothing of the part asked for: no outline', () => {
+    assert.equal(ribbon(r, () => 3, [0.5, 0.5]), '')
+    assert.equal(ribbon(r, () => 3, [r.split, 1], undefined, [0, r.split]), '', 'the branch part of a stroke that is only its loop')
+    assert.notEqual(ribbon(r, () => 3, [r.split, 1], undefined, [r.split, 1]), '')
+  })
+
+  test('an exact ring is one clean turn: it ends where it starts, with no wobble', () => {
+    const t = { x: 1200, y: 300, w: 80, h: 28 }
+    const e = reach(from, t, 'a', undefined, undefined, true)
+    assert.ok(Math.hypot(e.tip.x - e.join.x, e.tip.y - e.join.y) < 0.5)
+    assert.equal(e.d, reach(from, t, 'b', undefined, undefined, true).d, 'the key changes nothing')
   })
 })
 
