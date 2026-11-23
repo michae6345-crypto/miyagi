@@ -5,10 +5,11 @@ The app sends the existing ask command with the circle's bounding box:
 main.py passes region / askId / source to LessonSession.action, whose _action hands an ask with a region here. It runs
 inside action(), so proactive cards wait while the question is answered (ASK_KINDS), with or without a lesson.
 
-1. One frame captured now on the display the learner circled on (ScreenBridge.ask_frame(region.displayId) ->
-   ScreenReader.capture_once: also while the reader is paused, since the learner asked; the frame is never published
-   to the session or kept by the reader). No Screen Recording / no reader / the display asleep / only a DEMO fixture
-   frame: a plain "I can't see your screen" card. A capture that fails otherwise falls back to the last frame's text
+1. One frame captured now on the display the learner circled on (ScreenBridge.ask_frame(region.displayId, region)
+   -> ScreenReader.capture_once: also while the reader is paused, since the learner asked; the frame is never
+   published to the session or kept by the reader). It always tries, whatever the reader's last error says (that can
+   be stale). No Screen Recording / no reader / a blank frame / only a DEMO fixture frame: a plain "I can't see your
+   screen" card, worded from the reader's down_reason. A capture that fails otherwise falls back to the last frame's text
    (no picture) when it is fresh and live.
 2. The coach (server/coach/circle.py) reads the boxes inside the region, crops it, and asks Haiku; with no model it
    answers with the text it read.
@@ -36,6 +37,9 @@ log = logging.getLogger("orchestrator.circle_ask")
 CAPTURE_S = 3.0  # one capture + OCR is ~0.3-0.5 s; never hold the learner's answer longer than this
 LAST_FRAME_S = 5.0  # a failed capture may still use the last frame's text when it is at most this old
 HOLD_MS = 6000  # how long the buddy's circle stays (the app also fades it on a click there or a step change)
+# The contract's promise (Action ask + region): every circle ask is answered within about this many seconds. Worst
+# case: the capture (CAPTURE_S) + connection retries (llm.RETRY_BUDGET_S) + the last try's timeout (circle.TIMEOUT_S).
+ANSWER_WITHIN_S = 25.0
 
 
 def _region(region: Any) -> dict | None:
@@ -47,9 +51,8 @@ def _region(region: Any) -> dict | None:
 
 
 def _down(session: Any) -> str | None:
-    """Why the screen can't be read now, before trying ("no_screen" without any reader)."""
-    if getattr(session, "screen", None) is None:
-        return "no_screen"
+    """Why the screen couldn't be read, for the wording of the "can't see" card only: it never stops a capture
+    (last_error clears only when the reader's own loop captures again, so it can be stale for a paused reader)."""
     try:
         return session.screen_down_reason(include_ax=False)
     except Exception:  # noqa: BLE001
@@ -77,16 +80,22 @@ def _real(obs: Any, session: Any) -> bool:
     return str(src or "live") == "live" or _dev_fixture(session)
 
 
-async def capture(session: Any, display_id: int | None = None) -> tuple[Any, Any, str | None]:
+async def capture(session: Any, display_id: int | None = None,
+                  region: dict | None = None) -> tuple[Any, Any, str | None]:
     """-> (observation, picture, None) or (None, None, reason). `display_id`: the display the learner circled on
-    (ScreenRegion.displayId). Never raises."""
-    if (reason := _down(session)) is not None:
-        return None, None, reason
+    (ScreenRegion.displayId); `region`: the circle, so a display id that is not active still reads the display that
+    holds it. Never raises.
+
+    It always tries a fresh capture: the reader's error state (down_reason) may be left over from a stall, a sleep or
+    a permission granted since, and the learner asked now. down_reason only picks the words when nothing was seen."""
+    if getattr(session, "screen", None) is None:
+        return None, None, "no_screen"
     grab = getattr(session.screen, "ask_frame", None)
     if grab is None:
         return None, None, "no_screen"
+    box = {k: region[k] for k in ("x", "y", "w", "h") if k in region} if isinstance(region, dict) else None
     try:
-        obs, image = await asyncio.wait_for(asyncio.to_thread(grab, display_id), CAPTURE_S)
+        obs, image = await asyncio.wait_for(asyncio.to_thread(grab, display_id, box or None), CAPTURE_S)
     except Exception as e:  # noqa: BLE001 - permission, timeout, a dead capture: say so, never crash the ask
         if type(e).__name__ == "ScreenPermissionError":
             return None, None, "no_permission"
@@ -100,7 +109,7 @@ async def capture(session: Any, display_id: int | None = None) -> tuple[Any, Any
         t = float(getattr(last, "t", 0) or 0) if last is not None else 0.0
         if last is not None and t and time.time() - t <= LAST_FRAME_S and _real(last, session):
             return last, None, None
-        return None, None, "no_frame"
+        return None, None, _down(session) or "no_frame"
     return obs, image, None
 
 
@@ -187,7 +196,7 @@ async def answer(session: Any, step: dict | None, text: str | None, region: Any,
     gen = session.step_gen
     if step is not None:
         await session._status("thinking", detail="Looking at that")
-    obs, image, reason = await capture(session, _display_id(reg))
+    obs, image, reason = await capture(session, _display_id(reg), reg)
     if reason is not None:
         out = unseen_answer(step, reason, reg, ask_id)
         log.info("circle ask: can't see the screen (%s)", reason)

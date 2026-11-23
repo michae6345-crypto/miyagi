@@ -95,6 +95,29 @@ def test_no_mark_when_the_answer_does_not_name_the_box(fake):
     assert out["marks"] == []
 
 
+def test_no_mark_when_the_box_shares_only_a_stop_word_with_the_answer(fake):
+    """box_id 2 is "the end of the file"; the answer is about Run and shares only "the" / "of": no circle on it."""
+    blocks = [("Run", 120, 220, 40, 18), ("the end of the file", 180, 220, 160, 18)]
+    fake({"title": "The Run button", "body": "Run starts the script in the terminal.", "box_id": 2, "label": ""})
+    out = _run(circle.circle_ask(None, "", REGION, obs=_obs(blocks), image=_image()))
+    assert out["marks"] == []
+
+
+def test_a_mark_needs_the_label_or_most_of_the_box_words():
+    assert circle._names_box("import numpy as np", "numpy import", "")  # the label names it
+    assert circle._names_box("import numpy as np", "", "It imports numpy as np, the array library.")  # np, numpy
+    assert not circle._names_box("import numpy as np", "", "This is the line to look at.")
+    assert not circle._names_box("to the is", "the", "to the is")  # only stop words: never a mark
+    assert circle._names_box("def pde_residual(x):", "", "This defines the PDE residual.")
+
+
+def test_the_no_model_card_quotes_at_most_twenty_words(monkeypatch):
+    long = " ".join(f"word{i}" for i in range(60))
+    out = _run(circle.circle_ask(None, "", REGION, obs=_obs([(long, 110, 220, 280, 18)]), image=None))
+    assert out["title"] == "Here's what I read"
+    assert len(out["body"].split()) <= 20 and out["body"].endswith("…")
+
+
 def test_no_second_circle_for_a_box_that_is_the_whole_region(fake):
     fake({"title": "Run", "body": "Run starts the script.", "box_id": 1, "label": "Run"})
     region = {**REGION, "x": 118, "y": 218, "w": 44, "h": 22}

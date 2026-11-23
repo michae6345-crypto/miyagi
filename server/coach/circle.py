@@ -55,11 +55,11 @@ MAX_TEXT_CHARS = 4000
 CROP_MAX_PX = 1280  # long side of the JPEG crop sent to Claude
 JPEG_QUALITY = 80
 MAX_TOKENS = 600  # a few calm sentences: a short cap
-TIMEOUT_S = 20.0
+TIMEOUT_S = 10.0  # Haiku, thinking off, ~600 tokens: a few seconds. Worst case per ask: see circle_ask.ANSWER_WITHIN_S
 TITLE_WORDS = 6
 BODY_WORDS = 55  # the prompt asks for 45; the clamp only catches a runaway answer
 LABEL_WORDS = 4
-READ_WORDS = 40  # the no-model card quotes at most this much of the circled text
+READ_WORDS = 20  # the no-model card quotes at most this much of the circled text: short and calm like any card
 SAME_AS_REGION = 0.85  # a box covering this much of the region is the circle itself: no second circle
 HOLD_MS = 6000
 
@@ -270,6 +270,25 @@ def prompt(step: dict | None, question: str, region: dict, screen: ScreenContext
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=\S)")
 _WORD = re.compile(r"[a-z0-9]{2,}")
+# words too common to show that the answer names a box ("the", "to", "is" ... are in almost any sentence)
+_STOP = frozenset({"an", "and", "are", "as", "at", "be", "but", "by", "can", "do", "for", "from", "has", "have", "if",
+                   "in", "into", "is", "it", "its", "of", "on", "or", "so", "than", "that", "the", "then", "this",
+                   "to", "up", "was", "we", "what", "when", "which", "will", "with", "you", "your"})
+
+
+def _content_words(text: str) -> set[str]:
+    return {w for w in _WORD.findall(str(text or "").lower()) if w not in _STOP}
+
+
+def _names_box(box_text: str, label: str, body: str) -> bool:
+    """Does the answer really name this box? Its label shares a real word with the box, or the body says at least
+    half of the box's real words. Stop words never count."""
+    box = _content_words(box_text)
+    if not box:
+        return False
+    if _content_words(label) & box:
+        return True
+    return 2 * len(box & _content_words(f"{body} {label}")) >= len(box)
 
 
 def _clean_body(text: str) -> str:
@@ -326,8 +345,7 @@ def _mark(screen: ScreenContext, region: dict, box_id: Any, label: str, body: st
         return []
     if len(screen.boxes) == 1 or b.w * b.h >= SAME_AS_REGION * reg[2] * reg[3]:
         return []  # the circle holds just this thing: the learner's own ink already shows it
-    said = set(_WORD.findall(f"{body} {label}".lower()))
-    if not said & set(_WORD.findall(b.text.lower())):
+    if not _names_box(b.text, label, body):
         return []  # the answer doesn't name this box: no circle on a guess
     pad = 4.0
     mark = {"x": round(b.x - pad, 1), "y": round(b.y - pad, 1), "w": round(b.w + 2 * pad, 1),

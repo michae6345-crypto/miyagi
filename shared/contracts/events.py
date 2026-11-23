@@ -309,7 +309,6 @@ class ScreenAvoid(_Model):
     rects: list[AvoidRect]  # [] = nothing to avoid any more (the picker closed): the app clears it
 
 
-
 class ScreenRegion(_Model):
     """Circle to ask (Nov 22): the bounding box of the ink the learner drew while holding Fn+Control.
 
@@ -752,7 +751,10 @@ class Action(_Model):
     # spoken words, or "What is this?" when nothing was said (also the engine's default for empty text). Works with
     # or without a lesson. The engine crops region, reads the text boxes inside it, answers with a card
     # {kind: "answer", askId, region}, then maybe annotate {marks: [{why: "answer", askId, ...}]}. The crop is used
-    # for this one ask only, never stored or logged.
+    # for this one ask only, never stored or logged. Timing: the engine answers each circle ask within about 25 s
+    # (capture 3 s + model 10 s + connection retries 12 s; circle_ask.ANSWER_WITHIN_S), so the app's pending-circle
+    # timeout can be set a little above that. The overlay's click-through hard timeout covers only the drawing: it
+    # goes back to click-through on release, without waiting for the answer.
     region: ScreenRegion | None = None
     source: str | None = None  # "typed" | "voice" | "circle"; a plain str so a new tag from the app is not rejected
     askId: str | None = None  # the app's id for this ask; the answer card echoes it

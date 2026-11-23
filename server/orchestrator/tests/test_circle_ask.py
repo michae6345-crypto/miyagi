@@ -110,17 +110,44 @@ def test_no_permission_says_plainly_it_cannot_see(rig, model, screen):
     assert card["askId"] == "ask-3" and model.calls == [] and rig.of("annotate") == []
 
 
-def test_screen_reported_down_skips_the_capture(rig, model, screen):
-    screen.down = "no_permission"
-    screen.ask_error = AssertionError("must not capture")
+def test_a_stale_screen_error_never_blocks_a_fresh_capture(rig, model, screen):
+    """The reader's last_error clears only when its own loop captures again (paused without a lesson): a circle ask
+    still captures now and answers."""
+    screen.down = "RuntimeError: x"
 
     async def go():
-        await rig.s.action("ask", "", region=REGION, ask_id="ask-4")
+        await rig.s.action("ask", "", region=REGION, ask_id="ask-4", source="circle")
         await rig.settle()
 
     run(go())
     [card] = rig.of("card")
-    assert card["title"] == "I can't see your screen" and model.calls == []
+    assert card["title"] == "The Run button" and len(model.calls) == 1 and screen.ask_displays
+
+
+@pytest.mark.parametrize("down, words", [("no_permission", "Screen Recording"),
+                                         ("display asleep or screen locked", "asleep or locked"),
+                                         (None, "can't see your screen yet")])
+def test_nothing_captured_uses_the_down_reason_only_for_the_words(rig, model, screen, down, words):
+    screen.down, screen.ask = down, (None, None)  # a blank frame / nothing captured
+
+    async def go():
+        await rig.s.action("ask", "", region=REGION, ask_id="ask-4b", source="circle")
+        await rig.settle()
+
+    run(go())
+    [card] = rig.of("card")
+    assert screen.ask_displays == [REGION["displayId"]]  # it tried first
+    assert card["title"] == "I can't see your screen" and words in card["body"] and model.calls == []
+
+
+def test_a_stale_permission_error_still_tries_and_a_real_one_says_so(rig, model, screen):
+    screen.down = "no_permission"  # from before the grant: the capture now works
+    run(rig.s.action("ask", "", region=REGION, ask_id="ask-4c", source="circle"))
+    assert rig.of("card")[-1]["title"] == "The Run button"
+    screen.ask_error = ScreenPermissionError("no Screen Recording")  # really off: capture_once says so
+    run(rig.s.action("ask", "", region=REGION, ask_id="ask-4d", source="circle"))
+    card = rig.of("card")[-1]
+    assert card["askId"] == "ask-4d" and "Screen Recording" in card["body"]
 
 
 def test_no_screen_reader_at_all(rig, model):
@@ -223,8 +250,9 @@ class FakeReader:
     def __init__(self, obs=OBS):
         self.obs, self.pil, self.asked = obs, _image(), []
 
-    def capture_once(self, display_id=None, trigger="ask"):
+    def capture_once(self, display_id=None, trigger="ask", region=None):
         self.asked.append((display_id, trigger))
+        self.regions = [*getattr(self, "regions", []), region]
         return self.obs, self.pil
 
     def latest_frame(self, region=None):
@@ -254,6 +282,7 @@ def test_bridge_captures_the_display_the_learner_circled_on(tmp_path, monkeypatc
 
     run(go())
     assert reader.asked == [(424242, "ask")]
+    assert reader.regions == [{k: REGION[k] for k in ("x", "y", "w", "h")}]  # so an inactive id still finds its display
     [card] = rig.of("card")
     assert card["askId"] == "d1" and card["title"] == "The Run button"
     bridge.paused = False  # a running reader: still a one-off capture of that display, never its last frame
@@ -277,6 +306,7 @@ def test_the_session_passes_the_region_display_to_the_capture(rig, model, screen
 
     run(go())
     assert screen.ask_displays == [REGION["displayId"]]
+    assert screen.ask_regions == [{"x": 100.0, "y": 200.0, "w": 300.0, "h": 80.0}]
 
 
 def test_a_demo_fixture_frame_is_not_explained_as_the_real_screen(rig, model, screen, monkeypatch):
@@ -429,3 +459,48 @@ def test_a_circle_while_the_lesson_is_paused_still_answers(rig, model, screen):
     assert not [e for e in evs if e["type"] == "lesson.paused"]
     assert [e for e in evs if e["type"] == "annotate"]
     assert rig.s.step["title"] in model.calls[0]["user_text"]
+
+
+# ---------------------------------------------------------------------------------------------- fix round 2
+
+class _Inputs:
+    """inputs stand-in: counts mark_foreign (E5: the keys just typed were not lesson work)."""
+
+    def __init__(self):
+        self.foreign = 0
+
+    def mark_foreign(self):
+        self.foreign += 1
+
+
+@pytest.mark.parametrize("kw", [{"region": REGION, "source": "circle"}, {"region": REGION}, {"source": "voice"}])
+def test_a_circle_or_voice_ask_keeps_the_learners_keystrokes_as_work(rig, model, monkeypatch, kw):
+    """Nothing was typed into miyagi for a circle (or a voice) ask: the learner's VS Code keys stay lesson work."""
+    async def explain(step, question, context):
+        return {"stepId": step["id"], "kind": "answer", "title": "Answer", "body": "ok"}
+
+    async def go():
+        await rig.start_lesson()
+        monkeypatch.setattr(rig.s.m, "explain", explain)
+        rig.s.inputs = _Inputs()
+        await rig.s.action("ask", "what is this?", ask_id="k1", **kw)
+        await rig.settle()
+        foreign = rig.s.inputs.foreign
+        await rig.s.action("ask", "why tanh?", ask_id="k2", source="typed")  # a typed ask still marks them
+        await rig.settle()
+        return foreign, rig.s.inputs.foreign
+
+    assert run(go()) == (0, 1)
+
+
+def test_the_answer_time_the_contract_promises_covers_the_worst_case():
+    import pathlib
+
+    from server.coach import circle
+    from server.orchestrator import circle_ask
+
+    worst = circle_ask.CAPTURE_S + circle.TIMEOUT_S + llm.RETRY_BUDGET_S
+    assert worst <= circle_ask.ANSWER_WITHIN_S <= worst + 5
+    root = pathlib.Path(__file__).resolve().parents[3]
+    for path in ("shared/contracts/events.py", "shared/contracts/events.ts"):
+        assert f"within about {int(circle_ask.ANSWER_WITHIN_S)} s" in (root / path).read_text()

@@ -396,10 +396,11 @@ class ScreenBridge:
             log.exception("screenshot failed")
             return None
 
-    def ask_frame(self, display_id: int | None = None) -> tuple[Any, Any]:
+    def ask_frame(self, display_id: int | None = None, region: dict | None = None) -> tuple[Any, Any]:
         """Circle to ask (Nov 22): (observation, PIL picture with the overlay blacked out) from one frame captured now
-        on `display_id` (the display the learner circled on; the usual display when that one can't be captured), or
-        (None, None) for a blank frame. Blocking (capture + OCR, ~0.3-0.5 s): call it in a thread.
+        on `display_id` (the display the learner circled on; when that one is not active, the display holding
+        `region` {x, y, w, h}; else the usual display), or (None, None) for a blank frame. Blocking (capture + OCR,
+        ~0.3-0.5 s): call it in a thread.
 
         ScreenReader.capture_once: the frame is only for this ask. It never reaches the session's on_screen or the
         metric readers (no screen.seen, no check, no spotlight from it) and never replaces the reader's last frame,
@@ -409,7 +410,7 @@ class ScreenBridge:
         r = self.reader
         if r is None or not hasattr(r, "capture_once"):
             return None, None
-        obs, pil = r.capture_once(display_id, "ask")
+        obs, pil = r.capture_once(display_id, "ask", region=region)
         return obs, pil
 
     def poke(self) -> None:
@@ -515,10 +516,11 @@ class FakeScreen:
     def screenshot(self) -> Any:
         return None
 
-    def ask_frame(self, display_id: int | None = None) -> tuple[Any, Any]:
+    def ask_frame(self, display_id: int | None = None, region: dict | None = None) -> tuple[Any, Any]:
         """tests: `.ask` = (observation, picture) for circle to ask; `.ask_error` is raised instead when set;
-        `.ask_displays` records each display id asked for."""
+        `.ask_displays` records each display id asked for, `.ask_regions` each region."""
         self.ask_displays = [*getattr(self, "ask_displays", []), display_id]
+        self.ask_regions = [*getattr(self, "ask_regions", []), region]
         if getattr(self, "ask_error", None) is not None:
             raise self.ask_error
         return getattr(self, "ask", (None, None))

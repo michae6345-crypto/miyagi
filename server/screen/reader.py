@@ -880,29 +880,33 @@ class ScreenReader:
             self._attach_cursor_and_ax(obs)
         return obs, ms
 
-    def capture_once(self, display_id: int | None = None, trigger: str = "ask"):
+    def capture_once(self, display_id: int | None = None, trigger: str = "ask", region: dict | None = None):
         """Circle to ask (Nov 22): capture + OCR one frame now, for one ask only. -> (ScreenObservation, PIL picture
         with our overlay and other projects' windows blacked out), or (None, None) when the frame is blank.
 
         Publishes nothing: no subscriber or metric reader sees it, and _latest / _latest_image / the change-detection
         thumb / the display key / the blank streak / last_error stay as they were. So a lesson's reader (running or
         paused) is not touched, and no older picture is ever returned in its place. `display_id`: the display the
-        learner circled on (Electron's Display.id, the CGDirectDisplayID on macOS); when it is not an active display
-        or can't be captured, the usual display (macos.target_display_id). Blocking (~0.3-0.5 s): call it in a
-        thread. Raises ScreenPermissionError without Screen Recording (only checked, never prompted)."""
+        learner circled on (Electron's Display.id, the CGDirectDisplayID on macOS); when it is not an active display,
+        the active display holding most of `region` ({x, y, w, h}, global points: the circle), else the one under its
+        centre; when neither works or it can't be captured, the usual display (macos.target_display_id). Blocking
+        (~0.3-0.5 s): call it in a thread. Raises ScreenPermissionError without Screen Recording (only checked, never
+        prompted)."""
         from . import health, macos
         with self._capture_lock:
             grabbed = None
-            if display_id is not None and not self.fixture:
+            if (display_id is not None or region is not None) and not self.fixture:
+                want = None
                 try:
-                    if any(d == int(display_id) for d, _ in macos.active_displays()):
-                        grabbed = self._grab(int(display_id))
+                    want = _ask_display(macos, display_id, region)
+                    if want is not None:
+                        grabbed = self._grab(want)
                     else:
                         log.info("ask: display %s is not active; reading the usual display", display_id)
                 except macos.ScreenPermissionError:
                     raise
                 except Exception as e:  # noqa: BLE001 - that display can't be captured: the usual one
-                    log.info("ask: display %s not captured (%s); reading the usual display", display_id,
+                    log.info("ask: display %s not captured (%s); reading the usual display", want or display_id,
                              type(e).__name__)
             if grabbed is None:
                 grabbed = self._grab()
@@ -1118,6 +1122,25 @@ def repair_code_rows(img, screen: Rect, scale: float, blocks: list[Block], max_r
         out = [x for x in out if x not in row] + [Block(text, r, min(f.confidence for f in fresh), b.app, b.window)]
         log.info("re-read code row %r -> %r", b.text, text)
     return M.reading_order(out)
+
+
+def _ask_display(macos, display_id: int | None, region: dict | None) -> int | None:
+    """Circle to ask: which active display to capture. `display_id` when it is active; else the display holding
+    most of `region` (global points), or the one under its centre (macos.pick_display); None when no active display
+    has any of it (the caller reads the usual display)."""
+    displays = macos.active_displays()
+    if display_id is not None and any(d == int(display_id) for d, _ in displays):
+        return int(display_id)
+    try:
+        rect = Rect(float(region["x"]), float(region["y"]), float(region["w"]), float(region["h"]))
+    except (TypeError, KeyError, ValueError):
+        return None
+    centre = (rect.x + rect.w / 2, rect.y + rect.h / 2)
+    pick = macos.pick_display(displays, rect, centre)
+    for did, b in displays:
+        if did == pick and min(rect.x2, b.x2) >= max(rect.x, b.x) and min(rect.y2, b.y2) >= max(rect.y, b.y):
+            return did  # pick_display falls back to the first display: only a display that holds part of the circle
+    return None
 
 
 def _changed(a: bytes | None, b: bytes, min_pixels: int) -> bool:

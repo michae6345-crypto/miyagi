@@ -5904,8 +5904,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind in self.START_ACTIONS and self.awaiting_start and region is None:
             await self._begin(kind)  # a step control pressed: the sheet is closed (a circle on screen is not one)
-        if kind in self.ASK_KINDS:
-            self._input_was_miyagi()  # E5: the keys just typed went into Miyagi's ask box
+        if kind in self.ASK_KINDS and region is None and source not in ("circle", "voice"):
+            self._input_was_miyagi()  # E5: the keys just typed went into Miyagi's ask box (a circle / voice ask types none)
         if kind == "resume":
             await self.resume()
             return

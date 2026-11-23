@@ -88,6 +88,18 @@ def test_a_display_that_is_not_active_falls_back_to_the_usual_one(reader):
     assert reader._sck.calls == [MAIN] and obs.screen.x == 0
 
 
+def test_an_inactive_display_id_reads_the_display_that_holds_the_circle(reader):
+    """The app's displayId is not an active CG display, but the circle sits on SIDE while the focused window is on
+    MAIN: read SIDE (the display holding the region), not target_display_id's."""
+    obs, _ = reader.capture_once(424242, region={"x": -1000, "y": 0, "w": 200, "h": 80})
+    assert reader._sck.calls == [SIDE] and obs.screen.x == -1728
+
+
+def test_a_circle_on_no_active_display_falls_back_to_the_usual_one(reader):
+    reader.capture_once(424242, region={"x": 9000, "y": 9000, "w": 50, "h": 50})
+    assert reader._sck.calls == [MAIN]
+
+
 def test_a_display_that_cannot_be_captured_falls_back_to_the_usual_one(reader, monkeypatch):
     real = reader._grab
 
