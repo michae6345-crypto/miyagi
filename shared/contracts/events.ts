@@ -36,8 +36,10 @@ export interface ScreenRegion { x: number; y: number; w: number; h: number; disp
 export type AskSource = "typed" | "voice" | "circle"
 /** Buddy draws (Nov 22): one thing the app circles on screen with a hand-drawn stroke grown from the island (event `annotate`).
  *  x / y / w / h: screen points, the ScreenRegion space. displayId absent = the primary display (the spotlight.rect convention).
- *  why "point": the coach points at it (a step target, Show me, an off-track culprit); "answer": the thing a circle-to-ask
- *  answer names, inside the circled region (askId = that ask). label: <= 4 words, optional; the app may show it by the circle.
+ *  why "answer": the thing a circle-to-ask answer names, inside the circled region (askId = that ask). The engine sends only
+ *  "answer" marks today. why "point" is reserved: the coach's pointing already reaches the app as spotlight {rect, caption},
+ *  card.targets and offtrack targets, and the buddy draws from those on the app side; the engine does not repeat them as annotate.
+ *  label: <= 4 words, optional; the app may show it by the circle.
  *  id: stable per mark, so a re-sent annotate can keep a circle still drawn instead of drawing it again. */
 export interface Annotation { id?: string; x: number; y: number; w: number; h: number; displayId?: number; label?: string;
                               why: "point" | "answer"; askId?: string; stepId?: string }

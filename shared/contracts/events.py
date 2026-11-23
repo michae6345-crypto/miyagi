@@ -330,9 +330,11 @@ class Annotation(_Model):
     """Buddy draws (Nov 22): one thing the app circles with a hand-drawn stroke grown from the island (event annotate).
 
     x / y / w / h: screen points, the ScreenRegion space. displayId None = the primary display (spotlight.rect).
-    why "point": the coach points at it (a step target, Show me, an off-track culprit); "answer": the thing a
-    circle-to-ask answer names, inside the circled region (askId = that ask). label: <= 4 words. id: stable per mark,
-    so a re-sent annotate keeps a circle still drawn instead of drawing it again.
+    why "answer": the thing a circle-to-ask answer names, inside the circled region (askId = that ask). The engine
+    sends only "answer" marks today. why "point" is reserved: the coach's pointing reaches the app through the
+    existing events (spotlight {rect, caption}, card.targets, offtrack targets), and the app's buddy draws from those
+    itself; the engine does not repeat them as annotate. label: <= 4 words. id: stable per mark, so a re-sent annotate
+    keeps a circle still drawn instead of drawing it again.
     """
 
     id: str | None = None
