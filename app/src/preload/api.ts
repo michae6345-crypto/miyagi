@@ -53,6 +53,8 @@ export type Layout = {
    * Main re-sends the layout when any of it changes.
    */
   notch: NotchLayout
+  /** Additive (circle to ask): Electron's Display.id of the display this window is on (the engine's capture display). Absent in the browser stage. */
+  displayId?: number
 }
 
 export type Unsub = () => void
