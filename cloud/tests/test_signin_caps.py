@@ -348,7 +348,7 @@ def _build(client, h, vid):
 
 
 def test_build_cap_is_per_user_across_linked_installs(make_cloud):
-    client, app_mod = make_cloud(FREE_LESSON_BUILDS_PER_MONTH="3")
+    client, app_mod = make_cloud(FREE_LESSON_BUILDS_PER_MONTH="3", LESSON_CLAIM_TTL_S="0")  # the lock: test_build_lock.py
     a, b, loner = install(client), install(client), install(client)
     for h in (a, b):
         app_mod.store.link_user(th(app_mod, h), USER)

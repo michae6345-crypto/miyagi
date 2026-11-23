@@ -32,6 +32,7 @@ def cloud(tmp_path, monkeypatch):
     monkeypatch.setenv("UPSTREAM_GEMINI_URL", "http://127.0.0.1:9/{model}:{method}")
     monkeypatch.setenv("FREE_LESSON_BUILDS_PER_MONTH", "3")
     monkeypatch.setenv("MAX_LESSON_KB", "4")
+    monkeypatch.setenv("LESSON_CLAIM_TTL_S", "0")  # several installs claim one video here; the lock: test_build_lock.py
     monkeypatch.syspath_prepend(str(CLOUD))
     for mod in ("app", "store"):
         sys.modules.pop(mod, None)

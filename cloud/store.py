@@ -199,6 +199,18 @@ CREATE TABLE IF NOT EXISTS deletion_requests (
 -- Videos (and schema) whose approved lesson an operator revoked (POST /admin/lessons/{video_id}/revoke). Nothing for
 -- them is auto-approved again, whoever uploads it; only an operator's explicit approve serves one. Kept on its own so an
 -- uploader deleting their account (which deletes their non-approved candidates) cannot lift it. Holds no install.
+-- Lesson builds in progress (POST /v1/lessons/{id}/build): while an install's claim is unexpired, another install
+-- asking to build the same video and schema is told {"held": true} and waits for the upload instead of building it
+-- too. schema 0: the claim named no schema (it then matches every schema). Released by the claimer's PUT, by any
+-- stored lesson for that video and schema, by expiry (pruned) and by the claimer's account delete.
+CREATE TABLE IF NOT EXISTS lesson_claims (
+    video_id   TEXT NOT NULL,
+    schema     INTEGER NOT NULL,
+    token_hash TEXT NOT NULL,              -- the claiming install (sha256 hex of its token)
+    claimed_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    PRIMARY KEY (video_id, schema, token_hash)
+);
 CREATE TABLE IF NOT EXISTS lesson_revocations (
     video_id   TEXT NOT NULL,
     schema     INTEGER NOT NULL,
@@ -608,25 +620,65 @@ class Store:
         """This install claimed a build of this video (any month)."""
         return bool(self._q("SELECT 1 FROM builds WHERE token_hash = ? AND video_id = ? LIMIT 1", (token_hash, video_id)))
 
+    def claim_lesson_build(self, token_hash: str, video_id: str, schema: int, cap: int, user_id: str | None = None,
+                           ttl_s: float = 0, now: float | None = None) -> tuple[str, int]:
+        """POST /v1/lessons/{id}/build in one step under the lock. ("held", 0) when another install holds an unexpired
+        claim for this video and schema (schema 0 on either side matches any): nothing is counted. Else the build
+        quota (claim_build): ("capped", used) or ("ok", used); "ok" also records this install's claim for ttl_s
+        seconds (0 = no claims). The claimer's own repeat claim is "ok" again and does not extend its claim."""
+        t = time.time() if now is None else now
+        with self._lock:
+            if ttl_s > 0 and self._db.execute(
+                    "SELECT 1 FROM lesson_claims WHERE video_id = ? AND (schema = ? OR schema = 0 OR ? = 0) "
+                    "AND token_hash != ? AND expires_at > ? LIMIT 1", (video_id, schema, schema, token_hash, t)).fetchone():
+                return "held", 0
+            ok, used = self._claim_build_locked(token_hash, video_id, cap, user_id)
+            if not ok:
+                return "capped", used
+            if ttl_s > 0 and not self._db.execute("SELECT 1 FROM lesson_claims WHERE video_id = ? AND schema = ? "
+                                                  "AND token_hash = ? AND expires_at > ?",
+                                                  (video_id, schema, token_hash, t)).fetchone():
+                self._db.execute("INSERT INTO lesson_claims (video_id, schema, token_hash, claimed_at, expires_at) "
+                                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT (video_id, schema, token_hash) DO UPDATE SET "
+                                 "claimed_at = excluded.claimed_at, expires_at = excluded.expires_at",
+                                 (video_id, schema, token_hash, t, t + ttl_s))
+            return "ok", used
+
+    def release_lesson_claims(self, video_id: str, schema: int, token_hash: str | None = None) -> int:
+        """Drop the claims on this video and schema (and the ones that named no schema): this install's only, or with
+        token_hash None everyone's (a lesson was stored). Returns how many."""
+        sql, args = "DELETE FROM lesson_claims WHERE video_id = ? AND (schema = ? OR schema = 0)", [video_id, schema]
+        if token_hash is not None:
+            sql, args = sql + " AND token_hash = ?", [*args, token_hash]
+        with self._lock:
+            return self._db.execute(sql, args).rowcount
+
+    def lesson_claims_of(self, token_hash: str) -> list[dict]:
+        return [dict(r) for r in self._q("SELECT video_id, schema, expires_at FROM lesson_claims WHERE token_hash = ?",
+                                         (token_hash,))]
+
     def claim_build(self, token_hash: str, video_id: str, cap: int, user_id: str | None = None) -> tuple[bool, int]:
         """Use one of this month's builds for `video_id`, atomically. cap <= 0 means no cap. Returns (allowed, builds
         used this month after the call). Counted per install, or with `user_id` per user: distinct videos claimed by
         every install linked to that user, so linking more Macs does not multiply the cap. A video already claimed this
         month in that scope is free (another of the user's installs gets its own row, which PUT needs)."""
+        with self._lock:
+            return self._claim_build_locked(token_hash, video_id, cap, user_id)
+
+    def _claim_build_locked(self, token_hash: str, video_id: str, cap: int, user_id: str | None) -> tuple[bool, int]:
         month = this_month()
         scope, arg = self._build_scope(token_hash, user_id)
-        with self._lock:
-            n = self._db.execute(f"SELECT COUNT(DISTINCT video_id) FROM builds WHERE month = ? AND {scope}", (month, arg)).fetchone()[0]
-            if self._db.execute("SELECT 1 FROM builds WHERE token_hash = ? AND month = ? AND video_id = ?",
-                                (token_hash, month, video_id)).fetchone():
-                return True, n
-            claimed = self._db.execute(f"SELECT 1 FROM builds WHERE month = ? AND video_id = ? AND {scope}",
-                                       (month, video_id, arg)).fetchone()
-            if not claimed and cap > 0 and n >= cap:
-                return False, n
-            self._db.execute("INSERT INTO builds (token_hash, month, video_id, created_at) VALUES (?, ?, ?, ?)",
-                             (token_hash, month, video_id, time.time()))
-            return True, n if claimed else n + 1
+        n = self._db.execute(f"SELECT COUNT(DISTINCT video_id) FROM builds WHERE month = ? AND {scope}", (month, arg)).fetchone()[0]
+        if self._db.execute("SELECT 1 FROM builds WHERE token_hash = ? AND month = ? AND video_id = ?",
+                            (token_hash, month, video_id)).fetchone():
+            return True, n
+        claimed = self._db.execute(f"SELECT 1 FROM builds WHERE month = ? AND video_id = ? AND {scope}",
+                                   (month, video_id, arg)).fetchone()
+        if not claimed and cap > 0 and n >= cap:
+            return False, n
+        self._db.execute("INSERT INTO builds (token_hash, month, video_id, created_at) VALUES (?, ?, ?, ?)",
+                         (token_hash, month, video_id, time.time()))
+        return True, n if claimed else n + 1
 
     # per-role daily requests ------------------------------------------------
     def count_role(self, token_hash: str, role: str) -> None:
@@ -998,7 +1050,8 @@ class Store:
                                  f"input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + "
                                  f"excluded.output_tokens, usd = usd + excluded.usd", (AGGREGATE, day, *hs))
 
-                for table in ("usage", "role_usage", "builds", "events", "event_props", "event_intake", "lesson_puts", "funnel"):
+                for table in ("usage", "role_usage", "builds", "events", "event_props", "event_intake", "lesson_puts", "funnel",
+                              "lesson_claims"):
                     n[table] = self._db.execute(f"DELETE FROM {table} WHERE token_hash {inn}", hs).rowcount
                 n["moved_usage"] = self._db.execute(f"UPDATE moved_usage SET token_hash = ? WHERE token_hash {inn}",
                                                     (AGGREGATE, *hs)).rowcount  # what they moved away from OTHER scopes
@@ -1042,6 +1095,7 @@ class Store:
         - usage, events, event_props older than retain_days (at least MIN_RETAIN_DAYS): folded into per-day totals
           under AGGREGATE (no install), then deleted; role_usage and builds that old: deleted;
         - event_intake, moved_usage, lesson_puts, alerts_sent older than SHORT_RETAIN_DAYS; mints older than 48 hours;
+        - expired lesson build claims (lesson_claims);
         - funnel rows whose first_at is older than retain_days: counted per UTC day and name into funnel_daily
           (no install), then deleted;
         - pending lesson candidates older than pending_max_age_s (0 = keep);
@@ -1078,6 +1132,7 @@ class Store:
                 for table in ("event_intake", "moved_usage", "lesson_puts", "alerts_sent"):
                     n[table] = self._db.execute(f"DELETE FROM {table} WHERE day < ?", (short,)).rowcount
                 n["mints"] = self._db.execute("DELETE FROM mints WHERE hour < ?", (int(t // 3600) - 48,)).rowcount
+                n["lesson_claims"] = self._db.execute("DELETE FROM lesson_claims WHERE expires_at <= ?", (t,)).rowcount
                 # funnel: a row older than retention (by its own first_at) is counted into funnel_daily, then deleted
                 self._db.execute("INSERT INTO funnel_daily (day, name, installs) SELECT strftime('%Y-%m-%d', first_at, "
                                  "'unixepoch'), name, COUNT(*) FROM funnel WHERE first_at < ? GROUP BY 1, 2 "

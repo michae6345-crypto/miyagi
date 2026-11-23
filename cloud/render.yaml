@@ -145,6 +145,8 @@ services:
         value: "128"
       - key: LESSON_SCHEMAS
         value: "1"
+      - key: LESSON_CLAIM_TTL_S    # a build claim holds its video this long; others get {"held": true} and wait
+        value: "600"
       - key: LESSON_PUTS_PER_DAY
         value: "10"
       - key: LESSON_AUTO_APPROVE_N

@@ -10,6 +10,7 @@
 --   builds             new-lesson builds per install and UTC month (FREE_LESSON_BUILDS_PER_MONTH)
 --   lesson_puts        lesson uploads per install and UTC day (LESSON_PUTS_PER_DAY)
 --   lesson_revocations videos an operator revoked: never auto-approved again
+--   lesson_claims      build claims in progress (LESSON_CLAIM_TTL_S)
 -- The legacy first-upload `lessons` table is not ported: store.py empties it into lesson_candidates on startup.
 -- `builds` per user also reads `links (token_hash, user_id)`, which moves with the account tables, not here.
 --
@@ -64,6 +65,15 @@ create table if not exists miyagi_cloud.lesson_puts (
     primary key (token_hash, day)
 );
 
+create table if not exists miyagi_cloud.lesson_claims (
+    video_id   text             not null,
+    schema     integer          not null,                  -- 0: the claim named no schema (holds every schema)
+    token_hash text             not null,
+    claimed_at double precision not null,
+    expires_at double precision not null,
+    primary key (video_id, schema, token_hash)
+);
+
 create table if not exists miyagi_cloud.lesson_revocations (
     video_id   text             not null,
     schema     integer          not null,
@@ -75,11 +85,13 @@ alter table miyagi_cloud.lesson_candidates enable row level security;
 alter table miyagi_cloud.builds            enable row level security;
 alter table miyagi_cloud.lesson_puts       enable row level security;
 alter table miyagi_cloud.lesson_revocations enable row level security;
+alter table miyagi_cloud.lesson_claims      enable row level security;
 -- Also for the table owner, so a mistaken non-service connection cannot read around RLS.
 alter table miyagi_cloud.lesson_candidates force row level security;
 alter table miyagi_cloud.builds            force row level security;
 alter table miyagi_cloud.lesson_puts       force row level security;
 alter table miyagi_cloud.lesson_revocations force row level security;
+alter table miyagi_cloud.lesson_claims      force row level security;
 -- No policies on purpose: anon and authenticated see and change nothing.
 
 revoke all on all tables in schema miyagi_cloud from public, anon, authenticated;
