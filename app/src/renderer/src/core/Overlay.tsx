@@ -147,7 +147,9 @@ function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: L
 /**
  * Electron only: the window ignores the mouse (clicks fall through to the app below) except while
  * the cursor is over something marked data-hit. Mouse moves are still forwarded, so we can tell.
+ * data-grab (circle to ask's drawing surface) also keeps the mouse here, but is never reported (not in bounds or hits).
  */
+const HOLDS_MOUSE = '[data-hit],[data-grab]'
 export function useClickThrough(): void {
   useEffect(() => {
     let on = false
@@ -161,7 +163,7 @@ export function useClickThrough(): void {
     const move = (e: MouseEvent): void => {
       x = e.clientX
       y = e.clientY
-      set(!!(e.target as Element | null)?.closest?.('[data-hit]'))
+      set(!!(e.target as Element | null)?.closest?.(HOLDS_MOUSE))
     }
     const out = (): void => set(false)
     // A control can vanish under a still cursor (card closes, island shrinks): no mousemove fires,
@@ -169,7 +171,7 @@ export function useClickThrough(): void {
     const watchdog = setInterval(() => {
       if (!on) return
       const el = x < 0 ? null : document.elementFromPoint(x, y)
-      if (!el?.closest?.('[data-hit]')) set(false)
+      if (!el?.closest?.(HOLDS_MOUSE)) set(false)
     }, 250)
     // Desktop test 9, A1: a scroll over overlay UI that can't scroll itself (a card, the bar) goes to the app below:
     // hand the mouse back for a moment so the next wheel ticks reach it (main holds its grab off as well).
