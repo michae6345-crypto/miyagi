@@ -33,7 +33,7 @@ from pathlib import PurePosixPath
 from urllib.parse import quote, urlparse
 
 from server import netsafe
-from server.untrusted import flag_injection, wrap
+from server.untrusted import flag_injection, wrap, wrap_stable
 
 log = logging.getLogger("server.lesson")
 
@@ -365,19 +365,20 @@ def for_prompt(files: list[dict], focus: str = "", budget: int = 9_000) -> str:
 
 
 def overview(files: list[dict], budget: int = 6_000) -> str:
-    """For the step-list call: which files exist, plus the README and manifests (the code itself goes to each step)."""
+    """(Fences with a content hash, not a random nonce: this text sits in a cached prompt prefix.)
+    For the step-list call: which files exist, plus the README and manifests (the code itself goes to each step)."""
     if not files:
         return ""
     listing = "\n".join(f"- {f.get('path')} ({f.get('kind')})" for f in files)
     lead = [f for f in files if PurePosixPath(f.get("path") or "").name.lower().startswith("readme")
             or PurePosixPath(f.get("path") or "").name.lower() in MANIFESTS]
-    blocks = [wrap("tutorial_code", "Files:\n" + listing)]
+    blocks = [wrap_stable("tutorial_code", "Files:\n" + listing)]
     used = len(listing)
     for f in lead:
         left = budget - used
         if left < 400:
             break
         text = f["text"][:left]
-        blocks.append(wrap("tutorial_code", text, path=f.get("path"), url=f.get("url")))
+        blocks.append(wrap_stable("tutorial_code", text, path=f.get("path"), url=f.get("url")))
         used += len(text)
     return MATERIALS_NOTE + "\n" + "\n".join(blocks)

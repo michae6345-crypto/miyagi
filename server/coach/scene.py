@@ -44,7 +44,15 @@ except ImportError:  # pragma: no cover - coach/ run on its own (from server/)
 
 log = logging.getLogger("coach.scene")
 
-MODEL = os.environ.get("MIYAGI_SCENE_MODEL") or llm.HAIKU
+def _scene_model() -> str:
+    try:
+        from server import models
+    except ImportError:  # pragma: no cover - coach/ run on its own
+        return os.environ.get("MIYAGI_SCENE_MODEL") or llm.HAIKU
+    return models.model_for("coach.scene")
+
+
+MODEL = _scene_model()
 MAX_W = 1280
 MAX_TOKENS = 400  # the answer is ~50-160 tokens; room so strict JSON never hits max_tokens
 FRESH_S = 8.0  # judge / explain / hint use a look at most this old
@@ -340,7 +348,7 @@ async def look(image: Any, step: dict, *, step_file: str | None = None, run: str
     c = client or llm.get_client()
     if hasattr(c, "with_options"):
         c = c.with_options(timeout=t, max_retries=0)  # a slow look is skipped, never retried: the next one is 5 s away
-    api, kwargs = llm._request(c, MODEL, [{"type": "text", "text": SYSTEM}], content, SCHEMA, "low", MAX_TOKENS,
+    api, kwargs = llm._request(c, MODEL, llm.cached_system(SYSTEM), content, SCHEMA, "low", MAX_TOKENS,
                                {"type": "disabled"})
     t0 = time.perf_counter()
     try:

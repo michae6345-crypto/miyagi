@@ -21,7 +21,7 @@ import os
 import re
 import time
 
-from server.untrusted import DATA_RULE, SCAFFOLDERS, strip_injection, wrap
+from server.untrusted import DATA_RULE, SCAFFOLDERS, strip_injection, wrap, wrap_stable
 
 from . import builder, claude, coverage, cost, gemini, runnames
 from .schema import schema_errors
@@ -159,19 +159,14 @@ The lesson title (top-level title): sentence case, <= 6 words: capitalize only t
 keep proper nouns and product names as they are spelled ("Make a Discord bot", "Build a Python calculator",
 "Pay with Stripe in Next.js")."""
 
-STEP_PROMPT = """Learner's goal: {goal}. Lesson: "{lesson}". All steps: {outline}
-
-Write step {index}: "{title}". {instructions}
-File: {file}
+# STEP_HEAD: the same for every step of a build (goal, outline, project folder, research notes, fixed rules), so it is
+# the cached part of the user message. STEP_BODY changes per step. Anything volatile belongs in STEP_BODY.
+STEP_HEAD = """Learner's goal: {goal}. Lesson: "{lesson}". All steps: {outline}
 
 The learner's project folder now:
 {workdir}
 
-Code from the earlier steps (already typed):
-{earlier}
-
-{research}
-Return for THIS step only (files are relative to the lesson folder, which already exists and is open; no
+{research}For the step you are asked to write, return for THIS step only (files are relative to the lesson folder, which already exists and is open; no
 mkdir/cd/touch, no absolute paths). The code above is already in the files: never re-type or rename anything
 that exists; to change existing code give only the new lines and anchor them to the existing line they go after
 or inside; call only names that exist by now. A step either types code or runs a command, never both:
@@ -196,6 +191,15 @@ or inside; call only names that exist by now. A step either types code or runs a
 - the step's file already exists (the app creates it, empty, before the step starts): captions and hints never
   ask the learner to create it ("In calculator.py, type ...", never "Create calculator.py and ...");
 - hints: 2-3, gentlest first; common_mistakes: concrete ones for this step."""
+
+STEP_BODY = """Write step {index}: "{title}". {instructions}
+File: {file}
+
+Code from the earlier steps (already typed):
+{earlier}
+"""
+
+STEP_PROMPT = STEP_HEAD + "\n\n" + STEP_BODY  # the two joined
 
 
 def _key(goal: str, workdir: str, info) -> str:
@@ -329,13 +333,15 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
         except Exception as e:  # noqa: BLE001
             log.warning("on_update failed: %s", e)
 
-    def prompt_for(i: int, notes: str, earlier: str) -> str:
+    def prompt_for(i: int, notes: str, earlier: str) -> tuple[str, str]:
+        """(cached prefix, this step's own text)."""
         sp = steps_plan[i - 1]
-        return STEP_PROMPT.format(goal=goal, lesson=plan.get("title", ""), outline=outline, index=i, title=sp["title"],
-                                  instructions=sp["instructions"], file=sp.get("file") or "(terminal)", workdir=wrap("workdir", summary),
-                                  earlier=earlier or "(none yet)",
-                                  research=(f"Research notes (current docs):\n{wrap('research', notes)}\n" if notes else ""),
-                                  stack_guide=gemini.STACK_GUIDE)
+        head = STEP_HEAD.format(goal=goal, lesson=plan.get("title", ""), outline=outline, workdir=wrap_stable("workdir", summary),
+                                research=(f"Research notes (current docs):\n{wrap_stable('research', notes)}\n" if notes else ""),
+                                stack_guide=gemini.STACK_GUIDE)
+        body = STEP_BODY.format(index=i, title=sp["title"], instructions=sp["instructions"], file=sp.get("file") or "(terminal)",
+                                earlier=earlier or "(none yet)")
+        return head, body
 
     def typed_so_far() -> str:
         return "\n\n".join(f"# {f}\n{c}" for f, c in state.items() if c.strip())
@@ -352,15 +358,16 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
         return None
 
     async def draft(i: int, notes: str, earlier: str) -> dict:
-        return strip_injection(await claude._generate_json(SYSTEM, prompt_for(i, notes, earlier), STEP_SCHEMA, effort="low",
-                                                           structured=False, role="detail", check=ok), plan_libs)
+        head, body = prompt_for(i, notes, earlier)
+        return strip_injection(await claude._generate_json(SYSTEM, body, STEP_SCHEMA, effort="low", structured=False,
+                                                           role="detail", check=ok, prefix=head), plan_libs)
 
     async def step(i: int, notes: str, d: dict | None = None) -> list[dict]:
         """Build plan step i against the files the earlier steps produced. d: its draft, written in parallel with the
         other steps (E23); checked here against the real files and rewritten when it contradicts them. None (step 1,
         or a run step): drafted here from the code typed so far."""
         sp = steps_plan[i - 1]
-        prompt = prompt_for(i, notes, typed_so_far())
+        head, body = prompt_for(i, notes, typed_so_far())
         if d is None:
             d = await draft(i, notes, typed_so_far())
         problem = consistency_problem(d.get("file") or sp.get("file") or "", d.get("code") or "", d.get("run_command") or "", state)
@@ -370,8 +377,8 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
                    "above. Never re-type something that exists: give only the NEW lines, and put the target anchor on the "
                    "existing line they go after (or inside). Only call names that exist by now.")
             try:
-                d2 = strip_injection(await claude._generate_json(SYSTEM, prompt + fix, STEP_SCHEMA, effort="medium", structured=False,
-                                                                 role="escalate", escalate=False, check=ok), plan_libs)
+                d2 = strip_injection(await claude._generate_json(SYSTEM, head + "\n\n" + body + fix, STEP_SCHEMA, effort="medium",
+                                                                 structured=False, role="escalate", escalate=False, check=ok), plan_libs)
                 p2 = consistency_problem(d2.get("file") or sp.get("file") or "", d2.get("code") or "", d2.get("run_command") or "", state)
                 d = d2
                 if p2:

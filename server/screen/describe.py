@@ -25,13 +25,14 @@ import re
 import time
 
 from server import config as server_config
+from server import models
 from server.redact import redact_secrets
 from server.untrusted import DATA_RULE, wrap
 
 log = logging.getLogger("server.screen.describe")
 
-COACH_MODEL = os.environ.get("TUT_SCREEN_COACH_MODEL", "claude-sonnet-5-5")  # cost: never Opus by default
-QUICK_MODEL = os.environ.get("TUT_SCREEN_QUICK_MODEL", "claude-haiku-5-5")
+COACH_MODEL = models.configured("screen.coach")  # cost: never Opus by default (_ask guards it)
+QUICK_MODEL = models.configured("screen.quick")
 COACH_TIMEOUT = float(os.environ.get("TUT_SCREEN_COACH_TIMEOUT", "30"))
 QUICK_TIMEOUT = float(os.environ.get("TUT_SCREEN_QUICK_TIMEOUT", "12"))
 

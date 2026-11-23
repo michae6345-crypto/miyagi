@@ -31,8 +31,10 @@ log = logging.getLogger("coach.llm")
 
 try:  # the shared key store, miyagi cloud routing and Opus guard (absent only when coach/ runs on its own)
     from server import config as _cfg
+    from server import models as _models
 except ImportError:  # pragma: no cover
     _cfg = None  # type: ignore[assignment]
+    _models = None  # type: ignore[assignment]
 
 try:
     from server.redact import redact_secrets as _redact_secrets
@@ -56,7 +58,8 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 # Cost policy (Michael): Sonnet writes the diagnosis card; everything else is Haiku.
 # Override per purpose with COACH_MODEL_<PURPOSE>, e.g. COACH_MODEL_EXPLAIN=claude-sonnet-5-5. An Opus override
 # (COACH_MODEL_DIAGNOSE=claude-opus-5-5) also needs MIYAGI_ALLOW_OPUS=1 and no miyagi cloud, else it runs on Sonnet.
-MODELS = {"diagnose": SONNET}  # spend cap (Michael, $84/$100): never Opus by default
+# The table lives in server/models.py ("coach.<purpose>"); MODELS mirrors the Sonnet rows for readers of this module.
+MODELS = {"diagnose": SONNET, "explain_selection": SONNET}  # spend cap (Michael, $84/$100): never Opus by default
 
 
 def guard(model: str) -> str:
@@ -67,6 +70,8 @@ def guard(model: str) -> str:
 
 
 def model_for(purpose: str) -> str:
+    if _models is not None:
+        return guard(_models.model_for(f"coach.{purpose}"))
     return guard(os.environ.get(f"COACH_MODEL_{purpose.upper()}") or MODELS.get(purpose, HAIKU))
 
 
@@ -399,6 +404,8 @@ def _request(client, model: str, system: list[dict], content: Any, schema: dict,
     """The one place a coach request is shaped (warm() must send the same prefix to hit the cache). The user message
     is redacted here (redact_user_content): no key or token in the learner's code or screen ever goes out."""
     content = redact_user_content(content)
+    if system and not any("cache_control" in b for b in system if isinstance(b, dict)):
+        system = [*system[:-1], {**system[-1], "cache_control": {"type": "ephemeral"}}]  # every coach call caches its prefix
     kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,

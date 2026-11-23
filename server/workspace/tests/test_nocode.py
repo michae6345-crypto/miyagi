@@ -8,6 +8,7 @@ import json
 
 import pytest
 
+from server.prompt_cache import as_text
 from server.workspace import (
     editor_needed,
     missing,
@@ -50,7 +51,7 @@ def graph():
 def test_scaffold_prompt_is_the_video_not_the_goal():
     fc = FakeClient(reply(kind="no_code", stack="OpenAI Agent Builder, Botpress, Zapier"))
     prepare(graph(), ASKED, client=fc)
-    prompt = fc.calls[0]["messages"][0]["content"]
+    prompt = as_text(fc.calls[0]["messages"][0]["content"])
     assert ASKED not in prompt and "Create OpenAI FAQ Support Agent" in prompt and "lesson_kind" in prompt
 
 
@@ -127,7 +128,7 @@ def test_requirements_no_editor_and_web_apps_with_links(mac):
         tool("WhatsApp", "web_app", url="javascript:alert(1)", why="optional channel"),  # not https -> dropped
     ]))
     items = requirements(graph(), client=fc, run=mac.run)
-    assert ASKED not in fc.calls[0]["messages"][0]["content"]
+    assert ASKED not in as_text(fc.calls[0]["messages"][0]["content"])
     assert not editor_needed(items) and items[0]["why"].startswith("No editor needed: all the work happens")
     web = {it["tool"]: it for it in items if it["kind"] == "web_app"}
     assert list(web) == ["openai-platform", "botpress", "zapier", "google-sheets"]

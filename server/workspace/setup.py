@@ -29,6 +29,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
+from server import models, prompt_cache
 from server.untrusted import EXTRACT_RULE, wrap
 
 from . import editor as _editor
@@ -493,9 +494,9 @@ def _cache_file(graph: dict) -> Path:
 
 
 def _ask_claude(graph: dict, client) -> dict:
-    model = os.environ.get("WORKSPACE_REQ_MODEL", DEFAULT_MODEL)
+    model = models.model_for("workspace.requirements")
     msgs = [{"role": "user", "content": PROMPT.format(lesson_json=wrap("lesson", _lesson_json(graph)))}]
-    kw = dict(model=model, max_tokens=4000, system=SYSTEM, messages=msgs)  # noqa: C408
+    kw = dict(model=model, max_tokens=4000, system=prompt_cache.system_blocks(SYSTEM), messages=msgs)  # noqa: C408
     try:
         msg = client.messages.create(**kw, output_config={"format": {"type": "json_schema", "schema": REQ_SCHEMA}})
         record_cost(msg, model, "workspace requirements")

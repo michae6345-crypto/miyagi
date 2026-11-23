@@ -228,8 +228,9 @@ def test_prompt_described_json_puts_the_schema_in_the_cached_system_block(monkey
     out = asyncio.run(claude._generate_json_on("claude-haiku-5-5", "SYS", "step 3 slice", schema, effort="low",
                                                structured=False))
     assert out == {"ok": True}
-    block = seen[0]["system"][0]
-    assert block["text"].startswith("SYS") and '"required": ["ok"]' in block["text"] and "cache_control" in block
+    shared, extra = seen[0]["system"]  # the shared prompt's block first (the segment call writes it too), the schema after
+    assert shared["text"] == "SYS" and '"required": ["ok"]' in extra["text"]
+    assert "cache_control" in shared and "cache_control" in extra
     assert seen[0]["messages"][0]["content"] == "step 3 slice"  # the varying part stays after the cached prefix
 
 

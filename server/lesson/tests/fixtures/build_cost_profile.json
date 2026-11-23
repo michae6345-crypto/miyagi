@@ -1,0 +1,52 @@
+{
+  "_about": "Token counts of one video-lesson build, for server/lesson/build_cost_estimate.py. Sized from the real prompts (about 4 characters per token) and a 20-minute tutorial; edit the numbers to model another lesson. Every call: system (the fixed prompt, same across builds), shared (the part of the user message that is the same for every call of one build or one video: the transcript, the lesson outline and fixed rules), own (what changes per call), output.",
+  "ttl_minutes": 5,
+  "segment": {
+    "calls": 1,
+    "system": 1500,
+    "shared": 25000,
+    "own": 800,
+    "output": 1500,
+    "before": "claude-sonnet-5-5",
+    "after": "claude-sonnet-5-5"
+  },
+  "detail": {
+    "calls": 7,
+    "concurrent_first_wave": true,
+    "system": 3300,
+    "shared": 1400,
+    "own": 2500,
+    "output": 1200,
+    "before": "claude-haiku-5-5",
+    "after": "claude-haiku-5-5"
+  },
+  "adapt": {
+    "calls": 1,
+    "system": 2000,
+    "shared": 0,
+    "own": 4000,
+    "output": 1500,
+    "before": "claude-haiku-5-5",
+    "after": "claude-haiku-5-5"
+  },
+  "judge": {
+    "calls": 1,
+    "system": 300,
+    "shared": 0,
+    "own": 1200,
+    "output": 100,
+    "before": "claude-haiku-5-5",
+    "after": "claude-haiku-5-5"
+  },
+  "coach_session": {
+    "_about": "One learner session after the build: calls that share the lesson context (system + lesson JSON) within the cache TTL",
+    "calls": 20,
+    "system": 3000,
+    "shared": 6000,
+    "own": 900,
+    "output": 250,
+    "before": "claude-haiku-5-5",
+    "after": "claude-haiku-5-5"
+  },
+  "min_cacheable": {"sonnet": 1024, "haiku": 2048}
+}
