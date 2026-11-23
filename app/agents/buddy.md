@@ -1,60 +1,67 @@
 # buddy
 
-**Status:** pass 1 done (the living bonsai mark). Pass 2 (Nov 22): the buddy flies out of the notch to what the coach points at, circles it in deep mint, says the label, reacts to the learner and flies home. It uses Michael's mark rules and stands down for his `features/annotate`. Everything after 95712e94 is committed locally and NOT pushed: Michael asked on Nov 22 to hold pass 2 until he and Adrian pick one. Typecheck green, 63 offline tests, checked in the built stage. Not run in Electron. **Open:** which of the two layers draws in the end · **Priority:** P2 · **Branch:** `adrian/buddy` · **Stage port:** 5251 (launch config `buddy-stage`)
+**Status:** pass 1 done (the living bonsai mark). Pass 2 (Nov 22): the buddy is a character of its own. It comes out of the island, flies to what the coach points at, circles it, says what it is, takes the learner through several things one at a time, listens while they talk, thinks, and answers beside the part the answer is about. It uses Michael's mark rules and stands down for his `features/annotate`. Everything after 95712e94 is committed locally and NOT pushed: Michael asked on Nov 22 (8:29 PM) to hold pass 2 until he and Adrian pick one. Typecheck green, 80 offline tests, checked in the built stage. Not run in Electron. **Open:** which layer draws in the end, which character, its name · **Priority:** P2 · **Branch:** `adrian/buddy` · **Stage port:** 5251 (launch config `buddy-stage`)
 
 ## Goal
-miyagi gets a character without a mascot: the bonsai itself is the buddy (Michael, Nov 22). It stays sleek. It has no face, and its personality comes from motion. Pass 1 is the living mark that the notch ears use. Pass 2 is the branch that reaches out and points at the button or line to click. Later, the tree grows a leaf per mastered skill (see `app/agents/skills.md`).
+Adrian, Nov 22 (night): "It should definitely be a character, and it shouldn't just be the bonsai tree. The bonsai tree is a logo. We want a separate, personalized character that does this stuff for you, with a lot of back and forth. It should be really cute. It should actually guide you around: point, highlight, show. Any part you're confused about, you talk to it."
+
+So there are two things in this feature:
+- **The living bonsai** (pass 1): the logo in the notch, alive. It stays the logo and stays in the notch.
+- **The buddy** (pass 2): its own character. It lives in the island beside the logo and comes out when there is something to show or when the learner talks to it.
+
+This replaces the earlier direction ("the bonsai itself is the buddy, no face", Michael, Nov 22 morning). Michael has not seen the character yet.
 
 ## Owns
 - `app/src/renderer/src/features/buddy/**`
-  - `LivingMark.tsx`: `LivingMark` (props `size`, `state: idle | thinking`, `lean` from -1 to 1, `bloom` counter, `tone`, `level`) and `usePointerLean(ref, on, reach)`. It draws the same brand SVGs inline. `livingSvg()` wraps the canopy as lean > sway > bloom and tags the pads. The pot stays outside, so it never moves.
-  - `buddy.css`: thinking sways ±2.4° about the trunk base (2.8 s). Lean is up to 6° on ease.out (0.35 s). Bloom swells each pad to 1.14 and back, 60 ms apart (0.56 s), and lifts the canopy 1.2px. Transform only. Reduced motion turns all of it off.
-  - `store.tsx`: `useBuddy()` and `<Buddy />`. Thinking comes from `useThinking()`. Bloom counts real `step.passed` events; a Skip is never a pass. While something is pointed at, `<Buddy />` leans toward it.
-  - Pass 2, the pointing branch:
-    - `marks.ts` (pure): the mark rules (`validMarks`, `keyOf`, `mergeMarks`, `holdFor`, `fadeAt`, `createReach`), the stroke (`reach`: one path, branch then loop), the fork for a second mark (`forkFor`), the label's place (`labelAt`), and the timing (`drawTime`, `timeToDraw`).
-    - `pointing.ts`: `usePointing` (what is shown, the lean, the pose), `annotate(payload)`, `fade`, `forget`, `pointAt`. Subscribed to the bus for `annotate`, `step.started`, `step.passed`, `lesson.ready`, `lesson.ended`, reset and Esc.
-    - `Reach.tsx`: the overlay layer `buddy-reach` (z 30: over the spotlight's dim, behind the island it grows out of), and `useBonsaiPoint`.
-    - `PointStage.tsx`: the try-out strip for the browser stage.
-  - `Stage.tsx` + `index.tsx`: previews that show only in the browser stage. No app window.
-- `app/mock/scenarios/buddy.json`: `annotate` events through the mock engine (one mark, a jittered re-send, two marks, a clear).
-- `app/test/buddyMarks.test.ts`: 63 offline tests for `marks.ts` and `pointing.ts`.
+  - The living mark: `LivingMark.tsx`, `buddy.css` (its part), `store.tsx` (`useBuddy()`, `<Buddy />`).
+  - The character: `Character.tsx` (three candidates: `sprout`, `leaf`, `dot`; moods calm, happy, curious, thinking, listening, sleepy; `look`, `talking`, `flying`, `point`, `tint`, `grown`), `palette.ts` (its colors), `buddy.css` (blink, float, leaf flap, the bubble's dots and bars).
+  - What it does: `Companion.tsx` (overlay layer `buddy`, z 55: the trips, the bubble, the chips), `trip.ts` (pure: flights, the perch, following the pointer, speech timing), `talk.ts` (the back and forth: summoned, listening, thinking, what it says, the replies), `wire.ts` (talk.ts wired to the engine's status, the Explain action and push to talk).
+  - The loops: `Reach.tsx` (overlay layer `buddy-reach`, z 30), `marks.ts` (pure: the mark rules and the stroke's shape), `pointing.ts` (what is shown, where the buddy is, `annotate`, `fade`, `reached`, `forget`, `pointAt`).
+  - Previews, browser stage only: `Stage.tsx` (`?buddy`), `PointStage.tsx` (`?buddy=point`), `CastStage.tsx` (`?buddy=cast`).
+- `app/mock/scenarios/buddy.json`: `annotate` events through the mock engine.
+- `app/test/buddyMarks.test.ts` (69 tests: mark rules, stroke geometry, the pointing store, trips, perch, follow, speech) and `app/test/buddyTalk.test.ts` (11 tests: the back and forth).
 
-## How to use the mark (Michael wires the notch)
+## The living mark (pass 1, Michael wires the notch)
 ```tsx
 import { Buddy, usePointerLean } from '../features/buddy'
 const ref = useRef<HTMLSpanElement>(null)
 const lean = usePointerLean(ref, hovered)          // hovered: the notch hover state
 <span ref={ref}><Buddy size={16} lean={lean} /></span>   // in place of <MiyagiMark size={16} /> (core/Island.tsx:648)
 ```
-In the click-through overlay, the lean needs mouse moves forwarded (`setIgnoreMouseEvents(true, { forward: true })`). Without them the tree simply stays upright.
+`LivingMark` props: `size`, `state: idle | thinking`, `lean` from -1 to 1, `bloom` counter, `tone`, `level`. Thinking sways ±2.4° about the trunk base. Lean is up to 6°. Bloom swells each pad on a real `step.passed` (a Skip is never a pass). Transform only; reduced motion turns it off. In the click-through overlay the lean needs mouse moves forwarded (`setIgnoreMouseEvents(true, { forward: true })`).
 
-## Pass 2: the buddy goes to what it points at
-Adrian, Nov 22, on the stroke alone: "make sure this is not just a highlighter, but an actual buddy, like Clicky." So the buddy is a character with a home, and the loop is something it does. It draws the engine's `annotate` event (Michael's contract, Nov 22, branch `claude/contract-circle-ask`): `{ marks: Annotation[]; holdMs? } | { clear: true }`, marks in screen points like `spotlight.rect`.
+## The buddy (pass 2)
+It draws the engine's `annotate` event (Michael's contract, Nov 22, branch `claude/contract-circle-ask`): `{ marks: Annotation[]; holdMs? } | { clear: true }`, marks in screen points like `spotlight.rect`.
 
-What happens when the coach points at something:
-1. **It leaves home.** The bonsai lifts out of the notch in a small island-black pod: a droplet of the island, so it reads on any app, and so it is the same object as the pill (black, the tree at one end, words beside it). Its place in the ear is empty while it is away.
-2. **It flies there.** On an arc, leaning into the flight, growing from the ear's 16 px to its own size, a little bigger mid-air. Farther takes longer (0.46 to 1.05 s).
-3. **It lands beside the thing**, with a small squash, on the circled line to its right (else below, else to its left with the pod mirrored so the tree stays next to the thing, else above).
-4. **It circles it.** From its tree it throws one deep-mint stroke that wraps the target once and lets go, so only the loop is left. The loop presses in as it lands.
-5. **It says the label.** The pod opens and the words come one letter at a time (34 ms each).
-6. **It is alive while it waits.** The tree leans toward the thing. It sways while the engine thinks and blooms when a step passes. When the learner's pointer comes near it turns to look at them, and the loop firms up the moment the pointer is on the target.
-7. **The learner gets there:** it hops, the loop is taken off the way it was put on, and it flies home. If another mark is up it hops over to that one instead, takes over its label, and waits there.
-8. **Home.** It shrinks back into the notch and the ear's tree is there again.
+### The character
+Three candidates, all drawn here as SVG, none of them the bonsai, none taken from another product:
+- **sprout** (the default): a round mint creature with a two-leaf sprout on its head. The leaves are its ears and its wings: they perk up when it listens, droop when it is sleepy, and flap when it flies.
+- **leaf**: a leaf with a face. Its tip is its pointer.
+- **dot**: a droplet of the island. Black, a mint rim, eyes only.
 
-A second or third mark in the same annotate gets its loop thrown from where the buddy sits, and its name on a plain island-black chip until the buddy comes over. A new annotate while it is out: it flies straight from where it is to the new first mark, then draws.
+Same face, moods and motion on each. `?buddy=cast` shows all three in every pose, at the size it is on the screen (54 px) over a dark and a light app. `?char=leaf` or `?char=dot` on the try-out shows another one in motion. The sheet also shows a proposal that nothing stores yet: the learner picks its color (six brand pastels), and it grows as they learn (one leaf on day one, two after a few lessons, a bud once skills are mastered).
 
-Borrowed from Clicky, in miyagi's own terms: a character with a home that travels to the thing (Clicky's cursor; here the bonsai from the notch), the arc that grows with distance and the mid-flight swell, landing beside the target and not on it, a few words typed out next to it, the hold and the return, and a new request turning it round mid-air. From circle-to-search: the loop is drawn on and its end overlaps its start.
+It has no name yet. Candidates: "bud" (short for buddy, and what a tree starts as), "pip" (a seed), "sprout".
 
-Pieces:
-- `trip.ts` (pure): the flight (`flight`, `along`, `tiltAt`, `scaleAt`), the perch (`perch`, `leanToward`), the speech timing (`said`), the pod's sizes.
-- `Pod.tsx`: the buddy's own overlay layer, `buddy-pod`, over the island (z 55). The trips, the landing, the words, the hop, the look toward the pointer, and the patch that hides the ear's mark while it is away.
-- `Reach.tsx`: the loops, layer `buddy-reach`, under the island (z 30). A loop is born when the buddy is sitting beside the first mark, from where its tree is, and keeps that start when the buddy moves on.
-- `marks.ts` (pure): the mark rules, the stroke's path and its spine (`reach`), the branch-shaped outline (`ribbon`), the label's place (`labelAt`).
-- `pointing.ts`: what is shown, where the buddy is (`trip`), `reached()` (the learner got there: cheer, then fade), `annotate`, `fade`, `forget`, `pointAt`.
+### What it does
+1. **It shows things.** When the coach points at something it pops out of the island, flies there on an arc (0.46 to 1.05 s by distance, leaning into the flight, leaves back), lands beside it with a small squash, throws a mint loop round it, points at it with a little arm, and says what it is in an island-black bubble, one letter at a time (30 ms each).
+2. **It takes the learner through several things.** An annotate with two or three marks is a tour: one loop at a time, "2 of 3" and a Next button in the bubble, small numbers where the others wait, Done on the last.
+3. **It listens.** While the learner holds push to talk it flies to their pointer, perks up and shows what it hears. It keeps the pointer company (30 px down and right, catching up a little each frame).
+4. **It thinks, then answers where the answer is.** From the moment the keys are let go it shows three dots. When the answer card comes it says the card's first sentence (96 characters at most), beside the mark the answer points at if there is one.
+5. **The learner answers back** from the bubble without talking: Explain (the step's Explain action, with the mark's label) or Got it.
+6. **It is alive.** It blinks, floats, looks where it is going and at what it points at, turns to the learner's pointer when it comes within 150 px, and hops and beams when they get there or say Got it.
+7. **It goes home.** With nothing left to show it lingers by the pointer for 7 s if the learner called it, then shrinks back into the island. Esc sends it home at once.
 
-Look: the pod is the island's black with the tree in color. The stroke is deep mint (`#96E4C8`, the notch glow's mint; Adrian picked mint, then the deeper one, from the renders), shaped like a branch (3.4 px where it leaves the tree, 2.1 px round the loop, fine at both ends), over an ink keyline. No glow, no gradient, no arrowhead. Nothing takes a click. The pod and the chips are `data-ui`; the stroke is not, or the engine would stop reading what it points at.
+A new annotate while it is out: it flies straight from where it is to the new first mark, then draws.
 
-Reduced motion: no flight and nothing drawn on. The pod fades in where it would have landed, with its words whole and the loop there, and fades out.
+Borrowed mechanics, in miyagi's own look and with its own character: a companion with a home that travels to the thing, the arc that grows with distance, landing beside the target and not on it, words typed out next to it, staying by the pointer while you talk (Clicky); a loop drawn on whose end overlaps its start (circle to search).
+
+### Look
+The character is the buddy's mint (`#96E4C8`, the notch glow's mint; Adrian picked mint, then the deeper one, from the renders) with an ink outline so it reads over a light app, pastel-pink cheeks, and a soft drop shadow. The bubble is the island's black with the pill's shadow. Explain is the sky `OptionButton`; Next and Done are the one `PrimaryButton`; Got it is a neutral chip. The loop is the same mint over an ink keyline, shaped like a brush stroke (wider where it starts, fine at the ends). No glow, no gradient, no arrowhead. Only a bubble with buttons takes the mouse (`data-hit`); the buddy and its bubble are `data-ui`; the stroke is neither, or the engine would stop reading what it points at.
+
+A loop fits its target: one line of code gets a loop that stays in that line, a block of code or a panel gets a squarer loop that stays within 21 px of it, a mark by a screen edge is pulled in to stay on screen.
+
+Reduced motion: no flights and nothing drawn on. It fades in where it would have landed with its words whole and the loop there, and fades out. No blink or float.
 
 ### The mark rules (the same as `features/annotate`, number for number)
 Michael's engine is written against his `features/annotate/marks.ts` and `store.ts`. `marks.ts` and `pointing.ts` here follow them exactly, so a mark lives and dies the same way whichever layer draws it. Change them together.
@@ -67,45 +74,48 @@ Michael's engine is written against his `features/annotate/marks.ts` and `store.
 - Draw a mark only when at least half of its box is on this display.
 - Not here: his bridge that also circles today's spotlight boxes until the engine sends its first annotate.
 
-Borrowed from other pointing apps, in miyagi's own look: the travel is an arc and takes longer the farther it goes (Clicky's cursor flies that way: its arc height and flight time grow with distance), the short label at the target (Clicky's bubble, shared-cursor chips), the hold and then the return, and a new request replacing the old one. From circle-to-search: the loop is drawn on, not faded in, and its end overlaps its start.
+One thing the buddy adds on top: Got it and Next fade a mark the way reaching it does.
 
 ## With features/annotate (Michael's layer)
-Michael claimed "buddy draws" by email at 7:06 PM on Nov 22 and pushed `features/annotate` on `michael/app-buddy-draw`: a mint stroke from the island's middle to a loop, also on `annotate`. This pass was started a few minutes before his commit, so neither side saw the other. He was told by email that night (thread "miyagi: claiming circle-to-ask + buddy drawing on screen"). The two now fit together:
-- **One stroke per mark.** While `features/annotate` is mounted, `Reach.tsx` draws nothing (`STAND_DOWN_FOR`), so the branches can merge in either order. With his layer present, his stroke draws and this feature only leans the tree. Without it, this one draws. Which one draws in the end is that one constant.
-- **What he asked the buddy to expose** ("its position or a point pose"):
-  - `useBonsaiPoint(ref, layout, on)`: where the living mark is, in the overlay window's coordinates, for a branch to start from. `ref` is any direct child of the overlay root.
-  - `pointAt(box?)`: the point pose. The tree leans toward the box (screen points) until `pointAt()` with nothing. Marks from `annotate` lean the tree on their own, so this is for anything else his layer circles (a bridged spotlight box).
-- **Same rules** (above), so the engine sees one behavior.
-- **Still different, and open:**
-  - The character. His layer draws a stroke from the island; this one sends the bonsai itself, in a pod, to sit beside the thing and say its label. The stroke is mint in both: his `brand.pastel.mint`, this one the notch glow's deeper mint (Adrian's pick). His branch's BRAND.md exception names mint and `features/annotate` as the one allowed stroke; brand rules are Adrian's to change.
-  - His has the spotlight bridge and the root frozen at a mark's birth; this one starts from the living mark, forks for a second mark, and fits loops to one line of code and to the screen edge.
+Michael claimed "buddy draws" by email at 7:06 PM on Nov 22 and pushed `features/annotate`: a mint stroke from the island's middle to a loop with a name chip, also on `annotate`. At 8:29 PM he asked to hold this pass until the two of them pick one. So:
+- **By default this feature draws nothing while `features/annotate` is mounted** (`STAND_DOWN_FOR` in `Reach.tsx`): no character, no bubble, no loop. The branches can merge in either order and a mark is never circled twice.
+- **Same rules** (above), so the engine sees one behavior whichever draws.
+- **What he asked the buddy to expose:** `useBonsaiPoint(ref, layout, on)` (where the living mark is, for a stroke to start from) and `pointAt(box?)` (the tree leans toward a box).
+- **Three ways it can end.** (a) His layer alone: a stroke and a chip, no character. (b) This one draws: the character, its bubble and its loop; his layer stands down. (c) Both: his stroke circles, the character does everything else. The stage's `?together` shows (c) on a merged build, and as it is it is rough: his name chip sits where the buddy lands and says the same words, a tour shows all three strokes at once, and Got it cannot take his loop off. To be good, (c) needs his layer to hide its chip while the buddy is at that mark and to let a reply fade his mark.
 
-Checked merged with his branches (`michael/app-buddy-draw` c0841b36 and `michael/app-circle-ask` 622018dd, its fix round 2, on top of this branch, a throwaway merge that was not pushed): no conflict with this feature's files; typecheck passes; these 49 tests and his 34 pass; in the built stage his layer draws each mark once and this one draws none, for `?scenario=buddy`, `?scenario=annotate` and the try-out strip; the strip's tree leans with his stroke. The only conflict in that merge is between his own two branches, in `app/agents/ports.json` (each adds its port on the same line).
+Checked merged with `origin/michael/v2-integration` at 77874bec (Nov 22, 10 PM; it has `features/annotate` and circle to ask), on a throwaway branch that was not pushed: no conflicts; typecheck passes; the full suite is 826 tests with the one known failure (`linkHost.test.ts`, a drawer test, untouched here); in the built stage his layer draws each mark (three for a tour, one for an answer) and this feature draws nothing; with `?together` the character and its bubble also show and this feature's loops still do not.
 
 ## How to see it
 Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build --config vite.web.config.ts --base ./ --outDir <a folder outside the worktree>`.
-- `?buddy=point&clean`: the try-out strip. One, Two, Answer, Far, Clear; or click anywhere on the desktop to point there. Rest the pointer on a mark, or click inside it, to send it away. The strip sends real `annotate` events through the bus.
+- `?buddy=point&clean`: the try-out. One, Tour, Far, Clear, Home; Hold to talk (hold the button: it hears a canned question, then answers); or click anywhere to point there. The answers are canned in `PointStage.tsx`; the marks go through the bus as real `annotate` events.
+- `?buddy=cast&clean`: the character sheet.
 - `?scenario=buddy&clean`: marks arriving from the mock engine.
-- Add `&notch=below` for the pill under the menu bar.
+- Add `&char=leaf` or `&char=dot` for another character, `&notch=below` for the pill under the menu bar.
 - `?buddy`: every state of the living mark (pass 1).
-- Moving previews (outside the repo, in Adrian's `SanD Hacks/research/buddy-compare/`): `buddy-pod-two.gif`, `buddy-pod-hop.gif`, `buddy-pod-far.gif`. The `shots/buddy-point-*.png` in the repo are from the first stroke-only look and are out of date; `shots/buddy-stage.png` (pass 1) still holds.
+- `shots/buddy-cast.png` (the sheet), `shots/buddy-moments.png` (close-ups of each moment), `shots/buddy-stage.png` (pass 1). Moving previews are outside the repo, in Adrian's `SanD Hacks/research/buddy-compare/`: `buddy-char-ask.gif`, `buddy-char-tour.gif`, `buddy-char-hop.gif`, `buddy-char-far.gif`.
 
 ## Checked
-- `npm run typecheck` passes. `test/buddyMarks.test.ts`: 63 of 63 pass. The full suite has one failure, `linkHost.test.ts` (a drawer test that reads only drawer files; untouched here).
-- Built stage in headless Chrome (1600x1000): one mark, two marks forking, an unnamed answer mark, a far corner, the pill below the menu bar, frames mid-draw at 120 and 300 ms, the exit 110 ms after a clear, and a light backdrop.
-- Same stage, by synthetic mouse and key events: a press points there; a pointer already on the mark does not fade it; leaving, coming back and resting fades it (still there at 150 ms, gone by 800 ms); a press inside clears it; Esc clears it; with two marks, reaching the first leaves the second; the strip's tree leans (`--lm-lean` 1) and stands back up after a clear.
-- Reduced motion (emulated): the stroke is whole from its first frame and only fades in.
-- `?scenario=buddy`: the mark arrives through the mock engine and the bus, goes 4 s after its birth although it was re-sent in between, then two marks show.
-- The buddy (Nov 22, built stage, DOM states and recorded frames): it leaves home and the ear is covered; it lands, one loop draws, the words are whole; the pointer on the mark firms the loop, then the mark goes and it flies home; with two marks it says the first, the second has a chip, and reaching the first sends it over to the second, whose words it takes; a clear and Esc send it home; a new mark while it is out makes it hop there without going home, and it draws only after it lands. Reduced motion: it is at its perch with whole words from the first frame.
-- Not checked: Electron on a Mac. The stroke over real apps, the pointer rule with forwarded mouse moves, the start point on a real notch, a second display, and a live engine sending `annotate`.
+- `npm run typecheck` passes. `test/buddyMarks.test.ts` 69 of 69, `test/buddyTalk.test.ts` 11 of 11. The full suite has one failure, `linkHost.test.ts` (reads only drawer files; untouched here).
+- Built stage in headless Chrome (1600x1000), by DOM state and recorded frames:
+  - One mark: it lands, one loop draws, it says the label, Explain and Got it show and the bubble takes the mouse. Explain: it thinks, then says the explanation. Got it: it beams, the loop comes off.
+  - A tour of three: one loop at a time, the numbers count down (2 and 3, then 3, then none), Next, Next, Done.
+  - Hold to talk: it comes to the pointer and follows it, shows what it hears, thinks on release, flies to the answer and says the sentence with the chips. Esc sends it home.
+  - A far corner, three places one after another, and a light backdrop.
+  - Reduced motion (emulated): at its perch with whole words from the first frame, no blink.
+- Not checked: Electron on a Mac. The buddy over real apps, the pointer rules with forwarded mouse moves, the island on a real notch, a second display, a live engine sending `annotate`, real push to talk (the wiring to `features/ptt` is written against its store and has only run with the stage's stand-in).
 
-## Next
-- Adrian and Michael pick which layer draws, and the stroke's color.
-- Later: a leaf per mastered skill (Progress and Skills).
+## Open (Adrian, then Adrian and Michael)
+- Which character, and its name.
+- Which of the three ways above.
+- Whether the learner's color and the growing are wanted. If so they need a place to be stored (Core requests 7).
+- When the buddy says an answer the answer card also shows in the island. One of them should step back.
 
 ## Core requests
 1. **The contract.** `annotate` and `Annotation` are on `claude/contract-circle-ask`, not on this branch. Until they land, `marks.ts` mirrors the type and `pointing.ts` casts `onMessage` to subscribe. Both go when the contract is merged.
-2. **`common/wire.ts` KNOWN needs `'annotate'`**, or the app's parser drops the event in Electron (the browser stage's mock does not go through the parser, so it works there). Michael has this line in b3ffd388 on `michael/app-buddy-draw`.
-3. **A token for the deeper mint.** `core/theme.ts` has `brand.pastel.mint` but the notch glow's mint (rgb 150 228 200) only lives inside the `hud.notchGlow` gradient string. `Reach.tsx` holds it as `MINT`.
+2. **`common/wire.ts` KNOWN needs `'annotate'`**, or the app's parser drops the event in Electron (the browser stage's mock does not go through the parser). Michael has this line in b3ffd388 on `michael/app-buddy-draw`.
+3. **A token for the deeper mint.** `core/theme.ts` has `brand.pastel.mint`, but the notch glow's mint (rgb 150 228 200) only lives inside the `hud.notchGlow` gradient string. `palette.ts` holds it as `MINT`.
 4. **A real click.** The overlay is click-through, so in Electron a click inside a mark never reaches this window. Main could broadcast a global left-mouse-down point (screen points); today the pointer resting on the mark stands in for it. Michael asks for the same thing in `agents/app-buddy-draw.md`.
-5. **The ear should use `<Buddy />`** in place of `<MiyagiMark />` (`core/Island.tsx`, integrator). `<Buddy />` hides itself while the buddy is out on the screen. Until then `Pod.tsx` covers the ear's mark with a patch of island black, which only works when the ears are out; under the menu bar (no notch) the pill keeps its own tree while the buddy is away.
+5. **Longer holds for tours and answers.** The hold is counted from the newest mark's birth, so a three-mark tour sent with the default 6 s is gone before the learner reads the second one. The engine should send `holdMs` near the 30 s limit with a tour or an answer, or the rule should let an open bubble keep its mark. (The try-out sends 30 s for a tour and 12 s for an answer.)
+6. **A BRAND.md section for the character.** BRAND.md does not mention a character. On Michael's integration branch it gains one exception to "no hand-drawn annotations": the buddy stroke (mint, `features/annotate`). A character with a face and pink cheeks is a brand decision; it is Adrian's to write down once he has picked one, and the stroke exception should then name whichever layer draws.
+7. **Somewhere to keep the learner's buddy** (its color, how far it has grown): a settings field and the skills count. Nothing stores them today; `Character` takes `tint` and `grown` as props.
+8. **Typed questions.** The buddy comes for push to talk. A question typed in the launcher gets its answer card only; a bus event when the learner asks from anywhere would let the buddy come for those too.
