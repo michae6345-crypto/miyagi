@@ -5,6 +5,7 @@
  *   PANEL       the content surface: one raised layer inset from the window, the sidebar sits on the window itself
  *   PageHeader  the page header every page gets from the shell: the title (and its actions) on the page column
  *   PageColumn  THE page column (the only one): centered in the pane, 720 or 1040 wide with its gutters, top-anchored
+ *   PageBody    a PageColumn holding a page's content stack, with an optional 560 `form` measure inside it
  *   CARD        a card on the pane (radius 12)
  *   PageTitle   a title row inside a page (no hairline under it; spacing does the grouping)
  *   SectionHead a quiet section header with an optional right-hand action
@@ -82,9 +83,13 @@ const GUTTER = `var(--page-gutter, ${layout.page.gutter}px)`
  *
  * Pages that scroll in the shell's body and pages that scroll inside themselves use it alike: the shell never pads a
  * page's body, so the column always centers in the full pane and its scrollbar stays at the pane's edge.
+ *
+ * The column's top is `top` and nothing else: a `paddingTop` in `style` is ignored (round 2: pages passed 8, written for
+ * an older 24 px title gap, which put their first block 16 under the title). `wide` is the same as `width="wide"`.
  */
 export function PageColumn({
-  width = 'page',
+  width,
+  wide = false,
   gap,
   top = layout.page.bodyTop,
   bottom = layout.page.bottom,
@@ -94,6 +99,7 @@ export function PageColumn({
   data
 }: {
   width?: ColumnWidth
+  wide?: boolean
   gap?: number
   top?: number
   bottom?: number
@@ -102,15 +108,30 @@ export function PageColumn({
   children: ReactNode
   data?: Record<string, string | boolean | undefined>
 }): ReactNode {
+  const w: ColumnWidth = width ?? (wide ? 'wide' : 'page')
   return (
     <div
-      data-page-column={width}
+      data-page-column={w}
       className={`flex w-full flex-col ${className}`}
-      style={{ maxWidth: COLUMN_MAX[width], marginInline: 'auto', paddingInline: GUTTER, paddingTop: top, paddingBottom: bottom, gap, ...style }}
+      style={{ maxWidth: COLUMN_MAX[w], marginInline: 'auto', paddingInline: GUTTER, paddingBottom: bottom, gap, ...style, paddingTop: top }}
       {...data}
     >
       {children}
     </div>
+  )
+}
+
+/**
+ * A page's content stack on the page column (Settings, Account): sections `gap` apart (40), 64 at the bottom. `width`
+ * 'form' keeps the stack at the 560 reading measure, left inside the column (forms and long text never center).
+ */
+export function PageBody({ children, width = 'column', gap = layout.page.section, style }: { children: ReactNode; width?: 'column' | 'form'; gap?: number; style?: CSSProperties }): ReactNode {
+  return (
+    <PageColumn gap={gap} style={style} data={{ 'data-page-body': '' }}>
+      <div className="flex w-full flex-col" style={{ maxWidth: width === 'form' ? layout.page.form : undefined, gap }}>
+        {children}
+      </div>
+    </PageColumn>
   )
 }
 
