@@ -1,0 +1,35 @@
+/* The living bonsai (LivingMark.tsx). Transform only; the pot never moves. Every brand cut is a 100x100 viewBox with
+   the trunk meeting the pot at about (50, 74), so the canopy turns about that point. */
+.lm { display: inline-block; position: relative; line-height: 0; vertical-align: middle; }
+.lm-cut { width: 100%; height: 100%; }
+.lm-cut svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.lm .lm-lean, .lm .lm-sway, .lm .lm-bloom { transform-box: view-box; transform-origin: 50% 74%; }
+
+/* Hover lean: up to 6 degrees toward the pointer, on ease.out over the house spring's settle time. */
+.lm .lm-lean { transform: rotate(calc(var(--lm-lean, 0) * 6deg)); transition: transform 0.35s cubic-bezier(0.23, 1, 0.32, 1); }
+
+/* Thinking: a slow sway from the trunk base, starting from upright so it never jumps. */
+.lm[data-state='thinking'] .lm-sway { animation: lm-sway 2.8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes lm-sway {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(2.4deg); }
+  75% { transform: rotate(-2.4deg); }
+}
+
+/* Pass: each pad swells once from its base, 60 ms apart, and the canopy lifts a hair. Plays once per bloom value. */
+.lm .lm-pad { transform-box: fill-box; transform-origin: 50% 100%; }
+.lm-cut[data-bloom] .lm-pad { animation: lm-bloom 0.56s cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: calc(var(--i, 0) * 60ms); }
+.lm-cut[data-bloom] .lm-bloom { animation: lm-rise 0.56s cubic-bezier(0.23, 1, 0.32, 1) both; }
+@keyframes lm-bloom {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.14); }
+}
+@keyframes lm-rise {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-1.2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lm .lm-sway, .lm .lm-bloom, .lm .lm-pad { animation: none !important; }
+  .lm .lm-lean { transition: none; }
+}
