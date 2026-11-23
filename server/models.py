@@ -78,6 +78,28 @@ ROUTES: dict[str, Route] = {
 }
 FALLBACK = Route(HAIKU)  # a purpose not in the table (a new coach purpose): the cheap model
 
+# Cache the stable part of the USER message (a transcript, a lesson outline) at this call site? System prompts and
+# schemas are always cached (the same bytes on every call, and every install shares the cloud's account). A user
+# prefix is cached only where the same build reads it again within the 5-minute TTL; a write that nothing reads costs
+# 1.25x for nothing. Flip one from measured cache_read vs cache_write tokens (the per-call `cost` log line and the
+# session_cost event, by source) with MIYAGI_CACHE_PREFIX_<SITE>=1|0, e.g. MIYAGI_CACHE_PREFIX_LESSON_DETAIL=1.
+PREFIX_CACHE: dict[str, bool] = {
+    "lesson.segment": False,    # one call per build over the transcript; repeat builds hit the lesson cache instead
+    "lesson.detail": False,     # per-step calls start together (up to DETAIL_CONCURRENCY=8), so none reads another's write
+    "lesson.text_step": False,  # "Just teach me" step drafts also run in parallel
+}
+
+
+def cache_prefix(site: str) -> bool:
+    """Whether `site` caches its user-message prefix: MIYAGI_CACHE_PREFIX_<SITE> (1/0), else for lesson sites the older
+    LESSON_PROMPT_CACHE_USER (1/0), else PREFIX_CACHE (unknown sites: off)."""
+    for name in (f"MIYAGI_CACHE_PREFIX_{site.replace('.', '_').upper()}",
+                 *(("LESSON_PROMPT_CACHE_USER",) if site.startswith("lesson.") else ())):
+        v = (os.environ.get(name) or "").strip()
+        if v in ("0", "1"):
+            return v == "1"
+    return PREFIX_CACHE.get(site, False)
+
 
 def default_for(purpose: str) -> str:
     return ROUTES.get(purpose, FALLBACK).default

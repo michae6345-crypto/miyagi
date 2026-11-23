@@ -360,7 +360,8 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
     async def draft(i: int, notes: str, earlier: str) -> dict:
         head, body = prompt_for(i, notes, earlier)
         return strip_injection(await claude._generate_json(SYSTEM, body, STEP_SCHEMA, effort="low", structured=False,
-                                                           role="detail", check=ok, prefix=head), plan_libs)
+                                                           role="detail", check=ok, prefix=head,
+                                                           cache_site="lesson.text_step"), plan_libs)
 
     async def step(i: int, notes: str, d: dict | None = None) -> list[dict]:
         """Build plan step i against the files the earlier steps produced. d: its draft, written in parallel with the
