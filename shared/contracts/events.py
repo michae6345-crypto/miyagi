@@ -602,6 +602,29 @@ class Error(_Model):
     gen: int | None = None
 
 
+class AnswerDelta(_Model):
+    """answer.delta (Nov 22, fast circle to ask, server/coach/fast_ask.py): the next words of a streamed answer. Append
+    `text` to the answer for askId; seq counts up from 0 per ask. The model's first-line [DRAW:...] tag never reaches
+    the app (the engine sends it as annotate). The answer card {kind: "answer", askId} still follows answer.done with the
+    same text, so an app that ignores these events loses nothing; nothing streamed: only the card comes, as before."""
+
+    askId: str | None = None
+    seq: int
+    text: str
+
+
+class AnswerDone(_Model):
+    """answer.done: the streamed answer for askId is over. `text` is the whole answer, cleaned (it replaces what the
+    deltas built). complete False: cut short (reason "refusal" | "max_tokens" | "error", a plain str). fallback True:
+    the stream failed and a non-streaming retry answered."""
+
+    askId: str | None = None
+    text: str
+    complete: bool = True
+    fallback: bool | None = None
+    reason: str | None = None
+
+
 class LessonEnded(_Model):
     lessonId: str | None = None
     reason: str
@@ -652,6 +675,8 @@ ENGINE_EVENTS: dict[str, Any] = {
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
+    "answer.delta": AnswerDelta,  # fast circle to ask (Nov 22): streamed words
+    "answer.done": AnswerDone,
 }
 
 EngineEventType = Literal[
@@ -660,6 +685,7 @@ EngineEventType = Literal[
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
     "screen.avoid",
+    "answer.delta", "answer.done",
 ]
 
 
@@ -725,6 +751,15 @@ class CardShown(_Model):
     kind: str | None = None  # the card's kind, or "offtrack"
 
 
+class AskWarm(_Model):
+    """ask.warm (Nov 22, fast circle to ask): the learner pressed the push-to-talk keys (Fn+Control). Send it on
+    key-down, before any words or ink. The engine opens its keep-alive connection to the miyagi cloud / Anthropic and
+    warms the prompt cache for the ask (at most one billed warm-up per 4 minutes). No answer is sent back.
+    source: "keydown" (a plain str, so a new tag from the app is not rejected)."""
+
+    source: str | None = None
+
+
 class CardClosed(_Model):
     """card.closed: that card left the slot. by: "user" | "replaced" | "timeout" | "hidden" (kept a plain str here so
     a new reason from the app is logged, not rejected). "user" / "timeout" lift the hold this card (matched by title)
@@ -747,10 +782,11 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "end_lesson": EndLesson,
     "card.shown": CardShown,
     "card.closed": CardClosed,
+    "ask.warm": AskWarm,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
-                         "card.shown", "card.closed"]
+                         "card.shown", "card.closed", "ask.warm"]
 
 
 class AppMessage(BaseModel):
