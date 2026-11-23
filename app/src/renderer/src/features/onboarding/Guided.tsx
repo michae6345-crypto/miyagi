@@ -41,6 +41,14 @@ import { ease, fade, stagger as motionStagger } from '../../core/ui/motion'
 export const ADVANCE_MS = 1100
 /** How long the walk waits for the first permissions answer before it picks a step anyway. */
 const SETTLE_MS = 900
+/** The tallest the step plus its footer grows (Nov 22): a bit more than the first-run window has under its header. */
+export const STAGE_MAX_H = 640
+/**
+ * The room above the step in a tall window (full screen): the block is top-anchored this far under the header, never
+ * centered vertically (layout spec: "top-anchored is calm"). In the first-run window (944x640) there is no spare
+ * height, so the gap gives way first and the step fills the window as before.
+ */
+export const STAGE_TOP = 80
 /** In the flow, how long after enterDelay the loading shape may fade in (s): past the login's exit, and usually never
  * seen at all, since the first answer lands before it (the strip and the gliding bonsai carry that beat). */
 const SKELETON_WAIT = 0.3
@@ -362,60 +370,72 @@ export function Guided({
         )}
       </header>}
 
-      <main className="relative min-h-0 flex-1 overflow-hidden">
-        {row ? (
-          <AnimatePresence custom={custom} initial={true} mode="popLayout">
-            <motion.section
-              key={row.id}
-              custom={custom}
-              variants={slide}
-              initial="hidden"
-              animate="shown"
-              exit="exit"
-              className="absolute inset-0"
-              aria-label={`Step ${(idx ?? 0) + 1} of ${steps.length}: ${STEP_COPY[row.id].short}`}
-            >
-              <StepScreen row={row} picture={picture} advancing={advancing} stuck={stuck} />
-            </motion.section>
-          </AnimatePresence>
-        ) : (
-          // The first answer is on its way (under a second): the shape of a step, never a blank window. In the flow it
-          // fades in only after the screen before it (the login) is gone, so two screens are never drawn over each other.
-          <motion.div
-            aria-hidden
-            className="mx-auto flex h-full w-full max-w-[860px] flex-col justify-center gap-[16px] px-[56px]"
-            initial={chrome === 'flow' ? { opacity: 0 } : false}
-            animate={{ opacity: 0.6 }}
-            transition={{ ...fade.slow, delay: chrome === 'flow' ? enterDelay + SKELETON_WAIT : 0 }}
+      {/* The step and its footer are one block, at most STAGE_MAX_H tall, top-anchored STAGE_TOP under the header. In
+          the first-run window (944x640) the gap shrinks away first (its flex-shrink outweighs the block's) and the block
+          fills what is left, as before; full screen, the actions stay right under the step instead of sinking to the
+          bottom edge (Nov 22 layout pass). */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div aria-hidden className="min-h-0" style={{ flex: `0 1000 ${STAGE_TOP}px` }} />
+        <div className="flex min-h-0 w-full flex-col" style={{ flex: `0 1 ${STAGE_MAX_H}px` }}>
+          <main className="relative min-h-0 flex-1 overflow-hidden">
+            {row ? (
+              <AnimatePresence custom={custom} initial={true} mode="popLayout">
+                <motion.section
+                  key={row.id}
+                  custom={custom}
+                  variants={slide}
+                  initial="hidden"
+                  animate="shown"
+                  exit="exit"
+                  className="absolute inset-0"
+                  aria-label={`Step ${(idx ?? 0) + 1} of ${steps.length}: ${STEP_COPY[row.id].short}`}
+                >
+                  <StepScreen row={row} picture={picture} advancing={advancing} stuck={stuck} />
+                </motion.section>
+              </AnimatePresence>
+            ) : (
+              // The first answer is on its way (under a second): the shape of a step, never a blank window. In the flow
+              // it fades in only after the screen before it (the login) is gone, so two screens are never drawn over
+              // each other.
+              <motion.div
+                aria-hidden
+                className="mx-auto flex h-full w-full max-w-[860px] flex-col justify-center gap-[16px] px-[56px]"
+                initial={chrome === 'flow' ? { opacity: 0 } : false}
+                animate={{ opacity: 0.6 }}
+                transition={{ ...fade.slow, delay: chrome === 'flow' ? enterDelay + SKELETON_WAIT : 0 }}
+              >
+                <span className="block h-[56px] w-[56px]" style={{ borderRadius: radius2.group, background: fill.skeleton }} />
+                <span className="mt-[8px] block h-[24px] w-[320px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
+                <span className="block h-[14px] w-[260px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
+              </motion.div>
+            )}
+          </main>
+
+          {/* The footer shares a centered 720 column with the step: in a full-screen window the primary stays near the
+              copy it answers instead of drifting to the far corner. */}
+          <motion.footer
+            // With no Back (the first step) the actions center under the step, like the copy above them.
+            className={`mx-auto flex h-[84px] w-full max-w-[720px] shrink-0 items-center px-[40px] ${idx !== undefined && idx > 0 ? 'justify-between' : 'justify-center'}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: row ? 1 : 0 }}
+            transition={{ ...fade.slow, delay: enterDelay }}
           >
-            <span className="block h-[56px] w-[56px]" style={{ borderRadius: radius2.group, background: fill.skeleton }} />
-            <span className="mt-[8px] block h-[24px] w-[320px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
-            <span className="block h-[14px] w-[260px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
-          </motion.div>
-        )}
-      </main>
-
-      <motion.footer
-        className="flex h-[84px] shrink-0 items-center justify-between px-[40px]"
-
-        initial={{ opacity: 0 }}
-        animate={{ opacity: row ? 1 : 0 }}
-        transition={{ ...fade.slow, delay: enterDelay }}
-      >
-        <div data-onb-back>{idx !== undefined && idx > 0 && <QuietButton size="lg" icon={ChevronLeft} label="Back" onClick={back} />}</div>
-        <div className="flex items-center gap-[12px]">
-          {secondary && (
-            <span data-onb-secondary>
-              <QuietButton size="lg" label={secondary.label} onClick={secondary.onClick} />
-            </span>
-          )}
-          {primary && (
-            <span data-onb-primary data-label={primary.label}>
-              <PrimaryButton size="lg" label={primary.label} onClick={primary.onClick} busy={primary.busy} disabled={primary.disabled} />
-            </span>
-          )}
+            <div data-onb-back>{idx !== undefined && idx > 0 && <QuietButton size="lg" icon={ChevronLeft} label="Back" onClick={back} />}</div>
+            <div className="flex items-center gap-[12px]">
+              {secondary && (
+                <span data-onb-secondary>
+                  <QuietButton size="lg" label={secondary.label} onClick={secondary.onClick} />
+                </span>
+              )}
+              {primary && (
+                <span data-onb-primary data-label={primary.label}>
+                  <PrimaryButton size="lg" label={primary.label} onClick={primary.onClick} busy={primary.busy} disabled={primary.disabled} />
+                </span>
+              )}
+            </div>
+          </motion.footer>
         </div>
-      </motion.footer>
+      </div>
     </div>
   )
 }

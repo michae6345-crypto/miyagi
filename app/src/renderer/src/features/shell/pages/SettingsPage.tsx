@@ -21,6 +21,8 @@ import { Shortcuts } from '../../settings/sections/Shortcuts'
 import { NAV } from '../../settings/Sidebar'
 import { InlineSettings } from '../../settings/ui'
 import { setSettingsSection, useShell } from '../store'
+import { PageBody } from '../ui'
+import { BODY_TOP, SECTION_GAP, UNDER_TABS } from './Column'
 
 const OPTIONS = NAV.map((n) => ({ value: n.id, label: n.label }))
 
@@ -35,18 +37,22 @@ export function SettingsPage({ active }: { active: boolean }): ReactNode {
   }, [section, first])
   return (
     <InlineSettings.Provider value>
-    <div data-shell-settings={section} className="flex flex-col gap-[24px]" style={{ padding: '8px 40px 40px', maxWidth: 820 }}>
-      <div className="flex shrink-0">
-        <Segmented<SettingsSection> label="Settings sections" options={OPTIONS} value={section} onChange={setSettingsSection} />
+      {/* The shared page column (ui.tsx PageBody, centered under the title). The section control spans the column, so
+          its right edge lines up with the groups under it; the groups are SECTION_GAP apart. */}
+      <div data-shell-settings={section} className="w-full">
+        <PageBody gap={UNDER_TABS} style={{ paddingTop: BODY_TOP }}>
+          <div className="flex shrink-0 [&>[role=radiogroup]]:flex [&>[role=radiogroup]]:w-full [&_[role=radio]]:flex-1">
+            <Segmented<SettingsSection> label="Settings sections" options={OPTIONS} value={section} onChange={setSettingsSection} />
+          </div>
+          <motion.div key={section} initial={moved ? riseIn.initial : false} animate={riseIn.animate} transition={riseIn.transition} className="flex flex-col" style={{ gap: SECTION_GAP }}>
+            {section === 'general' && <General live={active} />}
+            {section === 'permissions' && <Permissions live={active} />}
+            {section === 'privacy' && <Privacy secure={flow.view?.secure} onDeleted={flow.replaceView} />}
+            {section === 'account' && <Account flow={flow} live={active} />}
+            {section === 'shortcuts' && <Shortcuts />}
+          </motion.div>
+        </PageBody>
       </div>
-      <motion.div key={section} initial={moved ? riseIn.initial : false} animate={riseIn.animate} transition={riseIn.transition} className="flex flex-col gap-[24px]">
-        {section === 'general' && <General live={active} />}
-        {section === 'permissions' && <Permissions live={active} />}
-        {section === 'privacy' && <Privacy secure={flow.view?.secure} onDeleted={flow.replaceView} />}
-        {section === 'account' && <Account flow={flow} live={active} />}
-        {section === 'shortcuts' && <Shortcuts />}
-      </motion.div>
-    </div>
     </InlineSettings.Provider>
   )
 }

@@ -7,15 +7,15 @@ import type { ReactNode } from 'react'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { GlassCard } from '../../core/ui/GlassCard'
 import { openSettings } from '../../core/surfaces'
-import { color, type2 } from '../../core/theme'
+import { color, layer, type2 } from '../../core/theme'
 import type { Account, View } from './model'
-import { MeterGroup } from './ui'
+import { MeterGroup, WINDOW_CARD_SHADOW } from './ui'
 
 export function Upgrade({ account, go, close }: { account: Account | null; go: (v: View) => void; close: () => void }): ReactNode {
   const help = account?.help
   const price = account?.catalog?.pro?.monthly
   return (
-    <GlassCard surface="panel" width={440} padding={24} style={{ display: 'flex' }}>
+    <GlassCard surface="panel" width={440} padding={24} style={{ display: 'flex', background: layer.overlay.background, boxShadow: WINDOW_CARD_SHADOW }}>
       <section role="dialog" aria-labelledby="account-up-title" className="flex w-full flex-col gap-[24px]">
         <div className="flex flex-col gap-[8px]">
           <h2 id="account-up-title" className="m-0 font-semibold" style={{ fontSize: type2.xl, lineHeight: '24px', letterSpacing: '-0.01em', color: color.text }}>

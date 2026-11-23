@@ -65,7 +65,9 @@ export function Checklist({ rows, sum, onGuide, onStart, mark, again }: { rows: 
           </motion.div>
         ))}
       </motion.div>
-      <div className="flex-1" />
+      {/* The footer follows the list (32 under it, top-anchored), not the window's bottom edge: full screen, it used to sit
+          600 px below the rows it acts on. */}
+      <div className="shrink-0" style={{ height: 8 }} />
       <Footer
         sum={sum}
         border={false}
