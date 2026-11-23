@@ -44,6 +44,7 @@ import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
 import { setPage } from '../shell/store'
+import { LessonSkills } from '../skills/extras/SkillChips'
 
 // ---- the continue model -------------------------------------------------------------------------------------------
 
@@ -350,6 +351,7 @@ function UpNext({ skip, done }: { skip: Set<string>; done: Set<string> }): React
                   <span className="truncate" style={caption}>
                     {lessonLine(i)}
                   </span>
+                  <LessonSkills item={i} />
                 </span>
                 <RowChevron />
               </Row>
