@@ -28,6 +28,7 @@ import { FILTER_TOOLS, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './p
 import { contLine, continueList, type Cont } from '../dashboard/continue'
 import { LessonSkills } from '../skills/extras/SkillChips'
 import { useDash } from '../dashboard/store'
+import { PresetLibraries } from './presets/PresetLibraries'
 import { openDetail, setQuery, setTool, start, useLibrary, visible } from './store'
 
 /** New lesson / Paste a link: the launcher takes a goal or a pasted YouTube link (it builds; the library never does). */
@@ -289,6 +290,11 @@ export function Lessons(): ReactNode {
               </section>
             </Rise>
           </>
+        )}
+        {s.loaded && (
+          <Rise i={2}>
+            <PresetLibraries />
+          </Rise>
         )}
       </Column>
     </Pane>
