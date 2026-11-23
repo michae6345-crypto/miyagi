@@ -16,15 +16,15 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 
 | Route | Auth | What it does |
 |---|---|---|
-| `GET /healthz` | none, never rate limited | `{"ok": true, "version", "commit", "proxy_enabled", "paused", "db_ok", "gemini_enabled", "keys_configured": {"anthropic", "gemini"}}`. `commit` is `RENDER_GIT_COMMIT` (a hex SHA) or null; everything else is a boolean. Never a key, a path or a count. Always 200 while the process runs. |
+| `GET /healthz` | none, never rate limited | `{"ok": true, "version", "commit", "proxy_enabled", "paused", "db_ok", "gemini_enabled", "require_signin", "keys_configured": {"anthropic", "gemini"}}`. `commit` is `RENDER_GIT_COMMIT` (a hex SHA) or null; everything else is a boolean. Never a key, a path or a count. Always 200 while the process runs. |
 | `POST /v1/install` | none; 20 per network per hour and 60 per day, shared with `/v1/register`; `NEW_INSTALLS_PER_DAY` (500) in all per UTC day | What the desktop app calls. Body `{app, os, arch}` (all optional, extra fields ignored) → `{token, token_id}`. `token` is `mi_` + 32 random bytes urlsafe (46 characters); `token_id` is the first 12 hex characters of its sha256, the same id the admin views and `/admin/tokens/{prefix}/disable` use. Past the daily new-install cap: 429 `miyagi_full` (see "Install minting"). |
 | `POST /v1/register` | same limits | Older form. Body `{install_id, app_version, platform}` → `{token, token_id}`, same token shape. |
 | `POST /v1/link` | install token | Links the install to a Google-signed-in miyagi account. See "Accounts" below. |
 | `POST /v1/account/delete` | install token (+ the Supabase access token when signed in) | Deletes everything the cloud holds for the install and, signed in, for the whole account, then the Supabase auth user. See "Deleting an account". |
-| `POST /v1/anthropic/messages` (also `/v1/anthropic/v1/messages`) | install token | Messages API through our key, request body rebuilt from an allowlist (below). |
-| `POST /v1/gemini/{model}:generateContent` and `:streamGenerateContent` (also under `/v1/gemini/v1beta/models/`) | install token | **Off by default** (D1: Claude only): 403 `gemini_disabled`. With `ALLOWED_GEMINI_MODELS` set: generateContent through our key, body rebuilt from an allowlist (below). |
+| `POST /v1/anthropic/messages` (also `/v1/anthropic/v1/messages`) | install token (linked, with `REQUIRE_SIGNIN=all`) | Messages API through our key, request body rebuilt from an allowlist (below). |
+| `POST /v1/gemini/{model}:generateContent` and `:streamGenerateContent` (also under `/v1/gemini/v1beta/models/`) | install token (linked, with `REQUIRE_SIGNIN=all`) | **Off by default** (D1: Claude only): 403 `gemini_disabled`. With `ALLOWED_GEMINI_MODELS` set: generateContent through our key, body rebuilt from an allowlist (below). |
 | `GET /v1/lessons/{video_id}?schema=N` | install token | Shared lesson cache: an approved lesson, or 404 `lesson_not_cached` (its `error.builds` says how many free builds are left). Free. |
-| `POST /v1/lessons/{video_id}/build` | install token | Use one of this month's new-lesson builds. 200 `{ok, builds: {used, cap, month, resets_at}}` or 429 `miyagi_lesson_quota`. |
+| `POST /v1/lessons/{video_id}/build` | install token (linked, with `REQUIRE_SIGNIN=build` or `all`) | Use one of this month's new-lesson builds (per install, or per user when linked). 200 `{ok, builds: {used, cap, month, resets_at}}` or 429 `miyagi_lesson_quota`. |
 | `PUT /v1/lessons/{video_id}` | install token | Body `{schema, lesson}`. Upload a lesson this install built, as a pending candidate. 201 `{stored, status: "pending" \| "approved", hash}`, 403 `build_not_claimed`, 400, 413, 429 `lesson_uploads`, 507 `insufficient_storage`. |
 | `POST /v1/events` | install token | Product events, counts only. See "Product events" below. |
 | `GET /admin/usage` | `X-Admin-Token` | JSON usage report. `?days=30` by default. |
@@ -37,6 +37,7 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `GET /admin/lessons/pending` | `X-Admin-Token` | Uploaded lessons waiting for review: video, schema, 16-hex body hash, uploader prefix, size, and what to read before approving: the `libraries` it installs, every `commands` entry it suggests or runs, its `files`, and `full`, the path of the whole body. |
 | `GET /admin/lessons/{video_id}/candidates/{hash}` | `X-Admin-Token` | The whole body of the candidates whose body hash starts with `hash` (8+ hex; `?schema=N` optional): every instruction, code block, solution, hint and explanation learners would receive, plus the review summary. Read it before approving. |
 | `POST /admin/lessons/{video_id}/approve` | `X-Admin-Token` | Body `{"hash": "<8+ hex of the body hash>", "schema": N?}`. Serve that candidate (replaces any approved one). |
+| `POST /admin/lessons/{video_id}/revoke` | `X-Admin-Token` | Body `{}` or `{"schema": N}`. Stop serving the approved lesson; it is never auto-approved again (see "Shared lesson cache"). `{video_id, revoked: [schemas], status}`. |
 | `DELETE /admin/lessons/by-uploader/{prefix}` | `X-Admin-Token` | Drop every lesson one install uploaded (approved or pending). |
 | `DELETE /admin/lessons/{video_id}` | `X-Admin-Token` | Drop every candidate of a video (every schema). |
 | `GET /admin/deletions` | `X-Admin-Token` | Account deletions whose Supabase user is not deleted yet: `{pending: [{user_id, requested_day}], service_key}`. |
@@ -293,7 +294,8 @@ peaks and get short 429s (the SDKs retry them, but the scene look and diagrams u
 ## Accounts: `POST /v1/link`
 
 Links an install to the signed-in miyagi account so its caps are counted per user. Installs that never link keep
-using the proxy with the anonymous caps, and signing out in the app never unlinks.
+using the proxy with the anonymous caps (unless `REQUIRE_SIGNIN` is `build` or `all`, see "Sign-in required"), and signing out in the
+app never unlinks.
 
 ```
 POST /v1/link
@@ -331,6 +333,56 @@ Verification (`supabase_auth.py`, PyJWT with the `cryptography` backend):
 - The access token is never logged or stored. The table `links (token_hash, user_id, linked_at)` holds the
   result; the request log line gains `linked=1` for linked installs (never the user id), and `/admin/usage`
   `by_token` rows carry `user_id` (null when unlinked).
+
+## Sign-in required: `REQUIRE_SIGNIN`
+
+A mode, **off by default** (`0` in code and `render.yaml`). The app offers "Continue without an account" and the
+privacy policy says signing in is optional, so turning it on is a product decision, not a deploy detail.
+
+| Value | Build routes (`POST /v1/lessons/{id}/build`) | Runtime model calls (`/v1/anthropic`, `/v1/gemini`) for a guest |
+|---|---|---|
+| `0` / `off` (default; an unknown value too, logged) | open | open, `FREE_DAILY_USD` per install |
+| `build` | linked installs only | open, **`ANON_DAILY_USD`** (0.50) per install per UTC day: 429 `miyagi_quota` with `limit: "anon_daily_cap"`, `scope: "install"`, `unit: "usd"`, `resets_at` and "You've used today's free guest help. Sign in to keep going, or come back tomorrow." |
+| `all` (or `1`) | linked installs only | linked installs only |
+
+Linked users keep `LINKED_DAILY_USD` and `LINKED_DAILY_TOKENS` in every mode, and `ANON_DAILY_USD_PER_NETWORK` still
+pools a network's guests. The cloud cannot tell a build's model calls from runtime ones (`x-miyagi-role` is set by
+the client), so in `build` mode a guest who skips the build claim and calls the builder's prompts directly is held by
+`ANON_DAILY_USD` (about one small build), not refused.
+
+A gated route answers, for an install that is not linked to a Supabase user (the `links` table, written by
+`POST /v1/link`):
+
+```
+401 {"error": "signin_required", "message": "Sign in to keep using miyagi."}      x-should-retry: false
+```
+
+after the token checks (a missing or unknown token is still 401 `authentication_error`, a disabled install 403) and
+before anything else: no cap is read, no slot taken, no body read. The flat shape is the one `/v1/link` uses.
+
+| Route | Spends money | `build` | `all` |
+|---|---|---|---|
+| `POST /v1/anthropic/messages`, `/v1/anthropic/v1/messages` | yes (our Anthropic key) | open (guest cap) | linked only |
+| `POST /v1/gemini/...` (both paths, both methods) | yes when Gemini is on (off today: 403 `gemini_disabled`) | open (guest cap) | linked only (checked before `gemini_disabled`) |
+| `POST /v1/lessons/{id}/build` (the only route that starts a new build) | it gates a lesson build (20-35 model calls) | linked only | linked only |
+| `GET /v1/lessons/{id}` | no (a cache read) | open | open |
+| `PUT /v1/lessons/{id}` | no (needs a build claimed first, which is gated) | open | open |
+| `/v1/install`, `/v1/register`, `/v1/link`, `/v1/account/delete`, `/v1/events`, `/healthz`, `/admin*` | no | open | open |
+
+`pro` installs are not exempt: an operator who wants a demo Mac to work signed out links it or leaves the flag off.
+`/healthz` says `require_signin: "off" | "build" | "all"`, so the app can ask for a sign-in up front.
+
+**Before setting `build` or `all`.**
+
+- Engine: on `integration/live` `server/config.py` `_classify_cloud` reads every cloud 401 as an unknown install token
+  (`miyagi_auth`, `cloud.token_invalid`), and the app then mints a new install, which is a guest too: each refused
+  call would burn a mint until the per-network mint limit stops it. It must read `error == "signin_required"` first,
+  never re-mint for it, and hand it to the app as "sign in needed"; and show the `anon_daily_cap` 429 (type
+  `miyagi_quota`) as a sign-in prompt rather than "come back tomorrow" only.
+- App: show a sign-in prompt at build time (`build`), or before any lesson (`all`), and keep "Continue without an
+  account" only for what still works signed out.
+- Privacy policy: say that building a lesson needs an account (`build`), or that using miyagi does (`all`). A Blueprint sync writes `render.yaml`'s `"0"` back over
+a dashboard value: change `render.yaml` too when the flag goes on.
 
 ## Deleting an account: `POST /v1/account/delete`
 
@@ -398,7 +450,8 @@ from before this version are converted on startup. Per-install rows are pruned a
 | `event_intake`: token_hash, day, taken | `EVENTS_PER_DAY_PER_INSTALL` | 2 days |
 | `moved_usage`: token_hash, day, from_user, from_net (keyed hash), requests, usd | Relinking cannot reset a cap | 2 days |
 | `lesson_puts`: token_hash, day, n | `LESSON_PUTS_PER_DAY` | 2 days |
-| `lesson_candidates`: video_id, schema, uploader, body, bytes, body_hash, net (keyed hash), status, created_at, hits | The shared lesson cache and its review | Pending: `LESSON_PENDING_MAX_DAYS` (14). Approved: kept; `net` cleared on approval, `uploader` scrubbed on account delete |
+| `lesson_candidates`: video_id, schema, uploader, body, bytes, body_hash, net (keyed hash), status, created_at, hits | The shared lesson cache and its review | Pending: `LESSON_PENDING_MAX_DAYS` (14). Approved: kept; `net` cleared on approval, `uploader` scrubbed on account delete. Revoked: kept until deleted by an operator or the uploader's account delete |
+| `lesson_revocations`: video_id, schema, revoked_at | Revoked videos are never auto-approved again | Kept |
 | `lessons` | Legacy first-upload cache, emptied into `lesson_candidates` on startup | Empty |
 | `mints`: bucket (keyed hash), hour, n | Mint limits per network | At most 49 hours |
 | `install_days`: day, n | `NEW_INSTALLS_PER_DAY` (a count, no install) | Kept (one row a day) |
@@ -424,8 +477,9 @@ and no cap reads it. Changing it can neither lift nor move a cap. Installs start
 | Estimated USD, anonymous install, per UTC day | `FREE_DAILY_USD` | 2.00 | Every forwarded call of an unlinked install. |
 | Estimated USD, every anonymous install of one network, per UTC day | `ANON_DAILY_USD_PER_NETWORK` | 5.00 | See "Install minting". |
 | Estimated USD, linked user, per UTC day | `LINKED_DAILY_USD` | 3.00 | Every install linked to the same Supabase user, together. |
+| Tokens (input, cache reads and writes included, plus output), linked user, per UTC day | `LINKED_DAILY_TOKENS` | 20000000 | Every install linked to the same user, together. A backstop under `LINKED_DAILY_USD` in case a `PRICES` entry is wrong: a heavy day of lessons is a few million tokens. Counted from settled usage, not reserved, so parallel calls can pass it by about `PER_TOKEN_INFLIGHT` calls; relinking an install moves its tokens with it (dollars stay put through `moved_usage`). |
 | AI calls, anonymous install / linked user, per UTC day | `FREE_DAILY_REQUESTS` / `LINKED_DAILY_REQUESTS` | 0 (off) | Optional request counts on the same scopes. Off: a count stops a normal lesson (scene looks alone are up to 720 Haiku calls an hour) and says little about cost. Set only as an extra abuse brake, far above a lesson. |
-| New lesson builds per UTC month | `FREE_LESSON_BUILDS_PER_MONTH` | 3 | Distinct videos claimed with `POST /v1/lessons/{id}/build`. Cache hits and rebuilding a claimed video are free. |
+| New lesson builds per UTC month | `FREE_LESSON_BUILDS_PER_MONTH` | 3 | Distinct videos claimed with `POST /v1/lessons/{id}/build`: per anonymous install, or per linked user across all their installs (so linking more Macs does not multiply it). Cache hits and rebuilding a claimed video are free. |
 | New installs per UTC day, every network | `NEW_INSTALLS_PER_DAY` | 500 | See "Install minting". |
 | Global spend brake, every install, per UTC day | `DAILY_USD_CAP` | off | An abuse brake only. See "Kill switches". |
 
@@ -488,9 +542,22 @@ Over a cap the proxy answers 429 with `x-should-retry: false`, `retry-after`, an
   "limit": "daily_requests", "used": 300, "cap": 300, "resets_at": "2026-11-22T00:00:00Z", "scope": "install"}}
 ```
 
+A signed-in user's own daily caps (`LINKED_DAILY_USD`, `LINKED_DAILY_TOKENS`, `LINKED_DAILY_REQUESTS`) answer in the
+same shape with their own `limit` and message, plus `unit` (`usd`, `tokens` or `requests`; `used` and `cap` are in it):
+
+```json
+{"type": "error", "error": {"type": "miyagi_quota", "status": "MIYAGI_QUOTA", "code": 429,
+  "message": "You've used today's free help. It resets at midnight UTC.", "limit": "user_daily_cap",
+  "unit": "usd", "used": 3.0, "cap": 3.0, "resets_at": "2026-11-22T00:00:00Z", "scope": "account"}}
+```
+
+The type stays `miyagi_quota` so the engine shows its limit card (a flat `{"error": "user_daily_cap"}` body would
+not be recognised). These caps sit on top of the global brake: `DAILY_USD_CAP`, when set, is checked first.
+
 `type` is `miyagi_quota` for the daily caps (the engine's `cloud_error()` reads it) and `miyagi_lesson_quota`
-for the monthly build cap. `limit` is `daily_requests`, `daily_spend` (both with `scope: install | account`),
-`daily_usd` (the global brake; `used` and `cap` are dollars there) or `lesson_builds`. The old `coach_calls`
+for the monthly build cap. `limit` is `daily_requests`, `daily_spend` (`scope: install | network`),
+`user_daily_cap` (`scope: account`), `anon_daily_cap` (`scope: install`, `REQUIRE_SIGNIN=build` only), `daily_usd` (the global brake; `used` and `cap` are dollars there) or
+`lesson_builds`. The old `coach_calls`
 cap is gone. New installs over the daily cap get their own type, `miyagi_full` (see "Install minting").
 
 ## Security
@@ -551,6 +618,8 @@ alert, to check the channel reaches both founders' phones.
 | `mints_high` | new installs in one hour reach the warning line | `GLOBAL_MINTS_WARN_PER_HOUR` |
 | `brake` | the global spend brake is reached (only when `DAILY_USD_CAP` is set) | `DAILY_USD_CAP` |
 
+Setting up the webhook and Render's own alerts (deploy failures, health check, 5xx) step by step: `ALERTS.md`.
+
 The alert line is a D13 decision; 25 keeps the old breaker's number as a warning instead of a stop. A daily
 check from outside the service (R01 step 6: a cron that reads `/admin/usage` and pings a dead-man's switch) is
 still to do, so a silent service is noticed too.
@@ -568,10 +637,26 @@ Lesson builds are the expensive call, and many learners open the same videos. Th
    (`GET /admin/lessons/{video_id}/candidates/{hash}`: the pending list shows only libraries, commands and files,
    and the instructions are free text that could tell learners to paste anything), then
    `POST /admin/lessons/{video_id}/approve` with the candidate's `hash`. There is no first-writer-wins and no 409: a second uploader is never blocked by the first.
+   `LESSON_AUTO_APPROVE_VALIDATED` (`1` in `render.yaml`) approves an upload at once when it passes the server-side
+   lesson checks (below) and the video and schema neither serve a lesson yet nor were revoked; any problem leaves it
+   pending, with the problems listed in the PUT answer (`problems`) and in `/admin/lessons/pending`.
    `LESSON_AUTO_APPROVE_N` (default 0 = off) approves automatically once N uploads with the identical normalized
    lesson (sorted keys) came from N different install tokens on N different networks (IPv4 /24, IPv6 /48).
-4. A bad uploader's lessons go with `DELETE /admin/lessons/by-uploader/{prefix}`; one video's with
-   `DELETE /admin/lessons/{video_id}`.
+4. Pull a served lesson with `POST /admin/lessons/{video_id}/revoke` (body `{}` for every schema, or
+   `{"schema": N}`): it stops being served, its candidate becomes `revoked`, and the video and schema go into
+   `lesson_revocations`, so no upload for them is auto-approved again, whoever sends it (an operator's approve still
+   serves one). A bad uploader's lessons go with `DELETE /admin/lessons/by-uploader/{prefix}`; every candidate of one
+   video with `DELETE /admin/lessons/{video_id}` (the revocation stays).
+
+**Server-side lesson checks (`lesson_safety.py`).** A port of the engine's `validate_untrusted_lesson`
+(`server/lesson/schema.py` on `integration/live`), where every repair the engine would make is a problem: path rules
+(`rel_problem`: no NUL, backslash, drive, absolute, `~` or `..`; a step file or notebook never inside `.git/`,
+`.vscode/`, `.venv/`, `venv/`, `node_modules/`, `.idea/`, `.github/`, `.devcontainer/`), the regex shape checks
+(`lesson_patterns.py`, a vendored copy of the static half of `server/safety/patterns.py`: length, compiles, no
+catastrophic or polynomial backtracking), at most 24 checks per list, 24 targets per step and 400 patterns per lesson,
+https sources and no `lesson.workdir`. Commands and libraries are already held to a stricter allowlist by the upload
+validation. Not ported (it needs the learner's Mac): the regex worker's run-time deadline, the on-disk
+stays-inside-the-folder check and the home-folder workdir rules; the engine still applies them on load.
 
 Rules:
 
@@ -729,6 +814,10 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `FREE_DAILY_REQUESTS` / `LINKED_DAILY_REQUESTS` | `0` / `0` (off) | Optional request counts per UTC day (install / user). |
 | `ANON_DAILY_USD_PER_NETWORK` | `5.00` | Every anonymous install minted from one network together, per UTC day. 0 = off. |
 | `LINKED_DAILY_USD` | `3.00` | Linked user cap in estimated USD per UTC day, all their installs. 0 = off. |
+| `LINKED_DAILY_TOKENS` | `20000000` | Linked user cap in tokens (input + output) per UTC day, all their installs. 0 = off. |
+| `REQUIRE_SIGNIN` | `0` (off) | `build`: build claims need an install linked to a Supabase user (401 `signin_required`), guests capped at `ANON_DAILY_USD`; `all` (or `1`): every money route does. See "Sign-in required". |
+| `ANON_DAILY_USD` | `0.50` | A guest install's runtime calls in USD per UTC day, only with `REQUIRE_SIGNIN=build` (429 `anon_daily_cap`). |
+| `LESSON_AUTO_APPROVE_VALIDATED` | `0` in code, `1` in `render.yaml` | Approve an uploaded lesson once it passes the server-side lesson checks (`lesson_safety.py`). See "Shared lesson cache". |
 | `NEW_INSTALLS_PER_DAY` | `500` | New installs per UTC day, every network together; past it 429 `miyagi_full`. 0 = off. |
 | `FREE_LESSON_BUILDS_PER_MONTH` | `3` | New lesson builds per free install per UTC month. 0 = off. |
 | `DAILY_USD_CAP` | off (unset, empty or `0`) | Global spend brake in dollars, every install together: an abuse brake, never a low value. |
@@ -822,7 +911,9 @@ All SQL lives in `store.py`. Write a `PostgresStore` with the same methods (`add
 `set_setting`, `paused`, `set_paused`, `ping`, `new_installs_on`, `claim_alert`, `alerts_on`; `admit_call`,
 `settle`, `mint_check`, `put_candidate`, `link_user_capped` and `add_events` need one transaction with a row lock,
 and `claim_alert` an insert that only one caller wins) and return it
-from `open_store()` when `DATABASE_URL` is set. The tables port as they are.
+from `open_store()` when `DATABASE_URL` is set. The tables port as they are. The lesson cache tables are already
+written out as Postgres DDL in `migrations/supabase/0001_lesson_cache.sql` (own schema, RLS on, no policies, service
+role only). It is a file only: nothing applies it.
 
 ## How the app and the engine use it
 
@@ -833,7 +924,8 @@ from `open_store()` when `DATABASE_URL` is set. The tables port as they are.
    (`server/config.py` `anthropic_kwargs()` / `gemini_kwargs()`) points its Anthropic and google-genai clients at
    `<host>/v1/anthropic` and `<host>/v1/gemini` (api_version v1beta) with the token as the key, and tags each call
    with `x-miyagi-role`.
-3. A 401 means the token is unknown: the app mints a new one. A 403 `permission_error` means the install was
+3. A 401 `authentication_error` means the token is unknown: the app mints a new one. A 401 `signin_required` (only
+   with `REQUIRE_SIGNIN` `build` or `all`) means the install must be linked to an account first: show sign-in, never mint. A 403 `permission_error` means the install was
    disabled. A 503 `proxy_disabled` means the operators paused the proxy. A 429 `miyagi_quota` (or a proxy-shaped
    `rate_limit_error`) shows the "today's limit" card. A 429 `miyagi_full` from `/v1/install` means today's
    new-install cap is reached: show its message ("miyagi is full today, try tomorrow.") and try again after
