@@ -22,9 +22,9 @@ const POSES: { name: string; props: CharacterProps }[] = [
 ]
 
 const NOTE: Record<CharacterKind, string> = {
-  sprout: 'sprout · a round mint creature, a two-leaf sprout on its head (its ears, and its wings)',
+  sprout: 'sprout · a round creature, a two-leaf sprout on its head (its ears, and its wings)',
   leaf: 'leaf · a leaf with a face; its tip is its pointer',
-  dot: 'dot · a droplet of the island: black, a mint rim, eyes only'
+  dot: 'dot · a droplet of the island: black, a rim in its color, eyes only'
 }
 
 const LABEL = { font: '500 12px -apple-system, "Segoe UI", sans-serif', color: '#8F8F88' } as const
@@ -62,7 +62,7 @@ export function CastStage(): ReactNode {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr) 0.3fr repeat(3, 1fr)', gap: 8 }}>
           {(Object.keys(TINTS) as Tint[]).map((tint) => (
             <div key={tint} style={{ background: '#000', borderRadius: 14, padding: '12px 0 8px', display: 'grid', justifyItems: 'center', gap: 6 }}>
-              <Character size={84} tint={tint} mood={tint === 'mint' ? 'calm' : 'happy'} />
+              <Character size={84} tint={tint} mood="happy" />
               <span style={LABEL}>{tint}</span>
             </div>
           ))}

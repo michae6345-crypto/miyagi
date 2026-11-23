@@ -7,7 +7,7 @@
  *     up and shows what it hears; when they let go it thinks; then it answers (talk.ts).
  *   - It keeps the pointer company while it is called (Clicky's cursor does this), and goes home when it has been
  *     quiet a while.
- *   - It shows things. When the coach points at something it flies there on an arc, lands beside it, throws a mint
+ *   - It shows things. When the coach points at something it flies there on an arc, lands beside it, throws a
  *     loop round it (Reach.tsx draws that, from where the buddy sits), points at it with a little arm, and says what
  *     it is, one letter at a time, in a bubble.
  *   - It takes the learner through several things one at a time: "2 of 3", a Next button, and it hops on.

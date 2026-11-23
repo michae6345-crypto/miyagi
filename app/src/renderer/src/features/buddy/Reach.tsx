@@ -2,7 +2,7 @@
  * Feature: buddy, pass 2: the loops the buddy draws. An overlay layer under the island (z 30).
  *
  * The buddy itself is in Companion.tsx: it flies to the first mark and sits beside it. Once it is there
- * (pointing.ts trip 'perched'), this layer draws that mark's loop FROM the buddy: one mint stroke, shaped like a
+ * (pointing.ts trip 'perched'), this layer draws that mark's loop FROM the buddy: one stroke in its color, shaped like a
  * branch (thick where it leaves the buddy, fine at the tip), that wraps the target once and lets go, so only the
  * loop is left. The loop presses in as it lands, firms up when the learner's pointer comes onto it, and is taken off
  * the way it was put on.
@@ -15,7 +15,7 @@
  * kept going, so the two can be merged in either order without a mark being circled twice. Which one draws in the
  * end is one line here (STAND_DOWN_FOR). A third way, his stroke with this character, is behind ?together (below).
  *
- * Look: the buddy's mint (palette.ts). No glow, no gradient, no arrowhead. Like the spotlight's ring it sits on an
+ * Look: the buddy's own color (palette.ts SKIN). No glow, no gradient, no arrowhead. Like the spotlight's ring it sits on an
  * ink keyline so it reads over a light app. It never takes a click (no data-hit) and the stroke is not reported as
  * our UI, or the engine would stop reading the very thing it points at; the small numbers are (data-ui).
  *
@@ -31,7 +31,7 @@ import { getFeatures } from '../../core/registry'
 import { color, pill, shadows } from '../../core/theme'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
 import { createReach, DRAW, drawTime, reach, ribbon, type Reach, type Shown } from './marks'
-import { MINT } from './palette'
+import { SKIN } from './palette'
 import { reached, usePointing } from './pointing'
 
 /** The ink keyline under the stroke, so it reads over a light app: this much wider than the stroke, this opaque. */
@@ -152,7 +152,7 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
               data-ui
               data-part="mark-next"
               className="absolute grid place-items-center"
-              style={{ left: Math.max(2, m.rect.x - NEXT - 6), top: m.rect.y + m.rect.h / 2 - NEXT / 2, width: NEXT, height: NEXT, borderRadius: NEXT / 2, background: color.island, boxShadow: shadows.pill, color: MINT, fontSize: 11, fontWeight: 600, lineHeight: 1 }}
+              style={{ left: Math.max(2, m.rect.x - NEXT - 6), top: m.rect.y + m.rect.h / 2 - NEXT / 2, width: NEXT, height: NEXT, borderRadius: NEXT / 2, background: color.island, boxShadow: shadows.pill, color: SKIN.stroke, fontSize: 11, fontWeight: 600, lineHeight: 1 }}
               initial={{ opacity: 0, scale: reduced ? 1 : 0.6 }}
               animate={{ opacity: 1, scale: 1, transition: reduced ? fades.in : { ...spring, opacity: fades.in } }}
               exit={{ opacity: 0, transition: fades.out }}
@@ -238,8 +238,8 @@ function Stroke({ mark, r, delay, near, reduced }: Drawn & { near: boolean; redu
     <motion.g data-part="branch" data-why={mark.why} data-mark={mark.key} data-near={near || undefined} style={{ opacity: alpha }}>
       <motion.path data-part="keyline" d={armKey} style={{ fill: color.onAccent, opacity: KEYLINE.opacity }} />
       <motion.path data-part="keyline" d={loopKey} style={{ fill: color.onAccent, opacity: KEYLINE.opacity }} />
-      <motion.path data-part="arm" d={arm} style={{ fill: MINT }} />
-      <motion.path data-part="bark" d={loop} style={{ fill: MINT }} />
+      <motion.path data-part="arm" d={arm} style={{ fill: SKIN.stroke }} />
+      <motion.path data-part="bark" d={loop} style={{ fill: SKIN.stroke }} />
     </motion.g>
   )
 }

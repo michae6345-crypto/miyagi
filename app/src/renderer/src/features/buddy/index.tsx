@@ -8,11 +8,12 @@
  *     coach points at, circles it, says what it is, listens, thinks and answers (Companion.tsx, talk.ts, wire.ts,
  *     trip.ts), and draws its loops (Reach.tsx, pointing.ts, marks.ts).
  * Both overlay layers draw nothing while features/annotate is mounted (Reach.tsx), so a mark is never circled twice.
- * Previews, only in the browser stage: ?buddy (every state of the living mark), ?buddy=point (try the buddy) and
- * ?buddy=cast (the character sheet).
+ * Previews, only in the browser stage: ?buddy (every state of the living mark), ?buddy=point (try the buddy),
+ * ?buddy=cast (the character sheet) and ?buddy=colors (the color sheet). ?skin=<name> puts the buddy in one color.
  */
 import { defineFeature } from '../../core/registry'
 import { CastStage } from './CastStage'
+import { ColorStage } from './ColorStage'
 import { CompanionLayer } from './Companion'
 import { PointStage, POINT_STAGE } from './PointStage'
 import { ReachLayer } from './Reach'
@@ -33,6 +34,8 @@ export default defineFeature({
       ? [{ route: 'buddy-point', Component: PointStage, stage: POINT_STAGE, z: 40 }]
       : preview === 'cast'
         ? [{ route: 'buddy-cast', Component: CastStage, stage: { x: 30, y: 44, w: 1540, h: 850 }, z: 40 }]
+      : preview === 'colors'
+        ? [{ route: 'buddy-colors', Component: ColorStage, stage: { x: 30, y: 44, w: 1540, h: 850 }, z: 40 }]
       : preview !== null
         ? [{ route: 'buddy', Component: BuddyStage, stage: { x: 40, y: 80, w: 980, h: 640 }, z: 40 }]
         : []
