@@ -66,6 +66,13 @@ function source(v: unknown): LibraryItem['source'] {
   return { kind, title, channel: str(s.channel, 80), durationS: int(s.durationS, 0, 86_400), url }
 }
 
+/** LibraryItem.teaches / uses / unlocks: skill ids (or labels), short strings, no repeats, at most 12. Undefined when none. */
+function skillIds(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const ids = [...new Set(v.map((x) => str(x, 80)).filter((x): x is string => !!x && !x.endsWith('…')))].slice(0, 12)
+  return ids.length ? ids : undefined
+}
+
 export function cleanItem(v: unknown): LibraryItem | undefined {
   const o = obj(v)
   if (!o || !isLibraryId(o.id)) return undefined
@@ -88,7 +95,10 @@ export function cleanItem(v: unknown): LibraryItem | undefined {
     ready: o.ready === true,
     progress,
     source: source(o.source),
-    updatedAt: str(o.updatedAt, 40)
+    updatedAt: str(o.updatedAt, 40),
+    teaches: skillIds(o.teaches),
+    uses: skillIds(o.uses),
+    unlocks: skillIds(o.unlocks)
   }
 }
 
