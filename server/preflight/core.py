@@ -814,7 +814,8 @@ def _merge(res: dict, name: str, t: asyncio.Task) -> bool:
         res["missing"].append(name)
         res["notes"].append("requirements: empty (no key / Claude failed)")
         return False
-    res["requirements"] = items
+    # what the video needs; a free alternative's offered row (FreeCAD for AutoCAD) waits for the setup card
+    res["requirements"] = [it for it in items if not it.get("altFor")]
     return True
 
 
@@ -992,7 +993,8 @@ def preflight_card(res: dict) -> dict:
         lines.append("No code editor needed for this one.")
     if res.get("partial") and not res.get("goalMatch"):
         lines.append("I couldn't check this video in time; you can still build it.")
-    items = res.get("requirements") or []  # the app's "Needs … · N to install" row (needs_line is the text form)
+    # the app's "Needs … · N to install" row (needs_line is the text form); never a free alternative's offered row
+    items = [it for it in res.get("requirements") or [] if not it.get("altFor")]
     missing = [it for it in items if it.get("needed") and not it.get("ok")]
     # Nov 22: a licensed app (AutoCAD) is never "to install": its row offers I have it / Get it instead (apps.py)
     installable = [it for it in missing if it.get("setupKind") != "licensed_app" and not it.get("haveIt") and not it.get("using")]

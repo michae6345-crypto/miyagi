@@ -428,6 +428,28 @@ def setup_card(items: list[dict], resources: list[dict] | None = None, hold_for:
     return fn(items, **kw)
 
 
+def missing(items: list[dict]) -> list[dict]:
+    """S2's missing(): needed, not ok, not unknown, and not a licensed app the learner has ("I have it") or replaced
+    with its free alternative (haveIt / using), nor that alternative's offered row (altFor) before it is chosen."""
+    ws = _s2()
+    fn = getattr(ws, "missing", None) if ws is not None else None
+    if fn is not None:
+        try:
+            return fn(items)
+        except Exception:  # noqa: BLE001 - an odd row (a stage lesson's): the same rule below
+            log.debug("workspace.missing failed; using the plain filter", exc_info=True)
+    return [it for it in items if it.get("needed") and not it.get("ok") and not it.get("unknown")
+            and not it.get("haveIt") and not it.get("using") and not it.get("altFor")]
+
+
+def lesson_mode_rows(items: list[dict]) -> list[dict]:
+    """Lesson mode's setup card (VS Code already open): the tools really missing, never an installed editor, plus the
+    free alternative offered beside a missing licensed app (its own Install row)."""
+    miss = [it for it in missing(items) if it.get("kind") != "editor" or not it.get("installed")]
+    tools = {it.get("tool") for it in miss}
+    return miss + [it for it in items if it.get("altFor") and it["altFor"] in tools and it not in miss]
+
+
 def editor_opens(card: dict, items: list[dict]) -> dict:
     """t9 V8: VS Code opens on the lesson folder by itself, so the setup card never asks to open it (no Open button, no
     "Open the lesson folder in Visual Studio Code?" in its body). In place; returns the card."""

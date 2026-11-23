@@ -32,11 +32,12 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.setattr(S.shutil, "which", mac.which)
     monkeypatch.setattr(S, "find_app", lambda bundle, name, run=None: mac.apps.get(bundle))
     monkeypatch.setattr(S, "brew_path", lambda: "/opt/homebrew/bin/brew")
-    state = {"autocad": None}  # where AutoCAD is, once "installed"
+    state = {"autocad": None, "freecad": None, "detects": 0}  # where AutoCAD / FreeCAD are, once "installed"
 
     def detect(t, run, extra=None):
-        if t == "autocad" and state["autocad"]:
-            return {"installed": True, "where": state["autocad"], "version": "25.0"}
+        state["detects"] += 1
+        if state.get(t):
+            return {"installed": True, "where": state[t], "version": "25.0" if t == "autocad" else "1.0.0"}
         return {"installed": False, "where": "", "version": ""}
 
     monkeypatch.setattr(A, "detect", detect)
@@ -49,7 +50,15 @@ def rig(tmp_path, monkeypatch):
     r.opened: list[list[str]] = []
     r.s.workspace = Workspace(enabled=True, runner=lambda argv: r.opened.append(argv) or True)
     r.state = state
+    r.tmp = tmp_path
     return r
+
+
+@pytest.fixture
+def app_actions(monkeypatch):
+    """The app draws I have it / Get it / Try FreeCAD and honours holdVideo (its claim PR landed): both flags on."""
+    monkeypatch.setattr(S, "APP_RENDERS_APP_ACTIONS", True)
+    monkeypatch.setattr(S, "APP_HONOURS_HOLD_VIDEO", True)
 
 
 async def _start(rig) -> dict:
@@ -60,7 +69,7 @@ async def _start(rig) -> dict:
     return [c for c in rig.of("card") if c.get("kind") == "setup"][-1]
 
 
-def test_card_is_a_quiet_companion_with_have_it_get_it_and_freecad(rig):
+def test_card_is_a_quiet_companion_with_have_it_get_it_and_freecad(rig, app_actions):
     card = run(_start(rig))
     assert card["title"] == "This lesson uses AutoCAD"
     assert card["actions"] == ["have_it", "get_it", "alternative", "skip_setup"] and "install" not in card["actions"]
@@ -212,3 +221,115 @@ def test_i_have_it_found_keeps_the_autocad_pin(rig):
 
     run(go())
     assert set(_pins(rig.s.graph)) == {"AutoCAD"}
+
+
+# --------------------------------------------------------------------------- fix round 2: today's app (flags off)
+
+def _setups(rig) -> list[dict]:
+    return [c for c in rig.of("card") if c.get("kind") == "setup"]
+
+
+def _waiting_cards(rig) -> list[dict]:
+    return [c for c in _setups(rig) if c.get("actions")]
+
+
+def test_autocad_end_to_end_with_todays_app_installs_freecad_from_its_own_row(rig, monkeypatch):
+    """The app on integration/live draws only the rows' Get it / Install and Skip. The card says exactly that; FreeCAD's
+    own row installs it; then the learner is using FreeCAD: a passing note, no card left holding the video."""
+    from server.orchestrator import workspace as wsmod
+
+    installed: list[str] = []
+
+    def fake_install(item, folder, on_line):
+        installed.append(item["tool"])
+        rig.state[item["tool"]] = "/Applications/FreeCAD.app"
+        return {"ok": True, "tool": item["tool"], "version": "1.0.0"}
+
+    monkeypatch.setattr(wsmod, "install", fake_install)
+
+    async def go():
+        card = await _start(rig)
+        await rig.s.action("install", "freecad")
+        await rig.settle()
+        return card
+
+    card = run(go())
+    assert card["title"] == "This lesson uses AutoCAD"
+    assert card["body"] == "AutoCAD is paid. Get it, install FreeCAD free, or skip."
+    assert card["actions"] == ["install", "skip_setup"]  # nothing the app would drop
+    rows = {r["tool"]: r for r in card["setup"]["items"]}
+    assert (rows["autocad"]["install"]["method"], rows["autocad"]["install"]["url"]) == ("download", VENDOR)  # "Get it"
+    assert rows["freecad"]["needed"] and rows["freecad"]["install"]["method"] == "brew_cask"  # its row's "Install"
+    assert installed == ["freecad"] and rig.opened == []  # only what the learner pressed
+    note = rig.of("card")[-1]
+    assert note["kind"] == "setup" and note["actions"] == [] and note["dismissAfterMs"] == 4000
+    assert rig.s._setup_card is None
+    assert A.recall()["autocad"]["choice"] == "alternative:freecad"
+    assert next(it for it in rig.s.reqs if it["tool"] == "autocad")["using"] == "FreeCAD"
+    assert set(_pins(rig.s.graph)) == {"FreeCAD"}  # the lesson follows the learner's FreeCAD
+
+
+def test_have_it_with_todays_app_hides_the_freecad_offer(rig):
+    async def go():
+        await _start(rig)
+        await rig.s.action("have_it", "autocad")  # the newer app's button (the engine takes it either way)
+        await rig.settle()
+
+    run(go())
+    assert rig.of("card")[-1]["actions"] == [] and rig.s._setup_card is None
+
+
+@pytest.mark.parametrize("memory, found, note", [
+    ({"haveIt": True}, None, "Using your AutoCAD"),
+    ({"choice": "alternative:freecad"}, "freecad", "Using FreeCAD for this lesson"),
+    ({}, "autocad", "AutoCAD is ready"),
+])
+def test_an_app_lesson_with_nothing_missing_gets_no_waiting_card(rig, memory, found, note):
+    """Fix round 2: a remembered "I have it" / FreeCAD choice, or AutoCAD found, never makes a "Ready to go" card with
+    Skip (the app holds the video under any setup card with actions): a passing note only."""
+    if memory:
+        A.remember("autocad", **memory)
+    if found:
+        rig.state[found] = f"/Applications/{found}.app"
+    run(_start(rig))
+    assert _waiting_cards(rig) == [] and rig.s._setup_card is None
+    assert _setups(rig)[-1]["title"] == note and _setups(rig)[-1]["dismissAfterMs"] == 4000
+
+
+def test_lesson_mode_counts_a_remembered_choice_as_not_missing(rig):
+    """Fix round 2: lesson mode's filter is setup.missing(): haveIt / using rows are not missing (no "Ready to go")."""
+    A.remember("autocad", haveIt=True)
+    g = graph()
+    g["lesson"]["mode"] = "lesson"
+
+    async def go():
+        await rig.s.load_graph(g)
+        await rig.settle()
+        await asyncio.sleep(0.05)
+        await rig.settle()
+
+    run(go())
+    assert rig.s.lesson_mode and rig.s.reqs  # the setup check ran in lesson mode
+    assert _waiting_cards(rig) == [] and rig.s._setup_card is None
+
+
+def test_front_recheck_throttle_is_per_session_and_lesson(rig):
+    """Fix round 2: the 5 s front re-check throttle lives on the session; a new lesson re-checks at once."""
+    from server.orchestrator import setup_apps
+    from server.orchestrator.tests.test_session import Rig
+
+    async def go():
+        await _start(rig)
+        base = rig.state["detects"]
+        await setup_apps.on_front(rig.s, "AutoCAD 2025")
+        await setup_apps.on_front(rig.s, "AutoCAD 2025")  # within 5 s: no second look
+        one = rig.state["detects"] - base
+        rig.s.lesson_epoch += 1  # the next lesson
+        await setup_apps.on_front(rig.s, "AutoCAD 2025")
+        two = rig.state["detects"] - base
+        other = Rig(rig.tmp)  # another session, at the same instant
+        other.s._setup_card, other.s.reqs = rig.s._setup_card, rig.s.reqs
+        await setup_apps.on_front(other.s, "AutoCAD 2025")
+        return one, two, rig.state["detects"] - base
+
+    assert run(go()) == (1, 2, 3)

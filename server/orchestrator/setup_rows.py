@@ -14,14 +14,18 @@ from typing import Any
 log = logging.getLogger("orchestrator.session")
 
 INSTALL_METHODS = ("pip", "brew", "brew_cask")  # what Install runs here (download / open / none have no Install)
-ROW_STATE = ("installed", "ok", "version", "unknown")
+# needed: a free alternative's offered row (FreeCAD beside AutoCAD) hides once AutoCAD is found or "I have it"
+ROW_STATE = ("installed", "ok", "version", "unknown", "needed")
 APP_STATE = ("actions", "haveIt", "using")  # setup_apps: a row's buttons and what the learner chose
 
 
 def installable(card: dict | None) -> list[dict]:
-    """The card's rows that Install (all) would install: needed, not ok, a real install recipe."""
+    """The card's rows that Install (all) would install: needed, not ok, a real install recipe. Never a licensed app's
+    free alternative the learner hasn't chosen (FreeCAD beside AutoCAD: only its own Install press gets it)."""
     rows = ((card or {}).get("setup") or {}).get("items") or []
-    return [r for r in rows if r.get("needed") and not r.get("ok")
+    offered = {str((r.get("alternative") or {}).get("tool")) for r in rows
+               if isinstance(r.get("alternative"), dict) and not r.get("using")}
+    return [r for r in rows if r.get("needed") and not r.get("ok") and str(r.get("tool")) not in offered
             and ((r.get("install") or {}).get("method") in INSTALL_METHODS)]
 
 

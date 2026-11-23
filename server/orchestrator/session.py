@@ -958,8 +958,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
             self.reqs = items or None
             await setup_apps.repin_and_tell(self)  # Nov 22: "use FreeCAD" / "I have it" from an earlier lesson
-            miss = [it for it in items or [] if it.get("needed") and not it.get("ok")
-                    and (it.get("kind") != "editor" or not it.get("installed"))]  # no VS Code at all: its row stays
+            # no VS Code at all: its row stays. A remembered "I have it" / FreeCAD choice is not missing (fix round 2:
+            # it made a "Ready to go" card with Skip, which the app holds the video under)
+            miss = wsmod.lesson_mode_rows(items or [])
             card = setup_rows.with_install_all(wsmod.setup_card(miss)) if miss else None
             if card:
                 card["actions"] = [a for a in card.get("actions") or [] if a != "open_editor"]
@@ -973,7 +974,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
             await setup_apps.repin_and_tell(self)  # Nov 22: "use FreeCAD" / "I have it" from an earlier lesson
-            missing = [it for it in items if it.get("needed") and not it.get("ok")]
+            missing = wsmod.missing(items)  # fix round 2: a remembered "I have it" / FreeCAD choice is not missing
             if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
                 # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
                 if missing:
@@ -984,6 +985,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._auto_open_editor(folder)
                 if found and not missing and (card := self._tutorial_files_card(found, folder)):
                     await self.emit("card", card)  # keep the video's files one tap away
+            elif not missing and not found and setup_apps.app_lesson(items):
+                # fix round 2: an app lesson with nothing missing (AutoCAD found, or "I have it" / FreeCAD remembered)
+                # gets no waiting card: the app holds the video under any setup card with actions, Skip included
+                if note := setup_apps.ready_note(items):
+                    await self.emit("card", setup_apps.note_card(note))
             else:  # something is missing: the setup card (install buttons)
                 card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found, **({"hold_for": hold} if hold else {})))
                 if card:
@@ -1198,13 +1204,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             # "Open Visual Studio Code" again (_setup_card_task's lesson-mode filter), and when nothing is left to
             # install the success is one short line that closes itself, with no buttons (no Skip).
             opened = self.lesson_mode or self.editor_open
+            # fix round 2: FreeCAD's own row (offered beside AutoCAD) installed: the learner chose it
+            chose = res.get("ok") and setup_apps.after_install(self, tool)
             if self.graph is not None:  # re-check so the row flips to installed
                 fresh = await asyncio.to_thread(wsmod.requirements, self.graph, self.workdir)
                 if fresh:
                     self.reqs = full = fresh
                     if self.lesson_mode:  # _setup_card_task's lesson-mode card: tools really missing, never the editor
-                        fresh = [it for it in fresh if it.get("needed") and not it.get("ok")
-                                 and (it.get("kind") != "editor" or not it.get("installed"))]
+                        fresh = wsmod.lesson_mode_rows(fresh)
                     old = self._setup_card
                     new = wsmod.setup_card(fresh, resources=None if self.lesson_mode else self.resources) if fresh else None
                     if old and not fresh:  # lesson mode, nothing missing any more: the rows flip, none vanish
@@ -1218,9 +1225,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 # E20: Pylance resolved `import requests` before the .venv existed and never looked again: the lesson's
                 # VS Code window selects <folder>/.venv and restarts its Python language server (companion extension)
                 self._spawn(asyncio.to_thread(wsmod.refresh_python, self.workdir), timer=True)
+            if chose:  # the lesson's AutoCAD checks look at FreeCAD now, and its steps say "in FreeCAD"
+                await setup_apps.repin_and_tell(self)
             if await missing_module.after_install(self, tool, res):  # a run stopped on it: rerun / "Run it again."
                 return
-            if res.get("ok") and opened and not self.pending_pick \
+            # fix round 2: an app lesson with nothing left to wait on closes the card too (no "Ready to go" with Skip,
+            # which the app holds the video under)
+            settled = opened or (setup_apps.app_lesson(self.reqs or []) and not wsmod.missing(self.reqs or []))
+            if res.get("ok") and settled and not self.pending_pick \
                     and "install" not in ((self._setup_card or {}).get("actions") or []):
                 self._setup_card = None  # nothing pending any more
                 await self.emit("card", {"kind": "setup", "title": status, "body": "", "actions": [],

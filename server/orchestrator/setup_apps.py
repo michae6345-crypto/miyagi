@@ -139,6 +139,9 @@ async def use_alternative(s: Any, item: dict) -> None:
         await refresh(s, f"Using {alt['name']} instead")
         return
     rows = s.reqs if s.reqs is not None else None
+    for r in rows or []:  # its offered row (setup.offer_alternatives) is chosen now: missing until it is installed
+        if r.get("tool") == alt["tool"]:
+            r.pop("altFor", None)
     if rows is not None and not any(r.get("tool") == alt["tool"] for r in rows):  # its own row, with Install
         row = {"tool": alt["tool"], "label": alt["name"], "kind": cat.get("kind") or "app", "needed": True, "addedRow": True,
                "why": f"Free stand-in for {item.get('label')}.", "min_version": "", "binary": cat.get("bin", ""),
@@ -204,7 +207,7 @@ async def refresh(s: Any, note: str | None) -> None:
     if not waiting:
         s._setup_card = None
         if note:
-            await s.emit("card", {"kind": "setup", "title": note, "body": "", "actions": [], "dismissAfterMs": NOTE_MS})
+            await s.emit("card", note_card(note))
         return
     s._setup_card = setup_rows.with_install_all(setup_rows.carry(old, new, rows) if old else new)
     if s._setup_card and getattr(s, "editor_open", False):
@@ -215,11 +218,60 @@ async def refresh(s: Any, note: str | None) -> None:
     await s.emit("card", card)
 
 
-_last_front: dict[str, float] = {}
+def note_card(note: str) -> dict:
+    """A short passing setup note ("AutoCAD found"): no buttons, so nothing waits on it, and it closes itself."""
+    return {"kind": "setup", "title": note, "body": "", "actions": [], "dismissAfterMs": NOTE_MS}
+
+
+def _app_rows(items: list[dict]) -> list[dict]:
+    return [it for it in items if it.get("kind") != "editor" and not it.get("altFor") and it.get("needed", True)
+            and _kind(it) in APP_KINDS]
+
+
+def app_lesson(items: list[dict]) -> bool:
+    """A lesson done in a desktop app (AutoCAD, FreeCAD...): an app row it needs, and no website to open (a web row's
+    card carries Open in browser, which is worth keeping)."""
+    return bool(_app_rows(items)) and not any(it.get("kind") == "web_app" for it in items)
+
+
+def ready_note(items: list[dict]) -> str | None:
+    """The passing note for an app lesson with nothing missing: which app it will use. None when no app row is
+    settled (nothing worth saying)."""
+    for it in _app_rows(items):
+        label = it.get("label") or it.get("tool")
+        if it.get("using"):
+            return f"Using {it['using']} for this lesson"
+        if it.get("ok"):
+            return f"{label} is ready"
+        if it.get("haveIt"):
+            return f"Using your {label}"
+    return None
+
+
+def after_install(s: Any, tool: str) -> bool:
+    """Install finished for `tool`. When it is the free alternative offered beside a licensed app (FreeCAD's own row
+    beside AutoCAD, setup.offer_alternatives), the learner has chosen it: the licensed row is `using` it, remembered on
+    this Mac (the next requirements scan says so too). -> True when a choice was made. Never raises."""
+    try:
+        apps = _apps()
+        rows = _rows(s)
+        alt_row = next((r for r in rows if r.get("tool") == tool and r.get("altFor")), None)
+        lic = next((r for r in rows if alt_row and r.get("tool") == alt_row["altFor"]), None)
+        alt = apps.alternative(str((lic or {}).get("tool") or ""))
+        if not lic or not alt or alt["tool"] != tool or lic.get("installed") or lic.get("using"):
+            return False
+        lic["using"] = alt["name"]
+        alt_row.pop("altFor", None)
+        apps.remember(lic["tool"], choice=f"alternative:{tool}")
+        return True
+    except Exception:  # noqa: BLE001 - a refinement: the rows keep their state
+        log.exception("after_install choice failed")
+        return False
 
 
 async def on_front(s: Any, app: str) -> bool:
     """An app came to the front: if it is a setup row still waiting (AutoCAD after Get it), re-check and flip it.
+    One re-check per app per FRONT_RECHECK_S, kept on the session (a new session or lesson re-checks at once).
     -> True when a row flipped."""
     if not app or s._setup_card is None:
         return False
@@ -227,11 +279,16 @@ async def on_front(s: Any, app: str) -> bool:
     hits = [it for it in s.reqs or [] if _waiting(it) and apps.matches_front(it, app)]
     flipped = False
     now = s.clock()
+    epoch = getattr(s, "lesson_epoch", None)
+    held = getattr(s, "_app_front_t", None)  # (lesson epoch, {tool: last re-check time})
+    if not (isinstance(held, tuple) and held[0] == epoch):
+        held = s._app_front_t = (epoch, {})
+    last: dict[str, float] = held[1]
     for it in hits:
         key = str(it.get("tool"))
-        if now - _last_front.get(key, -1e9) < FRONT_RECHECK_S:
+        if now - last.get(key, -1e9) < FRONT_RECHECK_S:
             continue
-        _last_front[key] = now
+        last[key] = now
         found = await _recheck(it)
         if found.get("installed"):
             _flip(it, found)

@@ -29,6 +29,13 @@ def _env(monkeypatch, tmp_path):
 
 
 @pytest.fixture
+def app_actions(monkeypatch):
+    """The app draws I have it / Get it / Try FreeCAD and honours holdVideo (its claim PR landed): both flags on."""
+    monkeypatch.setattr(S, "APP_RENDERS_APP_ACTIONS", True)
+    monkeypatch.setattr(S, "APP_HONOURS_HOLD_VIDEO", True)
+
+
+@pytest.fixture
 def mac(monkeypatch):
     m = FakeMac(apps={"com.microsoft.VSCode": "/Applications/Visual Studio Code.app"})
     monkeypatch.setattr(S.shutil, "which", m.which)
@@ -149,7 +156,49 @@ def test_front_app_matches_its_row():
 
 # --------------------------------------------------------------------------- the AutoCAD lesson, end to end
 
-def test_autocad_lesson_card_offers_have_it_get_it_and_freecad_never_install(mac):
+def test_autocad_card_with_todays_app_says_only_what_its_buttons_do(mac):
+    """Fix round 2: the app on integration/live draws no I have it / Try FreeCAD button. The card never asks a question
+    it can't answer: the row's Get it, FreeCAD's own row with Install, and Skip."""
+    items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
+    by = {it["tool"]: it for it in items}
+    assert list(by) == ["vscode", "autocad", "freecad"]
+    fc = by["freecad"]
+    assert fc["altFor"] == "autocad" and fc["needed"] and not fc["installed"] and fc["setupKind"] == "free_app"
+    assert fc["install"]["method"] == "brew_cask" and fc["install"]["command"] == "brew install --cask freecad"
+    assert fc["why"] == "Free stand-in for AutoCAD."
+    assert [it["tool"] for it in missing(items)] == ["autocad"]  # the offer is never "missing"
+    assert not any(a[0] == "brew" or "install" in a for a in mac.argv)  # nothing installed by the scan
+
+    card = setup_card(items)
+    assert card["title"] == "This lesson uses AutoCAD"
+    assert card["body"] == "AutoCAD is paid. Get it, install FreeCAD free, or skip."
+    assert len(card["body"].split()) <= 12 and "—" not in card["body"] + card["title"]
+    assert "?" not in card["body"]  # no question without a button to answer it
+    assert card["actions"] == ["install", "skip_setup"]  # today's app: the rows' own buttons do the work
+    assert not {"have_it", "get_it", "alternative"} & set(card["setup"]["actionLabels"])
+    rows = {r["tool"]: r for r in card["setup"]["items"]}
+    assert rows["autocad"]["install"]["method"] == "download"  # its row's "Get it": the vendor's page
+    assert rows["freecad"]["install"]["method"] == "brew_cask" and rows["freecad"]["needed"]  # its row's "Install"
+    assert "altFor" not in rows["freecad"]  # engine-only: the contract row is unchanged
+    engine_message("card", card)
+
+
+def test_autocad_card_without_an_installable_alternative(mac, monkeypatch):
+    monkeypatch.setitem(A.LICENSED["autocad"], "alternative", "tinkercad")  # a web alternative gets no row
+    items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
+    assert [it["tool"] for it in items] == ["vscode", "autocad"]
+    assert setup_card(items)["body"] == "AutoCAD is a paid app. Get it, or skip to watch."
+
+
+def test_windows_only_app_with_todays_app(mac):
+    fc = FakeClient(reqs_reply(editor=False, why="all in 3ds Max.", tools=[tool("3ds Max", "app")]))
+    g = load("autocad_toy_car.json")
+    g["lesson"]["title"] = g["sources"][0]["title"] = "3ds Max low poly car"
+    items = requirements(g, client=fc, run=mac.run)
+    assert setup_card(items)["body"] == "3ds Max is Windows only. Install Blender free, or skip."
+
+
+def test_autocad_lesson_card_offers_have_it_get_it_and_freecad_never_install(mac, app_actions):
     fc = FakeClient(autocad_reply())
     items = requirements(load("autocad_toy_car.json"), client=fc, run=mac.run)
     by = {it["tool"]: it for it in items}
@@ -162,7 +211,7 @@ def test_autocad_lesson_card_offers_have_it_get_it_and_freecad_never_install(mac
 
     card = setup_card(items)
     assert card["title"] == "This lesson uses AutoCAD"
-    assert card["body"] == "Have AutoCAD already? Or try FreeCAD, free."  # no "Watch while you decide" yet (setup.py)
+    assert card["body"] == "Have AutoCAD already? Or try FreeCAD, free. Watch while you decide."
     assert len(card["body"].split()) <= 12 and "—" not in card["body"] + card["title"]
     assert "Install" not in card["body"] and "editor" not in card["body"].lower()
     assert card["actions"] == ["have_it", "get_it", "alternative", "skip_setup"]
@@ -182,7 +231,7 @@ def test_autocad_lesson_card_offers_have_it_get_it_and_freecad_never_install(mac
 def test_autocad_lesson_offline_still_gets_its_app_row(mac, monkeypatch):
     monkeypatch.setattr(S, "make_client", lambda: None)  # no key / offline: no Claude at all
     items = requirements(load("autocad_toy_car.json"), run=mac.run)
-    assert [(it["tool"], it["setupKind"]) for it in items] == [("vscode", "free_app"), ("autocad", "licensed_app")]
+    assert [(it["tool"], it["setupKind"]) for it in items] == [("vscode", "free_app"), ("autocad", "licensed_app"), ("freecad", "free_app")]
     assert items[0]["needed"] is False and items[0]["why"] == "No editor needed: all the work happens in AutoCAD."
     assert setup_card(items)["title"] == "This lesson uses AutoCAD"
 
@@ -190,7 +239,7 @@ def test_autocad_lesson_offline_still_gets_its_app_row(mac, monkeypatch):
 def test_claude_forgetting_the_app_still_offers_it(mac):
     fc = FakeClient(reqs_reply(editor=False, why="no code here.", tools=[]))
     items = requirements(load("autocad_toy_car.json"), client=fc, run=mac.run)
-    assert [it["tool"] for it in items] == ["vscode", "autocad"]
+    assert [it["tool"] for it in items] == ["vscode", "autocad", "freecad"]  # + FreeCAD offered (its own row)
 
 
 def test_autocad_installed_means_ready(mac, tmp_path):
@@ -216,11 +265,29 @@ def test_i_have_it_is_remembered_for_the_next_lesson(mac):
 def test_choosing_the_alternative_is_remembered(mac):
     A.remember("autocad", choice="alternative:freecad")
     items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
-    assert items[1]["using"] == "FreeCAD" and missing(items) == []
+    assert items[1]["using"] == "FreeCAD"
+    # chosen, so FreeCAD's own row is an ordinary needed row: not on this Mac yet, it is what's missing
+    fc = items[2]
+    assert fc["tool"] == "freecad" and "altFor" not in fc and [it["tool"] for it in missing(items)] == ["freecad"]
+    card = setup_card(items)
+    assert card["title"] == "Set up first" and card["body"].startswith("Missing: FreeCAD. Install now?")
     assert "uses FreeCAD instead" in A.context_line(items)
 
 
-def test_windows_only_app_card_points_to_the_alternative(mac):
+def test_choosing_the_alternative_with_it_installed_needs_nothing(mac, tmp_path):
+    make_app(tmp_path / "Applications", "FreeCAD.app", "1.0.0")
+    A.remember("autocad", choice="alternative:freecad")
+    items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
+    assert items[1]["using"] == "FreeCAD" and items[2]["installed"] and missing(items) == []
+
+
+def test_choosing_the_alternative_is_remembered_when_the_app_draws_it(mac, app_actions):
+    A.remember("autocad", choice="alternative:freecad")
+    items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
+    assert items[1]["using"] == "FreeCAD" and missing(items) == []
+
+
+def test_windows_only_app_card_points_to_the_alternative(mac, app_actions):
     fc = FakeClient(reqs_reply(editor=False, why="all in SOLIDWORKS.", tools=[tool("SolidWorks", "app")]))
     g = load("autocad_toy_car.json")
     g["lesson"]["title"] = g["sources"][0]["title"] = "SOLIDWORKS gear tutorial"
@@ -230,7 +297,7 @@ def test_windows_only_app_card_points_to_the_alternative(mac):
     assert card["setup"]["items"][1]["noMac"] is True
 
 
-def test_mixed_card_installs_packages_and_never_the_licensed_app(mac):
+def test_mixed_card_installs_packages_and_never_the_licensed_app(mac, app_actions):
     fc = FakeClient(reqs_reply(editor=False, why="CAD plus a slicer.", tools=[
         tool("autocad", "app"), tool("PrusaSlicer", "app", brew="prusaslicer", brew_cask=True)]))
     items = requirements(load("autocad_toy_car.json"), client=fc, run=mac.run)

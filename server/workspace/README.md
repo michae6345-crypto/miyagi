@@ -114,10 +114,23 @@ row now has a `setupKind` (`apps.classify`):
   (`com.autodesk.AutoCAD*`), version from Info.plist. `noMac` for Windows-only apps.
 - A title that names its app (`apps.app_in_text`: "AutoCAD - ..." → autocad) adds the row even offline or when Claude
   left it out, for no-code lessons only (a pandas lesson about Excel files is still a code lesson).
-- Card copy for a missing licensed app: title "This lesson uses AutoCAD", body "Have AutoCAD already? Or try FreeCAD,
-  free.", actions `have_it`, `get_it`, `alternative`, `skip_setup` (labels in `setup.actionLabels`). No "Install
-  now?", no long "No editor needed: ..." line. " Watch while you decide." is added only once the app honours
-  `setup.holdVideo` (`setup.APP_HONOURS_HOLD_VIDEO`).
+- Card copy for a missing licensed app, two modes (fix round 2):
+  - **Today's app** (`setup.APP_RENDERS_APP_ACTIONS = False`, the default until the app's claim PR lands): the app's
+    CardActions drops `have_it` / `get_it` / `alternative`, so the card says only what its visible buttons do. The
+    installable free alternative gets its own row (`setup.offer_alternatives`: FreeCAD, `install.method` brew_cask,
+    `altFor` engine-only, never "missing", never in Install all). Body "AutoCAD is paid. Get it, install FreeCAD free,
+    or skip." (no installable alternative: "AutoCAD is a paid app. Get it, or skip to watch."), actions `install`,
+    `skip_setup`. Installing that row is the learner's choice: the AutoCAD row becomes `using` FreeCAD
+    (`setup_apps.after_install`), remembered, checks re-pinned. "I have it" / AutoCAD found hides the offered row.
+  - **App draws the buttons** (`APP_RENDERS_APP_ACTIONS = True`): title "This lesson uses AutoCAD", body "Have AutoCAD
+    already? Or try FreeCAD, free.", actions `have_it`, `get_it`, `alternative`, `skip_setup` (labels in
+    `setup.actionLabels`); the alternative's row is added when chosen. " Watch while you decide." is added only once the
+    app honours `setup.holdVideo` (`setup.APP_HONOURS_HOLD_VIDEO`). Flip both flags with the app PR.
+  No "Install now?", no long "No editor needed: ..." line either way.
+- An app lesson with nothing missing (AutoCAD found, or a remembered "I have it" / FreeCAD choice) gets no waiting card,
+  only a passing note ("AutoCAD is ready", "Using your AutoCAD", "Using FreeCAD for this lesson"; `actions: []`,
+  `dismissAfterMs`): today's app holds the video under any setup card with actions, Skip included. Lesson mode and the
+  session's other setup filters use `setup.missing()` (haveIt / using / altFor rows are not missing).
 - `setup.holdVideo`: False unless the current step truly needs a missing tool Install can get now (`setup_card(...,
   hold_for=step.requires)`). Setup is a companion: an app that reads holdVideo keeps the video playing. Pending app
   work (claim with Adrian first): CardActions must list `have_it` / `get_it` / `alternative`, player/store.ts

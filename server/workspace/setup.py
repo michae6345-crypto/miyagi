@@ -735,8 +735,43 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
         if why := it["install"].get("refused"):  # a likely typosquat: the row says why there's no Install
             it["why"] = f"{it.get('why') or ''} (miyagi won't install it: {why})".strip()
     annotate(items)
+    if not APP_RENDERS_APP_ACTIONS:  # the app has no "Try FreeCAD" button yet: FreeCAD is its own row with Install
+        items += offer_alternatives(items, brew, workdir=workdir, run=run)
     _apps.remember_scan(items)  # what this Mac has, for the next lesson's card and the coach's context
     return items
+
+
+def offer_alternatives(items: list[dict], brew: str | None, *, workdir: Path | str | None = None,
+                       run: Runner = _run) -> list[dict]:
+    """New rows: the installable free alternative (FreeCAD) of each licensed app that isn't on this Mac (AutoCAD), so
+    the setup card's own per-row Install gives it a working path. `altFor` marks such a row: it is an offer, never
+    "missing". Only a desktop app or CLI with a catalog Homebrew recipe (a web alternative gets no row). Once the
+    learner uses it (`using`), the row stays but is an ordinary needed row (no altFor): not installed, it is missing.
+    Never raises; [] when there's nothing to offer."""
+    have = {it.get("tool") for it in items}
+    out: list[dict] = []
+    for it in items:
+        if it.get("setupKind") != "licensed_app" or it.get("installed") or it.get("haveIt"):
+            continue
+        alt = _apps.alternative(it.get("tool") or "")
+        cat = CATALOG.get((alt or {}).get("tool") or "", {})
+        if not alt or alt["tool"] in have or not (cat.get("cask") or cat.get("formula")):
+            continue
+        row = {"tool": alt["tool"], "label": alt["name"], "kind": "app" if cat.get("cask") else (cat.get("kind") or "cli"),
+               "why": f"Free stand-in for {it['label']}.", "needed": True, "min_version": "",
+               "binary": cat.get("bin", ""), "import_name": "", "pip_name": "", "brew": "", "brew_cask": False, "url": ""}
+        if not it.get("using"):
+            row["altFor"] = it["tool"]
+        try:
+            check(row, workdir=workdir, run=run)
+            row["install"] = {k: v for k, v in recipe(row, brew).items() if k not in ("package", "licensed")}
+            row["setupKind"] = _apps.classify(row)
+        except Exception:  # noqa: BLE001 - an offer: the card goes out without it
+            log.exception("free alternative row for %s failed", it.get("tool"))
+            continue
+        have.add(alt["tool"])
+        out.append(row)
+    return out
 
 
 def annotate(items: list[dict]) -> list[dict]:
@@ -761,9 +796,10 @@ def editor_needed(items: list[dict]) -> bool:
 
 def missing(items: list[dict]) -> list[dict]:
     """Needed items that aren't installed or are too old (items we couldn't check are not "missing", nor a licensed app
-    the learner says they have or replaced with its free alternative)."""
+    the learner says they have or replaced with its free alternative, nor that alternative's offered row until the
+    learner chooses it)."""
     return [it for it in items if it["needed"] and not it.get("ok") and not it.get("unknown")
-            and not it.get("haveIt") and not it.get("using")]
+            and not it.get("haveIt") and not it.get("using") and not it.get("altFor")]
 
 
 def unknown(items: list[dict]) -> list[dict]:
@@ -998,14 +1034,29 @@ def _last_error(text: str) -> str:
 # The app (player/store.ts setupWaiting, Drawer useWaitingOnSetup) still pauses the video under any setup card with
 # actions, whatever setup.holdVideo says. Until it honours holdVideo, the card never promises "Watch while you decide".
 APP_HONOURS_HOLD_VIDEO = False
+# The app's CardActions draws only the actions in its ACTION map: no have_it / get_it / alternative yet, so "Have
+# AutoCAD already? Or try FreeCAD" would ask a question with no button to answer it. While False the card says only what
+# its visible buttons do (the row's Get it, the free alternative's own row with Install, Skip), and the card's actions
+# leave those three out. Flip it (and APP_HONOURS_HOLD_VIDEO) when the app's claim PR (I have it / Get it / Try FreeCAD
+# buttons, holdVideo in player/store.ts and the Drawer) has landed. See README "Smart setup".
+APP_RENDERS_APP_ACTIONS = False
 
 
-def licensed_line(rows: list[dict]) -> str:
-    """The card's sentence for licensed apps that aren't here: never "Install now?" (apps.py). Calm, short, no dashes."""
+def licensed_line(rows: list[dict], offered: set[str] | frozenset[str] = frozenset()) -> str:
+    """The card's sentence for licensed apps that aren't here: never "Install now?" (apps.py). Calm, short, no dashes.
+    offered: the licensed tools whose free alternative has its own row still to install (offer_alternatives)."""
     if len(rows) > 1:
-        return f"{', '.join(it['label'] for it in rows)} are paid apps. Have them already?"
+        labels = ", ".join(it["label"] for it in rows)
+        return f"{labels} are paid apps. Have them already?" if APP_RENDERS_APP_ACTIONS \
+            else f"{labels} are paid apps. Get them, or skip to watch."
     it = rows[0]
     alt = _apps.alternative(it["tool"])
+    if not APP_RENDERS_APP_ACTIONS:  # only what the visible buttons do: the row's Get it, FreeCAD's Install, Skip
+        row = it["tool"] in offered and alt
+        if it.get("noMac"):
+            return f"{it['label']} is Windows only. " + (f"Install {alt['name']} free, or skip." if row else "Skip to watch.")
+        return f"{it['label']} is paid. Get it, install {alt['name']} free, or skip." if row \
+            else f"{it['label']} is a paid app. Get it, or skip to watch."
     if it.get("noMac"):
         return f"{it['label']} is Windows only." + (f" Try {alt['name']}, free." if alt else "")
     return f"Have {it['label']} already?" + (f" Or try {alt['name']}, free." if alt else "") \
@@ -1040,15 +1091,19 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
     miss = missing(items)
     lic = [it for it in miss if (it.get("setupKind") or _apps.classify(it)) == "licensed_app"]
     inst = [it for it in miss if it not in lic]
+    # the free alternative's own row (offer_alternatives) while the learner hasn't chosen it: Install, never "Missing"
+    lic_tools = {it["tool"] for it in lic}
+    offer = [it for it in items if it.get("altFor") in lic_tools and it["needed"] and not it.get("ok") and it not in inst
+             and (it.get("install") or {}).get("method") in ("brew", "brew_cask", "pip")]
     need_ed = editor_needed(items)
     ed = next((it for it in items if it["kind"] == "editor"), None)
     web = [it for it in items if it["kind"] == "web_app"]
     if inst:
         body = "Missing: " + ", ".join(it["label"] for it in inst) + ". Install now?"
         if lic:
-            body += " " + licensed_line(lic)
+            body += " " + licensed_line(lic, {it["altFor"] for it in offer})
     elif lic:
-        body = licensed_line(lic)
+        body = licensed_line(lic, {it["altFor"] for it in offer})
     elif web and not need_ed:
         body = "Nothing to install."
     elif unknown(items):
@@ -1069,10 +1124,11 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
         body += f" Open the lesson folder in {ed['label']}?"
     if resources:  # find_resources(): the video links its own code/notebooks/data
         body += f" The video links its materials ({', '.join(r['name'] for r in resources[:3])}{'…' if len(resources) > 3 else ''}): download them?"
-    alts = [a for a in (_apps.alternative(it["tool"]) for it in lic) if a]
+    alts = [a for a in (_apps.alternative(it["tool"]) for it in lic) if a] if APP_RENDERS_APP_ACTIONS else []
+    app_acts = lic and APP_RENDERS_APP_ACTIONS  # until the app draws them, the rows' own Get it / Install do the work
     actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
-               + (["download"] if resources else []) + (["install"] if inst else [])
-               + (["have_it", "get_it"] if lic else []) + (["alternative"] if alts else []) + ["skip_setup"])
+               + (["download"] if resources else []) + (["install"] if inst or offer else [])
+               + (["have_it", "get_it"] if app_acts else []) + (["alternative"] if alts else []) + ["skip_setup"])
     if inst:
         title = "Set up first"
     elif lic:
@@ -1092,12 +1148,14 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
                              "download": "Download tutorial files",
                              "install": "Install", "skip_setup": "Skip",
                              **({"have_it": "I have it",
-                                 "get_it": f"Get {lic[0]['label']}" if len(lic) == 1 else "Get it"} if lic else {}),
+                                 "get_it": f"Get {lic[0]['label']}" if len(lic) == 1 else "Get it"} if app_acts else {}),
                              **({"alternative": f"Try {alts[0]['name']}" if len(alts) == 1 else "Free alternative"} if alts else {})},
             # Setup never gates watching (Nov 22): the app plays the video while this card waits, unless the step
             # the learner is on truly needs a tool that Install can get right now.
             "holdVideo": any(str(it["tool"]).lower() in hold for it in inst),
-            "items": [_row(it) for it in items],
+            # an offered alternative (FreeCAD) whose licensed app is settled (found, "I have it") is no longer shown
+            "items": [{**_row(it), **({"needed": False} if it.get("altFor") and it["altFor"] not in lic_tools else {})}
+                      for it in items],
         },
     }
     if step_id:
