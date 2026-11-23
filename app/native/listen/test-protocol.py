@@ -150,15 +150,43 @@ check("stale final arrives after the new down and carries the OLD id",
       id1 != id2 and stale_after_new and finals[0]["id"] == id1 and finals[0]["text"] == "first question"
       and finals[1]["id"] == id2, str(ev))
 
-# --- final slower than the release tail (300 ms): best partial is sent, and the late final is dropped --------------
+# --- final slower than the tail cap, text whole and quiet: the best text goes at the cap (1 s), the late final is dropped
 m = h.mark()
 h.sim("down", fakeText="slow one", finalDelayMs=4000); time.sleep(0.45)
 h.sim("up"); t_up = time.time() - h.t0
 h.wait(lambda e: any(x["type"] == "final" for x in e), mark=m)
 tev = h.timed_since(m)
 tf = next((t for t, e in tev if e["type"] == "final"), None)
-check("slow final: best partial sent within the 300 ms tail after release",
-      tf is not None and 0.2 <= tf - t_up <= 0.7, f"dt={None if tf is None else round(tf - t_up, 2)}")
+check("slow final, quiet text: best text sent at the 1 s cap after release (not 300 ms: a quiet text may be behind)",
+      tf is not None and 0.9 <= tf - t_up <= 1.4, f"dt={None if tf is None else round(tf - t_up, 2)}")
+
+# --- word loss (Tail.swift): a fake recognizer whose text lags the audio like SpeechAnalyzer (ACCURACY.md "Release
+# tail"): the last word is missing until lagMs after the input ends. The first cut (a flat 300 ms tail) sent the text
+# without the last word in each of these; FakeStt with no lag (above) could never show that.
+def lag_case(name, text, hold_s=0.45, **sim):
+    m = h.mark()
+    h.sim("down", fakeText=text, **sim); time.sleep(hold_s)
+    h.sim("up"); t_up = time.time() - h.t0
+    h.wait(lambda e: any(x["type"] in ("final", "cancelled") and x.get("reason") != "short" for x in e), mark=m, timeout=6)
+    tev = h.timed_since(m)
+    fin = [(t, e) for t, e in tev if e["type"] == "final"]
+    ok = bool(fin) and fin[0][1]["text"] == text
+    check(f"{name}: the last word is kept", ok, str([e for _, e in tev]))
+    return (fin[0][0] - t_up) if fin else None
+
+dt = lag_case("warm, last word only in a 600 ms final", "how do I install it with pip", finalDelayMs=600, lagMs=600)
+check("warm, last word only in the final: sent with the final, about 600 ms after release",
+      dt is not None and 0.5 <= dt <= 0.95, f"dt={dt}")
+dt = lag_case("warm, last word in a partial 200 ms after release, final 3 s", "why is my tensorflow loss nan", finalDelayMs=3000,
+              lagMs=200)
+check("warm, the final never comes in time: the best text at the 1 s cap, with the late partial's word",
+      dt is not None and 0.9 <= dt <= 1.4, f"dt={dt}")
+# Cold start: the mic opens 250 ms after down, the recognizer is ready 900 ms later, after the release (450 ms); the tail
+# starts there. The last word comes 400 ms into the tail, the final only after 3 s: sent at the cap with the word.
+dt = lag_case("cold start, release before the recognizer is ready", "what does this error mean", finalDelayMs=3000, lagMs=400,
+              startDelayMs=900)
+check("cold start: the tail starts when the recognizer is ready, then the 1 s cap: about 1.7 s after release",
+      dt is not None and 1.4 <= dt <= 2.4, f"dt={dt}")
 time.sleep(0.2)
 h.sim("down", fakeText="x"); h.sim("up")   # (short) just flush
 time.sleep(0.4)

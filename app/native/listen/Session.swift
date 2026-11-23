@@ -43,8 +43,8 @@ struct Config {
     var minHoldMs = 250
     var maxHoldMs = 60_000
     var locale = "en-US"
-    /// The release tail: how long after release (or after the STT is ready, if later) we wait for the recognizer's final
-    /// before sending the best text so far. At most Tail.maxMs (300 ms); it used to be a 1500 ms wait.
+    /// The release tail's warm cap (Tail.swift): the final goes the moment it comes; if it has not come by this cap
+    /// (longer after a cold-start flush), the best text so far goes. Kept within Tail.floorMs...Tail.ceilingMs.
     var tailMs = Tail.maxMs
 }
 
@@ -63,6 +63,9 @@ enum Ids {
 struct SimOptions {
     var fakeText: String?        // use a fake STT that returns exactly this text
     var finalDelayMs = 0         // fake STT only: how long finish() takes
+    var lagMs = -1               // fake STT only: >= 0 makes it lag like SpeechAnalyzer: the last word is missing from
+                                 // its text until lagMs after the input ends (then a partial brings it)
+    var startDelayMs = 0         // fake STT only: how long start() takes (a cold start: release before it is ready)
     var file: String?            // feed this audio file through the real Transcriber instead of the mic
 }
 
@@ -91,6 +94,10 @@ final class Session {
     private var finishWanted = false
     private var lastPartial = ""
     private var resolved = false
+    // The release tail (Tail.swift): audio flushed at once when the STT became ready (a cold start lengthens the cap).
+    private var flushedMs = 0
+    private var flushedAt: Date?
+    private var tailStarted = false
 
     init(ctl: Controller, config: Config, terms: [String], sim: SimOptions?) {
         self.ctl = ctl; self.config = config; self.terms = terms; self.sim = sim
@@ -171,7 +178,9 @@ final class Session {
         // 2. The STT starts in parallel (async); buffers queue until it is ready.
         let session: SttSession
         do {
-            if let sim = sim, let fake = sim.fakeText { session = FakeStt(text: fake, finalDelayMs: sim.finalDelayMs) }
+            if let sim = sim, let fake = sim.fakeText {
+                session = FakeStt(text: fake, finalDelayMs: sim.finalDelayMs, lagMs: sim.lagMs, startDelayMs: sim.startDelayMs)
+            }
             else { session = try Transcriber.makeSession(kind: ctl.sttKind, locale: Locale(identifier: config.locale), terms: terms) }
         } catch {
             sttFailed(error); return
@@ -206,6 +215,9 @@ final class Session {
         bufLock.lock()
         let queued = pending; pending = []
         for b in queued { session.feed(b) }
+        // How much audio went in at once: the recognizer may need a while to work through it (a cold start).
+        flushedMs = Int(queued.reduce(0.0) { $0 + Double($1.frameLength) / max($1.format.sampleRate, 1) } * 1000)
+        flushedAt = Date()
         sttReady = true
         let wanted = finishWanted
         bufLock.unlock()
@@ -228,15 +240,19 @@ final class Session {
         Out.emit("partial", [("id", id), ("text", t)])
     }
 
-    /// Mic is closed and the STT is ready: end the input, then send the final if it comes within the tail (at most
-    /// 300 ms), else the best text recognised so far. Release no longer waits on the recognizer's finalize.
+    /// Mic is closed and the STT is ready: end the input and send the final the moment it comes (about 65 ms on
+    /// SpeechAnalyzer); if it has not come by the cap (Tail.swift: 1 s, up to 1.5 s after a cold-start flush), send the
+    /// best text so far. The tail starts here: at release, or when the STT is ready if that is later.
     private func startFinishing() {
-        guard let stt = stt, phase == .finishing, !resolved else { return }
+        guard let stt = stt, phase == .finishing, !resolved, !tailStarted else { return }
+        tailStarted = true
+        let since = flushedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+        let cap = Tail.capMs(backlogMs: Tail.backlogMs(flushedMs: flushedMs, sinceFlushMs: since), maxMs: config.tailMs)
         Task { [weak self] in
             let text = await stt.finish()
             DispatchQueue.main.async { self?.resolve(final: text, timedOut: false) }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Tail.clamp(config.tailMs))) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(cap)) { [weak self] in
             guard let self = self, !self.resolved else { return }
             self.resolve(final: nil, timedOut: true)
         }

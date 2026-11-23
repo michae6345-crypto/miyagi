@@ -128,7 +128,7 @@ func handle(_ obj: [String: Any]) {
         if let v = obj["chord"] as? String, let ch = Chord(rawValue: v) { c.chord = ch }
         if let v = obj["minHoldMs"] as? Int { c.minHoldMs = max(0, v) }
         if let v = obj["maxHoldMs"] as? Int { c.maxHoldMs = max(1, v) }
-        // The release tail, at most 300 ms (Tail.swift). finalWaitMs is its old name (it was a 1500 ms wait).
+        // The release tail's warm cap (Tail.swift, 300...1500 ms; default 1000). finalWaitMs is its old name.
         if let v = (obj["tailMs"] as? Int) ?? (obj["finalWaitMs"] as? Int) { c.tailMs = Tail.clamp(v) }
         if let v = obj["locale"] as? String, !v.isEmpty { c.locale = v }
         ctl.apply(config: c)
@@ -157,6 +157,8 @@ func handle(_ obj: [String: Any]) {
         var sim = SimOptions()
         sim.fakeText = obj["fakeText"] as? String
         sim.finalDelayMs = obj["finalDelayMs"] as? Int ?? 0
+        sim.lagMs = obj["lagMs"] as? Int ?? -1
+        sim.startDelayMs = obj["startDelayMs"] as? Int ?? 0
         sim.file = obj["file"] as? String
         switch obj["state"] as? String {
         case "down": ctl.nextSim = sim; ctl.chordChanged(down: true)
