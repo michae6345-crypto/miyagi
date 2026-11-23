@@ -445,6 +445,59 @@ class ScreenAvoid(_Model):
     rects: list[AvoidRect]  # [] = nothing to avoid any more (the picker closed): the app clears it
 
 
+
+class ScreenRegion(_Model):
+    """Circle to ask (Nov 22): the bounding box of the ink the learner drew while holding Fn+Control.
+
+    Screen POINTS, TOP-LEFT origin, in Electron's global screen space (the spotlight.rect space: the primary display's
+    frame starts at 0,0; another display has its own offset, maybe negative). displayId: Electron's Display.id, which on
+    macOS is the CGDirectDisplayID (server/screen/sck.py capture(display_id)). scale: that display's pixels per point.
+    """
+
+    x: float
+    y: float
+    w: float
+    h: float
+    displayId: int
+    scale: float
+
+
+class Annotation(_Model):
+    """Buddy draws (Nov 22): one thing the app circles with a hand-drawn stroke grown from the island (event annotate).
+
+    x / y / w / h: screen points, the ScreenRegion space. displayId None = the primary display (spotlight.rect).
+    why "point": the coach points at it (a step target, Show me, an off-track culprit); "answer": the thing a
+    circle-to-ask answer names, inside the circled region (askId = that ask). label: <= 4 words. id: stable per mark,
+    so a re-sent annotate keeps a circle still drawn instead of drawing it again.
+    """
+
+    id: str | None = None
+    x: float
+    y: float
+    w: float
+    h: float
+    displayId: int | None = None
+    label: str | None = None
+    why: Literal["point", "answer"]
+    askId: str | None = None
+    stepId: str | None = None
+
+
+class AnnotateMarks(_Model):
+    """annotate: circle these. A new annotate replaces the marks drawn before; the overlay stays click-through. The app
+    fades them on a click inside one, a step change, lesson.ended, or after holdMs (None: the app's default, a few s)."""
+
+    marks: list[Annotation]
+    holdMs: int | None = None
+
+
+class AnnotateClear(_Model):
+    clear: Literal[True]  # fade every mark now
+
+
+Annotate = AnnotateMarks | AnnotateClear
+
+
 class VideoSeek(_Model):
     t: float
     play: bool
@@ -749,6 +802,8 @@ class Card(_Model):
     diff: str | None = None  # unified diff preview ("Apply this fix?")
     targets: list[Target] | None = None
     guidingQuestion: str | None = None
+    askId: str | None = None  # Circle to ask (Nov 22): kind "answer" to action ask {askId}: the app matches it to its circle
+    region: ScreenRegion | None = None  # Circle to ask: the circled region, echoed back so the card sits next to it
     setup: Setup | None = None  # kind "setup"
     items: list[SetupItem] | None = None  # kind "preflight": early tool check
     warning: str | None = None  # kind "preflight": the video doesn't fit the goal (goalMatch < 0.5)
@@ -955,6 +1010,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "spotlight": TypeAdapter(Spotlight),
     "screen.seen": ScreenSeen,
     "screen.avoid": ScreenAvoid,
+    "annotate": TypeAdapter(Annotate),  # Buddy draws (Nov 22)
     "video.seek": VideoSeek,
     "video.pause": Empty,
     "video.play": Empty,
@@ -980,6 +1036,7 @@ ENGINE_EVENTS: dict[str, Any] = {
 }
 
 EngineEventType = Literal[
+    "annotate",
     "cloud.token_invalid",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
@@ -1015,6 +1072,14 @@ class Action(_Model):
     # explain + text: text = the learner's selection (the drawer's "Explain more"): the engine answers with a card
     # {kind: "explain", title: "About `<start of the selection>`", body}. explain without text: the current step.
     text: str | None = None
+    # ask + region (Circle to ask, Nov 22): the learner held Fn+Control and circled part of the screen. text = the
+    # spoken words, or "What is this?" when nothing was said (also the engine's default for empty text). Works with
+    # or without a lesson. The engine crops region, reads the text boxes inside it, answers with a card
+    # {kind: "answer", askId, region}, then maybe annotate {marks: [{why: "answer", askId, ...}]}. The crop is used
+    # for this one ask only, never stored or logged.
+    region: ScreenRegion | None = None
+    source: str | None = None  # "typed" | "voice" | "circle"; a plain str so a new tag from the app is not rejected
+    askId: str | None = None  # the app's id for this ask; the answer card echoes it
 
 
 class VideoState(_Model):

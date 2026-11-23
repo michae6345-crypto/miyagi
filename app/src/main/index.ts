@@ -307,7 +307,27 @@ function layoutFor(win: BrowserWindow): Layout {
   const display = screen.getDisplayMatching(b)
   const wa = display.workArea
   const notch = notchService?.layoutFor(display, getPrefs().island.place) ?? { ...notchFor(display), place: 'below' as const, coexist: false }
-  return { notch, origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+  return { notch, origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, displayId: display.id, scaleFactor: display.scaleFactor, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+}
+
+/**
+ * A leased overlay:interactive ({on: true, leaseMs}, circle to ask): the grab lasts only while the renderer keeps saying
+ * it. Not said again within leaseMs (a hung renderer) and main gives the mouse back itself. A plain true (core hover)
+ * leaves a running lease alone; false ends it.
+ */
+let lease: ReturnType<typeof setTimeout> | undefined
+function leaseInteractive(payload: unknown): void {
+  const ms = payload && typeof payload === 'object' ? Number((payload as { leaseMs?: unknown }).leaseMs) : NaN
+  if (payload && !(ms > 0)) return
+  clearTimeout(lease)
+  lease = undefined
+  if (!payload) return
+  lease = setTimeout(() => {
+    lease = undefined
+    if (overlay.isDestroyed()) return
+    overlay.setIgnoreMouseEvents(true, { forward: true })
+    signalListeners.get('overlay:interactive')?.forEach((fn) => fn(false))
+  }, Math.min(5000, Math.max(250, ms)))
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {
@@ -611,6 +631,7 @@ app.whenReady().then(async () => {
         break
       case 'overlay:interactive':
         overlay.setIgnoreMouseEvents(!payload, { forward: true })
+        leaseInteractive(payload)
         break
       case 'island:size':
         islandSize = payload as typeof islandSize

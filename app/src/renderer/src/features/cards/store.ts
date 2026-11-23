@@ -11,6 +11,7 @@ import { clearOfftrack, dismissAfter, seekVideo, useLesson, WITHDRAW_MS, type Ch
 import { reserveRect, useDock } from '../../core/dock'
 import type { CardKindV2 } from '../../../../../../shared/contracts/events'
 import { isRouted, panelShown } from './panel'
+import { circleOwnsCard } from '../circle/store'
 
 export type Point = { step: number; value: number }
 /** `seq` = event order of its first point (compared with the off-track's), `at` = when its last point arrived (ms). */
@@ -568,6 +569,8 @@ function autoClose(c: Payload<'card'>, after: number | undefined): void {
 onMessage('card', (raw) => {
   // v2 card kind "complete" (Prog-Completion) is the complete feature's (A8): never an island card here.
   if ((raw.kind as CardKindV2) === 'complete') return
+  // Circle to ask: the answer to a circle on screen sits beside that circle (features/circle), not in the island.
+  if (circleOwnsCard(raw)) return
   const after = dismissAfter(raw)
   const cur = get().card
   // An identical card updates in place: the object on screen stays, so nothing re-renders or re-animates.

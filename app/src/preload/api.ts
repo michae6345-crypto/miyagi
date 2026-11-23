@@ -12,7 +12,8 @@
  *   launcher -> main : 'launcher:hidden' (closed normally), 'launcher:built' (shrank into the pill)
  *   main -> overlay  : 'pill:receive' (launcher just landed on the pill), 'shortcut' (kind)
  *   any -> main      : 'launcher:toggle' (e.g. clicking the idle pill or "Ask anything")
- *   overlay -> main  : 'overlay:interactive' (boolean: stop click-through while over a control)
+ *   overlay -> main  : 'overlay:interactive' (boolean: stop click-through while over a control; or {on: true, leaseMs}:
+ *                      main gives the mouse back itself if it is not said again within leaseMs)
  *   main -> any      : 'layout' (Layout)
  */
 import type { Incoming, Outgoing } from '../common/wire'
@@ -53,6 +54,10 @@ export type Layout = {
    * Main re-sends the layout when any of it changes.
    */
   notch: NotchLayout
+  /** Additive (circle to ask): Electron's Display.id of the display this window is on (the engine's capture display). Absent in the browser stage. */
+  displayId?: number
+  /** Additive (circle to ask): that display's backing scale (Display.scaleFactor), page zoom not included. Absent in the browser stage. */
+  scaleFactor?: number
 }
 
 export type Unsub = () => void

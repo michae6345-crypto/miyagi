@@ -1,0 +1,62 @@
+# app-circle-ask
+
+**Status:** fix round 2 done, stage only · **Port:** 5200 (ports.json `app-circle-ask`) · **Branch:** `michael/app-circle-ask` (from `origin/michael/v2-integration`, with the contract commit `contract: circle-to-ask region and buddy annotations (additive)` cherry-picked)
+
+## Goal
+Circle to ask, like Clicky. Hold the push-to-talk keys (Fn+Control), circle anything on screen with the mouse, say a question or nothing, let go. miyagi explains what is inside the circle in a small card beside it. Esc while the keys are held cancels (push to talk's own Esc).
+
+## Owns
+- `app/src/renderer/src/features/circle/` (new): `machine.ts` (pure state machine), `geometry.ts` (pure: ink to box, box to screen points, ink path, card place), `store.ts`, `Layer.tsx`, `web.ts` (stage only), `index.tsx`
+- `app/mock/scenarios/circle.json` (the stage's fake answer lives here, segment `circle_answer`), `app/test/circle.test.ts`, `app/test/circleStore.test.ts`, shots `app/agents/shots/app-circle-ask-*.png`
+
+Small edits in other renderer feature folders (no core):
+- `features/ptt/store.ts`: `claimFinals(fn)`. The circle takes a session's final words before push to talk routes them, so they are not asked twice.
+- `features/cards/store.ts`: skips an answer card the circle owns (`circleOwnsCard`), so the answer shows once, beside the circle.
+- `features/tips/tips.ts` (+ index doc line): the one-time tip `circle`, "Hold [ptt keycap] and circle anything to ask." The keycap is `Keycap k="ptt"` (or `ptt_alt` for the Control+Option chord), from `bridge.platform.keys`. It shows on the step pill, or on the idle pill once the launcher tip is seen, only while push to talk is on and its helper is ready. Done once a circle was asked about.
+- `features/shortcut-bar/front.ts`: `holdAwake(on)`. While held, "away" does not start and its count does not run; letting go starts a fresh count.
+
+## How it works
+- A push-to-talk hold (`arming` / `listening`) arms the circle. While armed, and only then, the overlay takes the mouse: `ui:emit 'overlay:interactive' {on: true, leaseMs: 1000}`, said again every 200 ms and on pointer moves. Main drops the grab itself if the lease is not renewed (Core request 6), so a hung renderer cannot keep the screen.
+- **Away is held off** from the hold to the answer's close (`holdAwake`, set in `store.ts` sync() for every non-idle state, cleared on idle). Before, the 3 s away count kept running during a hold over a browser or Terminal, and main made the overlay click-through mid-stroke (up to 200 ms each time), so a Control+press could reach the app below as a right click. The answer's X had the same gap (up to 150 ms).
+- The drawing surface is full screen while armed. It takes pointerdown with button 0 or 2 (Control + click is a right click on a Mac) and swallows `contextmenu`. It is NOT `data-hit`, so core does not report the whole screen as miyagi's UI to the engine (`overlay.bounds`). It is `data-grab`: core's hover tracking (useClickThrough) keeps the mouse over it instead of saying click-through when the pointer was resting on a card as the hold began (Core request 7). Never reported.
+- **Inert with no layer.** cards and tips import `store.ts` even when the feature is off. `feed()` does nothing until the layer has mounted (`setLayout`), and the layer unmounting (`layerGone`) gives the mouse back and goes inert again. So a push-to-talk hold never takes the screen's mouse with nothing there to draw on.
+- **Nothing over the circle is reported as miyagi's UI.** The ink svg is the whole overlay and its stroke box is exactly the circled region, so it is neither `data-ui` nor `data-hit`. Only the "Looking" chip (`data-ui`) and the answer card (`data-hit`) are reported, and both sit beside the circle (tested).
+- Every way out gives the mouse back once: the keys up (also while push to talk is still `arming` with `released: true`), push to talk's `esc`, window blur, page hidden, an error, the lesson ending, the engine link dropping, the layer unmounting, and the 8 s cap. Ink drawn before blur or the cap is kept and still asked about.
+- On release with ink: the box (ink bounds, 6 px pad, kept on the overlay) becomes a `ScreenRegion`: window origin added, `layout.scaleFactor` (the display's backing scale from main; `devicePixelRatio` only in the stage, since it includes page zoom), `layout.displayId`. The ask goes out as `action {kind: "ask", text, region, source: "circle", askId}`. text is the spoken words, or "What is this?" when nothing was said (helper cancel `empty` / `short` / `keypress` / `timeout`, or no final within 1.5 s). A hold with no ink (or just a click) is plain push to talk.
+- **Late words.** `asking` and `answered` keep the hold's session id. A final that arrives after "What is this?" went out is claimed and dropped (the machine, and the store for holds already closed), never routed again as a second, plain ask.
+- **Engine link down** when the hold seals (`useLesson.connected` false): no ask is sent. The ink goes, the mouse is back, and the pill says "miyagi isn't connected yet. Try again soon." (The line "miyagi can't see the screen yet" is the engine's, for no screen permission or no model.)
+- While the engine thinks, a small "Looking" chip sits by the circle. The answer `card {kind: "answer", askId}` shows beside the circle (right, left, below, above, the first that fits, 16 px inside the screen edges). No answer in 30 s: the ink goes and the pill says "No answer yet. Try again."
+- **Closing the answer card.** Its X, a new hold, the lesson ending, the engine dropping, or 25 s. In Electron, Esc does NOT reach it after release (Core request 4). Other cards' close (`dismiss`) leaves the circle alone.
+- The chip and the card follow Settings > Appearance (`data-theme="auto"`). Ink: `tone.mint.solid` over a thin neutral casing (`brand.ink` at 0.55), never the pass green.
+
+## Limits
+- **One display (follow-up).** The overlay covers only the display `layoutFor` picks in main, so a circle on a second monitor is not possible yet. The geometry and contract already carry negative origins and `displayId` correctly (tested). Follow-up: at hold start, move the overlay to the display under the cursor (main), or say in the tip that it works on the main screen only.
+- **The engine half is in no lane yet. It must land before `PTT_ENABLED` flips.** No `server/` file changes here and no engine branch exists. Claim it as its own engine lane. The engine needs to: handle `action ask` with `region` and `source: "circle"`; crop by `displayId` (global points minus the display origin, times `scale`); read the `ScreenContext` text boxes inside the crop (`server/coach/screen.py`); wrap that text with `server/untrusted.py` `wrap()` and `DATA_RULE`; keep the crop in memory only, never stored or logged; answer through `server/coach/llm.py` at Haiku class; with no screen permission or no model, answer from the OCR text or say plainly that miyagi can't see the screen yet; reply with `card {kind: "answer", askId, region}`. The app side is ready for it.
+- The circle tip shows on the island's step pill or idle pill. In the v2 notch stage (`notch` default) the island has no mode at rest, so no island-anchored tip shows there; the tip shot uses `&notch=below`.
+
+## Test
+- `npm run typecheck`
+- `node --import tsx --import ./test/setup.mjs --test test/circle.test.ts test/circleStore.test.ts` (62 tests). New in round 2: a hold over a browser page past AWAY_MS never invokes `overlay:away` true and never says click-through before release; away already on ends as the hold starts; the answer's X stays clickable for 4x AWAY_MS; late words while asking and after the answer are not asked again (machine and store); the region's scale is `layout.scaleFactor`; the mouse is taken as a lease and given back with a plain false; with no layer a hold takes nothing and the words route as ever; the layer going away mid-hold gives the mouse back. The repo has no vitest; tests use node:test. Full `npm test`: 660 pass.
+- Stage: `npm run dev:web -- --port 5200`, then (the stage runs the mock inline; never add `engine=socket`, a real engine may be on 8787)
+  - drawing: `http://localhost:5200/?scenario=circle&ptt=listen&circle=draw&circle-ms=900&clean`
+  - looking: `http://localhost:5200/?scenario=circle&ptt=empty&circle=draw&clean` (nothing answers)
+  - answered: `http://localhost:5200/?scenario=circle&ptt=empty&circle=answered&clean` (add `&appearance=light` for the light card)
+  - engine offline: `http://localhost:5200/?scenario=circle&ptt=empty&circle=draw&clean&engine=ws://localhost:1&fallback=0`
+  - ink on light content: `...&circle=answered&circle-at=960,556,150,56&clean&appearance=light`
+  - the tip: set `localStorage['miyagi.tips'] = '{"off":false,"seen":["check","help","mini","pill","launcher","menubar"]}'`, then `http://localhost:5200/?scenario=tips&tipsDemo=lesson&ptt=idle&clean&notch=below`
+- Shots: `app-circle-ask-drawing.png`, `app-circle-ask-looking.png` (the "Looking" chip), `app-circle-ask-answered.png` (dark), `app-circle-ask-answered-light.png`, `app-circle-ask-light-content.png` (the casing over a white button), `app-circle-ask-offline.png` (the engine-offline pill), `app-circle-ask-tip.png`.
+
+## What is NOT verified
+- **Nothing ran in Electron, and nothing ran against a live engine or model.** The stage fakes the hand (`web.ts` draws through the store, not real pointer events) and the engine (it plays `circle.json`'s `circle_answer` with the askId).
+- **Push to talk is off in the product** (`PTT_ENABLED = false`). The circle rides on its keys, so it is off in Electron too until that flag flips. Flip it only once the microphone use is disclosed and the engine half has landed.
+- The main-side lease and the `data-grab` hover rule are typechecked only (no Electron run).
+- Whether the macOS overlay really takes the mouse over near-clear pixels (`fill.catch`), how Chromium reports Control + click with Fn held, and whether the listen helper cancels a hold (`keypress`) when the mouse is used.
+
+## Core requests
+1. **`Layout.displayId` and `Layout.scaleFactor`** (done here as two tiny additive commits: `app/src/preload/api.ts` + `app/src/main/index.ts` layoutFor). Without them every circle says `displayId: 0` and uses `devicePixelRatio`.
+2. **`sendAction(kind, text, extra?)`** in `core/shortcuts.ts`: it has no room for `region` / `source` / `askId`, so `store.ts` records the press on `usePressed` and sends `bridge.send(cmd('action', ...))` itself. Switch once it takes the extra fields.
+3. **`'annotate'` in `common/wire.ts` KNOWN** (from the contract commit). The buddy-draws lane needs it.
+4. **Main relays Esc while a circle card is up.** The overlay never has focus, so after release Esc cannot close the answer card in Electron. Until then it closes on its X or after 25 s.
+5. **`fill.catch` in `core/theme.ts`** (done, its own one-line commit).
+6. **A hard cap in main for the circle's grab** (done, its own commit: `core: overlay:interactive lease ...`). `overlay:interactive` may be `{on: true, leaseMs}`; main sets click-through again and tells overlay-raise if it is not said again in time (clamped 250 ms to 5 s). Plain `true` (core hover) leaves a running lease alone; `false` ends it. Should land before `PTT_ENABLED` flips.
+7. **`[data-grab]` in core's useClickThrough** (done, its own commit). The move and watchdog checks match `[data-hit],[data-grab]`; data-grab is never in bounds or hits. Fixes the hover race at the start of a hold (pointer resting on the lesson panel, island or drawer as the keys go down).

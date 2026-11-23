@@ -157,10 +157,17 @@ onGateOpen(maybeInputCard)
 /** Only the overlay routes the words (every window hears the broadcast; the launcher must not ask twice). */
 const isRouter = (): boolean => !isElectron || document.documentElement.dataset.route === 'overlay'
 
+/** Another feature may take a session's words first (features/circle: the words go with the circled region). */
+let claimer: ((f: { id: string; text: string }) => boolean) | undefined
+export function claimFinals(fn: (f: { id: string; text: string }) => boolean): void {
+  claimer = fn
+}
+
 export function routeFinal(f: { id: string; text: string }): Routed {
   if (!isRouter() || seen === f.id) return 'none'
   seen = f.id
   const text = f.text.trim()
+  if (claimer?.({ id: f.id, text })) return 'none'
   const lesson = useLesson.getState()
   const where = routeFor(text, !!lesson.lesson && !!lesson.stepId)
   if (where === 'ask') sendAction('ask', text)

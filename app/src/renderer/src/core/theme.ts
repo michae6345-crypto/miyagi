@@ -365,6 +365,8 @@ export const fill = {
   /** A keycap on a solid option pastel (ink at 10% in both appearances). */
   onPastelKey: 'var(--f-on-pastel-key)',
   clear: 'rgba(255,255,255,0)',
+  /** Next to nothing, but not fully clear: an interactive transparent overlay still hit-tests as ours (features/circle). */
+  catch: 'rgba(0,0,0,0.012)',
   /** Ring / spinner tracks and the empty check circle. */
   track: 'var(--f-track)',
   trackSoft: 'var(--f-track-soft)',

@@ -1,0 +1,24 @@
+{
+  "name": "circle",
+  "on": {
+    "connect": "circle_connect"
+  },
+  "segments": {
+    "circle_connect": [
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } }
+    ],
+    "circle_answer": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "kind": "answer",
+          "title": "The training loop",
+          "body": "Each pass runs the model, measures the loss, and nudges the weights to lower it. backward() finds the nudges; step() applies them."
+        }
+      },
+      { "wait": 0, "type": "status", "payload": { "state": "watching" } }
+    ]
+  }
+}
