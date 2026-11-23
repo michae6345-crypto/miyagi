@@ -6,7 +6,9 @@
  *   Review     what is due (and coming), one row each; Start review only when the engine can review
  *   Up next    the engine's suggestions: title, what it unlocks, minutes, a quiet Start
  *   Skills     one row per track: the progress ring, the track, the skill that comes next; opens the Skills page
+ *   This week  the weekly recap (skills/extras WeekRecap), never a streak; only when the engine sent a week
  *   Finished   the lessons you finished, newest first, with the green check (green = passed)
+ *   Projects   finished projects and the goal (skills/extras Portfolio); only with a project or a chosen goal
  *   Milestones the quiet line at the foot
  *
  * Every row uses the shell's Row (and RowChevron when it opens something), so Progress reads like Home and Lessons.
@@ -22,6 +24,8 @@ import { Row, RowChevron, SectionHead, TextAction } from '../shell/ui'
 import { setPage } from '../shell/store'
 import { openDetail } from '../library/store'
 import { Skeleton } from '../library/parts'
+import { Portfolio } from '../skills/extras/Portfolio'
+import { WeekRecap } from '../skills/extras/WeekRecap'
 import { TrackRing } from './Constellation'
 import { Milestones, useDashView } from './Dashboard'
 import { groupTracks, milestones, nodeStates, relDay, relInLine, unlockLabels, type SkillGroup } from './model'
@@ -240,10 +244,12 @@ export function ProgressOverview({ route }: { route: AppRoute }): ReactNode {
           <Loading />
         ) : (
           <>
+            <WeekRecap head={<SectionHead id="prog-week">This week</SectionHead>} />
             {(data?.review || due.length > 0) && <ReviewPart data={data} due={due} later={later} now={now} route={route} />}
             <NextPart data={data} route={route} />
             <SkillsPart data={data} route={route} />
             <DonePart data={data} now={now} route={route} />
+            <Portfolio head={<SectionHead id="prog-portfolio">Projects</SectionHead>} onOpenGoal={route === 'library' ? () => setPage('skills') : undefined} />
             {ms.some((m) => m.done) && <Milestones list={ms} />}
           </>
         )}

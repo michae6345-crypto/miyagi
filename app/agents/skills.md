@@ -46,6 +46,8 @@ NEXT is a focus marker on exactly one node: a ring offset 3px plus the word. The
 
 ## Core requests
 - None needed. Stage note (dev/, integrator): app windows on the stage are capped at their `windowSize` (Library 1280x820), so the 1728 shots resized the window frame in the DOM; a `?window-size=fill` stage option would make that repeatable.
+- If the unlock motion needs a shared stroke-draw helper, it goes in `core/ui/motion.ts` through the integrator.
+- **`skills:artifact-image` (main handler, Nov 22).** The portfolio card shows a picture of the learner's own file (`PortfolioItem.artifact {kind: "image", path}`; the contract says the path is local, never a URL). The renderer's CSP (`src/renderer/index.html` img-src `'self' data: blob: https://i.ytimg.com`) and webSecurity block `file://`, so the renderer can't show it. Ask: a main handler `skills:artifact-image (path: string) → string | undefined` that returns a `data:image/(png|jpeg|gif|webp);base64,…` URL. It should only read a path the engine reported in the latest `progress.graph` (capstones[].artifact or portfolio[].artifact), only an absolute path with an image extension, real path resolved (no symlink escape), at most ~2 MB on disk (downscale or skip anything larger), and return undefined on any error. The renderer side is done (`features/skills/extras/Portfolio.tsx` `usePicture`): it calls `bridge.invoke('skills:artifact-image', path)`, accepts only a data: image of at most 2.8 MB, stops asking once the handler is missing, and keeps the file icon and name as the fallback. Until the handler lands, every card shows the icon.
 
 ## Done when
 - Path, Map and List render the mock learner in light and dark at 1024, 1280 and 1728 wide, in one centered column where the view is a list.
