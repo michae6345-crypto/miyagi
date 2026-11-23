@@ -132,10 +132,11 @@ row now has a `setupKind` (`apps.classify`):
   `dismissAfterMs`): today's app holds the video under any setup card with actions, Skip included. Lesson mode and the
   session's other setup filters use `setup.missing()` (haveIt / using / altFor rows are not missing).
 - `setup.holdVideo`: False unless the current step truly needs a missing tool Install can get now (`setup_card(...,
-  hold_for=step.requires)`). Setup is a companion: an app that reads holdVideo keeps the video playing. Pending app
-  work (claim with Adrian first): CardActions must list `have_it` / `get_it` / `alternative`, player/store.ts
-  setupWaiting must hold only when `holdVideo === true` (old rule when the field is missing), and the Drawer's
-  "Waiting on setup" must skip `haveIt` / `using` rows and holdVideo=false cards.
+  hold_for=step.requires)`). Setup is a companion: an app that reads holdVideo keeps the video playing. App side:
+  draft claim PR #252 (`michael/app-setup-actions` into adrian/shell): CardActions lists `have_it` / `get_it` /
+  `alternative`, player/store.ts setupWaiting holds only when `holdVideo === true` (old rule when the field is
+  missing), and the Drawer's "Waiting on setup" skips `haveIt` / `using` rows and holdVideo=false cards. Flip
+  `APP_RENDERS_APP_ACTIONS` and `APP_HONOURS_HOLD_VIDEO` once it merges.
 - Learner works in the alternative (`using`), or said "I have it" but the app was not found: the lesson's app pin
   moves (`app_lesson.repin`): screen checks and targets pinned to "AutoCAD" look at FreeCAD's window (a web
   alternative, or an unfound "I have it": no pin, the judge decides), and step copy "in AutoCAD" reads "in FreeCAD".
