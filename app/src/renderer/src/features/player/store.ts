@@ -31,6 +31,7 @@ import { bridge, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { useCards } from '../cards/store'
+import { setupWaiting } from '../cards/setupHold'
 import { decidePlay, engineIntentPlays, GATE_ZONE_S, lessonReadyResets, panelVisible, replayKeepsVideo, resumesAfterPass, startDeferred, stepStartPlays, type PausedBy, type PlayCause } from './policy'
 import { FramePlayer } from './frame'
 import { describeYTError, isYouTubeId, resolveVideoId, YTState, type YTPlayer } from './youtube'
@@ -740,9 +741,11 @@ onUi('reset', (payload) => {
 
 /**
  * A setup card waiting on the learner ("Set up first": Install / Open VS Code / Skip). The passing note that ends
- * setup ("matplotlib installed ✓", no buttons) is not one.
+ * setup ("matplotlib installed ✓", no buttons) is not one. Smart setup (Nov 22): only when the card says
+ * setup.holdVideo is true; without the field (an older engine), any setup card with buttons. Setup is a companion:
+ * "This lesson uses AutoCAD" waits beside the video while it plays.
  */
-export const setupWaiting = (c: Payload<'card'> | undefined): boolean => c?.kind === 'setup' && (c.actions?.length ?? 0) > 0
+export { setupWaiting }
 
 /** The card lands < 1 s after step.started: a hold this early in the clip goes back to its start. */
 const SETUP_REWIND_S = 5

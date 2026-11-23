@@ -208,8 +208,10 @@ function SignIn({ onContinue }: { onContinue?: () => void }): ReactNode {
       data-auth-login
       data-auth-state={user ? 'signed-in' : waiting ? 'waiting' : note ? 'failed' : 'idle'}
       aria-labelledby="auth-title"
-      className="absolute inset-0 flex flex-col items-center justify-center"
-      style={{ padding: '40px 40px 28px' }}
+      // Top-anchored, never centered (layout spec; styles.css .mg-login): the mark's top is 80 from the window's top, 52 in
+      // full screen, and 40 under the first-run flow's header (which is its own top).
+      className="mg-login absolute inset-0 flex flex-col items-center justify-start"
+      style={{ paddingInline: 40, paddingBottom: 28 }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: duration.slow, delay: 0.08, ease: ease.out }}

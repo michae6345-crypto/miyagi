@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { Layout } from '../../../../preload/api'
 import { closeWindow, useWindowArgs } from '../../core/surfaces'
-import { spring, surface } from '../../core/theme'
+import { color, spring } from '../../core/theme'
 import { isView, type View } from './model'
 import { Menu } from './Menu'
 import { Pricing } from './Pricing'
@@ -62,13 +62,17 @@ export function AccountWindow({ layout }: { layout: Layout }): ReactNode {
   const paper = view === 'pricing'
 
   return (
-    <div data-account-view={view} className="relative h-full w-full" style={{ background: paper ? undefined : surface.sheet }}>
+    // The window is the base layer (color.window, as every app window) and the card one layer up (layer.overlay, in
+    // Menu / SignIn / Upgrade): the card is lighter than its ground, in the same warm neutral (Nov 22: it was a cool
+    // glass card, darker than a brown sheet behind it).
+    <div data-account-view={view} className="relative h-full w-full" style={{ background: paper ? undefined : color.window }}>
       <div data-drag className="absolute inset-x-0 top-0 z-10" style={{ height: 28 }} />
-      <div className="h-full w-full overflow-y-auto">
+      <div className="mg-account-scroll h-full w-full overflow-y-auto">
         {!loaded ? null : paper ? (
           <Pricing account={account} width={layout.width} />
         ) : (
-          <div className="flex min-h-full flex-col items-center justify-center" style={{ padding: 16 }}>
+          // Top-anchored, never centered (layout spec; styles.css .mg-account-stack).
+          <div className="mg-account-stack flex min-h-full flex-col items-center justify-start" style={{ paddingInline: 16, paddingBottom: 16 }}>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div key={view} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={spring}>
                 {view === 'menu' && account ? <Menu account={account} go={go} /> : view === 'upgrade' ? <Upgrade account={account} go={go} close={close} /> : <SignIn />}

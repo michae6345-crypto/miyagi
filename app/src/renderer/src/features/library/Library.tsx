@@ -1,8 +1,11 @@
 /**
  * Feature: library. The Lessons page of the home window (features/shell): Continue (lessons left mid-way), Ready to
  * run (every cached lesson, filtered by tool and search), and a last row to paste a link. Redraft (Adrian, Nov 21):
- * plain rows on the content panel (title, then the tool in words, steps and minutes), no cards, tiles or pills. The shell's page header holds
- * the search field (LessonSearch) and New lesson, the one primary on this page. Deviations from the mockup, by rule:
+ * plain rows on the content panel (title, then the tool in words, steps and minutes), no cards, tiles or pills.
+ * The page title and the search field (LessonSearch) are the shell's page header, not this file's. The list sits on the
+ * shared 720 column (layout.tsx), the same column the shell lane's PageHeader (michael/app-layout-shell) puts the title
+ * and search on, so they line up once that lands; with this branch's older shell header they sit at the pane's 40 px
+ * edge instead. Deviations from the mockup, by rule:
  * no Free plan box (plan A6: hidden), no "Your lessons" split (the engine's items don't say who built a lesson), and
  * "Saved on this Mac" instead of "Built once, shared with everyone" (A6: never claim cross-user sharing).
  *
@@ -18,6 +21,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Empty, Row, RowChevron } from '../shell/ui'
 import { color, copy, fill, focus, highlight, radius2, surface, type2 } from '../../core/theme'
+import { Column, Pane, SectionLabel, rhythm } from './layout'
 import { Ring, Rise } from './motion'
 import { FILTER_TOOLS, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { contLine, continueList, type Cont } from '../dashboard/continue'
@@ -58,18 +62,6 @@ export function LessonSearch(): ReactNode {
 
 const meta = { fontSize: type2.xs, color: color.label } as const
 
-/** A section header: the title, then whatever the section puts beside it (filters, a note). */
-function Head({ id, title, children }: { id: string; title: string; children?: ReactNode }): ReactNode {
-  return (
-    <div className="flex flex-wrap items-center gap-[6px]" style={{ marginBottom: 8, minHeight: 30 }}>
-      <h2 id={id} className="m-0 font-medium" style={{ fontSize: type2.xs, marginRight: 10, color: color.label }}>
-        {title}
-      </h2>
-      {children}
-    </div>
-  )
-}
-
 const titleText = { fontSize: type2.md, color: color.text } as const
 
 /**
@@ -103,7 +95,7 @@ function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
             {contLine(c)}
           </span>
         </span>
-        <span className="relative hidden items-center @[620px]:flex" style={{ marginRight: 6 }}>
+        <span className="relative hidden items-center @min-[640px]/pane:flex" style={{ marginRight: 8 }}>
           <ProgressLine done={c.passed} total={c.total} />
         </span>
       </Row>
@@ -136,7 +128,7 @@ function LessonRow({ item }: { item: LibraryItem }): ReactNode {
 /** The last row of the list: paste a YouTube link (the launcher builds it). */
 function PasteRow(): ReactNode {
   return (
-    <Row onClick={openLauncher} label="Paste a YouTube link to build a lesson" data={{ 'data-lessons-paste': '' }} style={{ padding: '14px 10px' }}>
+    <Row onClick={openLauncher} label="Paste a YouTube link to build a lesson" data={{ 'data-lessons-paste': '' }} style={{ padding: '16px 10px' }}>
       <Plus aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" style={{ color: color.label, marginLeft: -2 }} />
       <span className="relative flex min-w-0 flex-1 items-baseline gap-[8px]">
         <span style={{ fontSize: type2.md, color: color.text }}>Paste a YouTube link</span>
@@ -170,7 +162,7 @@ const divided = (rule: boolean): CSSProperties => ({ marginInline: 10, borderTop
 function ToolFilter(): ReactNode {
   const tool = useLibrary((s) => s.tool)
   return (
-    <div role="group" aria-label="Filter by tool" className="ml-auto flex items-center" style={{ padding: 2, gap: 2, borderRadius: radius2.row, background: fill.segmentTrack }}>
+    <div role="group" aria-label="Filter by tool" className="flex items-center" style={{ padding: 2, gap: 2, borderRadius: radius2.row, background: fill.segmentTrack }}>
       {(['all', ...FILTER_TOOLS] as const).map((t) => {
         const on = tool === t
         return (
@@ -205,85 +197,96 @@ export function Lessons(): ReactNode {
   const nothing = s.loaded && s.items.length === 0
   const offline = nothing && !connected
   return (
-    <div data-lessons className="flex flex-col gap-[32px] @container" style={{ padding: '8px 40px 48px', color: color.text }}>
-      {!s.loaded ? (
-        <div className="flex flex-col gap-[10px]" aria-busy aria-label="Loading your lessons">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} h={48} />
-          ))}
-        </div>
-      ) : offline ? (
-        <Empty mark={<CloudOff aria-hidden size={28} strokeWidth={1.6} style={{ color: color.label }} />} title={`${copy.name} is offline.`} line="Your saved lessons show here when it connects." />
-      ) : nothing ? (
-        <Empty
-          mark={<MiyagiMark size={44} />}
-          title="No lessons yet"
-          line="Ask for a goal or paste a YouTube link."
-          action={
-            <Ring>
-              <PrimaryButton label="New lesson" keyName="launcher" onClick={openLauncher} />
-            </Ring>
-          }
-        />
-      ) : (
-        <>
-          {continuing.length > 0 && (
-            <Rise i={0}>
-              <section aria-labelledby="lib-cont">
-                <Head id="lib-cont" title="In progress">
-                  <span className="ml-auto">
-                    <StartError />
-                  </span>
-                </Head>
+    // The shared 720 column (layout.tsx), centered in the pane like Home and the preview: at full screen the rows no
+    // longer run 1400 px from the title to its chevron. Sections sit 40 apart, the page ends 64 under the last row.
+    // Top 8: the shell's page header ends 24 under its title row (shell lane PageHeader, layout.page.titleGap), so the
+    // title to the first section is rhythm.title (32), as on the shell's other pages (PageBody's paddingTop 8).
+    <Pane data-lessons style={{ color: color.text }}>
+      <Column className="flex flex-col" style={{ gap: rhythm.section, paddingTop: rhythm.title - 24, paddingBottom: rhythm.bottom }}>
+        {!s.loaded ? (
+          <div className="flex flex-col gap-[8px]" aria-busy aria-label="Loading your lessons">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} h={48} />
+            ))}
+          </div>
+        ) : offline ? (
+          <Empty mark={<CloudOff aria-hidden size={28} strokeWidth={1.6} style={{ color: color.label }} />} title={`${copy.name} is offline.`} line="Your saved lessons show here when it connects." />
+        ) : nothing ? (
+          <Empty
+            mark={<MiyagiMark size={44} />}
+            title="No lessons yet"
+            line="Ask for a goal or paste a YouTube link."
+            action={
+              <Ring>
+                <PrimaryButton label="New lesson" keyName="launcher" onClick={openLauncher} />
+              </Ring>
+            }
+          />
+        ) : (
+          <>
+            {continuing.length > 0 && (
+              <Rise i={0}>
+                <section aria-labelledby="lib-cont">
+                  <SectionLabel id="lib-cont" right={<StartError />}>
+                    In progress
+                  </SectionLabel>
+                  <ul style={list}>
+                    {continuing.map((c, i) => (
+                      <li key={c.libraryId}>
+                        <ContinueRow c={c} first={i === 0} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              </Rise>
+            )}
+            <Rise i={1}>
+              <section aria-labelledby="lib-ready">
+                <SectionLabel
+                  id="lib-ready"
+                  right={
+                    <>
+                      {continuing.length === 0 && s.startError ? <StartError /> : null}
+                      <ToolFilter />
+                    </>
+                  }
+                >
+                  Ready to run
+                </SectionLabel>
                 <ul style={list}>
-                  {continuing.map((c, i) => (
-                    <li key={c.libraryId}>
-                      <ContinueRow c={c} first={i === 0} />
-                    </li>
+                  {ready.map((i, n) => (
+                    <Rise key={i.id} as="li" i={n} style={divided(n > 0)}>
+                      <div style={{ marginInline: -10 }}>
+                        <LessonRow item={i} />
+                      </div>
+                    </Rise>
                   ))}
+                  {filtered && ready.length === 0 ? (
+                    <li className="flex items-center gap-[12px]" style={{ padding: '12px 10px' }}>
+                      <span style={{ ...meta, fontSize: type2.sm }}>No lessons match.</span>
+                      <Ring>
+                        <QuietButton
+                          label="Show all"
+                          onClick={() => {
+                            setTool('all')
+                            setQuery('')
+                          }}
+                        />
+                      </Ring>
+                    </li>
+                  ) : (
+                    <li style={divided(ready.length > 0)}>
+                      <div style={{ marginInline: -10 }}>
+                        <PasteRow />
+                      </div>
+                    </li>
+                  )}
                 </ul>
               </section>
             </Rise>
-          )}
-          <Rise i={1}>
-            <section aria-labelledby="lib-ready">
-              <Head id="lib-ready" title="Ready to run">
-                <ToolFilter />
-                {continuing.length === 0 && s.startError ? <StartError /> : null}
-              </Head>
-              <ul style={list}>
-                {ready.map((i, n) => (
-                  <Rise key={i.id} as="li" i={n} style={divided(n > 0)}>
-                    <div style={{ marginInline: -10 }}>
-                      <LessonRow item={i} />
-                    </div>
-                  </Rise>
-                ))}
-                {filtered && ready.length === 0 ? (
-                  <li className="flex items-center gap-[12px]" style={{ padding: '14px 10px' }}>
-                    <span style={{ ...meta, fontSize: type2.sm }}>No lessons match.</span>
-                    <Ring>
-                      <QuietButton
-                        label="Show all"
-                        onClick={() => {
-                          setTool('all')
-                          setQuery('')
-                        }}
-                      />
-                    </Ring>
-                  </li>
-                ) : (
-                  <li style={divided(ready.length > 0)}>
-                    <div style={{ marginInline: -10 }}>
-                      <PasteRow />
-                    </div>
-                  </li>
-                )}
-              </ul>
-            </section>
-          </Rise>
-        </>
-      )}
-    </div>
+          </>
+        )}
+      </Column>
+    </Pane>
   )
 }

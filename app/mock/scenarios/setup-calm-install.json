@@ -1,0 +1,157 @@
+{
+ "name": "setup-calm-install",
+ "on": {
+  "connect": "sci_connect"
+ },
+ "segments": {
+  "sci_connect": [
+   {
+    "wait": 100,
+    "type": "status",
+    "payload": {
+     "state": "idle"
+    }
+   },
+   {
+    "wait": 200,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "sci-toy-car",
+      "title": "Toy car for a 3D printer",
+      "sources": [],
+      "complete": true,
+      "builtBy": "claude",
+      "mode": "video"
+     },
+     "steps": [
+      {
+       "id": "sci1",
+       "index": 0,
+       "title": "Sketch the car profile",
+       "what": "Draw the side profile with lines and arcs",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 0,
+        "end": 300
+       },
+       "estMinutes": 5
+      },
+      {
+       "id": "sci2",
+       "index": 1,
+       "title": "Cut the wheel wells",
+       "what": "Trim two arcs for the wheels",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 300,
+        "end": 540
+       },
+       "estMinutes": 4
+      },
+      {
+       "id": "sci3",
+       "index": 2,
+       "title": "Extrude the body",
+       "what": "Turn the profile into a solid",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 540,
+        "end": 780
+       },
+       "estMinutes": 4
+      },
+      {
+       "id": "sci4",
+       "index": 3,
+       "title": "Export for the printer",
+       "what": "Save the solid as an STL file",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 780,
+        "end": 1056
+       },
+       "estMinutes": 5
+      }
+     ]
+    }
+   },
+   {
+    "wait": 200,
+    "type": "step.started",
+    "payload": {
+     "stepId": "sci1",
+     "index": 0,
+     "title": "Sketch the car profile",
+     "instructions": "Watch 0:00-5:00 and follow along in AutoCAD.",
+     "video": {
+      "videoId": "stand-in-autocad",
+      "start": 0,
+      "end": 300
+     },
+     "kind": "read"
+    }
+   },
+   {
+    "wait": 300,
+    "type": "card",
+    "payload": {
+     "kind": "setup",
+     "title": "Set up first",
+     "body": "Missing: NumPy, pandas. Install now?",
+     "actions": [
+      "install",
+      "skip_setup"
+     ],
+     "setup": {
+      "editorNeeded": true,
+      "editorLabel": "Visual Studio Code",
+      "resources": [],
+      "holdVideo": true,
+      "actionLabels": {
+       "install": "Install",
+       "skip_setup": "Skip"
+      },
+      "items": [
+       {
+        "tool": "numpy",
+        "label": "NumPy",
+        "kind": "python_package",
+        "why": "Arrays for the measurements.",
+        "needed": true,
+        "installed": false,
+        "ok": false,
+        "install": {
+         "method": "pip",
+         "command": "pip install numpy"
+        },
+        "setupKind": "package",
+        "actions": [
+         "install"
+        ]
+       },
+       {
+        "tool": "pandas",
+        "label": "pandas",
+        "kind": "python_package",
+        "why": "Reads the parts table.",
+        "needed": true,
+        "installed": false,
+        "ok": false,
+        "install": {
+         "method": "pip",
+         "command": "pip install pandas"
+        },
+        "setupKind": "package",
+        "actions": [
+         "install"
+        ]
+       }
+      ]
+     },
+     "stepId": "sci1"
+    }
+   }
+  ]
+ }
+}

@@ -30,9 +30,9 @@ Source of truth: `core/theme.ts` (tokens) and `app/brand/BRAND.md` (rules).
 
 | Token | Dark | Light | In code | Use |
 |---|---|---|---|---|
-| Window | `rgb(28,28,30)` | `rgb(243,242,238)` | `l-base` | Every app window and the sidebar |
-| Raised | `rgb(37,37,39)` | `#FFFFFF` | `l-raised` | The one content panel |
-| Card, sheet | `rgb(44,44,46)` | `#FFFFFF` | `l-overlay` | Lifted cards, sheets, menus |
+| Window | `rgb(21,20,18)` | `rgb(238,236,231)` | `l-base` | Every app window and the sidebar |
+| Raised | `rgb(30,29,27)` | `rgb(251,250,248)` | `l-raised` | The one content panel |
+| Card, sheet | `rgb(40,39,36)` | `#FFFFFF` | `l-overlay` | Lifted cards, sheets, menus |
 | Notch black | `#000000` | `#000000` | `hud.notch` | The island and its cards only, in both themes |
 | Text | `#F4F4F5` | `#141414` | `c-text` |  |
 | Label | `rgba(255,255,255,.6)` | `rgba(20,20,20,.62)` | `c-label` | Secondary text |

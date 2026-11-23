@@ -25,6 +25,8 @@ import { loadAuth, useAuth } from '../../auth/store'
 import { openSheet } from '../sheet'
 import { setPage, setSettingsSection } from '../store'
 import { thisDevice } from '../../onboarding/device'
+import { CARD, PageBody } from '../ui'
+import { BODY_TOP, SECTION_GAP } from './Column'
 
 const caption = { fontSize: type2.sm, lineHeight: '20px', color: color.label } as const
 
@@ -38,19 +40,22 @@ const toYourKey = (): void => {
  * number"): the page is a header (who you are) and one grouped list, as in Settings. No floating cards.
  */
 function Wrap({ children }: { children: ReactNode }): ReactNode {
+  // The shared page column (ui.tsx PageBody), centered under the title. The groups fill it, as Settings' do, so the
+  // cards keep the same left and right edges when you switch between the two pages; sections sit SECTION_GAP apart.
   return (
-    <div data-shell-account-page className="flex flex-col" style={{ padding: '8px 40px 40px' }}>
-      <div className="flex w-full flex-col gap-[24px]" style={{ maxWidth: 560 }}>
-        {children}
-      </div>
+    <div data-shell-account-page className="w-full">
+      <PageBody gap={SECTION_GAP} style={{ paddingTop: BODY_TOP }}>{children}</PageBody>
     </div>
   )
 }
 
-/** One grouped list (the panel re-points --f-group at a quiet wash), rows split by hairlines. */
+/**
+ * One grouped list, rows split by hairlines: a card on the pane (ui.tsx CARD). Light: white, a 1 px border and a soft
+ * two-layer lift; dark: one tone step above the pane with a faint top edge. Never a gray fill darker than the page.
+ */
 function Group({ children, label }: { children: ReactNode; label: string }): ReactNode {
   return (
-    <section aria-label={label} className="flex flex-col overflow-hidden" style={{ borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}>
+    <section aria-label={label} className="flex flex-col overflow-hidden" style={CARD}>
       {children}
     </section>
   )
@@ -121,7 +126,7 @@ function Skeleton(): ReactNode {
           <div style={{ width: '28%', height: 10, borderRadius: radius2.round, background: fill.skeleton }} />
         </div>
       </div>
-      <div style={{ height: 104, borderRadius: radius2.chip, background: fill.skeleton }} />
+      <div style={{ height: 104, borderRadius: CARD.borderRadius, background: fill.skeleton }} />
     </div>
   )
 }
