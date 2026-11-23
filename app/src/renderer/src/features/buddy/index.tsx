@@ -3,7 +3,8 @@
  *
  * The living bonsai (LivingMark, Buddy, usePointerLean, useBuddy) and its pointing branch (Reach.tsx, pointing.ts,
  * marks.ts). The bonsai has no window or island mode of its own: the notch ears and other surfaces import it. The
- * branch is an overlay layer under the island (z 30: over the spotlight's dim, behind the notch it grows out of).
+ * branch is an overlay layer under the island (z 30: over the spotlight's dim, behind the notch it grows out of);
+ * it draws nothing while features/annotate is mounted (Reach.tsx), so a mark is never circled twice.
  * Previews, only in the browser stage: ?buddy (every state of the mark) and ?buddy=point (try the pointing).
  */
 import { defineFeature } from '../../core/registry'
@@ -25,5 +26,7 @@ export default defineFeature({
 })
 
 export { LivingMark, usePointerLean, type BuddyState, type LivingMarkProps } from './LivingMark'
-export { annotate, clearMarks, usePointing } from './pointing'
+// For a layer that draws its own stroke (features/annotate): where the living mark is, and the point pose.
+export { useBonsaiPoint } from './Reach'
+export { annotate, pointAt, usePointing } from './pointing'
 export { Buddy, useBuddy } from './store'

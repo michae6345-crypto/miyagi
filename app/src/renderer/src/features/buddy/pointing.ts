@@ -1,94 +1,117 @@
 /**
  * Feature: buddy, pass 2. What the bonsai is pointing at right now, from the engine's `annotate` event (Michael's
- * contract, Nov 22: "Buddy draws"), and how long each mark lives.
+ * contract, Nov 22: "Buddy draws"), and when each mark goes.
  *
- * Lifetime, as the contract says:
- *   - a new annotate REPLACES the marks drawn before; a mark re-sent under the same id stays drawn (marks.ts settle);
- *   - marks fade after holdMs (default HOLD.base), on { clear: true }, when the step changes, and when the lesson
- *     ends or resets;
- *   - they fade when the learner clicks inside one. The overlay is click-through, so in Electron the click itself
- *     never reaches this window (Core requests in the brief). Mouse moves do reach it, so the pointer arriving on a
- *     mark counts as "found it": the circle leaves HOLD.found later (found()). Esc clears them at once.
+ * The rules are the ones in Michael's features/annotate/store.ts (michael/app-buddy-draw), so a mark lives and dies
+ * the same way whichever layer draws it:
+ *   In   annotate {marks, holdMs?}  replaces what is drawn. A mark with a key already drawn keeps its stroke.
+ *        annotate {clear: true}     fade everything now.
+ *   Out  the marks fade, and stay gone for this step even if the engine re-sends them, when
+ *        - the learner goes there (a click inside, or the pointer coming in and resting: marks.ts createReach),
+ *        - the hold runs out (holdMs, or 6 s, from the newest mark's birth: a re-sent mark does not restart it),
+ *        - Esc.
+ *        A new circle-to-ask (a new askId) starts fresh. A new step keeps only the marks sent for that step and
+ *        forgets what was gone; step.passed, the lesson ending and a reset clear everything.
+ * Not here: his bridge that also circles today's spotlight boxes until the engine sends its first annotate.
  *
- * A mark the learner dismissed (found, clicked, Esc) stays gone while the engine re-sends the same one, like a faded
- * spotlight; a different mark, a new step or an engine clear ends that.
+ * Nothing here takes the mouse: the layer is click-through, always.
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
-import { cleanMarks, HOLD, holdFor, settle, type Shown } from './marks'
+import type { Rect } from '../../core/geometry'
+import { fadeAt, HOLD, holdFor, mergeMarks, validMarks, type Known, type Mark, type Shown } from './marks'
 
 /**
- * marks: screen points, as the engine sent them (the layer maps them into its window).
- * lean: -1 to 1, which way the bonsai leans while it points (set by the layer, which knows where both ends are).
+ * marks  screen points, as the engine sent them (the layer maps them into its window).
+ * lean   -1 to 1, which way the bonsai leans while it points (set by the layer, which knows where both ends are).
+ * pose   a box another layer asked the bonsai to point at (pointAt), screen points; the layer leans toward it when
+ *        it has no mark of its own.
  */
-export const usePointing = create<{ marks: Shown[]; lean: number }>(() => ({ marks: [], lean: 0 }))
+export const usePointing = create<{ marks: Shown[]; lean: number; pose?: Rect }>(() => ({ marks: [], lean: 0 }))
 const get = usePointing.getState
 const set = usePointing.setState
 
-let timer: ReturnType<typeof setTimeout> | undefined
-let until = 0
-/** The running fade is the learner's (found): it ends in dismiss(), and a second found() changes nothing. */
-let learners = false
-/** Marks the learner sent away: a re-send of only these is ignored. */
-const dismissed = new Set<string>()
+/** Keys the learner reached, or that timed out or were cleared this step: a re-send does not draw them again. */
+const gone = new Map<string, Known>()
+/** The ask the current `gone` belongs to: a new circle-to-ask starts fresh. */
+let lastAsk: string | undefined
+let hold: ReturnType<typeof setTimeout> | undefined
 
-function drop(): void {
-  clearTimeout(timer)
-  timer = undefined
-  until = 0
-  learners = false
-  if (get().marks.length || get().lean) set({ marks: [], lean: 0 })
+function stopHold(): void {
+  clearTimeout(hold)
+  hold = undefined
 }
 
-/** Fade the marks in `ms`. `byLearner`: remember them as dismissed when they go. */
-function fadeIn(ms: number, byLearner = false): void {
-  clearTimeout(timer)
-  until = Date.now() + ms
-  learners = byLearner
-  timer = setTimeout(() => (byLearner ? dismiss() : drop()), ms)
+/** Fade these marks (or all of them), and remember them as gone for this step. */
+export function fade(keys?: readonly string[]): void {
+  const cur = get().marks
+  const out = keys ? cur.filter((m) => keys.includes(m.key)) : cur
+  if (!out.length) return
+  out.forEach((m) => gone.set(m.key, m))
+  const left = cur.filter((m) => !out.includes(m))
+  set({ marks: left })
+  if (!left.length) stopHold()
 }
 
-/** The engine's doing (a clear, a new step, the lesson ending): gone, and nothing is held against a re-send. */
-export function clearMarks(): void {
-  dismissed.clear()
-  drop()
+/** Back to blank: nothing drawn, nothing remembered (step.passed, a new lesson, a reset). */
+export function forget(): void {
+  stopHold()
+  gone.clear()
+  lastAsk = undefined
+  if (get().marks.length) set({ marks: [] })
 }
 
-/** The learner's doing (a click inside a mark, Esc): gone, and the engine re-sending the same marks does not bring them back. */
-export function dismiss(): void {
-  for (const m of get().marks) dismissed.add(m.key)
-  drop()
-}
-
-/** The pointer is on a mark: the learner found it, so the circle gets out of the way soon. */
-export function found(): void {
-  if (!get().marks.length || learners) return
-  fadeIn(Math.max(0, Math.min(until - Date.now(), HOLD.found)), true)
+/**
+ * Draw `incoming` in place of what is drawn. The hold counts from the newest mark's birth (fadeAt), so a re-send of
+ * marks already drawn keeps the old deadline and only a new mark moves it.
+ */
+export function show(incoming: readonly Mark[], holdMs: number = HOLD.base, now = Date.now()): void {
+  const ask = incoming.find((m) => m.askId)?.askId
+  if (ask && ask !== lastAsk) {
+    gone.clear()
+    lastAsk = ask
+  }
+  const marks = mergeMarks(get().marks, incoming, gone.values(), now)
+  set({ marks })
+  stopHold()
+  const at = fadeAt(marks, holdMs)
+  if (at !== undefined) hold = setTimeout(() => fade(), Math.max(0, at - now))
 }
 
 /** One `annotate` payload: { marks, holdMs? } or { clear: true }. Anything else is ignored. */
 export function annotate(payload: unknown): void {
   if (!payload || typeof payload !== 'object') return
   const p = payload as { marks?: unknown; holdMs?: unknown; clear?: unknown }
-  if (p.clear === true) return clearMarks()
-  if (!Array.isArray(p.marks)) return
-  const next = cleanMarks(p.marks)
-  if (!next.length) return clearMarks()
-  if (next.every((m) => dismissed.has(m.key))) return
-  dismissed.clear()
-  set((s) => ({ marks: settle(s.marks, next) }))
-  fadeIn(holdFor(p.holdMs))
+  if (p.clear) return fade()
+  if (!('marks' in p)) return
+  show(validMarks(p.marks), holdFor(p.holdMs))
+}
+
+/**
+ * The point pose, for a layer that draws its own stroke (Michael's features/annotate): the bonsai leans toward this
+ * box (screen points, the spotlight.rect space) until pointAt() with nothing. Marks from `annotate` already do this
+ * on their own; this is for anything else that layer circles, such as a spotlight box.
+ */
+export function pointAt(box?: Rect): void {
+  if (get().pose !== box) set({ pose: box })
 }
 
 // `annotate` is in the contract branch (claude/contract-circle-ask) and not on this one yet, so the bus's MessageType
 // does not know it. The bus is keyed by the type string: this cast goes when the contract lands (brief, Core requests).
 ;(onMessage as unknown as (type: string, fn: (payload: unknown) => void) => () => void)('annotate', annotate)
 
-onMessage('step.started', clearMarks)
-onMessage('step.passed', clearMarks)
-onMessage('lesson.ready', clearMarks)
-onMessage('lesson.ended', clearMarks)
-onUi('reset', clearMarks)
+onMessage('step.started', (p) => {
+  if (p?.replay) return // a reconnect's replay of the step already running: not a new step
+  const keep = get().marks.filter((m) => m.stepId && m.stepId === p?.stepId)
+  stopHold()
+  gone.clear()
+  set({ marks: keep })
+  if (keep.length) hold = setTimeout(() => fade(), HOLD.base)
+})
+onMessage('step.passed', forget)
+onMessage('lesson.ready', forget)
+onMessage('lesson.ended', forget)
+onUi('reset', forget)
 onUi('dismiss', () => {
-  dismiss() // Esc; never claims the event, so cards still close
+  fade() // Esc: the learner wants the screen back. Never claims the event, so cards still close.
 })

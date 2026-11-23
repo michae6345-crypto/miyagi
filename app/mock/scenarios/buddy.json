@@ -32,8 +32,7 @@
           "holdMs": 6000
         }
       },
-      { "wait": 7000, "type": "annotate", "payload": { "clear": true } },
-      { "wait": 1200, "goto": "buddy_point" }
+      { "wait": 7000, "type": "annotate", "payload": { "clear": true } }
     ]
   }
 }

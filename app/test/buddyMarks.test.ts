@@ -1,45 +1,79 @@
 /**
- * The buddy's pointing branch, offline: features/buddy/marks.ts (the engine's marks cleaned, the stroke's shape, the
- * label's place, the timing) and features/buddy/pointing.ts (what is shown and for how long, through the real bus).
+ * The buddy's pointing branch, offline: features/buddy/marks.ts (the mark rules, the stroke's shape, the label's
+ * place, the timing) and features/buddy/pointing.ts (what is shown and for how long, through the real bus).
+ * The mark rules are Michael's features/annotate rules, number for number; the tests pin those numbers.
  */
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import { dispatch, emitUi } from '../src/renderer/src/core/bus'
 import { duration } from '../src/renderer/src/core/ui/motionTokens'
-import { cleanLabel, cleanMarks, DRAW, drawTime, FORK, forkFor, HOLD, holdFor, JITTER_PX, LABEL, labelAt, MAX_MARKS, reach, RING, ringBox, settle, timeToDraw, type Mark } from '../src/renderer/src/features/buddy/marks'
-import { annotate, clearMarks, found, usePointing } from '../src/renderer/src/features/buddy/pointing'
+import {
+  cleanLabel,
+  createReach,
+  DRAW,
+  drawTime,
+  fadeAt,
+  FORK,
+  forkFor,
+  HOLD,
+  holdFor,
+  KEY_GRID,
+  keyOf,
+  LABEL,
+  labelAt,
+  MAX_MARKS,
+  mergeMarks,
+  REACH,
+  reach,
+  RING,
+  ringBox,
+  SAME_PX,
+  timeToDraw,
+  validMarks,
+  type Mark
+} from '../src/renderer/src/features/buddy/marks'
+import { annotate, fade, forget, pointAt, usePointing } from '../src/renderer/src/features/buddy/pointing'
 
 const mark = (over: Partial<Mark> = {}): Mark => ({ x: 100, y: 500, w: 200, h: 20, why: 'point', ...over })
 const shown = (): string[] => usePointing.getState().marks.map((m) => m.key)
 /** The engine's event, as the feed hands it to the bus (the type is not in this branch's contract yet). */
 const send = (type: string, payload: unknown = {}): void => dispatch({ type, payload } as never)
 
-describe('cleanMarks', () => {
+describe('the numbers shared with features/annotate', () => {
+  test('3 marks, 6 s (1.5 to 30), a 12 px grid and 12 px of jitter, 280 ms of rest in a box 6 px bigger', () => {
+    assert.equal(MAX_MARKS, 3)
+    assert.deepEqual(HOLD, { base: 6000, min: 1500, max: 30_000 })
+    assert.equal(KEY_GRID, 12)
+    assert.equal(SAME_PX, 12)
+    assert.deepEqual(REACH, { restMs: 280, pad: 6 })
+  })
+})
+
+describe('validMarks / keyOf', () => {
   test('keeps what can be drawn and drops the rest', () => {
-    const out = cleanMarks([mark({ id: 'a' }), null, 'x', mark({ w: 0 }), mark({ x: Number.NaN }), mark({ h: -4 }), { x: 1, y: 2 }])
-    assert.deepEqual(out.map((m) => m.key), ['a'])
-    assert.deepEqual(out[0].rect, { x: 100, y: 500, w: 200, h: 20 })
+    const out = validMarks([mark({ id: 'a' }), null, 'x', mark({ w: 0 }), mark({ x: Number.NaN }), mark({ h: -4 }), { x: 1, y: 2 }, mark({ why: 'shout' as never })])
+    assert.deepEqual(out.map(keyOf), ['id:a'])
   })
   test('not a list: nothing', () => {
-    assert.deepEqual(cleanMarks(undefined), [])
-    assert.deepEqual(cleanMarks({ marks: [] }), [])
+    assert.deepEqual(validMarks(undefined), [])
+    assert.deepEqual(validMarks({ marks: [] }), [])
   })
-  test('one per id, and a mark without an id is keyed by its place', () => {
-    const out = cleanMarks([mark({ id: 'a' }), mark({ id: 'a', x: 900 }), mark(), mark(), mark({ why: 'answer' })])
-    assert.deepEqual(out.map((m) => m.key), ['a', 'point:100,500,200,20', 'answer:100,500,200,20'])
+  test('one per id; a mark without an id is keyed by its kind and its box on the grid', () => {
+    const out = validMarks([mark({ id: 'a' }), mark({ id: 'a', x: 900 }), mark(), mark({ x: 101 }), mark({ why: 'answer' })])
+    assert.deepEqual(out.map(keyOf), ['id:a', 'point:p:8,42,17,2', 'answer:p:8,42,17,2'])
   })
   test(`at most ${MAX_MARKS}`, () => {
-    assert.equal(cleanMarks(Array.from({ length: 9 }, (_, i) => mark({ id: `m${i}` }))).length, MAX_MARKS)
+    assert.equal(validMarks(Array.from({ length: 9 }, (_, i) => mark({ id: `m${i}` }))).length, MAX_MARKS)
   })
-  test('an unknown why is a plain point', () => {
-    assert.equal(cleanMarks([mark({ why: 'shout' as never })])[0].why, 'point')
+  test('another display is another mark', () => {
+    assert.notEqual(keyOf(mark()), keyOf(mark({ displayId: 2 })))
   })
 })
 
 describe('cleanLabel', () => {
-  test('four words at most, no backticks, one line', () => {
+  test('the first four words, no backticks, one line', () => {
     assert.equal(cleanLabel('  The   optimizer '), 'The optimizer')
-    assert.equal(cleanLabel('Type `lr=1e-3` right in here now'), 'Type lr=1e-3 right in…')
+    assert.equal(cleanLabel('Type `lr=1e-3` right in here now'), 'Type lr=1e-3 right in')
     assert.equal(cleanLabel('one\ntwo'), 'one two')
   })
   test('nothing to say: no label', () => {
@@ -49,7 +83,7 @@ describe('cleanLabel', () => {
   })
 })
 
-describe('holdFor', () => {
+describe('holdFor / fadeAt', () => {
   test('the default, and the engine value kept within reason', () => {
     assert.equal(holdFor(undefined), HOLD.base)
     assert.equal(holdFor(0), HOLD.base)
@@ -58,16 +92,67 @@ describe('holdFor', () => {
     assert.equal(holdFor(5), HOLD.min)
     assert.equal(holdFor(9e9), HOLD.max)
   })
+  test('the hold counts from the newest mark', () => {
+    assert.equal(fadeAt([], 6000), undefined)
+    assert.equal(fadeAt([{ born: 1000 }, { born: 4000 }], 6000), 10_000)
+  })
 })
 
-describe('settle', () => {
-  test('a re-sent mark that only jittered keeps its old place; one that moved takes the new one', () => {
-    const prev = cleanMarks([mark({ id: 'a' }), mark({ id: 'b' })])
-    const next = cleanMarks([mark({ id: 'a', x: 100 + JITTER_PX, y: 497 }), mark({ id: 'b', x: 100 + JITTER_PX + 1 }), mark({ id: 'c', x: 0 })])
-    const out = settle(prev, next)
-    assert.deepEqual(out[0].rect, prev[0].rect)
-    assert.equal(out[1].rect.x, 100 + JITTER_PX + 1)
-    assert.equal(out[2].rect.x, 0)
+describe('mergeMarks', () => {
+  test('a known mark keeps its key, birth and place when it only jittered; a new one is born now', () => {
+    const prev = mergeMarks([], [mark({ id: 'a' }), mark({ y: 700 })], [], 1000)
+    const next = mergeMarks(prev, [mark({ id: 'a', x: 100 + SAME_PX }), mark({ y: 705 }), mark({ id: 'c', x: 900 })], [], 5000)
+    assert.deepEqual(next.map((m) => m.born), [1000, 1000, 5000])
+    assert.equal(next[0].rect, prev[0].rect)
+    assert.equal(next[1].key, prev[1].key)
+    assert.equal(next[1].rect, prev[1].rect)
+  })
+  test('a mark with an id that really moved takes the new place but is not born again', () => {
+    const prev = mergeMarks([], [mark({ id: 'a' })], [], 1000)
+    const next = mergeMarks(prev, [mark({ id: 'a', x: 400 })], [], 5000)
+    assert.equal(next[0].rect.x, 400)
+    assert.equal(next[0].born, 1000)
+  })
+  test('a mark that is gone is skipped, by id or (no id) by nearly the same box', () => {
+    const drawn = mergeMarks([], [mark({ id: 'a' }), mark({ y: 700 })], [], 1000)
+    const next = mergeMarks([], [mark({ id: 'a' }), mark({ y: 708 }), mark({ y: 300 })], drawn, 5000)
+    assert.deepEqual(next.map((m) => m.rect.y), [300])
+  })
+  test('it carries the label (cut), the step and the ask', () => {
+    const [m] = mergeMarks([], [mark({ id: 'a', label: 'one two three four five', stepId: 's2', askId: 'q1', displayId: 3 })], [], 1)
+    assert.deepEqual({ label: m.label, stepId: m.stepId, askId: m.askId, displayId: m.displayId, id: m.id }, { label: 'one two three four', stepId: 's2', askId: 'q1', displayId: 3, id: 'a' })
+  })
+})
+
+describe('createReach', () => {
+  const box = [{ key: 'a', rect: { x: 100, y: 100, w: 100, h: 20 } }]
+  const inside = { x: 150, y: 110 }
+  const outside = { x: 400, y: 400 }
+
+  test('coming in from outside and resting reaches the mark', () => {
+    const r = createReach()
+    assert.deepEqual(r.move(outside, box, 0), [])
+    assert.deepEqual(r.move(inside, box, 100), [])
+    assert.deepEqual(r.move(inside, box, 100 + REACH.restMs - 1), [])
+    assert.deepEqual(r.move(inside, box, 100 + REACH.restMs), ['a'])
+  })
+  test('a pointer already resting there when the mark appears does not', () => {
+    const r = createReach()
+    assert.deepEqual(r.move(inside, box, 0), [])
+    assert.deepEqual(r.move(inside, box, 5000), [])
+  })
+  test('passing through without resting does not', () => {
+    const r = createReach()
+    r.move(outside, box, 0)
+    r.move(inside, box, 100)
+    assert.deepEqual(r.move(outside, box, 200), [])
+    assert.deepEqual(r.move(inside, box, 300), [])
+    assert.deepEqual(r.move(inside, box, 300 + REACH.restMs), ['a'])
+  })
+  test(`the box counts ${REACH.pad} px bigger; a press inside it counts at once`, () => {
+    const r = createReach()
+    assert.deepEqual(r.press({ x: 100 - REACH.pad, y: 100 - REACH.pad }, box), ['a'])
+    assert.deepEqual(r.press({ x: 100 - REACH.pad - 1, y: 110 }, box), [])
   })
 })
 
@@ -283,98 +368,140 @@ describe('labelAt', () => {
 describe('pointing (the annotate event)', () => {
   beforeEach(() => {
     mock.timers.enable({ apis: ['setTimeout', 'Date'] })
-    clearMarks()
+    forget()
   })
   afterEach(() => {
-    clearMarks()
+    forget()
+    pointAt()
     mock.timers.reset()
   })
 
   test('an annotate from the engine shows its marks; the next one replaces them', () => {
     send('annotate', { marks: [mark({ id: 'a', label: 'Here' })] })
-    assert.deepEqual(shown(), ['a'])
+    assert.deepEqual(shown(), ['id:a'])
     assert.equal(usePointing.getState().marks[0].label, 'Here')
     send('annotate', { marks: [mark({ id: 'b' }), mark({ id: 'c', x: 700 })] })
-    assert.deepEqual(shown(), ['b', 'c'])
+    assert.deepEqual(shown(), ['id:b', 'id:c'])
   })
 
-  test('they fade after holdMs, or the default', () => {
+  test('they fade after holdMs, or the default 6 s', () => {
     annotate({ marks: [mark({ id: 'a' })], holdMs: 2000 })
     mock.timers.tick(1999)
-    assert.deepEqual(shown(), ['a'])
+    assert.deepEqual(shown(), ['id:a'])
     mock.timers.tick(1)
     assert.deepEqual(shown(), [])
-    annotate({ marks: [mark({ id: 'a' })] })
+    annotate({ marks: [mark({ id: 'b' })] })
     mock.timers.tick(HOLD.base - 1)
-    assert.deepEqual(shown(), ['a'])
+    assert.deepEqual(shown(), ['id:b'])
     mock.timers.tick(1)
     assert.deepEqual(shown(), [])
   })
 
-  test('a re-send keeps the circle where it is and starts the hold again', () => {
+  test('a re-send keeps the circle where it is and does NOT start the hold again; a new mark does', () => {
     annotate({ marks: [mark({ id: 'a' })], holdMs: 2000 })
     const first = usePointing.getState().marks[0].rect
     mock.timers.tick(1500)
     annotate({ marks: [mark({ id: 'a', x: 103 })], holdMs: 2000 })
     assert.equal(usePointing.getState().marks[0].rect, first)
+    mock.timers.tick(499)
+    assert.deepEqual(shown(), ['id:a'])
+    mock.timers.tick(1)
+    assert.deepEqual(shown(), [], 'gone 2 s after it was born, not 2 s after the re-send')
+
+    annotate({ marks: [mark({ id: 'b' })], holdMs: 2000 })
     mock.timers.tick(1500)
-    assert.deepEqual(shown(), ['a'])
-    mock.timers.tick(500)
+    annotate({ marks: [mark({ id: 'b' }), mark({ id: 'c', x: 700 })], holdMs: 2000 })
+    mock.timers.tick(1999)
+    assert.deepEqual(shown(), ['id:b', 'id:c'], 'the new mark moved the deadline for the set')
+    mock.timers.tick(1)
     assert.deepEqual(shown(), [])
   })
 
-  test('clear, an empty list, a new step and the lesson ending all take them away', () => {
-    for (const end of [() => send('annotate', { clear: true }), () => send('annotate', { marks: [] }), () => send('step.started', { stepId: 's2' }), () => send('step.passed', { stepId: 's1' }), () => send('lesson.ended', {}), () => emitUi('reset')]) {
+  test('a mark that faded stays gone for the step, however it went', () => {
+    const ways: Array<[string, () => void]> = [
+      ['timed out', () => mock.timers.tick(HOLD.base)],
+      ['engine clear', () => send('annotate', { clear: true })],
+      ['reached', () => fade(['id:a'])],
+      ['Esc', () => void emitUi('dismiss')]
+    ]
+    for (const [name, go] of ways) {
+      forget()
       annotate({ marks: [mark({ id: 'a' })] })
-      assert.deepEqual(shown(), ['a'])
+      go()
+      assert.deepEqual(shown(), [], name)
+      annotate({ marks: [mark({ id: 'a' })] })
+      assert.deepEqual(shown(), [], `${name}: the same mark re-sent stays gone`)
+      annotate({ marks: [mark({ id: 'a' }), mark({ id: 'b', x: 700 })] })
+      assert.deepEqual(shown(), ['id:b'], `${name}: another mark shows, the gone one does not`)
+    }
+  })
+
+  test('reaching one mark leaves the others, and their hold keeps running', () => {
+    annotate({ marks: [mark({ id: 'a' }), mark({ id: 'b', x: 700 })], holdMs: 3000 })
+    mock.timers.tick(1000)
+    fade(['id:a'])
+    assert.deepEqual(shown(), ['id:b'])
+    mock.timers.tick(2000)
+    assert.deepEqual(shown(), [])
+  })
+
+  test('a new circle-to-ask starts fresh', () => {
+    annotate({ marks: [mark({ id: 'a', why: 'answer', askId: 'q1' })] })
+    fade()
+    annotate({ marks: [mark({ id: 'a', why: 'answer', askId: 'q1' })] })
+    assert.deepEqual(shown(), [])
+    annotate({ marks: [mark({ id: 'a', why: 'answer', askId: 'q2' })] })
+    assert.deepEqual(shown(), ['id:a'])
+  })
+
+  test('a new step keeps only the marks sent for it and forgets what was gone; a replayed step changes nothing', () => {
+    annotate({ marks: [mark({ id: 'a', stepId: 's1' }), mark({ id: 'b', x: 700, stepId: 's2' })] })
+    send('step.started', { stepId: 's1', replay: true })
+    assert.deepEqual(shown(), ['id:a', 'id:b'])
+    send('step.started', { stepId: 's2' })
+    assert.deepEqual(shown(), ['id:b'])
+    mock.timers.tick(HOLD.base)
+    assert.deepEqual(shown(), [], 'the kept mark gets a fresh default hold')
+    send('step.started', { stepId: 's3' })
+    annotate({ marks: [mark({ id: 'b', x: 700 })] })
+    assert.deepEqual(shown(), ['id:b'], 'gone last step, drawable again this step')
+  })
+
+  test('step.passed, the lesson ending, a new lesson and a reset clear everything and remember nothing', () => {
+    for (const end of [() => send('step.passed', { stepId: 's1' }), () => send('lesson.ended', {}), () => send('lesson.ready', {}), () => void emitUi('reset')]) {
+      annotate({ marks: [mark({ id: 'a' })] })
       end()
       assert.deepEqual(shown(), [])
+      annotate({ marks: [mark({ id: 'a' })] })
+      assert.deepEqual(shown(), ['id:a'])
+      forget()
     }
+  })
+
+  test('an empty list takes the marks away without holding it against them', () => {
+    annotate({ marks: [mark({ id: 'a' })] })
+    send('annotate', { marks: [] })
+    assert.deepEqual(shown(), [])
+    annotate({ marks: [mark({ id: 'a' })] })
+    assert.deepEqual(shown(), ['id:a'])
   })
 
   test('a payload that is not an annotate changes nothing', () => {
     annotate({ marks: [mark({ id: 'a' })] })
-    for (const bad of [null, 'clear', 7, {}, { marks: 'all' }, { clear: 'yes' }]) annotate(bad)
-    assert.deepEqual(shown(), ['a'])
+    for (const bad of [null, 'clear', 7, {}, { holdMs: 5 }]) annotate(bad)
+    assert.deepEqual(shown(), ['id:a'])
   })
 
-  test('found: the circle leaves soon, and the engine re-sending it does not bring it back', () => {
-    annotate({ marks: [mark({ id: 'a' })], holdMs: 20_000 })
-    found()
-    found() // more pointer moves on the mark change nothing
-    mock.timers.tick(HOLD.found - 1)
-    assert.deepEqual(shown(), ['a'])
-    mock.timers.tick(1)
-    assert.deepEqual(shown(), [])
-    annotate({ marks: [mark({ id: 'a' })] })
-    assert.deepEqual(shown(), [], 'the same mark stays gone')
-    annotate({ marks: [mark({ id: 'a' }), mark({ id: 'b', x: 700 })] })
-    assert.deepEqual(shown(), ['a', 'b'], 'a different set shows')
-  })
-
-  test('found never makes a mark stay longer than the engine asked', () => {
-    annotate({ marks: [mark({ id: 'a' })], holdMs: HOLD.min })
-    mock.timers.tick(HOLD.min - 200)
-    found()
-    mock.timers.tick(200)
-    assert.deepEqual(shown(), [])
-  })
-
-  test('Esc sends them away without claiming the event, and a new step forgets that', () => {
+  test('Esc never claims the event, so cards still close', () => {
     annotate({ marks: [mark({ id: 'a' })] })
     assert.equal(emitUi('dismiss'), false)
-    assert.deepEqual(shown(), [])
-    annotate({ marks: [mark({ id: 'a' })] })
-    assert.deepEqual(shown(), [])
-    send('step.started', { stepId: 's2' })
-    annotate({ marks: [mark({ id: 'a' })] })
-    assert.deepEqual(shown(), ['a'])
   })
 
-  test('the lean goes back to upright with the marks', () => {
-    annotate({ marks: [mark({ id: 'a' })] })
-    usePointing.setState({ lean: -0.6 }) // the layer sets this
-    send('annotate', { clear: true })
-    assert.equal(usePointing.getState().lean, 0)
+  test('pointAt: the pose another layer asks for, and its end', () => {
+    const box = { x: 10, y: 20, w: 30, h: 40 }
+    pointAt(box)
+    assert.equal(usePointing.getState().pose, box)
+    pointAt()
+    assert.equal(usePointing.getState().pose, undefined)
   })
 })

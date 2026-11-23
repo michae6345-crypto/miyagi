@@ -1,18 +1,26 @@
 /**
  * Feature: buddy, pass 2: the pointing branch. Brief: app/agents/buddy.md
  *
- * Pure (no React, no DOM): the marks the engine asks for, and the shape the branch draws to reach one.
- *   cleanMarks  the engine's marks, checked and capped
- *   reach       ONE path: a branch out of the bonsai to the mark, then a loose loop around it
- *   forkFor     where a second mark's branch leaves the first one's, so two marks read as one forked branch
- *   labelAt     where a mark's short label sits
+ * Pure (no React, no DOM, no timers): the marks the engine asks for, and the shape the branch draws to reach one.
+ *   validMarks / keyOf  which marks can be drawn, and how a mark is known again when the engine re-sends it
+ *   mergeMarks          a new annotate replaces the drawn set; a known mark keeps its birth (it is not drawn again);
+ *                       a mark that already faded this step stays gone
+ *   holdFor / fadeAt    how long the marks stay, counted from the newest mark's birth
+ *   createReach         "the learner went there"
+ *   reach               ONE path: a branch out of the bonsai to the mark, then a loose loop around it
+ *   forkFor             where a second mark's branch leaves the first one's, so two marks read as one forked branch
+ *   labelAt             where a mark's short label sits
  * Checked offline in test/buddyMarks.test.ts.
+ *
+ * The mark rules (everything down to "the shape") are the same as Michael's features/annotate/marks.ts on
+ * michael/app-buddy-draw, number for number: 3 marks, 4 words, 6 s (1.5 to 30), 12 px, 280 ms, 6 px. His engine is
+ * written against those, so whichever layer draws, a mark lives and dies the same way. Change them together.
  *
  * What is borrowed from other pointing apps, in miyagi's own look: the travel is an arc and takes longer the farther
  * it goes (cursor buddies fly that way), the loop is drawn on rather than faded in and its end overlaps its start
  * (circle-to-search), and a short name sits beside the target (shared-cursor chips).
  */
-import { sameRect, type Point, type Rect } from '../../core/geometry'
+import type { Point, Rect } from '../../core/geometry'
 import { duration, ease } from '../../core/ui/motionTokens'
 
 /**
@@ -23,47 +31,101 @@ import { duration, ease } from '../../core/ui/motionTokens'
 export type Mark = { id?: string; x: number; y: number; w: number; h: number; displayId?: number; label?: string; why: 'point' | 'answer'; askId?: string; stepId?: string }
 export type AnnotatePayload = { marks: Mark[]; holdMs?: number } | { clear: true }
 
-/** A mark ready to draw. `key` is the engine's id when it sent one, so a re-sent mark is the same circle. */
-export type Shown = { key: string; rect: Rect; why: 'point' | 'answer'; label?: string }
+/**
+ * A mark being drawn. `rect` stays in screen points (the layer maps it into its window). `born`: when it first
+ * appeared (ms); a re-sent mark keeps it, so it is not drawn again and does not push the fade back.
+ */
+export type Shown = { key: string; id?: string; rect: Rect; displayId?: number; label?: string; why: Mark['why']; stepId?: string; askId?: string; born: number }
+/** What a mark is remembered by (drawn now, or gone this step). */
+export type Known = Pick<Shown, 'key' | 'id' | 'rect' | 'why'>
 
-/** More branches than this stop reading as pointing. */
-export const MAX_MARKS = 4
+/** The buddy circles a few things, not a page. */
+export const MAX_MARKS = 3
 /** The contract's limit for a label. */
 export const LABEL_WORDS = 4
+/** How long marks stay (ms): the engine's holdMs kept between min and max, or `base` when it names none. */
+export const HOLD = { base: 6000, min: 1500, max: 30_000 } as const
+/** A key for a mark with no id: its box on a grid this coarse. */
+export const KEY_GRID = 12
+/** OCR moves a box a few points between reads: a mark with no id within this of a drawn (or gone) one is that mark. */
+export const SAME_PX = 12
 /**
- * How long marks stay (ms). `base`: when the engine names no holdMs ("a few seconds"). `found`: once the pointer is on
- * a mark the learner has found it, so the circle leaves this soon.
+ * "Went there": the pointer must rest inside a box this long, after coming in from outside. The box counts `pad`
+ * bigger than it is, since the loop itself sits outside it.
  */
-export const HOLD = { base: 5000, min: 1200, max: 30_000, found: 1200 } as const
-/** A re-sent mark that moved less than this (px, any edge) is OCR jitter: it stays put (the spotlight's rule). */
-export const JITTER_PX = 8
+export const REACH = { restMs: 280, pad: 6 } as const
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
+const hasId = (m: { id?: unknown }): boolean => typeof m.id === 'string' && !!m.id
 
-/** At most LABEL_WORDS words on one line, never literal backticks; nothing when there are no words. */
+/** The first LABEL_WORDS words on one line, never literal backticks; nothing when there are no words. */
 export function cleanLabel(label: unknown): string | undefined {
   if (typeof label !== 'string') return undefined
-  const words = label.replace(/`/g, '').trim().split(/\s+/).filter(Boolean)
-  if (!words.length) return undefined
-  return words.length > LABEL_WORDS ? `${words.slice(0, LABEL_WORDS).join(' ')}…` : words.join(' ')
+  const words = label.replace(/`/g, '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, LABEL_WORDS)
+  return words.length ? words.join(' ') : undefined
 }
 
-/** The engine's marks, kept only when they can be drawn: real numbers, a real size, one per key, MAX_MARKS at most. */
-export function cleanMarks(marks: unknown): Shown[] {
-  if (!Array.isArray(marks)) return []
-  const out: Shown[] = []
+/** A rect that can be drawn: real numbers and a real size. */
+export function isDrawable(r: Partial<Rect> | undefined | null): r is Rect {
+  return !!r && num(r.x) && num(r.y) && num(r.w) && num(r.h) && r.w > 0 && r.h > 0
+}
+
+/** How a mark is known: the engine's id, or (no id) its kind and its box on a coarse grid. */
+export function keyOf(m: Pick<Mark, 'id' | 'x' | 'y' | 'w' | 'h' | 'why' | 'displayId'>): string {
+  if (hasId(m)) return `id:${m.id}`
+  const g = (n: number): number => Math.round(n / KEY_GRID)
+  return `${m.why}:${m.displayId ?? 'p'}:${g(m.x)},${g(m.y)},${g(m.w)},${g(m.h)}`
+}
+
+/** The drawable marks of an annotate: a known kind, a real box, one per key, MAX_MARKS at most. */
+export function validMarks(list: unknown): Mark[] {
+  if (!Array.isArray(list)) return []
   const seen = new Set<string>()
-  for (const m of marks as Array<Partial<Mark> | null>) {
-    if (!m || typeof m !== 'object') continue
-    const { x, y, w, h } = m
-    if (!num(x) || !num(y) || !num(w) || !num(h) || w <= 0 || h <= 0) continue
-    const why = m.why === 'answer' ? 'answer' : 'point'
-    const key = typeof m.id === 'string' && m.id ? m.id : `${why}:${Math.round(x)},${Math.round(y)},${Math.round(w)},${Math.round(h)}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push({ key, rect: { x, y, w, h }, why, label: cleanLabel(m.label) })
-    if (out.length === MAX_MARKS) break
+  const out: Mark[] = []
+  for (const m of list as Array<Mark | null>) {
+    if (!m || typeof m !== 'object' || (m.why !== 'point' && m.why !== 'answer') || !isDrawable(m)) continue
+    const k = keyOf(m)
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(m)
+    if (out.length >= MAX_MARKS) break
+  }
+  return out
+}
+
+const near = (a: Rect, b: Rect): boolean => Math.abs(a.x - b.x) <= SAME_PX && Math.abs(a.y - b.y) <= SAME_PX && Math.abs(a.w - b.w) <= SAME_PX && Math.abs(a.h - b.h) <= SAME_PX
+
+/** The key this mark already has among `pool`: its id, or (no id) a mark of the same kind at nearly the same box. */
+export function knownKey(m: Mark, pool: Iterable<Known>): string | undefined {
+  if (hasId(m)) return keyOf(m)
+  for (const k of pool) if (!k.id && k.why === m.why && near(k.rect, m)) return k.key
+  return undefined
+}
+
+/** The new drawn set: `incoming` replaces `prev`; a known mark keeps its key and birth (no redraw); a gone one is skipped. */
+export function mergeMarks(prev: readonly Shown[], incoming: readonly Mark[], gone: Iterable<Known>, now: number): Shown[] {
+  const goneList = [...gone]
+  const goneKeys = new Set(goneList.map((g) => g.key))
+  const out: Shown[] = []
+  for (const m of incoming) {
+    const id = hasId(m)
+    if (goneKeys.has(keyOf(m)) || (!id && knownKey(m, goneList))) continue
+    const was = prev.find((p) => p.key === (knownKey(m, prev) ?? keyOf(m)))
+    if (was && out.includes(was)) continue
+    const label = cleanLabel(m.label)
+    out.push({
+      key: was ? was.key : keyOf(m),
+      ...(id ? { id: m.id } : {}),
+      // A re-read a few points off keeps the drawn box, so the stroke does not twitch.
+      rect: was && near(was.rect, m) ? was.rect : { x: m.x, y: m.y, w: m.w, h: m.h },
+      ...(m.displayId !== undefined ? { displayId: m.displayId } : {}),
+      ...(label ? { label } : {}),
+      why: m.why,
+      ...(m.stepId ? { stepId: m.stepId } : {}),
+      ...(m.askId ? { askId: m.askId } : {}),
+      born: was ? was.born : now
+    })
   }
   return out
 }
@@ -73,12 +135,55 @@ export function holdFor(holdMs: unknown): number {
   return num(holdMs) && holdMs > 0 ? clamp(holdMs, HOLD.min, HOLD.max) : HOLD.base
 }
 
-/** A re-sent mark keeps its old place when it only jittered, so a circle already drawn never wobbles. */
-export function settle(prev: Shown[], next: Shown[]): Shown[] {
-  return next.map((n) => {
-    const p = prev.find((x) => x.key === n.key)
-    return p && sameRect(p.rect, n.rect, JITTER_PX) ? { ...n, rect: p.rect } : n
-  })
+/**
+ * When the drawn set fades: the hold counts from the newest mark's birth. A re-sent mark keeps its birth, so an
+ * engine that re-sends the same marks every few seconds does not push the fade back; only a new mark does.
+ */
+export function fadeAt(marks: readonly Pick<Shown, 'born'>[], holdMs: number): number | undefined {
+  if (!marks.length) return undefined
+  return Math.max(...marks.map((m) => m.born)) + holdMs
+}
+
+type Box = { key: string; rect: Rect }
+const inBox = (r: Rect, p: Point, pad: number = REACH.pad): boolean => p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad
+
+/**
+ * Tracks the pointer against the drawn boxes (window coordinates). `move` returns the keys the learner reached: the
+ * pointer was seen OUTSIDE the box first (so a cursor already resting where the mark appears does not send it away),
+ * then stayed inside for REACH.restMs. `press` returns the keys a real click landed in (the browser stage, or a click
+ * the overlay does get). In Electron the overlay is click-through and only gets forwarded mouse moves, so the move
+ * rule stands in for the click there.
+ */
+export function createReach(): { move(p: Point, boxes: readonly Box[], now: number): string[]; press(p: Point, boxes: readonly Box[]): string[]; reset(): void } {
+  const armed = new Set<string>()
+  const since = new Map<string, number>()
+  return {
+    move(p, boxes, now) {
+      const hit: string[] = []
+      const live = new Set(boxes.map((b) => b.key))
+      for (const k of [...armed]) if (!live.has(k)) armed.delete(k)
+      for (const k of [...since.keys()]) if (!live.has(k)) since.delete(k)
+      for (const b of boxes) {
+        if (!inBox(b.rect, p)) {
+          armed.add(b.key)
+          since.delete(b.key)
+          continue
+        }
+        if (!armed.has(b.key)) continue
+        const at = since.get(b.key) ?? now
+        since.set(b.key, at)
+        if (now - at >= REACH.restMs) hit.push(b.key)
+      }
+      return hit
+    },
+    press(p, boxes) {
+      return boxes.filter((b) => inBox(b.rect, p)).map((b) => b.key)
+    },
+    reset() {
+      armed.clear()
+      since.clear()
+    }
+  }
 }
 
 // ---- the shape -------------------------------------------------------------------------------------------------
