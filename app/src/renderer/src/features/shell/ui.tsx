@@ -134,11 +134,11 @@ export function PageHeader({ title, caption: sub, right }: { title: ReactNode; c
 /**
  * A page's content inside the shell's column: the house vertical rhythm (sections 40 apart, 64 at the bottom) and the
  * gutters. `width`: 'column' (640, every page by default), 'form' (560, forms and long text, left inside the column).
- * The shell already centers the column (`--page-inset`), so this never centers itself.
+ * The shell's body is a centered 760 box (Shell.tsx BODY_BOX); this centers the 720 column in it, under the title.
  */
 export function PageBody({ children, width = 'column', gap = layout.page.section, style }: { children: ReactNode; width?: 'column' | 'form'; gap?: number; style?: CSSProperties }): ReactNode {
   return (
-    <div data-page-body className="flex w-full flex-col" style={{ paddingTop: 8, paddingInline: GUTTER, paddingBottom: layout.page.bottom, gap, ...style }}>
+    <div data-page-body className="flex w-full flex-col" style={{ maxWidth: COLUMN_W, marginInline: 'auto', paddingTop: 8, paddingInline: GUTTER, paddingBottom: layout.page.bottom, gap, ...style }}>
       <div className="flex w-full flex-col" style={{ maxWidth: width === 'form' ? layout.page.form : undefined, gap }}>
         {children}
       </div>
