@@ -255,4 +255,12 @@ def progress() -> dict | None:
         log.warning("progress: no review schedule: %s", e)
         due = None
     out = build(history, current, graph, recent, index, due)
+    if out is not None:  # Nov 22 (Skills page): the merged skill graph, additive; absent = the app draws `skills` as chains
+        try:
+            from . import skills_graph
+
+            if (g := skills_graph.graph()) is not None:
+                out["graph"] = g
+        except Exception as e:  # noqa: BLE001 - the graph is an extra: progress still answers without it
+            log.warning("progress: no skill graph: %s", e)
     return library.scrub(out) if out is not None else None
