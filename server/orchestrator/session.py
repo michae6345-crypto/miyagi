@@ -5894,7 +5894,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._status("offtrack" if self.last_offtrack and not self.passed and not self.awaiting_start
                            else "watching")
 
-    async def action(self, kind: str, text: str | None = None) -> None:
+    async def action(self, kind: str, text: str | None = None, *, region: Any = None, ask_id: str | None = None,
+                     source: str | None = None) -> None:
+        """`region` / `ask_id` / `source`: circle to ask (Nov 22, action ask + region; circle_ask.py). `ask_id` on a
+        typed or spoken ask is echoed on its answer card."""
         context_memory.on_action(self, kind, text)  # "skipped setup", "has AutoCAD": later answers know (never raises)
         if kind == "start":  # "Start the lesson" on the "Before you start" sheet (E4)
             await self._begin("Start")
@@ -5934,9 +5937,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind == "retry":  # the "Couldn't reach Claude" card's Try again: the question that failed, once more
             kind, text = self._last_ask or ("explain", None)
+            region, ask_id = self._last_ask_region if self._last_ask else (None, None)
         asking = kind in self.ASK_KINDS and self.step is not None
         if asking:  # hold every proactive card until the answer is out (and drop one the typing guard queued)
             self._last_ask, self.pending_speak = (kind, text), None
+            self._last_ask_region = (region, ask_id)  # a circle's Try again asks about the same circle
             self._asks_in_flight += 1
         gen = self.step_gen
         token = _EPOCH.set(self.lesson_epoch)  # a card that finishes after end_lesson is dropped
@@ -5945,7 +5950,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         answered_token = _ANSWERED.set(answered)
         gen = self.step_gen
         try:
-            await self._action(kind, text)
+            circle = {k: v for k, v in (("region", region), ("ask_id", ask_id)) if v is not None}
+            await self._action(kind, text, **circle)  # the old call shape when there is no circle / askId
             if not answered & ANSWER_EVENTS and kind not in QUIET_ACTIONS and gen == self.step_gen:
                 await self._notice(kind)  # never silence: a press that changed nothing still gets an answer
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
@@ -6026,7 +6032,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                   "use_this_folder", "voice_toggle", "build", "pick_another",
                                   "explain", "diagram", "show_me", "hint", "ask", "retry", "back"})
 
-    async def _action(self, kind: str, text: str | None = None) -> None:
+    async def _action(self, kind: str, text: str | None = None, *, region: Any = None,
+                      ask_id: str | None = None) -> None:
         step = self.step
         if step is not None:
             if kind in self.NOT_WORK_ACTIONS:
@@ -6066,6 +6073,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             from .selection import answer as explain_selection
 
             await explain_selection(self, step, text)  # also without a lesson: no step context then
+            return
+        if kind == "ask" and region is not None:  # circle to ask (Nov 22): the learner circled part of the screen
+            from . import circle_ask
+
+            await circle_ask.answer(self, step, text, region, ask_id)  # also without a lesson
             return
         if step is None:
             await self.emit("error", {"message": "No lesson is running yet."})
@@ -6177,6 +6189,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return  # the learner moved to another step meanwhile: an answer about the old one would mislead
             card = dict(card)
             card["stepId"] = step["id"]
+            if kind == "ask" and ask_id:
+                card["askId"] = ask_id  # the app matches the answer to the question it sent
             card = await stale_advice.answer(self, step, card)  # never "delete line 41" once line 41 is gone (03:00:41)
             if card.get("targets") and not keep:
                 spot = self._target_spot(card["targets"][0])
@@ -6537,6 +6551,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     _asks_in_flight = 0
     _ask_hold_until = -1e9
     _last_ask: tuple[str, str | None] | None = None  # what "retry" re-sends
+    _last_ask_region: tuple[Any, str | None] = (None, None)  # ...with its circle (region, askId), for a circle ask
 
     def _ask_held(self) -> bool:
         """Is a question / explain / hint in flight, or was it answered < ASK_HOLD_S ago? Then no stuck, idle,

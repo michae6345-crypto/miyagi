@@ -396,6 +396,27 @@ class ScreenBridge:
             log.exception("screenshot failed")
             return None
 
+    def ask_frame(self, max_age: float = 0.5) -> tuple[Any, Any]:
+        """Circle to ask (Nov 22): (observation, PIL picture with the overlay blacked out) from one frame captured now,
+        or (None, None). Blocking (capture + OCR, ~0.3-0.5 s): call it in a thread. The learner asked, so it also
+        captures while the reader is paused (no lesson step: launch-quiet starts nothing, it takes one frame; the
+        macOS permission is only checked, never prompted). A paused reader forgets that picture right after
+        (drop_frame): the crop is for this one ask. Raises the reader's ScreenPermissionError without Screen Recording."""
+        r = self.reader
+        if r is None or not hasattr(r, "latest_frame"):
+            return None, None
+        paused = self.paused
+        try:
+            if paused or not hasattr(r, "_fresh_obs"):
+                r.observe_now(True, "ask")
+            else:
+                r._fresh_obs(max_age)
+            pil, obs = r.latest_frame()
+            return obs, pil
+        finally:
+            if paused and hasattr(r, "drop_frame"):
+                r.drop_frame()
+
     def poke(self) -> None:
         if self.reader is not None and hasattr(self.reader, "poke"):
             self.reader.poke()
@@ -498,6 +519,12 @@ class FakeScreen:
 
     def screenshot(self) -> Any:
         return None
+
+    def ask_frame(self, max_age: float = 0.5) -> tuple[Any, Any]:
+        """tests: `.ask` = (observation, picture) for circle to ask; `.ask_error` is raised instead when set."""
+        if getattr(self, "ask_error", None) is not None:
+            raise self.ask_error
+        return getattr(self, "ask", (None, None))
 
     def poke(self) -> None:
         pass

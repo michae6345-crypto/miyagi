@@ -57,6 +57,7 @@ ROUTES: dict[str, Route] = {
     "coach.diagnose": _coach("diagnose", SONNET),
     "coach.explain": _coach("explain"),
     "coach.explain_selection": _coach("explain_selection", SONNET),
+    "coach.circle_ask": _coach("circle_ask"),  # circle to ask (Nov 22): Haiku reads the circled crop
     "coach.hint": _coach("hint"),
     "coach.judge": _coach("judge"),
     "coach.triage": _coach("triage"),

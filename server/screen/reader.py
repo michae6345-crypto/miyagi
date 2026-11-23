@@ -992,6 +992,12 @@ class ScreenReader:
                     out["editor_line_rect"] = r.to_dict() if r else None
         return out
 
+    def drop_frame(self) -> None:
+        """Forget the last captured picture (circle to ask while no lesson runs: the one frame taken for that ask is
+        not kept in memory after its answer). The next read captures again."""
+        with self._lock:
+            self._latest_image = None
+
     def screenshot_pil(self, region=None):
         """The last captured frame as a PIL image (overlay blacked out), optionally cropped to a
         region in points."""
