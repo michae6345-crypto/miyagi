@@ -112,8 +112,11 @@ def test_open_editor_report_launch_gets_no_keys(secret_env, monkeypatch, tmp_pat
 
 
 def test_where_row_raise_gets_no_keys(secret_env, monkeypatch):
+    from types import SimpleNamespace
+
     from server.orchestrator import where_row
 
+    monkeypatch.setattr(where_row, "sys", SimpleNamespace(platform="darwin"))  # the `open -b` path, on any CI runner
     seen: list[dict] = []
     monkeypatch.setattr(where_row.subprocess, "run", lambda argv, **kw: seen.append(kw.get("env")))
     where_row._raise_window("/tmp/lesson", last_focused=True)
