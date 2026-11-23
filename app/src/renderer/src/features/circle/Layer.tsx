@@ -14,8 +14,9 @@
  *                    in overlay.bounds would make the engine's reader skip (and black out) what was circled.
  *   answer card      the island's coach-mark surface, kept inside the screen edges (geometry placeCard). It opens on
  *                    the first streamed words (answer.delta) and the final card replaces its text in place (same key:
- *                    no second entrance, and it keeps the side and top it opened with). "Looking" shows only until
- *                    the first words.
+ *                    no second entrance, and it keeps the side and edge it opened with; the side is picked for the
+ *                    usual final card height, so it never grows over the circle). "Looking" shows only until the
+ *                    first words.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { X } from 'lucide-react'
@@ -166,9 +167,10 @@ function Looking({ box, area }: { box: Box; area: { width: number; height: numbe
 }
 
 /**
- * `held`: the words are still streaming in (no final card yet). A card that opened that way keeps the top and side it
- * opened with for the life of its key (geometry cardPlace), through the stream and the final card, so the text being
- * read never shifts and the card does not jump when the answer ends. A card that never streamed is placed by placeCard.
+ * `held`: the words are still streaming in (no final card yet). A card that opened that way keeps the side and edge it
+ * opened with for the life of its key (geometry cardPlace: the top, or for 'above' the bottom, so it grows away from
+ * the circle), through the stream and the final card, so the text being read never shifts and the card does not jump
+ * when the answer ends. It never covers the circle. A card that never streamed is placed by placeCard.
  */
 function AnswerCard({ box, area, question, title, body, streaming, held }: { box: Box; area: { width: number; height: number }; question: string; title?: string; body: string; streaming: boolean; held: boolean }): ReactNode {
   const ref = useRef<HTMLDivElement>(null)
@@ -228,7 +230,7 @@ function AnswerCard({ box, area, question, title, body, streaming, held }: { box
           {title}
         </div>
       )}
-      <div className="mt-[4px] whitespace-pre-line" style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label, textWrap: 'pretty' }}>
+      <div className="mt-[4px] whitespace-pre-line" style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label, textWrap: 'pretty', overflowWrap: 'anywhere' }}>
         {body}
       </div>
     </motion.div>
