@@ -115,7 +115,7 @@ row now has a `setupKind` (`apps.classify`):
 - A title that names its app (`apps.app_in_text`: "AutoCAD - ..." → autocad) adds the row even offline or when Claude
   left it out, for no-code lessons only (a pandas lesson about Excel files is still a code lesson).
 - Card copy for a missing licensed app, two modes (fix round 2):
-  - **Today's app** (`setup.APP_RENDERS_APP_ACTIONS = False`, the default until the app's claim PR lands): the app's
+  - **Today's app** (`setup.APP_RENDERS_APP_ACTIONS = False`, an older app without the setup-calm merge): the app's
     CardActions drops `have_it` / `get_it` / `alternative`, so the card says only what its visible buttons do. The
     installable free alternative gets its own row (`setup.offer_alternatives`: FreeCAD, `install.method` brew_cask,
     `altFor` engine-only, never "missing", never in Install all). Body "AutoCAD is paid. Get it, install FreeCAD free,
