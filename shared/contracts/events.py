@@ -800,8 +800,9 @@ class Action(_Model):
     # or without a lesson. The engine crops region, reads the text boxes inside it, answers with a card
     # {kind: "answer", askId, region}, then maybe annotate {marks: [{why: "answer", askId, ...}]}. The crop is used
     # for this one ask only, never stored or logged. Timing: the engine answers each circle ask within about 25 s
-    # (capture 3 s + model 10 s + connection retries 12 s; circle_ask.ANSWER_WITHIN_S), so the app's pending-circle
-    # timeout can be set a little above that. The overlay's click-through hard timeout covers only the drawing: it
+    # (circle_ask.ANSWER_WITHIN_S): one deadline, 22 s after the action arrives (circle_ask.ASK_DEADLINE_S), covers the
+    # streamed answer, its one retry and the one-shot fallback (each starts only when enough of it is left, else the
+    # failed card goes), so the app's pending-circle timeout (ASK_MAX_MS 30 s) stays above that. The overlay's click-through hard timeout covers only the drawing: it
     # goes back to click-through on release, without waiting for the answer.
     region: ScreenRegion | None = None
     source: str | None = None  # "typed" | "voice" | "circle"; a plain str so a new tag from the app is not rejected
