@@ -5,12 +5,14 @@ import {
   CAPTURE_MARGIN,
   captureAdmit,
   captureCommand,
+  captureLogLine,
   captureReleaseCommand,
   captureRequest,
   isCaptureId,
   MAX_PENDING_CAPTURES,
   MAX_CAPTURE_EDGE,
   parseCaptureLine,
+  parseCaptureWarmLine,
   parseLine
 } from '../src/main/pttProtocol'
 
@@ -142,5 +144,25 @@ describe('isCaptureId', () => {
     assert.ok(isCaptureId('cap-1'))
     assert.ok(isCaptureId('cap-123456'))
     for (const bad of ['', 'cap-', 'cap-x', 'circle-1', '../cap-1', 'cap-1/..', 7, null, 'cap-1234567890123']) assert.equal(isCaptureId(bad), false, String(bad))
+  })
+})
+
+describe('capture timing logs', () => {
+  test('the warm-up line is read, anything else is not', () => {
+    assert.deepEqual(parseCaptureWarmLine(j({ type: 'capture-warm', ok: true, ms: 181.6 })), { ok: true, ms: 182 })
+    assert.deepEqual(parseCaptureWarmLine(j({ type: 'capture-warm', ok: false, ms: 0 })), { ok: false, ms: 0 })
+    for (const bad of [j({ type: 'capture-warm', ok: 'yes', ms: 3 }), j({ type: 'capture-warm', ok: true, ms: -1 }), j({ type: 'capture-warm', ok: true }), j(ok), 'nope', ''])
+      assert.equal(parseCaptureWarmLine(bad), undefined, bad)
+    assert.equal(parseLine(j({ type: 'capture-warm', ok: true, ms: 3 })), undefined) // never a push-to-talk event
+    assert.equal(parseCaptureLine(j({ type: 'capture-warm', ok: true, ms: 3 })), undefined)
+  })
+  test('one line per capture: the helper ms and the round trip, never a path', () => {
+    const r = parseCaptureLine(j(ok))
+    assert.ok(r)
+    const line = captureLogLine(r, 171.4)
+    assert.equal(line, 'capture 1092x546 helper 142 ms, round trip 171 ms')
+    assert.ok(!line.includes('/'))
+    assert.equal(captureLogLine({ ok: false, id: 'cap-2', error: 'timeout', message: 'x' }, 2001), 'capture failed: timeout helper - ms, round trip 2001 ms')
+    assert.equal(captureLogLine({ ok: false, id: 'cap-3', error: 'screen_denied', message: 'x', ms: 3 }, -4), 'capture failed: screen_denied helper 3 ms, round trip 0 ms')
   })
 })

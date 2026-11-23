@@ -36,6 +36,7 @@ import {
   CAPTURE_TIMEOUT_MS,
   captureAdmit,
   captureCommand,
+  captureLogLine,
   captureReleaseCommand,
   captureRequest,
   type CaptureResult,
@@ -49,6 +50,7 @@ import {
   libraryNames,
   lineBuffer,
   parseCaptureLine,
+  parseCaptureWarmLine,
   parseLine,
   permissionsCommand,
   QUIT_COMMAND,
@@ -186,6 +188,8 @@ export default defineMainFeature({
             const c = parseCaptureLine(l)
             // A late answer (main already said 'timeout'): nobody will use the file, so it goes now.
             if (c && !settleCapture(c) && c.ok) send(captureReleaseCommand(c.id))
+            const warm = c ? undefined : parseCaptureWarmLine(l)
+            if (warm) pttLog(`capture warm-up ${warm.ok ? 'ok' : 'failed'} ${warm.ms} ms`)
             continue
           }
           if (ev.type === 'ready') pttLog(`ready stt=${ev.stt} locale=${ev.locale} chord=${ev.chord}`)
@@ -313,7 +317,7 @@ export default defineMainFeature({
     // ---- circle to ask: one region of the screen, captured by the helper while the keys are held ----
     // Never logs pixels or paths: only the size and the time.
     let captureSeq = 0
-    const captures = new Map<string, { done: (r: CaptureResult) => void; timer: ReturnType<typeof setTimeout> }>()
+    const captures = new Map<string, { done: (r: CaptureResult) => void; timer: ReturnType<typeof setTimeout>; at: number }>()
     /** Ids answered ok, so the overlay can release one it no longer needs (a newer stroke, the hold cancelled). */
     const issued: string[] = []
     /** Hand the answer to its waiting invoke. false = nobody is waiting any more (it timed out). */
@@ -322,7 +326,7 @@ export default defineMainFeature({
       if (!p) return false
       captures.delete(r.id)
       clearTimeout(p.timer)
-      pttLog(r.ok ? `capture ${r.w}x${r.h} ${r.ms} ms` : `capture failed: ${r.error}`)
+      pttLog(captureLogLine(r, Date.now() - p.at)) // the helper's ms and the round trip: the 150 to 400 ms budget, measured
       if (r.ok) {
         issued.push(r.id)
         if (issued.length > 16) issued.shift()
@@ -347,7 +351,7 @@ export default defineMainFeature({
           settleCapture({ ok: false, id, error: 'timeout', message: 'The capture took too long.' })
           send(captureReleaseCommand(id)) // a late file is deleted on arrival, never left in the temp folder
         }, CAPTURE_TIMEOUT_MS)
-        captures.set(id, { done, timer })
+        captures.set(id, { done, timer, at: Date.now() })
         send(captureCommand(id, req))
       })
     })

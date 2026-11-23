@@ -180,6 +180,7 @@ export function backoffMs(failures: number): number {
 //   main -> helper  {"cmd":"capture","id","rect":{x,y,w,h},"displayId","margin"}   /   {"cmd":"capture-release","id"}
 //   helper -> main  {"type":"capture","id","path","w","h","pxPerPoint","rect":{x,y,w,h},"displayId","ms"}
 //              or   {"type":"capture","id","error","message","ms"}
+//                   {"type":"capture-warm","ok","ms"}   once per helper process, first chord-down (logged only)
 //
 // Kept out of HelperEvent on purpose: a capture answer is a reply to one request, not a push-to-talk state change, so it
 // never reaches reducePtt (common/pttState.ts). parseLine drops it; parseCaptureLine reads it.
@@ -285,6 +286,29 @@ export const MAX_PENDING_CAPTURES = 2
 export function captureAdmit(pending: number, helperUp: boolean): 'busy' | 'unavailable' | undefined {
   if (!helperUp) return 'unavailable'
   return pending >= MAX_PENDING_CAPTURES ? 'busy' : undefined
+}
+
+/** The helper's once-per-process screenshot warm-up ({"type":"capture-warm","ok","ms"}, first chord-down). Logged
+ *  only, so the capture budget is measured: the time and whether it worked. Anything else is undefined. */
+export function parseCaptureWarmLine(text: string): { ok: boolean; ms: number } | undefined {
+  if (typeof text !== 'string' || text.length === 0 || text.length > 200) return undefined
+  let o: unknown
+  try {
+    o = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined
+  const r = o as Record<string, unknown>
+  if (r.type !== 'capture-warm' || typeof r.ok !== 'boolean' || !finiteNum(r.ms) || r.ms < 0) return undefined
+  return { ok: r.ok, ms: Math.round(r.ms) }
+}
+
+/** One log line per capture: the helper's own time and main's round trip (send to answer), never a path or pixels. */
+export function captureLogLine(r: CaptureResult, roundTripMs: number): string {
+  const helper = r.ms !== undefined ? `helper ${Math.round(r.ms)} ms` : 'helper - ms'
+  const rt = `round trip ${Math.max(0, Math.round(roundTripMs))} ms`
+  return r.ok ? `capture ${r.w}x${r.h} ${helper}, ${rt}` : `capture failed: ${r.error} ${helper}, ${rt}`
 }
 
 /** An id main gave out for a capture (what 'ptt:capture-release' accepts). */
