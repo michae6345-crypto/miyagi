@@ -14,12 +14,20 @@
  * Every number here is on the spacing scale (4, 8, 12, 16, 20, 24, 32, 40, 56, 80).
  */
 import type { CSSProperties, ReactNode } from 'react'
-import { color, type2 } from '../../core/theme'
+import { color, layout, type2 } from '../../core/theme'
 
 /** The column's full width, gutters included (640 of content at the 40 px gutter). */
 export const COLUMN_W = 720
 /** Window top to a page's first line (52 drag strip + 28): Home's bonsai and a preview's kicker sit here. */
 export const PAGE_TOP = 80
+/** The same line in macOS full screen (no title bar to drag): 52, like every page title (layout.page.topFull). */
+export const PAGE_TOP_FULL = layout.page.topFull
+/**
+ * A column's top padding so its first line sits PAGE_TOP below the window's top (PAGE_TOP_FULL in full screen), given what
+ * already lies above the column (`above`: the pane's inset plus the header or bar; `aboveFull` when full screen changes it). Spread onto the column with
+ * className "mg-first-line" (styles.css switches the variable on <html data-fullscreen>).
+ */
+export const firstLine = (above: number, aboveFull = above): CSSProperties => ({ ['--first-top' as string]: `${PAGE_TOP - above}px`, ['--first-top-full' as string]: `${PAGE_TOP_FULL - aboveFull}px` })
 /** Section to section, title to first section, label to content, bottom padding (spec section 4). */
 export const rhythm = { section: 40, title: 32, label: 12, bottom: 64 } as const
 

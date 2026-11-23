@@ -39,7 +39,7 @@ import type { DashData } from '../dashboard/types'
 import { summarize, useRows } from '../onboarding/rows'
 import { Row, RowChevron, TextAction, caption } from '../shell/ui'
 import { finishedIds, pickHero, readAsk, recentActivity, recentLine, setAskText, setupFix, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
-import { Column, PAGE_TOP, Pane, SectionLabel, rhythm } from './layout'
+import { Column, Pane, SectionLabel, firstLine, rhythm } from './layout'
 import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
@@ -508,7 +508,7 @@ const SHELL_STRIP = 20 + 8
  */
 function Body({ view, hero, fix, skip, done, data, now, recent }: BodyProps): ReactNode {
   return (
-    <Column data-home-column style={{ paddingTop: PAGE_TOP - SHELL_STRIP, paddingBottom: rhythm.bottom }}>
+    <Column data-home-column className="mg-first-line" style={{ ...firstLine(SHELL_STRIP), paddingBottom: rhythm.bottom }}>
       <div className="flex flex-col" style={{ gap: rhythm.section }}>
         <div data-home-main className="flex min-w-0 flex-col" style={{ gap: 12 }}>
           <div className="flex justify-center" style={{ paddingBottom: 12 }}>

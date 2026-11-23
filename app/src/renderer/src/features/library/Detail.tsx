@@ -11,13 +11,16 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { color, copy, fill, highlight, layer, radius2, surface, type2 } from '../../core/theme'
-import { Column, PAGE_TOP, Pane, SectionLabel, pageTitle, rhythm } from './layout'
+import { Column, Pane, SectionLabel, firstLine, pageTitle, rhythm } from './layout'
 import { youtubeId, youtubeWatchUrl } from './sanitize'
 import { TOOL_NAME, minutesLabel, soft, stepsLabel } from './parts'
 import { foldLabel, previewSteps } from './stepsPreview'
 import { closeDetail, itemFor, start, useLibrary } from './store'
 import { thisDevice } from '../onboarding/device'
 
+/** The back bar: the 52 px drag strip (traffic lights beside it); 32 in full screen, where the strip is dropped. The kicker below it sits at 80 (52 in full screen) from the window's top either way. */
+const DETAIL_BAR = 52
+const DETAIL_BAR_FULL = 32
 const KICKER = { youtube: 'Lesson from a YouTube tutorial', goal: 'Lesson built for a goal', library: 'Lesson from the library' } as const
 
 /** `vid`: a checked 11-character YouTube id. Only the canonical watch link built from it is opened, never the engine's URL. */
@@ -28,8 +31,8 @@ function Video({ vid, by }: { vid: string; by?: string }): ReactNode {
       aria-label="Open the original video in your browser"
       onClick={() => void bridge.invoke('open:external', youtubeWatchUrl(vid)).catch(() => undefined)}
       className="mg-press flex w-full cursor-pointer items-center gap-[16px] text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
-      // Home's card surface (white in light), radius 16 around an 8 px inset, so the thumbnail's 8 is concentric.
-      style={{ padding: 8, borderRadius: radius2.group, background: layer.overlay.background, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}`, outlineColor: color.text }}
+      // Home's card surface (white in light), radius 12 (the card radius) around an 8 px inset.
+      style={{ padding: 8, borderRadius: radius2.card, background: layer.overlay.background, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}`, outlineColor: color.text }}
     >
       <span className="relative flex shrink-0 items-center justify-center overflow-hidden" style={{ width: 160, height: 90, borderRadius: radius2.control, background: fill.thumb }}>
         <img src={`https://i.ytimg.com/vi/${vid}/hqdefault.jpg`} alt="" draggable={false} referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" />
@@ -86,7 +89,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
   // edge), inside the 52 px drag strip. Clear of the traffic lights: the column never starts left of 80 px.
   // The whole 52 px strip drags the window (spec section 9), not only the column's 800 px of it.
   const bar = (
-    <div data-drag data-detail-bar className="shrink-0" style={{ height: 52 }}>
+    <div data-drag data-detail-bar className="mg-detail-bar shrink-0" style={{ ['--bar' as string]: `${DETAIL_BAR}px`, ['--bar-full' as string]: `${DETAIL_BAR_FULL}px` }}>
       <Column className="flex h-full items-center">
         <button
           type="button"
@@ -126,7 +129,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
   const caption = err ?? (capsKnown && !canStart ? 'This engine can’t start saved lessons yet.' : !item.ready ? 'Not ready yet.' : ' ')
 
   // One gray line under the title: the tools in words, the steps, the minutes, who made it.
-  const meta = [item.tools.map((t) => TOOL_NAME[t]).join(', '), stepsLabel(stepCount), mins, item.by ? `by ${item.by}` : ''].filter(Boolean).join(' · ')
+  const meta = [item.tools.map((t) => TOOL_NAME[t]).join(', '), stepsLabel(stepCount), mins, vid || !item.by ? '' : `by ${item.by}`].filter(Boolean).join(' · ')
 
   // Redraft (Michael's audit: "a large empty area on the left, a tiny preview box at top right; hard to scan"): one
   // centered column, as on Home. The title, one meta line, Start lesson right under it (no trip to the bottom-right
@@ -137,7 +140,7 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
     <Pane className="flex h-full flex-col" style={{ color: color.text }}>
       {bar}
       <section aria-labelledby="lib-title" className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
-        <Column className="flex flex-col" style={{ paddingTop: PAGE_TOP - 8 - 52, paddingBottom: rhythm.bottom }}>
+        <Column className="mg-first-line flex flex-col" style={{ ...firstLine(8 + DETAIL_BAR, 8 + DETAIL_BAR_FULL), paddingBottom: rhythm.bottom }}>
           <div style={{ fontSize: type2.xs, lineHeight: '16px', color: color.label }}>{KICKER[src?.kind ?? 'library']}</div>
           <h1 id="lib-title" className="m-0" style={{ ...pageTitle, marginTop: 8 }}>
             {item.title}

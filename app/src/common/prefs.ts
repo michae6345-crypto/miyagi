@@ -50,7 +50,7 @@ export type Prefs = {
 }
 
 export const DEFAULT_PREFS: Prefs = {
-  appearance: 'system',
+  appearance: 'light',
   voiceOnStart: false,
   launchAtLogin: false,
   panelCollapsed: false,
