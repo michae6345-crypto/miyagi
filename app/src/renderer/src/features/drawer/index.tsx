@@ -56,7 +56,14 @@ const STEPS_HANDLE_WHEN_COLLAPSED = false
 /** A "Just teach me" lesson gets the v2 lesson panel; a video lesson keeps the drawer below. */
 function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const v2 = useLesson((s) => s.lesson?.mode === 'lesson') && LESSON_PANEL_V2
-  return v2 ? <PanelLayer layout={layout} /> : <LegacyLayer layout={layout} />
+  // The overlay root pins the island's dark set (data-theme="dark", core/Overlay.tsx). The drawer is a glass panel like
+  // the player window, so it follows Settings > Appearance (Michael, Nov 22: dark steps beside a light player).
+  // display: contents keeps every child placed against the overlay, as before.
+  return (
+    <div data-theme="auto" className="contents">
+      {v2 ? <PanelLayer layout={layout} /> : <LegacyLayer layout={layout} />}
+    </div>
+  )
 }
 
 /**
