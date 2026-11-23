@@ -1,10 +1,12 @@
 /**
  * Feature: buddy. The buddy's own colors, in one place.
  *
- * A skin is the buddy's color: its body, its leaves, its cheeks and the stroke it draws. One skin is in use (SKIN).
- * Adrian picked mint on Nov 22, did not like it on the character, and picked sand from the color sheet on Nov 23.
- * The others stay while he is still trying things: the browser stage's ?skin=<name> shows the whole buddy in one,
- * and ?buddy=colors shows them side by side. They go once the look is settled.
+ * A skin is the buddy's color: its body, its leaves, its cheeks and the stroke it draws. The learner picks theirs
+ * when they set miyagi up, like Clicky's cursor color (Adrian, Nov 23); skin.ts holds the one in use and PICKS is
+ * what they choose from. Until they pick it is DEFAULT_SKIN, sand (Adrian picked it from the color sheet on Nov 23,
+ * after not liking the mint he had picked on Nov 22).
+ * Some skins here are not offered to learners: the cream versions Adrian asked to compare. The browser stage's
+ * ?skin=<name> shows the whole buddy in any of them, and ?buddy=colors shows them side by side.
  *
  * Where a color is in the brand kit it is read from there. `kit: false` marks one that is not.
  */
@@ -62,26 +64,8 @@ export const SKINS = {
 } as const satisfies Record<string, Skin>
 export type SkinName = keyof typeof SKINS
 
-/** The one in use: Adrian picked sand from the color sheet on Nov 23. */
+/** What the buddy comes in until the learner picks: Adrian's pick from the color sheet, Nov 23. */
 export const DEFAULT_SKIN: SkinName = 'sand'
 
-/** The skin in use. The browser stage's ?skin=<name> shows another. */
-export const SKIN: Skin = (() => {
-  const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('skin') : null
-  return SKINS[q && q in SKINS ? (q as SkinName) : DEFAULT_SKIN]
-})()
-
-/**
- * Make it yours: the body colors a learner could pick for their buddy (a proposal; nothing stores the choice yet).
- * The brand's pastels, the deeper cut where there is one, so each holds up over a light app. Its leaves keep the
- * skin's color. `blush`: its cheeks in that color.
- */
-export const TINTS = {
-  mint: { body: MINT, blush: PINK },
-  sky: { body: brand.pastel.skyDeep, blush: PINK },
-  pink: { body: PINK_DEEP, blush: '#E98BA8' },
-  lilac: { body: brand.pastel.lilac, blush: PINK },
-  peach: { body: brand.pastel.peach, blush: PINK_DEEP },
-  sand: { body: brand.pastel.sand, blush: PINK }
-} as const
-export type Tint = keyof typeof TINTS
+/** The colors a learner can pick from, in the order the picker shows them (ColorPicker.tsx). The rest are stage-only. */
+export const PICKS: readonly SkinName[] = ['sand', 'cream', 'butter', 'peach', 'clay', 'pink', 'lilac', 'sky', 'mint']

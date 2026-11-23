@@ -6,7 +6,7 @@
 import type { ReactNode } from 'react'
 import { brand } from '../../core/theme'
 import { Character, CHARACTERS, type CharacterKind, type CharacterProps } from './Character'
-import { TINTS, type Tint } from './palette'
+import { PICKS, SKINS } from './palette'
 import { BODY } from './trip'
 
 const POSES: { name: string; props: CharacterProps }[] = [
@@ -58,18 +58,18 @@ export function CastStage(): ReactNode {
         </div>
       ))}
       <div data-cast="yours">
-        <div style={{ ...LABEL, fontSize: 13, color: '#F4F4F5', marginBottom: 6 }}>make it yours · the learner picks its color, and it grows as they learn (the sprout; a proposal, nothing stores it yet)</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr) 0.3fr repeat(3, 1fr)', gap: 8 }}>
-          {(Object.keys(TINTS) as Tint[]).map((tint) => (
+        <div style={{ ...LABEL, fontSize: 13, color: '#F4F4F5', marginBottom: 6 }}>make it yours · the learner picks its color at setup (?buddy=pick), and it grows as they learn (a proposal, nothing stores it yet)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PICKS.length}, 1fr) 0.3fr repeat(3, 1.4fr)`, gap: 8 }}>
+          {PICKS.map((tint) => (
             <div key={tint} style={{ background: '#000', borderRadius: 14, padding: '12px 0 8px', display: 'grid', justifyItems: 'center', gap: 6 }}>
-              <Character size={84} tint={tint} mood="happy" />
+              <Character size={72} skin={SKINS[tint]} mood="happy" />
               <span style={LABEL}>{tint}</span>
             </div>
           ))}
           <span />
           {([0, 1, 2] as const).map((grown) => (
             <div key={grown} style={{ background: '#000', borderRadius: 14, padding: '12px 0 8px', display: 'grid', justifyItems: 'center', gap: 6 }}>
-              <Character size={84} grown={grown} />
+              <Character size={72} grown={grown} />
               <span style={LABEL}>{['day one', 'a few lessons in', 'skills mastered'][grown]}</span>
             </div>
           ))}

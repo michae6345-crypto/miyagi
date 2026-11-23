@@ -15,7 +15,7 @@
  * kept going, so the two can be merged in either order without a mark being circled twice. Which one draws in the
  * end is one line here (STAND_DOWN_FOR). A third way, his stroke with this character, is behind ?together (below).
  *
- * Look: the buddy's own color (palette.ts SKIN). No glow, no gradient, no arrowhead. Like the spotlight's ring it sits on an
+ * Look: the buddy's own color, the one the learner picked (skin.ts). No glow, no gradient, no arrowhead. Like the spotlight's ring it sits on an
  * ink keyline so it reads over a light app. It never takes a click (no data-hit) and the stroke is not reported as
  * our UI, or the engine would stop reading the very thing it points at; the small numbers are (data-ui).
  *
@@ -31,7 +31,7 @@ import { getFeatures } from '../../core/registry'
 import { color, pill, shadows } from '../../core/theme'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
 import { createReach, DRAW, drawTime, reach, ribbon, type Reach, type Shown } from './marks'
-import { SKIN } from './palette'
+import { useSkin } from './skin'
 import { reached, usePointing } from './pointing'
 
 /** The ink keyline under the stroke, so it reads over a light app: this much wider than the stroke, this opaque. */
@@ -93,6 +93,7 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
   const el = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion() ?? false
   const standDown = useStandDown()
+  const skin = useSkin()
   const here = useHere(marks, layout)
   const home = useBonsaiPoint(el, layout, here.length > 0 || !!pose)
   // The buddy throws a mark's loop once it is sitting beside that mark, from where it sits. A loop keeps the start
@@ -152,7 +153,7 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
               data-ui
               data-part="mark-next"
               className="absolute grid place-items-center"
-              style={{ left: Math.max(2, m.rect.x - NEXT - 6), top: m.rect.y + m.rect.h / 2 - NEXT / 2, width: NEXT, height: NEXT, borderRadius: NEXT / 2, background: color.island, boxShadow: shadows.pill, color: SKIN.stroke, fontSize: 11, fontWeight: 600, lineHeight: 1 }}
+              style={{ left: Math.max(2, m.rect.x - NEXT - 6), top: m.rect.y + m.rect.h / 2 - NEXT / 2, width: NEXT, height: NEXT, borderRadius: NEXT / 2, background: color.island, boxShadow: shadows.pill, color: skin.stroke, fontSize: 11, fontWeight: 600, lineHeight: 1 }}
               initial={{ opacity: 0, scale: reduced ? 1 : 0.6 }}
               animate={{ opacity: 1, scale: 1, transition: reduced ? fades.in : { ...spring, opacity: fades.in } }}
               exit={{ opacity: 0, transition: fades.out }}
@@ -172,6 +173,7 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
  */
 function Stroke({ mark, r, delay, near, reduced }: Drawn & { near: boolean; reduced: boolean }): ReactNode {
   const [present, safeToRemove] = usePresence()
+  const skin = useSkin()
   // These run 0 to 1 and are turned into shares of THIS render's stroke below, so a stroke whose start or target
   // moved still ends exactly where its loop begins.
   /** How far the head has got along the stroke. */
@@ -236,10 +238,10 @@ function Stroke({ mark, r, delay, near, reduced }: Drawn & { near: boolean; redu
   const loopKey = useTransform(state, outline(KEYLINE.wider, [r.split, 1]))
   return (
     <motion.g data-part="branch" data-why={mark.why} data-mark={mark.key} data-near={near || undefined} style={{ opacity: alpha }}>
-      <motion.path data-part="keyline" d={armKey} style={{ fill: color.onAccent, opacity: SKIN.keyline ?? KEYLINE.opacity }} />
-      <motion.path data-part="keyline" d={loopKey} style={{ fill: color.onAccent, opacity: SKIN.keyline ?? KEYLINE.opacity }} />
-      <motion.path data-part="arm" d={arm} style={{ fill: SKIN.stroke }} />
-      <motion.path data-part="bark" d={loop} style={{ fill: SKIN.stroke }} />
+      <motion.path data-part="keyline" d={armKey} style={{ fill: color.onAccent, opacity: skin.keyline ?? KEYLINE.opacity }} />
+      <motion.path data-part="keyline" d={loopKey} style={{ fill: color.onAccent, opacity: skin.keyline ?? KEYLINE.opacity }} />
+      <motion.path data-part="arm" d={arm} style={{ fill: skin.stroke }} />
+      <motion.path data-part="bark" d={loop} style={{ fill: skin.stroke }} />
     </motion.g>
   )
 }

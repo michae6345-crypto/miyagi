@@ -13,15 +13,18 @@
  *   talking  the mouth moves
  *   flying   the leaves beat (sprout), the body trembles a little
  *   point    -1 / 1: a little arm on that side (sprout)
- * And two ways it is the learner's own (sprout; proposals, nothing stores them yet):
- *   tint     its body color, one of the brand's pastels (palette.ts TINTS); without one it is the skin's
- *   grown    0 a seedling with one leaf, 1 two leaves, 2 two leaves and a bud: it grows as they learn
+ * And two ways it is the learner's own:
+ *   its color  the skin they picked at setup (skin.ts, palette.ts); `skin` fixes another one, for the sheets
+ *   grown      0 a seedling with one leaf, 1 two leaves, 2 two leaves and a bud: it grows as they learn (the sprout;
+ *              a proposal, nothing stores it yet)
  * It blinks by itself. Transform and opacity only; with reduced motion nothing moves (buddy.css).
  * No glow, no gradient. A 48-unit box, like an icon: the body sits low so the sprout has room above it.
  */
 import { useId, type CSSProperties, type ReactNode } from 'react'
 import './buddy.css'
-import { GLINT, INK, SKIN, TINTS, type Skin, type Tint } from './palette'
+import { brand } from '../../core/theme'
+import { GLINT, INK, type Skin } from './palette'
+import { useSkin } from './skin'
 
 export type CharacterKind = 'sprout' | 'leaf' | 'dot'
 export type Mood = 'calm' | 'happy' | 'curious' | 'thinking' | 'listening' | 'sleepy'
@@ -34,9 +37,8 @@ export type CharacterProps = {
   talking?: boolean
   flying?: boolean
   point?: -1 | 0 | 1
-  tint?: Tint
   grown?: 0 | 1 | 2
-  /** Its colors, when not the skin in use: for the color sheet. */
+  /** Its colors, when not the learner's own (skin.ts): for the color sheet and the picker's swatches. */
   skin?: Skin
   className?: string
 }
@@ -142,7 +144,7 @@ function Sprout({ mood, point, body, leaf, shade, grown, id }: { mood: Mood; poi
           <path d="M24 8.6 C28.4 9.6 32.6 7.4 33.8 3.2 C29.2 1.6 25 3.8 24 8.6 Z" fill={leaf} stroke={INK} strokeWidth={OUTLINE} strokeLinejoin="round" />
         </g>
         {/* And a bud between them, later on. */}
-        {grown > 1 && <circle cx={24} cy={6.4} r={3} fill={TINTS.pink.body} stroke={INK} strokeWidth={OUTLINE} />}
+        {grown > 1 && <circle cx={24} cy={6.4} r={3} fill={brand.pastel.pinkDeep} stroke={INK} strokeWidth={OUTLINE} />}
       </g>
       {shade ? (
         <>
@@ -177,18 +179,20 @@ function Dot({ rim }: { rim: string }): ReactNode {
   return <rect x={7.6} y={12.4} width={32.8} height={30.8} rx={13.6} fill={INK} stroke={rim} strokeWidth={OUTLINE} />
 }
 
-export function Character({ kind = DEFAULT_CHARACTER, size = 44, mood = 'calm', look, talking = false, flying = false, point = 0, tint, grown = 1, skin = SKIN, className }: CharacterProps): ReactNode {
+export function Character({ kind = DEFAULT_CHARACTER, size = 44, mood = 'calm', look, talking = false, flying = false, point = 0, grown = 1, skin: fixed, className }: CharacterProps): ReactNode {
   // Each one blinks on its own clock.
   const id = useId().replace(/[^a-zA-Z0-9]/g, '')
   const beat = (parseInt(id.replace(/[^0-9]/g, '') || '0', 10) % 7) * 0.6
-  // The learner's own color, where they picked one, else the skin's.
-  const body = tint ? TINTS[tint].body : skin.body
+  // The learner's own color (skin.ts), unless a sheet asks for a fixed one.
+  const own = useSkin()
+  const skin = fixed ?? own
+  const body = skin.body
   return (
     <span className={`ch shrink-0 select-none ${className ?? ''}`} data-kind={kind} data-mood={mood} data-flying={flying || undefined} data-talking={talking || undefined} style={{ width: size, height: size, '--ch-beat': `${-beat}s` } as CSSProperties} aria-hidden>
       <svg viewBox="0 0 48 48" width="100%" height="100%" style={{ overflow: 'visible', display: 'block' }}>
         <g className="ch-body">
-          {kind === 'sprout' ? <Sprout mood={mood} point={point} body={body} leaf={skin.leaf} shade={tint ? undefined : skin.shade} grown={grown} id={`ch-${id}`} /> : kind === 'leaf' ? <Leaf body={body} leaf={skin.leaf} /> : <Dot rim={body} />}
-          <Face kind={kind} mood={mood} look={look ?? { x: 0, y: 0 }} talking={talking} blush={tint ? TINTS[tint].blush : skin.blush} ink={kind === 'dot' ? body : INK} />
+          {kind === 'sprout' ? <Sprout mood={mood} point={point} body={body} leaf={skin.leaf} shade={skin.shade} grown={grown} id={`ch-${id}`} /> : kind === 'leaf' ? <Leaf body={body} leaf={skin.leaf} /> : <Dot rim={body} />}
+          <Face kind={kind} mood={mood} look={look ?? { x: 0, y: 0 }} talking={talking} blush={skin.blush} ink={kind === 'dot' ? body : INK} />
         </g>
       </svg>
     </span>

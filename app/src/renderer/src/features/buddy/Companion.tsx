@@ -31,7 +31,7 @@ import { color, fill, shadows, text } from '../../core/theme'
 import { OptionButton, PrimaryButton } from '../../core/ui/atoms'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
 import { Character, CHARACTERS, DEFAULT_CHARACTER, type CharacterKind, type Mood } from './Character'
-import { SKIN } from './palette'
+import { useSkin } from './skin'
 import { ringBox } from './marks'
 import { setTrip, usePointing } from './pointing'
 import { bonsaiPoint, frame, useHere, useStandDown } from './Reach'
@@ -72,6 +72,7 @@ const ghost: CSSProperties = { height: 26, padding: '0 11px', borderRadius: 13, 
  * is sized from: everything open, nothing live.
  */
 function Says({ model, letters, open, onReply, measure = false }: { model: Model; letters: number; open: boolean; onReply?: (kind: ReplyKind) => void; measure?: boolean }): ReactNode {
+  const skin = useSkin()
   if (model.kind === 'thinking') {
     return (
       <span className="bd-dots">
@@ -84,7 +85,7 @@ function Says({ model, letters, open, onReply, measure = false }: { model: Model
   if (model.kind === 'listening') {
     return (
       <span className="flex items-center gap-[9px] whitespace-nowrap">
-        <span className="bd-bars" style={{ color: SKIN.stroke }}>
+        <span className="bd-bars" style={{ color: skin.stroke }}>
           <i />
           <i />
           <i />
