@@ -216,6 +216,11 @@ function pushLink(links: DraftLink[], l: DraftLink, known: Set<string>): void {
   links.push(l)
 }
 
+/** A label as the UI shows it: inline code marks (`groupby`) dropped, the words kept. */
+export function plain(s: string): string {
+  return s.replace(/`([^`]*)`/g, '$1').replace(/`/g, '').replace(/\s+/g, ' ').trim()
+}
+
 // ---- input: progress.graph --------------------------------------------------------------------------------------
 
 function draftsFromGraph(g: Rec, dash: DashData | undefined, now: number): { drafts: Draft[]; links: DraftLink[]; capstones: SkillGraphCapstone[] } {
@@ -225,7 +230,7 @@ function draftsFromGraph(g: Rec, dash: DashData | undefined, now: number): { dra
   for (const x of list(g.skills)) {
     const s = rec(x)
     const id = str(s.id, 80)
-    const label = str(s.label, 80)
+    const label = plain(str(s.label, 80))
     if (!id || !label || seen.has(id)) continue
     seen.add(id)
     const ev = rec(s.evidence)
@@ -326,7 +331,7 @@ function draftsFromTracks(dash: DashData, now: number): { drafts: Draft[]; links
       const r = reviewFor(all, s)
       drafts.push({
         id,
-        label: s.label,
+        label: plain(s.label),
         track: t.track,
         kind: 'skill',
         given: s.state === 'mastered' ? 'mastered' : s.state === 'practicing' ? 'practicing' : undefined,

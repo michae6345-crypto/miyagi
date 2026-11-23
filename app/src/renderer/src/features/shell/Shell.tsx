@@ -52,7 +52,7 @@ import { AccountSheetHost } from './AccountSheet'
 import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { SkillsPage } from './pages/SkillsPage'
+import { SkillsHeaderTools, SkillsPage } from './pages/SkillsPage'
 import { FlowLayer } from './flow/FlowLayer'
 import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
@@ -77,7 +77,7 @@ function Header({ page }: { page: PageId }): ReactNode {
   // Home has no title (Michael's brief: no greeting, no date, and the sidebar already says where you are): only the
   // strip that drags the window.
   if (page === 'home') return <header data-drag className="shrink-0" style={{ height: 20 }} />
-  return <PageHeader title={label} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : undefined} />
+  return <PageHeader title={label} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : page === 'skills' ? <SkillsHeaderTools /> : undefined} />
 }
 
 // ---- error boundary -----------------------------------------------------------------------------------------------
