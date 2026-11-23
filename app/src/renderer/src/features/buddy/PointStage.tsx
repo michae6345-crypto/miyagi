@@ -1,7 +1,7 @@
 /**
  * Feature: buddy. Try the pointing branch, only in the browser stage with ?buddy=point (index.tsx). Not an app window.
  * A small strip of presets over the stage's fake desktop, and a click anywhere on the desktop points there. Each one
- * calls the same annotate() the engine's event does, with the rects in stage (screen) points.
+ * sends an `annotate` event through the bus, as the engine would, with the rects in stage (screen) points.
  *   One     one named mark on a line of code
  *   Two     two marks: the second forks off the first one's branch
  *   Answer  the mark a circle-to-ask answer names (why "answer"), unnamed
@@ -13,11 +13,18 @@
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import { STAGE } from '../../bridge'
+import { dispatch } from '../../core/bus'
 import { contains, grow } from '../../core/geometry'
 import { color, fill, radius, text } from '../../core/theme'
 import { REACH, type AnnotatePayload, type Mark } from './marks'
-import { annotate, usePointing } from './pointing'
+import { usePointing } from './pointing'
 import { Buddy } from './store'
+
+/**
+ * Send it the way the engine does, through the bus, so whichever layer draws `annotate` gets it: this feature's, or
+ * features/annotate when that is mounted (then this one only leans the tree). The cast goes with the contract.
+ */
+const annotate = (payload: AnnotatePayload): void => dispatch({ type: 'annotate', payload } as never)
 
 /** Where the strip sits in the stage: bottom left, above the Dock. */
 export const POINT_STAGE = { x: 20, y: Math.round(STAGE.height * 0.855), w: 468, h: 40 }
