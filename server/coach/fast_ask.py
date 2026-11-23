@@ -37,17 +37,25 @@ valid `[DRAW:...]` is ever taken out of the words; "[drawer]" or "[draw.io]" sta
 "About this". should_stop() (the learner changed step): the stream ends at once with answer.done reason "moved_on".
 
 Failures: a dropped connection, a 5xx / overloaded error or a broken stream is retried once without streaming (the
-same request); its answer goes out the same way (answer.done fallback: true). What the broken stream already billed
-(its snapshot usage) goes into the session tally too. A miyagi cloud refusal (paused, quota, auth), a 4xx, a refusal,
-offline mode or no key is not retried: ask_stream returns ok=False and sends nothing when no words went out yet, so the
-caller answers with its own non-streaming path (server/coach/circle.py circle_ask).
+same request) while the deadline allows; its answer goes out the same way (answer.done fallback: true). What the
+broken stream already billed (its snapshot usage) goes into the session tally too. A miyagi cloud refusal (paused,
+quota, auth), a 4xx, a refusal, offline mode or no key is not retried: ask_stream returns ok=False and sends nothing
+when no words went out yet. The caller then answers with its own non-streaming path (server/coach/circle.py
+circle_ask), except after a refusal or a cloud refusal (error "refusal" / "cloud:<code>"): a second call would be
+turned away the same way, so circle_ask sends its failed card or the cloud card at once.
 
 Metrics (no content, ever): one `ask.metrics {json}` log line per ask and a line in <state dir>/ask-metrics.jsonl:
 key-down to warm done, release to first byte / first token / mark / done, the model, the route, token counts.
 
 The crop: bytes in memory (the app's capture file is read and deleted by shared.capture_file.take_capture, never
-here), sent with this one request, never logged or stored. Secrets in the text are redacted (llm.redact_user_content); the picture is blacked out by
-crop_region (ScreenContext.pil()).
+here), sent with this one request, never logged or stored. Secrets in the text are redacted (llm.redact_user_content,
+which lets images through as they are): the CALLER must hand over a picture that is already blacked out. Both of
+circle_ask's pictures are: the app's crop after fast_region.redact_capture (Vision OCR on the crop, secret rows black,
+other projects' windows grey), and the release capture via crop_region (ScreenContext.pil()). Never pass the helper's
+raw bytes here.
+
+Timing: ask_stream(deadline=...) shares the ask's one deadline (circle_ask.ASK_DEADLINE_S after release) between the
+stream and the retry; circle_ask uses what is left for its one-shot fallback.
 """
 
 from __future__ import annotations
@@ -98,6 +106,8 @@ CONNECT_TIMEOUT_S = 3.0
 READ_TIMEOUT_S = 15.0  # longest silence between two streamed chunks
 TOTAL_TIMEOUT_S = 30.0  # the whole stream
 RETRY_TIMEOUT_S = 20.0  # the non-streaming retry
+MIN_STREAM_S = 2.0  # ask_stream(deadline=): the stream starts only with this much of the ask's deadline left
+MIN_RETRY_S = 4.0  # ...and the non-streaming retry only with this much
 WARM_TIMEOUT_S = 10.0
 MAX_TAG_CHARS = 120  # a first line longer than this without "]" is not a tag
 LABEL_WORDS = 4
@@ -587,8 +597,8 @@ class DrawStream:
             self.state = "body"
             if not s:
                 return self._settle("missing", None)
-            if len(s) >= len(_TAG_HEAD) and _head_tagish(s):
-                parsed = parse_tag(s)
+            if _head_tagish(s):  # a tag cut off in line 1, also a short "[DRAW": never answer text
+                parsed = parse_tag(s) if len(s) >= len(_TAG_HEAD) else None
                 status = _status_of(parsed)
                 return self._settle(status, parsed if status == "ok" else None)
             out = self._body(s)
@@ -751,6 +761,7 @@ async def warm(*, source: str | None = "keydown", ptt_id: str | None = None,
         return {"skipped": "offline"}
     if not llm.has_credentials():
         return {"skipped": "no key"}
+    await preload_off_loop()  # the first warm: the SDK imports off the loop, never during the hold's events
     task = _warm.get("task")
     if task is None or task.done():
         task = asyncio.ensure_future(_warm_once(now, clock))
@@ -814,6 +825,32 @@ async def _warm_once(now: float, clock: Callable[[], float]) -> dict:
     out["warm_s"] = round(_warm["done"] - t0, 3)
     log.info("ask.warm %s", json.dumps(out, separators=(",", ":")))  # timings and counts only
     return out
+
+
+_preloaded = False
+
+
+def preload() -> None:
+    """Import the SDK and its HTTP client (anthropic, httpx2). Blocking, and the first time often hundreds of ms: run
+    it in a worker thread (main.py does at engine start; warm() does when it has not run yet), so the first ask.warm
+    never holds the event loop, and with it the push-to-talk and partial events, during the hold."""
+    global _preloaded
+    if _preloaded:
+        return
+    import anthropic  # noqa: F401
+    import httpx2  # noqa: F401
+
+    _preloaded = True
+
+
+async def preload_off_loop() -> None:
+    """preload() in a worker thread. Never raises."""
+    if _preloaded:
+        return
+    try:
+        await asyncio.to_thread(preload)
+    except Exception as e:  # noqa: BLE001 - the SDK missing: the ask says so later, on its own path
+        log.info("fast ask: preload failed (%s)", type(e).__name__)
 
 
 def warm_soon(source: str | None = "keydown", *, ptt_id: str | None = None) -> asyncio.Task | None:
@@ -1051,6 +1088,7 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
                      release_t: float | None = None,
                      on_mark: Callable[[dict], Awaitable[Any] | Any] | None = None,
                      should_stop: Callable[[], bool] | None = None,
+                     deadline: float | None = None,
                      clock: Callable[[], float] = time.monotonic) -> FastAskResult:
     """Answer a circled region, streamed. See the module doc for the request and the events.
 
@@ -1061,7 +1099,10 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
     instead of emitting annotate {marks: [mark], holdMs}. release_t: when Fn+Control was let go, on `clock`
     (default: now). should_stop(): checked before the request and after each streamed chunk; True (the learner changed
     step) ends the stream at once: answer.done {complete: false, reason: "moved_on"} when words went out, error
-    "moved_on", no retry (the caller sends its "moved on" card). Never raises for a model failure."""
+    "moved_on", no retry (the caller sends its "moved on" card). deadline: when the whole ask must be over, on
+    `clock` (circle_ask: release + ASK_DEADLINE_S): the stream gets at most what is left of it (and TOTAL_TIMEOUT_S),
+    the retry runs only with MIN_RETRY_S left and gets at most the rest (and RETRY_TIMEOUT_S); less than MIN_STREAM_S
+    left: no request, error "timeout". Never raises for a model failure."""
 
     def stopped() -> bool:
         try:
@@ -1157,14 +1198,20 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
         await push(parser.finish())
         return msg
 
+    def left() -> float:
+        return math.inf if deadline is None else deadline - clock()
+
     if stopped():  # the learner changed step before the request went out
         res.error = "moved_on"
         return finish("moved_on")
+    if left() < MIN_STREAM_S:  # the ask's deadline is (nearly) gone: never start a paid call it can't finish
+        res.error = "timeout"
+        return finish("timeout")
     timer.mark("request")
     res.route = "stream"
     error: str | None = None
     try:
-        final = await asyncio.wait_for(run_stream(), TOTAL_TIMEOUT_S)
+        final = await asyncio.wait_for(run_stream(), min(TOTAL_TIMEOUT_S, left()))
     except Exception as e:  # noqa: BLE001 - classified below; never raised to the session
         error, retry = ("moved_on", False) if isinstance(e, _MovedOn) else _classify(e)
         partial = _partial_usage(live.get("stream"))  # billed although the stream broke: tally it like the cloud does
@@ -1173,11 +1220,15 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
         log.info("fast ask: stream failed (%s, %s)%s", error, type(e).__name__, "; retrying once" if retry else "")
         if retry and stopped():
             error, retry = "moved_on", False
+        if retry and error != "timeout" and left() < MIN_RETRY_S:
+            log.info("fast ask: no retry, %.1f s left of the ask's deadline", left())
+            retry = False
         if retry and error != "timeout":
             res.route = "retry"
             try:
-                c = client.with_options(timeout=RETRY_TIMEOUT_S)
-                final = await (c.beta.messages if beta else c.messages).create(**kwargs)
+                budget = min(RETRY_TIMEOUT_S, left())
+                c = client.with_options(timeout=budget)
+                final = await asyncio.wait_for((c.beta.messages if beta else c.messages).create(**kwargs), budget)
                 timer.mark("first_byte")
                 text = "".join(getattr(b, "text", "") for b in getattr(final, "content", None) or []
                                if getattr(b, "type", "") == "text")

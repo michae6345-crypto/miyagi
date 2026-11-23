@@ -337,6 +337,19 @@ def load_cgimage(path: str, cache: bool = False):
     return Quartz.CGImageSourceCreateImageAtIndex(src, 0, opts)
 
 
+def cgimage_from_bytes(data: bytes):
+    """JPEG / PNG bytes in memory -> a decoded CGImage (circle to ask: the helper's crop, never written again)."""
+    from Foundation import NSData
+
+    src = Quartz.CGImageSourceCreateWithData(NSData.dataWithBytes_length_(data, len(data)), None)
+    if src is None:
+        raise ValueError("not an image")
+    img = Quartz.CGImageSourceCreateImageAtIndex(src, 0, {Quartz.kCGImageSourceShouldCacheImmediately: True})
+    if img is None:
+        raise ValueError("not an image")
+    return img
+
+
 def save_cgimage_png(image, path: str) -> None:
     url = Quartz.CFURLCreateFromFileSystemRepresentation(None, path.encode(), len(path.encode()), False)
     dest = Quartz.CGImageDestinationCreateWithURL(url, "public.png", 1, None)

@@ -766,3 +766,66 @@ def test_a_stream_refused_at_the_door_bills_nothing_extra(api, monkeypatch):
     api.replies.append(httpx2.Response(200, json=message("[DRAW:none]\nThe Run button.")))
     res, _ev = ask()
     assert res.ok and calls == ["coach fast_ask"] and res.usage["input_tokens"] == 1200
+
+
+# ---------------------------------------------------------------------------------------------------- fix round 2
+
+@pytest.mark.parametrize("chunks", [["[DRAW"], ["[DR", "AW"], ["  [D"], ["["], ["```\n[DRAW"]])
+def test_a_reply_cut_off_inside_a_short_tag_head_leaks_nothing(chunks):
+    """Line 1 still shorter than "[DRAW:" when the stream ends: a cut-off tag, never answer text."""
+    draws, text, status = run_parser(chunks)
+    assert draws == [None] and text == "" and status == "malformed"
+
+
+def test_a_cut_off_tag_head_never_reaches_answer_done(api):
+    api.replies.append(stream_reply(["[DRA", "W"], stop="max_tokens"))
+    res, ev = ask()
+    assert res.text == "" and ev.of("answer.delta") == [] and "[DRAW" not in json.dumps(ev.items)
+
+
+def test_no_retry_when_the_deadline_is_too_near(api):
+    """A broken stream with less than MIN_RETRY_S of the ask's deadline left: no second call."""
+    api.replies.append(httpx2.Response(529, json={"type": "error", "error": {"type": "overloaded_error",
+                                                                             "message": "Overloaded"}}))
+    res, ev = ask(deadline=fa.MIN_RETRY_S - 0.5, clock=lambda: 0.0)
+    assert not res.ok and res.error == "api" and res.route == "stream" and len(api.requests) == 1 and ev.items == []
+
+
+def test_the_retry_gets_only_what_is_left_of_the_deadline(api, monkeypatch):
+    seen: list = []
+    real = asyncio.wait_for
+
+    async def wait_for(aw, timeout):
+        seen.append(timeout)
+        return await real(aw, timeout)
+
+    monkeypatch.setattr(fa.asyncio, "wait_for", wait_for)
+    api.replies.append(httpx2.Response(529, json={"type": "error", "error": {"type": "overloaded_error",
+                                                                             "message": "Overloaded"}}))
+    api.replies.append(httpx2.Response(200, json=message("[DRAW:none]\nThe Run button.")))
+    res, _ev = ask(deadline=9.0, clock=lambda: 0.0)
+    assert res.ok and res.route == "retry"
+    assert seen == [9.0, 9.0]  # the stream and the retry: each cut at the deadline, not 30 s / 20 s
+
+
+def test_no_request_when_the_deadline_is_gone(api):
+    res, ev = ask(deadline=fa.MIN_STREAM_S - 0.5, clock=lambda: 0.0)
+    assert not res.ok and res.error == "timeout" and api.requests == [] and ev.items == []
+
+
+def test_the_first_warm_imports_the_sdk_off_the_event_loop(api, monkeypatch):
+    import threading
+
+    where: list = []
+    monkeypatch.setattr(fa, "_preloaded", False)
+    real = fa.preload
+
+    def preload() -> None:
+        where.append(threading.current_thread() is threading.main_thread())
+        real()
+
+    monkeypatch.setattr(fa, "preload", preload)
+    assert asyncio.run(fa.warm())["warmed"]
+    assert where == [False] and fa._preloaded  # in a worker thread, once
+    asyncio.run(fa.warm())
+    assert where == [False]

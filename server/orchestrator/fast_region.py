@@ -1,9 +1,16 @@
-"""Fast circle to ask (lane eng-fast-ask, Nov 22): the fallback capture + crop when the ask carries no app capture.
+"""Fast circle to ask (lane eng-fast-ask, Nov 22): the app's crop made safe to send, and the fallback capture + crop.
 
-The normal path needs none of this: the app's helper (miyagi-listen) captures the circled region while Fn+Control
-is still held and the action ask carries it (capture: AskCapture); circle_ask.answer reads it with
-shared.capture_file.take_capture and streams at once. frame_for() runs only when that capture is missing or fails
-its checks (an older app, a helper without Screen Recording): one frame of the circled display is captured now
+The normal path: the app's helper (miyagi-listen) captures the circled region while Fn+Control is still held and
+the action ask carries it (capture: AskCapture); circle_ask.answer reads it with shared.capture_file.take_capture.
+That crop is the raw screen, so it is never sent as is: from_capture() runs redact_capture() in a worker thread
+(Vision OCR on the crop, every line through server/screen/privacy, every secret row blacked out and other projects'
+VS Code windows greyed in its pixels, encoded again) and the redacted OCR text becomes the ask's screen text.
+
+    safe = await fast_region.from_capture(session, cap)   # Prepared, or None: no OCR, a private app -> frame_for
+
+frame_for() runs when that capture is missing or fails its checks (an older app, a helper without Screen
+Recording), OCR is unavailable or failed, or a private app is under the circle: one frame of the circled display
+is captured now
 (circle_ask.capture: the same permission, fixture and last-frame rules as the ask itself), the region is cropped
 from the frame's ScreenContext.pil() (secret rows and other projects' windows blacked out) and encoded to a JPEG
 (fast_ask.crop_region). Memory only, never written to disk or logged (log lines carry timings and sizes).
@@ -205,6 +212,141 @@ async def frame_for(session: Any, ask_id: Any, region: Any, *,
         log.info("fast ask: capture failed (%s)", type(e).__name__)
         pre = None
     return pre if pre is not None else Prepared(region=reg, reason="no_screen")
+
+
+# ---------------------------------------------------------------------------------------------------- the app's crop
+
+OCR_TIMEOUT_S = 2.0  # Vision on a 1092 px crop is ~0.1-0.3 s; past this the ask captures at release instead
+SECRET_PAD_PT = 2.0  # a secret row is blacked out this much past its OCR box (Vision's boxes can be tight)
+PRIVATE_GRID = 6  # private-app check: the front window at a 6 x 6 grid of points across the crop
+
+# tests: fakes, never Vision or the real window list. _ocr(jpeg, rect, scale) -> blocks {text, rect};
+# _windows(rect) -> windows {app, title, rect}, front to back
+_ocr: Callable[[bytes, tuple, float], list] | None = None
+_windows: Callable[[tuple], list] | None = None
+
+
+def _mac_ocr(jpeg: bytes, rect: tuple, scale: float) -> list:
+    from server.screen import macos
+    from server.screen.types import Rect
+
+    blocks, _ms = macos.ocr_image(macos.cgimage_from_bytes(jpeg), Rect(*rect), scale)
+    return blocks
+
+
+def _mac_windows(rect: tuple) -> list:
+    from server.screen import macos
+    from server.screen.types import Rect
+
+    return [w for w in macos.list_windows(Rect(*rect)) if w.app not in macos._OVERLAY_OWNERS]
+
+
+def _box(r: Any) -> tuple[float, float, float, float] | None:
+    vals = tuple(_num(_get(r, k)) for k in ("x", "y", "w", "h")) if r is not None else ()
+    if len(vals) != 4 or None in vals or vals[2] <= 0 or vals[3] <= 0:  # type: ignore[operator]
+        return None
+    return vals  # type: ignore[return-value]
+
+
+def _front_at(windows: list, x: float, y: float) -> Any:
+    for w in windows:  # front to back
+        r = _box(_get(w, "rect"))
+        if r is not None and r[0] <= x <= r[0] + r[2] and r[1] <= y <= r[1] + r[3]:
+            return w
+    return None
+
+
+def redact_capture(cap: Any, lesson_folder: str = "") -> Prepared | None:
+    """The app's crop (shared.capture_file.Capture) made as safe to send as frame_for's crop (blocking: Vision and
+    PIL; run it in a thread). Vision reads the crop (server/screen/macos.ocr_image, screen = cap.rect, scale =
+    cap.w / rect.w), every line goes through server/screen/privacy.redact, and in the crop's pixels every line that
+    held a secret (privacy.holds_secret) is blacked out and every other project's VS Code window greyed out
+    (ScreenContext.pil(), as for the screen reader's frames); then the crop is encoded again. Nothing to hide: the
+    helper's bytes as they are.
+
+    -> Prepared (the crop, the redacted OCR text as screen_text, the app under the circle), or None: a private app
+    (privacy.is_private_app: a password manager, Messages) is in front somewhere in the crop or owns a line in it.
+    None (or a raise: no Vision, a bad picture) means: capture at release instead (frame_for), whose frame leaves
+    those out."""
+    from server.coach import fast_ask
+    from server.coach.screen import ScreenContext
+    from server.screen.privacy import holds_secret, is_private_app, redact
+
+    rect = tuple(float(v) for v in cap.rect)
+    w, h = int(cap.w), int(cap.h)
+    scale = w / rect[2] if rect[2] > 0 else 0.0
+    if not math.isfinite(scale) or scale <= 0:
+        return None
+    blocks = (_ocr or _mac_ocr)(cap.jpeg, rect, scale)
+    windows = list((_windows or _mac_windows)(rect))
+    for i in range(PRIVATE_GRID):  # the window in front at each point: is any part of the crop a private app?
+        for j in range(PRIVATE_GRID):
+            px = rect[0] + rect[2] * (i + 0.5) / PRIVATE_GRID
+            py = rect[1] + rect[3] * (j + 0.5) / PRIVATE_GRID
+            if (win := _front_at(windows, px, py)) is not None and is_private_app(str(_get(win, "app", "") or "")):
+                return None
+    lines, secret = [], []
+    for b in blocks or []:
+        r = _box(_get(b, "rect"))
+        text = str(_get(b, "text", "") or "")
+        if r is None or not text.strip():
+            continue
+        owner = _front_at(windows, r[0] + r[2] / 2, r[1] + r[3] / 2)
+        app = str(_get(owner, "app", "") or "") if owner is not None else ""
+        if is_private_app(app):
+            return None
+        text = redact(text)
+        if holds_secret(text):
+            secret.append(r)
+        lines.append({"text": text, "rect": {"x": r[0], "y": r[1], "w": r[2], "h": r[3]}, "app": app or None,
+                      "window": str(_get(owner, "title", "") or "") if owner is not None else None})
+    centre = (rect[0] + rect[2] / 2, rect[1] + rect[3] / 2)
+    front = _front_at(windows, *centre)
+    app = str(_get(front, "app", "") or "") if front is not None else ""
+    wins = []
+    for x in windows:
+        if (r := _box(_get(x, "rect"))) is not None:
+            wins.append({"app": str(_get(x, "app", "") or ""), "title": str(_get(x, "title", "") or ""),
+                         "rect": {"x": r[0], "y": r[1], "w": r[2], "h": r[3]}})
+    obs = {"blocks": lines, "windows": wins, "screen": {"x": rect[0], "y": rect[1], "w": rect[2], "h": rect[3]},
+           "scale": scale, "app": app}
+    sc = ScreenContext.from_observation(obs, cap.jpeg, cursor=centre,
+                                        **({"lesson_folder": lesson_folder} if lesson_folder else {}))
+    jpeg = cap.jpeg
+    if secret or sc._layers:  # something to hide: black it out in the crop's own pixels, then encode again
+        from PIL import ImageDraw
+
+        img = sc.pil()  # secret rows black, other projects' windows grey
+        draw = ImageDraw.Draw(img)
+        for x, y, rw, rh in secret:
+            (x0, y0) = sc.to_px(x - SECRET_PAD_PT, y - SECRET_PAD_PT)
+            (x1, y1) = sc.to_px(x + rw + SECRET_PAD_PT, y + rh + SECRET_PAD_PT)
+            draw.rectangle([x0, y0, x1, y1], fill=(0, 0, 0))
+        jpeg, w, h = fast_ask.encode_crop(img)
+        del img
+    try:
+        from server.coach.circle import region_text
+
+        screen_text = region_text(sc)
+    except ImportError:  # pragma: no cover - lane eng-circle-ask not merged
+        screen_text = "\n".join(b.text for b in sc.boxes)
+    box = {"x": rect[0], "y": rect[1], "w": rect[2], "h": rect[3]}
+    return Prepared(region=dict(box), jpeg=jpeg, rect=box, w=w, h=h, screen_text=screen_text, app=app or sc.app,
+                    lesson_folder=lesson_folder)
+
+
+async def from_capture(session: Any, cap: Any, *, timeout: float = OCR_TIMEOUT_S) -> Prepared | None:
+    """redact_capture off the event loop, bounded by `timeout`. None (the log line names only the error's type):
+    capture at release instead. Never raises."""
+    t0 = time.monotonic()
+    try:
+        pre = await asyncio.wait_for(asyncio.to_thread(redact_capture, cap, _lesson_folder(session)), timeout)
+    except Exception as e:  # noqa: BLE001 - no Vision, a timeout, a bad picture: the release capture still answers
+        log.info("fast ask: the app's crop was not read (%s); capturing at release", type(e).__name__)
+        return None
+    log.info("fast ask redact %s", json.dumps({"s": round(time.monotonic() - t0, 3), "used": pre is not None,
+                                               "px": [pre.w, pre.h] if pre else None}, separators=(",", ":")))
+    return pre
 
 
 def lesson_context(session: Any, step: dict | None, screen_text: str = "", app: str = "") -> dict:

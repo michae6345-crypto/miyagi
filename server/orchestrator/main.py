@@ -596,6 +596,7 @@ class Engine:
             self.resumer = None
         self.recorder = recorder.Recorder()
         self._ticker: asyncio.Task | None = None
+        self._ask_preload: asyncio.Task | None = None  # fast_ask.preload in a worker thread (start)
         self._avoider: asyncio.Task | None = None  # t9: screen.avoid (quick_pick.py)
         self._replays: set[asyncio.Task] = set()
         self.last_client_gone: float | None = None
@@ -698,6 +699,9 @@ class Engine:
                 self._autostart = asyncio.create_task(self.session.learn_url(url, skip_preflight=True))
         self._ticker = asyncio.create_task(self._tick_loop())
         self._avoider = asyncio.create_task(self._avoid_loop())
+        # fast circle to ask: the SDK imports (often hundreds of ms) in a worker thread now, never on the loop during
+        # the first push-to-talk hold's ask.warm (coach/fast_ask.preload)
+        self._ask_preload = asyncio.create_task(asyncio.to_thread(_preload_fast_ask))
         # screen state is logged by _start_screen: the bridge boots in a thread after this line
         log.info("engine up: demo=%s modules=%s workdir=%s precision=%s", self.modules.demo,
                  self.modules.describe(), self.session.workdir, config.precision_setting())
@@ -1039,6 +1043,9 @@ class Engine:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+        if self._ask_preload is not None:  # an import in a worker thread: done in well under a second
+            with contextlib.suppress(Exception):
+                await self._ask_preload
 
     async def _tick_loop(self) -> None:
         while True:
@@ -1138,6 +1145,16 @@ class Engine:
             from server.coach import fast_ask
 
             fast_ask.warm_soon(getattr(p, "source", None) or "keydown", ptt_id=getattr(p, "pttId", None))
+
+
+def _preload_fast_ask() -> None:
+    """Engine start, in a worker thread: import coach/fast_ask and the SDK it uses (anthropic, httpx2). Never raises."""
+    try:
+        from server.coach import fast_ask
+
+        fast_ask.preload()
+    except Exception as e:  # noqa: BLE001 - the ask reports a missing SDK on its own path
+        log.info("fast ask preload failed (%s)", type(e).__name__)
 
 
 # config.keys -> server.config (get_key) + the env vars modules read. Memory only; never logged.
