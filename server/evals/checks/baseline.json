@@ -1,19 +1,10 @@
 {
  "_comment": "Written by `python -m server.evals.checks --write-baseline`. test_check_evals.py fails when a score drops below these or a case outside known_wrong gets a wrong verdict. Raise it when the checks get better.",
  "cases": 56,
- "accuracy": 0.8571,
- "precision": 0.8333,
- "recall": 0.8929,
- "fp": 5,
- "fn": 3,
- "known_wrong": {
-  "metric-nn4-diverged-nan": "FP",
-  "terminal-calc-s2-hidden-other-script": "FP",
-  "terminal-git-s7-typed-not-run": "FP",
-  "vscode-calc-s1-commented-out": "FP",
-  "vscode-calc-s4-guard-in-wrong-function": "FP",
-  "metric-pinn-s4-prints-l2-error": "FN",
-  "metric-pinn-s7-decreasing": "FN",
-  "vscode-calc-s1-other-param-names": "FN"
- }
+ "accuracy": 1.0,
+ "precision": 1.0,
+ "recall": 1.0,
+ "fp": 0,
+ "fn": 0,
+ "known_wrong": {}
 }
