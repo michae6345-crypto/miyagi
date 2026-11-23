@@ -569,28 +569,35 @@ export const radius2 = { keycap: 6, control: 8, row: 10, card: 12, chip: 14, gro
  *   space      the only spacing steps (px): 4 8 12 16 20 24 32 40 56 80 (Linear's 4/8 grid)
  *   sidebar    232 wide, 196 below a 1100 px window, icons only (64) below 860; rows 30 tall, 10 px inset, 2 apart
  *   pane       the content pane, inset 8 from the window's top, right and bottom, radius 12, no divider beside the sidebar
- *   page       one column: 820 of content inside 40 px gutters (24 when the pane is under 760), centered in the pane;
- *              forms and long text cap at 560 and stay left inside it (the column centers, its text never does).
- *              `top` is the header's top strip (it drags the window), `topFull` the same in macOS full screen.
+ *   page       one column: 640 of content inside 40 px gutters (720 in all; 24 px gutters when the pane is under 760),
+ *              centered in the pane; Skills takes the wide one (960 + gutters = 1040). Forms and long text cap at 560 and
+ *              stay left inside it (the column centers, its text never does). Same numbers as features/shell/pages
+ *              Column.tsx (720 / 1040, gutters included), so a page's content and the shell's title share one left edge.
+ *              `top` / `topFull`: the window's top edge to the page title's top (80, 52 in macOS full screen, where no
+ *              title bar needs dragging), the same line Home's first element sits on. Never vertically centered.
+ *   radius     cards and ask boxes 12, the one hero card (Home's Continue) 16, the pane 12 (concentric at the 8 inset).
  */
 export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40, 14: 56, 20: 80 } as const
 export const layout = {
   sidebar: { w: 232, narrowW: 196, compactW: 64, narrowBelow: 1100, compactBelow: 860, pad: 10, row: 30, rowGap: 2, groupGap: 20, foot: 12 },
   pane: { inset: 8, radius: 12 },
   page: {
-    column: 820,
-    wide: 1040,
+    column: 640,
+    wide: 960,
     form: 560,
     gutter: 40,
     gutterTight: 24,
     tightBelow: 760,
-    top: 40,
-    topFull: 24,
+    top: 80,
+    topFull: 52,
+    /** The title row's height (a search field on the right fits it); the 32 px title line centers in it. */
+    titleRow: 36,
     titleGap: 24,
     section: 40,
     label: 12,
     bottom: 64
-  }
+  },
+  radius: { card: 12, hero: 16 }
 } as const
 
 /**

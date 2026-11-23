@@ -57,7 +57,7 @@ import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
 import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
-import { PageHeader, PANEL, PANEL_INSET, pageInset } from './ui'
+import { COLUMN_W, PageHeader, PANEL, PANEL_INSET, pageInset, WIDE_W } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
@@ -117,12 +117,17 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
 
 /**
- * Pages that place their own column (Home centers its own 700 px one, inside its own scroller so the scrollbar stays at
- * the pane's edge). Every other page gets the shared column from the frame: `--page-inset` padding on both sides of
- * its body, so the header and the content share one centered column. A page that adopts ui.tsx PageColumn inside its
- * own scroller joins this set.
+ * The column each page's title sits on (content + gutters): 720 for every page, 1040 for Skills (its grid, ui.tsx
+ * WIDE_W; features/shell/pages Column.tsx 'wide'). The header pads in by `--page-inset` for this width, so its left
+ * edge is the content's left edge.
+ *
+ * Who centers the content: a page that scrolls inside itself (SELF_SCROLL: Home, Skills, Progress) centers its own
+ * column inside its own scroller (Home's Column, pages/Column.tsx PageColumn), so its scrollbar stays at the pane's edge
+ * and the wheel works over the whole pane: the shell never pads its body (padding it shrank the scroller to the column,
+ * with the scrollbar floating mid-pane and dead gutters either side). Every other page scrolls in the shell's body,
+ * and the body pads in by `--page-inset` (the padding sits inside the scroller, so the scrollbar stays at the edge).
  */
-const OWN_COLUMN: ReadonlySet<PageId> = new Set(['home'])
+const PAGE_W: Partial<Record<PageId, number>> = { skills: WIDE_W }
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
   switch (page) {
@@ -160,15 +165,17 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
       variants={frame}
       initial={reduce ? (active ? 'shown' : 'hidden') : 'hidden'}
       animate={active ? 'shown' : 'hidden'}
-      className="absolute inset-0 flex flex-col"
-      // One centered column for every page (layout lane): the header and the body pad in by --page-inset.
-      style={{ visibility: active ? 'visible' : 'hidden', color: color.text, ['--page-inset' as string]: OWN_COLUMN.has(page) ? '0px' : pageInset() }}
+      // mg-page-frame: the size container the gutter follows (styles.css), the pane's width.
+      className="mg-page-frame absolute inset-0 flex flex-col"
+      // One centered column for every page (layout lane): the header pads in by --page-inset, and so does the body of a
+      // page the shell scrolls (PAGE_W above).
+      style={{ visibility: active ? 'visible' : 'hidden', color: color.text, ['--page-inset' as string]: pageInset(PAGE_W[page] ?? COLUMN_W) }}
     >
       <Header page={page} />
       <div
         data-shell-body={page}
         className={`min-h-0 flex-1 ${SELF_SCROLL.has(page) ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
-        style={{ paddingInline: 'var(--page-inset)', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
+        style={{ paddingInline: SELF_SCROLL.has(page) ? undefined : 'var(--page-inset)', scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
       >
         <PageBoundary page={page}>
           <Body page={page} active={active && !covered} />

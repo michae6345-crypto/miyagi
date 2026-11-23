@@ -18,7 +18,7 @@
 import { motion } from 'motion/react'
 import { SquarePen } from 'lucide-react'
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { color, fill, focus, highlight, layout, radius2, spring, surface, type2, typeScale } from '../../core/theme'
+import { color, fill, focus, highlight, layout, radius2, spring, status, surface, type2, typeScale } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
 import { openLauncher } from '../library/Library'
 import { initialOf, planLabel, v2Cloud } from '../account/model'
@@ -264,7 +264,12 @@ export function Sidebar({ compact, short, blocked = false, width = SIDEBAR_W }: 
         <Nav compact={compact} />
       </div>
       <div className="mt-auto flex flex-col" style={{ gap: layout.sidebar.rowGap, paddingTop: layout.sidebar.groupGap }}>
-        {!compact && !short && <StatusArea plan={false} />}
+        {!compact && !short && (
+          // "Ready" here is the engine's state, not a passed check: styles.css swaps its green tick for the gray dot.
+          <div data-sidebar-status style={{ ['--sidebar-ready-dot' as string]: status.watching }}>
+            <StatusArea plan={false} />
+          </div>
+        )}
         <NavRow id={S.id} label={S.label} Icon={S.icon} on={page === 'settings'} compact={compact} index={settings} />
         <AccountChip compact={compact} />
       </div>
