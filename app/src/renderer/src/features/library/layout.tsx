@@ -4,7 +4,7 @@
  *
  *   Pane          the page's scroll root and the container the column measures (a named container, `pane`)
  *   Column        720 wide with its gutters (640 of content, 40 gutters; 24 when the pane is under 760), centered
- *   pageTitle     a page's h1: 26/32, -0.4px, semibold (the preview's title; the shell's page titles use the same)
+ *   pageTitle     a page's h1: 26/32, -0.4px, 650 (the preview's title; the shell's page titles use the same)
  *   SectionLabel  a section's label: 13/18 semibold, secondary, 12 above its content, an optional right-hand slot
  *
  * 720 with the gutters is the same column as the shell's page header and its other pages (shell lane: 640 of content
@@ -23,8 +23,11 @@ export const PAGE_TOP = 80
 /** Section to section, title to first section, label to content, bottom padding (spec section 4). */
 export const rhythm = { section: 40, title: 32, label: 12, bottom: 64 } as const
 
-/** A page's title (spec section 6). One object, so the page titles can't drift apart again. */
-export const pageTitle = { fontSize: 26, lineHeight: '32px', letterSpacing: '-0.4px', fontWeight: 600 } as const satisfies CSSProperties
+/**
+ * A page's title (spec section 6). One object, so the page titles can't drift apart again; the same numbers as the
+ * shell lane's typeScale.pageTitle (its page header), weight included.
+ */
+export const pageTitle = { fontSize: 26, lineHeight: '32px', letterSpacing: '-0.4px', fontWeight: 650 } as const satisfies CSSProperties
 
 type Data = Record<`data-${string}`, string | boolean | undefined>
 
