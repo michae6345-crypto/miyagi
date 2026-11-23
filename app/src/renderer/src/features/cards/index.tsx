@@ -38,6 +38,7 @@ import { useDock } from '../../core/dock'
 import { useRoutedAway } from './panel'
 import { act, cardAct, installAll, installable, itemDone, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 import { isEditorSheet, SHEET_W, VSCodeSheet } from './VSCodeSheet'
+import { drawnOnCard, rowSettled, rowWaiting } from './setupHold'
 import { beat, enter, fade, press, spring } from '../../core/ui/motion'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
@@ -526,7 +527,12 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   retry: { label: 'Try again', Icon: RotateCcw },
   // Judge "Not yet" card: the same Hint / Show me as the off-track card (drawn as OptionButtons in CardActions).
   hint: { label: 'Hint' },
-  show_me: { label: 'Show me' }
+  show_me: { label: 'Show me' },
+  // Smart setup (Nov 22): a licensed app (AutoCAD) is never installed. The engine labels them (setup.actionLabels:
+  // "Get AutoCAD", "Try FreeCAD"); with no text the engine picks the first app row still waiting.
+  have_it: { label: 'I have it', Icon: Check, primary: true },
+  get_it: { label: 'Get it', Icon: ExternalLink },
+  alternative: { label: 'Free alternative', Icon: Download }
 }
 
 /** Card actions drawn as pastel OptionButtons with keycaps (like the off-track card), not as quiet buttons. */
@@ -560,7 +566,8 @@ function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   // A setup card with something still to install: that item's Install is the one white primary (SetupItems lead),
   // and Open VS Code steps back to a quiet button. Michael's run (Sun 03:13): the white button was Open VS Code, the
   // NumPy row's Install a small grey one, and the engine only ever got skip_setup.
-  if (c.setup?.items.some((x) => x.needed && !x.ok && x.install.method !== 'none')) return undefined
+  // A licensed app's row (AutoCAD) leads nothing: its buttons are the card's own (I have it is the primary).
+  if (c.setup?.items.some((x) => rowWaiting(x) && x.install.method !== 'none' && !drawnOnCard(c.actions, x))) return undefined
   // A lone action becomes the primary, except option actions and Try again, which stay pastel / neutral.
   // Skip on a setup card is never the primary (A17): the item's Install is. A lone Skip step stays quiet too (test 10
   // polish, item 3: a video lesson's Not yet card turned it into the white button).
@@ -570,8 +577,8 @@ function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   return known.find((a) => ACTION[a]!.primary && !(ready && a === 'open_editor')) ?? (ready && lone === 'open_editor' ? undefined : lone)
 }
 
-/** A setup card that says everything is ready ("Ready to go"): every needed item is installed and ok. */
-const setupReady = (c: EngineCard): boolean => c.kind === 'setup' && !!c.setup && c.setup.items.every((x) => !x.needed || x.ok)
+/** A setup card that says everything is ready ("Ready to go"): every needed item is installed and ok, or settled. */
+const setupReady = (c: EngineCard): boolean => c.kind === 'setup' && !!c.setup && c.setup.items.every((x) => !rowWaiting(x))
 
 /** A unified diff as monospace lines: + white, - muted and struck, context faint. Headers dropped. */
 function UnifiedDiff({ diff }: { diff: string }): ReactNode {
@@ -635,7 +642,7 @@ function QuietLink({ label, onClick }: { label: string; onClick: () => void }): 
  * Setup card: one row per needed item, Install on the missing ones (action install {text: tool}).
  * lead (A17): the card has no other primary, so the first missing item's button is the card's one white primary.
  */
-function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; lead?: boolean }): ReactNode {
+function SetupItems({ setup, lead, actions }: { setup: NonNullable<EngineCard['setup']>; lead?: boolean; actions?: CardAction[] }): ReactNode {
   const installs = useCards((s) => s.installs)
   // Install all's run (store installAll): the rows still to go, in row order. It lives in the store, so a re-sent or
   // re-mounted card keeps it going.
@@ -647,16 +654,20 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
   // Desktop test 9, A8: one "Install all" (the card's one white primary) when two or more rows need a package
   // install; it stays put while its run goes on. A single missing row keeps its own Install as the primary.
   const all = installable(items, installs).length >= 2 || !!queue
-  const first = lead && !all ? items.find((x) => !itemDone(x, installs) && !installs[x.tool]?.running && x.install.method !== 'none') : undefined
+  // Smart setup: a row the learner settled ("I have it", FreeCAD instead) and a licensed row whose buttons are the
+  // card's own carry no button here.
+  const quiet = (x: (typeof items)[number]): boolean => rowSettled(x) || drawnOnCard(actions, x)
+  const first = lead && !all ? items.find((x) => !itemDone(x, installs) && !installs[x.tool]?.running && x.install.method !== 'none' && !quiet(x)) : undefined
   return (
     <div className="mt-[12px] flex flex-col gap-[6px] text-[13px]">
       {items.map((x) => {
-        const done = itemDone(x, installs)
+        const done = itemDone(x, installs) || rowSettled(x)
         const run = x.ok ? undefined : installs[x.tool]
         const waiting = !done && !run?.running && !!queue?.tools.includes(x.tool)
         // Until the first progress line, the reason stays (the slot already says "Installing…").
         const refusedUrl = refusedLink(refused, x.tool, x.install.url)
-        const detail = done ? (x.version ?? run?.version) : refusedUrl !== undefined ? refusedLine(refusedUrl) : run?.running ? (run.line ?? x.why) : (run?.error ?? x.why)
+        const settled = x.using ? `Using ${x.using}` : x.haveIt ? 'You have it' : undefined
+        const detail = settled ?? (done ? (x.version ?? run?.version) : refusedUrl !== undefined ? refusedLine(refusedUrl) : run?.running ? (run.line ?? x.why) : (run?.error ?? x.why))
         return (
           // A8: every row is exactly 34 px (two 16 px detail lines fit), the mark sits in a fixed 13 px column and the
           // button in a fixed 104 px slot, so nothing moves while a row installs: the next Install stays under the cursor.
@@ -685,7 +696,7 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
                   onClick={() => itemAct(x)}
                 />
               )}
-              {x !== first && !done && !run?.running && !waiting && x.install.method !== 'none' && (
+              {x !== first && !done && !run?.running && !waiting && x.install.method !== 'none' && !quiet(x) && (
                 <button
                   className="flex cursor-pointer items-center gap-[5px] rounded-full px-[10px] py-[3px] text-[12px] font-medium"
                   style={{ background: fill.button, color: color.text }}
@@ -1154,7 +1165,7 @@ function EngineCardBody({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
         </div>
       )}
       {c.diff && <UnifiedDiff diff={c.diff} />}
-      {c.setup && <SetupItems setup={c.setup} lead={!primaryOf(c, actions.filter((a) => ACTION[a]))} />}
+      {c.setup && <SetupItems setup={c.setup} lead={!primaryOf(c, actions.filter((a) => ACTION[a]))} actions={actions} />}
       {c.setup?.resources && <Resources resources={c.setup.resources} />}
       {/* The where line has its own Open button: don't repeat it below. */}
       <CardActions card={c} actions={c.where ? actions.filter((a) => a !== 'open_editor') : actions} />
