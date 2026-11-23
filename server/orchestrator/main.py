@@ -97,6 +97,11 @@ except Exception as _e:  # noqa: BLE001
     log.warning("progress unavailable: %s", _e)
     progress_mod = None  # type: ignore[assignment]
 try:
+    from server.sessions import skills_graph as skills_mod
+except Exception as _e:  # noqa: BLE001
+    log.warning("skills graph unavailable: %s", _e)
+    skills_mod = None  # type: ignore[assignment]
+try:
     from server.sessions import review as review_mod
 except Exception as _e:  # noqa: BLE001
     log.warning("spaced review unavailable: %s", _e)
@@ -116,7 +121,7 @@ def _engine_version() -> str:
 ENGINE_VERSION = _engine_version()
 CONTRACT_VERSION = getattr(contract, "CONTRACT_VERSION", None) or "2026-11-20"  # W0-1: the shapes this engine sends
 V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
-               "panel.state", "review.start", "data.delete")
+               "panel.state", "review.start", "data.delete", "set_goal", "skills.ack")
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
@@ -375,6 +380,15 @@ def _parse_v2(type_: str, payload: Any) -> SimpleNamespace:
             return " ".join(v.split())[:80] if isinstance(v, str) else ""
 
         return SimpleNamespace(skillId=_t(p.get("skillId")), label=_t(p.get("label")))
+    if type_ == "set_goal":  # Nov 22 (Skills page): the capstone the learner picked
+        cid = p.get("capstoneId")
+        if not isinstance(cid, str) or not cid.strip() or len(cid) > 120:
+            raise ValueError("set_goal: capstoneId must be a capstone id")
+        return SimpleNamespace(capstoneId=cid.strip())
+    if type_ == "skills.ack":  # the unlock events up to `until` (an event's `at`) have played
+        if skills_mod is None or skills_mod.moment(p.get("until")) is None:
+            raise ValueError("skills.ack: until must be a time")
+        return SimpleNamespace(until=p["until"])
     if type_ == "panel.state":
         if not isinstance(p.get("open"), bool):
             raise ValueError("panel.state: open must be true or false")
@@ -509,6 +523,8 @@ def contract_library_detail(found: dict | None) -> dict | None:
                                 "title": r["title"]}
         if isinstance(r.get("check"), str):
             step["check"] = r["check"]
+        if isinstance(r.get("skillIds"), list) and r["skillIds"]:  # Nov 22 (Skills page), additive
+            step["skillIds"] = [x for x in r["skillIds"] if isinstance(x, str)]
         steps.append(step)
     out["steps"] = steps
     if isinstance(d.get("overview"), str):
@@ -539,6 +555,8 @@ def contract_progress(p: dict | None) -> dict:
     out: dict[str, Any] = {"skills": skills, "completed": completed}
     if isinstance(p.get("inProgress"), list):
         out["inProgress"] = p["inProgress"]
+    if isinstance(p.get("graph"), dict):  # additive (Nov 22, Skills page): Progress.graph, built in sessions/skills_graph.py
+        out["graph"] = p["graph"]
     if isinstance(p.get("review"), dict):  # additive: spaced review {due, items} (sessions/review.py), only once a skill is mastered
         out["review"] = p["review"]
     return out
@@ -760,6 +778,8 @@ class Engine:
             caps += ["library.list", "library.get", "library.start"]
         if progress_mod is not None:
             caps.append("progress.get")
+            if skills_mod is not None:  # Nov 22: the Skills page's two commands; its graph rides on progress
+                caps += ["set_goal", "skills.ack"]
         if review_mod is not None and library_mod is not None:  # Start review replays the lesson's own cached steps
             caps.append("review.start")
         if hasattr(self.session, "panel_state"):
@@ -876,6 +896,18 @@ class Engine:
         p = await asyncio.to_thread(progress_mod.progress)
         return contract_progress(p) if p is not None else None
 
+    async def skills_set_goal(self, capstone_id: str) -> None:
+        """set_goal: kept in skills.json (the learner's state on this Mac). An id that is not a capstone is ignored when
+        the graph is built, so a stale pick never breaks the page."""
+        if skills_mod is not None:
+            await asyncio.to_thread(skills_mod.set_goal, capstone_id)
+        self.forget_reads()
+
+    async def skills_ack(self, until: Any) -> None:
+        if skills_mod is not None:
+            await asyncio.to_thread(skills_mod.ack, until)
+        self.forget_reads()
+
     async def handle_v2(self, type_: str, p: Any, reply: Any) -> None:
         """health.get, permission.open, library.list, library.get, progress.get, panel.state, data.delete. Every blocking
         call runs in a thread; replies go to the app that asked."""
@@ -902,6 +934,11 @@ class Engine:
             await reply("library.item", found)
         elif type_ == "progress.get":
             await reply("progress", await self.progress_payload() or {})
+        elif type_ == "set_goal":  # answered with a fresh progress (its graph carries the new goal and next)
+            await self.skills_set_goal(p.capstoneId)
+            await reply("progress", await self.progress_payload() or {})
+        elif type_ == "skills.ack":  # no reply: the events up to `until` will not come again
+            await self.skills_ack(p.until)
         elif type_ == "panel.state":
             await s.panel_state(p.open, _rect(p.rect))
         elif type_ == "data.delete":  # Settings > Privacy > Delete my data: the engine's local lesson notes go too

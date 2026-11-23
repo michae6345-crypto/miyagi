@@ -267,7 +267,7 @@ def human_build_error(e: BaseException) -> str:
 # Copy rules (app/brand/BRAND.md): plain sentences, lowercase miyagi, no em dashes, no keycaps.
 
 V2_COMMANDS = frozenset({"health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
-                         "panel.state", "review.start"})
+                         "panel.state", "review.start", "set_goal", "skills.ack"})
 STATUS_DETAIL_WORDS = 6  # status.detail: what the engine does right now, <= 6 words
 SUMMARY_WORDS = 12  # step.passed.summary, <= 12 words
 MAX_MISSING_LINES = 8  # a Not yet lists the step's lines only when they fit the panel
@@ -3501,10 +3501,34 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 summary[k] = st[k].strip()
         if isinstance(st.get("estMinutes"), int) and st["estMinutes"] > 0:  # "about 4 min" / "about 35 min left"
             summary["estMinutes"] = st["estMinutes"]
+        if ids := self._skill_ids().get(st["id"]):  # Nov 22 (Skills page): the skills this step builds evidence for
+            summary["skillIds"] = ids
         seg = self._segment(st)
         if seg:
             summary["video"] = seg
         return summary
+
+    def _skill_ids(self) -> dict[str, list[str]]:
+        """stepId -> the Skills page's skill ids it builds (server.lesson.skillmap.node_steps: from the steps alone, no model
+        call; the ids are the ones sessions/skills_graph gives the same skills). Empty when nothing is known."""
+        g = self.graph if isinstance(self.graph, dict) else {}
+        sig = (id(g), len(self.steps))
+        cached = getattr(self, "_skill_ids_cache", None)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        out: dict[str, list[str]] = {}
+        try:
+            from server.lesson.skillmap import node_steps
+            from server.sessions.skills_graph import skill_id
+
+            ns = node_steps({"lesson": g.get("lesson"), "steps": list(self.steps)})
+            for t in ns["taught"]:
+                for step_id in t["steps"]:
+                    out.setdefault(step_id, []).append(skill_id(ns["track"], t["label"]))
+        except Exception as e:  # noqa: BLE001 - skill tags are an extra: the lesson never fails on them
+            log.debug("no skill ids for the steps: %s", e)
+        self._skill_ids_cache = (sig, out)
+        return out
 
     def _lesson_ready_payload(self) -> dict:
         g = self.graph or {}
@@ -3540,7 +3564,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             rows = list(steps)
         else:
             rows = list(steps) + [r for r in (ol or {}).get("steps") or [] if isinstance(r, dict)][len(steps):] if ol else []
-        rows = [{k: r[k] for k in ("index", "title", "kind", "what", "estMinutes") if r.get(k) not in (None, "")}
+        rows = [{k: r[k] for k in ("index", "title", "kind", "what", "estMinutes", "skillIds") if r.get(k) not in (None, "")}
                 for r in rows if isinstance(r, dict) and r.get("title")]
         if rows:
             info["outline"] = {"count": len(rows), "steps": rows}
