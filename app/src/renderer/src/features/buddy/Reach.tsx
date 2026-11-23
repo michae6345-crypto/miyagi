@@ -13,7 +13,7 @@
  * One stroke per mark, ever: Michael's features/annotate (michael/app-buddy-draw) draws the same `annotate` event.
  * When that feature is mounted this layer and the buddy draw NOTHING and only the bonsai's point pose (the lean) is
  * kept going, so the two can be merged in either order without a mark being circled twice. Which one draws in the
- * end is one line here (STAND_DOWN_FOR).
+ * end is one line here (STAND_DOWN_FOR). A third way, his stroke with this character, is behind ?together (below).
  *
  * Look: the buddy's mint (palette.ts). No glow, no gradient, no arrowhead. Like the spotlight's ring it sits on an
  * ink keyline so it reads over a light app. It never takes a click (no data-hit) and the stroke is not reported as
@@ -55,9 +55,20 @@ const NEXT = 20
 /** The feature that also draws `annotate`. While it is mounted, the buddy's layers draw nothing. */
 const STAND_DOWN_FOR = 'annotate'
 
-/** Michael's layer is mounted: the buddy's own layers stand down. Read on first render, not at import: the registry fills in while features load. */
-export function useStandDown(): boolean {
-  return useMemo(() => getFeatures().some((f) => f.id === STAND_DOWN_FOR), [])
+/**
+ * What steps aside while it is mounted. By default everything: no loop and no buddy (what Michael was told on Nov 22).
+ * The browser stage's ?together shows the other way the two could fit: his stroke circles the thing, and the buddy
+ * still flies there, says what it is, listens and answers. Only the loops (and the tour's numbers) step aside then.
+ */
+const TOGETHER = typeof location !== 'undefined' && new URLSearchParams(location.search).has('together')
+
+/**
+ * Michael's layer is mounted: does this part of the buddy stand down? `part`: 'loops' (the stroke and the numbers) or
+ * 'buddy' (the character and its bubble). Read on first render, not at import: the registry fills in while features load.
+ */
+export function useStandDown(part: 'loops' | 'buddy' = 'loops'): boolean {
+  const there = useMemo(() => getFeatures().some((f) => f.id === STAND_DOWN_FOR), [])
+  return there && (part === 'loops' || !TOGETHER)
 }
 
 /**

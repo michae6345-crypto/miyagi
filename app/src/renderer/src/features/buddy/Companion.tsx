@@ -20,7 +20,8 @@
  * words as the learner's screen. Only a bubble with buttons takes the mouse (data-hit); nothing else here does.
  *
  * Reduced motion: no flights. It fades in where it would have landed, with its words whole, and fades out.
- * Stands down with the loops when Michael's features/annotate is mounted (Reach.tsx).
+ * Stands down with the loops when Michael's features/annotate is mounted (Reach.tsx), unless the stage's ?together
+ * is on: then his stroke does the circling and the buddy does everything else.
  */
 import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -138,7 +139,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const talk = useTalk()
   const el = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion() ?? false
-  const standDown = useStandDown()
+  const standDown = useStandDown('buddy')
   const here = useHere(marks, layout)
   const first = standDown ? undefined : here[0]
   const key = first?.key
