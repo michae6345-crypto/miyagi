@@ -1104,7 +1104,14 @@ class Engine:
         elif msg.type == "build_lesson":
             await s.build_lesson(p.resultIds)
         elif msg.type == "action":
-            await s.action(p.kind, p.text)
+            circle = {}  # circle to ask (Nov 22): only when the app sent them, so older callers are unchanged
+            if getattr(p, "region", None) is not None:
+                circle["region"] = p.region.model_dump()
+            if getattr(p, "askId", None):
+                circle["ask_id"] = p.askId
+            if getattr(p, "source", None):
+                circle["source"] = p.source
+            await s.action(p.kind, p.text, **circle)
         elif msg.type == "video.state":
             await s.video_state(p.t, p.playing)
         elif msg.type == "overlay.bounds":

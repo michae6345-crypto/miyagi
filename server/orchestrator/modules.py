@@ -646,6 +646,17 @@ class Modules:
                               step, selection, context)
         return self._public(out)
 
+    async def circle_ask(self, step: dict | None, question: str, region: dict, *, obs: Any = None, image: Any = None,
+                         context: dict | None = None, ask_id: str | None = None) -> dict:
+        """Circle to ask (circle_ask.py): an answer card about the circled region, plus `marks` (Annotation dicts the
+        session sends as annotate). The stub (ORCH_STUBS with the coach) answers with the text read there."""
+        from .circle_ask import offline_answer
+
+        out = await self._run("coach", "circle_ask",
+                              lambda: offline_answer(step, question, region, obs, None, context, ask_id),
+                              step, question, region, obs=obs, image=image, context=context, ask_id=ask_id)
+        return self._public(out)
+
     def has_pointing(self) -> bool:
         return self._real_fn("coach", "show_me") is not None
 
