@@ -2,8 +2,9 @@
  * Feature: circle. The browser stage's stand-in for a hand and for the engine's answer (nothing here runs in Electron).
  *
  * Push to talk's own stage mock (features/ptt/web.ts, ?ptt=<script>) plays the hold; this draws a loose loop while the
- * circle is armed and, for `answered`, answers the ask the way the engine would (card {kind: "answer", askId, region})
- * through the same bus every engine message takes.
+ * circle is armed and, for `answered`, answers the ask the way the engine would (card {kind: "answer", askId}) through
+ * the same bus every engine message takes. The answer's words are mock data: mock/scenarios/circle.json, segment
+ * `circle_answer` (played here, with the ask's askId added to its card).
  *
  *   ?circle=draw       draw and keep holding (pair with ?ptt=listen): the ink mid-ask
  *   ?circle=answered   draw, let go, get an answer (pair with ?ptt=empty: nothing said, so the ask is "What is this?")
@@ -12,6 +13,8 @@
  *
  * `window.__circle()` draws the loop again (with a hold already armed).
  */
+import type { Incoming } from '../../../../common/wire'
+import scenario from '../../../../../mock/scenarios/circle.json'
 import { isElectron } from '../../bridge'
 import { dispatch } from '../../core/bus'
 import { loopPoints } from './geometry'
@@ -44,19 +47,12 @@ if (!isElectron && typeof location !== 'undefined') {
       if (mode === 'answered' && st.k === 'asking' && !answered.has(st.askId)) {
         const { askId } = st
         answered.add(askId)
-        dispatch({ type: 'status', payload: { state: 'thinking' } })
-        setTimeout(() => {
-          dispatch({
-            type: 'card',
-            payload: {
-              kind: 'answer',
-              askId,
-              title: 'The training loop',
-              body: 'Each pass runs the model, measures the loss, and nudges the weights to lower it. backward() finds the nudges; step() applies them.'
-            }
-          })
-          dispatch({ type: 'status', payload: { state: 'watching' } })
-        }, 900)
+        let at = 0
+        for (const item of scenario.segments.circle_answer) {
+          at += item.wait ?? 0
+          const payload = item.type === 'card' ? { ...item.payload, askId } : item.payload
+          setTimeout(() => dispatch({ type: item.type, payload } as Incoming), at)
+        }
       }
     })
   }

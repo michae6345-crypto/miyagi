@@ -11,6 +11,9 @@
  *   asking    the ask went out (askId); the ink stays while the engine thinks.
  *   answered  the answer card sits beside the circle until it is closed, Esc, a new hold, or ANSWER_MS.
  *
+ * Asking and answered keep the hold's push-to-talk session: its final words, if they come late (after "What is this?"
+ * went out), are claimed and dropped, never routed again as a second, plain ask.
+ *
  * A hold with no ink is plain push to talk: the machine stays out of the way and the words route as before.
  */
 import type { Box, Pt } from './geometry'
@@ -37,8 +40,8 @@ export type CircleState =
   | { k: 'idle' }
   | { k: 'armed'; session: string; since: number; strokes: Pt[][]; down: boolean; words?: string }
   | { k: 'sealed'; session: string; since: number; strokes: Pt[][]; box: Box; wordsBy?: number }
-  | { k: 'asking'; askId: string; since: number; strokes: Pt[][]; box: Box; text: string }
-  | { k: 'answered'; askId: string; since: number; strokes: Pt[][]; box: Box; text: string; answer: Answer }
+  | { k: 'asking'; session: string; askId: string; since: number; strokes: Pt[][]; box: Box; text: string }
+  | { k: 'answered'; session: string; askId: string; since: number; strokes: Pt[][]; box: Box; text: string; answer: Answer }
 
 export const IDLE: CircleState = { k: 'idle' }
 
@@ -92,10 +95,10 @@ const live = (phase: PttPhase): boolean => phase === 'arming' || phase === 'list
 /** Push-to-talk cancel reasons after which the circle is dropped, not asked about. */
 const DROPS = new Set(['esc', 'disabled'])
 
-function send(strokes: Pt[][], box: Box, words: string | undefined, ctx: Ctx): Step {
+function send(session: string, strokes: Pt[][], box: Box, words: string | undefined, ctx: Ctx): Step {
   const text = words?.trim() || DEFAULT_ASK
   const askId = ctx.newId()
-  return { state: { k: 'asking', askId, since: ctx.now, strokes, box, text }, ask: { askId, text, box } }
+  return { state: { k: 'asking', session, askId, since: ctx.now, strokes, box, text }, ask: { askId, text, box } }
 }
 
 /** The hold is over (released, blurred or capped): seal the ink, or step aside when there is none. */
@@ -103,9 +106,9 @@ function endHold(s: Extract<CircleState, { k: 'armed' }>, ctx: Ctx, pttOver: boo
   const box = strokeBox(s.strokes, ctx.width, ctx.height)
   if (!box) return { state: IDLE }
   if (lastCancel && DROPS.has(lastCancel)) return { state: IDLE }
-  if (s.words !== undefined) return send(s.strokes, box, s.words, ctx)
+  if (s.words !== undefined) return send(s.session, s.strokes, box, s.words, ctx)
   // Push to talk ended with no words to come (empty, short, keypress, timeout): ask now.
-  if (pttOver && lastCancel) return send(s.strokes, box, undefined, ctx)
+  if (pttOver && lastCancel) return send(s.session, s.strokes, box, undefined, ctx)
   return { state: { k: 'sealed', session: s.session, since: ctx.now, strokes: s.strokes, box, wordsBy: pttOver ? ctx.now + WORDS_WAIT_MS : undefined } }
 }
 
@@ -126,7 +129,7 @@ export function step(s: CircleState, e: CircleEvent, ctx: Ctx): Step {
       }
       if (s.k === 'sealed' && (e.phase === 'idle' || e.phase === 'error')) {
         if (e.phase === 'error' || (e.lastCancel && DROPS.has(e.lastCancel))) return { state: IDLE }
-        if (e.lastCancel) return send(s.strokes, s.box, undefined, ctx)
+        if (e.lastCancel) return send(s.session, s.strokes, s.box, undefined, ctx)
         // Over with words: the final is on its way (or already here); wait a moment for it.
         if (s.wordsBy === undefined) return { state: { ...s, wordsBy: ctx.now + WORDS_WAIT_MS } }
       }
@@ -152,7 +155,9 @@ export function step(s: CircleState, e: CircleEvent, ctx: Ctx): Step {
         if (!strokeBox(s.strokes, ctx.width, ctx.height)) return { state: s }
         return { state: { ...s, words: e.text }, claimed: true }
       }
-      if (s.k === 'sealed' && s.session === e.id) return { ...send(s.strokes, s.box, e.text, ctx), claimed: true }
+      if (s.k === 'sealed' && s.session === e.id) return { ...send(s.session, s.strokes, s.box, e.text, ctx), claimed: true }
+      // Too late: "What is this?" already went for this hold. Drop the words (push to talk must not ask them again).
+      if ((s.k === 'asking' || s.k === 'answered') && s.session === e.id) return { state: s, claimed: true }
       return { state: s }
     }
     case 'cancel':
@@ -161,13 +166,13 @@ export function step(s: CircleState, e: CircleEvent, ctx: Ctx): Step {
       return s.k === 'armed' ? endHold(s, ctx, false) : { state: s }
     case 'tick':
       if (s.k === 'armed' && ctx.now - s.since >= ARMED_MAX_MS) return endHold({ ...s, down: false }, ctx, false)
-      if (s.k === 'sealed' && ((s.wordsBy !== undefined && ctx.now >= s.wordsBy) || ctx.now - s.since >= SEALED_MAX_MS)) return send(s.strokes, s.box, undefined, ctx)
+      if (s.k === 'sealed' && ((s.wordsBy !== undefined && ctx.now >= s.wordsBy) || ctx.now - s.since >= SEALED_MAX_MS)) return send(s.session, s.strokes, s.box, undefined, ctx)
       if (s.k === 'asking' && ctx.now - s.since >= ASK_MAX_MS) return { state: IDLE, timedOut: true }
       if (s.k === 'answered' && ctx.now - s.since >= ANSWER_MS) return { state: IDLE }
       return { state: s }
     case 'answer':
       if (s.k !== 'asking') return { state: s }
-      if (e.askId === s.askId) return { state: { k: 'answered', askId: s.askId, since: ctx.now, strokes: s.strokes, box: s.box, text: s.text, answer: e.answer } }
+      if (e.askId === s.askId) return { state: { k: 'answered', session: s.session, askId: s.askId, since: ctx.now, strokes: s.strokes, box: s.box, text: s.text, answer: e.answer } }
       // An older engine answers without the askId: its card shows where cards always do, and the ink goes.
       if (e.askId === undefined) return { state: IDLE }
       return { state: s }

@@ -5,7 +5,8 @@
  *   drawing surface  full screen, only while armed. It takes pointerdown with ctrlKey (on a Mac, Control + click is a
  *                    right click: button 2 counts too) and swallows contextmenu. Not data-hit: core would then report
  *                    the whole screen as miyagi's own UI (overlay.bounds) and the engine would read nothing under it.
- *                    store.ts takes the mouse for it instead.
+ *                    store.ts takes the mouse for it instead, and data-grab keeps core's hover tracking from saying
+ *                    click-through while the pointer is on it (core/Overlay useClickThrough; never reported).
  *   ink              brand mint (tone.mint.solid, the notch's mint, never the pass green), round caps, over a thin
  *                    neutral casing (brand ink, a plain stroke: no blur, no glow) so it reads on white pages and VS Code
  *                    Light too (mint alone is about 1.3:1 on white). Passive: no pointer events, and NOT data-ui:
@@ -23,7 +24,7 @@ import { duration, ease } from '../../core/ui/motionTokens'
 import { brand, color, elevation, fill, highlight, radius2, surface, tone, type2 } from '../../core/theme'
 import { inkPath, placeCard, toOverlay, type Box, type Pt } from './geometry'
 import { inkOf, type CircleState } from './machine'
-import { cancelCircle, pointerDown, pointerMove, pointerUp, setLayout, useCircle } from './store'
+import { cancelCircle, layerGone, pointerDown, pointerMove, pointerUp, setLayout, useCircle } from './store'
 
 /** The answer card's width. */
 export const CARD_W = 300
@@ -41,6 +42,8 @@ const CASING = { stroke: brand.ink, opacity: 0.55, width: 5.4 }
 
 export function CircleLayer({ layout }: { layout: Layout }): ReactNode {
   const state = useCircle((s) => s.state)
+  // Gone (the feature switched off, the overlay torn down): the store goes inert and gives the mouse back.
+  useEffect(() => layerGone, [])
   return <CircleView state={state} layout={layout} />
 }
 
@@ -76,6 +79,7 @@ export function CircleView({ state, layout }: { state: CircleState; layout: Layo
       {armed && (
         <div
           data-part="circle-surface"
+          data-grab
           className="pointer-events-auto absolute inset-0 select-none"
           style={{ cursor: 'crosshair', background: CATCH, touchAction: 'none' }}
           onPointerDown={(e) => {

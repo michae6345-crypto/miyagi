@@ -371,6 +371,29 @@ describe('the state machine', () => {
     assert.equal(m.s.k, 'sealed')
   })
 
+  test('late words, after "What is this?" went, are claimed and dropped (no second ask)', () => {
+    const m = run()
+    m.go({ t: 'ptt', phase: 'listening', id: 's1' })
+    m.drawLoop()
+    m.go({ t: 'ptt', phase: 'idle' })
+    m.wait(WORDS_WAIT_MS + 1)
+    m.go({ t: 'tick' })
+    assert.equal(m.s.k, 'asking')
+    assert.equal((m.s as { session?: string }).session, 's1')
+    m.go({ t: 'final', id: 's1', text: 'what does this do' })
+    assert.equal(m.out.claimed.at(-1), true, 'asking: claimed')
+    assert.equal(m.s.k, 'asking')
+    m.go({ t: 'answer', askId: 'a1', answer: { body: 'b' } })
+    assert.equal((m.s as { session?: string }).session, 's1')
+    m.go({ t: 'final', id: 's1', text: 'what does this do' })
+    assert.equal(m.out.claimed.at(-1), true, 'answered: claimed')
+    assert.equal(m.s.k, 'answered')
+    assert.deepEqual(m.asks.map((a) => a.text), [DEFAULT_ASK], 'one ask only')
+    // Another session's words are not this circle's.
+    m.go({ t: 'final', id: 's9', text: 'other' })
+    assert.equal(m.out.claimed.at(-1), false)
+  })
+
   test('pointer input outside a hold draws nothing', () => {
     const m = run()
     m.go({ t: 'down', p: { x: 1, y: 1 } })

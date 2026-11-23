@@ -4,6 +4,7 @@
  * main/features/front-app.ts broadcasts which app is in front (macOS; unknown elsewhere, which counts as the lesson's).
  * Away: a lesson is on and a non-lesson app has been in front for AWAY_MS. Main makes the whole overlay click-through, drawer and cards included ('overlay:away',
  * main/features/overlay-raise.ts). It ends when a lesson app is in front again, any shortcut fires (wake()), or the pointer rests on the island (main's 'overlay:wake').
+ * Away never starts while another feature holds the overlay awake (holdAwake: circle to ask's hold and its answer).
  * features/spotlight/store.ts reads useFront for A9 (the box only while its app is in front).
  *
  * Browser stage (no main): window.__miyagiFront({ known: true, name: 'Google Chrome', aliases: ['google chrome'], lesson: false })
@@ -52,21 +53,33 @@ function setAway(on: boolean): void {
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined
+/** Another feature needs the overlay awake for now (holdAwake): no away, and no count towards it. */
+let held = false
 function expire(): void {
   timer = undefined
-  if (!elsewhere()) return setAway(false)
+  if (held || !elsewhere()) return setAway(false)
   setAway(true)
 }
 
 /** Re-read the situation: back in a lesson app ends away at once; another app starts the count (if not running). */
 function update(): void {
-  if (!elsewhere()) {
+  if (held || !elsewhere()) {
     clearTimeout(timer)
     timer = undefined
     return setAway(false)
   }
   if (useFront.getState().away || timer) return
   timer = setTimeout(expire, AWAY_MS)
+}
+
+/**
+ * Keep the overlay awake while `on` (features/circle: a hold that draws, and its answer card's X). Away ends at once
+ * and its count does not run; letting go starts a fresh count. Idempotent.
+ */
+export function holdAwake(on: boolean): void {
+  if (held === on) return
+  held = on
+  update()
 }
 
 /** The learner reached for miyagi (the handle, a shortcut, a rest on the island): back now, a fresh count after. */
