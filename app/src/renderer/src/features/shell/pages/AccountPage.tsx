@@ -25,6 +25,7 @@ import { loadAuth, useAuth } from '../../auth/store'
 import { openSheet } from '../sheet'
 import { setPage, setSettingsSection } from '../store'
 import { thisDevice } from '../../onboarding/device'
+import { useLibrary } from '../../library/store'
 import { CARD, PageBody } from '../ui'
 import { BODY_TOP, SECTION_GAP } from './Column'
 
@@ -88,13 +89,13 @@ function Line({ label, value, action, onClick, last, icon: Icon, chevron = true 
   )
 }
 
-/** Who is signed in: the avatar, the name and the email, on the page itself (no box). */
-function Who({ avatar, name, email }: { avatar: ReactNode; name: string; email?: string }): ReactNode {
+/** Who is signed in: a profile card with the avatar, the name, the email and (when there is one) the plan. */
+function Who({ avatar, name, email, plan }: { avatar: ReactNode; name: string; email?: string; plan?: string }): ReactNode {
   return (
-    <section aria-labelledby="shell-who" data-shell-signed-in className="flex items-center gap-[14px]">
+    <section aria-labelledby="shell-who" data-shell-signed-in className="flex items-center gap-[16px]" style={{ ...CARD, padding: 20 }}>
       {avatar}
       <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
-        <h2 id="shell-who" className="m-0 truncate font-semibold" style={{ fontSize: type2.lg, color: color.text }}>
+        <h2 id="shell-who" className="m-0 truncate font-semibold" style={{ fontSize: type2.xl, lineHeight: '26px', letterSpacing: '-0.2px', color: color.text }}>
           {name}
         </h2>
         {email && (
@@ -103,7 +104,24 @@ function Who({ avatar, name, email }: { avatar: ReactNode; name: string; email?:
           </span>
         )}
       </div>
+      {plan && (
+        <span className="shrink-0" style={{ height: 24, padding: '0 10px', display: 'inline-flex', alignItems: 'center', borderRadius: radius2.round, background: fill.trackSoft, fontSize: type2.xs, color: color.text }}>
+          {plan}
+        </span>
+      )}
     </section>
+  )
+}
+
+/** What is on this Mac: where miyagi runs and how many lessons are saved. Real counts from the library. */
+function ThisMac(): ReactNode {
+  const saved = useLibrary((s) => s.items.length)
+  const loaded = useLibrary((s) => s.loaded)
+  return (
+    <Group label="This device">
+      <Line label="Runs on" value={thisDevice()} />
+      <Line label="Lessons saved" value={loaded ? String(saved) : undefined} last />
+    </Group>
   )
 }
 
@@ -178,14 +196,16 @@ function LoginAccount(): ReactNode {
         <Group label="Keys">
           <KeyLine />
         </Group>
+        <ThisMac />
       </Wrap>
     )
   return (
     <Wrap>
-      <Who avatar={<Avatar initial={user.avatarInitial} size={44} />} name={user.name ?? user.email ?? 'Signed in'} email={user.name ? user.email : undefined} />
+      <Who avatar={<Avatar initial={user.avatarInitial} size={56} />} name={user.name ?? user.email ?? 'Signed in'} email={user.name ? user.email : undefined} />
       <Group label="Account">
         <KeyLine />
       </Group>
+      <ThisMac />
       <SignOut />
     </Wrap>
   )
@@ -205,6 +225,7 @@ function NoCloud(): ReactNode {
       <Group label="Keys">
         <KeyLine />
       </Group>
+      <ThisMac />
     </>
   )
 }
@@ -256,9 +277,10 @@ function CloudAccount(): ReactNode {
   return (
     <Wrap>
       <Who
-        avatar={<Avatar initial={initialOf(account.name ?? account.email)} size={44} />}
+        avatar={<Avatar initial={initialOf(account.name ?? account.email)} size={56} />}
         name={account.name ?? account.email ?? 'Signed in'}
         email={account.email && account.name ? account.email : undefined}
+        plan={planLabel(account.plan)}
       />
       <Group label="Plan">
         <Line
@@ -269,6 +291,7 @@ function CloudAccount(): ReactNode {
         {help ? <Line label="Help this month" value={<HelpValue help={help} />} /> : <Line label="Help this month" value="Checks never count" />}
         <KeyLine />
       </Group>
+      <ThisMac />
       <SignOut />
       {note && (
         <p role="status" className="m-0" style={{ fontSize: type2.xs, color: color.label }}>

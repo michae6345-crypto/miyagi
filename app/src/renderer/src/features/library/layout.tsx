@@ -52,9 +52,9 @@ export function Pane({ children, className = '', style, ...data }: { children: R
  * The column: max 720 with 40 gutters = 640 of content. The gutter switch is a container variant (a static class
  * string, so Tailwind's scanner sees it). Its own padding is horizontal only; callers set the top and bottom.
  */
-export function Column({ children, className = '', style, ...data }: { children: ReactNode; className?: string; style?: CSSProperties } & Data): ReactNode {
+export function Column({ children, className = '', style, wide = false, ...data }: { children: ReactNode; className?: string; style?: CSSProperties; /** 1040 (960 of content): Home's two-column dashboard */ wide?: boolean } & Data): ReactNode {
   return (
-    <div className={`mx-auto w-full max-w-[720px] px-[40px] @max-[760px]/pane:px-[24px] ${className}`} style={style} {...data}>
+    <div className={`mx-auto w-full ${wide ? 'max-w-[1040px]' : 'max-w-[720px]'} px-[40px] @max-[760px]/pane:px-[24px] ${className}`} style={style} {...data}>
       {children}
     </div>
   )

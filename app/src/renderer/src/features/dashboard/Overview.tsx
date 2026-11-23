@@ -26,6 +26,7 @@ import { openDetail } from '../library/store'
 import { Skeleton } from '../library/parts'
 import { Portfolio } from '../skills/extras/Portfolio'
 import { WeekRecap } from '../skills/extras/WeekRecap'
+import { ProgressSummary } from './Summary'
 import { TrackRing } from './Constellation'
 import { Milestones, useDashView } from './Dashboard'
 import { groupTracks, milestones, nodeStates, relDay, relInLine, unlockLabels, type SkillGroup } from './model'
@@ -234,7 +235,7 @@ function DonePart({ data, now, route }: { data?: DashData; now: number; route: A
 // ---- the page -----------------------------------------------------------------------------------------------------
 
 export function ProgressOverview({ route }: { route: AppRoute }): ReactNode {
-  const { data, load, now, r, due, later } = useDashView()
+  const { data, load, now, goals, r, due, later } = useDashView()
   const loading = load === 'loading'
   const ms = loading ? [] : milestones(data, r, now)
   return (
@@ -244,6 +245,7 @@ export function ProgressOverview({ route }: { route: AppRoute }): ReactNode {
           <Loading />
         ) : (
           <>
+            <ProgressSummary data={data} now={now} goal={goals.daily} due={due} />
             <WeekRecap head={<SectionHead id="prog-week">This week</SectionHead>} />
             {(data?.review || due.length > 0) && <ReviewPart data={data} due={due} later={later} now={now} route={route} />}
             <NextPart data={data} route={route} />
