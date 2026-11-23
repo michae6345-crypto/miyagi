@@ -59,6 +59,7 @@ class Api:
 
     def __init__(self) -> None:
         self.replies: list = []
+        self.warm: list = []  # replies to max_tokens 0 warm-ups, in order; none left: a cache write of 700 tokens
         self.requests: list[httpx2.Request] = []
 
     def bodies(self) -> list[dict]:
@@ -68,6 +69,13 @@ class Api:
         self.requests.append(request)
         if request.url.path.endswith("/healthz") or "/models/" in request.url.path:
             return httpx2.Response(200, json={"ok": True, "id": "claude-sonnet-5-5", "type": "model"})
+        if request.method == "POST" and json.loads(request.content).get("max_tokens") == 0:
+            if self.warm:
+                return self.warm.pop(0)
+            return httpx2.Response(200, json={**message(""), "content": [], "stop_reason": "max_tokens",
+                                              "usage": {"input_tokens": 0, "output_tokens": 0,
+                                                        "cache_read_input_tokens": 0,
+                                                        "cache_creation_input_tokens": 700}})
         if not self.replies:
             raise AssertionError(f"unexpected request {request.method} {request.url}")
         r = self.replies.pop(0)
@@ -150,6 +158,114 @@ def test_parser_none_malformed_and_missing():
 def test_parser_drops_a_stray_tag_mid_answer_and_keeps_brackets():
     _d, text, _s = run_parser(["[DRAW:none]\nThe list [1, 2] is ", "short. [DR", "AW:5,5,5:x] Done."])
     assert text == "The list [1, 2] is short.  Done." and "DRAW" not in text
+
+
+@pytest.mark.parametrize("chunks, shown", [
+    (["[DRAW:none]\nOpen the [drawer] panel."], "Open the [drawer] panel."),
+    (["[DRAW:none]\n[Drawing] tools sit on the left."], "[Drawing] tools sit on the left."),
+    (["[DRAW:none]\nMade with [draw.io] here."], "Made with [draw.io] here."),
+    (["[DRAW:none]\nOpen the [dr", "awer] panel."], "Open the [drawer] panel."),  # split across chunks
+    (["[DRAW:none]\nThe list ends with [D"], "The list ends with [D"),  # a trailing "[D" is flushed
+    (["[DRAW:none]\nIt ends [DRAW"], "It ends [DRAW"),  # no colon: not a tag
+    (["[DRAW:none]\nA [DRAW:bad] word."], "A [DRAW:bad] word."),  # "[DRAW:" but not a valid tag: text
+    (["[Drawing] tools sit on the left."], "[Drawing] tools sit on the left."),  # also as line 1
+    (["[drawer] holds it."], "[drawer] holds it."),
+])
+def test_brackets_that_only_look_like_a_tag_are_ordinary_words(chunks, shown):
+    assert run_parser(chunks)[1] == shown
+
+
+def test_an_open_tag_at_the_end_is_still_hidden():
+    assert run_parser(["[DRAW:none]\nIt ends here. [DRAW:5,5"])[1] == "It ends here. "
+
+
+def test_first_valid_tag_anywhere_on_line_1_is_the_mark():
+    draws, text, status = run_parser(["Sure. ", "[DR", "AW:10,20,5:x]", "\nThe answer."])
+    assert draws == [{"x": 10.0, "y": 20.0, "r": 5.0, "label": "x"}] and status == "ok"
+    assert text == "Sure. \nThe answer." and "DRAW" not in text
+    draws, text, status = run_parser(["Line one.\n[DRAW:1,2,3:x] two"])  # line 2: hidden, but no mark
+    assert draws == [None] and status == "missing" and text == "Line one.\n two"
+
+
+def test_a_zero_or_negative_radius_is_clamped_not_lost():
+    assert run_parser(["[DRAW:5,5,0:x]\nHi."])[0] == [{"x": 5.0, "y": 5.0, "r": 0.0, "label": "x"}]
+    mark, clamped = fa.to_mark({"x": 400, "y": 300, "r": 0, "label": "x"}, RECT, W, H)
+    assert clamped and mark["w"] == fa.MIN_R_PX * 2 * RECT["w"] / W  # r -> MIN_R_PX px, in points
+    mark, _ = fa.to_mark({"x": 400, "y": 300, "r": -9, "label": "x"}, RECT, W, H)
+    assert mark["w"] == fa.MIN_R_PX * 2 * RECT["w"] / W
+
+
+# ---------------------------------------------------------------------------------------------------- crop_region
+
+def frame(size_px: tuple[int, int], scale: float, origin: tuple[float, float], dot_pt: tuple[float, float],
+          secret: list | None = None):
+    """A ScreenContext over a grey frame with a red dot (6 pt across) at the screen point dot_pt."""
+    from PIL import Image, ImageDraw
+
+    from server.coach.screen import ScreenContext
+
+    img = Image.new("RGB", size_px, (235, 235, 230))
+    cx, cy = (dot_pt[0] - origin[0]) * scale, (dot_pt[1] - origin[1]) * scale
+    ImageDraw.Draw(img).ellipse([cx - 3 * scale, cy - 3 * scale, cx + 3 * scale, cy + 3 * scale], fill=(220, 0, 0))
+    sc = ScreenContext(image=img, cursor=dot_pt, boxes=[], scale=scale, origin=origin)
+    sc._secret = list(secret or [])
+    return sc
+
+
+def red_centre(data: bytes) -> tuple[float, float]:
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(data)).convert("RGB")
+    pts = [(x, y) for y in range(im.height) for x in range(im.width)
+           if (lambda p: p[0] > 150 and p[1] < 90 and p[2] < 90)(im.getpixel((x, y)))]
+    assert pts, "the dot is in the crop"
+    return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+
+
+def round_trip(sc, clip) -> tuple[dict, tuple[float, float]]:
+    """Crop, find the dot in the JPEG as the model would, and map it back to screen points."""
+    data, rect, w, h = fa.crop_region(sc, clip)
+    assert data.startswith(b"\xff\xd8") and max(w, h) <= fa.MAX_EDGE_PX
+    px, py = red_centre(data)
+    mark, _ = fa.to_mark({"x": px, "y": py, "r": 20, "label": ""}, rect, w, h)
+    return rect, (mark["x"] + mark["w"] / 2, mark["y"] + mark["h"] / 2)
+
+
+def test_crop_region_rect_is_exactly_what_the_jpeg_shows_at_scale_2():
+    sc = frame((400, 300), 2.0, (0.0, 0.0), dot_pt=(77.3, 41.7))
+    rect, back = round_trip(sc, {"x": 50.3, "y": 20.6, "w": 60.0, "h": 40.0})
+    # margin 4 pt, then whole pixels: floor(92.6)=92, floor(33.2)=33, ceil(228.6)=229, ceil(129.2)=130
+    assert rect == {"x": 46.0, "y": 16.5, "w": 68.5, "h": 48.5}
+    assert back == pytest.approx((77.3, 41.7), abs=1.0)
+
+
+def test_crop_region_on_a_display_with_a_negative_origin_and_a_clipped_edge():
+    sc = frame((600, 400), 2.0, (-1440.0, 200.0), dot_pt=(-1430.0, 226.0))
+    rect, back = round_trip(sc, {"x": -1442.0, "y": 210.0, "w": 30.0, "h": 30.0})  # past the display's left edge
+    assert rect["x"] == -1440.0 and rect["y"] == 206.0 and rect["w"] == 32.0  # clipped at pixel 0
+    assert back == pytest.approx((-1430.0, 226.0), abs=1.0)
+
+
+def test_crop_region_scales_a_big_crop_and_still_maps_back():
+    sc = frame((2600, 1400), 2.0, (0.0, 0.0), dot_pt=(1000.0, 300.0))
+    data, rect, w, h = fa.crop_region(sc, {"x": 100.0, "y": 100.0, "w": 1100.0, "h": 500.0})
+    assert w == fa.MAX_EDGE_PX and rect["w"] == 1108.0
+    _rect, back = round_trip(sc, {"x": 100.0, "y": 100.0, "w": 1100.0, "h": 500.0})
+    assert back == pytest.approx((1000.0, 300.0), abs=1.5)
+
+
+def test_crop_region_keeps_secret_rows_black_and_needs_a_picture():
+    from PIL import Image
+
+    sc = frame((400, 300), 2.0, (0.0, 0.0), dot_pt=(150.0, 120.0), secret=[(40.0, 40.0, 100.0, 10.0)])
+    data, rect, _w, _h = fa.crop_region(sc, {"x": 30.0, "y": 30.0, "w": 80.0, "h": 40.0})
+    im = Image.open(io.BytesIO(data)).convert("RGB")
+    x, y = round((60.0 - rect["x"]) * 2), round((45.0 - rect["y"]) * 2)  # inside the secret row
+    assert max(im.getpixel((x, y))) < 40
+    from server.coach.screen import ScreenContext
+
+    assert fa.crop_region(ScreenContext(image=None, cursor=(0, 0), boxes=[]), {"x": 0, "y": 0, "w": 9, "h": 9}) is None
+    assert fa.crop_region(sc, {"x": 900.0, "y": 900.0, "w": 9.0, "h": 9.0}) is None  # off the frame
 
 
 def test_mark_is_clamped_then_mapped_to_screen_points():
@@ -381,11 +497,11 @@ def test_a_crop_file_is_read_once_and_deleted(api, tmp_path):
 
 # ---------------------------------------------------------------------------------------------------- warm()
 
-def test_warm_sends_one_cache_warmup_per_window_and_never_streams(api):
-    api.replies.append(httpx2.Response(200, json={**message(""), "content": [], "stop_reason": "max_tokens",
-                                                   "usage": {"input_tokens": 0, "output_tokens": 0,
-                                                             "cache_read_input_tokens": 0,
-                                                             "cache_creation_input_tokens": 700}}))
+def warm_bodies(api) -> list[dict]:
+    return [b for b in api.bodies() if b.get("max_tokens") == 0]
+
+
+def test_warm_sends_one_cache_warmup_per_model_per_window_and_never_streams(api):
     t = [1000.0]
 
     def clock() -> float:
@@ -400,42 +516,54 @@ def test_warm_sends_one_cache_warmup_per_window_and_never_streams(api):
         return first, second, third
 
     first, second, third = asyncio.run(keydowns())
-    posts = api.bodies()
-    assert len(posts) == 1  # one billed warm-up
-    body = posts[0]
-    assert body["max_tokens"] == 0 and "stream" not in body and body["model"] == "claude-sonnet-5-5"
-    assert body["system"] == fa.system_blocks() and body["thinking"] == {"type": "between_tools"}
-    assert body["output_config"] == {"effort": "low"} and body["fallbacks"] == "default"  # the ask's exact prefix
-    assert first["warmed"] and first["cached"] == 700
+    posts = warm_bodies(api)
+    assert len(posts) == 2 == len(api.bodies())  # one billed warm-up per ask model
+    by_model = {b["model"]: b for b in posts}
+    assert set(by_model) == {"claude-haiku-5-5", "claude-sonnet-5-5"}  # "What is this?" goes to Haiku: warm it too
+    for body in posts:  # each is its ask's exact prefix
+        assert body["max_tokens"] == 0 and "stream" not in body and body["system"] == fa.system_blocks()
+        assert body["output_config"] == {"effort": "low"}
+    assert by_model["claude-sonnet-5-5"]["thinking"] == {"type": "between_tools"}
+    assert by_model["claude-sonnet-5-5"]["fallbacks"] == "default"
+    assert by_model["claude-haiku-5-5"]["thinking"] == {"type": "disabled"} and "fallbacks" not in by_model[
+        "claude-haiku-5-5"]
+    assert fa.warm_request(fa.choose_model(""))[1]["model"] == "claude-haiku-5-5"  # the default ask's model is warmed
+    assert first["warmed"] and first["cached"] == 1400 and sorted(first["models"]) == sorted(by_model)
     assert second == {"skipped": "recent", "warm_s": 0.0}
     assert third["touched"] and api.requests[-1].url.path.startswith("/v1/models/")
-    # 4 minutes after the first warm-up: one more
-    api.replies.append(httpx2.Response(200, json={**message(""), "content": [], "stop_reason": "max_tokens"}))
-    t[0] = 1000.0 + fa.WARM_WINDOW_S
-    assert asyncio.run(fa.warm(clock=clock))["warmed"] and len(api.bodies()) == 2
+    t[0] = 1000.0 + fa.WARM_WINDOW_S  # 4 minutes after the first warm-ups: one more each
+    assert asyncio.run(fa.warm(clock=clock))["warmed"] and len(warm_bodies(api)) == 4
+
+
+def test_each_model_keeps_its_own_window(api):
+    t = [10.0]
+    asyncio.run(fa.warm(clock=lambda: t[0]))
+    api.warm.append(httpx2.Response(500, json={"type": "error", "error": {"type": "api_error", "message": "x"}}))
+    fa._warm["windows"][(fa._client_sig, "claude-haiku-5-5")] = -1e9  # only Haiku's prefix is due again
+    t[0] += 60
+    out = asyncio.run(fa.warm(clock=lambda: t[0]))
+    assert [b["model"] for b in warm_bodies(api)][2:] == ["claude-haiku-5-5"] and out["error"] == "api 500"
 
 
 def test_concurrent_keydowns_share_one_warmup(api):
-    api.replies.append(httpx2.Response(200, json={**message(""), "content": [], "stop_reason": "max_tokens"}))
-
     async def two():
         return await asyncio.gather(fa.warm(), fa.warm())
 
     a, b = asyncio.run(two())
-    assert a == b and len(api.bodies()) == 1
+    assert a == b and len(warm_bodies(api)) == 2  # one per model, not per key-down
 
 
 def test_failed_warmup_may_retry_after_30s_and_never_raises(api):
-    api.replies.append(httpx2.Response(500, json={"type": "error", "error": {"type": "api_error", "message": "x"}}))
+    err = httpx2.Response(500, json={"type": "error", "error": {"type": "api_error", "message": "x"}})
+    api.warm += [err, err]
     t = [50.0]
     out = asyncio.run(fa.warm(clock=lambda: t[0]))
-    assert out["error"] == "api 500"
+    assert out["error"] == "api 500" and "warmed" not in out
     t[0] += 10
     again = asyncio.run(fa.warm(clock=lambda: t[0]))  # 10 s later: no second billed call, only a free touch
-    assert "warmed" not in again and again["touched"] and len(api.bodies()) == 1
-    api.replies.append(httpx2.Response(200, json={**message(""), "content": [], "stop_reason": "max_tokens"}))
+    assert "warmed" not in again and again["touched"] and len(warm_bodies(api)) == 2
     t[0] += fa.WARM_FAIL_RETRY_S
-    assert asyncio.run(fa.warm(clock=lambda: t[0]))["warmed"] and len(api.bodies()) == 2
+    assert asyncio.run(fa.warm(clock=lambda: t[0]))["warmed"] and len(warm_bodies(api)) == 4
 
 
 def test_warm_is_skipped_offline_and_without_a_key(api, monkeypatch):
@@ -452,7 +580,6 @@ def test_cloud_warm_touches_healthz(api, monkeypatch):
     monkeypatch.setattr(cfg, "_app_cloud_url", "https://miyagi-cloud.onrender.com/v1")
     monkeypatch.setattr(cfg, "_app_keys", {"miyagiToken": "install-token-test"})
     monkeypatch.delenv("ANTHROPIC_API_KEY")
-    api.replies.append(httpx2.Response(200, json={**message(""), "content": [], "stop_reason": "max_tokens"}))
     t = [10.0]
     asyncio.run(fa.warm(clock=lambda: t[0]))
     t[0] += fa.TOUCH_EVERY_S + 1
@@ -463,7 +590,6 @@ def test_cloud_warm_touches_healthz(api, monkeypatch):
 
 
 def test_key_down_links_to_the_ask_metrics(api):
-    api.replies.append(httpx2.Response(200, json={**message(""), "content": [], "stop_reason": "max_tokens"}))
     api.replies.append(stream_reply(["[DRAW:none]\nA plot."]))
     t = [100.0]
 
@@ -481,9 +607,18 @@ def test_key_down_links_to_the_ask_metrics(api):
     assert m["releaseToFirstTokenS"] <= m["releaseToDoneS"]
 
 
-def test_warm_soon_returns_at_once(api):
-    api.replies.append(httpx2.Response(200, json={**message(""), "content": [], "stop_reason": "max_tokens"}))
+def test_an_ask_restarts_its_models_window(api):
+    t = [100.0]
+    asyncio.run(fa.warm(clock=lambda: t[0]))
+    api.replies.append(stream_reply(["[DRAW:none]\nA plot."], model="claude-haiku-5-5"))
+    t[0] = 300.0
+    asyncio.run(fa.ask_stream(jpeg(), RECT, W, H, "", emit=Events(), release_t=300.0, clock=lambda: t[0]))
+    t[0] = 100.0 + fa.WARM_WINDOW_S + 1  # Sonnet's window is over, Haiku's restarted at 300
+    asyncio.run(fa.warm(clock=lambda: t[0]))
+    assert [b["model"] for b in warm_bodies(api)][2:] == ["claude-sonnet-5-5"]
 
+
+def test_warm_soon_returns_at_once(api):
     async def go():
         task = fa.warm_soon()
         assert task is not None and not task.done()
@@ -491,3 +626,56 @@ def test_warm_soon_returns_at_once(api):
 
     assert asyncio.run(go())["warmed"]
     assert fa.warm_soon() is None  # no loop: nothing to schedule on
+
+
+# ---------------------------------------------------------------------------------------------------- fix round 1
+
+def test_title_is_the_mark_label_else_about_this(api):
+    api.replies.append(stream_reply(["[DRAW:400,300,40:Run button]\nThe Run button starts it."]))
+    res, _ev = ask()
+    assert res.title == "Run button"
+    api.replies.append(stream_reply(["[DRAW:none]\nA terminal."]))
+    res, _ev = ask()
+    assert res.title == fa.DEFAULT_TITLE == "About this"
+
+
+def test_a_step_change_mid_stream_ends_it_with_moved_on(api):
+    api.replies.append(stream_reply(["[DRAW:400,300,40:Run]\n", "The Run ", "button starts ", "your script."]))
+    ev = Events()
+
+    def moved() -> bool:  # the step changes once the first words are out
+        return bool(ev.of("answer.delta"))
+
+    res = asyncio.run(fa.ask_stream(jpeg(), RECT, W, H, "how does this work", None, emit=ev, ask_id="a1",
+                                    should_stop=moved))
+    assert not res.ok and res.error == "moved_on" and not res.complete
+    assert ev.shown() == "The Run " and len(api.requests) == 1  # no retry
+    assert ev.of("answer.done") == [{"askId": "a1", "text": "The Run", "complete": False, "reason": "moved_on"}]
+
+
+def test_a_step_change_before_the_request_sends_nothing(api):
+    res, ev = ask(should_stop=lambda: True)
+    assert res.error == "moved_on" and res.deltas == 0 and ev.items == [] and api.requests == []
+
+
+def test_a_broken_streams_usage_is_tallied_before_the_retry(api, monkeypatch):
+    calls = []
+    monkeypatch.setattr(fa.llm, "record_cost", lambda model, usage, **kw: calls.append((model, usage, kw["label"])))
+    api.replies.append(stream_reply(["[DRAW:none]\n", "The Run "], error={"type": "overloaded_error",
+                                                                          "message": "Overloaded"}))
+    api.replies.append(httpx2.Response(200, json=message("[DRAW:none]\nThe Run button starts it.")))
+    res, _ev = ask()
+    assert res.ok and res.route == "retry"
+    assert [c[2] for c in calls] == ["coach fast_ask (cut stream)", "coach fast_ask"]  # both billed, both tallied
+    assert calls[0][1].input_tokens == 1200 and res.usage["input_tokens"] == 2400
+    assert res.metrics["inputTokens"] == 2400
+
+
+def test_a_stream_refused_at_the_door_bills_nothing_extra(api, monkeypatch):
+    calls = []
+    monkeypatch.setattr(fa.llm, "record_cost", lambda model, usage, **kw: calls.append(kw["label"]))
+    api.replies.append(httpx2.Response(529, json={"type": "error", "error": {"type": "overloaded_error",
+                                                                             "message": "Overloaded"}}))
+    api.replies.append(httpx2.Response(200, json=message("[DRAW:none]\nThe Run button.")))
+    res, _ev = ask()
+    assert res.ok and calls == ["coach fast_ask"] and res.usage["input_tokens"] == 1200

@@ -2,37 +2,51 @@
 
 Target (miyagi-v2/CIRCLE-TO-ASK-SPEED.md): the first words show within about 1 s of releasing Fn+Control.
 
-Two entry points, both offline-safe (DEMO / ORCH_STUBS / no key: no call leaves the engine):
+Entry points, all offline-safe (DEMO / ORCH_STUBS / no key: no call leaves the engine):
 
-    await fast_ask.warm()          # ask.warm, on key-down. Opens the keep-alive client, warms the prompt cache.
-    res = await fast_ask.ask_stream(crop, crop_rect_points, crop_w, crop_h, words, lesson_context,
-                                    emit=session.emit, ask_id=ask_id, display_id=region["displayId"])
+    await fast_ask.warm()          # ask.warm, on key-down. Opens the keep-alive client, warms the prompt caches.
+    jpeg, rect, W, H = fast_ask.crop_region(screen_ctx, clip)   # the crop and EXACTLY the rect it shows
+    res = await fast_ask.ask_stream(jpeg, rect, W, H, words, lesson_context, emit=session.emit, ask_id=ask_id,
+                                    display_id=region["displayId"], should_stop=...)
+    # res.ok / res.text / res.title / res.mark / res.deltas
+
+The ask.region slot that captures and crops before release is server/orchestrator/fast_region.py.
 
 warm(): the HTTP client (HTTP/2 when the `h2` package is there, else HTTP/1.1 keep-alive) to the miyagi cloud or to
-Anthropic stays open between asks. At most once per WARM_WINDOW_S (4 min, under the 5 min cache TTL) it sends one
-`max_tokens: 0` request with the fixed SYSTEM_PROMPT (cache_control), the same model, thinking and effort as an ask,
-never streamed: the next ask reads the cached prefix. In between it only touches the connection (GET /healthz on the
-cloud, models.retrieve direct), which bills nothing. A Sonnet ask also refreshes the cache, so it restarts the window.
+Anthropic stays open between asks. At most once per WARM_WINDOW_S (4 min, under the 5 min cache TTL) per (route,
+model) it sends one `max_tokens: 0` request with the fixed SYSTEM_PROMPT (cache_control), that model's thinking and
+effort, never streamed, for each ask model: Haiku 5.5 (the default "What is this?" ask) and Sonnet 5.5. The next ask
+reads the cached prefix. In between it only touches the connection (GET /healthz on the cloud, models.retrieve
+direct), which bills nothing. An ask also refreshes its model's cache, so it restarts that model's window.
+
+crop_region(): the crop is cut from the frame's ScreenContext.pil() (secret rows blacked out; never the raw frame),
+with a 4 pt margin, whole pixels, clipped to the frame; the pixel box goes back to points with the display's origin and
+scale, so the rect is exactly what the JPEG shows (marks stay put at clipped edges and on a display at (-1440, 200)).
 
 ask_stream(): the request is the crop image first, then the text (crop size in pixels, the lesson context, the circled
 OCR text inside <untrusted> blocks, the learner's words), history as text only, stream on, max_tokens 1024, effort
 low, thinking off (Sonnet 5.5: `between_tools`; Haiku 5.5: `disabled`). Haiku 5.5 answers short simple questions
 ("what is this?"), Sonnet 5.5 the rest (choose_model). The model's first line is `[DRAW:x,y,r:label]` or
 `[DRAW:none]` in crop pixels. DrawStream parses it as the words arrive (a tag split over chunks, a malformed tag, a
-missing tag): a valid tag becomes one Annotation at once (clamped to the crop, then mapped: screen point = crop origin
-+ px * (crop width in points / W)), sent as `annotate`; every word after it goes out as `answer.delta`, then one
-`answer.done` with the whole cleaned text. The tag never reaches the learner.
+missing tag, words before the tag on line 1): the first valid tag on line 1 becomes one Annotation at once (clamped to
+the crop, a radius of 0 or less to MIN_R_PX, then mapped: screen point = crop origin + px * (crop width in points /
+W)), sent as `annotate`; every word goes out as `answer.delta`, then one `answer.done` with the whole cleaned text,
+which the app puts in place of the deltas (a sentence flagged as an injection is only removed there). Only a full,
+valid `[DRAW:...]` is ever taken out of the words; "[drawer]" or "[draw.io]" stay. res.title: the mark's label, else
+"About this". should_stop() (the learner changed step): the stream ends at once with answer.done reason "moved_on".
 
 Failures: a dropped connection, a 5xx / overloaded error or a broken stream is retried once without streaming (the
-same request); its answer goes out the same way (answer.done fallback: true). A miyagi cloud refusal (paused, quota,
-auth), a 4xx, a refusal, offline mode or no key is not retried: ask_stream returns ok=False and sends nothing when no
-words went out yet, so the caller answers with its own non-streaming path (server/coach/circle.py circle_ask).
+same request); its answer goes out the same way (answer.done fallback: true). What the broken stream already billed
+(its snapshot usage) goes into the session tally too. A miyagi cloud refusal (paused, quota, auth), a 4xx, a refusal,
+offline mode or no key is not retried: ask_stream returns ok=False and sends nothing when no words went out yet, so the
+caller answers with its own non-streaming path (server/coach/circle.py circle_ask).
 
 Metrics (no content, ever): one `ask.metrics {json}` log line per ask and a line in <state dir>/ask-metrics.jsonl:
 key-down to warm done, release to first byte / first token / mark / done, the model, the route, token counts.
 
 The crop: read into memory, sent with this one request, never logged or stored (consume_file=True deletes a crop file
-the caller wrote). Secrets in the text are redacted (llm.redact_user_content); the picture is the caller's to black out.
+the caller wrote). Secrets in the text are redacted (llm.redact_user_content); the picture is blacked out by
+crop_region (ScreenContext.pil()).
 """
 
 from __future__ import annotations
@@ -87,6 +101,8 @@ WARM_TIMEOUT_S = 10.0
 MAX_TAG_CHARS = 120  # a first line longer than this without "]" is not a tag
 LABEL_WORDS = 4
 MIN_R_PX = 8.0
+CROP_MARGIN_PT = 4.0  # crop_region: this much around the circled region (a loose circle cuts through a word)
+DEFAULT_TITLE = "About this"  # the answer card's title when the DRAW tag names nothing
 HOLD_MS = 6000  # how long the buddy's circle stays (the app also fades it on a click there or a step change)
 DEFAULT_ASK = "What is this?"
 QUESTION_CHARS = 300
@@ -140,8 +156,18 @@ def choose_model(words: str | None) -> str:
 
 
 def warm_model() -> str:
-    """The model the warm-up caches for: the default (non-simple) ask's."""
+    """The model of the default (non-simple) ask: the one the free connection touch names."""
     return llm.model_for("fast_ask")
+
+
+def warm_models() -> list[str]:
+    """Every model an ask may use, each warmed on its own: the simple ask's first (Haiku: "What is this?", the most
+    common circle ask, about $0.0001 a warm-up), then the rest's (Sonnet). Caches are per model."""
+    out: list[str] = []
+    for m in (llm.model_for("fast_ask_simple"), llm.model_for("fast_ask")):
+        if m not in out:
+            out.append(m)
+    return out
 
 
 def thinking_for(model: str) -> dict:
@@ -290,6 +316,35 @@ def encode_crop(image: Any) -> tuple[bytes, int, int]:
     return buf.getvalue(), int(img.width), int(img.height)
 
 
+def crop_region(screen_ctx: Any, clip: Any, margin: float = CROP_MARGIN_PT) -> tuple[bytes, dict, int, int] | None:
+    """The circled region of one frame -> (JPEG bytes, rect_points, W, H), or None (no picture, nothing left).
+
+    screen_ctx: the frame's ScreenContext (server/coach/screen.py). The crop is cut from screen_ctx.pil(), where every
+    secret row and other projects' windows are already blacked out: never pass the raw frame. clip: {x, y, w, h} in
+    screen points (the clamped circle, circle.clamp_region). The margin is added, the box goes to whole pixels and is
+    clipped to the frame, and THAT pixel box goes back to points with the display's origin and scale: rect_points is
+    exactly the area the JPEG shows, so ask_stream's mapping (origin + px * points / W) lands where the model points,
+    also at a clipped edge and on a display whose origin is negative. Long edge at most MAX_EDGE_PX, quality
+    JPEG_QUALITY. In memory only."""
+    r = _rect(clip)
+    if r is None or getattr(screen_ctx, "image", None) is None:
+        return None
+    scale = float(getattr(screen_ctx, "scale", 0) or 0)
+    if not math.isfinite(scale) or scale <= 0:
+        return None
+    ox, oy = (float(v) for v in getattr(screen_ctx, "origin", (0.0, 0.0)))
+    src = screen_ctx.pil()
+    x0, y0 = screen_ctx.to_px(r[0] - margin, r[1] - margin)
+    x1, y1 = screen_ctx.to_px(r[0] + r[2] + margin, r[1] + r[3] + margin)
+    box = (max(0, math.floor(x0)), max(0, math.floor(y0)), min(src.width, math.ceil(x1)), min(src.height, math.ceil(y1)))
+    if box[2] - box[0] < 2 or box[3] - box[1] < 2:
+        return None
+    rect = {"x": ox + box[0] / scale, "y": oy + box[1] / scale,
+            "w": (box[2] - box[0]) / scale, "h": (box[3] - box[1]) / scale}
+    jpeg, w, h = encode_crop(src.crop(box))
+    return jpeg, rect, w, h
+
+
 def load_crop(crop: Any, crop_w: int | None, crop_h: int | None, *, consume_file: bool = False) -> tuple[bytes, int, int]:
     """bytes / a JPEG file path / a PIL image -> (JPEG bytes, W, H) with the long edge at most MAX_EDGE_PX. The
     picture's own size wins over crop_w / crop_h. consume_file: delete the file once read. Raises ValueError."""
@@ -342,14 +397,17 @@ def _rect(r: Any) -> tuple[float, float, float, float] | None:
 
 # ---------------------------------------------------------------------------------------------------- the DRAW tag
 
-_TAG_HEAD = "[DRAW"
+_TAG_HEAD = "[DRAW:"  # a tag starts with this (any case); "[Drawing]", "[drawer]", "[draw.io]" are plain text
 _NUM = r"(-?\d+(?:\.\d+)?)"
 _TAG_RE = re.compile(r"^\[DRAW:\s*(?:(none)|" + _NUM + r"\s*,\s*" + _NUM + r"\s*,\s*" + _NUM
                      + r"\s*(?::\s*([^\]\n]*))?)\s*\]$", re.IGNORECASE)
+_HEAD_RE = re.compile(r"\[(?:D(?:R(?:A(?:W(?:[\s:\]].*)?)?)?)?)?", re.IGNORECASE | re.DOTALL)
+_OPEN_TAG_RE = re.compile(r"\[DRAW:[^\]\n]*", re.IGNORECASE)  # a tag still open when the stream ended
 
 
 def parse_tag(tag: str) -> dict | None:
-    """'[DRAW:x,y,r:label]' -> {x, y, r, label}; '[DRAW:none]' -> {none: True}; anything else -> None (malformed)."""
+    """'[DRAW:x,y,r:label]' -> {x, y, r, label}; '[DRAW:none]' -> {none: True}; anything else -> None (malformed).
+    A radius of 0 or less is kept: to_mark clamps it to MIN_R_PX."""
     m = _TAG_RE.match((tag or "").strip())
     if m is None:
         return None
@@ -359,21 +417,35 @@ def parse_tag(tag: str) -> dict | None:
         x, y, r = float(m.group(2)), float(m.group(3)), float(m.group(4))
     except ValueError:  # pragma: no cover - the regex only lets numbers through
         return None
-    if not all(math.isfinite(v) for v in (x, y, r)) or r <= 0:
+    if not all(math.isfinite(v) for v in (x, y, r)):
         return None
     return {"x": x, "y": y, "r": r, "label": " ".join((m.group(5) or "").split())}
 
 
-def _tagish(s: str) -> bool:
-    """Could `s` (stripped of leading space) still be, or start, a DRAW tag?"""
-    probe = s[:len(_TAG_HEAD)].upper()
-    return _TAG_HEAD.startswith(probe)
+def _head_tagish(s: str) -> bool:
+    """Line 1 only: could `s` (its leading space stripped) still be, or start, the DRAW tag? "[DRAW" then ":", a
+    space or "]" (a sloppy tag is hidden as malformed); "[Drawing]" is not."""
+    return _HEAD_RE.fullmatch(s[:len(_TAG_HEAD)]) is not None
+
+
+def _tag_prefix(s: str) -> bool:
+    """Mid-answer: is `s` (shorter than "[DRAW:") still a possible start of a real "[DRAW:" tag?"""
+    return _TAG_HEAD.startswith(s.upper())
+
+
+def _status_of(parsed: dict | None) -> str:
+    return "malformed" if parsed is None else ("none" if parsed.get("none") else "ok")
 
 
 class DrawStream:
     """Incremental parser for the streamed reply. feed(chunk) / finish() return items:
-    ("draw", dict | None) exactly once (None: [DRAW:none], a malformed or a missing tag; see .status), then
-    ("text", str) for the answer's words, the tag taken out. A [DRAW ...] tag later in the text is dropped too.
+    ("draw", dict | None) exactly once (None: [DRAW:none], a malformed or a missing tag; see .status), and
+    ("text", str) for the answer's words, the tag taken out.
+
+    Line 1 should be the tag. When it starts with something else, the words stream at once and the first valid tag
+    found anywhere on line 1 ("Sure. [DRAW:10,20,5:x]") is still the mark; no tag by the end of line 1: "missing".
+    Later in the answer only a full, valid "[DRAW:...]" tag is taken out; any other bracket ("[drawer]", "[1, 2]",
+    "[draw.io]") is ordinary text, and so is a "[D..." the stream ends on, unless it is an open "[DRAW:" tag.
     .status: "ok" | "none" | "malformed" | "missing" (None until line 1 is settled)."""
 
     def __init__(self) -> None:
@@ -406,15 +478,15 @@ class DrawStream:
         s = self.buf.lstrip()
         if not s:
             return []
-        if not _tagish(s):  # the model skipped the tag: everything is the answer
+        if not _head_tagish(s):  # line 1 is words: they stream now; a tag later on line 1 still counts
             self.buf, self.state = "", "body"
-            return self._settle("missing", None) + self._body(s)
+            return self._body(s)
         if len(s) < len(_TAG_HEAD):
             return []
         close, nl = s.find("]"), s.find("\n")
         if close != -1 and (nl == -1 or close < nl):
             parsed = parse_tag(s[:close + 1])
-            status = "malformed" if parsed is None else ("none" if parsed.get("none") else "ok")
+            status = _status_of(parsed)
             rest, self.buf, self.state = s[close + 1:], "", "body"
             return self._settle(status, parsed if status == "ok" else None) + self._body(rest)
         if nl != -1:  # line 1 ended without a closing bracket
@@ -431,38 +503,54 @@ class DrawStream:
             if not text:
                 return []
             self._lstrip = False
-        buf, out = self.buf + text, []
+        buf, items = self.buf + text, []
+
+        def say(t: str) -> None:
+            if not t:
+                return
+            if self.status is None and "\n" in t:  # line 1 ended with no tag on it
+                items[:0] = self._settle("missing", None)
+            items.append(("text", t))
+
         while buf:
             i = buf.find("[")
             if i == -1:
-                out.append(buf)
+                say(buf)
                 buf = ""
                 break
-            out.append(buf[:i])
-            rest = buf[i:]
-            if not _tagish(rest):
-                out.append("[")
-                buf = rest[1:]
-                continue
+            say(buf[:i])
+            rest = buf = buf[i:]
             if len(rest) < len(_TAG_HEAD):
-                buf = rest  # maybe the start of a tag: hold it
-                break
-            close = rest.find("]")
-            if close != -1 and close <= MAX_TAG_CHARS:
-                buf = rest[close + 1:]  # a stray tag mid-answer: never shown
-                continue
-            if len(rest) > MAX_TAG_CHARS:  # an unclosed "[DRAW" long ago: plain text after all
-                out.append("[")
+                if _tag_prefix(rest):
+                    break  # maybe the start of a tag: hold it
+                say("[")
                 buf = rest[1:]
                 continue
-            buf = rest
-            break
+            if rest[:len(_TAG_HEAD)].upper() != _TAG_HEAD:
+                say("[")
+                buf = rest[1:]
+                continue
+            close, nl = rest.find("]"), rest.find("\n")
+            if close != -1 and close <= MAX_TAG_CHARS and (nl == -1 or close < nl):
+                parsed = parse_tag(rest[:close + 1])
+                if parsed is None:  # "[DRAW:" but not a tag: plain text after all
+                    say("[")
+                    buf = rest[1:]
+                    continue
+                if self.status is None:  # the first valid tag on line 1 is the mark
+                    items.extend(self._settle(_status_of(parsed), parsed if not parsed.get("none") else None))
+                buf = rest[close + 1:]  # never shown
+                continue
+            if nl != -1 or len(rest) > MAX_TAG_CHARS:  # never closed: plain text after all
+                say("[")
+                buf = rest[1:]
+                continue
+            break  # an open "[DRAW:" tag: hold it until "]"
         self.buf = buf
-        text = "".join(out)
-        return [("text", text)] if text else []
+        return _merge(items)
 
     def finish(self) -> list[tuple[str, Any]]:
-        """The stream ended: settle line 1 if it never was, flush held text (an unclosed tag is dropped)."""
+        """The stream ended: settle line 1 if it never was, flush held text (only an open "[DRAW:" tag is dropped)."""
         out: list[tuple[str, Any]] = []
         if self.state in ("head", "skip"):
             s = self.buf.lstrip()
@@ -473,15 +561,28 @@ class DrawStream:
             self.state = "body"
             if not s:
                 return self._settle("missing", None)
-            if _tagish(s):
+            if len(s) >= len(_TAG_HEAD) and _head_tagish(s):
                 parsed = parse_tag(s)
-                status = "malformed" if parsed is None else ("none" if parsed.get("none") else "ok")
+                status = _status_of(parsed)
                 return self._settle(status, parsed if status == "ok" else None)
-            return self._settle("missing", None) + self._body(s)
+            out = self._body(s)
         held, self.buf = self.buf, ""
-        if held and not _tagish(held):
+        if held and not _OPEN_TAG_RE.fullmatch(held):
             out.append(("text", held))
-        return out
+        if self.status is None:
+            out[:0] = self._settle("missing", None)
+        return _merge(out)
+
+
+def _merge(items: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
+    """Adjacent text items as one (one answer.delta per chunk)."""
+    out: list[tuple[str, Any]] = []
+    for kind, val in items:
+        if kind == "text" and out and out[-1][0] == "text":
+            out[-1] = ("text", out[-1][1] + val)
+        else:
+            out.append((kind, val))
+    return out
 
 
 def to_mark(draw: dict | None, crop_rect: Any, crop_w: int, crop_h: int, *, ask_id: str | None = None,
@@ -600,15 +701,14 @@ def reset() -> None:
     _client = _client_sig = _http = None
     _route_kw = {}
     _warm.clear()
-    _warm.update(_WARM_DEFAULT)
+    _warm.update(_WARM_DEFAULT, windows={})
     last_metrics = None
 
 
 # ---------------------------------------------------------------------------------------------------- warm()
 
-_WARM_DEFAULT: dict[str, Any] = {"key": None, "at": -math.inf, "touched": -math.inf, "keydown": None, "done": None,
-                                 "ok": False, "task": None}
-_warm: dict[str, Any] = dict(_WARM_DEFAULT)
+_WARM_DEFAULT: dict[str, Any] = {"touched": -math.inf, "keydown": None, "done": None, "ok": False, "task": None}
+_warm: dict[str, Any] = {**_WARM_DEFAULT, "windows": {}}  # windows: (route, model) -> when its warm-up was sent
 _tasks: set[asyncio.Task] = set()
 
 
@@ -638,27 +738,38 @@ async def _warm_once(now: float, clock: Callable[[], float]) -> dict:
     out: dict[str, Any] = {}
     t0 = clock()
     client = get_client()
-    model = warm_model()
-    key = (_client_sig, model)
-    if _warm["key"] != key or now - _warm["at"] >= WARM_WINDOW_S:
-        _warm["key"], _warm["at"] = key, now  # claimed before the call: a second key-down never bills twice
+    windows: dict = _warm["windows"]
+    due = [m for m in warm_models() if now - windows.get((_client_sig, m), -math.inf) >= WARM_WINDOW_S]
+    for m in due:
+        windows[(_client_sig, m)] = now  # claimed before the call: a second key-down never bills twice
+    c = client.with_options(timeout=WARM_TIMEOUT_S)
+
+    async def one(model: str) -> dict:
         beta, kwargs = warm_request(model)
-        c = client.with_options(timeout=WARM_TIMEOUT_S)
         try:
             resp = await (c.beta.messages if beta else c.messages).create(**kwargs)
-            usage = getattr(resp, "usage", None)
-            llm.record_cost(getattr(resp, "model", None) or model, usage, label="coach fast_ask warm")
-            out["cached"] = int(getattr(usage, "cache_creation_input_tokens", 0) or 0) + \
-                int(getattr(usage, "cache_read_input_tokens", 0) or 0)
-            out["warmed"] = True
-            _warm["touched"], _warm["ok"] = clock(), True
         except anthropic.APIStatusError as e:
+            windows[(_client_sig, model)] = now - WARM_WINDOW_S + WARM_FAIL_RETRY_S
             code = _cfg.cloud_error(e) if _cfg is not None else None
-            out["error"] = f"cloud:{code}" if code else f"api {e.status_code}"
-            _warm["at"] = now - WARM_WINDOW_S + WARM_FAIL_RETRY_S
+            return {"error": f"cloud:{code}" if code else f"api {e.status_code}"}
         except Exception as e:  # noqa: BLE001 - connection, timeout: the ask will open its own
-            out["error"] = type(e).__name__
-            _warm["at"] = now - WARM_WINDOW_S + WARM_FAIL_RETRY_S
+            windows[(_client_sig, model)] = now - WARM_WINDOW_S + WARM_FAIL_RETRY_S
+            return {"error": type(e).__name__}
+        usage = getattr(resp, "usage", None)
+        llm.record_cost(getattr(resp, "model", None) or model, usage, label="coach fast_ask warm")
+        return {"cached": int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+                + int(getattr(usage, "cache_read_input_tokens", 0) or 0)}
+
+    if due:  # each ask model's prefix (Haiku for "What is this?", Sonnet for the rest), side by side
+        results = await asyncio.gather(*(one(m) for m in due))
+        warmed = [m for m, r in zip(due, results) if "error" not in r]
+        if warmed:
+            out["warmed"] = True
+            out["models"] = warmed
+            out["cached"] = sum(r.get("cached", 0) for r in results)
+            _warm["touched"], _warm["ok"] = clock(), True
+        if errors := [r["error"] for r in results if "error" in r]:
+            out["error"] = errors[0]
     elif clock() - _warm["touched"] >= TOUCH_EVERY_S:
         try:
             await _touch(client)
@@ -687,9 +798,10 @@ def warm_soon(source: str | None = "keydown") -> asyncio.Task | None:
 
 
 def _note_cache_refresh(model: str, at: float) -> None:
-    """A real ask with the warm-up's model read or wrote the same cached prefix: the window starts again."""
-    if _warm["key"] == (_client_sig, model):
-        _warm["at"] = max(_warm["at"], at)
+    """A real ask read or wrote that model's cached prefix: its warm-up window starts again."""
+    key = (_client_sig, model)
+    if key in _warm["windows"]:
+        _warm["windows"][key] = max(_warm["windows"][key], at)
 
 
 # ---------------------------------------------------------------------------------------------------- metrics
@@ -760,9 +872,34 @@ def _write_metrics(line: dict) -> None:
         log.debug("ask metrics write failed", exc_info=True)
 
 
+_USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+
+
 def _usage(u: Any) -> dict:
-    return {k: int(getattr(u, k, 0) or 0) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens",
-                                                    "cache_creation_input_tokens")} if u is not None else {}
+    return {k: int(getattr(u, k, 0) or 0) for k in _USAGE_KEYS} if u is not None else {}
+
+
+def _add_usage(total: dict, msg: Any) -> dict:
+    """total + one message's usage (a stream that broke and its retry are both billed)."""
+    u = _usage(getattr(msg, "usage", None))
+    if not total:
+        return u
+    return {k: total.get(k, 0) + u.get(k, 0) for k in _USAGE_KEYS}
+
+
+def _partial_usage(stream: Any) -> Any:
+    """The message snapshot of a stream that broke, when it has usage (message_start came): Anthropic bills it."""
+    if stream is None:
+        return None
+    try:
+        snap = stream.current_message_snapshot
+    except Exception:  # noqa: BLE001 - no message_start yet: nothing was billed
+        return None
+    return snap if getattr(snap, "usage", None) is not None else None
+
+
+class _MovedOn(Exception):
+    """should_stop() said the learner changed step: the stream ends here."""
 
 
 # ---------------------------------------------------------------------------------------------------- ask_stream()
@@ -776,11 +913,12 @@ class FastAskResult:
 
     ok: bool
     text: str = ""
+    title: str = DEFAULT_TITLE  # the answer card's title: the mark's label, else "About this"
     mark: dict | None = None
     draw: str | None = None  # line 1: ok | clamped (ok, moved into the crop) | none | malformed | missing
     model: str = ""
     route: str = "stream"  # stream | retry | none
-    error: str | None = None  # offline | no_key | bad_image | bad_rect | cloud:<code> | api | refusal | timeout | connection | empty
+    error: str | None = None  # offline | no_key | bad_image | bad_rect | cloud:<code> | api | refusal | timeout | connection | empty | moved_on
     complete: bool = True
     deltas: int = 0
     usage: dict = field(default_factory=dict)
@@ -831,6 +969,7 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
                      display_id: int | None = None, step_id: str | None = None, history: list[dict] | None = None,
                      release_t: float | None = None, consume_file: bool = False,
                      on_mark: Callable[[dict], Awaitable[Any] | Any] | None = None,
+                     should_stop: Callable[[], bool] | None = None,
                      clock: Callable[[], float] = time.monotonic) -> FastAskResult:
     """Answer a circled region, streamed. See the module doc for the request and the events.
 
@@ -839,7 +978,16 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
     words: the learner's question (empty: "What is this?"). lesson_context: {lesson, step, memory, screen_text, app}
     (strings; screen_text is the OCR read inside the circle). emit(type, payload): session.emit. on_mark(mark):
     instead of emitting annotate {marks: [mark], holdMs}. release_t: when Fn+Control was let go, on `clock`
-    (default: now). Never raises for a model failure."""
+    (default: now). should_stop(): checked before the request and after each streamed chunk; True (the learner changed
+    step) ends the stream at once: answer.done {complete: false, reason: "moved_on"} when words went out, error
+    "moved_on", no retry (the caller sends its "moved on" card). Never raises for a model failure."""
+
+    def stopped() -> bool:
+        try:
+            return bool(should_stop is not None and should_stop())
+        except Exception:  # noqa: BLE001 - a broken check never ends an answer
+            return False
+
     release = clock() if release_t is None else release_t
     kd = _warm.get("keydown")
     linked = kd is not None and 0 <= release - kd <= KEYDOWN_LINK_S
@@ -912,26 +1060,40 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
                 await _emit(emit, "answer.delta", payload)
 
     final: Any = None
+    live: dict[str, Any] = {}
 
     async def run_stream() -> Any:
         async with api.stream(**kwargs) as stream:
+            live["stream"] = stream
             timer.mark("first_byte")
             async for event in stream:
                 if getattr(event, "type", "") == "text":
                     timer.mark("first_token")
                     await push(parser.feed(event.text))
+                if stopped():
+                    raise _MovedOn
             msg = await stream.get_final_message()
         await push(parser.finish())
         return msg
 
+    if stopped():  # the learner changed step before the request went out
+        res.error = "moved_on"
+        return finish("moved_on")
     timer.mark("request")
     res.route = "stream"
     error: str | None = None
     try:
         final = await asyncio.wait_for(run_stream(), TOTAL_TIMEOUT_S)
     except Exception as e:  # noqa: BLE001 - classified below; never raised to the session
-        error, retry = _classify(e)
+        error, retry = ("moved_on", False) if isinstance(e, _MovedOn) else _classify(e)
+        partial = _partial_usage(live.get("stream"))  # billed although the stream broke: tally it like the cloud does
+        if partial is not None:
+            res.usage = _add_usage(res.usage, partial)
+            llm.record_cost(getattr(partial, "model", None) or model, partial.usage, source="coach",
+                            label="coach fast_ask (cut stream)")
         log.info("fast ask: stream failed (%s, %s)%s", error, type(e).__name__, "; retrying once" if retry else "")
+        if retry and stopped():
+            error, retry = "moved_on", False
         if retry and error != "timeout":
             res.route = "retry"
             try:
@@ -959,16 +1121,16 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
                 final = None
 
     if final is not None:
-        res.usage = _usage(getattr(final, "usage", None))
+        res.usage = _add_usage(res.usage, final)
         llm.record_cost(getattr(final, "model", None) or model, getattr(final, "usage", None), source="coach",
                         label="coach fast_ask")  # billed even when refused or cut short
-        if model == warm_model():
-            _note_cache_refresh(model, release)
+        _note_cache_refresh(model, release)
     stop = getattr(final, "stop_reason", None) if final is not None else None
     res.text = clean_answer("".join(parts))
+    res.title = str((res.mark or {}).get("label") or DEFAULT_TITLE)
     reason = None
     if error is not None:
-        res.error, reason, res.complete = error, "error", False
+        res.error, reason, res.complete = error, ("moved_on" if error == "moved_on" else "error"), False
     elif stop == "refusal":
         res.error, reason, res.complete = "refusal", "refusal", False
     elif stop == "max_tokens":
