@@ -15,7 +15,7 @@ from pathlib import Path
 
 import os
 
-from . import budget, claude, gemini, links, materials, timing, transcript
+from . import app_lesson, budget, claude, gemini, links, materials, timing, transcript
 from .transcript import parse_ts  # noqa: F401  (re-exported: claude.py, progressive.py, tests use builder.parse_ts)
 from .schema import (
     CHECK_TYPES,
@@ -245,10 +245,19 @@ def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -
     end = min(nxt[0] if nxt else start + 300, length or start + 300, start + 600)
     end = max(end, start + 30)
     label = _clip_words(title or "Follow along with the video", 6)
+    # Nov 22: "type along in your editor" only where there is an editor: an AutoCAD video follows along in AutoCAD,
+    # a no-code / conceptual one (preflight's style) just follows along
+    # a coding video that names an app ("Automate Excel with Python openpyxl") still types along in the editor, as
+    # app_lesson.adapt never touches a code lesson
+    style = str(meta.get("style") or "").lower()
+    coding = style == "coding" or (not style and app_lesson.CODE_TITLE.search(str(meta.get("title") or "")))
+    app = None if coding else app_lesson.work_app({"lesson": {"title": meta.get("title") or ""}})
+    along = (f"follow along in {app_lesson._apps().label(app)}" if app
+             else "follow along" if style in ("no-code", "no_code", "conceptual") else "type along in your editor")
     step = {
         "id": "s1", "index": 1, "title": label, "provisional": True,
         "instructions": (f"Watch {gemini._mmss(start)}-{gemini._mmss(end)}"
-                         + (f" ({title})" if title else "") + " and type along in your editor; detailed steps are on the way."),
+                         + (f" ({title})" if title else "") + f" and {along}; detailed steps are on the way."),
         "video": {"sourceId": "src1", "start": start, "end": end},
         "checks": [],  # a watch-along placeholder must never gate (an app-scoped check can wait forever); the real lesson replaces it
         "targets": [], "explanations": [], "hints": [], "common_mistakes": [],
@@ -781,6 +790,8 @@ def normalize_video_meta(vm: dict) -> dict:
     length = parse_ts(length) if isinstance(length, str) else length
     out = {"title": vm.get("title") or "", "description": vm.get("description") or "", "length_s": length,
            "chapters": chapters if len(chapters) >= 3 else []}
+    if isinstance(vm.get("style"), str):  # preflight's coding | no-code | conceptual: the placeholder step's wording
+        out["style"] = vm["style"]
     fho = vm.get("firstHandsOn", vm.get("first_hands_on"))
     fho = parse_ts(fho) if isinstance(fho, str) else fho
     if isinstance(fho, (int, float)):
@@ -1113,6 +1124,7 @@ def tag_setup_steps(graph: dict) -> None:
 def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
     """Deterministic fixes applied before lint (no model call)."""
     tag_setup_steps(graph)
+    app_lesson.adapt(graph)  # Nov 22: an AutoCAD / Blender lesson talks about the app and checks the app, never files
     libs = (graph.get("lesson") or {}).get("libraries") or {}
     for step in graph["steps"]:
         # "it runs" checks: a Python Traceback never shows up in a Vite/cargo/git terminal

@@ -95,6 +95,62 @@ the list is empty). Don't auto-open VS Code any more. `action install {text: too
 `setup.progress` lines, then `{done, ok, error|version}`, then re-run `requirements` (cached list, fresh checks) and re-emit the card.
 `action open_editor` → `open_editor(wd, open_file_for(wd))`. `action skip_setup` → dismiss.
 
+### Smart setup: packages, free apps, licensed apps, web apps (apps.py, Nov 22)
+
+Michael's "AutoCAD - Toy Car Creation for 3D Printer" card said "Missing: autocad. Install now?" with only Skip. Every
+row now has a `setupKind` (`apps.classify`):
+
+| setupKind | examples | what the row offers |
+|---|---|---|
+| `package` | python, git, numpy (pip / brew formula) | Install (the existing allowlisted installers) |
+| `free_app` | Blender, FreeCAD, GIMP, Inkscape, PrusaSlicer (`apps.FREE_APPS`) | Install via an allowlisted Homebrew cask (`setup.ALLOWED_CASKS`; a model's cask off the list gets the download page), I have it |
+| `licensed_app` | AutoCAD, Fusion, Photoshop, Excel, MATLAB, SOLIDWORKS (`apps.LICENSED`) | never installed: I have it, Get it (the vendor's own page, host on `apps.VENDOR_HOSTS`), the free alternative (FreeCAD, GIMP, Onshape...) |
+| `web_app` | Tinkercad, Botpress, Google Sheets | Open |
+
+- A licensed row's `install` is `{method: "download", url: <vendor page>}` (older apps show "Get it"); `install()` refuses it.
+  A model's link or cask for it is never used.
+- Detection (`apps.detect`, read-only): `/Applications` and `~/Applications`, one folder down too
+  (`/Applications/Autodesk/AutoCAD 2025/AutoCAD 2025.app`, newest year wins), then `mdfind` by bundle-id prefix
+  (`com.autodesk.AutoCAD*`), version from Info.plist. `noMac` for Windows-only apps.
+- A title that names its app (`apps.app_in_text`: "AutoCAD - ..." → autocad) adds the row even offline or when Claude
+  left it out, for no-code lessons only (a pandas lesson about Excel files is still a code lesson).
+- Card copy for a missing licensed app, two modes (fix round 2):
+  - **Today's app** (`setup.APP_RENDERS_APP_ACTIONS = False`, the default until the app's claim PR lands): the app's
+    CardActions drops `have_it` / `get_it` / `alternative`, so the card says only what its visible buttons do. The
+    installable free alternative gets its own row (`setup.offer_alternatives`: FreeCAD, `install.method` brew_cask,
+    `altFor` engine-only, never "missing", never in Install all). Body "AutoCAD is paid. Get it, install FreeCAD free,
+    or skip." (no installable alternative: "AutoCAD is a paid app. Get it, or skip to watch."), actions `install`,
+    `skip_setup`. Installing that row is the learner's choice: the AutoCAD row becomes `using` FreeCAD
+    (`setup_apps.after_install`), remembered, checks re-pinned. "I have it" / AutoCAD found hides the offered row.
+  - **App draws the buttons** (`APP_RENDERS_APP_ACTIONS = True`): title "This lesson uses AutoCAD", body "Have AutoCAD
+    already? Or try FreeCAD, free.", actions `have_it`, `get_it`, `alternative`, `skip_setup` (labels in
+    `setup.actionLabels`); the alternative's row is added when chosen. " Watch while you decide." is added only once the
+    app honours `setup.holdVideo` (`setup.APP_HONOURS_HOLD_VIDEO`). Flip both flags with the app PR.
+  No "Install now?", no long "No editor needed: ..." line either way.
+- An app lesson with nothing missing (AutoCAD found, or a remembered "I have it" / FreeCAD choice) gets no waiting card,
+  only a passing note ("AutoCAD is ready", "Using your AutoCAD", "Using FreeCAD for this lesson"; `actions: []`,
+  `dismissAfterMs`): today's app holds the video under any setup card with actions, Skip included. Lesson mode and the
+  session's other setup filters use `setup.missing()` (haveIt / using / altFor rows are not missing).
+- `setup.holdVideo`: False unless the current step truly needs a missing tool Install can get now (`setup_card(...,
+  hold_for=step.requires)`). Setup is a companion: an app that reads holdVideo keeps the video playing. App side:
+  draft claim PR #252 (`michael/app-setup-actions` into adrian/shell): CardActions lists `have_it` / `get_it` /
+  `alternative`, player/store.ts setupWaiting holds only when `holdVideo === true` (old rule when the field is
+  missing), and the Drawer's "Waiting on setup" skips `haveIt` / `using` rows and holdVideo=false cards. Flip
+  `APP_RENDERS_APP_ACTIONS` and `APP_HONOURS_HOLD_VIDEO` once it merges.
+- Learner works in the alternative (`using`), or said "I have it" but the app was not found: the lesson's app pin
+  moves (`app_lesson.repin`): screen checks and targets pinned to "AutoCAD" look at FreeCAD's window (a web
+  alternative, or an unfound "I have it": no pin, the judge decides), and step copy "in AutoCAD" reads "in FreeCAD".
+- Per-row additive fields: `setupKind`, `actions` (`install | have_it | get_it | alternative | skip`), `vendorUrl`,
+  `vendorName`, `alternative {name, url, tool}`, `haveIt`, `using`, `noMac` (contract: events.ts SetupItem).
+- What the learner said is kept per Mac in `<lessons root>/.miyagi-state/mac-apps.json` (`apps.remember / recall`):
+  "I have it" (`haveIt`) and "use FreeCAD" (`using`) are not missing next lesson either. Each scan's app rows are kept
+  too, and `apps.context_line(items)` ("Apps on this Mac: AutoCAD 25.0 is installed.") goes into the coach's explain
+  context as an `<untrusted source="setup">` block (code lessons: nothing added).
+- Session side: `server/orchestrator/setup_apps.py` (have_it re-checks, get_it opens the vendor page through
+  `server.safety.browser_url_allowed`, alternative opens a web alternative or adds the free app's own Install row,
+  `on_front` re-checks a row when its app comes to the front). App lessons' wording and checks:
+  `server/lesson/app_lesson.py` ("in AutoCAD", screen checks scoped to the app, no file / command checks).
+
 ## Editor: VS Code, frontmost, room for the video (editor.py)
 
 - **Which editor:** VS Code (`com.microsoft.VSCode`, `code`); Miyagi only ever opens, names or offers VS Code

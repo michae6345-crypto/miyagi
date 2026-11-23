@@ -154,8 +154,8 @@ def test_unsafe_names_never_reach_commands(mac):
 
 
 def test_no_key_or_api_error_falls_back_to_the_lessons_own_list(mac, monkeypatch):
-    # Fresh Mac, offline or no key: the lesson's own libraries (never cached), not an empty card. A lesson with
-    # nothing to go on (Blender: no Python, no editor) still gets no card.
+    # Fresh Mac, offline or no key: the lesson's own libraries (never cached), not an empty card. A no-code lesson
+    # whose title names its app (Blender) gets that app's row (apps.py, Nov 22), and no editor.
     monkeypatch.setattr(S, "make_client", lambda: None)
     items = requirements(load("pandas_pokemon.json"), run=mac.run)
     assert [(it["tool"], it["kind"]) for it in items] == [("vscode", "editor"), ("python", "runtime"),
@@ -166,7 +166,9 @@ def test_no_key_or_api_error_falls_back_to_the_lessons_own_list(mac, monkeypatch
         def create(self, **kw):
             raise RuntimeError("overloaded")
 
-    assert requirements(load("blender_donut.json"), client=Boom(), run=mac.run) == []
+    blender = requirements(load("blender_donut.json"), client=Boom(), run=mac.run)
+    assert [(it["tool"], it["kind"], it["needed"]) for it in blender] == [("vscode", "editor", False), ("blender", "app", True)]
+    assert blender[1]["setupKind"] == "free_app" and blender[1]["install"]["method"] == "brew_cask"
 
 
 # --------------------------------------------------------------------------- install
