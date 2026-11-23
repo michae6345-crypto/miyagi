@@ -13,6 +13,9 @@
  *            (node.lesson, when the engine sends it) (a green check is a mastered skill, the
  *            one place green is earned here besides the hero), up to four, then "and N more"
  *   next up  skillMap.next[0]
+ *   recap    with the skill graph (skills/extras LessonRecap): what this lesson moved (mastered, ready now, N skills
+ *            away) replaces Skills and Next up, the unlock motion plays on its rings, and the primary becomes
+ *            "Next: <skill> · N min" (the graph's NEXT). Without a graph, or nothing on it from this lesson, as before.
  * Fit: the card never grows past the screen (complete/room.ts: pillTop to the work area's bottom, less 16 px). When the
  * middle (result to next up) doesn't fit, Skills folds to one row (one chip, then "and N more") and the middle
  * scrolls with a faded edge, while the hero and the actions stay put: Done / Start next lesson are always on screen.
@@ -40,6 +43,9 @@ import { useRoom } from './room'
 import { endLesson, startCached, startLesson, useComplete, type CompleteCard, type LessonResult } from './store'
 import type { SkillNext } from './types'
 import { fade } from '../../core/ui/motion'
+import { LessonRecap, useLessonRecap } from '../skills/extras/LessonRecap'
+import { nextLabel } from '../skills/extras/recap'
+import type { SkillGraphPick } from '../skills/model'
 
 export const COMPLETE_W = 408
 const PAD = 24
@@ -269,9 +275,22 @@ function NextUp({ next }: { next: Next }): ReactNode {
   )
 }
 
-function Actions({ next }: { next?: Next }): ReactNode {
+function Actions({ next, pick }: { next?: Next; pick?: SkillGraphPick }): ReactNode {
   const ending = useComplete((s) => s.ending)
   const cached = useCapability('library.start')
+  // The skill graph's NEXT: its saved lesson (library.start), else its goal (a new lesson, never in the browser stage).
+  const pickStart = pick ? (pick.libraryId && cached ? () => startCached(pick.libraryId!) : pick.goal && engineMode() !== 'inline' ? () => startLesson(pick.goal!) : undefined) : undefined
+  if (pick && (pickStart || !next))
+    return (
+      <div className="flex items-center gap-[8px]">
+        <div style={{ width: 104 }} className="shrink-0">
+          <QuietButton label="Done" size="lg" block busy={ending} onClick={endLesson} />
+        </div>
+        <div className="min-w-0 flex-1" data-complete-skill-next={pick.skillId}>
+          <PrimaryButton label={nextLabel(pick)} size="lg" block disabled={!pickStart} title={pickStart ? pick.why : 'miyagi can’t start this lesson from here yet'} onClick={() => pickStart?.()} />
+        </div>
+      </div>
+    )
   if (!next) return <PrimaryButton label="Done" size="lg" block busy={ending} onClick={endLesson} />
   // A cached lesson starts with zero model calls; a goal builds a new lesson, which the browser stage never does.
   const start = next.id && cached ? () => startCached(next.id!) : engineMode() !== 'inline' ? () => startLesson(next.goal) : undefined
@@ -297,6 +316,7 @@ export function CompletePanel(): ReactNode {
   const rows = useSteps().length
   const after = 4 + Math.min(rows, ROWS)
   const room = useRoom((s) => s.h)
+  const recap = useLessonRecap(!!card, card?.result?.lessonId)
   if (!card) return null
   // Green only when every counted step passed; no counts, a skip or a missed pass all get the plain ring.
   const clean = !!counts && counts.skipped === 0 && counts.passed >= counts.total
@@ -329,17 +349,23 @@ export function CompletePanel(): ReactNode {
         <motion.div className="empty:hidden" {...enter(3)}>
           <Steps counts={counts} from={4} />
         </motion.div>
-        <motion.div className="empty:hidden" {...enter(after)}>
-          <Skills card={card} />
-        </motion.div>
-        {next && (
+        {recap ? (
+          <motion.div {...enter(after)}>
+            <LessonRecap recap={recap} from={after} />
+          </motion.div>
+        ) : (
+          <motion.div className="empty:hidden" {...enter(after)}>
+            <Skills card={card} />
+          </motion.div>
+        )}
+        {next && !recap?.next && (
           <motion.div {...enter(after + 1)}>
             <NextUp next={next} />
           </motion.div>
         )}
       </Middle>
       <motion.div className="shrink-0" {...enter(after + 2)}>
-        <Actions next={next} />
+        <Actions next={next} pick={recap?.next} />
       </motion.div>
     </section>
   )
