@@ -168,9 +168,10 @@ class _RateLimited(Exception):
 
 
 def _user_content(prefix: str, rest: str):
-    """The user message: the stable `prefix` as a cached block, then `rest`. LESSON_PROMPT_CACHE_USER=0 sends one
-    plain string instead (a cache write costs 1.25x, so a prefix nothing re-reads is a small loss)."""
-    if os.environ.get("LESSON_PROMPT_CACHE_USER", "1") == "0":
+    """The user message as one plain string, or with LESSON_PROMPT_CACHE_USER=1 the stable `prefix` as a cached block,
+    then `rest`. Off by default: a cache write costs 1.25x and a build rarely re-reads its transcript prefix (the lesson
+    cache skips repeat builds, progressive windows differ, detail calls run in parallel), so it was a net loss."""
+    if os.environ.get("LESSON_PROMPT_CACHE_USER", "0") != "1":
         return (prefix + "\n\n" + rest) if prefix else rest
     return prompt_cache.user_blocks(prefix, rest)
 

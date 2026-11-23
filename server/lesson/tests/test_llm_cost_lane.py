@@ -178,6 +178,7 @@ def _run_build(monkeypatch, goal, info=INFO):
 
 
 def test_lesson_build_caches_the_transcript_and_the_per_step_prefix(monkeypatch):
+    monkeypatch.setenv("LESSON_PROMPT_CACHE_USER", "1")
     seen = _run_build(monkeypatch, "learn pandas")
     seg, details = seen[0], seen[1:]
     assert len(details) == 2
@@ -197,6 +198,7 @@ def test_lesson_build_caches_the_transcript_and_the_per_step_prefix(monkeypatch)
 
 
 def test_segment_prefix_is_identical_for_two_goals_on_the_same_video(monkeypatch):
+    monkeypatch.setenv("LESSON_PROMPT_CACHE_USER", "1")
     a = _run_build(monkeypatch, "learn pandas")[0]
     b = _run_build(monkeypatch, "get a job as a data analyst")[0]
     assert prompt_cache.prefix_through_breakpoint(a) == prompt_cache.prefix_through_breakpoint(b)
@@ -206,6 +208,7 @@ def test_segment_prefix_is_identical_for_two_goals_on_the_same_video(monkeypatch
 
 def test_the_cached_prefix_does_not_depend_on_the_system_schema_split(monkeypatch):
     """The detail calls share block 1 (the system prompt) with the segment call's system block."""
+    monkeypatch.setenv("LESSON_PROMPT_CACHE_USER", "1")
     seen = _run_build(monkeypatch, "g")
     assert seen[0]["system"][0] == seen[1]["system"][0]
 
@@ -218,8 +221,8 @@ def test_judge_role_caches_its_system(monkeypatch):
     assert seen[0]["model"] == models.model_for("lesson.judge")
 
 
-def test_lesson_cache_can_be_turned_off_for_the_user_prefix(monkeypatch):
-    monkeypatch.setenv("LESSON_PROMPT_CACHE_USER", "0")
+def test_the_user_prefix_is_not_cached_by_default(monkeypatch):
+    monkeypatch.delenv("LESSON_PROMPT_CACHE_USER", raising=False)
     seg = _run_build(monkeypatch, "g")[0]
     assert isinstance(seg["messages"][0]["content"], str) and "Transcript" in seg["messages"][0]["content"]
 
@@ -334,10 +337,12 @@ def test_build_cost_event_carries_the_cache_savings():
 
 def test_estimator_after_is_cheaper_wherever_a_prefix_is_read_again():
     rows = est.scenarios()
-    for name in ("build + rebuild (same video, in TTL)", "coach session (after the build)"):
+    for name in ("build + rebuild (same video, in TTL)", "build + rebuild (same video, in TTL) [transcript cache on]",
+                 "coach session (after the build)"):
         assert rows[name]["after"] < rows[name]["before"], name
-    cold = rows["cold build"]
-    assert cold["after"] <= cold["before"] * 1.25  # a cold build only pays the 1.25x writes
+    cold = rows["cold build"]  # the default: only the system prompts are cached, so a cold build costs about the same
+    assert cold["after"] <= cold["before"] * 1.03
+    assert rows["cold build [transcript cache on]"]["after"] <= cold["before"] * 1.25  # it only pays the 1.25x writes
     assert "$" in est.report()
 
 

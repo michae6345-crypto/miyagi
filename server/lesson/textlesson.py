@@ -377,8 +377,8 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
                    "above. Never re-type something that exists: give only the NEW lines, and put the target anchor on the "
                    "existing line they go after (or inside). Only call names that exist by now.")
             try:
-                d2 = strip_injection(await claude._generate_json(SYSTEM, body + fix, STEP_SCHEMA, effort="medium", structured=False,
-                                                                 role="escalate", escalate=False, check=ok, prefix=head), plan_libs)
+                d2 = strip_injection(await claude._generate_json(SYSTEM, head + "\n\n" + body + fix, STEP_SCHEMA, effort="medium",
+                                                                 structured=False, role="escalate", escalate=False, check=ok), plan_libs)
                 p2 = consistency_problem(d2.get("file") or sp.get("file") or "", d2.get("code") or "", d2.get("run_command") or "", state)
                 d = d2
                 if p2:
