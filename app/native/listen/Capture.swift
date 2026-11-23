@@ -1,4 +1,3 @@
-import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -7,22 +6,26 @@ import ScreenCaptureKit
 // `capture`: grab one region of the screen for circle to ask, while the keys are still held.
 //
 //   main -> helper  {"cmd":"capture","id":"cap-1","rect":{"x":100,"y":80,"w":320,"h":200},"displayId":1,"margin":0.15}
-//   helper -> main  {"type":"capture","id":"cap-1","path":"/.../miyagi-capture/cap-<uuid>.jpg","w":1092,"h":683,
+//   helper -> main  {"type":"capture","id":"cap-1","path":"/.../miyagi-capture/cap-<pid>-<uuid>.jpg","w":1092,"h":683,
 //                    "pxPerPoint":2.0,"rect":{"x":52,"y":50,"w":416,"h":260},"displayId":1,"ms":142}
 //              or   {"type":"capture","id":"cap-1","error":"screen_denied","message":"...","ms":3}
 //   helper -> main  {"type":"capture-warm","ok":true,"ms":180}   once per process, first chord-down (Capture.warm)
 //
 // rect: global screen points, top-left origin (Electron's screen space; the contract's ScreenRegion). displayId: the
-// CGDirectDisplayID (Electron's Display.id). margin: 0 to 0.5 of the box added on every side. The answer's rect is the
-// box that was really captured (margin added, clamped to the display, whole points): map crop pixels back with it.
+// CGDirectDisplayID (Electron's Display.id). 0, a missing displayId, or a display that is gone (empty CGDisplayBounds)
+// means the display under the box's center (CGGetDisplaysWithPoint), else the main display (CaptureMath.resolveDisplay).
+// margin: 0 to 0.5 of the box added on every side. The answer's rect is the box that was really captured (margin added,
+// clamped to the display, whole points) and its displayId the display really used: map crop pixels back with them.
 //
 // ScreenCaptureKit only (macOS 14+: SCScreenshotManager with SCStreamConfiguration.sourceRect). miyagi's own windows are
 // left out (the parent process, this helper, any dev.sandhacks.miyagi* app, plus `excludePids`). The 15.2 rect API
 // (captureImage(in:)) can't leave windows out, so it is not used. The image is scaled by ScreenCaptureKit so its long edge
 // is at most 1092 px, then encoded as JPEG 0.82 into a 0600 file in a 0700 folder under the per-user temp dir. Each file
 // is deleted 30 s after it is written (its own timer), or sooner: by the engine after reading it, or by
-// {"cmd":"capture-release","id"} / {"cmd":"capture-release","path"} (main gave up on it). All but the newest few are
-// deleted on every capture; all of them at startup and on quit.
+// {"cmd":"capture-release","id"} / {"cmd":"capture-release","path"} (main gave up on it). Files carry this helper's pid
+// (cap-<pid>-<uuid>.jpg) and a helper only ever deletes its own, so the dev app and the packaged app running at once
+// never delete each other's crop in flight. All but the newest few of its own are deleted on every capture; all of its
+// own at startup and on quit, plus the files of a helper that is no longer running (and old cap-<uuid>.jpg past the TTL).
 // Pixels are never logged. Screen Recording is only checked (CGPreflightScreenCaptureAccess), never requested here:
 // without it the answer is error "screen_denied".
 //
@@ -98,13 +101,30 @@ enum CaptureFiles {
         }
     }
 
-    /// A capture file of ours: cap-<...>.jpg whose folder (symlinks resolved) is the capture folder.
+    /// A capture file of this helper process: cap-<our pid>-<...>.jpg whose folder (symlinks resolved) is the capture folder.
     static func isOurs(_ p: String) -> Bool {
         guard p.hasPrefix("/"), p.count < 1024, !p.contains("/../"), !p.contains("/./") else { return false }
         let u = URL(fileURLWithPath: p)
         let name = u.lastPathComponent
-        guard name.hasPrefix("cap-"), name.hasSuffix(".jpg"), !name.contains("/") else { return false }
+        guard name.hasPrefix(prefix), name.hasSuffix(".jpg"), !name.contains("/") else { return false }
         return u.deletingLastPathComponent().resolvingSymlinksInPath().path == dir.resolvingSymlinksInPath().path
+    }
+
+    /// This process's file names start with this. Another helper (the dev app and the packaged app at once) has its own.
+    static let prefix = "cap-\(getpid())-"
+
+    /// The pid in cap-<pid>-<uuid>.jpg (7 dash-separated parts), nil for an old cap-<uuid>.jpg (6 parts) or anything else.
+    static func ownerPid(_ name: String) -> pid_t? {
+        let parts = name.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 7, parts[0] == "cap", (1...10).contains(parts[1].count),
+              parts[1].allSatisfy({ $0.isASCII && $0.isNumber }), let n = Int32(parts[1]), n > 0 else { return nil }
+        return n
+    }
+
+    /// Is a helper with this pid still running? (kill 0 only checks; EPERM = alive but not ours to signal.)
+    static func alive(_ pid: pid_t) -> Bool {
+        if pid == getpid() { return true }
+        return kill(pid, 0) == 0 || errno == EPERM
     }
 
     static var dir: URL {
@@ -127,17 +147,18 @@ enum CaptureFiles {
         return url
     }
 
-    static func files() -> [(url: URL, date: Date)] {
+    /// Every cap-*.jpg in the folder, any helper's. `mine` = only this process's (cap-<our pid>-...).
+    static func files(mine: Bool = true) -> [(url: URL, name: String, date: Date)] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return [] }
-        return names.filter { $0.hasPrefix("cap-") && $0.hasSuffix(".jpg") }.map { name in
+        return names.filter { $0.hasPrefix(mine ? prefix : "cap-") && $0.hasSuffix(".jpg") }.map { name in
             let u = dir.appendingPathComponent(name)
             let d = (try? fm.attributesOfItem(atPath: u.path)[.modificationDate] as? Date) ?? .distantPast
-            return (u, d)
+            return (u, name, d)
         }
     }
 
-    /// Delete files past the TTL, then all but the newest `keepNewest`.
+    /// Delete this helper's files past the TTL, then all but its newest `keepNewest`. Never another helper's files.
     static func prune(keepNewest: Int = keep - 1, now: Date = Date()) {
         let all = files().sorted { $0.date > $1.date }
         for (i, f) in all.enumerated() where i >= keepNewest || now.timeIntervalSince(f.date) > ttl {
@@ -145,18 +166,26 @@ enum CaptureFiles {
         }
     }
 
-    static func purgeAll() {
+    /// Startup, quit and SIGTERM: every file of this helper, and what a helper that is gone left behind (a pid that
+    /// no longer runs, or an old cap-<uuid>.jpg past the TTL). A running helper's crops are never touched.
+    static func purgeAll(now: Date = Date()) {
         lock.lock()
         byId.removeAll()
         lock.unlock()
-        for f in files() { unlink(f.url.path) }
+        for f in files(mine: false) {
+            let stale: Bool
+            if f.name.hasPrefix(prefix) { stale = true }
+            else if let pid = ownerPid(f.name) { stale = !alive(pid) }
+            else { stale = now.timeIntervalSince(f.date) > defaultTTL }
+            if stale { unlink(f.url.path) }
+        }
     }
 
     /// A new 0600 file, created exclusively (never follows or reuses a path).
     static func write(_ data: Data) throws -> String {
         let d = try ensureDir()
         prune()
-        let path = d.appendingPathComponent("cap-\(UUID().uuidString.lowercased()).jpg").path
+        let path = d.appendingPathComponent("\(prefix)\(UUID().uuidString.lowercased()).jpg").path
         let fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { throw CaptureError.code("failed", "could not write the capture") }
         defer { close(fd) }
@@ -280,17 +309,39 @@ enum Capture {
     }
 
     /// The display's frame in global points (top-left origin) and its pixels per point. nil = no such display.
+    /// CoreGraphics only: handle() runs on the stdin reader thread, where AppKit (NSScreen) must not be touched. When
+    /// the mode can't be read the scale is taken as 2: ScreenCaptureKit scales to the planned size either way, and the
+    /// long edge stays capped at 1092.
     static func display(_ id: CGDirectDisplayID) -> (frame: CGRect, scale: Double)? {
         let frame = CGDisplayBounds(id)
         guard frame.width > 0, frame.height > 0 else { return nil }
         var scale = 0.0
         if let mode = CGDisplayCopyDisplayMode(id), mode.width > 0 { scale = Double(mode.pixelWidth) / Double(mode.width) }
-        if !(scale > 0) {
-            scale = NSScreen.screens.first {
-                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == id
-            }.map { Double($0.backingScaleFactor) } ?? 2
+        return (frame, scale.isFinite && scale > 0 ? scale : 2)
+    }
+
+    /// Every active display and its frame (CGGetActiveDisplayList + CGDisplayBounds), plus `requested` when it is online
+    /// with a real frame but not in that list. CoreGraphics only, safe off the main thread.
+    static func displays(including requested: CGDirectDisplayID) -> [DisplayFrame] {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 32)
+        var count: UInt32 = 0
+        var out: [DisplayFrame] = []
+        if CGGetActiveDisplayList(UInt32(ids.count), &ids, &count) == .success {
+            out = ids.prefix(Int(count)).map { DisplayFrame(id: $0, frame: CGDisplayBounds($0)) }
         }
-        return (frame, scale)
+        if requested != 0, !out.contains(where: { $0.id == requested }) {
+            let f = CGDisplayBounds(requested)
+            if f.width > 0, f.height > 0 { out.append(DisplayFrame(id: requested, frame: f)) }
+        }
+        return out
+    }
+
+    /// The display under a global point (CGGetDisplaysWithPoint), nil when none.
+    static func displayUnder(_ p: CGPoint) -> CGDirectDisplayID? {
+        var id: CGDirectDisplayID = 0
+        var count: UInt32 = 0
+        guard CGGetDisplaysWithPoint(p, 1, &id, &count) == .success, count > 0, id != 0 else { return nil }
+        return id
     }
 
     static func handle(_ obj: [String: Any]) {
@@ -302,16 +353,21 @@ enum Capture {
         }
         guard let r = rect(obj["rect"]), r.width > 0, r.height > 0 else { return fail("bad_rect", "The circled box is empty.") }
         let margin = num(obj["margin"]) ?? 0
-        let displayNum = num(obj["displayId"]) ?? Double(CGMainDisplayID())
+        // 0 (or no displayId) = "the display under the region": the app sends 0 when its layout has none.
+        let displayNum = num(obj["displayId"]) ?? 0
         guard displayNum >= 0, displayNum <= Double(UInt32.max), displayNum == displayNum.rounded() else {
             return fail("no_display", "That display isn't connected.")
         }
-        let displayID = CGDirectDisplayID(displayNum)
+        let requested = CGDirectDisplayID(displayNum)
         let extraPids = ((obj["excludePids"] as? [Any]) ?? []).compactMap { num($0) }.filter { $0 > 0 && $0 < 1e7 }.map { pid_t($0) }
 
         if simulate {
+            // One fake display: simDisplay {x,y,w,h,scale,id}. Its id defaults to the requested one (1 when 0 was asked).
             let sd = rect(obj["simDisplay"]) ?? CGRect(x: 0, y: 0, width: 1512, height: 982)
-            let scale = num((obj["simDisplay"] as? [String: Any])?["scale"]) ?? 2
+            let so = obj["simDisplay"] as? [String: Any]
+            let scale = num(so?["scale"]) ?? 2
+            let simId = num(so?["id"]).flatMap { $0 > 0 && $0 <= Double(UInt32.max) ? UInt32($0) : nil } ?? (requested != 0 ? requested : 1)
+            let displayID = CaptureMath.resolveDisplay(requested: requested, rect: r, displays: [DisplayFrame(id: simId, frame: sd)], main: simId)
             guard let plan = CaptureMath.plan(rect: r, margin: margin, display: sd, scale: scale) else {
                 return fail("bad_rect", "The circled box is off the screen or too small.")
             }
@@ -319,6 +375,10 @@ enum Capture {
             return finish(id: id, img: img, plan: plan, displayID: displayID, ms: ms, fail: fail, sim: true)
         }
 
+        // 0, or a display whose bounds are empty (gone): the display under the box's center, then the main display.
+        // The answer carries the display actually used.
+        let displayID = CaptureMath.resolveDisplay(requested: requested, rect: r, displays: displays(including: requested),
+                                                   main: CGMainDisplayID(), under: displayUnder)
         guard let disp = display(displayID) else { return fail("no_display", "That display isn't connected.") }
         guard let plan = CaptureMath.plan(rect: r, margin: margin, display: disp.frame, scale: disp.scale) else {
             return fail("bad_rect", "The circled box is off the screen or too small.")

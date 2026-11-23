@@ -83,16 +83,20 @@ def jpeg_size(path):
     return None
 
 
-# A stale file from an earlier run is gone at startup.
+# A stale file from a helper that is gone (a pid that does not run) is deleted at startup. A file of a helper that is
+# still running (here: this test's own pid stands in for the packaged app's helper) is never touched.
 os.makedirs(cap_dir, mode=0o700, exist_ok=True)
-stale = os.path.join(cap_dir, "cap-stale.jpg")
+stale = os.path.join(cap_dir, "cap-99999999-00000000-0000-0000-0000-000000000000.jpg")
 open(stale, "wb").write(b"x")
+other = os.path.join(cap_dir, f"cap-{os.getpid()}-00000000-0000-0000-0000-000000000001.jpg")
+open(other, "wb").write(b"x")
 h = Helper()
 
 # --- a normal capture ---------------------------------------------------------------------------------------------
 h.send(cmd="capture", id="c1", rect={"x": 100, "y": 80, "w": 300, "h": 200}, displayId=1)
 a = h.answer("c1")
-check("startup removed old captures", not os.path.exists(stale))
+check("startup removed a dead helper's captures", not os.path.exists(stale))
+check("startup kept a running helper's capture", os.path.exists(other))
 check("capture answers with path, w, h, pxPerPoint, rect, displayId, ms",
       a is not None and all(k in a for k in ("path", "w", "h", "pxPerPoint", "rect", "displayId", "ms")) and "error" not in a, str(a))
 if a and "path" in a:
@@ -102,7 +106,8 @@ if a and "path" in a:
     check("file is 0600", stat.S_IMODE(st.st_mode) == 0o600, oct(st.st_mode))
     check("folder is 0700", stat.S_IMODE(os.stat(os.path.dirname(a["path"])).st_mode) == 0o700)
     check("file is a JPEG of the stated size", jpeg_size(a["path"]) == (600, 400), str(jpeg_size(a["path"])))
-    check("name is cap-<uuid>.jpg", os.path.basename(a["path"]).startswith("cap-") and a["path"].endswith(".jpg"), a["path"])
+    check("name is cap-<helper pid>-<uuid>.jpg",
+          os.path.basename(a["path"]).startswith(f"cap-{h.p.pid}-") and a["path"].endswith(".jpg"), a["path"])
 
 # --- big box with margin: long edge 1092, margin clamped by the display ------------------------------------------------
 h.send(cmd="capture", id="c2", rect={"x": 0, "y": 0, "w": 1400, "h": 700}, displayId=1, margin=0.15)
@@ -120,6 +125,13 @@ h.send(cmd="capture", id="c3", rect={"x": -1000, "y": 0, "w": 400, "h": 300}, di
        simDisplay={"x": -1920, "y": -200, "w": 1920, "h": 1080, "scale": 1})
 a = h.answer("c3")
 check("second display: 1x pixels, displayId echoed", a is not None and (a.get("w"), a.get("h"), a.get("displayId")) == (400, 300, 7), str(a))
+# displayId 0 ("the display under the region"): the answer names the display really used, never 0.
+h.send(cmd="capture", id="c4", rect={"x": -1000, "y": 0, "w": 400, "h": 300}, displayId=0,
+       simDisplay={"x": -1920, "y": -200, "w": 1920, "h": 1080, "scale": 1, "id": 2})
+a = h.answer("c4")
+check("displayId 0: captured on the display under the box, its id answered",
+      a is not None and (a.get("w"), a.get("h"), a.get("displayId")) == (400, 300, 2)
+      and a.get("rect") == {"x": -1000, "y": 0, "w": 400, "h": 300}, str(a))
 
 # --- errors ---------------------------------------------------------------------------------------------------------
 h.send(cmd="capture", id="e1", rect={"x": 0, "y": 0, "w": 0, "h": 10}, displayId=1)
@@ -198,8 +210,9 @@ else:
 for i in range(12):
     h.send(cmd="capture", id=f"k{i}", rect={"x": 10, "y": 10, "w": 40, "h": 40}, displayId=1)
 check("all 12 answered", all(h.answer(f"k{i}") for i in range(12)))
-files = [f for f in os.listdir(cap_dir) if f.startswith("cap-")]
+files = [f for f in os.listdir(cap_dir) if f.startswith(f"cap-{h.p.pid}-")]
 check("at most 8 capture files kept", len(files) <= 8, str(len(files)))
+check("pruning never touched a running helper's capture", os.path.exists(other))
 last = h.answer("k11")
 check("the newest capture survives", last is not None and os.path.exists(last["path"]))
 
@@ -211,7 +224,8 @@ check("every capture answer carries an id", not bad, str(bad))
 # --- quit removes every capture ------------------------------------------------------------------------------------
 check("stdin closing makes the helper exit", h.close())
 left = [f for f in os.listdir(cap_dir) if f.startswith("cap-")]
-check("quit removes the captures", not left, str(left))
+check("quit removes this helper's captures, never a running helper's", left == [os.path.basename(other)], str(left))
+os.unlink(other)
 
 # --- expiry: every file goes after the TTL with no new capture (test knob: a 400 ms TTL) -------------------------------
 h = Helper(MIYAGI_CAPTURE_TTL_MS="400")

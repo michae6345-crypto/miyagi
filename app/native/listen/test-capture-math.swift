@@ -80,6 +80,36 @@ enum CaptureMathTests {
             let o = CaptureMath.toScreen(p, px: -40, py: 99999)
             check("toScreen clamps to the crop", o.x == 0 && abs(o.y - 600) < 1e-6, "\(o)")
         }
+
+        // Which display: displayId 0 (the app's "the display under the region") on a second display with a negative
+        // origin, a display that is gone, and boxes that hang off the screens.
+        let displays = [DisplayFrame(id: 1, frame: mac), DisplayFrame(id: 2, frame: left)]
+        let onLeft = CGRect(x: -1000, y: 0, width: 400, height: 300)
+        let id0 = CaptureMath.resolveDisplay(requested: 0, rect: onLeft, displays: displays, main: 1)
+        check("displayId 0 -> the display under the box (negative origin)", id0 == 2, "\(id0)")
+        if let d = displays.first(where: { $0.id == id0 }), let p = CaptureMath.plan(rect: onLeft, display: d.frame, scale: 1) {
+            check("displayId 0: planned on that display", p.local == CGRect(x: 920, y: 200, width: 400, height: 300), "\(p.local)")
+            let c = CaptureMath.toScreen(p, px: 200, py: 150)
+            check("displayId 0: crop center maps back onto the second display", c == CGPoint(x: -800, y: 150), "\(c)")
+        } else { check("displayId 0 plans", false) }
+        check("displayId 0 uses `under` first (CGGetDisplaysWithPoint)",
+              CaptureMath.resolveDisplay(requested: 0, rect: onLeft, displays: displays, main: 1, under: { _ in 2 }) == 2)
+        check("`under` finding nothing falls back to the frames",
+              CaptureMath.resolveDisplay(requested: 0, rect: onLeft, displays: displays, main: 1, under: { _ in nil }) == 2)
+        check("a display that is gone -> the one under the box",
+              CaptureMath.resolveDisplay(requested: 7, rect: onLeft, displays: displays, main: 1) == 2)
+        check("an empty frame counts as gone",
+              CaptureMath.resolveDisplay(requested: 3, rect: onLeft, displays: displays + [DisplayFrame(id: 3, frame: .zero)], main: 1) == 2)
+        check("a connected display that was asked for is kept",
+              CaptureMath.resolveDisplay(requested: 1, rect: onLeft, displays: displays, main: 1) == 1)
+        check("displayId 0 on the main display -> main",
+              CaptureMath.resolveDisplay(requested: 0, rect: CGRect(x: 100, y: 80, width: 300, height: 200), displays: displays, main: 1) == 1)
+        check("center off every screen -> the display the box overlaps most",
+              CaptureMath.resolveDisplay(requested: 0, rect: CGRect(x: -100, y: -300, width: 140, height: 160), displays: displays, main: 1) == 2)
+        check("box off every screen -> main",
+              CaptureMath.resolveDisplay(requested: 0, rect: CGRect(x: 5000, y: 5000, width: 10, height: 10), displays: displays, main: 1) == 1)
+        check("NaN box -> main",
+              CaptureMath.resolveDisplay(requested: 0, rect: CGRect(x: CGFloat.nan, y: 0, width: 10, height: 10), displays: displays, main: 1) == 1)
         if let p = CaptureMath.plan(rect: CGRect(x: 70, y: 85, width: 260, height: 130), display: mac, scale: 2) {
             let c = CaptureMath.toScreen(p, px: 0, py: 0)
             check("crop origin maps to the box origin", c == CGPoint(x: 70, y: 85), "\(c)")

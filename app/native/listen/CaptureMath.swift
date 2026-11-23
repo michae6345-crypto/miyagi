@@ -20,6 +20,12 @@ struct CapturePlan: Equatable {
     let pxPerPoint: Double
 }
 
+/// A display's id (CGDirectDisplayID) and frame in global points, top-left origin (CGDisplayBounds).
+struct DisplayFrame {
+    let id: UInt32
+    let frame: CGRect
+}
+
 enum CaptureMath {
     /// 1092 px on the long edge: the API's documented 1:1 size (1092x1092) that it sends as is, never resized. A full
     /// 1092x1092 crop is about 1,590 tokens (w * h / 750); a wider or taller crop is fewer.
@@ -51,6 +57,28 @@ enum CaptureMath {
         let h = min(maxEdge, max(1, Int((nativeH * k).rounded())))
         let local = g.offsetBy(dx: -display.minX, dy: -display.minY)
         return CapturePlan(global: g, local: local, width: w, height: h, pxPerPoint: Double(w) / Double(g.width))
+    }
+
+    /// Which display to capture. The requested id when it names a display with a real frame. Otherwise (0, which the
+    /// app sends for "the display under the region", or a display that is gone): the display under the box's center
+    /// (`under`: CGGetDisplaysWithPoint in the helper; the frames when nil or when it finds none), then the display the
+    /// box overlaps most (a box whose center hangs off every screen), then `main`. The answer's displayId is this id.
+    static func resolveDisplay(requested: UInt32, rect: CGRect, displays: [DisplayFrame], main: UInt32,
+                               under: ((CGPoint) -> UInt32?)? = nil) -> UInt32 {
+        func usable(_ id: UInt32) -> Bool {
+            id != 0 && displays.contains { $0.id == id && finite($0.frame) && $0.frame.width > 0 && $0.frame.height > 0 }
+        }
+        if usable(requested) { return requested }
+        guard finite(rect) else { return main }
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        if let u = under?(c), usable(u) { return u }
+        if let d = displays.first(where: { usable($0.id) && $0.frame.contains(c) }) { return d.id }
+        func area(_ d: DisplayFrame) -> CGFloat {
+            let i = d.frame.intersection(rect)
+            return i.isNull ? 0 : i.width * i.height
+        }
+        if let best = displays.filter({ usable($0.id) && area($0) > 0 }).max(by: { area($0) < area($1) }) { return best.id }
+        return main
     }
 
     /// A crop pixel back to a global screen point. Not called by the helper: it pins the formula the engine uses for
