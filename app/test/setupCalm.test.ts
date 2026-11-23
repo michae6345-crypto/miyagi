@@ -10,7 +10,8 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import type { Payload } from '../src/common/wire'
 import { needsLine, planSetup, setupBody, setupCardWidth, toolKind, SETUP_MIN_W } from '../src/renderer/src/features/cards/setupPlan'
-import { setupWaiting, waitingOnSetup } from '../src/renderer/src/features/cards/setupHold'
+import { drawnOnCard, setupWaiting, waitingOnSetup } from '../src/renderer/src/features/cards/setupHold'
+import { isSetupDownloadUrl } from '../src/main/safeOpen'
 
 type Card = Payload<'card'>
 
@@ -47,18 +48,52 @@ test('no Mac version: the free alternative leads, Get is not offered', () => {
   assert.deepEqual(planSetup(win).secondary, [])
 })
 
-test("today's engine: Get AutoCAD opens the vendor page from main's list, Install FreeCAD sits beside it", () => {
+test("today's engine: the AutoCAD row's own actions draw Get AutoCAD, Try FreeCAD and I have it", () => {
+  // integration/live with APP_RENDERS_APP_ACTIONS False: card.actions is [install, skip_setup], the row still offers
+  // [have_it, get_it, alternative, skip] (server/workspace/apps.py item_actions) and the engine handles all three.
   const c = fixture('setup-calm-today')
+  assert.deepEqual(c.actions, ['install', 'skip_setup'])
   const p = planSetup(c)
+  assert.deepEqual(p.primary, { do: 'card', action: 'get_it', tool: 'autocad', label: 'Get AutoCAD' })
+  assert.deepEqual(p.secondary, [
+    { do: 'card', action: 'alternative', tool: 'autocad', label: 'Try FreeCAD' },
+    { do: 'card', action: 'have_it', tool: 'autocad', label: 'I have it' }
+  ])
+  // the AutoCAD row draws no second Get, FreeCAD's offered row no second Install
+  assert.deepEqual(p.owns.sort(), ['autocad', 'freecad'])
+  assert.equal(drawnOnCard(c.actions, c.setup!.items.find((x) => x.tool === 'autocad')!), true)
+  // FreeCAD is the other choice, not a second need
+  assert.equal(needsLine(c), 'Needs AutoCAD')
+  assert.equal(setupWaiting(c), false)
+  // once the learner picks FreeCAD (using), its row's Install leads
+  const picked: Card = { ...c, setup: { ...c.setup!, items: c.setup!.items.map((x) => (x.tool === 'autocad' ? { ...x, using: 'FreeCAD', actions: [] } : x)) } }
+  assert.deepEqual(planSetup(picked).primary, { do: 'install', tool: 'freecad', label: 'Install FreeCAD' })
+})
+
+// A smart-setup row always carries actions; a licensed row without them only comes from an engine older than both.
+// Main may refuse its page (Copy link then), which is still better than a card with nothing to press.
+test('an older engine row without actions still gets Get <app> as a link', () => {
+  const c = fixture('setup-calm-today')
+  const old: Card = { ...c, setup: { ...c.setup!, items: c.setup!.items.map(({ actions: _a, ...x }) => x) } }
+  const p = planSetup(old)
   assert.equal(p.primary?.do, 'link')
   assert.equal(p.primary?.label, 'Get AutoCAD')
   assert.deepEqual(p.secondary, [{ do: 'install', tool: 'freecad', label: 'Install FreeCAD' }])
-  assert.deepEqual(p.owns.sort(), ['autocad', 'freecad'])
-  // FreeCAD is the other choice, not a second need
-  assert.equal(needsLine(c), 'Needs AutoCAD')
-  // FreeCAD installing: its row says so, Get AutoCAD stays the primary
-  assert.deepEqual(planSetup(c, { freecad: { running: true } }).secondary, [])
-  assert.equal(setupWaiting(c), false)
+})
+
+test("every link a plan draws is one main's setup list opens (no primary main would refuse)", () => {
+  // Fix round 1: Get AutoCAD went to main's open:external, which has no autodesk.com: the first click opened nothing.
+  const states = [{}, { freecad: { running: true } }, { numpy: { ok: true } }]
+  for (const name of ['setup-calm', 'setup-calm-today', 'setup-calm-install', 'setup-calm-old']) {
+    const c = fixture(name)
+    for (const installs of states) {
+      const p = planSetup(c, installs)
+      for (const b of [p.primary, ...p.secondary]) {
+        if (b?.do !== 'link') continue
+        assert.equal(isSetupDownloadUrl(b.url), true, `${name}: ${b.label} -> ${b.url} is not on main's setup list`)
+      }
+    }
+  }
 })
 
 test("the old engine in Michael's screenshot: no editor talk, no Install now?, the video plays", () => {

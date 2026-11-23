@@ -78,8 +78,10 @@ test('a row the learner settled never waits: I have it, or FreeCAD instead', () 
 
 test('the licensed row keeps no Get it of its own when the card draws Get AutoCAD', () => {
   assert.equal(drawnOnCard(autocadCard().actions, autocad()), true)
-  // today's engine (flag off): actions install / skip_setup, the row's own Get it opens the vendor page
-  assert.equal(drawnOnCard(['install', 'skip_setup'], autocad()), false)
+  // today's engine (flag off): card actions install / skip_setup, but the row's own actions still draw on the card
+  assert.equal(drawnOnCard(['install', 'skip_setup'], autocad()), true)
+  // an older engine's row with no actions keeps its own button
+  assert.equal(drawnOnCard(['install', 'skip_setup'], autocad({ actions: undefined })), false)
   assert.equal(drawnOnCard(autocadCard().actions, vscode), false)
 })
 

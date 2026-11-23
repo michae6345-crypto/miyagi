@@ -8,6 +8,8 @@
  *              Mac; the free alternative ("Try FreeCAD") is the quiet second button; Skip stays a quiet link
  *   web        a web app: "Open <app>"
  *   download   an older engine's download page: "Get <app>"
+ * A paid app's buttons are engine actions (have_it / get_it / alternative), read from the card's actions or the row's
+ * own, whichever the engine sent. Only a row with no actions at all (an older engine) falls back to a link.
  * The rest of the card (Download tutorial files, Open VS Code) keeps its own quiet buttons.
  *
  * Older engines: rows without setupKind / actions still work (a download row is "Get it", a pip row is "Install").
@@ -81,21 +83,31 @@ export function planSetup(c: Card, installs: Record<string, InstallState> = {}, 
   if (free.length === 1) return { primary: { do: 'install', tool: free[0].tool, label: `Install ${free[0].label}` }, secondary: [], owns: [free[0].tool] }
 
   // 2. A paid app: Get it (or I have it, when the scan saw it), the free alternative beside it.
+  // The engine handles have_it / get_it / alternative from either place: the card's actions (an engine with
+  // APP_RENDERS_APP_ACTIONS) or the row's own actions (today's engine: card.actions is only [install, skip_setup], the
+  // AutoCAD row still offers [have_it, get_it, alternative, skip]). get_it opens the vendor page on the engine's own
+  // allowlist; main's setup list has no vendor pages, so a link button there would open nothing.
   if (lic) {
     const owns = [lic.tool]
-    const drawn = actions.includes('get_it') || actions.includes('have_it')
-    const get: SetupBtn | undefined = drawn
-      ? actions.includes('get_it') ? { do: 'card', action: 'get_it', tool: lic.tool, label: labels.get_it ?? `Get ${lic.label}` } : undefined
-      : (lic.vendorUrl ?? lic.install.url) ? { do: 'link', tool: lic.tool, url: lic.install.url ?? lic.vendorUrl, label: `Get ${lic.label}` } : undefined
-    const have: SetupBtn | undefined = actions.includes('have_it') ? { do: 'card', action: 'have_it', tool: lic.tool, label: labels.have_it ?? 'I have it' } : undefined
+    const can = (a: 'have_it' | 'get_it' | 'alternative'): boolean => actions.includes(a) || !!lic.actions?.includes(a)
+    // An older engine (no actions on the row or the card): the row's download page through main's list.
+    const oldRow = lic.actions === undefined && !actions.includes('get_it') && !actions.includes('have_it')
+    const pageUrl = lic.install.url ?? lic.vendorUrl
+    const get: SetupBtn | undefined = can('get_it')
+      ? { do: 'card', action: 'get_it', tool: lic.tool, label: labels.get_it ?? `Get ${lic.label}` }
+      : oldRow && pageUrl
+        ? { do: 'link', tool: lic.tool, url: pageUrl, label: `Get ${lic.label}` }
+        : undefined
+    const have: SetupBtn | undefined = can('have_it') ? { do: 'card', action: 'have_it', tool: lic.tool, label: labels.have_it ?? 'I have it' } : undefined
+    const altRow = installable.find(isAlt)
     let alt: SetupBtn | undefined
-    if (lic.alternative && actions.includes('alternative')) alt = { do: 'card', action: 'alternative', tool: lic.tool, label: labels.alternative ?? `Try ${lic.alternative.name}` }
-    else {
-      const row = installable.find(isAlt)
-      if (row && !installs[row.tool]?.running) {
-        alt = { do: 'install', tool: row.tool, label: `Install ${row.label}` }
-        owns.push(row.tool)
-      }
+    if (lic.alternative && can('alternative')) {
+      // The engine switches the lesson to the alternative; its offered row (today's engine) then gets Install.
+      alt = { do: 'card', action: 'alternative', tool: lic.tool, label: labels.alternative ?? `Try ${lic.alternative.name}` }
+      if (altRow) owns.push(altRow.tool)
+    } else if (altRow && !installs[altRow.tool]?.running) {
+      alt = { do: 'install', tool: altRow.tool, label: `Install ${altRow.label}` }
+      owns.push(altRow.tool)
     }
     // No Mac version: getting it is no use here, the alternative leads.
     if (lic.noMac && alt) return { primary: alt, secondary: [], owns }

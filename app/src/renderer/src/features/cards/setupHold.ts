@@ -28,12 +28,16 @@ export const rowWaiting = (x: Row): boolean => x.needed && !x.ok && !x.haveIt &&
 /** A row the learner settled: "I have it" (haveIt) or a free alternative instead (using). */
 export const rowSettled = (x: Row): boolean => !!x.haveIt || !!x.using
 
+/** The paid-app actions the setup card draws itself (setupPlan.ts). */
+const APP_ACTIONS: readonly string[] = ['have_it', 'get_it', 'alternative']
+
 /**
- * A licensed app's row (AutoCAD) on a card that draws I have it / Get it / the free alternative itself: the row keeps
- * no button of its own (its install.method "download" would be a second Get it).
+ * A licensed app's row (AutoCAD) whose I have it / Get it / free alternative the card draws itself: the row keeps no
+ * button of its own (its install.method "download" would be a second Get it). The engine sends those actions on the
+ * card (APP_RENDERS_APP_ACTIONS) or only on the row (today's engine): either counts.
  */
 export const drawnOnCard = (actions: readonly string[] | undefined, x: Row): boolean =>
-  x.setupKind === 'licensed_app' && !!actions?.includes('get_it')
+  x.setupKind === 'licensed_app' && (!!actions?.includes('get_it') || !!x.actions?.some((a) => APP_ACTIONS.includes(a)))
 
 /** The drawer's current step reads "Waiting on setup": a setup card that holds the video and has a row still waiting. */
 export function waitingOnSetup(c: Card | undefined): boolean {

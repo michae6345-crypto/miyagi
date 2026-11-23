@@ -617,7 +617,7 @@ function StepRow({
   instructions?: string
   /** The option row (Explain / Diagram / Show me / Hint + Check my work): the current step of a "Just teach me" lesson. */
   actions?: boolean
-  /** A quiet status at the row's end ("Needs AutoCAD"): faint, no hue. */
+  /** A quiet status under the step's title ("Needs AutoCAD"): faint, no hue. */
   note?: string
   enterDelay?: number
 }): ReactNode {
@@ -679,13 +679,21 @@ function StepRow({
         >
           {line ?? step.title}
         </span>
-        {/* Mockup 01: the current step's "about 4 min" at the row's end; a status note ("Needs AutoCAD") wins. */}
-        {(note || (current && estimate)) && (
-          <span data-part={note ? 'drawer-step-note' : 'drawer-step-est'} className="shrink-0 text-[12px]" style={{ color: glass.faint }}>
-            {note ?? estimate}
+        {/* Mockup 01: the current step's "about 4 min" at the row's end. A status note ("Needs AutoCAD") still wins:
+            it sits on its own line below and the title takes the whole row. */}
+        {current && estimate && !note && (
+          <span data-part="drawer-step-est" className="shrink-0 text-[12px]" style={{ color: glass.faint }}>
+            {estimate}
           </span>
         )}
       </button>
+      {/* A status note ("Needs AutoCAD") gets its own quiet line under the title, so the title is never cut for it
+          (fix round 1: "Draw the side p..." at 1440). */}
+      {note && (
+        <div data-part="drawer-step-note" className="truncate pb-[6px] text-[12px] leading-[16px]" style={{ paddingLeft: indent, paddingRight: ROW.padX, marginTop: -6, color: glass.faint }}>
+          {note}
+        </div>
+      )}
       {open && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
       {checks && checks.length > 0 && (
         <motion.div

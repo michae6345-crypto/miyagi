@@ -142,7 +142,9 @@
         },
         "setupKind": "licensed_app",
         "actions": [
+         "have_it",
          "get_it",
+         "alternative",
          "skip"
         ],
         "vendorUrl": "https://www.autodesk.com/products/autocad/free-trial",
@@ -157,7 +159,7 @@
         "tool": "freecad",
         "label": "FreeCAD",
         "kind": "app",
-        "why": "Free CAD app, works for this lesson.",
+        "why": "Free stand-in for AutoCAD.",
         "needed": true,
         "installed": false,
         "ok": false,
@@ -166,7 +168,9 @@
         },
         "setupKind": "free_app",
         "actions": [
-         "install"
+         "install",
+         "have_it",
+         "skip"
         ]
        }
       ]

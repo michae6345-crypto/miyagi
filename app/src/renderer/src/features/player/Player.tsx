@@ -677,7 +677,6 @@ export function PlayerWindow(): ReactNode {
   return <PlayerPanel />
 }
 
-/** Browser stage only: the same panel at the dock rect, under the spotlight/cards like in Electron. */
 /**
  * Stage only, `?player=frame`: the panel's empty frame at the dock, no video. Screenshots of what sits beside the
  * player (the setup card, the drawer) without loading or playing anything.
@@ -694,6 +693,7 @@ function FrameOnly(): ReactNode {
   )
 }
 
+/** Browser stage only: the same panel at the dock rect, under the spotlight/cards like in Electron. */
 export function StagePlayer({ layout }: { layout: Layout }): ReactNode {
   // No player for a "Just teach me" lesson (lesson.mode "lesson": no video at all).
   const hasLesson = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
