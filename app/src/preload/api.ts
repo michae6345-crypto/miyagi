@@ -12,7 +12,8 @@
  *   launcher -> main : 'launcher:hidden' (closed normally), 'launcher:built' (shrank into the pill)
  *   main -> overlay  : 'pill:receive' (launcher just landed on the pill), 'shortcut' (kind)
  *   any -> main      : 'launcher:toggle' (e.g. clicking the idle pill or "Ask anything")
- *   overlay -> main  : 'overlay:interactive' (boolean: stop click-through while over a control)
+ *   overlay -> main  : 'overlay:interactive' (boolean: stop click-through while over a control; or {on: true, leaseMs}:
+ *                      main gives the mouse back itself if it is not said again within leaseMs)
  *   main -> any      : 'layout' (Layout)
  */
 import type { Incoming, Outgoing } from '../common/wire'
