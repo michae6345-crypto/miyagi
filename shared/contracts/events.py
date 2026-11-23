@@ -673,7 +673,8 @@ class AnswerDone(_Model):
     """answer.done: the streamed answer for askId is over. `text` is the whole answer, cleaned: the app MUST replace
     what the deltas built with it. Deltas are sent as the words arrive, so a sentence the engine flags as a prompt
     injection may have shown in them; done.text never has it. complete False: cut short (reason "refusal" |
-    "max_tokens" | "error" | "moved_on", a plain str; moved_on: the step changed, a "moved on" card follows).
+    "max_tokens" | "error" | "moved_on", a plain str; moved_on: the step changed, a "moved on" card follows; refusal:
+    text is "" so the declined words leave the screen, and a failed answer card follows).
     fallback True: the stream failed and a non-streaming retry answered."""
 
     askId: str | None = None
@@ -842,27 +843,6 @@ class CardShown(_Model):
     kind: str | None = None  # the card's kind, or "offtrack"
 
 
-class AskWarm(_Model):
-    """ask.warm (Nov 22, fast circle to ask): the learner pressed the push-to-talk keys (Fn+Control). Send it on
-    key-down, before any words or ink. The engine opens its keep-alive connection to the miyagi cloud / Anthropic and
-    warms the prompt cache for the ask (at most one billed warm-up per 4 minutes). No answer is sent back.
-    source: "keydown" (a plain str, so a new tag from the app is not rejected)."""
-
-    source: str | None = None
-
-
-class AskRegion(_Model):
-    """ask.region (Nov 22, fast circle to ask): the circle closed while the keys are still held. Send it on each
-    pointer-up of the ink while armed, with the askId the action ask will carry and the ink's bounding box (the
-    ScreenRegion shape: x, y, w, h screen points, displayId, scale). The engine captures that display now, crops and
-    encodes the region into memory (kept at most ~10 s, dropped on use, never written to disk), so the release only
-    sends the words. A later ask.region with the same askId replaces the earlier one. No answer is sent back.
-    region: a dict here so this command needs no other contract change; the engine reads x, y, w, h, displayId."""
-
-    askId: str
-    region: dict[str, Any]
-
-
 class CardClosed(_Model):
     """card.closed: that card left the slot. by: "user" | "replaced" | "timeout" | "hidden" (kept a plain str here so
     a new reason from the app is logged, not rejected). "user" / "timeout" lift the hold this card (matched by title)
@@ -872,6 +852,17 @@ class CardClosed(_Model):
     title: str = ""
     kind: str | None = None
     by: str | None = None
+
+
+class AskWarm(_Model):
+    """Nov 22 (push to talk speed): the push-to-talk hold passed the minimum and the mic is open; open or reuse the
+    keep-alive links and warm the prompt cache for the ask. The app sends it on every hold that passes the minimum
+    (never for a tap or an aborted chord). The engine always opens or reuses the links (free; keep-alive links close
+    seconds after their last use) and throttles only the paid prompt-cache write (under the 5-minute cache lifetime).
+    No reply. pttId: the hold's id, for logs only."""
+
+    pttId: str | None = Field(default=None, max_length=64)
+    source: str | None = Field(default=None, max_length=32)  # optional tag ("keydown"), for logs only
 
 
 APP_COMMANDS: dict[str, type[_Model]] = {
@@ -886,11 +877,10 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "card.shown": CardShown,
     "card.closed": CardClosed,
     "ask.warm": AskWarm,
-    "ask.region": AskRegion,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
-                         "card.shown", "card.closed", "ask.warm", "ask.region"]
+                         "card.shown", "card.closed", "ask.warm"]
 
 
 class AppMessage(BaseModel):

@@ -150,7 +150,7 @@ export interface EngineEvents {
    *  answer.done: the stream is over; `text` is the whole cleaned answer and the app MUST replace what the deltas built with it (deltas go
    *  out as the words arrive, so a sentence the engine flags as a prompt injection may have shown in them; done.text never has it).
    *  complete false: cut short (reason "refusal" | "max_tokens" | "error" | "moved_on"; moved_on: the step changed, a "moved on" card
-   *  follows). fallback true: the stream failed and a non-streaming retry answered. The answer card
+   *  follows; refusal: text is "" so the declined words leave the screen, and a failed answer card follows). fallback true: the stream failed and a non-streaming retry answered. The answer card
    *  {kind: "answer", askId} still follows answer.done with the same text, so an app that ignores these loses nothing; a streaming
    *  app keeps its streamed card for that askId. Nothing streamed (no answer.delta): only the card comes, as before. */
   "answer.delta": { askId?: string; seq: number; text: string };
@@ -247,15 +247,15 @@ export interface AppCommands {
    *  title / kind / stepId: copied from the card's payload; kind "offtrack" for the off-track card. On by "user" / "timeout" the engine lifts the off-track hold that this card (matched by title) caused; "replaced" / "hidden" lift nothing (the engine knows what it sent; a covered card shows again). */
   "card.shown": { stepId?: string; title: string; kind?: string };
   "card.closed": { stepId?: string; title: string; kind?: string; by: "user" | "replaced" | "timeout" | "hidden" };
-  /** Fast circle to ask (Nov 22): the learner pressed the push-to-talk keys (Fn+Control). Send on key-down, before any words or ink.
-   *  The engine opens its keep-alive connection to the miyagi cloud / Anthropic and warms the prompt cache for the ask (at most one
-   *  billed warm-up per 4 minutes). Nothing is sent back. Optional: an app that never sends it only loses the head start. */
-  "ask.warm": { source?: string };   // source: "keydown"
-  /** Fast circle to ask (Nov 22): the circle closed while the keys are still held. Send on each pointer-up of the ink while armed, with
-   *  the askId the action ask will carry and the ink's bounding box (the ScreenRegion shape). The engine captures that display now and
-   *  keeps the encoded crop in memory (about 10 s, dropped on use, never on disk), so the release only sends the words. A later
-   *  ask.region with the same askId replaces the earlier one. Nothing is sent back. Optional: without it the ask captures on release. */
-  "ask.region": { askId: string; region: { x: number; y: number; w: number; h: number; displayId?: number; scale?: number } };
+  /** Nov 22 (push to talk speed): the learner is holding the push-to-talk keys (Fn+Control) past the minimum hold and
+   *  the mic is open, so an ask (spoken, or a circle) is likely within a few seconds. The engine gets ready for it: open
+   *  or reuse its keep-alive links (app to engine to cloud to Anthropic) and warm the prompt cache for the fixed ask
+   *  system prompt. No reply event, no card, never a learner-visible effect; safe to ignore or repeat. pttId: the hold's
+   *  id (the helper's ptt.id), for logs only. The app sends it on every hold that passes the minimum (never for a tap
+   *  or an aborted chord), and only when engine.hello lists "ask.warm". The engine always opens or reuses the links
+   *  (free; keep-alive links close seconds after their last use) and throttles only the paid prompt-cache write (at
+   *  most once per few minutes, under the 5-minute cache lifetime). */
+  "ask.warm": { pttId?: string; source?: string };   // source: optional tag ("keydown"), for logs only
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;
