@@ -1,45 +1,60 @@
 /**
  * Feature: skills. The tree views' one canvas (Path and Map differ only in their input and orientation, graphInput.ts).
  *
- *   fit        on open, on a new size and on Fit: the gaps stretch to fill the view (layout.ts placeGraph); a tree too big
- *              even at its tightest opens at the view's lowest readable scale, centered on NEXT, and pans from there
+ *   fit        on open, on a new size and on Fit: the whole tree, centered; the gaps stretch to fill the view (layout.ts
+ *              placeGraph) and the tree scales down only when even its tightest doesn't fit
  *   zoom/pan   + / − / fit buttons (bottom right), pinch or Cmd/Ctrl + wheel to zoom at the pointer, wheel or drag to pan
- *   edges      one curve style (layout.ts edgePath) under the nodes: green between two mastered skills, ink into what you
- *              can start, dashed and faint into what is still locked. Links set aside to keep the tree flat (layout
- *              `hidden`) show only while their node is hovered or open
+ *   edges      one curve style (layout.ts edgeRoute + edgePath) under the nodes: green between two mastered skills, ink
+ *              into what you can start, dashed and faint into what is still locked. On the Map an edge leaves the top of
+ *              a node and arrives under the label block of what it opens, so it never runs through words. Links set
+ *              aside to keep the tree flat (layout `hidden`) show only while their node is hovered or open
  *   focus      the open skill keeps its prerequisites and what it opens lit; the rest steps back. Search does the same
  *              for the skills it matches
- *   headers    the Map names its tracks in one quiet row across the top, each over its own skills (hover one to light
- *              that track)
- *   unlock     unseen events play once, oldest first: the node fills green and its edges draw out, a dashed ring closes,
- *              and one line says what happened. Then skills.ack. Reduced motion: a short fade, same line
+ *   tracks     no floating track names on the tree: a node's track shows in its panel (and its tooltip)
+ *   unlock     the unseen events whose skills this view shows play once, oldest first: the node fills green and its edges
+ *              draw out, a dashed ring closes, and one line says what happened. Then they're marked played for this view
+ *              (store ackEvents). Reduced motion: a short fade, same line
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Maximize2, Minus, Plus } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { color, duration, ease, elevation, fill, highlight, radius2, spring, type2 } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
-import { chainLength, edgePath, isDummy, layoutGraph, placeGraph } from './layout'
-import { labelWidth, mapInput, pathInput, PLACE, SIZES, TRUNK, type TreeView } from './graphInput'
+import { chainLength, edgePath, edgeRoute, isDummy, layoutGraph, placeGraph, type LayoutEdge } from './layout'
+import { estimate, geom, mapInput, pathInput, PLACE, reach, SIZES, TRUNK, type Measure, type TreeView } from './graphInput'
 import type { SkillGraph, SkillGraphNode } from './model'
 import { stateLine, unlockLine } from './copy'
 import { SkillNode, TrunkPoint, type NodeAnim } from './SkillNode'
-import { ackEvents } from './store'
+import { ackEvents, useSkills } from './store'
 
-/** Room for the Map's track names above the tree. */
-const HEAD = 34
 const ZOOM_MIN = 0.25
-/** Room kept for the zoom controls (32 wide, 16 from the edge) on each side of the tree. */
-const RESERVE = 40
+/** Room kept on the right for the zoom controls (32 wide, 16 from the edge); the tree centers in the rest. */
+const RESERVE = 32
 const ZOOM_MAX = 2.2
 /** Per event: the fill (280), the edges drawing out (360), a beat between events. */
 const STEP_S = 0.9
 
-/** k, dx, dy: the learner's zoom and pan on top of the fit. all: Fit was pressed (the whole tree, however small). */
-type View = { k: number; dx: number; dy: number; smooth: boolean; all?: boolean }
+/** k, dx, dy: the learner's zoom and pan on top of the fit. */
+type View = { k: number; dx: number; dy: number; smooth: boolean }
 const REST: View = { k: 1, dx: 0, dy: 0, smooth: false }
-/** Below this fitted scale a tree opens at its view's readable scale instead (and Fit still shows all of it). */
-const OPEN_ALL: Record<TreeView, number> = { path: 0.5, map: 0.6 }
+
+/** Label widths in the page's own font (a canvas measures; the estimate stands in where there is none). */
+function useMeasure(): Measure {
+  return useMemo(() => {
+    try {
+      const ctx = document.createElement('canvas').getContext('2d')
+      if (!ctx) return estimate
+      const family = getComputedStyle(document.body).fontFamily || 'system-ui'
+      return (text: string, hero: boolean) => {
+        ctx.font = `${hero ? 600 : 500} ${hero ? 14 : 13}px ${family}`
+        // A hair wide, so a name the browser wraps never fits on fewer lines here.
+        return ctx.measureText(text).width * 1.04 + 1
+      }
+    } catch {
+      return estimate
+    }
+  }, [])
+}
 
 function useBox<T extends HTMLElement>(): [React.RefObject<T | null>, { w: number; h: number }] {
   const ref = useRef<T>(null)
@@ -68,16 +83,14 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
   const reduce = useReducedMotion() ?? false
   const [ref, box] = useBox<HTMLDivElement>()
   const [hover, setHover] = useState<string>()
-  const [hoverTrack, setHoverTrack] = useState<string>()
   const [v, setV] = useState<View>(REST)
   const autoPan = useRef(0)
   const size = SIZES[view]
+  const measure = useMeasure()
 
-  const input = useMemo(() => (view === 'path' ? pathInput(g) : mapInput(g)), [g, view])
-  const layout = useMemo(() => layoutGraph(input.nodes, input.links), [input])
-  const head = view === 'map' ? HEAD : 0
-  // The zoom controls own the bottom-right corner: the tree keeps RESERVE clear on both sides, so it stays centered.
-  const placed = useMemo(() => (box.w && box.h ? placeGraph(layout, { ...PLACE[view]({ w: Math.max(200, box.w - 2 * RESERVE), h: box.h - head }, layout, input), widenFrom: OPEN_ALL[view] }) : undefined), [layout, input, view, box, head])
+  const input = useMemo(() => (view === 'path' ? pathInput(g, measure) : mapInput(g, measure)), [g, view, measure])
+  const layout = useMemo(() => layoutGraph(input.nodes, input.links, input.options), [input])
+  const placed = useMemo(() => (box.w && box.h ? placeGraph(layout, PLACE[view]({ w: Math.max(200, box.w - RESERVE), h: box.h }, layout, input)) : undefined), [layout, input, view, box])
 
   // Fit: on a new size, a new view or a new tree (never while the learner is zoomed in on the same one).
   useEffect(() => {
@@ -85,19 +98,12 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
     setV(REST)
   }, [box.w, box.h, view, layout])
 
+  // The whole tree, centered in the view left of the zoom controls.
   const fit = useMemo(() => {
     if (!placed) return { s: 1, tx: 0, ty: 0 }
-    const W = placed.w
-    const H = placed.h + head
-    if (v.all || placed.scale >= OPEN_ALL[view]) return { s: placed.scale, tx: (box.w - W * placed.scale) / 2, ty: (box.h - H * placed.scale) / 2 }
-    // Too big to read whole: open at the readable scale between NEXT and the goal, kept inside the content's edges.
-    const s = size.minScale
-    const a = placed.at[g.next?.skillId ?? ''] ?? placed.at[g.goal?.id ?? '']
-    const b = placed.at[g.goal?.id ?? ''] ?? a
-    const focus = a && b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : { x: W / 2, y: H / 2 }
-    const clampT = (t: number, view: number, content: number): number => (content * s <= view ? (view - content * s) / 2 : Math.min(0, Math.max(view - content * s, t)))
-    return { s, tx: clampT(box.w / 2 - focus.x * s, box.w, W), ty: clampT(box.h / 2 - (focus.y + head) * s, box.h, H) }
-  }, [placed, box, head, size.minScale, g.next, g.goal, v.all, view])
+    const s = placed.scale
+    return { s, tx: (Math.max(200, box.w - RESERVE) - placed.w * s) / 2, ty: (box.h - placed.h * s) / 2 }
+  }, [placed, box])
 
   const scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fit.s * v.k))
   // Zoom keeps the view's center (or the pointer) still: dx/dy are offsets on top of the fitted translate.
@@ -165,7 +171,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
     drag.current = null
   }
 
-  // Focus: the open skill (or a hovered track, or the search) keeps its neighbourhood lit.
+  // Focus: the open skill (or the search) keeps its neighbourhood lit.
   const lit = useMemo(() => {
     if (selected && g.byId[selected]) {
       const n = g.byId[selected]
@@ -173,14 +179,17 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
       for (const l of g.links) if (l.from === n.id) out.add(l.to)
       return out
     }
-    if (hoverTrack) return new Set(g.nodes.filter((n) => n.track === hoverTrack).map((n) => n.id))
     const q = query.trim().toLowerCase()
     if (q) return new Set(g.nodes.filter((n) => n.label.toLowerCase().includes(q)).map((n) => n.id))
     return undefined
-  }, [selected, hoverTrack, query, g])
+  }, [selected, query, g])
 
-  // The unlock motion: the events whose skills are on this view, oldest first, each one step after the last.
-  const [events] = useState(() => g.events)
+  // The unlock motion: the unseen events whose skills are on this view, oldest first, each one step after the last.
+  const played = useSkills((s) => s.played[view])
+  const [events] = useState(() => {
+    const on = new Set(input.nodes.map((n) => n.id))
+    return g.events.filter((e) => on.has(e.skillId) && !played.includes(e.id))
+  })
   const anims = useMemo(() => {
     const m = new Map<string, NodeAnim>()
     events.forEach((e, i) => {
@@ -198,7 +207,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
     const total = 0.3 + events.length * STEP_S
     const show = setTimeout(() => setSay(true), (reduce ? 0.2 : total - 0.4) * 1000)
     const hide = setTimeout(() => setSay(false), (total + 3.2) * 1000)
-    const ack = setTimeout(() => ackEvents({ ...g, events }), (total + 0.2) * 1000)
+    const ack = setTimeout(() => ackEvents(g, view, events), (total + 0.2) * 1000)
     return () => {
       clearTimeout(show)
       clearTimeout(hide)
@@ -208,32 +217,10 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Track names across the top of the Map, each over the mean of its skills, pushed apart so none overlap.
-  const headers = useMemo(() => {
-    if (view !== 'map' || !placed) return []
-    const hs = g.tracks
-      .map((t) => {
-        const xs = t.nodeIds.map((id) => placed.at[id]?.x).filter((x): x is number => x !== undefined)
-        const w = t.label.length * 7 + 44
-        return xs.length ? { id: t.id, label: t.label, x: xs.reduce((a, x) => a + x, 0) / xs.length, w, t } : undefined
-      })
-      .filter((h): h is NonNullable<typeof h> => !!h)
-      .sort((a, b) => a.x - b.x)
-    for (let pass = 0; pass < 8; pass++)
-      for (let i = 1; i < hs.length; i++) {
-        const need = (hs[i - 1].w + hs[i].w) / 2 + 12 - (hs[i].x - hs[i - 1].x)
-        if (need > 0) {
-          hs[i - 1].x -= need / 2
-          hs[i].x += need / 2
-        }
-      }
-    return hs
-  }, [view, placed, g.tracks])
-
   const focusIds = new Set([hover, selected].filter((x): x is string => !!x))
-  const nodeR = (n: SkillGraphNode): number => (n.id === input.hero ? size.heroR : n.kind === 'capstone' ? size.nodeR + 2 : size.nodeR)
   const nodeLine = (n: SkillGraphNode): string => stateLine(n, g)
-  const lw = (hero: boolean): number => (placed ? labelWidth(view, hero, placed) : size.labelW)
+  const reachOf = (id: string): { out: number; in: number; side: number } => reach(view, input, id)
+  const pointsOf = (e: LayoutEdge): Array<{ x: number; y: number }> => (placed ? edgeRoute(e, layout, placed, size.orientation, reachOf) : [])
 
   return (
     <div
@@ -251,33 +238,17 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
           className="absolute left-0 top-0"
           style={{
             width: placed.w,
-            height: placed.h + head,
+            height: placed.h,
             transformOrigin: '0 0',
             transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
             // Buttons and Fit glide (the house curve); wheel, pinch and drag follow the hand.
             transition: v.smooth && !reduce ? `transform ${duration.slow + 0.1}s cubic-bezier(${ease.out.join(',')})` : undefined
           }}
         >
-          {headers.map((h) => (
-            <button
-              key={h.id}
-              type="button"
-              data-skills-track={h.id}
-              className="absolute flex cursor-default items-baseline justify-center gap-[6px] whitespace-nowrap"
-              style={{ left: h.x - h.w / 2, top: 6, width: h.w, height: 22, fontSize: type2.xs, fontWeight: 500, color: hoverTrack === h.id ? color.text : color.label }}
-              onPointerEnter={() => setHoverTrack(h.id)}
-              onPointerLeave={() => setHoverTrack(undefined)}
-            >
-              {h.label}
-              <span style={{ fontSize: type2.micro, color: color.faint, fontVariantNumeric: 'tabular-nums' }}>
-                {h.t.mastered}/{h.t.total}
-              </span>
-            </button>
-          ))}
-          <div className="absolute left-0" style={{ top: head, width: placed.w, height: placed.h }}>
+          <div className="absolute left-0 top-0" style={{ width: placed.w, height: placed.h }}>
             <svg width={placed.w} height={placed.h} className="absolute inset-0 overflow-visible" aria-hidden>
               {layout.edges.map((e) => {
-                const pts = e.chain.map((id) => placed.at[id])
+                const pts = pointsOf(e)
                 const look = edgeLook(g.byId[e.from], g.byId[e.to])
                 const dimmed = lit && !(lit.has(e.from) && lit.has(e.to))
                 const a = anims.get(e.from)
@@ -302,11 +273,13 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
               {layout.hidden
                 .filter((l) => focusIds.has(l.from) || focusIds.has(l.to))
                 .map((l) => {
-                  const a = placed.at[l.from]
-                  const b = placed.at[l.to]
+                  const a = layout.items[l.from]
+                  const b = layout.items[l.to]
                   if (!a || !b) return null
                   const look = edgeLook(g.byId[l.from], g.byId[l.to])
-                  return <path key={`h-${l.from}>${l.to}`} d={edgePath([a, b], size.orientation)} fill="none" stroke={look.stroke} strokeWidth={look.width} strokeDasharray={look.dash} strokeLinecap="round" opacity={look.opacity} />
+                  // Forward across layers: the same route as any edge (straight through the bands between); else node to node.
+                  const pts = a.layer < b.layer ? pointsOf({ from: l.from, to: l.to, chain: [l.from, l.to] }) : [placed.at[l.from], placed.at[l.to]]
+                  return <path key={`h-${l.from}>${l.to}`} d={edgePath(pts, size.orientation)} fill="none" stroke={look.stroke} strokeWidth={look.width} strokeDasharray={look.dash} strokeLinecap="round" opacity={look.opacity} />
                 })}
             </svg>
             {Object.values(layout.items).map((it) => {
@@ -315,17 +288,20 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
               if (it.id === TRUNK) return <TrunkPoint key={it.id} x={at.x} y={at.y} />
               const n = g.byId[it.id]
               if (!n) return null
-              const hero = it.id === input.hero
+              const gm = geom(view, input, it.id)
+              const track = g.tracks.find((t) => t.id === n.track)?.label
               return (
                 <SkillNode
                   key={it.id}
                   n={n}
                   x={at.x}
                   y={at.y}
-                  r={nodeR(n)}
-                  hero={hero}
-                  labelW={lw(hero)}
-                  lines={hero ? 2 : size.lines}
+                  r={gm.r}
+                  hero={gm.hero}
+                  labelW={gm.labelW}
+                  labelGap={gm.labelGap}
+                  lines={gm.lines}
+                  track={track}
                   line={nodeLine(n)}
                   dim={!!lit && !lit.has(n.id)}
                   focused={selected === n.id && !n.isNext}
@@ -357,7 +333,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
         )}
       </AnimatePresence>
 
-      <ZoomControls onIn={() => zoomAt(1.2)} onOut={() => zoomAt(1 / 1.2)} onFit={() => setV({ ...REST, smooth: true, all: true })} />
+      <ZoomControls onIn={() => zoomAt(1.2)} onOut={() => zoomAt(1 / 1.2)} onFit={() => setV({ ...REST, smooth: true })} />
     </div>
   )
 }

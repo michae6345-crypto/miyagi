@@ -1,8 +1,8 @@
 /**
  * Feature: skills. The dock along the bottom of the page: what to do now.
  *
- *   left    the page's ONE primary button, "Continue: <skill>" (or "Start: <skill>"), and under it where it picks up and
- *           why ("Step 3 of 4 in NumPy in 20 minutes" / "Gets you closer to Layers · 12 min")
+ *   left    the page's ONE primary button, "Continue: <skill>" (or "Start: <skill>"), and beside it where it picks up
+ *           and why ("Step 3 of 4 in NumPy in 20 minutes" / "Gets you closer to Layers · 12 min"). 56 tall
  *   middle  up to three other skills you could start (each opens its panel)
  *   right   up to three mastered skills due for a review ("Keep fresh")
  * Continue starts the saved lesson (library.start), else a lesson built for the skill (learn). Narrow panes drop Keep
@@ -52,12 +52,12 @@ export function Dock({ g, width, onOpen }: { g: SkillGraph; width: number; onOpe
         : { pre: 'A short lesson built for it', title: undefined }
   const why = [sentence(pick?.why), pick?.estMinutes ? `${pick.estMinutes} min` : undefined].filter(Boolean).join(' · ')
   return (
-    <div data-skills-dock className="flex w-full items-center" style={{ gap: 24, minHeight: 72, padding: '14px 0 18px', borderTop: `1px solid ${fill.hairline}` }}>
+    <div data-skills-dock className="flex w-full items-center" style={{ gap: 24, height: 56, padding: '10px 0', borderTop: `1px solid ${fill.hairline}` }}>
       {pick && node ? (
         <div className="flex min-w-0 flex-1 items-center" style={{ gap: 16 }}>
           <PrimaryButton
             label={`${pick.practicing ? 'Continue' : 'Start'}: ${pick.label}`}
-            size="lg"
+            size="md"
             busy={!!starting && starting === pick.libraryId}
             onClick={() => startSkill(node, g)}
           />

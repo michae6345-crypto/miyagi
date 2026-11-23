@@ -1,8 +1,9 @@
 /**
  * Feature: skills. The goal: the header over every view, and the picker.
  *
- *   GoalHeader  the project's square, "Your goal", its name, "6 of 11 skills mastered" and one short bar per skill
- *               (green mastered, ink practicing, a faint track for the rest); Change goal on the right (quiet)
+ *   GoalHeader  one line, 36 tall (the trees get the height): the project's square, "Your goal", its name, "6 of 11"
+ *               and one short bar per skill (green mastered, ink practicing, a faint track for the rest); Change goal
+ *               on the right (quiet)
  *   GoalPicker  "What do you want to make first?": one card per project, the chosen one ringed in ink, and the surface's
  *               one primary, "Make this my goal" (set_goal when the engine lists it, kept on this Mac either way).
  *               It is the empty state for a learner with no goal yet, and the sheet Change goal opens (with Cancel).
@@ -47,19 +48,21 @@ export function GoalHeader({ g, onChange }: { g: SkillGraph; onChange?: () => vo
   const goal = g.goal
   if (!goal) return null
   return (
-    <div data-skills-goal className="flex w-full items-center" style={{ gap: 14, minHeight: 48 }}>
-      <ProjectSquare size={44} dashed={g.byId[goal.id]?.state === 'locked'} />
-      <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 5 }}>
-        <span style={{ fontSize: type2.xs, lineHeight: '14px', fontWeight: 500, color: color.label }}>{goal.inferred ? 'Where you’re headed' : 'Your goal'}</span>
-        <div className="flex min-w-0 items-baseline" style={{ gap: 10 }}>
-          <span className="truncate" style={{ ...typeScale.cardTitle, color: color.text }}>
-            {goal.label}
-          </span>
-          <span className="shrink-0" style={{ fontSize: type2.sm, color: color.label, fontVariantNumeric: 'tabular-nums' }}>
-            {goal.mastered} of {goal.total} skills mastered
-          </span>
-        </div>
-        <GoalBar mastered={goal.mastered} practicing={goal.practicing} total={goal.total} />
+    <div data-skills-goal className="flex w-full items-center" style={{ gap: 12, height: 36 }}>
+      <ProjectSquare size={32} dashed={g.byId[goal.id]?.state === 'locked'} />
+      <div className="flex min-w-0 flex-1 items-baseline" style={{ gap: 10 }}>
+        <span className="shrink-0" style={{ fontSize: type2.sm, fontWeight: 500, color: color.label }}>
+          {goal.inferred ? 'Where you’re headed' : 'Your goal'}
+        </span>
+        <span className="min-w-0 truncate" style={{ ...typeScale.row, fontSize: type2.body, fontWeight: 600, color: color.text }}>
+          {goal.label}
+        </span>
+        <span className="shrink-0" style={{ fontSize: type2.sm, color: color.label, fontVariantNumeric: 'tabular-nums' }}>
+          {goal.mastered} of {goal.total}
+        </span>
+        <span className="flex shrink-0 self-center">
+          <GoalBar mastered={goal.mastered} practicing={goal.practicing} total={goal.total} />
+        </span>
       </div>
       {onChange && <QuietButton label="Change goal" onClick={onChange} />}
     </div>

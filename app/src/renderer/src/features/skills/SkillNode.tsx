@@ -10,8 +10,8 @@
  *   capstone    a rounded square with the bonsai, same rules; the goal is the hero, a bigger card
  * NEXT is a ring 3 px outside the node and the word "Next" leading the state line.
  *
- * The label rule: the name centered under the node (two lines at most on the Path, one on the Map), the state line
- * under it, both on a plate in the pane's color so an edge passing behind never runs through the words.
+ * The label rule: the name centered under the node (two lines at most), the state line under it (one line), both on a
+ * plate in the pane's color. Edges never pass behind the words (layout.ts routes them around every label block).
  *
  * The unlock motion (one event, once): `anim.fill` grows the green disc from the center and draws the check (280 ms);
  * `anim.close` closes the dashed ring into a solid one. With reduced motion both arrive as a short fade.
@@ -179,8 +179,12 @@ export type SkillNodeProps = {
   r: number
   hero: boolean
   labelW: number
+  /** Node edge to the label's top (graphInput geom). */
+  labelGap: number
   lines: number
   line: string
+  /** The node's track, for its tooltip. */
+  track?: string
   dim: boolean
   focused: boolean
   anim?: NodeAnim
@@ -188,7 +192,7 @@ export type SkillNodeProps = {
   onHover: (id: string | undefined) => void
 }
 
-export function SkillNode({ n, x, y, r, hero, labelW, lines, line, dim, focused, anim, onOpen, onHover }: SkillNodeProps): ReactNode {
+export function SkillNode({ n, x, y, r, hero, labelW, labelGap, lines, line, track, dim, focused, anim, onOpen, onHover }: SkillNodeProps): ReactNode {
   const reduce = useReducedMotion() ?? false
   const size = 2 * r
   const cap = n.kind === 'capstone'
@@ -211,6 +215,7 @@ export function SkillNode({ n, x, y, r, hero, labelW, lines, line, dim, focused,
       <motion.button
         type="button"
         aria-label={`${n.label}, ${line}`}
+        title={track ? `${track} · ${n.label}` : n.label}
         className="relative cursor-pointer outline-offset-4"
         style={{ width: size, height: size, borderRadius: cap ? (hero ? 24 : radius2.chip) : radius2.round, pointerEvents: 'auto' }}
         onClick={() => onOpen(n.id)}
@@ -251,7 +256,7 @@ export function SkillNode({ n, x, y, r, hero, labelW, lines, line, dim, focused,
           />
         )}
       </motion.button>
-      <div className="flex flex-col items-center text-center" style={{ marginTop: hero ? 12 : lines === 1 ? 6 : 10, maxWidth: labelW, gap: 1 }}>
+      <div className="flex flex-col items-center text-center" style={{ marginTop: labelGap, maxWidth: labelW, gap: 1 }}>
         <span
           className="block"
           title={n.label}

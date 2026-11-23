@@ -8,8 +8,11 @@
  *   query      the search ("Find a skill").
  *   goal       the capstone the learner picked here. Sent as set_goal when the engine lists it; kept on this Mac either
  *              way and laid over the payload until the engine's own goal agrees (then forgotten).
- *   acked      the newest unlock event already played on this Mac (ms): skills.ack {until} goes to the engine when it
- *              lists it, and the local mark keeps an event from playing twice when it doesn't.
+ *   acked      the newest unlock event already played everywhere on this Mac (ms): skills.ack {until} goes to the
+ *              engine when it lists it, and the local mark keeps an event from playing twice when it doesn't.
+ *   played     per tree view, the events it already played (ids): each view plays only the events whose skill it shows,
+ *              so an event the Path can't show still plays on the Map. The Map shows every skill: once it has played
+ *              (or one view played all of them), the events are acked.
  *   picker     the goal picker is open over the page (Change goal).
  */
 import { useEffect, useMemo } from 'react'
@@ -36,10 +39,11 @@ type State = {
   query: string
   goal?: string
   acked?: number
+  played: Record<'path' | 'map', string[]>
   picker: boolean
 }
 
-const KEY = { view: 'miyagi.skills.view', goal: 'miyagi.skills.goal', acked: 'miyagi.skills.acked' } as const
+const KEY = { view: 'miyagi.skills.view', goal: 'miyagi.skills.goal', acked: 'miyagi.skills.acked', played: 'miyagi.skills.played' } as const
 
 function read(key: string): string | undefined {
   try {
@@ -60,12 +64,22 @@ function write(key: string, v: string | undefined): void {
 const isView = (v: unknown): v is SkillsView => v === 'path' || v === 'map' || v === 'list'
 const storedView = read(KEY.view)
 const storedAck = Number(read(KEY.acked))
+function storedPlayed(): Record<'path' | 'map', string[]> {
+  try {
+    const v = JSON.parse(read(KEY.played) ?? '{}') as Record<string, unknown>
+    const ids = (x: unknown): string[] => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string').slice(-200) : [])
+    return { path: ids(v.path), map: ids(v.map) }
+  } catch {
+    return { path: [], map: [] }
+  }
+}
 
 export const useSkills = create<State>(() => ({
   view: isView(storedView) ? storedView : 'path',
   query: '',
   goal: read(KEY.goal) || undefined,
   acked: Number.isFinite(storedAck) && storedAck > 0 ? storedAck : undefined,
+  played: storedPlayed(),
   picker: false
 }))
 const set = useSkills.setState
@@ -124,9 +138,18 @@ export function useSkillGraph(now: number): SkillGraph | undefined {
   }, [raw, goal, acked, now])
 }
 
-/** The unlock events up to `g.ack` have played: remember it here and tell the engine (skills.ack) when it listens. */
-export function ackEvents(g: SkillGraph): void {
-  if (!g.events.length) return
+/**
+ * `view` played `events` (the ones whose skills it shows): remember them for that view. When every unseen event has now
+ * played in some view, mark them all played here and tell the engine (skills.ack) when it listens.
+ */
+export function ackEvents(g: SkillGraph, view: 'path' | 'map', events: SkillGraph['events']): void {
+  if (!events.length) return
+  const cur = get().played
+  const played = { ...cur, [view]: [...cur[view], ...events.map((e) => e.id).filter((id) => !cur[view].includes(id))].slice(-200) }
+  write(KEY.played, JSON.stringify(played))
+  set({ played })
+  const seen = new Set([...played.path, ...played.map])
+  if (!g.events.every((e) => seen.has(e.id))) return
   const newest = Math.max(...g.events.map((e) => e.at))
   write(KEY.acked, String(newest))
   set({ acked: newest })
