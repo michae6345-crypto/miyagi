@@ -1,15 +1,16 @@
 /**
- * Feature: ptt. The release tail: after the keys come up, the words go out within TAIL_MS, whatever the recognizer does.
- * Pure (the clock is passed in), so the timing is tested with a fake clock (test/pttStream.test.ts).
+ * Feature: ptt. The app's safety net for the release tail: if the helper never sends a final for a released hold (an
+ * old helper binary, a lost line), the last partial goes out SAFETY_MS after the keys came up. Pure (the clock is
+ * passed in), so the timing is tested with a fake clock (test/pttStream.test.ts).
  *
- * Measured in code before this lane (Session.swift, ptt.ts, common/pttState.ts, store.ts): on release the helper
- * closed the mic, ended the recognizer's input and waited for its final, up to finalWaitMs = 1500 ms, before it sent
- * `final`; main and the renderer add a few ms of IPC. So release to final was the recognizer's finalize time (often
- * several hundred ms on SpeechAnalyzer), capped at 1.5 s, and longer when the recognizer was still starting at release.
+ * The real tail lives in the helper (native/listen/Tail.swift): after release it sends the recognizer's final as soon
+ * as it comes (about 100 to 150 ms on SpeechAnalyzer, measured by native/listen/measure-tail.sh), else the best text
+ * once it has settled (at least 300 ms), else at its cap: 1000 ms, up to HELPER_TAIL_MAX_MS when audio queued during
+ * a cold start was just flushed. Before Nov 22 it always waited up to 1500 ms.
  *
- * Now the helper itself stops waiting after a tail of at most 300 ms (Session.swift, Tail.swift) and sends its best
- * text. This is the app's copy of the same rule, so an older helper (or a lost final) costs no more than the tail too:
- * when the session has been released (phase 'sending') for TAIL_MS and no final came, the last partial is the final.
+ * This net must never race the helper: if it fired first it would route the last partial, and the helper's better
+ * final (the recognizer's, or the text with the last words) would be dropped by routeFinal's seen-id dedupe. So it
+ * waits the helper's worst case plus 400 ms of IPC and scheduling slack, and only acts when the helper said nothing.
  * If there are no words yet (the recognizer was still starting), it waits for the helper's final or cancel as before.
  *
  * It also keeps one timing record per hold (down, up, final, which path), so the speed can be read in the console.
@@ -17,8 +18,10 @@
 import type { PttState } from '../../../../common/pttState'
 import { stripWake } from './wake'
 
-/** The longest the words wait after release. */
-export const TAIL_MS = 300
+/** The helper's longest release tail (Tail.ceilingMs in native/listen/Tail.swift). Keep the two in step. */
+export const HELPER_TAIL_MAX_MS = 1500
+/** The app's safety net: strictly after the helper's worst case, so the helper's final always wins. */
+export const SAFETY_MS = HELPER_TAIL_MAX_MS + 400
 
 export type TailClock = { now: () => number; set: (fn: () => void, ms: number) => unknown; clear: (h: unknown) => void }
 
@@ -51,7 +54,7 @@ export type Tail = {
 
 export function createTail(onFinal: (f: { id: string; text: string }) => void, opts: { tailMs?: number; clock?: TailClock } = {}): Tail {
   const clock = opts.clock ?? realClock
-  const tailMs = Math.min(Math.max(opts.tailMs ?? TAIL_MS, 0), TAIL_MS)
+  const tailMs = Math.max(opts.tailMs ?? SAFETY_MS, SAFETY_MS) // never shorter than the helper's worst case
   let timer: unknown
   let armed: string | undefined // the id the timer is for
   let text = ''

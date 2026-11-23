@@ -1,5 +1,5 @@
 /**
- * Push to talk speed, offline: the wake-word strip (features/ptt/wake.ts), the release tail with a fake clock
+ * Push to talk speed, offline: the wake-word strip (features/ptt/wake.ts), the release tail's safety net with a fake clock
  * (features/ptt/tail.ts), and the store's seams for circle to ask (onPttDown, onPttPartial, the tail's final going out
  * once, the helper's late final not asked twice) with a fake Electron bridge.
  */
@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import type { PttState } from '../src/common/pttState'
-import { createTail, meaningful, TAIL_MS, type TailClock, type TailView } from '../src/renderer/src/features/ptt/tail'
+import { createTail, HELPER_TAIL_MAX_MS, meaningful, SAFETY_MS, type TailClock, type TailView } from '../src/renderer/src/features/ptt/tail'
 import { stripWake } from '../src/renderer/src/features/ptt/wake'
 
 describe('stripWake', () => {
@@ -72,8 +72,8 @@ function fakeClock(): TailClock & { tick(ms: number): void } {
 
 const view = (phase: PttState['phase'], id: string | undefined, text = '', released = false): TailView => ({ phase, id, text, released })
 
-describe('the release tail (fake clock)', () => {
-  test('released with words and no final: the last partial goes out exactly TAIL_MS after the keys come up', () => {
+describe("the release tail's safety net (fake clock)", () => {
+  test('released with words and no final from the helper: the last partial goes out exactly SAFETY_MS after the keys come up', () => {
     const clock = fakeClock()
     const out: { id: string; text: string }[] = []
     const tail = createTail((f) => out.push(f), { clock })
@@ -85,14 +85,14 @@ describe('the release tail (fake clock)', () => {
     tail.observe(view('sending', 'a', 'why does the loss', true)) // the keys came up
     clock.tick(120)
     tail.observe(view('sending', 'a', 'why does the loss go down', true)) // a partial during the tail
-    clock.tick(TAIL_MS - 121)
+    clock.tick(SAFETY_MS - 121)
     assert.deepEqual(out, [], 'not before the tail')
     clock.tick(1)
     assert.deepEqual(out, [{ id: 'a', text: 'why does the loss go down' }])
     const t = tail.timing()
     assert.equal(t?.via, 'tail')
-    assert.equal(t?.releaseToFinalMs, TAIL_MS)
-    assert.equal(t?.finalAt! - t?.downAt!, 260 + 900 + TAIL_MS)
+    assert.equal(t?.releaseToFinalMs, SAFETY_MS)
+    assert.equal(t?.finalAt! - t?.downAt!, 260 + 900 + SAFETY_MS)
     clock.tick(5000)
     assert.equal(out.length, 1, 'once')
   })
@@ -123,11 +123,11 @@ describe('the release tail (fake clock)', () => {
     tail.observe(view('arming', 'c', '', true)) // released while the mic was opening
     clock.tick(40)
     tail.observe(view('sending', 'c', '', true))
-    clock.tick(TAIL_MS * 3)
+    clock.tick(SAFETY_MS * 3)
     assert.deepEqual(out, [])
     assert.equal(tail.timing()?.upAt, 1300, 'the release is timed from the key-up, not from sending')
     tail.final('c', 'helper')
-    assert.equal(tail.timing()?.releaseToFinalMs, 40 + TAIL_MS * 3)
+    assert.equal(tail.timing()?.releaseToFinalMs, 40 + SAFETY_MS * 3)
   })
 
   test('only a wake word so far is not worth sending', () => {
@@ -136,7 +136,7 @@ describe('the release tail (fake clock)', () => {
     const tail = createTail((f) => out.push(f), { clock })
     tail.observe(view('arming', 'w'))
     tail.observe(view('sending', 'w', 'Hey Miyagi', true))
-    clock.tick(TAIL_MS)
+    clock.tick(SAFETY_MS)
     assert.deepEqual(out, [])
   })
 
@@ -146,26 +146,51 @@ describe('the release tail (fake clock)', () => {
     const tail = createTail((f) => out.push(f), { clock })
     tail.observe(view('sending', 'd', 'first words', true))
     tail.observe(view('idle', undefined)) // cancelled
-    clock.tick(TAIL_MS)
+    clock.tick(SAFETY_MS)
     tail.observe(view('sending', 'e', 'other words', true))
     tail.observe(view('arming', 'f')) // a new hold before the tail ran out
-    clock.tick(TAIL_MS)
+    clock.tick(SAFETY_MS)
     assert.deepEqual(out, [])
   })
 
-  test('the tail is never longer than 300 ms, whatever is asked; paused, it never sends', () => {
+  test("the net is never shorter than the helper's worst case plus slack, whatever is asked; paused, it never sends", () => {
+    assert.ok(SAFETY_MS >= HELPER_TAIL_MAX_MS + 400)
     const clock = fakeClock()
     const out: unknown[] = []
-    const tail = createTail((f) => out.push(f), { clock, tailMs: 5000 })
+    const tail = createTail((f) => out.push(f), { clock, tailMs: 300 })
     tail.observe(view('sending', 'g', 'what is this', true))
-    clock.tick(300)
+    clock.tick(SAFETY_MS - 1)
+    assert.equal(out.length, 0, 'a short tailMs is raised to SAFETY_MS')
+    clock.tick(1)
     assert.equal(out.length, 1)
     const paused = createTail((f) => out.push(f), { clock })
     paused.pause(true)
     paused.observe(view('sending', 'h', 'what is this', true))
-    clock.tick(1000)
+    clock.tick(SAFETY_MS * 2)
     assert.equal(out.length, 1)
   })
+
+  // The helper's own tail: 300 ms (settled), up to HELPER_TAIL_MAX_MS (still revising, or a cold-start flush). Its
+  // final reaches the renderer some ms later; it must win, not the last partial the renderer already has.
+  for (const helperMs of [300 + 20, 1000 + 20, HELPER_TAIL_MAX_MS + 20]) {
+    test(`the helper's final at ${helperMs} ms after release (its tail + 20 ms of IPC) wins over the net`, () => {
+      const clock = fakeClock()
+      const out: { id: string; text: string }[] = []
+      const tail = createTail((f) => out.push(f), { clock })
+      tail.observe(view('arming', 'r'))
+      tail.observe(view('listening', 'r', 'why does the'))
+      clock.tick(700)
+      tail.observe(view('sending', 'r', 'why does the loss', true)) // the keys came up; the last partial lacks the end
+      clock.tick(helperMs)
+      assert.deepEqual(out, [], 'the net has not fired')
+      const t = tail.final('r', 'helper') // the helper's final, with the last words
+      tail.observe(view('idle', undefined))
+      clock.tick(SAFETY_MS * 2)
+      assert.deepEqual(out, [], 'and never does for this hold')
+      assert.equal(t?.via, 'helper')
+      assert.equal(t?.releaseToFinalMs, helperMs)
+    })
+  }
 })
 
 // ---- the store, with a fake Electron bridge ----
@@ -246,18 +271,18 @@ describe('ptt store: the seams and the tail (fake Electron bridge)', () => {
     assert.deepEqual(parts, ['k1:What'])
   })
 
-  test('released and no final: the tail asks the last partial once, 300 ms after the key-up; the late final is not asked again', () => {
+  test('released and no final from the helper: the net asks the last partial once, SAFETY_MS after the key-up; a late final is not asked again', () => {
     store.receive(state('arming', 'm1'))
     store.receive(state('listening', 'm1', 'hey miyagi why does the loss'))
     mock.timers.tick(800)
     store.receive(state('sending', 'm1', 'hey miyagi why does the loss go down', true))
-    mock.timers.tick(TAIL_MS - 1)
+    mock.timers.tick(SAFETY_MS - 1)
     assert.deepEqual(asks(), [])
     mock.timers.tick(1)
     assert.deepEqual(asks(), ['Why does the loss go down'])
     assert.equal(store.usePtt.getState().owned, false, 'the island lets go at once')
     assert.equal(store.pttTiming()?.via, 'tail')
-    assert.equal(store.pttTiming()?.releaseToFinalMs, TAIL_MS)
+    assert.equal(store.pttTiming()?.releaseToFinalMs, SAFETY_MS)
     // The helper's final for the same hold, later: no second ask, and the island does not claim it again.
     store.receive(state('sending', 'm1', 'hey miyagi why does the loss go down', true))
     assert.equal(store.usePtt.getState().owned, false)
@@ -279,10 +304,24 @@ describe('ptt store: the seams and the tail (fake Electron bridge)', () => {
     assert.equal(store.pttTiming()?.releaseToFinalMs, 90)
   })
 
+  test("the helper's final at its worst-case tail + 20 ms wins: its words are asked, not the last partial", () => {
+    store.receive(state('arming', 'q1'))
+    store.receive(state('listening', 'q1', 'why is my tensor'))
+    mock.timers.tick(900)
+    store.receive(state('sending', 'q1', 'why is my tensor flow', true))
+    mock.timers.tick(HELPER_TAIL_MAX_MS + 20)
+    assert.deepEqual(asks(), [], 'the net is still waiting')
+    feat('ptt:final', { id: 'q1', text: 'Why is my TensorFlow loss NaN?' })
+    store.receive(PTT_REST)
+    mock.timers.tick(SAFETY_MS * 2)
+    assert.deepEqual(asks(), ['Why is my TensorFlow loss NaN?'])
+    assert.equal(store.pttTiming()?.via, 'helper')
+  })
+
   test('saying only the wake word asks nothing', () => {
     store.receive(state('arming', 'p1'))
     store.receive(state('sending', 'p1', 'Hey Miyagi', true))
-    mock.timers.tick(TAIL_MS * 2)
+    mock.timers.tick(SAFETY_MS * 2)
     feat('ptt:final', { id: 'p1', text: 'Hey Miyagi.' })
     store.receive(PTT_REST)
     assert.deepEqual(asks(), [])

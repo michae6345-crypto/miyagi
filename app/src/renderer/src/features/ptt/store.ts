@@ -101,7 +101,7 @@ export function receive(next: PttState): void {
   const prev = get().ptt
   const live = next.phase === 'listening' || next.phase === 'sending'
   tail.observe(next)
-  // A hold the release tail already sent (below) is done for the island, even while the helper is still finishing it.
+  // A hold the safety net already sent (below) is done for the island, even while the helper is still finishing it.
   if (live && !get().owned && next.id !== spent) {
     set({ owned: true })
     clearTimeout(cap)
@@ -195,12 +195,12 @@ bridge
   .then((s) => s && typeof s === 'object' && receive(s))
   .catch(() => undefined) // no helper (or the stage without a mock): push to talk stays out of sight
 
-// ---- speed (Nov 22): the release tail, and the seams circle to ask plugs into ----
+// ---- speed (Nov 22): the release tail's safety net, and the seams circle to ask plugs into ----
 
-/** The hold the release tail sent: the island lets go of it at once. */
+/** The hold the safety net sent: the island lets go of it at once. */
 let spent: string | undefined
 
-/** The release tail (tail.ts): at most TAIL_MS after the keys come up, the last partial is the final. */
+/** The safety net (tail.ts): if the helper sends no final within SAFETY_MS of the key-up, the last partial is the final. */
 const tail = createTail((f) => {
   spent = f.id
   release()
@@ -233,8 +233,10 @@ const downFns = new Set<DownFn>()
 const partialFns = new Set<PartialFn>()
 
 /**
- * The push-to-talk keys went down (the helper's ptt down, before the 250 ms debounce). Main has already asked the engine
- * to warm up (ask.warm). Circle to ask: start getting the capture ready here. Returns an unsubscribe.
+ * The push-to-talk keys went down (the helper's ptt down, before the 250 ms debounce). Local work only: main asks the
+ * engine to warm up (ask.warm, a paid cache write) later, once the hold passes the minimum and the mic opens
+ * ('listening'), so taps and Fn+Control+arrow presses cost nothing. Circle to ask: prepare the capture for this hold
+ * here (prefetch SCShareableContent and our own windows to exclude), keyed by id. Returns an unsubscribe.
  */
 export function onPttDown(fn: DownFn): () => void {
   downFns.add(fn)

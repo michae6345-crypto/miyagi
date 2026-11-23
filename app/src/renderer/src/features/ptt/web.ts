@@ -34,7 +34,7 @@ const SCRIPTS: Record<string, Step[]> = {
   idle: [],
   listen: hold('a1', 4),
   send: [...hold('a2', 5), [200, { type: 'ptt', state: 'up', id: 'a2' }]],
-  // Release with no final from the helper: the release tail (tail.ts) sends the last partial 300 ms after the keys come up.
+  // Release with no final from the helper (an old helper, a lost line): the safety net (tail.ts) sends the last partial SAFETY_MS after the keys come up.
   tail: [...hold('t1', 5), [200, { type: 'ptt', state: 'up', id: 't1' }]],
   // A wake word first: the pill and the ask show only "What is this error".
   wake: [[0, { type: 'ptt', state: 'down', id: 'w1' }], [260, { type: 'listening', id: 'w1' }], ...WAKE_PARTIALS.map((t, i): Step => [180 + i * 140, { type: 'partial', id: 'w1', text: t }]), [200, { type: 'ptt', state: 'up', id: 'w1' }], [150, { type: 'final', id: 'w1', text: 'Hey Miyagi, what is this error?' }]],
