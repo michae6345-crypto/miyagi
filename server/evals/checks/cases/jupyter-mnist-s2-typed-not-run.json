@@ -1,0 +1,36 @@
+{
+ "id": "jupyter-mnist-s2-typed-not-run",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "T10-CP7: the cell is typed but never run (Shift+Enter); a 'Run the cell' step is not done.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s2"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 1,
+     "unrun": [
+      0
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "import tensorflow as tf",
+    "from tensorflow.keras import layers, models",
+    "import matplotlib.pyplot as plt",
+    "import numpy as np",
+    "(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()",
+    "train_images = train_images.astype('float32') / 255",
+    "test_images = test_images.astype('float32') / 255"
+   ]
+  }
+ }
+}

@@ -1,0 +1,41 @@
+{
+ "id": "metric-nn4-ocr-letter-o",
+ "kind": "metric",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Converged run, but OCR reads the zeros as the letter O (O.OO31).",
+ "step": {
+  "lesson": "demo/cache/lessons/text-nn-from-scratch.json",
+  "id": "nn4"
+ },
+ "workspace": {
+  "files": {
+   "nn.py": "import numpy as np\n\n# The network\nX = np.linspace(-np.pi, np.pi, 50).reshape(-1, 1)\ny = np.sin(X)\n\nnp.random.seed(0)\nW1 = np.random.randn(1, 4)\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 4)\nb2 = np.zeros((1, 4))\nW3 = np.random.randn(4, 1) * 0.1\nb3 = np.zeros((1, 1))\n\ndef forward(X):\n    h1 = np.tanh(X @ W1 + b1)\n    h2 = np.tanh(h1 @ W2 + b2)\n    return h1, h2, h2 @ W3 + b3\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac nn % python3 nn.py",
+    "epoch 0 loss O.4721",
+    "epoch 1000 loss O.12O5",
+    "epoch 2000 loss O.O41O",
+    "epoch 3000 loss O.O153",
+    "epoch 4000 loss O.OO81",
+    "epoch 5000 loss O.OO62",
+    "epoch 6000 loss O.OO51",
+    "epoch 7000 loss O.OO44",
+    "epoch 8000 loss O.OO39",
+    "epoch 9000 loss O.OO35",
+    "epoch 10000 loss O.OO32",
+    "epoch 11000 loss O.OO3O",
+    "epoch 12000 loss O.OO28",
+    "epoch 13000 loss O.OO26",
+    "epoch 14000 loss O.OO24",
+    "epoch 15000 loss O.OO22",
+    "epoch 16000 loss O.OO21",
+    "epoch 17000 loss O.OO2O",
+    "epoch 18000 loss O.OO19",
+    "epoch 19000 loss O.OO18"
+   ]
+  }
+ }
+}

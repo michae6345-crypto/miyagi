@@ -1,0 +1,45 @@
+{
+ "id": "jupyter-kernel-other-python",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The notebook runs on the system Python 3.13.1 kernel, not the lesson's .venv.",
+ "step": {
+  "id": "s1",
+  "title": "Open mnist.ipynb with the .venv kernel",
+  "file": "mnist.ipynb",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "mnist.ipynb"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s1c2",
+    "type": "screen_contains",
+    "label": "Notebook kernel is .venv",
+    "pattern": "\\.?venv\\s*\\(\\s*(?:Python\\s*)?3\\b|['‘’]\\.?venv['‘’]\\s*:\\s*venv"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "cells": [],
+     "kernel": "Python 3.13.1",
+     "kernel_version": "3.13.1"
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "Python 3.13.1",
+    "Run All",
+    "Outline"
+   ]
+  }
+ }
+}

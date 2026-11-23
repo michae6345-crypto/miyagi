@@ -1,0 +1,26 @@
+{
+ "id": "vscode-calc-s4-guard-done",
+ "kind": "vscode",
+ "trap": "none",
+ "expected": "pass",
+ "why": "divide() raises ValueError(\"Cannot divide by zero\") when b == 0.",
+ "step": {
+  "lesson": "demo/cache/lessons/text-43e26ca1d86c37ed.json",
+  "id": "s4"
+ },
+ "workspace": {
+  "files": {
+   "calculator.py": "def divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "calculator.py",
+    "def divide(a, b):",
+    "if b == 0:",
+    "raise ValueError(\"Cannot divide by zero\")",
+    "return a / b"
+   ]
+  }
+ }
+}

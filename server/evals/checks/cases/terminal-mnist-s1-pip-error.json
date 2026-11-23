@@ -1,0 +1,27 @@
+{
+ "id": "terminal-mnist-s1-pip-error",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "pip could not install tensorflow (no wheel for this Python); jupyter was already installed so the server still starts, but the lesson's imports will fail.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "venv/bin/activate": "# venv\n"
+  },
+  "screen": {
+   "Terminal": [
+    "(venv) tripi@mac mnist % pip3 install jupyter tensorflow numpy matplotlib",
+    "Requirement already satisfied: jupyter in ./venv/lib/python3.13/site-packages (1.1.1)",
+    "ERROR: Could not find a version that satisfies the requirement tensorflow (from versions: none)",
+    "ERROR: No matching distribution found for tensorflow",
+    "(venv) tripi@mac mnist % jupyter notebook",
+    "[I 2026-11-15 07:33:12.512 ServerApp] Jupyter Server 2.14.2 is running at:",
+    "[I 2026-11-15 07:33:12.512 ServerApp] http://localhost:8888/tree?token=3f9c"
+   ]
+  }
+ }
+}

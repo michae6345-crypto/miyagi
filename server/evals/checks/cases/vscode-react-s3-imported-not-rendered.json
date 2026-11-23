@@ -1,0 +1,29 @@
+{
+ "id": "vscode-react-s3-imported-not-rendered",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Header is imported but App still renders the old <h1>, so nothing shows the header.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\n\nfunction App() {\n  return (<h1>Hello</h1>)\n}\nexport default App\n"
+  },
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "Header.jsx",
+    "App.jsx",
+    "import Header from './Header.jsx'",
+    "function App() {",
+    "return (<h1>Hello</h1>)",
+    "}",
+    "export default App"
+   ]
+  }
+ }
+}

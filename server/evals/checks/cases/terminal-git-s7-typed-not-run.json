@@ -1,0 +1,22 @@
+{
+ "id": "terminal-git-s7-typed-not-run",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The command is typed at the prompt but Enter was never pressed: no branch exists yet.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git status",
+    "On branch main",
+    "nothing to commit, working tree clean",
+    "tripi@mac gitgoing % git checkout -b update-name"
+   ]
+  }
+ }
+}

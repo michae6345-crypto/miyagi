@@ -1,0 +1,48 @@
+{
+ "id": "jupyter-mnist-s6-training-progress-only",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "T10 #3: view_classify cell is typed but not run; the only ms/step progress on screen is the TRAINING cell's, and no Class Probability plot exists.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 4,
+     "append": [
+      {
+       "source": "def view_classify(image, probabilities):\n    fig, (ax1, ax2) = plt.subplots(figsize=(6,9), ncols=2)\n    ax1.imshow(image)\n    ax1.axis('off')\n    ax2.barh(np.arange(10), probabilities)\n    ax2.set_aspect(0.1)\n    ax2.set_yticks(np.arange(10))\n    ax2.set_yticklabels(np.arange(10))\n    ax2.set_title('Class Probability')\n    ax2.set_xlim(0, 1.1)\n    plt.tight_layout()\n\nimage, label = test_images[0], test_labels[0]\nprobabilities = model.predict(image.reshape(1, 28, 28, 1))\nview_classify(image, probabilities[0])",
+       "run": false
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "Epoch 5/5",
+    "1875/1875 ━━━━━━━━━━━━━━━━━━━━ 1s 593us/step - accuracy: 0.9858 - loss: 0.0433",
+    "def view_classify(image, probabilities):",
+    "    fig, (ax1, ax2) = plt.subplots(figsize=(6,9), ncols=2)",
+    "    ax1.imshow(image)",
+    "    ax1.axis('off')",
+    "    ax2.barh(np.arange(10), probabilities)",
+    "    ax2.set_aspect(0.1)",
+    "    ax2.set_yticks(np.arange(10))",
+    "    ax2.set_yticklabels(np.arange(10))",
+    "    ax2.set_title('Class Probability')",
+    "    ax2.set_xlim(0, 1.1)",
+    "    plt.tight_layout()",
+    "image, label = test_images[0], test_labels[0]",
+    "probabilities = model.predict(image.reshape(1, 28, 28, 1))",
+    "view_classify(image, probabilities[0])"
+   ]
+  }
+ }
+}

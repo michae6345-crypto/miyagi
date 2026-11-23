@@ -1,0 +1,27 @@
+{
+ "id": "terminal-mnist-s1-ocr-wrapped",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Same good install as the clean case, but OCR splits 'Successfully' / 'installed ...' and the server URL across lines of a narrow terminal.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "venv/bin/activate": "# venv\n"
+  },
+  "screen": {
+   "Terminal": [
+    "(venv) tripi@mac mnist % pip3 install jupyter tensorflow numpy matplotlib",
+    "Successfully",
+    "installed jupyter-1.1.1 tensorflow-2.18.0",
+    "(venv) tripi@mac mnist % jupyter notebook",
+    "[I 07:33:12.512 ServerApp] Jupyter Server 2.14.2 is running at:",
+    "http://127.0.0.1:8888/",
+    "tree?token=3f9c"
+   ]
+  }
+ }
+}

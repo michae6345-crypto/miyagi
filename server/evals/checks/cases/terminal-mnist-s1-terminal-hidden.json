@@ -1,0 +1,20 @@
+{
+ "id": "terminal-mnist-s1-terminal-hidden",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "T3-CP16: nothing has been run; the Terminal is not even on screen (only VS Code's README).",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Code": [
+    "README.md",
+    "# Code your first Neural Network with TensorFlow"
+   ]
+  }
+ }
+}

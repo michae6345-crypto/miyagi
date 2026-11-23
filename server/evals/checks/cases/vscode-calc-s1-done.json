@@ -1,0 +1,25 @@
+{
+ "id": "vscode-calc-s1-done",
+ "kind": "vscode",
+ "trap": "none",
+ "expected": "pass",
+ "why": "add() returns a + b and the test line calls add(2, 3), on screen and saved.",
+ "step": {
+  "lesson": "demo/cache/lessons/text-43e26ca1d86c37ed.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "calculator.py": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "calculator.py",
+    "def add(a, b):",
+    "    return a + b",
+    "print(add(2, 3))"
+   ]
+  }
+ }
+}

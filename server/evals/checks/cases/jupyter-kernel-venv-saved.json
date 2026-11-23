@@ -1,0 +1,38 @@
+{
+ "id": "jupyter-kernel-venv-saved",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "T12-CP4: VS Code connected the .venv kernel (saved in the notebook metadata); no screen frame yet.",
+ "step": {
+  "id": "s1",
+  "title": "Open mnist.ipynb with the .venv kernel",
+  "file": "mnist.ipynb",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "mnist.ipynb"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s1c2",
+    "type": "screen_contains",
+    "label": "Notebook kernel is .venv",
+    "pattern": "\\.?venv\\s*\\(\\s*(?:Python\\s*)?3\\b|['‘’]\\.?venv['‘’]\\s*:\\s*venv"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "cells": [],
+     "kernel": ".venv (3.12.16)",
+     "kernel_version": "3.12.16"
+    }
+   }
+  },
+  "screen": null
+ }
+}
