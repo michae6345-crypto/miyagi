@@ -31,6 +31,7 @@ import { color, fill, shadows, text } from '../../core/theme'
 import { OptionButton, PrimaryButton } from '../../core/ui/atoms'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
 import { Character, CHARACTERS, DEFAULT_CHARACTER, type CharacterKind, type Mood } from './Character'
+import { SKIN } from './palette'
 import { ringBox } from './marks'
 import { setTrip, usePointing } from './pointing'
 import { bonsaiPoint, frame, useHere, useStandDown } from './Reach'
@@ -83,7 +84,7 @@ function Says({ model, letters, open, onReply, measure = false }: { model: Model
   if (model.kind === 'listening') {
     return (
       <span className="flex items-center gap-[9px] whitespace-nowrap">
-        <span className="bd-bars">
+        <span className="bd-bars" style={{ color: SKIN.stroke }}>
           <i />
           <i />
           <i />

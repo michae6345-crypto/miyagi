@@ -2,9 +2,9 @@
  * Feature: buddy. The buddy's own colors, in one place.
  *
  * A skin is the buddy's color: its body, its leaves, its cheeks and the stroke it draws. One skin is in use (SKIN).
- * Adrian picked mint on Nov 22 and then did not like it on the character (Nov 23), so the others here are candidates
- * for him to pick from; the browser stage's ?skin=<name> shows the whole buddy in one, and ?buddy=colors shows them
- * side by side. Once he picks, the rest go and the pick gets a theme token (brief, Core requests).
+ * Adrian picked mint on Nov 22, did not like it on the character, and picked sand from the color sheet on Nov 23.
+ * The others stay while he is still trying things: the browser stage's ?skin=<name> shows the whole buddy in one,
+ * and ?buddy=colors shows them side by side. They go once the look is settled.
  *
  * Where a color is in the brand kit it is read from there. `kit: false` marks one that is not.
  */
@@ -40,9 +40,9 @@ const MINT = '#96E4C8'
 const CLAY = '#C2694A'
 
 export const SKINS = {
-  mint: { body: MINT, leaf: brand.pastel.mint, blush: PINK, stroke: MINT, note: 'what it is now', kit: false },
+  mint: { body: MINT, leaf: brand.pastel.mint, blush: PINK, stroke: MINT, note: 'what it was', kit: false },
   cream: { body: brand.paper, leaf: brand.paper, blush: PINK, stroke: brand.paper, keyline: 0.9, note: 'the brand paper: white on black, like the buttons', kit: true },
-  sand: { body: brand.pastel.sand, leaf: '#F4EEDC', blush: PINK_DEEP, stroke: brand.pastel.sand, note: 'the kit sand', kit: true },
+  sand: { body: brand.pastel.sand, leaf: brand.paper, blush: PINK_DEEP, stroke: brand.pastel.sand, keyline: 0.75, note: 'the kit sand: the pick', kit: true },
   butter: { body: '#F6DE8E', leaf: '#FBEDBE', blush: PINK_DEEP, stroke: '#F6DE8E', note: 'a soft yellow; the kit has no yellow', kit: false },
   peach: { body: brand.pastel.peach, leaf: brand.pastel.peachLight, blush: PINK_DEEP, stroke: brand.pastel.peach, note: 'the kit peach (also the Watch option)', kit: true },
   clay: { body: CLAY, leaf: brand.pastel.peachLight, blush: PINK_DEEP, stroke: CLAY, note: 'the pot of the logo', kit: true },
@@ -52,8 +52,8 @@ export const SKINS = {
 } as const satisfies Record<string, Skin>
 export type SkinName = keyof typeof SKINS
 
-/** The one in use until Adrian picks. */
-export const DEFAULT_SKIN: SkinName = 'mint'
+/** The one in use: Adrian picked sand from the color sheet on Nov 23. */
+export const DEFAULT_SKIN: SkinName = 'sand'
 
 /** The skin in use. The browser stage's ?skin=<name> shows another. */
 export const SKIN: Skin = (() => {
