@@ -1,6 +1,6 @@
 # skills
 
-**Status:** design done (research, mockups in light and dark, PDF), sent to Michael Nov 22 for a yes before code · **Priority:** P1 (Michael: "a priority") · **Port:** see ports.json · **Branch:** `adrian/skills-tree`
+**Status:** built in michael/app-skills-tree + michael/app-skills-extras, merged to v2-integration 2026-11-22 (partial: only the contract and the model had landed; extras not pushed yet) · **Priority:** P1 (Michael: "a priority") · **Port:** see ports.json · **Branch:** `adrian/skills-tree`
 
 ## Goal
 The Skills page becomes a real skill tree. A node is a skill ("Broadcasting", "Extrude") built up across lessons, not a lesson's steps. A real prerequisite graph runs underneath, across tracks. On top, the default **Path** view shows only the skills on the way to the learner's goal: a project at the right end, drawn left to right. **Map** shows every track grown up from one trunk. **List** shows one card per track. One NEXT and one primary button tell you what to do now. A new learner starts by picking what to make first.
@@ -41,3 +41,13 @@ NEXT is a focus marker on exactly one node: a ring offset 3px plus the word. The
 - The skill panel opens from any node. Esc closes it.
 - The unlock plays once per event and respects reduced motion.
 - typecheck passes, and the stage at `?scenario=skills` shows each view.
+
+## Leftovers
+As of the 2026-11-22 merge (v2-integration), only these had landed from `michael/app-skills-tree`: the optional contract fields (`shared/contracts/events.{ts,py}`), `features/skills/model.ts` + `model.test.ts`, the mock learner `app/mock/scenarios/skills.json`, and Adrian's research and mockups. `michael/app-skills-extras` did not exist on origin yet. Still to do:
+- `features/skills/layout.ts`: layered layout (longest-path layers, barycenter sweeps, straightening), zero crossings, even rows, one edge curve, with unit tests.
+- Path, Map and List views, the node component (40-48px, surface + soft shadow, state rendering), capstone hero card with the bonsai, fit-to-view on open, track names as group headers.
+- Skill panel (opens from any node, Esc closes), the dock (NEXT, also ready, keep fresh), goal picker, unlock motion (once per event, reduced motion).
+- `SkillsPage.tsx` still renders the old page; wire it to the new feature and retire `Constellation.tsx` there.
+- Extras lane: skill chips on Library cards, lesson-end recap, weekly recap on Progress.
+- Engine: handle `set_goal` / `skills.ack` and add them to `V2_CAPABILITIES`; send `Progress.graph`.
+- Verify light and dark at 1024, 1280, 1728 on `?scenario=skills`; re-merge both lanes into v2-integration when they finish.
