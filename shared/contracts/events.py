@@ -1110,6 +1110,13 @@ class PanelState(_Model):
     rect: ScreenRect | None = None
 
 
+class AskWarm(_Model):
+    """Nov 22 (push to talk speed): the push-to-talk keys went down; open or reuse the keep-alive links and warm the
+    prompt cache for the ask (at most once per cache lifetime). No reply. pttId: the hold's id, for logs only."""
+
+    pttId: str | None = Field(default=None, max_length=64)
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
@@ -1131,15 +1138,17 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "panel.state": PanelState,
     "set_goal": SetGoal,
     "skills.ack": SkillsAck,
+    "ask.warm": AskWarm,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
                          "card.shown", "card.closed",
                          "health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
-                         "set_goal", "skills.ack"]
+                         "set_goal", "skills.ack", "ask.warm"]
 
 # v2: the command types an engine may list in engine.hello.capabilities.
-V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state")
+V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
+                                    "ask.warm")
 CONTRACT_VERSION = "2026-11-20"
 
 
