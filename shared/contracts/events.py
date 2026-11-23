@@ -805,6 +805,16 @@ class CardClosed(_Model):
     by: str | None = None
 
 
+class AskWarm(_Model):
+    """Nov 22 (push to talk speed): the push-to-talk hold passed the minimum and the mic is open; open or reuse the
+    keep-alive links and warm the prompt cache for the ask. The app sends it on every hold that passes the minimum
+    (never for a tap or an aborted chord). The engine always opens or reuses the links (free; keep-alive links close
+    seconds after their last use) and throttles only the paid prompt-cache write (under the 5-minute cache lifetime).
+    No reply. pttId: the hold's id, for logs only."""
+
+    pttId: str | None = Field(default=None, max_length=64)
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
@@ -816,10 +826,11 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "end_lesson": EndLesson,
     "card.shown": CardShown,
     "card.closed": CardClosed,
+    "ask.warm": AskWarm,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
-                         "card.shown", "card.closed"]
+                         "card.shown", "card.closed", "ask.warm"]
 
 
 class AppMessage(BaseModel):
