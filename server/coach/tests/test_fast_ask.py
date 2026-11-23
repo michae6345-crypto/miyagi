@@ -487,12 +487,99 @@ def test_offline_no_key_bad_image_and_bad_rect_never_call(api, monkeypatch):
     assert api.requests == [] and ev.items == []
 
 
-def test_a_crop_file_is_read_once_and_deleted(api, tmp_path):
+def test_a_path_is_never_read_or_deleted(api, tmp_path):
+    """ask_stream takes bytes only: a path from the app's payload goes through shared.capture_file.take_capture."""
     p = tmp_path / "crop.jpg"
     p.write_bytes(jpeg())
-    api.replies.append(stream_reply(["[DRAW:none]\nA plot."]))
-    res = asyncio.run(fa.ask_stream(str(p), RECT, W, H, "what is this", emit=Events(), consume_file=True))
-    assert res.ok and not p.exists()
+    res = asyncio.run(fa.ask_stream(str(p), RECT, W, H, "what is this", emit=Events()))
+    assert res.error == "bad_image" and p.exists() and api.requests == []
+    with pytest.raises(TypeError):
+        fa.load_crop(p, W, H)
+
+
+def test_a_refusal_after_words_empties_the_answer(api):
+    """Haiku has no server-side fallback: the declined words must leave the screen (done.text empty)."""
+    api.replies.append(stream_reply(["[DRAW:none]\n", "This panel shows ", "the"], stop="refusal",
+                                    model="claude-haiku-5-5"))
+    res, ev = ask(words="what is this")
+    assert ev.shown() == "This panel shows the" and res.deltas == 2
+    assert ev.of("answer.done") == [{"askId": "a1", "text": "", "complete": False, "reason": "refusal"}]
+    assert not res.ok and res.error == "refusal" and res.text == ""
+
+
+def test_a_server_side_fallback_bills_every_attempt(api, monkeypatch):
+    """Sonnet 5.5 with fallbacks "default": top-level usage is the final attempt only; usage.iterations has all."""
+    calls = []
+    monkeypatch.setattr(fa.llm, "record_cost", lambda model, usage, **kw: calls.append((model, fa._usage(usage))))
+    body = message("[DRAW:none]\nThe Run button.", model="claude-sonnet-5")
+    body["usage"] = {**body["usage"], "iterations": [
+        {"type": "message", "input_tokens": 1000, "output_tokens": 12, "cache_read_input_tokens": 0,
+         "cache_creation_input_tokens": 0},
+        {"type": "fallback_message", "input_tokens": 1200, "output_tokens": 30, "cache_read_input_tokens": 640,
+         "cache_creation_input_tokens": 0}]}
+    api.replies.append(httpx2.Response(529, json={"type": "error", "error": {"type": "overloaded_error",
+                                                                             "message": "Overloaded"}}))
+    api.replies.append(httpx2.Response(200, json=body))
+    res, _ev = ask()
+    assert res.ok
+    assert [c[0] for c in calls] == ["claude-sonnet-5-5", "claude-sonnet-5"]  # the declined try at Sonnet 5.5 rates
+    assert res.usage["input_tokens"] == 2200 and res.usage["output_tokens"] == 42
+    assert res.metrics["inputTokens"] == 2200
+
+
+def test_fast_ask_never_runs_opus_even_when_opted_in(api, monkeypatch):
+    monkeypatch.setenv("MIYAGI_ALLOW_OPUS", "1")
+    monkeypatch.setenv("COACH_MODEL_FAST_ASK", "claude-opus-5-5")
+    monkeypatch.setenv("COACH_MODEL_FAST_ASK_SIMPLE", "claude-fable-5-2")
+    assert fa.choose_model("how does this work") == "claude-sonnet-5-5"
+    assert fa.choose_model("") == "claude-haiku-5-5"
+    assert fa.warm_models() == ["claude-haiku-5-5", "claude-sonnet-5-5"]
+    monkeypatch.setenv("COACH_MODEL_FAST_ASK", "claude-mythos-5-2")
+    assert fa.warm_model() == "claude-sonnet-5-5"
+    api.replies.append(stream_reply(["[DRAW:none]\nIt runs it."]))
+    res, _ev = ask()
+    body = api.bodies()[0]
+    assert res.ok and body["model"] == "claude-sonnet-5-5" and body["thinking"] == {"type": "between_tools"}
+
+
+@pytest.mark.parametrize("chunks", [
+    ["```\n[DRAW:412,96,40:Run button]\nThe Run button starts the script.\n```"],
+    ["``", "`text\n[DRAW:412,96,40:Run button]\nThe Run button starts the script.\n", "```\n"],
+])
+def test_a_fenced_reply_still_gives_the_mark_and_a_clean_answer(chunks):
+    draws, text, status = run_parser(chunks)
+    assert draws == [{"x": 412.0, "y": 96.0, "r": 40.0, "label": "Run button"}] and status == "ok"
+    assert "`" not in fa.clean_answer(text) and fa.clean_answer(text) == "The Run button starts the script."
+
+
+def test_clean_answer_keeps_inline_backticks():
+    assert fa.clean_answer("Call `fit()` here.\n```") == "Call `fit()` here."
+
+
+def test_to_mark_and_crop_to_screen_agree():
+    """The helper's crop (shared.capture_file) and fast_ask map a [DRAW] pixel to the same screen point."""
+    from shared.capture_file import Capture, crop_to_screen
+
+    cap = Capture(jpeg=b"", w=W, h=H, rect=(-1440.0, 200.0, 400.0, 300.0), displayId=2)
+    rect = dict(zip(("x", "y", "w", "h"), cap.rect))
+    for x, y, r in ((400, 300, 40), (0, 0, 20), (W, H, 30), (123.5, 77.25, 16)):
+        mark, _ = fa.to_mark({"x": x, "y": y, "r": r, "label": ""}, rect, cap.w, cap.h)
+        sx, sy, sr = crop_to_screen(cap, x, y, r)
+        assert mark["x"] + mark["w"] / 2 == pytest.approx(sx, abs=0.1)
+        assert mark["y"] + mark["h"] / 2 == pytest.approx(sy, abs=0.1)
+        assert mark["w"] / 2 == pytest.approx(sr, abs=0.1)
+
+
+def test_metrics_file_write_runs_off_the_event_loop(api, monkeypatch):
+    import threading
+
+    where = []
+    real = fa._append_metrics
+    monkeypatch.setattr(fa, "_append_metrics", lambda text: (where.append(threading.current_thread()), real(text)))
+    api.replies.append(stream_reply(["[DRAW:none]\nIt runs it."]))
+    ask()
+    assert where and where[0] is not threading.main_thread()
+    assert len(fa.metrics_path().read_text().splitlines()) == 1
 
 
 # ---------------------------------------------------------------------------------------------------- warm()

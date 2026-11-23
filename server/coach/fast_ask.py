@@ -4,13 +4,14 @@ Target (miyagi-v2/CIRCLE-TO-ASK-SPEED.md): the first words show within about 1 s
 
 Entry points, all offline-safe (DEMO / ORCH_STUBS / no key: no call leaves the engine):
 
-    await fast_ask.warm()          # ask.warm, on key-down. Opens the keep-alive client, warms the prompt caches.
+    await fast_ask.warm()          # ask.warm, on the push-to-talk hold. Opens the keep-alive client, warms the caches.
     jpeg, rect, W, H = fast_ask.crop_region(screen_ctx, clip)   # the crop and EXACTLY the rect it shows
     res = await fast_ask.ask_stream(jpeg, rect, W, H, words, lesson_context, emit=session.emit, ask_id=ask_id,
                                     display_id=region["displayId"], should_stop=...)
     # res.ok / res.text / res.title / res.mark / res.deltas
 
-The ask.region slot that captures and crops before release is server/orchestrator/fast_region.py.
+The caller is server/orchestrator/circle_ask.answer: the app's own crop (action ask capture, read by
+shared.capture_file.take_capture), else server/orchestrator/fast_region.frame_for (a capture at release).
 
 warm(): the HTTP client (HTTP/2 when the `h2` package is there, else HTTP/1.1 keep-alive) to the miyagi cloud or to
 Anthropic stays open between asks. At most once per WARM_WINDOW_S (4 min, under the 5 min cache TTL) per (route,
@@ -44,8 +45,8 @@ caller answers with its own non-streaming path (server/coach/circle.py circle_as
 Metrics (no content, ever): one `ask.metrics {json}` log line per ask and a line in <state dir>/ask-metrics.jsonl:
 key-down to warm done, release to first byte / first token / mark / done, the model, the route, token counts.
 
-The crop: read into memory, sent with this one request, never logged or stored (consume_file=True deletes a crop file
-the caller wrote). Secrets in the text are redacted (llm.redact_user_content); the picture is blacked out by
+The crop: bytes in memory (the app's capture file is read and deleted by shared.capture_file.take_capture, never
+here), sent with this one request, never logged or stored. Secrets in the text are redacted (llm.redact_user_content); the picture is blacked out by
 crop_region (ScreenContext.pil()).
 """
 
@@ -147,24 +148,44 @@ _HARD = re.compile(r"\b(why|how|explain|difference|differs?|compare|versus|vs|de
                    r"should|better|best|optimi[sz]e|instead|when|which)\b", re.IGNORECASE)
 
 
+_FAMILIES = (HAIKU, SONNET)  # the only models fast ask ever runs: Haiku 5.5 and Sonnet 5.5
+_NEVER = ("opus", "fable", "mythos")
+
+
+def _pinned(model: str, default: str) -> str:
+    """Fast ask is hard-pinned to the Haiku 5.5 / Sonnet 5.5 family, whatever MIYAGI_ALLOW_OPUS or a
+    COACH_MODEL_FAST_ASK* override says: an Opus / Fable / Mythos id (or any other family) becomes `default`."""
+    m = (model or "").strip().lower()
+    if any(n in m for n in _NEVER) or not m.startswith(_FAMILIES):
+        log.info("fast ask: model %r is not Haiku 5.5 / Sonnet 5.5; using %s", model, default)
+        return default
+    return model
+
+
+def _model(purpose: str) -> str:
+    return _pinned(llm.model_for(purpose), HAIKU if purpose == "fast_ask_simple" else SONNET)
+
+
 def choose_model(words: str | None) -> str:
     """Haiku 5.5 for a short, simple question ("what is this?", "what does this button do"), Sonnet 5.5 for the rest.
-    Through the shared table and Opus guard: COACH_MODEL_FAST_ASK / COACH_MODEL_FAST_ASK_SIMPLE override."""
+    Through the shared table (COACH_MODEL_FAST_ASK / COACH_MODEL_FAST_ASK_SIMPLE override), then hard-pinned to the
+    Haiku 5.5 / Sonnet 5.5 family: never Opus, Fable or Mythos, also with MIYAGI_ALLOW_OPUS=1."""
     q = " ".join(str(words or "").split()) or DEFAULT_ASK
     simple = len(q.split()) <= SIMPLE_MAX_WORDS and not _HARD.search(q)
-    return llm.model_for("fast_ask_simple" if simple else "fast_ask")
+    return _model("fast_ask_simple" if simple else "fast_ask")
 
 
 def warm_model() -> str:
     """The model of the default (non-simple) ask: the one the free connection touch names."""
-    return llm.model_for("fast_ask")
+    return _model("fast_ask")
 
 
 def warm_models() -> list[str]:
     """Every model an ask may use, each warmed on its own: the simple ask's first (Haiku: "What is this?", the most
-    common circle ask, about $0.0001 a warm-up), then the rest's (Sonnet). Caches are per model."""
+    common circle ask, about $0.0001 a warm-up), then the rest's (Sonnet). Caches are per model. Pinned as in
+    choose_model: a warm-up never names Opus."""
     out: list[str] = []
-    for m in (llm.model_for("fast_ask_simple"), llm.model_for("fast_ask")):
+    for m in (_model("fast_ask_simple"), _model("fast_ask")):
         if m not in out:
             out.append(m)
     return out
@@ -345,27 +366,18 @@ def crop_region(screen_ctx: Any, clip: Any, margin: float = CROP_MARGIN_PT) -> t
     return jpeg, rect, w, h
 
 
-def load_crop(crop: Any, crop_w: int | None, crop_h: int | None, *, consume_file: bool = False) -> tuple[bytes, int, int]:
-    """bytes / a JPEG file path / a PIL image -> (JPEG bytes, W, H) with the long edge at most MAX_EDGE_PX. The
-    picture's own size wins over crop_w / crop_h. consume_file: delete the file once read. Raises ValueError."""
+def load_crop(crop: Any, crop_w: int | None, crop_h: int | None) -> tuple[bytes, int, int]:
+    """JPEG bytes / a PIL image -> (JPEG bytes, W, H) with the long edge at most MAX_EDGE_PX. The picture's own size
+    wins over crop_w / crop_h. Raises ValueError / TypeError.
+
+    Never a file path: a path from the app's WebSocket payload must go through shared.capture_file.take_capture
+    (realpath inside the capture folder, its name, owner, 0600), which reads and deletes it and hands over bytes."""
     if hasattr(crop, "save") and hasattr(crop, "width"):  # a PIL image
         return encode_crop(crop)
-    if isinstance(crop, (str, os.PathLike)):
-        path = Path(crop)
-        try:
-            data = path.read_bytes()
-        except OSError as e:
-            raise ValueError("crop file unreadable") from e
-        finally:
-            if consume_file:
-                try:
-                    path.unlink()
-                except OSError:
-                    pass
-    elif isinstance(crop, (bytes, bytearray, memoryview)):
+    if isinstance(crop, (bytes, bytearray, memoryview)):
         data = bytes(crop)
     else:
-        raise TypeError("crop must be JPEG bytes, a file path or a PIL image")
+        raise TypeError("crop must be JPEG bytes or a PIL image")
     if not data.startswith(b"\xff\xd8"):
         raise ValueError("crop is not a JPEG")
     size = _jpeg_size(data)
@@ -403,6 +415,8 @@ _TAG_RE = re.compile(r"^\[DRAW:\s*(?:(none)|" + _NUM + r"\s*,\s*" + _NUM + r"\s*
                      + r"\s*(?::\s*([^\]\n]*))?)\s*\]$", re.IGNORECASE)
 _HEAD_RE = re.compile(r"\[(?:D(?:R(?:A(?:W(?:[\s:\]].*)?)?)?)?)?", re.IGNORECASE | re.DOTALL)
 _OPEN_TAG_RE = re.compile(r"\[DRAW:[^\]\n]*", re.IGNORECASE)  # a tag still open when the stream ended
+_FENCE_HEAD = re.compile(r"^```[^\n]*(?:\n|$)")  # a reply that opens with a ``` fence line
+_FENCE_LINE = re.compile(r"^\s*```[\w+.-]*\s*$")  # a lone ``` (or ```text) line
 
 
 def parse_tag(tag: str) -> dict | None:
@@ -478,6 +492,18 @@ class DrawStream:
         s = self.buf.lstrip()
         if not s:
             return []
+        if s.startswith("`"):  # the reply wrapped in a ``` fence: drop the fence line, then read line 1
+            if len(s) < 3 and "```".startswith(s):
+                return []  # maybe a fence: wait
+            if s.startswith("```"):
+                nl = s.find("\n")
+                if nl == -1:
+                    if len(s) > MAX_TAG_CHARS:  # a runaway fence line: drop it up to its newline
+                        self.buf, self.state = "", "skip"
+                        return self._settle("malformed", None)
+                    return []
+                self.buf = s[nl + 1:]
+                return self._head()
         if not _head_tagish(s):  # line 1 is words: they stream now; a tag later on line 1 still counts
             self.buf, self.state = "", "body"
             return self._body(s)
@@ -553,7 +579,7 @@ class DrawStream:
         """The stream ended: settle line 1 if it never was, flush held text (only an open "[DRAW:" tag is dropped)."""
         out: list[tuple[str, Any]] = []
         if self.state in ("head", "skip"):
-            s = self.buf.lstrip()
+            s = _FENCE_HEAD.sub("", self.buf.lstrip(), count=1).lstrip()
             self.buf = ""
             if self.state == "skip":
                 self.state = "body"
@@ -617,9 +643,10 @@ _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=\S)")
 
 
 def clean_answer(text: str) -> str:
-    """The streamed words as the final answer: whitespace collapsed, any sentence that talks to an AI (a leaked
-    injection) dropped."""
-    return " ".join(s for s in _SENTENCE.split(" ".join((text or "").split())) if s.strip() and not flag_injection(s))
+    """The streamed words as the final answer: lone ``` fence lines dropped, whitespace collapsed, any sentence that
+    talks to an AI (a leaked injection) dropped."""
+    text = "\n".join(ln for ln in (text or "").splitlines() if not _FENCE_LINE.match(ln))
+    return " ".join(s for s in _SENTENCE.split(" ".join(text.split())) if s.strip() and not flag_injection(s))
 
 
 # ---------------------------------------------------------------------------------------------------- the client
@@ -712,9 +739,12 @@ _warm: dict[str, Any] = {**_WARM_DEFAULT, "windows": {}}  # windows: (route, mod
 _tasks: set[asyncio.Task] = set()
 
 
-async def warm(*, source: str | None = "keydown", clock: Callable[[], float] = time.monotonic) -> dict:
-    """ask.warm (key-down): keep the connection open and the cached prefix warm. At most one billed warm-up per
-    WARM_WINDOW_S per (route, model); concurrent key-downs share one. Never streams, never raises. -> timings."""
+async def warm(*, source: str | None = "keydown", ptt_id: str | None = None,
+               clock: Callable[[], float] = time.monotonic) -> dict:
+    """ask.warm (the push-to-talk hold): keep the connection open and the cached prefix warm. At most one billed
+    warm-up per WARM_WINDOW_S per (route, model); concurrent holds share one. Never streams, never raises. -> timings.
+    source / ptt_id: for the log line only."""
+    log.info("ask.warm from %s%s", str(source or "app")[:32], f" (ptt {str(ptt_id)[:64]})" if ptt_id else "")
     now = clock()
     _warm["keydown"], _warm["done"], _warm["ok"] = now, None, False
     if llm.offline_mode():
@@ -756,7 +786,7 @@ async def _warm_once(now: float, clock: Callable[[], float]) -> dict:
             windows[(_client_sig, model)] = now - WARM_WINDOW_S + WARM_FAIL_RETRY_S
             return {"error": type(e).__name__}
         usage = getattr(resp, "usage", None)
-        llm.record_cost(getattr(resp, "model", None) or model, usage, label="coach fast_ask warm")
+        _bill(resp, model, "coach fast_ask warm")
         return {"cached": int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
                 + int(getattr(usage, "cache_read_input_tokens", 0) or 0)}
 
@@ -786,10 +816,10 @@ async def _warm_once(now: float, clock: Callable[[], float]) -> dict:
     return out
 
 
-def warm_soon(source: str | None = "keydown") -> asyncio.Task | None:
+def warm_soon(source: str | None = "keydown", *, ptt_id: str | None = None) -> asyncio.Task | None:
     """Fire-and-forget warm() for the command loop (main.py ask.warm): returns at once, never raises."""
     try:
-        task = asyncio.get_running_loop().create_task(warm(source=source))
+        task = asyncio.get_running_loop().create_task(warm(source=source, ptt_id=ptt_id))
     except RuntimeError:
         return None
     _tasks.add(task)
@@ -852,12 +882,24 @@ class AskTimer:
 
 
 def _write_metrics(line: dict) -> None:
+    """The log line now; the file append (and its trim) in a worker thread, so a slow disk never holds the event
+    loop and the next ask's events. Without a running loop it writes inline."""
     global last_metrics
     last_metrics = line
     text = json.dumps(line, separators=(",", ":"), ensure_ascii=False)
     log.info("ask.metrics %s", text)
     if os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("MIYAGI_STATE_DIR"):
         return  # a test that didn't isolate the state folder never writes the learner's real file
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _append_metrics(text)
+        return
+    fut = loop.run_in_executor(None, _append_metrics, text)
+    fut.add_done_callback(lambda f: f.cancelled() or f.exception())  # never "exception was never retrieved"
+
+
+def _append_metrics(text: str) -> None:
     try:
         path = metrics_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -875,16 +917,55 @@ def _write_metrics(line: dict) -> None:
 _USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 
 
+def _field(o: Any, k: str) -> Any:
+    return o.get(k) if isinstance(o, dict) else getattr(o, k, None)
+
+
 def _usage(u: Any) -> dict:
-    return {k: int(getattr(u, k, 0) or 0) for k in _USAGE_KEYS} if u is not None else {}
+    if u is None:
+        return {}
+    out = {}
+    for k in _USAGE_KEYS:
+        v = _field(u, k)
+        out[k] = int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+    return out
 
 
-def _add_usage(total: dict, msg: Any) -> dict:
-    """total + one message's usage (a stream that broke and its retry are both billed)."""
-    u = _usage(getattr(msg, "usage", None))
-    if not total:
-        return u
-    return {k: total.get(k, 0) + u.get(k, 0) for k in _USAGE_KEYS}
+def _attempts(msg: Any, model: str) -> list[tuple[str, Any]]:
+    """(model, usage) per billed attempt of one message. After a server-side fallback (Sonnet 5.5 with fallbacks
+    "default") the top-level usage covers only the final attempt; usage.iterations has every attempt (a declined
+    one included), as the cloud bills it. An entry without its own model: "fallback_message" ran on the message's
+    final model, anything else on the requested one."""
+    usage = _field(msg, "usage")
+    if usage is None:
+        return []
+    final = _field(msg, "model") or model
+    its = _field(usage, "iterations")
+    if isinstance(its, (list, tuple)) and its:
+        out = []
+        for it in its:
+            if it is None:
+                continue
+            m = _field(it, "model") or (final if _field(it, "type") == "fallback_message" else model)
+            out.append((str(m), it))
+        if out:
+            return out
+    return [(final, usage)]
+
+
+def _bill(msg: Any, model: str, label: str) -> dict:
+    """Record every billed attempt of `msg` in the session tally; -> the summed usage."""
+    total: dict = {}
+    for m, u in _attempts(msg, model):
+        llm.record_cost(m, u, source="coach", label=label)
+        total = _sum_usage(total, _usage(u))
+    return total
+
+
+def _sum_usage(a: dict, b: dict) -> dict:
+    if not a:
+        return dict(b)
+    return {k: a.get(k, 0) + b.get(k, 0) for k in _USAGE_KEYS}
 
 
 def _partial_usage(stream: Any) -> Any:
@@ -967,13 +1048,13 @@ async def _emit(emit: Emit, type_: str, payload: dict) -> bool:
 async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_h: int | None, words: str | None,
                      lesson_context: dict | None = None, *, emit: Emit, ask_id: str | None = None,
                      display_id: int | None = None, step_id: str | None = None, history: list[dict] | None = None,
-                     release_t: float | None = None, consume_file: bool = False,
+                     release_t: float | None = None,
                      on_mark: Callable[[dict], Awaitable[Any] | Any] | None = None,
                      should_stop: Callable[[], bool] | None = None,
                      clock: Callable[[], float] = time.monotonic) -> FastAskResult:
     """Answer a circled region, streamed. See the module doc for the request and the events.
 
-    crop: the JPEG (bytes, a file path, or a PIL image) of exactly crop_rect_points. crop_rect_points: {x, y, w, h}
+    crop: the JPEG (bytes or a PIL image, never a path) of exactly crop_rect_points. crop_rect_points: {x, y, w, h}
     in screen points (the ScreenRegion space). crop_w / crop_h: the JPEG's pixel size (the picture's own size wins).
     words: the learner's question (empty: "What is this?"). lesson_context: {lesson, step, memory, screen_text, app}
     (strings; screen_text is the OCR read inside the circle). emit(type, payload): session.emit. on_mark(mark):
@@ -1008,7 +1089,7 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
         return res
 
     try:
-        jpeg, w, h = load_crop(crop, crop_w, crop_h, consume_file=consume_file)
+        jpeg, w, h = load_crop(crop, crop_w, crop_h)
     except Exception as e:  # noqa: BLE001
         log.info("fast ask: bad crop (%s)", type(e).__name__)
         res.error = "bad_image"
@@ -1088,9 +1169,7 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
         error, retry = ("moved_on", False) if isinstance(e, _MovedOn) else _classify(e)
         partial = _partial_usage(live.get("stream"))  # billed although the stream broke: tally it like the cloud does
         if partial is not None:
-            res.usage = _add_usage(res.usage, partial)
-            llm.record_cost(getattr(partial, "model", None) or model, partial.usage, source="coach",
-                            label="coach fast_ask (cut stream)")
+            res.usage = _sum_usage(res.usage, _bill(partial, model, "coach fast_ask (cut stream)"))
         log.info("fast ask: stream failed (%s, %s)%s", error, type(e).__name__, "; retrying once" if retry else "")
         if retry and stopped():
             error, retry = "moved_on", False
@@ -1120,10 +1199,8 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
                 log.info("fast ask: retry failed too (%s, %s)", error, type(e2).__name__)
                 final = None
 
-    if final is not None:
-        res.usage = _add_usage(res.usage, final)
-        llm.record_cost(getattr(final, "model", None) or model, getattr(final, "usage", None), source="coach",
-                        label="coach fast_ask")  # billed even when refused or cut short
+    if final is not None:  # billed even when refused or cut short; every fallback attempt too
+        res.usage = _sum_usage(res.usage, _bill(final, model, "coach fast_ask"))
         _note_cache_refresh(model, release)
     stop = getattr(final, "stop_reason", None) if final is not None else None
     res.text = clean_answer("".join(parts))
@@ -1131,8 +1208,9 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
     reason = None
     if error is not None:
         res.error, reason, res.complete = error, ("moved_on" if error == "moved_on" else "error"), False
-    elif stop == "refusal":
+    elif stop == "refusal":  # Haiku has no server-side fallback: the declined words must leave the screen
         res.error, reason, res.complete = "refusal", "refusal", False
+        res.text = ""
     elif stop == "max_tokens":
         reason, res.complete = "max_tokens", False
     if res.error is None and not res.text:
