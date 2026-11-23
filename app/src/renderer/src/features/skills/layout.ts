@@ -1094,6 +1094,8 @@ export type PlaceOptions = {
   /** Extra flow distance into and out of a layer that holds a hero (px). */
   heroExtra?: number
   heroLayers?: number[]
+  /** One pitch for every layer gap (the Map's even grid): the gaps stay equal, between `flow`'s min and max. */
+  uniform?: boolean
   /** Widen across the flow only when the whole tree shows at this scale or more (omit to never widen). */
   widenFrom?: number
   /**
@@ -1140,7 +1142,8 @@ export function placeGraph(l: Layout, o: PlaceOptions): Placed {
   const free = flowBox - ends - minGap.reduce((a, g) => a + g, 0)
   // Every gap stretches by the same amount to fill the box, each up to the max (a gap that needs more keeps its min).
   const stretch = n > 1 ? Math.max(0, free / (n - 1)) : 0
-  const gapAt = (i: number): number => Math.max(minGap[i], Math.min(o.flow[1] + extraAt(i), minGap[i] + stretch))
+  const same = n > 1 ? clamp((flowBox - ends) / (n - 1), Math.max(...minGap), Math.max(...minGap, o.flow[1])) : 0
+  const gapAt = (i: number): number => (o.uniform ? same : Math.max(minGap[i], Math.min(o.flow[1] + extraAt(i), minGap[i] + stretch)))
   const units = l.max - l.min
   const acrossBefore = o.extent.acrossBefore ?? o.extent.across
   const acrossAfter = o.extent.acrossAfter ?? o.extent.across

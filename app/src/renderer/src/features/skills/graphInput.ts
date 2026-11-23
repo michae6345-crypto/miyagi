@@ -8,10 +8,11 @@
  *   labels     each name's line count, measured once (two lines at most; the state line is always one)
  *   geometry   per node: its radius, label block and where edges leave and arrive (`reach`); per layer: its band
  *   PLACE      per view: placeGraph's options (bands, the edge channel and the gap ranges it stretches to fill the view);
- *              the Map never opens below MAP_MIN_SCALE and pans up and down instead
+ *              the Map is one even grid (one pitch for every layer) with each name beside its node, so the whole tree
+ *              fits the canvas on open at a readable size (no pan on open)
  *   nodeBox    a node and its label block as one box (the label rule: centered under the node, the state line under it)
  *   edges      every edge's points with its own ports (edgePoints); a hidden link's while its node is in focus
- *   headers    the Map's track headers on free spots of the grid (trackHeaders)
+ *   headers    the Map's track headers: above each branch's topmost node, on the first free spot (trackHeaders)
  */
 import { edgePorts, edgeRoute, edgeSamples, type Layout, type LayoutEdge, type LayoutLink, type LayoutNode, type LayoutOptions, type Orientation, type PlaceOptions, type Placed } from './layout'
 import type { SkillGraph } from './model'
@@ -26,10 +27,13 @@ export type Measure = (text: string, hero: boolean) => number
 export const estimate: Measure = (text, hero) => text.length * (hero ? 7.9 : 7.2)
 /** The same for the state line (12 px). */
 export const estimateState = (text: string): number => text.length * 6.6
+/** The Map's names (12 px medium) and state lines (11 px), on the wide side. */
+export const estimateMapName: Measure = (text, hero) => text.length * (hero ? 7.4 : 6.2)
+export const estimateMapState = (text: string): number => text.length * 6
 
 /** Does a state line fit under this node, on its plate? */
 export function stateFits(view: TreeView, input: TreeInput, id: string, text: string, measure: (t: string) => number = estimateState): boolean {
-  return measure(text) <= geom(view, input, id).labelW - 2 * PLATE
+  return measure(text) <= geom(view, input, id).labelW - (view === 'map' ? 0 : 2 * PLATE)
 }
 
 export type TreeInput = {
@@ -41,6 +45,8 @@ export type TreeInput = {
   /** Capstones other than the hero (a little larger). */
   caps: Set<string>
   options: LayoutOptions
+  /** The Map: the widest a (non-hero) label block is, from the names themselves (else SIZES.map.labelW). */
+  labelW?: number
 }
 
 export type Sizes = {
@@ -60,11 +66,20 @@ export type Sizes = {
 export const SIZES: Record<TreeView, Sizes> = {
   path: { orientation: 'right', nodeR: 22, heroR: 44, labelW: 104, heroLabelW: 156, labelGap: 10, heroLabelGap: 12, lines: 2 },
   // The Map's label takes its whole column (130 px at the tightest) less a 10 px gap.
-  map: { orientation: 'up', nodeR: 22, heroR: 40, labelW: 120, heroLabelW: 208, labelGap: 8, heroLabelGap: 10, lines: 2 }
+  // The Map's names sit beside their nodes, on one line (a name and a state line stack within the node's height).
+  map: { orientation: 'up', nodeR: 16, heroR: 18, labelW: 132, heroLabelW: 200, labelGap: 8, heroLabelGap: 10, lines: 1 }
 }
 
-/** The Map never opens smaller than this (44 px nodes stay 38 px; labels stay 11 px and up). */
-export const MAP_MIN_SCALE = 0.86
+/** The Map's one layer pitch (content px): [tightest, loosest]. Nodes 32 px, 8 px of edge channel between rows. */
+export const MAP_PITCH: [number, number] = [40, 60]
+/** The Map's edge channel between two rows (content px). */
+export const MAP_CHANNEL = 6
+/** Room kept above the top row for a track header when no hero row is there (content px). */
+export const MAP_HEADER_ROOM = 20
+/** Map text sizes (px). */
+export const MAP_NAME = 12
+export const MAP_HERO_NAME = 13
+export const MAP_STATE = 11
 
 /** A name line and the state line (px), and the 1 px between them. */
 export const LINE = 16
@@ -103,7 +118,7 @@ function linesFor(g: SkillGraph, ids: Iterable<string>, view: TreeView, hero: st
     const n = g.byId[id]
     if (!n) continue
     const h = id === hero
-    out[id] = labelLines(n.label, h ? s.heroLabelW : s.labelW, h, measure, s.lines)
+    out[id] = view === 'map' ? 1 : labelLines(n.label, h ? s.heroLabelW : s.labelW, h, measure, s.lines)
   }
   return out
 }
@@ -123,7 +138,7 @@ export function pathInput(g: SkillGraph, measure: Measure = estimate): TreeInput
   return { nodes, links, hero: g.goal.id, lines: linesFor(g, on, 'path', g.goal.id, measure), caps, options: {} }
 }
 
-export function mapInput(g: SkillGraph, measure: Measure = estimate): TreeInput {
+export function mapInput(g: SkillGraph, measure: Measure = estimateMapName): TreeInput {
   const tr = groups(g)
   const hero = g.goal?.id
   const nodes: LayoutNode[] = g.nodes.map((n) => ({ id: n.id, group: tr.get(n.track) ?? 0, span: n.id === hero ? 3 : 2, last: n.id === hero }))
@@ -149,28 +164,41 @@ export function mapInput(g: SkillGraph, measure: Measure = estimate): TreeInput 
       measure
     ),
     caps,
+    // Beside-the-node labels: only as wide as the longest name (and a state line) needs, so a wide tree packs tighter.
+    labelW: Math.max(
+      MAP_LABEL_MIN,
+      Math.min(
+        SIZES.map.labelW,
+        Math.ceil(Math.max(0, ...g.nodes.filter((n) => n.id !== hero).map((n) => measure(n.label, false))) + 6)
+      )
+    ),
     options: { tracks: { center, crown: hero ? tr.get(g.byId[hero]?.track ?? '') : undefined } }
   }
 }
+/** The narrowest a Map label block gets: "needs 3 skills" fits. */
+const MAP_LABEL_MIN = 96
 
 /** One node's geometry in a view (content px). */
-export type Geom = { r: number; labelW: number; lines: number; labelGap: number; lineH: number; block: number; hero: boolean }
+export type Geom = { r: number; labelW: number; lines: number; labelGap: number; lineH: number; block: number; hero: boolean; beside: boolean }
 
 export function geom(view: TreeView, input: TreeInput, id: string): Geom {
   const s = SIZES[view]
-  if (id === TRUNK) return { r: 5, labelW: 0, lines: 0, labelGap: 0, lineH: 0, block: 0, hero: false }
+  if (id === TRUNK) return { r: 5, labelW: 0, lines: 0, labelGap: 0, lineH: 0, block: 0, hero: false, beside: view === 'map' }
   const hero = id === input.hero
-  const r = hero ? s.heroR : input.caps.has(id) ? s.nodeR + 2 : s.nodeR
+  const beside = view === 'map'
+  const r = hero ? s.heroR : input.caps.has(id) && !beside ? s.nodeR + 2 : s.nodeR
   const lines = input.lines[id] ?? s.lines
   const lineH = hero ? HERO_LINE : LINE
   const labelGap = hero ? s.heroLabelGap : s.labelGap
-  return { r, labelW: hero ? s.heroLabelW : s.labelW, lines, labelGap, lineH, block: labelGap + lines * lineH + 1 + STATE_LINE, hero }
+  const labelW = hero ? s.heroLabelW : beside ? input.labelW ?? s.labelW : s.labelW
+  // Beside the node, the label adds no height (it stacks within the node's); under it, it hangs below.
+  return { r, labelW, lines, labelGap, lineH, block: beside ? 0 : labelGap + lines * lineH + 1 + STATE_LINE, hero, beside }
 }
 
 /** Where an edge leaves (`out`, along the flow) and arrives (`in`, back along it), and a flat edge's rim (`side`). */
 export function reach(view: TreeView, input: TreeInput, id: string): { out: number; in: number; side: number } {
   const g = geom(view, input, id)
-  if (view === 'map') return { out: g.r, in: g.r + g.block + 2, side: g.r }
+  if (view === 'map') return { out: g.r, in: g.r + 2, side: g.r }
   return { out: g.r, in: g.r, side: g.r }
 }
 
@@ -180,22 +208,24 @@ export function reach(view: TreeView, input: TreeInput, id: string): { out: numb
  * at the node's height never meets one: the band is the node; `room` keeps the labels of two layers apart.
  */
 export function bandsOf(view: TreeView, input: TreeInput, l: Layout, part: 'band' | 'room' = 'band'): Array<{ before: number; after: number }> {
-  return l.layers.map((row) => {
+  return l.layers.map((row, i) => {
     let before = 0
     let after = 0
     for (const id of row) {
       if (l.items[id].dummy) continue
       const g = geom(view, input, id)
       if (view === 'map') {
-        // Up: the label block hangs below (before), the node and its ring reach above (after).
-        before = Math.max(before, g.r + g.block + 2)
-        after = Math.max(after, g.r + RING_OUT)
+        // Names sit beside their nodes, so a row is as tall as its biggest node (a focus ring may brush the channel).
+        before = Math.max(before, g.r)
+        after = Math.max(after, g.r)
       } else {
         const w = part === 'room' ? Math.max(g.labelW / 2, g.r + RING_OUT) : g.r + RING_OUT
         before = Math.max(before, w)
         after = Math.max(after, w)
       }
     }
+    // No hero row above the top layer: its branches' headers need room there.
+    if (view === 'map' && i === l.layers.length - 1 && !input.hero) after += MAP_HEADER_ROOM
     return { before, after }
   })
 }
@@ -223,17 +253,19 @@ export const PLACE: Record<TreeView, (box: { w: number; h: number }, l: Layout, 
   },
   map: (box, l, input) => {
     const s = SIZES.map
+    const lw = geom('map', input, '').labelW
+    // A column is a node, its label beside it and a gap: two half slots. Labels hang right, so the right edge has room for one.
+    const column = 2 * s.nodeR + s.labelGap + lw + 8
     return {
       orientation: 'up',
       box,
-      pad: 14,
-      flow: [0, 150],
-      // Columns a label and a 10 px gap apart, at most a little more: a compact tree, centered, never stretched thin.
-      half: [Math.ceil((s.labelW + 10) / 2), Math.ceil((s.labelW + 36) / 2)],
-      extent: { before: 0, after: 0, across: s.labelW / 2 + 4 },
+      pad: 10,
+      flow: MAP_PITCH,
+      uniform: true,
+      half: [Math.ceil(column / 2), 150],
+      extent: { before: 0, after: 0, across: 0, acrossBefore: s.nodeR + RING_OUT, acrossAfter: s.nodeR + s.labelGap + lw + 4 },
       bands: bandsOf('map', input, l),
-      channel: 36,
-      minScale: MAP_MIN_SCALE
+      channel: MAP_CHANNEL
     }
   }
 }
@@ -242,6 +274,8 @@ export const PLACE: Record<TreeView, (box: { w: number; h: number }, l: Layout, 
 export function nodeBox(view: TreeView, input: TreeInput, id: string, p: Placed): { id: string; x: number; y: number; w: number; h: number } {
   const c = p.at[id]
   const g = geom(view, input, id)
+  // On the Map the label sits beside the node (to its right): the box runs from the node's left to the label's end.
+  if (g.beside) return { id, x: c.x - g.r, y: c.y - g.r, w: 2 * g.r + g.labelGap + g.labelW, h: 2 * g.r }
   const w = Math.max(2 * g.r, g.labelW)
   return { id, x: c.x - w / 2, y: c.y - g.r, w, h: 2 * g.r + g.block }
 }
@@ -270,17 +304,17 @@ export function hiddenPoints(view: TreeView, input: TreeInput, l: Layout, p: Pla
   return a.layer < b.layer ? edgeRoute(e, l, p, SIZES[view].orientation, (id) => reach(view, input, id)) : [p.at[link.from], p.at[link.to]]
 }
 
-/** A track's header on the Map: small caps, in content px (its box's top left); a long name may take two lines. */
+/** A track's header on the Map: small caps, in content px (its box's top left). */
 export type TrackHeader = { track: string; text: string; lines: string[]; x: number; y: number; w: number; h: number }
 export const HEADER_H = 14
 /** The header's width: 12 px caps with 0.06 em tracking (the estimate runs wide). */
 export const headerWidth = (text: string): number => Math.ceil(text.length * 8.2)
 
 /**
- * One header per track branch on the Map, on a free spot of the grid: above the branch's highest skill (a column
- * header), else beside its lowest one past its label column (outward from the trunk first), else above or beside any of
- * its skills; a two-word name that fits nowhere on one line tries the same spots on two. Free means clear of every node, every label block, every edge (4 px) and the other
- * headers, inside the content. A track with no free spot shows none (its name is still in each skill's panel). Pure.
+ * One header per track branch on the Map, one rule for all: just above the branch's topmost skill, starting a hair right
+ * of the edges that leave that skill's top (else just left of them, else nudged along the row by 12 px steps, else one
+ * row higher). Free means inside the content and clear of every node, its label, every edge (4 px) and the other headers,
+ * so a header never collides and is never cut. Room above the top row is reserved (MAP_HEADER_ROOM). Pure.
  */
 export function trackHeaders(
   tracks: Array<{ id: string; label: string }>,
@@ -294,12 +328,10 @@ export function trackHeaders(
   const view: TreeView = 'map'
   const boxes: Array<{ x: number; y: number; w: number; h: number }> = []
   for (const n of input.nodes) {
-    const c = p.at[n.id]
-    if (!c) continue
-    const g = geom(view, input, n.id)
-    // The node with its ring and its label column, top to bottom: a header beside a node never reads as its name.
-    const w = Math.max(2 * (g.r + RING_OUT), g.labelW)
-    boxes.push({ x: c.x - w / 2, y: c.y - g.r - RING_OUT, w, h: g.r + RING_OUT + g.r + g.block + 2 })
+    if (!p.at[n.id]) continue
+    const b = nodeBox(view, input, n.id, p)
+    // The node with its focus ring and its label.
+    boxes.push({ x: b.x - RING_OUT, y: b.y - RING_OUT, w: b.w + RING_OUT, h: b.h + 2 * RING_OUT })
   }
   const samples = edges.flatMap((pts) => edgeSamples(pts, 'up', 24))
   const PAD = 4
@@ -310,48 +342,24 @@ export function trackHeaders(
     return !samples.some((q) => q.x > b.x - PAD && q.x < b.x + b.w + PAD && q.y > b.y - PAD && q.y < b.y + b.h + PAD)
   }
   const out: TrackHeader[] = []
-  const middle = p.w / 2
   for (const t of tracks) {
     const ids = input.nodes.map((n) => n.id).filter((id) => id !== input.hero && trackOf(id) === t.id && p.at[id])
     if (!ids.length) continue
     const text = t.label.toUpperCase()
-    const byLayer = [...ids].sort((a, b) => l.items[a].layer - l.items[b].layer || p.at[a].x - p.at[b].x)
-    const base = byLayer[0]
-    const top = byLayer[byLayer.length - 1]
-    const outward = (id: string): 1 | -1 => (p.at[id].x < middle ? -1 : 1)
-    const words = text.split(' ')
-    const split = words.length > 1 ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')] : undefined
-    const spots = (lines: string[]): Array<{ x: number; y: number; w: number; h: number }> => {
-      const w = Math.max(...lines.map(width))
-      const h = lines.length * HEADER_H
-      const beside = (id: string, side: 1 | -1): { x: number; y: number; w: number; h: number } => {
-        const c = p.at[id]
-        const gm = geom(view, input, id)
-        const half = Math.max(gm.r + RING_OUT, gm.labelW / 2) + 6
-        return { x: side > 0 ? c.x + half : c.x - half - w, y: c.y - h / 2, w, h }
-      }
-      /** Over the node: centered, or to one side of the edges that leave its top. */
-      const above = (id: string, side: -1 | 0 | 1 = 0): { x: number; y: number; w: number; h: number } => {
-        const c = p.at[id]
-        const r = geom(view, input, id).r
-        return { x: side === 0 ? c.x - w / 2 : side > 0 ? c.x + 12 : c.x - 12 - w, y: c.y - r - RING_OUT - 8 - h, w, h }
-      }
-      const both = (id: string): Array<{ x: number; y: number; w: number; h: number }> => [beside(id, outward(id)), beside(id, (-outward(id)) as 1 | -1)]
-      return [
-        above(top),
-        ...both(base),
-        ...[...byLayer].reverse().flatMap((id) => [above(id), ...both(id)]),
-        ...[...byLayer].reverse().flatMap((id) => [above(id, outward(id)), above(id, (-outward(id)) as 1 | -1)])
-      ]
+    // The branch's topmost skill (highest layer; the leftmost of a tie).
+    const top = [...ids].sort((a, b) => l.items[b].layer - l.items[a].layer || p.at[a].x - p.at[b].x)[0]
+    const c = p.at[top]
+    const r = geom(view, input, top).r
+    const w = width(text)
+    const spots: Array<{ x: number; y: number; w: number; h: number }> = []
+    for (let row = 0; row < 3; row++) {
+      const y = c.y - r - RING_OUT - 4 - HEADER_H - row * p.flowGap
+      spots.push({ x: c.x + 12, y, w, h: HEADER_H }, { x: c.x - 12 - w, y, w, h: HEADER_H })
+      for (let k = 1; k <= 12; k++) spots.push({ x: c.x + 12 + k * 12, y, w, h: HEADER_H }, { x: c.x - 12 - w - k * 12, y, w, h: HEADER_H })
     }
-    let lines = [text]
-    let spot = spots(lines).find(free)
-    if (!spot && split) {
-      lines = split
-      spot = spots(lines).find(free)
-    }
+    const spot = spots.find(free)
     if (!spot) continue
-    out.push({ track: t.id, text, lines, ...spot })
+    out.push({ track: t.id, text, lines: [text], ...spot })
     boxes.push(spot)
   }
   return out

@@ -187,6 +187,8 @@ export type SkillNodeProps = {
   labelGap: number
   lines: number
   line: string
+  /** The Map: the label sits beside the node (to its right), the name and the state line stacked within its height. */
+  beside?: boolean
   /** The node's track, for its tooltip. */
   track?: string
   dim: boolean
@@ -196,7 +198,7 @@ export type SkillNodeProps = {
   onHover: (id: string | undefined) => void
 }
 
-export function SkillNode({ n, x, y, r, hero, labelW, labelGap, lines, line, track, dim, focused, anim, onOpen, onHover }: SkillNodeProps): ReactNode {
+export function SkillNode({ n, x, y, r, hero, labelW, labelGap, lines, line, beside, track, dim, focused, anim, onOpen, onHover }: SkillNodeProps): ReactNode {
   const reduce = useReducedMotion() ?? false
   const size = 2 * r
   const cap = n.kind === 'capstone'
@@ -204,21 +206,21 @@ export function SkillNode({ n, x, y, r, hero, labelW, labelGap, lines, line, tra
   const flat = locked && !cap
   const ring = n.isNext || focused
   const plate = { background: PANE, borderRadius: radius2.keycap, padding: '0 4px', boxDecorationBreak: 'clone' as const, WebkitBoxDecorationBreak: 'clone' as const }
-  const w = Math.max(size, labelW)
+  const w = beside ? size : Math.max(size, labelW)
   return (
     <motion.div
       data-skill-node={n.id}
       data-state={n.state}
       data-next={n.isNext || undefined}
       className="absolute flex flex-col items-center"
-      style={{ left: x - w / 2, top: y - r, width: w, pointerEvents: 'none' }}
+      style={{ left: x - w / 2, top: y - r, width: w, height: beside ? size : undefined, pointerEvents: 'none' }}
       initial={false}
       animate={{ opacity: dim ? 0.26 : 1 }}
       transition={{ duration: reduce ? 0 : 0.18 }}
     >
       <motion.button
         type="button"
-        aria-label={`${n.label}, ${line}`}
+        aria-label={line ? `${n.label}, ${line}` : n.label}
         title={track ? `${track} · ${n.label}` : n.label}
         className="relative cursor-pointer outline-offset-4"
         style={{ width: size, height: size, borderRadius: cap ? (hero ? 24 : radius2.chip) : radius2.round, pointerEvents: 'auto' }}
@@ -260,6 +262,25 @@ export function SkillNode({ n, x, y, r, hero, labelW, labelGap, lines, line, tra
           />
         )}
       </motion.button>
+      {beside ? (
+        <div className="absolute flex flex-col justify-center" style={{ left: size + labelGap, top: 0, height: size, width: labelW }}>
+          <span
+            className="block truncate"
+            title={n.label}
+            style={{ fontSize: hero ? 13 : 12, lineHeight: '14px', fontWeight: hero || n.isNext ? 600 : 500, color: locked ? color.label : color.text }}
+          >
+            <span>{n.label}</span>
+          </span>
+          {line && (
+            <span
+              className="block truncate"
+              style={{ fontSize: 11, lineHeight: '13px', color: n.isNext ? color.text : locked ? color.faint : color.label, fontWeight: n.isNext ? 600 : undefined, fontVariantNumeric: 'tabular-nums' }}
+            >
+              <span>{line}</span>
+            </span>
+          )}
+        </div>
+      ) : (
       <div className="flex flex-col items-center text-center" style={{ marginTop: labelGap, maxWidth: labelW, gap: 1 }}>
         <span
           className="block"
@@ -285,6 +306,7 @@ export function SkillNode({ n, x, y, r, hero, labelW, labelGap, lines, line, tra
           <span style={plate}>{line}</span>
         </span>
       </div>
+      )}
     </motion.div>
   )
 }

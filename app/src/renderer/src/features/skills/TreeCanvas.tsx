@@ -2,9 +2,8 @@
  * Feature: skills. The tree views' one canvas (Path and Map differ only in their input and orientation, graphInput.ts).
  *
  *   fit        on open and on a new size: the whole tree, centered; the gaps stretch to fill the view (layout.ts
- *              placeGraph) and the tree scales down only when even its tightest doesn't fit. The Map never opens below
- *              MAP_MIN_SCALE: a tree too tall for that fits the width, opens on the trunk (or, when they can't both show,
- *              on NEXT) and pans up and down. Fit always shows the whole tree
+ *              placeGraph) and the tree scales down only when even its tightest doesn't fit. Both views open whole (the Map
+ *              is a compact even grid, so its nodes stay 30 px and up on screen); Fit shows the same
  *   zoom/pan   + / − / fit buttons (bottom right), pinch or Cmd/Ctrl + wheel to zoom at the pointer, wheel or drag to pan
  *   edges      one curve style (layout.ts edgeRoute + edgePath) under the nodes: green between two mastered skills, ink
  *              into what you can start, dashed and faint into what is still locked. Each edge has its own ports at both
@@ -27,7 +26,7 @@ import { pressMotion } from '../../core/ui/motion'
 import { chainLength, edgePath, isDummy, layoutGraph, placeGraph } from './layout'
 import { edgePoints, estimate, estimateState, geom, HEADER_H, hiddenPoints, mapInput, pathInput, PLACE, SIZES, stateFits, trackHeaders, TRUNK, type Measure, type TreeView } from './graphInput'
 import type { SkillGraph, SkillGraphNode } from './model'
-import { stateLine, unlockLine } from './copy'
+import { mapLine, stateLine, unlockLine } from './copy'
 import { SkillNode, TrunkPoint, type NodeAnim } from './SkillNode'
 import { ackEvents, useSkills } from './store'
 
@@ -100,7 +99,8 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
   const size = SIZES[view]
   const measure = useMeasure()
 
-  const input = useMemo(() => (view === 'path' ? pathInput(g, measure.label) : mapInput(g, measure.label)), [g, view, measure])
+  // The Map's names are 12 px (the measure's 13).
+  const input = useMemo(() => (view === 'path' ? pathInput(g, measure.label) : mapInput(g, (t, h) => (measure.label(t, h) * 12) / 13)), [g, view, measure])
   const layout = useMemo(() => layoutGraph(input.nodes, input.links, input.options), [input])
   const placed = useMemo(() => (box.w && box.h ? placeGraph(layout, PLACE[view]({ w: Math.max(200, box.w - RESERVE), h: box.h }, layout, input)) : undefined), [layout, input, view, box])
   const edgePts = useMemo(() => (placed ? edgePoints(view, input, layout, placed) : new Map<string, Array<{ x: number; y: number }>>()), [view, input, layout, placed])
@@ -126,20 +126,13 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
     setV(REST)
   }, [box.w, box.h, view, layout])
 
-  // The opening view, centered in the view left of the zoom controls: the whole tree, or (a Map too tall to show whole
-  // at a readable size) its width, on the trunk when NEXT shows with it, else on NEXT.
-  const nextId = useMemo(() => g.nodes.find((n) => n.isNext && input.nodes.some((x) => x.id === n.id))?.id, [g, input])
+  // The opening view, centered in the view left of the zoom controls: the whole tree.
   const fit = useMemo(() => {
     if (!placed) return { s: 1, tx: 0, ty: 0 }
     const s = placed.scale
     const vw = Math.max(200, box.w - RESERVE)
-    const tx = (vw - placed.w * s) / 2
-    if (placed.h * s <= box.h) return { s, tx, ty: (box.h - placed.h * s) / 2 }
-    const bottom = box.h - placed.h * s
-    const ny = nextId ? placed.at[nextId]?.y : undefined
-    if (ny === undefined || bottom + ny * s >= box.h * 0.2) return { s, tx, ty: bottom }
-    return { s, tx, ty: Math.min(0, Math.max(bottom, box.h * 0.4 - ny * s)) }
-  }, [placed, box, nextId])
+    return { s, tx: (vw - placed.w * s) / 2, ty: (box.h - placed.h * s) / 2 }
+  }, [placed, box])
   // Fit: the whole tree, centered (an offset on top of the opening view).
   const whole = (): View => {
     if (!placed) return REST
@@ -262,7 +255,8 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
   }, [])
 
   const focusIds = new Set([hover, selected].filter((x): x is string => !!x))
-  const nodeLine = (n: SkillGraphNode): string => stateLine(n, g, (line) => stateFits(view, input, n.id, line, measure.state))
+  const stateWidth = view === 'map' ? (t: string): number => (measure.state(t) * 11) / 12 : measure.state
+  const nodeLine = (n: SkillGraphNode): string => (view === 'map' ? mapLine : stateLine)(n, g, (line) => stateFits(view, input, n.id, line, stateWidth))
 
   return (
     <div
@@ -357,6 +351,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
                   lines={gm.lines}
                   track={track}
                   line={nodeLine(n)}
+                  beside={gm.beside}
                   dim={!!lit && !lit.has(n.id)}
                   focused={selected === n.id && !n.isNext}
                   anim={anims.get(n.id)}

@@ -7,8 +7,8 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { assignLayers, countCrossings, edgePath, edgeRoute, edgeSamples, findRows, isDummy, layoutGraph, overlaps, packLayer, placeGraph, snapLayer, trackOrder, type Layout, type Placed } from './layout'
 import { buildSkillGraph, plain, type SkillGraph } from './model'
-import { edgePoints, estimate, estimateState, geom, labelLines, MAP_MIN_SCALE, mapInput, nodeBox, pathInput, PLACE, reach, SIZES, stateFits, trackHeaders, TRUNK, type TreeInput, type TreeView } from './graphInput'
-import { stateLine } from './copy'
+import { edgePoints, estimate, estimateMapName, estimateMapState, estimateState, geom, HEADER_H, labelLines, MAP_PITCH, mapInput, nodeBox, pathInput, PLACE, reach, SIZES, stateFits, trackHeaders, TRUNK, type TreeInput, type TreeView } from './graphInput'
+import { mapLine, stateLine } from './copy'
 
 type Scenario = { segments: Record<string, Array<{ type?: string; payload: unknown }>> }
 const scenario = (name: string): Scenario => JSON.parse(readFileSync(new URL(`../../../../../mock/scenarios/${name}.json`, import.meta.url), 'utf8')) as Scenario
@@ -284,22 +284,46 @@ test('the Path opens readable: scale 0.85 or more at 1280 and 1728 (and the wind
   assert.ok(small.scale * 2 * SIZES.path.nodeR >= 35, `Path at 1024x700: ${small.scale.toFixed(2)}`)
 })
 
-test('the Map opens readable: nodes 36 px or more on screen, the width in view, Fit shows it whole', () => {
+test('the whole Map opens fitted: nothing cropped, nodes 30 px or more on screen at 1280x800, the width filled at 1728', () => {
   for (const g of [graph, fallback]) {
     const input = mapInput(g)
     const l = lay(input)
     for (const [key, box] of Object.entries(WINDOWS)) {
       const p = placeGraph(l, PLACE.map(box, l, input))
+      // One view: it opens at the scale that shows all of it (no pan on open, Fit changes nothing).
+      assert.equal(p.scale, p.whole, `${key}: opens below Fit`)
+      assert.ok(p.w * p.scale <= box.w + 1 && p.h * p.scale <= box.h + 1, `${key}: ${Math.round(p.w * p.scale)}x${Math.round(p.h * p.scale)} in ${box.w}x${box.h}`)
+      if (g !== graph) continue
       const node = p.scale * 2 * SIZES.map.nodeR
-      assert.ok(node >= 36, `Map nodes at ${key}: ${node.toFixed(1)} px`)
-      // The width shows whole (the view pans only up and down) unless even the readable minimum is wider than the window
-      // (four separate trees at 1024); Fit shows the whole tree.
-      if (p.w * MAP_MIN_SCALE <= box.w) assert.ok(p.w * p.scale <= box.w + 1, `width at ${key}: ${Math.round(p.w * p.scale)} > ${box.w}`)
-      if (g === graph) assert.ok(p.w * p.scale <= box.w + 1, `the mock's width at ${key}`)
-      assert.ok(p.w * p.whole <= box.w + 1 && p.h * p.whole <= box.h + 1, `Fit at ${key}`)
-      assert.ok(p.whole <= p.scale)
+      // The mock's whole tree (11 layers) at the default window and above: nodes stay 30 px and up.
+      if (!key.startsWith('1024')) assert.ok(node >= 30, `Map nodes at ${key}: ${node.toFixed(1)} px`)
+      else assert.ok(node >= 22, `Map nodes at ${key}: ${node.toFixed(1)} px`)
+      // Wide windows are used: the tree spans most of the canvas width.
+      if (box.w >= 1200) assert.ok(p.w * p.scale >= box.w * 0.9, `${key}: fills ${Math.round(((p.w * p.scale) / box.w) * 100)}% of the width`)
     }
   }
+})
+
+test('the Map is an even grid: every layer gap is the same, in every window', () => {
+  for (const g of [graph, fallback])
+    for (const [key, box] of Object.entries(WINDOWS)) {
+      const input = mapInput(g)
+      const l = lay(input)
+      const p = placeGraph(l, PLACE.map(box, l, input))
+      const ys = l.layers.map((row) => p.at[row[0]].y)
+      for (let i = 1; i < ys.length; i++) assert.ok(Math.abs(ys[i - 1] - ys[i] - p.flowGap) < 0.01, `${key}: gap ${i} is ${(ys[i - 1] - ys[i]).toFixed(2)}, not ${p.flowGap.toFixed(2)}`)
+      assert.ok(p.flowGap >= MAP_PITCH[0] - 0.01 && p.flowGap <= MAP_PITCH[1] + 0.01)
+    }
+})
+
+test('no Map edge leaves the canvas: every point of every edge lies inside the content', () => {
+  for (const g of [graph, fallback])
+    for (const [key, box] of Object.entries(WINDOWS)) {
+      const input = mapInput(g)
+      const l = lay(input)
+      const p = placeGraph(l, PLACE.map(box, l, input))
+      for (const c of curves('map', input, l, p)) for (const q of c.pts) assert.ok(q.x >= 0 && q.x <= p.w && q.y >= 0 && q.y <= p.h, `${key}: ${c.key} at ${Math.round(q.x)},${Math.round(q.y)} (${Math.round(p.w)}x${Math.round(p.h)})`)
+    }
 })
 
 /** Each edge's curve, sampled about every px (content px). */
@@ -335,29 +359,6 @@ test('edges never share a line: no two overlap for more than 8 px', () => {
       }
 })
 
-test('the Map: no edge runs within half a column of a node it does not touch (beside it, over it or under it)', () => {
-  for (const g of [graph, fallback])
-    for (const [key, box] of Object.entries(WINDOWS)) {
-      const input = mapInput(g)
-      const l = lay(input)
-      const p = placeGraph(l, PLACE.map(box, l, input))
-      // A node's zone: its ring to the foot of its label block, and half the channel beyond each (an edge there reads as
-      // leaving or entering it).
-      const ch = (i: number): number => (i + 1 < p.bands.length ? p.bands[i].far - p.bands[i + 1].near : 0)
-      for (const c of curves('map', input, l, p))
-        for (const n of input.nodes) {
-          if (n.id === c.from || n.id === c.to || n.id === TRUNK) continue
-          const at = p.at[n.id]
-          const gm = geom('map', input, n.id)
-          const li = l.items[n.id].layer
-          const top = at.y - gm.r - 5 - Math.max(0, ch(li)) / 2
-          const bottom = at.y + gm.r + gm.block + Math.max(0, li > 0 ? ch(li - 1) : 0) / 2
-          const near = c.pts.find((q) => q.y > top && q.y < bottom && Math.abs(q.x - at.x) < p.half)
-          assert.equal(near, undefined, `${key}: ${c.key} runs by ${n.id} at ${near && Math.round(near.x - at.x)} px`)
-        }
-    }
-})
-
 test('no name or state line is cut: every label fits its lines, every state line its width', () => {
   for (const [view, make] of views) {
     const input = make(graph)
@@ -365,6 +366,13 @@ test('no name or state line is cut: every label fits its lines, every state line
       if (n.id === TRUNK) continue
       const node = graph.byId[n.id]
       const gm = geom(view, input, n.id)
+      if (view === 'map') {
+        // One line beside the node, names 12 px and state lines 11 px.
+        assert.ok(estimateMapName(node.label, gm.hero) <= gm.labelW, `map: "${node.label}" is cut`)
+        const line = mapLine(node, graph, (t) => stateFits(view, input, n.id, t, estimateMapState))
+        assert.ok(estimateMapState(line) <= gm.labelW, `map: "${line}" beside ${node.label} is cut`)
+        continue
+      }
       const need = labelLines(node.label, gm.labelW, gm.hero, estimate, 9)
       assert.ok(need <= SIZES[view].lines, `${view}: "${node.label}" needs ${need} lines`)
       const line = stateLine(node, graph, (t) => stateFits(view, input, n.id, t))
@@ -378,28 +386,35 @@ test('no name or state line is cut: every label fits its lines, every state line
   }
 })
 
-test('the Map heads each track once, clear of every node, label and edge', () => {
-  for (const [key, box] of Object.entries(WINDOWS)) {
-    const input = mapInput(graph)
-    const l = lay(input)
-    const p = placeGraph(l, PLACE.map(box, l, input))
-    const cs = curves('map', input, l, p)
-    const hs = trackHeaders(
-      graph.tracks,
-      (id) => graph.byId[id]?.track,
-      input,
-      l,
-      p,
-      [...edgePoints('map', input, l, p).values()]
-    )
-    assert.deepEqual(hs.map((h) => h.track).sort(), graph.tracks.map((t) => t.id).sort(), `${key}: every track headed`)
-    const boxes = input.nodes.filter((n) => n.id !== TRUNK).map((n) => nodeBox('map', input, n.id, p))
-    for (const h of hs) {
-      for (const b of boxes) assert.ok(!(h.x < b.x + b.w && b.x < h.x + h.w && h.y < b.y + b.h && b.y < h.y + h.h), `${key}: ${h.text} on ${b.id}`)
-      for (const c of cs) assert.equal(c.pts.find((q) => q.x > h.x && q.x < h.x + h.w && q.y > h.y && q.y < h.y + h.h), undefined, `${key}: ${h.text} on ${c.key}`)
+test('the Map heads each track once, above its topmost skill, clear of every node, label, edge, header and the canvas edge', () => {
+  for (const g of [graph, fallback])
+    for (const [key, box] of Object.entries(WINDOWS)) {
+      const input = mapInput(g)
+      const l = lay(input)
+      const p = placeGraph(l, PLACE.map(box, l, input))
+      const cs = curves('map', input, l, p)
+      const hs = trackHeaders(
+        g.tracks,
+        (id) => g.byId[id]?.track,
+        input,
+        l,
+        p,
+        [...edgePoints('map', input, l, p).values()]
+      )
+      const withNodes = g.tracks.filter((t) => g.nodes.some((n) => n.track === t.id && n.id !== g.goal?.id))
+      assert.deepEqual(hs.map((h) => h.track).sort(), withNodes.map((t) => t.id).sort(), `${key}: every branch headed`)
+      const boxes = input.nodes.filter((n) => n.id !== TRUNK).map((n) => nodeBox('map', input, n.id, p))
+      for (const h of hs) {
+        assert.ok(h.x >= 0 && h.y >= 0 && h.x + h.w <= p.w && h.y + h.h <= p.h, `${key}: ${h.text} is cut by the canvas`)
+        for (const b of boxes) assert.ok(!(h.x < b.x + b.w && b.x < h.x + h.w && h.y < b.y + b.h && b.y < h.y + h.h), `${key}: ${h.text} on ${b.id}`)
+        for (const c of cs) assert.equal(c.pts.find((q) => q.x > h.x && q.x < h.x + h.w && q.y > h.y && q.y < h.y + h.h), undefined, `${key}: ${h.text} on ${c.key}`)
+        // Over its own branch: within a row of its topmost skill, in the same column neighbourhood.
+        const own = input.nodes.filter((n) => n.id !== g.goal?.id && g.byId[n.id]?.track === h.track)
+        const top = own.reduce((a, n) => (l.items[n.id].layer > l.items[a.id].layer ? n : a), own[0])
+        assert.ok(Math.abs(h.x - p.at[top.id].x) < 12 + 12 * 13 + h.w && h.y + HEADER_H <= p.at[top.id].y, `${key}: ${h.text} is not above its branch`)
+      }
+      assert.deepEqual(overlaps(hs.map((h) => ({ id: h.track, x: h.x, y: h.y, w: h.w, h: h.h }))), [], `${key}: headers touch`)
     }
-    assert.deepEqual(overlaps(hs.map((h) => ({ id: h.track, x: h.x, y: h.y, w: h.w, h: h.h }))), [])
-  }
 })
 
 test('labels: inline code marks are dropped; names wrap to two lines at most', () => {

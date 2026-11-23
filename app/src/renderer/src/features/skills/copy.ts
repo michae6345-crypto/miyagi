@@ -29,6 +29,18 @@ export function stateLine(n: SkillGraphNode, g: SkillGraph, fits: (line: string)
   return n.review ? 'review' : 'mastered'
 }
 
+/**
+ * The Map's state line, only where it says something the node doesn't: Next (with its steps when it has some),
+ * practicing "2 of 4 steps", locked "needs 3 skills", a mastered skill due for review, a project's progress. A ready
+ * or mastered skill has none (its ring and fill say it).
+ */
+export function mapLine(n: SkillGraphNode, g: SkillGraph, fits: (line: string) => boolean = () => true): string {
+  if (n.kind === 'capstone') return stateLine(n, g, fits)
+  if (n.isNext) return n.state === 'practicing' && n.evidence ? `Next · ${n.evidence.done} of ${n.evidence.total} steps` : 'Next'
+  if (n.state === 'practicing' || n.state === 'locked') return stateLine(n, g, fits)
+  return n.review ? 'review' : ''
+}
+
 /** The word a panel or list row uses for a state. */
 export function stateWord(n: SkillGraphNode): string {
   if (n.state === 'mastered') return n.review ? 'Mastered, due for review' : 'Mastered'
