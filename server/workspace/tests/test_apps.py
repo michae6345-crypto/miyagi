@@ -68,6 +68,16 @@ def test_canonical_names(name, tid):
     assert A.canonical(name) == tid
 
 
+def test_bare_ambiguous_names_are_apps_only_when_the_model_says_app():
+    # a Java lesson listing the Mozilla Rhino JS engine must not get a "Rhino is paid. Get it" row
+    for bare in ("rhino", "word", "logic", "maya"):
+        assert A.canonical(bare) is None and A.canonical(bare, "cli") is None, bare
+    assert A.canonical("rhino", "app") == "rhino" and A.canonical("maya", "app") == "maya"
+    assert A.canonical("Microsoft Word") == "word"  # with the vendor it's always the app
+    assert S._canonical("rhino", "library") == "rhino-pkg" and S._canonical("rhino", "app") == "rhino"
+    assert A.classify({"tool": S._canonical("rhino", "cli"), "kind": "cli"}) == "package"
+
+
 @pytest.mark.parametrize("title, tid", [("AutoCAD - Toy Car Creation for 3D Printer", "autocad"), ("Fusion 360 for beginners", "fusion"),
                                         ("Nuclear fusion explained", None), ("Learn Python in 1 hour", None),
                                         ("Blender donut tutorial", "blender"), ("Tinkercad basics", "tinkercad")])
@@ -260,6 +270,18 @@ def test_i_have_it_is_remembered_for_the_next_lesson(mac):
     card = setup_card(items)
     assert card["title"] == "Ready to go" and card["setup"]["items"][1]["haveIt"] is True
     assert A.context_line(items) == "Apps on this Mac: AutoCAD: the learner says they have it."
+
+
+def test_i_have_it_expires_so_a_mistaken_press_undoes_itself(mac, monkeypatch):
+    A.remember("autocad", haveIt=True)
+    row = A.recall()["autocad"]
+    assert row["haveItAt"] > 0 and A.have_it_fresh(row)
+    assert not A.have_it_fresh(row, now=row["haveItAt"] + A.HAVE_IT_DAYS * 86400)
+    assert not A.have_it_fresh({"haveIt": True})  # kept before haveItAt existed: asked once more
+    later = row["haveItAt"] + A.HAVE_IT_DAYS * 86400 + 1
+    monkeypatch.setattr(A.time, "time", lambda: later)
+    items = requirements(load("autocad_toy_car.json"), client=FakeClient(autocad_reply()), run=mac.run)
+    assert not items[1].get("haveIt") and [it["tool"] for it in missing(items)] == ["autocad"]  # the card asks again
 
 
 def test_choosing_the_alternative_is_remembered(mac):

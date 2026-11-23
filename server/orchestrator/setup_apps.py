@@ -5,7 +5,7 @@ server.workspace.apps now classifies every row (package / free_app / licensed_ap
 installed. Its row offers:
 
   have_it      re-check this Mac (folders + Spotlight). Found: the row flips to installed. Not found: the learner's
-               word stands (haveIt), kept per Mac so the next lesson doesn't ask again
+               word stands (haveIt), kept per Mac for apps.HAVE_IT_DAYS so later lessons don't ask again
   get_it       open the vendor's own download / trial page, only through the host allowlist
                (server.safety.browser_url_allowed); the app is noticed when it comes to the front
   alternative  the free alternative: a web app (Tinkercad, Google Sheets) opens in the browser; a free desktop app
@@ -100,7 +100,8 @@ async def have_it(s: Any, item: dict) -> None:
         _flip(item, found)
         apps.remember(item["tool"], installed=True, version=item.get("version") or "", where=item.get("where") or "")
         note = f"{label} found"
-    else:  # the learner's word stands (another folder, a VM, a school machine): never asked again on this Mac
+    else:  # the learner's word stands (another folder, a VM, a school machine): not asked again on this Mac
+        # for apps.HAVE_IT_DAYS (a mistaken press expires)
         item["haveIt"] = True
         apps.remember(item["tool"], haveIt=True)
         await repin_and_tell(s)  # checks pinned to an app this Mac can't see would wait forever

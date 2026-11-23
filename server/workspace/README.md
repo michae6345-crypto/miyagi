@@ -143,7 +143,10 @@ row now has a `setupKind` (`apps.classify`):
 - Per-row additive fields: `setupKind`, `actions` (`install | have_it | get_it | alternative | skip`), `vendorUrl`,
   `vendorName`, `alternative {name, url, tool}`, `haveIt`, `using`, `noMac` (contract: events.ts SetupItem).
 - What the learner said is kept per Mac in `<lessons root>/.miyagi-state/mac-apps.json` (`apps.remember / recall`):
-  "I have it" (`haveIt`) and "use FreeCAD" (`using`) are not missing next lesson either. Each scan's app rows are kept
+  "I have it" (`haveIt`) and "use FreeCAD" (`using`) are not missing next lesson either. "I have it" lasts
+  `apps.HAVE_IT_DAYS` (14) from the press (`haveItAt`, `apps.have_it_fresh`), so a mistaken press undoes itself and
+  the card asks again. A bare ambiguous name from the model ("rhino", "word", "maya") is the paid app only with kind
+  "app" (`apps.canonical(name, kind)`; otherwise `setup._canonical` gives "rhino-pkg"). Each scan's app rows are kept
   too, and `apps.context_line(items)` ("Apps on this Mac: AutoCAD 25.0 is installed.") goes into the coach's explain
   context as an `<untrusted source="setup">` block (code lessons: nothing added).
 - Session side: `server/orchestrator/setup_apps.py` (have_it re-checks, get_it opens the vendor page through

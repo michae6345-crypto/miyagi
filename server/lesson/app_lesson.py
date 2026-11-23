@@ -17,8 +17,14 @@ from __future__ import annotations
 
 import re
 
-CODE_FILE = re.compile(r"\.(?:py|ipynb|js|mjs|cjs|ts|tsx|jsx|rs|go|java|kt|c|cc|cpp|h|hpp|cs|rb|php|swift|sh|r|jl|m|"
-                       r"html|css|scss|sql|toml|ya?ml|json)$", re.I)
+# code-like apps that app_in_text spots in titles keep their gating checks: Arduino (.ino), Processing (.pde),
+# Godot (.gd, .gdshader), OpenSCAD (.scad), shaders, HDL, Flutter, Vue / Svelte...
+CODE_FILE = re.compile(r"\.(?:py|ipynb|js|mjs|cjs|ts|tsx|jsx|rs|go|java|kt|kts|c|cc|cpp|h|hpp|cs|rb|php|swift|sh|r|jl|m|"
+                       r"html|css|scss|sql|toml|ya?ml|json|ino|pde|gd|gdshader|scad|lua|glsl|hlsl|shader|frag|vert|"
+                       r"v|sv|vhdl?|dart|scala|vue|svelte|zig|ex|exs|hs|ml|clj|pl|ps1|bat)$", re.I)
+# what an app saves (a drawing, a model, a document): a file_contains check on one doesn't make the lesson a code lesson
+APP_DOC = re.compile(r"\.(?:dwg|dxf|blend|psd|ai|indd|fig|sketch|skp|f3d|fcstd|stl|obj|3mf|step|stp|xlsx?|docx?|pptx?|key|"
+                     r"numbers|pages|pdf|png|jpe?g|gif|svg|mp4|mov|wav|mp3|als|logicx|band|prproj|aep|kra|xcf)$", re.I)
 FILE_CHECKS = frozenset({"file_exists", "file_contains", "command_exit_ok", "output_contains"})
 _EDITOR = re.compile(r"\b(?:in|into|inside)\s+(?:your|the)\s+(?:code\s+)?editor\b|\b(?:in|into)\s+VS\s*Code\b", re.I)
 _TYPE_ALONG = re.compile(r"\btype along\b", re.I)
@@ -45,7 +51,7 @@ def work_app(graph: dict) -> str | None:
 
 
 def has_code(graph: dict) -> bool:
-    """Does any step write or run code (a code file anywhere, a run command)?"""
+    """Does any step write or run code (a code file anywhere, a run command, a file a file_contains check reads)?"""
     for st in graph.get("steps") or []:
         if not isinstance(st, dict):
             continue
@@ -55,6 +61,11 @@ def has_code(graph: dict) -> bool:
                                     + (st.get("precision_checks") or []) if isinstance(x, dict)]
         if any(CODE_FILE.search(str(f or "")) for f in files):
             return True
+        # a file whose text a check reads is one the learner edits (notes.txt, a G-code file...): never stripped
+        for c in (st.get("checks") or []) + (st.get("precision_checks") or []):
+            f = str((c.get("file") or st.get("file") or "") if isinstance(c, dict) else "").strip()
+            if f and c.get("type") == "file_contains" and not APP_DOC.search(f):
+                return True
     return False
 
 

@@ -197,14 +197,18 @@ _ALIASES.update({"gimp 2": "gimp", "obs studio": "obs", "cura": "ultimaker-cura"
                  "blender": "blender", "figma": "figma", "unity hub": "unity"})
 
 
-def canonical(name: str) -> str | None:
+def canonical(name: str, kind: str | None = None) -> str | None:
     """A tool id from this module for a model's or a title's name ("AutoCAD 2025", "Autodesk Fusion 360", "Adobe
-    Photoshop CC"), else None."""
+    Photoshop CC"), else None. A bare AMBIGUOUS name ("rhino": the Mozilla JS engine too, "word", "logic", "maya") is
+    an app only when the caller says kind "app"; with the vendor ("Microsoft Word") it always is."""
     t = re.sub(r"[\s_-]+", " ", (name or "").strip().lower())
     if not t:
         return None
-    for cand in (t, _YEAR.sub("", t).strip(), re.sub(r"^(autodesk|adobe|microsoft|ms|apple|maxon)\s+", "", _YEAR.sub("", t)).strip()):
+    bare = _YEAR.sub("", t).strip()
+    for cand in (t, bare, re.sub(r"^(autodesk|adobe|microsoft|ms|apple|maxon)\s+", "", bare).strip()):
         if cand in _ALIASES:
+            if cand in AMBIGUOUS and cand in (t, bare) and kind != "app":
+                continue
             return _ALIASES[cand]
     return None
 
@@ -390,7 +394,10 @@ def remember(tool: str, **facts) -> None:
     try:
         f = _memory_file()
         data = recall()
-        row = {**data.get(tool, {}), **{k: v for k, v in facts.items() if v is not None}, "checkedAt": int(time.time())}
+        now = int(time.time())
+        row = {**data.get(tool, {}), **{k: v for k, v in facts.items() if v is not None}, "checkedAt": now}
+        if facts.get("haveIt"):
+            row["haveItAt"] = now  # "I have it" lasts HAVE_IT_DAYS (have_it_fresh), so a mistaken press undoes itself
         data[tool] = row
         f.parent.mkdir(parents=True, exist_ok=True)
         tmp = f.with_suffix(".tmp")
@@ -398,6 +405,22 @@ def remember(tool: str, **facts) -> None:
         tmp.replace(f)
     except OSError as e:
         log.info("mac-apps memory not saved: %s", e)
+
+
+HAVE_IT_DAYS = 14
+
+
+def have_it_fresh(row: dict, now: float | None = None) -> bool:
+    """Does an "I have it" from an earlier lesson still stand? It lasts HAVE_IT_DAYS from the press: a mistaken press
+    (or an app since removed) stops hiding the row, and the card asks again; a learner on a VM just presses it again.
+    A row kept before haveItAt existed counts as stale (asked once more)."""
+    if not row.get("haveIt"):
+        return False
+    try:
+        at = float(row.get("haveItAt") or 0)
+    except (TypeError, ValueError):
+        return False
+    return at > 0 and ((now if now is not None else time.time()) - at) < HAVE_IT_DAYS * 86400
 
 
 def remember_scan(items: list[dict]) -> None:

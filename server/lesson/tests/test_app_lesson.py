@@ -109,3 +109,30 @@ def test_placeholder_step_of_a_coding_video_about_an_app_types_along_in_the_edit
     excel = builder.provisional_graph({**meta, "title": "Excel pivot tables for beginners", "style": "no-code"},
                                       "x" * 11, "https://youtu.be/xxxxxxxxxxx", "", "/tmp/w")["steps"][0]
     assert "follow along in" in excel["instructions"] and "Excel" in excel["instructions"]
+
+
+def _code_app_lesson(title: str, file: str, needle: str) -> dict:
+    return {"lesson": {"title": title}, "sources": [{"title": title}],
+            "steps": [{"id": "s1", "title": "Write the sketch", "instructions": "Type along in your editor.", "file": file,
+                       "checks": [{"type": "file_exists", "file": file}, {"type": "file_contains", "file": file, "needle": needle}]}]}
+
+
+def test_code_like_app_lessons_keep_their_file_checks():
+    # review of the smart-setup merge: Arduino / Godot / OpenSCAD lessons lost every gating check and read "in Arduino IDE"
+    for title, file, needle in [("Arduino Blink LED for beginners", "Blink.ino", "digitalWrite"),
+                                ("Godot 4 platformer", "player.gd", "move_and_slide"),
+                                ("OpenSCAD parametric box", "box.scad", "cube(")]:
+        g = _code_app_lesson(title, file, needle)
+        before = copy.deepcopy(g)
+        assert app_lesson.has_code(g), title
+        assert app_lesson.adapt(g) == before, title  # checks kept, copy untouched, no lesson.app
+
+
+def test_a_text_file_a_check_reads_is_never_stripped():
+    g = _code_app_lesson("Blender donut tutorial", "notes.txt", "donut")  # .txt is no code file, but a check reads it
+    before = copy.deepcopy(g)
+    assert app_lesson.adapt(g) == before
+    g = autocad()  # a check reading the app's own drawing doesn't make AutoCAD a code lesson
+    g["steps"][0]["checks"].append({"type": "file_contains", "file": "toy_car.dwg", "needle": "wheel"})
+    assert app_lesson.adapt(g)["lesson"]["app"]["tool"] == "autocad"
+    assert not any(c["type"].startswith("file_") for s in g["steps"] for c in s["checks"])

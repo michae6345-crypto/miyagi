@@ -546,11 +546,16 @@ def _https(url: str) -> str:
     return url if re.fullmatch(r"https://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/[^\s\"'<>]*)?", url) else ""
 
 
-def _canonical(tool: str) -> str:
+def _canonical(tool: str, kind: str | None = None) -> str:
     t = re.sub(r"[\s_-]+", " ", (tool or "").strip().lower())  # "openai-agent-builder" == "OpenAI Agent Builder"
     if t in ALIASES:
         return ALIASES[t]
-    return _apps.canonical(t) or t.replace(" ", "-")  # "AutoCAD 2025" / "Adobe Photoshop CC" -> autocad / photoshop
+    if canon := _apps.canonical(t, kind):
+        return canon
+    slug = t.replace(" ", "-")
+    if slug in _apps.LICENSED and kind != "app":
+        return f"{slug}-pkg"  # a bare AMBIGUOUS name that isn't the app (the Mozilla Rhino JS engine): never its paid row
+    return slug  # "AutoCAD 2025" / "Adobe Photoshop CC" -> autocad / photoshop
 
 
 _JUPYTER_FAMILY = {"jupyter", "notebook", "jupyterlab", "ipykernel", "jupyter-notebook", "jupyter-lab"}
@@ -663,7 +668,7 @@ def _items(raw: dict, graph: dict | None = None) -> list[dict]:
     }]
     seen = {"vscode", "cursor"}  # the editor is item 0 only (VS Code; MIYAGI_EDITOR overrides)
     for t in (raw.get("tools") or [])[:20]:
-        tool = _canonical(t.get("tool", ""))
+        tool = _canonical(t.get("tool", ""), t.get("kind"))
         if not tool or tool in seen or not re.fullmatch(r"[a-z0-9][a-z0-9._+@\-]{0,40}", tool):
             continue
         seen.add(tool)
@@ -784,7 +789,7 @@ def annotate(items: list[dict]) -> list[dict]:
         if it["setupKind"] != "licensed_app" or it.get("installed"):
             continue
         seen = mem.get(it.get("tool") or "") or {}
-        if seen.get("haveIt"):
+        if _apps.have_it_fresh(seen):
             it["haveIt"] = True
         if str(seen.get("choice") or "").startswith("alternative:") and (alt := _apps.alternative(it["tool"])):
             it["using"] = alt["name"]
