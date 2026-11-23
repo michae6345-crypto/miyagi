@@ -52,7 +52,8 @@ enum CaptureMath {
         return CapturePlan(global: g, local: local, width: w, height: h, pxPerPoint: Double(w) / Double(g.width))
     }
 
-    /// A crop pixel back to a global screen point (the inverse the engine uses for [DRAW:x,y,r]). Clamped to the crop.
+    /// A crop pixel back to a global screen point. Not called by the helper: it pins the formula the engine uses for
+    /// [DRAW:x,y,r] (shared/capture_file.py crop_to_screen), tested in test-capture-math.swift. Clamped to the crop.
     static func toScreen(_ p: CapturePlan, px: Double, py: Double) -> CGPoint {
         let x = min(max(px, 0), Double(p.width))
         let y = min(max(py, 0), Double(p.height))
