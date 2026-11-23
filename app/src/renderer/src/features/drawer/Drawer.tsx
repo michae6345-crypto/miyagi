@@ -29,8 +29,10 @@ import { useCards } from '../cards/store'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
 import { count, lessonOutline, planTotal, useJustEnded, useStepDetail, useStepStatuses, type StepStatus } from './plan'
-import { closeDrawer, isWebLink, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
+import { closeDrawer, isWebLink, linkHost, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
+import { enter, fade } from '../../core/ui/motion'
+import { useVideoHelp, VideoHelp } from './VideoHelp'
 
 /**
  * Row geometry: icon column, gap, time column. The current step's checks line up with its title. A plan row with no
@@ -38,7 +40,8 @@ import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSe
  */
 const ROW = { h: 38, wrapH: 32, wrapPadY: 6, padX: 10, icon: 18, gap: 11 } as const
 /** Section labels: mockup 01's small caps (the eyebrow's style), faint. */
-const CAPS = 'text-[11px] font-semibold uppercase tracking-[0.06em]'
+/** Section labels: 12 px medium, sentence case, the label color (overlay round: the same as the home window's SectionHead). */
+const CAPS = 'text-[12px] font-medium'
 /**
  * Every color is a glass token (theme.glass: CSS variables that flip with Settings → Appearance), never color.* /
  * fill.* (those are the black island's). Hover goes through a CSS variable so it stays a token too.
@@ -70,7 +73,7 @@ export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; show
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
+          transition={fade.in}
           onHoverStart={() => setHover(true)}
           onHoverEnd={() => setHover(false)}
           onMouseDown={(e) => e.preventDefault()}
@@ -122,7 +125,7 @@ function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOp
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: out }}
           whileHover={{ x: left ? 2 : -2 }}
-          transition={{ ...spring, opacity: { duration: 0.18 } }}
+          transition={{ ...spring, opacity: fade.in }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={onOpen ?? toggleDrawer}
         >
@@ -155,6 +158,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
   const [scrolled, setScrolled] = useState(false)
   const away = (side === 'left' ? -1 : 1) * (rect.w + 24)
   const drag = useSideDrag(side)
+  const videoHelp = useVideoHelp()
   // The panel hugs its content (up to rect.h, then the list scrolls). Report the real height so the
   // spotlight check covers only what's on screen. offsetHeight ignores the slide's transform.
   useLayoutEffect(() => {
@@ -187,8 +191,8 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
       }}
       initial={{ x: away, opacity: 0 }}
       animate={{ x: drag.dx, opacity: 1 }}
-      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: { duration: 0.18 } } }}
-      transition={{ ...spring, opacity: { duration: 0.18 } }}
+      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: fade.in } }}
+      transition={{ ...spring, opacity: fade.in }}
     >
       <div
         data-part="drawer-header"
@@ -206,7 +210,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
         <div className="flex items-start gap-[12px]">
           <div className="min-w-0 flex-1">
             {lessonMode && (
-              <div data-part="drawer-eyebrow" className="mb-[3px] truncate text-[11px] font-semibold uppercase leading-[15px] tracking-[0.06em]" style={{ color: glass.faint }}>
+              <div data-part="drawer-eyebrow" className="mb-[3px] truncate text-[12px] font-medium leading-[16px]" style={{ color: glass.label }}>
                 {/* Michael, test 7: nothing on screen names the mode (a Demo take read "Just teach me"). */}
                 {topic || 'Lesson'}
               </div>
@@ -263,7 +267,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
         )}
         <NeedsChip />
         <PrimerSection />
-        <Label part="drawer-plan" right={plan.total ? `${plan.done} of ${plan.total} done` : plan.done > 0 ? `${plan.done} done` : undefined}>
+        <Label part="drawer-plan" right={plan.skipped ? `${plan.skipped} skipped` : undefined}>
           {lessonMode ? 'The plan' : 'Steps'}
         </Label>
         <Steps scroller={scroller} />
@@ -276,6 +280,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
           </>
         )}
       </div>
+      {videoHelp && <VideoHelp />}
     </motion.div>
   )
 }
@@ -283,7 +288,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
 function Label({ children, right, part }: { children: ReactNode; right?: ReactNode; part?: string }): ReactNode {
   return (
     <div data-part={part} className="flex items-baseline justify-between gap-[8px] px-[10px] pb-[4px] pt-[14px] leading-[16px]">
-      <span className={CAPS} style={{ color: glass.faint }}>
+      <span className={CAPS} style={{ color: glass.label }}>
         {children}
       </span>
       {right && (
@@ -633,7 +638,7 @@ function StepRow({
       style={{ background: open ? glass.fieldHover : 'transparent' }}
       initial={enterDelay === undefined ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ ...spring, delay: enterDelay ?? 0, opacity: { duration: 0.25, delay: enterDelay ?? 0 } }}
+      transition={enter(enterDelay ?? 0, fade.slow)}
     >
       <button
         type="button"
@@ -652,8 +657,8 @@ function StepRow({
               className="grid place-items-center"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0, transition: { duration: 0.08 } }}
-              transition={{ duration: 0.15 }}
+              exit={{ opacity: 0, transition: fade.instant }}
+              transition={fade.in}
             >
               <StepIcon status={status} n={n} />
             </motion.span>
@@ -686,7 +691,7 @@ function StepRow({
           style={{ paddingLeft: indent, paddingRight: ROW.padX }}
           initial={mounted ? { opacity: 0 } : false}
           animate={{ opacity: 1 }}
-          transition={{ duration: 0.2 }}
+          transition={fade.in}
         >
           <CheckList checks={checks} surface="glass" />
         </motion.div>
@@ -747,8 +752,8 @@ function PendingRow({ waiting, part, more, timeW }: { waiting: boolean; part?: s
       style={{ height: timeW ? ROW.h : ROW.wrapH, paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap }}
       initial={mounted ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.18 } }}
-      transition={{ duration: 0.25 }}
+      exit={{ opacity: 0, transition: fade.in }}
+      transition={fade.slow}
     >
       <span className="grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon }}>
         {waiting ? (
@@ -780,6 +785,9 @@ const KIND_ICON: Record<Exclude<SourceKind, 'video'>, LucideIcon> = { repo: Fold
 
 function SourceRow({ source }: { source: Source }): ReactNode {
   const link = isWebLink(source.url) ? source.url : undefined
+  // Where the click lands, from the URL itself (app-harden): the title and meta are the engine's words. Its own element,
+  // never truncated: a long meta gives way first.
+  const host = linkHost(link)
   return (
     <button
       type="button"
@@ -795,9 +803,14 @@ function SourceRow({ source }: { source: Source }): ReactNode {
         <span className="block truncate text-[13px] font-medium leading-[17px]" style={{ color: glass.text }}>
           {source.title}
         </span>
-        {source.meta && (
-          <span className="block truncate text-[12px] leading-[16px]" style={{ color: glass.faint }}>
-            {source.meta}
+        {(source.meta || host) && (
+          <span className="flex min-w-0 text-[12px] leading-[16px]" style={{ color: glass.faint }}>
+            {source.meta && <span className="min-w-0 truncate">{source.meta}</span>}
+            {host && (
+              <span data-link-host className="shrink-0 whitespace-pre">
+                {source.meta ? ` · ${host}` : host}
+              </span>
+            )}
           </span>
         )}
       </span>

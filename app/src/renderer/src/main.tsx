@@ -6,10 +6,13 @@ import type { Layout } from '../../preload/api'
 import { bridge, isElectron } from './bridge'
 import { dispatch } from './core/bus'
 import { setConnected } from './core/lesson'
+import { setNotchInfo } from './core/notchInfo'
+import './core/islandDiagReport' // log-only island measurements for main's island.log (overlay route only)
 import './core/prefs' // applies the appearance before the first paint
 import { getFeatureWindows } from './core/registry' // importing it loads features/* (their stores subscribe on import)
 import { Overlay, useClickThrough } from './core/Overlay'
 import { Stage } from './dev/Stage'
+import { stageNotch } from '../../common/notch'
 
 /**
  * Electron loads index.html#/<route>: 'overlay' (core) or a feature window route ('launcher', …).
@@ -18,9 +21,23 @@ import { Stage } from './dev/Stage'
 const route = location.hash.replace(/^#\/?/, '') || (isElectron ? 'overlay' : 'stage')
 
 function useEngineFeed(): Layout {
-  const [layout, setLayout] = useState<Layout>({ origin: { x: 0, y: 0 }, width: innerWidth, height: innerHeight, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
+  const [layout, setLayout] = useState<Layout>({ origin: { x: 0, y: 0 }, width: innerWidth, height: innerHeight, notch: { hasNotch: false, x: (innerWidth - 185) / 2, width: 185, height: 32, place: 'below' }, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
   useEffect(() => {
-    const offs = [bridge.onEvent(dispatch), bridge.onStatus(setConnected), bridge.on('layout', (l) => setLayout(l as Layout))]
+    const offs = [bridge.onEvent(dispatch), bridge.onStatus(setConnected), bridge.on('layout', (l) => {
+        // Main re-fits the pill under the menu bar / notch when the displays change: every reader of platform.pillTop follows.
+        const next = l as Layout
+        // Log-only: islandDiagReport reads what this page last received (island.log seen=...).
+        const w = window as unknown as { __miyagiLayout?: { notch?: unknown; n: number } }
+        w.__miyagiLayout = { notch: next.notch, n: (w.__miyagiLayout?.n ?? 0) + 1 }
+        // The layout first: nothing below may keep the island from seeing where the notch is.
+        setLayout(next)
+        try {
+          if (typeof next.pillTop === 'number') (bridge.platform as { pillTop: number }).pillTop = next.pillTop
+        } catch {
+          // a read-only platform object: islandTop still follows the layout (the notch top is 0)
+        }
+        setNotchInfo(next.notch)
+      })]
     bridge.ready()
     return () => offs.forEach((off) => off())
   }, [])
@@ -42,6 +59,8 @@ function App(): ReactNode {
 }
 
 document.documentElement.dataset.route = isElectron ? route : 'stage'
+// v2 (W0-4): an app window (Onboarding, Library, Progress, Account) is a normal opaque window: styles.css paints its body.
+if (isElectron && getFeatureWindows().some((w) => w.route === route && w.kind === 'app')) document.documentElement.dataset.kind = 'app'
 // Reuse the root if Vite re-runs this module (dependency re-optimization in dev).
 const container = document.getElementById('root')! as HTMLElement & { __root?: ReturnType<typeof createRoot> }
 container.__root ??= createRoot(container)

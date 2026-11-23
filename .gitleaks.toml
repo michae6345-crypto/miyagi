@@ -1,0 +1,12 @@
+# gitleaks config for CI (.github/workflows/ci.yml, job gitleaks; launch risk R46). The default rules, plus one exception.
+# Single findings that were checked by hand and are not secrets go in .gitleaksignore, one fingerprint each.
+[extend]
+useDefault = true
+
+[[allowlists]]
+# A Supabase publishable ("anon") key is public by design: it ships in the app (app/src/main/publicConfig.ts), and
+# Supabase documents it as safe in a client. Secret keys (sb_secret_..., service_role JWTs) are still caught, here
+# and by scripts/check_supabase_keys.py.
+description = "Supabase publishable keys"
+regexTarget = "secret"
+regexes = ['''^sb_publishable_[A-Za-z0-9_-]{16,}$''']

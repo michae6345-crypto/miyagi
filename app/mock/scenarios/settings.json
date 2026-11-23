@@ -1,19 +1,32 @@
 {
   "name": "settings",
   "on": {
-    "connect": "first_run"
+    "connect": "settings_first_run"
   },
   "segments": {
-    "first_run": [
+    "settings_first_run": [
       {
         "wait": 400,
         "type": "config.status",
         "payload": {
           "anthropic": "missing",
           "gemini": "missing",
-          "brightdata": "env",
           "elevenlabs": "invalid",
           "tigerUrl": "missing"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "health",
+        "payload": {
+          "ready": 4,
+          "total": 4,
+          "items": [
+            { "id": "engine", "label": "miyagi engine", "state": "ok" },
+            { "id": "vscode", "label": "VS Code", "state": "ok", "detail": "1.96" },
+            { "id": "jupyter", "label": "Jupyter", "state": "ok" },
+            { "id": "companion", "label": "VS Code extension", "state": "ok" }
+          ]
         }
       }
     ]

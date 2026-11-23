@@ -10,16 +10,23 @@
  *   - One focusable window, route `settings`, covering the overlay's display like the launcher, so its sheet
  *     can grow out of the island's exact rect and collapse back into it. Hidden until opened; hidden windows
  *     never take focus.
- *   - First run: opens once if Anthropic or Gemini is `missing` (not `env`) in config.status.
+ *   - Never opens by itself: the learner opens it (gear, launcher, ⌘,).
  *
  * Handles (bridge.invoke from any window):
- *   settings:open     grow the sheet out of the island (the overview's gear; openSettings() in the renderer)
+ *   settings:open     ({section}?) grow the sheet out of the island on that section (openSettings(section) in the
+ *                     renderer, core/surfaces); already open: switch to the section
+ *   settings:about    → {version} for the sidebar's foot
+ *   settings:delete   Privacy › Delete my data: erase the keys on this Mac (keys.bin), send the empty config.keys,
+ *                     then the sign-in files (settings/erase.ts SIGN_IN_FILES: auth.bin, login.json, cloud-link.json)
+ *                     → {ok, keys: KeysView, signIn}. ok false: nothing was removed. signIn false: the keys went but
+ *                     a sign-in file stayed. The renderer then resets the prefs and calls auth:sign-out (auth.ts
+ *                     owns the session in memory and revokes it).
  *   settings:get      → KeysView
  *   settings:save     (SavePatch) merge, encrypt, write, send config.keys → KeysView
  *   settings:test     re-send config.keys (the engine answers config.status)
  *   settings:island   → the island's current size (the sheet collapses onto it)
  *   settings:hidden   the sheet finished collapsing: hide the window, hand focus back
- * Broadcasts: settings:open {from}, settings:close (blur).
+ * Broadcasts: settings:open {from, section}, settings:section {section}, settings:close (blur).
  *
  * UNVERIFIED: written and typechecked on Windows, where Smart App Control blocks electron.exe.
  * Check on the Mac: Keychain prompt (if any), keys.bin survives a restart, focus on open, blur closes,
@@ -32,10 +39,23 @@ import { cmd } from '../../common/wire'
 import { defineMainFeature } from '../context'
 import { returnFocus } from '../platform'
 import { previousApp } from './front-app'
+import { removeFiles, SIGN_IN_FILES } from './settings/erase'
 
 /** How long the closed sheet's window keeps catching clicks (see hide()). */
 const CATCH_MS = 400
-import { cleanKeys, fullPayload, mergeKeys, needsKeys, viewOf, type Keys, type KeyStatus, type KeysView } from '../../renderer/src/features/settings/keys'
+import {
+  cleanKeys,
+  fullPayload,
+  isSection,
+  mergeKeys,
+  viewOf,
+  type AboutView,
+  type DeleteResult,
+  type Keys,
+  type KeyStatus,
+  type KeysView,
+  type Section
+} from '../../renderer/src/features/settings/keys'
 
 /** Linux can fall back to a hard-coded password ("basic_text"): that's not secure storage. */
 function secureStorage(): boolean {
@@ -94,9 +114,10 @@ export default defineMainFeature({
     let open = false
 
     let hideTimer: ReturnType<typeof setTimeout> | undefined
-    const show = (): void => {
+    const show = (section?: Section): void => {
       if (win.isDestroyed()) return
       if (open) {
+        if (section) ctx.broadcast('settings:section', { section })
         win.focus()
         return
       }
@@ -106,7 +127,7 @@ export default defineMainFeature({
       win.focus()
       ctx.raise(win)
       // The renderer starts the sheet on this exact shape, then yields the island once it has painted.
-      ctx.broadcast('settings:open', { from: ctx.islandSize() })
+      ctx.broadcast('settings:open', { from: ctx.islandSize(), section })
     }
 
     // The sheet has already collapsed when this runs. The (transparent, full-screen) window stays up CATCH_MS longer, so
@@ -138,7 +159,6 @@ export default defineMainFeature({
 
     ctx.engine.onOpen(sendKeys)
 
-    let autoOpened = false
     ctx.engine.onEvent((e) => {
       if (e.type !== 'config.status') return
       lastStatus = e.payload
@@ -147,7 +167,24 @@ export default defineMainFeature({
 
     // ---- IPC ----------------------------------------------------------------------------------
 
-    ctx.handle('settings:open', () => show())
+    ctx.handle('settings:open', (p) => show(isSection((p as { section?: unknown } | undefined)?.section) ? (p as { section: Section }).section : undefined))
+    ctx.handle('settings:about', (): AboutView => ({ version: ctx.app.getVersion() }))
+    ctx.handle('settings:delete', (): DeleteResult => {
+      const prev = keys
+      keys = {}
+      persist() // removes keys.bin
+      if (error) {
+        // keys.bin is still there: keep the keys in memory and on the engine too, so "Nothing was removed" is true.
+        keys = prev
+        error = undefined
+        return { ok: false, keys: view() }
+      }
+      sendKeys() // every name, all empty: the engine drops the app's keys
+      // The sign-in too (ROADMAP 5.4): only after the keys went, so ok false still means "nothing was removed".
+      const signIn = removeFiles(ctx.app.getPath('userData'), SIGN_IN_FILES)
+      if (!signIn) console.warn('[settings] a sign-in file could not be removed')
+      return { ok: true, keys: view(), signIn }
+    })
     ctx.handle('settings:get', () => view())
     ctx.handle('settings:save', (patch) => {
       keys = mergeKeys(keys, patch)

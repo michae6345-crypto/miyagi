@@ -17,6 +17,7 @@
  */
 import type { Incoming, Outgoing } from '../common/wire'
 import type { PlatformInfo, Rect } from '../main/platform'
+import type { NotchLayout } from '../common/notch'
 
 export type UiSignal =
   | 'launcher:open'
@@ -30,6 +31,8 @@ export type UiSignal =
   | 'video:intent'
   | 'island:yield'
   | 'island:return'
+  /** main -> overlay: wake, unlock, display change or a hung renderer: the island collapses to rest (core/Island.tsx). */
+  | 'island:collapse'
   | 'shortcut'
   | 'overlay:interactive'
   | 'layout'
@@ -42,6 +45,14 @@ export type Layout = {
   height: number
   /** Usable area (excludes menu bar / dock / taskbar). */
   workArea: Rect
+  /** Additive: the pill's top for this display now (main re-fits it when displays change). Absent in the browser stage. */
+  pillTop?: number
+  /**
+   * The notch island's geometry (display-local points, y = 0 is the display top) and where the island lives now.
+   * `place` is the EFFECTIVE place: 'below' on Windows, on a Mac without a notch, or when the pref says so.
+   * Main re-sends the layout when any of it changes.
+   */
+  notch: NotchLayout
 }
 
 export type Unsub = () => void

@@ -127,11 +127,50 @@ class SearchDone(_Model):
     total: int
 
 
+BuildStage = Literal["watching", "steps", "checks", "ready"]  # v2 Home-Building rows
+BuildFailCode = Literal["unreadable_code", "no_steps", "too_long", "no_captions", "network", "provider", "unknown"]
+
+
+class BuildPhase(_Model):
+    """v2 (Home-Building): one row of the build checklist."""
+    id: BuildStage
+    label: str
+    state: Literal["done", "active", "next"]
+    detail: str | None = None  # "6 steps found", "Step 4 of 6"
+
+
+class BuildSource(_Model):
+    """v2: what the lesson is built from."""
+    kind: Literal["youtube", "goal", "library"]
+    title: str
+    channel: str | None = None
+    durationS: float | None = None
+    url: str | None = None
+
+
+class BuildAlternative(_Model):
+    """v2 (Err-LessonBuildFailed): transcript only (learn_url transcriptOnly) or a cached library lesson (library.start)."""
+    kind: Literal["transcript", "library"]
+    title: str
+    meta: str | None = None
+    id: str | None = None
+    url: str | None = None
+
+
 class LessonBuilding(_Model):
     message: str
     progress: float  # 0..1
     failed: bool | None = None  # the build ended in error; drop the building UI
     elapsedS: float | None = None  # seconds since the build started (heartbeat); `message` changes only with the stage
+    # v2 (all optional)
+    stage: BuildStage | None = None
+    phases: list[BuildPhase] | None = None
+    etaS: float | None = None  # about how long is left, seconds
+    source: BuildSource | None = None
+    failCode: BuildFailCode | None = None  # with failed
+    failReason: str | None = None  # with failed: one plain sentence
+    alternatives: list[BuildAlternative] | None = None  # with failed
+    silent: bool | None = None  # with failed: the learner moved on; no failure card
 
 
 class GoalMatch(_Model):
@@ -139,12 +178,121 @@ class GoalMatch(_Model):
     note: str = ""
 
 
+class OutlineStep(_Model):
+    """One row of lesson.outline: a step of the lesson, built or still being written."""
+    index: int
+    title: str
+    kind: StepKind | None = None
+    what: str | None = None
+    estMinutes: int | None = None
+
+
+class LessonOutline(_Model):
+    """E23: every step from the first lesson.ready on (count = the final step count), so "Step 1 of N" never jumps."""
+    count: int
+    steps: list[OutlineStep]
+    estMinutes: int | None = None  # the whole lesson, when every row has one
+
+
+# ---------- v2 shapes (BUILD-PLAN W0-1) ----------
+HealthState = Literal["ok", "missing", "off", "checking", "unknown"]  # unknown: can't tell without prompting (gray)
+PermissionKind = Literal["screen", "accessibility", "automation"]
+PauseReason = Literal["editor_closed", "kernel", "network", "permission", "user"]
+BlockerKind = Literal["kernel", "editor_closed", "network"]
+LessonTool = Literal["vscode", "jupyter", "terminal", "excel"]
+SkillProgressState = Literal["mastered", "practicing", "not_started"]
+LIBRARY_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # library ids: never a path
+
+
+class MissingLine(_Model):
+    text: str
+    state: Literal["ok", "missing"]
+
+
+class HintStep(_Model):
+    n: int
+    of: int
+
+
+class LessonResult(_Model):
+    """card kind "complete": what the lesson counted. Skips are skips, never passes."""
+    passed: int
+    skipped: int
+    total: int
+    minutes: int | None = None
+    lessonId: str | None = None
+    title: str | None = None
+
+
+class HealthItem(_Model):
+    id: str  # vscode / companion / python / jupyter / engine / cloud
+    label: str
+    state: HealthState
+    detail: str | None = None
+    fix: str | None = None  # the action kind that fixes it
+
+
+class LibraryProgress(_Model):
+    stepIndex: int
+    stepTitle: str
+    total: int
+
+
+class LibraryItem(_Model):
+    id: str = Field(pattern=LIBRARY_ID_PATTERN)
+    title: str
+    by: str | None = None
+    steps: int
+    estMinutes: int | None = None
+    tools: list[LessonTool] = []
+    ready: bool = True
+    progress: LibraryProgress | None = None
+    source: BuildSource | None = None
+    updatedAt: str | None = None
+
+
+class SkillProgressItem(_Model):
+    label: str
+    state: SkillProgressState
+
+
+class SkillTrackProgress(_Model):
+    track: str
+    mastered: int
+    total: int
+    items: list[SkillProgressItem]
+
+
+class CompletedLesson(_Model):
+    lessonId: str
+    title: str
+    at: str  # ISO date
+
+
+class WeekActivity(_Model):
+    minutes: int | None = None
+    streak: int | None = None
+    days: list[bool] = []
+
+
+class ReviewItem(_Model):
+    label: str
+    file: str | None = None
+    checks: int
+    when: str
+
+
+class ReviewQueue(_Model):
+    due: int
+    items: list[ReviewItem]
+
+
 class LessonInfo(_Model):
     id: str
     title: str
     sources: list[Source]
     complete: bool | None = None  # False: a long video is still building (lesson.updated follows)
-    builtBy: Literal["gemini", "claude", "mixed", "chapters", "unknown"] | None = None  # chapters = provisional quick start
+    builtBy: Literal["gemini", "claude", "mixed", "chapters", "unknown", "curated"] | None = None  # chapters = provisional quick start; curated = written by hand (curated.py), no model
     goalMatch: GoalMatch | None = None
     mode: Literal["video", "lesson"] | None = None  # "lesson": no video ("Just teach me")
     provisional: bool | None = None  # True: a placeholder from the chapter list; a fresh lesson.ready replaces it
@@ -154,11 +302,13 @@ class LessonInfo(_Model):
     flow: list[FlowBox] | None = None  # learn-anything: the "How it works" diagram
     prerequisites: list[Prerequisite] | None = None  # learn-anything: "You'll need" / the "Needs" chip
     learnFirst: list[LearnFirstItem] | None = None  # learn-anything: mini-lessons for the gaps
+    outline: LessonOutline | None = None  # every step from the start (absent: a build whose step count isn't known yet)
 
 
 class LessonReady(_Model):
     lesson: LessonInfo
     steps: list[StepSummary]
+    replay: bool | None = None  # the SAME lesson again (reconnect / restore): keep its progress, no "Before you start"
 
 
 class PartsProgress(_Model):
@@ -186,6 +336,9 @@ class StepStarted(_Model):
     concepts: list[str] | None = None  # primer ids this step uses
     code: str | None = None  # the exact code to type (code steps) or command to run (run steps), in full
     estMinutes: int | None = None  # about how long this step takes ("about 4 min")
+    replay: bool | None = None  # a reconnect's / restore's replay of the step already running (not a new step)
+    where: str | None = None  # v2 (Les-Working): the line above the code ("Type this in the new cell")
+    then: str | None = None  # v2: the line under it ("Then run it with the arrow beside the cell.")
 
 
 class CheckUpdated(_Model):
@@ -201,6 +354,8 @@ class StepPassed(_Model):
     nextStepId: str | None = None
     pending: bool | None = None  # no next step yet: the next part is still building
     skipped: bool | None = None  # the learner skipped it (action skip_step): not passed, never shown green
+    already: bool | None = None  # its code was already in the file: passed without starting (one "You already did" card)
+    summary: str | None = None  # v2: what the learner just did, <= 12 words
 
 
 class OfftrackDiff(_Model):
@@ -254,6 +409,7 @@ class SpotlightTarget(_Model):
     app: str | None = None
     matched: str | None = None
     snippet: str | None = None  # code to type at the rect (lesson mode / Show me)
+    zoom: bool | None = None  # a VS Code control under 32 pt (Run ▷, Toggle Panel, unsaved dot): the app's loupe
 
 
 class SpotlightClear(_Model):
@@ -267,6 +423,20 @@ class ScreenSeen(_Model):
     app: str
     summary: str
     t: float
+
+
+class AvoidRect(_Model):
+    """Screen POINTS, TOP-LEFT origin (the spotlight.rect space): a VS Code control Miyagi's UI must not cover."""
+
+    kind: Literal["quickpick"]
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class ScreenAvoid(_Model):
+    rects: list[AvoidRect]  # [] = nothing to avoid any more (the picker closed): the app clears it
 
 
 class VideoSeek(_Model):
@@ -311,7 +481,7 @@ class SetupResource(_Model):
 class Setup(_Model):
     editorNeeded: bool
     items: list[SetupItem]
-    editorLabel: str | None = None  # "Cursor"
+    editorLabel: str | None = None  # "Visual Studio Code"
     resources: list[SetupResource] | None = None  # files the video links (action download)
     actionLabels: dict[str, str] | None = None
 
@@ -374,7 +544,47 @@ class PreflightInfo(_Model):
     partial: bool = False
 
 
-CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
+SkillState = Literal["mastered", "learning", "next"]
+
+
+class SkillNode(_Model):
+    """A concept on the skill map's track. mastered: every step behind it passed; learning: one was skipped; next: not learned yet."""
+    id: str
+    label: str  # <= 6 words
+    state: SkillState
+    detail: str | None = None  # a formula / "Step 2 skipped" / why it's next, under the label
+
+
+class SkillEdge(_Model):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    from_: str = Field(alias="from")  # SkillNode.id
+    to: str
+
+
+class SkillCross(_Model):
+    """A dashed "shared idea" link from another track's concept to SkillNode `to`."""
+    track: str  # "Math"
+    label: str  # "Matrix multiply"
+    to: str  # SkillNode.id
+    note: str | None = None  # the link's caption
+
+
+class SkillNext(_Model):
+    title: str
+    goal: str  # launcher text: learn {query: goal, mode: "lesson"}
+
+
+class SkillMap(_Model):
+    """card.skillMap on the lesson-complete card (mockup 10 "Your skills"), from server/lesson/skillmap.py."""
+    track: str
+    headline: str
+    nodes: list[SkillNode]
+    edges: list[SkillEdge]
+    cross: list[SkillCross]
+    next: list[SkillNext]
+
+
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
                      "retry", "hint", "show_me"]  # retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
@@ -385,7 +595,7 @@ class Card(_Model):
     # "Save X", "X is still empty", "Wrong folder?", "Looks done?", "Not yet"), never an answer; where: the
     # where-to-work card ("Open calc.py", "Where to work") when there is no box to draw (Show me, or Hint before the
     # step's code is on screen). See events.ts.
-    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight", "step", "where"]
+    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight", "step", "where", "complete"]  # complete (v2): the last step passed
     title: str
     body: str
     videoJump: VideoJump | None = None
@@ -400,9 +610,17 @@ class Card(_Model):
     preflight: PreflightInfo | None = None  # kind "preflight"
     where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
     output: str | None = None  # monospace output block (e.g. "Run it for me")
+    dismissAfterMs: int | None = None  # the app closes the card on its own after this long (one-line success, no buttons)
     source: Literal["judge"] | None = None  # E5's step judge made it: a step-status card (kind "step"), never an answer
     verdict: Literal["done", "not_done"] | None = None  # source "judge": the WHOLE step. done = "Looks done?", not_done = "Not yet"
     checkIds: list[str] | None = None  # source "judge": the checks it is about (done: what Yes vouches for; not_done: still missing)
+    skillMap: SkillMap | None = None  # the lesson-complete card: the skill map to draw (mockup 10), server/lesson/skillmap.py
+    # v2 (all optional)
+    hintStep: HintStep | None = None  # kind "hint": rung n of the ladder ("Hint 1 of 2")
+    missingLines: list[MissingLine] | None = None  # Not yet: the step's lines, each there or missing
+    fixCaption: str | None = None  # Not yet: what to do about them
+    waiting: str | None = None  # footer while the engine waits ("Watching for a kernel to start")
+    result: LessonResult | None = None  # kind "complete"
 
 
 class NetworkDiagram(_Model):
@@ -410,6 +628,10 @@ class NetworkDiagram(_Model):
     activation: str
     derivatives: list[str]
     residual: str
+    # True: a preview of the lesson's own network before the learner's first run (server/orchestrator/curated.py), not
+    # a run: frames without epoch / loss, never a training run (mode forward / backward / stuck). The app shows
+    # "Preview", no Epoch / Loss / sparkline, and keeps it out of the completion charts. Absent: a real run.
+    preview: bool | None = None
 
 
 class GradientsDiagram(_Model):
@@ -486,7 +708,9 @@ class Metric(_Model):
 
 
 class Status(_Model):
-    state: Literal["idle", "watching", "offtrack", "passed", "thinking"]
+    state: Literal["idle", "watching", "offtrack", "passed", "thinking", "busy"]  # busy (v2): the AI provider is overloaded
+    detail: str | None = None  # v2: what the engine does right now, <= 6 words
+    retryInS: float | None = None  # v2, with busy: retrying in this many seconds
 
 
 class Error(_Model):
@@ -498,15 +722,77 @@ class LessonEnded(_Model):
     reason: str
 
 
+CloudState = Literal["ok", "missing", "paused", "quota", "unauthorized", "offline", "off"]  # v2: missing = a proxy but no token yet; off = no proxy (BYOK or the engine's .env)
 KeyState = Literal["ok", "missing", "invalid", "env"]  # "env" = falling back to the engine's .env
+
+
+# ---------- v2 events (BUILD-PLAN W0-1) ----------
+class EngineHello(_Model):
+    """First message on every connect. capabilities: the v2 commands this engine understands."""
+    version: str
+    contract: str
+    capabilities: list[str] = []
+    restored: bool | None = None
+
+
+class Health(_Model):
+    items: list[HealthItem]
+    ready: int
+    total: int
+
+
+class LessonPaused(_Model):
+    reason: PauseReason
+    title: str | None = None
+    body: str | None = None
+    stepId: str | None = None
+
+
+class LessonResumed(_Model):
+    reason: PauseReason | None = None
+    stepId: str | None = None
+
+
+class Blocker(_Model):
+    kind: BlockerKind
+    title: str | None = None
+    body: str | None = None
+    action: str | None = None
+    rect: ScreenRect | None = None  # the real control to point at (spotlight.rect space)
+    clear: bool | None = None  # it's gone
+
+
+class Library(_Model):
+    items: list[LibraryItem]
+
+
+class LibraryItemEvent(_Model):
+    item: LibraryItem
+    steps: list[OutlineStep] | None = None
+    overview: str | None = None
+
+
+class ProgressEvent(_Model):
+    """Every number from passed checks; None = not tracked yet (the app shows an empty state)."""
+    skills: list[SkillTrackProgress] = []
+    completed: list[CompletedLesson] = []
+    week: WeekActivity | None = None
+    review: ReviewQueue | None = None
 
 
 class ConfigStatus(_Model):
     anthropic: KeyState
     gemini: KeyState
-    brightdata: KeyState
     elevenlabs: KeyState
     tigerUrl: KeyState
+    miyagiToken: KeyState | None = None  # v2: the install token
+    cloud: CloudState | None = None  # v2: what the proxy said about it
+
+
+class CloudTokenInvalid(_Model):
+    """cloud.token_invalid: the proxy does not know this install's token (401). Never carries the token."""
+
+    reason: Literal["unknown_token"] | None = None
 
 
 ENGINE_EVENTS: dict[str, Any] = {
@@ -521,6 +807,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "offtrack": Offtrack,
     "spotlight": TypeAdapter(Spotlight),
     "screen.seen": ScreenSeen,
+    "screen.avoid": ScreenAvoid,
     "video.seek": VideoSeek,
     "video.pause": Empty,
     "video.play": Empty,
@@ -530,15 +817,28 @@ ENGINE_EVENTS: dict[str, Any] = {
     "metric": Metric,
     "status": Status,
     "error": Error,
+    "cloud.token_invalid": CloudTokenInvalid,
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
+    # v2
+    "engine.hello": EngineHello,
+    "health": Health,
+    "lesson.paused": LessonPaused,
+    "lesson.resumed": LessonResumed,
+    "blocker": Blocker,
+    "library": Library,
+    "library.item": LibraryItemEvent,
+    "progress": ProgressEvent,
 }
 
 EngineEventType = Literal[
+    "cloud.token_invalid",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
+    "screen.avoid",
+    "engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item", "progress",
 ]
 
 
@@ -550,6 +850,7 @@ class Learn(_Model):
 
 class LearnUrl(_Model):
     url: str
+    transcriptOnly: bool | None = None  # v2: build from what the teacher says, no screen reading
 
 
 class BuildLesson(_Model):
@@ -557,13 +858,15 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
+                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup", "open_in_browser",
                      "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry"]
+                     "retry", "start"]  # start: "Start the lesson" on "Before you start" (step 1 waits for it)
 
 
 class Action(_Model):
     kind: ActionKind
+    # explain + text: text = the learner's selection (the drawer's "Explain more"): the engine answers with a card
+    # {kind: "explain", title: "About `<start of the selection>`", body}. explain without text: the current step.
     text: str | None = None
 
 
@@ -581,13 +884,71 @@ class OverlayBounds(_Model):
 
 
 class ConfigKeys(_Model):
-    """Bring-your-own-key. Keep in memory only; never log or echo these."""
+    """Bring-your-own-key. Keep in memory only; never log or echo these. Unknown names (from older app builds) are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
 
     anthropic: str | None = None
     gemini: str | None = None
-    brightdata: str | None = None
     elevenlabs: str | None = None
     tigerUrl: str | None = None
+    miyagiToken: str | None = None  # v2: the anonymous install token ("mi_..."); memory only
+    miyagiCloud: str | None = None  # v2: the proxy's https base URL
+
+
+class CardShown(_Model):
+    """card.shown: a `card` / the `offtrack` card became visible in the app's card slot (E14)."""
+
+    stepId: str | None = None
+    title: str = ""
+    kind: str | None = None  # the card's kind, or "offtrack"
+
+
+class CardClosed(_Model):
+    """card.closed: that card left the slot. by: "user" | "replaced" | "timeout" | "hidden" (kept a plain str here so
+    a new reason from the app is logged, not rejected). "user" / "timeout" lift the hold this card (matched by title)
+    caused; "replaced" / "hidden" lift nothing."""
+
+    stepId: str | None = None
+    title: str = ""
+    kind: str | None = None
+    by: str | None = None
+
+
+# ---------- v2 commands: the app sends one only when engine.hello.capabilities lists its type ----------
+class HealthGet(_Model):
+    pass
+
+
+class PermissionOpen(_Model):
+    """The engine reports the grant it needs; the APP opens System Settings itself (fixed URLs), never a URL from here."""
+
+    kind: PermissionKind
+
+
+class LibraryList(_Model):
+    pass
+
+
+class LibraryGet(_Model):
+    id: str = Field(pattern=LIBRARY_ID_PATTERN)
+
+
+class LibraryStart(_Model):
+    """Start a cached lesson: zero model calls."""
+
+    id: str = Field(pattern=LIBRARY_ID_PATTERN)
+
+
+class ProgressGet(_Model):
+    pass
+
+
+class PanelState(_Model):
+    """The lesson panel docked beside the editor (screen points); rect None = closed."""
+
+    open: bool
+    rect: ScreenRect | None = None
 
 
 APP_COMMANDS: dict[str, type[_Model]] = {
@@ -599,9 +960,25 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "overlay.bounds": OverlayBounds,
     "config.keys": ConfigKeys,
     "end_lesson": EndLesson,
+    "card.shown": CardShown,
+    "card.closed": CardClosed,
+    # v2
+    "health.get": HealthGet,
+    "permission.open": PermissionOpen,
+    "library.list": LibraryList,
+    "library.get": LibraryGet,
+    "library.start": LibraryStart,
+    "progress.get": ProgressGet,
+    "panel.state": PanelState,
 }
 
-AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson"]
+AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
+                         "card.shown", "card.closed",
+                         "health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"]
+
+# v2: the command types an engine may list in engine.hello.capabilities.
+V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state")
+CONTRACT_VERSION = "2026-11-20"
 
 
 class AppMessage(BaseModel):

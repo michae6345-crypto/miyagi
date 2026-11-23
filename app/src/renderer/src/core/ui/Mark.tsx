@@ -1,7 +1,8 @@
 /**
  * The Miyagi bonsai and wordmark, from the brand kit (app/brand). Never redraw the tree or retype the
  * wordmark: use these. The cut follows the size: small ≤ 32px, icon ≤ 140px, full above.
- * tone 'dark' = for dark backgrounds (lighter bark and clay): the default, since the overlay is dark HUD.
+ * tone 'dark' = for dark backgrounds (lighter bark and clay), 'light' for light ones. Left out, the cut follows the theme
+ * (Settings > Appearance), and the always-dark island and overlay keep the dark cut.
  *
  * The tree is in COLOR everywhere in the app (Adrian, Sun: back from the Sat monochrome cut): green pads, brown
  * trunk and clay pot (Nov 19), as drawn in the brand files. Don't recolor or filter it. `mono` (white silhouette on dark,
@@ -28,13 +29,18 @@ const SRC = {
 } as const
 
 /** The bonsai. Replaces every sparkle icon in the app (pill, launcher input, …). In color by default. */
-export function MiyagiMark({ size = 16, tone = 'dark', level = 'auto', mono = false, className }: { size?: number; tone?: Tone; level?: Level; mono?: boolean; className?: string }): ReactNode {
+export function MiyagiMark({ size = 16, tone, level = 'auto', mono = false, className }: { size?: number; tone?: Tone; level?: Level; mono?: boolean; className?: string }): ReactNode {
   const lvl = level === 'auto' ? markLevel(size) : level
-  const filter = mono ? (tone === 'dark' ? 'brightness(0) invert(1)' : 'brightness(0)') : undefined
-  return <img src={SRC[lvl][tone]} width={size} height={size} alt="" aria-hidden draggable={false} style={filter ? { filter } : undefined} className={`shrink-0 select-none ${className ?? ''}`} />
+  const one = (t: Tone, show?: string): ReactNode => {
+    const filter = mono ? (t === 'dark' ? 'brightness(0) invert(1)' : 'brightness(0)') : undefined
+    return <img key={t} src={SRC[lvl][t]} width={size} height={size} alt="" aria-hidden draggable={false} style={{ ...(filter ? { filter } : {}), ...(show ? { display: show } : {}) }} className={`shrink-0 select-none ${className ?? ''}`} />
+  }
+  // No tone: both cuts, and the theme (--mk-dark / --mk-light, core/theme.ts) shows the one that fits the background.
+  return tone ? one(tone) : <>{one('dark', 'var(--mk-dark)')}{one('light', 'var(--mk-light)')}</>
 }
 
 /** The wordmark: lowercase miyagi with the green light on the first i. Height in px. */
-export function MiyagiWordmark({ height = 20, tone = 'dark', className }: { height?: number; tone?: Tone; className?: string }): ReactNode {
-  return <img src={tone === 'dark' ? wordmarkDark : wordmark} height={height} style={{ width: 'auto' }} alt="miyagi" draggable={false} className={className} />
+export function MiyagiWordmark({ height = 20, tone, className }: { height?: number; tone?: Tone; className?: string }): ReactNode {
+  const one = (t: Tone, show?: string): ReactNode => <img key={t} src={t === 'dark' ? wordmarkDark : wordmark} height={height} style={{ width: 'auto', ...(show ? { display: show } : {}) }} alt="miyagi" draggable={false} className={className} />
+  return tone ? one(tone) : <>{one('dark', 'var(--mk-dark)')}{one('light', 'var(--mk-light)')}</>
 }

@@ -1,0 +1,9 @@
+{
+  "name": "agegate",
+  "on": {
+    "connect": "agegate_idle"
+  },
+  "segments": {
+    "agegate_idle": [{ "wait": 300, "type": "status", "payload": { "state": "idle" } }]
+  }
+}

@@ -5,12 +5,14 @@
  *   setPrefs({ appearance: 'light' }) saves (main: userData/prefs.json) and reaches every window
  *   useAppearance()                   the resolved 'light' | 'dark'
  *
- * Appearance is applied as <html data-appearance="light|dark">; the glass tokens (theme.glass) switch on it.
- * Only glass panels (shortcut bar, player, drawer) change: the notch island and every card stay black.
+ * Appearance is applied as <html data-appearance="light|dark">; every themed token (core/theme.ts) switches on it, so
+ * every window follows System, Light and Dark. The notch island, its cards and the overlay's passive layers stay black
+ * (data-theme="dark", Overlay.tsx), like the real notch.
  */
 import { create } from 'zustand'
 import { DEFAULT_PREFS, sanitizePrefs, type Prefs } from '../../../common/prefs'
 import { bridge, isElectron, registerWebHandler } from '../bridge'
+import { themeCss } from './theme'
 
 export type { Appearance, Prefs } from '../../../common/prefs'
 
@@ -25,11 +27,13 @@ export function setPrefs(patch: Partial<Prefs>): void {
 // Browser stage: no main process. Preferences aren't secret, so the stage keeps them in localStorage.
 if (!isElectron) {
   const KEY = 'miyagi.prefs'
+  // Stage only: ?appearance=light|dark forces the theme for this page (stage shots, no localStorage needed).
+  const forced = sanitizePrefs({ appearance: new URLSearchParams(location.search).get('appearance') })
   const read = (): Prefs => {
     try {
-      return { ...DEFAULT_PREFS, ...sanitizePrefs(JSON.parse(localStorage.getItem(KEY) ?? '{}')) }
+      return { ...DEFAULT_PREFS, ...sanitizePrefs(JSON.parse(localStorage.getItem(KEY) ?? '{}')), ...forced }
     } catch {
-      return { ...DEFAULT_PREFS }
+      return { ...DEFAULT_PREFS, ...forced }
     }
   }
   registerWebHandler('prefs:get', () => read())
@@ -47,6 +51,16 @@ if (!isElectron) {
 bridge.invoke<Prefs>('prefs:get').then((p) => p && usePrefs.setState(p)).catch(() => undefined)
 bridge.onFeature('prefs', (p) => usePrefs.setState(sanitizePrefs(p)))
 
+// ---- theme variables -----------------------------------------------------------------------------
+// Every themed token (core/theme.ts `palette`) is a CSS variable. Written here, before any component renders, so the
+// first paint already has them; <html data-appearance> (below) picks dark or light.
+if (typeof document !== 'undefined' && !document.getElementById('mg-theme')) {
+  const el = document.createElement('style')
+  el.id = 'mg-theme'
+  el.textContent = themeCss()
+  document.head.prepend(el)
+}
+
 // ---- appearance ----------------------------------------------------------------------------------
 
 const light = typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: light)') : undefined
@@ -63,6 +77,14 @@ const apply = (): void => {
 usePrefs.subscribe(apply)
 light?.addEventListener('change', apply)
 apply()
+
+// macOS full screen (app windows only): main sends feat:fullscreen. <html data-fullscreen> lets a layout drop the strip it
+// keeps under the traffic lights, which hide in full screen. The drag region keeps working either way.
+bridge.onFeature('fullscreen', (on) => {
+  if (typeof document === 'undefined') return
+  if (on) document.documentElement.dataset.fullscreen = ''
+  else delete document.documentElement.dataset.fullscreen
+})
 
 /** The appearance in effect right now ('system' resolved through the OS). */
 export function useAppearance(): 'light' | 'dark' {

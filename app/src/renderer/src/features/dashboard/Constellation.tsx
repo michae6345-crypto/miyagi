@@ -1,0 +1,246 @@
+/**
+ * Feature: dashboard. The skill constellation: one cluster per track, nodes in columns by prerequisite depth, edges as
+ * thin gray lines (green once both ends are mastered). Another track's idea a track builds on is named in its header
+ * ("Builds on Loops in Python"), not drawn as a ghost node: the dashed lines crossed the graph (redraft round 3).
+ * Hover a node for its label, state and detail; click it for its card (lessons that teach it, Start).
+ *
+ *   mastered    green, a check            practicing  a white ring
+ *   available   a solid gray outline       locked      a dashed gray outline at 40%
+ *   review due  a white dot on the green node (the node stays green)
+ */
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { CodeText } from '../../core/ui/atoms'
+import { alpha, color, fill, radius2, status, surface, tone as tones, toneFor, type2, type Tone } from '../../core/theme'
+import { groupTracks, layoutTrack, nodeStates, reviewFor, reviewIndex, trackHeadline, type NodeState, type SkillGroup } from './model'
+import { caption, Empty, h2, NodeGlyph, STATE_WORD } from './parts'
+import { select, useDash } from './store'
+import type { DashData, DashTrack, ReviewEntry } from './types'
+
+const ROW_H = 80
+const NODE_TOP = 14
+const GLYPH = 28
+const MIN_COL = 120
+const MAX_COL = 176
+
+/** A track's tone: stable per name (toneFor), never mint (teal beside the pass-green nodes reads as "passed"). */
+const trackTone = (key: string): Tone => {
+  const t = toneFor(key)
+  return t === 'mint' ? 'sky' : t
+}
+
+function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+  const ref = useRef<T>(null)
+  const [w, setW] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    setW(el.clientWidth)
+    const ro = new ResizeObserver(() => setW(el.clientWidth))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return [ref, w]
+}
+
+const LEGEND: Array<{ state: NodeState; due?: boolean; word: string }> = [
+  { state: 'mastered', word: 'Mastered' },
+  { state: 'practicing', word: 'Practicing' },
+  { state: 'available', word: 'Ready to learn' },
+  { state: 'locked', word: 'Locked' },
+  { state: 'mastered', due: true, word: 'Review due' }
+]
+
+/**
+ * Redraft round 2 (Adrian: no dot by each track, "something to show each skill visually in its name"): a small ring
+ * that fills as the track's skills are mastered, green only once all of them are (green = passed), plus "3 of 5".
+ */
+export function TrackRing({ mastered, total }: { mastered: number; total: number }): ReactNode {
+  const r = 6.5
+  const c = 2 * Math.PI * r
+  const f = total ? Math.max(0, Math.min(1, mastered / total)) : 0
+  return (
+    <svg aria-hidden width={18} height={18} viewBox="0 0 18 18" className="block shrink-0">
+      <circle cx={9} cy={9} r={r} fill="none" stroke={fill.hairline} strokeWidth={2} />
+      {f > 0 && <circle cx={9} cy={9} r={r} fill="none" stroke={f >= 1 ? color.green : color.text} strokeWidth={2} strokeLinecap="round" strokeDasharray={`${c * f} ${c}`} transform="rotate(-90 9 9)" />}
+    </svg>
+  )
+}
+
+function Cluster({ g, tone, dueOf, width }: { g: SkillGroup; tone: Tone; dueOf: (id: string) => boolean; width: number }): ReactNode {
+  const t = g.track
+  const selected = useDash((s) => (s.selected?.track === t.track ? s.selected.id : undefined))
+  const [hover, setHover] = useState<string>()
+  const lay = layoutTrack(t, false)
+  const states = nodeStates(t)
+  const colW = Math.max(MIN_COL, Math.min(MAX_COL, Math.floor(width / lay.cols)))
+  const w = Math.max(width, lay.cols * colW)
+  const h = lay.rows * ROW_H
+  const inCol: Record<number, number> = {}
+  for (const n of lay.nodes) inCol[n.col] = (inCol[n.col] ?? 0) + 1
+  const pos = new Map(
+    lay.nodes.map((n) => {
+      const offset = ((lay.rows - (inCol[n.col] ?? 1)) / 2) * ROW_H
+      return [n.id, { x: Math.round((w - lay.cols * colW) / 2 + n.col * colW + colW / 2), y: Math.round(offset + n.row * ROW_H + NODE_TOP + GLYPH / 2) }]
+    })
+  )
+  const skill = (id: string): DashTrack['skills'][number] | undefined => t.skills.find((s) => s.id === id)
+  const curve = (a: { x: number; y: number }, b: { x: number; y: number }, r1: number, r2: number): string => {
+    const x1 = a.x + r1
+    const x2 = b.x - r2
+    const mx = (x1 + x2) / 2
+    return `M${x1},${a.y} C${mx},${a.y} ${mx},${b.y} ${x2},${b.y}`
+  }
+  const tip = hover ? skill(hover) : undefined
+  const tipAt = hover ? pos.get(hover) : undefined
+  return (
+    <section data-track={t.track} aria-label={trackHeadline(t)} className="flex flex-col gap-[8px]">
+      <div className="flex items-center gap-[8px]">
+        <TrackRing mastered={t.skills.filter((s) => s.state === 'mastered').length} total={t.skills.length} />
+        <h3 className="m-0 min-w-0 truncate" style={{ ...h2, fontSize: type2.md }}>
+          {g.title}
+        </h3>
+        {g.kicker && (
+          <span className="shrink-0 truncate" style={caption}>
+            {g.kicker}
+          </span>
+        )}
+        {t.cross.length > 0 && (
+          <span className="min-w-0 truncate" style={{ ...caption, color: color.faint }} title={t.cross.map((c) => c.note).filter(Boolean).join(' ')}>
+            Builds on {t.cross.map((c) => `${c.label.split(String.fromCharCode(96)).join('')}${c.track ? ` in ${c.track}` : ''}`).join(', ')}
+          </span>
+        )}
+      </div>
+      <div className="overflow-x-auto overflow-y-hidden" style={{ borderRadius: radius2.card, background: tones[tone].wash }}>
+        <div className="relative" style={{ width: w, height: h + 12 }}>
+          <svg width={w} height={h + 12} className="pointer-events-none absolute inset-0" aria-hidden>
+            {t.edges.map((e) => {
+              const a = pos.get(e.from)
+              const b = pos.get(e.to)
+              if (!a || !b) return null
+              const both = states[e.from] === 'mastered' && states[e.to] === 'mastered'
+              return <path key={`${e.from}-${e.to}`} data-edge={both ? 'mastered' : 'open'} d={curve(a, b, 13, 13)} fill="none" stroke={both ? alpha(status.passed, 0.7) : fill.ring} strokeWidth={both ? 1.6 : 1.2} />
+            })}
+          </svg>
+          {t.skills.map((s) => {
+            const p = pos.get(s.id)
+            if (!p) return null
+            const st = states[s.id]
+            const due = st === 'mastered' && dueOf(s.id)
+            const on = selected === s.id
+            return (
+              <button
+                key={s.id}
+                type="button"
+                data-node={s.id}
+                data-state={st}
+                data-due={due || undefined}
+                aria-pressed={on}
+                aria-label={`${s.label.split(String.fromCharCode(96)).join('')}: ${STATE_WORD[st]}${due ? ', review due' : ''}`}
+                onMouseEnter={() => setHover(s.id)}
+                onMouseLeave={() => setHover((h0) => (h0 === s.id ? undefined : h0))}
+                onFocus={() => setHover(s.id)}
+                onBlur={() => setHover((h0) => (h0 === s.id ? undefined : h0))}
+                onClick={() => select(on ? undefined : { track: t.track, id: s.id })}
+                className="absolute flex cursor-pointer flex-col items-center gap-[4px] text-center outline-none"
+                style={{ left: p.x - colW / 2 + 4, top: p.y - GLYPH / 2, width: colW - 8, opacity: st === 'locked' ? 0.55 : 1 }}
+              >
+                <NodeGlyph state={st} due={due} selected={on} />
+                <span
+                  className="line-clamp-3 w-full"
+                  style={{ fontSize: type2.sm, lineHeight: '17px', overflowWrap: 'break-word', color: st === 'available' || st === 'locked' ? color.label : color.text, fontWeight: on ? 600 : 500 }}
+                >
+                  <CodeText text={s.label} />
+                </span>
+              </button>
+            )
+          })}
+          {tip && tipAt && !selected && (
+            <div
+              role="tooltip"
+              className="pointer-events-none absolute z-10 flex flex-col gap-[2px]"
+              style={{
+                left: Math.max(4, Math.min(w - 224, tipAt.x - 110)),
+                top: tipAt.y + GLYPH / 2 + 34 > h ? Math.max(0, tipAt.y - GLYPH / 2 - 62) : tipAt.y + GLYPH / 2 + 34,
+                width: 220,
+                padding: '8px 10px',
+                borderRadius: radius2.row,
+                background: surface.sheet,
+                boxShadow: `inset 0 0 0 1px ${surface.border}, ${surface.shadowSmall}`
+              }}
+            >
+              <span className="truncate" style={{ fontSize: type2.xs, fontWeight: 600, color: color.text }}>
+                <CodeText text={tip.label} />
+              </span>
+              <span style={{ fontSize: type2.micro, color: states[tip.id] === 'mastered' ? color.greenText : color.label }}>{STATE_WORD[states[tip.id]]}</span>
+              {tip.detail && (
+                <span className="line-clamp-2" style={{ fontSize: type2.micro, color: color.label }}>
+                  {tip.detail}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+export function Constellation({ data, review, loading, children, bare, titled = true }: { data?: DashData; review: ReviewEntry[]; loading: boolean; children?: ReactNode; /** no box of its own and no inner scroll: the page scrolls */ bare?: boolean; /** false on the Skills page, whose own title already says Skills (the legend stays) */ titled?: boolean }): ReactNode {
+  const [ref, width] = useWidth<HTMLDivElement>()
+  const groups = groupTracks(data)
+  const tracks = data?.tracks ?? []
+  const dueIdx = new Set<string>()
+  const idx = reviewIndex(review)
+  for (const t of tracks) for (const s of t.skills) if (reviewFor(idx, s)) dueIdx.add(`${t.track}\u0000${s.id}`)
+  // Esc closes the open skill card.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && useDash.getState().selected) select(undefined)
+    }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [])
+  return (
+    <section
+      aria-labelledby="dash-skills"
+      className="relative flex min-w-0 flex-col gap-[16px]"
+      style={bare ? undefined : { minHeight: 0, padding: 20, borderRadius: radius2.chip, background: fill.group, boxShadow: `inset 0 0 0 1px ${fill.hairline}` }}
+    >
+      <div className={`flex shrink-0 flex-wrap items-end gap-x-[16px] gap-y-[6px] ${titled ? 'justify-between' : 'justify-end'}`}>
+        <h2 id="dash-skills" className={titled ? undefined : 'sr-only'} style={{ ...h2, fontSize: bare ? type2.xs : type2.lg, color: bare ? color.label : color.text, fontWeight: bare ? 500 : 600, letterSpacing: bare ? '0.02em' : undefined }}>
+          Skills
+        </h2>
+        {tracks.length > 0 && (
+          <div aria-label="Key" className="flex flex-wrap items-center gap-x-[14px] gap-y-[4px]" style={{ ...caption, color: color.faint }}>
+            {LEGEND.map((l) => (
+              <span key={l.word} className="flex items-center gap-[4px]">
+                <span style={{ opacity: l.state === 'locked' ? 0.4 : 1, display: 'inline-flex' }}>
+                  <NodeGlyph state={l.state} due={l.due} size={14} />
+                </span>
+                {l.word}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div ref={ref} className={bare ? '' : 'min-h-0 flex-1 overflow-y-auto'}>
+        {loading ? (
+          <span style={caption}>Reading your progress</span>
+        ) : !tracks.length ? (
+          <div style={{ padding: 4 }}>
+            <Empty title="No skills yet" body="Finish a lesson. The skills its checks proved show up here." />
+          </div>
+        ) : (
+          width > 0 && (
+            <div className="flex flex-col gap-[28px]" style={{ paddingBottom: 4 }}>
+              {groups.map((g, i) => (
+                <Cluster key={g.key} g={g} tone={trackTone(g.key)} width={width} dueOf={(id) => dueIdx.has(`${g.track.track}\u0000${id}`)} />
+              ))}
+            </div>
+          )
+        )}
+      </div>
+      {children}
+    </section>
+  )
+}

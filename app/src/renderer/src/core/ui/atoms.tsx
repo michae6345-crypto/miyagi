@@ -1,12 +1,16 @@
 /** Small building blocks shared by the pill, cards, launcher and shortcut bar. */
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Eye, Lightbulb, MessageSquareText, Play, SquarePlay, Waypoints, X, type LucideIcon } from 'lucide-react'
 import { useThinking, type CheckItem, type Status } from '../lesson'
 import { emitUi } from '../bus'
 import { usePressed } from '../shortcuts'
-import { actionTone, brand, color, fill, font, glass, spring, type OptionAction } from '../theme'
+import { actionTone, brand, color, duration, ease, fill, font, glass, highlight, spring, type OptionAction } from '../theme'
 import { GlassCheck, GlassSpinner } from './glass'
+import { draw, pressMotion, sizeMove, twoBeats } from './motion'
+
+/** A white or pastel slab on the island (options, the island's primary): lit top edge, ink base line. No drop: the island is black. */
+const SLAB = `${highlight.onLight}, ${highlight.base}`
 
 /** Status dot: gray watching · white ring off track · green passed. Pulses twice when it goes off track. No glow (brand). */
 export function StatusDot({ status, size = 7 }: { status: Status; size?: number }): ReactNode {
@@ -18,8 +22,8 @@ export function StatusDot({ status, size = 7 }: { status: Status; size?: number 
       className="inline-block shrink-0 rounded-full"
       style={{ width: size, height: size, background: ring ? 'transparent' : c, boxShadow: ring ? `inset 0 0 0 1.5px ${c}` : undefined }}
       initial={{ scale: 1 }}
-      animate={{ scale: status === 'offtrack' ? [1, 1.35, 1, 1.35, 1] : 1 }}
-      transition={{ duration: 0.9, ease: 'easeInOut' }}
+      animate={{ scale: status === 'offtrack' ? [...twoBeats.keyframes] : 1 }}
+      transition={twoBeats.transition}
     />
   )
 }
@@ -27,6 +31,8 @@ export function StatusDot({ status, size = 7 }: { status: Status; size?: number 
 /** Lesson progress ring. The arc advances on the spring. */
 export function ProgressRing({ fraction, size = 15, stroke = 2 }: { fraction: number; size?: number; stroke?: number }): ReactNode {
   const r = (size - stroke) / 2
+  // pathLength is a dash, not a transform: MotionConfig would still play it, so Reduce Motion snaps the arc.
+  const reduce = useReducedMotion()
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={fill.track} strokeWidth={stroke} />
@@ -40,7 +46,7 @@ export function ProgressRing({ fraction, size = 15, stroke = 2 }: { fraction: nu
         strokeLinecap="round"
         initial={false}
         animate={{ pathLength: Math.max(0.001, fraction) }}
-        transition={spring}
+        transition={sizeMove(reduce, spring)}
       />
     </svg>
   )
@@ -50,17 +56,12 @@ export function ProgressRing({ fraction, size = 15, stroke = 2 }: { fraction: nu
 /** `track`: the ring under the arc. Default white 14% (dark surfaces); on a pastel or white tile pass fill.onAccentKey. */
 export function Spinner({ size = 18, c = color.accent, track = fill.trackSoft }: { size?: number; c?: string; track?: string }): ReactNode {
   return (
-    <motion.svg
-      width={size}
-      height={size}
-      viewBox="0 0 18 18"
-      className="shrink-0"
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-    >
+    // Polish: a CSS rotation (.mg-spin), not motion's: MotionConfig reducedMotion stops transforms, and a busy spinner that
+    // stops reads as a hang. With reduced motion it turns slower instead (styles.css).
+    <svg width={size} height={size} viewBox="0 0 18 18" className="mg-spin shrink-0" aria-hidden>
       <circle cx="9" cy="9" r="7.5" fill="none" stroke={track} strokeWidth="1.6" />
       <path d="M9 1.5 A7.5 7.5 0 0 1 16.5 9" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
-    </motion.svg>
+    </svg>
   )
 }
 
@@ -70,6 +71,7 @@ export function Spinner({ size = 18, c = color.accent, track = fill.trackSoft }:
  * review A22). `active` = a Check is in flight (useChecking): the spinner, the only time a check row moves.
  */
 export function CheckIcon({ status, active }: { status: CheckItem['status']; active: boolean }): ReactNode {
+  const reduce = useReducedMotion()
   if (status === 'pass')
     return (
       <motion.svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0" initial={{ scale: 0.6 }} animate={{ scale: 1 }} transition={spring}>
@@ -81,9 +83,8 @@ export function CheckIcon({ status, active }: { status: CheckItem['status']; act
           strokeWidth="1.9"
           strokeLinecap="round"
           strokeLinejoin="round"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={{ duration: 0.25, ease: 'easeOut', delay: 0.05 }}
+          // Polish: pathLength is a stroke-dash draw MotionConfig cannot turn off, so reduced motion fades the tick in instead (as StatusGlyph).
+          {...draw(reduce)}
         />
       </motion.svg>
     )
@@ -187,7 +188,7 @@ export function CheckList({ checks, surface = 'island' }: { checks: CheckItem[];
           <div key={c.id} data-check={c.id} data-check-status={c.status} className="flex items-start gap-3 text-[14px] leading-[18px]">
             <Icon status={c.status} active={active} />
             <div className="min-w-0 flex-1">
-              <div className="line-clamp-2 break-words" style={{ color: tone, transition: 'color 200ms ease-out' }} title={c.label}>
+              <div className="line-clamp-2 break-words" style={{ color: tone }} title={c.label}>
                 <CodeText text={c.label} />
               </div>
               {c.detail && (
@@ -213,10 +214,11 @@ function CheckWord({ status, tone }: { status: CheckItem['status']; tone: (typeo
   const word = status === 'pass' ? 'Passed' : status === 'fail' ? 'Not yet' : 'Watching'
   const c = status === 'pass' ? tone.pass : status === 'fail' ? tone.notYet : color.gray
   return (
-    <span data-part="check-word" className="flex shrink-0 items-center gap-[4px] whitespace-nowrap text-[12px] font-medium leading-[18px]" style={{ color: c }}>
+    <span data-part="check-word" title={word} className="flex shrink-0 items-center gap-[4px] whitespace-nowrap text-[12px] font-medium leading-[18px]" style={{ color: c }}>
       {status === 'pending' && <Eye size={12} strokeWidth={1.9} className="shrink-0" />}
       {status === 'fail' && <NotYetRing c={c} />}
-      {word}
+      {/* Overlay round: a pending check shows only the eye (the word made narrow rows wrap); screen readers still hear it. */}
+      {status === 'pending' ? <span className="sr-only">{word}</span> : word}
     </span>
   )
 }
@@ -235,7 +237,7 @@ export function Kbd({ children, className = '' }: { children: ReactNode; classNa
   return (
     <span
       className={`inline-flex h-[22px] items-center rounded-[6px] px-[7px] text-[12px] font-medium ${className}`}
-      style={{ background: fill.key, color: fill.keyText }}
+      style={{ background: fill.key, color: fill.keyText, boxShadow: `${highlight.keyLip}, ${highlight.topSoft}` }}
     >
       {children}
     </span>
@@ -261,7 +263,7 @@ export function Thumb({ w, h, time, src }: { w: number; h: number; time?: string
       )}
       <div className="absolute inset-0 grid place-items-center">
         <svg width={h * 0.28} height={h * 0.28} viewBox="0 0 10 10">
-          <path d="M2 1 L9 5 L2 9 Z" fill="#fff" />
+          <path d="M2 1 L9 5 L2 9 Z" fill={brand.surface} />
         </svg>
       </div>
       {time && (
@@ -286,18 +288,16 @@ export function OptionButton({ action, label, kbd, onClick, icon }: { action: Op
   return (
     <motion.button
       type="button"
-      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full pl-[11px] text-[13px] font-medium ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
-      style={{ backgroundColor: actionTone[action], color: color.onAccent }}
-      whileHover={{ filter: 'brightness(1.06)' }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.12 }}
+      className={`mg-press mg-press-light flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full pl-[11px] text-[13px] font-medium ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
+      style={{ backgroundColor: actionTone[action], color: color.onPastel, boxShadow: SLAB }}
+      {...pressMotion()}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       <I size={13} strokeWidth={1.8} className="shrink-0" />
       {label}
       {kbd && (
-        <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onAccentKey }}>
+        <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onPastelKey }}>
           {kbd}
         </span>
       )}
@@ -311,11 +311,10 @@ export function PrimaryButton({ label, kbd, onClick, icon: I, disabled }: { labe
     <motion.button
       type="button"
       disabled={disabled}
-      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full pl-[13px] text-[13px] font-medium disabled:cursor-default ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
-      style={{ backgroundColor: color.accent, color: color.onAccent, opacity: disabled ? 0.4 : 1 }}
-      whileHover={disabled ? undefined : { filter: 'brightness(0.96)' }}
-      whileTap={disabled ? undefined : { scale: 0.97 }}
-      transition={{ duration: 0.12 }}
+      className={`mg-press mg-press-light flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full pl-[13px] text-[13px] font-medium disabled:cursor-default ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
+      // Polish: disabled is flat (no slab), the same as a disabled Base in buttons.tsx.
+      style={{ backgroundColor: color.accent, color: color.onAccent, opacity: disabled ? 0.4 : 1, boxShadow: disabled ? undefined : SLAB }}
+      {...pressMotion(disabled)}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
@@ -337,11 +336,9 @@ export function PrimaryButton({ label, kbd, onClick, icon: I, disabled }: { labe
 export function CardButton({ children, onClick, primary }: { children: ReactNode; onClick: () => void; primary?: boolean; tone?: string }): ReactNode {
   return (
     <motion.button
-      className="flex h-[36px] flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-[12px] text-[14px] font-semibold"
-      style={primary ? { background: color.accent, color: color.onAccent } : { background: fill.button, color: color.text }}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.94 }}
-      transition={{ duration: 0.09 }}
+      className={`mg-press ${primary ? 'mg-press-light' : ''} flex h-[36px] flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-[12px] text-[14px] font-semibold`}
+      style={primary ? { background: color.accent, color: color.onAccent, boxShadow: SLAB } : { background: fill.button, color: color.text, boxShadow: highlight.top }}
+      {...pressMotion()}
       onClick={onClick}
     >
       {children}
@@ -352,13 +349,28 @@ export function CardButton({ children, onClick, primary }: { children: ReactNode
 /** Round ✕ that closes whatever card/diagram is open (emits the 'dismiss' UI event, same as Esc). */
 export function CloseButton(): ReactNode {
   return (
-    <button
-      className="grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
+    <motion.button
+      className="mg-press grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
       style={{ background: fill.key }}
+      {...pressMotion()}
       onClick={() => emitUi('dismiss')}
       aria-label="Close"
     >
       <X size={12} strokeWidth={2.2} />
-    </button>
+    </motion.button>
   )
 }
+
+// ---- v2 atoms (W0-3) ----------------------------------------------------------------------------------------------
+// Re-exported so `core/ui/atoms` stays the one import for shared atoms. The v2 PrimaryButton (sizes, paper surface,
+// platform keycap) is PrimaryButtonV2 here, so the island's PrimaryButton above keeps its signature.
+export { StatusGlyph, StatusWord, StatusRow, STATUS_WORD, type StatusState, type StatusSurface } from './status'
+export { Keycap, keyLabel, type KeyName, type KeycapOn } from './Keycap'
+export { GlassCard, type GlassSurface } from './GlassCard'
+export { PrimaryButton as PrimaryButtonV2, QuietButton, type ButtonSize, type ButtonSurface } from './buttons'
+export { Segmented, Toggle, Field, SidebarNav, type NavItem } from './controls'
+export { StepDots, type StepDotsProps } from './StepDots'
+export { HelpRow, OptionTile, WatchIcon, type HelpOption } from './HelpRow'
+export { KeysFooter, type KeysFooterItem } from './KeysFooter'
+export { ThinkingDots, Skeleton } from './Thinking'
+export { pressMotion, staggerList, riseItem, riseIn } from './motion'

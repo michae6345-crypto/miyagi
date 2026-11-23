@@ -14,50 +14,19 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-brand: "Google Sans Flex", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* v2 (W0-2, core/theme.ts surface / paper): app windows and light surfaces. */
+  --color-window: rgb(28, 28, 30);
+  --color-sheet: #2C2C2E;
+  --color-paper-surface: #FFFFFF;
+  --color-pass-text: #1C8A3C;
 }
 
 /*
- * Glass panels (theme.glass): dark by default, light under <html data-appearance="light"> (Settings → Appearance).
- * The island and the cards don't use these; they stay black.
- * --glass-bg is nearly opaque (.96 / .97): CSS can't blur other apps in Electron, and at .9 the terminal text under
- * the shortcut bar showed through (Michael's audit A22).
+ * Every themed variable (--c-*, --f-*, --s-*, --e-*, --h-*, --l-*, --tone-*, --glass-*, --mg-tint-*) is generated from
+ * core/theme.ts `palette` by themeCss() and injected by core/prefs.ts before first paint. Dark is the default; light
+ * follows <html data-appearance="light">; data-theme="dark" pins dark (island, overlay), data-theme="auto" resumes.
+ * This file only uses them.
  */
-:root {
-  --glass-bg: rgba(28, 28, 30, 0.96);
-  --glass-text: #F4F4F5;
-  --glass-label: rgba(255, 255, 255, 0.6);
-  --glass-faint: rgba(255, 255, 255, 0.42);
-  --glass-hairline: rgba(255, 255, 255, 0.12);
-  --glass-field: rgba(255, 255, 255, 0.06);
-  --glass-field-hover: rgba(255, 255, 255, 0.1);
-  --glass-rule: rgba(255, 255, 255, 0.08);
-  --glass-key: rgba(255, 255, 255, 0.1);
-  --glass-key-text: rgba(255, 255, 255, 0.62);
-  --glass-track: rgba(255, 255, 255, 0.18);
-  --glass-button: #F4F4F5;
-  --glass-button-text: #141414;
-  --glass-pass: #30D158;
-  --glass-offtrack: #F4F4F5;
-  --glass-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-}
-:root[data-appearance="light"] {
-  --glass-bg: rgba(250, 250, 248, 0.97);
-  --glass-text: #141414;
-  --glass-label: rgba(0, 0, 0, 0.56);
-  --glass-faint: rgba(0, 0, 0, 0.38);
-  --glass-hairline: rgba(0, 0, 0, 0.1);
-  --glass-field: rgba(0, 0, 0, 0.045);
-  --glass-field-hover: rgba(0, 0, 0, 0.08);
-  --glass-rule: rgba(0, 0, 0, 0.08);
-  --glass-key: rgba(0, 0, 0, 0.07);
-  --glass-key-text: rgba(0, 0, 0, 0.55);
-  --glass-track: rgba(0, 0, 0, 0.14);
-  --glass-button: #141414;
-  --glass-button-text: #F6F6F3;
-  --glass-pass: #1C8A3C;
-  --glass-offtrack: #141414;
-  --glass-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
-}
 
 /* Brand font for brand moments only (the app UI uses the system font). */
 @font-face {
@@ -79,7 +48,7 @@ body,
   height: 100%;
   overflow: hidden;
   background: transparent;
-  color: #fff;
+  color: var(--c-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -92,6 +61,45 @@ html[data-route="stage"] body {
   background: #08080b;
 }
 
+/*
+ * v2 app windows (data-kind="app": Onboarding, Library, Progress, Account; main/appWindows.ts). Opaque, a normal
+ * macOS window (hiddenInset title bar), so the body paints the window color and text can be selected where the
+ * feature allows it. The 28 px strip under the traffic lights drags the window.
+ */
+html[data-kind="app"] body {
+  background: var(--l-base);
+}
+html[data-kind="app"] [data-drag] {
+  -webkit-app-region: drag;
+}
+html[data-kind="app"] [data-drag] button,
+html[data-kind="app"] [data-drag] input,
+html[data-kind="app"] [data-no-drag] {
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * The room kept for the traffic lights (they hide in macOS full screen; core/prefs.ts sets <html data-fullscreen>):
+ * the sidebar's top strip, the setup header's height and its left inset. In full screen the empty band is dropped.
+ */
+.mg-lights { height: 40px; }
+.mg-flow-head { height: 64px; }
+.mg-lights-pad { padding-left: 88px; }
+html[data-fullscreen] .mg-lights { height: 12px; }
+html[data-fullscreen] .mg-flow-head { height: 48px; }
+html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
+
+/* Paper surfaces (Plan-Pricing, theme.paper) inside any window. */
+[data-surface="paper"] {
+  background: #F6F6F3;
+  color: #141414;
+}
+
+/* Text on a black scrim (video overlays, duration badges) stays white in light mode: Tailwind text-white follows the theme (--c-white), so pin it under any bg-black. */
+[class*="bg-black"] {
+  --color-white: #fff;
+}
+
 button {
   font: inherit;
   color: inherit;
@@ -100,4 +108,258 @@ button {
 input {
   user-select: text;
 }
+}
+
+/*
+ * Polish (UI-POLISH-SPEC.md). Values mirror core/theme.ts `tint`, `focus`, `ease`; keep them in sync.
+ * Everything here animates opacity or transform only.
+ */
+:root {
+  --mg-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --mg-focus: var(--c-focus);
+}
+[data-surface="paper"] {
+  --mg-focus: rgba(20, 20, 20, 0.88);
+}
+/*
+ * Polish: a glass panel (drawer, flyout, concept, shortcut bar, player) sets the ring from the glass tokens, so every
+ * control on it gets an ink ring on light glass and a white one on dark glass. The island and the cards stay black, so
+ * this can't key off :root[data-appearance="light"] alone. A panel root opts in with data-glass. Until every root
+ * carries it, the glass roots are listed by the hooks they already have (never by scanning the inline style: that
+ * matched scrims, inset shadows and SVG strokes, and re-serialized every animating element's style each frame).
+ * TODO(drawer, shortcut-bar and player lanes): add data-glass to the Drawer root and tab, Flyout, Concept,
+ * SelectionExplain, ShortcutBar, PlayerPanel and the Teach footer, then drop the hook list below. SelectionExplain and
+ * PlayerPanel have no hook yet, so only their .mg-glass controls get the glass ring until then.
+ */
+[data-glass],
+[data-part="drawer"],
+[data-part="drawer-tab"],
+[data-part="diagram-flyout"],
+[data-part="drawer-concept"],
+[data-part="drawer-video-help"] {
+  --mg-focus: var(--glass-text);
+}
+
+@layer components {
+  /*
+   * Keyboard focus: a 2 px ring 2 px outside the control, only for keyboard focus (never after a click), following the
+   * control's radius (outline follows border-radius in Chromium). White on dark, ink on paper. Not a glow: no blur.
+   */
+  :focus-visible {
+    outline: 2px solid var(--mg-focus);
+    outline-offset: 2px;
+  }
+  input:focus-visible,
+  textarea:focus-visible {
+    outline-offset: 1px;
+  }
+
+  /*
+   * .mg-press: hover and press feedback for any control. A layer over the control (::after, inheriting its radius)
+   * fades in on hover and deepens on press. Its color comes from --mg-tint-* so a white or pastel control darkens
+   * (.mg-press-light) and a neutral one lightens. Only opacity animates; the scale dip is motion's whileTap (spring).
+   * Polish: the layer sits at z -1. The control isolates, so its own fill (class or inline) paints below the layer and
+   * its label and icon paint above it: the tint never washes over the text.
+   */
+  .mg-press {
+    position: relative;
+    isolation: isolate;
+  }
+  .mg-press::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--mg-tint-hover);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms var(--mg-ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .mg-press:hover:not(:disabled)::after {
+      opacity: 1;
+    }
+  }
+  .mg-press:active:not(:disabled)::after {
+    background: var(--mg-tint-press);
+    opacity: 1;
+    transition-duration: 40ms;
+  }
+  /* A white or pastel fill darkens (both themes). */
+  .mg-press-light {
+    --mg-tint-hover: var(--mg-tint-hover-fill);
+    --mg-tint-press: var(--mg-tint-press-fill);
+  }
+  /* The accent fill is white on dark (darkens) and ink on light (lightens). */
+  .mg-press-accent {
+    --mg-tint-hover: var(--mg-tint-hover-accent);
+    --mg-tint-press: var(--mg-tint-press-accent);
+  }
+  /*
+   * Polish: a busy control holds its pressed tint (a busy option tile reads as pressed in, spec section 3). Enabled
+   * only: a control that is busy and disabled reads as plain disabled, with no tint.
+   */
+  .mg-press[aria-busy="true"]:not(:disabled)::after {
+    background: var(--mg-tint-press);
+    opacity: 1;
+  }
+
+  /*
+   * .mg-glass: a control on a glass panel (GlassPrimary = "mg-press mg-press-light mg-glass", GlassQuiet =
+   * "mg-press mg-glass"). Its focus ring and tints follow <html data-appearance>, not the dark HUD default.
+   * Dark glass: the defaults already fit (the white GlassPrimary darkens, the neutral GlassQuiet lightens).
+   * Light glass: the neutral GlassQuiet darkens (ink, like .mg-press-light) and the ink GlassPrimary lightens.
+   * Values mirror core/theme.ts `tint` (onLight, onInk).
+   */
+  .mg-glass {
+    --mg-focus: var(--glass-text);
+  }
+  :root[data-appearance="light"] .mg-glass {
+    --mg-tint-hover: var(--mg-tint-hover-fill);
+    --mg-tint-press: var(--mg-tint-press-fill);
+  }
+  :root[data-appearance="light"] .mg-glass.mg-press-light {
+    --mg-tint-hover: var(--mg-tint-hover-accent);
+    --mg-tint-press: var(--mg-tint-press-accent);
+  }
+
+  /*
+   * .mg-lift: an interactive surface moves ONE elevation level on hover (raised to overlay) and settles on press.
+   * Add it to a core/ui Surface or GlassCard with `lift`. The shadow swap is the one place a shadow animates (a short
+   * 160 ms ease-out, no glow); the rest of the app animates transform and opacity only. Reduced motion: no travel.
+   */
+  .mg-lift {
+    transition: transform 160ms var(--mg-ease-out), box-shadow 160ms var(--mg-ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .mg-lift:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--h-top), inset 0 0 0 1px var(--s-border), var(--e-overlay) !important;
+    }
+  }
+  .mg-lift:active {
+    transform: translateY(0) scale(0.985);
+    box-shadow: var(--h-top-soft), inset 0 0 0 1px var(--s-border), var(--e-raised) !important;
+    transition-duration: 60ms;
+  }
+
+  /*
+   * .mg-grain: a fine monochrome noise over a large dark surface (the lesson panel, sheets) so flat #1C1C1E reads as a
+   * material. Fixed (it never moves). No hue: the turbulence is desaturated. The card isolates, so the grain (z -1)
+   * paints over the card's own fill and under its content.
+   * Polish: the noise used to be invisible (fractalNoise also writes ~.5 into alpha, and overlay on a .11 base at .035
+   * moved each pixel by under 1/255). The filter now stretches the noise contrast (x3, -1) and forces alpha to 1, and
+   * the layer blends soft-light at .06 (under the spec's .12 "dirty" line): about +2 / -1 levels on #1C1C1E, mean
+   * unchanged, and next to nothing on a light surface. The card positions itself, so the grain never sizes to some
+   * other ancestor; an absolute or fixed utility still wins (utilities beat components).
+   */
+  .mg-grain {
+    position: relative;
+    isolation: isolate;
+  }
+  .mg-grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0.06;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feColorMatrix type='matrix' values='3 0 0 0 -1 0 3 0 0 -1 0 0 3 0 -1 0 0 0 0 1'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    z-index: -1;
+  }
+
+  /*
+   * Thinking: three dots that breathe in turn (opacity only, 1.2 s, 160 ms apart). Calm, not a bounce or a spinner. The
+   * group fades in after 150 ms, so a quick answer never flashes it (Vercel: show-delay 150 to 300 ms).
+   * Skeleton: a block that pulses (MUI pulse: opacity 1 to .4, 2 s ease-in-out). No shimmer sweep: a sweep needs a
+   * gradient, and the brand has none.
+   */
+  .mg-thinking {
+    animation: mg-fade-in 320ms var(--mg-ease-out) 150ms both;
+  }
+  .mg-thinking-dot {
+    animation: mg-breathe 1.2s var(--mg-ease-out) infinite both;
+  }
+  .mg-thinking-dot:nth-child(2) {
+    animation-delay: 160ms;
+  }
+  .mg-thinking-dot:nth-child(3) {
+    animation-delay: 320ms;
+  }
+  .mg-skeleton {
+    animation: mg-pulse 2s ease-in-out 0.5s infinite both;
+  }
+}
+
+/*
+ * Polish: a disabled .mg-press shows the default cursor. It lives in the utilities layer because every caller also
+ * carries cursor-pointer, a utility, which beat it in components; here the :disabled selector is more specific.
+ */
+@layer utilities {
+  .mg-press:disabled {
+    cursor: default;
+  }
+}
+
+/* Spinner (core Spinner, GlassSpinner): one turn a second, linear. A progress indicator, so it never stops. */
+.mg-spin {
+  animation: mg-spin 1s linear infinite;
+}
+@keyframes mg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes mg-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mg-breathe {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@keyframes mg-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/*
+ * Reduced motion: nothing travels, but waiting never looks frozen (a frozen indicator reads as a hang). The dots pulse
+ * together, slower; the skeleton keeps its pulse (opacity only); the tint layer switches instantly. motion's own
+ * animations already follow MotionConfig reducedMotion="user" (main.tsx).
+ */
+@media (prefers-reduced-motion: reduce) {
+  .mg-spin {
+    animation-duration: 2s;
+  }
+  .mg-thinking-dot,
+  .mg-thinking-dot:nth-child(2),
+  .mg-thinking-dot:nth-child(3) {
+    animation: mg-pulse 2s ease-in-out infinite both;
+  }
+  .mg-press::after {
+    transition-duration: 0ms;
+  }
+  .mg-lift:hover,
+  .mg-lift:active {
+    transform: none;
+  }
+  /* No smooth scrolling (a scroll that glides is motion too). JS scrolls check prefersReduced() (core/ui/motion). */
+  html,
+  * {
+    scroll-behavior: auto !important;
+  }
 }

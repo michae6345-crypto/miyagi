@@ -1,0 +1,92 @@
+{
+  "name": "errors",
+  "on": {
+    "connect": "err_connect",
+    "dev.err.reconnect": "err_reconnect",
+    "dev.err.back": "err_back",
+    "dev.err.recover": "err_recover",
+    "dev.err.engine-offline": "err_engine_offline",
+    "dev.err.offline": "err_offline",
+    "dev.err.online": "err_online",
+    "dev.err.busy": "err_busy",
+    "dev.err.kernel": "err_kernel",
+    "dev.err.editor-closed": "err_editor_closed",
+    "dev.err.build-failed": "err_build_failed",
+    "dev.err.limit": "err_limit",
+    "action:open_editor@step_err": "err_reopened"
+  },
+  "segments": {
+    "err_connect": [
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } }
+    ],
+    "err_lesson": [
+      { "wait": 0, "type": "lesson.ready", "payload": { "lesson": { "id": "err-mnist", "title": "Code your first neural network", "sources": [], "mode": "lesson", "builtBy": "curated", "outline": { "count": 6, "steps": [ { "index": 0, "title": "Load the data" }, { "index": 1, "title": "Normalize the pixels" }, { "index": 2, "title": "Build the model" }, { "index": 3, "title": "Compile it" }, { "index": 4, "title": "Train it" }, { "index": 5, "title": "Check the accuracy" } ] } }, "steps": [ { "id": "err-1", "index": 0, "title": "Load the data", "kind": "code" }, { "id": "err-2", "index": 1, "title": "Normalize the pixels", "kind": "code" }, { "id": "err-3", "index": 2, "title": "Build the model", "kind": "code" } ] } },
+      { "wait": 100, "type": "step.passed", "payload": { "stepId": "err-1", "nextStepId": "err-2", "already": true } },
+      { "wait": 50, "type": "step.passed", "payload": { "stepId": "err-2", "nextStepId": "err-3", "already": true } },
+      { "wait": 50, "goto": "step_err" }
+    ],
+    "step_err": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "err-3", "index": 2, "title": "Build the model", "instructions": "Stack two dense layers on a flattened input.", "kind": "code", "where": "Type this in the new cell", "code": "model = keras.Sequential([\n    keras.layers.Flatten(input_shape=(28, 28)),\n    keras.layers.Dense(128, activation='relu'),\n    keras.layers.Dense(10)\n])", "then": "Then run it with the arrow beside the cell.", "estMinutes": 4 } },
+      { "wait": 50, "type": "status", "payload": { "state": "watching", "detail": "Watching your notebook" } }
+    ],
+    "err_reconnect": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 900, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 0 } },
+      { "wait": 700, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 1 } }
+    ],
+    "err_back": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 900, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 0 } },
+      { "wait": 700, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 1 } },
+      { "wait": 1200, "type": "_link", "payload": { "open": true, "attempting": false, "failures": 0 } },
+      { "wait": 50, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"], "restored": true } },
+      { "wait": 60, "goto": "err_lesson" }
+    ],
+    "err_recover": [
+      { "wait": 200, "type": "_link", "payload": { "open": true, "attempting": false, "failures": 0 } },
+      { "wait": 60, "goto": "err_lesson" }
+    ],
+    "err_engine_offline": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 900, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 0 } },
+      { "wait": 300, "type": "_link", "payload": { "open": false, "attempting": true, "failures": 3 } },
+      { "wait": 300, "type": "_link", "payload": { "open": false, "attempting": false, "failures": 5 } }
+    ],
+    "err_offline": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 800, "type": "blocker", "payload": { "kind": "network", "title": "Offline. Steps work, checks wait." } }
+    ],
+    "err_online": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 800, "type": "blocker", "payload": { "kind": "network", "title": "Offline. Steps work, checks wait." } },
+      { "wait": 1800, "type": "blocker", "payload": { "kind": "network", "clear": true } }
+    ],
+    "err_busy": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 800, "type": "status", "payload": { "state": "busy", "retryInS": 20 } }
+    ],
+    "err_kernel": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 800, "type": "blocker", "payload": { "kind": "kernel", "title": "Pick a kernel so your cells can run", "body": "No kernel is running, so I cannot check this cell.", "action": "Select Kernel" } }
+    ],
+    "err_editor_closed": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 800, "type": "lesson.paused", "payload": { "reason": "editor_closed", "stepId": "err-3", "body": "Reopen the notebook and pick up at Build the model." } },
+      { "wait": 20, "type": "blocker", "payload": { "kind": "editor_closed", "title": "VS Code closed. Lesson paused." } }
+    ],
+    "err_reopened": [
+      { "wait": 1400, "type": "blocker", "payload": { "kind": "editor_closed", "clear": true } },
+      { "wait": 20, "type": "lesson.resumed", "payload": { "reason": "editor_closed", "stepId": "err-3" } }
+    ],
+    "err_build_failed": [
+      { "wait": 0, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"], "restored": true } },
+      { "wait": 20, "type": "lesson.building", "payload": { "message": "Watching the video", "progress": 0.2, "elapsedS": 12, "stage": "watching", "source": { "kind": "youtube", "title": "Pandas tutorial for beginners, full course", "url": "https://www.youtube.com/watch?v=VIDEO_ID", "durationS": 3600 } } },
+      { "wait": 700, "type": "lesson.building", "payload": { "message": "Watching the video", "progress": 0.2, "failed": true, "failCode": "unreadable_code", "failReason": "The code on screen is too small to read reliably.", "source": { "kind": "youtube", "title": "Pandas tutorial for beginners, full course", "url": "https://www.youtube.com/watch?v=VIDEO_ID" }, "alternatives": [ { "kind": "transcript", "title": "Try transcript only", "meta": "Builds steps from what the teacher says. Checks may be looser.", "url": "https://www.youtube.com/watch?v=VIDEO_ID" }, { "kind": "library", "id": "pandas_csv", "title": "Load and clean a CSV with pandas", "meta": "Jupyter in VS Code, 6 steps" }, { "kind": "library", "id": "mnist_intro", "title": "Code your first neural network with TensorFlow", "meta": "Jupyter in VS Code, 6 steps" } ] } },
+      { "wait": 20, "type": "status", "payload": { "state": "idle" } }
+    ],
+    "err_limit": [
+      { "wait": 0, "goto": "err_lesson" },
+      { "wait": 800, "type": "config.status", "payload": { "anthropic": "env", "gemini": "env", "elevenlabs": "env", "tigerUrl": "env", "cloud": "quota" } }
+    ]
+  }
+}

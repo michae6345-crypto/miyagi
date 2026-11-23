@@ -19,20 +19,23 @@ import { Gear } from './Gear'
 import { GoalNote, Instructions, Meta, StepSnippet } from './Lines'
 import { Stats } from './Stats'
 import './snippet'
+import { fade } from '../../core/ui/motion'
 
 /**
  * Done steps white, this step gray (watching; green once it passes), the rest a dim track. A skipped step is
  * dashed: done, but never passed (Michael's audit A8: current and skipped were white like the done ones).
  */
-function Segments({ total, index, status, skipped }: { total: number; index: number; status: Status; skipped: boolean[] }): ReactNode {
+function Segments({ total, index, status, skipped, passed }: { total: number; index: number; status: Status; skipped: boolean[]; passed: boolean[] }): ReactNode {
   const current = status === 'passed' ? color.green : color.gray
+  // A passed step is green, as in the pill's bars and the panel's dots (persona QA: it was white here).
+  const doneColor = (i: number): string => (passed[i] ? color.green : color.text)
   return (
     <div className="mt-[10px] flex gap-[5px]">
       {/* lesson.updated appends steps: existing segments keep their key and state; only the new ones fade in. */}
       <AnimatePresence initial={false}>
       {Array.from({ length: total }, (_, i) => {
         const dashed = i !== index && !!skipped[i]
-        const bg = dashed ? fill.clear : i < index ? color.text : i === index ? current : fill.track
+        const bg = dashed ? fill.clear : i < index ? doneColor(i) : i === index ? current : fill.track
         return (
           <motion.div
             key={i}
@@ -40,7 +43,7 @@ function Segments({ total, index, status, skipped }: { total: number; index: num
             data-segment={dashed ? 'skipped' : i < index ? 'done' : i === index ? 'current' : 'todo'}
             initial={{ opacity: 0, backgroundColor: bg }}
             animate={{ opacity: 1, backgroundColor: bg }}
-            transition={{ duration: 0.3 }}
+            transition={fade.slow}
           >
             {dashed && <Dashes />}
           </motion.div>
@@ -63,6 +66,7 @@ function Dashes(): ReactNode {
 function Overview(): ReactNode {
   const s = useLesson(useShallow((x) => ({ title: x.stepTitle, checks: x.checks, video: x.stepVideo, textLesson: x.lesson?.mode === 'lesson' })))
   const skipped = useLesson(useShallow((x) => x.steps.map((st) => x.skipped.includes(st.id))))
+  const passedSteps = useLesson(useShallow((x) => x.steps.map((st) => x.passed.includes(st.id) && !x.skipped.includes(st.id))))
   const { index, total } = useProgress()
   const status = useStatus()
   // Don't repeat what's already on screen: the drawer has who built the lesson (Meta), the bar has Ask. Stats goes
@@ -88,7 +92,8 @@ function Overview(): ReactNode {
   })
   const end = s.video ? clock(s.video.end) : undefined
   // One short fact, no sentence: where the video waits (or that this step passed).
-  const footer = status === 'passed' ? 'Passed' : end ? `Video waits at ${end}` : undefined
+  // "Just teach me" lessons have no player, so nothing waits (persona QA: "Video waits at 3:00" in a text lesson).
+  const footer = status === 'passed' ? 'Passed' : end && !s.textLesson ? `Video waits at ${end}` : undefined
   return (
     <div ref={root} className="px-[22px] pb-[16px] pt-[20px]">
       <div className="flex gap-[16px]">
@@ -100,7 +105,7 @@ function Overview(): ReactNode {
           </div>
           <div className="mt-[2px] line-clamp-2 text-[20px] font-semibold tracking-[-0.015em]" title={s.title}>{s.title}</div>
           <GoalNote />
-          <Segments total={total} index={index} status={status} skipped={skipped} />
+          <Segments total={total} index={index} status={status} skipped={skipped} passed={passedSteps} />
         </div>
       </div>
       <Instructions />

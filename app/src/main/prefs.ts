@@ -4,16 +4,87 @@
  *
  *   bridge.invoke('prefs:get')            → Prefs
  *   bridge.invoke('prefs:set', patch)     → Prefs (merged, saved, broadcast to every window as feat:prefs)
+ *   patchPrefs(patch)                     main's own change, the same way (the consent record: features/onboarding.ts)
+ *
+ * `consent` (common/consent.ts) is main's alone: prefs:set from a window drops it (fromRenderer).
  *
  * Side effects in main: appearance → nativeTheme.themeSource (so vibrancy and prefers-color-scheme follow),
  * launchAtLogin → app.setLoginItemSettings.
+ *
+ * v2 (W0-5): panelCollapsed, onboarded, crashReports ('ask' by default), usageCounts (off), shortcuts. They are only
+ * stored here (no side effect yet): `shortcuts` is validated as Electron accelerators and kept for wave 2's live
+ * rebinding; a patch's `shortcuts` replaces the whole map, so send all of it.
  */
-import { app, ipcMain, nativeTheme } from 'electron'
+import { app, ipcMain, nativeTheme, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_PREFS, sanitizePrefs, type Prefs } from '../common/prefs'
+import { rawBg } from '../renderer/src/core/theme'
 
-export function setupPrefs(broadcast: (channel: string, payload: unknown) => void): void {
+/** The opaque window color for the theme in effect (nativeTheme follows Settings > Appearance and the OS). */
+export const windowBackground = (): string => (nativeTheme.shouldUseDarkColors ? rawBg.dark : rawBg.light)
+
+/**
+ * An opaque app window repaints its own background when the theme changes (so a resize or an overscroll never flashes the
+ * old color), and tells its page when it enters or leaves macOS full screen (html[data-fullscreen], core/prefs.ts).
+ */
+export function trackWindowBackground(win: BrowserWindow): void {
+  const paint = (): void => {
+    if (!win.isDestroyed()) win.setBackgroundColor(windowBackground())
+  }
+  nativeTheme.on('updated', paint)
+  win.on('closed', () => nativeTheme.off('updated', paint))
+  const fs = (on: boolean) => (): void => {
+    if (!win.isDestroyed()) win.webContents.send('feat:fullscreen', on)
+  }
+  win.on('enter-full-screen', fs(true))
+  win.on('leave-full-screen', fs(false))
+}
+
+let current: Prefs = DEFAULT_PREFS
+const listeners = new Set<(p: Prefs) => void>()
+/** The prefs in effect now (defaults before setupPrefs runs). */
+export const getPrefs = (): Prefs => current
+/** Called after every change (and once after the file loads). Returns the unsubscribe. */
+export function onPrefsChange(fn: (p: Prefs) => void): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
+/**
+ * What a renderer's prefs:set may change: every known pref except `consent`. The consent record (common/consent.ts) is
+ * written only by main (features/onboarding.ts onboarding:agree, through patchPrefs), with main's clock and this
+ * build's version, so no window can claim an agreement the learner never gave.
+ */
+export function fromRenderer(patch: unknown): Partial<Prefs> {
+  const { consent: _mainOnly, ...rest } = sanitizePrefs(patch)
+  return rest
+}
+
+/** setupPrefs's writer (merge, save, apply, broadcast, listeners). Unset before setupPrefs runs (tests). */
+let write: ((clean: Partial<Prefs>) => Prefs) | undefined
+
+/**
+ * Main's own change to the prefs (anything sanitizePrefs keeps, consent included), saved and broadcast like a
+ * prefs:set. Before setupPrefs has run (offline tests) it changes the in-memory prefs and tells the listeners.
+ */
+export function patchPrefs(patch: Partial<Prefs>): Prefs {
+  const clean = sanitizePrefs(patch)
+  if (write) return write(clean)
+  current = { ...current, ...clean }
+  listeners.forEach((fn) => fn(current))
+  return current
+}
+
+/** Tests only: back to the defaults, no listeners, no writer. */
+export function resetPrefsForTests(): void {
+  current = DEFAULT_PREFS
+  listeners.clear()
+  write = undefined
+}
+
+/** `trusted`: main's sender check (index.ts trustedSender); an untrusted sender reads nothing and changes nothing. */
+export function setupPrefs(broadcast: (channel: string, payload: unknown) => void, trusted: (e: IpcMainInvokeEvent) => boolean): void {
   const file = join(app.getPath('userData'), 'prefs.json')
   let prefs: Prefs = DEFAULT_PREFS
   try {
@@ -30,18 +101,24 @@ export function setupPrefs(broadcast: (channel: string, payload: unknown) => voi
       console.warn('[prefs] launch at login not available here', err)
     }
   }
+  current = prefs
   apply()
 
-  ipcMain.handle('feat:prefs:get', () => prefs)
-  ipcMain.handle('feat:prefs:set', (_e, patch: unknown) => {
-    prefs = { ...prefs, ...sanitizePrefs(patch) }
+  write = (clean: Partial<Prefs>): Prefs => {
+    prefs = { ...prefs, ...clean }
     try {
       writeFileSync(file, JSON.stringify(prefs, null, 2))
     } catch (err) {
       console.warn('[prefs] could not save', err)
     }
+    current = prefs
     apply()
     broadcast('prefs', prefs)
+    listeners.forEach((fn) => fn(prefs))
     return prefs
-  })
+  }
+
+  ipcMain.handle('feat:prefs:get', (e) => (trusted(e) ? prefs : undefined))
+  // A renderer never writes the consent record (fromRenderer drops it); main does, through patchPrefs.
+  ipcMain.handle('feat:prefs:set', (e, patch: unknown) => (trusted(e) && write ? write(fromRenderer(patch)) : undefined))
 }

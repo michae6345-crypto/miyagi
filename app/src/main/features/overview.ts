@@ -3,17 +3,33 @@
  *
  * Handles (bridge.invoke):
  *   overview:open-stats  the footer's "Stats" link → the engine's live stats page (Tiger Data track) in the default
- *                        browser. Same host as ENGINE_URL (ws://host:port → http://host:port/stats), so it works when
- *                        the engine runs on Michael's Mac and the app connects over the venue Wi-Fi.
+ *                        browser. Same host as ENGINE_URL (ws://host:port → http://host:port/stats). It opens only a
+ *                        loopback /stats page on the engine's own port (safeOpen.ts isEngineStatsUrl, then
+ *                        openEngineStats; app-harden): an engine on another host (the venue Wi-Fi setup) no longer opens
+ *                        from here. The general open:external IPC never opens a loopback page.
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac.
  */
-import { shell } from 'electron'
 import { defineMainFeature } from '../context'
+import { isEngineStatsUrl, openEngineStats } from '../safeOpen'
 
-function statsUrl(): string {
-  const ws = process.env.ENGINE_URL ?? 'ws://localhost:8787'
-  return new URL('/stats', ws.replace(/^ws(s?):/i, 'http$1:')).href
+const engineUrl = (): string => process.env.ENGINE_URL ?? 'ws://localhost:8787'
+
+export function statsUrl(url = engineUrl()): string | undefined {
+  try {
+    return new URL('/stats', url.replace(/^ws(s?):/i, 'http$1:')).href
+  } catch {
+    return undefined
+  }
+}
+
+/** The engine's port, read the way main/localEngine.ts reads it (no port in ENGINE_URL = 8787). */
+export function enginePort(url = engineUrl()): number {
+  try {
+    return Number(new URL(url).port) || 8787
+  } catch {
+    return 8787
+  }
 }
 
 export default defineMainFeature({
@@ -21,9 +37,8 @@ export default defineMainFeature({
   setup(ctx) {
     ctx.handle('overview:open-stats', () => {
       const url = statsUrl()
-      if (!/^https?:\/\//i.test(url)) return false
-      void shell.openExternal(url)
-      return true
+      const port = enginePort()
+      return url && isEngineStatsUrl(url, port) ? openEngineStats(url, port) : false
     })
   }
 })

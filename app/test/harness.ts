@@ -1,0 +1,334 @@
+/**
+ * Offline test harness: a fake Supabase Auth and a fake miyagi-cloud behind a stubbed global fetch (nothing leaves
+ * this machine; only the auth loopback on 127.0.0.1 is reached for real), plus a fake MainContext.
+ */
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer as createNetServer, type Server as NetServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { MainContext } from '../src/main/context'
+import { openListeners, safeStorage } from './fakes/electron'
+import { SUPABASE_URL } from './fakes/publicConfig'
+
+export const realFetch: typeof fetch = globalThis.fetch.bind(globalThis)
+export const CLOUD = 'https://cloud.test'
+export const PROJECT = SUPABASE_URL
+
+const b64url = (b: Buffer | string): string => Buffer.from(b).toString('base64url')
+
+/** A JWT-shaped string. sig 'good' is what the fake cloud accepts. Never a real token. */
+export function makeJwt(claims: { sub: string; exp: number; aud?: string }, sig = 'good'): string {
+  return `${b64url(JSON.stringify({ alg: 'ES256', typ: 'JWT' }))}.${b64url(JSON.stringify({ aud: 'authenticated', ...claims }))}.${sig}`
+}
+const nowSec = (): number => Math.floor(Date.now() / 1000)
+export const challengeOf = (verifier: string): string => createHash('sha256').update(verifier).digest('base64url')
+
+type Call = { method: string; url: string; headers: Record<string, string>; body: unknown }
+type FakeUser = { sub: string; email: string; name: string }
+
+function json(status: number, body?: unknown): Response {
+  return new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+}
+
+/** Supabase Auth, the three endpoints auth.ts uses. */
+export class FakeSupabase {
+  calls: Call[] = []
+  /** code → the PKCE challenge it was issued for, and who signs in. */
+  codes = new Map<string, { challenge: string; user: FakeUser }>()
+  refreshTokens = new Map<string, FakeUser>()
+  /** Make the next pkce exchange answer this instead. */
+  refuseExchange?: { status: number; body: unknown }
+  /** 'network': the refresh request throws (offline). */
+  refreshMode: 'ok' | 'network' = 'ok'
+  private n = 0
+
+  session(user: FakeUser, ttlSec = 3600): Record<string, unknown> {
+    const refresh = `refresh-${++this.n}`
+    this.refreshTokens.set(refresh, user)
+    return {
+      access_token: makeJwt({ sub: user.sub, exp: nowSec() + ttlSec }),
+      refresh_token: refresh,
+      expires_in: ttlSec,
+      expires_at: nowSec() + ttlSec,
+      user: { email: user.email, user_metadata: { full_name: user.name } }
+    }
+  }
+
+  async handle(url: URL, call: Call): Promise<Response> {
+    this.calls.push(call)
+    if (call.headers.apikey !== 'sb_publishable_test') return json(401, { msg: 'no apikey' })
+    const body = (call.body ?? {}) as Record<string, string>
+    if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'pkce') {
+      if (this.refuseExchange) {
+        const r = this.refuseExchange
+        this.refuseExchange = undefined
+        return json(r.status, r.body)
+      }
+      const issued = this.codes.get(body.auth_code)
+      if (!issued || challengeOf(body.code_verifier ?? '') !== issued.challenge) return json(400, { error_code: 'bad_code_verifier', msg: 'code challenge does not match' })
+      this.codes.delete(body.auth_code)
+      return json(200, this.session(issued.user))
+    }
+    if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'refresh_token') {
+      if (this.refreshMode === 'network') throw new TypeError('fetch failed')
+      const user = this.refreshTokens.get(body.refresh_token)
+      if (!user) return json(400, { error_code: 'refresh_token_not_found', msg: 'Invalid Refresh Token' })
+      this.refreshTokens.delete(body.refresh_token) // rotation: a refresh token works once
+      return json(200, this.session(user))
+    }
+    if (url.pathname === '/auth/v1/logout') return new Response(null, { status: 204 })
+    return json(404, {})
+  }
+}
+
+/** miyagi-cloud: /v1/install and /v1/link per the contract (verification faked: sig 'good', exp in the future). */
+export class FakeCloud {
+  calls: Call[] = []
+  installs = new Set<string>()
+  links = new Map<string, string>() // install token → user id
+  /** Answer /v1/link with this status (and the contract's body) instead of verifying. */
+  linkStatus?: 401 | 403 | 404 | 503 | 500
+  private n = 0
+
+  async handle(url: URL, call: Call): Promise<Response> {
+    this.calls.push(call)
+    if (url.pathname === '/v1/install' && call.method === 'POST') {
+      const token = `mi_testinstalltoken${String(++this.n).padStart(4, '0')}`
+      this.installs.add(token)
+      return json(200, { token, token_id: `tid${this.n}` })
+    }
+    if (url.pathname === '/v1/link' && call.method === 'POST') {
+      if (this.linkStatus === 404) return json(404, { detail: 'Not Found' })
+      if (this.linkStatus === 503) return json(503, { error: 'link_unavailable' })
+      if (this.linkStatus === 500) return json(500, {})
+      const install = /^Bearer (.+)$/.exec(call.headers.authorization ?? '')?.[1]
+      if (this.linkStatus === 401 || !install || !this.installs.has(install)) return json(401, { error: 'bad_install_token' })
+      const jwt = String((call.body as Record<string, unknown> | undefined)?.access_token ?? '')
+      const [, payload, sig] = jwt.split('.')
+      let claims: { sub?: string; exp?: number; aud?: string } = {}
+      try {
+        claims = JSON.parse(Buffer.from(payload ?? '', 'base64url').toString('utf8'))
+      } catch {
+        /* bad token */
+      }
+      if (this.linkStatus === 403 || sig !== 'good' || claims.aud !== 'authenticated' || !claims.sub || !claims.exp || claims.exp <= nowSec()) {
+        return json(403, { error: 'bad_access_token' })
+      }
+      this.links.set(install, claims.sub)
+      return json(200, { ok: true, user_id: claims.sub })
+    }
+    return json(404, {})
+  }
+}
+
+/** Route every fetch to the fakes; the auth loopback (127.0.0.1) gets the real fetch. Returns the restore. */
+export function stubFetch(supa: FakeSupabase, cloud: FakeCloud): () => void {
+  const before = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    if (url.hostname === '127.0.0.1') return realFetch(input, init)
+    const headers: Record<string, string> = {}
+    new Headers(init?.headers).forEach((v, k) => (headers[k] = v))
+    const raw = typeof init?.body === 'string' ? init.body : undefined
+    const call: Call = { method: init?.method ?? 'GET', url: url.href, headers, body: raw ? JSON.parse(raw) : undefined }
+    if (url.origin === PROJECT) return supa.handle(url, call)
+    if (url.origin === CLOUD) return cloud.handle(url, call)
+    throw new TypeError(`offline test: no route to ${url.origin}`)
+  }) as typeof fetch
+  return () => {
+    globalThis.fetch = before
+  }
+}
+
+export type Harness = {
+  ctx: MainContext
+  dir: string
+  invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
+  broadcasts: [string, unknown][]
+  /** before-quit: stops timers and a pending flow. Then removes the temp userData. */
+  close: () => void
+}
+
+/** A fake MainContext around a fresh temp userData folder. */
+export function makeHarness(): Harness {
+  const dir = mkdtempSync(join(tmpdir(), 'miyagi-test-'))
+  const handlers = new Map<string, (...a: unknown[]) => unknown>()
+  const broadcasts: [string, unknown][] = []
+  const quits: (() => void)[] = []
+  const app = {
+    getPath: () => dir,
+    getVersion: () => '0.0.0-test',
+    whenReady: () => Promise.resolve(),
+    focus: () => undefined,
+    on: (ev: string, fn: () => void) => {
+      if (ev === 'before-quit') quits.push(fn)
+    }
+  }
+  const engine = { setCloud: () => undefined, onCloudTokenInvalid: () => undefined, onEvent: () => undefined, onOpen: () => undefined }
+  const ctx = {
+    app,
+    engine,
+    broadcast: (c: string, p: unknown) => broadcasts.push([c, p]),
+    handle: (c: string, fn: (...a: unknown[]) => unknown) => handlers.set(c, fn),
+    appWindow: () => undefined
+  } as unknown as MainContext
+  return {
+    ctx,
+    dir,
+    broadcasts,
+    invoke: async (c, ...a) => {
+      const fn = handlers.get(c)
+      if (!fn) throw new Error(`no handler ${c}`)
+      return fn(...a)
+    },
+    close: () => {
+      for (const q of quits) q()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+}
+
+/** Write userData/auth.bin the way auth.ts does (the fake safeStorage). */
+export function writeSession(dir: string, s: Record<string, unknown>, project = PROJECT): void {
+  const raw = { ...s, project }
+  writeFileSync(join(dir, 'auth.bin'), safeStorage.encryptString(JSON.stringify(raw)))
+}
+
+/** The sign-in loopback auth.ts listens on (a constant there: it is the Supabase redirect allowlist entry). */
+export const SIGN_IN_PORT = 47217
+/** A second loopback port held, never served, as a machine-wide lock on SIGN_IN_PORT between test processes. */
+const LOCK_PORT = 47219
+
+/** Listen on 127.0.0.1:port. true: it is ours now; false: EADDRINUSE (anything else throws). */
+function tryListen(server: NetServer, port: number): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: NodeJS.ErrnoException): void => {
+      server.off('listening', onListening)
+      if (err.code === 'EADDRINUSE') resolve(false)
+      else reject(err)
+    }
+    const onListening = (): void => {
+      server.off('error', onError)
+      resolve(true)
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    server.listen({ port, host: '127.0.0.1', exclusive: true })
+  })
+}
+
+const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Who listens on 127.0.0.1:port, for the error when a lock or port wait gives up: PID, parent PID and command (lsof +
+ * ps; a parent PID of 1 is an orphaned test process, safe to kill). Best effort: '' when the tools can't tell.
+ */
+function listenerOn(port: number): string {
+  try {
+    const pids = execFileSync('lsof', ['-nP', `-iTCP@127.0.0.1:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8', timeout: 5000 })
+      .split('\n')
+      .filter((p) => /^\d+$/.test(p))
+    if (!pids.length) return 'no listener found (it let go just now?)'
+    const ps = execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-p', pids.join(',')], { encoding: 'utf8', timeout: 5000 })
+    return `held by ${ps
+      .trim()
+      .split('\n')
+      .map((l) => {
+        const [pid, ppid, ...cmd] = l.trim().split(/\s+/)
+        return `PID ${pid} (parent ${ppid}${ppid === '1' ? ', orphaned' : ''}): ${cmd.join(' ').slice(-160)}`
+      })
+      .join('; ')}`
+  } catch (err) {
+    // lsof exits 1 when nothing matches.
+    return (err as { status?: number }).status === 1 ? 'no listener found (it let go just now?)' : 'holder unknown (lsof failed)'
+  }
+}
+
+/**
+ * Take the sign-in port for a whole test file. `node --test` runs every test file in its own process at once, and other
+ * checkouts on this Mac may run the suite too; auth.test.ts and cloudLink.test.ts both sign in on 127.0.0.1:47217. Two
+ * processes on that port meant one's callback reaching the other's listener, a fake-timer test whose listen retry never
+ * fires, or a sign-in that gave up with reason 'port' while startGoogle waited for a browser forever: the run hung.
+ *
+ * The lock is a listener on LOCK_PORT: one process at a time can hold it, and the OS frees it if the holder dies (a
+ * killed run never leaves a stale lock). Once held, it also waits for 47217 itself to be free (a previous holder's
+ * listener still closing). Call in before(); call the returned release in after().
+ *
+ * It only orders processes that take it. One that ignores it (an older checkout's run, a real miyagi mid sign-in) can
+ * still grab 47217 at any moment, so the tests never rely on it alone: startGoogle fails instead of waiting, and the
+ * fake-clock tests in auth.test.ts retry a taken port on real timers under a per-test timeout. A holder that never
+ * exits (an orphaned test process whose parent alone was killed) keeps the lock: the wait gives up after waitMs and the
+ * error names the holder's PID.
+ */
+export async function lockSignInPort(waitMs = 45_000): Promise<() => Promise<void>> {
+  // Drop any connection at once: close() waits for accepted sockets, so one stray client would hang release().
+  const lock = createNetServer((c) => c.destroy())
+  const end = Date.now() + waitMs
+  while (!(await tryListen(lock, LOCK_PORT))) {
+    if (Date.now() > end) {
+      throw new Error(`another process held the sign-in port lock (127.0.0.1:${LOCK_PORT}) for ${waitMs / 1000} s: ${listenerOn(LOCK_PORT)}`)
+    }
+    await realSleep(25)
+  }
+  lock.unref()
+  const release = (): Promise<void> => new Promise((r) => lock.close(() => r()))
+  const probe = createNetServer((c) => c.destroy())
+  const portEnd = Date.now() + 15_000
+  while (!(await tryListen(probe, SIGN_IN_PORT))) {
+    if (Date.now() > portEnd) {
+      await release()
+      throw new Error(`127.0.0.1:${SIGN_IN_PORT} stayed taken for 15 s (a running miyagi app mid sign-in?): ${listenerOn(SIGN_IN_PORT)}`)
+    }
+    await realSleep(25)
+  }
+  await new Promise<void>((r) => probe.close(() => r()))
+  return release
+}
+
+/** Start auth:google and wait until it asks to open the browser. Fails (never hangs) if the flow answers first. */
+export async function startGoogle(h: Harness): Promise<{ result: Promise<unknown>; authorize: URL; callback: URL; state: string; challenge: string }> {
+  let fn!: (u: string) => void
+  const asked = new Promise<string>((resolve) => {
+    fn = (u: string): void => {
+      openListeners.delete(fn)
+      resolve(u)
+    }
+    openListeners.add(fn)
+  })
+  const result = h.invoke('auth:google')
+  // A flow that ends before opening the browser (reason 'port', say) would otherwise leave `asked` pending forever.
+  const endedFirst = result.then(
+    (r) => Promise.reject(new Error(`auth:google answered before opening the browser: ${JSON.stringify(r)}`)),
+    (err: unknown) => Promise.reject(err)
+  )
+  let url: string
+  try {
+    url = await Promise.race([asked, endedFirst])
+  } catch (err) {
+    openListeners.delete(fn)
+    throw err
+  }
+  const authorize = new URL(url)
+  const callback = new URL(authorize.searchParams.get('redirect_to') ?? '')
+  return { result, authorize, callback, state: callback.searchParams.get('state') ?? '', challenge: authorize.searchParams.get('code_challenge') ?? '' }
+}
+
+/** The browser coming back to the loopback with these query params added. */
+export async function hitCallback(callback: URL, params: Record<string, string>, override?: { state?: string; path?: string }): Promise<{ status: number; text: string }> {
+  const u = new URL(callback.href)
+  if (override?.path) u.pathname = override.path
+  if (override?.state !== undefined) u.searchParams.set('state', override.state)
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v)
+  const res = await realFetch(u, { headers: { Connection: 'close' } })
+  return { status: res.status, text: await res.text() }
+}
+
+export const until = async (cond: () => boolean, ms = 3000): Promise<void> => {
+  const end = Date.now() + ms
+  while (!cond()) {
+    if (Date.now() > end) throw new Error('timed out waiting')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}

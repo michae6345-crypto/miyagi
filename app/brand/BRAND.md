@@ -62,18 +62,22 @@ Each has a `-dark` version for dark backgrounds, with a lighter bark (`#A07A5C`)
 
 **Rules:** green only ever means passed (the bonsai's own pads are the one exception: they're the logo, not a status). Amber only ever means off track. Buttons are ink (on light) or white (on dark), never green and never blue. No gradients, no neon.
 
-**Pastels for options (Adrian, Sat):** soft pastels add a little color to *options* only: suggestion and quick-action chips, source-kind tiles, the "Best" label. Pink `#F9C5D5`, sky `#C5E4F9`, lilac `#D9D2FF` (deeper: pink `#F4A7BF`, sky `#9CCFF2`), with ink text on them. They never mean status, the UI chrome stays black and white, and no gradients or glow. This is the only exception to "no blue, no purple".
+**Pastels for options (Adrian, Sat):** soft pastels add a little color to *options* only: suggestion and quick-action chips, source-kind tiles, the "Best" label. Pink `#F9C5D5`, sky `#C5E4F9`, lilac `#D9D2FF`, peach `#FBD5BE`, seafoam `#BFEBE6` (deeper: pink `#F4A7BF`, sky `#9CCFF2`), with ink text on them. They never mean status, the UI chrome stays black and white, and no gradients or glow. This is the only exception to "no blue, no purple".
 
-**The pastel options mapping** (Adrian, Sat: "consistent across all features"). The same action is the same color everywhere:
+**The pastel options mapping** (Adrian, Sat: "consistent across all features"). The same action is the same color everywhere. Each option has its own pastel (Adrian, Nov 21; Diagram and Watch used to share Explain's sky):
 
 | Action | Color |
 |---|---|
-| Understand: Explain, Diagram, Watch (video jump) | sky `#C5E4F9` |
+| Explain | sky `#C5E4F9` |
+| Diagram | seafoam `#BFEBE6` |
+| Watch (video jump) | peach `#FBD5BE` |
 | Show me | lilac `#D9D2FF` |
 | Hint | pink `#F9C5D5` |
 | The ONE primary action per surface (Build lesson, Apply fix, Ask, Replay step) | white + ink |
 | Chrome and navigation (Back, Voice, Close, chapters, toggles, inputs) | neutral |
 | Source-kind tiles: notebook/repo, paper, blog | sky, pink, lilac |
+
+Text and icons on a solid option pastel are always ink (`color.onPastel`; `fill.onPastelKey` for keycaps), in light and dark appearance alike: `color.onAccent` is paper in light and must not sit on a pastel. Diagram *content* (heatmap ramp, highlighted layers) keeps sky as data color, not the option's seafoam.
 
 How it's applied: buttons and chips are a solid pastel fill with ink text and icon, with the keycap on ink at 10% (`OptionButton` / `PrimaryButton` in `core/ui/atoms.tsx`). Icon tiles (shortcut bar) are a 28px rounded square in the pastel with an ink glyph; the label stays white. Kind tiles are a 16% pastel wash with a pastel glyph. Status is unchanged: green passed, no hue (hollow white ring) off track, gray watching. No glows.
 
@@ -129,3 +133,5 @@ fonts/                GoogleSansFlex.woff2, OFL.txt
 **Off track has no hue** (Adrian, Sat 5 PM, after apricot still read orange): a hollow white ring and the words "Not yet". Offline is the gray ring. Green still means passed. *(Superseded:)* **Off track is apricot, not amber** (Adrian, Sat 4 PM: the kit's amber `#FFB020` "is the most AI slop yellow"). Off track is now the soft apricot `#FFC4A3` from the pastel family (`brand.offTrack`, `color.amber` in code so call sites didn't change); `#C8693A` for text on a light surface. It still means only one thing: off track. Green still means passed.
 
 **The brand is lowercase** (Adrian, Sat 5 PM): wherever the product names itself it's "miyagi", like the wordmark: "ask miyagi", "ask miyagi anything", "miyagi is offline…", the window title and the app name. Teaching copy (titles, steps, buttons like "Show me") keeps normal sentence case.
+
+**Color, Nov 21** (Michael, after testing the real app: "pastels only on options" is loosened). Pastels now also tint lesson and tool tags, skill tracks, section icons and selected states, in both themes, through `tone` in `core/theme.ts` (`tone.sky | lilac | pink | mint | peach | sand`, each `{ bg, fg, solid }`: a pale wash and the text on it, readable in light and dark). `mint` is teal on purpose, so it never reads as the pass green. Unchanged: green means only passed, "not yet" stays hueless, no red, no yellow, no blue for status, no gradients or glows. **Light and dark are both designed**: every surface follows Settings > Appearance (System, Light, Dark). Light is warm white (window `#F3F2EE`, content `#FFFFFF`, ink text, soft warm shadows), not an inversion. The notch island and the cards that grow out of it stay black in both themes, like the real notch. Depth: `layer` (base, raised, overlay) plus `elevation`; an interactive surface moves one level on hover (`.mg-lift`, `Surface` or `GlassCard lift`).

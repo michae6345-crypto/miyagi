@@ -25,15 +25,20 @@ import { bridge } from '../../bridge'
 import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
-import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
-import { actionTone, color, fill } from '../../core/theme'
-import { useDrawer } from '../drawer/store'
+import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot, StatusGlyph } from '../../core/ui/atoms'
+import { actionTone, color, copy, fill } from '../../core/theme'
+import { isLinkRow, linkRowAct, refusedLink, useDrawer, useRefusedLinks } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
 import { shortEditor, useFitLevel } from './fit'
+import { LinkText } from './LinkText'
 import { isEditor, useFrontApp } from './front'
+import { useDock } from '../../core/dock'
+import { useRoutedAway } from './panel'
 import { act, cardAct, installAll, installable, itemDone, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
+import { isEditorSheet, SHEET_W, VSCodeSheet } from './VSCodeSheet'
+import { beat, enter, fade, press, spring } from '../../core/ui/motion'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
 const OFFTRACK_MAX = 620
@@ -148,8 +153,8 @@ function QuietButton({ label, icon: I, onClick, compact }: { label: string; icon
       className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full text-[13px] font-medium ${iconOnly ? 'w-[30px] justify-center' : 'px-[13px]'}`}
       style={{ backgroundColor: fill.button, color: color.text }}
       whileHover={{ backgroundColor: fill.chipHover }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.12 }}
+      whileTap={{ scale: press.scale }}
+      transition={{ ...fade.tint, scale: spring }}
       title={iconOnly ? label : undefined}
       aria-label={iconOnly ? label : undefined}
       onMouseDown={(e) => e.preventDefault()}
@@ -176,26 +181,6 @@ function Question({ text }: { text: string }): ReactNode {
   )
 }
 
-/** A label that opens its URL outside the overlay (window.open; Electron's main hands https to the browser). */
-function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: boolean }): ReactNode {
-  const fit = wrap ? 'line-clamp-2 break-words' : 'truncate'
-  if (!url) return <span className={fit}>{label}</span>
-  return (
-    <a
-      href={url}
-      data-link
-      className={`cursor-pointer ${fit} underline-offset-2 hover:underline`}
-      style={{ color: 'inherit' }}
-      onClick={(e) => {
-        e.preventDefault()
-        window.open(url, '_blank', 'noopener,noreferrer')
-      }}
-    >
-      {label}
-    </a>
-  )
-}
-
 /**
  * Swap views inside one island mode: the new view fades in rising 4px while the container springs
  * to its height. No exit animation on purpose: the swap never waits on a frame (a hidden window
@@ -203,7 +188,7 @@ function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: bo
  */
 function Swap({ id, children }: { id: string; children: ReactNode }): ReactNode {
   return (
-    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: 0.06, ease: 'easeOut' }}>
+    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={enter(beat)}>
       {children}
     </motion.div>
   )
@@ -241,8 +226,8 @@ const OFFTRACK_OPTIONS = [
 ] as const
 
 /**
- * The shortcut bar is on screen with its help tiles (Explain, Diagram, Show me, Hint): it shows for the whole lesson
- * (ShortcutBar's `on`). While it does, a card never repeats them (Michael's review A11: the same actions showed 2-3
+ * A lesson surface carries the help options (the video drawer's help row, the "Just teach me" panel's Help row; the
+ * bottom bar is gone). While a lesson is on, a card never repeats them (Michael's review A11: the same actions showed 2-3
  * times at once); a card carries only its own action (Do it for me, Run it, Install, Continue, Check…).
  */
 const useBarHelp = (): boolean => useLesson((l) => !!l.lesson)
@@ -306,16 +291,18 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
         <Evidence o={o} failing={failing} width={rightW} reserveDiff={o.level === 2} />
       </div>
 
-      {options.length > 0 && (
-        <div data-options className="mt-[14px] flex flex-wrap items-center gap-[8px]">
+      {/* Overlay round: the options and the one white "Do it for me" share one row, the primary on the right edge
+          (it used to drop to a line of its own under the options). */}
+      {(options.length > 0 || canFix) && (
+        <div data-options className="mt-[16px] flex flex-wrap items-center gap-[8px]">
           {options.map((x) => (
             <OptionButton key={x.action} action={x.action} label={x.label} kbd={keys[x.action]} icon={busy(x.action)} onClick={() => act(x.action)} />
           ))}
-        </div>
-      )}
-      {canFix && (
-        <div data-fix className={`${options.length > 0 ? 'mt-[8px]' : 'mt-[14px]'} flex`}>
-          <PrimaryButton label={ACTION.apply_fix!.label} icon={busy('apply_fix', ACTION.apply_fix!.Icon)} onClick={() => act('apply_fix')} />
+          {canFix && (
+            <div data-fix className="ml-auto flex">
+              <PrimaryButton label={ACTION.apply_fix!.label} icon={busy('apply_fix', ACTION.apply_fix!.Icon)} onClick={() => act('apply_fix')} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -499,7 +486,7 @@ function KindTile({ k, size = 24 }: { k: Tile; size?: number }): ReactNode {
   return (
     <span
       className="grid shrink-0 place-items-center"
-      style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), ...(k.tone ? { background: k.tone, color: color.onAccent } : { background: fill.tile, color: color.text }) }}
+      style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), ...(k.tone ? { background: k.tone, color: color.onPastel } : { background: fill.tile, color: color.text }) }}
       aria-label={k.label}
       title={k.label}
     >
@@ -548,13 +535,17 @@ type OptionCardAction = (typeof OPTION)[number]
 const isOption = (a: CardAction): a is OptionCardAction => (OPTION as readonly CardAction[]).includes(a)
 
 /**
- * The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Cursor").
+ * The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Visual Studio Code", through copy.editorName).
  * `short` (a row that doesn't fit on one line, A22): our own short label instead ("Download", "Open VS Code").
  */
 function actionLabel(c: EngineCard, a: CardAction, short?: boolean): string {
   const custom = c.setup?.actionLabels?.[a]
   if (custom && !short) return custom
-  if (a === 'open_editor' && c.setup?.editorLabel) return `Open ${short ? shortEditor(c.setup.editorLabel) : c.setup.editorLabel}`
+  // v2: VS Code copy only: an unsupported editor's name never reaches a button (copy.editorName).
+  if (a === 'open_editor' && c.setup?.editorLabel) {
+    const ed = copy.editorName(c.setup.editorLabel)
+    return `Open ${short ? shortEditor(ed) : ed}`
+  }
   // "Type this for you?" (a fix preview): the confirm types the diff into the learner's file.
   if (a === 'confirm' && c.diff) return 'Type it'
   return ACTION[a]!.label
@@ -607,18 +598,23 @@ function UnifiedDiff({ diff }: { diff: string }): ReactNode {
 }
 
 /**
- * One setup row's button (contract SetupItem.install): method "download" opens its URL here (nothing to
- * send), "open" (a web app) asks the engine to open it (open_in_browser), the rest install (install {text: tool}).
+ * One setup row's button (contract SetupItem.install): "download" (a download page) and "open" (a web app) go to
+ * main's setup list (drawer/store linkRowAct; never the engine's open_in_browser, app-harden), the rest install
+ * (install {text: tool}).
  */
 function itemAct(x: NonNullable<EngineCard['setup']>['items'][number]): void {
-  if (x.install.method === 'download' && x.install.url) window.open(x.install.url, '_blank', 'noopener,noreferrer')
-  else if (x.install.method === 'open') cardAct('open_in_browser', x.tool)
+  // A link main refused (not on its setup list) is copied instead of opened.
+  if (isLinkRow(x.install.method)) linkRowAct(x.tool, x.install.url)
   else cardAct('install', x.tool)
 }
 
 function itemLabel(x: NonNullable<EngineCard['setup']>['items'][number], run?: Install): string {
+  if (isLinkRow(x.install.method) && refusedLink(useRefusedLinks.getState().byKey, x.tool, x.install.url) !== undefined) return 'Copy link'
   return x.install.method === 'download' ? 'Get it' : x.install.method === 'open' ? 'Open' : run?.error ? 'Retry' : 'Install'
 }
+
+/** A refused download link's row text: where it would have gone, never opened (app-harden). */
+const refusedLine = (url: string): string => (url ? `Not on miyagi's list, so not opened: ${url}` : 'Not a web link, so not opened.')
 
 /** Skip on a setup card (A17): a quiet text link, never a button that competes with Install. */
 function QuietLink({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
@@ -644,6 +640,7 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
   // Install all's run (store installAll): the rows still to go, in row order. It lives in the store, so a re-sent or
   // re-mounted card keeps it going.
   const queue = useCards((s) => s.queue)
+  const refused = useRefusedLinks((s) => s.byKey)
   // Rows come in a steady order (store steadySetup: by first appearance; an installed row stays as a check).
   const items = setup.items.filter((x) => x.needed)
   if (items.length === 0) return null
@@ -658,13 +655,14 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
         const run = x.ok ? undefined : installs[x.tool]
         const waiting = !done && !run?.running && !!queue?.tools.includes(x.tool)
         // Until the first progress line, the reason stays (the slot already says "Installing…").
-        const detail = done ? (x.version ?? run?.version) : run?.running ? (run.line ?? x.why) : (run?.error ?? x.why)
+        const refusedUrl = refusedLink(refused, x.tool, x.install.url)
+        const detail = done ? (x.version ?? run?.version) : refusedUrl !== undefined ? refusedLine(refusedUrl) : run?.running ? (run.line ?? x.why) : (run?.error ?? x.why)
         return (
           // A8: every row is exactly 34 px (two 16 px detail lines fit), the mark sits in a fixed 13 px column and the
           // button in a fixed 104 px slot, so nothing moves while a row installs: the next Install stays under the cursor.
           <div key={x.tool} data-setup-row={x.tool} className="flex h-[34px] items-center gap-[8px] overflow-hidden">
             <span className="flex w-[13px] shrink-0 justify-center" style={{ color: done ? color.text : color.faint }}>{done ? <Check size={13} /> : '·'}</span>
-            <span className="truncate">{x.label}</span>
+            <span className="truncate">{x.kind === 'editor' ? copy.editorName(x.label) : x.label}</span>
             {/* The reason wraps to two lines instead of being cut off (A17). */}
             <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[16px]" style={{ color: run?.error ? color.text : color.faint }} title={detail}>
               {detail}
@@ -943,7 +941,7 @@ function Output({ text }: { text: string }): ReactNode {
 }
 
 /**
- * Where to go when the place isn't on screen ("Open app.py in Cursor"): up to two lines (the whole text on
+ * Where to go when the place isn't on screen ("Open app.py in VS Code"): up to two lines (the whole text on
  * hover past that) and an Open button (action open_editor), so "code not visible" always says what to do.
  */
 function Where({ text }: { text: string }): ReactNode {
@@ -1011,14 +1009,40 @@ function folds(c: EngineCard | undefined, cardFrom: string | undefined, shown: S
   return cardKey(c) !== opened
 }
 
-/** Is the card a chip right now? (The island reads it through the card mode's width.) */
-function isChip(): boolean {
+/** The step the open drawer shows, or undefined (the drawer is closed, on a concept, or there's no step). */
+function drawerShows(): Shown | undefined {
   const d = useDrawer.getState()
   const l = useLesson.getState()
-  const shown = d.open && !d.concept && l.lesson && l.stepId ? { id: l.stepId, title: l.stepTitle, instructions: l.instructions } : undefined
-  const s = useCards.getState()
-  return folds(s.card, s.cardFrom, shown, useOpened.getState().key)
+  return d.open && !d.concept && l.lesson && l.stepId ? { id: l.stepId, title: l.stepTitle, instructions: l.instructions } : undefined
 }
+
+/**
+ * The step the drawer showed when the card folded (its cardKey + that step). The card keeps folding against it when the
+ * drawer or the lesson panel closes: hiding the side surfaces (Esc, the panel's hide key, a click) must not grow the
+ * island into the full card (Michael, Nov 21: "the top island expands"). The learner's tap still opens it; a different
+ * card, or the same one re-sent with something the drawer doesn't say (a button, a diff), is judged afresh.
+ */
+const useFolded = create<{ key?: string; shown?: Shown }>(() => ({}))
+const stillFolded = (c: EngineCard | undefined, cardFrom: string | undefined, f: { key?: string; shown?: Shown }, opened: string | undefined): boolean =>
+  !!c && !!f.key && cardKey(c) === f.key && folds(c, cardFrom, f.shown, opened)
+
+/** Is the card a chip right now? (The island reads it through the card mode's width.) */
+function isChip(): boolean {
+  const s = useCards.getState()
+  const opened = useOpened.getState().key
+  return folds(s.card, s.cardFrom, drawerShows(), opened) || stillFolded(s.card, s.cardFrom, useFolded.getState(), opened)
+}
+
+// Remember the card the moment it folds (before anything closes the drawer), so it keeps folding without it.
+function noteFold(): void {
+  const s = useCards.getState()
+  const shown = drawerShows()
+  if (!s.card || !shown || !folds(s.card, s.cardFrom, shown, useOpened.getState().key)) return
+  const key = cardKey(s.card)
+  const f = useFolded.getState()
+  if (f.key !== key || f.shown?.id !== shown.id || f.shown.title !== shown.title || f.shown.instructions !== shown.instructions) useFolded.setState({ key, shown })
+}
+for (const st of [useCards, useDrawer, useLesson, useOpened] as { subscribe: (fn: () => void) => () => void }[]) st.subscribe(noteFold)
 
 /** isChip() as a hook: re-renders on every input (the card, the drawer, the step, a tap). */
 function useChip(): boolean {
@@ -1029,7 +1053,8 @@ function useChip(): boolean {
   const title = useLesson((l) => l.stepTitle)
   const instructions = useLesson((l) => l.instructions)
   const opened = useOpened((o) => o.key)
-  return folds(card, cardFrom, drawerOnStep && id ? { id, title, instructions } : undefined, opened)
+  const folded = useFolded()
+  return folds(card, cardFrom, drawerOnStep && id ? { id, title, instructions } : undefined, opened) || stillFolded(card, cardFrom, folded, opened)
 }
 
 /**
@@ -1081,6 +1106,12 @@ function Card(): ReactNode {
 }
 
 function FullCard({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
+  const installs = useCards((s) => s.installs)
+  if (isEditorSheet(c, installs)) return <VSCodeSheet card={c} />
+  return <EngineCardBody c={c} k={k} />
+}
+
+function EngineCardBody({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
   const front = useFrontApp((f) => f.app)
   // A ready setup card doesn't offer "Open <editor>" while that editor is the app in front (desktop test 5).
   const opened = setupReady(c) && isEditor(front, c.setup?.editorLabel)
@@ -1127,6 +1158,23 @@ function FullCard({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
       {c.setup?.resources && <Resources resources={c.setup.resources} />}
       {/* The where line has its own Open button: don't repeat it below. */}
       <CardActions card={c} actions={c.where ? actions.filter((a) => a !== 'open_editor') : actions} />
+      {c.waiting && <Waiting text={c.waiting} />}
+    </div>
+  )
+}
+
+/**
+ * v2 Err-KernelInContext: what the engine is waiting for ("Watching for a kernel to start"), as the card's footer under
+ * a hairline. The watching glyph is the dashed gray ring (decision 5: never a spinner); miyagi rechecks by itself, so
+ * there's nothing to press.
+ */
+function Waiting({ text }: { text: string }): ReactNode {
+  return (
+    <div role="status" data-waiting className="mt-[16px] flex items-center gap-[8px] border-t pt-[12px]" style={{ borderColor: color.hairline }}>
+      <StatusGlyph state="watching" size={14} />
+      <span className="min-w-0 truncate text-[12px]" style={{ color: color.label }} title={text}>
+        {text}
+      </span>
     </div>
   )
 }
@@ -1145,24 +1193,50 @@ export default defineFeature({
         useOverlayWidth((s) => s.w)
         const open = useCards((c) => c.offtrackOpen)
         const covered = useCards((c) => !!c.card || !!c.success || c.offtrackClosed)
-        const has = useLesson((s) => !!s.offtrack)
+        const o = useLesson((s) => s.offtrack)
+        const has = !!o
+        // v2 (A2): the docked lesson panel draws Not yet itself (Les-NotYet); the pill says "Not yet". A1 sees the live
+        // off-track, so one carrying a fix ("Do it for me") stays on the island.
+        const routed = useRoutedAway('offtrack', o)
+        // Collapsed to the Mini pill, hovering it is how the learner reaches its click (open the panel): no peek there,
+        // or in Not yet, when they most want the panel back, the off-track card would cover Mini under the cursor.
+        const mini = useDock((d) => d.collapsed)
         // Hover peeks at the off-track card only when nothing else is open: with a card up, hovering it must not
         // swap it for the off-track card under the cursor (Michael couldn't click "Open" on a hint card).
-        return has && (open || (hover && !covered))
+        return has && !routed && (open || (hover && !covered && !mini))
       },
       Content: Offtrack
     },
-    { id: 'success', priority: 60, width: SUCCESS_W, useActive: () => useCards((c) => !!c.success), Content: Success },
+    {
+      id: 'success',
+      priority: 60,
+      width: SUCCESS_W,
+      // Decision 7: with the panel shown, Les-Passed renders inside it, not on the island; collapsed to the Mini pill,
+      // the step-passed island card is the progress feature's (A8, priority 55), so this one stays out of its way.
+      useActive: () => {
+        const routed = useRoutedAway('success')
+        const mini = useDock((d) => d.collapsed)
+        return useCards((c) => !!c.success) && !routed && !mini
+      },
+      Content: Success
+    },
     {
       id: 'card',
       priority: 50,
-      // A chip is pill-sized (no width: 34 tall, hugging its row); read at render time like the off-track card's.
+      // A chip is pill-sized (no width: 34 tall, hugging its row); the VS Code sheet is 352 (Err-VSCodeSetup). Read
+      // at render time like the off-track card's.
       get width() {
-        return isChip() ? undefined : CARD_W
+        const s = useCards.getState()
+        return isChip() ? undefined : isEditorSheet(s.card, s.installs) ? SHEET_W : CARD_W
       },
       useActive: () => {
         useChip() // subscribes, so the island re-reads the width when the card folds or opens
-        return useCards((c) => !!c.card)
+        useCards((c) => isEditorSheet(c.card, c.installs)) // and when a setup card turns into the sheet or back
+        const card = useCards((c) => c.card)
+        // A card the docked panel draws itself (Les-Hint) skips the island while the panel shows (no double render), and
+        // is spent there (store.ts consumeRouted), so collapsing to Mini doesn't replay it out of the pill.
+        const routed = useRoutedAway(card?.kind, card)
+        return !!card && !routed
       },
       Content: Card
     }
