@@ -16,8 +16,11 @@ import { pathToFileURL } from 'node:url'
 const dir = mkdtempSync(join(tmpdir(), 'circle-wire-'))
 const stub = (name: string, source: string): string => (writeFileSync(join(dir, name), source), pathToFileURL(join(dir, name)).href)
 const EMPTY = stub('empty.mjs', 'export const scenarios = {}\nexport const defineFeature = (f) => f\nexport default ""')
+// features/cards' panel routing (import.meta.glob, the drawer) is not under test: nothing is routed to a panel.
+const PANEL = stub('panel.mjs', 'export const isRouted = () => false\nexport const panelShown = () => false')
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === './panel' && context.parentURL?.includes('/features/cards/store')) return { url: PANEL, shortCircuit: true }
     if (/(^|\/)mock\/scenarios$/.test(specifier) || (context.parentURL?.includes('/src/renderer/') && /(^|\/)registry$/.test(specifier))) return { url: EMPTY, shortCircuit: true }
     if (/\.(svg|png|jpe?g|webp|css|mp3|wav|woff2?)(\?.*)?$|\?(raw|url|inline)$/.test(specifier)) return { url: EMPTY, shortCircuit: true }
     return next(specifier, context)
@@ -63,8 +66,10 @@ const { PTT_REST } = require('../src/common/pttState') as typeof import('../src/
 const { usePtt } = require('../src/renderer/src/features/ptt/store') as typeof import('../src/renderer/src/features/ptt/store')
 const { useAnnotate } = require('../src/renderer/src/features/annotate/store') as typeof import('../src/renderer/src/features/annotate/store')
 const circle = require('../src/renderer/src/features/circle/store') as typeof import('../src/renderer/src/features/circle/store')
+const { useCards } = require('../src/renderer/src/features/cards/store') as typeof import('../src/renderer/src/features/cards/store')
 const { loopPoints } = require('../src/renderer/src/features/circle/geometry') as typeof import('../src/renderer/src/features/circle/geometry')
-const { useCircle, cancelCircle, pointerDown, pointerMove, pointerUp, setLayout, captureState } = circle
+const { ASK_MAX_MS } = require('../src/renderer/src/features/circle/machine') as typeof import('../src/renderer/src/features/circle/machine')
+const { useCircle, cancelCircle, circleOwnsCard, pointerDown, pointerMove, pointerUp, setLayout, captureState } = circle
 const LAYOUT = { origin: { x: 0, y: 0 }, width: 1440, height: 900, displayId: 7, scaleFactor: 2 }
 
 const ptt = (p: Partial<typeof PTT_REST>): void => usePtt.setState({ ptt: { ...PTT_REST, available: true, ...p } })
@@ -222,6 +227,51 @@ describe('the streamed answer on the wire', () => {
     assert.equal(useCircle.getState().state, a, 'a delta after the card is dropped')
     cancelCircle()
     assert.equal(k(), 'idle')
+  })
+
+  test('closed mid-stream (the X): the late final card is the circle\'s still, and the island does not show it', () => {
+    useCards.setState({ card: undefined })
+    const id = hold()
+    stroke()
+    letGo(id)
+    const askId = ask().askId as string
+    delta(askId, 'Each pass')
+    cancelCircle() // the card's X, with the first words on screen
+    assert.equal(k(), 'idle')
+    const card = { kind: 'answer', askId, title: 'Loop', body: 'Each pass runs the model.' }
+    assert.equal(circleOwnsCard(card as never), true)
+    dispatch({ type: 'card', payload: card } as never)
+    assert.equal(useCards.getState().card, undefined, 'not shown again in the island')
+    assert.equal(k(), 'idle', 'and not on the circle either')
+  })
+
+  test('a new hold mid-stream: the old ask\'s late card is swallowed too; other cards still show', () => {
+    useCards.setState({ card: undefined })
+    const first = hold()
+    stroke()
+    letGo(first)
+    const askId = ask().askId as string
+    delta(askId, 'Half')
+    hold()
+    assert.equal(k(), 'armed')
+    dispatch({ type: 'card', payload: { kind: 'answer', askId, title: 'Old', body: 'Old words.' } } as never)
+    assert.equal(useCards.getState().card, undefined)
+    assert.equal(circleOwnsCard({ kind: 'answer', askId: 'never-asked', body: 'x' } as never), false, 'an ask the circle never made is not its')
+    dispatch({ type: 'card', payload: { kind: 'answer', askId: 'never-asked', title: 'Other', body: 'Shown.' } } as never)
+    assert.equal(useCards.getState().card?.body, 'Shown.')
+    useCards.setState({ card: undefined })
+  })
+
+  test('the ask timed out with no words: its late card is swallowed', () => {
+    useCards.setState({ card: undefined })
+    const id = hold()
+    stroke()
+    letGo(id)
+    const askId = ask().askId as string
+    mock.timers.tick(ASK_MAX_MS + 500)
+    assert.equal(k(), 'idle')
+    dispatch({ type: 'card', payload: { kind: 'answer', askId, title: 'Late', body: 'Late.' } } as never)
+    assert.equal(useCards.getState().card, undefined)
   })
 
   test('a malformed delta (no askId) is ignored', () => {

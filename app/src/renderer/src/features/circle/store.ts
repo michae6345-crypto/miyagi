@@ -14,7 +14,8 @@
  *     (late ones, after "What is this?" went, are dropped);
  *   - sends action ask {text, region, source: "circle", askId}; the region is screen points (layout.origin added) with
  *     the display's id and scale factor (layout.scaleFactor from main: devicePixelRatio would include page zoom);
- *   - takes the answer card {kind: "answer", askId} (features/cards skips it: circleOwnsCard) and closes on its X, a
+ *   - takes the answer card {kind: "answer", askId} (features/cards skips it: circleOwnsCard, also once the circle
+ *     closed that ask, so a card that lands after the X is not shown again in the island) and closes on its X, a
  *     new hold, a lesson ending, the engine dropping, or ANSWER_MS. Esc closes it only where the key reaches this
  *     window (the stage): in Electron the overlay never has focus and main does not relay Esc (a core request). Other
  *     cards' close ('dismiss') leaves the circle alone;
@@ -103,6 +104,19 @@ const captures = createCaptureTracker({
 /** Holds whose ask already went out: their words, however late, are never routed again. */
 const spent = new Set<string>()
 
+/** How many closed asks are remembered (their late cards are swallowed, not shown in the island). */
+const CLOSED_MAX = 20
+/**
+ * Asks the circle closed before or after their card (the X, Esc, a new hold, the ask timeout, the engine dropping): a
+ * card that comes later for one of these is the circle's still, and goes nowhere. Oldest first; bounded.
+ */
+const closed = new Set<string>()
+function rememberClosed(askId: string): void {
+  closed.delete(askId)
+  closed.add(askId)
+  while (closed.size > CLOSED_MAX) closed.delete(closed.values().next().value as string)
+}
+
 /** Run one event through the machine and do what it says. Returns whether push to talk's words were taken. */
 export function feed(e: CircleEvent): boolean {
   if (!isOverlay()) return false
@@ -114,6 +128,8 @@ export function feed(e: CircleEvent): boolean {
   const before = get().state
   const r = step(before, e, { now: Date.now(), width: area.width, height: area.height, newId })
   if (r.state !== before) set({ state: r.state })
+  // The ask on screen went away (closed, timed out, replaced): its card, if it still comes, must not show again.
+  if ((before.k === 'asking' || before.k === 'answered') && !((r.state.k === 'asking' || r.state.k === 'answered') && r.state.askId === before.askId)) rememberClosed(before.askId)
   if ((r.state.k === 'asking' || r.state.k === 'answered') && !spent.has(r.state.session)) {
     if (spent.size > 20) spent.clear()
     spent.add(r.state.session)
@@ -229,10 +245,14 @@ onMessage('answer.delta', (d) => {
 /** For tests: the early capture's newest state. */
 export const captureState = (): ReturnType<typeof captures.peek> => captures.peek()
 
-/** features/cards asks: is this card the answer to a circle on screen? (Then cards leaves it to the circle.) */
+/**
+ * features/cards asks: is this card the answer to a circle's ask? (Then cards leaves it to the circle.) True for the ask
+ * on screen and for one the circle already closed: its card is late, and the learner has seen or dropped it.
+ */
 export function circleOwnsCard(c: PayloadOf<'card'>): boolean {
+  if (c.kind !== 'answer' || !c.askId) return false
   const s = get().state
-  return c.kind === 'answer' && !!c.askId && (s.k === 'asking' || s.k === 'answered') && s.askId === c.askId
+  return ((s.k === 'asking' || s.k === 'answered') && s.askId === c.askId) || closed.has(c.askId)
 }
 
 // Not onUi('dismiss'): that is every other card's close (core/ui/atoms CloseButton, features/complete), and closing one
