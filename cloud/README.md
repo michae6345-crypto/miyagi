@@ -24,7 +24,7 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `POST /v1/anthropic/messages` (also `/v1/anthropic/v1/messages`) | install token (linked, with `REQUIRE_SIGNIN=all`) | Messages API through our key, request body rebuilt from an allowlist (below). |
 | `POST /v1/gemini/{model}:generateContent` and `:streamGenerateContent` (also under `/v1/gemini/v1beta/models/`) | install token (linked, with `REQUIRE_SIGNIN=all`) | **Off by default** (D1: Claude only): 403 `gemini_disabled`. With `ALLOWED_GEMINI_MODELS` set: generateContent through our key, body rebuilt from an allowlist (below). |
 | `GET /v1/lessons/{video_id}?schema=N` | install token | Shared lesson cache: an approved lesson, or 404 `lesson_not_cached` (its `error.builds` says how many free builds are left). Free. |
-| `POST /v1/lessons/{video_id}/build` | install token (linked, with `REQUIRE_SIGNIN=build` or `all`) | Use one of this month's new-lesson builds (per install, or per user when linked). 200 `{ok, builds: {used, cap, month, resets_at}}` or 429 `miyagi_lesson_quota`. |
+| `POST /v1/lessons/{video_id}/build` | install token (linked, with `REQUIRE_SIGNIN=build` or `all`) | Use one of this month's new-lesson builds (per install, or per user when linked) and hold the video for `LESSON_CLAIM_TTL_S`. `?schema=N` optional. 200 `{ok, builds: {used, cap, month, resets_at}}`, 200 `{"held": true}` (another install is building it: nothing counted), or 429 `miyagi_lesson_quota`. |
 | `PUT /v1/lessons/{video_id}` | install token | Body `{schema, lesson}`. Upload a lesson this install built, as a pending candidate. 201 `{stored, status: "pending" \| "approved", hash}`, 403 `build_not_claimed`, 400, 413, 429 `lesson_uploads`, 507 `insufficient_storage`. |
 | `POST /v1/events` | install token | Product events, counts only. See "Product events" below. |
 | `GET /admin/usage` | `X-Admin-Token` | JSON usage report. `?days=30` by default. |
@@ -452,6 +452,7 @@ from before this version are converted on startup. Per-install rows are pruned a
 | `lesson_puts`: token_hash, day, n | `LESSON_PUTS_PER_DAY` | 2 days |
 | `lesson_candidates`: video_id, schema, uploader, body, bytes, body_hash, net (keyed hash), status, created_at, hits | The shared lesson cache and its review | Pending: `LESSON_PENDING_MAX_DAYS` (14). Approved: kept; `net` cleared on approval, `uploader` scrubbed on account delete. Revoked: kept until deleted by an operator or the uploader's account delete |
 | `lesson_revocations`: video_id, schema, revoked_at | Revoked videos are never auto-approved again | Kept |
+| `lesson_claims`: video_id, schema, token_hash, claimed_at, expires_at | One install builds a video at a time | Until released or expired (`LESSON_CLAIM_TTL_S`), pruned hourly; deleted with the install |
 | `lessons` | Legacy first-upload cache, emptied into `lesson_candidates` on startup | Empty |
 | `mints`: bucket (keyed hash), hour, n | Mint limits per network | At most 49 hours |
 | `install_days`: day, n | `NEW_INSTALLS_PER_DAY` (a count, no install) | Kept (one row a day) |
@@ -629,8 +630,14 @@ still to do, so a silent service is noticed too.
 Lesson builds are the expensive call, and many learners open the same videos. The flow:
 
 1. `GET /v1/lessons/{video_id}?schema=N`. An approved lesson is used as the video draft and costs nothing.
-2. On a miss, `POST /v1/lessons/{video_id}/build` uses one of the install's builds. A 429 here stops the
-   build with a calm card; any other failure lets the engine build locally.
+2. On a miss, `POST /v1/lessons/{video_id}/build` uses one of the install's builds and **claims the video** for
+   `LESSON_CLAIM_TTL_S` (600 s). While that claim is unexpired, another install's claim answers
+   `200 {"held": true}` without counting a build: the engine (`server/lesson/cloud_cache.py`) then polls the GET for
+   up to 12 s and builds locally if nothing arrives. The claimer's own repeat claim is `ok` again and does not extend
+   its claim. A claim is released by the claimer's PUT of that video and schema (whatever its outcome), by any stored
+   upload of it, by expiry (expired claims are ignored and pruned hourly) and by the claimer's account delete. The
+   engine sends no `?schema=`, so its claim holds every schema of the video. Claims are kept per token hash only
+   (table `lesson_claims`). A 429 here stops the build with a calm card; any other failure lets the engine build locally.
 3. After a good build, `PUT /v1/lessons/{video_id}` with `{schema, lesson}`. The upload is a **pending
    candidate** for that video, schema and uploader. Nobody, the uploader included, is served it until an
    operator approves it: `GET /admin/lessons/pending`, read the whole candidate at its `full` path
@@ -660,8 +667,13 @@ stays-inside-the-folder check and the home-folder workdir rules; the engine stil
 
 Rules:
 
-- `video_id` is an 11-character YouTube id. `schema` must be in `LESSON_SCHEMAS` (default `1`): no engine branch
-  uploads lessons yet, so 1 is the only draft version in use. Add the next version there when the engine ships it.
+- `video_id` is an 11-character YouTube id. `schema` must be in `LESSON_SCHEMAS` (default `1`). It is the engine's
+  `LESSON_SCHEMA_VERSION` (`server/lesson/schema.py`, 1 today): **add every new engine `LESSON_SCHEMA_VERSION` to
+  `LESSON_SCHEMAS` (code default and `render.yaml`) before that engine ships**, or its GETs and PUTs get 400
+  `schema_unsupported` and every learner builds locally. Keep the old version listed while old engines are out.
+- The cache key is video id + schema only. There is no fingerprint of the learner's folder (workdir) in it on purpose:
+  the shared form carries no workdir, and the engine adapts a downloaded lesson to the learner's folder when it
+  loads it (`cloud_cache.restore` and `validate_untrusted_lesson`).
 - `MAX_LESSON_KB` (128): the lesson is stored as UTF-8 JSON (`ensure_ascii=False`) and its size is checked after
   encoding, so `\uXXXX` escapes on the wire neither dodge the limit nor inflate what is stored.
 - Validation (engines pip-install a lesson's libraries, run its commands and open its files on learners' Macs; do
@@ -840,6 +852,7 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `MAX_LESSON_KB` | `128` | Largest shared lesson, measured as stored (UTF-8). |
 | `LESSON_SCHEMAS` | `1` | Comma-separated lesson schema versions the cache accepts. |
 | `LESSON_PUTS_PER_DAY` | `10` | Lesson uploads per install per UTC day. |
+| `LESSON_CLAIM_TTL_S` | `600` | How long a build claim holds its video (others get `{"held": true}`). 0 = no claims. |
 | `LESSON_AUTO_APPROVE_N` | `0` (off) | Auto-approve after N identical uploads from N tokens on N networks. |
 | `LESSON_DISK_MAX_PCT` | `85` | Lesson uploads stop above this disk usage. |
 | `LESSON_PENDING_MAX_DAYS` | `14` | Pending (unreviewed) uploads older than this are dropped. |

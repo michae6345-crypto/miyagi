@@ -1045,7 +1045,8 @@ VID = "dQw4w9WgXcQ"
 
 
 def lesson_client(make_cloud, **env):
-    client, app_mod = make_cloud(**{"MAX_LESSON_KB": "4", **env})
+    # several installs claim the same video in these tests: the build claim lock (test_build_lock.py) is off here
+    client, app_mod = make_cloud(**{"MAX_LESSON_KB": "4", "LESSON_CLAIM_TTL_S": "0", **env})
     return client, app_mod
 
 

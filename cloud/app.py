@@ -265,6 +265,9 @@ MAX_LESSON_BYTES = int(_env_float("MAX_LESSON_KB", 128) * 1024)
 LESSON_SCHEMAS = frozenset(int(x) for x in _env_list("LESSON_SCHEMAS", "1") if x.isdigit())
 LESSON_PUTS_PER_DAY = _env_int("LESSON_PUTS_PER_DAY", 10)
 LESSON_AUTO_APPROVE_N = _env_int("LESSON_AUTO_APPROVE_N", 0)
+# A build claim holds its video and schema this long: another install's claim meanwhile gets 200 {"held": true} and
+# waits for the upload (the engine polls GET for ~12 s, then builds locally). 0 = no claims.
+LESSON_CLAIM_TTL_S = max(_env_float("LESSON_CLAIM_TTL_S", 600), 0)
 # Approve an upload as soon as it passes the engine's untrusted-lesson checks on the server (lesson_safety.review: paths,
 # regex shapes, limits) on top of validate_lesson, unless the video already serves a lesson or an operator revoked it.
 # Off in code; render.yaml turns it on (staging first). A lesson with any problem stays pending for an operator.
@@ -2717,17 +2720,28 @@ async def get_lesson(video_id: str, request: Request):
 
 @app.post("/v1/lessons/{video_id}/build")
 async def claim_lesson_build(video_id: str, request: Request):
-    """Use one of this month's new-lesson builds for `video_id` (free for a video already claimed this month). The
-    gate to the expensive build calls, so it needs a sign-in when REQUIRE_SIGNIN is "build" or "all"."""
+    """Use one of this month's new-lesson builds for `video_id` (free for a video already claimed this month) and hold
+    the video for LESSON_CLAIM_TTL_S. The gate to the expensive build calls, so it needs a sign-in when
+    REQUIRE_SIGNIN is "build" or "all". `?schema=N` is optional (the engine sends none: its claim then holds every
+    schema of the video). 200 {"held": true} when another install's unexpired claim holds the video: nothing is
+    counted, and the caller waits for that install's lesson (GET) before building it locally."""
     token_hash, denied = authenticate_model_call(request, build=True)
     if denied:
         return denied
     if not VIDEO_ID_RE.fullmatch(video_id):
         return error(400, "invalid_request_error", _BAD_VIDEO_ID)
+    schema = 0
+    if request.query_params.get("schema", "") != "":
+        schema = _lesson_schema(request.query_params["schema"])
+        if isinstance(schema, JSONResponse):
+            return schema
     user_id = _build_user(token_hash)
     quota = _build_quota(token_hash, user_id)
-    ok, used = store.claim_build(token_hash, video_id, quota["cap"], user_id=user_id)
-    if not ok:
+    state, used = store.claim_lesson_build(token_hash, video_id, schema, quota["cap"], user_id=user_id,
+                                           ttl_s=LESSON_CLAIM_TTL_S)
+    if state == "held":
+        return {"held": True}
+    if state != "ok":
         return quota_error("miyagi_lesson_quota", "lesson_builds", used, quota["cap"], _next_utc_month(),
                            f"You've built your {quota['cap']} free lessons this month. "
                            "Lessons someone already built still open for free.")
@@ -2760,6 +2774,7 @@ async def put_lesson(video_id: str, request: Request):
     schema = _lesson_schema(data.get("schema"))
     if isinstance(schema, JSONResponse):
         return schema
+    store.release_lesson_claims(video_id, schema, token_hash)  # the claimer is done building, whatever happens next
     lesson = data.get("lesson")
     if why := validate_lesson(lesson):
         return error(400, "invalid_request_error", why)
@@ -2781,6 +2796,7 @@ async def put_lesson(video_id: str, request: Request):
                     "the total" if full == "pending_total" else "its network's")
         return error(507, "insufficient_storage", "Too many lessons are waiting for review right now. "
                      "Your lesson still works on this Mac.")
+    store.release_lesson_claims(video_id, schema)  # a lesson is stored: nobody needs to wait for another build
     problems = lesson_safety.review(lesson)
     approved = False
     if LESSON_AUTO_APPROVE_VALIDATED and not problems:
