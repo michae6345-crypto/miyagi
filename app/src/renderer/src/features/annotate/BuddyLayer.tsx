@@ -9,7 +9,9 @@
  *     line around.
  *   - Reduced motion: no grow, the finished stroke fades in.
  *   - Click-through always: no data-hit anywhere. The stroke is not data-ui either (that would hide the circled text
- *     from the engine's screen reader); only the small label is.
+ *     from the engine's screen reader); only the small label is, so the engine never reads miyagi's own words as the
+ *     learner's screen. Since the text under the label is hidden from the reader too, it sits beside the loop on the
+ *     circled line, not over the lines under it (geometry.ts labelSpot).
  *   - Below the island (z 48), so the branch slips out from under it.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
@@ -20,7 +22,7 @@ import { useIslandBox } from '../../core/Island'
 import { islandBottom } from '../../core/islandEdge'
 import { notchOf } from '../../core/notchGeometry'
 import { brand, color, ease, fade as fades, radius2, type2 } from '../../core/theme'
-import { buddyPath, drawSeconds, hashSeed, islandAnchor, labelSpot, onOverlay, toOverlay, type Pt, type Rect } from './geometry'
+import { buddyPath, drawSeconds, hashSeed, islandAnchor, labelSpot, labelWidth, onOverlay, toOverlay, type Pt, type Rect } from './geometry'
 import { createReach, type DrawMark } from './marks'
 import { fade, useAnnotate } from './store'
 
@@ -93,7 +95,7 @@ function Stroke({ d, reduced }: { d: Drawn; reduced: boolean }): ReactNode {
 }
 
 function Label({ d, layout, reduced }: { d: Drawn; layout: Layout; reduced: boolean }): ReactNode {
-  const spot = useMemo(() => labelSpot(buddyPath(d.from, d.local, hashSeed(d.mark.key)).ring, layout), [d, layout])
+  const spot = useMemo(() => labelSpot(buddyPath(d.from, d.local, hashSeed(d.mark.key)).ring, layout, labelWidth(d.mark.label ?? '')), [d, layout])
   const delay = reduced ? 0 : 0.45 * SLOW
   return (
     <motion.span
@@ -102,7 +104,7 @@ function Label({ d, layout, reduced }: { d: Drawn; layout: Layout; reduced: bool
       style={{
         left: spot.x,
         top: spot.y,
-        x: '-50%',
+        x: spot.align === 'start' ? 0 : spot.align === 'end' ? '-100%' : '-50%',
         padding: '2px 8px',
         borderRadius: radius2.round,
         background: color.island,

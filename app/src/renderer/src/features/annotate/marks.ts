@@ -4,7 +4,8 @@
  *   keyOf / validMarks   which marks are drawable and how a mark is known again when the engine re-sends it
  *   mergeMarks           a new annotate replaces the drawn set; a mark with a known key keeps its `born` (it is not
  *                        drawn again); a mark the learner already reached this step stays gone
- *   holdFor              how long the marks stay (holdMs, or the app's 6 s, within sane bounds)
+ *   holdFor / fadeAt     how long the marks stay (holdMs, or the app's 6 s, within sane bounds), counted from the
+ *                        newest mark's birth so a re-send does not restart it
  *   createReach          "the learner went there": a click inside, or the pointer coming into the box from outside and
  *                        resting there a moment. In Electron the overlay is click-through, so clicks never reach it; it
  *                        only gets forwarded mouse moves. The move rule is the stand-in until main can say "clicked here".
@@ -24,6 +25,15 @@ export const MAX_HOLD_MS = 30_000
 
 export function holdFor(holdMs: unknown): number {
   return typeof holdMs === 'number' && Number.isFinite(holdMs) && holdMs > 0 ? Math.min(MAX_HOLD_MS, Math.max(MIN_HOLD_MS, holdMs)) : DEFAULT_HOLD_MS
+}
+
+/**
+ * When the drawn set fades: the hold counts from the newest mark's birth. A re-sent mark keeps its birth (mergeMarks),
+ * so an engine that re-sends the same marks every few seconds does not push the fade back; only a new mark does.
+ */
+export function fadeAt(marks: readonly Pick<DrawMark, 'born'>[], holdMs: number): number | undefined {
+  if (!marks.length) return undefined
+  return Math.max(...marks.map((m) => m.born)) + holdMs
 }
 
 /** Labels are 4 words or fewer by contract; keep the first 4 if an engine sends more. */
@@ -72,6 +82,13 @@ export function knownKey(m: Annotation, pool: Iterable<Known>): string | undefin
   if (typeof m.id === 'string' && m.id) return keyOf(m)
   for (const k of pool) if (!k.id && k.why === m.why && near(k.rect, m)) return k.key
   return undefined
+}
+
+/** The keys among `pool` that are this mark: its own key, or (no id) the same kind at nearly the same box. */
+export function sameMarkKeys(m: Annotation, pool: Iterable<Known>): string[] {
+  const k = keyOf(m)
+  const hasId = typeof m.id === 'string' && !!m.id
+  return [...pool].filter((p) => p.key === k || (!hasId && !p.id && p.why === m.why && near(p.rect, m))).map((p) => p.key)
 }
 
 /** The new drawn set: `incoming` replaces `prev`; a known mark keeps its key and birth (no redraw); a gone one is skipped. */

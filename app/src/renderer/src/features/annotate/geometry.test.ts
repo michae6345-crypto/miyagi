@@ -4,8 +4,8 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { buddyPath, drawSeconds, hashSeed, islandAnchor, isDrawable, labelSpot, loopPoints, onOverlay, ringAngleToward, ringFor, rng, toOverlay } from './geometry'
-import { cleanLabel, createReach, DEFAULT_HOLD_MS, holdFor, keyOf, knownKey, MAX_HOLD_MS, MAX_MARKS, mergeMarks, MIN_HOLD_MS, REACH_MS, validMarks } from './marks'
+import { BRANCH_REACH, branchControls, buddyPath, drawSeconds, hashSeed, islandAnchor, isDrawable, labelSpot, labelWidth, loopPoints, onOverlay, ringAngleToward, ringFor, rng, toOverlay } from './geometry'
+import { cleanLabel, createReach, DEFAULT_HOLD_MS, fadeAt, holdFor, keyOf, knownKey, MAX_HOLD_MS, MAX_MARKS, mergeMarks, MIN_HOLD_MS, REACH_MS, sameMarkKeys, validMarks, type DrawMark, type Known } from './marks'
 
 const box = { x: 100, y: 563, w: 380, h: 18 }
 
@@ -116,6 +116,14 @@ describe('the buddy path', () => {
     assert.ok(drawSeconds(0) >= 0.55 && drawSeconds(1e6) <= 1.2)
     assert.ok(drawSeconds(p.branchLength + p.loopLength) > drawSeconds(200))
   })
+  it('arrives along the loop without hooking back past the join', () => {
+    // A far target: the last control point reaches back from the join at most BRANCH_REACH, so the curve does not swing
+    // past the join and hook back into the loop (a J over the text above it).
+    const join = { x: 300, y: 560 }
+    const heading = { x: 1, y: 0 }
+    const [, c2] = branchControls({ x: 900, y: 30 }, join, heading, 1)
+    assert.ok(Math.hypot(c2.x - join.x, c2.y - join.y) <= BRANCH_REACH + 1e-9)
+  })
   it('has no NaN even when the target sits right under the island', () => {
     const p = buddyPath({ x: 50, y: 30 }, { x: 30, y: 20, w: 40, h: 20 }, 3)
     assert.ok(!p.d.includes('NaN'))
@@ -124,17 +132,33 @@ describe('the buddy path', () => {
 
 describe('the label', () => {
   const size = { width: 1440, height: 900 }
-  it('sits under the loop, or over it near the bottom', () => {
+  const w = labelWidth('Start here')
+  it('sits beside the loop on the circled line, not over the lines under it', () => {
     const r = ringFor(box)
-    const s = labelSpot(r, size)
-    assert.ok(!s.above && s.y > r.cy + r.ry)
-    const low = ringFor({ x: 100, y: 860, w: 200, h: 20 })
-    const t = labelSpot(low, size)
+    const s = labelSpot(r, size, w)
+    assert.equal(s.align, 'start')
+    assert.ok(s.x > r.cx + r.rx)
+    assert.ok(s.y < r.cy && s.y + 22 > r.cy, 'centered on the circled line')
+  })
+  it('goes left of the loop when the right side has no room', () => {
+    const r = ringFor({ x: 1200, y: 300, w: 200, h: 18 })
+    const s = labelSpot(r, size, w)
+    assert.equal(s.align, 'end')
+    assert.ok(s.x < r.cx - r.rx && s.x - w >= 12)
+  })
+  it('falls back under the loop, or over it near the bottom, when neither side fits', () => {
+    const r = ringFor({ x: 20, y: 300, w: 1400, h: 18 })
+    const s = labelSpot(r, size, w)
+    assert.ok(s.align === 'center' && !s.above && s.y > r.cy + r.ry)
+    const low = ringFor({ x: 20, y: 860, w: 1400, h: 20 })
+    const t = labelSpot(low, size, w)
     assert.ok(t.above && t.y < low.cy - low.ry)
   })
-  it('stays on screen sideways', () => {
-    const s = labelSpot(ringFor({ x: -40, y: 300, w: 30, h: 20 }), size)
+  it('stays on screen', () => {
+    const s = labelSpot(ringFor({ x: -40, y: 300, w: 30, h: 20 }), size, w)
     assert.ok(s.x >= 12)
+    const wide = labelSpot(ringFor({ x: -10, y: 300, w: 1460, h: 20 }), size, w)
+    assert.ok(wide.x - w / 2 >= 12 && wide.x + w / 2 <= size.width - 12)
   })
 })
 
@@ -167,6 +191,39 @@ describe('marks', () => {
     assert.deepEqual(again.map((m) => [m.key, m.born]), [['id:m1', 1000], ['id:m3', 2000]])
     const gone = mergeMarks(again, [{ ...a, id: 'm1' }], [again[0]], 3000)
     assert.deepEqual(gone, [])
+  })
+  it('a re-sent mark does not restart the hold: re-sent at 2 s and 4 s, it is still gone by 6 s', () => {
+    // The store's timeline (store.ts show): merge, then fade at fadeAt(drawn, hold). A fake clock, no timers.
+    const m = { ...a, id: 'm1' }
+    let drawn: DrawMark[] = []
+    let deadline: number | undefined
+    const send = (now: number, list = [m]): void => {
+      drawn = mergeMarks(drawn, list, [], now)
+      deadline = fadeAt(drawn, DEFAULT_HOLD_MS)
+    }
+    send(0)
+    send(2000)
+    assert.equal(deadline, 6000)
+    send(4000)
+    assert.equal(deadline, 6000)
+    assert.ok(deadline! <= 6000, 'faded by 6 s')
+    // A new mark is a new thing to look at: the hold counts from its birth.
+    send(5000, [m, { ...a, id: 'm2', x: 700 }])
+    assert.equal(deadline, 11_000)
+    assert.equal(fadeAt([], DEFAULT_HOLD_MS), undefined)
+  })
+  it('an explicit ask (Show me) draws a reached box again', () => {
+    const reached: Known[] = mergeMarks([], [a], [], 1000)
+    assert.deepEqual(mergeMarks([], [a], reached, 2000), [], 'reached: skipped')
+    // Show me on the same box (a few points off): it is the same mark, so forget it as gone and draw it new.
+    const again = { ...a, x: a.x + 4 }
+    const keys = sameMarkKeys(again, reached)
+    assert.deepEqual(keys, [reached[0].key])
+    const left = reached.filter((k) => !keys.includes(k.key))
+    const drawn = mergeMarks([], [again], left, 3000)
+    assert.equal(drawn.length, 1)
+    assert.equal(drawn[0].born, 3000)
+    assert.deepEqual(sameMarkKeys({ ...a, x: a.x + 60 }, reached), [], 'another box is not this one')
   })
   it('trims a label to 4 words', () => {
     assert.equal(cleanLabel('  the   optimizer line here now '), 'the optimizer line here')

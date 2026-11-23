@@ -6,12 +6,14 @@
  *   annotate {clear: true}      fade everything now.
  * Today's pointing (spotlight): until the engine has sent one annotate, every new spotlight box the spotlight feature
  * shows also gets a buddy mark (why "point"), so the buddy points before the engine speaks annotate. Read from the
- * spotlight store (read-only), so its calm gate and front-app rule apply here too. Once annotate arrives, the engine
- * owns pointing and the bridge stops.
+ * spotlight store (read-only), so its calm gate and front-app rule apply here too: when the spotlight hides (a clear,
+ * or its app left the front) the bridged mark fades with it. A Show me press is an explicit ask, so its box draws
+ * again even if the learner already reached it this step. Once annotate arrives, the engine owns pointing and the
+ * bridge stops.
  *
  * Out: the marks fade (and stay gone for this step) when
  *   - the learner goes there (a click inside, or the pointer coming in and resting: marks.ts createReach),
- *   - the hold runs out (holdMs, or 6 s),
+ *   - the hold runs out (holdMs, or 6 s, from the newest mark's birth: a re-sent mark does not restart it),
  *   - the step changes (step.started keeps only marks for the new step; step.passed clears), the lesson ends, a reset,
  *   - Esc (dismiss).
  * Nothing here takes the mouse: the layer is click-through, always.
@@ -20,7 +22,7 @@ import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { sameRect } from '../../core/geometry'
 import { isDrawable, type Rect } from './geometry'
-import { holdFor, mergeMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known } from './marks'
+import { fadeAt, holdFor, mergeMarks, sameMarkKeys, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known } from './marks'
 
 export const useAnnotate = create<{ marks: DrawMark[] }>(() => ({ marks: [] }))
 const set = useAnnotate.setState
@@ -62,7 +64,8 @@ function forget(): void {
   if (get().marks.length) set({ marks: [] })
 }
 
-/** Draw `incoming` in place of what is drawn, and (re)start the hold. */
+/** Draw `incoming` in place of what is drawn. The hold counts from the newest mark's birth (fadeAt), so a re-send of
+ * marks already drawn keeps the old deadline and only a new mark moves it. */
 export function show(incoming: readonly Annotation[], holdMs: number = DEFAULT_HOLD_MS, now = Date.now()): void {
   const ask = incoming.find((m) => m.askId)?.askId
   if (ask && ask !== lastAsk) {
@@ -72,7 +75,23 @@ export function show(incoming: readonly Annotation[], holdMs: number = DEFAULT_H
   const marks = mergeMarks(get().marks, incoming, gone.values(), now)
   set({ marks })
   stopHold()
-  if (marks.length) hold = setTimeout(() => fade(), holdMs)
+  const at = fadeAt(marks, holdMs)
+  if (at !== undefined) hold = setTimeout(() => fade(), Math.max(0, at - now))
+}
+
+/** Take the marks away (they fade out) without remembering them as gone: the thing they pointed at went away, the
+ * learner did not reach it, so it may draw again when it comes back. */
+function withdraw(): void {
+  stopHold()
+  if (get().marks.length) set({ marks: [] })
+}
+
+/** An explicit ask for this box (Show me): forget that it was reached or timed out, and let it be born again. */
+function askAgain(m: Annotation): void {
+  for (const k of sameMarkKeys(m, gone.values())) gone.delete(k)
+  const drawn = new Set(sameMarkKeys(m, get().marks))
+  if (drawn.size) set({ marks: get().marks.filter((d) => !drawn.has(d.key)) })
+  lastSpot = undefined
 }
 
 onMessage('annotate', (p) => {
@@ -107,14 +126,31 @@ onUi('dismiss', () => fade())
 // Imported late, not at the top: features load A to Z and "annotate" is first, so a static import pulled the spotlight
 // store's own import chain (shortcut-bar, cards, diagrams) in out of order ("Cannot access 'useCards' before
 // initialization" in the stage). By the time this resolves, every feature module has run.
-void import('../spotlight/store').then(({ useSpotlight }) => useSpotlight.subscribe((s, prev) => {
-  if (engineAnnotates || s.target === prev.target) return
-  const r = s.target?.rect
-  if (!s.target || !isDrawable(r)) {
-    if (!s.target) lastSpot = undefined
-    return
-  }
-  if (lastSpot && sameRect(lastSpot, r, SPOT_JITTER)) return
-  lastSpot = r
-  show([{ x: r.x, y: r.y, w: r.w, h: r.h, why: 'point' }])
-}))
+/** A Show me press not yet answered by a new spotlight box. */
+let showMeAsked = false
+void Promise.all([import('../spotlight/store'), import('../../core/shortcuts')]).then(([{ useSpotlight }, { usePressed }]) => {
+  usePressed.subscribe((p, was) => {
+    if (!p.kind || (p.kind === was.kind && p.at === was.at)) return
+    showMeAsked = p.kind === 'show_me'
+  })
+  onMessage('step.started', () => (showMeAsked = false))
+  useSpotlight.subscribe((s, prev) => {
+    if (engineAnnotates || s.target === prev.target) return
+    if (!s.target) {
+      // The spotlight hid (the engine cleared it, or its app left the front): the bridged mark goes with it.
+      lastSpot = undefined
+      withdraw()
+      return
+    }
+    const r = s.target.rect
+    if (!isDrawable(r)) return
+    const mark: Annotation = { x: r.x, y: r.y, w: r.w, h: r.h, why: 'point' }
+    if (s.showMe && showMeAsked) {
+      showMeAsked = false
+      askAgain(mark)
+    }
+    if (lastSpot && sameRect(lastSpot, r, SPOT_JITTER)) return
+    lastSpot = r
+    show([mark])
+  })
+})

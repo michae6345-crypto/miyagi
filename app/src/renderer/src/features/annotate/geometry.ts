@@ -8,7 +8,8 @@
  *   ringFor                 the loose ellipse around a box, roomy enough that the box's corners sit inside it
  *   buddyPath               ONE stroke: a smooth branch out of the island that flows into a hand-drawn loop around the box.
  *                           A seeded wobble, so the same mark always draws the same line (a re-sent mark never jumps)
- *   labelSpot               where the optional label goes: under the loop, or over it near the screen bottom
+ *   labelSpot               where the optional label goes: beside the loop on its own line (the end of a line of text is
+ *                           mostly empty), else under it, or over it near the screen bottom
  */
 
 export type Pt = { x: number; y: number }
@@ -127,6 +128,9 @@ export function loopPoints(ring: Ring, start: number, seed: number): Pt[] {
  * line flows into the circle without a corner (`heading`: the loop's first step). A small seeded bow keeps it a branch,
  * not a ruler line.
  */
+/** The most the branch's last control point reaches back from the join along the loop's direction (pt). */
+export const BRANCH_REACH = 90
+
 export function branchControls(from: Pt, to: Pt, heading: Pt, seed: number): [Pt, Pt] {
   const r = rng(seed ^ 0x9e3779b9)
   const dx = to.x - from.x
@@ -135,7 +139,8 @@ export function branchControls(from: Pt, to: Pt, heading: Pt, seed: number): [Pt
   const drop = Math.max(28, Math.abs(dy) * 0.4)
   const c1 = { x: from.x + (r() - 0.5) * 0.08 * dist, y: from.y + drop }
   const hl = Math.hypot(heading.x, heading.y) || 1
-  const reach = Math.min(180, Math.max(24, dist * 0.35))
+  // A short reach: a long one pulls the curve past the join and back (a J hook over the text before the loop).
+  const reach = Math.min(BRANCH_REACH, Math.max(24, dist * 0.25))
   const c2 = { x: to.x - (heading.x / hl) * reach, y: to.y - (heading.y / hl) * reach }
   return [c1, c2]
 }
@@ -203,16 +208,34 @@ export function drawSeconds(length: number): number {
   return Math.min(1.2, Math.max(0.55, 0.35 + length / 1600))
 }
 
-/** Label: this far under (or over) the loop; kept this far from the window's edges. */
+/** Label: this far from the loop; kept this far from the window's edges. */
 export const LABEL_GAP = 8
 export const LABEL_EDGE = 12
 /** A label is one short line; this is the room it is given for the flip decision. */
 export const LABEL_H = 22
+/** A rough label width for the fit decision: the small type is about this wide per character, plus its padding. */
+export const LABEL_CHAR_W = 7
+export const LABEL_PAD_W = 16
 
-/** The label's top-center: under the loop, or over it when under would run off the bottom. */
-export function labelSpot(ring: Ring, size: { width: number; height: number }): Pt & { above: boolean } {
+export const labelWidth = (text: string): number => text.length * LABEL_CHAR_W + LABEL_PAD_W
+
+/**
+ * Where the label goes. `x` is its anchor and `align` says which edge sits there (start: left edge, end: right edge,
+ * center: middle); `y` is its top. Beside the loop first, centered on the circled line: right of it, else left of it.
+ * The label is opaque and data-ui (so the engine's screen reader never reads miyagi's own words as the learner's
+ * screen), so it should cover as little of the learner's text as it can; past the end of the circled line is mostly
+ * empty. When neither side fits: under the loop, or over it near the bottom.
+ */
+export function labelSpot(ring: Ring, size: { width: number; height: number }, width = labelWidth('xxxxxxxxxx')): Pt & { above: boolean; align: 'start' | 'center' | 'end' } {
+  const mid = Math.min(size.height - LABEL_EDGE - LABEL_H, Math.max(LABEL_EDGE, ring.cy - LABEL_H / 2))
+  // A loop that runs off one edge still puts its label on screen (clamped in toward that edge).
+  const right = Math.max(LABEL_EDGE, ring.cx + ring.rx + LABEL_GAP)
+  if (right + width <= size.width - LABEL_EDGE) return { x: right, y: mid, above: false, align: 'start' }
+  const left = Math.min(size.width - LABEL_EDGE, ring.cx - ring.rx - LABEL_GAP)
+  if (left - width >= LABEL_EDGE) return { x: left, y: mid, above: false, align: 'end' }
   const below = ring.cy + ring.ry + LABEL_GAP
   const above = below + LABEL_H > size.height - LABEL_EDGE
   const y = above ? ring.cy - ring.ry - LABEL_GAP - LABEL_H : below
-  return { x: Math.min(size.width - LABEL_EDGE, Math.max(LABEL_EDGE, ring.cx)), y: Math.max(LABEL_EDGE, y), above }
+  const half = width / 2
+  return { x: Math.min(size.width - LABEL_EDGE - half, Math.max(LABEL_EDGE + half, ring.cx)), y: Math.max(LABEL_EDGE, y), above, align: 'center' }
 }
