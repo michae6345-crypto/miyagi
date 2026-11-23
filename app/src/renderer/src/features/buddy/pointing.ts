@@ -22,11 +22,12 @@ import type { Point, Rect } from '../../core/geometry'
 import { fadeAt, HOLD, holdFor, mergeMarks, validMarks, type Known, type Mark, type Shown } from './marks'
 
 /**
- * Where the buddy is. 'home': in the notch. 'out': flying to a mark. 'perched': sitting beside the mark `at` (its
- * key), its tree at `tree` (the overlay window's coordinates), which is where that mark's loop is drawn from.
- * 'back': on its way home. Set by the pod's layer (Pod.tsx); read by the loop's layer and by <Buddy />.
+ * Where the buddy is. 'home': in the notch. 'out': flying somewhere. 'perched': sitting beside the mark `at` (its
+ * key), its body at `body` (the overlay window's coordinates), which is where that mark's loop is thrown from.
+ * 'follow': keeping the learner's pointer company. 'back': on its way home. Set by the buddy's layer
+ * (Companion.tsx); read by the loop's layer.
  */
-export type Trip = { phase: 'home' | 'out' | 'perched' | 'back'; at?: string; tree?: Point }
+export type Trip = { phase: 'home' | 'out' | 'perched' | 'follow' | 'back'; at?: string; body?: Point }
 
 /**
  * marks  screen points, as the engine sent them (the layers map them into their window).
@@ -35,8 +36,10 @@ export type Trip = { phase: 'home' | 'out' | 'perched' | 'back'; at?: string; tr
  *        it has no mark of its own.
  * trip   where the buddy is.
  * cheer  bumped each time the learner gets to a mark: the buddy hops.
+ * total  how many marks the set now up started with. The buddy takes them one at a time, so with marks.length this
+ *        is its place in the tour: step total - marks.length + 1 of total.
  */
-export const usePointing = create<{ marks: Shown[]; lean: number; pose?: Rect; trip: Trip; cheer: number }>(() => ({ marks: [], lean: 0, trip: { phase: 'home' }, cheer: 0 }))
+export const usePointing = create<{ marks: Shown[]; lean: number; pose?: Rect; trip: Trip; cheer: number; total: number }>(() => ({ marks: [], lean: 0, trip: { phase: 'home' }, cheer: 0, total: 0 }))
 const get = usePointing.getState
 const set = usePointing.setState
 
@@ -62,7 +65,7 @@ export function fade(keys?: readonly string[]): void {
   if (!out.length) return
   out.forEach((m) => gone.set(m.key, m))
   const left = cur.filter((m) => !out.includes(m))
-  set({ marks: left })
+  set(left.length ? { marks: left } : { marks: left, total: 0 })
   if (!left.length) stopHold()
 }
 
@@ -78,7 +81,7 @@ export function forget(): void {
   stopHold()
   gone.clear()
   lastAsk = undefined
-  if (get().marks.length) set({ marks: [] })
+  if (get().marks.length || get().total) set({ marks: [], total: 0 })
 }
 
 /**
@@ -91,8 +94,11 @@ export function show(incoming: readonly Mark[], holdMs: number = HOLD.base, now 
     gone.clear()
     lastAsk = ask
   }
-  const marks = mergeMarks(get().marks, incoming, gone.values(), now)
-  set({ marks })
+  const prev = get().marks
+  const marks = mergeMarks(prev, incoming, gone.values(), now)
+  // A set with a mark that was not up before is a new tour; a re-send of the same ones is the same tour.
+  const fresh = marks.some((m) => !prev.some((q) => q.key === m.key))
+  set({ marks, total: marks.length ? (fresh ? marks.length : Math.max(get().total, marks.length)) : 0 })
   stopHold()
   const at = fadeAt(marks, holdMs)
   if (at !== undefined) hold = setTimeout(() => fade(), Math.max(0, at - now))
@@ -125,7 +131,7 @@ onMessage('step.started', (p) => {
   const keep = get().marks.filter((m) => m.stepId && m.stepId === p?.stepId)
   stopHold()
   gone.clear()
-  set({ marks: keep })
+  set({ marks: keep, total: keep.length })
   if (keep.length) hold = setTimeout(() => fade(), HOLD.base)
 })
 onMessage('step.passed', forget)

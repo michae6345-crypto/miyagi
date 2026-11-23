@@ -1,28 +1,27 @@
 /**
- * Feature: buddy. The buddy's trips, pure (no React, no DOM): how it flies from the notch to what it points at, where
- * it sits when it gets there, and how fast it speaks. Checked offline in test/buddyMarks.test.ts.
+ * Feature: buddy. The buddy's trips, pure (no React, no DOM): how it flies, where it sits beside what it points at,
+ * where it hovers by the learner's pointer, and how fast it speaks. Checked offline in test/buddyMarks.test.ts.
  *
- * The buddy is a character, not a highlighter. Clicky's cursor is the model: it has a home, it travels to the thing
- * on an arc that takes longer the farther it goes, it swells a little mid-flight, it lands BESIDE the thing and says a
- * few words one letter at a time, and it goes home again. miyagi's own version of each: the home is the notch, the
- * traveler is the bonsai in a small black pod (a droplet of the island, so it reads on any app), the words are the
- * mark's label, and the thing gets a mint loop the tree draws once it has landed.
+ * The buddy is a character, not a highlighter. Clicky's cursor is the model for how it moves: it has a home, it
+ * keeps the learner's pointer company when it is called, it travels to the thing on an arc that takes longer the
+ * farther it goes and swells a little mid-flight, it lands BESIDE the thing and says a few words one letter at a time,
+ * and it goes home again. miyagi's own version of each: the home is the notch, the traveler is the buddy's own
+ * character (Character.tsx), its words are in an island-black bubble beside it, and the thing gets a mint loop it
+ * throws once it has landed.
  */
 import type { Point, Rect } from '../../core/geometry'
 import { labelAt, type LabelSide } from './marks'
 
 /**
- * The pod: an island-black capsule with the tree at one end and the words beside it, like the pill in the notch.
- *   h          its height, and its width when it has nothing to say
- *   tree       the tree's size inside it
- *   homeTree   the tree's size in the notch ear: the pod leaves and comes home at this scale, so the swap can't be seen
- *   textAt     where the words start, from the pod's tree end
- *   padEnd     room after the last letter
+ * The buddy's body.
+ *   size   its size on the screen (px)
+ *   home   its scale in the notch: it pops out of the island from this small, and shrinks back to it
+ *   gap    between it and its speech bubble
  */
-export const POD = { h: 38, tree: 26, homeTree: 16, textAt: 36, padEnd: 14 } as const
+export const BODY = { size: 54, home: 0.28, gap: 5 } as const
 
-/** The pod's width with words `textW` px wide (0: just the tree). */
-export const podWidth = (textW: number): number => (textW > 0 ? POD.textAt + textW + POD.padEnd : POD.h)
+/** How wide the buddy and its bubble are together (a bubble 0 wide: just the buddy). */
+export const spanWidth = (bubbleW: number): number => BODY.size + (bubbleW > 0 ? BODY.gap + bubbleW : 0)
 
 /**
  * A flight.
@@ -34,9 +33,9 @@ export const podWidth = (textW: number): number => (textW > 0 ? POD.textAt + tex
  *   grow       leaving home it reaches full size over this first share of the flight (and shrinks over the last
  *              share coming home)
  */
-export const FLIGHT = { base: 0.34, perPx: 1 / 1700, min: 0.46, max: 1.05, arc: 0.2, arcMax: 80, tilt: 11, swell: 0.1, grow: 0.42 } as const
+export const FLIGHT = { base: 0.34, perPx: 1 / 1700, min: 0.46, max: 1.05, arc: 0.2, arcMax: 80, tilt: 12, swell: 0.1, grow: 0.42 } as const
 
-/** 'out': from the notch to a mark. 'hop': from one mark to the next. 'home': back into the notch. */
+/** 'out': from the notch. 'hop': from one place on the screen to another. 'home': back into the notch. */
 export type Flight = { from: Point; ctrl: Point; to: Point; seconds: number; kind: 'out' | 'hop' | 'home' }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
@@ -74,50 +73,88 @@ export function tiltAt(f: Flight, t: number): number {
   return clamp(dx / 240, -1, 1) * FLIGHT.tilt * Math.sin(Math.PI * clamp(t, 0, 1))
 }
 
-/** The pod's scale in the notch: its tree is then the size of the ear's. */
-export const HOME_SCALE = POD.homeTree / POD.tree
-
 /**
- * Its scale at `t`: up to full size over the first part of a flight out, down to the ear's size over the last part
+ * Its scale at `t`: up to full size over the first part of a flight out, down to its home size over the last part
  * of the flight home, a little swell mid-flight. `start`: the scale it had when the flight began (a flight that was
- * turned round mid-air starts from wherever it had got to); the default is the ear's size leaving home and full size
+ * turned round mid-air starts from wherever it had got to); the default is its home size leaving home and full size
  * otherwise.
  */
-export function scaleAt(f: Flight, t: number, start: number = f.kind === 'out' ? HOME_SCALE : 1): number {
+export function scaleAt(f: Flight, t: number, start: number = f.kind === 'out' ? BODY.home : 1): number {
   const k = clamp(t, 0, 1)
   const swell = FLIGHT.swell * Math.sin(Math.PI * k)
-  if (f.kind === 'home') return start - (start - HOME_SCALE) * smooth(clamp((k - (1 - FLIGHT.grow)) / FLIGHT.grow, 0, 1)) + swell * (1 - k)
+  if (f.kind === 'home') return start - (start - BODY.home) * smooth(clamp((k - (1 - FLIGHT.grow)) / FLIGHT.grow, 0, 1)) + swell * (1 - k)
   return start + (1 - start) * smooth(clamp(k / FLIGHT.grow, 0, 1)) + swell
 }
 
-/** How far from the loop the pod sits. */
-export const PERCH_GAP = 8
-
-/**
- * Where the pod sits for a mark: beside its loop, to the right on the circled line when it fits, else below, else to
- * the left, else above (marks.ts labelAt). `tree` is the center of the tree, the point everything else is placed from.
- * To the left of the loop the pod is mirrored: the tree is at its right end, next to the thing, and the words run off
- * to the left of it.
- */
-export function perch(ring: Rect, textW: number, bounds: Rect): { tree: Point; side: LabelSide; mirrored: boolean; w: number } {
-  const w = podWidth(textW)
-  const at = labelAt(ring, { w, h: POD.h }, bounds, 'right')
-  const mirrored = at.side === 'left'
-  return { tree: { x: mirrored ? at.x + w - POD.h / 2 : at.x + POD.h / 2, y: at.y + POD.h / 2 }, side: at.side, mirrored, w }
+/** Which way it looks on a flight, -1..1 each way: where it is going. */
+export function gazeOf(f: Flight): Point {
+  const dx = f.to.x - f.from.x
+  const dy = f.to.y - f.from.y
+  const d = Math.hypot(dx, dy) || 1
+  return { x: dx / d, y: dy / d }
 }
 
-/** Which way the tree leans at its perch, -1 (left) to 1 (right): toward the thing it is pointing at. */
-export function leanToward(tree: Point, ring: Rect): number {
-  return clamp((ring.x + ring.w / 2 - tree.x) / 40, -1, 1)
+/**
+ * Where the buddy sits for a mark: beside its loop, to the right on the circled line when it and its bubble fit,
+ * else below, else to the left, else above (marks.ts labelAt). `body` is the buddy's center, the point everything
+ * else is placed from. To the left of the loop it is mirrored: the buddy is next to the thing and its bubble runs
+ * off to the left of it.
+ */
+export function perch(ring: Rect, bubble: { w: number; h: number }, bounds: Rect): { body: Point; side: LabelSide; mirrored: boolean; w: number } {
+  const w = spanWidth(bubble.w)
+  const h = Math.max(BODY.size, bubble.h)
+  const at = labelAt(ring, { w, h }, bounds, 'right')
+  const mirrored = at.side === 'left'
+  return { body: { x: mirrored ? at.x + w - BODY.size / 2 : at.x + BODY.size / 2, y: at.y + h / 2 }, side: at.side, mirrored, w }
+}
+
+/** Which way it looks at its perch, -1..1 each way: at the thing it is pointing at. */
+export function gazeAt(body: Point, ring: Rect): Point {
+  return { x: clamp((ring.x + ring.w / 2 - body.x) / 60, -1, 1), y: clamp((ring.y + ring.h / 2 - body.y) / 60, -1, 1) }
+}
+
+/**
+ * Keeping the learner company (Clicky's cursor does this): it hovers this far down and to the right of the pointer,
+ * and catches up with it at this rate (per second: higher is tighter). Kept `edge` px inside the screen.
+ */
+export const FOLLOW = { dx: 30, dy: 30, rate: 9, edge: 30 } as const
+
+/** Where it hovers for a pointer at `p`, kept on screen. */
+export function beside(p: Point, bounds: Rect): Point {
+  return {
+    x: clamp(p.x + FOLLOW.dx, bounds.x + FOLLOW.edge, bounds.x + bounds.w - FOLLOW.edge),
+    y: clamp(p.y + FOLLOW.dy, bounds.y + FOLLOW.edge, bounds.y + bounds.h - FOLLOW.edge)
+  }
+}
+
+/** One step of catching up: from `at` toward `to` over `dt` seconds. Never overshoots; snaps when it is there. */
+export function catchUp(at: Point, to: Point, dt: number): Point {
+  const k = 1 - Math.exp(-FOLLOW.rate * Math.max(0, dt))
+  const x = at.x + (to.x - at.x) * k
+  const y = at.y + (to.y - at.y) * k
+  return Math.hypot(to.x - x, to.y - y) < 0.3 ? to : { x, y }
 }
 
 /** It says its words one letter at a time, this many ms apart, starting this long after it lands. */
-export const SPEECH = { letterMs: 34, afterMs: 140 } as const
+export const SPEECH = { letterMs: 30, afterMs: 140 } as const
 
-/** How many letters of `length` it has said `ms` after landing. */
+/** How many letters of `length` it has said `ms` after it started. */
 export function said(ms: number, length: number): number {
   return clamp(Math.floor((ms - SPEECH.afterMs) / SPEECH.letterMs) + 1, 0, length)
 }
 
-/** The pointer within this many px of the tree: the buddy turns to look at it. */
-export const NOTICE_PX = 130
+/** The pointer within this many px of the buddy: it turns to look at it. */
+export const NOTICE_PX = 150
+
+/** A sentence of its own is cut to this many characters (at a word), so the bubble stays a bubble. */
+export const SAY_MAX = 96
+
+/** The first sentence of `text`, without backticks, on one line, cut at a word to SAY_MAX. */
+export function firstSentence(text: string): string {
+  const flat = text.replace(/`/g, '').replace(/\s+/g, ' ').trim()
+  const end = flat.search(/[.!?](\s|$)/)
+  const one = end >= 0 ? flat.slice(0, end + 1) : flat
+  if (one.length <= SAY_MAX) return one
+  const cut = one.slice(0, SAY_MAX)
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), SAY_MAX - 24)).replace(/[\s,;:]+$/, '')}…`
+}

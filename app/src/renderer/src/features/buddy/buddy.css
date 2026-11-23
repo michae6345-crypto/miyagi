@@ -33,3 +33,87 @@
   .lm .lm-sway, .lm .lm-bloom, .lm .lm-pad { animation: none !important; }
   .lm .lm-lean { transition: none; }
 }
+
+/* ---- The buddy's character (Character.tsx). Transform and opacity only. A 48-unit box. ---- */
+.ch { display: inline-block; position: relative; line-height: 0; vertical-align: middle; }
+/* It looks somewhere: the face slides there. */
+.ch .ch-face { transition: transform 0.22s cubic-bezier(0.23, 1, 0.32, 1); }
+/* It blinks, each one on its own clock (--ch-beat). */
+.ch .ch-eye { transform-box: fill-box; transform-origin: 50% 50%; animation: ch-blink 4.4s infinite; animation-delay: var(--ch-beat, 0s); }
+@keyframes ch-blink {
+  0%, 93%, 100% { transform: scaleY(1); }
+  96% { transform: scaleY(0.12); }
+}
+/* It talks: the mouth opens and closes. */
+.ch .ch-talk { transform-box: fill-box; transform-origin: 50% 50%; animation: ch-talk 0.24s ease-in-out infinite alternate; }
+@keyframes ch-talk {
+  from { transform: scaleY(0.3); }
+  to { transform: scaleY(1); }
+}
+/* It breathes: a slow float, a hair. */
+.ch .ch-body { transform-box: view-box; transform-origin: 24px 42px; animation: ch-float 3.2s ease-in-out infinite; animation-delay: var(--ch-beat, 0s); }
+@keyframes ch-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.2px); }
+}
+/* The sprout's leaves turn with its mood (--turn), about where they meet the stem. */
+.ch .ch-leaf { transform-box: view-box; transform-origin: 24px 8.6px; transform: rotate(var(--turn, 0deg)); transition: transform 0.28s cubic-bezier(0.23, 1, 0.32, 1); }
+/* Flying: the leaves beat like wings. */
+.ch[data-flying] .ch-leaf-l { animation: ch-flap-l 0.15s ease-in-out infinite alternate; }
+.ch[data-flying] .ch-leaf-r { animation: ch-flap-r 0.15s ease-in-out infinite alternate; }
+@keyframes ch-flap-l {
+  from { transform: rotate(16deg); }
+  to { transform: rotate(-28deg); }
+}
+@keyframes ch-flap-r {
+  from { transform: rotate(-16deg); }
+  to { transform: rotate(28deg); }
+}
+/* Thinking: the sprout sways. Listening: it swells a little with each beat, all ears. */
+.ch .ch-sprout { transform-box: view-box; transform-origin: 24px 13px; }
+.ch[data-mood='thinking'] .ch-sprout { animation: ch-sway 2.2s ease-in-out infinite; }
+@keyframes ch-sway {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(6deg); }
+}
+.ch[data-mood='listening'] .ch-body { animation: ch-perk 0.9s ease-in-out infinite; }
+@keyframes ch-perk {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch .ch-eye, .ch .ch-talk, .ch .ch-body, .ch .ch-leaf, .ch .ch-sprout { animation: none !important; }
+  .ch .ch-face, .ch .ch-leaf { transition: none; }
+}
+
+/* ---- The buddy's bubble (Companion.tsx): the dots while it thinks, the bars while it listens. ---- */
+.bd-dots, .bd-bars { display: inline-flex; align-items: center; gap: 4px; height: 18px; }
+.bd-dots i { display: block; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.35; animation: bd-dot 1s ease-in-out infinite; }
+.bd-dots i:nth-child(2) { animation-delay: 0.16s; }
+.bd-dots i:nth-child(3) { animation-delay: 0.32s; }
+@keyframes bd-dot {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+.bd-bars { gap: 3px; color: #96E4C8; }
+.bd-bars i { display: block; width: 3px; height: 14px; border-radius: 2px; background: currentColor; animation: bd-bar 0.62s ease-in-out infinite alternate; }
+.bd-bars i:nth-child(2) { animation-delay: -0.2s; }
+.bd-bars i:nth-child(3) { animation-delay: -0.42s; }
+.bd-bars i:nth-child(4) { animation-delay: -0.1s; }
+@keyframes bd-bar {
+  from { transform: scaleY(0.3); }
+  to { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bd-dots i, .bd-bars i { animation: none !important; opacity: 0.8; }
+}
+
+/* The bubble's buttons fold out under its words once it has said them (a grid row from 0 to its own height). */
+.bd-foot { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.22s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.18s cubic-bezier(0.23, 1, 0.32, 1); }
+.bd-foot > span { min-height: 0; overflow: hidden; }
+.bd-foot[data-open] { grid-template-rows: 1fr; opacity: 1; }
+.bd-foot[data-open] > span { overflow: visible; }
+@media (prefers-reduced-motion: reduce) {
+  .bd-foot { transition: none; }
+}

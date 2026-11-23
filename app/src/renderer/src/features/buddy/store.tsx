@@ -30,11 +30,5 @@ export function Buddy({ size = 16, lean = 0, className }: { size?: number; lean?
   const { state, bloom } = useBuddy()
   // Pointing wins over the pointer: the tree leans toward what is pointed at.
   const toward = usePointing((s) => s.lean)
-  // While the buddy is out on the screen (Pod.tsx) this tree is the one that left: its place here is empty.
-  const away = usePointing((s) => s.trip.phase !== 'home')
-  return (
-    <span style={{ display: 'inline-block', lineHeight: 0, opacity: away ? 0 : 1 }} data-buddy-home={away ? 'away' : 'in'}>
-      <LivingMark size={size} state={state} lean={toward || lean} bloom={bloom} className={className} />
-    </span>
-  )
+  return <LivingMark size={size} state={state} lean={toward || lean} bloom={bloom} className={className} />
 }

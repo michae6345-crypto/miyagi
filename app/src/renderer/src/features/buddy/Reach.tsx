@@ -1,24 +1,25 @@
 /**
  * Feature: buddy, pass 2: the loops the buddy draws. An overlay layer under the island (z 30).
  *
- * The buddy itself is in Pod.tsx: it flies out of the notch and sits beside the first mark. Once it is there
- * (pointing.ts trip 'perched'), this layer draws each mark's loop FROM the buddy's tree: one mint stroke, shaped like
- * a branch (thick at the tree, fine at the tip), that wraps the target once and lets go, so only the loop is left.
- * The loop presses in as it lands, firms up when the learner's pointer comes onto it, and is taken off the way it
- * was put on. The buddy says the first mark's label; a second or third mark gets its name on an island-black chip
- * beside its own loop.
+ * The buddy itself is in Companion.tsx: it flies to the first mark and sits beside it. Once it is there
+ * (pointing.ts trip 'perched'), this layer draws that mark's loop FROM the buddy: one mint stroke, shaped like a
+ * branch (thick where it leaves the buddy, fine at the tip), that wraps the target once and lets go, so only the
+ * loop is left. The loop presses in as it lands, firms up when the learner's pointer comes onto it, and is taken off
+ * the way it was put on.
+ *
+ * Several marks are a tour: the buddy takes them one at a time. Only the one it is at gets its loop; the ones still
+ * to come wear a small number, so the learner can see there is more and where.
  *
  * One stroke per mark, ever: Michael's features/annotate (michael/app-buddy-draw) draws the same `annotate` event.
- * When that feature is mounted this layer and the pod draw NOTHING and only the bonsai's point pose (the lean) is
+ * When that feature is mounted this layer and the buddy draw NOTHING and only the bonsai's point pose (the lean) is
  * kept going, so the two can be merged in either order without a mark being circled twice. Which one draws in the
  * end is one line here (STAND_DOWN_FOR).
  *
- * Look: deep mint, the mint of the notch's glow (Adrian's pick from the renders, Nov 22). No glow, no gradient, no
- * arrowhead. Like the spotlight's ring it sits on an ink keyline so it reads over a light app. It never takes a
- * click (no data-hit) and is not reported as our UI, or the engine would stop reading the very thing it points at;
- * only the label chips are (data-ui).
+ * Look: the buddy's mint (palette.ts). No glow, no gradient, no arrowhead. Like the spotlight's ring it sits on an
+ * ink keyline so it reads over a light app. It never takes a click (no data-hit) and the stroke is not reported as
+ * our UI, or the engine would stop reading the very thing it points at; the small numbers are (data-ui).
  *
- * Reduced motion: nothing travels. The loops and the labels fade in and out in place.
+ * Reduced motion: nothing travels. The loops fade in and out in place.
  */
 import { animate, AnimatePresence, motion, useMotionValue, usePresence, useReducedMotion, useTransform } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
@@ -27,20 +28,16 @@ import { overlapShare, toLocal, type Point, type Rect } from '../../core/geometr
 import { islandTop } from '../../core/islandEdge'
 import { notchOf } from '../../core/notchGeometry'
 import { getFeatures } from '../../core/registry'
-import { color, pill, radius, shadows, text } from '../../core/theme'
+import { color, pill, shadows } from '../../core/theme'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
-import { createReach, DRAW, drawTime, labelAt, reach, ribbon, type Reach, type Shown } from './marks'
+import { createReach, DRAW, drawTime, reach, ribbon, type Reach, type Shown } from './marks'
+import { MINT } from './palette'
 import { reached, usePointing } from './pointing'
 
-/**
- * The stroke's mint: the mint of the notch's glow (hud.notchGlow, rgb 150 228 200), deeper than brand.pastel.mint so
- * it holds up over a light app. Not the pass green. It has no theme token yet (brief, Core requests).
- */
-export const MINT = '#96E4C8'
 /** The ink keyline under the stroke, so it reads over a light app: this much wider than the stroke, this opaque. */
 const KEYLINE = { wider: 2.8, opacity: 0.5 } as const
 /**
- * The stroke's full width (px): where it leaves the tree, where it meets the loop, and round the loop.
+ * The stroke's full width (px): where it leaves the buddy, where it meets the loop, and round the loop.
  *   press  the loop swells by this share for a moment as it lands, like a pen pressed down
  *   near   and is this much wider (px) while the learner's pointer is on the mark: it knows they are there
  */
@@ -53,6 +50,8 @@ const PRESS_S = 0.34
 const LEAN_REACH = 520
 /** At least this share of a mark must be on this display to draw it here (the rest is another display's). Same as features/annotate. */
 const MIN_ON_SCREEN = 0.5
+/** The small number a mark still to come wears: this big (px). */
+const NEXT = 20
 /** The feature that also draws `annotate`. While it is mounted, the buddy's layers draw nothing. */
 const STAND_DOWN_FOR = 'annotate'
 
@@ -85,31 +84,32 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
   const standDown = useStandDown()
   const here = useHere(marks, layout)
   const home = useBonsaiPoint(el, layout, here.length > 0 || !!pose)
-  // The buddy draws once it is sitting beside the first mark, from where its tree is then: it goes there first, then
-  // circles. A stroke keeps the start it was born with, so when the buddy hops on to the next mark the loops it
-  // already drew stay as they are.
-  const births = useRef(new Map<string, { from: Point; heading: Point; delay: number }>())
-  const tree = trip.phase === 'perched' && trip.at === here[0]?.key ? trip.tree : undefined
-  const tx = tree?.x
-  const ty = tree?.y
+  // The buddy throws a mark's loop once it is sitting beside that mark, from where it sits. A loop keeps the start
+  // it was born with. Marks it has not got to yet have no loop: they wait their turn (the numbers below).
+  const births = useRef(new Map<string, { from: Point; heading: Point }>())
+  const body = trip.phase === 'perched' && trip.at === here[0]?.key ? trip.body : undefined
+  const bx = body?.x
+  const by = body?.y
   const drawn = useMemo(() => {
     const live = new Set(here.map((m) => m.key))
     for (const k of [...births.current.keys()]) if (!live.has(k)) births.current.delete(k)
     const screen = { x: 0, y: 0, w: layout.width, h: layout.height }
     const out: Drawn[] = []
-    let born = 0
-    for (const mark of here) {
+    here.forEach((mark, i) => {
       let b = births.current.get(mark.key)
       if (!b) {
-        if (tx === undefined || ty === undefined) continue
-        // It throws each loop from its tree toward the mark, one a beat after the other.
-        b = { from: { x: tx, y: ty }, heading: { x: mark.rect.x + mark.rect.w / 2 - tx, y: mark.rect.y + mark.rect.h / 2 - ty }, delay: born++ * DRAW.stagger }
+        if (i > 0 || bx === undefined || by === undefined) return
+        b = { from: { x: bx, y: by }, heading: { x: mark.rect.x + mark.rect.w / 2 - bx, y: mark.rect.y + mark.rect.h / 2 - by } }
         births.current.set(mark.key, b)
       }
-      out.push({ mark, r: reach(b.from, mark.rect, mark.key, b.heading, screen), delay: b.delay })
-    }
+      out.push({ mark, r: reach(b.from, mark.rect, mark.key, b.heading, screen), delay: 0 })
+    })
     return out
-  }, [here, tx, ty, layout.width, layout.height])
+  }, [here, bx, by, layout.width, layout.height])
+  // The marks still to come, with their place in the tour.
+  const total = usePointing((s) => s.total)
+  const waiting = here.slice(1).filter((m) => !drawn.some((d) => d.mark.key === m.key))
+  const stepOf = (m: Shown): number => total - here.length + 1 + here.indexOf(m)
 
   // The point pose of the tree at home: it leans toward the first mark, or toward the box another layer asked for
   // (pointAt). The buddy's own lean while it is out is the pod's business.
@@ -122,8 +122,6 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
 
   const near = usePointer(el, here)
 
-  const wa = layout.workArea
-  const bounds = { x: wa.x, y: wa.y, w: wa.width, h: wa.height }
   const show = standDown ? [] : drawn
   return (
     <div ref={el} className="pointer-events-none absolute inset-0" data-buddy-reach={show.length || undefined} data-stand-down={standDown || undefined}>
@@ -134,8 +132,24 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
           ))}
         </AnimatePresence>
       </svg>
-      {/* The buddy says the first mark's label itself (Pod.tsx); the others get a chip until it comes over to them. */}
-      <AnimatePresence>{show.map(({ mark, r, delay }) => mark.key !== here[0]?.key && mark.label && <Label key={mark.key} label={mark.label} r={r} delay={delay} bounds={bounds} reduced={reduced} />)}</AnimatePresence>
+      {/* The marks still to come: a small number where each one is. */}
+      <AnimatePresence>
+        {!standDown &&
+          waiting.map((m) => (
+            <motion.span
+              key={m.key}
+              data-ui
+              data-part="mark-next"
+              className="absolute grid place-items-center"
+              style={{ left: Math.max(2, m.rect.x - NEXT - 6), top: m.rect.y + m.rect.h / 2 - NEXT / 2, width: NEXT, height: NEXT, borderRadius: NEXT / 2, background: color.island, boxShadow: shadows.pill, color: MINT, fontSize: 11, fontWeight: 600, lineHeight: 1 }}
+              initial={{ opacity: 0, scale: reduced ? 1 : 0.6 }}
+              animate={{ opacity: 1, scale: 1, transition: reduced ? fades.in : { ...spring, opacity: fades.in } }}
+              exit={{ opacity: 0, transition: fades.out }}
+            >
+              {stepOf(m)}
+            </motion.span>
+          ))}
+      </AnimatePresence>
     </div>
   )
 }
@@ -216,42 +230,6 @@ function Stroke({ mark, r, delay, near, reduced }: Drawn & { near: boolean; redu
       <motion.path data-part="arm" d={arm} style={{ fill: MINT }} />
       <motion.path data-part="bark" d={loop} style={{ fill: MINT }} />
     </motion.g>
-  )
-}
-
-/** A later mark's name: a chip on the island's black, like the spotlight's caption, beside its loop. */
-function Label({ label, r, delay: start, bounds, reduced }: { label: string; r: Reach; delay: number; bounds: Rect; reduced: boolean }): ReactNode {
-  const ref = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState({ w: 96, h: 26 })
-  useLayoutEffect(() => {
-    const node = ref.current
-    if (!node) return
-    const measure = (): void => setSize((s) => (s.w === node.offsetWidth && s.h === node.offsetHeight ? s : { w: node.offsetWidth, h: node.offsetHeight }))
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(node)
-    return () => ro.disconnect()
-  }, [])
-  // To the right, on the circled line, like the spotlight's caption.
-  const at = labelAt(r.ring, size, bounds, 'right')
-  // It arrives as the loop closes, from the loop's side.
-  const delay = reduced ? 0 : start + drawTime(r.length) * 0.6
-  const slide = reduced ? 0 : at.side === 'right' ? -8 : at.side === 'left' ? 8 : 0
-  const rise = reduced ? 0 : at.side === 'below' ? -8 : at.side === 'above' ? 8 : 0
-  return (
-    <motion.div
-      ref={ref}
-      data-ui
-      data-part="mark-label"
-      data-side={at.side}
-      className="absolute left-0 top-0 whitespace-nowrap px-[11px] py-[4px] font-medium leading-[18px]"
-      style={{ borderRadius: radius.chip, background: color.island, boxShadow: shadows.card, fontSize: text.xs, color: color.text }}
-      initial={{ opacity: 0, x: at.x + slide, y: at.y + rise }}
-      animate={{ opacity: 1, x: at.x, y: at.y, transition: reduced ? fades.in : { ...spring, delay, opacity: { ...fades.in, delay } } }}
-      exit={{ opacity: 0, transition: fades.out }}
-    >
-      {label}
-    </motion.div>
   )
 }
 

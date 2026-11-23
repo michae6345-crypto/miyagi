@@ -34,7 +34,7 @@ import {
   type Mark
 } from '../src/renderer/src/features/buddy/marks'
 import { annotate, fade, forget, pointAt, reached, usePointing } from '../src/renderer/src/features/buddy/pointing'
-import { along, flight, FLIGHT, HOME_SCALE, leanToward, perch, POD, podWidth, said, scaleAt, SPEECH, tiltAt } from '../src/renderer/src/features/buddy/trip'
+import { along, beside, BODY, catchUp, firstSentence, flight, FLIGHT, FOLLOW, gazeAt, gazeOf, perch, said, SAY_MAX, scaleAt, spanWidth, SPEECH, tiltAt } from '../src/renderer/src/features/buddy/trip'
 
 const mark = (over: Partial<Mark> = {}): Mark => ({ x: 100, y: 500, w: 200, h: 20, why: 'point', ...over })
 const shown = (): string[] => usePointing.getState().marks.map((m) => m.key)
@@ -556,6 +556,20 @@ describe('pointing (the annotate event)', () => {
     assert.deepEqual(shown(), ['id:b'])
   })
 
+  test('a tour: the size of the set is kept while the buddy works through it, and a new set starts a new count', () => {
+    annotate({ marks: [mark({ id: 'a' }), mark({ id: 'b', x: 700 }), mark({ id: 'c', x: 900 })] })
+    assert.equal(usePointing.getState().total, 3)
+    fade(['id:a'])
+    assert.equal(usePointing.getState().total, 3, 'step 2 of 3')
+    assert.equal(usePointing.getState().marks.length, 2)
+    annotate({ marks: [mark({ id: 'b', x: 700 }), mark({ id: 'c', x: 900 })] })
+    assert.equal(usePointing.getState().total, 3, 'a re-send of what is left is the same tour')
+    annotate({ marks: [mark({ id: 'z', x: 300 })] })
+    assert.equal(usePointing.getState().total, 1, 'a new mark is a new tour')
+    fade()
+    assert.equal(usePointing.getState().total, 0)
+  })
+
   test('the buddy starts at home', () => {
     assert.equal(usePointing.getState().trip.phase, 'home')
   })
@@ -570,7 +584,7 @@ describe('pointing (the annotate event)', () => {
 })
 
 describe('the buddy’s trips (trip.ts)', () => {
-  const home = { x: 682, y: 16 }
+  const home = { x: 682, y: 22 }
   const there = { x: 300, y: 572 }
 
   test('a flight starts at one end, ends at the other, and bows off the straight line toward the top of the screen', () => {
@@ -592,50 +606,77 @@ describe('the buddy’s trips (trip.ts)', () => {
     assert.equal(flight({ x: 0, y: 0 }, { x: 9000, y: 9000 }, 'out').seconds, FLIGHT.max)
   })
 
-  test('it leaves home at the ear’s size, is full size by the time it lands, and comes home at the ear’s size', () => {
+  test('it pops out of the island small, is full size by the time it lands, and shrinks back going home', () => {
     const out = flight(home, there, 'out')
-    assert.ok(Math.abs(scaleAt(out, 0) - HOME_SCALE) < 1e-9)
+    assert.ok(Math.abs(scaleAt(out, 0) - BODY.home) < 1e-9)
     assert.ok(Math.abs(scaleAt(out, 1) - 1) < 1e-9)
     assert.ok(scaleAt(out, 0.5) > 1, 'a little bigger mid-flight')
     const back = flight(there, home, 'home')
     assert.ok(Math.abs(scaleAt(back, 0) - 1) < 1e-9)
-    assert.ok(Math.abs(scaleAt(back, 1) - HOME_SCALE) < 1e-9)
+    assert.ok(Math.abs(scaleAt(back, 1) - BODY.home) < 1e-9)
     const hop = flight(there, { x: 600, y: 494 }, 'hop')
     assert.ok(Math.abs(scaleAt(hop, 0) - 1) < 1e-9 && Math.abs(scaleAt(hop, 1) - 1) < 1e-9)
     // Turned round mid-air at 0.8 of full size: it goes on from there.
     assert.ok(Math.abs(scaleAt(hop, 0, 0.8) - 0.8) < 1e-9 && Math.abs(scaleAt(hop, 1, 0.8) - 1) < 1e-9)
   })
 
-  test('it leans into the way it is going, most mid-flight, and is upright at both ends', () => {
+  test('it leans into the way it is going and looks there; upright at both ends', () => {
     const left = flight(home, there, 'out')
     assert.ok(Math.abs(tiltAt(left, 0)) < 1e-9 && Math.abs(tiltAt(left, 1)) < 1e-9)
     assert.ok(tiltAt(left, 0.5) < 0, 'going left leans left')
     assert.ok(tiltAt(flight(there, { x: 900, y: 500 }, 'hop'), 0.5) > 0)
     assert.ok(Math.abs(tiltAt(left, 0.5)) <= FLIGHT.tilt + 1e-9)
+    const g = gazeOf(left)
+    assert.ok(g.x < 0 && g.y > 0 && Math.abs(Math.hypot(g.x, g.y) - 1) < 1e-9)
   })
 
   describe('perch', () => {
     const bounds = { x: 0, y: 32, w: 1600, h: 880 }
     const ring = { x: 400, y: 400, w: 200, h: 40 }
+    const bubble = { w: 120, h: 36 }
 
-    test('beside the loop on the circled line, to the right: the tree first, its words after it', () => {
-      const p = perch(ring, 60, bounds)
+    test('beside the loop on the circled line, to the right: the buddy first, its bubble after it', () => {
+      const p = perch(ring, bubble, bounds)
       assert.equal(p.side, 'right')
       assert.equal(p.mirrored, false)
-      assert.equal(p.w, podWidth(60))
-      assert.deepEqual(p.tree, { x: 600 + LABEL.gap + POD.h / 2, y: 420 })
-      assert.ok(leanToward(p.tree, ring) < 0, 'it leans toward the thing, which is on its left')
+      assert.equal(p.w, spanWidth(bubble.w))
+      assert.deepEqual(p.body, { x: 600 + LABEL.gap + BODY.size / 2, y: 420 })
+      assert.ok(gazeAt(p.body, ring).x < 0, 'it looks at the thing, which is on its left')
     })
-    test('no room on the right or below: to the left, mirrored, the tree still next to the thing', () => {
+    test('no room on the right or below: to the left, mirrored, the buddy still next to the thing', () => {
       const r = { x: 1400, y: 860, w: 190, h: 40 }
-      const p = perch(r, 60, bounds)
+      const p = perch(r, bubble, bounds)
       assert.equal(p.side, 'left')
       assert.equal(p.mirrored, true)
-      assert.ok(p.tree.x < r.x && r.x - p.tree.x < POD.h, 'the tree end of the pod is the end by the loop')
-      assert.ok(leanToward(p.tree, r) > 0)
+      assert.ok(p.body.x < r.x && r.x - p.body.x < BODY.size, 'the buddy is the end by the loop')
+      assert.ok(gazeAt(p.body, r).x > 0)
     })
-    test('nothing to say: the pod is just the tree', () => {
-      assert.equal(perch(ring, 0, bounds).w, POD.h)
+    test('nothing to say: just the buddy', () => {
+      assert.equal(perch(ring, { w: 0, h: 0 }, bounds).w, BODY.size)
+    })
+    test('a tall bubble (words and buttons) keeps the buddy on the circled line', () => {
+      assert.equal(perch(ring, { w: 220, h: 78 }, bounds).body.y, 420)
+    })
+  })
+
+  describe('keeping the pointer company', () => {
+    const screen = { x: 0, y: 0, w: 1600, h: 1000 }
+    test('it hovers down and to the right of the pointer, and stays on the screen', () => {
+      assert.deepEqual(beside({ x: 500, y: 400 }, screen), { x: 500 + FOLLOW.dx, y: 400 + FOLLOW.dy })
+      const corner = beside({ x: 1598, y: 998 }, screen)
+      assert.ok(corner.x <= 1600 - FOLLOW.edge && corner.y <= 1000 - FOLLOW.edge)
+    })
+    test('it catches up a little each frame, never overshoots, and arrives', () => {
+      let p = { x: 0, y: 0 }
+      const to = { x: 300, y: 0 }
+      let last = 0
+      for (let i = 0; i < 240; i++) {
+        p = catchUp(p, to, 1 / 60)
+        assert.ok(p.x >= last && p.x <= 300)
+        last = p.x
+      }
+      assert.deepEqual(p, to)
+      assert.deepEqual(catchUp({ x: 5, y: 5 }, to, 0), { x: 5, y: 5 }, 'no time, no move')
     })
   })
 
@@ -645,5 +686,13 @@ describe('the buddy’s trips (trip.ts)', () => {
     assert.equal(said(SPEECH.afterMs, 8), 1)
     assert.equal(said(SPEECH.afterMs + SPEECH.letterMs * 3, 8), 4)
     assert.equal(said(99_999, 8), 8)
+  })
+
+  test('a sentence of its own: the first one, no backticks, cut at a word when it is long', () => {
+    assert.equal(firstSentence('The rate is set here. Lower it if the loss jumps.'), 'The rate is set here.')
+    assert.equal(firstSentence('Set `lr=1e-3`  on\nthis line'), 'Set lr=1e-3 on this line')
+    const long = firstSentence('word '.repeat(60))
+    assert.ok(long.length <= SAY_MAX + 1 && long.endsWith('…') && !long.includes('  '))
+    assert.equal(firstSentence(''), '')
   })
 })
