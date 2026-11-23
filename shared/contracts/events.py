@@ -459,6 +459,12 @@ class SetupInstall(_Model):
     url: str | None = None
 
 
+class SetupAlternative(_Model):
+    name: str
+    url: str
+    tool: str | None = None
+
+
 class SetupItem(_Model):
     tool: str
     label: str
@@ -470,6 +476,15 @@ class SetupItem(_Model):
     version: str | None = None
     minVersion: str | None = None
     install: SetupInstall
+    # Nov 22, additive (server/workspace/apps.py): a licensed app (AutoCAD...) is never installed; see events.ts
+    setupKind: Literal["package", "free_app", "licensed_app", "web_app"] | None = None
+    actions: list[Literal["install", "have_it", "get_it", "alternative", "skip"]] | None = None
+    vendorUrl: str | None = None
+    vendorName: str | None = None
+    alternative: SetupAlternative | None = None
+    haveIt: bool | None = None
+    using: str | None = None
+    noMac: bool | None = None
 
 
 class SetupResource(_Model):
@@ -484,6 +499,7 @@ class Setup(_Model):
     editorLabel: str | None = None  # "Visual Studio Code"
     resources: list[SetupResource] | None = None  # files the video links (action download)
     actionLabels: dict[str, str] | None = None
+    holdVideo: bool | None = None  # Nov 22: hold the video only when the current step truly needs a missing tool
 
 
 class SetupProgress(_Model):
@@ -586,7 +602,7 @@ class SkillMap(_Model):
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "hint", "show_me"]  # retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
+                     "retry", "hint", "show_me", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
 
 class Card(_Model):
@@ -860,7 +876,7 @@ class BuildLesson(_Model):
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup", "open_in_browser",
                      "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "start"]  # start: "Start the lesson" on "Before you start" (step 1 waits for it)
+                     "retry", "start", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
 
 
 class Action(_Model):

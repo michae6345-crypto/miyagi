@@ -26,6 +26,7 @@ import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from 
 import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { useCards } from '../cards/store'
+import { waitingOnSetup } from '../cards/setupHold'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
 import { count, lessonOutline, planTotal, useJustEnded, useStepDetail, useStepStatuses, type StepStatus } from './plan'
@@ -467,7 +468,9 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
  * install runs), the current step reads "Waiting on setup". Read-only from the cards store.
  */
 function useWaitingOnSetup(): boolean {
-  return useCards((c) => c.card?.kind === 'setup' && (c.card.setup?.items ?? c.card.items ?? []).some((x) => x.needed && !x.ok))
+  // Smart setup (Nov 22): not under a card that lets the video play (holdVideo false), nor for rows the learner settled
+  // ("I have it", or a free alternative chosen)
+  return useCards((c) => waitingOnSetup(c.card))
 }
 
 /**
