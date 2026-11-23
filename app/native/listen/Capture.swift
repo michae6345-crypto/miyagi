@@ -18,8 +18,10 @@ import ScreenCaptureKit
 // ScreenCaptureKit only (macOS 14+: SCScreenshotManager with SCStreamConfiguration.sourceRect). miyagi's own windows are
 // left out (the parent process, this helper, any dev.sandhacks.miyagi* app, plus `excludePids`). The 15.2 rect API
 // (captureImage(in:)) can't leave windows out, so it is not used. The image is scaled by ScreenCaptureKit so its long edge
-// is at most 1092 px, then encoded as JPEG 0.82 into a 0600 file in a 0700 folder under the per-user temp dir. Files
-// older than 2 minutes, and all but the newest few, are deleted on every capture; all of them at startup and on quit.
+// is at most 1092 px, then encoded as JPEG 0.82 into a 0600 file in a 0700 folder under the per-user temp dir. Each file
+// is deleted 30 s after it is written (its own timer), or sooner: by the engine after reading it, or by
+// {"cmd":"capture-release","id"} / {"cmd":"capture-release","path"} (main gave up on it). All but the newest few are
+// deleted on every capture; all of them at startup and on quit.
 // Pixels are never logged. Screen Recording is only checked (CGPreflightScreenCaptureAccess), never requested here:
 // without it the answer is error "screen_denied".
 //
@@ -31,8 +33,78 @@ enum CaptureError: Error {
 }
 
 enum CaptureFiles {
-    static let ttl: TimeInterval = 120
+    /// Every file is deleted this long after it is written (a timer per file, not only on the next capture), so the last
+    /// crop never sits in the temp folder while the helper idles. The consumer (the engine) deletes it sooner, after reading.
+    static let defaultTTL: TimeInterval = 30
     static let keep = 8
+    private static let lock = NSLock()
+    /// Ask id -> the file written for it, until it is released, expires or is pruned.
+    private static var byId: [String: String] = [:]
+    /// Ids released before their capture finished: the capture is deleted as soon as it is written, never announced.
+    private static var releasedEarly: [String] = []
+
+    /// --stdin-only test knob: MIYAGI_CAPTURE_TTL_MS (50 ms to 30 s) so the expiry is testable without waiting.
+    static var ttl: TimeInterval {
+        if Capture.simulate, let v = ProcessInfo.processInfo.environment["MIYAGI_CAPTURE_TTL_MS"], let ms = Double(v), ms.isFinite {
+            return min(max(ms, 50), defaultTTL * 1000) / 1000
+        }
+        return defaultTTL
+    }
+
+    /// The written file now belongs to `id`; it goes after `ttl` whatever happens next. false = `id` was already
+    /// released (the file is deleted here and must not be announced).
+    static func adopt(id: String, path: String) -> Bool {
+        lock.lock()
+        if let i = releasedEarly.firstIndex(of: id) {
+            releasedEarly.remove(at: i)
+            lock.unlock()
+            unlink(path)
+            return false
+        }
+        if let old = byId[id], old != path { unlink(old) }
+        byId[id] = path
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + ttl) { expire(id: id, path: path) }
+        return true
+    }
+
+    private static func expire(id: String, path: String) {
+        lock.lock()
+        if byId[id] == path { byId[id] = nil }
+        lock.unlock()
+        unlink(path)   // already gone (read by the engine, released, pruned): ENOENT, harmless
+    }
+
+    /// {"cmd":"capture-release","id"} or {"cmd":"capture-release","path"}: the consumer is done with it, or main gave
+    /// up on it (timed out, answered late). An id not written yet is remembered, so its capture is deleted on arrival.
+    /// A path is only honoured when it is one of ours: cap-<...>.jpg directly inside the capture folder.
+    static func release(_ obj: [String: Any]) {
+        if let id = obj["id"] as? String, CaptureMath.validId(id) {
+            lock.lock()
+            let path = byId.removeValue(forKey: id)
+            if path == nil {
+                releasedEarly.append(id)
+                if releasedEarly.count > 32 { releasedEarly.removeFirst(releasedEarly.count - 32) }
+            }
+            lock.unlock()
+            if let p = path { unlink(p) }
+        }
+        if let p = obj["path"] as? String, isOurs(p) {
+            lock.lock()
+            for (k, v) in byId where v == p { byId[k] = nil }
+            lock.unlock()
+            unlink(p)
+        }
+    }
+
+    /// A capture file of ours: cap-<...>.jpg whose folder (symlinks resolved) is the capture folder.
+    static func isOurs(_ p: String) -> Bool {
+        guard p.hasPrefix("/"), p.count < 1024, !p.contains("/../"), !p.contains("/./") else { return false }
+        let u = URL(fileURLWithPath: p)
+        let name = u.lastPathComponent
+        guard name.hasPrefix("cap-"), name.hasSuffix(".jpg"), !name.contains("/") else { return false }
+        return u.deletingLastPathComponent().resolvingSymlinksInPath().path == dir.resolvingSymlinksInPath().path
+    }
 
     static var dir: URL {
         if Capture.simulate, let d = ProcessInfo.processInfo.environment["MIYAGI_CAPTURE_DIR"], !d.isEmpty {
@@ -72,7 +144,12 @@ enum CaptureFiles {
         }
     }
 
-    static func purgeAll() { for f in files() { unlink(f.url.path) } }
+    static func purgeAll() {
+        lock.lock()
+        byId.removeAll()
+        lock.unlock()
+        for f in files() { unlink(f.url.path) }
+    }
 
     /// A new 0600 file, created exclusively (never follows or reuses a path).
     static func write(_ data: Data) throws -> String {
@@ -224,13 +301,25 @@ enum Capture {
         if !content.displays.contains(where: { $0.displayID == displayID }) {
             content = try await ShareableCache.shared.get(fresh: true)   // a display came or went since the warm-up
         }
-        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+        guard var display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw CaptureError.code("no_display", "That display isn't connected.")
         }
         let own = Set([getpid(), getppid()] + extraPids)
-        let apps = content.applications.filter {
-            own.contains($0.processID) || $0.bundleIdentifier.lowercased().hasPrefix("dev.sandhacks.miyagi")
+        func ownApps(_ c: SCShareableContent) -> [SCRunningApplication] {
+            c.applications.filter { own.contains($0.processID) || $0.bundleIdentifier.lowercased().hasPrefix("dev.sandhacks.miyagi") }
         }
+        var apps = ownApps(content)
+        // The cache (up to 10 s old, on-screen windows only) may predate the circle's ink window: miyagi was then not in
+        // its app list and the ink would land in the crop. Ask once more, fresh, before capturing.
+        if !apps.contains(where: { $0.processID == getppid() }) {
+            content = try await ShareableCache.shared.get(fresh: true)
+            guard let d = content.displays.first(where: { $0.displayID == displayID }) else {
+                throw CaptureError.code("no_display", "That display isn't connected.")
+            }
+            display = d
+            apps = ownApps(content)
+        }
+        if apps.isEmpty { log("capture: no miyagi window found to leave out of the crop") }   // never pixels or paths
         let filter = SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: [])
         let cfg = SCStreamConfiguration()
         cfg.sourceRect = plan.local
@@ -252,6 +341,7 @@ enum Capture {
         }
         do {
             let path = try CaptureFiles.write(data)
+            guard CaptureFiles.adopt(id: id, path: path) else { return }   // released before it was ready: gone, unannounced
             var fields: [(String, Any)] = [("id", id), ("path", path), ("w", plan.width), ("h", plan.height),
                                            ("pxPerPoint", plan.pxPerPoint), ("rect", rectJSON(plan.global)),
                                            ("displayId", Int(displayID)), ("ms", ms())]

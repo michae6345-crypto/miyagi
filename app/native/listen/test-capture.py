@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Capture protocol tests for miyagi-listen --stdin-only. No screen: in --stdin-only the helper writes a gray image of the
 planned size instead of capturing. Checks the answer's fields, the file (JPEG, 0600, private 0700 folder), the cleanup
-and the errors. Usage: test-capture.py <path to miyagi-listen>"""
-import json, os, stat, subprocess, sys, tempfile, threading, time
+and the errors, the release command, the per-file expiry, and the engine's reader (shared/capture_file.py) on a real
+file. Usage: test-capture.py <path to miyagi-listen>"""
+import importlib.util, json, os, stat, subprocess, sys, tempfile, threading, time
 
 BIN = sys.argv[1]
+# The engine's reader, loaded by path (python -I: no sys.path tricks).
+_spec = importlib.util.spec_from_file_location(
+    "capture_file", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "shared", "capture_file.py"))
+capture_file = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(capture_file)
 failures = []
 work = tempfile.mkdtemp(prefix="miyagi-capture-test-")
 cap_dir = os.path.join(work, "caps")
@@ -17,8 +23,8 @@ def check(name, ok, detail=""):
 
 
 class Helper:
-    def __init__(self):
-        env = dict(os.environ, MIYAGI_CAPTURE_DIR=cap_dir)
+    def __init__(self, **extra_env):
+        env = dict(os.environ, MIYAGI_CAPTURE_DIR=cap_dir, **extra_env)
         self.p = subprocess.Popen([BIN, "--stdin-only"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True, bufsize=1, env=env)
         self.events = []
@@ -133,6 +139,61 @@ time.sleep(0.3)
 with h.lock:
     check("a bad id gets no answer", not any(e.get("id") == "bad id/.." for e in h.events))
 
+# --- release: by id, by path, before the capture is ready; only our own files ----------------------------------------
+def cap_files():
+    return sorted(f for f in os.listdir(cap_dir) if f.startswith("cap-"))
+
+
+def gone_soon(path, timeout=2.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        if not os.path.exists(path):
+            return True
+        time.sleep(0.02)
+    return False
+
+
+h.send(cmd="capture", id="r1", rect={"x": 10, "y": 10, "w": 50, "h": 50}, displayId=1)
+a = h.answer("r1")
+if a and "path" in a:
+    h.send(cmd="capture-release", id="r1")
+    check("release by id deletes the file", gone_soon(a["path"]), a["path"])
+else:
+    check("release capture answers", False, str(a))
+h.send(cmd="capture", id="r2", rect={"x": 10, "y": 10, "w": 50, "h": 50}, displayId=1)
+a = h.answer("r2")
+if a and "path" in a:
+    h.send(cmd="capture-release", path=a["path"])
+    check("release by path deletes the file", gone_soon(a["path"]), a["path"])
+outside = os.path.join(work, "cap-00000000-0000-0000-0000-000000000000.jpg")
+open(outside, "wb").write(b"x")
+odd = os.path.join(cap_dir, "notes.jpg")
+open(odd, "wb").write(b"x")
+h.send(cmd="capture-release", path=outside)
+h.send(cmd="capture-release", path=odd)
+h.send(cmd="capture-release", path=os.path.join(cap_dir, "..", os.path.basename(outside)))
+h.send(cmd="capture-release", id="never-written")
+time.sleep(0.3)
+check("release never deletes a file outside the folder or with another name", os.path.exists(outside) and os.path.exists(odd))
+os.unlink(outside)
+os.unlink(odd)
+before = cap_files()
+h.send(cmd="capture-release", id="r3")
+h.send(cmd="capture", id="r3", rect={"x": 10, "y": 10, "w": 50, "h": 50}, displayId=1)
+check("released before ready: no answer", h.answer("r3", timeout=0.6) is None)
+check("released before ready: no file left", cap_files() == before, str((before, cap_files())))
+
+# --- the engine's reader on a real file: reads it, deletes it --------------------------------------------------------
+h.send(cmd="capture", id="e2e", rect={"x": 100, "y": 80, "w": 300, "h": 200}, displayId=1)
+a = h.answer("e2e")
+if a and "path" in a:
+    c = capture_file.take_capture({k: a[k] for k in ("path", "w", "h", "rect", "displayId")}, dirs=[cap_dir])
+    check("engine reader accepts the helper's file", c is not None and c.jpeg[:2] == b"\xff\xd8" and (c.w, c.h) == (600, 400), str(c and (c.w, c.h)))
+    check("engine reader deletes it", not os.path.exists(a["path"]))
+    check("engine reader maps the crop centre", c is not None and capture_file.crop_to_screen(c, 300, 200, 20) == (250.0, 180.0, 10.0))
+else:
+    check("e2e capture answers", False, str(a))
+
 # --- cleanup: never more than 8 files ------------------------------------------------------------------------------
 for i in range(12):
     h.send(cmd="capture", id=f"k{i}", rect={"x": 10, "y": 10, "w": 40, "h": 40}, displayId=1)
@@ -151,6 +212,27 @@ check("every capture answer carries an id", not bad, str(bad))
 check("stdin closing makes the helper exit", h.close())
 left = [f for f in os.listdir(cap_dir) if f.startswith("cap-")]
 check("quit removes the captures", not left, str(left))
+
+# --- expiry: every file goes after the TTL with no new capture (test knob: a 400 ms TTL) -------------------------------
+h = Helper(MIYAGI_CAPTURE_TTL_MS="400")
+h.send(cmd="capture", id="t1", rect={"x": 10, "y": 10, "w": 50, "h": 50}, displayId=1)
+a = h.answer("t1")
+if a and "path" in a:
+    check("TTL: the file exists right after the answer", os.path.exists(a["path"]))
+    time.sleep(0.15)
+    check("TTL: still there before it expires", os.path.exists(a["path"]))
+    check("TTL: gone after it expires, with no new capture", gone_soon(a["path"], timeout=2.0))
+    check("TTL: the helper keeps running", h.p.poll() is None)
+else:
+    check("TTL capture answers", False, str(a))
+h.send(cmd="capture", id="t2", rect={"x": 10, "y": 10, "w": 50, "h": 50}, displayId=1)
+a = h.answer("t2")
+if a and "path" in a:
+    h.send(cmd="capture-release", id="t2")   # released early, then the timer fires on a missing file: harmless
+    gone_soon(a["path"])
+    time.sleep(0.6)
+    check("TTL after a release is harmless", h.p.poll() is None and not os.path.exists(a["path"]))
+check("second helper exits", h.close())
 
 try:
     os.rmdir(cap_dir)

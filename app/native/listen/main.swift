@@ -11,7 +11,8 @@ import CoreGraphics
 //   miyagi-listen --screens               print the displays' geometry (notch, safe area) as one JSON line and exit 0
 //   miyagi-listen --windows --pid N | --owner NAME   print matching windows (layer, bounds, on-screen, z) as one JSON line and exit 0
 //
-// stdin also takes {"cmd":"capture",...}: one region of the screen as a JPEG file for circle to ask (Capture.swift).
+// stdin also takes {"cmd":"capture",...}: one region of the screen as a JPEG file for circle to ask, and
+// {"cmd":"capture-release","id"|"path"}: delete that capture now (Capture.swift).
 
 setvbuf(stdout, nil, _IOLBF, 0)
 signal(SIGPIPE, SIG_IGN)
@@ -158,6 +159,8 @@ func handle(_ obj: [String: Any]) {
         ctl.cancelAll("esc")
     case "capture":
         Capture.handle(obj)   // circle to ask: one region of the screen as a JPEG file (Capture.swift)
+    case "capture-release":
+        CaptureFiles.release(obj)   // the capture is done with (or main gave up on it): delete it now
     case "quit":
         shutdown()
     case "_simulate":
