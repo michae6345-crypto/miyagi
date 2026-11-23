@@ -24,6 +24,7 @@ scene were already Haiku; segment, escalate, scaffold, diagrams, screen coach an
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 from server import config
@@ -58,6 +59,10 @@ ROUTES: dict[str, Route] = {
     "coach.explain": _coach("explain"),
     "coach.explain_selection": _coach("explain_selection", SONNET),
     "coach.circle_ask": _coach("circle_ask"),  # circle to ask (Nov 22): Haiku reads the circled crop
+    # circle to ask, streamed (fast path, Nov 22): Sonnet (thinking off, effort low) for a real spoken question,
+    # Haiku when nothing was said or the words are short ("what is this"). See ask_model().
+    "coach.fast_ask": _coach("fast_ask", SONNET),
+    "coach.fast_ask_simple": _coach("fast_ask_simple", HAIKU),
     "coach.hint": _coach("hint"),
     "coach.judge": _coach("judge"),
     "coach.triage": _coach("triage"),
@@ -123,6 +128,31 @@ def model_for(purpose: str, *, allow: bool | None = None) -> str:
     Mythos choice becomes Sonnet unless allowed). `allow` replaces the MIYAGI_ALLOW_OPUS check (the lesson passes
     its own LESSON_ALLOW_OPUS)."""
     return config.guard_model(env_override(purpose) or default_for(purpose), SONNET, allow=allow)
+
+
+# Circle to ask (fast path): words that ask nothing more than "what is this?" go to Haiku.
+_SIMPLE_ASK = re.compile(
+    r"^(?:hey miyagi[, ]*)?(?:what(?:'s| is| are)? (?:this|that|these|those|it|here)(?: thing| one| part)?"
+    r"|what does (?:this|that|it) (?:do|mean|say)|explain (?:this|that|it)|tell me about (?:this|that|it)"
+    r"|(?:and )?this|huh|help)$")
+SIMPLE_ASK_WORDS = 3  # this many words or fewer is a short ask too ("this button?", "what's that")
+
+
+def simple_ask(words: str | None) -> bool:
+    """No spoken words, or words that only ask what the circled thing is."""
+    flat = " ".join(re.sub(r"[^\w' ]+", " ", str(words or "").lower()).split())
+    return not flat or len(flat.split()) <= SIMPLE_ASK_WORDS or bool(_SIMPLE_ASK.match(flat))
+
+
+def ask_model(words: str | None) -> str:
+    """The model for a streamed circle ask: Haiku for no words / a short ask, else Sonnet (both through the guard)."""
+    return model_for("coach.fast_ask_simple" if simple_ask(words) else "coach.fast_ask")
+
+
+def ask_warm_model() -> str:
+    """The model ask.warm warms: the one a spoken question will use (the learner is talking while the keys are held).
+    A short ask then runs on Haiku uncached; its prefill of ~700 tokens is quick either way."""
+    return model_for("coach.fast_ask")
 
 
 def configured(purpose: str) -> str:

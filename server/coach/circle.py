@@ -405,11 +405,12 @@ def screen_for(obs: Any, image: Any, region: dict, context: dict | None = None) 
 
 
 async def circle_ask(step: dict | None, question: str | None, region: Any, *, obs: Any = None, image: Any = None,
-                     context: dict | None = None, ask_id: str | None = None) -> dict:
+                     context: dict | None = None, ask_id: str | None = None, jpeg: bytes | None = None) -> dict:
     """-> {kind: "answer", title, body, askId?, region?, stepId?, marks: [Annotation], _meta}. `region` is the
     contract ScreenRegion (a dict); `obs` / `image` one fresh frame (E6 ScreenObservation or a dict, and a PIL image /
-    bytes / None). `context`: {lesson, memory, lesson_folder}. Never raises for a model failure: the no-model card
-    is the text read in the circle."""
+    bytes / None). `context`: {lesson, memory, lesson_folder}. `jpeg`: the picture already made (the app's own
+    capture, action ask {capture}; the fast path's fallback): used instead of a crop of `image`. Never raises for a
+    model failure: the no-model card is the text read in the circle."""
     q = " ".join(str(question or "").split()) or DEFAULT_ASK
     if obs is None:
         return _finish(unseen_card("no_frame"), [], region, ask_id, step)
@@ -417,7 +418,7 @@ async def circle_ask(step: dict | None, question: str | None, region: Any, *, ob
     if clip is None:
         return _finish(unseen_card("other_display"), [], region, ask_id, step)
     screen = screen_for(obs, image, clip, context)
-    jpeg = crop_jpeg(screen, clip)
+    jpeg = jpeg if jpeg else crop_jpeg(screen, clip)
     if not screen.boxes and jpeg is None:  # nothing to read and nothing to look at: no model call
         return _finish(reading_card(screen, "empty"), [], region, ask_id, step)
     lesson = get_lesson() if step is not None else None

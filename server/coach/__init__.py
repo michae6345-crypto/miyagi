@@ -14,6 +14,8 @@ Orchestrator usage:
 from . import voice
 from .actions import do_it_for_me, inflight, locate
 from .circle import circle_ask
+from .fast_ask import FastAskError, circle_stream
+from .fast_ask import warm as warm_ask
 from .common import get_lesson, set_lesson, system_blocks
 from .diagnose import diagnose, playbook_card, public
 from .explain import explain
@@ -50,6 +52,7 @@ def cancel(key: str | None = None) -> int:
 __all__ = [
     "Box",
     "CoachUnavailable",
+    "FastAskError",
     "OutdatedFixUnavailable",
     "PeriodicGate",
     "ScreenContext",
@@ -57,6 +60,7 @@ __all__ = [
     "apply_fix",
     "cancel",
     "circle_ask",
+    "circle_stream",
     "diagnose",
     "do_it_for_me",
     "explain",
@@ -75,6 +79,7 @@ __all__ = [
     "show_me",
     "summarize_metrics",
     "triage",
+    "warm_ask",
     "voice",
     "warm",
 ]
