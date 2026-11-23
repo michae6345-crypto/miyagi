@@ -158,6 +158,37 @@ class LessonOutline(_Model):
 
 
 # ---------- v2 shapes (BUILD-PLAN W0-1) ----------
+# Build* shapes: the same as michael/v2-integration (integration/live did not have them; LibraryItem.source needs BuildSource)
+BuildStage = Literal["watching", "steps", "checks", "ready"]  # v2 Home-Building rows
+BuildFailCode = Literal["unreadable_code", "no_steps", "too_long", "no_captions", "network", "provider", "unknown"]
+
+
+class BuildPhase(_Model):
+    """v2 (Home-Building): one row of the build checklist."""
+    id: BuildStage
+    label: str
+    state: Literal["done", "active", "next"]
+    detail: str | None = None  # "6 steps found", "Step 4 of 6"
+
+
+class BuildSource(_Model):
+    """v2: what the lesson is built from."""
+    kind: Literal["youtube", "goal", "library"]
+    title: str
+    channel: str | None = None
+    durationS: float | None = None
+    url: str | None = None
+
+
+class BuildAlternative(_Model):
+    """v2 (Err-LessonBuildFailed): transcript only (learn_url transcriptOnly) or a cached library lesson (library.start)."""
+    kind: Literal["transcript", "library"]
+    title: str
+    meta: str | None = None
+    id: str | None = None
+    url: str | None = None
+
+
 HealthState = Literal["ok", "missing", "off", "checking", "unknown"]  # unknown: can't tell without prompting (gray)
 PermissionKind = Literal["screen", "accessibility", "automation"]
 PauseReason = Literal["editor_closed", "kernel", "network", "permission", "user"]
