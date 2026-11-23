@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import hmac
 import html
+import importlib.util
 import ipaddress
 import json
 import logging
@@ -287,6 +288,12 @@ PRUNE_EVERY_S = max(_env_float("PRUNE_EVERY_S", 3600), 60)
 # install minted that long ago escape its network's pool and be capped per install only (FREE_DAILY_USD).
 MINT_NET_RETAIN_DAYS = max(_env_float("MINT_NET_RETAIN_DAYS", 0), 0)
 TIMEOUT = httpx.Timeout(connect=10.0, read=_env_float("UPSTREAM_READ_TIMEOUT_S", 300), write=60.0, pool=10.0)
+# One upstream client for the whole process (made in lifespan), so connections to the providers stay open between
+# calls: a circle-to-ask question reuses the TLS connection the engine's key-down warm-up opened. HTTP/2 when the
+# h2 package is installed (it is not in requirements.txt today), else HTTP/1.1 keep-alive. httpx keeps an idle
+# connection only 5 s by default: far too short for a learner who pauses between questions.
+UPSTREAM_KEEPALIVE_S = max(_env_float("UPSTREAM_KEEPALIVE_S", 90), 0)
+UPSTREAM_HTTP2 = importlib.util.find_spec("h2") is not None
 
 if not ANTHROPIC_KEY or (ALLOWED_GEMINI and not GEMINI_KEY):
     log.warning("missing upstream key(s): anthropic=%s gemini=%s (those routes return 503)",
@@ -347,11 +354,20 @@ store: Store
 http: httpx.AsyncClient
 
 
+def upstream_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
+    """The process-wide upstream client: pooled keep-alive connections (UPSTREAM_KEEPALIVE_S), HTTP/2 when h2 is
+    installed. More connections than GLOBAL_INFLIGHT, so a call under that limit never waits on the pool."""
+    limits = httpx.Limits(max_connections=GLOBAL_INFLIGHT + 20, max_keepalive_connections=32,
+                          keepalive_expiry=UPSTREAM_KEEPALIVE_S)
+    return httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False, limits=limits,
+                             http2=UPSTREAM_HTTP2 and transport is None, transport=transport)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global store, http
     store = open_store()
-    http = httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False)
+    http = upstream_client()
     log.info("miyagi-cloud %s up: db=%s proxy_enabled=%s paused=%s rate_limit=%s admin=%s alerts=%s", VERSION, store.path,
              PROXY_ENABLED, runtime_paused(), RATE_LIMIT_ENABLED, "on" if ADMIN_ENABLED else "OFF (weak ADMIN_TOKEN)",
              "on" if ALERT_WEBHOOK_URL else "off")
@@ -1489,6 +1505,10 @@ def upstream_error(provider: str, status: int, body: bytes, retry_after: str | N
 
 
 PASS_HEADERS = ("content-type", "request-id", "x-request-id")
+# A streamed answer goes out chunk by chunk as the provider sends it (StreamingResponse; Guard and RateLimit are pure
+# ASGI and pass each body message straight on). These headers stop anything between us and the app (Render's edge,
+# an nginx, a corporate proxy) from holding chunks back, so the circle-to-ask card shows the first words at once.
+STREAM_HEADERS = {"cache-control": "no-cache", "x-accel-buffering": "no"}
 
 
 class SlotResponse(Response):
@@ -1569,7 +1589,7 @@ async def forward(call: Call, url: str, headers: dict, params: dict, body: bytes
             call.finish(usage)  # first, and synchronous: it must run even if the close below is cancelled
             await resp.aclose()
 
-    out_headers["cache-control"] = "no-cache"
+    out_headers.update(STREAM_HEADERS)
     return SlotResponse(StreamingResponse(relay(), status_code=200, headers=out_headers), call, usage, resp)
 
 
@@ -1790,6 +1810,8 @@ def sanitize_anthropic(body: dict) -> tuple[dict, int, int]:
         out["stop_sequences"] = stops
     if isinstance(body.get("stream"), bool):
         out["stream"] = body["stream"]
+    if mt == 0 and out.get("stream"):  # Anthropic refuses this pair too: say so without a round trip
+        raise BadBody("max_tokens 0 (a prompt-cache warm-up) cannot be streamed. Send it with stream false.")
     if body.get("speed") == "fast":  # only reachable with ALLOW_FAST_MODE
         out["speed"] = "fast"
 

@@ -82,6 +82,23 @@ key (`metadata`, `inference_geo`, `task_budget`, ...) is dropped. Refused with 4
 `stream: true` is streamed through as SSE. Usage is recorded under the model the response names (a server-side
 fallback may answer on Sonnet 5), never an Opus id.
 
+Streaming has no buffering on our side: each upstream chunk goes to the client as it arrives (`StreamingResponse`;
+`Guard` and `RateLimit` are pure ASGI), with `Cache-Control: no-cache` and `X-Accel-Buffering: no` so a proxy on
+the way does not hold chunks back either. The caps, the in-flight slots, the kill switch and the usage count apply
+to a stream exactly as to a plain call; a stream settles on its `message_delta` / `message_stop` usage.
+`tests/test_stream.py` proves it offline: the client reads the first event while the mock upstream still holds the
+rest, through the ASGI stack and through a real uvicorn socket on 127.0.0.1.
+
+Every call goes out on one process-wide httpx client that keeps idle upstream connections open for
+`UPSTREAM_KEEPALIVE_S` (90 s), so a question reuses the TLS connection the last call (or a warm-up) opened. It
+speaks HTTP/2 when the `h2` package is installed (it is not in `requirements.txt`, so production uses HTTP/1.1
+keep-alive).
+
+**Prompt-cache warm-up.** `max_tokens: 0` with `stream: false` is allowed: Anthropic runs the prefill (writing the
+cache at the `cache_control` breakpoint) and answers `content: []` with usage. Its reservation is the input alone
+and it settles at the cache write (a ~700-token system prompt on Sonnet is about $0.002), so it fits under every
+cap. `max_tokens: 0` with `stream: true` is a 400 here before any upstream call (Anthropic refuses it too).
+
 ### What the Gemini route enforces
 
 - **Off by default.** The founders' D1 decision is Claude only at launch (Gemini's terms are 18+, miyagi's gate
@@ -859,6 +876,7 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `LESSON_PENDING_MAX_MB` / `LESSON_PENDING_PER_NET_MB` | `128` / `8` | Pending upload bytes in total / per uploader network (IPv4 /24, IPv6 /48); past either, 507. |
 | `DB_PATH` | `/var/data/miyagi.db` if `/var/data` exists, else `./miyagi.db` | SQLite file. |
 | `UPSTREAM_READ_TIMEOUT_S` | `300` | httpx read timeout (a Gemini video watch can take minutes). |
+| `UPSTREAM_KEEPALIVE_S` | `90` | How long an idle upstream connection stays open for reuse (httpx's own default is 5 s). |
 | `PRICES_JSON` | empty | Price table overrides for the USD estimate. |
 | `UPSTREAM_ANTHROPIC_URL` / `UPSTREAM_GEMINI_URL` | the real APIs | For local tests against a mock only. Never set in production. |
 
