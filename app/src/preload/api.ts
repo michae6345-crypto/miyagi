@@ -55,6 +55,8 @@ export type Layout = {
   notch: NotchLayout
   /** Additive (circle to ask): Electron's Display.id of the display this window is on (the engine's capture display). Absent in the browser stage. */
   displayId?: number
+  /** Additive (circle to ask): that display's backing scale (Display.scaleFactor), page zoom not included. Absent in the browser stage. */
+  scaleFactor?: number
 }
 
 export type Unsub = () => void
