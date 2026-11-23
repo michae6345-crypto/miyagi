@@ -57,6 +57,7 @@ import { FlowLayer } from './flow/FlowLayer'
 import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
+import { useLocal } from '../settings/local'
 import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
 import { COLUMN_W, PageHeader, PANEL, PANEL_INSET, pageInset, WIDE_W } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
@@ -290,7 +291,10 @@ export function Shell(): ReactNode {
   // Setup again (reopenFlow): home stays mounted under the flow, inert, the sidebar under the layer too.
   const home = phase === 'off' || phase === 'leaving' || again
   const covered = flowCovers(phase)
-  const compact = size.w < COMPACT_W
+  // Settings > Appearance > Compact sidebar: icons only at any width.
+  const forceCompact = useLocal((s) => s.sidebarCompact)
+  const showStatus = useLocal((s) => s.sidebarStatus)
+  const compact = forceCompact || size.w < COMPACT_W
   const sideW = compact ? SIDEBAR_COMPACT_W : size.w < NARROW_W ? SIDEBAR_NARROW_W : SIDEBAR_W
   const enter = arriving.current
   // The sidebar rides above the flow's fading paper on the way in (z 3) and under the flow during setup again (z 1).
@@ -311,7 +315,7 @@ export function Shell(): ReactNode {
             animate={{ x: 0, opacity: 1 }}
             transition={sidebarIn}
           >
-            <Sidebar compact={compact} short={size.h < SHORT_H} blocked={sheet} width={sideW} />
+            <Sidebar compact={compact} short={size.h < SHORT_H || !showStatus} blocked={sheet} width={sideW} />
           </motion.div>
         )}
         {/* While the sheet is open the sidebar stays lit but inert; a click on it closes the sheet. */}

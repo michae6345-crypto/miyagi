@@ -63,7 +63,7 @@ type PlayerState = {
 
 /** The speed chip cycles through these. */
 export const RATES = [1, 1.25, 1.5, 2, 0.75] as const
-const PREF_KEY = 'miyagi.player.prefs'
+export const PREF_KEY = 'miyagi.player.prefs'
 function savedPrefs(): { volume: number; rate: number } {
   try {
     const v = JSON.parse(localStorage.getItem(PREF_KEY) ?? '{}') as { volume?: unknown; rate?: unknown }

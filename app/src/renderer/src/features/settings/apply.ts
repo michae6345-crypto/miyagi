@@ -6,12 +6,13 @@
  *                 their measured sizes.
  *   density       <html data-density>; Row (ui.tsx) reads the store itself.
  *   reduce motion <html data-reduce-motion> (styles.css) plus MotionConfig in settings Content.tsx.
+ *   code samples  <html --mg-code-size, data-code-wrap, data-code-lines> (Editor panel); read by the code cards.
  *   start page    the home window opens on it unless it was opened on a page (a ?page= in the stage; window args in
  *                 Electron override it later, LibraryWindow).
  */
 import { isElectron } from '../../bridge'
 import { setPage } from '../shell/store'
-import { TEXT_SCALE, useLocal, type Local } from './local'
+import { CODE_PX, TEXT_SCALE, useLocal, type Local } from './local'
 
 const params = typeof location === 'undefined' ? new URLSearchParams() : new URLSearchParams(location.search)
 /** An app window (Library, Onboarding, Progress, Account), or the stage showing the library. */
@@ -22,6 +23,10 @@ function apply(l: Local): void {
   root.dataset.density = l.density
   if (l.motion === 'reduce') root.dataset.reduceMotion = ''
   else delete root.dataset.reduceMotion
+  // Code samples (Editor): the cards and the steps panel read these.
+  root.style.setProperty('--mg-code-size', `${CODE_PX[l.codeSize]}px`)
+  root.dataset.codeWrap = l.wrapCode ? 'on' : 'off'
+  root.dataset.codeLines = l.lineNumbers ? 'on' : 'off'
   const scale = TEXT_SCALE[l.textSize]
   // `zoom` scales layout the way the browser's own zoom does, so every px-sized token follows. In the stage the window is
   // a framed div inside a bigger page, so only the pages scale there (styles.css, data-stage-zoom).

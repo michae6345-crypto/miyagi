@@ -40,7 +40,7 @@ export function SettingsPage({ active }: { active: boolean }): ReactNode {
           id="settings-panel"
           role="tabpanel"
           aria-labelledby={`settings-tab-${panel}`}
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-[48px] pr-[4px]"
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-[48px] pr-[4px] pt-[8px]"
           style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}
         >
           <Content panel={panel} onPick={(p) => setPagePanel(p)} flow={flow} live={active} />

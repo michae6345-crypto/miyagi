@@ -45,3 +45,9 @@ test('progressJson wraps the data with the app name and the time', () => {
   assert.deepEqual(j.progress, { a: 1 })
   assert.equal(JSON.parse(progressJson(undefined)).progress, null)
 })
+
+test('sanitizeLocal validates the code, sidebar and lesson preferences', () => {
+  const ok = { codeSize: 'large', lineNumbers: true, wrapCode: true, confirmSkip: true, timeLeft: false, sidebarCompact: true, sidebarStatus: false }
+  assert.deepEqual(sanitizeLocal(ok), ok)
+  assert.deepEqual(sanitizeLocal({ codeSize: 'tiny', lineNumbers: 'yes', confirmSkip: 1 }), {})
+})

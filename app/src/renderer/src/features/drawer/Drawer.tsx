@@ -34,6 +34,7 @@ import { closeDrawer, isWebLink, linkHost, openSource, setDrawerSide, setPanelHe
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 import { enter, fade } from '../../core/ui/motion'
 import { useVideoHelp, VideoHelp } from './VideoHelp'
+import { useLocal } from '../settings/local'
 
 /**
  * Row geometry: icon column, gap, time column. The current step's checks line up with its title. A plan row with no
@@ -363,6 +364,8 @@ function stepLine(plan: PlanProgress): string {
 function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
   const all = plan.complete && !!plan.total && plan.done + plan.skipped >= plan.total
   const line = stepLine(plan)
+  // Settings > Lessons > Show time left.
+  const showLeft = useLocal((s) => s.timeLeft)
   return (
     <div data-part="drawer-progress" className="mt-[10px] flex items-center gap-[10px] text-[13px] leading-[18px]">
       <span data-part="drawer-step-of" className="shrink-0 font-semibold tabular-nums" style={{ color: glass.text }}>
@@ -382,7 +385,7 @@ function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
           </span>
         )}
       </span>
-      {!all && plan.left !== undefined && plan.left > 0 && (
+      {showLeft && !all && plan.left !== undefined && plan.left > 0 && (
         <span data-part="drawer-left" className="min-w-0 shrink truncate" style={{ color: glass.faint }}>
           about {plan.left} min left
         </span>

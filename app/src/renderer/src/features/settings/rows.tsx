@@ -5,25 +5,27 @@
  * Every control is one of: real (it changes behavior or persists a preference some code reads), read-only (a fact), or
  * `soon` (muted, not pressable, with its default shown). Nothing here does nothing without saying so.
  *
- * Real today: theme (core prefs), text size, density and reduce motion (local.ts, applied by apply.ts), the start page
+ * Real today: theme (core prefs), text size, density, reduce motion, sidebar, code samples, confirm skip and time left
+ * (local.ts, applied by apply.ts or read where used), video speed and volume (the player's own saved record), tips, the start page
  * (apply.ts), sounds and the primary-press tap (features/sound), reminders (features/reminders), export progress,
  * reset tips, check for updates, send feedback.
  */
 import { ChevronDown } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { setPrefs, usePrefs, type Appearance } from '../../core/prefs'
-import { color, copy, fill, radius2, type2 } from '../../core/theme'
+import { color, fill, radius2, type2 } from '../../core/theme'
 import { QuietButton, Segmented, Toggle } from '../../core/ui/atoms'
 import { useDash } from '../dashboard/store'
 import { useProgress } from '../progress/store'
 import { RemindersGroup } from '../reminders/Settings'
 import { reachableInSettings } from '../reminders/store'
 import { setSoundMode, setSoundTaps, useSound } from '../sound/settings'
-import { resetTips } from '../tips/store'
+import { resetTips, turnTipsOff, turnTipsOn, useTips } from '../tips/store'
 import { checkNow, useUpdates } from '../updates/store'
-import { DENSITIES, MOTIONS, START_PAGES, TEXT_SIZES, progressJson, setLocal, useLocal, type Findable } from './local'
+import { CODE_SIZES, DENSITIES, MOTIONS, START_PAGES, TEXT_SIZES, progressJson, resetLocal, setLocal, useLocal, type Findable } from './local'
+import { RATE_OPTIONS, VOLUMES, useVideoPref } from './videoPrefs'
 import type { PanelId } from './panels'
-import { Badge, Group, Row } from './ui'
+import { Badge, Group, Plain, Row } from './ui'
 
 // Every window loads every feature: this lets the one-time reminders offer show, now that Notifications holds its group.
 reachableInSettings()
@@ -42,6 +44,8 @@ type Control =
 
 export type Setting = Findable & { panel: PanelId; group: string; control: Control }
 
+/** Settings not switchable yet collect in one muted group at the foot of their panel. */
+export const COMING = 'Coming soon'
 const cap = (s: string): string => s[0].toUpperCase() + s.slice(1)
 const opts = (list: readonly string[]): Opt[] => list.map((v) => ({ value: v, label: cap(v) }))
 
@@ -63,15 +67,6 @@ export const SETTINGS: readonly Setting[] = [
     control: { kind: 'select', options: START_PAGES.map((p) => ({ value: p, label: cap(p) })), use: () => [useLocal((s) => s.startPage), (v) => setLocal({ startPage: v as never })] }
   },
   {
-    id: 'open-library',
-    panel: 'general',
-    group: 'Startup',
-    label: 'Open the library when miyagi starts',
-    caption: 'Otherwise miyagi waits in the pill.',
-    keywords: 'launch login window',
-    control: { kind: 'soon', text: 'Off' }
-  },
-  {
     id: 'language',
     panel: 'general',
     group: 'Startup',
@@ -90,7 +85,7 @@ export const SETTINGS: readonly Setting[] = [
     panel: 'appearance',
     group: 'Look',
     label: 'Theme',
-    caption: copy.appearanceCaption,
+    caption: 'Applies everywhere.',
     keywords: 'dark light system appearance mode',
     control: { kind: 'segmented', options: APPEARANCES, use: () => [usePrefs((s) => s.appearance), (v) => setPrefs({ appearance: v as Appearance })] }
   },
@@ -122,28 +117,105 @@ export const SETTINGS: readonly Setting[] = [
     control: { kind: 'toggle', use: () => [useLocal((s) => s.motion === 'reduce'), (v) => setLocal({ motion: v ? 'reduce' : MOTIONS[0] })] }
   },
   {
-    id: 'sidebar-collapsed',
+    id: 'sidebar-compact',
     panel: 'appearance',
-    group: 'Motion',
-    label: 'Start with the sidebar collapsed',
-    caption: 'Icons only, until you open it.',
-    keywords: 'navigation compact',
-    control: { kind: 'soon', text: 'Off' }
+    group: 'Sidebar',
+    label: 'Compact sidebar',
+    caption: 'Icons only, at any window size.',
+    keywords: 'navigation collapse narrow icons',
+    control: { kind: 'toggle', use: () => [useLocal((s) => s.sidebarCompact), (v) => setLocal({ sidebarCompact: v })] }
+  },
+  {
+    id: 'sidebar-status',
+    panel: 'appearance',
+    group: 'Sidebar',
+    label: 'Show setup status',
+    caption: 'The ready line under the pages.',
+    keywords: 'navigation ready health',
+    control: { kind: 'toggle', use: () => [useLocal((s) => s.sidebarStatus), (v) => setLocal({ sidebarStatus: v })] }
   },
   // ---- Lessons ----
-  { id: 'hint-style', panel: 'lessons', group: 'Help', label: 'Hint style', caption: 'Start with a nudge, or go straight to an example.', keywords: 'hint show example nudge', control: { kind: 'soon', text: 'Nudge first' } },
-  { id: 'confirm-skip', panel: 'lessons', group: 'Help', label: 'Confirm before skipping a step', caption: 'One more tap before a step is skipped.', keywords: 'skip', control: { kind: 'soon', text: 'On' } },
-  { id: 'auto-advance', panel: 'lessons', group: 'Playback', label: 'Move on after a passed check', caption: 'The video continues on its own.', keywords: 'auto advance next', control: { kind: 'soon', text: 'Off' } },
-  { id: 'pause-video', panel: 'lessons', group: 'Playback', label: 'Pause the video while you code', caption: 'It waits at each step already; this keeps it paused.', keywords: 'video player', control: { kind: 'soon', text: 'On' } },
-  { id: 'captions', panel: 'lessons', group: 'Playback', label: 'Captions', caption: 'Show captions when a video has them.', keywords: 'subtitles cc', control: { kind: 'soon', text: 'On' } },
-  { id: 'speed', panel: 'lessons', group: 'Playback', label: 'Playback speed', caption: 'Where each video starts.', keywords: 'rate faster slower', control: { kind: 'soon', text: '1x' } },
+  {
+    id: 'confirm-skip',
+    panel: 'lessons',
+    group: 'Help',
+    label: 'Confirm before skipping a step',
+    caption: 'The button asks for a second press.',
+    keywords: 'skip step safety',
+    control: { kind: 'toggle', use: () => [useLocal((s) => s.confirmSkip), (v) => setLocal({ confirmSkip: v })] }
+  },
+  {
+    id: 'time-left',
+    panel: 'lessons',
+    group: 'Help',
+    label: 'Show time left',
+    caption: 'An estimate beside your step count.',
+    keywords: 'minutes progress estimate steps panel',
+    control: { kind: 'toggle', use: () => [useLocal((s) => s.timeLeft), (v) => setLocal({ timeLeft: v })] }
+  },
+  {
+    id: 'tips',
+    panel: 'lessons',
+    group: 'Help',
+    label: 'Show tips as you learn',
+    caption: 'Short first-time hints. Each shows once.',
+    keywords: 'coach tour hints onboarding',
+    control: { kind: 'toggle', use: () => [useTips((s) => !s.off), (v) => (v ? turnTipsOn() : turnTipsOff())] }
+  },
+  {
+    id: 'speed',
+    panel: 'lessons',
+    group: 'Video',
+    label: 'Playback speed',
+    caption: 'Where your next video starts.',
+    keywords: 'rate faster slower',
+    control: { kind: 'select', options: RATE_OPTIONS.map((r) => ({ value: String(r), label: `${r}x` })), use: () => { const [v, set] = useVideoPref('rate'); return [String(v), (x) => set(Number(x))] } }
+  },
+  {
+    id: 'video-volume',
+    panel: 'lessons',
+    group: 'Video',
+    label: 'Video volume',
+    caption: 'Where your next video starts.',
+    keywords: 'loud quiet sound audio',
+    control: { kind: 'select', options: VOLUMES.map((v) => ({ value: String(v), label: v === 0 ? 'Muted' : `${v}%` })), use: () => { const [v, set] = useVideoPref('volume'); return [String(v), (x) => set(Number(x))] } }
+  },
+  { id: 'hint-style', panel: 'lessons', group: COMING, label: 'Hint style', caption: 'Start with a nudge, or go straight to an example.', keywords: 'hint show example nudge', control: { kind: 'soon', text: 'Nudge first' } },
+  { id: 'auto-advance', panel: 'lessons', group: COMING, label: 'Move on after a passed check', caption: 'The video continues on its own.', keywords: 'auto advance next', control: { kind: 'soon', text: 'Off' } },
+  { id: 'pause-video', panel: 'lessons', group: COMING, label: 'Pause the video while you code', caption: 'It waits at each step already.', keywords: 'video player', control: { kind: 'soon', text: 'On' } },
+  { id: 'captions', panel: 'lessons', group: COMING, label: 'Captions', caption: 'Show captions when a video has them.', keywords: 'subtitles cc', control: { kind: 'soon', text: 'On' } },
   // ---- Editor ----
   { id: 'default-editor', panel: 'editor', group: 'Editor', label: 'Default editor', caption: 'Lessons open and check your files here.', keywords: 'vscode code', control: { kind: 'value', text: 'VS Code' } },
-  { id: 'code-size', panel: 'editor', group: 'Code samples', label: 'Code sample size', caption: 'Font size inside lesson cards.', keywords: 'font monospace', control: { kind: 'soon', text: '13 px' } },
-  { id: 'line-numbers', panel: 'editor', group: 'Code samples', label: 'Line numbers in code cards', caption: 'Number the lines of every sample.', keywords: 'gutter', control: { kind: 'soon', text: 'Off' } },
+  {
+    id: 'code-size',
+    panel: 'editor',
+    group: 'Code samples',
+    label: 'Code sample size',
+    caption: 'Text size inside lesson cards.',
+    keywords: 'font monospace',
+    control: { kind: 'segmented', options: opts(CODE_SIZES), use: () => [useLocal((s) => s.codeSize), (v) => setLocal({ codeSize: v as never })] }
+  },
+  {
+    id: 'line-numbers',
+    panel: 'editor',
+    group: 'Code samples',
+    label: 'Line numbers',
+    caption: 'Number the lines of every sample.',
+    keywords: 'gutter',
+    control: { kind: 'toggle', use: () => [useLocal((s) => s.lineNumbers), (v) => setLocal({ lineNumbers: v })] }
+  },
+  {
+    id: 'wrap-code',
+    panel: 'editor',
+    group: 'Code samples',
+    label: 'Wrap long lines',
+    caption: 'Otherwise a long line scrolls sideways.',
+    keywords: 'overflow scroll',
+    control: { kind: 'toggle', use: () => [useLocal((s) => s.wrapCode), (v) => setLocal({ wrapCode: v })] }
+  },
   // ---- Notifications ----
   { id: 'reminders', panel: 'notifications', group: 'Reminders', label: 'Review reminders', caption: 'A daily nudge at a time you pick, only when something is due.', keywords: 'daily time quiet hours pause notify', control: { kind: 'value', text: '' } },
-  { id: 'weekly-recap', panel: 'notifications', group: 'Reminders', label: 'Weekly recap on Monday', caption: 'What you passed last week.', keywords: 'summary email digest', control: { kind: 'soon', text: 'Off' } },
+  { id: 'weekly-recap', panel: 'notifications', group: COMING, label: 'Weekly recap on Monday', caption: 'What you passed last week.', keywords: 'summary email digest', control: { kind: 'soon', text: 'Off' } },
   {
     id: 'sounds',
     panel: 'notifications',
@@ -162,7 +234,6 @@ export const SETTINGS: readonly Setting[] = [
     keywords: 'audio tap press',
     control: { kind: 'toggle', use: () => [useSound((s) => s.taps), (v) => setSoundTaps(v)], off: () => useSound((s) => s.mode === 'off') }
   },
-  { id: 'volume', panel: 'notifications', group: 'Sounds', label: 'Volume', caption: 'How loud sounds play.', keywords: 'loud quiet', control: { kind: 'soon', text: 'System' } },
   // ---- Storage and data ----
   {
     id: 'export-progress',
@@ -182,7 +253,16 @@ export const SETTINGS: readonly Setting[] = [
     keywords: 'tour help coach',
     control: { kind: 'button', label: 'Reset', run: () => (resetTips(), 'Done') }
   },
-  { id: 'clear-cache', panel: 'storage', group: 'Your data', label: 'Lesson cache', caption: 'Clear downloaded lesson files.', keywords: 'clear delete disk space', control: { kind: 'soon', text: 'Clear' } },
+  {
+    id: 'reset-local',
+    panel: 'storage',
+    group: 'Your data',
+    label: 'Restore default settings',
+    caption: 'Text size, density, sidebar and code samples.',
+    keywords: 'reset preferences defaults',
+    control: { kind: 'button', label: 'Restore', run: () => (resetLocal(), 'Done') }
+  },
+  { id: 'clear-cache', panel: 'storage', group: COMING, label: 'Lesson cache', caption: 'Clear downloaded lesson files.', keywords: 'clear delete disk space', control: { kind: 'soon', text: 'Clear' } },
   // ---- About ----
   {
     id: 'version',
@@ -202,7 +282,7 @@ export const SETTINGS: readonly Setting[] = [
     keywords: 'upgrade new release',
     control: { kind: 'button', label: 'Check now', run: () => void checkNow() }
   },
-  { id: 'licenses', panel: 'about', group: 'miyagi', label: 'Open-source licenses', caption: 'The code miyagi is built on.', keywords: 'legal third party', control: { kind: 'soon', text: 'View' } },
+  { id: 'licenses', panel: 'about', group: COMING, label: 'Open-source licenses', caption: 'The code miyagi is built on.', keywords: 'legal third party', control: { kind: 'soon', text: 'View' } },
   {
     id: 'feedback',
     panel: 'about',
@@ -355,7 +435,8 @@ function ValueControl({ c }: { c: Extract<Control, { kind: 'value' }> }): ReactN
 /** A grouped block per `group` of this panel's settings, in list order. */
 export function PanelRows({ panel }: { panel: PanelId }): ReactNode {
   const mine = SETTINGS.filter((s) => s.panel === panel)
-  const groups = [...new Set(mine.map((s) => s.group))]
+  const groups = [...new Set(mine.map((s) => s.group))].filter((g) => g !== COMING)
+  const coming = mine.filter((s) => s.group === COMING)
   return (
     <>
       {groups.map((g) => {
@@ -379,6 +460,15 @@ export function PanelRows({ panel }: { panel: PanelId }): ReactNode {
           </Group>
         )
       })}
+      {coming.length > 0 && (
+        <Group label={COMING} title={COMING} caption="Not switchable yet. miyagi uses the value shown.">
+          {coming.map((r) => (
+            <div key={r.id} data-setting={r.id} style={{ opacity: 0.6 }}>
+              <Row minH={44} label={r.label} caption={r.caption} right={r.control.kind === 'soon' ? <Plain>{r.control.text}</Plain> : undefined} />
+            </div>
+          ))}
+        </Group>
+      )}
     </>
   )
 }

@@ -14,6 +14,7 @@ import type { useKeyFlow } from './account'
 import { useLocal } from './local'
 import { useNav } from './nav'
 import { panelOf, type PanelId } from './panels'
+import { CodePreview } from './Preview'
 import { PanelRows } from './rows'
 import { SearchResults } from './Search'
 import { Account } from './sections/Account'
@@ -61,14 +62,22 @@ function Body({ panel, flow, live }: { panel: PanelId; flow: Flow; live: boolean
       return (
         <>
           <PanelRows panel="lessons" />
-          <Note>These switches arrive with the next lesson update. Until then lessons use the defaults shown.</Note>
+          <Note>Speed and volume apply from your next lesson.</Note>
         </>
       )
     case 'editor':
       return (
         <>
+          <CodePreview />
           <PanelRows panel="editor" />
           <Note>miyagi checks your work in VS Code. More editors are not planned yet.</Note>
+        </>
+      )
+    case 'appearance':
+      return (
+        <>
+          <PanelRows panel="appearance" />
+          <Note>Changes apply at once, in every miyagi window. The notch pill always stays black.</Note>
         </>
       )
     default:

@@ -20,6 +20,7 @@ import { color, fill, glass, type OptionAction } from '../../core/theme'
 import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { GlassQuiet } from '../../core/ui/glass'
 import { useComplete } from '../complete/store'
+import { guardSkip, skipLabel, useSkipArmed } from '../settings/guard'
 
 type Option = Extract<ActionShortcut, OptionAction>
 const OPTIONS: ReadonlyArray<{ kind: Option; label: string }> = [
@@ -45,6 +46,7 @@ export function VideoHelp(): ReactNode {
   const keys = bridge.platform.keys
   const checking = thinking && pressed === 'check_step'
   const skipping = thinking && pressed === 'skip_step'
+  useSkipArmed()
   return (
     <div data-part="drawer-video-help" className="flex shrink-0 flex-col gap-[8px] border-t px-[14px] pb-[12px] pt-[10px]" style={{ borderColor: glass.rule }}>
       <div role="group" aria-label="Need help" className="flex flex-wrap gap-[6px]">
@@ -62,7 +64,7 @@ export function VideoHelp(): ReactNode {
       <div className="flex flex-wrap gap-[6px]">
         <GlassQuiet label="Back" icon={ArrowLeft} onClick={() => triggerShortcut('back')} />
         <GlassQuiet label={checking ? 'Checking…' : 'Check my work'} icon={Check} busy={checking} onClick={() => sendAction('check_step')} />
-        <GlassQuiet label="Skip step" icon={SkipForward} busy={skipping} onClick={() => sendAction('skip_step')} />
+        <GlassQuiet label={skipLabel('Skip step')} icon={SkipForward} busy={skipping} onClick={() => guardSkip() && sendAction('skip_step')} />
       </div>
     </div>
   )

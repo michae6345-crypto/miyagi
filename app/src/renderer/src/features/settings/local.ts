@@ -15,8 +15,43 @@ export type MotionPref = (typeof MOTIONS)[number]
 export const START_PAGES = ['home', 'lessons', 'skills', 'progress'] as const
 export type StartPage = (typeof START_PAGES)[number]
 
-export type Local = { textSize: TextSize; density: Density; motion: MotionPref; startPage: StartPage }
-export const DEFAULT_LOCAL: Local = { textSize: 'default', density: 'comfortable', motion: 'system', startPage: 'home' }
+export const CODE_SIZES = ['small', 'default', 'large'] as const
+export type CodeSize = (typeof CODE_SIZES)[number]
+
+export type Local = {
+  textSize: TextSize
+  density: Density
+  motion: MotionPref
+  startPage: StartPage
+  /** Appearance: the home window's sidebar shows icons only, at any window size (features/shell Shell.tsx). */
+  sidebarCompact: boolean
+  /** Appearance: the setup status block under the sidebar's pages. */
+  sidebarStatus: boolean
+  /** Editor: the font size of code in lesson cards and the steps panel (apply.ts sets --mg-code-size). */
+  codeSize: CodeSize
+  /** Editor: number the lines of a code sample. */
+  lineNumbers: boolean
+  /** Editor: long lines wrap instead of scrolling sideways. */
+  wrapCode: boolean
+  /** Lessons: Skip step asks for a second press (settings/guard.ts). */
+  confirmSkip: boolean
+  /** Lessons: "about N min left" in the steps panel. */
+  timeLeft: boolean
+}
+export const DEFAULT_LOCAL: Local = {
+  textSize: 'default',
+  density: 'comfortable',
+  motion: 'system',
+  startPage: 'home',
+  sidebarCompact: false,
+  sidebarStatus: true,
+  codeSize: 'default',
+  lineNumbers: false,
+  wrapCode: false,
+  confirmSkip: false,
+  timeLeft: true
+}
+const FLAGS = ['sidebarCompact', 'sidebarStatus', 'lineNumbers', 'wrapCode', 'confirmSkip', 'timeLeft'] as const
 
 const pick = <T extends string>(list: readonly T[], v: unknown): T | undefined => ((list as readonly string[]).includes(v as string) ? (v as T) : undefined)
 
@@ -32,11 +67,16 @@ export function sanitizeLocal(raw: unknown): Partial<Local> {
   if (m) out.motion = m
   const s = pick(START_PAGES, o.startPage)
   if (s) out.startPage = s
+  const c = pick(CODE_SIZES, o.codeSize)
+  if (c) out.codeSize = c
+  for (const k of FLAGS) if (typeof o[k] === 'boolean') out[k] = o[k] as boolean
   return out
 }
 
 /** The page zoom for a text size: a root scale, applied to the app windows only. */
 export const TEXT_SCALE: Record<TextSize, number> = { small: 0.92, default: 1, large: 1.1 }
+/** The code font size (px) for a code sample size: lesson cards and the steps panel read it as --mg-code-size. */
+export const CODE_PX: Record<CodeSize, number> = { small: 11, default: 12, large: 14 }
 /** A row's minimum height by density (px). */
 export const ROW_HEIGHT: Record<Density, number> = { comfortable: 56, compact: 44 }
 
@@ -60,6 +100,11 @@ export function setLocal(patch: Partial<Local>): void {
   } catch {
     /* private window: this run only */
   }
+}
+
+/** Put every renderer preference back to its default (Storage and data). */
+export function resetLocal(): void {
+  setLocal({ ...DEFAULT_LOCAL })
 }
 
 if (typeof window !== 'undefined') {

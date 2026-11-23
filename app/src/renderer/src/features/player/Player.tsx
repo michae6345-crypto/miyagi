@@ -24,6 +24,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { usePill } from '../pill/store'
 import { dockRect } from './dock'
 import { GlassCheck, GlassDot, GlassPrimary, GlassQuiet, GlassSpinner } from './glass'
+import { guardSkip, skipLabel, useSkipArmed } from '../settings/guard'
 import { showsPlayGlyph } from './policy'
 import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
 import { beat, ease, enter, fade as fades, prefersReduced, pressMotion } from '../../core/ui/motion'
@@ -37,7 +38,9 @@ const endLesson = (): void => bridge.send(cmd('end_lesson', {}))
 /** "Can I move on?": the engine re-runs the checks now and Claude looks at the screen. */
 const checkStep = (): void => sendAction('check_step')
 /** Leave this step unfinished and start the next one (never shown green). */
-const skipStep = (): void => sendAction('skip_step')
+const skipStep = (): void => {
+  if (guardSkip()) sendAction('skip_step')
+}
 
 /** The open step's clip (undefined once the step has passed). */
 function useOpenSegment(): VideoSegment | undefined {
@@ -242,6 +245,7 @@ function Waiting(): ReactNode {
   const pressed = usePressed((s) => s.kind)
   const checking = thinking && pressed === 'check_step'
   const skipping = thinking && pressed === 'skip_step'
+  useSkipArmed()
   const done = checks.filter((c) => c.status === 'pass').length
   // Apricot only for off track; otherwise Miyagi is watching (gray).
   const tone = offtrack ? glass.offTrack : color.gray
@@ -272,7 +276,7 @@ function Waiting(): ReactNode {
         <div className="pointer-events-auto mt-[16px] flex flex-wrap items-center justify-center gap-[8px]">
           <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={Check} onClick={checkStep} disabled={checking} />
           <GlassQuiet label="Replay" icon={RotateCcw} onClick={() => player.replayStep()} />
-          <GlassQuiet label="Skip step" icon={SkipForward} onClick={skipStep} busy={skipping} />
+          <GlassQuiet label={skipLabel('Skip step')} icon={SkipForward} onClick={skipStep} busy={skipping} />
         </div>
       </motion.div>
     </GlassScrim>
@@ -388,6 +392,7 @@ function Controls(): ReactNode {
   const pendingNext = useLesson((s) => s.pendingNext)
   const held = !p.playing && inGate(p.t)
   const heldLabel = pendingNext ? 'Opens when the next part is ready' : 'Opens when your checks pass'
+  const armed = useSkipArmed()
   return (
     <div className="mt-[8px] flex h-[32px] items-center gap-[2px]">
       <IconButton onClick={() => player.toggle()} label={held ? heldLabel : p.playing ? 'Pause' : 'Play'} disabled={held}>
@@ -397,8 +402,8 @@ function Controls(): ReactNode {
         <SkipBack size={15} strokeWidth={1.8} />
       </IconButton>
       {seg && (
-        <IconButton onClick={skipStep} label="Skip this step">
-          <SkipForward size={15} strokeWidth={1.8} />
+        <IconButton onClick={skipStep} label={armed ? skipLabel('Skip this step') : 'Skip this step'}>
+          {armed ? <Check size={15} strokeWidth={1.8} /> : <SkipForward size={15} strokeWidth={1.8} />}
         </IconButton>
       )}
       <span className="ml-[6px] shrink-0 whitespace-nowrap text-[13px] tabular-nums" style={{ color: glass.label }}>
