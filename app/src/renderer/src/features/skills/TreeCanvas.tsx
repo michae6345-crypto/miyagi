@@ -3,7 +3,7 @@
  *
  *   fit        on open, on a new size and on Fit: the gaps stretch to fill the view (layout.ts placeGraph); a tree too big
  *              even at its tightest opens at the view's lowest readable scale, centered on NEXT, and pans from there
- *   zoom/pan   + / − / fit buttons (bottom right), pinch or ⌘/Ctrl + wheel to zoom at the pointer, wheel or drag to pan
+ *   zoom/pan   + / − / fit buttons (bottom right), pinch or Cmd/Ctrl + wheel to zoom at the pointer, wheel or drag to pan
  *   edges      one curve style (layout.ts edgePath) under the nodes: green between two mastered skills, ink into what you
  *              can start, dashed and faint into what is still locked. Links set aside to keep the tree flat (layout
  *              `hidden`) show only while their node is hovered or open
@@ -39,7 +39,7 @@ const STEP_S = 0.9
 type View = { k: number; dx: number; dy: number; smooth: boolean; all?: boolean }
 const REST: View = { k: 1, dx: 0, dy: 0, smooth: false }
 /** Below this fitted scale a tree opens at its view's readable scale instead (and Fit still shows all of it). */
-const OPEN_ALL = 0.6
+const OPEN_ALL: Record<TreeView, number> = { path: 0.5, map: 0.6 }
 
 function useBox<T extends HTMLElement>(): [React.RefObject<T | null>, { w: number; h: number }] {
   const ref = useRef<T>(null)
@@ -70,22 +70,26 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
   const [hover, setHover] = useState<string>()
   const [hoverTrack, setHoverTrack] = useState<string>()
   const [v, setV] = useState<View>(REST)
+  const autoPan = useRef(0)
   const size = SIZES[view]
 
   const input = useMemo(() => (view === 'path' ? pathInput(g) : mapInput(g)), [g, view])
   const layout = useMemo(() => layoutGraph(input.nodes, input.links), [input])
   const head = view === 'map' ? HEAD : 0
   // The zoom controls own the bottom-right corner: the tree keeps RESERVE clear on both sides, so it stays centered.
-  const placed = useMemo(() => (box.w && box.h ? placeGraph(layout, { ...PLACE[view]({ w: Math.max(200, box.w - 2 * RESERVE), h: box.h - head }, layout, input), widenFrom: OPEN_ALL }) : undefined), [layout, input, view, box, head])
+  const placed = useMemo(() => (box.w && box.h ? placeGraph(layout, { ...PLACE[view]({ w: Math.max(200, box.w - 2 * RESERVE), h: box.h - head }, layout, input), widenFrom: OPEN_ALL[view] }) : undefined), [layout, input, view, box, head])
 
   // Fit: on a new size, a new view or a new tree (never while the learner is zoomed in on the same one).
-  useEffect(() => setV(REST), [box.w, box.h, view, layout])
+  useEffect(() => {
+    autoPan.current = 0
+    setV(REST)
+  }, [box.w, box.h, view, layout])
 
   const fit = useMemo(() => {
     if (!placed) return { s: 1, tx: 0, ty: 0 }
     const W = placed.w
     const H = placed.h + head
-    if (v.all || placed.scale >= OPEN_ALL) return { s: placed.scale, tx: (box.w - W * placed.scale) / 2, ty: (box.h - H * placed.scale) / 2 }
+    if (v.all || placed.scale >= OPEN_ALL[view]) return { s: placed.scale, tx: (box.w - W * placed.scale) / 2, ty: (box.h - H * placed.scale) / 2 }
     // Too big to read whole: open at the readable scale between NEXT and the goal, kept inside the content's edges.
     const s = size.minScale
     const a = placed.at[g.next?.skillId ?? ''] ?? placed.at[g.goal?.id ?? '']
@@ -93,7 +97,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
     const focus = a && b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : { x: W / 2, y: H / 2 }
     const clampT = (t: number, view: number, content: number): number => (content * s <= view ? (view - content * s) / 2 : Math.min(0, Math.max(view - content * s, t)))
     return { s, tx: clampT(box.w / 2 - focus.x * s, box.w, W), ty: clampT(box.h / 2 - (focus.y + head) * s, box.h, H) }
-  }, [placed, box, head, size.minScale, g.next, g.goal, v.all])
+  }, [placed, box, head, size.minScale, g.next, g.goal, v.all, view])
 
   const scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fit.s * v.k))
   // Zoom keeps the view's center (or the pointer) still: dx/dy are offsets on top of the fitted translate.
@@ -110,20 +114,28 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
       return { ...cur, k: s1 / fit.s, dx: x1 - fit.tx, dy: y1 - fit.ty, smooth }
     })
 
-  // An opened skill never hides under the panel (it covers the view's right, up to 380 px + 16): glide it into the open part.
+  // An opened skill never hides under the panel (it covers the view's right, up to 380 px + 16): glide it into the open
+  // part, and glide back when the panel closes.
   useEffect(() => {
-    if (!selected || !placed?.at[selected]) return
+    if (!selected) {
+      const back = autoPan.current
+      autoPan.current = 0
+      if (back) setV((cur) => ({ ...cur, dx: cur.dx - back, smooth: true }))
+      return
+    }
+    if (!placed?.at[selected]) return
     const p = placed.at[selected]
     const free = box.w - Math.min(396, box.w - 32)
     const sx = tx + p.x * scale
     if (sx > 40 && sx < free - 40) return
-    const want = free / 2
-    setV((cur) => ({ ...cur, dx: cur.dx + (want - sx), smooth: true }))
+    const shift = free / 2 - sx
+    autoPan.current += shift
+    setV((cur) => ({ ...cur, dx: cur.dx + shift, smooth: true }))
     // Only when the selection changes, not on every pan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected])
 
-  // Wheel: pan; pinch (ctrlKey) or ⌘/Ctrl + wheel: zoom at the pointer. Non-passive so the page never scrolls instead.
+  // Wheel: pan; pinch (ctrlKey) or Cmd/Ctrl + wheel: zoom at the pointer. Non-passive so the page never scrolls instead.
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -313,7 +325,7 @@ export function TreeCanvas({ g, view, query, selected, onOpen }: { g: SkillGraph
                   r={nodeR(n)}
                   hero={hero}
                   labelW={lw(hero)}
-                  lines={size.lines}
+                  lines={hero ? 2 : size.lines}
                   line={nodeLine(n)}
                   dim={!!lit && !lit.has(n.id)}
                   focused={selected === n.id && !n.isNext}
