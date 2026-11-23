@@ -1,8 +1,8 @@
 /**
  * Feature: buddy. The buddy's body: a character of its own, not the logo. (The bonsai stays the logo, in the notch.)
  *
- * Three candidates to pick from (Adrian, Nov 22: "an actual personalized character... really cute"; the choice of
- * one is still his). All original, all drawn here as plain SVG so their parts can move, all in the buddy's skin
+ * Three were drawn to pick from (Adrian, Nov 22: "an actual personalized character... really cute") and on Nov 23
+ * he picked the sprout. The other two stay for now, behind ?char=. All original, all drawn here as plain SVG so their parts can move, all in the buddy's skin
  * (palette.ts: its color, which is also still his to pick):
  *   sprout   a round creature with a two-leaf sprout on its head. The leaves are its ears and its wings.
  *   leaf     a leaf with a face. Its tip is its pointer.
@@ -42,7 +42,7 @@ export type CharacterProps = {
 }
 
 export const CHARACTERS: CharacterKind[] = ['sprout', 'leaf', 'dot']
-/** The one in use until Adrian picks. In the browser stage ?char=<kind> shows another. */
+/** The one in use: Adrian picked the sprout on Nov 23. In the browser stage ?char=<kind> shows another. */
 export const DEFAULT_CHARACTER: CharacterKind = 'sprout'
 
 const clamp = (v: number): number => Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0))
@@ -117,7 +117,12 @@ function Face({ kind, mood, look, talking, blush, ink }: { kind: CharacterKind; 
 /** How far each of the sprout's leaves is turned from its rest, degrees (positive: outward and down). */
 const LEAVES: Record<Mood, [number, number]> = { calm: [0, 0], happy: [14, 14], curious: [-14, 6], thinking: [22, -6], listening: [-24, -24], sleepy: [30, 30] }
 
-function Sprout({ mood, point, body, leaf, grown }: { mood: Mood; point: -1 | 0 | 1; body: string; leaf: string; grown: 0 | 1 | 2 }): ReactNode {
+/** The sprout's body. */
+const ROUND = 'M24 12.6 C33.6 12.6 40.4 19.6 40.4 29.4 C40.4 37.8 33.8 43.2 24 43.2 C14.2 43.2 7.6 37.8 7.6 29.4 C7.6 19.6 14.4 12.6 24 12.6 Z'
+/** A shaded skin: the lit part of the body is the body moved this far up and toward the light, so the shade is what is left under it. */
+const LIT = { x: 1.5, y: -2.7 } as const
+
+function Sprout({ mood, point, body, leaf, shade, grown, id }: { mood: Mood; point: -1 | 0 | 1; body: string; leaf: string; shade?: string; grown: 0 | 1 | 2; id: string }): ReactNode {
   const [l, r] = LEAVES[mood]
   return (
     <>
@@ -139,7 +144,21 @@ function Sprout({ mood, point, body, leaf, grown }: { mood: Mood; point: -1 | 0 
         {/* And a bud between them, later on. */}
         {grown > 1 && <circle cx={24} cy={6.4} r={3} fill={TINTS.pink.body} stroke={INK} strokeWidth={OUTLINE} />}
       </g>
-      <path d="M24 12.6 C33.6 12.6 40.4 19.6 40.4 29.4 C40.4 37.8 33.8 43.2 24 43.2 C14.2 43.2 7.6 37.8 7.6 29.4 C7.6 19.6 14.4 12.6 24 12.6 Z" fill={body} stroke={INK} strokeWidth={OUTLINE} strokeLinejoin="round" />
+      {shade ? (
+        <>
+          {/* Flat shading, no gradient: the body in its shade, the lit part over it (cut to the body), then the outline. */}
+          <clipPath id={id}>
+            <path d={ROUND} />
+          </clipPath>
+          <path d={ROUND} fill={shade} />
+          <g clipPath={`url(#${id})`}>
+            <path d={ROUND} fill={body} transform={`translate(${LIT.x} ${LIT.y})`} />
+          </g>
+          <path d={ROUND} fill="none" stroke={INK} strokeWidth={OUTLINE} strokeLinejoin="round" />
+        </>
+      ) : (
+        <path d={ROUND} fill={body} stroke={INK} strokeWidth={OUTLINE} strokeLinejoin="round" />
+      )}
     </>
   )
 }
@@ -160,14 +179,15 @@ function Dot({ rim }: { rim: string }): ReactNode {
 
 export function Character({ kind = DEFAULT_CHARACTER, size = 44, mood = 'calm', look, talking = false, flying = false, point = 0, tint, grown = 1, skin = SKIN, className }: CharacterProps): ReactNode {
   // Each one blinks on its own clock.
-  const beat = (parseInt(useId().replace(/[^0-9]/g, '') || '0', 10) % 7) * 0.6
+  const id = useId().replace(/[^a-zA-Z0-9]/g, '')
+  const beat = (parseInt(id.replace(/[^0-9]/g, '') || '0', 10) % 7) * 0.6
   // The learner's own color, where they picked one, else the skin's.
   const body = tint ? TINTS[tint].body : skin.body
   return (
     <span className={`ch shrink-0 select-none ${className ?? ''}`} data-kind={kind} data-mood={mood} data-flying={flying || undefined} data-talking={talking || undefined} style={{ width: size, height: size, '--ch-beat': `${-beat}s` } as CSSProperties} aria-hidden>
       <svg viewBox="0 0 48 48" width="100%" height="100%" style={{ overflow: 'visible', display: 'block' }}>
         <g className="ch-body">
-          {kind === 'sprout' ? <Sprout mood={mood} point={point} body={body} leaf={skin.leaf} grown={grown} /> : kind === 'leaf' ? <Leaf body={body} leaf={skin.leaf} /> : <Dot rim={body} />}
+          {kind === 'sprout' ? <Sprout mood={mood} point={point} body={body} leaf={skin.leaf} shade={tint ? undefined : skin.shade} grown={grown} id={`ch-${id}`} /> : kind === 'leaf' ? <Leaf body={body} leaf={skin.leaf} /> : <Dot rim={body} />}
           <Face kind={kind} mood={mood} look={look ?? { x: 0, y: 0 }} talking={talking} blush={tint ? TINTS[tint].blush : skin.blush} ink={kind === 'dot' ? body : INK} />
         </g>
       </svg>

@@ -16,6 +16,15 @@ const KIND: CharacterKind = (() => {
   return CHARACTERS.find((k) => k === q) ?? DEFAULT_CHARACTER
 })()
 
+/**
+ * Which skins the sheet shows: the first round of nine, or ?set=cream, the cream versions beside the sand it is now.
+ */
+const SETS: Record<string, { title: string; names: SkinName[] }> = {
+  all: { title: 'The buddy: colors to pick from', names: ['mint', 'cream', 'sand', 'butter', 'peach', 'clay', 'pink', 'lilac', 'sky'] },
+  cream: { title: 'The buddy: cream, a few ways (sand is what it is now)', names: ['sand', 'cream', 'cream-sand', 'cream-shade', 'ivory', 'cream-sage'] }
+}
+const SET = SETS[(typeof location !== 'undefined' && new URLSearchParams(location.search).get('set')) || 'all'] ?? SETS.all
+
 /** The same body with other leaves, so the leaves can be picked apart from the body. Shown on `LEAVES_ON`. */
 const LEAVES_ON: SkinName = DEFAULT_SKIN
 const LEAVES: { name: string; leaf: string }[] = [
@@ -55,10 +64,10 @@ function Tile({ name, note, skin }: { name: string; note: string; skin: Skin }):
 export function ColorStage(): ReactNode {
   return (
     <div data-hit data-theme="dark" data-colors style={{ position: 'absolute', inset: 0, background: '#161615', padding: '22px 26px', overflow: 'hidden', color: '#F4F4F5' }}>
-      <div style={{ font: '600 20px -apple-system, "Segoe UI", sans-serif', marginBottom: 2 }}>The buddy: colors to pick from</div>
+      <div style={{ font: '600 20px -apple-system, "Segoe UI", sans-serif', marginBottom: 2 }}>{SET.title}</div>
       <div style={{ ...LABEL, fontSize: 13, marginBottom: 14 }}>Big on the island&apos;s black, and at real size ({BODY.size} px) over a dark and a light app. Its loop is drawn in the same color.</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-        {(Object.keys(SKINS) as SkinName[]).map((name) => (
+        {SET.names.map((name) => (
           <Tile key={name} name={name} note={SKINS[name].note} skin={SKINS[name]} />
         ))}
       </div>

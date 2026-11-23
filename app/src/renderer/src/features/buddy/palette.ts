@@ -20,6 +20,8 @@ export type Skin = {
   body: string
   /** Its leaves and stem. */
   leaf: string
+  /** A flat shade along its underside (the sprout), where it has one. Not a gradient. */
+  shade?: string
   /** Its cheeks. */
   blush: string
   /** The loop it draws, and the numbers of a tour. */
@@ -38,17 +40,25 @@ const PINK_DEEP = brand.pastel.pinkDeep
 const MINT = '#96E4C8'
 /** The pot of the logo, in its cut for dark backgrounds (BRAND.md). */
 const CLAY = '#C2694A'
+const SAND = brand.pastel.sand
+/** Halfway between the brand paper and the sand. */
+const IVORY = '#F0EBDD'
 
 export const SKINS = {
   mint: { body: MINT, leaf: brand.pastel.mint, blush: PINK, stroke: MINT, note: 'what it was', kit: false },
   cream: { body: brand.paper, leaf: brand.paper, blush: PINK, stroke: brand.paper, keyline: 0.9, note: 'the brand paper: white on black, like the buttons', kit: true },
-  sand: { body: brand.pastel.sand, leaf: brand.paper, blush: PINK_DEEP, stroke: brand.pastel.sand, keyline: 0.75, note: 'the kit sand: the pick', kit: true },
+  sand: { body: SAND, leaf: brand.paper, blush: PINK_DEEP, stroke: SAND, keyline: 0.75, note: 'the kit sand: the pick', kit: true },
   butter: { body: '#F6DE8E', leaf: '#FBEDBE', blush: PINK_DEEP, stroke: '#F6DE8E', note: 'a soft yellow; the kit has no yellow', kit: false },
   peach: { body: brand.pastel.peach, leaf: brand.pastel.peachLight, blush: PINK_DEEP, stroke: brand.pastel.peach, note: 'the kit peach (also the Watch option)', kit: true },
   clay: { body: CLAY, leaf: brand.pastel.peachLight, blush: PINK_DEEP, stroke: CLAY, note: 'the pot of the logo', kit: true },
   pink: { body: PINK_DEEP, leaf: PINK, blush: '#E98BA8', stroke: PINK_DEEP, note: 'the kit pink (also the Hint option)', kit: true },
   lilac: { body: brand.pastel.lilac, leaf: '#ECE8FF', blush: PINK, stroke: brand.pastel.lilac, note: 'the kit lilac (also Show me)', kit: true },
-  sky: { body: brand.pastel.skyDeep, leaf: brand.pastel.sky, blush: PINK, stroke: brand.pastel.skyDeep, note: 'the kit sky; the kit says no blue elsewhere', kit: true }
+  sky: { body: brand.pastel.skyDeep, leaf: brand.pastel.sky, blush: PINK, stroke: brand.pastel.skyDeep, note: 'the kit sky; the kit says no blue elsewhere', kit: true },
+  // Cream, a few ways (Adrian, Nov 23: "a couple of cream iterations"). `cream` above is the plain one.
+  'cream-sand': { body: brand.paper, leaf: SAND, blush: PINK, stroke: brand.paper, keyline: 0.9, note: 'white body, sand leaves', kit: true },
+  'cream-shade': { body: brand.paper, leaf: SAND, shade: SAND, blush: PINK, stroke: brand.paper, keyline: 0.9, note: 'white body, a flat sand shade under it, sand leaves', kit: true },
+  ivory: { body: IVORY, leaf: brand.paper, blush: PINK, stroke: IVORY, keyline: 0.85, note: 'halfway between cream and sand', kit: false },
+  'cream-sage': { body: brand.paper, leaf: '#A9D0A6', blush: PINK, stroke: brand.paper, keyline: 0.9, note: 'white body, green leaves (a new green, not the pass green)', kit: false }
 } as const satisfies Record<string, Skin>
 export type SkinName = keyof typeof SKINS
 

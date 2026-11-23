@@ -1,6 +1,6 @@
 # buddy
 
-**Status:** pass 1 done (the living bonsai mark). Pass 2 (Nov 22): the buddy is a character of its own. It comes out of the island, flies to what the coach points at, circles it, says what it is, takes the learner through several things one at a time, listens while they talk, thinks, and answers beside the part the answer is about. It uses Michael's mark rules and stands down for his `features/annotate`. Everything after 95712e94 is committed locally and NOT pushed: Michael asked on Nov 22 (8:29 PM) to hold pass 2 until he and Adrian pick one. Typecheck green, 80 offline tests, checked in the built stage. Not run in Electron. Its color is sand (Adrian, Nov 23). **Open:** which layer draws in the end, which character, its name · **Priority:** P2 · **Branch:** `adrian/buddy` · **Stage port:** 5251 (launch config `buddy-stage`)
+**Status:** pass 1 done (the living bonsai mark). Pass 2 (Nov 22): the buddy is a character of its own. It comes out of the island, flies to what the coach points at, circles it, says what it is, takes the learner through several things one at a time, listens while they talk, thinks, and answers beside the part the answer is about. It uses Michael's mark rules and stands down for his `features/annotate`. Everything after 95712e94 is committed locally and NOT pushed: Michael asked on Nov 22 (8:29 PM) to hold pass 2 until he and Adrian pick one. Typecheck green, 80 offline tests, checked in the built stage. Not run in Electron. It is the sprout, in sand (Adrian, Nov 23); he asked for a few cream versions to compare, which are rendered and waiting on his pick. **Open:** which layer draws in the end, sand or one of the creams, its name · **Priority:** P2 · **Branch:** `adrian/buddy` · **Stage port:** 5251 (launch config `buddy-stage`)
 
 ## Goal
 Adrian, Nov 22 (night): "It should definitely be a character, and it shouldn't just be the bonsai tree. The bonsai tree is a logo. We want a separate, personalized character that does this stuff for you, with a lot of back and forth. It should be really cute. It should actually guide you around: point, highlight, show. Any part you're confused about, you talk to it."
@@ -89,7 +89,7 @@ Checked merged with `origin/michael/v2-integration` at 77874bec (Nov 22, 10 PM; 
 Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build --config vite.web.config.ts --base ./ --outDir <a folder outside the worktree>`.
 - `?buddy=point&clean`: the try-out. One, Tour, Far, Clear, Home; Hold to talk (hold the button: it hears a canned question, then answers); or click anywhere to point there. The answers are canned in `PointStage.tsx`; the marks go through the bus as real `annotate` events.
 - `?buddy=cast&clean`: the character sheet.
-- `?buddy=colors&clean`: the color sheet. `&skin=cream` (or any other name on it) on the try-out shows the buddy and its loop in that color.
+- `?buddy=colors&clean`: the color sheet (`&set=cream` for the cream versions beside sand). `&skin=cream` (or any other name on it) on the try-out shows the buddy and its loop in that color.
 - `?scenario=buddy&clean`: marks arriving from the mock engine.
 - Add `&char=leaf` or `&char=dot` for another character, `&notch=below` for the pill under the menu bar.
 - `?buddy`: every state of the living mark (pass 1).
@@ -106,7 +106,8 @@ Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build
 - Not checked: Electron on a Mac. The buddy over real apps, the pointer rules with forwarded mouse moves, the island on a real notch, a second display, a live engine sending `annotate`, real push to talk (the wiring to `features/ptt` is written against its store and has only run with the stage's stand-in).
 
 ## Open (Adrian, then Adrian and Michael)
-- Which character, and its name. (Its color is picked: sand. Its leaves are paper white; the color sheet's bottom row shows other leaves.)
+- Its name. (The character is picked: the sprout. The leaf and the dot are still in the code behind `?char=` and can go.)
+- Sand, or one of the cream versions (`?buddy=colors&set=cream`, `shots/buddy-cream.png`): plain cream, cream with sand leaves, cream with a flat sand shade under it, ivory (halfway to sand), cream with green leaves. Each is a skin, so `&skin=cream-shade` and so on shows it in use.
 - Which of the three ways above.
 - Whether the learner's color and the growing are wanted. If so they need a place to be stored (Core requests 7).
 - When the buddy says an answer the answer card also shows in the island. One of them should step back.
