@@ -313,9 +313,10 @@ export interface AppCommands {
    *  the mic is open, so an ask (spoken, or a circle) is likely within a few seconds. The engine gets ready for it: open
    *  or reuse its keep-alive links (app to engine to cloud to Anthropic) and warm the prompt cache for the fixed ask
    *  system prompt. No reply event, no card, never a learner-visible effect; safe to ignore or repeat. pttId: the hold's
-   *  id (the helper's ptt.id), for logs only. The app sends it at most once every 4 minutes (under the 5-minute cache
-   *  lifetime; never for a tap or an aborted chord), and only when engine.hello lists "ask.warm". The engine may skip
-   *  a warm-up when its cache is still warm. */
+   *  id (the helper's ptt.id), for logs only. The app sends it on every hold that passes the minimum (never for a tap
+   *  or an aborted chord), and only when engine.hello lists "ask.warm". The engine always opens or reuses the links
+   *  (free; keep-alive links close seconds after their last use) and throttles only the paid prompt-cache write (at
+   *  most once per few minutes, under the 5-minute cache lifetime). */
   "ask.warm": { pttId?: string };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
