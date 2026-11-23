@@ -905,7 +905,8 @@ function Preflight({ card }: { card: EngineCard }): ReactNode {
     r?.captions !== undefined && (r.captions ? 'Captions' : 'No captions')
   ].filter((x): x is string => !!x)
   const needs = (card.items ?? []).filter((x) => x.needed)
-  const missing = needs.filter((x) => !x.ok).length
+  // A paid app is never installed, and "I have it" or a chosen free alternative is not missing either.
+  const missing = needs.filter((x) => !x.ok && x.setupKind !== 'licensed_app' && !x.haveIt && !x.using).length
   return (
     <div data-preflight className="mt-[12px] flex flex-col gap-[6px] text-[13px] leading-[18px]">
       {meta.length > 0 && <div style={{ color: color.label }}>{meta.join(' · ')}</div>}
