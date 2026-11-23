@@ -38,7 +38,7 @@ import { RotateCcw } from 'lucide-react'
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { useWindowArgs } from '../../core/surfaces'
-import { color, duration, fill, highlight, radius2, spring, stagger, surface, type2 } from '../../core/theme'
+import { color, duration, fill, highlight, layout, radius2, spring, stagger, surface, type2 } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { riseIn } from '../../core/ui/motion'
 import { Detail } from '../library/Detail'
@@ -47,6 +47,7 @@ import { LessonSearch, Lessons, openLauncher } from '../library/Library'
 import { Ring } from '../library/motion'
 import { v2Cloud } from '../account/model'
 import { useLibrary } from '../library/store'
+import { useDash } from '../dashboard/store'
 import { AccountSheetHost } from './AccountSheet'
 import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
@@ -57,13 +58,13 @@ import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
 import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
-import { PANEL, PANEL_INSET } from './ui'
+import { COLUMN_W, PageHeader, PANEL, PANEL_INSET, pageInset, WIDE_W } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
-const COMPACT_W = 880
+const COMPACT_W = layout.sidebar.compactBelow
 /** Below this window width the sidebar keeps its labels but narrows (SIDEBAR_NARROW_W). */
-const NARROW_W = 1100
+const NARROW_W = layout.sidebar.narrowBelow
 const SHORT_H = 520 // the sidebar needs ~420 px; keep the Ready line at mid heights (round 3: it vanished at 1024x700)
 
 // ---- page header ------------------------------------------------------------------------------------------------
@@ -73,29 +74,10 @@ const CAPTION: Partial<Record<PageId, string>> = {}
 
 function Header({ page }: { page: PageId }): ReactNode {
   const label = PAGES.find((p) => p.id === page)?.label ?? ''
-  const caption = CAPTION[page]
   // Home has no title (Michael's brief: no greeting, no date, and the sidebar already says where you are): only the
   // strip that drags the window.
   if (page === 'home') return <header data-drag className="shrink-0" style={{ height: 20 }} />
-  return (
-    <header data-drag className="flex shrink-0 items-end gap-[16px]" style={{ height: 76, padding: '0 40px 10px' }}>
-      <div className="flex min-w-0 items-baseline gap-[12px]">
-        <h1 className="m-0 shrink-0 font-semibold" style={{ fontSize: 22, lineHeight: '28px', letterSpacing: '-0.015em', color: color.text }}>
-          {label}
-        </h1>
-        {caption && (
-          <span className="truncate" style={{ fontSize: type2.sm, color: color.label }}>
-            {caption}
-          </span>
-        )}
-      </div>
-      {page === 'lessons' && (
-        <div data-no-drag className="ml-auto flex min-w-0 items-center gap-[12px]">
-          <LessonSearch />
-        </div>
-      )}
-    </header>
-  )
+  return <PageHeader title={label} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : undefined} />
 }
 
 // ---- error boundary -----------------------------------------------------------------------------------------------
@@ -135,6 +117,26 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 /** Home and Skills scroll inside themselves (Home's container queries, the constellation's own list). */
 const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
 
+/**
+ * The column each page's title sits on (content + gutters): 720 for every page (ui.tsx COLUMN_W). Skills takes the wide
+ * 1040 (WIDE_W) only while its grid has skills to show: with none it is one centered empty state, and a lone title
+ * 160 px left of every other page's hugged the corner of an empty pane. The header pads in by `--page-inset` for this
+ * width, so its left edge is the content's left edge.
+ *
+ * Who centers the content: every page, through its own column (ui.tsx PageColumn, the one column), centered in the full
+ * pane. The shell never pads a page's body: a padded body shrank the box the columns measure (their gutter flips at a
+ * 760 pane), which is how Lessons sat 20 px and Home 40 px off the title (review round 2, Nov 22). Whether a page
+ * scrolls in the shell's body (Lessons, Settings, Account) or inside itself (SELF_SCROLL), its scrollbar is at the
+ * pane's edge.
+ *
+ * Landing order: this frame expects the pages' own centered columns (the layout-pages lane: Settings, Account, Progress,
+ * Skills; the layout-home lane: Home, Lessons, the preview). Land this lane with or after those two, never alone:
+ * before them the pages still carry their old 40 px left padding and sit left of the centered title.
+ */
+function pageWidth(page: PageId, skills: boolean): number {
+  return page === 'skills' && skills ? WIDE_W : COLUMN_W
+}
+
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
   switch (page) {
     case 'home':
@@ -160,6 +162,8 @@ const frame: Variants = {
 
 function PageFrame({ page, active, covered }: { page: PageId; active: boolean; covered: boolean }): ReactNode {
   const off = !active || covered
+  // Skills' grid has something to show (the constellation's tracks): only then does its title take the wide column.
+  const skills = useDash((s) => (s.data?.tracks?.length ?? 0) > 0)
   // Reduced motion: a page is born in its final state (no hidden frame to wait on).
   const reduce = useReducedMotion() ?? false
   return (
@@ -171,8 +175,15 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
       variants={frame}
       initial={reduce ? (active ? 'shown' : 'hidden') : 'hidden'}
       animate={active ? 'shown' : 'hidden'}
-      className="absolute inset-0 flex flex-col"
-      style={{ visibility: active ? 'visible' : 'hidden', color: color.text }}
+      // mg-page-frame: the size container the gutter follows (styles.css), the pane's width.
+      className="mg-page-frame absolute inset-0 flex flex-col"
+      // One centered column for every page (layout lane): the header pads in by --page-inset (pageWidth above); the
+      // body is never padded, the page's own PageColumn centers in the full pane.
+      style={{
+        visibility: active ? 'visible' : 'hidden',
+        color: color.text,
+        ['--page-inset' as string]: pageInset(pageWidth(page, skills))
+      }}
     >
       <Header page={page} />
       <div
@@ -321,7 +332,7 @@ export function Shell(): ReactNode {
             ))}
             <AnimatePresence>
               {openId && (
-                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="absolute inset-0 z-20" style={{ backgroundColor: PANEL.backgroundColor, backgroundImage: PANEL.backgroundImage, backgroundSize: PANEL.backgroundSize, backgroundPosition: PANEL.backgroundPosition }}>
+                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="mg-page-frame absolute inset-0 z-20" style={{ backgroundColor: PANEL.backgroundColor, backgroundImage: PANEL.backgroundImage, backgroundSize: PANEL.backgroundSize, backgroundPosition: PANEL.backgroundPosition }}>
                   <Detail id={openId} back={backLabel} />
                 </motion.div>
               )}
