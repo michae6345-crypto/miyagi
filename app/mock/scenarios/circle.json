@@ -1,0 +1,11 @@
+{
+  "name": "circle",
+  "on": {
+    "connect": "circle_connect"
+  },
+  "segments": {
+    "circle_connect": [
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } }
+    ]
+  }
+}
