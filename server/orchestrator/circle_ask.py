@@ -16,6 +16,11 @@ inside action(), so proactive cards wait while the question is answered (ASK_KIN
 3. The answer: card {kind: "answer", askId, region, stepId?}. When the answer names one box inside the region, an
    annotate {marks: [{why: "answer", askId, ...}], holdMs} follows, so the buddy circles it.
 
+Fast path (Nov 22, server/coach/fast_ask.py, tried first): an ask that carries capture (AskCapture) uses the app's
+own JPEG (shared/capture_file.take_capture) and skips step 1. The answer streams as answer.delta, the buddy's mark
+goes out as soon as the model's [DRAW] line is read, then the same card. Any failure: steps 2 and 3 as above (a
+failure after FALLBACK_MODEL_WITHIN_S: the text read, no second call). Stage timings: AskTimer (ask.metrics).
+
 The crop and the screen text are never logged or stored (the session record keeps the question and the region's size).
 
 Every circle ask gets one card with its askId, so the app's pending ink never waits for its own timeout: the answer,
@@ -27,6 +32,7 @@ changed step while it was answered, a short "moved on" card. Only an ask whose l
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -40,6 +46,13 @@ HOLD_MS = 6000  # how long the buddy's circle stays (the app also fades it on a 
 # The contract's promise (Action ask + region): every circle ask is answered within about this many seconds. Worst
 # case: the capture (CAPTURE_S) + connection retries (llm.RETRY_BUDGET_S) + the last try's timeout (circle.TIMEOUT_S).
 ANSWER_WITHIN_S = 25.0
+# The streamed answer (server/coach/fast_ask.py) failing later than this (a timeout, a dropped link): the card is the
+# text read, with no second model call, so the ask still ends within about ANSWER_WITHIN_S. An earlier failure (no
+# key, a refusal, an HTTP error at once) answers through the non-streaming call as before.
+FALLBACK_MODEL_WITHIN_S = 5.0
+OCR_CONTEXT_S = 10.0  # with the app's own capture, the last frame's OCR boxes are context when at most this old
+METRICS_FILE = "ask-metrics.jsonl"
+EMPTY_OBS = {"blocks": [], "windows": [], "scale": 2.0, "screen": None, "app": ""}
 
 
 def _region(region: Any) -> dict | None:
@@ -185,33 +198,183 @@ def _context(session: Any, step: dict | None) -> dict:
     return ctx
 
 
-async def answer(session: Any, step: dict | None, text: str | None, region: Any, ask_id: str | None = None) -> None:
-    """Action ask with a region (from LessonSession._action): one answer card next to the circle, maybe a mark."""
+class AskTimer:
+    """Stage timings of one circle ask, seconds from the moment the handler got it. No content: no words, no text,
+    no picture, no path. Logged as one `ask.metrics {json}` line and appended to <state dir>/ask-metrics.jsonl (the
+    build-metrics file's rolling writer). Marks: received (0), picture (the app's capture read, or a frame taken),
+    first_byte (the model's response headers), first_text, mark (annotate sent), first_delta (the first answer.delta
+    sent), done, card. Flags: warmAgoS (since the last ask.warm warm-up), capture, picture, model, draw, route,
+    fallback."""
+
+    def __init__(self, clock: Any = time.monotonic) -> None:
+        self.clock, self.t0 = clock, clock()
+        self.marks: dict[str, float] = {"received": 0.0}
+        self.flags: dict[str, Any] = {}
+        self.closed = False
+
+    def elapsed(self) -> float:
+        return self.clock() - self.t0
+
+    def mark(self, name: str) -> None:
+        if name not in self.marks:
+            self.marks[name] = round(max(0.0, self.elapsed()), 3)
+
+    def flag(self, key: str, value: Any) -> None:
+        self.flags[key] = value
+
+    def summary(self, outcome: str) -> dict:
+        return {"v": 1, "at": round(time.time(), 3), "outcome": outcome, "marks": dict(self.marks), **self.flags}
+
+    def finish(self, outcome: str) -> dict | None:
+        if self.closed:
+            return None
+        self.closed = True
+        try:
+            line = self.summary(outcome)
+            text = json.dumps(line, separators=(",", ":"), ensure_ascii=False, default=str)
+            log.info("ask.metrics %s", text)
+            from .build_metrics import BuildMetrics
+
+            BuildMetrics(path=_metrics_path)._append(text)
+            return line
+        except Exception:  # noqa: BLE001 - metrics never break an ask
+            log.debug("ask metrics failed", exc_info=True)
+            return None
+
+
+def _metrics_path() -> Any:
+    from server.sessions import store
+
+    return store.state_dir() / METRICS_FILE
+
+
+def _recent_obs(session: Any) -> Any:
+    """The last frame's OCR, for the boxes inside the circle when the app sent its own capture (no new capture)."""
+    last = getattr(session, "last_obs", None)
+    t = float(getattr(last, "t", 0) or 0) if last is not None else 0.0
+    if last is not None and t and time.time() - t <= OCR_CONTEXT_S and _real(last, session):
+        return last
+    return None
+
+
+def _take(capture_payload: Any) -> Any:
+    try:
+        from shared.capture_file import take_capture
+
+        return take_capture(capture_payload)
+    except Exception:  # noqa: BLE001 - a bad capture is never worse than no capture
+        return None
+
+
+def _warm_ago() -> float | None:
+    try:
+        from server.coach import fast_ask
+
+        at = fast_ask.last_warm_at
+        return None if at is None else round(time.monotonic() - at, 2)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _stream_fn(session: Any) -> Any:
+    """The coach's streamed answer, or None (MIYAGI_FAST_ASK=0, the coach stubbed or missing)."""
+    if os.environ.get("MIYAGI_FAST_ASK", "1").strip() == "0":
+        return None
+    get = getattr(getattr(session, "m", None), "circle_stream_fn", None)
+    try:
+        return get() if callable(get) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def answer(session: Any, step: dict | None, text: str | None, region: Any, ask_id: str | None = None, *,
+                 ask_capture: Any = None) -> None:
+    """Action ask with a region (from LessonSession._action): one answer card next to the circle, maybe a mark.
+
+    Fast path (Nov 22): the app's own capture when the ask carried one (ask_capture: no frame grab here), the answer
+    streamed as answer.delta, and the buddy's mark sent as soon as the model's [DRAW] line is read
+    (server/coach/fast_ask.py). Any failure there: today's non-streaming answer (session.m.circle_ask), and no second
+    mark when one was already drawn."""
     from server.coach.circle import DEFAULT_ASK
 
+    timer = AskTimer()
+    if (ago := _warm_ago()) is not None:
+        timer.flag("warmAgoS", ago)
     reg = _region(region) or {}
-    q = " ".join(str(text or "").split()) or DEFAULT_ASK
+    raw = " ".join(str(text or "").split())
+    q = raw or DEFAULT_ASK
     session._record("question", {"kind": "circle", "text": q[:300],
                                  "size": [round(float(reg.get("w") or 0)), round(float(reg.get("h") or 0))]}, step)
     gen = session.step_gen
     if step is not None:
         await session._status("thinking", detail="Looking at that")
-    obs, image, reason = await capture(session, _display_id(reg), reg)
+    cap = await asyncio.to_thread(_take, ask_capture) if ask_capture is not None else None
+    if ask_capture is not None:
+        timer.flag("capture", "ok" if cap is not None else "refused")
+    if cap is not None:  # the app captured the circle already: no frame grab, the last frame's OCR as context
+        obs, image, reason = _recent_obs(session), None, None
+    else:  # no capture, or one that failed a check: capture as before
+        obs, image, reason = await capture(session, _display_id(reg), reg)
+    timer.mark("picture")
     if reason is not None:
-        out = unseen_answer(step, reason, reg, ask_id)
         log.info("circle ask: can't see the screen (%s)", reason)
-    else:
+        timer.flag("route", "unseen")
+        await _send(session, step, gen, unseen_answer(step, reason, reg, ask_id), reg, ask_id, timer)
+        return
+
+    def current() -> bool:
+        return step is None or gen == session.step_gen
+
+    async def on_delta(chunk: str, done: bool) -> None:
+        if not ask_id or not current():
+            return  # no askId: nothing to match it to; moved on: the card says so instead
+        payload: dict[str, Any] = {"askId": ask_id, "text": chunk}
+        if done:
+            payload["done"] = True
+        await session.emit("answer.delta", payload)
+
+    async def on_mark(marks: list[dict]) -> None:
+        if current():
+            await session.emit("annotate", {"marks": marks, "holdMs": HOLD_MS})
+            timer.mark("mark")
+
+    out, drew = None, False
+    ctx = _context(session, step)
+    if (stream := _stream_fn(session)) is not None:
         try:
-            out = await session.m.circle_ask(step, q, reg, obs=obs, image=image, context=_context(session, step),
-                                             ask_id=ask_id)
+            out = await stream(step, raw, reg, obs=obs, image=image, capture=cap, context=ctx, ask_id=ask_id,
+                               on_delta=on_delta, on_mark=on_mark, timer=timer)
+            timer.flag("route", "stream")
+        except Exception as e:  # noqa: BLE001 - FastAskError or anything else: today's path answers
+            drew = bool(getattr(e, "drew", False))
+            kind = str(getattr(e, "kind", "") or type(e).__name__)
+            timer.flag("fallback", kind)
+            log.info("circle ask: streamed answer failed (%s); answering without streaming", kind)
+            if kind in ("timeout", "connection", "api") and timer.elapsed() > FALLBACK_MODEL_WITHIN_S:
+                out = offline_answer(step, q, reg, obs if obs is not None else EMPTY_OBS, None, ctx, ask_id)
+                timer.flag("route", "reading")  # a slow failure: no second call (ANSWER_WITHIN_S)
+    if out is None:
+        timer.flag("route", "card")
+        try:
+            out = await session.m.circle_ask(step, q, reg, obs=obs if obs is not None else EMPTY_OBS, image=image,
+                                             context=ctx, ask_id=ask_id, jpeg=cap.jpeg if cap is not None else None)
         except Exception as e:  # noqa: BLE001 - a missing / failing coach: the text read, never "Couldn't reach"
             log.warning("circle ask: coach failed (%s); answering from the text read", type(e).__name__)
-            out = offline_answer(step, q, reg, obs, None, None, ask_id)
-    image = None  # the picture is done with: nothing holds it while the card goes out
+            out = offline_answer(step, q, reg, obs if obs is not None else EMPTY_OBS, None, None, ask_id)
+    cap = image = None  # the picture is done with: nothing holds it while the card goes out
+    if drew:
+        out = {**dict(out), "marks": []}  # the streamed mark is already drawn: never a second one
+    await _send(session, step, gen, out, reg, ask_id, timer)
+
+
+async def _send(session: Any, step: dict | None, gen: int, out: Any, reg: dict, ask_id: str | None,
+                timer: AskTimer) -> None:
+    """The answer card (askId, region, stepId stamped), then its mark; "moved on" when the step changed meanwhile."""
     out = {k: v for k, v in dict(out).items() if not str(k).startswith("_")}
     marks = [m for m in (out.pop("marks", None) or []) if isinstance(m, dict)]
     if step is not None and gen != session.step_gen:
         await moved_on(session, reg, ask_id)  # an answer about the old step would mislead; the ink still gets one
+        timer.finish("moved_on")
         return
     if ask_id:
         out["askId"] = ask_id
@@ -220,7 +383,9 @@ async def answer(session: Any, step: dict | None, text: str | None, region: Any,
     if step is not None:
         out["stepId"] = step["id"]
     await session._emit_card(out, window_s=0.0)  # a second circle on the same spot is a new question
+    timer.mark("card")
     if marks:
         await session.emit("annotate", {"marks": marks, "holdMs": HOLD_MS})
+    timer.finish("ok")
     if step is not None:
         await session._status("offtrack" if session.last_offtrack else ("passed" if session.passed else "watching"))

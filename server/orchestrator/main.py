@@ -120,7 +120,8 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
-INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"})
+INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
+                     "ask.warm"})  # ask.warm only schedules a background warm-up: never behind the queue
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
 # Nov 21 (launch-quiet): what counts as the learner asking for a lesson on this connection (session.learner_asked)
 LEARNER_ASKS = LESSON_STARTS
@@ -348,6 +349,14 @@ def _log_token_refusal(method: str, path: str, scope: dict, headers: dict) -> No
                         "0.0.7 (reinstall it from vscode-ext/); its editor events are ignored until then")
         return
     log.warning("refused %s %s from %s (%s)", method, path, where, why)
+
+
+def _ask_warm_fn(session: Any) -> Any:
+    """The coach's ask.warm (server/coach/fast_ask.warm), or None: no coach, or a stubbed one (nothing to warm)."""
+    try:
+        return session.m.ask_warm_fn()
+    except Exception:  # noqa: BLE001 - a session without the coach: no warm-up
+        return None
 
 
 def parse_command(raw: dict) -> Any:
@@ -765,7 +774,21 @@ class Engine:
         if hasattr(self.session, "panel_state"):
             caps.append("panel.state")
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
+        if _ask_warm_fn(self.session) is not None:
+            caps.append("ask.warm")  # circle to ask / push to talk: the app sends it on a hold (server/coach/fast_ask)
         return caps
+
+    def ask_warm(self) -> bool:
+        """ask.warm: schedule one prompt-cache warm-up for the circle ask (fast_ask.warm: at most one per 4 minutes,
+        never awaited, errors logged once). -> whether one was scheduled."""
+        fn = _ask_warm_fn(self.session)
+        if fn is None:
+            return False
+        try:
+            return bool(fn())
+        except Exception:  # noqa: BLE001 - a warm-up never breaks the socket
+            log.info("ask.warm failed", exc_info=True)
+            return False
 
     def hello(self, restored: bool = False) -> dict:
         out: dict[str, Any] = {"version": ENGINE_VERSION, "contract": CONTRACT_VERSION,
@@ -1109,6 +1132,8 @@ class Engine:
                 circle["ask_id"] = p.askId
             if getattr(p, "source", None):
                 circle["source"] = p.source
+            if getattr(p, "capture", None) is not None:  # the app's own capture of the circle (fast path)
+                circle["capture"] = p.capture.model_dump()
             await s.action(p.kind, p.text, **circle)
         elif msg.type == "video.state":
             await s.video_state(p.t, p.playing)
@@ -1124,6 +1149,8 @@ class Engine:
                 await asyncio.to_thread(_wipe_context_memory, s)
             if server_config.token_invalid_pending():  # the same dead token again (e.g. after a reconnect): say it again
                 await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})
+        elif msg.type == "ask.warm":  # push to talk held: warm the ask's prompt cache (rate-limited, fire and forget)
+            self.ask_warm()
         elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
             await s.card_seen(msg.type == "card.shown", p.stepId, p.title, p.kind, getattr(p, "by", None))
 

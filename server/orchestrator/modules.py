@@ -647,15 +647,26 @@ class Modules:
         return self._public(out)
 
     async def circle_ask(self, step: dict | None, question: str, region: dict, *, obs: Any = None, image: Any = None,
-                         context: dict | None = None, ask_id: str | None = None) -> dict:
+                         context: dict | None = None, ask_id: str | None = None, jpeg: bytes | None = None) -> dict:
         """Circle to ask (circle_ask.py): an answer card about the circled region, plus `marks` (Annotation dicts the
-        session sends as annotate). The stub (ORCH_STUBS with the coach) answers with the text read there."""
+        session sends as annotate). The stub (ORCH_STUBS with the coach) answers with the text read there. `jpeg`:
+        the app's own capture of the region (action ask {capture}), used instead of a crop of `image`."""
         from .circle_ask import offline_answer
 
+        extra = {"jpeg": jpeg} if jpeg else {}  # the old call shape without a capture
         out = await self._run("coach", "circle_ask",
                               lambda: offline_answer(step, question, region, obs, None, context, ask_id),
-                              step, question, region, obs=obs, image=image, context=context, ask_id=ask_id)
+                              step, question, region, obs=obs, image=image, context=context, ask_id=ask_id, **extra)
         return self._public(out)
+
+    def circle_stream_fn(self) -> Callable | None:
+        """The coach's streamed circle answer (server/coach/fast_ask.circle_stream), or None: the coach is stubbed /
+        missing, so the circle ask goes through circle_ask() as before. The caller handles its FastAskError."""
+        return self._real_fn("coach", "circle_stream")
+
+    def ask_warm_fn(self) -> Callable | None:
+        """ask.warm (server/coach/fast_ask.warm): None when the coach is stubbed / missing."""
+        return self._real_fn("coach", "warm_ask")
 
     def has_pointing(self) -> bool:
         return self._real_fn("coach", "show_me") is not None
