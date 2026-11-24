@@ -1,0 +1,32 @@
+{
+ "id": "terminal-mnist-s1-tensorflow-dropped-from-install",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "pip found no tensorflow for Python 3.14 ('ERROR: No matching distribution found for tensorflow'); the learner re-ran the install without tensorflow, so 'Successfully installed' covers jupyter, numpy and matplotlib only. Jupyter is serving, but the next step's `import tensorflow` will fail: the install the step asks for did not happen.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "venv/bin/activate": "# venv\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac mnist % python3 --version",
+    "Python 3.14.0",
+    "tripi@mac mnist % python3 -m venv venv && source venv/bin/activate",
+    "(venv) tripi@mac mnist % pip install jupyter tensorflow numpy matplotlib",
+    "ERROR: Could not find a version that satisfies the requirement tensorflow (from versions: none)",
+    "ERROR: No matching distribution found for tensorflow",
+    "(venv) tripi@mac mnist % pip install jupyter numpy matplotlib",
+    "Successfully installed jupyter-1.1.1 jupyterlab-4.3.1 matplotlib-3.9.2 notebook-7.2.2 numpy-2.1.3",
+    "(venv) tripi@mac mnist % jupyter notebook",
+    "[I 2026-11-24 09:41:02.118 ServerApp] Jupyter Server 2.14.2 is running at:",
+    "[I 2026-11-24 09:41:02.118 ServerApp] http://localhost:8888/tree?token=8d2e41c0",
+    "[I 2026-11-24 09:41:02.118 ServerApp]     http://127.0.0.1:8888/tree?token=8d2e41c0"
+   ]
+  }
+ }
+}

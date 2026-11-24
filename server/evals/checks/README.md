@@ -168,6 +168,48 @@ Train wrong verdicts (in `baseline.json` → `known_wrong`), worst first:
 
 Held-out wrong verdicts: ids in `baseline.json` → `held_out.known_wrong` (one new); not read while fixing.
 
+## Round 2: terminal and git (Nov 24 2026, `claude/eng-evals-r2-2`, 20 new cases, 7 held out)
+
+Added after the round 1 fixes. These cases cover what round 1 did not: the Git lesson's s1 (config), s9 (pull + show) and s10
+(delete branches), `git add .` staging a file the step keeps untracked, a commit stopped by "Author identity
+unknown", a clone nested inside project1 (the lesson's own common mistake), a push of a branch whose commit
+never happened, a pull that failed on divergent branches, pytest run on one selected test, pip dropping
+tensorflow, a Jupyter server shut down after it started, and two inline steps in the form of Adrian's
+`intro-terminal` plan ("Find where you are": the *last* pwd is /Users/Shared; "Read files": wc -l shows 2
+for one note). Done-but-odd: `git config set` / `git config list` (git 2.46+), `gh repo clone`, a
+capitalised commit message, `git switch -c` on an existing branch and then `git switch`, a remote branch
+GitHub already deleted, `git branch -D` after a squash merge, pip "already satisfied" with Jupyter on port 8889,
+npm warnings and audit notices before Vite's ready line, and `cd ~ && pwd`.
+
+Before any fix (the engine is the round 1 fix state). Train is 121 cases (108 + 13 new) and held-out is 34 (27 + 7 new):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (121) | 0.934 | 0.885 | 0.982 | 7 | 1 |
+| train terminal (46) | 0.826 | 0.731 | 0.950 | 7 | 1 |
+| train, new terminal cases only (13) | 0.385 | | | 7 | 1 |
+| held-out (34) | 0.471 | 0.391 | 0.692 | 14 | 4 |
+| held-out, new terminal cases only (7) | 0.571 | | | 2 | 1 |
+
+Wrong train verdicts, worst first. `baseline.json` → `known_wrong` lists them so the pytest guard stays green until a fix:
+
+- **FP `terminal-git-s1-alias-typo-not-a-command`**: `alias.i` matches only in `git confg ... alias.i init`, the
+  command line git refused ("is not a git command"). The `git config --list` that follows has no `alias.i`.
+- **FP `terminal-git-s3-add-dot-staged-waiting`**: `waiting.py` matches under "Changes to be committed". The check
+  wants it under "Untracked files".
+- **FP `terminal-git-s6-cloned-inside-project1`**: the clone ran with the prompt in project1. Both patterns match.
+- **FP `terminal-git-s8-pushed-without-committing`**: "no changes added to commit", then `* [new branch]
+  update-name -> update-name`. The push succeeded, but the edited heading was never committed.
+- **FP `terminal-pymod-m5-ran-one-test-only`**: `pytest test_operations.py::test_add` printed "1 passed" with exit 0.
+  A test that is never selected can't fail.
+- **FP `terminal-shell-pwd-last-is-users-shared`**: `^/Users/[^/\s]+$` matches the last pwd's `/Users/Shared`
+  (and the first pwd's home folder).
+- **FP `terminal-shell-wc-one-note-two-lines`**: one `3 notes/day1.txt` row is enough. The `2 notes/summit.txt`
+  row is never weighed.
+- **FN `terminal-git-s5-commit-capitalised-message`**: "Add waiting file" vs the pattern `add\s+waiting\s+file`.
+
+Held-out: new wrong verdicts are in `baseline.json` → `held_out.known_wrong` (ids only, not read when fixing).
+
 ## Round 1 fixes (Nov 24 2026, `claude/eng-check-fixes-r1`)
 
 The four round-1 case sets merged: 135 cases, 108 train + 27 held out. Every fix is general (no lesson ids, no case

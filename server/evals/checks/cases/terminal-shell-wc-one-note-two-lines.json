@@ -1,0 +1,53 @@
+{
+ "id": "terminal-shell-wc-one-note-two-lines",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to the terminal, 'Read files with cat, less and head' (passes: wc -l prints 3 for each of the three notes). wc -l prints 3 for day1.txt and day2.txt but 2 for summit.txt (one of its lines was written with > and overwrote). A 3 next to some .txt is on screen; not every note has three lines.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Count the lines",
+  "instructions": "In trail-log, run wc -l on the three notes (day1.txt, day2.txt and summit.txt) and check each one has 3 lines.",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "wc -l",
+    "caption": "Count the lines in each note"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "screen_contains",
+    "label": "wc -l counts 3 lines per note",
+    "app": "Terminal",
+    "pattern": "^\\s*3\\s+\\S+\\.txt\\s*$"
+   },
+   {
+    "id": "s5c2",
+    "type": "screen_absent",
+    "label": "No missing notes",
+    "app": "Terminal",
+    "pattern": "No such file or directory"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/notes/day1.txt": "Sunny, 18C\nTrail dry\nSaw a deer\n",
+   "trail-log/notes/day2.txt": "Light rain\nMuddy trail\nCamp by the lake\n",
+   "trail-log/notes/summit.txt": "Reached the summit\nClouds below us\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail-log % wc -l notes/day1.txt notes/day2.txt notes/summit.txt",
+    "       3 notes/day1.txt",
+    "       3 notes/day2.txt",
+    "       2 notes/summit.txt",
+    "       8 total",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}
