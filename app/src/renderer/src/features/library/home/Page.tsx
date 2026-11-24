@@ -96,14 +96,18 @@ function LessonRows({ rows, onOpen }: { rows: Array<{ id: string; title: string;
   return (
     <div className="mg-h4-list">
       {rows.map((r) => (
-        <RowBtn key={r.id} cols="minmax(0,1fr) auto minmax(204px,max-content) 14px" minH={50} label={`${r.title}. ${r.meta}.`} onClick={() => onOpen(r.id)} data={{ 'data-lesson': r.id }}>
-          <span className="flex min-w-0 items-center gap-[10px]">
+        <RowBtn key={r.id} cols={r.skill ? 'minmax(0,1fr) auto minmax(204px,max-content) 14px' : 'minmax(0,1fr) minmax(204px,max-content) 14px'} minH={50} label={`${r.title}. ${r.meta}.`} onClick={() => onOpen(r.id)} data={{ 'data-lesson': r.id }}>
+          <span className="flex min-w-0 items-center gap-[10px]" style={{ padding: '6px 0' }}>
             <Cover kind={r.cover} width={54} radius={5} />
-            <b className="truncate" style={{ fontWeight: 550, color: color.text }}>
+            <b className="line-clamp-2" style={{ fontWeight: 550, color: color.text, lineHeight: 1.3 }}>
               {r.title}
             </b>
           </span>
-          <span className="min-w-0">{r.skill ? <Tag>{r.skill}</Tag> : null}</span>
+          {r.skill && (
+            <span className="min-w-0">
+              <Tag>{r.skill}</Tag>
+            </span>
+          )}
           <span className="truncate text-right" style={muted}>
             {r.meta}
           </span>
@@ -201,17 +205,24 @@ function Week({ m }: { m: HomeModel }): ReactNode {
   const any = m.week.some((b) => b.value > 0)
   if (!any && !m.stats.steps) return null
   const unit = m.stats.minutes !== undefined ? 'min' : 'steps'
+  // A zero is left out, like practiced with no minutes: the rail never shows a row of zeros.
+  const stats: Array<[string, Array<[string, string]>]> = []
+  if (m.stats.minutes) stats.push(['practiced', hoursMinutes(m.stats.minutes)])
+  if (m.stats.steps) stats.push(['steps passed', [[String(m.stats.steps), '']]])
+  if (m.stats.mastered) stats.push(['skills mastered', [[String(m.stats.mastered), '']]])
   return (
     <section aria-labelledby="home-week" data-home-week>
       <Sec id="home-week" first link="Progress" onLink={() => setPage('progress')}>
         This week
       </Sec>
       <WeekChart bars={m.week} unit={unit} />
-      <div className="flex" style={{ marginTop: 10 }}>
-        {m.stats.minutes !== undefined && <Stat first parts={hoursMinutes(m.stats.minutes)} label="practiced" />}
-        <Stat first={m.stats.minutes === undefined} parts={[[String(m.stats.steps), '']]} label="steps passed" />
-        <Stat parts={[[String(m.stats.mastered), '']]} label="skills mastered" />
-      </div>
+      {stats.length > 0 && (
+        <div className="flex" style={{ marginTop: 10 }}>
+          {stats.map(([label, parts], i) => (
+            <Stat key={label} first={i === 0} parts={parts} label={label} />
+          ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -275,7 +286,7 @@ function Fresh({ m, now }: { m: HomeModel; now: number }): ReactNode {
       </Sec>
       <div className="mg-h4-list">
         {m.fresh.slice(0, 3).map((f) => (
-          <RailRow key={f.label} icon={<RotateCcw aria-hidden size={15} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />} right={f.at !== undefined ? <span style={muted}>{agoLabel(f.at, now)}</span> : undefined}>
+          <RailRow key={f.label} icon={<RotateCcw aria-hidden size={15} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />} right={<span style={muted}>{f.at !== undefined ? agoLabel(f.at, now) : 'first review'}</span>}>
             {f.label}
           </RailRow>
         ))}
@@ -322,7 +333,12 @@ function StarterCard({ p }: { p: StarterPlan }): ReactNode {
         {p.title}
       </b>
       <span className="mt-[2px] block" style={{ fontSize: T.small, color: color.label }}>
-        {p.tool} · {p.lessons} lessons · {sizeLabel(p.minutes)}
+        {[p.tool, `${p.lessons} lessons`, sizeLabel(p.minutes)].map((t, i) => (
+          <span key={i}>
+            {i > 0 && ' · '}
+            <span className="whitespace-nowrap">{t}</span>
+          </span>
+        ))}
       </span>
       {p.ends && (
         <span className="block" style={{ fontSize: T.small, color: color.label }}>
