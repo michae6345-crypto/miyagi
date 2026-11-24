@@ -138,6 +138,17 @@ _sems: dict = {}
 PRIORITY: contextvars.ContextVar[bool] = contextvars.ContextVar("lesson_claude_priority", default=False)
 # The builder's first-step hooks for watch_transcript (first_step.FirstStep), set around that one call; None = none.
 DETAIL_HOOKS: contextvars.ContextVar = contextvars.ContextVar("lesson_detail_hooks", default=None)
+# A call made off the build's own sequence (batched.py's early adapt calls, while the details are still being written)
+# leaves last_model alone (build.model reads it); CALL_MODEL is the model that served this task's latest call either way.
+QUIET: contextvars.ContextVar[bool] = contextvars.ContextVar("lesson_claude_quiet", default=False)
+CALL_MODEL: contextvars.ContextVar = contextvars.ContextVar("lesson_claude_call_model", default=None)
+
+
+def _served(model_id: str) -> None:
+    global last_model
+    CALL_MODEL.set(model_id)
+    if not QUIET.get():
+        last_model = model_id
 
 
 class _Lanes:
@@ -389,12 +400,11 @@ async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *,
                             prefix: str = "", site: str = "lesson.segment") -> dict:
     """Structured output when the API accepts the schema; otherwise (\"Schema is too complex\") the
     schema goes in the prompt and the reply is validated client-side, with one corrective retry."""
-    global last_model
     key = json.dumps(schema, sort_keys=True)
     if structured and key not in _schema_too_complex:
         try:
             msg, text = await _call(mid, system, _user_content(prefix, prompt, site), effort=effort, schema=schema)
-            last_model = getattr(msg, "model", None) or mid
+            _served(getattr(msg, "model", None) or mid)
             return json.loads(text)
         except _SchemaTooComplex:
             _schema_too_complex.add(key)
@@ -415,7 +425,7 @@ async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *,
         except ValueError as e:
             errors = [f"not valid JSON: {e}"]
         if not errors:
-            last_model = getattr(msg, "model", None) or mid
+            _served(getattr(msg, "model", None) or mid)
             return obj
         ask = ask + "\n\nYour previous reply was invalid; fix these and reply with the full JSON object again:\n- " + "\n- ".join(errors[:20])
     raise RuntimeError("Claude reply did not match the schema: " + "; ".join(errors[:5]))

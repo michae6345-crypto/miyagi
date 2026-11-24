@@ -1,6 +1,7 @@
 """The session's link to the skill tree (server/skilltree): which steps were helped, and what a pass records.
 
     note_assist(s, kind)            an action on the step: Show me, Do it for me, or the HINT_ASSIST_LEVEL-th hint
+    note_card(s, type_, payload)    a card / off-track going out: a level-3 one (the exact fix) makes its step assisted
     tags(s)                         stepId -> catalog skill ids for the running lesson (cached per graph)
     await on_pass(s, step, skipped) record the pass (or a skip of a due review), keep a proof; -> step.passed fields
 
@@ -48,6 +49,33 @@ def note_assist(s: Any, kind: str, step: dict | None = None) -> None:
             st["steps"].add(step["id"])
     elif kind in ASSIST_KINDS:
         st["steps"].add(step["id"])
+
+
+FIX_LEVEL = 3  # hint ladder (server/coach/hints.LEVELS, contract Offtrack.level): 3 = the exact fix ("diff")
+
+
+def note_card(s: Any, type_: str, payload: dict | None) -> None:
+    """Session.emit, as a `card` / `offtrack` really goes out: a level-3 card gives the answer away, whether the
+    learner asked for it (a Hint) or the engine sent it on its own (the off-track ladder's repeat / stuck card, the
+    Demo's sign-bug card), so its step's pass is assisted. Like Show me, only once its content is shown: a
+    withdrawal (dismissAfterMs / clear) or a card that never reaches the app marks nothing."""
+    if type_ not in ("card", "offtrack") or not isinstance(payload, dict) or payload.get("clear"):
+        return
+    if payload.get("dismissAfterMs") is not None and not (payload.get("title") or payload.get("body")):
+        return  # an empty off-track withdrawal (advice_clear)
+    try:
+        level = int(payload.get("level") or 0)
+    except (TypeError, ValueError):
+        level = 0
+    if level < FIX_LEVEL and payload.get("levelName") != "diff":
+        return
+    sid = payload.get("stepId")
+    cur = getattr(s, "step", None)
+    step = cur if isinstance(cur, dict) and (not sid or cur.get("id") == sid) else ({"id": sid} if sid else None)
+    try:
+        note_assist(s, "show_me", step)
+    except Exception as e:  # noqa: BLE001 - the skill tree must never cost the card itself
+        log.warning("skill tree: could not mark %s assisted: %s", sid, e)
 
 
 def tags(s: Any) -> dict[str, list[str]]:

@@ -895,6 +895,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             except Exception:  # noqa: BLE001
                 log.exception("v2 fields for %s failed; sending it without them", type_)
         context_memory.observe(self, type_, payload)  # never raises; a no-op when memory is off (and under pytest)
+        skill_hooks.note_card(self, type_, payload)  # a level-3 card (the exact fix) shown: its step's pass is assisted
         await self._emit_raw(type_, payload or {})
 
     def _tagged(self, type_: str, payload: dict) -> dict:

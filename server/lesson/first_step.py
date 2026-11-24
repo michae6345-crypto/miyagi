@@ -147,6 +147,12 @@ class FirstStep:
         self.task.add_done_callback(_retrieve)
 
     # ------------------------------------------------------------------ what the full build waits for
+    def lock_state(self) -> str:
+        """"locked" (step 1 is built and final), "none" (it won't be built early) or "pending"."""
+        if self._lock.done():
+            return "locked" if self._lock.result() is not None else "none"
+        return "pending"
+
     def building(self) -> bool:
         """Step 1 is being built early, or was: the full build should wait for its lock instead of adapting it."""
         return self.task is not None and (not self._lock.done() or self._lock.result() is not None)

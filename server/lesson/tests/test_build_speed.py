@@ -289,7 +289,10 @@ def test_a_cancelled_build_stops_at_once_and_never_sends_step_1(tmp_path):
     assert took < 0.01 and busy == 0
     assert not [u for u in fakes.updates if not u["provisional"]]
     assert max(e["end"] for e in fakes.events if e["kind"] == "detail") < 25  # cancelled in the adapt pass
-    assert not [e for e in fakes.events if e["kind"] == "adapt" and 2 in e["steps"]]  # ...which never finished
+    # ...which never finished: no retry, and no batch holding step 5 or 6 completed (batched adapt: steps 2-4 started
+    # at 16.5, when their details were in, and were done before the cancel)
+    assert not [e for e in fakes.events if e["kind"] == "adapt_retry"]
+    assert not [e for e in fakes.events if e["kind"] == "adapt" and {5, 6} & set(e["steps"])]
 
 
 def test_a_build_that_fails_before_step_1_is_sent_fails_the_normal_way(tmp_path):

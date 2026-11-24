@@ -15,7 +15,7 @@ from pathlib import Path
 
 import os
 
-from . import app_lesson, budget, claude, first_step, gemini, links, materials, timing, transcript
+from . import app_lesson, batched, budget, claude, first_step, gemini, links, materials, timing, transcript
 from .transcript import parse_ts  # noqa: F401  (re-exported: claude.py, progressive.py, tests use builder.parse_ts)
 from .schema import (
     CHECK_TYPES,
@@ -54,6 +54,7 @@ _material_urls: contextvars.ContextVar = contextvars.ContextVar("lesson_material
 # this build's captions + linked code, fetched from the start while the lesson caches are asked (_start_prefetch)
 _prefetched: contextvars.ContextVar = contextvars.ContextVar("lesson_prefetched", default=None)
 _first: contextvars.ContextVar = contextvars.ContextVar("lesson_first_step", default=None)  # first_step.FirstStep
+_batched: contextvars.ContextVar = contextvars.ContextVar("lesson_batched", default=None)  # batched.BatchedAdapt
 
 
 def _emit(stage: str, message: str = "") -> None:
@@ -350,7 +351,10 @@ async def _build_lesson_impl(
     first = (first_step.FirstStep(url=source_url, vid=vid, goal=goal, workdir=workdir, info=info, key=key,
                                   on_update=on_update, transcript_only=transcript_only)
              if fast and on_update is not None and (transcript_only or engines() == ["claude"]) else None)
-    tokens = (_prefetched.set(pre), _first.set(first))
+    # the adapt pass's first round starts batch by batch as the step details land (batched.py)
+    bat = (batched.BatchedAdapt(goal=goal, info=info, first=first, batch=ADAPT_BATCH, vid=vid)
+           if fast and batched.enabled() and (transcript_only or engines() == ["claude"]) else None)
+    tokens = (_prefetched.set(pre), _first.set(first), _batched.set(bat))
     try:
         if cache and not (refresh or readapt):
             hit = path if path.is_file() else find_cached(vid, workdir, info)
@@ -486,9 +490,34 @@ async def _build_lesson_impl(
     finally:
         _prefetched.reset(tokens[0])
         _first.reset(tokens[1])
+        _batched.reset(tokens[2])
+        if bat is not None:
+            bat.close()
         _stop_prefetch(pre)
         if first is not None:
             first.close()
+
+
+class _DetailHooks:
+    """claude.DETAIL_HOOKS for both watchers of the per-step detail calls: step 1 first (its steps go first) and the
+    batched adapt pass. Neither may break the build: each hook's own errors are its own."""
+
+    def __init__(self, first, bat) -> None:
+        self.first, self.bat = first, bat
+
+    def segment(self, seg: dict) -> set[int]:
+        if self.bat is not None:
+            try:
+                self.bat.segment(seg)
+            except Exception as e:  # noqa: BLE001
+                log.warning("batched adapt hook (segment) failed: %s", e)
+        return self.first.segment(seg) if self.first is not None else set()
+
+    def detail(self, i: int, step: dict) -> None:
+        if self.first is not None:
+            self.first.detail(i, step)  # step 1 first: it may start building now
+        if self.bat is not None:
+            self.bat.detail(i, step)
 
 
 def _draft_cached(vid: str, goal: str) -> bool:
@@ -725,9 +754,13 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
         first = _first.get() if order == ["claude"] else None  # step 1 first: never while Gemini races this draft
         if first is not None:
             first.video_info = info
+        bat = _batched.get() if order == ["claude"] else None
+        if bat is not None:
+            bat.video_info = info
+        both = _DetailHooks(first, bat) if (first is not None or bat is not None) else None
         last: Exception | None = None
         for _attempt in range(2):
-            hooks = claude.DETAIL_HOOKS.set(first)
+            hooks = claude.DETAIL_HOOKS.set(both)
             try:
                 draft = normalize_draft(await claude.watch_transcript(info, goal))
                 break
@@ -968,15 +1001,40 @@ async def _adapt_call(goal: str, draft: dict, summary: str, feedback: list[str] 
         ids = {st["index"] for st in batch}
         return [p for p in feedback if not (m := _STEP_PROBLEM.match(p)) or int(m.group(1)) in ids] or None
 
-    results = await asyncio.gather(*(claude.adapt_checks(goal, b, summary, fb_for(b)) for b in batches), return_exceptions=True)
+    bat = _batched.get() if not feedback else None  # round 1: batches started as their details landed (batched.py)
+    if bat is not None:
+        batches = bat.layout(steps) or batches
+
+    fresh: list[bool] = []
+
+    async def one(b: list[dict]):
+        started = bat.take(batched.key(goal, b, summary)) if bat is not None else None
+        if started is not None:  # the very call this batch would make, already running (or done)
+            return await started
+        fresh.append(True)
+        return await claude.adapt_checks(goal, b, summary, fb_for(b))
+
+    results = await asyncio.gather(*(one(b) for b in batches), return_exceptions=True)
     errs = [r for r in results if isinstance(r, BaseException)]
     if len(errs) == len(results):
         raise errs[0] if isinstance(errs[0], RuntimeError) else RuntimeError(str(errs[0]))
     for e in errs:
         log.warning("adapt batch failed: %s", str(e)[:200])
-    merged = [st for r in results if isinstance(r, dict) for st in r.get("steps") or []]
+    ok = [r for r in results if isinstance(r, dict)]
+    merged = [st for r in ok for st in r.get("steps") or []]
     log.info("claude adapt pass: %.1fs (%d batch(es))", time.time() - t0, len(batches))
-    return {"steps": merged}, str(claude.last_model)
+    out: dict = {"steps": merged}
+    # batched.py's early results: which steps already had a retry (the per-step retry cap), and the models that served
+    # them (an early call leaves claude.last_model alone)
+    retried = sorted({k for r in ok for k in r.get("_retried") or []})
+    if retried:
+        out["_retried"] = retried
+        out["_improved"] = sorted({k for r in ok for k in r.get("_improved") or []})
+    early = [r for r in ok if "_model" in r]
+    used = next((r["_retry_model"] for r in early if r.get("_retry_model")), None)
+    if used is None:
+        used = str(claude.last_model) if fresh or not early else (early[0].get("_model") or str(claude.last_model))
+    return out, used
 
 
 async def _add_detail(url: str, draft: dict) -> None:
@@ -1126,6 +1184,10 @@ async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] |
     known_files = set(info.files)
     adapted: dict[int, dict] = {}
     frozen: set[int] = set()
+    # retries left for steps batched.py already retried once: the cap is the old loop's (2 retries, a second one only
+    # after the first helped), so 1 if its early retry helped, else none
+    retries_left: dict[int, int] = {}
+    limit = ADAPT_ATTEMPTS
     used: str | None = None
     best: tuple[int, dict] | None = None
     targets = list(draft["steps"])
@@ -1151,6 +1213,11 @@ async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] |
                     app = lock.get("app")  # the lesson-wide app / code choice step 1 went out with
             else:
                 out, used = await _adapt_call(goal, {"steps": targets}, summary, feedback)
+            if attempt == 0:
+                helped = set(out.get("_improved") or [])
+                retries_left = {k: (1 if k in helped else 0) for k in out.get("_retried") or []}
+                if retries_left:  # batched.py's early retries were the first retry round: one more round at most
+                    limit = ADAPT_ATTEMPTS - 1
         except RuntimeError as e:
             log.warning("adapt pass failed (attempt %d): %s", attempt + 1, e)
             if not adapted:  # nothing to improve on; the video draft's checks are the fallback
@@ -1172,9 +1239,15 @@ async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] |
             log.info("adapt attempt %d: %d problems (no better than %d); stopping", attempt + 1, len(problems), best[0])
             break
         best = (len(problems), graph)
+        if attempt + 1 >= limit:
+            break
         bad = {int(m.group(1)) for p in problems if (m := _STEP_PROBLEM.match(p))}
         graph_level = [p for p in problems if not _STEP_PROBLEM.match(p)]
         targets = [st for st in draft["steps"] if (graph_level or st["index"] in bad) and st["index"] not in frozen]
+        targets = [st for st in targets if retries_left.get(st["index"], 1) > 0]
+        for st in targets:
+            if st["index"] in retries_left:
+                retries_left[st["index"]] -= 1
         if not targets:
             break
         feedback = problems
@@ -1240,7 +1313,11 @@ async def _adapt_with_lock(goal: str, targets: list[dict], summary: str, locked)
     for r in parts:
         if isinstance(r, RuntimeError):
             log.warning("adapt batch failed: %s", str(r)[:200])  # like a failed batch: those steps keep the draft's checks
-    return {"steps": [st for r in ok for st in r[0].get("steps") or []]}, next((r[1] for r in ok if r[1]), None), None
+    merged = {"steps": [st for r in ok for st in r[0].get("steps") or []]}
+    if retried := sorted({k for r in ok for k in r[0].get("_retried") or []}):
+        merged["_retried"] = retried
+        merged["_improved"] = sorted({k for r in ok for k in r[0].get("_improved") or []})
+    return merged, next((r[1] for r in ok if r[1]), None), None
 
 
 def _lock_result(t) -> dict | None:

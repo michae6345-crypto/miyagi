@@ -244,3 +244,80 @@ def test_tags_cache_is_keyed_on_the_lesson_and_step_ids_not_the_graph_address():
     s.steps = [{"id": "t1", "title": "Write the add function"}]
     got = skill_hooks.tags(s)
     assert "s1" not in got and got.get("t1") != ["bl.extrude"]
+
+
+def test_note_card_marks_only_a_shown_level_3_card():
+    s = SimpleNamespace(graph={"lesson": {"id": "A"}}, step={"id": "s1"})
+    skill_hooks.note_card(s, "offtrack", {"stepId": "s1", "level": 2, "title": "Loss is flat", "body": "why"})
+    skill_hooks.note_card(s, "card", {"stepId": "s1", "kind": "hint", "level": 0, "levelName": "question"})
+    skill_hooks.note_card(s, "offtrack", {"stepId": "s1", "title": "", "body": "", "actions": [], "dismissAfterMs": 1,
+                                          "level": 3})  # an off-track withdrawal shows nothing
+    skill_hooks.note_card(s, "spotlight", {"stepId": "s1", "level": 3})
+    assert not skill_hooks.assisted(s, "s1")
+    skill_hooks.note_card(s, "card", {"stepId": "s1", "kind": "hint", "level": 3, "levelName": "diff"})
+    assert skill_hooks.assisted(s, "s1")
+    skill_hooks.note_card(s, "card", {"stepId": "s2", "kind": "hint", "levelName": "diff"})  # the card's own step
+    assert skill_hooks.assisted(s, "s2")
+    skill_hooks.note_card(SimpleNamespace(graph=None, step=None), "offtrack", {"level": 3})  # nothing to mark: no raise
+
+
+def test_the_engines_own_level_3_offtrack_makes_the_pass_assisted(state, monkeypatch):
+    """Review (skills#3): the ladder's automatic level-3 card (same failure again / stuck) shows the exact fix with
+    Do it for me. Typing that fix by hand is an assisted pass: no proof, no unassisted day toward mastery. The
+    level-2 concept card alone leaves it unassisted."""
+    from server.orchestrator.screen_bridge import FakeScreen
+    from server.orchestrator.tests.test_session import CONVERGE, PLATEAU, Rig, _to_step
+
+    monkeypatch.delenv("DEMO", raising=False)
+
+    async def go(level3: bool) -> dict:
+        rig = Rig(state / "work")
+        rig.s.screen = FakeScreen()
+        rig.s.screen.text["Code"] = ["def train(model):", "    beta = 30", "    for epoch in range(4000):"]
+        await _to_step(rig, 5)
+        sid = rig.s.step["id"]
+        rig.write("def train(model):\n    beta = 30\n    for epoch in range(4000):\n        pass\n")
+        await rig.end_segment()
+        await rig.run("r-plateau", PLATEAU)  # level 2: what's wrong and why, not the patch
+        assert [p["level"] for p in rig.of("offtrack")] == [2]
+        assert not skill_hooks.assisted(rig.s, sid)
+        if level3:
+            rig.clock.t += 25
+            await rig.run("r-plateau-again", PLATEAU)  # level 3: the exact fix
+            assert [p["level"] for p in rig.of("offtrack")] == [2, 3]
+            assert skill_hooks.assisted(rig.s, sid)
+        await rig.run("r-curriculum", CONVERGE)
+        (passed,) = rig.of("step.passed")
+        return passed
+
+    passed = asyncio.run(go(level3=True))
+    assert passed["assisted"] is True and "proofId" not in passed
+    for sid in passed.get("skillIds") or []:
+        assert ledger.skill_row(sid)["unassistedDays"] == 0
+    passed = asyncio.run(go(level3=False))
+    assert passed["assisted"] is False
+
+
+def test_a_level_3_hint_or_the_demos_sign_card_is_assisted_once_shown(state):
+    """The lesson-mode Hint's second press (card_copy.diagnosed_hint: "Fix line n", level 3) and the Demo's sign-bug
+    Not yet (stage._sign_card, level 3 with the diff) both give the fix away; they count once they go out."""
+    from server.orchestrator import stage
+
+    async def go():
+        s, sent = _session()
+        await s.load_graph(_python_graph())
+        await s.drain()
+        sid = s.step["id"]
+        await s._emit_card({"stepId": sid, "kind": "hint", "title": "Look at line 2",
+                            "body": "Look at line 2 of app.py.", "level": 0, "levelName": "question"})
+        first = skill_hooks.assisted(s, sid)
+        await s._emit_card({"stepId": sid, "kind": "hint", "title": "Fix line 2",
+                            "body": "On line 2, change a - b to a + b.", "level": 3, "levelName": "diff"})
+        hint = skill_hooks.assisted(s, sid)
+        s._skill_assisted = None  # start clean for the Demo card
+        bug = {"line": 2, "expected": "return a + b", "yours": "return a - b"}
+        await s.emit("offtrack", stage._sign_card(sid, bug, 0.49))
+        return first, hint, skill_hooks.assisted(s, sid), [t for t, _ in sent]
+
+    first, hint, sign, types = asyncio.run(go())
+    assert first is False and hint is True and sign is True and "offtrack" in types
