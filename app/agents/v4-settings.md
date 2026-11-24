@@ -44,6 +44,11 @@ See it: `npm run dev:web -- --port 5255`, then
   progress" (progress lives in ~/miyagi on this Mac).
 - No "Plan and usage" row: Account opens the account page, which holds the plan.
 
+## Round 5 (Nov 24)
+- The shell's legacy 'Settings' title no longer doubles the panel title: `styles.css` hides `[data-legacy-header]` with `!important` (the rule sits in `@layer base`, so the header's Tailwind `flex` used to win). One line outside this lane, for every v4 PageFrame page; a shell/base lane may own it.
+- 'Open miyagi' draws the launcher chord as one cap per key (⌥ and Space), via `splitKeys` in `v4/facts.ts`.
+- Still a follow-up: 'Used by N plans.' and the APPS list stay placeholders until the catalog (docs/ui-next/catalog/catalog.json) ships in the app.
+
 ## Core requests
 - Main handlers for Your data: `data:summary` → `{ folder, cacheBytes, lessons }`, `data:cache-clear`,
   `data:open-folder`. Until they land, Open and Clear are disabled in Electron (they work on the stage) and Electron

@@ -72,3 +72,8 @@ export const askDelete = (): void => {
   deleteAskAt = Date.now()
 }
 export const takeDeleteAsk = (): boolean => Date.now() - deleteAskAt < 1500
+
+/** A chord split into its keys (⌥Space -> ⌥ and Space, Alt+Space -> Alt and Space), one cap each, as the mock draws it. */
+export function splitKeys(label: string): string[] {
+  return label.match(/[⌃⌥⇧⌘]|[^⌃⌥⇧⌘+\s]+/g) ?? []
+}

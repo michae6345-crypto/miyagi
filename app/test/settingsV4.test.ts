@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { APP_GROUPS, APPS, appCaption, askDelete, fromInventory, size, takeDeleteAsk, usedBy } from '../src/renderer/src/features/settings/v4/facts'
+import { APP_GROUPS, APPS, appCaption, askDelete, fromInventory, size, splitKeys, takeDeleteAsk, usedBy } from '../src/renderer/src/features/settings/v4/facts'
 import { isPanel, panelOf, PANELS } from '../src/renderer/src/features/settings/panels'
 
 test('size: KB, MB and GB; nothing for a missing or bad number', () => {
@@ -52,4 +52,12 @@ test('delete ask: opens the confirm once, right after the ask', () => {
   assert.equal(takeDeleteAsk(), false)
   askDelete()
   assert.equal(takeDeleteAsk(), true)
+})
+
+test('splitKeys: one cap per key, modifiers on their own', () => {
+  assert.deepEqual(splitKeys('⌥Space'), ['⌥', 'Space'])
+  assert.deepEqual(splitKeys('Alt+Space'), ['Alt', 'Space'])
+  assert.deepEqual(splitKeys('Ctrl⇧Space'), ['Ctrl', '⇧', 'Space'])
+  assert.deepEqual(splitKeys('Control+Shift+Space'), ['Control', 'Shift', 'Space'])
+  assert.deepEqual(splitKeys('Esc'), ['Esc'])
 })
