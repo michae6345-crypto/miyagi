@@ -1,0 +1,362 @@
+{
+ "id": "blender-fan-blades-also-keyed",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Blender animation lesson 5 (\"The blades are children of the hub and only the hub has rotation keyframes\"). The parenting is right (each blade's parent is Hub), but the learner pressed A before I, so all four objects got the 0 to 360 degree rotation keys. Each blade turns on its own axis on top of the hub's turn: the fan spins twice as fast as keyed. The point of the step, key only the parent, is undone.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Key only the hub",
+  "file": "fan.blend",
+  "instructions": "Click only the Hub (not the blades). On frame 1 press I > Rotation. Go to frame 48, type R Z 360 and press I > Rotation again. The blades follow because they are children of the Hub. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Blades parented to the hub",
+    "file": "fan.scene.json",
+    "pattern": "\"parent\":\\s*\"Hub\""
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Hub has rotation keys",
+    "file": "fan.scene.json",
+    "pattern": "\"data_path\":\\s*\"rotation_euler\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "fan.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see fan.scene.json)\n",
+   "fan.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "fan.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 48,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "frame_current": 1
+     },
+     "objects": [
+      {
+       "name": "Hub",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        1.5
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.4,
+        0.4,
+        0.2
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "HubAction",
+        "fcurves": [
+         {
+          "data_path": "rotation_euler",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            48.0,
+            6.283185
+           ]
+          ],
+          "interpolation": [
+           "LINEAR",
+           "LINEAR"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Blade1",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.2,
+        0.3,
+        0.02
+       ],
+       "parent": "Hub",
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "Blade1Action",
+        "fcurves": [
+         {
+          "data_path": "rotation_euler",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            48.0,
+            6.283185
+           ]
+          ],
+          "interpolation": [
+           "LINEAR",
+           "LINEAR"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Blade2",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        120.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.2,
+        0.3,
+        0.02
+       ],
+       "parent": "Hub",
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "Blade2Action",
+        "fcurves": [
+         {
+          "data_path": "rotation_euler",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            2.0943953333333334
+           ],
+           [
+            48.0,
+            8.377580333333333
+           ]
+          ],
+          "interpolation": [
+           "LINEAR",
+           "LINEAR"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Blade3",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        240.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.2,
+        0.3,
+        0.02
+       ],
+       "parent": "Hub",
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "Blade3Action",
+        "fcurves": [
+         {
+          "data_path": "rotation_euler",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            4.188790666666667
+           ],
+           [
+            48.0,
+            10.471975666666665
+           ]
+          ],
+          "interpolation": [
+           "LINEAR",
+           "LINEAR"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

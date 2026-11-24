@@ -1,0 +1,296 @@
+{
+ "id": "blender-materials-two-metallic-spheres",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Blender materials lesson 1 (\"Three spheres have three materials and exactly one has Metallic at 1\"). The learner read \"shiny plastic\" as metal and pushed Metallic to 1 on the plastic too, so two of the three materials are metal: the plastic sphere renders as polished red chrome, not plastic. Three materials, each on its own sphere, a Metallic 1, a glossy 0.1 and a dull rubber at 0.9 are all in the file; the \"exactly one\" is not.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Plastic, metal and rubber",
+  "file": "spheres.blend",
+  "instructions": "Give each sphere its own material. Plastic: Base Color red, Roughness 0.1, Metallic 0. Metal: Metallic 1, Roughness 0.4. Rubber: Roughness 0.9, Metallic 0. Only the Metal sphere should be metallic. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Exactly one metal material (Metallic 1)",
+    "file": "spheres.scene.json",
+    "pattern": "\"metallic\":\\s*1(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Rubber is dull",
+    "file": "spheres.scene.json",
+    "pattern": "\"roughness\":\\s*0\\.9\\b"
+   },
+   {
+    "id": "s4c3",
+    "type": "file_contains",
+    "label": "Plastic is glossy",
+    "file": "spheres.scene.json",
+    "pattern": "\"roughness\":\\s*0\\.1\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "spheres.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see spheres.scene.json)\n",
+   "spheres.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "spheres.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Plastic",
+       "type": "MESH",
+       "location": [
+        -3.0,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 992,
+        "faces": 512,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Shiny Plastic"
+       ]
+      },
+      {
+       "name": "Metal",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 992,
+        "faces": 512,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Brushed Metal"
+       ]
+      },
+      {
+       "name": "Rubber",
+       "type": "MESH",
+       "location": [
+        3.0,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 992,
+        "faces": 512,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Dull Rubber"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Shiny Plastic",
+       "users": [
+        "Plastic"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.05,
+         0.05,
+         1.0
+        ],
+        "roughness": 0.1,
+        "metallic": 1.0
+       }
+      },
+      {
+       "name": "Brushed Metal",
+       "users": [
+        "Metal"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.4,
+        "metallic": 1.0
+       }
+      },
+      {
+       "name": "Dull Rubber",
+       "users": [
+        "Rubber"
+       ],
+       "principled": {
+        "base_color": [
+         0.05,
+         0.05,
+         0.05,
+         1.0
+        ],
+        "roughness": 0.9,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

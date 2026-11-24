@@ -1,0 +1,236 @@
+{
+ "id": "blender-dof-on-second-camera",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender materials lesson 8 (\"The camera has depth of field on, the crate as focus object and F-Stop 2.8\"). The camera was out of view, so the learner added a new one (Shift+A > Camera) and set Depth of Field, focus object Crate and F-Stop 2.8 on that Camera.001. The scene camera is still Camera (scene.camera), whose depth of field is off: F12 renders through Camera and the background stays sharp. Every value the step names is in the file, on a camera that never renders.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Depth of field",
+  "file": "crate.blend",
+  "instructions": "Select the camera. In Object Data Properties tick Depth of Field, set Focus Object to Crate and F-Stop to 2.8. Press Numpad 0 to look through the camera, then save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "Depth of field on",
+    "file": "crate.scene.json",
+    "pattern": "\"use_dof\":\\s*true"
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "Focus on the crate",
+    "file": "crate.scene.json",
+    "pattern": "\"focus_object\":\\s*\"Crate\""
+   },
+   {
+    "id": "s3c3",
+    "type": "file_contains",
+    "label": "F-Stop 2.8",
+    "file": "crate.scene.json",
+    "pattern": "\"aperture_fstop\":\\s*2\\.8\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "crate.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see crate.scene.json)\n",
+   "crate.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "crate.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "camera": "Camera"
+     },
+     "objects": [
+      {
+       "name": "Crate",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Wood"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera.001",
+       "type": "CAMERA",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Wood",
+       "users": [
+        "Crate"
+       ],
+       "principled": {
+        "base_color": [
+         0.6,
+         0.4,
+         0.2,
+         1.0
+        ],
+        "roughness": 0.7,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "cameras": [
+      {
+       "name": "Camera",
+       "lens": 50.0,
+       "dof": {
+        "use_dof": false,
+        "focus_object": null,
+        "focus_distance": 10.0,
+        "aperture_fstop": 2.8
+       }
+      },
+      {
+       "name": "Camera.001",
+       "lens": 50.0,
+       "dof": {
+        "use_dof": true,
+        "focus_object": "Crate",
+        "focus_distance": 10.0,
+        "aperture_fstop": 2.8
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}
