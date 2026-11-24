@@ -1,0 +1,41 @@
+{
+ "id": "terminal-tsshop-t4-vitest-watch",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "The project's test script is vitest (the Vite template's runner), which stays in watch mode after a run: 'Test Files 1 passed (1)', 'Tests 3 passed (3)', then 'PASS Waiting for file changes...'. Every test passed; the process still running is the watcher waiting, not an unfinished run.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t4"
+ },
+ "workspace": {
+  "files": {
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc -b && vite build\",\n    \"test\": \"vitest\"\n  }\n}\n",
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/utils.test.ts": "import { describe, test, expect } from 'vitest'\nimport { formatPrice } from './utils'\n\ndescribe('formatPrice', () => {\n  test('adds a dollar sign', () => {\n    expect(formatPrice(500)).toBe('$5.00')\n  })\n\n  test('rounds to cents', () => {\n    expect(formatPrice(499.6)).toBe('$5.00')\n  })\n\n  test('formats zero', () => {\n    expect(formatPrice(0)).toBe('$0.00')\n  })\n})\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> vitest",
+    "DEV  v2.1.4 /Users/tripi/shop",
+    "✓ src/utils.test.ts (3 tests) 3ms",
+    "Test Files  1 passed (1)",
+    "Tests  3 passed (3)",
+    "Start at  14:02:11",
+    "Duration  412ms (transform 38ms, setup 0ms, collect 31ms, tests 3ms, environment 0ms, prepare 96ms)",
+    "PASS  Waiting for file changes...",
+    "press h to show help, press q to quit"
+   ]
+  },
+  "run": {
+   "command": "npm test",
+   "running": true,
+   "output_tail": [
+    "PASS  Waiting for file changes..."
+   ]
+  }
+ }
+}

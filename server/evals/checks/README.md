@@ -124,6 +124,55 @@ Held-out wrong verdicts among the 6 new (ids only, all in `baseline.json` → `h
 `jupyter-mnist-loss-curve-from-nan-history`, `jupyter-mnist-s5-fit-on-test-set`,
 `jupyter-pytorch-sine-val-loss-not-a-quarter` (FP); `jupyter-mnist-s7-test-acc-printed-as-fraction`,
 `jupyter-pytorch-save-load-after-restart` (FN).
+## Round 3: multi-file VS Code projects, Python and JS/TS/React (Nov 24 2026, `claude/eng-evals-r3-1`)
+
+19 new cases (12 train, 7 held out), no engine change. Steps from `py-modules.json` (m2, m4, m5), `ts-shop.json`
+(t2, t3, t4) and the React/Vite lesson (s1, s3), plus inline steps in the lesson builder's shape from Adrian's catalog
+plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`): Intro to TypeScript ("Set up tsconfig with strict
+on", "Read and fix type errors" with invoice.ts importing prices.ts, "Interfaces" with an F2 rename of Animal to Pet),
+Intro to VS Code ("Jump around and rename safely", as an ES module project) and React ("Split a page into
+components").
+
+Traps: an old `def add` left below `from operations import add` (the local copy shadows the import and still prints
+5), `from operator import add` (the standard library, also prints 5), a Find and Replace rename that leaves
+`operations.add(...)` in a module that isn't open, a `formatPrice(item.price)` only inside a JSX comment, the
+checkout page's Cart.tsx edited instead of the component's, a `test.only` / `test.skip` left in the Jest file
+(`2 skipped, 1 passed` / `1 skipped, 2 passed`, exit 0), a Header arrow function with a block body and no `return`,
+`// "strict": true,` commented out in a `tsc --init` tsconfig, a type error left in invoice.ts while tsc still emitted
+dist/invoice.js (the terminal cleared, `⊗ 1` in the status bar), a stale `import type { Animal }`, and an ESM import
+without `.js` (`ERR_MODULE_NOT_FOUND`). Done-but-odd: `3 passed, 1 xfailed`, `pytest -q` for `python3 -m pytest -q`,
+`'../utils.ts'` under `allowImportingTsExtensions`, `npm run preview` running after a finished build, Vitest in watch
+mode, the dev server running in another terminal tab, and three components imported through a `components/index.js`.
+
+Before any fix (the engine is the round-2 fix state):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (171 = 159 + 12 new) | 0.965 | 0.937 | 0.987 | 5 | 1 |
+| train, the 12 new | 0.500 | | | 5 | 1 |
+| held-out (62 = 55 + 7 new) | 0.516 | 0.406 | 0.542 | 19 | 11 |
+| held-out, the 7 new | 0.286 | | | 3 | 2 |
+
+Train wrong verdicts (all new; the 159 earlier train cases still score right), in `baseline.json` → `known_wrong`:
+
+- **FP `terminal-tsshop-t4-test-only-left-in`**: `\d+\s+passed` finds `1 passed` and nothing reads
+  `2 skipped` or the `test.only` in the test file: a run that skipped tests is read as the whole suite.
+- **FP `vscode-pymod-m2-old-def-shadows-import`**: both code rows match; nothing notices that main.py defines `add`
+  again after importing it, so the call uses the local copy.
+- **FP `vscode-react-s3-header-body-never-returns`**: `import Header` and `<Header` are on screen; Header.jsx's arrow
+  function has a block body with no `return`, so the component renders nothing.
+- **FP `vscode-ts-invoice-type-error-left`**: dist/invoice.js exists and the total prints; the type error is gone
+  from the terminal (cleared), and invoice.ts on disk (and `⊗ 1` in the status bar) is not compared with the step's
+  code.
+- **FP `vscode-ts-tsconfig-strict-commented-out`**: `"strict"\s*:\s*true` matches inside a `//` comment of a JSONC
+  tsconfig.
+- **FN `vscode-tsshop-t2-ts-extension-import`**: `'../utils.ts'` fails the `'../utils'` pattern although the
+  project's tsconfig allows importing .ts extensions.
+
+Seen right (train): `3 passed, 1 xfailed`, bare `pytest -q`, a preview server after a build, Vitest's watch mode, a
+call only inside a JSX comment, a stale `import type`.
+
+Held-out: ids of the new wrong verdicts in `baseline.json` → `held_out.known_wrong`; not listed here on purpose.
 
 ## Round 2 fixes (Nov 24 2026, `claude/eng-check-fixes-r2`)
 

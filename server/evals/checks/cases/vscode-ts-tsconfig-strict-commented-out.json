@@ -1,0 +1,74 @@
+{
+ "id": "vscode-ts-tsconfig-strict-commented-out",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "tsconfig.json is the npx tsc --init file, and the learner commented strict out ('// \"strict\": true,') after it flagged greet(name)'s implicit any. tsc reads tsconfig as JSON with comments, so strict is off: that is why npx tsc now compiles silently. dist/index.js exists, but strict mode is not on.",
+ "step": {
+  "id": "ts2s2",
+  "title": "Turn on strict mode and compile",
+  "kind": "run",
+  "instructions": "In tsconfig.json, set \"strict\": true inside compilerOptions (next to \"outDir\": \"dist\"), then run npx tsc in the terminal. It compiles src/index.ts to dist/index.js.",
+  "file": "tsconfig.json",
+  "run_command": "npx tsc",
+  "code": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"commonjs\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\",\n    \"strict\": true\n  }\n}",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "tsconfig.json",
+    "match": "\"compilerOptions\"",
+    "caption": "strict goes inside compilerOptions"
+   }
+  ],
+  "checks": [
+   {
+    "id": "ts2s2c1",
+    "type": "file_contains",
+    "label": "tsconfig.json sets strict to true",
+    "file": "tsconfig.json",
+    "pattern": "\"strict\"\\s*:\\s*true"
+   },
+   {
+    "id": "ts2s2c2",
+    "type": "file_exists",
+    "label": "npx tsc wrote dist/index.js",
+    "file": "dist/index.js"
+   },
+   {
+    "id": "ts2s2c3",
+    "type": "screen_absent",
+    "label": "tsc reports no errors",
+    "app": "Terminal",
+    "pattern": "error\\s+TS\\d+"
+   }
+  ],
+  "hints": [
+   "tsc prints nothing when it succeeds."
+  ],
+  "common_mistakes": [
+   "Putting strict outside compilerOptions, where tsc ignores it."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "tsconfig.json": "{\n  \"compilerOptions\": {\n    /* Language and Environment */\n    \"target\": \"es2016\",\n    /* Modules */\n    \"module\": \"commonjs\",\n    \"rootDir\": \"./src\",\n    \"outDir\": \"./dist\",\n    \"esModuleInterop\": true,\n    \"forceConsistentCasingInFileNames\": true,\n\n    /* Type Checking */\n    // \"strict\": true,                                      /* Enable all strict type-checking options. */\n    \"skipLibCheck\": true\n  }\n}\n",
+   "src/index.ts": "function greet(name) {\n  return `Hello, ${name}!`\n}\n\nconsole.log(greet('Ada'))\n",
+   "dist/index.js": "\"use strict\";\nfunction greet(name) {\n    return `Hello, ${name}!`;\n}\nconsole.log(greet('Ada'));\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "tsconfig.json",
+    "\"outDir\": \"./dist\",",
+    "\"esModuleInterop\": true,",
+    "/* Type Checking */",
+    "// \"strict\": true,  /* Enable all strict type-checking options. */",
+    "\"skipLibCheck\": true"
+   ],
+   "Terminal": [
+    "tripi@mac hello-ts % npx tsc",
+    "tripi@mac hello-ts %"
+   ]
+  }
+ }
+}

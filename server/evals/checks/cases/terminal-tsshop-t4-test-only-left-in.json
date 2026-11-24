@@ -1,0 +1,43 @@
+{
+ "id": "terminal-tsshop-t4-test-only-left-in",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "A test.only from debugging is still in src/utils.test.ts: Jest ran one test and skipped the other two ('Tests: 2 skipped, 1 passed, 3 total', suite PASS, exit 0). 'rounds to cents', the test that failed before, never ran, so nothing shows every test passes. Remove .only and run npm test again.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t4"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/utils.test.ts": "import { formatPrice } from './utils'\n\ndescribe('formatPrice', () => {\n  test.only('adds a dollar sign', () => {\n    expect(formatPrice(500)).toBe('$5.00')\n  })\n\n  test('rounds to cents', () => {\n    expect(formatPrice(499.6)).toBe('$5.00')\n  })\n\n  test('formats zero', () => {\n    expect(formatPrice(0)).toBe('$0.00')\n  })\n})\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> jest",
+    "PASS  src/utils.test.ts",
+    "formatPrice",
+    "✓ adds a dollar sign (2 ms)",
+    "○ skipped rounds to cents",
+    "○ skipped formats zero",
+    "Test Suites: 1 passed, 1 total",
+    "Tests:       2 skipped, 1 passed, 3 total",
+    "Snapshots:   0 total",
+    "Time:        0.48 s",
+    "Ran all test suites.",
+    "tripi@mac shop %"
+   ]
+  },
+  "run": {
+   "command": "npm test",
+   "exit_code": 0,
+   "output_tail": [
+    "Tests:       2 skipped, 1 passed, 3 total"
+   ]
+  }
+ }
+}

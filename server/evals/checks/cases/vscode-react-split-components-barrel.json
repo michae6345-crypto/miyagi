@@ -1,0 +1,114 @@
+{
+ "id": "vscode-react-split-components-barrel",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Header, Menu and Footer each live in their own file under src/components/, re-exported by components/index.js, and App.jsx does 'import { Header, Menu, Footer } from './components'' and renders all three in a fragment. One import line for three components, and the files sit one folder down, but each component lives in a file and App renders all three (the page shows all three).",
+ "step": {
+  "id": "re3s5",
+  "title": "Render Header, Menu and Footer in App",
+  "kind": "code",
+  "instructions": "In src/App.jsx, import Header, Menu and Footer from their files and render all three inside a fragment.",
+  "file": "src/App.jsx",
+  "code": "import Header from './Header'\nimport Menu from './Menu'\nimport Footer from './Footer'\n\nfunction App() {\n  return (\n    <>\n      <Header />\n      <Menu />\n      <Footer />\n    </>\n  )\n}\n\nexport default App",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/App.jsx",
+    "match": "<Header />",
+    "caption": "Render all three in App"
+   }
+  ],
+  "checks": [
+   {
+    "id": "re3s5c1",
+    "type": "screen_contains",
+    "label": "Header imported in App",
+    "app": "Code",
+    "pattern": "import\\s+Header"
+   },
+   {
+    "id": "re3s5c2",
+    "type": "screen_contains",
+    "label": "Menu imported in App",
+    "app": "Code",
+    "pattern": "import\\s+Menu"
+   },
+   {
+    "id": "re3s5c3",
+    "type": "screen_contains",
+    "label": "Footer imported in App",
+    "app": "Code",
+    "pattern": "import\\s+Footer"
+   },
+   {
+    "id": "re3s5c4",
+    "type": "screen_contains",
+    "label": "App renders Header, Menu and Footer",
+    "app": "Code",
+    "pattern": "<Header\\s*/>[\\s\\S]*<Menu\\s*/>[\\s\\S]*<Footer\\s*/>"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "re3s5p1",
+    "type": "file_exists",
+    "label": "Header file exists",
+    "file": "food-truck/src/Header.jsx"
+   },
+   {
+    "id": "re3s5p2",
+    "type": "file_exists",
+    "label": "Menu file exists",
+    "file": "food-truck/src/Menu.jsx"
+   },
+   {
+    "id": "re3s5p3",
+    "type": "file_exists",
+    "label": "Footer file exists",
+    "file": "food-truck/src/Footer.jsx"
+   }
+  ],
+  "hints": [
+   "Each component file ends with export default <Name>."
+  ],
+  "common_mistakes": [
+   "Defining all three components inside App.jsx instead of in their own files."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "food-truck/src/components/Header.jsx": "export function Header() {\n  return <header><h1>Taco Truck</h1></header>\n}\n",
+   "food-truck/src/components/Menu.jsx": "export function Menu() {\n  return (<ul><li>Al pastor</li><li>Carnitas</li><li>Veggie</li></ul>)\n}\n",
+   "food-truck/src/components/Footer.jsx": "export function Footer() {\n  return <footer>Open daily 11 to 9</footer>\n}\n",
+   "food-truck/src/components/index.js": "export { Header } from './Header'\nexport { Menu } from './Menu'\nexport { Footer } from './Footer'\n",
+   "food-truck/src/App.jsx": "import { Header, Menu, Footer } from './components'\n\nfunction App() {\n  return (\n    <>\n      <Header />\n      <Menu />\n      <Footer />\n    </>\n  )\n}\n\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "import { Header, Menu, Footer } from './components'",
+    "function App() {",
+    "return (",
+    "<>",
+    "<Header />",
+    "<Menu />",
+    "<Footer />",
+    "</>",
+    ")",
+    "}",
+    "export default App"
+   ],
+   "Google Chrome": [
+    "localhost:5173",
+    "Taco Truck",
+    "Al pastor",
+    "Carnitas",
+    "Veggie",
+    "Open daily 11 to 9"
+   ]
+  }
+ }
+}

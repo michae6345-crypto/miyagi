@@ -1,0 +1,33 @@
+{
+ "id": "vscode-react-s3-header-body-never-returns",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "App.jsx imports Header and renders <Header/>, but Header.jsx is an arrow function with a block body and no return: const Header = () => { <header>...</header> }. The JSX is an expression statement, the component returns undefined and renders nothing, so the page at localhost:5173 has no 'My website' heading.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/src/Header.jsx": "const Header = () => {\n  <header>\n    <h1>My website</h1>\n  </header>\n}\n\nexport default Header\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\n\nfunction App() {\n  return (<Header/>)\n}\n\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "Header.jsx",
+    "import Header from './Header.jsx'",
+    "function App() {",
+    "return (<Header/>)",
+    "}",
+    "export default App"
+   ],
+   "Google Chrome": [
+    "localhost:5173",
+    "Vite + React"
+   ]
+  }
+ }
+}
