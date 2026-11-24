@@ -198,7 +198,18 @@ describe('store', () => {
     assert.equal(useSignInCard.getState().signin, undefined)
   })
 
-  test('the error transport: the notice lands and the generic pill line goes', async () => {
+  test('cloud.notice is a known wire frame (not dropped) and a 429 cap reaches the cap line', () => {
+    fresh()
+    const { parseEngineMessage } = require('../src/common/wire') as typeof import('../src/common/wire')
+    const frame = { type: 'cloud.notice', payload: { reason: 'lesson_builds', status: 429, resets_at: '2026-12-01T00:00:00Z' } }
+    const msg = parseEngineMessage(JSON.stringify(frame))
+    assert.deepEqual(msg, frame)
+    dispatch(msg!)
+    assert.equal(useSignInCard.getState().cap?.kind, 'builds')
+    assert.equal(useSignInCard.getState().signin, undefined)
+  })
+
+  test('the error fallback: the notice lands and the generic pill line goes', async () => {
     fresh()
     send('error', { message: 'Sign in to build new lessons.', notice: { reason: 'signin_required', status: 401 } })
     assert.ok(useSignInCard.getState().signin)
