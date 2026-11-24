@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <title>Rust from zero</title>
+ <author><name>Example Rustacean</name></author>
+ <entry><id>yt:video:ccccccccccc</id><yt:videoId>ccccccccccc</yt:videoId><title>Rust 1: cargo new</title></entry>
+ <entry><id>yt:video:ddddddddddd</id><yt:videoId>ddddddddddd</yt:videoId><title>Rust 2: ownership</title></entry>
+ <entry><yt:videoId>bad</yt:videoId><title>Not an id</title></entry>
+</feed>
