@@ -725,18 +725,7 @@ class Store:
                         self._db.execute("ROLLBACK")
                         return "global_usd", spent, global_usd_cap
                 if daily_cap > 0 or usd_cap > 0 or token_cap > 0:
-                    if user_id:
-                        scope, arg = "token_hash IN (SELECT token_hash FROM links WHERE user_id = ?)", user_id
-                    else:
-                        scope, arg = "token_hash = ?", token_hash
-                    reqs, usd, toks = self._db.execute(
-                        f"SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0), "
-                        f"COALESCE(SUM(input_tokens + output_tokens), 0) FROM usage WHERE day = ? AND {scope}",
-                        (day, arg)).fetchone()
-                    if user_id:  # what installs relinked away from this user had used today
-                        mr, mu = self._db.execute("SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM moved_usage "
-                                                  "WHERE day = ? AND from_user = ?", (day, user_id)).fetchone()
-                        reqs, usd = int(reqs) + int(mr), float(usd) + float(mu)
+                    reqs, usd, toks = self._scope_usage(day, token_hash, user_id)
                     if daily_cap > 0 and int(reqs) >= daily_cap:
                         self._db.execute("ROLLBACK")
                         return "daily", int(reqs), daily_cap
@@ -772,6 +761,30 @@ class Store:
                 if self._db.in_transaction:
                     self._db.execute("ROLLBACK")
                 raise
+
+    def _scope_usage(self, day: str, token_hash: str | None, user_id: str | None) -> tuple[int, float, int]:
+        """(requests, usd, tokens) on `day` for one install, or with `user_id` for every install linked to that user plus
+        what installs relinked away from the user had used that day (moved_usage: requests and usd). What admit_call's
+        caps read; call with the lock held."""
+        if user_id:
+            scope, arg = "token_hash IN (SELECT token_hash FROM links WHERE user_id = ?)", user_id
+        else:
+            scope, arg = "token_hash = ?", token_hash
+        reqs, usd, toks = self._db.execute(
+            f"SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0), "
+            f"COALESCE(SUM(input_tokens + output_tokens), 0) FROM usage WHERE day = ? AND {scope}", (day, arg)).fetchone()
+        reqs, usd, toks = int(reqs), float(usd), int(toks)
+        if user_id:
+            mr, mu = self._db.execute("SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM moved_usage "
+                                      "WHERE day = ? AND from_user = ?", (day, user_id)).fetchone()
+            reqs, usd = reqs + int(mr), usd + float(mu)
+        return reqs, usd, toks
+
+    def user_usage_today(self, user_id: str) -> tuple[int, float, int]:
+        """(requests, estimated usd, tokens) so far this UTC day for every install linked to `user_id`: exactly what
+        LINKED_DAILY_REQUESTS / _USD / _TOKENS are checked against (reservations of calls in flight included)."""
+        with self._lock:
+            return self._scope_usage(today(), None, user_id)
 
     def usd_today(self) -> float:
         """Estimated spend so far this UTC day, every install together, in-flight reservations included (the
