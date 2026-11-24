@@ -8,3 +8,27 @@ event:speak  # voice is app-local (the computer's own voice, features/voice/stor
 offtrack.action:explain  # the off-track card always shows Explain / Show me / Hint (cards/index.tsx OFFTRACK_OPTIONS); it does not gate them on offtrack.actions
 offtrack.action:show_me  # same: always-on option on the off-track card (OFFTRACK_OPTIONS)
 offtrack.action:hint     # same: always-on option on the off-track card (OFFTRACK_OPTIONS)
+
+# ui-v4 (Nov 24, shared/contracts/UI-V4.md): contract first, so the app and engine lanes build in parallel. Each entry goes
+# when its lane lands the handler (app) or starts sending the command; the mock (app/mock/scenarios/ui-v4.json) has them all.
+event:activity        # ui-v4: Home / Progress lanes add onMessage('activity')
+event:bon             # ui-v4: features/buddy reads the engine's count (growth.ts today: localStorage)
+event:plans           # ui-v4: Library / Browse plans / plan page lanes
+event:playlist        # ui-v4: "New plan from a playlist" dialog
+event:plan.proposal   # ui-v4: "New plan from a goal" dialog
+event:link.preview    # ui-v4: the ask field's link preview card
+event:proof           # ui-v4: the skill panel's proof
+event:data            # ui-v4: Settings, Your data
+command:review.start  # the engine's Start review (Nov 22), new in the contract: the Keep fresh lane sends it
+command:data.delete   # the engine's Delete my data (Nov 22), new in the contract: settings:delete sends it when engine.hello lists it
+command:activity.get  # ui-v4: Home / Progress lanes
+command:bon.get       # ui-v4: features/buddy
+command:bon.import    # ui-v4: features/buddy, once per Mac
+command:plans.list    # ui-v4: Library / plans lanes
+command:plan.start    # ui-v4: Start plan / Add plan
+command:plan.remove   # ui-v4: remove a plan
+command:playlist.get  # ui-v4: "New plan from a playlist"
+command:plan.propose  # ui-v4: "New plan from a goal"
+command:link.get      # ui-v4: the ask field's link preview
+command:proof.get     # ui-v4: the skill panel's proof
+command:data.get      # ui-v4: Settings, Your data
