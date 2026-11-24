@@ -107,7 +107,7 @@ function BuddyRow(): ReactNode {
       right={
         <span data-settings-buddy className="flex shrink-0 items-center gap-[10px]">
           <BuddyPreview size={26} />
-          <BuddySwatches size={18} gap={7} name={false} />
+          <BuddySwatches size={18} gap={1} name={false} />
         </span>
       }
     />

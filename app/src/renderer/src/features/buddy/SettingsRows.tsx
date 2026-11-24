@@ -21,7 +21,7 @@ export function BuddyColor(): ReactNode {
         right={
           <span data-settings-buddy className="flex shrink-0 items-center gap-[16px]">
             <BuddyPreview size={36} />
-            <BuddySwatches size={22} gap={10} name={false} />
+            <BuddySwatches size={22} gap={8} name={false} />
           </span>
         }
       />
