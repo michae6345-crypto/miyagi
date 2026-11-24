@@ -15,7 +15,7 @@ const SET_UP = { MIYAGI_SKIP_ONBOARDING: '1', MIYAGI_SKIP_LOGIN: '1', MIYAGI_QUI
 
 test('the overlay sits in the notch on a notched Mac', async () => {
   run = await launch(SET_UP)
-  const overlay = await windowFor(run.app, '')
+  const overlay = await windowFor(run.app, 'overlay')
   const layout = await layoutOf(overlay)
   expect(layout.notch.hasNotch).toBe(true)
   expect(layout.notch.place).toBe('notch')
@@ -25,15 +25,16 @@ test('the overlay sits in the notch on a notched Mac', async () => {
 
 test('Home, Library and Settings open in the app window', async () => {
   run = await launch(SET_UP)
-  const overlay = await windowFor(run.app, '')
+  const overlay = await windowFor(run.app, 'overlay')
   await openWindow(overlay, 'library', { page: 'home' })
   const lib = await windowFor(run.app, 'library')
-  await expect(lib.locator('h1, [role=heading]').first()).toBeVisible()
+  const title = lib.locator('main h1:visible').first()
+  await expect(title).toBeVisible()
   const pages: Array<Record<string, string>> = [{ page: 'lessons' }, { page: 'skills' }, { page: 'progress' }, { page: 'settings', section: 'general' }, { page: 'settings', section: 'privacy' }]
   for (const q of pages) {
     await openWindow(overlay, 'library', q)
     await lib.waitForTimeout(600)
-    await expect(lib.locator('h1, [role=heading]').first(), JSON.stringify(q)).toBeVisible()
+    await expect(title, JSON.stringify(q)).toBeVisible()
   }
   expect(run.errors).toEqual([])
 })
@@ -55,7 +56,7 @@ test('first run: the home window opens on setup', async () => {
 
 test('the sign-in card shows on a cloud.notice', async () => {
   run = await launch({ ...SET_UP, SCENARIO: 'signincard' })
-  const overlay = await windowFor(run.app, '')
+  const overlay = await windowFor(run.app, 'overlay')
   await expect(overlay.locator('[data-signincard]')).toHaveCount(0)
   // The mock plays a lesson build that the cloud refuses (cloud.notice signin_required), like a signed-out learner.
   await overlay.evaluate(() => (window as unknown as { tut: { send(c: unknown): void } }).tut.send({ type: 'dev.signincard.signin', payload: {} }))

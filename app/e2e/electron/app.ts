@@ -46,11 +46,14 @@ export async function launch(env: Record<string, string> = {}, userData = mkdtem
   return { app, errors, userData }
 }
 
-/** The window whose URL hash starts with `#/<route>` (core overlay: route ''), waiting for it to appear. */
+/**
+ * The window loaded at `index.html#/<route>` (main/index.ts createWindow), waiting for it to appear. The overlay is
+ * `overlay`. Pages with no hash (the video player host) never match.
+ */
 export async function windowFor(app: ElectronApplication, route: string, timeout = 20_000): Promise<Page> {
   const match = (p: Page): boolean => {
     const hash = p.url().split('#')[1] ?? ''
-    return route === '' ? hash === '' || hash === '/' || hash.startsWith('/overlay') : hash.startsWith(`/${route}`)
+    return hash === `/${route}` || hash.startsWith(`/${route}?`) || hash.startsWith(`/${route}/`)
   }
   const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
