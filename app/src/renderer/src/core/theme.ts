@@ -15,7 +15,7 @@
  *  - Green only ever means passed. Off track has no hue: a white ring (`color.amber` keeps the old slot's name). Gray means watching. No red.
  *  - Buttons are white on dark (ink on light). Never system blue, never green.
  *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
- *  - App text in the system font (SF Pro / Segoe). Brand font (Google Sans Flex) only for brand moments. No Inter.
+ *  - App text in Bricolage Grotesque (bundled, styles.css @font-face; Michael's call, Nov 24), system font as fallback. No Inter.
  */
 /**
  * Motion tokens (the springs, fades, beat, press and stagger) live in core/ui/motionTokens.ts (helpers beside them in core/ui/motion.ts), the single source of truth
@@ -336,10 +336,10 @@ export const color = {
 } as const
 
 export const font = {
-  /** Everything inside the app. */
-  ui: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
-  /** Brand moments only (wordmark is an outlined SVG, so rarely needed in the app). */
-  brand: '"Google Sans Flex", system-ui, sans-serif',
+  /** Everything inside the app: Bricolage Grotesque (Michael, Nov 24), the system font as fallback. */
+  ui: '"Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+  /** Brand moments (auth/onboarding headings). The same face since Nov 24; the wordmark is an outlined SVG. */
+  brand: '"Bricolage Grotesque", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace'
 } as const
 
@@ -682,11 +682,14 @@ export const v4c = {
   e2: 'var(--v4-e2)'
 } as const
 
-/** The v4 type ramp (system font, the mock's sizes). Spread one into a style with its color. */
+/**
+ * The v4 type ramp (the mock's sizes). Bricolage Grotesque since Nov 24, so the display sizes are 600, not 650-700.
+ * Spread one into a style with its color.
+ */
 export const v4type = {
-  title: { fontSize: 32, lineHeight: '38px', fontWeight: 700, letterSpacing: '-0.022em' },
+  title: { fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-0.025em' },
   lede: { fontSize: 14.5, lineHeight: '20px', fontWeight: 400 },
-  h2: { fontSize: 20, lineHeight: '26px', fontWeight: 650, letterSpacing: '-0.012em' },
+  h2: { fontSize: 20, lineHeight: '26px', fontWeight: 600, letterSpacing: '-0.015em' },
   sec: { fontSize: 12.5, lineHeight: '18px', fontWeight: 550 },
   row: { fontSize: 14, lineHeight: '20px', fontWeight: 550 },
   body: { fontSize: 14, lineHeight: '20px', fontWeight: 400 },
@@ -695,18 +698,19 @@ export const v4type = {
   nav: { fontSize: 14, lineHeight: '20px', fontWeight: 500 },
   navLabel: { fontSize: 12, lineHeight: '16px', fontWeight: 550 },
   crumb: { fontSize: 13.5, lineHeight: '18px', fontWeight: 400 },
-  stat: { fontSize: 22, lineHeight: '26px', fontWeight: 650, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
-  statSm: { fontSize: 17, lineHeight: '22px', fontWeight: 650, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
+  stat: { fontSize: 22, lineHeight: '26px', fontWeight: 600, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
+  statSm: { fontSize: 17, lineHeight: '22px', fontWeight: 600, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
   tag: { fontSize: 12.5, lineHeight: '20px', fontWeight: 400 }
 } as const
 
 /**
- * The app windows' type ramp (system font; Linear's scale, layout lane Nov 22). Spread one into a style:
+ * The app windows' type ramp (Linear's scale, layout lane Nov 22; Bricolage Grotesque since Nov 24: titles 600 with
+ * slightly negative tracking, 12-14 px text at normal tracking, optical sizing picks the text cut). Spread one into a style:
  * `style={{ ...typeScale.pageTitle, color: color.text }}`. Sentence case everywhere, no uppercase labels.
  */
 export const typeScale = {
-  pageTitle: { fontSize: 26, lineHeight: '32px', fontWeight: 650, letterSpacing: '-0.4px' },
-  cardTitle: { fontSize: 17, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.2px' },
+  pageTitle: { fontSize: 26, lineHeight: '32px', fontWeight: 600, letterSpacing: '-0.6px' },
+  cardTitle: { fontSize: 17, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.3px' },
   section: { fontSize: 13, lineHeight: '18px', fontWeight: 600 },
   body: { fontSize: 14, lineHeight: '20px', fontWeight: 450 },
   row: { fontSize: 14, lineHeight: '20px', fontWeight: 500 },
