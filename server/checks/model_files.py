@@ -298,12 +298,49 @@ def _bsdf_names(node: object) -> bool:
     return changed
 
 
-def alt_views(text: str) -> list[str]:
+# a step that says which way a part turns or which axis a side runs along: the sign / the order is then the point
+_DIRECTED_TURN = re.compile(r"\b(?:clockwise|counter-?clockwise|anti-?clockwise|negative|minus|backwards?|"
+                            r"towards?|away)\b|(?<![\w.])-\s?\d", re.I)
+_NAMED_AXIS = re.compile(r"(?<![\w.])[XY](?![\w])|\balong\b")
+
+
+def _turn_magnitude(doc: dict) -> bool:
+    """"Turn the cone 90 degrees on X": R X -90 turns it 90 degrees the other way round; each rotation is read as its
+    size (``-90`` as ``90``)."""
+    changed = False
+    for o in _objects(doc):
+        rot = o.get("rotation_deg")
+        if isinstance(rot, list) and any(_num(v) and v < 0 for v in rot):
+            o["rotation_deg"] = [abs(v) if _num(v) else v for v in rot]
+            changed = True
+    return changed
+
+
+def _footprint_turned(doc: dict) -> bool:
+    """"One body 80 by 50 by 30 mm": a rectangle drawn with its long side along Y is the same body turned on the
+    sketch plane; each bound box is also read with its X and Y swapped."""
+    changed = False
+    for n in _walk(doc):
+        bb = n.get("bound_box")
+        if isinstance(bb, list) and len(bb) == 3 and all(_num(v) for v in bb) and bb[0] != bb[1]:
+            n["bound_box"] = [bb[1], bb[0], bb[2]]
+            changed = True
+    return changed
+
+
+def alt_views(text: str, subject_text: str = "") -> list[str]:
     """The same JSON scene written the other ways a step's numbers may be read (a second chance for a pattern): an
     applied scale as the primitive's scale (a 1 m sphere is a 2 m UV sphere at scale 0.5), a Radius as its Diameter,
-    a Principled BSDF input under its Blender 3.x / 4.x name."""
+    a Principled BSDF input under its Blender 3.x / 4.x name; and, unless the step's words give a direction or name
+    an axis, a rotation by its size (R X -90 is turned 90 degrees) and a body's footprint turned on its plane (50 by
+    80 is 80 by 50)."""
     out = []
-    for f in (_applied_scale, _radius_diameter, _bsdf_names):
+    fs = [_applied_scale, _radius_diameter, _bsdf_names]
+    if not _DIRECTED_TURN.search(subject_text or ""):
+        fs.append(_turn_magnitude)
+    if not _NAMED_AXIS.search(subject_text or ""):
+        fs.append(_footprint_turned)
+    for f in fs:
         try:
             doc = json.loads(text)
         except ValueError:
@@ -336,7 +373,9 @@ def claims(text: str, doc: dict) -> list[str]:
     place on one axis ("Cube at X 2"), where every key of a curve ends ("Keys end on frame 97"), a part that must be
     one piece with what it touches, which wall a hole goes through, and a component the step builds a body in."""
     out: list[str] = [*_axis_claims(text, doc), *_key_end_claims(text, doc), *_one_piece_claims(text, doc),
-                      *_wall_claims(text, doc), *_component_claims(text, doc)]
+                      *_wall_claims(text, doc), *_component_claims(text, doc), *_modifier_off_claims(text, doc),
+                      *_uv_overlap_claims(text, doc), *_overshoot_claims(text, doc), *_shell_open_claims(text, doc),
+                      *_height_claims(text, doc)]
     for entries in _named_lists(doc).values():
         by_name = {e["name"]: e for e in entries}
         for a, ea in by_name.items():
@@ -504,6 +543,103 @@ def _component_claims(text: str, doc: dict) -> list[str]:
     return out
 
 
+def _subject_objects(text: str, doc: dict) -> list[dict]:
+    objs = _objects(doc)
+    return [o for o in objs if _word_in(o["name"], text)] or objs
+
+
+_TURNS_OFF = re.compile(r"\b(?:disabl\w*|hid(?:e|es|den|ing)|turn\w*\s+(?:it\s+)?off|toggl\w*|show_\w+|mute\w*)\b",
+                        re.I)
+
+
+def _modifier_off_claims(text: str, doc: dict) -> list[str]:
+    """A modifier the step adds that is switched off in both the viewport and the render (the monitor and camera icons
+    in its header): it is in the stack but changes nothing, so its settings are not the model's."""
+    if not re.search(r"\bmodifier", text, re.I) or _TURNS_OFF.search(text):
+        return []
+    out = []
+    for o in _subject_objects(text, doc):
+        for m in o.get("modifiers") or []:
+            if isinstance(m, dict) and m.get("show_viewport") is False and m.get("show_render") is False:
+                out.append(f"{o['name']}'s {m.get('name') or m.get('type')} modifier is switched off in the viewport "
+                           f"and the render (the monitor and camera icons in its header): turn them back on")
+    return out
+
+
+_NO_OVERLAP = re.compile(r"\b(?:no|not|don'?t|doesn'?t|never|without)\b[^.;]{0,40}?\boverlap|\bnon-?overlapping\b",
+                         re.I)
+
+
+def _uv_overlap_claims(text: str, doc: dict) -> list[str]:
+    """"No island should overlap another": the subject's UV map has islands on top of each other (U > Reset lays every
+    face over the whole square)."""
+    if not _NO_OVERLAP.search(text):
+        return []
+    out = []
+    for o in _subject_objects(text, doc):
+        uv = o["mesh"].get("uv") if isinstance(o.get("mesh"), dict) else None
+        n = uv.get("overlapping_islands") if isinstance(uv, dict) else None
+        if _num(n) and n > 0:
+            out.append(f"{o['name']}'s UV map has {n:g} overlapping island{'s' if n != 1 else ''}: select all and "
+                       f"press U > Unwrap (not Reset)")
+    return out
+
+
+_OVERSHOOT = re.compile(r"\bovershoot\w*|\b(?:rise|rises|rising|go|goes|swing|swings)\s+(?:above|past|beyond|over)\b",
+                        re.I)
+
+
+def _overshoot_claims(text: str, doc: dict) -> list[str]:
+    """"The curve rises past 5 before settling": no animated curve of the subject goes above its last key (the
+    evaluated curve's maximum is the final value: the handles were flattened, not tilted)."""
+    if not _OVERSHOOT.search(text):
+        return []
+    curves = []
+    for o in _subject_objects(text, doc):
+        anim = o.get("animation")
+        for fc in (anim.get("fcurves") or []) if isinstance(anim, dict) else []:
+            rng, keys = (fc.get("evaluated_range"), fc.get("keyframes")) if isinstance(fc, dict) else (None, None)
+            if isinstance(rng, list) and len(rng) == 2 and all(_num(v) for v in rng) and isinstance(keys, list) \
+                    and keys and isinstance(keys[-1], (list, tuple)) and len(keys[-1]) >= 2 and _num(keys[-1][1]):
+                curves.append((o["name"], fc, float(rng[1]), float(keys[-1][1])))
+    if not curves or any(hi > last + 1e-6 for _, _, hi, last in curves):
+        return []
+    name, fc, hi, _ = curves[0]
+    return [f"{name}'s {fc.get('data_path')}[{fc.get('index')}] curve never rises above its last key ({hi:g}): tilt "
+            f"the key's handle so the curve overshoots"]
+
+
+_OPEN_FACE = re.compile(r"\bopen\b|\bopening\b|\bremov\w*\b", re.I)
+
+
+def _shell_open_claims(text: str, doc: dict) -> list[str]:
+    """A Shell the step opens ("click the top face so it is removed") that removed no face: the body is a closed box
+    with a hidden skin inside."""
+    if not _OPEN_FACE.search(text):
+        return []
+    return [f"{n.get('name') or 'the Shell'} removed no face: the body is closed; edit it and click the face to open"
+            for n in _walk(doc) if "shell" in str(n.get("type") or "").lower() and n.get("faces_removed") == 0]
+
+
+_TALL = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*mm\s+(?:tall|high)\b", re.I)
+
+
+def _height_claims(text: str, doc: dict) -> list[str]:
+    """"30 mm tall": no body of the design measures that on any side (a Symmetric extrude of 30 is 30 each side, 60
+    tall)."""
+    m = _TALL.search(text)
+    if not m:
+        return []
+    want = float(m.group(1))
+    boxes = [n["bound_box"] for n in _walk(doc) if isinstance(n.get("bound_box"), list) and len(n["bound_box"]) == 3
+             and all(_num(v) for v in n["bound_box"])]
+    if not boxes or any(abs(v - want) <= 1e-3 for bb in boxes for v in bb):
+        return []
+    sym = next((n for n in _walk(doc) if str(n.get("extent") or "").lower() == "symmetric"), None)
+    hint = f" ({sym.get('name') or 'the extrude'} is Symmetric: its distance goes both ways)" if sym else ""
+    return [f"the body measures {' x '.join(f'{v:g}' for v in boxes[0])} mm, not {want:g} mm tall{hint}"]
+
+
 # ---------------------------------------------------------------- ASCII DXF: what the drawing is
 
 def _dxf_entities(raw: str) -> list[tuple[str, list[tuple[int, str]]]]:
@@ -543,6 +679,31 @@ def _dxf_float(groups: list[tuple[int, str]], code: int) -> float | None:
     return None
 
 
+# what a step calls the entities it draws (DXF entity type: its words)
+_ENTITY_WORDS = {"DIMENSION": r"\bdim(?:ension\w*|linear|aligned|radius|diameter)\b", "CIRCLE": r"\bcircles?\b",
+                 "LWPOLYLINE": r"\b(?:p?lines?|polylines?|rectangles?|rectang)\b", "LINE": r"\blines?\b",
+                 "ARC": r"\barcs?\b", "INSERT": r"\b(?:blocks?|insert\w*)\b", "MTEXT": r"\b(?:m?text|labels?)\b",
+                 "TEXT": r"\b(?:text|labels?)\b", "HATCH": r"\bhatch\w*\b"}
+_ON_LAYER = re.compile(r"\bon\s+(?:the\s+)?layer\s+[\"'“]?([A-Za-z0-9_$-]+)", re.I)
+
+
+def _layer_claims(text: str, ents: list[tuple[str, list[tuple[int, str]]]]) -> list[str]:
+    """"On layer DIMS": the entities the step draws (its dimension) are all on another layer (group 8). A layer that
+    only exists in the layer table holds nothing: it was made but never set current."""
+    types = {t for t, w in _ENTITY_WORDS.items() if re.search(w, text, re.I)}
+    mine = [g for t, g in ents if t in types]
+    if not mine:
+        return []
+    layers = [next((v for c, v in g if c == 8), "0").upper() for g in mine]
+    out = []
+    for m in _ON_LAYER.finditer(text):
+        layer = m.group(1).upper()
+        if layer not in layers:
+            out.append(f"what the step draws is on layer {layers[-1]}, not {layer}: set {layer} current before "
+                       f"drawing (or move it there in Properties)")
+    return out
+
+
 _CLOSE_WORDS = re.compile(r"\bclosed?\b", re.I)
 _READS = re.compile(r"\b(?:reads?|measures?|shows?)\s+(\d+(?:\.\d+)?)\b", re.I)
 
@@ -558,6 +719,7 @@ def dxf_claims(text: str, raw: str) -> list[str]:
     if polys and _CLOSE_WORDS.search(text) and not any(int(_dxf_float(g, 70) or 0) & 1 for g in polys):
         out.append("the polyline is open (its closed flag is off): clicking back on the first point doesn't close it; "
                    "finish PLINE with C")
+    out += _layer_claims(text, ents)
     dims = [g for t, g in ents if t == "DIMENSION"]
     if dims and re.search(r"\bdimension", text, re.I) and (m := _READS.search(text)):
         want = float(m.group(1))
@@ -565,6 +727,69 @@ def dxf_claims(text: str, raw: str) -> list[str]:
         if got and not any(abs(v - want) <= max(0.01, want * 1e-4) for v in got):
             out.append(f"the dimension measures {got[-1]:g}, not {want:g}: pick the two corners it should span")
     return out
+
+
+# ---------------------------------------------------------------- numbers a step gives as an example
+
+# a number written into a check's regex (``2(?:\.0+)?``, ``2\.3``), not a quantifier, a class or an escape
+_PATTERN_NUMBER = re.compile(r"(?<![\\\w{,.\[-])(\d+(?:\\\.\d+)?)(?:\(\?:\\\.0\+\)\?)?(?![\d,}\]-])")
+_EXAMPLE = re.compile(r"\b(?:for\s+example|for\s+instance|e\.\s?g\.|such\s+as|say)\b(?:[^.()]|\.(?=\d))*", re.I)
+_RELATION = re.compile(r"^\s*(?P<a>[A-Za-z]\w*)\s+(?P<n>\d+(?:\.\d+)?)\s*(?:mm|cm|m|in|°|degrees?)?\s+"
+                       r"(?P<cmp>wider|narrower|longer|shorter|bigger|larger|smaller|taller|thicker|thinner|deeper|"
+                       r"shallower|higher|lower|more|less)\s+than\s+(?:the\s+|its\s+)?(?P<b>[A-Za-z]\w*)", re.I)
+_LESS_WORDS = frozenset({"narrower", "shorter", "smaller", "thinner", "shallower", "lower", "less"})
+_PATTERN_NAME = re.compile(r'\\?"name\\?":\\s\*\\?"(\w+)\\?"')
+
+
+def _only_in_examples(value: float, text: str) -> bool:
+    """Does ``value`` appear in ``text``, and only inside "for example ..." clauses?"""
+    num = rf"(?<![\d.]){re.escape(f'{value:g}')}(?:\.0+)?(?!\d|\.\d)"
+    spans = [m.span() for m in _EXAMPLE.finditer(text)]
+    hits = [m.start() for m in re.finditer(num, text)]
+    return bool(hits) and all(any(a <= h < b for a, b in spans) for h in hits)
+
+
+def _named_values(node: object) -> dict[str, float]:
+    return {n["name"].lower(): float(n["value"]) for n in _walk(node)
+            if isinstance(n.get("name"), str) and n["name"] and _num(n.get("value"))}
+
+
+def example_value(check: dict, text: str) -> tuple[bool, str] | None:
+    """A JSON check whose numbers the step only gives as an example ("0.3 mm wider than the arm (for example a 2 mm
+    arm in a 2.3 mm slot)"): (passes, why) read from what the step really asks, else None (the numbers are the step's
+    own, or the dump doesn't say). A label that states a relation ("Slot 0.3 mm wider than the arm") is checked on the
+    two named values (SlotWidth - ArmWidth); otherwise the named value only has to be there, at any number."""
+    pattern, subject = str(check.get("pattern") or ""), str(check.get("_subject") or "")
+    label = str(check.get("label") or "")
+    instructions = subject[:len(subject) - len(label)] if label and subject.endswith(label) else subject
+    nums = _PATTERN_NUMBER.findall(pattern)
+    if not nums or not all(_only_in_examples(float(n.replace("\\", "")), instructions) for n in nums):
+        return None
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return None
+    rel = _RELATION.match(label)
+    name = _PATTERN_NAME.search(pattern)
+    if rel and name:
+        values = _named_values(doc)
+        mine = name.group(1)
+        a, b = rel.group("a"), rel.group("b")
+        other = re.sub(re.escape(a), b, mine, count=1, flags=re.I) if re.search(re.escape(a), mine, re.I) else None
+        if other is None or mine.lower() not in values or other.lower() not in values:
+            return None
+        n, va, vb = float(rel.group("n")), values[mine.lower()], values[other.lower()]
+        diff = vb - va if rel.group("cmp").lower() in _LESS_WORDS else va - vb
+        ok = abs(diff - n) <= max(1e-6, n * 1e-4)
+        return ok, (f"{mine} {va:g} is {n:g} {rel.group('cmp').lower()} than {other} {vb:g}" if ok else
+                    f"{mine} {va:g} is {abs(va - vb):g} from {other} {vb:g}, not {n:g} {rel.group('cmp').lower()}")
+    try:
+        rx = re.compile(_PATTERN_NUMBER.sub(lambda m: r"-?\d+(?:\.\d+)?", pattern), re.MULTILINE)
+    except re.error:
+        return None
+    if rx.search(text) is None:
+        return None
+    return True, f"set (the step's {', '.join(n.replace(chr(92), '') for n in nums)} is an example)"
 
 
 # ---------------------------------------------------------------- float noise

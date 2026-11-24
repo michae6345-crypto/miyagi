@@ -357,6 +357,8 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
     if isinstance(other := check.get("_any_name"), str) and os.path.isfile(os.path.join(os.path.dirname(path), other)):
         # the step never named the file ("save it as a PNG next to mug.blend"): Blender's untitled.png is that PNG
         return _result(check, "pass", f"{other} saved (any name will do)")
+    if check.get("_stale"):
+        return _result(check, "fail", str(check["_stale"]))
     return _result(check, "fail", f"{rel} not found")
 
 
@@ -385,6 +387,27 @@ def _fresh(entry: os.DirEntry, since: float | None) -> bool:
         return False
 
 
+# Blender names a rendered animation by its frames ("0001-0048.mp4"); the step's own frame numbers ("frame range to
+# 1-96", "wait for frame 96", "96 frames")
+_FRAMES_NAME = re.compile(r"(?<!\d)(\d{3,})-(\d{3,})\.\w+$")
+_STEP_FRAMES = re.compile(r"\bframes?\b(?:\s+range)?(?:\s+(?:to|from|of))?\s+(\d+)(?:\s*(?:-|–|to)\s*(\d+))?|"
+                          r"(?<![\w.])(\d+)\s+frames\b", re.I)
+
+
+def _stale_frames(name: str, about: str) -> str | None:
+    """Why a render whose name gives its frame range is not the one the step asks for (0001-0048.mp4 when the step
+    renders frames 1-96), else None."""
+    m = _FRAMES_NAME.search(os.path.basename(name))
+    if not m:
+        return None
+    want = {int(n) for g in _STEP_FRAMES.finditer(about) for n in g.groups() if n}
+    start, end = int(m.group(1)), int(m.group(2))
+    if not want or end in want:
+        return None
+    return (f"{os.path.basename(name)} holds frames {start}-{end}, not the step's {max(want)}: render the animation "
+            f"again")
+
+
 def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[dict]:
     """The file_exists checks of one list whose file the step never names (not in its title, instructions or the
     check's label) and whose kind an app writes out under a name of its own (EXPORT_EXTS) may pass on another file of
@@ -401,6 +424,7 @@ def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[di
     named = {os.path.normcase(p) for _, c in exists if (p := _resolve(ctx.workdir, str(c["file"])))}
     words = {i: _name_words(str(c["file"])) for i, c in exists}
     want: dict[int, list[os.DirEntry]] = {}
+    stale_why: dict[int, str] = {}
     for i, c in exists:
         rel = str(c["file"])
         base, ext = os.path.basename(rel).lower(), os.path.splitext(rel)[1].lower()
@@ -415,6 +439,9 @@ def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[di
             found.sort(key=lambda e: e.stat().st_mtime, reverse=True)  # newest first
         except OSError:
             found = []
+        if stale := [why for e in found if (why := _stale_frames(e.name, about))]:
+            stale_why[i] = stale[0]  # a render of other frames (made before the range changed) is not this step's
+            found = [e for e in found if not _stale_frames(e.name, about)]
         want[i] = found
     if not want:
         return checks
@@ -432,7 +459,9 @@ def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[di
                 got[i] = e.name
                 taken.add(e.path)
                 break
-    return [{**c, "_any_name": got.get(i, False)} if i in want else c for i, c in enumerate(checks)]
+    return [{**c, "_any_name": got.get(i, False),
+             **({"_stale": stale_why[i]} if i in stale_why and i not in got else {})}
+            if i in want else c for i, c in enumerate(checks)]
 
 
 # a file_contains pattern for Markdown syntax at a line's start (a "# title", "## heading", "- item" in a saved .ipynb's
@@ -580,9 +609,15 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         if hit is None and dump and (r := model_files.rounded(view)) != view:
             hit = _search_file(rx, r, accept)
         if hit is None and rel.lower().endswith(".json"):
-            for alt in model_files.alt_views(view):  # an applied scale, a Radius for a Diameter: the same model
-                if (hit := _search_file(rx, model_files.rounded(alt))) is not None:
+            for alt in model_files.alt_views(view, str(check.get("_subject") or "")):  # the same model, read
+                if (hit := _search_file(rx, model_files.rounded(alt))) is not None:  # another way (an applied scale)
                     break
+        if hit is None and rel.lower().endswith(".json"):
+            # "Slot 0.3 mm wider than the arm (for example a 2 mm arm in a 2.3 mm slot)": the example's numbers are
+            # not the step's; the relation is
+            if (rel_why := model_files.example_value(check, model_files.rounded(full))) is not None:
+                ok, why = rel_why
+                return _result(check, "pass" if ok else "fail", f"{why} in {rel}{on}")
         if hit is None and rel.lower().endswith(".dxf"):  # AutoCAD names (layers, blocks) ignore case
             hit = _search_file(safe_compile(pattern, re.MULTILINE | re.IGNORECASE), view,
                                lambda n, s: model_files.dxf_name_ok(lines, n))
