@@ -172,14 +172,41 @@ def _command_words(segment: str) -> list[str]:
     return ws
 
 
+# python's own options that take the next word as their value (``-W ignore``, ``-X dev``)
+_PY_VALUE_OPTS = frozenset({"-W", "-X", "-Q"})
+# modules run with ``python -m`` that take a subcommand of their own (``python -m pip install``, ``python -m django
+# startproject``); any other module's words are its arguments (``python -m venv .venv``, ``python -m http.server 8000``)
+_PY_MODULES_WITH_SUBCOMMANDS = frozenset("""pip pipx uv poetry pdm hatch conda mamba django flask jupyter twine
+spacy alembic celery""".split())
+
+
+def _python_module_at(ws: list[str]) -> int | None:
+    """The index of the module in ``python [options] -m <module> ...``: ``-m`` among python's own options only, before
+    the first word that is not a flag (``python train.py -m resnet``: ``-m`` is train.py's argument), never after
+    ``-c`` / ``-`` / ``--``. ``-qm pytest`` (short flags run together, ``m`` last) counts too."""
+    i = 1
+    while i < len(ws) - 1:
+        w = ws[i]
+        if w == "-m" or re.fullmatch(r"-[bBdEiIOPqRsSuvx]+m", w):
+            return i + 1
+        if not w.startswith("-") or w in ("-", "--", "-c"):
+            return None
+        i += 2 if w in _PY_VALUE_OPTS else 1
+    return None
+
+
 def program_and_sub(segment: str) -> tuple[str, str]:
     """(program, its first word that is not a flag): ``git checkout -b x`` -> (git, checkout); env assignments and
-    ``sudo`` skipped. ``python3 -m pytest -q`` runs the module: (pytest, ""), as ``pytest -q`` is."""
+    ``sudo`` skipped. ``python3 -m pytest -q`` runs the module: (pytest, ""), as ``pytest -q`` is; a module's
+    arguments are not a subcommand (``python -m venv .venv`` -> (venv, "")) unless the module has subcommands
+    (``python -m pip install x`` -> (pip, install))."""
     ws = _command_words(segment)
     if not ws:
         return "", ""
-    if _program(ws[0]) == "python" and "-m" in ws[1:-1]:
-        ws = ws[ws.index("-m", 1) + 1:]
+    if _program(ws[0]) == "python" and (at := _python_module_at(ws)) is not None:
+        ws = ws[at:]
+        if ws[0].split(".")[0] not in _PY_MODULES_WITH_SUBCOMMANDS:
+            return _program(ws[0]), ""
     sub = next((w for w in ws[1:] if not w.startswith("-")), "")
     return _program(ws[0]), sub
 
@@ -189,7 +216,8 @@ _SAME = {("checkout", "switch"), ("switch", "checkout"), ("checkout", "restore")
 
 # JavaScript runners: a package script (npm run dev, yarn dev, pnpm dev, bun run dev, npm start) or a package's binary
 # (npx vite, bunx vite, pnpm exec / dlx vite). A script's name says nothing of the binary it runs ("dev" is "vite"
-# in package.json), so a binary run counts for any script, and two scripts count when they have the same name.
+# in package.json), so a binary run counts for a project's dev / start / build / test script (the scripts a binary
+# stands in for), two scripts count when they have the same name, and two binary runs when they run the same binary.
 _JS_SCRIPT_RUNNERS = frozenset({"npm", "yarn", "pnpm", "bun"})
 _JS_BIN_RUNNERS = frozenset({"npx", "bunx"})
 _NPM_LIFECYCLE = frozenset({"start", "test", "t", "tst", "stop", "restart"})
@@ -197,41 +225,73 @@ _NPM_LIFECYCLE = frozenset({"start", "test", "t", "tst", "stop", "restart"})
 _PM_OWN = frozenset("""add audit bin cache ci config create dedupe dlx exec global help i import info init install
 link list login logout ls outdated pack patch prune publish rebuild remove rm store uninstall unlink up update
 upgrade upgrade-interactive version why x""".split())
+# the scripts a binary run stands in for, and the binary subcommands that name one (``npx vite build`` is the build
+# script, never the dev one)
+_SCRIPT_ROLES = frozenset("dev start build test serve preview watch".split())
+# a binary subcommand that sets a project up or adds to it: no script's run
+_BIN_SETUP = frozenset("init install add create new generate g".split())
+# binaries that format, lint or scaffold: never a project's dev / start / build / test script
+_TOOL_BINS = frozenset("prettier eslint stylelint biome husky lint-staged degit ncu npm-check-updates".split())
 
 
-def js_run(segment: str) -> tuple[str, str] | None:
-    """("script", name) for a package script run, ("bin", name) for a package binary run, else None (``npm install``,
-    ``node app.js``)."""
+def _js_run(segment: str) -> tuple[str, str, list[str]] | None:
     ws = _command_words(segment)
     if not ws:
         return None
     p = _program(ws[0])
     rest = [w for w in ws[1:] if not w.startswith("-")]
     if p in _JS_BIN_RUNNERS:
-        return ("bin", rest[0]) if rest else None
+        return ("bin", _bin_name(rest[0]), rest[1:]) if rest else None
     if p not in _JS_SCRIPT_RUNNERS or not rest:
         return None
     first = rest[0]
     if first in ("run", "run-script") and len(rest) > 1:
-        return "script", rest[1]
+        return "script", rest[1], []
     if p == "npm":
-        return ("script", {"t": "test", "tst": "test"}.get(first, first)) if first in _NPM_LIFECYCLE else None
+        return ("script", {"t": "test", "tst": "test"}.get(first, first), []) if first in _NPM_LIFECYCLE else None
     if p in ("pnpm", "yarn") and first in ("exec", "dlx") and len(rest) > 1:
-        return "bin", rest[1]
+        return "bin", _bin_name(rest[1]), rest[2:]
     if p == "bun" and first == "x" and len(rest) > 1:
-        return "bin", rest[1]
-    return None if first in _PM_OWN or first == "run" else ("script", first)
+        return "bin", _bin_name(rest[1]), rest[2:]
+    return None if first in _PM_OWN or first == "run" else ("script", first, [])
 
 
-def _same_js_run(a: tuple[str, str], b: tuple[str, str]) -> bool:
-    return a[0] == "bin" or b[0] == "bin" or a[1] == b[1]
+def _bin_name(word: str) -> str:
+    """``vite@5`` -> ``vite``, ``@angular/cli@17`` -> ``@angular/cli``: a binary by name, whatever its version."""
+    return re.sub(r"(?<=.)@[^/@]*$", "", word)
+
+
+def js_run(segment: str) -> tuple[str, str] | None:
+    """("script", name) for a package script run, ("bin", name) for a package binary run, else None (``npm install``,
+    ``node app.js``)."""
+    r = _js_run(segment)
+    return (r[0], r[1]) if r else None
+
+
+def _bin_runs_script(name: str, args: list[str], script: str) -> bool:
+    """Does ``npx <name> <args>`` stand in for the package script ``script``? Only for a dev / start / build / test
+    script, never for a formatter, linter or scaffolder, and a binary's own subcommand that names a script (``vite
+    build``, ``vite preview``) must name this one."""
+    if script not in _SCRIPT_ROLES or name in _TOOL_BINS or name.split("/")[-1].startswith("create-"):
+        return False
+    sub = args[0] if args else ""
+    if sub in _BIN_SETUP:
+        return False
+    return sub == script if sub in _SCRIPT_ROLES else True
+
+
+def _same_js_run(a: tuple[str, str, list[str]], b: tuple[str, str, list[str]]) -> bool:
+    if a[0] == b[0]:
+        return a[1] == b[1]
+    binary, script = (a, b) if a[0] == "bin" else (b, a)
+    return _bin_runs_script(binary[1], binary[2], script[1])
 
 
 def runs(segment: str, target: str) -> bool:
     """Does a command ``segment`` run the step's ``target`` command: same program, same subcommand (a prefix either
     way: an alias ``git i`` for ``git init``; or git's switch for checkout)? ``python3 -m pytest`` runs ``pytest``,
     and a JavaScript runner runs another's script (``yarn dev`` / ``npx vite`` for ``npm run dev``)."""
-    if (js := js_run(segment)) and (tjs := js_run(target)):
+    if (js := _js_run(segment)) and (tjs := _js_run(target)):
         return _same_js_run(js, tjs)
     p, s = program_and_sub(segment)
     tp, ts = program_and_sub(target)

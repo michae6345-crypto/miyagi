@@ -134,6 +134,61 @@ def test_runner_equivalence():
     assert blocks.is_command("python -m http.server")
 
 
+def test_a_dash_m_after_the_script_is_the_scripts_own_argument():
+    assert blocks.program_and_sub("python train.py -m resnet --epochs 3") == ("python", "train.py")
+    assert blocks.runs("python train.py -m resnet --epochs 3", "python train.py")
+    assert blocks.runs("python3 train.py -m resnet", "python3 train.py")
+    assert not blocks.runs("python train.py -m resnet", "python -m resnet")
+    # python's own options before -m still find the module
+    assert blocks.runs("python3 -W ignore -m pytest -q", "pytest") and blocks.runs("python -qm pytest", "pytest")
+
+
+@pytest.mark.parametrize("cmd, target", [("python3 -m venv venv", "python3 -m venv .venv"),
+                                         ("python -m venv env", "python3 -m venv .venv"),
+                                         ("python3 -m http.server 8080", "python -m http.server 8000"),
+                                         ("python3 -m http.server", "python -m http.server 8000")])
+def test_a_modules_arguments_are_not_a_subcommand(cmd, target):
+    assert blocks.runs(cmd, target)
+
+
+def test_a_module_with_subcommands_still_needs_the_same_one():
+    assert blocks.runs("python3 -m pip install numpy", "pip install numpy")
+    assert not blocks.runs("python3 -m pip list", "python -m pip install numpy")
+    assert not blocks.runs("python -m venv .venv", "python -m http.server")
+
+
+VENV = {"id": "s2", "targets": [{"app": "Terminal", "match": "python3 -m venv .venv"}],
+        "checks": [{"id": "c", "type": "screen_contains", "label": "Virtual environment made", "app": "Terminal",
+                    "pattern": r"\(\.?venv\)"}]}
+SERVE = {"id": "s3", "targets": [{"app": "Terminal", "match": "python -m http.server 8000"}],
+         "checks": [{"id": "c", "type": "screen_contains", "label": "Server running", "app": "Terminal",
+                     "pattern": r"Serving HTTP on"}]}
+
+
+def test_a_venv_under_another_folder_name_counts_at_the_gate():
+    screen = _term("me@mac app % python3 -m venv venv", "me@mac app % source venv/bin/activate",
+                   "(venv) me@mac app % ")
+    assert _gate(VENV, screen=screen)["passed"]
+
+
+def test_a_server_on_another_port_counts_at_the_gate():
+    screen = _term("me@mac site % python3 -m http.server 8080",
+                   "Serving HTTP on :: port 8080 (http://[::]:8080/) ...")
+    assert _gate(SERVE, screen=screen, running=True)["passed"]
+
+
+@pytest.mark.parametrize("cmd", ["npx prettier --write .", "npx vite build", "npx vite preview", "npx eslint .",
+                                 "npx create-vite my-app", "npx tailwindcss init"])
+def test_a_tool_binary_is_not_the_dev_script(cmd):
+    assert not blocks.runs(cmd, "npm run dev")
+
+
+def test_a_binary_stands_in_for_its_own_script():
+    assert blocks.runs("npx vite build", "npm run build") and blocks.runs("npx jest", "npm test")
+    assert blocks.runs("npx next dev", "npm run dev") and blocks.runs("bunx vite@5", "npm run dev")
+    assert not blocks.runs("npx next", "npx vite") and blocks.runs("npx vite@5", "npx vite")
+
+
 # -- 3. a NaN from an earlier run is not the newest run's -------------------------------------------------------------
 
 ACC = {"id": "s5", "run_command": "python3 train.py",

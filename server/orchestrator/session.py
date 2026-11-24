@@ -745,6 +745,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._kernel_misses = 0
         self._build_v2: dict | None = None  # the build in progress: {text, t0, source, expected, url}
         self.lesson_wall_t0: float | None = None  # wall clock of step 1's start (0.0: started later; no minutes)
+        self._entered_steps: set[int] = set()  # step indexes started in this session (first visit: _step_first_visit)
+        self._step_first_visit = False
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
         self._timers: set[asyncio.Task] = set()
@@ -1888,9 +1890,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # a `tut run` (exact ::metric:: lines) beats the same curve read off the screen
         tut = [r for r in self.step_runs if not r.run_id.startswith("screen-")]
         last = (tut or self.step_runs or [None])[-1]
+        # when the lesson (step 1, in this session) and this step began: a file older than that was in the folder
+        # before, never the one the step exported under a name of its own (_claim_any_names). Not known for a lesson
+        # restored at a later step (lesson_wall_t0 0.0), and a step entered again keeps the lesson's start only.
+        lesson_t0 = getattr(self, "lesson_wall_t0", None) or None
+        step_t0 = self._step_wall_t0 if lesson_t0 and getattr(self, "_step_first_visit", False) else None
         return RunContext(workdir=self.workdir, last_run=last, runs=list(self.step_runs),
                           screen=self._screen_lines(),
-                          editor="Code" if self.lesson_mode and not self.notebook_lesson else None)
+                          editor="Code" if self.lesson_mode and not self.notebook_lesson else None,
+                          step_started_at=step_t0, lesson_started_at=lesson_t0)
 
     def _screen_lines(self) -> dict | None:
         if self.screen is None:
@@ -3680,6 +3688,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.idx = idx
         self.phase = "active"
         self._reset_step_state()
+        entered = getattr(self, "_entered_steps", set())
+        self._step_first_visit, self._entered_steps = idx not in entered, entered | {idx}
         if idx > 0 and self.awaiting_start:  # the app closes the sheet when the first step isn't step 1 (store.ts):
             self._start_hold, self._hold_fresh = None, False  # a restore / Continue at a later step is never held
             log.info("lesson start (step %d started: no Before you start)", idx + 1)
@@ -4465,6 +4475,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         from server.safety import regex_worker
 
         snap = RunContext(workdir=ctx.workdir, runs=[_run_copy(r) for r in ctx.runs], editor=ctx.editor,
+                          step_started_at=ctx.step_started_at, lesson_started_at=ctx.lesson_started_at,
                           screen={k: list(v) if isinstance(v, list) else v for k, v in ctx.screen.items()}
                           if isinstance(ctx.screen, dict) else ctx.screen)
         if ctx.last_run is not None:  # the same run as in runs (a `tut run` may be the last one there or not)
