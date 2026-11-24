@@ -6,6 +6,9 @@ there for both engines), so builder.py treats both engines identically.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import contextvars
 import copy
 import json
 import logging
@@ -130,28 +133,111 @@ def _use_fast() -> bool:
 CONCURRENCY = int(os.environ.get("LESSON_CLAUDE_CONCURRENCY", "4"))  # per process: segment + per-step + adapt batches add up
 RATE_RETRIES = 4
 _sems: dict = {}
+# The lesson's step 1 (builder's first-step path): its detail and adapt calls go before every other waiting call, so
+# step 1 never queues behind the rest of the per-step fan-out. Set inside the task that makes those calls.
+PRIORITY: contextvars.ContextVar[bool] = contextvars.ContextVar("lesson_claude_priority", default=False)
+# The builder's first-step hooks for watch_transcript (first_step.FirstStep), set around that one call; None = none.
+DETAIL_HOOKS: contextvars.ContextVar = contextvars.ContextVar("lesson_detail_hooks", default=None)
 
 
-def _sem():
+class _Lanes:
+    """At most `limit` Claude requests in flight (a FIFO semaphore), plus two things for a lesson's step 1:
+    a PRIORITY caller is served before every other waiter, and while a step-1 build holds reserve(), one lane is kept
+    for priority calls (one already running uses it), so the step's next call (its adapt pass, right after its detail)
+    starts at once instead of waiting for a lane the rest of the fan-out took. Never more than `limit` in flight.
+    Releasing never awaits, so a cancelled call always gives its lane back.
+    Process-wide (one per event loop, _sem()): every build in the engine shares the 4 lanes (a lesson, a prebuild,
+    "Just teach me", the goal match), and a reserve() held by one build's step 1 holds a lane back from all of them."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = max(1, limit)
+        self.busy = 0
+        self.prio_busy = 0
+        self.reserved = 0
+        self._waiters: list[tuple[bool, asyncio.Future]] = []
+
+    def _cap(self, prio: bool) -> int:
+        if prio:
+            return self.limit
+        keep = max(0, min(self.reserved, self.limit - 1) - self.prio_busy)  # reserved lanes no priority call holds
+        return self.limit - keep
+
+    def _take(self, prio: bool) -> None:
+        self.busy += 1
+        self.prio_busy += prio
+
+    def _wake(self) -> None:
+        while self._waiters:
+            k = next((i for i, (p, _f) in enumerate(self._waiters) if p), 0)  # the first priority waiter, else FIFO
+            prio, fut = self._waiters[k]
+            if fut.done():  # cancelled while waiting
+                self._waiters.pop(k)
+                continue
+            if self.busy >= self._cap(prio):
+                return
+            self._waiters.pop(k)
+            self._take(prio)
+            fut.set_result(None)
+
+    async def acquire(self, prio: bool = False) -> None:
+        ahead = any(p for p, _f in self._waiters) if prio else bool(self._waiters)
+        if not ahead and self.busy < self._cap(prio):
+            self._take(prio)
+            return
+        fut = asyncio.get_running_loop().create_future()
+        self._waiters.append((prio, fut))
+        self._wake()  # stale (cancelled) waiters ahead of us are dropped; a free lane is taken at once
+        try:
+            await fut
+        except BaseException:
+            if fut.done() and not fut.cancelled():
+                self.release(prio)  # granted, then cancelled before it was used: give the lane back
+            else:
+                fut.cancel()
+                self._wake()
+            raise
+
+    def release(self, prio: bool = False) -> None:
+        self.busy = max(0, self.busy - 1)
+        if prio:
+            self.prio_busy = max(0, self.prio_busy - 1)
+        self._wake()
+
+    @contextlib.contextmanager
+    def reserve(self):
+        """Keep one lane free of non-priority calls for the duration (the step-1 build)."""
+        self.reserved += 1
+        try:
+            yield
+        finally:
+            self.reserved -= 1
+            self._wake()
+
+
+def _sem() -> _Lanes:
     import asyncio
 
     loop = asyncio.get_running_loop()
     if loop not in _sems:
         _sems.clear()  # one live loop at a time in practice; don't keep dead loops alive
-        _sems[loop] = asyncio.Semaphore(CONCURRENCY)
+        _sems[loop] = _Lanes(CONCURRENCY)
     return _sems[loop]
 
 
 async def _call(mid: str, system: str | tuple[str, ...], prompt: "str | list[dict]", *, effort: str, schema: dict | None):
-    """One Claude request: at most CONCURRENCY in flight per process, and 429s (incl. "Number of
-    concurrent requests") retried with backoff, honoring retry-after."""
+    """One Claude request: at most CONCURRENCY in flight per process (step-1 calls first: PRIORITY), and 429s (incl.
+    "Number of concurrent requests") retried with backoff, honoring retry-after."""
     import asyncio
 
     for attempt in range(RATE_RETRIES + 1):
         try:
-            async with _sem():
+            lanes, prio = _sem(), PRIORITY.get()
+            await lanes.acquire(prio)
+            try:
                 cost.count("claude_calls")
                 return await _call_once(mid, system, prompt, effort=effort, schema=schema)
+            finally:
+                lanes.release(prio)
         except _RateLimited as e:
             if attempt == RATE_RETRIES:
                 raise RuntimeError(f"Claude rate-limited after {RATE_RETRIES + 1} attempts: {e}") from e
@@ -459,8 +545,17 @@ async def watch_transcript(info: dict, goal: str) -> dict:
     steps = seg.get("steps") or []
     outline = "; ".join(f"{i}. {s.get('title')}" for i, s in enumerate(steps, 1))
     sem = asyncio.Semaphore(DETAIL_CONCURRENCY)
+    hooks = DETAIL_HOOKS.get()  # builder's first-step path: which steps go first, and each step as soon as it is filled
+    first: set[int] = set()
+    if hooks is not None:
+        try:
+            first = set(hooks.segment(seg) or ())
+        except Exception as e:  # noqa: BLE001  the first-step path is a speed-up; the build goes on without it
+            log.warning("first-step hook (segment) failed: %s", e)
 
     async def detail(i: int, st: dict) -> dict:
+        if i in first:
+            PRIORITY.set(True)  # this task only: step 1's call goes before the rest of the fan-out
         a, b = parse_ts(st.get("start")), parse_ts(st.get("end"))
         lines = [ln for ln in info["transcript"] if a is not None and b is not None and a - 15 <= ln["t"] <= b + 10]
         head = STEP_HEAD.format(goal=goal, lesson=seg.get("title", ""), outline=outline, stack_guide=gemini.STACK_GUIDE)
@@ -474,7 +569,14 @@ async def watch_transcript(info: dict, goal: str) -> dict:
             # too many optional fields for structured output: skip the guaranteed 400, validate client-side
             d = await _generate_json(gemini.WATCH_SYSTEM, prompt, STEP_DETAIL_SCHEMA, effort=effort_detail, structured=False,
                                      role="detail", check=lambda o: None if o.get("checks") else "no checks", prefix=head)
-        return {**st, **{k: v for k, v in d.items() if k not in ("start", "end", "title", "instructions")}}
+        out = {**st, **{k: v for k, v in d.items() if k not in ("start", "end", "title", "instructions")}}
+        if hooks is not None:
+            try:  # exactly what the returned draft will hold for this step (same strip, same libraries)
+                hooks.detail(i, strip_injection({"title": seg.get("title", ""), "libraries": seg.get("libraries", []),
+                                                 "steps": [out]})["steps"][0])
+            except Exception as e:  # noqa: BLE001
+                log.warning("first-step hook (detail) failed: %s", e)
+        return out
 
     filled = await asyncio.gather(*(detail(i, st) for i, st in enumerate(steps, 1)))
     return strip_injection({"title": seg.get("title", ""), "libraries": seg.get("libraries", []), "steps": list(filled)})
