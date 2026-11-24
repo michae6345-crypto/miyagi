@@ -392,7 +392,10 @@ def empty_mesh(path: str) -> str | None:
     return f"{name} has no triangles (an empty export)"
 
 
-MAX_MESH_TRIANGLES = 500_000
+MAX_MESH_TRIANGLES = 200_000
+_OPEN_MESH_CACHE: dict[tuple, str | None] = {}  # (path, mtime, size) -> open_mesh's answer
+_OPEN_MESH_CACHE_MAX = 32
+_MISS = object()
 _STL_VERTEX = re.compile(rb"^\s*vertex\s+(\S+)\s+(\S+)\s+(\S+)", re.M)
 
 # a step whose mesh is for printing: a slicer needs a closed (watertight) shell
@@ -433,6 +436,22 @@ def open_mesh(path: str) -> str | None:
     instead of the body), else None (closed, not an STL, unreadable, or no vertices to judge)."""
     if not path.lower().endswith(".stl"):
         return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+    cached = _OPEN_MESH_CACHE.get(key, _MISS)  # a print step's check runs on every evaluation: parse each file once
+    if cached is not _MISS:
+        return cached  # type: ignore[return-value]
+    why = _open_edges(path)
+    if len(_OPEN_MESH_CACHE) >= _OPEN_MESH_CACHE_MAX:
+        _OPEN_MESH_CACHE.clear()
+    _OPEN_MESH_CACHE[key] = why
+    return why
+
+
+def _open_edges(path: str) -> str | None:
     tris = _stl_triangles(path)
     if not tris:
         return None

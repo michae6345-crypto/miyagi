@@ -347,6 +347,8 @@ def _py_free_names(text: str) -> set[str] | None:
     while stack:
         t = stack.pop()
         for s in t.get_symbols():
+            if t is not top and s.is_declared_global() and (s.is_assigned() or s.is_imported()):
+                bound.add(s.get_name())  # def setup(): global total; total = 0
             if s.is_referenced() and (s.is_global() or t is top) and not (s.is_assigned() or s.is_imported()
                                                                         or s.is_parameter() or s.is_namespace()):
                 used.add(s.get_name())
@@ -373,6 +375,8 @@ def _py_not_imported(path: Path, root: Path, text: str) -> list[str]:
 
 
 _JS_RESOLVE = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte")
+# TypeScript's ESM imports name the file the .ts compiles to (NodeNext, bundler resolution): "./util.js" is util.ts
+_TS_FOR_JS = {".js": (".ts", ".tsx"), ".jsx": (".tsx",), ".mjs": (".mts",), ".cjs": (".cts",)}
 
 
 def _js_module(importer: Path, spec: str) -> Path | None:
@@ -385,6 +389,10 @@ def _js_module(importer: Path, spec: str) -> Path | None:
             return cand
     for ext in _JS_RESOLVE[1:]:
         cand = base / f"index{ext}"
+        if cand.is_file():
+            return cand
+    for ext in _TS_FOR_JS.get(base.suffix, ()):
+        cand = base.with_suffix(ext)
         if cand.is_file():
             return cand
     return None

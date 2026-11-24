@@ -1474,6 +1474,7 @@ def _plotted(pattern: str, nb: Notebook) -> bool:
 
 _TRAILING_INTS = re.compile(r"(?:^|\s)(-?\d+(?:\s+-?\d+)+)\s*$")
 MATRIX_MAX_ROWS = 200
+MATRIX_MAX_RUN = 30  # rows one printed matrix spans at most (a 10-class confusion matrix is 10)
 
 
 def _drawn_matrix(pattern: str, nb: Notebook, lines: list[str]) -> bool:
@@ -1491,6 +1492,9 @@ def _drawn_matrix(pattern: str, nb: Notebook, lines: list[str]) -> bool:
         rx = _compile(pattern)
     except re.error:
         return False
+    flat = re.sub(r"\\[sn][*+?]?|\\|\s", "", pattern)
+    # a pattern that closes the matrix ("]]") matches only a text of exactly its rows: as many as it opens ("][" + 1)
+    closes, size = "]]" in flat, flat.count("][") + 1
     i = 0
     while i < len(rows):
         if rows[i] is None:
@@ -1501,9 +1505,19 @@ def _drawn_matrix(pattern: str, nb: Notebook, lines: list[str]) -> bool:
             j += 1
         run = rows[i:j]
         for a in range(len(run)):
-            for b in range(a + 2, len(run) + 1):
-                width = min(len(r) for r in run[a:b])
-                for n in range(2, width + 1):
+            for n in range(2, len(run[a]) + 1):
+                # the rows from a that have n numbers, at most MATRIX_MAX_RUN of them. A match starts at the text's
+                # "[[", so the longest text holds every shorter one's match, unless the pattern closes the matrix:
+                # then the text of its own number of rows (each end, when that number can't be read off it).
+                k = a
+                while k < len(run) and k - a < MATRIX_MAX_RUN and len(run[k]) >= n:
+                    k += 1
+                if k - a < 2:
+                    break
+                ends = (k,) if not closes else (a + size,) if size >= 2 else range(a + 2, k + 1)
+                for b in ends:
+                    if b > k:
+                        continue
                     text = "[[" + "]\n [".join(" ".join(r[-n:]) for r in run[a:b]) + "]]"
                     if rx.search(text):
                         return True
@@ -1788,15 +1802,32 @@ def cell_not_run(step: dict, ctx: RunContext | None) -> bool:
     if ctx is None or not _RUN_THE_CELL.search(str(step.get("run_command") or "")):
         return False
     nb = _with_step_notebook(step, ctx).notebook
-    # every one of its cells: "run both" with the second still unrun is not done
-    return isinstance(nb, Notebook) and bool(nb.cells) and (not nb.executed or any(
-        not c.executed for c in nb.cells if c.source.strip()))
+    if not isinstance(nb, Notebook) or not nb.cells:
+        return False
+    if not nb.executed:
+        return True
+
+    def lines(src: str) -> set[str]:
+        return {"".join(ln.split()) for ln in src.splitlines() if ln.strip()}
+
+    # every one of its cells: "run both" with the second still unrun is not done. An unrun copy of code a cell that
+    # ran holds (a duplicate, an abandoned attempt: each of its lines is in that cell) is not another cell to run.
+    ran = [lines(c.source) for c in nb.cells if c.executed]
+    return any(not c.executed and not any(lines(c.source) <= r for r in ran) for c in nb.cells if c.source.strip())
 
 
-def _py_names(src: str) -> tuple[set[str], set[str], set[str]] | None:
-    """(names a cell's code binds, names it binds or changes, names it reads): assignment targets, def / class / import
-    names; changed, too, a name whose method a statement calls (``model.compile(...)``, ``history = model.fit(...)``
-    change ``model``). IPython magics and shell lines are left out. None when it doesn't parse."""
+# methods that put an object into the state later cells rely on (a model trained, compiled, its weights loaded); a
+# statement calling one sets that object up as much as binding it does. Any other method call (model.summary(),
+# plt.imshow(...), df.describe()) only reads it.
+_SETUP_METHODS = re.compile(r"(?:partial_)?fit(?:_\w+)?|compile|train(?:_on_batch)?|load_state_dict|load_weights|"
+                            r"set_weights|build")
+
+
+def _py_names(src: str) -> tuple[set[str], set[tuple[str, str]], set[str]] | None:
+    """(names a cell's code binds, the (name, method) setup calls its statements make, names it reads): assignment
+    targets, def / class / import names; a setup call is a statement calling one of _SETUP_METHODS on a name
+    (``model.compile(...)``, ``history = model.fit(...)``). IPython magics and shell lines are left out. None when it
+    doesn't parse."""
     code = "\n".join("pass" if ln.lstrip().startswith(("%", "!")) else ln for ln in src.splitlines())
     try:
         tree = ast.parse(code)
@@ -1811,13 +1842,13 @@ def _py_names(src: str) -> tuple[set[str], set[str], set[str]] | None:
             writes.add(node.name)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             writes |= {(a.asname or a.name).split(".")[0] for a in node.names}
-    changes = set(writes)
+    setup: set[tuple[str, str]] = set()
     for stmt in tree.body:
         call = stmt.value if isinstance(stmt, (ast.Expr, ast.Assign, ast.AnnAssign)) else None
         if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) \
-                and isinstance(call.func.value, ast.Name):
-            changes.add(call.func.value.id)
-    return writes, changes, reads
+                and isinstance(call.func.value, ast.Name) and _SETUP_METHODS.fullmatch(call.func.attr):
+            setup.add((call.func.value.id, call.func.attr))
+    return writes, setup, reads
 
 
 def stale_inputs(step: dict, ctx: RunContext | None) -> str | None:
@@ -1825,7 +1856,12 @@ def stale_inputs(step: dict, ctx: RunContext | None) -> str | None:
     restart the counts [1], [2], [3] above and the step's cell at [4] are that kernel's whole history, so the training
     cell still showing [19] (from the kernel before) never ran in it, and the model that predicted was never trained.
     Why, else None. Only when the counts before the step's cell's own are all on cells above it (nothing else can have
-    run in that kernel)."""
+    run in that kernel).
+
+    A cell above that didn't run before it is blamed only for what no cell above that did run gives the step's cell: a
+    name it binds that none of those binds (an unrun copy of ``df = pd.read_csv(...)`` is not missing setup), or a
+    setup call (``model.fit``) none of those makes. A cell that only reads a name or calls another method on it
+    (``model.summary()``, ``plt.imshow(...)``) is never blamed."""
     if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
         return None
     nb = ctx.notebook if isinstance(ctx.notebook, Notebook) else None
@@ -1843,11 +1879,20 @@ def stale_inputs(step: dict, ctx: RunContext | None) -> str | None:
         mine = _py_names(cell.source)
         if mine is None:
             continue
+        uses = mine[2] - mine[0]
+        bound: set[str] = set()
+        set_up: set[tuple[str, str]] = set()
+        for c in above:
+            if c.count is not None and c.count <= cell.count and (names := _py_names(c.source)):
+                bound |= names[0]
+                set_up |= names[1]
         for c in above:
             if c.count is not None and c.count <= cell.count:  # ran before it (an equal count: can't tell)
                 continue
             theirs = _py_names(c.source)
-            need = sorted((theirs[1] & mine[2]) - mine[0]) if theirs else []
+            if not theirs:
+                continue
+            need = sorted((theirs[0] & uses) - bound) or sorted({n for n, _ in theirs[1] - set_up if n in uses})
             if need:
                 when = f"[{c.count}], from before a kernel restart" if c.count is not None else "never run"
                 first = c.source.strip().splitlines()[0][:60]
