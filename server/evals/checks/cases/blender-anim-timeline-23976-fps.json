@@ -1,0 +1,232 @@
+{
+ "id": "blender-anim-timeline-23976-fps",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Blender animation lesson 2 (\"The scene runs at 24 fps, ends at frame 72 and the cube's last key is at frame 72\"). The learner picked 23.98 from the Frame Rate menu, the entry right above 24: Blender stores that as fps 24 with fps_base 1.001, so the scene runs at 23.976 fps. End frame and last key are right at 72, but the rate the lesson asked for is not.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Three seconds at 24 fps",
+  "file": "slide.blend",
+  "instructions": "In Output Properties set Frame Rate to 24. In the Timeline set End to 72, then drag the cube's last keyframe to frame 72 so the slide takes 3 seconds. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "24 fps",
+    "file": "slide.scene.json",
+    "pattern": "\"fps\":\\s*24\\b"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Ends at frame 72",
+    "file": "slide.scene.json",
+    "pattern": "\"frame_end\":\\s*72\\b"
+   },
+   {
+    "id": "s4c3",
+    "type": "file_contains",
+    "label": "Last key at frame 72",
+    "file": "slide.scene.json",
+    "pattern": "\\[\\s*72(?:\\.0+)?,\\s*5(?:\\.0+)?\\s*\\]"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "slide.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see slide.scene.json)\n",
+   "slide.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "slide.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 72,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "fps_base": 1.001,
+      "frame_current": 72
+     },
+     "objects": [
+      {
+       "name": "Cube",
+       "type": "MESH",
+       "location": [
+        5.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "CubeAction",
+        "fcurves": [
+         {
+          "data_path": "location",
+          "index": 0,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            72.0,
+            5.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         },
+         {
+          "data_path": "location",
+          "index": 1,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            72.0,
+            0.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         },
+         {
+          "data_path": "location",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            72.0,
+            0.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

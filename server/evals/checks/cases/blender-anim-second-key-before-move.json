@@ -1,0 +1,223 @@
+{
+ "id": "blender-anim-second-key-before-move",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender animation lesson 1 (\"The cube has Location keyframes at frames 1 and 48 and sits at X 5 on frame 48\"). On frame 48 the learner pressed I before G X 5, so both keys hold X 0; the move afterwards was never keyed. The saved file still shows the cube at X 5 (an unkeyed edit on the current frame, which snaps back as soon as playback moves), so the keys and the location both look right while the cube never slides.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Key the slide",
+  "file": "slide.blend",
+  "instructions": "On frame 1 press I > Location with the cube at X 0. Go to frame 48, move the cube to X 5 (G X 5) and press I > Location again. Play it with Space, then save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "Location keys at frames 1 and 48",
+    "file": "slide.scene.json",
+    "pattern": "\"data_path\":\\s*\"location\",\\s*\"index\":\\s*0,\\s*\"keyframes\":\\s*\\[\\s*\\[\\s*1(?:\\.0+)?,[^\\]]*\\],\\s*\\[\\s*48(?:\\.0+)?,"
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "Cube at X 5 on frame 48",
+    "file": "slide.scene.json",
+    "pattern": "\"name\":\\s*\"Cube\",\\s*\"type\":\\s*\"MESH\",\\s*\"location\":\\s*\\[\\s*5(?:\\.0+)?,"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "slide.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see slide.scene.json)\n",
+   "slide.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "slide.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "frame_current": 48
+     },
+     "objects": [
+      {
+       "name": "Cube",
+       "type": "MESH",
+       "location": [
+        5.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "CubeAction",
+        "fcurves": [
+         {
+          "data_path": "location",
+          "index": 0,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            48.0,
+            0.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         },
+         {
+          "data_path": "location",
+          "index": 1,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            48.0,
+            0.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         },
+         {
+          "data_path": "location",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            48.0,
+            0.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

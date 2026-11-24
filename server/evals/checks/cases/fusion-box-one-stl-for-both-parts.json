@@ -1,0 +1,33 @@
+{
+ "id": "fusion-box-one-stl-for-both-parts",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Intro to Fusion lesson 10 (\"Two STL files are saved, one for the base and one for the lid\"). The learner used File > Export on the whole design instead of Save As Mesh on each component, so Fusion wrote one Box.stl holding the base and the lid together, the lid floating 1 mm above the base. A valid, watertight STL, but one file: the lid can't be laid flat and printed on its own.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Export both parts as STL",
+  "instructions": "Right-click the Base component > Save As Mesh, format STL, and save it in your lesson folder. Do the same for the Lid.",
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "file_exists",
+    "label": "Base STL saved",
+    "file": "base.stl"
+   },
+   {
+    "id": "s10c2",
+    "type": "file_exists",
+    "label": "Lid STL saved",
+    "file": "lid.stl"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "Box.stl": "solid Box\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 0 50 0\n      vertex 80 50 0\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 80 50 0\n      vertex 80 0 0\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 30\n      vertex 80 0 30\n      vertex 80 50 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 30\n      vertex 80 50 30\n      vertex 0 50 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 80 0 0\n      vertex 80 0 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 80 0 30\n      vertex 0 0 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 50 0\n      vertex 0 50 30\n      vertex 80 50 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 50 0\n      vertex 80 50 30\n      vertex 80 50 0\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 0 0 30\n      vertex 0 50 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 0 50 30\n      vertex 0 50 0\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 80 0 0\n      vertex 80 50 0\n      vertex 80 50 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 80 0 0\n      vertex 80 50 30\n      vertex 80 0 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 31\n      vertex 0 50 31\n      vertex 80 50 31\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 31\n      vertex 80 50 31\n      vertex 80 0 31\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 34\n      vertex 80 0 34\n      vertex 80 50 34\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 34\n      vertex 80 50 34\n      vertex 0 50 34\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 31\n      vertex 80 0 31\n      vertex 80 0 34\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 31\n      vertex 80 0 34\n      vertex 0 0 34\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 50 31\n      vertex 0 50 34\n      vertex 80 50 34\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 50 31\n      vertex 80 50 34\n      vertex 80 50 31\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 31\n      vertex 0 0 34\n      vertex 0 50 34\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 31\n      vertex 0 50 34\n      vertex 0 50 31\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 80 0 31\n      vertex 80 50 31\n      vertex 80 50 34\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 80 0 31\n      vertex 80 50 34\n      vertex 80 0 34\n    endloop\n  endfacet\nendsolid Box\n"
+  }
+ }
+}

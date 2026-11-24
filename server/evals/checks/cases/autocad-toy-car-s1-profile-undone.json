@@ -1,0 +1,37 @@
+{
+ "id": "autocad-toy-car-s1-profile-undone",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss on the toy car's s1 (\"draw the side profile of the car with LINE and ARC\"): the learner drew the profile, didn't like the arc, and ran UNDO > Back, which undid the ARC and the LINE as well (\"Everything has been undone\"). LINE is all over the command history, but model space is empty.",
+ "step": {
+  "lesson": "server/workspace/tests/fixtures/autocad_toy_car.json",
+  "id": "s1",
+  "adapt": true
+ },
+ "workspace": {
+  "screen": {
+   "AutoCAD 2025": [
+    "Command: LINE",
+    "Specify first point:",
+    "Specify next point or [Undo]: 120",
+    "Specify next point or [Undo]: 28",
+    "Specify next point or [Close/Undo]: C",
+    "Command: ARC",
+    "Specify start point of arc or [Center]:",
+    "Specify second point of arc or [Center/End]:",
+    "Specify end point of arc:",
+    "Command: UNDO",
+    "Current settings: Auto = On, Control = All, Combine = Yes, Layer = Yes",
+    "Enter the number of operations to undo or [Auto/Control/BEgin/End/Mark/Back] <1>: B",
+    "This will undo everything. OK? <Y>: Y",
+    "ARC LINE",
+    "Everything has been undone",
+    "Command:",
+    "Model",
+    "Layout1",
+    "Layout2"
+   ]
+  }
+ }
+}

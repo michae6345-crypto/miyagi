@@ -1,0 +1,169 @@
+{
+ "id": "freecad-pattern-wrong-direction-fails",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Intro to CAD lesson 8 (\"The plate has four evenly spaced holes made by one pattern\"). The LinearPattern has Occurrences 4 over 48 mm, but its direction is the sketch's vertical axis: on a 40 mm wide plate the copies land off the part, the feature fails to recompute and the plate keeps its one hole. The pattern feature and its numbers are all in the tree.",
+ "step": {
+  "id": "s8",
+  "index": 8,
+  "title": "Pattern the hole",
+  "file": "plate.FCStd",
+  "instructions": "Select the Pocket, click Linear Pattern, set Direction to the long edge of the plate (Horizontal sketch axis), Length 48 mm and Occurrences 4. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s8c1",
+    "type": "file_contains",
+    "label": "Linear pattern added",
+    "file": "plate.scene.json",
+    "pattern": "\"type\":\\s*\"PartDesign::LinearPattern\""
+   },
+   {
+    "id": "s8c2",
+    "type": "file_contains",
+    "label": "Four holes",
+    "file": "plate.scene.json",
+    "pattern": "\"Occurrences\":\\s*4\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "plate.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "plate.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "plate.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "LinearPattern",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 5.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face6",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 4.0
+          },
+          {
+           "name": "",
+           "type": "DistanceX",
+           "value": 6.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pocket",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch001",
+         "Type": "ThroughAll",
+         "valid": true
+        },
+        {
+         "name": "LinearPattern",
+         "type": "PartDesign::LinearPattern",
+         "originals": [
+          "Pocket"
+         ],
+         "Direction": "Sketch001:V_Axis",
+         "Length": 48.0,
+         "Occurrences": 4,
+         "valid": false,
+         "error": "Transformed shape does not intersect the support"
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 11937.2,
+        "bound_box": [
+         60.0,
+         40.0,
+         5.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": [
+      "LinearPattern: Transformed shape does not intersect the support"
+     ]
+    }
+   }
+  }
+ }
+}

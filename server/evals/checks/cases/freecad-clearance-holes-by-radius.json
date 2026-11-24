@@ -1,0 +1,213 @@
+{
+ "id": "freecad-clearance-holes-by-radius",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done, but odd-looking: CAD for 3D printing lesson 1 (\"The plate has holes of 10.0, 10.2 and 10.4 mm and the peg is 10 mm across\"). The learner sized the three holes with the Radius constraint instead of Diameter: 5.0, 5.1 and 5.2 mm, which are exactly 10.0, 10.2 and 10.4 mm holes, cut through the plate by a valid Pocket. The peg's 10 mm Diameter is there as asked.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Three test holes",
+  "file": "clearance.FCStd",
+  "instructions": "On the top face of the test plate sketch three circles and constrain their diameters to 10.0, 10.2 and 10.4 mm, then Pocket them Through all. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": "Holes cut through",
+    "file": "clearance.scene.json",
+    "pattern": "\"type\":\\s*\"PartDesign::Pocket\""
+   },
+   {
+    "id": "s5c2",
+    "type": "file_contains",
+    "label": "10.2 mm hole",
+    "file": "clearance.scene.json",
+    "pattern": "\"type\":\\s*\"Diameter\",\\s*\"value\":\\s*10\\.20*\\b"
+   },
+   {
+    "id": "s5c3",
+    "type": "file_contains",
+    "label": "10.4 mm hole",
+    "file": "clearance.scene.json",
+    "pattern": "\"type\":\\s*\"Diameter\",\\s*\"value\":\\s*10\\.40*\\b"
+   },
+   {
+    "id": "s5c4",
+    "type": "file_contains",
+    "label": "Peg is 10 mm across",
+    "file": "clearance.scene.json",
+    "pattern": "\"type\":\\s*\"Diameter\",\\s*\"value\":\\s*10(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "clearance.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "clearance.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "clearance.FCStd",
+     "bodies": [
+      {
+       "name": "Peg",
+       "tip": "Pad",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 10.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 15.0,
+         "Reversed": false,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 1178.1,
+        "bound_box": [
+         10.0,
+         10.0,
+         15.0
+        ]
+       }
+      },
+      {
+       "name": "Plate",
+       "tip": "Pocket",
+       "features": [
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 50.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 20.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad001",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch001",
+         "Length": 5.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Sketch002",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad001:Face6",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Radius",
+           "value": 5.0
+          },
+          {
+           "name": "",
+           "type": "Radius",
+           "value": 5.1
+          },
+          {
+           "name": "",
+           "type": "Radius",
+           "value": 5.2
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 3,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pocket",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch002",
+         "Type": "ThroughAll",
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 4199.6,
+        "bound_box": [
+         50.0,
+         20.0,
+         5.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}
