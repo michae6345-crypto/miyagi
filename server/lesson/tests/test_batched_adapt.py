@@ -182,3 +182,80 @@ def test_off_switches():
     finally:
         del os.environ["LESSON_BATCHED_ADAPT"]
     assert builder.ADAPT_BATCH == 3 and claude.CONCURRENCY == 4
+
+
+# --------------------------------------------------------------------------- review round 1
+def test_early_calls_are_quiet(tmp_path):
+    """Should-fix 1: the early round-1 and retry calls run while the details are still being written: no "adapting"
+    stage before the full build's own adapt pass, the video's model is still the detail calls' model, and build.model
+    names the model of the last adapt round, as in today's build."""
+    stages = []
+    p = {**h.PROFILE_10MIN, "detail_s": [3.6, 5.8, 6.0, 7.7, 6.3, 20.0]}  # step 6's detail is slow: retries run first
+    fakes = h.Fakes(p)
+    g = _virtual_build(fakes, tmp_path, on_progress=lambda s, m: stages.append((s, round(h.now(), 2))))
+    details_done = max(e["end"] for e in fakes.events if e["kind"] == "detail")
+    step1_sent = next(t for s, t in stages if s == "first_steps")
+    # step 1's own adapt pass says "adapting" (it is the step the learner gets next); the batches never do
+    assert not [t for s, t in stages if s == "adapting" and step1_sent < t < details_done]
+    assert min(e["start"] for e in fakes.events if e["kind"] == "adapt_retry") < details_done  # (they ran early)
+    old = h.build_once(p, fast=True, batched=False)["graph"]
+    assert g["build"]["model"] == old["build"]["model"]  # video: the detail model; adapt: the retry model
+
+
+def test_an_unexpected_error_in_the_early_lint_keeps_round_1(monkeypatch):
+    """Should-fix 2: anything but a cancel going wrong after round 1 (here a KeyError in the early lint) leaves the
+    batch's round-1 result for the full build, which lints and retries it: the adapt pass never fails because of it."""
+    def boom(self, *a, **k):
+        raise KeyError("probe")
+
+    monkeypatch.setattr(batched.BatchedAdapt, "_problems", boom)
+    new = h.build_once(h.PROFILE_10MIN, fast=True)
+    old = h.build_once(h.PROFILE_10MIN, fast=True, batched=False)
+    assert new["graph"]["build"]["adapted"] is True and h.comparable(new["graph"]) == h.comparable(old["graph"])
+
+
+@pytest.mark.parametrize("profile", [
+    {**h.PROFILE_10MIN, "lint_fail": {3}, "lint_fail_always": {3}},
+    {**h.PROFILE_RECORDED, "lint_fail": set(range(1, 8)), "lint_fail_always": set(range(1, 8))},
+], ids=["step 3 never fixed", "no step ever fixed"])
+def test_the_retry_cap_is_todays(profile):
+    """Should-fix 3: an early retry is the first retry round: a step lint keeps rejecting gets no more Sonnet calls
+    than today (a second retry only after the first one helped, and one more round at most)."""
+    old = h.calls(h.build_once(profile, fast=True, batched=False)).get("adapt_retry", 0)
+    new = h.calls(h.build_once(profile, fast=True)).get("adapt_retry", 0)
+    assert new <= old
+
+
+def test_an_early_batch_the_full_build_sends_differently_is_dropped():
+    """Nit: an early call whose steps changed before the full build took them is cancelled at once, not at close()."""
+    b = _bat()
+
+    async def go():
+        b.plan = [[2, 3]]
+        steps = [{"index": 2, "title": "a"}, {"index": 3, "title": "b"}]
+        stale = asyncio.ensure_future(asyncio.sleep(60))
+        k = batched.key(b.goal, [{"index": 2, "title": "OLD"}, steps[1]], b.summary)
+        b.started[k], b.groups[k] = stale, [2, 3]
+        assert [[st["index"] for st in grp] for grp in b.layout(steps)] == [[2, 3]]  # sent fresh
+        await asyncio.sleep(0)
+        assert stale.cancelled()
+
+    asyncio.run(go())
+
+
+def test_link_checks_are_shared_with_step_1_and_unpinned_starts_are_not_a_problem():
+    from server.lesson.workdir import scan
+
+    async def make():
+        first = _First("pending")
+        first.checked = {"https://example.com": True}
+        return first, batched.BatchedAdapt(goal=h.GOAL, info=scan("/nonexistent/_x"), first=first, vid=h.VID)
+
+    first, b = asyncio.run(make())
+    assert b.checked is first.checked
+    b.seg = {"title": "Todo app in Python", "steps": []}
+    steps = [{"index": 1, "start": 50.0, "end": 50.0, "title": "Step 1", "instructions": "x", "hints": ["h"],
+              "checks": [{"type": "screen_contains", "app": "Code", "pattern": "one"}]}]
+    out = {1: {"index": 1, "checks": [{"type": "screen_contains", "label": "one typed", "app": "Code", "pattern": "one"}]}}
+    assert not any("video.start" in p for ps in b._problems({"title": "t", "libraries": [], "steps": steps}, [1], out, None,
+                                                            set()).values() for p in ps)

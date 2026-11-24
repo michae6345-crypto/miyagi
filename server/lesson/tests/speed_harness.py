@@ -167,7 +167,8 @@ class Fakes:
             out = []
             for i in idx:
                 # lint rejects a screen pattern over 60 chars (OCR is noisy): round 1's for the lint_fail steps
-                pat = (rf"def\s+part_{i}\b" + r"\s*\(\s*\)\s*:" * 6) if (i in p["lint_fail"] and not retry) else rf"def\s+part_{i}\b"
+                bad = i in p["lint_fail"] and (not retry or i in p.get("lint_fail_always", ()))  # "always": no retry fixes it
+                pat = (rf"def\s+part_{i}\b" + r"\s*\(\s*\)\s*:" * 6) if bad else rf"def\s+part_{i}\b"
                 wf = p.get("work_file", "todo.py")
                 out.append({"index": i, "checks": [{"type": "screen_contains", "label": f"part_{i} typed", "app": "Code", "pattern": pat}],
                             "precision_checks": [{"type": "file_contains", "label": f"part_{i} in {wf}", "file": wf,
