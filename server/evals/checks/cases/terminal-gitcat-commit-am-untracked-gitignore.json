@@ -1,0 +1,59 @@
+{
+ "id": "terminal-gitcat-commit-am-untracked-gitignore",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Undo a change and ignore files' (passes: .gitignore lists .DS_Store and is committed, ...). The learner wrote the file and skipped `git add`, trusting `git commit -am` to pick it up. -a only stages files git already tracks: the new .gitignore stays untracked and git answers 'nothing added to commit but untracked files present'. .gitignore holds the line, but it is not committed; 'Ignore .DS_Store' is only the typed message.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Ignore .DS_Store",
+  "instructions": "Make a .gitignore with one line, .DS_Store (echo .DS_Store > .gitignore). Then stage it and commit it: git add .gitignore and git commit -m \"Ignore .DS_Store\".",
+  "run_command": "git commit -m \"Ignore .DS_Store\"",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git commit -m",
+    "caption": "Commit the ignore file"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": ".gitignore lists .DS_Store",
+    "file": "cookbook/.gitignore",
+    "pattern": "\\.DS_Store"
+   },
+   {
+    "id": "s4c2",
+    "type": "screen_contains",
+    "label": "Commit made",
+    "app": "Terminal",
+    "pattern": "Ignore\\s+\\.DS_Store"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.gitignore": ".DS_Store\n",
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 cup milk\n- 2 eggs\n- pinch of salt\n",
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % echo .DS_Store > .gitignore",
+    "tripi@mac cookbook % git commit -am \"Ignore .DS_Store\"",
+    "On branch main",
+    "Untracked files:",
+    "  (use \"git add <file>...\" to include in what will be committed)",
+    "\t.gitignore",
+    "",
+    "nothing added to commit but untracked files present (use \"git add\" to track)",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

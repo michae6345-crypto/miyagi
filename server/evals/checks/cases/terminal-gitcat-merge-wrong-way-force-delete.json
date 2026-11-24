@@ -1,0 +1,65 @@
+{
+ "id": "terminal-gitcat-merge-wrong-way-force-delete",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Merge a branch' (passes: main holds waffles.md and the add-waffles branch no longer exists). Still on add-waffles, the learner ran `git merge main` (the wrong way round: 'Already up to date.'), then switched to main. `git branch -d add-waffles` refused ('not fully merged'), so they forced it with -D. The branch is gone and its commit with it: `ls` on main shows only pancakes.md. Both checks match (waffles.md from the branch's own commit output higher up, 'Deleted branch add-waffles'), but main never got the waffles.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Merge add-waffles into main",
+  "instructions": "Switch to main with git switch main, then run git merge add-waffles. When main has waffles.md, delete the branch with git branch -d add-waffles.",
+  "run_command": "git merge add-waffles",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git merge add-waffles",
+    "caption": "Bring the branch into main"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "screen_contains",
+    "label": "The merge brings in waffles.md",
+    "app": "Terminal",
+    "pattern": "waffles\\.md"
+   },
+   {
+    "id": "s5c2",
+    "type": "screen_contains",
+    "label": "add-waffles deleted",
+    "app": "Terminal",
+    "pattern": "Deleted\\s+branch\\s+add-waffles"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 cup milk\n- 2 eggs\n- pinch of salt\n",
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git commit -m \"Add waffles\"",
+    "[add-waffles 5d6e7f8] Add waffles",
+    " 1 file changed, 4 insertions(+)",
+    " create mode 100644 waffles.md",
+    "tripi@mac cookbook % git merge main",
+    "Already up to date.",
+    "tripi@mac cookbook % git switch main",
+    "Switched to branch 'main'",
+    "tripi@mac cookbook % git branch -d add-waffles",
+    "error: the branch 'add-waffles' is not fully merged.",
+    "If you are sure you want to delete it, run 'git branch -D add-waffles'.",
+    "tripi@mac cookbook % git branch -D add-waffles",
+    "Deleted branch add-waffles (was 5d6e7f8).",
+    "tripi@mac cookbook % ls",
+    "pancakes.md",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

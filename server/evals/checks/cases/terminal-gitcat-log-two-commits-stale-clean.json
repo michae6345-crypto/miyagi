@@ -1,0 +1,76 @@
+{
+ "id": "terminal-gitcat-log-two-commits-stale-clean",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'See what changed with log and diff' (passes: git log shows three commits and git status reports a clean working tree). 'working tree clean' is from a `git status` run before the learner edited pancakes.md. `git diff` then shows the uncommitted '+- serve with maple syrup' line, and `git log` (still open in the pager, '(END)') lists two commits: the third was never made, and the tree is not clean any more.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Make a third commit and read the history",
+  "instructions": "Add a line to pancakes.md and look at it with git diff. Commit it with git commit -am \"Add syrup note\". Then run git log to see three commits and git status to check the tree is clean.",
+  "run_command": "git log",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git log",
+    "caption": "Read the history"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "screen_contains",
+    "label": "Working tree is clean",
+    "app": "Terminal",
+    "pattern": "working\\s+tree\\s+clean"
+   },
+   {
+    "id": "s3c2",
+    "type": "screen_contains",
+    "label": "git log lists the commits",
+    "app": "Terminal",
+    "pattern": "commit\\s+[0-9a-f]{7,}"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 cup milk\n- 2 eggs\n- pinch of salt\n- serve with maple syrup\n",
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git status",
+    "On branch main",
+    "nothing to commit, working tree clean",
+    "tripi@mac cookbook % git diff",
+    "diff --git a/pancakes.md b/pancakes.md",
+    "index 3b18e51..a9c4f02 100644",
+    "--- a/pancakes.md",
+    "+++ b/pancakes.md",
+    "@@ -4,3 +4,4 @@",
+    " - 1 cup milk",
+    " - 2 eggs",
+    " - pinch of salt",
+    "+- serve with maple syrup",
+    "tripi@mac cookbook % git log",
+    "commit 7c2d9e1f0a3b4c5d6e7f8091a2b3c4d5e6f70819 (HEAD -> main)",
+    "Author: Ada Learner <ada@example.com>",
+    "Date:   Tue Nov 24 09:41:20 2026 -0800",
+    "",
+    "    Add eggs",
+    "",
+    "commit a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "Author: Ada Learner <ada@example.com>",
+    "Date:   Tue Nov 24 09:30:02 2026 -0800",
+    "",
+    "    Add pancakes",
+    "(END)"
+   ]
+  }
+ }
+}

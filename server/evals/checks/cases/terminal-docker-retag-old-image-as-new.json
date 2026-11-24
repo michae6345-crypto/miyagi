@@ -1,0 +1,65 @@
+{
+ "id": "terminal-docker-retag-old-image-as-new",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Docker plan (docs/ui-next/catalog/plans/intro-docker.json), 'Build and tag your image' (passes: images my-site:1.0 and my-site:1.1 exist and a 1.1 container serves the new page). The learner edited index.html, then ran `docker tag my-site:1.0 my-site:1.1` instead of building: `docker images` lists both tags with the same IMAGE ID (3f1c2a9b8d7e, created 25 minutes ago), and the 1.1 container's page still says '<h1>Trail log</h1>', not 'v1.1'. The new page was never built into an image.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Build version 1.1 of the image",
+  "instructions": "Change the heading in site/index.html to Trail log v1.1. Build it with docker build -t my-site:1.1 . and run docker images: you should see my-site with the tags 1.0 and 1.1. Start it with docker run -d -p 8081:80 my-site:1.1 and open localhost:8081.",
+  "run_command": "docker build -t my-site:1.1 .",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "docker build -t my-site:1.1",
+    "caption": "Build the new version"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": "The page says v1.1",
+    "file": "my-site/site/index.html",
+    "pattern": "v1\\.1"
+   },
+   {
+    "id": "s5c2",
+    "type": "screen_contains",
+    "label": "my-site:1.1 exists",
+    "app": "Terminal",
+    "pattern": "my-site\\s+1\\.1"
+   },
+   {
+    "id": "s5c3",
+    "type": "screen_contains",
+    "label": "my-site:1.0 is still there",
+    "app": "Terminal",
+    "pattern": "my-site\\s+1\\.0"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "my-site/Dockerfile": "FROM nginx:alpine\nCOPY site /usr/share/nginx/html\n",
+   "my-site/site/index.html": "<!doctype html>\n<html>\n  <body>\n    <h1>Trail log v1.1</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac my-site % docker tag my-site:1.0 my-site:1.1",
+    "tripi@mac my-site % docker images",
+    "REPOSITORY   TAG       IMAGE ID       CREATED          SIZE",
+    "my-site      1.1       3f1c2a9b8d7e   25 minutes ago   48.3MB",
+    "my-site      1.0       3f1c2a9b8d7e   25 minutes ago   48.3MB",
+    "nginx        alpine    1ff4bb4faebc   3 weeks ago      48.3MB",
+    "tripi@mac my-site % docker run -d -p 8081:80 my-site:1.1",
+    "9c0e1d2f3a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e",
+    "tripi@mac my-site % curl -s localhost:8081 | grep h1",
+    "    <h1>Trail log</h1>",
+    "tripi@mac my-site % "
+   ]
+  }
+ }
+}

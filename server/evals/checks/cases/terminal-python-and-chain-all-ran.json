@@ -1,0 +1,70 @@
+{
+ "id": "terminal-python-and-chain-all-ran",
+ "kind": "terminal",
+ "trap": "none",
+ "expected": "pass",
+ "why": "Intro to Python plan (docs/ui-next/catalog/plans/intro-python.json), 'Read an error message'. All three bugs fixed (broken2.py now prints f\"{len(name)} letters\"); VS Code's terminal is hidden, and the && chain ran every script: 'Total: 42', 'Hello, Ada', '3 letters', '3 items', exit 0. Done.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Run all three fixed scripts",
+  "instructions": "Fix the bug in each of broken1.py, broken2.py and broken3.py, then run all three: python3 broken1.py && python3 broken2.py && python3 broken3.py. Each should print its line with no traceback.",
+  "run_command": "python3 broken1.py && python3 broken2.py && python3 broken3.py",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "python3 broken1.py",
+    "caption": "Run the three scripts"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "output_contains",
+    "label": "broken1.py prints the total",
+    "pattern": "Total:\\s*42"
+   },
+   {
+    "id": "s10c2",
+    "type": "output_contains",
+    "label": "broken2.py greets Ada",
+    "pattern": "Hello,\\s*Ada"
+   },
+   {
+    "id": "s10c3",
+    "type": "output_contains",
+    "label": "broken3.py counts the items",
+    "pattern": "3\\s+items"
+   },
+   {
+    "id": "s10c4",
+    "type": "command_exit_ok",
+    "label": "The scripts exit with no error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "py/broken1.py": "prices = [12, 18, 12]\nprint(f\"Total: {sum(prices)}\")\n",
+   "py/broken2.py": "name = \"Ada\"\nprint(f\"Hello, {name}\")\nprint(f\"{len(name)} letters\")\n",
+   "py/broken3.py": "items = [\"map\", \"torch\", \"rope\"]\nprint(f\"{len(items)} items\")\n"
+  },
+  "screen": {
+   "Code": [
+    "broken3.py",
+    "items = [\"map\", \"torch\", \"rope\"]",
+    "print(f\"{len(items)} items\")"
+   ]
+  },
+  "run": {
+   "command": "python3 broken1.py && python3 broken2.py && python3 broken3.py",
+   "exit_code": 0,
+   "output_tail": [
+    "Total: 42",
+    "Hello, Ada",
+    "3 letters",
+    "3 items"
+   ]
+  }
+ }
+}

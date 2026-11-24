@@ -1,0 +1,58 @@
+{
+ "id": "terminal-docker-web-name-conflict-stale-ps",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Intro to Docker plan (docs/ui-next/catalog/plans/intro-docker.json), 'Serve a page and map a port' (passes: a container named web is running and localhost port 8080 answers). The first run worked and `docker ps` showed web Up on 0.0.0.0:8080->80/tcp. The learner then stopped it and ran the step's command again: 'Conflict. The container name \"/web\" is already in use', so nothing started. The last `docker ps` lists no containers. The port line and 'Up' are stale scrollback.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Serve nginx on port 8080",
+  "instructions": "Run docker run -d --name web -p 8080:80 nginx. Then docker ps should show web running with 0.0.0.0:8080->80/tcp; open http://localhost:8080 to see the nginx page.",
+  "run_command": "docker run -d --name web -p 8080:80 nginx",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "-p 8080:80",
+    "caption": "Map port 8080 to the container"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "screen_contains",
+    "label": "web maps port 8080",
+    "app": "Terminal",
+    "pattern": "0\\.0\\.0\\.0:8080->80/tcp"
+   },
+   {
+    "id": "s2c2",
+    "type": "screen_contains",
+    "label": "web is up",
+    "app": "Terminal",
+    "pattern": "Up\\s+\\d+\\s+(seconds?|minutes?)"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % docker run -d --name web -p 8080:80 nginx",
+    "4f2a9c1e7b3d8a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f",
+    "tripi@mac ~ % docker ps",
+    "CONTAINER ID   IMAGE     COMMAND                  CREATED         STATUS         PORTS                  NAMES",
+    "4f2a9c1e7b3d   nginx     \"/docker-entrypoint.…\"   6 seconds ago   Up 5 seconds   0.0.0.0:8080->80/tcp   web",
+    "tripi@mac ~ % docker stop web",
+    "web",
+    "tripi@mac ~ % docker run -d --name web -p 8080:80 nginx",
+    "docker: Error response from daemon: Conflict. The container name \"/web\" is already in use by container \"4f2a9c1e7b3d8a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f\". You have to remove (or rename) that container to be able to reuse that name.",
+    "See 'docker run --help'.",
+    "tripi@mac ~ % docker ps",
+    "CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES",
+    "tripi@mac ~ % "
+   ]
+  }
+ }
+}

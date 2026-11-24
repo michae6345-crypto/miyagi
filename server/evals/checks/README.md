@@ -74,6 +74,37 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 4: terminal and Git workflows (Nov 24 2026, `claude/eng-evals-r4-2`)
+
+18 new `terminal` cases (12 train, 6 held out; 7 pass, 11 not_yet), no engine change. All inline steps in the shape
+the lesson builder gives the Git video lesson, from Adrian's catalog plans (`origin/adrian/ui-next`,
+`docs/ui-next/catalog/plans/`): Intro to Git and GitHub (the cookbook project: set up, stage and commit, log and diff,
+ignore files, merge, fix a conflict, push), Intro to the terminal (trail-log: make files, chmod, a script with an
+argument), Intro to Docker (hello-world, port mapping, stop and remove, build and tag), Intro to Python ("Read an
+error message", three scripts run in one shell line) and Intro to Rust (`cargo run`).
+
+The traps: a merge run the wrong way round (`git merge main` on the branch, "Already up to date.") and the unmerged
+branch then forced away with `-D`; a merge commit typed before `git add` ("Committing is not possible because you have
+unmerged files": the pattern is only the typed message); `git add` misspelt in an `&&` chain, so the commit never ran;
+`git commit -am` with the new .gitignore untracked; "working tree clean" from before an edit, with `git log` showing
+two commits; `./count.sh` run without its word (`grep -ci ""` counts every line); notes touched one folder too high;
+a Docker name conflict under a stale `docker ps` row; `docker tag 1.0 1.1` instead of a build (same IMAGE ID, old
+page); `docker stop web` printing the same `web` as `docker rm web`; three scripts joined with `;`, so the chain exits
+0 past a TypeError. Done-but-odd: a commit by path that failed before the add + commit that worked; `gh repo create
+--push` (`HEAD -> main`, not `main -> main`); plain `git init` with the `master` hint, renamed with `git branch -m
+main`; `chmod u=rw,go=` checked with `stat` (`600`); Docker's daemon error before the run that worked; `cargo run`
+after `cargo build` (no `Compiling` line).
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (12 new) | 0.667 | 0.667 | 0.400 | 1 | 3 |
+| held-out (6 new) | 0.333 | 0.000 | 0.000 | 2 | 2 |
+
+Wrong verdicts. Train: `terminal-gitcat-merge-wrong-way-force-delete` (FP), `terminal-gitcat-commit-pathspec-then-add`,
+`terminal-gitcat-push-gh-repo-create-head-main`, `terminal-rust-cargo-run-already-built` (FN). Held out: 4 (ids in
+`baseline.json`). `baseline.json` rewritten: train 220 cases (acc 0.982, the 4 in `known_wrong`), held out 88 (acc
+0.432).
+
 ## Round 3 fixes (Nov 24 2026, `claude/eng-check-fixes-r3`)
 
 The four round-3 case sets merged: 290 cases, 208 train + 82 held out. Every fix is general (no lesson ids, no case

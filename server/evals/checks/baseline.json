@@ -1,19 +1,24 @@
 {
  "_comment": "Written by `python -m server.evals.checks --write-baseline`. The top-level scores and known_wrong are the TRAIN set: test_check_evals.py fails when a score drops below these or a train case outside known_wrong gets a wrong verdict. held_out is scored apart and guarded only in aggregate (never tune a fix on it). Raise it when the checks get better.",
- "cases": 208,
- "accuracy": 1.0,
- "precision": 1.0,
- "recall": 1.0,
- "fp": 0,
- "fn": 0,
- "known_wrong": {},
+ "cases": 220,
+ "accuracy": 0.9818,
+ "precision": 0.9895,
+ "recall": 0.9691,
+ "fp": 1,
+ "fn": 3,
+ "known_wrong": {
+  "terminal-gitcat-merge-wrong-way-force-delete": "FP",
+  "terminal-gitcat-commit-pathspec-then-add": "FN",
+  "terminal-gitcat-push-gh-repo-create-head-main": "FN",
+  "terminal-rust-cargo-run-already-built": "FN"
+ },
  "held_out": {
-  "cases": 82,
-  "accuracy": 0.439,
-  "precision": 0.3182,
-  "recall": 0.4667,
-  "fp": 30,
-  "fn": 16,
+  "cases": 88,
+  "accuracy": 0.4318,
+  "precision": 0.3043,
+  "recall": 0.4375,
+  "fp": 32,
+  "fn": 18,
   "known_wrong": {
    "autocad-dxf-wheels-layer-empty": "FP",
    "blender-anim-timeline-23976-fps": "FP",
@@ -36,8 +41,10 @@
    "terminal-git-s7-pathspec-error": "FP",
    "terminal-git-s9-pull-up-to-date-show-stat": "FP",
    "terminal-gitcat-conflict-separator-left": "FP",
+   "terminal-gitcat-log-two-commits-stale-clean": "FP",
    "terminal-mnist-s1-forgot-activate": "FP",
    "terminal-mnist-s1-jupyter-shut-down": "FP",
+   "terminal-python-semicolon-chain-exit-0-middle-traceback": "FP",
    "terminal-react-s1-server-stopped": "FP",
    "terminal-rebase-s4-reset-hard-dropped-commit": "FP",
    "terminal-shell-redirect-before-sort": "FP",
@@ -59,7 +66,9 @@
    "terminal-git-s6-gh-repo-clone": "FN",
    "terminal-git-s8-push-ligature-arrow": "FN",
    "terminal-gitcat-init-b-unknown-switch": "FN",
+   "terminal-gitcat-init-master-renamed-main": "FN",
    "terminal-react-s1-server-in-other-tab": "FN",
+   "terminal-shell-chmod-checked-with-stat": "FN",
    "vscode-react-split-components-barrel": "FN"
   }
  }

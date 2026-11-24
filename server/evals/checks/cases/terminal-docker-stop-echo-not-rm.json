@@ -1,0 +1,59 @@
+{
+ "id": "terminal-docker-stop-echo-not-rm",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Intro to Docker plan (docs/ui-next/catalog/plans/intro-docker.json), 'Logs, exec, stop and remove' (passes: docker ps -a lists no container named web and the nginx image is still there). `docker stop web` prints 'web', exactly what `docker rm web` prints, and the learner moved on without removing it: `docker ps -a` still lists web as 'Exited (0) 8 seconds ago'. The nginx image is there, but the container was only stopped.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Stop and remove the web container",
+  "instructions": "Stop the container with docker stop web, then remove it with docker rm web (each prints web). docker ps -a should no longer list web, and docker images still lists nginx.",
+  "run_command": "docker rm web",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "docker rm web",
+    "caption": "Remove the container"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "screen_contains",
+    "label": "docker rm printed web",
+    "app": "Terminal",
+    "pattern": "(?m)^web\\s*$"
+   },
+   {
+    "id": "s4c2",
+    "type": "screen_contains",
+    "label": "nginx image is still there",
+    "app": "Terminal",
+    "pattern": "nginx\\s+latest"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % docker logs web | tail -2",
+    "172.17.0.1 - - [24/Nov/2026:10:14:02 +0000] \"GET / HTTP/1.1\" 200 615 \"-\" \"curl/8.7.1\" \"-\"",
+    "172.17.0.1 - - [24/Nov/2026:10:14:09 +0000] \"GET /favicon.ico HTTP/1.1\" 404 153 \"-\" \"Mozilla/5.0\" \"-\"",
+    "tripi@mac ~ % docker stop web",
+    "web",
+    "tripi@mac ~ % docker images",
+    "REPOSITORY    TAG       IMAGE ID       CREATED         SIZE",
+    "nginx         latest    4cad75abc83d   2 weeks ago     192MB",
+    "hello-world   latest    ee301c921b8a   18 months ago   10.1kB",
+    "tripi@mac ~ % docker ps -a",
+    "CONTAINER ID   IMAGE         COMMAND                  CREATED          STATUS                     PORTS     NAMES",
+    "4f2a9c1e7b3d   nginx         \"/docker-entrypoint.…\"   20 minutes ago   Exited (0) 8 seconds ago             web",
+    "b81d0c2e5f6a   hello-world   \"/hello\"                 1 hour ago       Exited (0) 1 hour ago                eager_turing",
+    "tripi@mac ~ % "
+   ]
+  }
+ }
+}
