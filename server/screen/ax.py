@@ -22,11 +22,18 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-import HIServices as AX
 import Quartz
 from AppKit import NSRunningApplication, NSWorkspace
 
 from .types import Rect
+
+try:  # pyobjc-framework-ApplicationServices (declared in server/pyproject.toml); a stale venv can lack it
+    import HIServices as AX
+except ImportError as _e:  # then AX is unavailable (trusted() raises AXUnavailable) and OCR keeps working
+    AX = None
+    _AX_IMPORT_ERROR: str | None = f"{_e.__class__.__name__}: {_e}"
+else:
+    _AX_IMPORT_ERROR = None
 
 log = logging.getLogger("server.screen.ax")
 
@@ -48,7 +55,18 @@ TERMINAL_TAIL = 200
 
 # ---------------------------------------------------------------------- low-level helpers
 
+class AXUnavailable(RuntimeError):
+    """The AX binding (HIServices, from pyobjc-framework-ApplicationServices) isn't importable: AX can't work at all.
+    Not a permission problem, so it is never reported as a missing Accessibility grant."""
+
+
 def trusted(prompt: bool = False) -> bool:
+    """Is the Accessibility grant there? Raises AXUnavailable when the AX binding is missing (the callers' `except`
+    then treats AX as unavailable, never as revoked)."""
+    if AX is None:
+        why = _AX_IMPORT_ERROR or "HIServices not importable"
+        raise AXUnavailable(f"pyobjc-framework-ApplicationServices is not installed ({why}): "
+                            "reinstall the engine's packages (uv pip install -e server)")
     if prompt:
         return bool(AX.AXIsProcessTrustedWithOptions({AX.kAXTrustedCheckOptionPrompt: True}))
     return bool(AX.AXIsProcessTrusted())

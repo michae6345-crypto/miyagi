@@ -842,6 +842,10 @@ class ScreenReader:
         except ScreenPermissionError:
             raise
         except Exception as e:  # noqa: BLE001
+            if e.__class__.__name__ == "SCKUnavailable":  # no SCK binding in this venv: permanent, stop trying it
+                self.use_sck, self._sck = False, None
+                log.warning("ScreenCaptureKit unavailable (%s); capturing with screencapture + overlay masking", e)
+                return None
             self._sck_streak += 1
             delay = min(300.0, 10.0 * 2 ** (self._sck_streak - 1))
             if e.__class__.__name__ == "SCKDeclined":  # t10 R5: a TCC refusal: the fallback for 5 min straight away

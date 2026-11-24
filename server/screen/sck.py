@@ -19,9 +19,16 @@ import threading
 import time
 
 import Quartz
-import ScreenCaptureKit as SCK
 
 from .types import Rect, ScreenPermissionError
+
+try:  # pyobjc-framework-ScreenCaptureKit (declared in server/pyproject.toml); a stale venv can lack it
+    import ScreenCaptureKit as SCK
+except ImportError as _e:  # SCKCapturer() then raises SCKUnavailable and the reader uses its fallback capture
+    SCK = None
+    _SCK_IMPORT_ERROR: str | None = f"{_e.__class__.__name__}: {_e}"
+else:
+    _SCK_IMPORT_ERROR = None
 
 log = logging.getLogger("server.screen.sck")
 
@@ -43,6 +50,11 @@ class SCKDeclined(RuntimeError):
     -3801) while the screen-recording grant itself is there: retrying at once only freezes capture again (1.5 s)."""
 
 
+class SCKUnavailable(RuntimeError):
+    """The ScreenCaptureKit binding isn't importable: SCK can't work in this process at all (not a stall, not a
+    permission problem), so the reader stops trying it and captures with its fallback."""
+
+
 def _declined(err: object) -> bool:
     s = str(err or "")
     return "-3801" in s or "declined TCC" in s
@@ -55,6 +67,9 @@ def _env_set(name: str) -> set[str]:
 class SCKCapturer:
     def __init__(self, overlay_bundles: set[str] | None = None, private_bundles: set[str] | None = None,
                  refresh_s: float = 2.0, timeout_s: float = 1.5):
+        if SCK is None:
+            why = _SCK_IMPORT_ERROR or "ScreenCaptureKit not importable"
+            raise SCKUnavailable(f"pyobjc-framework-ScreenCaptureKit is not installed ({why})")
         self.overlay_bundles = (overlay_bundles if overlay_bundles is not None else DEFAULT_OVERLAY_BUNDLES) \
             | _env_set("TUT_OVERLAY_BUNDLES")
         self.private_bundles = (private_bundles if private_bundles is not None else DEFAULT_PRIVATE_BUNDLES) \
