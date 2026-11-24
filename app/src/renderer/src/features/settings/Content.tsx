@@ -75,7 +75,7 @@ function BigBody({ panel, flow, live }: { panel: PanelId; flow: Flow; live: bool
       return <Apps4 live={live} />
     case 'data':
     case 'storage':
-      return <Data4 live={live} />
+      return <Data4 live={live} onDeleted={flow.replaceView} />
     case 'lessons':
       return (
         <div className="flex flex-col" style={{ maxWidth: 684 }}>
@@ -97,7 +97,7 @@ function Body({ panel, flow, live }: { panel: PanelId; flow: Flow; live: boolean
     case 'apps':
       return <Apps4 live={live} />
     case 'data':
-      return <Data4 live={live} />
+      return <Data4 live={live} onDeleted={flow.replaceView} />
     case 'general':
       return <General live={live} />
     case 'permissions':

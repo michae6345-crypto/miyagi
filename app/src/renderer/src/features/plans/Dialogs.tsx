@@ -31,23 +31,44 @@ import { hair, meta, SkillChip, TableHead, TableRow } from './ui'
 /** How long a dialog waits for the engine's first answer before it uses the catalog. */
 const ASK_MS = 1500
 
+/** What Tab may land on inside the dialog (visible and enabled). */
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function PlanDialogs(): ReactNode {
   const dialog = usePlans((s) => s.dialog)
+  const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!dialog) return
+    // Esc closes; Tab and Shift+Tab stay inside the dialog (aria-modal), and pull focus back in if it got out.
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.stopPropagation()
         closeDialog()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const root = box.current
+      if (!root) return
+      const all = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null)
+      if (!all.length) return
+      const first = all[0]
+      const last = all[all.length - 1]
+      const at = document.activeElement as HTMLElement | null
+      const inside = !!at && root.contains(at)
+      if (!inside || (e.shiftKey && (at === first || at === root)) || (!e.shiftKey && at === last)) {
+        e.preventDefault()
+        e.stopPropagation()
+        ;(e.shiftKey ? last : first).focus()
       }
     }
     addEventListener('keydown', onKey, true)
     return () => removeEventListener('keydown', onKey, true)
   }, [dialog])
   if (!dialog) return null
+  // Centered, over the same dim as the account sheet (scrim.spotlight): the page behind reads as behind (mock plan-playlist).
   return (
-    <div data-plan-dialog={dialog} className="fixed inset-0 z-40 flex items-start justify-center" style={{ padding: '120px 24px 24px', background: scrim.launcher }} onMouseDown={(e) => e.target === e.currentTarget && closeDialog()}>
-      <div role="dialog" aria-modal aria-label={dialog === 'playlist' ? 'New plan from a playlist' : 'New plan from a goal'} className="flex max-h-full w-full flex-col overflow-hidden" style={{ maxWidth: 740, borderRadius: radius2.panel, background: surface.sheet, boxShadow: `inset 0 0 0 1px ${surface.border}, ${elevation.overlay}`, color: color.text }}>
+    <div data-plan-dialog={dialog} className="fixed inset-0 z-40 flex items-center justify-center" style={{ padding: 24, background: scrim.spotlight }} onMouseDown={(e) => e.target === e.currentTarget && closeDialog()}>
+      <div ref={box} role="dialog" aria-modal aria-label={dialog === 'playlist' ? 'New plan from a playlist' : 'New plan from a goal'} className="flex max-h-full w-full flex-col overflow-hidden" style={{ maxWidth: 740, borderRadius: radius2.panel, background: surface.sheet, boxShadow: `inset 0 0 0 1px ${surface.border}, ${elevation.overlay}`, color: color.text }}>
         {dialog === 'playlist' ? <PlaylistDialog /> : <GoalDialog />}
       </div>
     </div>
