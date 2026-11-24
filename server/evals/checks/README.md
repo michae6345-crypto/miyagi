@@ -54,7 +54,9 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
                                    "counts": [16, 17, null]}},   // execution counts in cell order (run order)
       "Untitled.ipynb": {"notebook": {"cells": [{"source": "...", "stdout": "...", "error": "NameError: ...",
                                                  "image": true, "run": false, "count": 4}],
-                                      "kernel": ".venv (3.12.16)", "kernel_version": "3.12.16"}}
+                                      "kernel": ".venv (3.12.16)", "kernel_version": "3.12.16"}},
+      // more cell outputs: "stderr": "...UserWarning..." (a warning stream), "result": "np.float64(3.4e-11)"
+      // (Out[n], the last expression's repr), "image": "<Figure size 640x480 with 1 Axes>" (a figure with that text)
     },
     "screen": {"Code": ["line", ...], "Terminal": [...]},   // or a ScreenObservation {windows, blocks}; null = no frame
     "run": {"command": "python3 calculator.py", "exit_code": 0, "output_tail": ["5"], "running": false},
@@ -73,6 +75,232 @@ and the coach eval's git interactive-rebase lesson (`evals/coach/lessons/git-int
 Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/plans`, commit 213c9238): Intro to
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
+
+## Round 4 fixes (Nov 24 2026, `claude/eng-check-fixes-r4`)
+
+The four round-4 case sets merged: 365 cases, 257 train + 108 held out (75 new: 49 train, 26 held out). Every fix is
+general (no lesson ids, no case text); each has a regression test in `server/checks/tests/test_round4_fixes.py` (all
+31 fail on the engine before these fixes, and each also checks the finished form still passes). Fixed against the
+train cases only; the held-out cases were never read while fixing (ids only).
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (257), before | 0.875 | 0.820 | 0.909 | 22 | 10 |
+| train (257), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (108), before | 0.417 | 0.276 | 0.432 | 42 | 21 |
+| held-out (108), after | 0.435 | 0.300 | 0.486 | 42 | 19 |
+| held-out, the 26 new, before / after | 0.346 / 0.346 | | | 12 / 12 | 5 / 5 |
+
+Honest generalisation: the 17 round-4 held-out wrong verdicts are all still wrong; two earlier-round held-out cases
+are now right (`gh repo clone` read as `git clone`, and a git failure the learner got past with the same subcommand),
+and no held-out case got worse. A broader "N mm tall" rule (no body measures N) also caught one more held-out case,
+but it was narrowed to the Symmetric extrude before that was known, because it would false-fail a boss "10 mm high"
+on a plate; it stays narrow.
+
+What changed (server/checks):
+
+- **Scene / drawing claims** (`model_files.claims`, `dxf_claims`, `alt_views`): a modifier off in both viewport and
+  render; overlapping UV islands when the step says none overlap; a curve that never rises above its last key when the
+  step asks for an overshoot; a Shell that removed no face when the step opens one; a Symmetric extrude of N (one side)
+  for "N mm tall"; the step's entities on another layer than "On layer X" (a layer only in the table holds nothing).
+  Read another way: a rotation by its size (R X -90 is turned 90 degrees) and a bound box with X / Y swapped, unless
+  the step gives a direction or names an axis; numbers a step gives only "for example" (any value), with a label's
+  relation checked on the two named values ("Slot 0.3 mm wider than the arm": SlotWidth - ArmWidth).
+- **Exports**: a render named for its frames (`0001-0048.mp4`) when the step renders another range is not the step's
+  file (`_claim_any_names`).
+- **Terminal** (`blocks`, `_on_blocks`): `git merge` / `rebase` with another branch than the step's is another command;
+  `gh repo create --source --remote --push` runs `git remote add` and `git push`, and its `HEAD -> main` is `main ->
+  main` when git says main tracks origin/main; a git failure followed by a successful run of the same subcommand is
+  history; `cargo run` with nothing to compile (`Finished`, no `Compiling`) matches the `Compiling <pkg> v<ver>` row from
+  the lesson's Cargo.toml; a dev server's own error rows (`[vite] Internal server error`, `Pre-transform error`,
+  webpack `ERROR in`) fail a "no errors" check until a later `hmr update`; a scaffolder prompt answered with none of the
+  step's chosen words (`✔ Select a framework: › Vanilla`) fails the step (`scaffold_choices`).
+- **Code** (`code_equiv`, `evaluate_gate`): a type-hinted def reads as the plain def; a list callback that destructures
+  its element (`items.map(({ price }) => ...)`) reads as `item.price`; a rename step after which a lesson file still
+  binds the old name (a copy, or `export const scale = scaleRecipe`) fails (`renamed_leftover`); an import beside a
+  top-level declaration of the same name (TS2440); a `return (...)` with two JSX roots side by side; a code check whose
+  label says a method is "called" and whose pattern is only its name needs the call's `(`.
+- **Notebooks** (`evaluate_gate`, `_screen`): a metric value group that insists on decimals also reads a whole number
+  (`98%`); a printed NumPy vector (`[[0.] [0.] [0.] [1.]]`) also reads as a list `[0, 0, 0, 1]`; an output check never
+  passes on another cell's output on screen (cells holding a line of the step's code count as the step's); an output
+  printed before a later run rebound what it reads (non-constant) is stale; `backward()` without zeroing, run again
+  since the cell that made the tensors, accumulated the gradient; a keyword the instructions spell out left out of the
+  call (`bins=`), or a slice of the data where the step passes all of it (`fit(train_images[:1000], ...)`); drawing on
+  axes made in an earlier cell with no figure in the cell's output (inline backend); a value printed after an update
+  (`optimizer.step()`) that was computed before it, where the step's code computes it again.
+
+`baseline.json`: train 1.000 with no `known_wrong`; held-out 0.435 (61 known wrong, ids only).
+
+## Round 4: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r4-0`)
+
+18 new cases (12 train, 6 held out), no engine change. The runner's notebook cells gained `stderr`, `result`
+(Out[n]) and a text `image` so a case can show a bare expression's repr (`np.float64(...)`, `[<Line2D ...>]`,
+`<BarContainer object of 10 artists>`) the way Jupyter saves it. Steps: the MNIST video lesson (s5 fit, s7
+evaluate) and, inline, lessons from Adrian's catalog plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`)
+in the lesson builder's shape: Neural networks ("Gradients by hand", "Gradient descent" on AND), PyTorch
+("Autograd", "Loss functions and optimizers"), scikit-learn ("Fit and predict", "Cross-validation", "Compare two
+models") and Plotting ("Your first line plot", "Histograms", "Save a figure").
+
+The traps: `val_accuracy: 0.95..` beside a training accuracy of 0.9431 (sgd, `validation_split`); fit on
+`train_images[:1000]` run twice (0.995 on 1000 images); the model cell re-run after fit; predictions printed in an
+older cell than the training run that changed the weights; `loss.backward()` run twice so `w.grad` reads 12 beside
+a hand value of 6; an "after" loss that re-prints the tensor from before the step; `predict(X_train)` while the 45 on
+screen is the split cell's `(45, 13)`; `cv=3` where five folds are asked; a flipped comparison that names the lower
+model; `ax.hist(sums)` with 10 default bins; `ax.plot` in a later cell than `plt.subplots` (no image); `plt.savefig`
+in a new cell after `plt.show()` (a blank 1280 px PNG). Done-but-odd: `validation_split` columns, `{acc:.0%}` ->
+`98%`, a `(4, 1)` column of rounded predictions, `np.float64(3.44e-11)` as Out[3], `bins=range(2, 14)`.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (220: 208 earlier + 12 new) | 0.959 | 0.931 | 0.979 | 7 | 2 |
+| train, the 12 new | 0.250 | | | 7 | 2 |
+| held-out (88: 82 earlier + 6 new) | 0.420 | 0.306 | 0.469 | 34 | 17 |
+| held-out, the 6 new | 0.167 | | | 4 | 1 |
+
+Train wrong verdicts (all new; the 208 earlier train cases still score right): FP
+`jupyter-mnist-s5-fit-on-1000-image-slice`, `jupyter-nn-gd-and-stale-predictions`, `jupyter-plot-hist-ten-bins`,
+`jupyter-plot-line-later-cell-no-image`, `jupyter-pytorch-autograd-backward-rerun-accumulated`,
+`jupyter-pytorch-optim-step-loss-unchanged`, `jupyter-sklearn-predict-on-train-45-elsewhere`; FN
+`jupyter-mnist-s7-whole-percent` (the metric pattern wants `NN.NN%`; s7c4 stays pending), `jupyter-nn-gd-and-column-array`
+(the `[0, 0, 0, 1]` pattern never sees NumPy's column print). `baseline.json` records them in `known_wrong`.
+
+## Round 4: multi-file VS Code projects, Python and JS/TS/React (Nov 24 2026, `claude/eng-evals-r4-1`)
+
+20 new cases (13 train, 7 held out), no engine change (the runner already scores `heldOut` apart). Steps from
+`py-modules.json` (m2, m4, m5), `ts-shop.json` (t2, t3, t4) and the React/Vite lesson (s1, s3, s6, s8), plus inline
+steps in the lesson builder's shape from Adrian's catalog plans (`origin/adrian/ui-next`,
+`docs/ui-next/catalog/plans/`): React "Pass data with props" (`re4s3`, MenuItem with name and price) and "Write JSX"
+with the dev server running (`re2s4`), and Intro to VS Code "Jump around and rename safely" as an ES module project
+(`vs6s4`, rename then `node scale.js`).
+
+Traps: add copied to add_numbers instead of renamed (both defined, the test still uses add), a relative
+`from .operations import add` in a script, pytest.ini's `addopts = -k "not divide"` (`2 passed, 1 deselected`), an
+old local `formatPrice` left below the import (TS2440), a `formatPrice` in utils.ts that lost its `export`, a build
+script edited down to `vite build` to get past a tsc error, `npm create vite` answered Vanilla (no react in
+package.json, no App.jsx), `<Header />` only inside a JSX comment, `<Footer/>` beside the fragment (two roots),
+`{food2.toUpperCase}` never called, `function MenuItem(name, price)` without braces, Vite's `[vite] Internal server
+error` (not `ERR!`), and an old export re-exported (`export const scale = scaleRecipe`) instead of renaming the import.
+Done-but-odd: a type-hinted `def add_numbers(a: int, b: int) -> int:`, a destructured map callback
+(`formatPrice(price)`), Vite's sourcemap "Error when using sourcemap" warning above `✓ built in`, a passing test's
+`console.error('formatPrice failed: ...')` in Jest's output, `props.name` instead of destructuring, a Vite error fixed
+by a later `hmr update`, and F2's real `{ scaleRecipe as scale }` import alias.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (221: 208 earlier + 13 new) | 0.959 | 0.931 | 0.979 | 7 | 2 |
+| train, the 13 new | 0.308 | | | 7 | 2 |
+| held-out (89: 82 earlier + 7 new) | 0.461 | 0.326 | 0.469 | 31 | 17 |
+| held-out, the 7 new | 0.714 | | | 1 | 1 |
+
+Train wrong verdicts (all new; the 208 earlier train cases still score right), in `baseline.json` → `known_wrong`:
+
+- **FP `vscode-pymod-m4-duplicated-not-renamed`**: both m4 rows are on screen; nothing sees that operations.py still
+  defines `add` and test_operations.py still imports it.
+- **FP `vscode-tsshop-t2-local-formatprice-conflicts`**: the import and the call match; a local `function formatPrice`
+  in the same file (and `⊗ 1`) is not weighed.
+- **FP `vscode-recipe-rename-old-name-reexported`**: recipe-utils.js defines scaleRecipe and the run prints; scale.js
+  (not on screen) still imports `scale`, and the precision row on scale.js isn't in the gate.
+- **FP `vscode-react-s6-footer-outside-fragment`**: `<>`, `import Footer` and `<Footer` all match; the second root
+  after `</>` (and Vite's "Adjacent JSX elements" pre-transform error) is not read.
+- **FP `vscode-react-s8-touppercase-not-called`**: `toUpperCase` matches without its call parentheses.
+- **FP `terminal-react-s1-vanilla-template`**: "ready in" + "localhost:"; package.json without react is not checked.
+- **FP `terminal-react-jsx-vite-internal-server-error`**: `ERR!|Failed to compile` misses Vite's own
+  "Internal server error" / "Pre-transform error" wording.
+- **FN `vscode-pymod-m4-type-hinted-def`**: `def\s+add_numbers\(a,\s*b\):` refuses type hints on the same def.
+- **FN `vscode-tsshop-t2-destructured-price`**: `formatPrice\(\s*item\.price\s*\)` refuses `formatPrice(price)` from
+  a destructured item.
+
+Seen right (train): the sourcemap warning build, Jest's captured `console.error` with "failed" in it, F2's import
+alias, `MenuItem(name, price)`. Held-out: ids of the new wrong verdicts in `baseline.json` →
+`held_out.known_wrong`; not listed here on purpose.
+
+## Round 4: terminal and Git workflows (Nov 24 2026, `claude/eng-evals-r4-2`)
+
+18 new `terminal` cases (12 train, 6 held out; 7 pass, 11 not_yet), no engine change. All inline steps in the shape
+the lesson builder gives the Git video lesson, from Adrian's catalog plans (`origin/adrian/ui-next`,
+`docs/ui-next/catalog/plans/`): Intro to Git and GitHub (the cookbook project: set up, stage and commit, log and diff,
+ignore files, merge, fix a conflict, push), Intro to the terminal (trail-log: make files, chmod, a script with an
+argument), Intro to Docker (hello-world, port mapping, stop and remove, build and tag), Intro to Python ("Read an
+error message", three scripts run in one shell line) and Intro to Rust (`cargo run`).
+
+The traps: a merge run the wrong way round (`git merge main` on the branch, "Already up to date.") and the unmerged
+branch then forced away with `-D`; a merge commit typed before `git add` ("Committing is not possible because you have
+unmerged files": the pattern is only the typed message); `git add` misspelt in an `&&` chain, so the commit never ran;
+`git commit -am` with the new .gitignore untracked; "working tree clean" from before an edit, with `git log` showing
+two commits; `./count.sh` run without its word (`grep -ci ""` counts every line); notes touched one folder too high;
+a Docker name conflict under a stale `docker ps` row; `docker tag 1.0 1.1` instead of a build (same IMAGE ID, old
+page); `docker stop web` printing the same `web` as `docker rm web`; three scripts joined with `;`, so the chain exits
+0 past a TypeError. Done-but-odd: a commit by path that failed before the add + commit that worked; `gh repo create
+--push` (`HEAD -> main`, not `main -> main`); plain `git init` with the `master` hint, renamed with `git branch -m
+main`; `chmod u=rw,go=` checked with `stat` (`600`); Docker's daemon error before the run that worked; `cargo run`
+after `cargo build` (no `Compiling` line).
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (12 new) | 0.667 | 0.667 | 0.400 | 1 | 3 |
+| held-out (6 new) | 0.333 | 0.000 | 0.000 | 2 | 2 |
+
+Wrong verdicts. Train: `terminal-gitcat-merge-wrong-way-force-delete` (FP), `terminal-gitcat-commit-pathspec-then-add`,
+`terminal-gitcat-push-gh-repo-create-head-main`, `terminal-rust-cargo-run-already-built` (FN). Held out: 4 (ids in
+`baseline.json`). `baseline.json` rewritten: train 220 cases (acc 0.982, the 4 in `known_wrong`), held out 88 (acc
+0.432).
+
+## Round 4: Blender and CAD / AutoCAD / Fusion files (Nov 24 2026, `claude/eng-evals-r4-3`, 19 new cases, 7 held out)
+
+No engine change and no runner change (the held-out split already exists). Steps from Adrian's plans on
+`origin/adrian/ui-next` (`docs/ui-next/catalog/plans`: `intro-blender` 2 and 7, `blender-materials` 2, 4 and 9,
+`blender-animation` 4, 6, 8 and 9, `intro-fusion` 4, 5 and 6, `cad-3d-printing` 5, 6 and 9, each lesson's `passes`
+line) and `docs/ui-next/INTEGRATIONS.md` (headless `dump_scene.py` / `dump_fcstd.py` facts as fixtures, the Fusion
+add-in's design JSON), plus the AutoCAD toy car as ASCII DXF. Dump fields new this round, read by name: a modifier's
+`show_viewport` / `show_render`, an object's `constraints` (type, target, `is_valid`), a mesh's `seams` / `uv_layers` /
+`uv` (islands, `overlapping_islands`), an fcurve's `handle_types` / `handles` / `evaluated_range`, a Fusion feature's
+`extent` / `edge_directions` / `faces_removed`, a body's `open_faces`, a FreeCAD chamfer's `edges`, a hole pattern's
+`centres`, and a Cycles render's PNG metadata (`cycles.ViewLayer.samples`).
+
+Traps: a Subdivision modifier at level 2 switched off in viewport and render, IOR 1.52 typed on the glow material
+instead of the glass one, U > Reset (all UV islands stacked), a Cycles PNG rendered at 4096 samples before the scene
+was set to 128, a bounce whose last peak is higher, a Track To with no target, Graph Editor handles edited but no
+overshoot, a stale `0001-0048.mp4` after the range became 96, a symmetric 30 mm extrude (60 tall), a fillet on the four
+top edges instead of the vertical ones, a Shell with no face removed, a chamfer on an outer edge not the pocket rim,
+lid holes on a 50 x 30 pattern over posts on 52 x 32, a dimension on layer 0 while DIMS sits empty. Done-but-odd:
+R X -90 for "turned 90 degrees", `bounce0001-0096.mp4`, an 80 x 50 x 30 body with the long side on Y, a 1.7 mm arm in
+a 2.0 mm slot where the instructions' example says 2 / 2.3, wheels as a block inserted twice on WHEELS.
+
+Before any fix (the engine is the round-3 fix state):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (220 = 208 + 12 new) | 0.955 | 0.930 | 0.969 | 7 | 3 |
+| train, the 12 new | 0.167 | 0.125 | 0.250 | 7 | 3 |
+| train blender (28) | 0.821 | 0.714 | 0.909 | 4 | 1 |
+| train cad (22) | 0.773 | 0.625 | 0.714 | 3 | 2 |
+| held-out (89 = 82 + 7 new) | 0.416 | 0.286 | 0.452 | 35 | 17 |
+| held-out, the 7 new | 0.143 | | | 5 | 1 |
+
+Train wrong verdicts (10 of the 12 new; the 208 earlier train cases stay right):
+
+- **FP `blender-subsurf-modifier-toggled-off`**: `SUBSURF` and `levels: 2` match; `show_viewport` / `show_render`
+  false is not read, so a modifier that does nothing passes.
+- **FP `blender-crate-uv-reset-overlap`**: seams and `UVMap` match; `overlapping_islands: 6` against "do not overlap"
+  in the step is not read.
+- **FP `blender-graph-handles-no-overshoot`**: an `ALIGNED` handle matches; the curve never rises above its last key
+  (`evaluated_range` max 5.0 = the final value).
+- **FP `blender-anim-mp4-stale-48-frames`**: `0001-0048.mp4` counts as `bounce.mp4` ("any name will do") though
+  Blender's own range name says 48 frames against the scene's 96.
+- **FP `fusion-extrude-symmetric-60-tall`**: `distance: 30` matches; `extent: symmetric` makes the body 60 tall
+  (bound box 80 x 50 x 60).
+- **FP `fusion-shell-no-face-removed`**: the Shell with thickness 2 matches; `faces_removed: 0` (closed on top) is
+  not weighed against "open on top".
+- **FP `autocad-dxf-dimension-on-layer-0`**: `DIMS` matches the layer table row; the DIMENSION's own group 8 is `0`.
+- **FN `blender-cone-turned-minus-90`**: `rotation_deg` -90 fails a pattern for 90.
+- **FN `freecad-snapfit-arm-1p7-slot-2p0`**: the example numbers (2, 2.3) are wanted; the 0.3 mm difference the
+  step is about (1.7 / 2.0) is not computed, and only the first body (Hook) is read.
+- **FN `fusion-block-bound-box-50-by-80`**: a bound box `[50, 80, 30]` fails a pattern for `[80, 50, 30]`.
+
+Seen right (train): the bounce with a higher last peak fails "Each peak lower than the last"; `bounce0001-0096.mp4`
+passes as the MP4.
+
+Held out: 7 new cases, 6 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
 
 ## Round 3 fixes (Nov 24 2026, `claude/eng-check-fixes-r3`)
 

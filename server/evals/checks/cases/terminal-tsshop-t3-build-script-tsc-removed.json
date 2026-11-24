@@ -1,0 +1,51 @@
+{
+ "id": "terminal-tsshop-t3-build-script-tsc-removed",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "The first npm run build stopped at tsc with TS2345 in Cart.tsx. Instead of fixing it, the learner edited package.json so build is just 'vite build' and ran npm run build again: Vite strips types without checking them, so it printed '✓ built in' while the type error is still in Cart.tsx. The step's build type-checks first; the command name is the same but the check was removed, so the app has not built cleanly.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t3"
+ },
+ "workspace": {
+  "files": {
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"test\": \"jest\"\n  }\n}\n",
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n\ntype Item = { id: number; name: string; price: number }\ntype CartProps = { items: Item[] }\n\nexport function Cart({ items }: CartProps) {\n  return (\n    <ul>\n      {items.map(item => (\n        <li key={item.id}>\n          {item.name} <span>{formatPrice(item.name)}</span>\n        </li>\n      ))}\n    </ul>\n  )\n}\n",
+   "shop/dist/index.html": "<!doctype html>\n<html><body><div id=\"root\"></div></body></html>\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "package.json",
+    "\"scripts\": {",
+    "\"dev\": \"vite\",",
+    "\"build\": \"vite build\",",
+    "\"test\": \"jest\""
+   ],
+   "Terminal": [
+    "tripi@mac shop % clear",
+    "tripi@mac shop % npm run build",
+    "> shop@0.0.0 build",
+    "> vite build",
+    "vite v5.4.10 building for production...",
+    "✓ 38 modules transformed.",
+    "dist/index.html                   0.46 kB │ gzip:  0.30 kB",
+    "dist/assets/index-DiwrgTda.css    1.39 kB │ gzip:  0.72 kB",
+    "dist/assets/index-Bm2x9qLe.js   143.41 kB │ gzip: 46.12 kB",
+    "✓ built in 802ms",
+    "tripi@mac shop %"
+   ]
+  },
+  "run": {
+   "command": "npm run build",
+   "exit_code": 0,
+   "output_tail": [
+    "✓ built in 802ms"
+   ],
+   "running": false
+  }
+ }
+}

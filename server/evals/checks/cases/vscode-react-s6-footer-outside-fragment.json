@@ -1,0 +1,41 @@
+{
+ "id": "vscode-react-s6-footer-outside-fragment",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Footer is imported and <Footer/> is typed, and there is a <>...</> fragment, but the fragment closes after Header and <Footer/> sits beside it as a second root. That is the exact error the step exists to fix: Vite's overlay shows '[plugin:vite:react-babel] Adjacent JSX elements must be wrapped in an enclosing tag' and the page is blank. App does not return a single enclosing tag.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{\n  \"name\": \"my-react-app\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/Footer.jsx": "function Footer() {\n  return (<footer><p>&copy; {new Date().getFullYear()} Your website name</p></footer>)\n}\nexport default Footer\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\nimport Footer from './Footer.jsx'\n\nfunction App() {\n  return (\n    <>\n      <Header/>\n    </>\n    <Footer/>\n  )\n}\n\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "import Header from './Header.jsx'",
+    "import Footer from './Footer.jsx'",
+    "function App() {",
+    "return (",
+    "<>",
+    "<Header/>",
+    "</>",
+    "<Footer/>",
+    ")",
+    "}",
+    "export default App"
+   ],
+   "Terminal": [
+    "VITE v5.4.10  ready in 312 ms",
+    "➜  Local:   http://localhost:5173/",
+    "4:12:09 PM [vite] Pre-transform error: /Users/tripi/my-react-app/src/App.jsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (9:4)"
+   ]
+  }
+ }
+}

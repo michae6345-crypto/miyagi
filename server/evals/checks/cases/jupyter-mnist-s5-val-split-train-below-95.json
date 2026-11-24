@@ -1,0 +1,50 @@
+{
+ "id": "jupyter-mnist-s5-val-split-train-below-95",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "MNIST s5 (Compile and train; the check is 'Training accuracy reaches 0.95'). The learner compiled with optimizer='sgd' instead of adam and added validation_split=0.1. After 5 epochs the training accuracy is 0.9431 (below 0.95); only the validation column reads 0.9533. Keras prints both on one line, so an 'accuracy: 0.95..' is on screen, but it is val_accuracy. Training accuracy never reached 0.95 and the optimizer is not the one the step names: not done.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 3,
+     "counts": [
+      1,
+      2,
+      3
+     ],
+     "append": [
+      {
+       "source": "model.compile(optimizer='sgd',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5,\n    validation_split=0.1\n)",
+       "stdout": "Epoch 1/5\n1688/1688 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2s 1ms/step - accuracy: 0.7713 - loss: 0.8123 - val_accuracy: 0.9020 - val_loss: 0.3740\nEpoch 2/5\n1688/1688 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2s 1ms/step - accuracy: 0.9012 - loss: 0.3480 - val_accuracy: 0.9218 - val_loss: 0.2802\nEpoch 3/5\n1688/1688 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2s 1ms/step - accuracy: 0.9183 - loss: 0.2876 - val_accuracy: 0.9338 - val_loss: 0.2423\nEpoch 4/5\n1688/1688 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2s 1ms/step - accuracy: 0.9318 - loss: 0.2425 - val_accuracy: 0.9452 - val_loss: 0.2001\nEpoch 5/5\n1688/1688 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2s 1ms/step - accuracy: 0.9431 - loss: 0.2012 - val_accuracy: 0.9533 - val_loss: 0.1689\n",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[4]",
+    "model.compile(optimizer='sgd',",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['accuracy'])",
+    "history = model.fit(",
+    "epochs=5,",
+    "validation_split=0.1",
+    "Epoch 4/5",
+    "1688/1688 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2s 1ms/step - accuracy: 0.9318 - loss: 0.2425 - val_accuracy: 0.9452 - val_loss: 0.2001",
+    "Epoch 5/5",
+    "1688/1688 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2s 1ms/step - accuracy: 0.9431 - loss: 0.2012 - val_accuracy: 0.9533 - val_loss: 0.1689"
+   ]
+  }
+ }
+}

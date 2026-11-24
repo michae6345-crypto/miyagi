@@ -1,0 +1,92 @@
+{
+ "id": "jupyter-sklearn-cv-five-folds-done",
+ "kind": "jupyter",
+ "trap": "none",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "scikit-learn plan, 'Cross-validation' (five fold scores print with their mean and standard deviation). cross_val_score(pipe, X, y, cv=5) ran on the scaled KNN pipeline: five scores, [0.94444444 0.94444444 0.97222222 1. 1.], then 'mean 0.972 std 0.025'. NumPy pads 1. with spaces; that is how it prints arrays. Done.",
+ "step": {
+  "id": "sk7s3",
+  "title": "Cross-validate with five folds",
+  "instructions": "In wine.ipynb, run scores = cross_val_score(pipe, X, y, cv=5), then print the five scores, their mean and their standard deviation.",
+  "file": "wine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "wine.ipynb",
+    "match": "cross_val_score(",
+    "caption": "Score the pipeline on five folds"
+   }
+  ],
+  "code": "scores = cross_val_score(pipe, X, y, cv=5)\nprint(scores)\nprint(f'mean {scores.mean():.3f} std {scores.std():.3f}')",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "cross_val_score called",
+    "app": "Code",
+    "pattern": "cross_val_score\\(",
+    "id": "sk7s3c1"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Mean score printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "mean\\s*[:=]?\\s*0\\.\\d+",
+    "id": "sk7s3c2"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Standard deviation printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "std\\s*[:=]?\\s*0\\.\\d+",
+    "id": "sk7s3c3"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "sk7s3c4"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "wine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import numpy as np\nfrom sklearn.datasets import load_wine\nfrom sklearn.model_selection import train_test_split, cross_val_score\n\nX, y = load_wine(return_X_y=True, as_frame=True)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "from sklearn.pipeline import make_pipeline\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.neighbors import KNeighborsClassifier\n\npipe = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=5))",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "scores = cross_val_score(pipe, X, y, cv=5)\nprint(scores)\nprint(f'mean {scores.mean():.3f} std {scores.std():.3f}')",
+       "stdout": "[0.94444444 0.94444444 0.97222222 1.         1.        ]\nmean 0.972 std 0.025\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "wine.ipynb",
+    "[3]",
+    "scores = cross_val_score(pipe, X, y, cv=5)",
+    "print(scores)",
+    "print(f'mean {scores.mean():.3f} std {scores.std():.3f}')",
+    "[0.94444444 0.94444444 0.97222222 1.         1.        ]",
+    "mean 0.972 std 0.025"
+   ]
+  }
+ }
+}

@@ -1,0 +1,103 @@
+{
+ "id": "jupyter-sklearn-predict-on-train-45-elsewhere",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "scikit-learn plan, 'Fit and predict' (a fitted KNeighborsClassifier returns 45 predictions for the test set). The learner fitted on X_train but predicted X_train too: y_pred = knn.predict(X_train), and len(y_pred) prints 133. The '45' on screen is the split cell's output above it, (133, 13) (45, 13), not the number of predictions. Predictions on the training rows are not test-set predictions. Not done.",
+ "step": {
+  "id": "sk3s4",
+  "title": "Predict the test set",
+  "instructions": "In wine.ipynb, make knn = KNeighborsClassifier(n_neighbors=5), fit it on X_train and y_train, predict X_test into y_pred and print len(y_pred).",
+  "file": "wine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "wine.ipynb",
+    "match": "knn.predict(",
+    "caption": "Predict the held-out rows"
+   }
+  ],
+  "code": "from sklearn.neighbors import KNeighborsClassifier\n\nknn = KNeighborsClassifier(n_neighbors=5)\nknn.fit(X_train, y_train)\ny_pred = knn.predict(X_test)\nprint(len(y_pred))",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "KNeighborsClassifier with 5 neighbours",
+    "app": "Code",
+    "pattern": "KNeighborsClassifier\\(\\s*n_neighbors\\s*=\\s*5",
+    "id": "sk3s4c1"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Fitted on the training set",
+    "app": "Code",
+    "pattern": "\\.fit\\(\\s*X_train",
+    "id": "sk3s4c2"
+   },
+   {
+    "type": "screen_contains",
+    "label": "predict called",
+    "app": "Code",
+    "pattern": "\\.predict\\(",
+    "id": "sk3s4c3"
+   },
+   {
+    "type": "screen_contains",
+    "label": "45 predictions",
+    "app": "Code",
+    "output": true,
+    "pattern": "\\b45\\b",
+    "id": "sk3s4c4"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "sk3s4c5"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "wine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import numpy as np\nfrom sklearn.datasets import load_wine\nfrom sklearn.model_selection import train_test_split, cross_val_score\n\nX, y = load_wine(return_X_y=True, as_frame=True)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "X_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.25, random_state=0, stratify=y)\nprint(X_train.shape, X_test.shape)",
+       "stdout": "(133, 13) (45, 13)\n",
+       "count": 2
+      },
+      {
+       "source": "from sklearn.neighbors import KNeighborsClassifier\n\nknn = KNeighborsClassifier(n_neighbors=5)\nknn.fit(X_train, y_train)\ny_pred = knn.predict(X_train)\nprint(len(y_pred))",
+       "stdout": "133\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "wine.ipynb",
+    "[2]",
+    "X_train, X_test, y_train, y_test = train_test_split(",
+    "X, y, test_size=0.25, random_state=0, stratify=y)",
+    "print(X_train.shape, X_test.shape)",
+    "(133, 13) (45, 13)",
+    "[3]",
+    "knn = KNeighborsClassifier(n_neighbors=5)",
+    "knn.fit(X_train, y_train)",
+    "y_pred = knn.predict(X_train)",
+    "print(len(y_pred))",
+    "133"
+   ]
+  }
+ }
+}

@@ -1,0 +1,100 @@
+{
+ "id": "fusion-extrude-symmetric-60-tall",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Fusion lesson 4. The learner set Direction to Symmetric and typed 30, which Fusion reads as 30 mm each side of the sketch: the body is 80 by 50 by 60 mm and sits half below the XY plane. The Extrude feature's distance is 30 and 80 and 50 are in the file; the block is twice as tall as the step asks.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Extrude it into a block",
+  "file": "box.design.json",
+  "instructions": "Press E (Extrude), click inside the rectangle and set the distance to 30 mm, operation New Body, then OK.",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Extrude feature",
+    "file": "box.design.json",
+    "pattern": "\\\"type\\\":\\s*\\\"Extrude\\\""
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "30 mm tall",
+    "file": "box.design.json",
+    "pattern": "\\\"distance\\\":\\s*30(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Box",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          80.0,
+          50.0,
+          60.0
+         ],
+         "volume": 240000.0,
+         "solid": true
+        }
+       ]
+      }
+     ],
+     "timeline": {
+      "marker": 2,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": [
+      {
+       "name": "Sketch1",
+       "type": "Sketch",
+       "plane": "XY",
+       "profiles": 1,
+       "fully_constrained": true,
+       "dimensions": [
+        80.0,
+        50.0
+       ]
+      },
+      {
+       "name": "Extrude1",
+       "type": "Extrude",
+       "operation": "NewBody",
+       "extent": "symmetric",
+       "measurement": "one_side",
+       "distance": 30.0,
+       "direction": [
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

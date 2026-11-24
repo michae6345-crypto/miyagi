@@ -1,0 +1,69 @@
+{
+ "id": "terminal-docker-hello-daemon-down-then-ok",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to Docker plan (docs/ui-next/catalog/plans/intro-docker.json), 'Run your first container' (passes: docker ps -a lists a hello-world container that exited with code 0). The first `docker run hello-world` failed because Docker Desktop was not running yet ('Cannot connect to the Docker daemon'). The learner opened Docker and ran it again: the image pulled and 'Hello from Docker!' printed, exit 0. The daemon error is from before the run that worked. Done.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Run hello-world",
+  "instructions": "Open Docker Desktop and wait until it says Engine running. Then run docker run hello-world in the terminal and read what it prints.",
+  "run_command": "docker run hello-world",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "docker run hello-world",
+    "caption": "Your first container"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "screen_contains",
+    "label": "hello-world ran",
+    "app": "Terminal",
+    "pattern": "Hello\\s+from\\s+Docker!"
+   },
+   {
+    "id": "s2c2",
+    "type": "screen_absent",
+    "label": "Docker is running",
+    "app": "Terminal",
+    "pattern": "Cannot\\s+connect\\s+to\\s+the\\s+Docker\\s+daemon"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % docker run hello-world",
+    "docker: Cannot connect to the Docker daemon at unix:///Users/tripi/.docker/run/docker.sock. Is the docker daemon running?.",
+    "See 'docker run --help'.",
+    "tripi@mac ~ % open -a Docker",
+    "tripi@mac ~ % docker run hello-world",
+    "Unable to find image 'hello-world:latest' locally",
+    "latest: Pulling from library/hello-world",
+    "478afc919002: Pull complete",
+    "Digest: sha256:305243c734571da2d100c8c8b3c3167a098cab6049c9a5b066b6021a60fcb966",
+    "Status: Downloaded newer image for hello-world:latest",
+    "",
+    "Hello from Docker!",
+    "This message shows that your installation appears to be working correctly.",
+    "",
+    "To generate this message, Docker took the following steps:",
+    " 1. The Docker client contacted the Docker daemon.",
+    "tripi@mac ~ % "
+   ]
+  },
+  "run": {
+   "command": "docker run hello-world",
+   "exit_code": 0,
+   "output_tail": [
+    "Hello from Docker!",
+    "This message shows that your installation appears to be working correctly."
+   ]
+  }
+ }
+}

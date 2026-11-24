@@ -1,0 +1,52 @@
+{
+ "id": "jupyter-mnist-s7-whole-percent",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "MNIST s7 (Evaluate accuracy on the test set; print the percentage). The learner formatted the print with {test_accuracy:.0%} instead of {test_accuracy * 100:.2f}%, so it reads 'on the 10000 test images: 98%'. model.evaluate ran on test_images after training ('accuracy: 0.9759'), and 98% is the same number rounded, well over 95. A whole-number percentage is still the percentage the step asks for. Done.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 6,
+     "counts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ],
+     "replace": [
+      [
+       5,
+       "{test_accuracy * 100:.2f}%",
+       "{test_accuracy:.0%}"
+      ],
+      [
+       5,
+       "97.59%",
+       "98%"
+      ]
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[6]",
+    "test_loss, test_accuracy = model.evaluate(test_images, test_labels)",
+    "print(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy:.0%}')",
+    "313/313 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 0s 324us/step - accuracy: 0.9759 - loss: 0.0811",
+    "Accuracy of the neural network on the 10000 test images: 98%"
+   ]
+  }
+ }
+}

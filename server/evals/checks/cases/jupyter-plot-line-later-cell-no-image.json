@@ -1,0 +1,94 @@
+{
+ "id": "jupyter-plot-line-later-cell-no-image",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "Plotting plan, 'Your first line plot' (the cell shows one figure whose axes hold one line of seven points). The learner ran fig, ax = plt.subplots() alone in cell [3] (the inline backend drew and closed an empty set of axes) and ax.plot(days, temps, marker='o') in the next cell [4]. That cell only shows '[<matplotlib.lines.Line2D at 0x10f3b2e90>]' with no image: the line went onto a figure that is already closed. The only chart on screen is empty. Not done: plot in the same cell as subplots (or show fig).",
+ "step": {
+  "id": "pl1s3",
+  "title": "Draw the week as a line",
+  "instructions": "In temps.ipynb, make the figure and axes with fig, ax = plt.subplots(), then in the same cell draw temps against days with ax.plot(days, temps, marker='o') and run it.",
+  "file": "temps.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "temps.ipynb",
+    "match": "ax.plot(",
+    "caption": "Draw the line"
+   }
+  ],
+  "code": "days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\ntemps = [14, 16, 15, 18, 21, 19, 17]\n\nfig, ax = plt.subplots()\nax.plot(days, temps, marker='o')",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "Figure and axes made",
+    "app": "Code",
+    "pattern": "plt\\.subplots\\(",
+    "id": "pl1s3c1"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Line drawn with ax.plot",
+    "app": "Code",
+    "pattern": "ax\\.plot\\(",
+    "id": "pl1s3c2"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "pl1s3c3"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "temps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import matplotlib.pyplot as plt",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\ntemps = [14, 16, 15, 18, 21, 19, 17]",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "fig, ax = plt.subplots()",
+       "image": "<Figure size 640x480 with 1 Axes>",
+       "count": 3
+      },
+      {
+       "source": "ax.plot(days, temps, marker='o')",
+       "result": "[<matplotlib.lines.Line2D at 0x10f3b2e90>]",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "temps.ipynb",
+    "[3]",
+    "fig, ax = plt.subplots()",
+    "1.0",
+    "0.8",
+    "0.6",
+    "0.4",
+    "0.2",
+    "0.0",
+    "0.0 0.2 0.4 0.6 0.8 1.0",
+    "[4]",
+    "ax.plot(days, temps, marker='o')",
+    "[<matplotlib.lines.Line2D at 0x10f3b2e90>]"
+   ]
+  }
+ }
+}

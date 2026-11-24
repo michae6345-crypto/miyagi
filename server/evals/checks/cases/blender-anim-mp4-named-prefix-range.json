@@ -1,0 +1,168 @@
+{
+ "id": "blender-anim-mp4-named-prefix-range",
+ "kind": "blender",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done but odd: Blender animation lesson 9. The learner typed //bounce as the output path, so Blender wrote bounce0001-0096.mp4 (it appends the frame range to a name with no # in it). It is the 96-frame MP4 the step asks for, in the lesson folder, frames 1 to 96 at 24 fps; the name is Blender's, not a mistake.",
+ "step": {
+  "id": "s9",
+  "index": 9,
+  "title": "Render the animation",
+  "file": "bounce.blend",
+  "instructions": "Set the frame range to 1-96. In Output Properties choose FFmpeg Video, container MPEG-4, codec H.264, and set the output folder to this lesson's folder. Then Render > Render Animation and wait for frame 96.",
+  "checks": [
+   {
+    "id": "s9c1",
+    "type": "file_exists",
+    "label": "MP4 saved",
+    "file": "bounce.mp4"
+   },
+   {
+    "id": "s9c2",
+    "type": "file_contains",
+    "label": "96 frames",
+    "file": "bounce.scene.json",
+    "pattern": "\\\"frame_end\\\":\\s*96\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "bounce.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see bounce.scene.json)\n",
+   "bounce.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "bounce.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 96,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "FFMPEG",
+       "filepath": "//bounce",
+       "ffmpeg": {
+        "format": "MPEG4",
+        "codec": "H264"
+       }
+      }
+     },
+     "objects": [
+      {
+       "name": "Ball",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.5
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 960,
+        "faces": 480,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   },
+   "bounce0001-0096.mp4": "....ftypisom (an MPEG-4 / H.264 video: 96 frames at 24 fps, 1920x1080)\n"
+  }
+ }
+}

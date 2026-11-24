@@ -1,0 +1,66 @@
+{
+ "id": "terminal-gitcat-commit-pathspec-then-add",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Stage and commit' (passes: the repository has one commit and it adds pancakes.md). The learner first tried to commit the untracked file by path (`git commit -m \"Add pancakes\" pancakes.md` -> 'error: pathspec ... did not match any file(s) known to git'), then did it the lesson's way: git add, git commit -> '[main (root-commit) a1b2c3d] Add pancakes ... create mode 100644 pancakes.md', and `git log --oneline` shows the one commit. The error is from before the commit that worked. Done.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Commit pancakes.md",
+  "instructions": "Stage pancakes.md with git add pancakes.md, then commit it with git commit -m \"Add pancakes\". git log --oneline should show one commit.",
+  "run_command": "git commit -m \"Add pancakes\"",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git commit -m",
+    "caption": "Save the first snapshot"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "screen_contains",
+    "label": "Commit made",
+    "app": "Terminal",
+    "pattern": "\\]\\s+Add\\s+pancakes"
+   },
+   {
+    "id": "s2c2",
+    "type": "screen_contains",
+    "label": "The commit adds pancakes.md",
+    "app": "Terminal",
+    "pattern": "create\\s+mode\\s+\\d+\\s+pancakes\\.md"
+   },
+   {
+    "id": "s2c3",
+    "type": "screen_absent",
+    "label": "No Git errors",
+    "app": "Terminal",
+    "pattern": "fatal:|error:"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 cup milk\n- 2 eggs\n- pinch of salt\n",
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git commit -m \"Add pancakes\" pancakes.md",
+    "error: pathspec 'pancakes.md' did not match any file(s) known to git",
+    "tripi@mac cookbook % git add pancakes.md",
+    "tripi@mac cookbook % git commit -m \"Add pancakes\"",
+    "[main (root-commit) a1b2c3d] Add pancakes",
+    " 1 file changed, 6 insertions(+)",
+    " create mode 100644 pancakes.md",
+    "tripi@mac cookbook % git log --oneline",
+    "a1b2c3d (HEAD -> main) Add pancakes",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

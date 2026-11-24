@@ -1,0 +1,58 @@
+{
+ "id": "terminal-gitcat-conflict-commit-unmerged-files",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Fix a merge conflict' (passes: the last commit has two parents and no file holds conflict markers). The learner cleaned the markers out of pancakes.md in the editor but never ran `git add pancakes.md`, so `git commit -m \"Merge branch 'add-syrup'\"` stopped: 'Committing is not possible because you have unmerged files' and 'fatal: Exiting because of an unresolved conflict'. No merge commit exists (MERGE_HEAD is still there). The commit pattern only matches the learner's own typed message.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Finish the merge",
+  "instructions": "Open pancakes.md, keep both toppings and delete the <<<<<<<, ======= and >>>>>>> lines. Then run git add pancakes.md and git commit to finish the merge.",
+  "run_command": "git commit",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git commit",
+    "caption": "Finish the merge"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Both toppings kept",
+    "file": "cookbook/pancakes.md",
+    "pattern": "maple syrup"
+   },
+   {
+    "id": "s6c2",
+    "type": "screen_contains",
+    "label": "Merge commit made",
+    "app": "Terminal",
+    "pattern": "Merge\\s+branch\\s+'add-syrup'"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 cup milk\n- 2 eggs\n- pinch of salt\n- serve with maple syrup\n- or a spoon of honey\n",
+   "cookbook/.git/MERGE_HEAD": "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git merge add-syrup",
+    "Auto-merging pancakes.md",
+    "CONFLICT (content): Merge conflict in pancakes.md",
+    "Automatic merge failed; fix conflicts and then commit the result.",
+    "tripi@mac cookbook % git commit -m \"Merge branch 'add-syrup'\"",
+    "U\tpancakes.md",
+    "error: Committing is not possible because you have unmerged files.",
+    "hint: Fix them up in the work tree, and then use 'git add/rm <file>'",
+    "hint: as appropriate to mark resolution and make a commit.",
+    "fatal: Exiting because of an unresolved conflict.",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

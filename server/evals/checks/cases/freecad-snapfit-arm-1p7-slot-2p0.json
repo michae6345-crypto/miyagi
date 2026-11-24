@@ -1,0 +1,173 @@
+{
+ "id": "freecad-snapfit-arm-1p7-slot-2p0",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done but odd: 3D printing lesson 6 (\"The slot is 0.3 mm wider than the arm and the hook catches by at least 1 mm\"). The instructions give a 2 mm arm in a 2.3 mm slot as an example; the learner made a thinner 1.7 mm arm in a 2.0 mm slot, which is exactly 0.3 mm wider, and a 1.2 mm catch. The pass line holds; only the example numbers are absent.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "A snap-fit hook",
+  "file": "snap.FCStd",
+  "instructions": "Sketch the arm and pad it, then sketch the slot in the second part 0.3 mm wider than the arm (for example a 2 mm arm in a 2.3 mm slot) and pocket it through. Give the hook a lip that catches by at least 1 mm. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Arm 2 mm",
+    "file": "snap.scene.json",
+    "pattern": "\\\"name\\\":\\s*\\\"ArmWidth\\\",\\s*\\\"type\\\":\\s*\\\"Distance[XY]?\\\",\\s*\\\"value\\\":\\s*2(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s6c2",
+    "type": "file_contains",
+    "label": "Slot 0.3 mm wider than the arm",
+    "file": "snap.scene.json",
+    "pattern": "\\\"name\\\":\\s*\\\"SlotWidth\\\",\\s*\\\"type\\\":\\s*\\\"Distance[XY]?\\\",\\s*\\\"value\\\":\\s*2\\.3\\b"
+   },
+   {
+    "id": "s6c3",
+    "type": "file_contains",
+    "label": "Catches by at least 1 mm",
+    "file": "snap.scene.json",
+    "pattern": "\\\"name\\\":\\s*\\\"Catch\\\",\\s*\\\"type\\\":\\s*\\\"Distance[XY]?\\\",\\s*\\\"value\\\":\\s*(?:[1-9]\\d*(?:\\.\\d+)?)"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "snap.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "snap.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "snap.FCStd",
+     "bodies": [
+      {
+       "name": "Hook",
+       "tip": "Pad001",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XZ_Plane",
+         "constraints": [
+          {
+           "name": "ArmWidth",
+           "type": "DistanceX",
+           "value": 1.7
+          },
+          {
+           "name": "ArmLength",
+           "type": "DistanceY",
+           "value": 18.0
+          },
+          {
+           "name": "Catch",
+           "type": "DistanceX",
+           "value": 1.2
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad001",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 8.0,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 312.5,
+        "bound_box": [
+         2.9,
+         8.0,
+         21.0
+        ]
+       }
+      },
+      {
+       "name": "Receiver",
+       "tip": "Pocket",
+       "features": [
+        {
+         "name": "Sketch002",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "",
+           "type": "DistanceX",
+           "value": 20.0
+          },
+          {
+           "name": "",
+           "type": "DistanceY",
+           "value": 14.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch002",
+         "Length": 10.0,
+         "valid": true
+        },
+        {
+         "name": "Sketch003",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face6",
+         "constraints": [
+          {
+           "name": "SlotWidth",
+           "type": "DistanceX",
+           "value": 2.0
+          },
+          {
+           "name": "SlotLength",
+           "type": "DistanceY",
+           "value": 8.4
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pocket",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch003",
+         "Type": "ThroughAll",
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 2631.2,
+        "bound_box": [
+         20.0,
+         14.0,
+         10.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

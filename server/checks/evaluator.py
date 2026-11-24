@@ -357,6 +357,8 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
     if isinstance(other := check.get("_any_name"), str) and os.path.isfile(os.path.join(os.path.dirname(path), other)):
         # the step never named the file ("save it as a PNG next to mug.blend"): Blender's untitled.png is that PNG
         return _result(check, "pass", f"{other} saved (any name will do)")
+    if check.get("_stale"):
+        return _result(check, "fail", str(check["_stale"]))
     return _result(check, "fail", f"{rel} not found")
 
 
@@ -385,6 +387,39 @@ def _fresh(entry: os.DirEntry, since: float | None) -> bool:
         return False
 
 
+# Blender names a rendered animation by its frames ("0001-0048.mp4"); the step's own numbers for the render's range
+# or its end ("frame range to 1-96", "frames 1-96", "96 frames", "end frame 96", "End to 96", "wait for frame 96").
+# A keyframe or playhead's frame ("key it at frame 48", "go to frame 48", "on frame 1") is not the range.
+_FRAMES_NAME = re.compile(r"(?<!\d)(\d{3,})-(\d{3,})\.\w+$")
+_TO = r"\s*(?:-|–|—|\bto\b|\bthrough\b|\.\.)\s*"
+# "N frames" that is a rate, an offset or a part of the animation, not its length: "24 frames per second", "12 frames
+# of anticipation", "10 frames later", "every 5 frames"
+_NOT_LENGTH = (r"\s*(?:per\b|/|an?\s+second\b|each\b|later\b|earlier\b|after\b|before\b|ahead\b|forward\b|back\b"
+               r"|apart\b|of\b(?!\s+(?:the\s+)?(?:animation|video|footage|render)))")
+_STEP_FRAMES = re.compile(
+    rf"\bframe\s+range\b(?:\s+(?:to|from|of|is|at))*\s*[:=]?\s*(\d+)(?:{_TO}(\d+))?|"
+    rf"\bframes\s+(\d+){_TO}(\d+)|"
+    rf"(?<![\w.])(?<!\bevery\s)(\d+)\s+frames\b(?!{_NOT_LENGTH})|"
+    r"\b(?:end|last|final)\s+frame\b(?:\s+(?:to|of|is|at))*\s*[:=]?\s*(\d+)|"
+    r"\b(?-i:End)\s*(?:\bto\b|[:=])\s*(\d+)|"
+    r"\b(?:ends|ending|stops?)\s+(?:at|on)\s+frame\s+(\d+)|"
+    r"\bwait\s+(?:for|until|till)\s+frame\s+(\d+)", re.I)
+
+
+def _stale_frames(name: str, about: str) -> str | None:
+    """Why a render whose name gives its frame range is not the one the step asks for (0001-0048.mp4 when the step
+    renders frames 1-96), else None."""
+    m = _FRAMES_NAME.search(os.path.basename(name))
+    if not m:
+        return None
+    want = {int(n) for g in _STEP_FRAMES.finditer(about) for n in g.groups() if n}
+    start, end = int(m.group(1)), int(m.group(2))
+    if not want or end in want:
+        return None
+    return (f"{os.path.basename(name)} holds frames {start}-{end}, not the step's {max(want)}: render the animation "
+            f"again")
+
+
 def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[dict]:
     """The file_exists checks of one list whose file the step never names (not in its title, instructions or the
     check's label) and whose kind an app writes out under a name of its own (EXPORT_EXTS) may pass on another file of
@@ -401,6 +436,7 @@ def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[di
     named = {os.path.normcase(p) for _, c in exists if (p := _resolve(ctx.workdir, str(c["file"])))}
     words = {i: _name_words(str(c["file"])) for i, c in exists}
     want: dict[int, list[os.DirEntry]] = {}
+    stale_why: dict[int, str] = {}
     for i, c in exists:
         rel = str(c["file"])
         base, ext = os.path.basename(rel).lower(), os.path.splitext(rel)[1].lower()
@@ -415,6 +451,9 @@ def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[di
             found.sort(key=lambda e: e.stat().st_mtime, reverse=True)  # newest first
         except OSError:
             found = []
+        if stale := [why for e in found if (why := _stale_frames(e.name, about))]:
+            stale_why[i] = stale[0]  # a render of other frames (made before the range changed) is not this step's
+            found = [e for e in found if not _stale_frames(e.name, about)]
         want[i] = found
     if not want:
         return checks
@@ -432,7 +471,9 @@ def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[di
                 got[i] = e.name
                 taken.add(e.path)
                 break
-    return [{**c, "_any_name": got.get(i, False)} if i in want else c for i, c in enumerate(checks)]
+    return [{**c, "_any_name": got.get(i, False),
+             **({"_stale": stale_why[i]} if i in stale_why and i not in got else {})}
+            if i in want else c for i, c in enumerate(checks)]
 
 
 # a file_contains pattern for Markdown syntax at a line's start (a "# title", "## heading", "- item" in a saved .ipynb's
@@ -580,9 +621,15 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         if hit is None and dump and (r := model_files.rounded(view)) != view:
             hit = _search_file(rx, r, accept)
         if hit is None and rel.lower().endswith(".json"):
-            for alt in model_files.alt_views(view):  # an applied scale, a Radius for a Diameter: the same model
-                if (hit := _search_file(rx, model_files.rounded(alt))) is not None:
+            for alt in model_files.alt_views(view, str(check.get("_subject") or "")):  # the same model, read
+                if (hit := _search_file(rx, model_files.rounded(alt))) is not None:  # another way (an applied scale)
                     break
+        if hit is None and rel.lower().endswith(".json"):
+            # "Slot 0.3 mm wider than the arm (for example a 2 mm arm in a 2.3 mm slot)": the example's numbers are
+            # not the step's; the relation is
+            if (rel_why := model_files.example_value(check, model_files.rounded(full))) is not None:
+                ok, why = rel_why
+                return _result(check, "pass" if ok else "fail", f"{why} in {rel}{on}")
         if hit is None and rel.lower().endswith(".dxf"):  # AutoCAD names (layers, blocks) ignore case
             hit = _search_file(safe_compile(pattern, re.MULTILINE | re.IGNORECASE), view,
                                lambda n, s: model_files.dxf_name_ok(lines, n))
@@ -1144,6 +1191,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
             return _result(check, "pending", "checked when the cell runs")
         if nb is not None and not absent:  # t9 V2/V3: the notebook's cells as typed / what they printed decide first
             src = nb.output_text if output else code_view(nb.source_text, check, ".py", check.get("_sigs"))
+            if output and (lists := numpy_lists(src)):  # [[0.] [0.] [0.] [1.]] is the list [0, 0, 0, 1]
+                src = f"{src}\n{lists}"
             if search_wrapped(pattern, scan_text(src)):
                 return _result(check, "pass", f"{'printed' if output else 'typed'} in {nb.path.name}")
             if output and _plotted(pattern, nb):
@@ -1164,7 +1213,12 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     if not absent and app in _TERMINAL_APPS and not ctx.running:  # typed at the prompt, Enter not pressed: not run
         text = _without_typed_input(text)
     if output:  # t9 V3: the print() line on screen is code, never the output it promises
-        text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code")))
+        # nor is another cell's output ("(133, 13) (45, 13)" from the split cell)
+        others = _other_cells_output(nb, check.get("_step_code"))
+        text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code"))
+                         and " ".join(ln.split()) not in others)
+        if lists := numpy_lists(text):
+            text = f"{text}\n{lists}"
     text = scan_text(text, SCREEN_SCAN_CHARS)  # the newest 4 KB of the window(s): never a whole scrollback
     try:
         if not output and app != "Code" and (by_block := _on_blocks(check, ctx, absent, text, where)) is not None:
@@ -1197,6 +1251,49 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
     f = _learner_file(os.path.basename(str(check.get("file") or "")), ctx)
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
+
+
+def _other_cells_output(nb: Notebook | None, step_code: str | None) -> set[str]:
+    """The printed lines (whitespace collapsed) of the notebook's cells that are not the step's: neither its own cells
+    (``nb`` is the step's view) nor a cell holding a whole line of the step's code (its code split over two cells),
+    minus any line those printed too. Empty when the step's cells printed nothing yet or the file can't be read."""
+    if nb is None or not nb.executed or not any(c.outputs for c in nb.cells):
+        return set()
+    full = read_notebook(nb.path)
+    if full is None:
+        return set()
+    own = {(c.source, c.count) for c in nb.cells}
+    code = {" ".join(ln.split()) for ln in str(step_code or "").splitlines() if len(ln.strip()) >= 8}
+    mine = [c for c in full.cells if (c.source, c.count) in own
+            or any(" ".join(ln.split()) in code for ln in c.source.splitlines())]
+    def lines(cs: list) -> set[str]:
+        return {" ".join(ln.split()) for c in cs for o in c.outputs for ln in o.splitlines() if ln.strip()}
+
+    return lines([c for c in full.cells if c not in mine]) - lines(mine)
+
+
+# NumPy's print of a vector: [0. 0. 0. 1.] or a column [[0.] [0.] [0.] [1.]] (no commas, any line breaks)
+_NP_ARRAY = re.compile(r"\[(?:\s*\[[-+\d.eE\s]*\])+\s*\]|\[[-+\d.eE\s]+\]")
+
+
+def numpy_lists(text: str) -> str:
+    """Every NumPy vector printed in ``text`` (a row or a column, no commas) written as a Python list, whole floats as
+    ints: ``[[0.]\\n [0.]\\n [0.]\\n [1.]]`` -> ``[0, 0, 0, 1]``; one per line. A matrix is left alone."""
+    out = []
+    for m in _NP_ARRAY.finditer(text):
+        body = m.group(0)
+        rows = [r.split() for r in re.findall(r"\[([-+\d.eE\s]*)\]", body[1:-1])] if body.count("[") > 1 \
+            else [body[1:-1].split()]
+        if not rows or any(not r for r in rows) or not (len(rows) == 1 or all(len(r) == 1 for r in rows)):
+            continue
+        try:
+            vals = [float(v) for r in rows for v in r]
+        except ValueError:
+            continue
+        if len(vals) < 2:
+            continue
+        out.append("[" + ", ".join(str(int(v)) if v.is_integer() else repr(v) for v in vals) + "]")
+    return "\n".join(out)
 
 
 # an app's "add something" menu: its header row ("Add", "Add Modifier", "Insert") then a long column of short labels
@@ -1292,6 +1389,37 @@ def _absent_hit(pattern: str, text: str) -> re.Match[str] | None:
     return None
 
 
+# a check that says the terminal shows no errors at all ("No compile errors in the terminal", "No terminal errors")
+_NO_ERRORS_LABEL = re.compile(r"\bno\b[^.;]{0,30}\berrors?\b|\berror-?free\b|\bwithout\s+(?:any\s+)?errors?\b", re.I)
+# a running dev server's own error rows (it keeps running, so the command never "fails"): Vite's "[vite] Internal
+# server error" / "Pre-transform error" / "[plugin:vite:react-babel]", webpack's "ERROR in", esbuild's "✘ [ERROR]"
+_DEV_SERVER_ERROR = re.compile(r"\[vite\]\s+Internal server error|\bPre-transform error\b|\[plugin:vite:[\w-]+\]"
+                               r"|^\s*ERROR in\b|\bModule build failed\b|✘\s*\[ERROR\]", re.I | re.M)
+# ...and its rows that say the next save built cleanly
+_DEV_SERVER_OK = re.compile(r"\bhmr update\b|\bpage reload\b|\bcompiled successfully\b|\bhot updated\b", re.I)
+
+
+def _dev_server_error(b: blocks.Block) -> str | None:
+    """The newest dev-server error row in a block's output that no later clean rebuild (Vite's ``hmr update``) cured,
+    else None."""
+    bad = None
+    for row in b.output:
+        if _DEV_SERVER_ERROR.search(row):
+            bad = row
+        elif bad is not None and _DEV_SERVER_OK.search(row):
+            bad = None
+    return bad
+
+
+def _restarted(bl: list[blocks.Block], i: int) -> bool:
+    """A later block starts block ``i``'s command again, maybe through another runner (the dev server stopped with ^C
+    after an error and restarted: ``npm run dev`` again, or ``yarn dev`` / ``npx vite``): block ``i``'s rows are an
+    earlier run's."""
+    mine = blocks.segments(bl[i].command or "")
+    return bool(mine) and any(blocks.runs(s, t) and blocks.runs(t, s) for n in bl[i + 1:] if n.command
+                              for s in blocks.segments(n.command) for t in mine)
+
+
 def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str) -> CheckResult | None:
     """A screen check on a terminal's history (or a command-line app's ``Command:`` rows), read per command
     (server.checks.blocks). None when the text has no command rows, or the pattern only matches across commands:
@@ -1312,11 +1440,13 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
     if absent:
         hit = None
         for i, b in enumerate(bl):
+            past = bool(b.command) and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()
+                                        or blocks.cured(bl, i) or blocks.retried(bl, i))
             m = _absent_hit(pattern, b.text)
-            if not m:
-                continue
-            if b.command and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()
-                              or blocks.cured(bl, i)):
+            if not m and not past and not _restarted(bl, i) \
+                    and _NO_ERRORS_LABEL.search(str(check.get("label") or "")) and (row := _dev_server_error(b)):
+                return _result(check, "fail", f"still showing {row.strip()[:80]!r}{where}")
+            if not m or past:
                 continue
             hit = hit or m
         if hit:
@@ -1331,6 +1461,8 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
         hits = [i for i, b in enumerate(bl) if b.command and _quoted_hit(pattern, b.command)]
     if not hits:  # the result printed its other way (a rebasing git pull: no "Fast-forward", no diffstat)
         hits = [i for i, b in enumerate(bl) if blocks.same_outcome(lambda x: bool(search_wrapped(pattern, x)), b)]
+    if not hits:  # cargo had nothing to compile: the build of the current sources is already there
+        hits = [i for i, b in enumerate(bl) if _fresh_build(pattern, ctx, b)]
     if not hits:
         return None
     why, live, refused = "", False, False
@@ -1363,6 +1495,42 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
     if live and ctx.running:  # the newest run is still live (a dev server, a long build): it may print it yet
         return _result(check, "pending", f"not printed by the newest run{where} yet: still running")
     return _result(check, "fail", why)
+
+
+_CARGO_FINISHED = re.compile(r"^\s*Finished\b.*\btarget\(s\)", re.M)
+_CARGO_COMPILING = re.compile(r"^\s*Compiling\s", re.M)
+_CARGO_RUNNING = re.compile(r"^\s*Running\s+`target[/\\](?:debug|release)[/\\]([\w-]+)")
+_TOML_KEY = re.compile(r'^\s*(name|version)\s*=\s*"([^"]+)"', re.M)
+
+
+def _fresh_build(pattern: str, ctx: RunContext, b: blocks.Block) -> bool:
+    """A ``cargo run`` / ``cargo build`` with nothing to compile (``Finished ...`` with no ``Compiling`` row: the build
+    already holds the current sources) for a check that looks for cargo's ``Compiling <package> v<version>`` row: the
+    row it would print, from the lesson's Cargo.toml, is tested instead."""
+    if not b.command or b.failure() is not None or not any(
+            blocks.program_and_sub(s)[0] == "cargo" and blocks.program_and_sub(s)[1] in ("run", "build", "b", "r")
+            for s in blocks.segments(b.command)):
+        return False
+    out = "\n".join(b.output)
+    if not _CARGO_FINISHED.search(out) or _CARGO_COMPILING.search(out) or not os.path.isabs(str(ctx.workdir or "")):
+        return False
+    ran = next((m.group(1) for r in b.output if (m := _CARGO_RUNNING.match(r))), None)
+    root = os.path.abspath(ctx.workdir)
+    for here, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("target", "node_modules")]
+        if here.count(os.sep) - root.count(os.sep) >= 3:
+            dirs[:] = []
+        if "Cargo.toml" not in files:
+            continue
+        try:
+            with open(os.path.join(here, "Cargo.toml"), encoding="utf-8", errors="replace") as fh:
+                keys = dict(_TOML_KEY.findall(fh.read(16384)))
+        except OSError:
+            continue
+        if "name" in keys and (ran is None or ran == keys["name"]) and search_wrapped(
+                pattern, f"   Compiling {keys['name']} v{keys.get('version', '0.1.0')} ({here})"):
+            return True
+    return False
 
 
 _QUOTED = re.compile(r"\"([^\"\n]+)\"|'([^'\n]+)'")
@@ -1859,6 +2027,8 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     checks = [{**c, "file": f} if f and c.get("type") == "screen_contains" and c.get("app") == "Code"
               and not c.get("file") else c for c in checks]
     checks = [{**c, "_nb_file": f} if f and _is_kernel_check(c) else c for c in checks]  # t11: _saved_kernel reads it
+    # "toUpperCase method called" on a bare name: the name without its call parentheses is the method, not its result
+    checks = [{**c, "pattern": f"{c['pattern']}{_CALL_PARENS}"} if _wants_call(c) else c for c in checks]
     # a run step's "no error in the terminal" waits for the run (_not_visible) instead of passing on a hidden terminal
     run = step.get("kind") == "run" or any(str(t.get("file") or "").strip().lower() in ("(terminal)", "terminal")
                                            for t in step.get("targets") or []) or _command_step(step)
@@ -1914,9 +2084,27 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
         ctx = dataclasses.replace(ctx, notebook=False)
     code = "\n".join([str(step.get("code") or "")] + [str(t.get("match") or "") for t in step.get("targets") or []]
                      + (ctx.notebook.sources if isinstance(ctx.notebook, Notebook) else []))
-    checks = [{**c, "_code": code} if c.get("type") == "screen_contains" and is_output_check(c) else c for c in checks]
+    checks = [{**c, "_code": code, "_step_code": str(step.get("code") or "")} if c.get("type") == "screen_contains"
+              and is_output_check(c) else c for c in checks]
     results = [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
     return _no_cell_yet(step, checks, results, ctx)
+
+
+# what follows a called name: its parentheses, after TypeScript type arguments (``useState<number>(0)``,
+# ``useState<Map<string, number>>()``) or optional chaining (``onSave?.(x)``)
+_CALL_PARENS = r"(?:\s*<[^()\n]*>)?\s*(?:\?\.)?\("
+_CALLED_LABEL = re.compile(r"\b(?:call(?:s|ed|ing)?|invok\w*)\b(?!\s+[\"'“‘]?[A-Za-z_])", re.I)
+_BARE_NAME = re.compile(r"(?:\\?\.)?[A-Za-z_$][\w$]*(?:\\?\.[A-Za-z_$][\w$]*)*")
+
+
+def _wants_call(check: dict) -> bool:
+    """A code check whose label says the function / method is called ("toUpperCase method called") and whose pattern
+    is only its name: the call needs its parentheses (``{food2.toUpperCase}`` renders the method itself). "A material
+    called Wood" (called = named) and non-code files are left alone."""
+    return (check.get("type") in ("screen_contains", "file_contains") and check.get("app") not in _TERMINAL_APPS
+            and code_equiv.kind_of(str(check.get("file") or "")) is not None
+            and bool(_BARE_NAME.fullmatch(str(check.get("pattern") or "")))
+            and bool(_CALLED_LABEL.search(str(check.get("label") or ""))))
 
 
 def _no_cell_yet(step: dict, checks: list[dict], results: list[CheckResult], ctx: RunContext) -> list[CheckResult]:
@@ -2199,6 +2387,282 @@ def rerun_self_update(step: dict, ctx: RunContext | None) -> str | None:
     return None
 
 
+def _parse_cell(src: str) -> ast.Module | None:
+    code = "\n".join("pass" if ln.lstrip().startswith(("%", "!")) else ln for ln in src.splitlines())
+    try:
+        return ast.parse(code)
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+
+
+def _call_name(call: ast.Call) -> str | None:
+    f = call.func
+    return f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else None
+
+
+def _calls(tree: ast.AST) -> list[ast.Call]:
+    return [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+
+
+def _ran_step_cells(step: dict, ctx: RunContext | None) -> tuple[Notebook, list[int]] | None:
+    nb = _step_notebook(step, ctx)
+    if nb is None:
+        return None
+    cells = [i for i in step_cells(nb, step) if nb.cells[i].executed and nb.cells[i].source.strip()]
+    return (nb, cells) if cells else None
+
+
+# what accumulates into a tensor's .grad, and what clears it
+_BACKWARD = re.compile(r"\.backward\s*\(")
+_ZERO_GRAD = re.compile(r"zero_grad\s*\(|\.grad\s*\.\s*(?:data\s*\.\s*)?zero_\s*\(|\.grad\s*=\s*None")
+_GRAD_LEAF = re.compile(r"requires_grad|\bnn\.\w+\(|\.parameters\s*\(")
+
+
+def accumulated_grad(step: dict, ctx: RunContext | None) -> str | None:
+    """The step's cell calls ``loss.backward()`` without zeroing the gradients, and its run count says it ran again
+    since the cell that made the tensors it differentiates (``w = torch.tensor(1.0, requires_grad=True)`` at [2], the
+    backward cell at [4], [3] on no cell): PyTorch adds every backward into ``.grad``, so ``w.grad`` holds two
+    gradients. Why, else None. A cell above this one that ran after the maker may have taken the missing count."""
+    found = _ran_step_cells(step, ctx)
+    if found is None:
+        return None
+    nb, cells = found
+    counts = {c.count for c in nb.cells if c.count is not None}
+    for i in cells:
+        cell = nb.cells[i]
+        if cell.count is None or not _BACKWARD.search(cell.source) or _ZERO_GRAD.search(cell.source):
+            continue
+        mine = _py_names(cell.source)
+        if mine is None:
+            continue
+        makers = [c.count for k, c in enumerate(nb.cells) if k != i and c.count is not None and c.count < cell.count
+                  and _GRAD_LEAF.search(c.source) and (names := _py_names(c.source))
+                  and names[0] & (mine[2] - mine[0])]
+        if not makers:
+            continue
+        made = max(makers)
+        if any(c.count is not None and c.count > made for c in nb.cells[:i]):
+            continue
+        gap = [k for k in range(made + 1, cell.count) if k not in counts]
+        if gap and len(gap) == cell.count - made - 1:
+            return (f"this cell ran {len(gap) + 1} times since [{made}] made the tensors, and backward() adds to .grad "
+                    f"each time: run [{made}] again (or zero the gradients), then this cell once")
+    return None
+
+
+# a value that is the same every time it is made (a literal, an array of literals): re-binding it changes nothing
+_CONSTANT_MAKERS = frozenset("array asarray tensor zeros ones arange linspace eye full DataFrame Series list tuple dict "
+                             "set float int str range".split())
+
+
+def _constant(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return all(_constant(e) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(k is None or _constant(k) for k in node.keys) and all(_constant(v) for v in node.values)
+    if isinstance(node, ast.UnaryOp):
+        return _constant(node.operand)
+    if isinstance(node, ast.Call):
+        return _call_name(node) in _CONSTANT_MAKERS and all(_constant(a) for a in node.args) \
+            and all(_constant(k.value) for k in node.keywords)
+    return False
+
+
+def _rebinds(src: str) -> set[str]:
+    """Names a cell binds to a new value that may differ from before: assignments / augmented assignments / loop
+    targets, never an import, a def or a constant (``X = np.array([[0, 0], ...])``)."""
+    tree = _parse_cell(src)
+    if tree is None:
+        return set()
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and not _constant(node.value):
+            targets = node.targets
+        elif (isinstance(node, (ast.AugAssign, ast.AnnAssign)) and node.value is not None
+              and not (isinstance(node, ast.AnnAssign) and _constant(node.value))) \
+                or isinstance(node, (ast.For, ast.AsyncFor)):
+            targets = [node.target]
+        else:
+            continue
+        for t in targets:
+            out |= {n.id for n in ast.walk(t) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    return out
+
+
+def stale_output(step: dict, ctx: RunContext | None) -> str | None:
+    """What a step's output check reads was printed by a cell that ran BEFORE a later run of a cell that rebinds what
+    it printed from: the predictions cell [4] printed [0, 0, 0, 1], then the training cell above it ran again at [5]
+    (new w and b); nothing has printed the current model's predictions. Only when every cell whose output matches is
+    stale. Why, else None."""
+    found = _ran_step_cells(step, ctx)
+    if found is None:
+        return None
+    nb, _ = found
+    outs = [c for c in step.get("checks") or [] if is_output_check(c) and c.get("pattern")]
+    if not outs:
+        return None
+    for chk in outs:
+        try:
+            matching = [k for k, c in enumerate(nb.cells) if c.count is not None and c.outputs
+                        and search_wrapped(str(chk["pattern"]), scan_text("\n".join(c.outputs)))]
+        except re.error:
+            continue
+        if not matching:
+            continue
+        why = None
+        for k in matching:
+            c = nb.cells[k]
+            names = _py_names(c.source)
+            if names is None:
+                why = None
+                break
+            reads = names[2] - names[0]
+            later = [(d, sorted(_rebinds(d.source) & reads)) for d in nb.cells
+                     if d is not c and d.count is not None and d.count > c.count]
+            later = [(d, n) for d, n in later if n]
+            if not later:
+                why = None
+                break
+            d, n = later[0]
+            why = why or (f"the output in [{c.count}] was printed before [{d.count}] ({_first_line(d.source)!r}) "
+                          f"changed {n[0]}: run [{c.count}]'s cell again to print the current result")
+        if why:
+            return why
+    return None
+
+
+_SLICE_OK = re.compile(r"\b(?:slic\w*|subset|part\s+of|first\s+\d+|last\s+\d+|sample|batch)\b|\[\s*-?\d*\s*:", re.I)
+
+
+def call_args_differ(step: dict, ctx: RunContext | None) -> str | None:
+    """The step's cell calls what the step's code calls, but not with what the step gives it: a keyword argument the
+    instructions spell out (``bins=np.arange(1.5, 13.5)``) left out (and no extra positional argument in its place),
+    or a slice of the data where the step passes all of it (``model.fit(train_images[:1000], ...)`` for
+    ``model.fit(train_images, ...)``). Why, else None."""
+    code = _parse_cell(str(step.get("code") or ""))
+    found = _ran_step_cells(step, ctx) if code is not None else None
+    if found is None:
+        return None
+    nb, cells = found
+    words = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
+    mine = [call for i in cells if (t := _parse_cell(nb.cells[i].source)) is not None for call in _calls(t)]
+    for want in _calls(code):
+        name = _call_name(want)
+        theirs = [c for c in mine if _call_name(c) == name]
+        if not name or not theirs:
+            continue
+        for kw in want.keywords:
+            if kw.arg and re.search(rf"(?<![\w.]){re.escape(kw.arg)}\s*=", words) and not any(
+                    any(k.arg in (kw.arg, None) for k in c.keywords) or len(c.args) > len(want.args) for c in theirs):
+                return (f"{name}(...) has no {kw.arg}=: the step passes {kw.arg}={ast.unparse(kw.value)}; add it and "
+                        f"run the cell again")
+        if _SLICE_OK.search(words):
+            continue
+        for j, arg in enumerate(want.args):
+            if not isinstance(arg, ast.Name):
+                continue
+            for c in theirs:
+                got = c.args[j] if j < len(c.args) else None
+                if isinstance(got, ast.Subscript) and isinstance(got.value, ast.Name) and got.value.id == arg.id \
+                        and isinstance(got.slice, ast.Slice) and all(
+                            isinstance(cc, ast.Call) and _call_name(cc) == name and not (
+                                j < len(cc.args) and isinstance(cc.args[j], ast.Name) and cc.args[j].id == arg.id)
+                            for cc in theirs):
+                    return (f"{name}({ast.unparse(got)}, ...) uses only part of {arg.id}: the step passes all of "
+                            f"{arg.id}; run it on the whole of it")
+    return None
+
+
+_INTERACTIVE_MPL = re.compile(r"%matplotlib\s+(?:widget|notebook|ipympl|qt\w*|tk|osx)")
+_FIGURE_MAKERS = frozenset({"subplots", "figure", "add_subplot", "gca", "axes", "subplot", "subplot_mosaic"})
+_DRAWS = frozenset("""plot scatter bar barh hist hist2d imshow matshow fill_between errorbar pie boxplot violinplot step
+stem contour contourf pcolormesh axhline axvline hlines vlines stackplot""".split())
+
+
+def figure_closed(step: dict, ctx: RunContext | None) -> str | None:
+    """A step's cell draws on axes made in an earlier cell (``fig, ax = plt.subplots()`` run alone in [3], then
+    ``ax.plot(...)`` in [4]) and shows no figure: the inline backend draws and closes a figure when its cell ends, so
+    the line went onto a figure nobody sees (Out is only ``[<matplotlib.lines.Line2D ...>]``). Why, else None."""
+    found = _ran_step_cells(step, ctx)
+    if found is None:
+        return None
+    nb, cells = found
+    if any(_INTERACTIVE_MPL.search(c.source) for c in nb.cells):
+        return None
+    made: dict[str, int] = {}
+    for c in nb.cells:
+        tree = _parse_cell(c.source) if c.count is not None else None
+        for node in ast.walk(tree) if tree is not None else []:
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) \
+                    and _call_name(node.value) in _FIGURE_MAKERS:
+                for t in node.targets:
+                    for n in ast.walk(t):
+                        if isinstance(n, ast.Name):
+                            made[n.id] = c.count
+    for i in cells:
+        cell = nb.cells[i]
+        tree = _parse_cell(cell.source)
+        if tree is None or cell.images or "display(" in cell.source:
+            continue
+        names = _py_names(cell.source)
+        own = names[0] if names else set()
+        for call in _calls(tree):
+            f = call.func
+            if isinstance(f, ast.Attribute) and f.attr in _DRAWS and isinstance(f.value, ast.Name) \
+                    and f.value.id in made and f.value.id not in own and made[f.value.id] < (cell.count or 0):
+                return (f"{f.value.id}.{f.attr}(...) drew on a figure made in an earlier cell ([{made[f.value.id]}]), "
+                        f"which Jupyter has already shown and closed, so no chart came out: make the figure and draw "
+                        f"in the same cell")
+    return None
+
+
+_UPDATES = frozenset({"step", "fit", "partial_fit", "train_on_batch", "update"})
+
+
+def _post_update_prints(tree: ast.Module) -> tuple[str, set[str], set[str]] | None:
+    """(the update call, names bound by a computation before it and not after, names read by print calls after it),
+    for the first top-level statement that calls an update (``optimizer.step()``, ``model.fit(...)``); else None."""
+    body = tree.body
+    at = next((k for k, s in enumerate(body) if any(_call_name(c) in _UPDATES and isinstance(c.func, ast.Attribute)
+                                                     for c in _calls(s))), None)
+    if at is None:
+        return None
+    before: set[str] = set()
+    for s in body[:at]:
+        if isinstance(s, ast.Assign) and _calls(s.value):
+            before |= {n.id for t in s.targets for n in ast.walk(t) if isinstance(n, ast.Name)}
+    after_bound = {n.id for s in body[at:] for n in ast.walk(s) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    printed = {n.id for s in body[at + 1:] for c in _calls(s) if _call_name(c) == "print"
+               for n in ast.walk(c) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    upd = next(c for c in _calls(body[at]) if _call_name(c) in _UPDATES)
+    return ast.unparse(upd), before - after_bound, printed
+
+
+def stale_after_update(step: dict, ctx: RunContext | None) -> str | None:
+    """The step's code prints a value again after an update (``optimizer.step()``) by computing it anew, and the
+    learner's cell prints the variable computed before the update instead (``print(f'after {loss.item():.4f}')``):
+    the "after" line is the "before" value. Why, else None."""
+    code = _parse_cell(str(step.get("code") or ""))
+    want = _post_update_prints(code) if code is not None else None
+    found = _ran_step_cells(step, ctx) if want is not None else None
+    if found is None:
+        return None
+    nb, cells = found
+    for i in cells:
+        tree = _parse_cell(nb.cells[i].source)
+        got = _post_update_prints(tree) if tree is not None else None
+        if got is None:
+            continue
+        upd, stale, printed = got
+        for name in sorted(stale & printed):
+            if name in want[1] and name not in want[2]:
+                return (f"after {upd} the cell prints {name}, which was computed before it: compute it again after "
+                        f"the update so the second line shows the new value")
+    return None
+
+
 def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
     """server.checks.code_equiv.broken_imports over the step's code files in the lesson folder: its targets', checks'
     and own file, and the files its check labels name ("main.py calls add_numbers(2, 3)")."""
@@ -2213,6 +2677,43 @@ def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
         return code_equiv.broken_imports(ctx.workdir, list(dict.fromkeys(files)))
     except (OSError, ValueError, RecursionError):
         return []
+
+
+_RENAME = re.compile(r"\brenam\w*\s+(?:the\s+\w+\s+)?[`'\"]?([A-Za-z_$][\w$]*)(?:\(\))?[`'\"]?\s+(?:to|as)\s+"
+                     r"[`'\"]?([A-Za-z_$][\w$]*)(?![\w$.])", re.I)
+
+
+def renamed_leftover(step: dict, ctx: RunContext | None) -> str | None:
+    """A step that renames a function / name ("Rename add to add_numbers") after which a lesson code file still binds
+    the old name at its top level: a copy under the new name (both defs), or the old name kept as an alias
+    (``export const scale = scaleRecipe``). The files that still import the old name never followed the rename. Why,
+    else None."""
+    if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    kind = code_equiv.kind_of(_step_file(step))
+    if kind is None:
+        return None
+    m = next((m for k in ("title", "action", "what") if (m := _RENAME.search(str(step.get(k) or "")))), None)
+    if m is None or m.group(1) == m.group(2):
+        return None
+    old = m.group(1)
+    try:
+        files = [p for p in code_equiv.lesson_files(ctx.workdir) if code_equiv.kind_of(p.name) == kind]
+    except OSError:
+        return None
+    where, users = None, []
+    for p in files:
+        text = code_equiv.read(p)
+        if text is None:
+            continue
+        if where is None and (line := code_equiv.defines_top_level(p, text, old)) is not None:
+            where = f"{p.name}:{line}"
+        if code_equiv.uses_name(p, text, old):
+            users.append(p.name)
+    if where is None:
+        return None
+    still = f" ({', '.join(users)} still import{'s' if len(users) == 1 else ''} it)" if users else ""
+    return f"{old} is still defined at {where}{still}: rename it with F2 so every file follows, don't keep the old name"
 
 
 def _scene_claims(step: dict, ctx: RunContext | None) -> list[str]:
@@ -2310,6 +2811,71 @@ def editor_problems(step: dict, ctx: RunContext | None) -> str | None:
         return None
     n = int(m.group(1))
     return f"VS Code shows {n} error{'s' if n != 1 else ''} in the code (⊗ {n}): fix it, then compile again"
+
+
+# a scaffolder's answered prompt (create-vite, create-next-app, npm init ...): "✔ Select a framework: › Vanilla"
+_PROMPT_ANSWER = re.compile(r"^\s*[✔✓√]\s*(?P<q>[^:›»?]{3,60}?)\s*[:?]?\s*(?:›|»|…)\s*(?P<a>\S.*?)\s*$")
+_CHOOSES = re.compile(r"\b(?:choos\w*|chose|select\w*|pick\w*|answer\w*)\b", re.I)
+_YES_NO = re.compile(r"^(?:y(?:es)?|no?|true|false|ok)$", re.I)
+# the options scaffolders offer for one question (create-vite's framework and variant, a language, a styling tool):
+# a step that names one of a group makes a choice for every prompt answered from that group
+# (no plain English words such as "next" or "solid", nor file extensions such as "js" or "css": "edit main.js" is not
+# a choice)
+_OPTION_GROUPS = tuple(frozenset(g.split()) for g in (
+    "vanilla vue react preact svelte qwik angular nuxt remix astro ember",
+    "typescript javascript swc",
+    "tailwind tailwindcss sass scss stylus postcss",
+))
+# words of a prompt's question that are not its subject ("Select a framework" is about the framework)
+_QUESTION_FILLER = frozenset("""select choose pick which what would you like use your want enter type the for with
+this that and project please option options""".split())
+
+
+def _yes_no_answer(answer: str) -> bool:
+    """A yes / no prompt's answer: "Yes", "n", or create-next-app's "No / Yes" (the choice is the highlighted one)."""
+    words = re.findall(r"[A-Za-z]+", answer)
+    return bool(words) and all(_YES_NO.match(w) for w in words)
+
+
+def _step_has(words: str, token: str) -> bool:
+    return bool(re.search(rf"(?<![\w-]){re.escape(token)}(?![\w-])", words, re.I))
+
+
+def _step_answers(question: str, tokens: list[str], words: str) -> bool:
+    """Does the step make a choice for this prompt: it names the question's subject ("variant", "framework") or
+    another option of the group the answer comes from (JavaScript for a "TypeScript + SWC" answer)?"""
+    subject = [w for w in re.findall(r"[a-z]{4,}", question.lower()) if w not in _QUESTION_FILLER]
+    if any(_step_has(words, w) for w in subject):
+        return True
+    low = {t.lower() for t in tokens}
+    options = set().union(*(g for g in _OPTION_GROUPS if g & low))
+    return any(_step_has(words, o) for o in options)
+
+
+def scaffold_choices(step: dict, ctx: RunContext | None) -> str | None:
+    """A step that says which options to choose in a scaffolder ("run npm create vite@latest choosing my-react-app,
+    React, and JavaScript"), whose terminal shows a prompt answered with none of the step's words ("✔ Select a
+    framework: › Vanilla"): the project is another template. Why, else None. Name prompts and yes / no answers
+    ("No / Yes": which one was picked isn't in the text) are the learner's own, and so is a prompt the step makes no
+    choice for (the variant when it says only "choose React"); only the newest answer to each question counts."""
+    if ctx is None or ctx.screen is None:
+        return None
+    words = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
+    if not _CHOOSES.search(words):
+        return None
+    answers: dict[str, str] = {}
+    for app in _TERMINAL_APPS + ("Code",):
+        for row in screen_lines(ctx.screen, app) or []:
+            if (m := _PROMPT_ANSWER.match(row)) and not re.search(r"\bname\b", m.group("q"), re.I):
+                answers[m.group("q").strip().lower()] = m.group("a")
+    for q, a in answers.items():
+        toks = [t for t in re.findall(r"[A-Za-z][\w+#.-]*", a) if len(t) >= 2]
+        if not toks or _yes_no_answer(a) or not _step_answers(q, toks, words):
+            continue
+        if not any(_step_has(words, t) for t in toks):
+            return f"the terminal shows “{q}: {a}”, which is not what the step chooses: scaffold it again and pick the " \
+                   f"step's option"
+    return None
 
 
 _RUN_ALL = re.compile(r"\brun\s+all\b|\brestart\b.{0,40}\brun\b", re.I)
@@ -2475,9 +3041,15 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         # the kernel that ran the step's cell is gone, or ran it without a cell above it that the cell needs
         crash = _kernel_crashed(ctx)
         why = f"{crash} on screen: restart the kernel and run the notebook again" if crash else (
-            stale_inputs(step, ctx) or undone_setup(step, ctx) or rerun_self_update(step, ctx))
+            stale_inputs(step, ctx) or undone_setup(step, ctx) or rerun_self_update(step, ctx)
+            or accumulated_grad(step, ctx) or stale_output(step, ctx))
         if why:
             checks = [*checks, {"checkId": f"{step.get('id', '')}-kernel", "label": "The kernel has what the cell needs",
+                                "status": "fail", "detail": why}]
+            return {"passed": False, "via": None, "checks": checks, "precision": prec}
+        # the cell ran with what it needs, but doesn't do what the step's code does
+        if why := call_args_differ(step, ctx) or figure_closed(step, ctx) or stale_after_update(step, ctx):
+            checks = [*checks, {"checkId": f"{step.get('id', '')}-code", "label": "The cell does what the step asks",
                                 "status": "fail", "detail": why}]
             return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (step_passed(checks) or step_passed(prec)) and (broken := _broken_imports(step, ctx)):
@@ -2495,6 +3067,14 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         # the terminal looks clean (cleared, or only the run after the compile is on screen), but VS Code counts errors
         checks = [*checks, {"checkId": f"{step.get('id', '')}-problems", "label": "No problems in the code",
                             "status": "fail", "detail": problems}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (step_passed(checks) or step_passed(prec)) and (left := renamed_leftover(step, ctx)):
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-renamed", "label": "The old name is gone",
+                            "status": "fail", "detail": left}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (step_passed(checks) or step_passed(prec)) and (other := scaffold_choices(step, ctx)):
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-choices", "label": "Made with the step's choices",
+                            "status": "fail", "detail": other}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (order := run_all_out_of_order(step, ctx)) is not None:
         checks = [*checks, {"checkId": f"{step.get('id', '')}-order", "label": "Cells ran in order from [1]",

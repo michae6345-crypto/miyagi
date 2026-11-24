@@ -529,11 +529,132 @@ def runs(segment: str, target: str) -> bool:
         return _same_js_run(js, tjs)
     p, s = program_and_sub(segment)
     tp, ts = program_and_sub(target)
+    if p == "gh" and tp == "git" and ts in gh_git_steps(segment):
+        return True
     if not p or p != tp:
         return False
     if not ts:
         return True
-    return bool(s) and (s.startswith(ts) or ts.startswith(s) or (s, ts) in _SAME)
+    if not (bool(s) and (s.startswith(ts) or ts.startswith(s) or (s, ts) in _SAME)):
+        return False
+    return not _other_ref(segment, target)
+
+
+def gh_git_steps(segment: str) -> set[str]:
+    """The git subcommands a GitHub CLI command runs for the learner: ``gh repo create x --source=. --remote=origin
+    --push`` adds the remote and pushes (``remote``, ``push``); ``gh repo clone`` clones."""
+    ws = _command_words(segment)
+    if len(ws) < 3 or _program(ws[0]) != "gh" or ws[1] != "repo":
+        return set()
+    if ws[2] == "clone":
+        return {"clone"}
+    if ws[2] != "create":
+        return set()
+    flags = {w.split("=", 1)[0] for w in ws[3:] if w.startswith("-")}
+    out = set()
+    if flags & {"--source", "-s", "--remote", "-r"}:
+        out.add("remote")
+    if "--push" in flags:
+        out.add("push")
+    return out
+
+
+# git commands whose first argument says which way the work goes: ``git merge main`` on the branch is the other way
+# round from ``git merge add-waffles`` on main. Not revert / cherry-pick: their argument is a commit, which the learner
+# may name by its hash, by HEAD or by a branch that points at it, so another spelling is not another commit.
+_REF_DIRECTED = frozenset({"merge", "rebase"})
+# a ref that names a commit rather than a branch: HEAD (``HEAD``, ``@``, ``HEAD~2``) or a hash; it may be a branch's tip
+_COMMIT_REF = re.compile(r"(?:head|@)(?:[~^]\d*)*|[0-9a-f]{7,40}", re.I)
+
+
+# merge / rebase options that take the next word as their value (``-m "Merge add-waffles"``, ``-X theirs``, ``-s
+# ours``, ``--onto main``, ``-x "npm test"``): that word is not the branch
+_REF_VALUE_OPTS = frozenset({"-m", "--message", "-X", "--strategy-option", "-s", "--strategy", "-F", "--file",
+                             "--into-name", "--onto", "-x", "--exec", "--cleanup"})
+
+
+def _ref_arg(segment: str) -> str | None:
+    """The branch / commit a ``git merge`` / ``git rebase`` names: its first word that is neither an option nor an
+    option's value."""
+    ws = _command_words(segment)
+    if len(ws) < 3 or _program(ws[0]) != "git" or ws[1] not in _REF_DIRECTED:
+        return None
+    skip = False
+    for w in ws[2:]:
+        if skip:
+            skip = False
+        elif w == "--":
+            continue
+        elif w.startswith("-"):
+            skip = w in _REF_VALUE_OPTS
+        else:
+            return w
+    return None
+
+
+def _other_ref(segment: str, target: str) -> bool:
+    """Does ``segment`` name another branch / commit than the step's ``target`` for a git command whose argument sets
+    its direction (merge, rebase)? A remote's copy of the branch (``origin/add-waffles``) is the same one; a target
+    with a placeholder (``<branch>``) takes any, and HEAD or a hash on either side matches any ref (it may be that
+    branch's tip)."""
+    a, t = _ref_arg(segment), _ref_arg(target)
+    if not a or not t or re.search(r"[<>{}\[\]~^@]|\.\.\.", t) or _COMMIT_REF.fullmatch(t) \
+            or _COMMIT_REF.fullmatch(a):
+        return False  # a placeholder, or a commit (HEAD, counted back from it, a hash): how far back is the learner's
+    a, t = a.lower(), t.lower()
+    return a != t and not a.endswith("/" + t) and not t.endswith("/" + a)
+
+
+# git commands whose words after the subcommand name the remote and branch they work on: a later run for another
+# branch (``git push origin feature`` after ``git push origin main`` failed) is not the same command run again
+_REMOTE_DIRECTED = frozenset({"push", "pull", "fetch"})
+# their options that take the next word as their value (``-o ci.skip``, ``--repo url``)
+_REMOTE_VALUE_OPTS = frozenset({"-o", "--push-option", "--repo", "--upload-pack", "--receive-pack", "--depth",
+                                "--recurse-submodules", "--strategy", "-s", "--strategy-option", "-X"})
+
+
+def _remote_args(segment: str) -> list[str]:
+    """The remote / branch words of a ``git push`` / ``pull`` / ``fetch`` (``git push -u origin main`` -> [origin,
+    main])."""
+    ws = _command_words(segment)
+    out, skip = [], False
+    for w in ws[2:]:
+        if skip:
+            skip = False
+        elif w.startswith("-"):
+            skip = w in _REMOTE_VALUE_OPTS
+        else:
+            out.append(w.lower())
+    return out
+
+
+def _same_git_run(failed: str, later: str) -> bool:
+    """Does the ``later`` segment run the ``failed`` segment's git command again: the same subcommand, and for a
+    command that names its remote and branch, or the branch it merges / rebases, the same ones (either side may leave
+    them out: ``git push`` after ``git push -u origin main``)?"""
+    p, s = program_and_sub(failed)
+    if p != "git" or not s or program_and_sub(later) != (p, s):
+        return False
+    if s in _REF_DIRECTED:
+        return not _other_ref(later, failed)
+    if s in _REMOTE_DIRECTED:
+        a, b = _remote_args(failed), _remote_args(later)
+        return not a or not b or a == b
+    return True
+
+
+def retried(blocks: list[Block], i: int) -> bool:
+    """Block ``i`` is a git command that failed, and a later run of the same git subcommand succeeded (``git commit
+    -m x pancakes.md`` -> ``error: pathspec``, then ``git add`` and ``git commit -m x``): the learner got past it. A
+    push / pull / fetch / merge / rebase must be for the same remote and branch (a push of another branch leaves the
+    failed one unpushed)."""
+    b = blocks[i]
+    if not b.command or b.failure() is None:
+        return False
+    mine = [s for s in segments(b.command) if program_and_sub(s)[0] == "git" and program_and_sub(s)[1]]
+    return bool(mine) and any(
+        n.command and n.failure() is None and any(_same_git_run(m, s) for m in mine for s in segments(n.command))
+        for n in blocks[i + 1:])
 
 
 # command-line programs a lesson's Terminal target names (a target is also what to point at in the output: "epoch 3900")
@@ -581,11 +702,22 @@ _SAME_OUTCOME = ((("Fast-forward", " 1 file changed, 1 insertion(+)"), {("git", 
                   re.compile(r"^\s*Successfully rebased and updated refs/heads/|^\s*Merge made by the\b")),)
 
 
+_HEAD_PUSH = re.compile(r"(\s)HEAD\s*->\s*([\w./-]+)")
+_TRACKS = re.compile(r"\bbranch '([\w./-]+)' set up to track\b")
+
+
 def same_outcome(matches, b: "Block") -> bool:
     """Does block ``b`` print, in another form, what a check (``matches``: does the check's pattern find a text?) looks
     for in a command's usual output: a rebasing ``git pull`` for "Fast-forward"?"""
     if not b.command or b.failure() is not None:
         return False
+    if any(program_and_sub(s) == ("git", "push") or "push" in gh_git_steps(s) for s in segments(b.command)):
+        # a push of the checked-out branch prints "HEAD -> main" (gh pushes HEAD); git's next row says HEAD was main
+        tracked = {m.group(1) for r in b.output if (m := _TRACKS.search(r))}
+        text = _HEAD_PUSH.sub(lambda m: f"{m.group(1)}{m.group(2)} -> {m.group(2)}" if m.group(2) in tracked
+                              else m.group(0), b.text)
+        if text != b.text and matches(text):
+            return True
     for samples, cmds, alt in _SAME_OUTCOME:
         if any(program_and_sub(s) in cmds for s in segments(b.command)) and any(matches(x) for x in samples) \
                 and any(alt.search(r) for r in b.output):

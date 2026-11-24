@@ -1,0 +1,78 @@
+{
+ "id": "terminal-gitcat-init-master-renamed-main",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Set up Git and make a repository' (passes: cookbook is a Git repository on a branch named main and user.name is set). The learner's git predates a configured default, so plain `git init` printed the long 'Using 'master' as the name for the initial branch' hint; they renamed it right away with `git branch -m main` (silent before the first commit). `git config user.name` prints Ada Learner and `git status` says 'On branch main'. 'master' is on screen only inside git's hint. Done.",
+ "step": {
+  "id": "s1",
+  "index": 1,
+  "title": "Make the cookbook repository",
+  "instructions": "Make a folder named cookbook and go into it. Run git init -b main, set your name with git config --global user.name \"Your Name\", and check it with git config user.name.",
+  "run_command": "git init -b main",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git init -b main",
+    "caption": "Make the repository"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s1c1",
+    "type": "screen_contains",
+    "label": "Repository made",
+    "app": "Terminal",
+    "pattern": "Initialized\\s+empty\\s+Git\\s+repository"
+   },
+   {
+    "id": "s1c2",
+    "type": "screen_contains",
+    "label": "git status says main",
+    "app": "Terminal",
+    "pattern": "On\\s+branch\\s+main"
+   },
+   {
+    "id": "s1c3",
+    "type": "screen_absent",
+    "label": "Not on master",
+    "app": "Terminal",
+    "pattern": "master"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.git/HEAD": "ref: refs/heads/main\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % mkdir cookbook && cd cookbook",
+    "tripi@mac cookbook % git init",
+    "hint: Using 'master' as the name for the initial branch. This default branch name",
+    "hint: is subject to change. To configure the initial branch name to use in all",
+    "hint: of your new repositories, which will suppress this warning, call:",
+    "hint:",
+    "hint: \tgit config --global init.defaultBranch <name>",
+    "hint:",
+    "hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and",
+    "hint: 'development'. The just-created branch can be renamed via this command:",
+    "hint:",
+    "hint: \tgit branch -m <name>",
+    "Initialized empty Git repository in /Users/tripi/cookbook/.git/",
+    "tripi@mac cookbook % git branch -m main",
+    "tripi@mac cookbook % git config --global user.name \"Ada Learner\"",
+    "tripi@mac cookbook % git config user.name",
+    "Ada Learner",
+    "tripi@mac cookbook % git status",
+    "On branch main",
+    "",
+    "No commits yet",
+    "",
+    "nothing to commit (create/copy files and use \"git add\" to track)",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}
