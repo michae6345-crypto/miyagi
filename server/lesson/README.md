@@ -90,7 +90,9 @@ process-wide. `LESSON_FAST_FIRST_STEP=0` turns it all off.
 The rest of the lesson's adapt pass no longer waits for every step's detail: each batch of 3 starts as soon as its own
 details are in, and retries its own lint problems right away (when the app-or-code choice is already fixed); the full
 build then lints the whole lesson and retries what is still wrong, as before. Same prompts, models and round-1 batches
-(Haiku calls unchanged); a retry is per batch (one more Sonnet call when failing steps sit in two batches). Offline
+(Haiku calls unchanged, but for one solo call for step 1 when its early build fails after the batches were planned); a
+retry is per batch (one more Sonnet call when failing steps sit in two batches), and the early retry counts as the
+step's first retry round, so the worst case stays the old one. Offline
 model: the full lesson at ~31 s instead of ~36 s on a 10-minute video, ~38 s instead of ~41 s on the recorded build;
 same steps on the deterministic fake. Nothing streams early (a batch is final only after the whole-lesson lint).
 `LESSON_BATCHED_ADAPT=0` turns it off.

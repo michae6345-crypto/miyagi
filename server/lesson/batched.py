@@ -19,13 +19,22 @@ first_step) and, per batch:
    step's checks" only once that step's result is known; lesson-wide problems are left to the full build) and the
    steps lint rejects get one retry with their own problems as feedback, the same prompt and model (Sonnet, the
    escalation model) the full build's retry would use. A step keeps its round-1 result when the retry is no better.
+   That retry IS the step's first retry round: the full build then allows one more round at most, and only for a step
+   whose early retry helped (or whose retry call failed), so no step gets more retries than before.
+   Early calls are quiet (claude.QUIET): no "adapting" progress while the details are still being written, and
+   claude.last_model (build.model) is left alone; the full build reads the models those calls used instead.
+   Anything but a cancel going wrong after round 1 leaves the round-1 result for the full build.
 
 The full build (builder._adapt_call, round 1) takes a batch's result over only when the batch's input is identical to
 the one it would send (goal, folder summary, every ADAPT_STEP_KEYS field of the final draft's steps); any other batch
 is sent as before. Then it lints the whole lesson and retries what is still wrong (problems across batches, lesson-wide
 ones) exactly as before, and repair, link checks, venv / notebook, step 1's lock and the contract run unchanged. The
 batches are the ones the full build would make (steps 2..N in threes when step 1 is built first, else 1..N), so round
-1's Haiku calls are the same; a retry is per batch, so failing steps in two batches take two Sonnet calls instead of one.
+1's Haiku calls are the same, except when step 1's early build fails after the batches were planned: step 1 is then
+adapted alone (one more Haiku call than the old 1-2-3 / 4-5-6 batching). A retry is per batch, so failing steps in two
+batches take two Sonnet calls where the old joint retry took one; the total stays within the old worst case (one early
+round plus one full-build round, against the old two rounds). An early batch the full build will not take (its steps
+changed) is cancelled as soon as the full build lays out round 1.
 
 Nothing streams to the app early: a batch is not final until the whole-lesson lint has run (and the session never edits
 a step it has), so the full lesson just arrives sooner. Calls run without priority (step 1 and its reserved lane go
@@ -55,13 +64,15 @@ class BatchedAdapt:
         self.goal, self.info, self.first, self.batch, self.vid = goal, info, first, max(1, batch), vid
         self.video_info: dict | None = None  # the transcript info (claude_draft sets it): the video's title
         self.adapted: dict[int, dict] = {}  # step index -> its adapt result so far (the "repeats step k-1" lint)
-        self.checked: dict = {}  # link checks done for the early lint
+        self.checked: dict = getattr(first, "checked", None) if first is not None else None
+        self.checked = self.checked if isinstance(self.checked, dict) else {}  # link checks (shared with step 1's)
         self.summary = info.summary_for_prompt()
         self.seg: dict | None = None
         self.origins: list[set[int]] = []  # normalized step k (0-based) -> the segment steps it is made of
         self.filled: dict[int, dict] = {}
         self.plan: list[list[int]] | None = None  # normalized step indices (1-based) per batch
         self.started: dict[str, asyncio.Task] = {}  # adapt input (key()) -> its round-1 call
+        self.groups: dict[str, list[int]] = {}  # adapt input (key()) -> its steps
         self.taken: set[str] = set()
         self.closed = False
 
@@ -107,6 +118,13 @@ class BatchedAdapt:
                 used.update(grp)
         rest = [st for st in steps if st.get("index") not in used]
         out += [rest[j:j + self.batch] for j in range(0, len(rest), self.batch)]
+        # an early batch over these steps that the full build sends differently will never be taken: free its lanes now
+        mine = {key(self.goal, b, self.summary) for b in out}
+        for p, t in list(self.started.items()):
+            if p not in mine and p not in self.taken and all(k in by for k in self.groups.get(p, ())) and not t.done():
+                log.info("batched adapt: steps %s changed before the full build took them; their early call is dropped",
+                         self.groups.get(p))
+                t.cancel()
         return sorted(out, key=lambda b: b[0].get("index", 0)) if out else None
 
     def take(self, prompt: str) -> asyncio.Task | None:
@@ -173,6 +191,7 @@ class BatchedAdapt:
             t = asyncio.ensure_future(self._pipeline(list(grp), copy.deepcopy(draft)))
             t.add_done_callback(_retrieve)
             self.started[prompt] = t
+            self.groups[prompt] = list(grp)
 
 
     # ------------------------------------------------------------------ one batch: round 1, then its own retry
@@ -197,13 +216,18 @@ class BatchedAdapt:
         from . import builder
 
         claude.PRIORITY.set(False)  # the rest of the lesson: never ahead of step 1
+        claude.QUIET.set(True)  # off the build's own sequence: build.model and the progress line are the full build's
         batch = [draft["steps"][k - 1] for k in grp]
         r1 = await claude.adapt_checks(self.goal, copy.deepcopy(batch), self.summary, None)
+        r1 = {**r1, "_model": claude.CALL_MODEL.get()}
         out = {st["index"]: st for st in (r1.get("steps") or []) if isinstance(st.get("index"), int) and st["index"] in grp}
         self._note(out)
         app = self._app_choice()
         if app is ... or not out:
             return r1
+        retried: list[int] = []
+        improved: list[int] = []
+        retry_model = None
         try:
             known_text = await builder._known_text(self.vid)
             bad = await builder._bad_urls(batch, known_text, self.checked)
@@ -213,16 +237,25 @@ class BatchedAdapt:
             targets = [st for st in batch if st["index"] in problems]
             feedback = [p for k in sorted(problems) for p in problems[k]]
             log.info("batched adapt: steps %s: %d problems in %d step(s), retrying those", grp, len(feedback), len(targets))
-            r2, _model = await builder._adapt_call(self.goal, {"steps": copy.deepcopy(targets)}, self.summary, feedback)
+            retried = [st["index"] for st in targets]  # a retry was sent: it counts toward the step's retry cap
+            r2 = await claude.adapt_checks(self.goal, copy.deepcopy(targets), self.summary, feedback)
+            retry_model = claude.CALL_MODEL.get()
             new = {st["index"]: st for st in (r2.get("steps") or []) if isinstance(st.get("index"), int) and st["index"] in problems}
             after = self._problems(draft, grp, {**out, **new}, app, bad)
             for k, st in new.items():
                 if len(after.get(k, [])) < len(problems[k]):
                     out[k] = st  # better: keep the retry's (else the round-1 result stays, as the full build does)
-        except RuntimeError as e:  # the retry failed: round 1 stands; the full build retries what is still wrong
-            log.warning("batched adapt: retry of steps %s failed: %s", grp, str(e)[:200])
+                    improved.append(k)
+        except Exception as e:  # noqa: BLE001  (a cancel still goes through) round 1 stands; the full build lints it
+            log.warning("batched adapt: early lint / retry of steps %s failed (%s: %s); round 1 stands",
+                        grp, type(e).__name__, str(e)[:200])
+            if not retried:
+                return r1
+            if retry_model is None:  # the retry call itself failed: those steps keep one retry in the full build
+                improved = list(retried)
         self._note(out)
-        return {"steps": [out[k] for k in grp if k in out], "_early_retry": True}
+        return {"steps": [out[k] for k in grp if k in out], "_model": retry_model or r1.get("_model"),
+                "_retried": retried, "_improved": improved, "_retry_model": retry_model}
 
     def _note(self, out: dict) -> None:
         self.adapted.update(copy.deepcopy(out))
@@ -250,6 +283,8 @@ class BatchedAdapt:
             k = int(m.group(1))
             if "repeat the previous step" in p and (k - 1) not in known:
                 continue
+            if "video.start must be < video.end" in p:
+                continue  # the step starts are pinned on the whole draft later (timing.pin_starts)
             by.setdefault(k, []).append(p)
         return by
 
