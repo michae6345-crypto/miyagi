@@ -38,6 +38,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, Field, ValidationError
 from starlette.datastructures import Headers
 
+import geo  # noqa: E402  (country of a client IP for the region block, offline)
 from store import MIN_RETAIN_DAYS, PLANS, PREFIX_LEN, Store, lesson_hash, open_store, this_month, today
 
 VERSION = "0.2.0"
@@ -241,6 +242,18 @@ DAILY_USD_CAP = _env_float("DAILY_USD_CAP", 0.0)
 # keep working. Counted in SQLite, so restarts and deploys do not reset it. 0 = off.
 NEW_INSTALLS_PER_DAY = _env_int("NEW_INSTALLS_PER_DAY", 500)
 
+# Region block (decision D9, README "Region block"). Off by default. On: /v1/install, /v1/register and every route
+# that spends money (/v1/anthropic, /v1/gemini, POST /v1/lessons/{id}/build) answer 451 region_unavailable to a client
+# whose country is in BLOCKED_COUNTRIES. An unknown country is allowed (and counted). /healthz, /v1/account/delete
+# and /admin are never blocked. The country comes from COUNTRY_HEADER (only a header the edge overwrites; Render sets
+# none) or the offline database at COUNTRY_DB_PATH (db-ip.com IP to Country Lite, CC BY 4.0), for the same client
+# IP the rate limiter uses. It is used in memory only: never stored or logged per request, only counted per UTC day.
+REGION_BLOCK = _env_bool("REGION_BLOCK", False)
+BLOCKED_COUNTRIES = frozenset(c for c in (geo.country_code(x) for x in _env_list("BLOCKED_COUNTRIES", geo.DEFAULT_BLOCKED)) if c)
+COUNTRY_HEADER = os.environ.get("COUNTRY_HEADER", "").strip().lower()
+COUNTRY_DB_PATH = os.environ.get("COUNTRY_DB_PATH", "").strip()
+REGION_UNAVAILABLE = {"error": "region_unavailable", "message": "miyagi isn't available in your region yet."}
+
 # Alerts (R01 step 6). ALERT_WEBHOOK_URL: a Discord or Slack incoming-webhook URL (a secret: never logged). Unset:
 # no alerts. Each alert fires at most once per UTC day (alerts_sent in SQLite):
 # - spend_50 / spend_80 / spend_100: today's estimated spend, every install together, passes 50 / 80 / 100% of
@@ -377,6 +390,7 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         pruner.cancel()
+        region_counts.flush()
         await http.aclose()
 
 
@@ -879,13 +893,79 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
 SIGNIN_REQUIRED = {"error": "signin_required", "message": "Sign in to keep using miyagi."}
 
 
+# --------------------------------------------------------------------------- region block (D9)
+
+country_db: geo.CountryDB | None = None
+if COUNTRY_DB_PATH:
+    try:
+        country_db = geo.CountryDB.load(COUNTRY_DB_PATH)
+        log.info("country database loaded: %d ranges", len(country_db))
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        log.error("country database %s could not be read (%s): no country from it", COUNTRY_DB_PATH, type(e).__name__)
+if REGION_BLOCK and not (COUNTRY_HEADER or country_db):
+    log.error("REGION_BLOCK is on but there is no country source (COUNTRY_HEADER, COUNTRY_DB_PATH): every client counts "
+              "as unknown and is allowed")
+
+
+class RegionCounts:
+    """Checks per UTC day, country and outcome, in memory, written to SQLite (region_days) at most every
+    REGION_FLUSH_S: counts only, never an install, an address or a time."""
+
+    def __init__(self) -> None:
+        self.pending: dict[tuple[str, str, int], int] = {}
+        self.flushed_at = _now()
+
+    def add(self, country: str, blocked: bool) -> None:
+        k = (today(), country, int(blocked))
+        self.pending[k] = self.pending.get(k, 0) + 1
+        if _now() - self.flushed_at >= REGION_FLUSH_S:
+            self.flush()
+
+    def flush(self) -> None:
+        rows, self.pending, self.flushed_at = self.pending, {}, _now()
+        if rows:
+            try:
+                store.add_region_counts(rows)
+            except Exception:  # counting never breaks a request
+                log.exception("writing the region counts failed")
+
+
+REGION_FLUSH_S = 60.0
+region_counts = RegionCounts()
+
+
+def request_country(request: Request) -> str | None:
+    """The client's country (ISO alpha-2) or None: COUNTRY_HEADER when set and valid, else the database lookup of the
+    same client IP the rate limiter uses (client_ip: the trusted X-Forwarded-For hop or CLIENT_IP_HEADER)."""
+    if COUNTRY_HEADER and (cc := geo.country_code(request.headers.get(COUNTRY_HEADER))):
+        return cc
+    if country_db is not None:
+        return country_db.lookup(client_ip(request))
+    return None
+
+
+def region_denied(request: Request) -> JSONResponse | None:
+    """451 region_unavailable when REGION_BLOCK is on and the client's country is blocked. Unknown: allowed."""
+    if not REGION_BLOCK:
+        return None
+    cc = request_country(request)
+    blocked = cc in BLOCKED_COUNTRIES
+    region_counts.add(cc or "unknown", blocked)
+    if blocked:
+        return JSONResponse(REGION_UNAVAILABLE, status_code=451, headers={"x-should-retry": "false"})
+    return None
+
+
 def authenticate_model_call(request: Request, build: bool = False) -> tuple[str | None, JSONResponse | None]:
     """authenticate() for the routes that spend money (/v1/anthropic, /v1/gemini, and with build=True the routes that
     start a new lesson build: POST /v1/lessons/{id}/build). REQUIRE_SIGNIN "all" (every such route) or "build" (build
     routes only): an install that is not linked to a Supabase user (the links table, POST /v1/link) gets
     401 {"error": "signin_required", ...} after the token checks (unknown 401, disabled 403) and before anything else.
     The flat shape is the one /v1/link uses. Caution: the engine on integration/live reads every cloud 401 as an
-    unknown token and asks the app to mint a new one; it must read this error first before the flag is turned on."""
+    unknown token and asks the app to mint a new one; it must read this error first before the flag is turned on.
+    The region block (451 region_unavailable) comes first of all."""
+    if denied := region_denied(request):
+        return None, denied
     token_hash, denied = authenticate(request)
     if denied:
         return None, denied
@@ -1304,7 +1384,9 @@ def mint_token(request: Request, install_id: str | None, app_version: str, platf
     ANON_DAILY_USD_PER_NETWORK sums over.
 
     token_id is the first PREFIX_LEN hex characters of that hash: public, the same id the admin views and
-    /admin/tokens/{prefix}/disable use, and useless for calling the proxy."""
+    /admin/tokens/{prefix}/disable use, and useless for calling the proxy. The region block applies first (451)."""
+    if denied := region_denied(request):
+        return denied
     net = mint_bucket(client_ip(request))
     r = store.mint_check(net, REGISTER_PER_HOUR, REGISTER_PER_DAY, GLOBAL_MINTS_MAX, new_per_day=NEW_INSTALLS_PER_DAY)
     if r["hit"]:
@@ -3075,6 +3157,17 @@ async def admin_funnel(request: Request, days: int = 0):
         return denied
     since = _now() - max(0, min(days, 3650)) * 86400 if days > 0 else 0
     return store.funnel_report(list(FUNNEL_STEPS), since)
+
+
+@app.get("/admin/regions")
+async def admin_regions(request: Request, days: int = 7):
+    """Region block counts per UTC day and country (allowed / blocked), no install: what REGION_BLOCK turned away and
+    how many clients had no known country."""
+    if denied := require_admin(request):
+        return denied
+    region_counts.flush()
+    return {"region_block": REGION_BLOCK, "source": {"header": bool(COUNTRY_HEADER), "database": country_db is not None},
+            "blocked_countries": sorted(BLOCKED_COUNTRIES), "days": store.region_report(max(1, min(days, 365)))}
 
 
 @app.get("/admin/proxy")

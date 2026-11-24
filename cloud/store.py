@@ -203,6 +203,15 @@ CREATE TABLE IF NOT EXISTS deletion_requests (
 -- asking to build the same video and schema is told {"held": true} and waits for the upload instead of building it
 -- too. schema 0: the claim named no schema (it then matches every schema). Released by the claimer's PUT, by any
 -- stored lesson for that video and schema, by expiry (pruned) and by the claimer's account delete.
+-- Region block checks (REGION_BLOCK) per UTC day, country ('unknown' when none) and outcome: counts only. No install,
+-- no address, no time: the country of one request is never stored.
+CREATE TABLE IF NOT EXISTS region_days (
+    day     TEXT NOT NULL,
+    country TEXT NOT NULL,
+    blocked INTEGER NOT NULL,
+    n       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, country, blocked)
+);
 CREATE TABLE IF NOT EXISTS lesson_claims (
     video_id   TEXT NOT NULL,
     schema     INTEGER NOT NULL,
@@ -786,6 +795,20 @@ class Store:
         with self._lock:
             return self._scope_usage(today(), None, user_id)
 
+    def add_region_counts(self, rows: dict[tuple[str, str, int], int]) -> None:
+        """Add {(day, country, blocked): n} to region_days."""
+        with self._lock:
+            self._db.executemany("INSERT INTO region_days (day, country, blocked, n) VALUES (?, ?, ?, ?) "
+                                 "ON CONFLICT (day, country, blocked) DO UPDATE SET n = n + excluded.n",
+                                 [(d, c, b, n) for (d, c, b), n in rows.items()])
+
+    def region_report(self, days: int = 7) -> list[dict]:
+        since = _days_ago(max(days - 1, 0))
+        return [dict(r) for r in self._q("SELECT day, country, SUM(CASE WHEN blocked = 0 THEN n ELSE 0 END) AS allowed, "
+                                         "SUM(CASE WHEN blocked = 1 THEN n ELSE 0 END) AS blocked FROM region_days "
+                                         "WHERE day >= ? GROUP BY day, country ORDER BY day DESC, blocked DESC, allowed DESC",
+                                         (since,))]
+
     def usd_today(self) -> float:
         """Estimated spend so far this UTC day, every install together, in-flight reservations included (the
         DAILY_USD_CAP brake and the spend alerts read it)."""
@@ -1146,6 +1169,7 @@ class Store:
                     n[table] = self._db.execute(f"DELETE FROM {table} WHERE day < ?", (short,)).rowcount
                 n["mints"] = self._db.execute("DELETE FROM mints WHERE hour < ?", (int(t // 3600) - 48,)).rowcount
                 n["lesson_claims"] = self._db.execute("DELETE FROM lesson_claims WHERE expires_at <= ?", (t,)).rowcount
+                n["region_days"] = self._db.execute("DELETE FROM region_days WHERE day < ?", (cut,)).rowcount
                 # funnel: a row older than retention (by its own first_at) is counted into funnel_daily, then deleted
                 self._db.execute("INSERT INTO funnel_daily (day, name, installs) SELECT strftime('%Y-%m-%d', first_at, "
                                  "'unixepoch'), name, COUNT(*) FROM funnel WHERE first_at < ? GROUP BY 1, 2 "

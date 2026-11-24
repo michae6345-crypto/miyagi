@@ -30,6 +30,7 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `POST /v1/events` | install token | Product events, counts only. See "Product events" below. |
 | `GET /admin/usage` | `X-Admin-Token` | JSON usage report. `?days=30` by default. |
 | `POST /admin/proxy/pause` and `/resume` | `X-Admin-Token` | The runtime kill switch (see "Kill switches"). No body. Answers the state below. |
+| `GET /admin/regions` | `X-Admin-Token` | Region block counts per UTC day and country (`allowed`, `blocked`; `unknown` for no country), `?days=7`, plus the block's state and source. No install. See "Region block". |
 | `GET /admin/proxy` | `X-Admin-Token` | `{paused, proxy_enabled_env, daily_usd_brake, new_installs_today, new_installs_per_day, alert_daily_usd, alerts}`. |
 | `POST /admin/alerts/test` | `X-Admin-Token` | Sends one test alert to `ALERT_WEBHOOK_URL` (once a UTC day, like every alert). `{alerts, sent}`. |
 | `GET /admin`, `POST /admin` | admin token typed into a form | The same report as HTML. The token is posted in the form body, never in the URL. |
@@ -402,6 +403,51 @@ before anything else: no cap is read, no slot taken, no body read. The flat shap
 - Privacy policy: say that building a lesson needs an account (`build`), or that using miyagi does (`all`). A Blueprint sync writes `render.yaml`'s `"0"` back over
 a dashboard value: change `render.yaml` too when the flag goes on.
 
+## Region block: `REGION_BLOCK` (decision D9)
+
+D9 (`research/launch/SOLUTIONS.md` on `adrian/launch-risk`): "US first; block the EEA, UK, Switzerland and Anthropic's
+unsupported regions at the proxy; revisit with an entity" (R40: it avoids GDPR representatives, a DPIA and the UK
+Children's Code until there is an entity; Anthropic's unsupported and sanctioned regions are blocked in every option).
+
+**Off by default** (`REGION_BLOCK=0` in code and `render.yaml`). On, a client whose country is in `BLOCKED_COUNTRIES`
+gets, on `POST /v1/install`, `POST /v1/register` and every route that spends money (`/v1/anthropic/*`,
+`/v1/gemini/*`, `POST /v1/lessons/{id}/build`), before any token check:
+
+```
+451 {"error": "region_unavailable", "message": "miyagi isn't available in your region yet."}    x-should-retry: false
+```
+
+- Never blocked: `/healthz`, `/v1/account/delete` (deleting must always work), `/admin*`. Not blocked either: routes
+  that spend nothing (`/v1/link`, `/v1/session`, `/v1/events`, `/v1/funnel`, the lesson cache GET and PUT).
+- An unknown country (no source, an address the database does not cover, `XX`/`T1`/`ZZ`) is allowed and counted as
+  `unknown`.
+- `BLOCKED_COUNTRIES` (ISO alpha-2, comma-separated) defaults to D9 (`geo.py` `DEFAULT_BLOCKED`): the EU 27 and the
+  EEA (IS, LI, NO) with the EU's own-coded territories (AX, GF, GP, MQ, RE, YT, MF), GB, CH, and the countries
+  Anthropic's supported list (anthropic.com/supported-countries, read 2026-11-24) leaves out: AF, BY, CN, CU, IR, KP,
+  MM, RU, SY, VE, YE, HK, MO, XK. Crimea, Donetsk, Kherson, Luhansk and Zaporizhzhia (excluded from Ukraine) have no
+  code of their own and cannot be blocked by country.
+
+**Where the country comes from.** Never a paid API and never an outside call per request:
+
+1. `COUNTRY_HEADER`, a header the edge sets, e.g. `cf-ipcountry`. Off by default: Render documents no country header
+   (its docs list none; Adrian's R40 says the same), and any header a client can send straight to the origin is
+   forgeable. Set it only once the edge overwrites it (Cloudflare in front, R12). When set and valid it wins.
+2. `COUNTRY_DB_PATH`, an offline IP-to-country file read once at startup: db-ip.com's **IP to Country Lite**
+   (`first_ip,last_ip,country_code` CSV, IPv4 and IPv6, `.csv.gz` read directly), **CC BY 4.0** (attribution "IP
+   Geolocation by DB-IP" with a link to db-ip.com on a public page). About 4-5 MB gzipped, about 25 MB as CSV, a few
+   hundred thousand ranges, merged per country in memory (some tens of MB). It is not committed: it is refreshed
+   monthly and is large for git. Get it with `python scripts/fetch_country_db.py /var/data/dbip-country-lite.csv.gz`
+   (a Render shell on the service, or the build command), which checks the file parses before replacing the old one;
+   restart to load it. A missing or unreadable file is logged and the block then has no database.
+3. Neither: every client is unknown and allowed (an ERROR at startup says so).
+
+The database is looked up with the same client IP as the rate limiter (`client_ip`: the trusted `X-Forwarded-For` hop,
+or `CLIENT_IP_HEADER`), so a client cannot pick its country by writing its own `X-Forwarded-For` entries.
+
+**Privacy.** The country is used in memory for that one request. Nothing stores or logs it, or the address, per request:
+the only record is `region_days (day, country, blocked, n)`, a count per UTC day, country and outcome with no install
+or time, written at most once a minute and kept `RETAIN_DAYS`. `GET /admin/regions` shows it.
+
 ## Signing in: `POST /v1/session`
 
 The desktop app's one call after Google sign-in and on every launch while signed in. It runs the same code as
@@ -517,6 +563,7 @@ from before this version are converted on startup. Per-install rows are pruned a
 | `lesson_claims`: video_id, schema, token_hash, claimed_at, expires_at | One install builds a video at a time | Until released or expired (`LESSON_CLAIM_TTL_S`), pruned hourly; deleted with the install |
 | `lessons` | Legacy first-upload cache, emptied into `lesson_candidates` on startup | Empty |
 | `mints`: bucket (keyed hash), hour, n | Mint limits per network | At most 49 hours |
+| `region_days`: day, country, blocked, n | Region block counts (no install, no address) | `RETAIN_DAYS` |
 | `install_days`: day, n | `NEW_INSTALLS_PER_DAY` (a count, no install) | Kept (one row a day) |
 | `alerts_sent`: day, key (`token:<prefix>` names an install) | One alert per key a day | 2 days |
 | `settings`: key, value | The runtime pause | Kept |
@@ -893,6 +940,10 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `ANON_DAILY_USD` | `0.50` | A guest install's runtime calls in USD per UTC day, only with `REQUIRE_SIGNIN=build` (429 `anon_daily_cap`). |
 | `LESSON_AUTO_APPROVE_VALIDATED` | `0` in code, `1` in `render.yaml` | Approve an uploaded lesson once it passes the server-side lesson checks (`lesson_safety.py`). See "Shared lesson cache". |
 | `NEW_INSTALLS_PER_DAY` | `500` | New installs per UTC day, every network together; past it 429 `miyagi_full`. 0 = off. |
+| `REGION_BLOCK` | `0` (off) | `1`: 451 `region_unavailable` on installs and money routes for `BLOCKED_COUNTRIES`. See "Region block". |
+| `BLOCKED_COUNTRIES` | D9: EEA, GB, CH, Anthropic-unsupported | ISO alpha-2 codes, comma-separated. |
+| `COUNTRY_HEADER` | empty | A country header the edge overwrites (e.g. `cf-ipcountry`). Forgeable at the origin otherwise. |
+| `COUNTRY_DB_PATH` | empty | db-ip.com IP to Country Lite CSV (or `.csv.gz`), read at startup. `scripts/fetch_country_db.py` fetches it. |
 | `FREE_LESSON_BUILDS_PER_MONTH` | `3` | New lesson builds per free install per UTC month. 0 = off. |
 | `DAILY_USD_CAP` | off (unset, empty or `0`) | Global spend brake in dollars, every install together: an abuse brake, never a low value. |
 | `ALERT_WEBHOOK_URL` | empty (no alerts) | Discord or Slack incoming webhook, https. A secret: dashboard only. |
