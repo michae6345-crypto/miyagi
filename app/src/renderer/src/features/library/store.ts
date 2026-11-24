@@ -83,10 +83,18 @@ export async function refresh(): Promise<void> {
   if (Object.keys(kept).length !== Object.keys(details).length) set({ details: kept })
   if (openId && (details[openId] === null || detailFailed[openId])) void loadDetail(openId, true)
   const seq = ++listSeq
+  // An answer that never comes (an engine that drops library.list) must not keep the page on skeleton rows: after
+  // LIST_WAIT_MS the page shows what it has (the empty or first-run layout); a late answer still lands.
+  const timer = setTimeout(() => {
+    if (seq === listSeq && !get().loaded) set({ loaded: true })
+  }, LIST_WAIT_MS)
   const items = await bridge.invoke<unknown>('library:list').then(cleanList, () => [])
+  clearTimeout(timer)
   if (seq !== listSeq) return
   set({ items, loaded: true })
 }
+/** How long the Library waits for library:list before it stops showing skeleton rows. */
+const LIST_WAIT_MS = 4000
 
 const asking = new Set<string>()
 /** `again`: ask even when an answer is cached (a refresh after no answer, or after an empty one). */

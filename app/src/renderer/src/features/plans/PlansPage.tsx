@@ -6,9 +6,10 @@
 import { Search, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { color, radius2, surface, type2 } from '../../core/theme'
-import { afterTitles, hoursShort, planById, planMinutes, PLAN_GROUPS, PLANS, START_HERE, TOPIC_TABS, type Plan, type PlanTopic } from './catalog'
-import { showLibrary, showPlan } from './store'
-import { CardGrid, Crumbs, EntryCards, meta, PlanCard, SectionLabel, TableHead, TableRow, Tabs, useWidth, type Tab } from './ui'
+import { PageHeader } from '../shell/ui'
+import { afterTitles, hoursShort, planById, planMinutes, PLAN_GROUPS, PLANS, START_HERE, TOPIC_TABS, type CatalogPlan, type PlanTopic } from './catalog'
+import { showPlan } from './store'
+import { CardGrid, EntryCards, meta, PlanCard, SectionLabel, TableHead, TableRow, Tabs, useWidth, type Tab } from './ui'
 
 type TopicTab = PlanTopic | 'all'
 /** Up to two lines, then an ellipsis. */
@@ -29,15 +30,7 @@ export function PlansPage(): ReactNode {
 
   return (
     <div ref={ref} data-plans-page className="flex flex-col" style={{ gap: 28 }}>
-      <Crumbs items={[{ label: 'Library', onClick: showLibrary }, { label: 'Browse plans' }]} />
-      <div className="flex flex-col" style={{ gap: 6 }}>
-        <h1 className="m-0" style={{ fontSize: 28, lineHeight: '34px', fontWeight: 700, letterSpacing: '-0.5px', color: color.text }}>
-          Plans
-        </h1>
-        <p className="m-0" style={{ fontSize: type2.body, color: color.label }}>
-          A plan is a set of lessons in order that ends in something you made.
-        </p>
-      </div>
+      <PageHeader title="Plans" lede="A plan is a set of lessons in order that ends in something you made." />
       <EntryCards />
       <Tabs
         label="Plan topics"
@@ -80,7 +73,7 @@ export function PlansPage(): ReactNode {
           <SectionLabel>Start here</SectionLabel>
           <CardGrid cols={cols}>
             {START_HERE.map((id) => planById(id))
-              .filter((p): p is Plan => !!p)
+              .filter((p): p is CatalogPlan => !!p)
               .map((p) => (
                 <PlanCard key={p.id} plan={p} />
               ))}
@@ -101,7 +94,7 @@ export function PlansPage(): ReactNode {
   )
 }
 
-function PlanTable({ label, plans, after, width }: { label: string; plans: Plan[]; after: boolean; width: number }): ReactNode {
+function PlanTable({ label, plans, after, width }: { label: string; plans: CatalogPlan[]; after: boolean; width: number }): ReactNode {
   const narrow = width < 760
   const showAfter = after && !narrow
   // Plan · Works in · Lessons · Skills · Time · Ends with · After

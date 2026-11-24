@@ -2,33 +2,42 @@
  * Feature: plans. Which Library view is on screen (the Library list, Browse plans, one plan), the two "new plan"
  * dialogs, and the learner's own plans.
  *
- * Wiring: the ui-v4 contract (shared/contracts/UI-V4.md, plan messages) had not landed when this was written, so the
- * learner's plans are a local, typed placeholder (`MyPlan`), and starting a plan sends the one command the contract
- * already has for a catalog lesson: `learn {query: lesson.goal, mode: "lesson"}` (catalog/README: a lesson's goal is
- * the text to build it from). When the plan messages land, `startPlan` / `addPlan` send them instead and `mine` comes
- * from the engine's answer.
+ * Wiring: the ui-v4 contract (shared/contracts/UI-V4.md "Plans"). The Library sends `plans.list {}` when it mounts and
+ * `mine` is the engine's `plans` answer (it is pushed again whenever a plan lesson changes state). Starting a catalog
+ * plan sends `plan.start {catalogId, reqId}`; a dialog's plan sends `plan.start {playlistId, url, proposal}` or
+ * `plan.start {goal, proposal}`; removing one sends `plan.remove {id}`. Every lesson of a plan starts with
+ * `plan: {id, index}`: `library.start {id, plan}` once it was built, `learn_url {url, plan}` for a video,
+ * `learn {query: goal, mode: "lesson", plan}` otherwise.
+ *
+ * Fallback: with no engine answer (the browser stage without ?scenario=ui-v4, an engine without the plan messages),
+ * a started plan is kept locally in the same PlanState shape, and ?plans=demo seeds the mock's two plans.
  */
 import { create } from 'zustand'
+import type { PlanLessonRef, PlanProposal, PlanState } from '../../../../../../shared/contracts/events'
 import { cmd } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
-import { planById, type Plan, type PlanLesson } from './catalog'
+import { onMessage } from '../../core/bus'
+import { planById, planStateFromCatalog, planStateFromProposal, type CatalogPlan } from './catalog'
 
 export type View = { kind: 'library' } | { kind: 'plans' } | { kind: 'plan'; id: string } | { kind: 'custom'; id: string }
 export type Dialog = 'playlist' | 'goal' | null
 
-/** A plan the learner added. `done` = lessons passed. A playlist or goal plan carries its own lessons. */
-export type MyPlan = { id: string; title: string; done: number; total: number; next?: string; minutesLeft: number; art: string; lessons?: PlanLesson[]; project?: string; source?: 'playlist' | 'goal' }
+/** A plan the learner has: the contract's PlanState, as the engine sends it. */
+export type MyPlan = PlanState
 
-type State = { view: View; dialog: Dialog; mine: MyPlan[]; starting?: string }
+type State = {
+  view: View
+  dialog: Dialog
+  mine: MyPlan[]
+  /** The engine answered plans.list (or pushed plans) at least once. */
+  fromEngine: boolean
+}
 
 /** Stage only: ?plans=demo seeds the mock's two plans (Neural networks 3 of 8, Intro to Blender 1 of 10). */
 function seed(): MyPlan[] {
   if (isElectron || new URLSearchParams(location.search).get('plans') !== 'demo') return []
-  const nn = planById('neural-networks')
-  const bl = planById('intro-blender')
-  const mk = (p: Plan | undefined, done: number, total: number, left: number): MyPlan[] =>
-    p ? [{ id: p.id, title: p.title, done, total, next: p.lessons[done]?.title, minutesLeft: left, art: p.id }] : []
-  return [...mk(nn, 3, 8, 120), ...mk(bl, 1, 10, 150)]
+  const mk = (p: CatalogPlan | undefined, done: number): MyPlan[] => (p ? [planStateFromCatalog(p, done)] : [])
+  return [...mk(planById('neural-networks'), 3), ...mk(planById('intro-blender'), 1)]
 }
 
 /** Stage only: ?plan=<id> opens that plan page, ?plans=browse opens Browse plans, ?dialog=playlist|goal a dialog. */
@@ -38,13 +47,14 @@ function firstView(): { view: View; dialog: Dialog } {
   const plan = q.get('plan')
   const d = q.get('dialog')
   const dialog: Dialog = d === 'playlist' || d === 'goal' ? d : null
-  if (plan && planById(plan)) return { view: { kind: 'plan', id: plan }, dialog }
+  if (plan) return { view: planById(plan) ? { kind: 'plan', id: plan } : { kind: 'custom', id: plan }, dialog }
   if (q.get('plans') === 'browse' || dialog) return { view: { kind: 'plans' }, dialog }
   return { view: { kind: 'library' }, dialog }
 }
 
-export const usePlans = create<State>(() => ({ ...firstView(), mine: seed() }))
+export const usePlans = create<State>(() => ({ ...firstView(), mine: seed(), fromEngine: false }))
 const set = usePlans.setState
+const get = usePlans.getState
 
 export const showLibrary = (): void => set({ view: { kind: 'library' }, dialog: null })
 export const showPlans = (): void => set({ view: { kind: 'plans' }, dialog: null })
@@ -52,23 +62,100 @@ export const showPlan = (id: string): void => set({ view: planById(id) ? { kind:
 export const openDialog = (dialog: Exclude<Dialog, null>): void => set({ dialog })
 export const closeDialog = (): void => set({ dialog: null })
 
-const learn = (l: PlanLesson): void => bridge.send(cmd('learn', { query: l.goal, mode: 'lesson' }))
+/** The learner's plan with this id (a preset's id is its catalog id). */
+export const myPlan = (id: string): MyPlan | undefined => get().mine.find((m) => m.id === id || m.catalogId === id)
 
-/** Start (or continue) a catalog plan: its next lesson is built from the lesson's goal. */
-export function startPlan(plan: Plan): void {
-  const s = usePlans.getState()
-  const mine = s.mine.find((m) => m.id === plan.id)
-  const lesson = plan.lessons[mine?.done ?? 0] ?? plan.lessons[0]
-  if (!mine) {
-    const total = plan.lessons.length
-    set({ mine: [...s.mine, { id: plan.id, title: plan.title, done: 0, total, next: lesson.title, minutesLeft: plan.lessons.reduce((n, l) => n + l.minutes, 0), art: plan.id }] })
-  }
-  learn(lesson)
+let seq = 0
+export const reqId = (kind: string): string => `r-${kind}-${Date.now().toString(36)}-${++seq}`
+
+// ---- the engine's answers ---------------------------------------------------------------------------------------
+
+/** plan.start answers with the full list; the plan it added is started once the list lands (or locally after WAIT_MS). */
+type Pending = { reqId: string; before: Set<string>; match: (p: PlanState) => boolean; local: PlanState; timer: ReturnType<typeof setTimeout> }
+let pending: Pending | undefined
+const WAIT_MS = 2500
+
+const isPlan = (p: unknown): p is PlanState => !!p && typeof p === 'object' && typeof (p as PlanState).id === 'string' && typeof (p as PlanState).title === 'string' && Array.isArray((p as PlanState).lessons)
+
+onMessage('plans', (payload) => {
+  const items = Array.isArray(payload?.items) ? payload.items.filter(isPlan) : []
+  set({ mine: items, fromEngine: true })
+  const p = pending
+  if (!p) return
+  // The plan the start added: the one that wasn't there before, else the one it names (a preset already on the list).
+  const added = items.find((i) => !p.before.has(i.id) && p.match(i)) ?? items.find((i) => !p.before.has(i.id)) ?? items.find(p.match)
+  if (payload?.reqId !== undefined && payload.reqId !== p.reqId && !added) return
+  clearTimeout(p.timer)
+  pending = undefined
+  startNext(added ?? p.local)
+})
+
+/** Ask for the learner's plans (the Library, Browse plans and a plan page call it when they mount). */
+export function loadPlans(): void {
+  bridge.send(cmd('plans.list', {}))
 }
 
-/** Add a plan made in a dialog (from a playlist or a goal). It shows under Your plans; the first lesson starts. */
-export function addPlan(p: Omit<MyPlan, 'done'>, start = true): void {
-  const s = usePlans.getState()
-  set({ mine: [...s.mine.filter((m) => m.id !== p.id), { ...p, done: 0 }], dialog: null, view: { kind: 'library' } })
-  if (start && p.lessons?.[0]) learn(p.lessons[0])
+// ---- starting ---------------------------------------------------------------------------------------------------
+
+const watchUrl = (videoId: string): string => `https://www.youtube.com/watch?v=${videoId}`
+
+/** Start lesson `index` of a plan, with `plan: {id, index}` so the engine marks it. */
+export function startLesson(p: PlanState, index: number): void {
+  const l = p.lessons[index]
+  if (!l) return
+  const plan: PlanLessonRef = { id: p.id, index }
+  if (l.libraryId) bridge.send(cmd('library.start', { id: l.libraryId, plan }))
+  else if (l.videoId) bridge.send(cmd('learn_url', { url: watchUrl(l.videoId), plan }))
+  else if (l.goal) bridge.send(cmd('learn', { query: l.goal, mode: 'lesson', plan }))
+}
+
+/** Start (or continue) a plan at its next lesson. */
+export function startNext(p: PlanState): void {
+  const index = p.nextIndex ?? p.lessons.findIndex((l) => l.state === 'next' || l.state === 'in_progress' || l.state === 'todo')
+  if (index === null || index < 0) return
+  startLesson(p, index)
+}
+
+function begin(local: PlanState, match: (p: PlanState) => boolean, payload: { catalogId?: string; playlistId?: string; url?: string; goal?: string; proposal?: PlanProposal }, start: boolean): void {
+  const s = get()
+  const id = reqId('plan')
+  if (pending) clearTimeout(pending.timer)
+  const before = new Set(s.mine.map((m) => m.id))
+  // Shown at once (the engine's answer replaces it); started at once only when nothing answers.
+  set({ mine: [...s.mine.filter((m) => m.id !== local.id), local] })
+  const timer = setTimeout(() => {
+    if (pending?.reqId !== id) return
+    pending = undefined
+    if (start) startNext(myPlan(local.id) ?? local)
+  }, WAIT_MS)
+  pending = start ? { reqId: id, before, match, local, timer } : undefined
+  if (!start) clearTimeout(timer)
+  bridge.send(cmd('plan.start', { ...payload, reqId: id }))
+}
+
+/** Start (or continue) a catalog plan: plan.start {catalogId}, then its next lesson. */
+export function startPlan(plan: CatalogPlan): void {
+  const mine = myPlan(plan.id)
+  if (mine) return startNext(mine)
+  begin(planStateFromCatalog(plan), (p) => p.catalogId === plan.id || p.id === plan.id, { catalogId: plan.id }, true)
+}
+
+/** A plan made in the playlist dialog: plan.start {playlistId, url, proposal} (skipped videos carry skip: true). */
+export function addPlaylistPlan(info: { playlistId: string; url: string }, proposal: PlanProposal, start = true): void {
+  const local = planStateFromProposal(`pl-${info.playlistId}`, proposal, { playlistId: info.playlistId, url: info.url })
+  set({ dialog: null, view: { kind: 'library' } })
+  begin(local, (p) => p.playlistId === info.playlistId, { playlistId: info.playlistId, url: info.url, proposal }, start)
+}
+
+/** A plan made in the goal dialog: plan.start {goal, proposal}. */
+export function addGoalPlan(goal: string, proposal: PlanProposal, start = true): void {
+  const local = planStateFromProposal(`goal-${goal.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}`, proposal, { goal })
+  set({ dialog: null, view: { kind: 'library' } })
+  begin(local, (p) => p.source === 'goal' && p.goal === goal, { goal, proposal }, start)
+}
+
+/** Remove a plan (the lessons it started stay in the library). */
+export function removePlan(id: string): void {
+  set((s) => ({ mine: s.mine.filter((m) => m.id !== id), view: s.view.kind !== 'library' && 'id' in s.view && s.view.id === id ? { kind: 'library' } : s.view }))
+  bridge.send(cmd('plan.remove', { id }))
 }

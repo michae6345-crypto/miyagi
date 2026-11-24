@@ -6,7 +6,7 @@
 import { ChevronRight, SquarePlay, Sprout } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { color, fill, radius2, surface, type2 } from '../../core/theme'
-import { aboutHours, endsWith, planMinutes, type Plan } from './catalog'
+import { aboutHours, endsWith, planMinutes, type CatalogPlan } from './catalog'
 import { openDialog, showPlan } from './store'
 import { Thumb, artFor } from './Thumb'
 
@@ -159,7 +159,7 @@ export function EntryCards(): ReactNode {
 }
 
 /** A plan as a card: its picture, its title, where it works, how long, and what it ends with. */
-export function PlanCard({ plan }: { plan: Plan }): ReactNode {
+export function PlanCard({ plan }: { plan: CatalogPlan }): ReactNode {
   return (
     <button type="button" data-plan-card={plan.id} onClick={() => showPlan(plan.id)} className="group flex min-w-0 cursor-pointer flex-col text-left" style={{ background: 'none', border: 0, padding: 0, color: color.text }}>
       <span className="block w-full transition-transform duration-200 group-hover:-translate-y-[2px]">
@@ -185,29 +185,18 @@ export function CardGrid({ children, cols }: { children: ReactNode; cols: number
   )
 }
 
-/** "Library / Browse plans / Intro to Blender": where a sub-page sits. Each crumb but the last goes back. */
-export function Crumbs({ items }: { items: Array<{ label: string; onClick?: () => void }> }): ReactNode {
-  return (
-    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-[6px]" style={{ fontSize: type2.sm, color: color.label }}>
-      {items.map((c, i) => (
-        <span key={i} className="flex min-w-0 items-center gap-[6px]">
-          {i > 0 && <span style={{ color: color.faint }}>/</span>}
-          {c.onClick ? (
-            <button type="button" onClick={c.onClick} className="cursor-pointer truncate" style={{ background: 'none', border: 0, padding: 0, color: color.label, fontSize: type2.sm }}>
-              {c.label}
-            </button>
-          ) : (
-            <span className="truncate" style={{ color: color.text, fontWeight: 500 }} aria-current="page">
-              {c.label}
-            </span>
-          )}
-        </span>
-      ))}
-    </nav>
-  )
-}
-
-/** The rows' hover fill (scoped to this page's class; styles.css is core). Rendered once by the Library page. */
+/**
+ * The page's own CSS (styles.css is core), rendered once by the Library page:
+ *  - the rows' hover fill;
+ *  - the shell's legacy title stays hidden under the Library's v4 frame. styles.css has that rule, but in @layer base,
+ *    where Tailwind's `flex` utility on the header outranks it (so a second "Library" title was drawn). Unlayered here.
+ *  - the top bar's earlier crumbs read as links while a deeper Library view is on show (Library.tsx useCrumbBack).
+ */
 export function RowStyle(): ReactNode {
-  return <style>{`.mg-v4-row{transition:background-color .12s}.mg-v4-row:hover{background:${surface.rowHover}}.mg-v4-row:focus-visible{outline:2px solid ${color.text};outline-offset:-2px}`}</style>
+  return (
+    <style>{`.mg-v4-row{transition:background-color .12s}.mg-v4-row:hover{background:${surface.rowHover}}.mg-v4-row:focus-visible{outline:2px solid ${color.text};outline-offset:-2px}
+.mg-page-frame:has([data-lessons][data-v4-frame])>[data-legacy-header]{display:none}
+.mg-crumb-back [data-v4-top] nav>span:not([aria-current]){cursor:pointer}
+.mg-crumb-back [data-v4-top] nav>span:not([aria-current]):hover{color:${color.text}}`}</style>
+  )
 }

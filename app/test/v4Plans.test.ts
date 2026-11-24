@@ -1,7 +1,8 @@
 /**
  * library lane, v4 (agents/v4-library.md): the plan catalog the Library and Plans pages read (features/plans/catalog.ts).
  * Data only, no DOM: the groups the Plans page draws, the playlist link parser, the hour labels and the offline
- * plan-from-a-goal that stands in until the ui-v4 contract's plan messages land.
+ * plan-from-a-goal, and the offline fallbacks in the ui-v4 contract's shapes (PlaylistInfo, PlanProposal, PlanState)
+ * the dialogs and the Library use when no engine answers.
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -15,15 +16,53 @@ import {
   planById,
   planForLesson,
   planFromGoal,
+  planStateFromCatalog,
+  planStateFromProposal,
   PLAN_GROUPS,
   PLANS,
   playlistById,
   playlistIdOf,
+  playlistInfoFromCatalog,
   PLAYLISTS,
+  proposalFromGoal,
   skillForTitle,
   skillLabel,
   START_HERE
 } from '../src/renderer/src/features/plans/catalog'
+
+test('a catalog playlist as playlist.get answers it: video ids, a lesson per video, the plan project', () => {
+  const list = playlistById('PLjEaoINr3zgGUwGwXlj9kBe7TrVWNjkyv')!
+  const info = playlistInfoFromCatalog(list)
+  assert.equal(info.url, 'https://www.youtube.com/playlist?list=PLjEaoINr3zgGUwGwXlj9kBe7TrVWNjkyv')
+  assert.equal(info.proposing, false)
+  assert.equal(info.proposal?.lessons.length, list.videos.length)
+  assert.ok(info.proposal?.lessons.every((l, i) => l.videoId === list.videos[i].id && !!l.videoId))
+  assert.equal(info.proposal?.project?.title, planById('intro-blender')?.project.title)
+  // Skipped videos are left out of the plan it becomes; a video lesson keeps its id (learn_url).
+  const pr = { ...info.proposal!, lessons: info.proposal!.lessons.map((l, i) => ({ ...l, skip: i === 1 })) }
+  const st = planStateFromProposal('pl-x', pr)
+  assert.equal(st.total, list.videos.length - 1)
+  assert.equal(st.lessons[1].videoId, list.videos[2].id)
+  assert.equal(st.nextIndex, 0)
+})
+
+test('a goal as plan.proposal answers it: lessons with from, the tools, a note', () => {
+  const pr = proposalFromGoal('I want to 3D print a stand for my phone')!
+  assert.equal(pr.source, 'goal')
+  assert.ok(pr.lessons.length > 0 && pr.lessons.every((l) => l.from && planById(l.from.planId)?.lessons[l.from.index]?.title === l.title))
+  assert.ok((pr.tools ?? []).some((t) => t.id === 'freecad'))
+  assert.ok(pr.note)
+  assert.equal(proposalFromGoal('zzqx'), null)
+})
+
+test('a catalog plan as a PlanState: lesson states follow done, nextIndex is the next lesson', () => {
+  const p = planById('intro-blender')!
+  const st = planStateFromCatalog(p, 2)
+  assert.equal(st.catalogId, p.id)
+  assert.deepEqual(st.lessons.slice(0, 4).map((l) => l.state), ['done', 'done', 'next', 'todo'])
+  assert.equal(st.nextIndex, 2)
+  assert.equal(planStateFromCatalog(p, p.lessons.length).nextIndex, null)
+})
 
 test('the catalog has 40 plans and 50 playlists, every playlist on a real plan', () => {
   assert.equal(PLANS.length, 40)

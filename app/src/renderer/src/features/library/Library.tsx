@@ -12,41 +12,41 @@
  * lessons. Never rows of zeros.
  *
  * The same page also hosts Browse plans and a plan's page (features/plans: store.ts `view`), so the shell's Library
- * entry keeps its place; the two "new plan" dialogs sit over it. The page title is the shell's header; its right side
- * (LessonSearch) carries New plan and New lesson (the one primary).
+ * entry keeps its place; the two "new plan" dialogs sit over it. All three views render in the shell's v4 frame
+ * (PageFrame + PageHeader, features/shell/ui.tsx): one title on the content's left edge, the actions flush right
+ * (Library: New plan, and New lesson as the one primary). The shell's top bar carries the breadcrumb
+ * (setCrumbs: Library / Browse plans / <plan>); its earlier parts go back a level.
  *
- * Data: LibraryItem from the engine (library:list). Fields the ui-v4 contract adds (plan, passed, opened) are read
- * when present (`V4Item`); until then Plan comes from matching the title against the catalog and Opened from updatedAt.
+ * Data: LibraryItem from the engine (library:list), and the learner's plans (ui-v4 `plans`, features/plans/store.ts).
+ * A lesson's plan, passed state and dates are read as the contract types them: the PlanLesson whose libraryId (or
+ * lessonId) is the item's id gives its PlanState, `state: "done"` + doneAt, and openedAt. A lesson no plan claims
+ * matches its title against the catalog for the Plan column and uses updatedAt for Opened.
  */
 import { CloudOff, ListPlus, Search, SquarePen, X, Check } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
-import type { LibraryItem } from '../../../../../../shared/contracts/events'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { LibraryItem, PlanLesson, PlanState } from '../../../../../../shared/contracts/events'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { color, copy, fill, radius2, surface, type2 } from '../../core/theme'
-import { Empty, PageColumn } from '../shell/ui'
+import { Empty, PageFrame, PageHeader, setCrumbs } from '../shell/ui'
+import { useShell } from '../shell/store'
 import { Skeleton, TOOL_NAME } from './parts'
 import { openDetail, setQuery, useLibrary } from './store'
-import { aboutHours, FIRST_RUN, NEXT_UP, planById, planForLesson, PLANS, planShort, skillLabel, START_HERE, type Plan } from '../plans/catalog'
+import { aboutHours, FIRST_RUN, NEXT_UP, planById, planForLesson, PLANS, planShort, skillLabel, START_HERE, type CatalogPlan } from '../plans/catalog'
 import { PlanDialogs } from '../plans/Dialogs'
-import { PlanPage } from '../plans/PlanPage'
+import { artForState, PlanPage, planTrail } from '../plans/PlanPage'
 import { PlansPage } from '../plans/PlansPage'
-import { openDialog, showPlan, showPlans, usePlans, type MyPlan } from '../plans/store'
-import { artFor, artForId, Thumb, type Art } from '../plans/Thumb'
+import { loadPlans, openDialog, showLibrary, showPlan, showPlans, usePlans, type MyPlan } from '../plans/store'
+import { artFor, Thumb, type Art } from '../plans/Thumb'
 import { CardGrid, EntryCards, meta, MoreLink, PlanCard, RowStyle, SectionLabel, SkillChip, TableHead, TableRow, Tabs, useWidth, type Tab } from '../plans/ui'
 
 /** New lesson: the launcher takes a goal or a pasted YouTube link (it builds; the library never does). */
 export const openLauncher = (): void => bridge.emit('launcher:toggle')
 
-/**
- * The right side of the Library's page header (the shell puts it there): New plan, and New lesson as the page's one
- * primary. On Browse plans and a plan's page it is empty (those pages carry their own actions).
- */
-export function LessonSearch(): ReactNode {
-  const view = usePlans((s) => s.view.kind)
-  if (view !== 'library') return null
+/** The Library header's actions: New plan, and New lesson as the page's one primary. */
+function LibraryActions(): ReactNode {
   return (
     <div data-no-drag data-library-actions className="flex items-center gap-[10px]">
       <QuietButton label="New plan" icon={ListPlus} onClick={showPlans} />
@@ -55,17 +55,33 @@ export function LessonSearch(): ReactNode {
   )
 }
 
-/** Fields the ui-v4 contract adds to a library item. Read when present; nothing here invents them. */
-type V4Item = LibraryItem & { planId?: string; passed?: boolean; passedAt?: string; openedAt?: string }
+/**
+ * The shell's legacy page header still asks for this (Shell.tsx). The Library now draws its own v4 header
+ * (PageHeader, with LibraryActions), and the shell hides its legacy title on a page with a PageFrame, so: nothing.
+ */
+export function LessonSearch(): ReactNode {
+  return null
+}
+
 type LibTab = 'all' | 'progress' | 'ready' | 'finished' | 'plans'
 
-const finished = (i: V4Item): boolean => i.passed === true || (!!i.progress && i.progress.total > 0 && i.progress.stepIndex >= i.progress.total)
-const inProgress = (i: V4Item): boolean => !!i.progress && !finished(i)
+/** A library item with what the learner's plans say about it (contract: PlanLesson.libraryId / lessonId). */
+type Item = LibraryItem & { plan?: PlanState; lesson?: PlanLesson }
 
-function planOf(i: V4Item): Plan | undefined {
-  return planById(i.planId) ?? planForLesson(i.title)
+const finished = (i: Item): boolean => i.lesson?.state === 'done' || (!!i.progress && i.progress.total > 0 && i.progress.stepIndex >= i.progress.total)
+const inProgress = (i: Item): boolean => !finished(i) && (!!i.progress || i.lesson?.state === 'in_progress')
+
+function planOf(i: Item): CatalogPlan | undefined {
+  return planById(i.plan?.catalogId) ?? planForLesson(i.title)
 }
-function artOf(i: V4Item): Art {
+/** The Plan column: the learner's plan's name, else the catalog plan the title belongs to. */
+function planName(i: Item): string {
+  const c = planOf(i)
+  if (c) return planShort(c)
+  return i.plan?.title ?? ''
+}
+function artOf(i: Item): Art {
+  if (i.plan && !planOf(i)) return artForState(i.plan)
   const p = planOf(i)
   if (p) return artFor(p)
   const t = i.tools[0]
@@ -131,7 +147,7 @@ function template(c: Cols): string {
     .join(' ')
 }
 
-function LessonTable({ label, items, cols, head }: { label: string; items: V4Item[]; cols: Cols; head: boolean }): ReactNode {
+function LessonTable({ label, items, cols, head }: { label: string; items: Item[]; cols: Cols; head: boolean }): ReactNode {
   const t = template(cols)
   return (
     <section data-lesson-table={label}>
@@ -159,11 +175,11 @@ function LessonTable({ label, items, cols, head }: { label: string; items: V4Ite
   )
 }
 
-function LessonRow({ item, cols, template: t }: { item: V4Item; cols: Cols; template: string }): ReactNode {
-  const plan = planOf(item)
+function LessonRow({ item, cols, template: t }: { item: Item; cols: Cols; template: string }): ReactNode {
+  const plan = planName(item)
   const done = finished(item)
   const going = inProgress(item)
-  const opened = dayLabel(done ? (item.passedAt ?? item.updatedAt) : (item.openedAt ?? item.updatedAt))
+  const opened = dayLabel(done ? (item.lesson?.doneAt ?? item.updatedAt) : (item.lesson?.openedAt ?? item.updatedAt))
   return (
     <TableRow template={t} onClick={() => openDetail(item.id)} label={`${item.title}. Open its preview.`} height={48} data={{ 'data-lesson': item.id }}>
       <span className="flex min-w-0 items-center gap-[12px]">
@@ -174,7 +190,7 @@ function LessonRow({ item, cols, template: t }: { item: V4Item; cols: Cols; temp
       </span>
       {cols.plan && (
         <span className="truncate" style={meta}>
-          {plan ? planShort(plan) : ''}
+          {plan}
         </span>
       )}
       {cols.tool && (
@@ -219,20 +235,22 @@ function LessonRow({ item, cols, template: t }: { item: V4Item; cols: Cols; temp
 
 function MyPlanCard({ p }: { p: MyPlan }): ReactNode {
   const left = Math.max(0, p.total - p.done)
+  const next = p.nextIndex != null ? p.lessons[p.nextIndex] : undefined
+  const minutesLeft = p.minutesLeft ?? p.lessons.filter((l) => l.state !== 'done').reduce((n, l) => n + (l.minutes ?? Math.round((l.seconds ?? 0) / 60)), 0)
   return (
-    <button type="button" data-my-plan={p.id} onClick={() => showPlan(p.id)} className="mg-v4-row flex min-w-0 cursor-pointer items-center gap-[18px] text-left" style={{ background: 'none', border: 0, padding: 0, borderRadius: radius2.card, color: color.text }}>
-      <Thumb art={artForId(p.art)} w={132} h={74} radius={radius2.card} />
+    <button type="button" data-my-plan={p.id} onClick={() => showPlan(p.catalogId && planById(p.catalogId) ? p.catalogId : p.id)} className="mg-v4-row flex min-w-0 cursor-pointer items-center gap-[18px] text-left" style={{ background: 'none', border: 0, padding: 0, borderRadius: radius2.card, color: color.text }}>
+      <Thumb art={artForState(p)} w={132} h={74} radius={radius2.card} />
       <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 2 }}>
         <span className="truncate" style={{ fontSize: type2.md, lineHeight: '20px', fontWeight: 600 }}>
           {p.title}
         </span>
-        {p.next && (
+        {next && (
           <span className="truncate" style={meta}>
-            Next · {p.next}
+            Next · {next.title}
           </span>
         )}
         <span className="truncate" style={meta}>
-          {left} {left === 1 ? 'lesson' : 'lessons'} left · {aboutHours(p.minutesLeft)}
+          {left === 0 ? 'Every lesson passed' : `${left} ${left === 1 ? 'lesson' : 'lessons'} left · ${aboutHours(minutesLeft)}`}
         </span>
         <span className="flex items-center gap-[12px]" style={{ marginTop: 10 }}>
           <ProgressLine done={p.done} total={p.total} />
@@ -259,7 +277,7 @@ function YourPlans({ mine, cols }: { mine: MyPlan[]; cols: number }): ReactNode 
 }
 
 function StartAPlan({ ids, cols }: { ids: string[]; cols: number }): ReactNode {
-  const plans = ids.map((id) => planById(id)).filter((p): p is Plan => !!p)
+  const plans = ids.map((id) => planById(id)).filter((p): p is CatalogPlan => !!p)
   return (
     <section data-start-plan>
       <SectionLabel right={<MoreLink onClick={showPlans}>All {PLANS.length} plans</MoreLink>}>Start a plan</SectionLabel>
@@ -282,7 +300,7 @@ const SHORT = [
 ] as const
 
 function ShortLessons({ wide }: { wide: boolean }): ReactNode {
-  const rows = SHORT.map(([id, n]) => ({ plan: planById(id), n })).filter((r): r is { plan: Plan; n: 0 } => !!r.plan)
+  const rows = SHORT.map(([id, n]) => ({ plan: planById(id), n })).filter((r): r is { plan: CatalogPlan; n: 0 } => !!r.plan)
   const t = wide ? 'minmax(0,2fr) minmax(0,1.3fr) minmax(0,1.3fr)' : 'minmax(0,1fr) minmax(0,1fr)'
   return (
     <section data-short-lessons>
@@ -366,6 +384,17 @@ function SearchToggle(): ReactNode {
   )
 }
 
+/** Each library item with the plan lesson that built it (PlanLesson.libraryId, else lessonId). */
+function withPlans(items: LibraryItem[], mine: PlanState[]): Item[] {
+  const by = new Map<string, { plan: PlanState; lesson: PlanLesson }>()
+  for (const plan of mine)
+    for (const lesson of plan.lessons) {
+      if (lesson.libraryId) by.set(lesson.libraryId, { plan, lesson })
+      if (lesson.lessonId && !by.has(lesson.lessonId)) by.set(lesson.lessonId, { plan, lesson })
+    }
+  return items.map((i) => ({ ...i, ...by.get(i.id) }))
+}
+
 function LibraryList(): ReactNode {
   const s = useLibrary()
   const mine = usePlans((p) => p.mine)
@@ -373,18 +402,20 @@ function LibraryList(): ReactNode {
   const [tab, setTab] = useState<LibTab>('all')
   const [ref, w] = useWidth<HTMLDivElement>()
   const q = s.query.trim().toLowerCase()
-  const items = (s.items as V4Item[]).filter((i) => !q || i.title.toLowerCase().includes(q) || (planOf(i)?.title.toLowerCase().includes(q) ?? false))
+  const all = useMemo(() => withPlans(s.items, mine), [s.items, mine])
+  const items = all.filter((i) => !q || i.title.toLowerCase().includes(q) || planName(i).toLowerCase().includes(q))
   const going = items.filter(inProgress)
   const done = items.filter(finished)
   const ready = items.filter((i) => !inProgress(i) && !finished(i))
   // A column with nothing to say on any row (no lesson from a plan yet, no dates from the engine) is left out.
   const fit = colsFor(w)
-  const cols: Cols = { ...fit, plan: fit.plan && items.some((i) => !!planOf(i)), opened: fit.opened && items.some((i) => !!dayLabel(i.openedAt ?? i.passedAt ?? i.updatedAt)) }
+  const cols: Cols = { ...fit, grows: fit.grows && items.some((i) => growsOf(i).length > 0), plan: fit.plan && items.some((i) => !!planName(i)), opened: fit.opened && items.some((i) => !!dayLabel(i.lesson?.openedAt ?? i.lesson?.doneAt ?? i.updatedAt)) }
   const cardCols = w < 640 ? 2 : 4
   const planCols = w < 760 ? 1 : 2
   const fresh = s.loaded && s.items.length === 0 && mine.length === 0
   // Four the learner hasn't added: the mock's order (data tools first once a plan is going), then the rest of Start here.
-  const toStart = (mine.length ? NEXT_UP : START_HERE).concat(FIRST_RUN).filter((id, n, all) => all.indexOf(id) === n && !mine.some((m) => m.id === id)).slice(0, 4)
+  const has = (id: string): boolean => mine.some((m) => m.id === id || m.catalogId === id)
+  const toStart = (mine.length ? NEXT_UP : START_HERE).concat(FIRST_RUN).filter((id, n, list) => list.indexOf(id) === n && !has(id)).slice(0, 4)
 
   const tabs: Tab<LibTab>[] = [
     { id: 'all', label: 'All', count: items.length },
@@ -398,11 +429,15 @@ function LibraryList(): ReactNode {
   return (
     <div ref={ref} data-library-v4 className="flex flex-col" style={{ gap: 36 }}>
       {!s.loaded ? (
-        <div className="flex flex-col gap-[8px]" aria-busy aria-label="Loading your lessons">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} h={48} />
-          ))}
-        </div>
+        <>
+          {/* The plans can land before the lessons do: show them as soon as they arrive. */}
+          {mine.length > 0 && <YourPlans mine={mine} cols={planCols} />}
+          <div className="flex flex-col gap-[8px]" aria-busy aria-label="Loading your lessons">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} h={48} />
+            ))}
+          </div>
+        </>
       ) : fresh ? (
         <FirstRun cols={cardCols} wide={w >= 640} />
       ) : (
@@ -439,15 +474,70 @@ function LibraryList(): ReactNode {
   )
 }
 
-/** The Library page body (the shell scrolls it and keeps its scroll): the list, Browse plans, or one plan. */
+/** The trail the shell's top bar draws after "Library" for each view (null: the Library itself). */
+function trailFor(view: ReturnType<typeof usePlans.getState>['view'], mineTitle: string | undefined): string[] | null {
+  if (view.kind === 'plans') return ['Browse plans']
+  if (view.kind === 'plan') return planTrail(view.id)
+  if (view.kind === 'custom') return [mineTitle ?? 'Plan']
+  return null
+}
+
+/**
+ * The top bar's crumbs are the shell's (plain text). On a deeper view, its earlier parts go back: "Library" to the
+ * list, "Browse plans" to the catalog. Delegated from the page, so the shell's bar needs no Library code.
+ */
+function useCrumbBack(depth: number): void {
+  const here = useShell((s) => s.page === 'lessons')
+  useEffect(() => {
+    if (depth === 0 || !here) return
+    // .mg-crumb-back (plans/ui.tsx RowStyle): the earlier crumbs read as links.
+    document.documentElement.classList.add('mg-crumb-back')
+    const onClick = (e: MouseEvent): void => {
+      const nav = document.querySelector('[data-v4-top] nav')
+      const part = (e.target as Element | null)?.closest?.('[data-v4-top] nav > span')
+      if (!nav || !part || part.getAttribute('aria-current') === 'page') return
+      const i = [...nav.children].indexOf(part)
+      if (i === 0) showLibrary()
+      else if (i === 1 && depth === 2) showPlans()
+    }
+    document.addEventListener('click', onClick)
+    return () => {
+      document.removeEventListener('click', onClick)
+      document.documentElement.classList.remove('mg-crumb-back')
+    }
+  }, [depth, here])
+}
+
+/** The Library page (the shell's Library entry): the list, Browse plans, or one plan, in the shell's v4 frame. */
 export function Lessons(): ReactNode {
   const view = usePlans((s) => s.view)
+  const customTitle = usePlans((s) => (s.view.kind === 'custom' ? s.mine.find((m) => m.id === (s.view as { id: string }).id)?.title : undefined))
+  const trail = trailFor(view, customTitle)
+  const key = trail?.join('/') ?? ''
+  useEffect(() => {
+    setCrumbs('lessons', trail)
+    return () => setCrumbs('lessons', null)
+    // key is the trail's content.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  // The learner's plans: asked once per visit (the engine pushes `plans` again when one changes).
+  useEffect(() => loadPlans(), [])
+  useCrumbBack(trail ? trail.length : 0)
   return (
-    <PageColumn width="wide" data={{ 'data-lessons': '', 'data-view': view.kind }} style={{ color: color.text }}>
-      {view.kind === 'plans' ? <PlansPage /> : view.kind === 'plan' || view.kind === 'custom' ? <PlanPage id={view.id} /> : <LibraryList />}
+    <PageFrame data={{ 'data-lessons': '', 'data-view': view.kind }} style={{ color: color.text }}>
+      {view.kind === 'plans' ? (
+        <PlansPage />
+      ) : view.kind === 'plan' || view.kind === 'custom' ? (
+        <PlanPage id={view.id} />
+      ) : (
+        <div className="flex flex-col" style={{ gap: 28 }}>
+          <PageHeader title="Library" right={<LibraryActions />} />
+          <LibraryList />
+        </div>
+      )}
       <PlanDialogs />
       <RowStyle />
-    </PageColumn>
+    </PageFrame>
   )
 }
 

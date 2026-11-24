@@ -5,14 +5,14 @@
  */
 import type { ReactNode } from 'react'
 import { alpha, brand, color, radius2, surface } from '../../core/theme'
-import { planById, type Plan } from './catalog'
+import { planById, type CatalogPlan } from './catalog'
 
 export type Art = 'code' | 'mug' | 'plate' | 'web' | 'table' | 'plot' | 'network' | 'terminal'
 
 const DARK: ReadonlySet<Art> = new Set(['code', 'mug', 'network', 'terminal'])
 
 /** A plan's picture, from its tool and topic. */
-export function artFor(p: Plan | undefined): Art {
+export function artFor(p: CatalogPlan | undefined): Art {
   if (!p) return 'code'
   if (p.topic === '3d' || p.tool.id === 'blender' || p.tool.id === 'unity' || p.tool.id === 'godot') return 'mug'
   if (p.topic === 'cad') return 'plate'
