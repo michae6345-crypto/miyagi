@@ -11,6 +11,8 @@ import { ChevronRight, RotateCw } from 'lucide-react'
 import { color, fill, surface } from '../../../core/theme'
 import { MiyagiMark } from '../../../core/ui/Mark'
 import type { SkillGraph, SkillGraphNode } from '../model'
+import { usePicture } from '../extras/Portfolio'
+import { skillExtras } from './contract'
 import { CARD_H, type EdgeKind, type FlatLayout } from './layout'
 
 /** The flat page's tokens, all theme variables (light and dark follow the app). */
@@ -164,10 +166,12 @@ export function FoldCard({ label, count, x, y, w, dim, onOpen }: { label: string
 }
 
 /** The project's picture: the learner's artifact would go here; until then the bonsai on a quiet fill. */
-function ProjectArt({ h }: { h: number }): ReactNode {
+/** The project's own result (SkillCapstone.artifact, an image) when there is one; the bonsai until then. */
+function ProjectArt({ h, path, caption }: { h: number; path?: string; caption?: string }): ReactNode {
+  const src = usePicture(path)
   return (
-    <div aria-hidden className="flex shrink-0 items-center justify-center" style={{ height: h, borderRadius: 6, background: T.sunk }}>
-      <MiyagiMark size={Math.min(32, h - 12)} />
+    <div aria-hidden={!src} className="flex shrink-0 items-center justify-center overflow-hidden" style={{ height: h, borderRadius: 6, background: T.sunk }}>
+      {src ? <img src={src} alt={caption ?? 'Your result'} draggable={false} className="h-full w-full select-none object-cover" /> : <MiyagiMark size={Math.min(32, h - 12)} />}
     </div>
   )
 }
@@ -195,6 +199,7 @@ export function ProjectCard({
 }): ReactNode {
   const n = g.byId[id]
   const isGoal = g.goal?.id === id
+  const art = n ? skillExtras(n, g).artifact : undefined
   const done = isGoal && g.goal ? g.goal.mastered / Math.max(1, g.goal.total) : 0
   const style: CSSProperties = {
     position: 'absolute',
@@ -217,7 +222,7 @@ export function ProjectCard({
     <button type="button" data-skill-project={id} onClick={() => onOpen(id)} className="mg-press flex cursor-pointer text-left outline-offset-2 focus-visible:outline-2" style={style}>
       {layout === 'tall' ? (
         <div className="flex h-full w-full flex-col" style={{ padding: '10px 12px 12px' }}>
-          <ProjectArt h={54} />
+          <ProjectArt h={54} path={art?.path} caption={art?.caption} />
           <div style={{ fontSize: 12, color: T.muted, marginTop: 9 }}>Project</div>
           {title}
           {isGoal && (
@@ -229,7 +234,7 @@ export function ProjectCard({
       ) : layout === 'wide' ? (
         <div className="flex h-full w-full items-center" style={{ padding: '10px 12px', gap: 12 }}>
           <div style={{ width: 84 }}>
-            <ProjectArt h={46} />
+            <ProjectArt h={46} path={art?.path} caption={art?.caption} />
           </div>
           <div className="min-w-0">
             <div style={{ fontSize: 12, color: T.muted }}>Project</div>

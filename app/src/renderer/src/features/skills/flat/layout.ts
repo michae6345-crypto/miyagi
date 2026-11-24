@@ -277,17 +277,19 @@ export function mapPlan(g: SkillGraph): MapPlan | undefined {
     const d = longestDepth(mine, (id) => g.byId[id].requires.filter((r) => mine.includes(r)))
     for (const id of mine) local[id] = d[id]
   }
+  // Column order (the goal's track stands in the middle, over the base).
+  const goalTrack = g.goal && g.byId[g.goal.id] ? g.byId[g.goal.id].requires.map((r) => g.byId[r]).find((n) => n?.kind === 'skill')?.track ?? g.byId[g.goal.id].track : undefined
+  const center = goalTrack && goalTrack !== base && tReq.has(goalTrack) ? goalTrack : base
   const row: Record<string, number> = {}
-  for (const t of [...trackIds].sort((a, b) => level[a] - level[b])) {
+  for (const t of [...trackIds].sort((a, b) => level[a] - level[b] || Number(a === center) - Number(b === center))) {
     const mine = skills.filter((id) => trackOf(id) === t)
     let s = 0
     for (const id of mine)
       for (const r of g.byId[id].requires) if (row[r] !== undefined && trackOf(r) !== t) s = Math.max(s, row[r] + 1 - local[id])
+    // The middle column shares x with the base: it starts over the base's top row, never beside it.
+    if (t === center && center !== base) for (const id of skills) if (trackOf(id) === base && row[id] !== undefined) s = Math.max(s, row[id] + 1)
     for (const id of mine) row[id] = s + local[id]
   }
-  // Column order.
-  const goalTrack = g.goal && g.byId[g.goal.id] ? g.byId[g.goal.id].requires.map((r) => g.byId[r]).find((n) => n?.kind === 'skill')?.track ?? g.byId[g.goal.id].track : undefined
-  const center = goalTrack && goalTrack !== base && tReq.has(goalTrack) ? goalTrack : base
   const left: string[] = []
   const right: string[] = []
   const side: Record<string, number> = { [center]: 0, [base]: 0 }
@@ -412,16 +414,18 @@ export function mapLayout(g: SkillGraph, measure: Measure = estimate): FlatLayou
     const first = c.rows.get(low)![0]
     return { track: c.t, text: trackLabel(c.t), x: at[first].x - MAP.labelGap, y: Y(low) - 8, align: 'right' as const }
   })
+  // Gutters: halfway between neighbouring columns, and outside the outer ones (edges may route through the outer ones,
+  // so the layout's extent takes them in: nothing is drawn past w).
+  const sorted = [...all].sort((a, b) => a.cx - b.cx)
+  const rawGutters = [sorted[0].cx - sorted[0].l - MAP.colGap / 2, ...sorted.slice(1).map((c, i) => (sorted[i].cx + sorted[i].r + c.cx - c.l) / 2), sorted[sorted.length - 1].cx + sorted[sorted.length - 1].r + MAP.colGap / 2]
   // Everything from x = 0.
-  const minX = Math.min(...boxes.map((b) => b.x), ...labels.map((l) => l.x - labelW(l.track)))
+  const minX = Math.min(...boxes.map((b) => b.x), ...labels.map((l) => l.x - labelW(l.track)), rawGutters[0] - 2)
   const minY = Math.min(...boxes.map((b) => b.y))
   const dx = 8 - minX
   const dy = MAP.top - minY
   for (const b of boxes) (b.x += dx), (b.y += dy)
   for (const l of labels) (l.x += dx), (l.y += dy)
-  // Gutters: halfway between neighbouring columns, and outside the outer ones.
-  const sorted = [...all].sort((a, b) => a.cx - b.cx)
-  const gutters = [sorted[0].cx - sorted[0].l - MAP.colGap / 2, ...sorted.slice(1).map((c, i) => (sorted[i].cx + sorted[i].r + c.cx - c.l) / 2), sorted[sorted.length - 1].cx + sorted[sorted.length - 1].r + MAP.colGap / 2].map((v) => v + dx)
+  const gutters = rawGutters.map((v) => v + dx)
   const halfGap = (MAP.rowPitch - CARD_H) / 2
   const edges: FlatEdge[] = []
   for (const n of g.nodes) {
@@ -434,7 +438,7 @@ export function mapLayout(g: SkillGraph, measure: Measure = estimate): FlatLayou
     }
   }
   edges.sort((a, b) => EDGE_ORDER[a.kind] - EDGE_ORDER[b.kind])
-  return { w: Math.max(...boxes.map((b) => b.x + b.w)) + 8, h: Math.max(...boxes.map((b) => b.y + b.h)) + 8, boxes, edges, labels }
+  return { w: Math.max(...boxes.map((b) => b.x + b.w), gutters[gutters.length - 1] + 2) + 8, h: Math.max(...boxes.map((b) => b.y + b.h)) + 8, boxes, edges, labels }
 }
 
 // ---- Tracks (the Map zoomed out) -------------------------------------------------------------------------------

@@ -11,10 +11,16 @@ export const MASTERY_DAYS = 2
 export const REVIEW_DAYS = [3, 7, 21, 60] as const
 
 /** "Goal · 6 of 11 skills · about 3 hours left" pieces (the goal's name is drawn bold by the view). */
-export function goalBits(g: SkillGraph, minutesLeft?: number): string[] {
+export function goalBits(g: SkillGraph, minutesLeft?: number, pace?: { now: number; minutesPerWeek?: number }): string[] {
   if (!g.goal) return []
   const bits = [`${g.goal.mastered} of ${g.goal.total} skills`]
-  if (minutesLeft && minutesLeft > 0) bits.push(minutesLeft < 90 ? `about ${Math.round(minutesLeft / 5) * 5 || 5} min left` : `about ${Math.round(minutesLeft / 60)} hours left`)
+  if (minutesLeft && minutesLeft > 0) {
+    let left = minutesLeft < 90 ? `about ${Math.round(minutesLeft / 5) * 5 || 5} min left` : `about ${Math.round(minutesLeft / 60)} hours left`
+    // "around Dec 4 at your pace": only from the learner's own minutes this week.
+    const perDay = pace?.minutesPerWeek ? pace.minutesPerWeek / 7 : 0
+    if (pace && perDay > 0) left += `, around ${shortDate(pace.now + Math.ceil(minutesLeft / perDay) * 86_400_000)} at your pace`
+    bits.push(left)
+  }
   return bits
 }
 

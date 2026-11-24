@@ -8,16 +8,17 @@
  *   peek      a skill's page on the right (mastered: the code you wrote, the check it passed, steps, Opens)
  */
 import { Check, ChevronRight, Search, X } from 'lucide-react'
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { color, focus, surface } from '../../../core/theme'
 import { QuietButton } from '../../../core/ui/buttons'
 import { useLibrary } from '../../library/store'
 import type { SkillGraph, SkillGraphNode } from '../model'
 import { names } from '../copy'
 import { setQuery, setView, setZoom, startSkill, useSkills, VIEWS, ZOOMS, type MapZoom, type SkillsView } from '../store'
-import { goalBits, ruleLine, shortDate, statusCell, stillToGo } from './copy'
+import { goalBits, minutesLeft, ruleLine, shortDate, statusCell, stillToGo } from './copy'
 import { estimate, FOLD_ID, mapLayout, pathLayout, stepsLayout, STEPS, tracksLayout, type FlatLayout, type Measure } from './layout'
-import { everyHasMinutes, skillExtras } from './contract'
+import { everyHasMinutes, skillExtras, type SkillStepLine } from './contract'
+import { useSkillProof, type ProofItem } from '../proof'
 import { FoldCard, NodeMark, ProjectCard, Refresh, SkillCard, Stage, StateMark, T, TrackCard } from './parts'
 
 export function useWidth<E extends HTMLElement>(initial = 960): [React.RefObject<E | null>, number, number] {
@@ -62,7 +63,7 @@ export function Lede({ g, onChange }: { g: SkillGraph; onChange?: () => void }):
     <p data-skills-lede className="m-0 truncate" style={{ fontSize: 14.5, lineHeight: '20px', color: T.muted, marginTop: 2 }}>
       Goal{' '}
       <b style={{ color: T.ink, fontWeight: 560 }}>{g.goal.label}</b>
-      {goalBits(g).map((b) => (
+      {goalBits(g, minutesLeft(g, (n) => skillExtras(n, g).estMinutes), { now: Date.now(), minutesPerWeek: g.week?.minutes }).map((b) => (
         <span key={b}> · {b}</span>
       ))}
       {onChange && (
@@ -372,11 +373,18 @@ export function PathView({ g, query, selected, onOpen }: { g: SkillGraph; query:
 
 function StepCard({ g, n, x, y, w, h, onOpen }: { g: SkillGraph; n: SkillGraphNode; x: number; y: number; w: number; h: number; onOpen: (id: string) => void }): ReactNode {
   const locked = n.state === 'locked'
-  const total = n.evidence?.total ?? n.lessons.reduce((s, l) => s + l.stepIds.length, 0)
-  const done = n.state === 'mastered' ? total : (n.evidence?.done ?? 0)
-  const steps = skillExtras(n, g).steps
-  const title = useTitleOf()(n)
-  const note = n.review ? 'review due' : n.state === 'practicing' ? `${done} of ${total}` : n.state === 'ready' ? 'ready' : ''
+  const { steps, real, reviewDue } = skillExtras(n, g)
+  const done = steps.filter((s) => s.passed).length
+  const ev = n.evidence
+  const note = reviewDue ? 'review due' : n.state === 'practicing' ? (real ? `${done} of ${steps.length}` : ev ? `${ev.done} of ${ev.total}` : '') : n.state === 'ready' ? 'ready' : ''
+  // The rows: its steps, else its lessons, else one line saying where it stands (never invented step names).
+  const rows: SkillStepLine[] = steps.length
+    ? steps
+    : [
+        n.state === 'practicing' && ev
+          ? { title: `${ev.done} of ${ev.total} steps passed`, passed: false, current: true }
+          : { title: n.state === 'locked' ? 'Not open yet' : n.state === 'mastered' ? 'Mastered' : 'Not started', passed: n.state === 'mastered' }
+      ]
   return (
     <button
       type="button"
@@ -394,75 +402,140 @@ function StepCard({ g, n, x, y, w, h, onOpen }: { g: SkillGraph; n: SkillGraphNo
           {note}
         </span>
       </div>
-      {!total && (
-        <div className="truncate" style={{ height: 28, lineHeight: '28px', fontSize: 13.5, color: T.muted }}>
-          {title ?? (n.state === 'mastered' ? 'Mastered' : n.state === 'locked' ? 'Not open yet' : 'Not started')}
+      {rows.map((st, i) => (
+        <div
+          key={i}
+          data-skill-step={st.passed ? 'done' : st.current ? 'current' : 'open'}
+          className="flex items-center"
+          style={{ gap: 9, height: STEPS.line, fontSize: 13.5, fontWeight: st.current ? 600 : 400, color: locked ? T.faint : st.passed || st.current ? T.ink : T.muted }}
+        >
+          <span className="flex shrink-0" style={{ opacity: locked ? 0.55 : 1 }}>
+            <StateMark state={st.passed ? 'mastered' : st.current ? 'practicing' : 'ready'} f={0.5} size={14} />
+          </span>
+          <span className="truncate">{st.title}</span>
         </div>
-      )}
-      {Array.from({ length: total }, (_, i) => {
-        const cur = n.state === 'practicing' && i === done
-        return (
-          <div key={i} className="flex items-center" style={{ gap: 9, height: 28, fontSize: 13.5, fontWeight: cur ? 600 : 400, color: locked ? T.faint : i < done || cur ? T.ink : T.muted }}>
-            <StateMark state={i < done ? 'mastered' : cur ? 'practicing' : locked ? 'locked' : 'ready'} f={0.5} size={14} />
-            <span className="truncate">{steps[i]?.title ?? `Step ${i + 1}`}</span>
-          </div>
-        )
-      })}
+      ))}
     </button>
   )
 }
 
+type Box = FlatLayout['boxes'][number]
+
+/** How many cards a vertical line at content x (unscaled stage at `scale`) cuts through. */
+function cutAt(boxes: Box[], x: number, scale: number): number {
+  return boxes.filter((b) => b.x * scale < x && (b.x + b.w) * scale > x).length
+}
+
+/** Where the Map opens: the focus card (the goal, or the next skill) in view and near the middle, with the pane's edges
+ *  stopping between cards when they can (no card cut in half on open). Scroll coordinates (the gutter included). */
+function openingLeft(boxes: Box[], focus: Box | undefined, contentW: number, viewW: number, scale: number, gutter: number): number {
+  const max = Math.max(0, contentW - viewW)
+  if (!max) return 0
+  const fx = focus ? gutter + (focus.x + focus.w / 2) * scale : contentW / 2
+  const ideal = Math.max(0, Math.min(max, fx - viewW / 2))
+  // Near the middle first; when every spot there cuts a card, anywhere the focus card still shows.
+  let best = ideal
+  let bestScore = Infinity
+  for (const reach of [96, max]) {
+    for (let L = Math.max(0, ideal - reach); L <= Math.min(max, ideal + reach); L += 4) {
+      if (focus && (gutter + focus.x * scale < L + 8 || gutter + (focus.x + focus.w) * scale > L + viewW - 8)) continue
+      const cutL = L <= 0 ? 0 : cutAt(boxes, L - gutter, scale)
+      const cutR = L >= max ? 0 : cutAt(boxes, L + viewW - gutter, scale)
+      const score = (cutL + cutR) * 1000 + Math.abs(L - ideal)
+      if (score < bestScore) {
+        bestScore = score
+        best = L
+      }
+    }
+    if (bestScore < 1000) break
+  }
+  return Math.round(best)
+}
+
+/** The Map's soft edges: a fade on each side the map goes on past, so it reads as one you pan. */
+function fadeMask(e: { l: boolean; r: boolean; t: boolean; b: boolean }): CSSProperties {
+  if (!e.l && !e.r && !e.t && !e.b) return {}
+  const F = 40
+  const across = `linear-gradient(to right, ${e.l ? 'transparent' : 'black'}, black ${F}px, black calc(100% - ${F}px), ${e.r ? 'transparent' : 'black'})`
+  const down = `linear-gradient(to bottom, ${e.t ? 'transparent' : 'black'}, black ${F}px, black calc(100% - ${F}px), ${e.b ? 'transparent' : 'black'})`
+  return { maskImage: `${across}, ${down}`, WebkitMaskImage: `${across}, ${down}`, maskComposite: 'intersect', WebkitMaskComposite: 'source-in' }
+}
+
+/** The smallest each zoom draws its cards: Skills and Steps at the Path's card size (they pan instead), Tracks a little under. */
+const MIN_SCALE: Record<MapZoom, number> = { skills: 1, steps: 1, tracks: 0.9 }
+/** The space around the map inside the pane: no card ever sits on the pane's edge. */
+const GUTTER = 28
+
 export function MapView({ g, query, selected, onOpen }: { g: SkillGraph; query: string; selected?: string; onOpen: (id: string) => void }): ReactNode {
   const zoom = useSkills((s) => s.zoom)
-  const [ref, width] = useWidth<HTMLDivElement>()
+  const [ref, width, height] = useWidth<HTMLDivElement>()
   const map = useMemo(() => mapLayout(g, measure), [g])
-  const lines = (id: string): number => {
-    const n = g.byId[id]
-    return n?.evidence?.total ?? n?.lessons.reduce((s, l) => s + l.stepIds.length, 0) ?? 0
-  }
+  const lines = (id: string): number => (g.byId[id] ? Math.max(1, skillExtras(g.byId[id], g).steps.length) : 1)
   const l = useMemo(() => (zoom === 'tracks' ? tracksLayout(g) : zoom === 'steps' ? stepsLayout(g, lines) : map), [g, map, zoom]) // eslint-disable-line react-hooks/exhaustive-deps
   const hot = hotSet(g, selected)
   const found = matches(g, query)
-  const pad = 24
-  // Skills: cards at the Path's size; the stage scrolls, opened at the bottom (the root) and centered on it.
-  // Tracks and Steps: fit the width.
-  const scale = zoom === 'skills' ? 1 : Math.max(0.5, Math.min(1, (width - 2) / Math.max(1, l.w)))
-  const root = zoom === 'skills' ? l.boxes.reduce<FlatLayout['boxes'][number] | undefined>((a, b) => (!a || b.y > a.y ? b : a), undefined) : undefined
+  // Fit the pane while the cards keep their size; past that the map pans (it never shrinks the words).
+  const fit = Math.min((width - 2 * GUTTER) / Math.max(1, l.w), (height - 2 * GUTTER) / Math.max(1, l.h))
+  const scale = Math.max(MIN_SCALE[zoom], Math.min(1, fit))
+  const contentW = l.w * scale + 2 * GUTTER
+  const focus = zoom === 'steps' ? (l.boxes.find((b) => g.byId[b.id]?.isNext) ?? l.boxes[l.boxes.length - 1]) : l.boxes.find((b) => b.id === g.goal?.id)
+  const [fade, setFade] = useState({ l: false, r: false, t: false, b: false })
+  const readFade = (): void => {
+    const el = ref.current
+    if (!el) return
+    const f = { l: el.scrollLeft > 1, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 1, t: el.scrollTop > 1, b: el.scrollTop + el.clientHeight < el.scrollHeight - 1 }
+    setFade((o) => (o.l === f.l && o.r === f.r && o.t === f.t && o.b === f.b ? o : f))
+  }
+  // Open on the goal's column with the projects along the top (Skills, Tracks), or on the next skill (Steps).
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    el.scrollTop = el.scrollHeight
-    if (root) el.scrollLeft = Math.max(0, (root.x + root.w / 2) * scale - el.clientWidth / 2 + Math.max(0, (el.clientWidth - l.w * scale) / 2))
-  }, [zoom, l.w, l.h]) // eslint-disable-line react-hooks/exhaustive-deps
+    el.scrollLeft = openingLeft(l.boxes, focus, contentW, el.clientWidth, scale, GUTTER)
+    el.scrollTop = focus ? Math.max(0, Math.min(el.scrollHeight - el.clientHeight, focus.y * scale)) : 0
+    readFade()
+  }, [zoom, l.w, l.h, Math.round(width / 40), Math.round(height / 40)]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div ref={ref} data-skills-view="map" data-skills-zoom={zoom} className="relative min-h-0 flex-1 overflow-auto" style={{ paddingBlock: pad }}>
-      <div className="flex min-h-full w-max min-w-full items-center justify-center">
-      <Stage l={l} scale={scale} dimEdge={hot ? (a, b) => !(hot.has(a) && hot.has(b)) : undefined}>
-        {zoom === 'tracks' ? (
-          <>
-            {l.boxes.map((b) => {
-              if (!b.id.startsWith('track:')) return <ProjectCard key={b.id} id={b.id} g={g} x={b.x} y={b.y} w={b.w} h={b.h} layout="wide" onOpen={onOpen} />
-              const t = g.tracks.find((x) => `track:${x.id}` === b.id)
-              return t ? <TrackCard key={b.id} label={t.label} done={t.mastered} total={t.total} x={b.x} y={b.y} w={b.w} h={b.h} /> : null
-            })}
-          </>
-        ) : zoom === 'steps' ? (
-          <>
-            {l.boxes.map((b) => {
-              const n = g.byId[b.id]
-              return n ? <StepCard key={b.id} g={g} n={n} x={b.x} y={b.y} w={STEPS.w} h={b.h} onOpen={onOpen} /> : null
-            })}
-          </>
-        ) : (
-          <Cards g={g} l={l} hot={hot} found={found} selected={selected} onOpen={onOpen} project={(id) => (id === g.goal?.id ? 'wide' : 'small')} />
-        )}
-      </Stage>
+    <div
+      ref={ref}
+      data-skills-view="map"
+      data-skills-zoom={zoom}
+      onScroll={readFade}
+      className="relative min-h-0 flex-1 overflow-auto"
+      style={{ ...fadeMask(fade), scrollbarWidth: 'none' }}
+    >
+      <div className="flex min-h-full w-max min-w-full items-center justify-center" style={{ padding: GUTTER }}>
+        <Stage l={l} scale={scale} dimEdge={hot ? (a, b) => !(hot.has(a) && hot.has(b)) : undefined}>
+          {zoom === 'tracks' ? (
+            <>
+              {l.boxes.map((b) => {
+                if (!b.id.startsWith('track:')) return <ProjectCard key={b.id} id={b.id} g={g} x={b.x} y={b.y} w={b.w} h={b.h} layout="wide" onOpen={onOpen} />
+                const t = g.tracks.find((x) => `track:${x.id}` === b.id)
+                return t ? <TrackCard key={b.id} label={t.label} done={t.mastered} total={t.total} x={b.x} y={b.y} w={b.w} h={b.h} /> : null
+              })}
+            </>
+          ) : zoom === 'steps' ? (
+            <>
+              {l.boxes.map((b) => {
+                const n = g.byId[b.id]
+                return n ? <StepCard key={b.id} g={g} n={n} x={b.x} y={b.y} w={STEPS.w} h={b.h} onOpen={onOpen} /> : null
+              })}
+            </>
+          ) : (
+            <Cards g={g} l={l} hot={hot} found={found} selected={selected} onOpen={onOpen} project={(id) => (id === g.goal?.id ? 'wide' : 'small')} />
+          )}
+        </Stage>
       </div>
     </div>
   )
 }
 
 // ---- the peek (a skill's page on the right) -----------------------------------------------------------------------
+
+/** "Step 3 of 3": where the proof's step sits among the skill's steps (blank when it isn't one of them). */
+function proofStep(p: ProofItem, steps: SkillStepLine[]): string {
+  const i = steps.findIndex((s) => s.title === p.stepTitle)
+  return i >= 0 ? `Step ${i + 1} of ${steps.length}` : p.stepTitle
+}
 
 const lab = { fontSize: 12.5, fontWeight: 550, color: T.muted, margin: '22px 0 8px' } as const
 
@@ -477,16 +550,16 @@ function Tag({ children, ok }: { children: ReactNode; ok?: boolean }): ReactNode
 export function Peek({ g, id, now, onClose, onOpen }: { g: SkillGraph; id: string; now: number; onClose: () => void; onOpen: (id: string) => void }): ReactNode {
   const titleOf = useTitleOf()
   const n = g.byId[id]
+  // The proof shows for a skill with a pass behind it (mastered, a passed step, or a kept proof).
+  const proof = useSkillProof(n?.id, !!n && (n.state === 'mastered' || n.proofIds.length > 0 || !!n.steps?.some((s) => s.passed)))
   if (!n) return null
   const track = g.tracks.find((t) => t.id === n.track)?.label ?? n.track
   const opens = g.links.filter((l) => l.kind === 'requires' && l.from === n.id).map((l) => g.byId[l.to]).filter((x): x is SkillGraphNode => !!x)
   const needs = n.requires.map((x) => g.byId[x]).filter((x): x is SkillGraphNode => !!x)
-  const total = n.evidence?.total ?? 0
-  const done = n.state === 'mastered' ? total : (n.evidence?.done ?? 0)
-  const steps = skillExtras(n, g).steps
+  const { steps, real, reviewDue } = skillExtras(n, g)
   const lesson = titleOf(n)
   const cap = n.kind === 'capstone' ? g.capstones.find((c) => c.id === n.id) : undefined
-  const state = n.state === 'mastered' ? (n.review ? 'Review due' : 'Mastered') : n.state === 'practicing' ? 'Practicing' : n.state === 'ready' ? 'Ready' : 'Locked'
+  const state = n.state === 'mastered' ? (reviewDue ? 'Review due' : 'Mastered') : n.state === 'practicing' ? 'Practicing' : n.state === 'ready' ? 'Ready' : 'Locked'
   const startable = n.kind === 'skill' && n.state !== 'locked'
   return (
     <aside
@@ -520,25 +593,60 @@ export function Peek({ g, id, now, onClose, onOpen }: { g: SkillGraph; id: strin
       <p className="m-0" style={{ fontSize: 13, color: T.muted, marginTop: 10 }}>
         {cap?.brief ?? ruleLine(n, now)}
       </p>
-      {n.example?.code && (
+      {proof?.text ? (
         <>
-          <div style={lab}>{n.state === 'mastered' ? 'The code you wrote' : 'What you will write'}</div>
-          <pre className="m-0 overflow-x-auto" style={{ font: '13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace', background: surface.well, borderRadius: 8, padding: '12px 14px', color: T.text }}>
-            {n.example.code}
+          <div style={lab}>The code you wrote</div>
+          <pre data-skills-proof-code className="m-0 shrink-0 overflow-x-auto" style={{ font: '13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace', background: surface.well, borderRadius: 8, padding: '12px 14px', color: T.text }}>
+            {proof.text}
+            {proof.output && (
+              <span className="block" style={{ marginTop: 8, color: T.muted }}>
+                {proof.output}
+              </span>
+            )}
           </pre>
-          {n.example.caption && <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>{n.example.caption}</div>}
+          {proof.file && <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>{proof.truncated ? `${proof.file}, cut short` : proof.file}</div>}
+        </>
+      ) : (
+        n.example?.code && (
+          <>
+            <div style={lab}>{n.state === 'mastered' ? 'The code you wrote' : 'What you will write'}</div>
+            <pre className="m-0 shrink-0 overflow-x-auto" style={{ font: '13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace', background: surface.well, borderRadius: 8, padding: '12px 14px', color: T.text }}>
+              {n.example.code}
+            </pre>
+            {n.example.caption && <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>{n.example.caption}</div>}
+          </>
+        )
+      )}
+      {proof && (
+        <>
+          <div style={lab}>The check it passed</div>
+          <div data-skills-proof-check className="flex items-start" style={{ gap: 12 }}>
+            <span className="flex shrink-0" style={{ marginTop: 3 }}>
+              <StateMark state="mastered" />
+            </span>
+            <div className="min-w-0">
+              <b className="block" style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>
+                {proof.check}
+              </b>
+              <div className="truncate" style={{ fontSize: 13, color: T.muted, marginTop: 2 }}>
+                {[proofStep(proof, steps), proof.lessonTitle, proof.at ? shortDate(proof.at) : ''].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+          </div>
         </>
       )}
-      {total > 0 && (
+      {steps.length > 0 && (
         <>
-          <div style={lab}>Steps</div>
-          {Array.from({ length: total }, (_, i) => (
-            <div key={i} className="flex items-center" style={{ gap: 12, minHeight: 36, fontSize: 14, color: i < done ? T.text : T.muted, boxShadow: i ? `0 -1px 0 ${T.hair}` : undefined }}>
-              <StateMark state={i < done ? 'mastered' : n.state === 'practicing' && i === done ? 'practicing' : 'ready'} />
-              {steps[i]?.title ?? `Step ${i + 1}`}
-              {lesson && i === 0 && (
-                <span className="ml-auto truncate" style={{ fontSize: 13, color: T.muted }}>
-                  {lesson}
+          <div style={lab}>{real ? 'Steps' : 'Lessons'}</div>
+          {steps.map((st, i) => (
+            <div key={i} className="flex items-center" style={{ gap: 12, minHeight: 36, fontSize: 14, fontWeight: st.current ? 600 : 400, color: st.passed || st.current ? T.text : T.muted, boxShadow: i ? `0 -1px 0 ${T.hair}` : undefined }}>
+              <span className="flex shrink-0" style={{ opacity: n.state === 'locked' ? 0.55 : 1 }}>
+                <StateMark state={st.passed ? 'mastered' : st.current ? 'practicing' : 'ready'} />
+              </span>
+              <span className="min-w-0 truncate">{st.title}</span>
+              {real && st.lesson && (i === 0 || steps[i - 1].lesson !== st.lesson) && (
+                <span className="ml-auto shrink-0 truncate" style={{ fontSize: 13, color: T.muted, maxWidth: '45%' }}>
+                  {st.lesson}
                 </span>
               )}
             </div>

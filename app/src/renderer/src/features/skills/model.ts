@@ -40,6 +40,8 @@ export type SkillGraphLesson = {
   inProgress: boolean
 }
 
+export type SkillGraphStep = { key?: string; lessonId: string; lessonTitle?: string; stepId: string; title: string; passed: boolean; at?: number; assisted?: boolean }
+
 export type SkillGraphNode = {
   id: string
   label: string
@@ -58,6 +60,14 @@ export type SkillGraphNode = {
   lessons: SkillGraphLesson[]
   masteredAt?: number
   lastPracticedAt?: number
+  /** ui-v4 (UI-V4.md section 4): every step behind it, passed or not, in lesson order. Undefined: the engine sent none. */
+  steps?: SkillGraphStep[]
+  /** ui-v4: the two-day mastery rule's progress. */
+  mastery?: { need: number; days: string[]; assisted?: number }
+  /** ui-v4: the spaced-review schedule (dueAt in ms). */
+  schedule?: { dueAt: number; round: number; interval: number }
+  /** ui-v4: proofs kept for its passes, newest first (proof.get). */
+  proofIds: string[]
   /** Ids this node `requires` (helps links are not prerequisites). */
   requires: string[]
   /** The `requires` ids not mastered yet: "needs 3 skills" / "needs A single neuron". */
@@ -237,7 +247,11 @@ function draftsFromGraph(g: Rec, dash: DashData | undefined, now: number): { dra
     const total = count(ev.total)
     const done = count(ev.done)
     const evidence = total ? { done: Math.min(done ?? 0, total), total } : undefined
-    const dueAt = toMs(rec(s.review).dueAt)
+    const sched = rec(s.schedule)
+    const schedDue = toMs(sched.dueAt)
+    const dueAt = toMs(rec(s.review).dueAt) ?? schedDue
+    const mastery = rec(s.mastery)
+    const need = count(mastery.need)
     const given = STATES.has(s.state as SkillNodeState) ? (s.state as SkillNodeState) : undefined
     const example = rec(s.example)
     const ex = { code: opt(example.code, 200), caption: opt(example.caption, 120) }
@@ -270,7 +284,11 @@ function draftsFromGraph(g: Rec, dash: DashData | undefined, now: number): { dra
         })
         .filter((l): l is SkillGraphLesson => !!l),
       masteredAt: toMs(s.masteredAt),
-      lastPracticedAt: toMs(s.lastPracticedAt)
+      lastPracticedAt: toMs(s.lastPracticedAt),
+      steps: Array.isArray(s.steps) ? readSteps(s.steps) : undefined,
+      mastery: need ? { need, days: list(mastery.days).map((d) => str(d, 20)).filter(Boolean).slice(0, 12), assisted: count(mastery.assisted) } : undefined,
+      schedule: schedDue !== undefined ? { dueAt: schedDue, round: count(sched.round) ?? 0, interval: count(sched.interval) ?? 0 } : undefined,
+      proofIds: ids(s.proofIds).slice(0, 12)
     })
   }
   const capstones: SkillGraphCapstone[] = []
@@ -309,6 +327,18 @@ function draftsFromGraph(g: Rec, dash: DashData | undefined, now: number): { dra
   return { drafts, links, capstones }
 }
 
+function readSteps(v: unknown[]): SkillGraphStep[] {
+  const out: SkillGraphStep[] = []
+  for (const x of v.slice(0, 40)) {
+    const r = rec(x)
+    const title = plain(str(r.title, 120))
+    const stepId = str(r.stepId, 80)
+    if (!title) continue
+    out.push({ key: opt(r.key, 200), lessonId: str(r.lessonId, 120), lessonTitle: opt(r.lessonTitle, 120), stepId, title, passed: r.passed === true, at: toMs(r.at), assisted: r.assisted === true || undefined })
+  }
+  return out
+}
+
 // ---- input: today's tracks (fallback) ---------------------------------------------------------------------------
 
 function draftsFromTracks(dash: DashData, now: number): { drafts: Draft[]; links: DraftLink[] } {
@@ -343,7 +373,8 @@ function draftsFromTracks(dash: DashData, now: number): { drafts: Draft[]; links
           return { lessonId, libraryId: k?.libraryId, title: k?.title, stepIds: [], inProgress: !!k?.inProgress }
         }),
         masteredAt: s.masteredAt,
-        lastPracticedAt: s.lastPracticedAt
+        lastPracticedAt: s.lastPracticedAt,
+        proofIds: []
       })
     }
   }
@@ -442,7 +473,9 @@ function pickGoal(
   states: Map<string, SkillNodeState>
 ): { id: string; inferred: boolean } | null {
   if (!drafts.length) return null
-  if (g && 'goal' in g && g.goal === null) return null
+  // No goal picked: the picker shows when there are projects to pick from. With none, the goal is inferred (below):
+  // the furthest skill the engine's next one leads to, else the furthest-along track's end.
+  if (g && 'goal' in g && g.goal === null && capstones.length) return null
   const chosen = g ? str(g.goal, 80) : ''
   if (chosen && drafts.some((d) => d.id === chosen)) return { id: chosen, inferred: false }
   const requires = requiresOf(links)
@@ -455,8 +488,31 @@ function pickGoal(
     const best = [...open].sort((a, b) => share(b) - share(a))[0]
     return { id: best.id, inferred: true }
   }
+  const ahead = g ? downstreamEnd(str(rec(g.next).skillId, 80), drafts, links) : undefined
+  if (ahead) return { id: ahead, inferred: true }
   const end = trackEnd(drafts, links, states)
   return end ? { id: end, inferred: true } : null
+}
+
+/** The furthest skill `from` leads to through requires links (the longest chain; the engine's order breaks ties). */
+function downstreamEnd(from: string, drafts: Draft[], links: DraftLink[]): string | undefined {
+  if (!from || !drafts.some((d) => d.id === from)) return undefined
+  const dist = new Map<string, number>([[from, 0]])
+  let frontier = [from]
+  for (let step = 1; frontier.length && step <= drafts.length; step++) {
+    const nextFrontier: string[] = []
+    for (const id of frontier)
+      for (const l of links)
+        if (l.kind === 'requires' && l.from === id && (dist.get(l.to) ?? -1) < step) {
+          dist.set(l.to, step)
+          nextFrontier.push(l.to)
+        }
+    frontier = nextFrontier
+  }
+  const order = new Map(drafts.map((d, i) => [d.id, i]))
+  let best: string | undefined
+  for (const [id, d] of dist) if (id !== from && (!best || d > dist.get(best)! || (d === dist.get(best)! && order.get(id)! > order.get(best)!))) best = id
+  return best
 }
 
 function readWeek(v: unknown): SkillGraphWeek | null {
