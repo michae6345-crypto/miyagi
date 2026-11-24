@@ -1,0 +1,70 @@
+{
+ "id": "terminal-shellcat-glob-no-matches-then-notes-path",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Intro to the Terminal plan, 'Match many files with wildcards' (passes: backup holds day1.txt and day2.txt only). The first try ran in trail-log without the notes/ folder, and zsh refused the unmatched glob: 'zsh: no matches found: day?.txt' (nothing copied). The learner fixed the path, `cp notes/day?.txt backup/` ran silently, and ls backup lists exactly day1.txt and day2.txt. The error row belongs to the first attempt.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Copy two notes with one wildcard",
+  "instructions": "Copy day1.txt and day2.txt into backup with one command: cp notes/day?.txt backup/. ? matches one character, so day1-backup.txt stays out. Check with ls backup: it should hold day1.txt and day2.txt only.",
+  "run_command": "cp notes/day?.txt backup/",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "cp notes/day?.txt backup/",
+    "caption": "Copy with a wildcard"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_exists",
+    "label": "day1.txt copied",
+    "file": "trail-log/backup/day1.txt"
+   },
+   {
+    "id": "s3c2",
+    "type": "file_exists",
+    "label": "day2.txt copied",
+    "file": "trail-log/backup/day2.txt"
+   },
+   {
+    "id": "s3c3",
+    "type": "screen_absent",
+    "label": "cp found the notes",
+    "app": "Terminal",
+    "pattern": "no matches found|No such file or directory"
+   },
+   {
+    "id": "s3c4",
+    "type": "screen_contains",
+    "label": "backup lists the copies",
+    "app": "Terminal",
+    "pattern": "day1\\.txt\\s+day2\\.txt"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/notes/day1.txt": "Sunny start at the trailhead\nLight rain after lunch\nCamp by the creek\n",
+   "trail-log/notes/day2.txt": "Rain all morning\nTrail muddy past the bridge\nSkies cleared by four\n",
+   "trail-log/notes/summit.txt": "Windy at the top\nNo rain on the summit\nGreat view of the valley\n",
+   "trail-log/notes/day1-backup.txt": "Sunny start at the trailhead\nLight rain after lunch\nCamp by the creek\n",
+   "trail-log/backup/day1.txt": "Sunny start at the trailhead\nLight rain after lunch\nCamp by the creek\n",
+   "trail-log/backup/day2.txt": "Rain all morning\nTrail muddy past the bridge\nSkies cleared by four\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail-log % cp day?.txt backup/",
+    "zsh: no matches found: day?.txt",
+    "tripi@mac trail-log % cp notes/day?.txt backup/",
+    "tripi@mac trail-log % ls backup",
+    "day1.txt\tday2.txt",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}

@@ -1,0 +1,61 @@
+{
+ "id": "terminal-git-s8-push-no-upstream-then-set-upstream",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Git lesson s8. The heading is 'Git Going' in index.html and the edit is committed on update-name. A bare `git push` failed first ('fatal: The current branch update-name has no upstream branch'), and git printed the fix; the learner ran it, `git push --set-upstream origin update-name`, which pushed: ' * [new branch] update-name -> update-name'. That is the step's push (git push origin update-name plus tracking).",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s8"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/.git": {
+    "dir": true
+   },
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Code": [
+    "index.html",
+    "<!DOCTYPE html>",
+    "<html>",
+    "  <body>",
+    "    <h1>Git Going</h1>",
+    "  </body>",
+    "</html>"
+   ],
+   "Terminal": [
+    "tripi@mac gitgoing % git add .",
+    "tripi@mac gitgoing % git commit -m \"update app name\"",
+    "[update-name 4f5e6d7] update app name",
+    " 1 file changed, 1 insertion(+), 1 deletion(-)",
+    "tripi@mac gitgoing % git push",
+    "fatal: The current branch update-name has no upstream branch.",
+    "To push the current branch and set the remote as upstream, use",
+    "",
+    "    git push --set-upstream origin update-name",
+    "",
+    "To have this happen automatically for branches without a tracking",
+    "upstream, see 'push.autoSetupRemote' in 'git help config'.",
+    "",
+    "tripi@mac gitgoing % git push --set-upstream origin update-name",
+    "Enumerating objects: 5, done.",
+    "Counting objects: 100% (5/5), done.",
+    "Delta compression using up to 10 threads",
+    "Compressing objects: 100% (2/2), done.",
+    "Writing objects: 100% (3/3), 312 bytes | 312.00 KiB/s, done.",
+    "Total 3 (delta 1), reused 0 (delta 0), pack-reused 0",
+    "remote: Resolving deltas: 100% (1/1), completed with 1 local object.",
+    "remote: ",
+    "remote: Create a pull request for 'update-name' on GitHub by visiting:",
+    "remote:      https://github.com/ada-learner/gitgoing/pull/new/update-name",
+    "remote: ",
+    "To github.com:ada-learner/gitgoing.git",
+    " * [new branch]      update-name -> update-name",
+    "branch 'update-name' set up to track 'origin/update-name'.",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

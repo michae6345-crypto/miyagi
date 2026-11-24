@@ -1,0 +1,61 @@
+{
+ "id": "terminal-gitcat-merge-ref-typo-log-all-shows-branch",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Intro to Git plan, 'Merge a branch' (passes: main holds waffles.md). The learner typed `git merge add-waffle` (no s): git answered 'merge: add-waffle - not something we can merge' and nothing merged. `git log --oneline --graph --all` then lists 'Add waffles', but on the add-waffles branch only: main (HEAD) is still at 'Add pancakes'. The words the checks want are on screen; main does not hold waffles.md.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Merge add-waffles into main",
+  "instructions": "Switch to main with git switch main, then bring the branch in with git merge add-waffles. Read the result with git log --oneline --graph --all.",
+  "run_command": "git merge add-waffles",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git merge add-waffles",
+    "caption": "Merge the branch into main"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "screen_contains",
+    "label": "The waffles commit is in the history",
+    "app": "Terminal",
+    "pattern": "Add\\s+waffles"
+   },
+   {
+    "id": "s3c2",
+    "type": "screen_contains",
+    "label": "On main",
+    "app": "Terminal",
+    "pattern": "HEAD\\s*->\\s*main|Switched\\s+to\\s+branch\\s+'main'"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.git": {
+    "dir": true
+   },
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 egg\n- 1 cup milk\n- 1 tbsp sugar\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git switch main",
+    "Switched to branch 'main'",
+    "tripi@mac cookbook % git merge add-waffle",
+    "merge: add-waffle - not something we can merge",
+    "",
+    "Did you mean this?",
+    "\tadd-waffles",
+    "tripi@mac cookbook % git log --oneline --graph --all",
+    "* 3c4d5e6 (add-waffles) Add waffles",
+    "* 1a2b3c4 (HEAD -> main) Add pancakes",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

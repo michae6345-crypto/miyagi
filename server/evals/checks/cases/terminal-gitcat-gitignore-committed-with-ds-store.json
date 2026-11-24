@@ -1,0 +1,62 @@
+{
+ "id": "terminal-gitcat-gitignore-committed-with-ds-store",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Git plan, 'Undo a change and ignore files' (keep .DS_Store out of the cookbook for good). The learner wrote .gitignore correctly but staged with `git add .` instead of `git add .gitignore`, so the commit 'Ignore .DS_Store' shows 'create mode 100644 .DS_Store': the file the step keeps out is now tracked, and .gitignore never untracks a file that is already committed. The .gitignore line and the commit row are both there; the step's point is not.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Ignore .DS_Store for good",
+  "instructions": "Make a .gitignore that lists .DS_Store: echo .DS_Store > .gitignore. Stage only that file with git add .gitignore and commit it with git commit -m \"Ignore .DS_Store\". .DS_Store itself must never be committed.",
+  "run_command": "git commit -m \"Ignore .DS_Store\"",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git commit -m \"Ignore .DS_Store\"",
+    "caption": "Commit the ignore file"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": ".gitignore lists .DS_Store",
+    "file": "cookbook/.gitignore",
+    "pattern": "^\\.DS_Store$"
+   },
+   {
+    "id": "s5c2",
+    "type": "screen_contains",
+    "label": ".gitignore committed",
+    "app": "Terminal",
+    "pattern": "\\]\\s+Ignore\\s+\\.DS_Store"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.git": {
+    "dir": true
+   },
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 egg\n- 1 cup milk\n- 1 tbsp sugar\n",
+   "cookbook/.gitignore": ".DS_Store\n",
+   "cookbook/.DS_Store": "Bud1\u0000\u0000\u0000\u0010\u0000"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % echo .DS_Store > .gitignore",
+    "tripi@mac cookbook % git add .",
+    "tripi@mac cookbook % git commit -m \"Ignore .DS_Store\"",
+    "[main 8c9d0e1] Ignore .DS_Store",
+    " 2 files changed, 1 insertion(+)",
+    " create mode 100644 .DS_Store",
+    " create mode 100644 .gitignore",
+    "tripi@mac cookbook % git status",
+    "On branch main",
+    "nothing to commit, working tree clean",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

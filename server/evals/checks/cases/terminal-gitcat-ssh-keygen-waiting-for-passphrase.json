@@ -1,0 +1,57 @@
+{
+ "id": "terminal-gitcat-ssh-keygen-waiting-for-passphrase",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Intro to Git plan, 'Connect to GitHub with an SSH key'. `ssh-keygen -t ed25519` is still asking: the learner pressed Return at 'Enter file in which to save the key (/Users/tripi/.ssh/id_ed25519):' and the cursor now waits at 'Enter passphrase (empty for no passphrase):'. No key has been written yet (no 'Your public key has been saved' row, no fingerprint); the 'ed25519' and 'id_ed25519' the checks look for are in the prompts.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Make an SSH key",
+  "instructions": "Make an ed25519 key: ssh-keygen -t ed25519 -C \"you@example.com\". Press Return to keep the default file, then type a passphrase twice.",
+  "run_command": "ssh-keygen -t ed25519 -C \"you@example.com\"",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "ssh-keygen -t ed25519",
+    "caption": "Make the key"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "screen_contains",
+    "label": "ed25519 key pair made",
+    "app": "Terminal",
+    "pattern": "ed25519\\s+key\\s+pair"
+   },
+   {
+    "id": "s2c2",
+    "type": "screen_contains",
+    "label": "Saved as id_ed25519",
+    "app": "Terminal",
+    "pattern": "\\.ssh/id_ed25519"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % ssh-keygen -t ed25519 -C \"ada@example.com\"",
+    "Generating public/private ed25519 key pair.",
+    "Enter file in which to save the key (/Users/tripi/.ssh/id_ed25519): ",
+    "Enter passphrase (empty for no passphrase): "
+   ]
+  },
+  "run": {
+   "command": "ssh-keygen -t ed25519 -C \"ada@example.com\"",
+   "running": true
+  }
+ }
+}

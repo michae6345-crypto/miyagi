@@ -1,0 +1,66 @@
+{
+ "id": "terminal-shellcat-touch-brace-expansion-counted",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to the Terminal plan, 'Make folders and files' (passes: notes holds day1.txt, day2.txt and day3.txt). The learner made the three notes in one go with zsh brace expansion, `touch notes/day{1,2,3}.txt`, and checked with `ls notes | wc -l`, which printed 3. All three files are there; the screen never spells 'day3.txt' out because the learner counted instead of listing.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Make the three day notes",
+  "instructions": "Inside trail-log, make three empty notes: touch notes/day1.txt notes/day2.txt notes/day3.txt. Then check them with ls notes.",
+  "run_command": "touch notes/day1.txt notes/day2.txt notes/day3.txt",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "touch notes/day1.txt notes/day2.txt notes/day3.txt",
+    "caption": "Make the three notes"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_exists",
+    "label": "day1.txt made",
+    "file": "trail-log/notes/day1.txt"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_exists",
+    "label": "day2.txt made",
+    "file": "trail-log/notes/day2.txt"
+   },
+   {
+    "id": "s4c3",
+    "type": "file_exists",
+    "label": "day3.txt made",
+    "file": "trail-log/notes/day3.txt"
+   },
+   {
+    "id": "s4c4",
+    "type": "screen_contains",
+    "label": "ls shows the notes",
+    "app": "Terminal",
+    "pattern": "day3\\.txt"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/notes/day1.txt": "",
+   "trail-log/notes/day2.txt": "",
+   "trail-log/notes/day3.txt": "",
+   "trail-log/photos": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail-log % touch notes/day{1,2,3}.txt",
+    "tripi@mac trail-log % ls notes | wc -l",
+    "       3",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}

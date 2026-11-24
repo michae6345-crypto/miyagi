@@ -1,0 +1,71 @@
+{
+ "id": "terminal-pkg-brew-tree-already-installed",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Intro to the Terminal plan, 'Make folders and files', with a Homebrew detour: install tree and draw trail-log with it. tree was already on this Mac, so `brew install tree` printed 'Warning: tree 2.2.1 is already installed and up-to-date.' (no Pouring / beer row: nothing to install). `tree trail-log` then drew both folders and the three notes, '2 directories, 3 files'. tree is installed and did the job.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "See trail-log as a tree",
+  "instructions": "Install the tree command with Homebrew (brew install tree), then draw the folder with tree trail-log.",
+  "run_command": "tree trail-log",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "brew install tree",
+    "caption": "Install tree"
+   },
+   {
+    "app": "Terminal",
+    "match": "tree trail-log",
+    "caption": "Draw the folder"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "screen_contains",
+    "label": "tree installed with Homebrew",
+    "app": "Terminal",
+    "pattern": "Pouring\\s+tree|🍺\\s+.*tree"
+   },
+   {
+    "id": "s5c2",
+    "type": "screen_contains",
+    "label": "tree draws trail-log",
+    "app": "Terminal",
+    "pattern": "\\d+\\s+directories,\\s+3\\s+files"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "home/trail-log/notes/day1.txt": "",
+   "home/trail-log/notes/day2.txt": "",
+   "home/trail-log/notes/day3.txt": "",
+   "home/trail-log/photos": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % brew install tree",
+    "Warning: tree 2.2.1 is already installed and up-to-date.",
+    "To reinstall 2.2.1, run:",
+    "  brew reinstall tree",
+    "tripi@mac ~ % tree trail-log",
+    "trail-log",
+    "├── notes",
+    "│   ├── day1.txt",
+    "│   ├── day2.txt",
+    "│   └── day3.txt",
+    "└── photos",
+    "",
+    "2 directories, 3 files",
+    "tripi@mac ~ % "
+   ]
+  }
+ }
+}
