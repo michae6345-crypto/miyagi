@@ -1,0 +1,257 @@
+{
+ "id": "freecad-holes-one-circle-off-plate",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to CAD lesson 5 (\"Two 4 mm holes go through the plate\"). The learner measured the second circle from the wrong end and typed 70 for its X distance, so its centre (70, 20) is 10 mm past the 60 mm plate. Both circles carry a 4 mm Diameter constraint and the Pocket is Through all and recomputes fine, but it only cuts where the sketch overlaps the solid: the plate has one hole, at X 10.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Sketch on a face and cut holes",
+  "file": "plate.FCStd",
+  "instructions": "Select the top face of the plate and click Create sketch. Draw two circles 10 mm in from each short end on the centre line (centres at X 10 and X 50, Y 20) and give each a 4 mm Diameter constraint. Close the sketch, click Pocket and set Type to Through all. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": "Pocket added",
+    "file": "plate.scene.json",
+    "pattern": "\"type\":\\s*\"PartDesign::Pocket\""
+   },
+   {
+    "id": "s5c2",
+    "type": "file_contains",
+    "label": "4 mm holes",
+    "file": "plate.scene.json",
+    "pattern": "\"type\":\\s*\"Diameter\",\\s*\"value\":\\s*4(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s5c3",
+    "type": "file_contains",
+    "label": "Through all",
+    "file": "plate.scene.json",
+    "pattern": "\"Type\":\\s*\"ThroughAll\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "plate.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "plate.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "plate.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Pocket",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true,
+         "geometry": [
+          {
+           "type": "LineSegment",
+           "start": [
+            0.0,
+            0.0
+           ],
+           "end": [
+            60.0,
+            0.0
+           ]
+          },
+          {
+           "type": "LineSegment",
+           "start": [
+            60.0,
+            0.0
+           ],
+           "end": [
+            60.0,
+            40.0
+           ]
+          },
+          {
+           "type": "LineSegment",
+           "start": [
+            60.0,
+            40.0
+           ],
+           "end": [
+            0.0,
+            40.0
+           ]
+          },
+          {
+           "type": "LineSegment",
+           "start": [
+            0.0,
+            40.0
+           ],
+           "end": [
+            0.0,
+            0.0
+           ]
+          }
+         ]
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 5.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face6",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 4.0
+          },
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 4.0
+          },
+          {
+           "name": "",
+           "type": "DistanceX",
+           "value": 10.0
+          },
+          {
+           "name": "",
+           "type": "DistanceX",
+           "value": 70.0
+          },
+          {
+           "name": "",
+           "type": "DistanceY",
+           "value": 20.0
+          },
+          {
+           "name": "",
+           "type": "DistanceY",
+           "value": 20.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 2,
+         "open_wires": 0,
+         "valid": true,
+         "geometry": [
+          {
+           "type": "Circle",
+           "center": [
+            10.0,
+            20.0
+           ],
+           "radius": 2.0
+          },
+          {
+           "type": "Circle",
+           "center": [
+            70.0,
+            20.0
+           ],
+           "radius": 2.0
+          }
+         ]
+        },
+        {
+         "name": "Pocket",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch001",
+         "Type": "ThroughAll",
+         "Reversed": false,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 11937.2,
+        "bound_box": [
+         60.0,
+         40.0,
+         5.0
+        ],
+        "holes": [
+         {
+          "diameter": 4.0,
+          "center": [
+           10.0,
+           20.0
+          ],
+          "axis": [
+           0.0,
+           0.0,
+           1.0
+          ],
+          "through": true
+         }
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

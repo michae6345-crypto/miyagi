@@ -76,6 +76,67 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 5: Blender and CAD / AutoCAD / Fusion files (Nov 24 2026, `claude/eng-evals-r5-3`, 20 new cases, 7 held out)
+
+No engine change and no runner change (the held-out split already exists). Steps from Adrian's plans on
+`origin/adrian/ui-next` (`docs/ui-next/catalog/plans`: `intro-blender` 5, 8 and 9, `blender-materials` 3, 5 and 6,
+`blender-animation` 5, `intro-cad` 2, 3, 5 and 10, `intro-fusion` 2 and 7, `cad-3d-printing` 2 and 4, each lesson's
+`passes` line) and `docs/ui-next/INTEGRATIONS.md` (headless `dump_scene.py` / `dump_fcstd.py` facts as fixtures, the
+Fusion add-in's design JSON, the STL reader), plus the AutoCAD toy car's wheels as ASCII DXF. Dump fields new this
+round, read by name: a Bevel modifier's `width` / `limit_method`, an object's `material_slots` (faces per slot), the
+camera's `in_view` / `framing` (share of an object's bound box inside the frame, `clipped_edges`), a material's or the
+World's `nodes` and `links` (`from` / `from_socket` / `to` / `to_socket`, a `REROUTE` node), an Image Texture's
+`colorspace`, the scene's `images` (`filepath`, `packed`), a sketch's `geometry` (lines and circles), a FreeCAD body's
+`placement` and its shape's `holes` / `orientation` (`down_face`, `largest_flat_face`) / `walls`, a Fusion sketch's
+`curves` / `profile_centroid` and a body's `through_holes`.
+
+Traps: a Bevel modifier at Amount 0, a Glaze material (roughness 0.2) in a second slot with 0 faces assigned, a camera
+that clips 14% of the mug (the handle), a Color Ramp wired to Roughness while raw noise feeds Base Color, Non-Color set
+on the diffuse image instead of the roughness one, an Environment Texture with an HDR loaded but not linked, one of
+three blades left unparented, a sketch on XZ_Plane, a second hole circle off the end of the plate (one hole cut), an
+ASCII STL exported from the first Pad (the plate without the hook), a Fusion 2-point rectangle from the origin (not
+centred), a bracket rotated 90 degrees about Z (still on its smaller face, pin hole horizontal), DXF wheels with
+radius 18 for "18 mm across". Done-but-odd: the default Point light switched to Area (named Light), a Reroute between
+the Color Ramp and Base Color, a packed HDR (empty filepath), corners fixed with Lock (DistanceX/Y -30, -20, 30, 20,
+no 60 or 40), a Pocket of Length 5 through a 5 mm plate, an 8 mm extrude-cut 2 mm deep instead of a Hole feature, a
+tray hollowed by an offset Pocket instead of Thickness.
+
+Before any fix (the engine is the round-4 fix state):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (270 = 257 + 13 new) | 0.952 | 0.924 | 0.965 | 9 | 4 |
+| train, the 13 new | 0.000 | | | 9 | 4 |
+| train blender (35) | 0.800 | 0.688 | 0.846 | 5 | 2 |
+| train cad (28) | 0.786 | 0.636 | 0.778 | 4 | 2 |
+| held-out (115 = 108 + 7 new) | 0.417 | 0.286 | 0.450 | 45 | 22 |
+| held-out, the 7 new | 0.143 | | | 3 | 3 |
+
+Train wrong verdicts (all 13 new; the 257 earlier train cases stay right):
+
+- **FP `blender-mug-bevel-modifier-width-zero`**: `BEVEL`, `segments: 3` and `ANGLE` match; `width: 0.0` rounds nothing.
+- **FP `blender-mug-glaze-slot-no-faces`**: Glaze (0.2) is on the mug's slot list, but its slot holds 0 faces.
+- **FP `blender-noise-ramp-into-roughness`**: some link reaches Base Color (the raw noise); the Color Ramp's goes to
+  Roughness.
+- **FP `blender-crate-noncolor-on-diffuse`**: a Non-Color image exists, on the Base Color node, not the roughness one.
+- **FP `blender-fan-one-blade-not-parented`**: two blades have `parent: Hub`; Blade3's parent is null.
+- **FP `freecad-sketch-rectangle-on-xz-plane`**: the label says XY plane; `support` is `XZ_Plane`.
+- **FP `freecad-holes-one-circle-off-plate`**: two 4 mm Diameter constraints and Through all; the shape has one hole
+  (the second centre, X 70, is off the 60 mm plate).
+- **FP `freecad-hook-stl-exported-from-pad`**: `solid` at the top of hook.stl; its 60 x 40 x 5 box is not the
+  60 x 40 x 35 body.
+- **FP `autocad-dxf-wheels-radius-18`**: an 18 (the radius, and a profile vertex) matches "18 mm across"; group 40 is
+  the radius, so the wheels are 36 across.
+- **FN `blender-light-point-switched-to-area`**: the pattern wants an object named Area; the area light is named Light.
+- **FN `blender-world-hdri-packed`**: the pattern reads `filepath`; a packed image has an empty one and its `.hdr`
+  name.
+- **FN `freecad-holes-pocket-length-equals-plate`**: `Type: Length` (5 mm) on a 5 mm plate is not `ThroughAll`, though
+  both holes go through.
+- **FN `fusion-cable-hole-extrude-cut-one-wall`**: no `Hole` feature; an 8 mm extrude-cut through the one wall made
+  the hole.
+
+Held out: 7 new cases, 6 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
+
 ## Round 4 fixes (Nov 24 2026, `claude/eng-check-fixes-r4`)
 
 The four round-4 case sets merged: 365 cases, 257 train + 108 held out (75 new: 49 train, 26 held out). Every fix is

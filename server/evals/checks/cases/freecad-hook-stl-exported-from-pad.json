@@ -1,0 +1,187 @@
+{
+ "id": "freecad-hook-stl-exported-from-pad",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to CAD lesson 10 (\"A watertight STL of the hook is saved\"). The learner clicked the first Pad in the tree (not the Body or its tip, Pad001) before File > Export, so FreeCAD exported that feature's shape: the 60 x 40 x 5 plate without the 30 mm hook. hook.stl is a closed ASCII mesh (12 facets, watertight), but its bound box is 60 x 40 x 5 while the hook body is 60 x 40 x 35.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Export an STL to print",
+  "file": "hook.FCStd",
+  "instructions": "Click empty space to clear the selection, select the Body in the tree, choose File > Export, pick STL Mesh (*.stl) and save it as hook.stl next to hook.FCStd.",
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "file_exists",
+    "label": "hook.stl saved",
+    "file": "hook.stl"
+   },
+   {
+    "id": "s10c2",
+    "type": "file_contains",
+    "label": "STL mesh inside",
+    "file": "hook.stl",
+    "pattern": "^solid\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "hook.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "hook.stl": "solid Pad\n  facet normal 0.000000e+00 0.000000e+00 -1.000000e+00\n    outer loop\n      vertex 0.000000e+00 0.000000e+00 0.000000e+00\n      vertex 0.000000e+00 4.000000e+01 0.000000e+00\n      vertex 6.000000e+01 4.000000e+01 0.000000e+00\n    endloop\n  endfacet\n  facet normal 0.000000e+00 0.000000e+00 -1.000000e+00\n    outer loop\n      vertex 0.000000e+00 0.000000e+00 0.000000e+00\n      vertex 6.000000e+01 4.000000e+01 0.000000e+00\n      vertex 6.000000e+01 0.000000e+00 0.000000e+00\n    endloop\n  endfacet\n  facet normal 0.000000e+00 0.000000e+00 1.000000e+00\n    outer loop\n      vertex 0.000000e+00 0.000000e+00 5.000000e+00\n      vertex 6.000000e+01 0.000000e+00 5.000000e+00\n      vertex 6.000000e+01 4.000000e+01 5.000000e+00\n    endloop\n  endfacet\n  facet normal 0.000000e+00 0.000000e+00 1.000000e+00\n    outer loop\n      vertex 0.000000e+00 0.000000e+00 5.000000e+00\n      vertex 6.000000e+01 4.000000e+01 5.000000e+00\n      vertex 0.000000e+00 4.000000e+01 5.000000e+00\n    endloop\n  endfacet\n  facet normal 0.000000e+00 -1.000000e+00 0.000000e+00\n    outer loop\n      vertex 0.000000e+00 0.000000e+00 0.000000e+00\n      vertex 6.000000e+01 0.000000e+00 0.000000e+00\n      vertex 6.000000e+01 0.000000e+00 5.000000e+00\n    endloop\n  endfacet\n  facet normal 0.000000e+00 -1.000000e+00 0.000000e+00\n    outer loop\n      vertex 0.000000e+00 0.000000e+00 0.000000e+00\n      vertex 6.000000e+01 0.000000e+00 5.000000e+00\n      vertex 0.000000e+00 0.000000e+00 5.000000e+00\n    endloop\n  endfacet\n  facet normal 0.000000e+00 1.000000e+00 0.000000e+00\n    outer loop\n      vertex 0.000000e+00 4.000000e+01 0.000000e+00\n      vertex 0.000000e+00 4.000000e+01 5.000000e+00\n      vertex 6.000000e+01 4.000000e+01 5.000000e+00\n    endloop\n  endfacet\n  facet normal 0.000000e+00 1.000000e+00 0.000000e+00\n    outer loop\n      vertex 0.000000e+00 4.000000e+01 0.000000e+00\n      vertex 6.000000e+01 4.000000e+01 5.000000e+00\n      vertex 6.000000e+01 4.000000e+01 0.000000e+00\n    endloop\n  endfacet\n  facet normal -1.000000e+00 0.000000e+00 0.000000e+00\n    outer loop\n      vertex 0.000000e+00 0.000000e+00 0.000000e+00\n      vertex 0.000000e+00 0.000000e+00 5.000000e+00\n      vertex 0.000000e+00 4.000000e+01 5.000000e+00\n    endloop\n  endfacet\n  facet normal -1.000000e+00 0.000000e+00 0.000000e+00\n    outer loop\n      vertex 0.000000e+00 0.000000e+00 0.000000e+00\n      vertex 0.000000e+00 4.000000e+01 5.000000e+00\n      vertex 0.000000e+00 4.000000e+01 0.000000e+00\n    endloop\n  endfacet\n  facet normal 1.000000e+00 0.000000e+00 0.000000e+00\n    outer loop\n      vertex 6.000000e+01 0.000000e+00 0.000000e+00\n      vertex 6.000000e+01 4.000000e+01 0.000000e+00\n      vertex 6.000000e+01 4.000000e+01 5.000000e+00\n    endloop\n  endfacet\n  facet normal 1.000000e+00 0.000000e+00 0.000000e+00\n    outer loop\n      vertex 6.000000e+01 0.000000e+00 0.000000e+00\n      vertex 6.000000e+01 4.000000e+01 5.000000e+00\n      vertex 6.000000e+01 0.000000e+00 5.000000e+00\n    endloop\n  endfacet\nendsolid Pad\n",
+   "hook.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "hook.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Pad001",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 5.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face6",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 5.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad001",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch001",
+         "Length": 30.0,
+         "Reversed": false,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 21000.0,
+        "bound_box": [
+         60.0,
+         40.0,
+         35.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

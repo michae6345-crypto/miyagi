@@ -1,0 +1,199 @@
+{
+ "id": "freecad-tray-walls-by-offset-pocket",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done but odd: 3D printing lesson 2 (\"The tray is open on top and every wall is 1.6 mm thick\"). Thickness kept failing on the filleted top face, so the learner sketched an inner rectangle on the top face 1.6 mm in from every edge (56.8 x 36.8, Symmetric to the origin) and Pocketed it 13.4 mm into the 15 mm block. The result is the same tray: open on top, every wall 1.6 mm (measured min and max 1.6), floor 1.6. There is no Thickness feature and no 1.6 value in any feature, only in the measured walls.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Wall thickness",
+  "file": "tray.FCStd",
+  "instructions": "Pad the 60 x 40 sketch 15 mm. Select the top face, click Thickness, set Thickness to 1.6 mm (four perimeters of a 0.4 mm nozzle) and keep Make thickness inwards ticked. OK, then save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "file_contains",
+    "label": "Thickness added",
+    "file": "tray.scene.json",
+    "pattern": "\"type\":\\s*\"PartDesign::Thickness\""
+   },
+   {
+    "id": "s2c2",
+    "type": "file_contains",
+    "label": "1.6 mm walls",
+    "file": "tray.scene.json",
+    "pattern": "\"Value\":\\s*1\\.60*\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "tray.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "tray.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "tray.FCStd",
+     "bodies": [
+      {
+       "name": "Tray",
+       "tip": "Pocket",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 15.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face6",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 56.8
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 36.8
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pocket",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch001",
+         "Type": "Length",
+         "Length": 13.4,
+         "Reversed": false,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 7989.6,
+        "bound_box": [
+         60.0,
+         40.0,
+         15.0
+        ],
+        "open_top": true,
+        "walls": {
+         "min_thickness": 1.6,
+         "max_thickness": 1.6
+        },
+        "floor_thickness": 1.6
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}
