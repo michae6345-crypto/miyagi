@@ -409,13 +409,57 @@ def expand_braces(word: str) -> list[str]:
     return [f"{m.group(1)}{part}{m.group(3)}" for part in m.group(2).split(",")]
 
 
+def _quoted_braces(text: str) -> list[tuple[str, bool]] | None:
+    """Each shell word of ``text`` with whether a brace or comma in it was quoted or escaped in the source (the shell
+    leaves ``'{"a":1,"b":2}'`` alone). None when the quotes do not balance."""
+    out: list[tuple[str, bool]] = []
+    cur: list[str] = []
+    quoted = in_word = False
+    q = None
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if q:
+            if c == q:
+                q = None
+            else:
+                if q == '"' and c == "\\" and i + 1 < len(text) and text[i + 1] in '"\\$`':
+                    i += 1
+                    c = text[i]
+                cur.append(c)
+                quoted = quoted or c in "{},"
+        elif c in "'\"":
+            q, in_word = c, True
+        elif c == "\\" and i + 1 < len(text):
+            i += 1
+            cur.append(text[i])
+            quoted, in_word = quoted or text[i] in "{},", True
+        elif c.isspace():
+            if in_word:
+                out.append(("".join(cur), quoted))
+            cur, quoted, in_word = [], False, False
+        else:
+            cur.append(c)
+            in_word = True
+        i += 1
+    if q:
+        return None
+    if in_word:
+        out.append(("".join(cur), quoted))
+    return out
+
+
 def _command_words(segment: str) -> list[str]:
     """A segment's words without env assignments and ``sudo``, brace expansions written out (zsh / bash run
-    ``touch notes/day{1,2,3}.txt`` as three names)."""
+    ``touch notes/day{1,2,3}.txt`` as three names). A brace inside quotes (``echo '{"a":1,"b":2}'``) stays one word."""
     ws = words(segment)
+    marks = _quoted_braces(segment)
+    if marks is None or [w for w, _ in marks] != ws:
+        marks = [(w, any(ch in segment for ch in "'\"\\")) for w in ws]
+    keep = [m for _, m in marks]
     while ws and ("=" in ws[0] and not ws[0].startswith(("/", ".")) or ws[0] == "sudo"):
-        ws = ws[1:]
-    return [x for w in ws for x in expand_braces(w)]
+        ws, keep = ws[1:], keep[1:]
+    return [x for w, k in zip(ws, keep) for x in ([w] if k else expand_braces(w))]
 
 
 # python's own options that take the next word as their value (``-W ignore``, ``-X dev``)

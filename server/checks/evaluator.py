@@ -1852,22 +1852,72 @@ _DETACHED_COMMIT = re.compile(r"^\s*\[detached HEAD [0-9a-f]{7,40}\]")
 _CREATE_MODE = re.compile(r"^\s*create mode \d+ (.+?)\s*$")
 
 
-def _ignored_patterns(workdir: str) -> list[str]:
-    """The lesson's .gitignore patterns (comments, negations and blank lines left out), at most 3 folders down."""
-    out: list[str] = []
+def _ignore_rules(workdir: str) -> dict[str, list[tuple[str, str, bool, bool, bool]]]:
+    """The lesson's .gitignore rules per repo folder (one holding .git; without one, the top folders holding a
+    .gitignore), at most 3 folders down: (folder relative to the repo, pattern, negated, anchored, folders only), the
+    shallower files first and each file's lines in order, so a later rule wins as in git."""
     root = os.path.abspath(workdir)
+    found: list[tuple[str, list[str]]] = []
+    repos: list[str] = []
     for here, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in (".git", "node_modules", ".venv", "venv")]
+        if ".git" in dirs or ".git" in files:
+            repos.append(here)
+        dirs[:] = sorted(d for d in dirs if d not in (".git", "node_modules", ".venv", "venv"))
         if os.path.relpath(here, root).count(os.sep) >= 3:
             dirs[:] = []
         if ".gitignore" in files:
             try:
                 with open(os.path.join(here, ".gitignore"), encoding="utf-8", errors="replace") as fh:
-                    lines = fh.read(64 * 1024).splitlines()
+                    found.append((here, fh.read(64 * 1024).splitlines()))
             except OSError:
                 continue
-            out += [ln.strip().strip("/") for ln in lines if ln.strip() and not ln.lstrip().startswith(("#", "!"))]
+
+    def under(d: str, top: str) -> bool:
+        return d == top or d.startswith(top.rstrip(os.sep) + os.sep)
+
+    if not repos:
+        tops = sorted({d for d, _ in found}, key=len)
+        repos = [d for i, d in enumerate(tops) if not any(under(d, t) for t in tops[:i])]
+    out: dict[str, list[tuple[str, str, bool, bool, bool]]] = {}
+    for repo in repos:
+        rules = out.setdefault(repo, [])
+        for here, lines in sorted((f for f in found if under(f[0], repo)), key=lambda f: f[0].count(os.sep)):
+            base = "" if here == repo else os.path.relpath(here, repo).replace(os.sep, "/")
+            for ln in lines:
+                ln = ln.strip()
+                if not ln or ln.startswith("#"):
+                    continue
+                neg = ln.startswith("!")
+                ln = ln[1:] if neg else ln.removeprefix("\\")
+                dir_only = ln.endswith("/")
+                ln = ln.rstrip("/")
+                anchored = "/" in ln
+                ln = ln.lstrip("/")
+                if ln:
+                    rules.append((base, ln, neg, anchored, dir_only))
     return out
+
+
+def _git_ignores(rules: list[tuple[str, str, bool, bool, bool]], path: str) -> bool:
+    """Does git ignore ``path`` (relative to the repo) under these rules? Each folder on the way is checked first (a
+    file in an ignored folder cannot be let back in), then the file: the last rule that matches decides, a ``!`` rule
+    lets the path back in, and a nested .gitignore's rules only reach the paths under its own folder."""
+    parts = [p for p in path.split("/") if p]
+    for k in range(1, len(parts) + 1):
+        is_dir = k < len(parts)
+        ignored = False
+        for base, pat, neg, anchored, dir_only in rules:
+            depth = base.count("/") + 1 if base else 0
+            if base and not (path.startswith(base + "/") and k > depth):
+                continue
+            if dir_only and not is_dir:
+                continue
+            rel = parts[depth:k]
+            if fnmatch.fnmatchcase("/".join(rel) if anchored else rel[-1], pat):
+                ignored = not neg
+        if ignored:
+            return True
+    return False
 
 
 def _committed_ignored(ctx: RunContext, b: blocks.Block, instructions: str) -> str | None:
@@ -1877,11 +1927,10 @@ def _committed_ignored(ctx: RunContext, b: blocks.Block, instructions: str) -> s
     made = [m.group(1) for r in b.output if (m := _CREATE_MODE.match(r))]
     if not made or not os.path.isabs(str(ctx.workdir or "")) or re.search(r"\bforce\b|\s-f\b", instructions):
         return None
-    pats = [p for p in _ignored_patterns(str(ctx.workdir)) if p]
+    repos = _ignore_rules(str(ctx.workdir))
     for path in made:
-        name = path.rsplit("/", 1)[-1]
-        if path != ".gitignore" and any(fnmatch.fnmatch(path, p) or fnmatch.fnmatch(name, p)
-                                        or path.startswith(p + "/") for p in pats):
+        here = [r for r in repos if os.path.exists(os.path.join(r, path))] or list(repos)
+        if path != ".gitignore" and any(_git_ignores(repos[r], path) for r in here):
             return (f"the commit added {path}, which .gitignore lists: git rm --cached {path} and commit, so it is no "
                     f"longer tracked")
     return None

@@ -865,9 +865,18 @@ _N_HOLES = re.compile(r"\b(one|two|three|four|five|six|eight|\d+)(?!\s*(?:mm|cm|
                       r"(?:\d+(?:\.\d+)?\s*mm\s+)?(?:[a-z]+\s+)?(holes|circles)\b", re.I)
 
 
+def _box_area(body: dict) -> float:
+    shape = body.get("shape")
+    bx = (shape.get("bound_box") if isinstance(shape, dict) else None) or body.get("bound_box")
+    if isinstance(bx, list) and len(bx) >= 2 and all(_num(v) for v in bx[:2]):
+        return float(bx[0]) * float(bx[1])
+    return 0.0
+
+
 def _hole_count_claims(text: str, doc: dict) -> list[str]:
     """"Two 4 mm holes go through the plate": the body's shape has that many holes. A circle sketched off the solid
-    (its centre past the plate's end) is in the sketch and the Pocket recomputes, but cuts nothing."""
+    (its centre past the plate's end) is in the sketch and the Pocket recomputes, but cuts nothing. Only the bodies
+    the step names are counted; when it names none, the bodies that already have a hole (or else the largest one)."""
     if not re.search(r"\bholes?\b|\bpocket", text, re.I):
         return []
     found = []
@@ -878,11 +887,14 @@ def _hole_count_claims(text: str, doc: dict) -> list[str]:
     if not counts:
         return []
     want = counts[0]
+    bodies = [b for b in _walk(doc) if isinstance(b.get("shape"), dict) and isinstance(b["shape"].get("holes"), list)]
+    named = [b for b in bodies if isinstance(b.get("name"), str) and _word_in(b["name"], text)]
+    if named:
+        bodies = named
+    elif len(bodies) > 1:
+        bodies = [b for b in bodies if _body_holes(b)] or [max(bodies, key=_box_area)]
     out = []
-    for body in _walk(doc):
-        shape = body.get("shape")
-        if not isinstance(shape, dict) or not isinstance(shape.get("holes"), list):
-            continue
+    for body in bodies:
         got = len(_body_holes(body))
         if got < want:
             out.append(f"{body.get('name') or 'the body'} has {got} hole{'s' if got != 1 else ''}, not {want}: a "
