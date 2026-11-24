@@ -156,8 +156,9 @@ def _whole_plan(plan: dict, labels: dict[str, str]) -> dict:
                    "minutes": sum(le.get("minutes") or 0 for le in lessons) or None})
 
 
-def accepted_lessons(proposal: Any) -> tuple[list[dict], set[int]]:
-    """A proposal the learner accepted (the contract model or a dict) as plan lessons, and the indices they skipped."""
+def accepted_lessons(proposal: Any, *, videos_only: bool = False) -> tuple[list[dict], set[int]]:
+    """A proposal the learner accepted (the contract model or a dict) as plan lessons, and the indices they skipped
+    (indices into the returned list). videos_only: a playlist plan keeps only the rows with a video."""
     raw = proposal.model_dump(by_alias=True) if hasattr(proposal, "model_dump") else dict(proposal or {})
     lessons, skipped = [], set()
     for le in raw.get("lessons") or []:
@@ -174,6 +175,8 @@ def accepted_lessons(proposal: Any) -> tuple[list[dict], set[int]]:
         })
         if "goal" not in row and "videoId" not in row:
             continue  # nothing to build it from
+        if videos_only and "videoId" not in row:
+            continue  # filtered before the skip index is taken, so skips stay on their own videos
         if le.get("skip") is True:
             skipped.add(len(lessons))
         lessons.append(row)

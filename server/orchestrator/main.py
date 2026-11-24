@@ -636,7 +636,8 @@ class Engine:
         self._reads: dict[str, tuple[float, Any]] = {}  # coalesced app reads: key -> (when, result)
         self._reads_inflight: dict[str, asyncio.Future] = {}
         self._reads_gen = 0  # bumped by forget_reads: an older in-flight read must not cache its stale result
-        self._plan_ref: tuple[str, int] | None = None  # the plan lesson running now (ui-v4 plans): (plan id, index)
+        # the plan lesson running now (ui-v4 plans): (plan id, index, engine lesson id once lesson.ready linked it)
+        self._plan_ref: tuple[str, int, str | None] | None = None
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -1029,7 +1030,7 @@ class Engine:
         if v is None:
             log.info("plan lesson: no lesson %s in plan %s", index, key)
             return
-        self._plan_ref = (key, index)
+        self._plan_ref = (key, index, None)
         await self.push_plans()
 
     async def push_plans(self) -> None:
@@ -1049,8 +1050,15 @@ class Engine:
             lid = ((payload or {}).get("lesson") or {}).get("id")
             if isinstance(lid, str) and lid:
                 await asyncio.to_thread(plans_progress.link_lesson, ref[0], ref[1], lid)
+                self._plan_ref = (ref[0], ref[1], lid)
         elif type_ in ("lesson.complete", "lesson.ended"):
+            linked = ref[2]
+            if linked is None:
+                return  # the lesson that was running before the plan lesson ended: the plan lesson is not linked yet
             if type_ == "lesson.ended":
+                ended = (payload or {}).get("lessonId")
+                if isinstance(ended, str) and ended and ended != linked:
+                    return  # another lesson's end, never the plan lesson's
                 self._plan_ref = None
             await self.push_plans()
 

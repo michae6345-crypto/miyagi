@@ -75,8 +75,7 @@ async def _start(p: Any, reply: Any, req: dict) -> bool:
     if plid:
         if not catalog.PLAYLIST_ID_RE.fullmatch(plid):
             return await fail("That is not a YouTube playlist link.")
-        lessons, skipped = prop.accepted_lessons(p.proposal) if p.proposal is not None else ([], set())
-        lessons = [le for le in lessons if le.get("videoId")]
+        lessons, skipped = prop.accepted_lessons(p.proposal, videos_only=True) if p.proposal is not None else ([], set())
         title, channel = getattr(p.proposal, "title", "") or "", ""
         if not lessons:  # no proposal: the playlist's own videos (shipped list or cache; else one fetch)
             try:

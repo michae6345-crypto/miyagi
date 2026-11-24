@@ -57,3 +57,12 @@ def test_accepted_lessons_keep_skips_and_drop_unbuildable_rows():
     lessons, skipped = proposal.accepted_lessons(p)
     assert [le["title"] for le in lessons] == ["A", "C"] and skipped == {0}
     assert lessons[1] == {"title": "C", "goal": "Teach C", "grows": ["x.y"], "from": {"planId": "intro-c", "index": 2}}
+
+
+def test_accepted_lessons_videos_only_keeps_skips_on_their_own_videos():
+    p = {"lessons": [{"title": "Goal only", "goal": "learn x"},
+                     {"title": "Video A", "videoId": "aaaaaaaaaa1"},
+                     {"title": "Video B", "videoId": "aaaaaaaaaa2", "skip": True}]}
+    lessons, skipped = proposal.accepted_lessons(p, videos_only=True)
+    assert [le["videoId"] for le in lessons] == ["aaaaaaaaaa1", "aaaaaaaaaa2"]
+    assert skipped == {1}

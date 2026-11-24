@@ -28,6 +28,12 @@ def plans_env(quiet_env, tmp_path, monkeypatch):  # noqa: F811
     monkeypatch.setattr(playlist, "TRANSPORT", youtube_transport({"/playlist": (200, fixture("playlist_page.html"))},
                                                                  calls))
     playlist._inflight.clear()
+    from server.coach import llm
+
+    async def offline(**_k):  # never the real model (.env / the cloud install token): tests that want it override this
+        raise llm.CoachLLMError("offline test", "offline")
+
+    monkeypatch.setattr(llm, "structured_call", offline)
     yield calls
     catalog.reload()
 
@@ -193,6 +199,50 @@ def test_a_plan_lesson_starts_through_learn_and_is_linked(plans_env, monkeypatch
     saved = json.loads((state_dir() / "plans.json").read_text())
     assert saved["plans"]["intro-blender"]["started"]["1"]["lessonId"] == "les-plan-1"
     assert eng.session.app_v2 is True
+
+
+def test_a_plan_lesson_started_over_a_running_lesson_is_still_linked(plans_env, monkeypatch):
+    """The session ends the lesson already loaded (lesson.ended for the OLD lesson) before the plan lesson loads: that end
+    must not drop the plan link, and only the plan lesson's own end clears it."""
+    from fastapi.testclient import TestClient
+
+    main, eng, _, _ = _engine(monkeypatch)
+
+    async def learn(query, mode=None):
+        await eng._emit("lesson.ended", {"lessonId": "old", "reason": "new lesson"})
+        await eng._emit("lesson.ready", {"lesson": {"id": "les-plan-1", "title": "t"}, "steps": []})
+
+    monkeypatch.setattr(eng.session, "learn", learn)
+    goal1 = catalog.get("intro-blender")["lessons"][1]["goal"]
+    with TestClient(main.app) as client, client.websocket_connect("/") as ws:
+        assert ws.receive_json()["type"] == "engine.hello"
+        _plans(ws, "plan.start", {"catalogId": "intro-blender"})
+        _plans(ws, "learn", {"query": goal1, "mode": "lesson", "plan": {"id": "intro-blender", "index": 1}})
+        _until(ws, "lesson.ready")
+        _plans(ws, "plans.list", {})  # a round trip: the link (after lesson.ready went out) has run
+    assert eng._plan_ref == ("intro-blender", 1, "les-plan-1")
+    saved = json.loads((state_dir() / "plans.json").read_text())
+    assert saved["plans"]["intro-blender"]["started"]["1"]["lessonId"] == "les-plan-1"
+
+
+def test_plan_ref_clears_only_on_the_linked_lessons_end(plans_env, monkeypatch):
+    import asyncio
+
+    _main, eng, _, _ = _engine(monkeypatch)
+    pushes: list[int] = []
+
+    async def push() -> None:
+        pushes.append(1)
+
+    monkeypatch.setattr(eng, "push_plans", push)
+    eng._plan_ref = ("p", 0, None)
+    asyncio.run(eng._plan_lesson_event("lesson.ended", {"lessonId": "old"}))
+    assert eng._plan_ref == ("p", 0, None) and pushes == []
+    eng._plan_ref = ("p", 0, "mine")
+    asyncio.run(eng._plan_lesson_event("lesson.ended", {"lessonId": "other"}))
+    assert eng._plan_ref == ("p", 0, "mine") and pushes == []
+    asyncio.run(eng._plan_lesson_event("lesson.ended", {"lessonId": "mine"}))
+    assert eng._plan_ref is None and pushes == [1]
 
 
 def test_parse_command_uses_the_contract_for_plans():
