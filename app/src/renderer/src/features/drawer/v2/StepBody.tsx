@@ -121,7 +121,7 @@ function CopyChip({ text }: { text: string }): ReactNode {
       data-copy={result}
       aria-label={result === 'idle' ? 'Copy the code' : label}
       aria-live="polite"
-      className="absolute right-[6px] top-[6px] flex h-[24px] cursor-pointer items-center gap-[4px] whitespace-nowrap px-[8px]"
+      className="absolute right-[6px] top-[6px] flex h-[26px] cursor-pointer items-center gap-[4px] whitespace-nowrap px-[8px]"
       // "Could not copy" is wider than CHIP_ROOM: for its 2.4 s it sits on an opaque sheet so the code never shows through.
       style={{ borderRadius: radius2.control, background: result === 'no' ? surface.sheet : fill.button, color: result === 'idle' ? tone.label : tone.text, fontSize: type2.micro, fontWeight: 500 }}
       whileHover={{ backgroundColor: fill.chipHover, color: tone.text }}
