@@ -1,0 +1,44 @@
+{
+ "id": "terminal-pymod-m5-pep668-then-venv",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "py-modules m5 on Homebrew Python. The first `python3 -m pytest -q` said 'No module named pytest'; `pip3 install pytest` was refused with 'error: externally-managed-environment' (PEP 668). The learner then made and activated a venv, `pip install pytest` succeeded, and `python3 -m pytest -q` in the (.venv) prompt printed '3 passed in 0.02s'. The install error is from before the fix and the last run passes every test.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m5"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add\n\nprint(add(2, 3))\n",
+   "test_operations.py": "from operations import add, subtract, divide\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n",
+   ".venv/bin/activate": "# venv\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac calc % python3 -m pytest -q",
+    "/opt/homebrew/opt/python@3.13/bin/python3.13: No module named pytest",
+    "tripi@mac calc % pip3 install pytest",
+    "error: externally-managed-environment",
+    "× This environment is externally managed",
+    "╰─> To install Python packages system-wide, try brew install",
+    "    xyz, where xyz is the package you are trying to",
+    "    install.",
+    "note: If you believe this is a mistake, please contact your Python installation or OS distribution provider. You can override this, at the risk of breaking your Python installation or OS, by passing --break-system-packages.",
+    "hint: See PEP 668 for the detailed specification.",
+    "tripi@mac calc % python3 -m venv .venv && source .venv/bin/activate && pip install pytest",
+    "Collecting pytest",
+    "  Using cached pytest-8.3.4-py3-none-any.whl (343 kB)",
+    "Installing collected packages: pluggy, packaging, iniconfig, pytest",
+    "Successfully installed iniconfig-2.0.0 packaging-24.2 pluggy-1.5.0 pytest-8.3.4",
+    "(.venv) tripi@mac calc % python3 -m pytest -q",
+    "...                                                              [100%]",
+    "3 passed in 0.02s",
+    "(.venv) tripi@mac calc % "
+   ]
+  }
+ }
+}

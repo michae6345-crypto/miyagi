@@ -1,0 +1,24 @@
+{
+ "id": "terminal-git-s10-remote-delete-typed-not-run",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Git lesson s10. The local branch is gone ('Deleted branch update-name (was 4c1d2e3).'), but `git push --delete origin update-name` is only typed at the prompt: no ' - [deleted]  update-name' line from the remote. The local 'Deleted branch update-name' line is not the remote delete.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s10"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git switch main",
+    "Switched to branch 'main'",
+    "Your branch is up to date with 'origin/main'.",
+    "tripi@mac gitgoing % git branch -d update-name",
+    "Deleted branch update-name (was 4c1d2e3).",
+    "tripi@mac gitgoing % git push --delete origin update-name"
+   ]
+  }
+ }
+}

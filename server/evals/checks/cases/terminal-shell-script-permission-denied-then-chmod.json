@@ -1,0 +1,57 @@
+{
+ "id": "terminal-shell-script-permission-denied-then-chmod",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to the terminal plan (docs/ui-next/catalog/plans/intro-terminal.json), 'Write a shell script' (passes: running ./newday.sh makes a note named with today's date). The learner ran ./newday.sh before chmod: 'zsh: permission denied: ./newday.sh'. They then ran chmod +x newday.sh and ./newday.sh again, which printed 'Created notes/2026-11-24.txt', and `ls notes` lists the file. The permission error is from before the chmod: done.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Make it executable and run it",
+  "instructions": "In trail-log, make newday.sh executable with chmod +x newday.sh, then run it with ./newday.sh. It makes a note in notes named with today's date, like 2026-11-24.txt.",
+  "run_command": "chmod +x newday.sh && ./newday.sh",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "chmod +x newday.sh",
+    "caption": "Let the script run as a program"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "screen_contains",
+    "label": "./newday.sh made today's note",
+    "app": "Terminal",
+    "pattern": "Created\\s+notes/\\d{4}-\\d{2}-\\d{2}\\.txt"
+   },
+   {
+    "id": "s5c2",
+    "type": "screen_absent",
+    "label": "The script runs without errors",
+    "app": "Terminal",
+    "pattern": "permission denied|command not found|no such file"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/newday.sh": "#!/bin/zsh\n# make today's note\ntoday=$(date +%F)\ntouch notes/$today.txt\necho \"Created notes/$today.txt\"\n",
+   "trail-log/notes/2026-11-24.txt": "",
+   "trail-log/notes/day1.txt": "Sunny\n",
+   "trail-log/notes/day2.txt": "Light rain\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail-log % ./newday.sh",
+    "zsh: permission denied: ./newday.sh",
+    "tripi@mac trail-log % chmod +x newday.sh",
+    "tripi@mac trail-log % ./newday.sh",
+    "Created notes/2026-11-24.txt",
+    "tripi@mac trail-log % ls notes",
+    "2026-11-24.txt\tday1.txt\tday2.txt\tsummit.txt",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}

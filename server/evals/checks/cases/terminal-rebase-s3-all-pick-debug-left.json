@@ -1,0 +1,34 @@
+{
+ "id": "terminal-rebase-s3-all-pick-debug-left",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Rebase lesson s3. The learner saved the todo without changing any `pick` to `edit`, so the rebase replayed the commits unchanged and finished at once ('Successfully rebased and updated refs/heads/feature/login.', no 'Stopped at'). The later `git add index.js && git rebase --continue` got 'fatal: No rebase in progress?'. The debug console.log is still in index.js and in the login commit. Same closing lines as a finished edit rebase, but nothing was edited.",
+ "step": {
+  "lesson": "evals/coach/lessons/git-interactive-rebase.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "login-app/index.js": "const express = require('express')\nconst app = express()\napp.use(express.json())\n\napp.post('/login', (req, res) => {\n  console.log('DEBUG login body', req.body)\n  res.json({ ok: true })\n})\n\napp.post('/logout', (req, res) => {\n  res.json({ ok: true })\n})\n\napp.listen(3000)\n",
+   "login-app/README.md": "# login-app\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "index.js",
+    "app.post('/login', (req, res) => {",
+    "  console.log('DEBUG login body', req.body)",
+    "  res.json({ ok: true })"
+   ],
+   "Terminal": [
+    "tripi@mac login-app % git rebase --interactive HEAD~4",
+    "hint: Waiting for your editor to close the file... ",
+    "Successfully rebased and updated refs/heads/feature/login.",
+    "tripi@mac login-app % git add index.js && git rebase --continue",
+    "fatal: No rebase in progress?",
+    "tripi@mac login-app % "
+   ]
+  }
+ }
+}
