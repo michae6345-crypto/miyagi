@@ -184,6 +184,26 @@ def test_accessibility_revocation_is_reported_apart_from_screen_recording():
     assert "Accessibility" in msg and "Screen Recording" not in msg
 
 
+@mac
+def test_missing_ax_binding_is_unavailable_not_revoked(monkeypatch, caplog):
+    """A venv without pyobjc-framework-ApplicationServices: AX is off (warned once), never reported as a revoked
+    Accessibility grant, and frames still get their cursor context (OCR keeps working)."""
+    import logging
+
+    from server.screen import ax
+    monkeypatch.setattr(ax, "AX", None)
+    with pytest.raises(ax.AXUnavailable):
+        ax.trusted()
+    r = _reader(monkeypatch, [GOOD])
+    r.use_ax = True
+    with caplog.at_level(logging.WARNING, logger="server.screen"):
+        r._start_sensors()
+    assert r.ax_reader is None and any("AX reader unavailable" in m for m in caplog.messages)
+    assert r.check_accessibility() is None and r.ax_trusted is None        # unknown, not "REVOKED"
+    obs = r.observe_now(force=True)
+    assert obs is not None and r.status == "ok" and obs.cursor is not None and obs.ax is None
+
+
 def test_session_words_a_blank_frame_as_blank_not_as_a_permission_problem():
     from server.orchestrator.session import LessonSession as Session
     msg = Session.screen_down_message("ScreenUnavailableError: blank frame (one flat colour): the screen shows no content")
