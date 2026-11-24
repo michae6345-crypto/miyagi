@@ -58,7 +58,8 @@ def _steps(sid: str, row: dict, current: dict | None, tz: tzinfo | None) -> list
     out = list(seen.values())
     if current:
         les = current.get("lesson") or {}
-        lid = str(les.get("id") or "")
+        rv = les.get("review") if isinstance(les.get("review"), dict) else {}
+        lid = str(rv.get("lessonId") or les.get("id") or "")  # a review lesson lists the replayed lesson's steps
         for st in current.get("steps") or []:
             if not isinstance(st, dict) or sid not in (current.get("tags") or {}).get(st.get("id"), []):
                 continue

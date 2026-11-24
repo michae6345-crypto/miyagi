@@ -94,6 +94,28 @@ def test_data_delete_removes_proofs_for_no_what_proofs_or_all(quiet_env, monkeyp
     assert proofs.for_skill("py.variables") == []
 
 
+def test_data_delete_all_or_progress_forgets_the_skill_record(quiet_env, monkeypatch, state):
+    """skilltree.json holds every pass with its lesson and step titles: "all" / "progress" / Delete my data erase it;
+    "proofs" and "notes" keep it."""
+    def seed():
+        ledger.record_pass(["py.variables"], now=time.time(), lesson_id="L", step_id="s1", lesson_title="Vars",
+                           step_title="Make x")
+
+    seed()
+    main, *_ = _engine(monkeypatch)
+    with TestClient(main.app) as client, client.websocket_connect("/") as ws:
+        ws.receive_json()
+        for what in (["notes"], ["proofs"]):
+            ws.send_json({"type": "data.delete", "payload": {"what": what}})
+        _wait(lambda: False, n=10)
+        assert "py.variables" in ledger.load()
+        for payload in ({"what": ["all"]}, {"what": ["progress"]}, {}):
+            seed()
+            ws.send_json({"type": "data.delete", "payload": payload})
+            _wait(lambda: not ledger.load())
+            assert ledger.load() == {} and not ledger.path().exists()
+
+
 def test_review_start_for_a_catalog_skill_loads_its_review_lesson(quiet_env, monkeypatch, state, tmp_path):
     main, eng, _, _ = _engine(monkeypatch)
     src = {"lesson": {"id": "L9", "title": "A FreeCAD bracket", "workdir": "/elsewhere"},

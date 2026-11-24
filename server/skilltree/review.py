@@ -34,11 +34,15 @@ def review_graph(skill_id: str, find_graph: Callable[[str], dict | None]) -> dic
             continue
         g: dict[str, Any] = copy.deepcopy(src)
         les = g.setdefault("lesson", {})
-        les["id"] = f"review-{skill_id.replace('.', '-')}-{les.get('id') or lid}"[:120]
+        base, base_title = str(les.get("id") or lid), les.get("title")
+        les["id"] = f"review-{skill_id.replace('.', '-')}-{base}"[:120]
         les["title"] = f"Review: {sk.label}"[:200]
         les["goal"] = f"A quick check on {sk.label}"
         les["mode"] = "lesson"
-        les["review"] = {"key": KEY_PREFIX + skill_id, "label": sk.label, "skillId": skill_id}
+        # lessonId / lessonTitle: the source lesson, so a review pass is recorded under the step's own key (one
+        # SkillInfo.steps entry per underlying step, skill_hooks.record) rather than a second "review-..." key
+        les["review"] = {"key": KEY_PREFIX + skill_id, "label": sk.label, "skillId": skill_id, "lessonId": base,
+                         **({"lessonTitle": str(base_title)[:200]} if base_title else {})}
         for k in ("nextTopics", "learnFirst", "prerequisites", "curated", "provisional", "complete", "grows"):
             les.pop(k, None)
         keep = {s["id"] for s in steps}

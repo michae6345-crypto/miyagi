@@ -228,7 +228,7 @@ def review_graph(graph: dict, label: str, key: str, *, skill_id: str = "") -> di
     les["title"] = f"Review: {label}"[:200]
     les["goal"] = f"A quick check on {label}"
     les["mode"] = "lesson"
-    les["review"] = {"key": key, "label": label, "skillId": skill_id}
+    les["review"] = {"key": key, "label": label, "skillId": skill_id, "lessonId": base}  # lessonId: activity's step key
     for k in ("nextTopics", "learnFirst", "prerequisites", "curated", "provisional", "complete"):
         les.pop(k, None)
     g["steps"] = [dict(s) for s in g.get("steps") or [] if isinstance(s, dict) and s.get("id") in steps]

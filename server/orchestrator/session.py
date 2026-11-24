@@ -8258,6 +8258,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         an Allowed argv runs, without a shell; anything else is shown "From the tutorial: check it before running"
         and never run. The first run of each distinct command in a session shows the exact command and waits for
         Yes (the same preview -> confirm as Do it for me: pending_patch {"run": ...} -> _apply_patch)."""
+        # skill tree: the engine ran the step's command (Run it for me, Do it for me on a run step, the Yes on "Run
+        # this command?"): a pass after it is assisted, never mastery, and keeps no proof of the engine's own output
+        skill_hooks.note_assist(self, "run_command", step)
         if stage.on(self):  # a Demo lesson: the recorded run of the lesson's own code (stage.py)
             await stage.run(self, step)
             return

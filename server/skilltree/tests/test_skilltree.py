@@ -247,6 +247,8 @@ def test_proof_cap_and_delete(state, monkeypatch):
 def test_data_delete_kinds_that_remove_proofs():
     assert service.deletes_proofs(None) and service.deletes_proofs(["proofs"]) and service.deletes_proofs(["all"])
     assert not service.deletes_proofs(["notes"]) and not service.deletes_proofs([])
+    assert service.deletes_record(None) and service.deletes_record(["all"]) and service.deletes_record(["progress"])
+    assert not service.deletes_record(["proofs"]) and not service.deletes_record(["notes"])
 
 
 # ------------------------------------------------------------------------------------------------ progress.graph
@@ -305,7 +307,8 @@ def test_catalog_review_graph_replays_the_steps_behind_the_skill(state):
     asked: list[str] = []
     g = review.review_graph("cad.pad", lambda lid: asked.append(lid) or (src if lid == "L9" else None))
     assert asked == ["L9"] and [s["id"] for s in g["steps"]] == ["s2"] and g["steps"][0]["skillIds"] == ["cad.pad"]
-    assert g["lesson"]["review"] == {"key": "skilltree::cad.pad", "label": "Pad", "skillId": "cad.pad"}
+    assert g["lesson"]["review"] == {"key": "skilltree::cad.pad", "label": "Pad", "skillId": "cad.pad", "lessonId": "L9",
+                                     "lessonTitle": "A FreeCAD bracket"}
     assert g["lesson"]["id"] == "review-cad-pad-L9" and g["lesson"]["_folder"] == "/tmp/x"
     assert "skillIds" not in src["steps"][1]  # the cached lesson is never changed
     assert tagging.tag_graph(g) == {"s2": ["cad.pad"]}

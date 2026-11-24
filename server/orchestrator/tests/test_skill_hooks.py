@@ -156,3 +156,69 @@ def test_session_hook_never_breaks_the_pass(state, monkeypatch):
 
     (passed,) = [p for type_, p in asyncio.run(go()) if type_ == "step.passed"]
     assert passed["stepId"] == "s1" and passed["key"] == "les-py:s1" and passed["skillIds"] == ["py.functions"]
+
+
+def test_run_it_for_me_on_a_run_step_makes_the_pass_assisted(state, monkeypatch):
+    """The engine ran the step's command: Run it for me (run_command), Do it for me on a run step and the Yes on "Run
+    this command?" all reach _run_for_me. The pass is assisted: no proof of the engine's output, no mastery."""
+    clock = {"now": t(1)}
+    real = ledger.record_pass
+    monkeypatch.setattr(ledger, "record_pass", lambda ids, **k: real(ids, **{**k, "now": clock["now"], "tz": UTC}))
+    (state / "work" / "app.py").write_text("def add(a, b):\n    return a + b\n")
+
+    async def lesson(direct: bool) -> dict:
+        s, sent = _session()
+        g = _python_graph()
+        g["steps"][0]["run_command"] = "python app.py"
+        await s.load_graph(g)
+        await s.drain()
+        s.workdir = str(state / "work")
+        if direct:  # the apply_fix / confirm re-entry paths call _run_for_me without a run_command action
+            await s._run_for_me(s.step)
+        else:
+            await s._action("run_command")
+        await s.drain()
+        await s._pass_step()
+        await s.drain()
+        (passed,) = [p for type_, p in sent if type_ == "step.passed"]
+        contract.validate_engine_payload("step.passed", passed)
+        return passed
+
+    passed = asyncio.run(lesson(direct=False))
+    assert passed["assisted"] is True and "proofId" not in passed
+    clock["now"] = t(2)
+    passed = asyncio.run(lesson(direct=True))
+    assert passed["assisted"] is True and "proofId" not in passed
+    row = ledger.skill_row("py.functions", now=t(2), tz=UTC)
+    assert row["state"] != "mastered" and row["unassistedDays"] == 0
+    assert proofs.for_skill("py.functions") == []
+
+
+def test_a_review_pass_is_recorded_under_the_replayed_lessons_key(state):
+    from server.skilltree import graph
+
+    work = state / "work"
+    (work / "app.py").write_text("def add(a, b):\n    return a + b\n")
+    step = {"id": "s1", "title": "Add", "file": "app.py", "code": "def add(a, b):\n    return a + b"}
+    skill_hooks.record(step, ["py.functions"], assisted=False, skipped=False, lesson={"id": "L", "title": "Fns"},
+                       workdir=str(work), now=t(1))
+    review = {"id": "review-py-functions-L", "title": "Review: Functions",
+              "review": {"key": "skilltree::py.functions", "skillId": "py.functions", "lessonId": "L", "lessonTitle": "Fns"}}
+    got = skill_hooks.record(step, ["py.functions"], assisted=False, skipped=False, lesson=review, workdir=str(work),
+                             now=t(2))
+    row = ledger.load()["py.functions"]
+    assert [p["lessonId"] for p in row["passes"]] == ["L", "L"] and row["passes"][1]["lessonTitle"] == "Fns"
+    assert proofs.get(got["proofId"])["key"] == "L:s1"
+    steps = graph._steps("py.functions", row, None, UTC)
+    assert [s["key"] for s in steps] == ["L:s1"]
+
+
+def test_tags_cache_is_keyed_on_the_lesson_and_step_ids_not_the_graph_address():
+    s = SimpleNamespace(graph={"lesson": {"id": "A", "goal": EXTRUDE_GOAL}, "steps": [{"id": "s1", "title": "Inset"}]},
+                        steps=[{"id": "s1", "title": "Inset the top"}])
+    assert skill_hooks.tags(s)["s1"] == ["bl.extrude"]
+    # a later lesson with the same step count: a stale (id(graph), len) key would hand back lesson A's tags
+    s.graph = {"lesson": {"id": "B", "goal": "practice functions"}, "steps": [{"id": "t1", "title": "Write add"}]}
+    s.steps = [{"id": "t1", "title": "Write the add function"}]
+    got = skill_hooks.tags(s)
+    assert "s1" not in got and got.get("t1") != ["bl.extrude"]

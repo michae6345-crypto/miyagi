@@ -19,7 +19,7 @@ from typing import Any
 
 log = logging.getLogger("orchestrator")
 
-ASSIST_KINDS = frozenset({"show_me", "apply_fix"})
+ASSIST_KINDS = frozenset({"show_me", "apply_fix", "run_command"})  # run_command: "Run it for me"
 HINT_ASSIST_LEVEL = 3  # the third hint on a step gives the answer away
 MAX_READ = 200_000
 
@@ -37,8 +37,8 @@ def assisted(s: Any, step_id: str) -> bool:
     return step_id in _assist_state(s)["steps"]
 
 
-def note_assist(s: Any, kind: str) -> None:
-    step = getattr(s, "step", None)
+def note_assist(s: Any, kind: str, step: dict | None = None) -> None:
+    step = step if step is not None else getattr(s, "step", None)
     if not isinstance(step, dict) or not step.get("id"):
         return
     st = _assist_state(s)
@@ -55,7 +55,8 @@ def tags(s: Any) -> dict[str, list[str]]:
 
     g = getattr(s, "graph", None) if isinstance(getattr(s, "graph", None), dict) else {}
     steps = list(getattr(s, "steps", None) or g.get("steps") or [])
-    sig = (id(g), len(steps))
+    # keyed on the lesson and its step ids, never id(graph): CPython reuses a freed dict's address
+    sig = ((g.get("lesson") or {}).get("id"), tuple(st.get("id") if isinstance(st, dict) else None for st in steps))
     cached = getattr(s, "_skilltree_tags", None)
     if cached is not None and cached[0] == sig:
         return cached[1]
@@ -83,12 +84,23 @@ def _read_file(workdir: str | None, rel: str | None) -> tuple[str | None, str | 
         return None, None
 
 
+def _source_lesson(lesson: dict) -> dict:
+    """A review lesson ("review-<skill>-<lesson>", lesson.review.lessonId) records its passes and proofs under the
+    lesson it replays, so the same underlying step keeps one key in the skill record."""
+    rv = lesson.get("review") if isinstance(lesson.get("review"), dict) else {}
+    src = rv.get("lessonId")
+    if not isinstance(src, str) or not src:
+        return lesson
+    title = rv.get("lessonTitle")
+    return {**lesson, "id": src, **({"title": title} if isinstance(title, str) and title else {})}
+
+
 def record(step: dict, skill_ids: list[str], *, assisted: bool, skipped: bool, lesson: dict | None,
            workdir: str | None, run: Any = None, now: float | None = None) -> dict:
     """Blocking part of on_pass (a worker thread): {"events": [...], "proofId"?}."""
     from server.skilltree import ledger, proofs
 
-    lesson = lesson or {}
+    lesson = _source_lesson(lesson or {})
     if not skill_ids:
         return {"events": []}
     if skipped:  # a skip is never a pass; it misses the reviews that were due
@@ -116,7 +128,8 @@ async def on_pass(s: Any, step: dict | None, skipped: bool = False) -> dict:
     if not isinstance(step, dict) or not step.get("id"):
         return {}
     lesson = dict(((getattr(s, "graph", None) or {}).get("lesson") or {}))
-    out: dict[str, Any] = {"key": f"{lesson.get('id') or 'lesson'}:{step['id']}"}
+    src = _source_lesson(lesson)  # a review pass keys on the lesson it replays (activity_feed.step_key agrees)
+    out: dict[str, Any] = {"key": f"{src.get('id') or 'lesson'}:{step['id']}"}
     try:
         ids = tags(s).get(step["id"]) or []
         helped = assisted(s, step["id"])
