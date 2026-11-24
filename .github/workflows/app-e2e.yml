@@ -14,7 +14,7 @@ permissions:
   contents: read
 concurrency:
   group: app-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # a push to app-ui-v4 always finishes (it lands every few minutes)
 jobs:
   electron:
     runs-on: macos-latest
