@@ -49,7 +49,7 @@ export function size(bytes?: number): string | undefined {
 }
 
 /** What Your data shows, from the engine's `data` inventory (ui-v4 contract, data.get) when it answered. */
-export type YourData = { cacheBytes?: number; folder: string; lessons?: number; canClearCache?: boolean; fromEngine?: boolean }
+export type YourData = { cacheBytes?: number; folder: string; lessons?: number; canClearCache?: boolean; canClearHistory?: boolean; fromEngine?: boolean }
 
 /** The contract's inventory to the panel's rows: the lesson folder's path and count, the cache's size and whether the
  * engine can really clear it (canDelete; the app offers Clear only then). */
@@ -61,6 +61,7 @@ export function fromInventory(inv: DataInventory): YourData {
     lessons: folder?.count ?? undefined,
     cacheBytes: cache?.bytes ?? undefined,
     canClearCache: !!inv.canDelete?.includes('lesson_cache'),
+    canClearHistory: !!inv.canDelete?.includes('progress'),
     fromEngine: true
   }
 }

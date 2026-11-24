@@ -168,13 +168,22 @@ export function planFromGoal(goal: string, toolId?: string): { tools: CatalogPla
     .map(([p]) => p)
   if (!ranked.length) return { tools: [], lessons: [], from: [] }
   const top = ranked[0]
-  // The tools: start plans of the same topic (FreeCAD, Fusion, Onshape for CAD).
-  const tools = PLANS.filter((p) => p.topic === top.topic && p.level === 'start')
+  // The tools: start plans of the same topic that the goal's words also match (FreeCAD, Fusion, Onshape for a CAD
+  // goal; Google Sheets and Excel for a budget, not every app in the topic), each app once (QA R2-06).
+  const matched = PLANS.filter((p) => p.topic === top.topic && p.level === 'start' && ranked.includes(p))
+  const fallback = top.level === 'start' ? top : planById(top.needs[0]) ?? top
+  const tools = uniqueTools(matched.length ? matched : [fallback])
   const base = (toolId && tools.find((p) => p.tool.id === toolId)) || (top.level === 'start' ? top : planById(top.needs[0]) ?? top)
+  if (!tools.some((p) => p.tool.id === base.tool.id)) tools.unshift(base)
   const further = PLANS.find((p) => p.needs.includes(base.id) && p.topic === base.topic && ranked.includes(p))
   const lessons: GoalLesson[] = [...base.lessons.slice(0, further ? 6 : 8).map((l) => ({ ...l, from: base })), ...(further ? further.lessons.slice(0, 2).map((l) => ({ ...l, from: further })) : [])]
   const proj = base.project
   return { tools, lessons, from: further ? [base, further] : [base], project: { title: proj.title, check: proj.checks[0], minutes: 45 } }
+}
+/** One plan per app (two start plans can share a tool, as two Terminal plans do). */
+function uniqueTools(plans: CatalogPlan[]): CatalogPlan[] {
+  const seen = new Set<string>()
+  return plans.filter((p) => !seen.has(p.tool.id) && !!seen.add(p.tool.id))
 }
 const STOP = new Set(['want', 'the', 'and', 'for', 'my', 'how', 'make', 'learn', 'with', 'own', 'build', 'some', 'that', 'this', 'from'])
 const SYNONYM: Record<string, PlanTopic[]> = { print: ['cad'], stand: ['cad'], bracket: ['cad'], model: ['3d', 'cad'], render: ['3d'], game: ['code'], website: ['code'], data: ['data'], chart: ['data'], app: ['code'] }

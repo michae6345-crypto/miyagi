@@ -81,7 +81,7 @@ function Plans({ m }: { m: HomeModel }): ReactNode {
                 {p.done} of {p.total}
               </span>
             </span>
-            <span className="truncate" style={muted}>
+            <span style={{ ...muted, whiteSpace: 'normal', lineHeight: 1.35, margin: '6px 0', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
               {p.next ? `Next · ${p.next}` : ''}
             </span>
             <Chev />

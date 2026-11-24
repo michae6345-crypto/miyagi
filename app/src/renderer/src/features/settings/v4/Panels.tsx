@@ -29,7 +29,7 @@ import { FACTS } from '../privacy/facts'
 import { SettingRowById } from '../rows'
 import { IslandRow } from '../sections/General'
 import { Group, OnWord, Plain, Row } from '../ui'
-import { APP_GROUPS, APPS, appCaption, askDelete, clearCache, size, tryInvoke, useYourData, type AppRow } from './data'
+import { APP_GROUPS, APPS, appCaption, askDelete, clearCache, clearHistory, size, tryInvoke, useYourData, type AppRow } from './data'
 import { isElectron } from '../../../bridge'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
 
@@ -57,13 +57,24 @@ export function Cols({ left, right }: { left: ReactNode; right: ReactNode }): Re
  * (apps:connect:<id>, data:open-folder, data:cache-clear; Core request in agents/v4-settings.md), so in Electron it
  * shows disabled with a tooltip instead of answering every click with an error; the stage's stand-ins keep it working.
  */
-function RunButton({ label, run, pending = false }: { label: string; run: () => Promise<string> | string | void; pending?: boolean }): ReactNode {
+/**
+ * `soon`: the engine can't do it yet (its inventory's canDelete leaves the kind out): shown, but disabled with a reason.
+ * `confirm`: the label of the second click (the first only arms it for 4 s, as End lesson does), for what can't be undone.
+ */
+function RunButton({ label, run, pending = false, soon = false, confirm }: { label: string; run: () => Promise<string> | string | void; pending?: boolean; soon?: boolean; confirm?: string }): ReactNode {
   const [note, setNote] = useState<string>()
+  const [armed, setArmed] = useState(false)
   useEffect(() => {
     if (!note) return
     const t = setTimeout(() => setNote(undefined), 2500)
     return () => clearTimeout(t)
   }, [note])
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(t)
+  }, [armed])
+  const off = soon || (pending && isElectron)
   return (
     <span className="flex shrink-0 items-center gap-[12px]">
       {note && (
@@ -72,10 +83,12 @@ function RunButton({ label, run, pending = false }: { label: string; run: () => 
         </span>
       )}
       <QuietButton
-        label={label}
-        disabled={pending && isElectron}
-        title={pending && isElectron ? 'Coming in an update.' : undefined}
+        label={armed && confirm ? confirm : label}
+        disabled={off}
+        title={off ? 'Coming in an update.' : undefined}
         onClick={() => {
+          if (confirm && !armed) return setArmed(true)
+          setArmed(false)
           void Promise.resolve(run()).then((r) => r && setNote(r))
         }}
       />
@@ -89,7 +102,7 @@ function PanelLink({ label, to }: { label: string; to: Parameters<typeof setPage
     <button
       type="button"
       className="mg-press flex shrink-0 cursor-pointer items-center gap-[6px] whitespace-nowrap"
-      style={{ fontSize: type2.sm, color: color.label, background: 'none', border: 0, padding: 0 }}
+      style={{ fontSize: type2.sm, color: color.label, background: 'none', border: 0, padding: 0, minHeight: 24 }}
       onClick={() => setPagePanel(to)}
     >
       {label}
@@ -253,7 +266,12 @@ export function Data4({ live }: { live: boolean }): ReactNode {
             <Row
               label="Lesson cache"
               caption={`Built lessons kept so they open fast.${cache ? ` ${cache}.` : ''}`}
-              right={d.fromEngine ? d.canClearCache ? <RunButton label="Clear" run={clearCache} /> : undefined : <RunButton label="Clear" pending run={() => tryInvoke('data:cache-clear', 'Cleared.')} />}
+              right={d.fromEngine ? <RunButton label="Clear" soon={!d.canClearCache} run={clearCache} /> : <RunButton label="Clear" pending run={() => tryInvoke('data:cache-clear', 'Cleared.')} />}
+            />
+            <Row
+              label="Clear lesson history"
+              caption="Your skills and plans start over."
+              right={<RunButton label="Clear" confirm="Click again to clear" soon={!d.canClearHistory} run={clearHistory} />}
             />
           </Group>
         </>
