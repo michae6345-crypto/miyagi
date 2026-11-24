@@ -109,6 +109,56 @@ Train wrong verdicts (all new; the 208 earlier train cases still score right): F
 `jupyter-mnist-s7-whole-percent` (the metric pattern wants `NN.NN%`; s7c4 stays pending), `jupyter-nn-gd-and-column-array`
 (the `[0, 0, 0, 1]` pattern never sees NumPy's column print). `baseline.json` records them in `known_wrong`.
 
+## Round 4: multi-file VS Code projects, Python and JS/TS/React (Nov 24 2026, `claude/eng-evals-r4-1`)
+
+20 new cases (13 train, 7 held out), no engine change (the runner already scores `heldOut` apart). Steps from
+`py-modules.json` (m2, m4, m5), `ts-shop.json` (t2, t3, t4) and the React/Vite lesson (s1, s3, s6, s8), plus inline
+steps in the lesson builder's shape from Adrian's catalog plans (`origin/adrian/ui-next`,
+`docs/ui-next/catalog/plans/`): React "Pass data with props" (`re4s3`, MenuItem with name and price) and "Write JSX"
+with the dev server running (`re2s4`), and Intro to VS Code "Jump around and rename safely" as an ES module project
+(`vs6s4`, rename then `node scale.js`).
+
+Traps: add copied to add_numbers instead of renamed (both defined, the test still uses add), a relative
+`from .operations import add` in a script, pytest.ini's `addopts = -k "not divide"` (`2 passed, 1 deselected`), an
+old local `formatPrice` left below the import (TS2440), a `formatPrice` in utils.ts that lost its `export`, a build
+script edited down to `vite build` to get past a tsc error, `npm create vite` answered Vanilla (no react in
+package.json, no App.jsx), `<Header />` only inside a JSX comment, `<Footer/>` beside the fragment (two roots),
+`{food2.toUpperCase}` never called, `function MenuItem(name, price)` without braces, Vite's `[vite] Internal server
+error` (not `ERR!`), and an old export re-exported (`export const scale = scaleRecipe`) instead of renaming the import.
+Done-but-odd: a type-hinted `def add_numbers(a: int, b: int) -> int:`, a destructured map callback
+(`formatPrice(price)`), Vite's sourcemap "Error when using sourcemap" warning above `✓ built in`, a passing test's
+`console.error('formatPrice failed: ...')` in Jest's output, `props.name` instead of destructuring, a Vite error fixed
+by a later `hmr update`, and F2's real `{ scaleRecipe as scale }` import alias.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (221: 208 earlier + 13 new) | 0.959 | 0.931 | 0.979 | 7 | 2 |
+| train, the 13 new | 0.308 | | | 7 | 2 |
+| held-out (89: 82 earlier + 7 new) | 0.461 | 0.326 | 0.469 | 31 | 17 |
+| held-out, the 7 new | 0.714 | | | 1 | 1 |
+
+Train wrong verdicts (all new; the 208 earlier train cases still score right), in `baseline.json` → `known_wrong`:
+
+- **FP `vscode-pymod-m4-duplicated-not-renamed`**: both m4 rows are on screen; nothing sees that operations.py still
+  defines `add` and test_operations.py still imports it.
+- **FP `vscode-tsshop-t2-local-formatprice-conflicts`**: the import and the call match; a local `function formatPrice`
+  in the same file (and `⊗ 1`) is not weighed.
+- **FP `vscode-recipe-rename-old-name-reexported`**: recipe-utils.js defines scaleRecipe and the run prints; scale.js
+  (not on screen) still imports `scale`, and the precision row on scale.js isn't in the gate.
+- **FP `vscode-react-s6-footer-outside-fragment`**: `<>`, `import Footer` and `<Footer` all match; the second root
+  after `</>` (and Vite's "Adjacent JSX elements" pre-transform error) is not read.
+- **FP `vscode-react-s8-touppercase-not-called`**: `toUpperCase` matches without its call parentheses.
+- **FP `terminal-react-s1-vanilla-template`**: "ready in" + "localhost:"; package.json without react is not checked.
+- **FP `terminal-react-jsx-vite-internal-server-error`**: `ERR!|Failed to compile` misses Vite's own
+  "Internal server error" / "Pre-transform error" wording.
+- **FN `vscode-pymod-m4-type-hinted-def`**: `def\s+add_numbers\(a,\s*b\):` refuses type hints on the same def.
+- **FN `vscode-tsshop-t2-destructured-price`**: `formatPrice\(\s*item\.price\s*\)` refuses `formatPrice(price)` from
+  a destructured item.
+
+Seen right (train): the sourcemap warning build, Jest's captured `console.error` with "failed" in it, F2's import
+alias, `MenuItem(name, price)`. Held-out: ids of the new wrong verdicts in `baseline.json` →
+`held_out.known_wrong`; not listed here on purpose.
+
 ## Round 3 fixes (Nov 24 2026, `claude/eng-check-fixes-r3`)
 
 The four round-3 case sets merged: 290 cases, 208 train + 82 held out. Every fix is general (no lesson ids, no case

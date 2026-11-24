@@ -1,0 +1,36 @@
+{
+ "id": "vscode-react-s3-header-in-jsx-comment",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Header.jsx is right and App.jsx imports it, but the only <Header /> in App.jsx is inside a JSX comment ({/* <Header /> */}), toggled off with Cmd+/ while trying something. The page shows 'Coming soon' and no header; ESLint marks the Header import as unused. The step is to render <Header/> in App.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{\n  \"name\": \"my-react-app\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\n\nfunction App() {\n  return (\n    <>\n      {/* <Header /> */}\n      <p>Coming soon</p>\n    </>\n  )\n}\n\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "Header.jsx",
+    "import Header from './Header.jsx'",
+    "function App() {",
+    "return (",
+    "<>",
+    "{/* <Header /> */}",
+    "<p>Coming soon</p>",
+    "</>",
+    ")",
+    "}",
+    "export default App"
+   ]
+  }
+ }
+}

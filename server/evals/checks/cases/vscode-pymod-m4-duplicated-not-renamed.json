@@ -1,0 +1,37 @@
+{
+ "id": "vscode-pymod-m4-duplicated-not-renamed",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The learner copied add into a new add_numbers function instead of renaming it: operations.py now defines both add and add_numbers, main.py imports and calls add_numbers (prints 5), and test_operations.py still imports and tests add, which still exists, so nothing breaks. The step is a rename that every file follows: the old name is still defined and still used by the test, so add() is not 'called add_numbers() everywhere'.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m4"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef add_numbers(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add_numbers\n\nprint(add_numbers(2, 3))\n",
+   "test_operations.py": "from operations import add, subtract, divide\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "operations.py",
+    "main.py",
+    "def add(a, b):",
+    "return a + b",
+    "def add_numbers(a, b):",
+    "return a + b",
+    "def subtract(a, b):",
+    "from operations import add_numbers",
+    "print(add_numbers(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "5",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}

@@ -1,0 +1,104 @@
+{
+ "id": "vscode-recipe-rename-old-name-reexported",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The learner renamed the function by hand in recipe-utils.js and, when node scale.js failed on the missing export, added 'export const scale = scaleRecipe' instead of updating scale.js. node scale.js now prints the doubled amounts, but scale.js still imports and calls scale: the rename did not reach the other file, which is the point of the F2 step.",
+ "step": {
+  "id": "vs6s4",
+  "title": "Rename scale to scaleRecipe and run it",
+  "kind": "run",
+  "instructions": "Put the cursor on scale in recipe-utils.js, press F2, type scaleRecipe and press Enter. VS Code renames it in recipe-utils.js and in scale.js. Then run node scale.js: it prints six doubled amounts.",
+  "file": "recipe-utils.js",
+  "code": "export function scaleRecipe(recipe, factor) {\n  return recipe.map(item => ({ ...item, grams: item.grams * factor }))\n}\n\n// scale.js\nimport { scaleRecipe } from './recipe-utils.js'",
+  "run_command": "node scale.js",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "recipe-utils.js",
+    "match": "function scale(",
+    "caption": "Press F2 on scale"
+   }
+  ],
+  "checks": [
+   {
+    "id": "vs6s4c1",
+    "type": "screen_contains",
+    "label": "recipe-utils.js defines scaleRecipe",
+    "app": "Code",
+    "pattern": "function\\s+scaleRecipe\\s*\\("
+   },
+   {
+    "id": "vs6s4c2",
+    "type": "screen_contains",
+    "label": "node scale.js prints the doubled amounts",
+    "app": "Terminal",
+    "pattern": "flour:\\s*500\\s*g"
+   },
+   {
+    "id": "vs6s4c3",
+    "type": "screen_absent",
+    "label": "No errors when scale.js runs",
+    "app": "Terminal",
+    "pattern": "ReferenceError|TypeError|SyntaxError"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "vs6s4p1",
+    "type": "file_contains",
+    "label": "scale.js imports scaleRecipe",
+    "file": "scale.js",
+    "pattern": "import\\s*\\{[^}]*\\bscaleRecipe\\b[^}]*\\}\\s*from"
+   }
+  ],
+  "hints": [
+   "F2 renames a symbol in every file that uses it; Find and Replace only changes the open file."
+  ],
+  "common_mistakes": [
+   "Renaming the function by hand and leaving the old name in scale.js's import."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "package.json": "{\n  \"name\": \"recipe-box\",\n  \"type\": \"module\"\n}\n",
+   "recipe.json": "[\n {\"name\": \"flour\", \"grams\": 250},\n {\"name\": \"sugar\", \"grams\": 100},\n {\"name\": \"butter\", \"grams\": 125},\n {\"name\": \"milk\", \"grams\": 200},\n {\"name\": \"eggs\", \"grams\": 120},\n {\"name\": \"salt\", \"grams\": 5}\n]\n",
+   "scale.js": "import recipe from './recipe.json' with { type: 'json' }\nimport { scale } from './recipe-utils.js'\n\nfor (const item of scale(recipe, 2)) {\n  console.log(`${item.name}: ${item.grams} g`)\n}\n",
+   "recipe-utils.js": "export function scaleRecipe(recipe, factor) {\n  return recipe.map(item => ({ ...item, grams: item.grams * factor }))\n}\n\n// keep the old name working for now\nexport const scale = scaleRecipe\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "recipe-utils.js",
+    "export function scaleRecipe(recipe, factor) {",
+    "return recipe.map(item => ({ ...item, grams: item.grams * factor }))",
+    "}",
+    "// keep the old name working for now",
+    "export const scale = scaleRecipe"
+   ],
+   "Terminal": [
+    "tripi@mac recipe-box % node scale.js",
+    "flour: 500 g",
+    "sugar: 200 g",
+    "butter: 250 g",
+    "milk: 400 g",
+    "eggs: 240 g",
+    "salt: 10 g",
+    "tripi@mac recipe-box %"
+   ]
+  },
+  "run": {
+   "command": "node scale.js",
+   "exit_code": 0,
+   "output_tail": [
+    "flour: 500 g",
+    "sugar: 200 g",
+    "butter: 250 g",
+    "milk: 400 g",
+    "eggs: 240 g",
+    "salt: 10 g"
+   ],
+   "running": false
+  }
+ }
+}
