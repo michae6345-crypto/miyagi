@@ -40,7 +40,7 @@ describe('resolveTarget', () => {
     assert.deepEqual(arm.libRel, ['lib', 'python3.12'])
     assert.deepEqual(arm.manifestExtra, {})
     assert.equal(arm.checksLinks, true)
-    assert.match(arm.smoke, /Quartz, Vision, ScreenCaptureKit, ApplicationServices$/)
+    assert.match(arm.smoke, /Quartz, Vision, ScreenCaptureKit, ApplicationServices, HIServices, AppKit$/)
     const x64 = bt.resolveTarget({ platform: 'darwin', arch: 'x64' })
     assert.equal(x64.triple, 'x86_64-apple-darwin')
     assert.equal(x64.sha256, '37c38fda76fec1fbf310adcbafb7f0d96af13b5511bf8ea954c3aa8eec185734')
@@ -61,7 +61,7 @@ describe('resolveTarget', () => {
   })
   test('smoke import skips the macOS-only modules on Windows, keeps the rest', () => {
     const w = bt.resolveTarget({ platform: 'win32' })
-    for (const m of ['Quartz', 'Vision', 'ScreenCaptureKit', 'ApplicationServices', 'objc']) assert.doesNotMatch(w.smoke, new RegExp(`\\b${m}\\b`))
+    for (const m of ['Quartz', 'Vision', 'ScreenCaptureKit', 'ApplicationServices', 'HIServices', 'AppKit', 'objc']) assert.doesNotMatch(w.smoke, new RegExp(`\\b${m}\\b`))
     for (const m of ['fastapi', 'uvicorn', 'websockets', 'pydantic', 'anthropic', 'google.genai', 'PIL']) assert.match(w.smoke, new RegExp(m.replace('.', '\\.')))
   })
   test('bad arch or platform gives an error, not a throw', () => {

@@ -35,8 +35,8 @@ const TRIPLES = {
 
 /** Imported with the bundled Python before we call the bundle good. */
 const SMOKE_COMMON = 'fastapi, uvicorn, websockets, pydantic, httpx, anthropic, google.genai, jsonschema, watchdog, rapidfuzz, PIL'
-/** macOS only: pyobjc frameworks (Quartz, Vision, ScreenCaptureKit, ApplicationServices) don't exist on Windows. */
-const SMOKE_MAC_ONLY = 'Quartz, Vision, ScreenCaptureKit, ApplicationServices'
+/** macOS only: pyobjc frameworks (Quartz, Vision, ScreenCaptureKit, ApplicationServices; HIServices and AppKit, which server/screen/ax.py imports directly) don't exist on Windows. */
+const SMOKE_MAC_ONLY = 'Quartz, Vision, ScreenCaptureKit, ApplicationServices, HIServices, AppKit'
 
 /**
  * The target platform: MIYAGI_BUNDLE_PLATFORM (darwin | win32; also win / windows / mac / macos), else the machine
