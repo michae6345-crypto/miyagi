@@ -107,6 +107,7 @@ def _py_view(text: str) -> str:
     return body + ("\n" + "\n".join(extra) if extra else "")
 
 
+_PY_WORD = re.compile(r"(?<![\w.])[A-Za-z_]\w*")
 _PY_TEMP = re.compile(r"^([ \t]*)([A-Za-z_]\w*)[ \t]*=(?!=)[ \t]*(\S[^\n#]*?)[ \t]*(?:#[^\n]*)?$")
 
 
@@ -115,20 +116,24 @@ def _py_inlined(text: str) -> list[str]:
     ``total = add(2, 3)`` then ``print(total)`` is ``print(add(2, 3))``. Only a one-line value, a name read nowhere
     else in the file, and a next line at the same indent."""
     lines = text.split("\n")
+    # how often each name appears in the whole file (one pass: a big file stays linear)
+    seen: dict[str, int] = {}
+    for w in _PY_WORD.findall(text):
+        seen[w] = seen.get(w, 0) + 1
     out = []
     for k, ln in enumerate(lines):
         m = _PY_TEMP.match(ln)
         if not m or m.group(3).endswith(("(", "[", "{", ",", "\\")):
             continue
+        name = m.group(2)
+        word = re.compile(rf"(?<![\w.]){re.escape(name)}(?!\w)")
+        if seen.get(name, 0) - len(word.findall(ln)) != 1:  # read exactly once outside its own line
+            continue
         nxt = next((j for j in range(k + 1, len(lines)) if lines[j].strip()), None)
         if nxt is None:
             continue
-        name = m.group(2)
-        word = re.compile(rf"(?<![\w.]){re.escape(name)}(?!\w)")
-        rest = "\n".join(lines[:k] + lines[k + 1:])
-        uses = word.findall(rest)
         indent = lines[nxt][:len(lines[nxt]) - len(lines[nxt].lstrip())]
-        if len(uses) != 1 or not word.search(lines[nxt]) or indent != m.group(1) \
+        if not word.search(lines[nxt]) or indent != m.group(1) \
                 or re.match(rf"[ \t]*{re.escape(name)}\s*=(?!=)", lines[nxt]):
             continue
         out.append(word.sub(lambda _: m.group(3), lines[nxt]))

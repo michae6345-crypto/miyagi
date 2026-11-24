@@ -3261,7 +3261,9 @@ def misplaced_file(step: dict, ctx: RunContext | None) -> str | None:
     if "/" not in rel.strip("/") or rel.startswith(("/", "(")) or ".." in rel.split("/"):
         return None
     root, base, found, same = os.path.abspath(ctx.workdir), rel.rsplit("/", 1)[-1], False, []
-    for here, dirs, files in os.walk(root):
+    for visited, (here, dirs, files) in enumerate(os.walk(root)):
+        if visited >= 2000:  # a huge folder: can't tell cheaply, so no verdict
+            return None
         dirs[:] = [d for d in dirs if d not in _WALK_SKIP]
         if os.path.relpath(here, root).count(os.sep) >= 4:
             dirs[:] = []

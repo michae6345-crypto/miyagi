@@ -371,6 +371,11 @@ def test_a_value_kept_in_a_name_for_the_next_line():
     assert "print(add(2, 3))" in view
     view = equivalent_view("total = add(2, 3)\nprint(total)\nprint(total * 2)\n", "main.py") or ""
     assert "print(add(2, 3))" not in view  # used twice: not a temporary
+    import time  # a 40,000-line module of assignments is read in one pass, not once per line
+    big = "".join(f"x_{i} = {i}\n" for i in range(40_000))
+    t0 = time.monotonic()
+    equivalent_view(big, "big.py")
+    assert time.monotonic() - t0 < 5
 
 
 def test_export_default_function_is_a_default_export():
