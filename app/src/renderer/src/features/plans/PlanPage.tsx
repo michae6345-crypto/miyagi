@@ -72,7 +72,8 @@ export function PlanPage({ id }: { id: string }): ReactNode {
   }
   const narrow = w < 760
   // Below 760 the picture shrinks beside the title rather than stacking full width above it (QA R2-01); only a very
-  // narrow column stacks, and then the title, facts and action come first.
+  // narrow column stacks, and then the title, facts and action come first. Beside the picture the title column can be
+  // narrower than a long title (332 px at a 556 px page), so the PageHeader wraps it onto two lines instead of clipping.
   const stack = w < 520
   const side = narrow ? 200 : 300
   const done = mine?.done ?? 0
@@ -108,7 +109,7 @@ export function PlanPage({ id }: { id: string }): ReactNode {
     <div ref={ref} data-plan-page={page.id} className="flex flex-col" style={{ gap: 32 }}>
       <div className={stack ? 'flex flex-col' : 'flex items-start'} style={{ gap: narrow ? 24 : 40 }}>
         <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 20 }}>
-          <PageHeader title={page.title} lede={page.line} />
+          <PageHeader title={page.title} lede={page.line} wrap />
           <dl className="m-0 grid" style={{ gridTemplateColumns: `${narrow ? 120 : 148}px minmax(0,1fr)`, rowGap: 12, alignItems: 'start' }}>
             {facts.map(([icon, k, v]) => (
               <div key={k} className="contents">

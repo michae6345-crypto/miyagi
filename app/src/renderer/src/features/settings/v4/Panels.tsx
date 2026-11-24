@@ -56,8 +56,6 @@ export function Cols({ left, right }: { left: ReactNode; right: ReactNode }): Re
  * A quiet button that may say a word after it ran ("Cleared."). `pending`: main has no handler for it yet
  * (apps:connect:<id>, data:open-folder, data:cache-clear; Core request in agents/v4-settings.md), so in Electron it
  * shows disabled with a tooltip instead of answering every click with an error; the stage's stand-ins keep it working.
- */
-/**
  * `soon`: the engine can't do it yet (its inventory's canDelete leaves the kind out): shown, but disabled with a reason.
  * `confirm`: the label of the second click (the first only arms it for 4 s, as End lesson does), for what can't be undone.
  */
