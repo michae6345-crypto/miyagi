@@ -392,7 +392,7 @@ def empty_mesh(path: str) -> str | None:
     return f"{name} has no triangles (an empty export)"
 
 
-MAX_MESH_TRIANGLES = 200_000
+MAX_MESH_TRIANGLES = 500_000
 _OPEN_MESH_CACHE: dict[tuple, str | None] = {}  # (path, mtime, size) -> open_mesh's answer
 _OPEN_MESH_CACHE_MAX = 32
 _MISS = object()

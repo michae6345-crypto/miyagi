@@ -45,9 +45,14 @@ def test_a_never_run_copy_of_a_setup_cell_that_ran_is_not_missing_setup(tmp_path
     _nb(tmp_path, SETUP + [{"src": "df = pd.read_csv('x.csv')"}, {"src": "print(df.shape)", "n": 3,
                                                                   "out": "(10, 3)\n"}], "nb.ipynb")
     assert _gate(SHAPE, workdir=str(tmp_path))["passed"]
-    _nb(tmp_path, _predict_cells({"src": "model.fit(x, y)", "n": 3}, {"src": "model.fit(x, y, epochs=10)"}),
+    _nb(tmp_path, _predict_cells({"src": "model.compile(opt)\nmodel.fit(x, y)", "n": 3}, {"src": "model.fit(x, y)"}),
         "mnist.ipynb")
     assert _gate(PREDICT, workdir=str(tmp_path))["passed"]
+    # not a copy (its line isn't in the cell that ran): a fit that never ran is still missing setup, even though
+    # another fit on the same model did run
+    _nb(tmp_path, _predict_cells({"src": "model.fit(x, y)", "n": 3}, {"src": "model.fit(x, y, epochs=10)"}),
+        "mnist.ipynb")
+    assert not _gate(PREDICT, workdir=str(tmp_path))["passed"]
     # the only cell that binds df never ran (the step's cell read a df from somewhere else): still blamed
     _nb(tmp_path, [SETUP[0], {"src": "df = pd.read_csv('x.csv')"}, {"src": "print(df.shape)", "n": 2,
                                                                      "out": "(10, 3)\n"}], "nb.ipynb")
@@ -66,15 +71,44 @@ def test_a_training_cell_from_before_a_restart_is_still_missing_setup(tmp_path):
     assert _gate(PREDICT, workdir=str(tmp_path))["passed"]
 
 
+def test_a_never_run_cell_that_changes_a_used_name_is_missing_setup(tmp_path):
+    """Must still fail: a cell that changes what the step's cell uses never ran, whatever method it calls and even when
+    a cell that ran binds the same name."""
+    predict = {"src": "p = model.predict(x)\nplt.imshow(x[0])", "n": 4, "out": "1/1 ok\n"}
+    shape = {"src": "print(df.shape)", "n": 3, "out": "(10, 3)\n"}
+    cases = [
+        (PREDICT, "mnist.ipynb", "model",  # Sequential() ran, the layers never went in, compile ran
+         [{"src": "import tf\nimport matplotlib.pyplot as plt", "n": 1}, {"src": "model = Sequential()", "n": 2},
+          {"src": "model.add(Dense(10))"}, {"src": "model.compile(opt)", "n": 3}, predict]),
+        (SHAPE, "nb.ipynb", "df", SETUP + [{"src": "df.dropna(inplace=True)"}, shape]),  # an in-place change
+        (SHAPE, "nb.ipynb", "df", SETUP + [{"src": "df = df.dropna()"}, shape]),  # read_csv binds df too, and ran
+        (PREDICT, "mnist.ipynb", "model",  # the model never moved to the GPU
+         _predict_cells({"src": "model.to('cuda')"}, {"src": "model.summary()", "n": 3})),
+        (SHAPE, "nb.ipynb", "df", SETUP + [{"src": "df['b'] = df.a * 2"}, shape]),  # a column never added
+    ]
+    for step, name, used, cells in cases:
+        _nb(tmp_path, cells, name)
+        gate = _gate(step, workdir=str(tmp_path))
+        assert not gate["passed"], cells
+        assert used in gate["checks"][-1]["detail"], gate["checks"][-1]
+
+
 # -- cell_not_run: an unrun duplicate of the step's cell is not another cell to run ----------------------------------
 
 def test_an_unrun_duplicate_of_the_steps_cell_does_not_block_it(tmp_path):
     ran = {"src": "print(df.shape)", "n": 3, "out": "(10, 3)\n"}
-    _nb(tmp_path, SETUP + [ran, {"src": "print(df.shape)"}], "nb.ipynb")
-    assert _gate(SHAPE, workdir=str(tmp_path))["passed"]
+    _nb(tmp_path, SETUP + [ran, {"src": "print(df.shape)"}], "nb.ipynb")  # a new copy below: the user's cell, unrun
+    assert not _gate(SHAPE, workdir=str(tmp_path))["passed"]
     _nb(tmp_path, SETUP + [{"src": "print( df.shape )"}, ran], "nb.ipynb")  # an abandoned copy above
     assert _gate(SHAPE, workdir=str(tmp_path))["passed"]
     _nb(tmp_path, SETUP + [{"src": "print(df.shape)"}], "nb.ipynb")  # the only copy never ran
+    assert not _gate(SHAPE, workdir=str(tmp_path))["passed"]
+
+
+def test_an_unrun_copy_below_a_cell_that_ran_is_still_not_run(tmp_path):
+    """The shape on screen is the unfiltered df's: the new print(df.shape) after the filter never ran."""
+    _nb(tmp_path, SETUP + [{"src": "print(df.shape)", "n": 3, "out": "(10, 3)\n"}, {"src": "df = df[df.a > 0]", "n": 4},
+                           {"src": "print(df.shape)"}], "nb.ipynb")
     assert not _gate(SHAPE, workdir=str(tmp_path))["passed"]
 
 

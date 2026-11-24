@@ -1806,28 +1806,38 @@ def cell_not_run(step: dict, ctx: RunContext | None) -> bool:
         return False
     if not nb.executed:
         return True
-
-    def lines(src: str) -> set[str]:
-        return {"".join(ln.split()) for ln in src.splitlines() if ln.strip()}
-
-    # every one of its cells: "run both" with the second still unrun is not done. An unrun copy of code a cell that
-    # ran holds (a duplicate, an abandoned attempt: each of its lines is in that cell) is not another cell to run.
-    ran = [lines(c.source) for c in nb.cells if c.executed]
-    return any(not c.executed and not any(lines(c.source) <= r for r in ran) for c in nb.cells if c.source.strip())
+    # every one of its cells: "run both" with the second still unrun is not done. An unrun copy of a cell below it
+    # that ran (an abandoned attempt above: each of its lines is in that cell) is not another cell to run; an unrun
+    # copy below the one that ran is the user's new cell (its output on screen is the older cell's), so it still counts
+    cells = [(_code_lines(c.source), c.executed) for c in nb.cells if c.source.strip()]
+    return any(not done and not any(ran and mine <= theirs for theirs, ran in cells[k + 1:])
+               for k, (mine, done) in enumerate(cells))
 
 
-# methods that put an object into the state later cells rely on (a model trained, compiled, its weights loaded); a
-# statement calling one sets that object up as much as binding it does. Any other method call (model.summary(),
-# plt.imshow(...), df.describe()) only reads it.
-_SETUP_METHODS = re.compile(r"(?:partial_)?fit(?:_\w+)?|compile|train(?:_on_batch)?|load_state_dict|load_weights|"
-                            r"set_weights|build")
+def _code_lines(src: str) -> set[str]:
+    """A cell's non-blank lines with every space taken out: an unrun cell is a copy of another when all of its lines
+    are in that one."""
+    return {"".join(ln.split()) for ln in src.splitlines() if ln.strip()}
 
 
-def _py_names(src: str) -> tuple[set[str], set[tuple[str, str]], set[str]] | None:
-    """(names a cell's code binds, the (name, method) setup calls its statements make, names it reads): assignment
-    targets, def / class / import names; a setup call is a statement calling one of _SETUP_METHODS on a name
-    (``model.compile(...)``, ``history = model.fit(...)``). IPython magics and shell lines are left out. None when it
-    doesn't parse."""
+# methods that only read an object (show it, summarise it, plot it, predict with it): a statement calling one leaves
+# it as it was. Any other method a statement calls on a name (model.fit / add / compile / to, df.dropna(inplace=True))
+# may change it, so it sets that name up as much as binding it does.
+_READ_ONLY_METHODS = frozenset("""
+    summary describe head tail info show imshow plot print display render repr count value_counts nunique unique
+    isna isnull notna notnull mean median std var sum min max corr cov hist scatter bar barh pie boxplot
+    figure subplot subplots title suptitle xlabel ylabel set_title set_xlabel set_ylabel legend grid xticks yticks
+    tight_layout colorbar axis savefig evaluate predict predict_proba score get_params get_config count_params
+    parameters named_parameters state_dict to_csv to_json to_excel to_numpy tolist keys values items get
+""".split())
+
+
+def _py_names(src: str) -> tuple[set[str], set[str], set[str]] | None:
+    """(names a cell's code binds, names it binds or changes, names it reads): assignment targets, def / class / import
+    names; changed, too, a name a statement calls a method on that isn't in _READ_ONLY_METHODS (``model.add(...)``,
+    ``history = model.fit(...)``, ``df.dropna(inplace=True)`` change ``model`` / ``df``; ``model.summary()`` doesn't),
+    or assigns an item or attribute of (``df['b'] = ...``, ``layer.trainable = False``). IPython magics and shell
+    lines are left out. None when it doesn't parse."""
     code = "\n".join("pass" if ln.lstrip().startswith(("%", "!")) else ln for ln in src.splitlines())
     try:
         tree = ast.parse(code)
@@ -1842,13 +1852,20 @@ def _py_names(src: str) -> tuple[set[str], set[tuple[str, str]], set[str]] | Non
             writes.add(node.name)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             writes |= {(a.asname or a.name).split(".")[0] for a in node.names}
-    setup: set[tuple[str, str]] = set()
+    changes = set(writes)
     for stmt in tree.body:
-        call = stmt.value if isinstance(stmt, (ast.Expr, ast.Assign, ast.AnnAssign)) else None
+        call = stmt.value if isinstance(stmt, (ast.Expr, ast.Assign, ast.AnnAssign, ast.AugAssign)) else None
         if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) \
-                and isinstance(call.func.value, ast.Name) and _SETUP_METHODS.fullmatch(call.func.attr):
-            setup.add((call.func.value.id, call.func.attr))
-    return writes, setup, reads
+                and isinstance(call.func.value, ast.Name) and call.func.attr not in _READ_ONLY_METHODS:
+            changes.add(call.func.value.id)
+        targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target] \
+            if isinstance(stmt, (ast.AnnAssign, ast.AugAssign)) else []
+        for t in targets:
+            while isinstance(t, (ast.Subscript, ast.Attribute)):
+                t = t.value
+            if isinstance(t, ast.Name):
+                changes.add(t.id)
+    return writes, changes, reads
 
 
 def stale_inputs(step: dict, ctx: RunContext | None) -> str | None:
@@ -1858,10 +1875,11 @@ def stale_inputs(step: dict, ctx: RunContext | None) -> str | None:
     Why, else None. Only when the counts before the step's cell's own are all on cells above it (nothing else can have
     run in that kernel).
 
-    A cell above that didn't run before it is blamed only for what no cell above that did run gives the step's cell: a
-    name it binds that none of those binds (an unrun copy of ``df = pd.read_csv(...)`` is not missing setup), or a
-    setup call (``model.fit``) none of those makes. A cell that only reads a name or calls another method on it
-    (``model.summary()``, ``plt.imshow(...)``) is never blamed."""
+    A cell above that didn't run before it is blamed when it binds or changes a name the step's cell uses, unless it
+    is a copy of a cell that did run (each of its lines is in that cell: an unrun duplicate of
+    ``df = pd.read_csv(...)``). Another cell that ran binding the same name doesn't excuse it (``df = df.dropna()``
+    never run after ``df = pd.read_csv(...)`` ran). A cell that only reads a name (``model.summary()``,
+    ``plt.imshow(...)``, ``print(model)``) is never blamed."""
     if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
         return None
     nb = ctx.notebook if isinstance(ctx.notebook, Notebook) else None
@@ -1879,20 +1897,14 @@ def stale_inputs(step: dict, ctx: RunContext | None) -> str | None:
         mine = _py_names(cell.source)
         if mine is None:
             continue
-        uses = mine[2] - mine[0]
-        bound: set[str] = set()
-        set_up: set[tuple[str, str]] = set()
-        for c in above:
-            if c.count is not None and c.count <= cell.count and (names := _py_names(c.source)):
-                bound |= names[0]
-                set_up |= names[1]
+        ran = [_code_lines(c.source) for c in [*above, cell] if c.count is not None and c.count <= cell.count]
         for c in above:
             if c.count is not None and c.count <= cell.count:  # ran before it (an equal count: can't tell)
                 continue
             theirs = _py_names(c.source)
-            if not theirs:
+            if not theirs or any(_code_lines(c.source) <= r for r in ran):
                 continue
-            need = sorted((theirs[0] & uses) - bound) or sorted({n for n, _ in theirs[1] - set_up if n in uses})
+            need = sorted((theirs[1] & mine[2]) - mine[0])
             if need:
                 when = f"[{c.count}], from before a kernel restart" if c.count is not None else "never run"
                 first = c.source.strip().splitlines()[0][:60]
