@@ -3,11 +3,12 @@ One test (or a small group) per general fix. Offline: no model, no network."""
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
-from server.checks import RunContext, evaluate_gate, extract_metrics
-from server.checks import blocks
+from server.checks import RunContext, blocks, evaluate_gate, extract_metrics
+from server.checks.code_equiv import broken_imports, equivalent_view
 from server.checks.evaluator import _absent_hit
 
 
@@ -182,3 +183,83 @@ def test_restart_and_run_all_needs_the_run_counts_in_order_from_1(tmp_path, coun
                         "pattern": r"Traceback|\w+Error"}]}
     g = _gate(step, workdir=str(tmp_path), screen={"Code": ["steps.ipynb", "[1]"]})
     assert g["passed"] is passed
+
+
+# -- VS Code: equivalent code, the file a line belongs to, imports that don't resolve ---------------------------------
+
+M2 = {"id": "m2", "kind": "code", "code": "from operations import add\n\nprint(add(2, 3))",
+      "targets": [{"app": "Code", "file": "main.py", "match": "from operations import add"}],
+      "checks": [{"id": "a", "type": "screen_contains", "label": "main.py imports add from operations", "app": "Code",
+                  "pattern": r"from\s+operations\s+import\s+add"},
+                 {"id": "b", "type": "screen_contains", "label": "main.py calls add(2, 3)", "app": "Code",
+                  "pattern": r"print\(add\(2,\s*3\)\)"}]}
+OPS = "def add(a, b):\n    return a + b\n"
+
+
+@pytest.mark.parametrize("main", ["from operations import add as plus\nprint(plus(2, 3))",
+                                  "import operations\nprint(operations.add(2, 3))",
+                                  "from operations import (subtract,\n    add)\nprint(add(2, 3))"])
+def test_python_import_forms_that_mean_the_same_pass(tmp_path, main):
+    (tmp_path / "operations.py").write_text(OPS + "def subtract(a, b):\n    return a - b\n")
+    (tmp_path / "main.py").write_text(main + "\n")
+    assert _gate(M2, workdir=str(tmp_path), screen={"Code": ["main.py", *main.splitlines()]})["passed"]
+
+
+@pytest.mark.parametrize("code,pattern", [
+    ("import { formatDate, formatPrice } from '../utils'", r"import\s*\{\s*formatPrice\s*\}\s*from\s*['\"]\.\./utils"),
+    ("import SiteHeader from './Header.jsx'\nreturn (<SiteHeader/>)", r"import\s+Header"),
+    ("import SiteHeader from './Header.jsx'\nreturn (<SiteHeader/>)", r"<Header"),
+    ("import * as u from '../utils'\nu.formatPrice(1)", r"import\s*\{\s*formatPrice\s*\}"),
+    ("return (<Fragment><Header/></Fragment>)", r"<>"),
+    ("return (<React.Fragment><Header/></React.Fragment>)", r"</>"),
+])
+def test_js_import_and_fragment_forms_that_mean_the_same_are_read(code, pattern):
+    view = equivalent_view(code, "App.jsx")
+    assert view is not None and re.search(pattern, view)
+
+
+def test_a_jsx_tag_pattern_is_a_code_check_not_an_output_one():
+    step = {"id": "s3", "targets": [{"app": "Code", "file": "src/App.jsx", "match": "<Header/>"}],
+            "checks": [{"id": "c", "type": "screen_contains", "label": "Header component rendered", "app": "Code",
+                        "pattern": "<Header"}]}
+    g = _gate(step, screen={"Code": ["App.jsx", "import SiteHeader from './Header.jsx'", "return (<SiteHeader/>)"]})
+    assert g["passed"]
+
+
+def test_a_line_seen_in_a_split_editor_counts_only_for_its_own_file(tmp_path):
+    (tmp_path / "operations.py").write_text(OPS)
+    (tmp_path / "main.py").write_text("print(add(2, 3))\n")
+    (tmp_path / "test_operations.py").write_text("from operations import add\n\ndef test_add():\n    assert add(2, 3)\n")
+    screen = {"Code": ["main.py", "test_operations.py", "print(add(2, 3))", "from operations import add"]}
+    g = _gate(M2, workdir=str(tmp_path), screen=screen)
+    assert not g["passed"] and "test_operations.py" in g["checks"][0]["detail"]
+    (tmp_path / "main.py").write_text("from operations import add\nprint(add(2, 3))\n")
+    assert _gate(M2, workdir=str(tmp_path), screen=screen)["passed"]
+
+
+def test_an_import_of_a_name_the_module_no_longer_defines_fails_the_step(tmp_path):
+    (tmp_path / "operations.py").write_text("def add_numbers(a, b):\n    return a + b\n")
+    (tmp_path / "main.py").write_text("from operations import add\nprint(add_numbers(2, 3))\n")
+    step = {"id": "m4", "targets": [{"app": "Code", "file": "operations.py", "match": "def add(a, b):"}],
+            "checks": [{"id": "c", "type": "screen_contains", "label": "main.py calls add_numbers(2, 3)",
+                        "app": "Code", "pattern": r"add_numbers\(2,\s*3\)"}]}
+    screen = {"Code": ["main.py", "from operations import add", "print(add_numbers(2, 3))"]}
+    g = _gate(step, workdir=str(tmp_path), screen=screen)
+    assert not g["passed"] and g["checks"][-1]["label"] == "Imports resolve"
+    (tmp_path / "main.py").write_text("from operations import add_numbers\nprint(add_numbers(2, 3))\n")
+    assert _gate(step, workdir=str(tmp_path), screen=screen)["passed"]
+
+
+def test_js_default_and_named_imports_are_resolved_against_the_lessons_modules(tmp_path):
+    src = tmp_path / "app" / "src"
+    src.mkdir(parents=True)
+    (src / "Header.jsx").write_text("export function Header() {\n  return <h1>x</h1>\n}\n")
+    (src / "utils.ts").write_text("export function formatPrice(c: number) { return '' }\n")
+    (src / "App.jsx").write_text("import Header from './Header.jsx'\nimport { formatPrice } from './utils'\n"
+                                 "import React from 'react'\n")
+    assert broken_imports(tmp_path, ["src/App.jsx"]) == [
+        "App.jsx imports a default export from Header.jsx, which has none"]
+    (src / "Header.jsx").write_text("function Header() {}\nexport default Header\n")
+    (src / "utils.ts").write_text("export const formatCents = 1\n")
+    assert broken_imports(tmp_path, ["src/App.jsx"]) == [
+        "App.jsx imports formatPrice from utils.ts, which doesn't export it"]

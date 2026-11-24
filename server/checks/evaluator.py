@@ -31,7 +31,7 @@ from typing import Any, Literal, TypedDict
 from server.safety import regex_worker
 from server.safety.patterns import MAX_PATTERN_LEN, pattern_problem, safe_compile  # noqa: F401 - re-exported
 
-from . import blocks
+from . import blocks, code_equiv
 from .code_text import code_view, lang_of, signatures
 from .notebook import Notebook, find_notebook, read_notebook
 from .screen import extract_metrics, screen_lines, screen_text, search_screen, search_wrapped
@@ -788,6 +788,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         if m:
             return _result(check, "fail", f"still showing {m.group(0)[:80]!r}{where}")
         return _result(check, "pass", f"not showing{where}")
+    if m and not output and app == "Code" and (other := _in_another_file(check, ctx)):
+        return _result(check, "fail", other)
     if m:
         return _result(check, "pass", f"seen{where}")
     if app in _TERMINAL_APPS:  # the terminal is on screen, the output isn't: say that, not where to open it
@@ -800,6 +802,29 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
     f = _learner_file(os.path.basename(str(check.get("file") or "")), ctx)
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
+
+
+def _in_another_file(check: dict, ctx: RunContext) -> str | None:
+    """A code line seen in VS Code that belongs to another file of the lesson (a split editor: the import is at the
+    top of test_operations.py, the call in main.py). The check's file (the one its label names, else the step's) is on
+    disk without the pattern, and another lesson file of the same language has it: why the screen doesn't count."""
+    if not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    rel = code_equiv.file_in_label(str(check.get("label") or "")) or str(check.get("file") or "")
+    if code_equiv.kind_of(rel) is None or (own := code_equiv.find_file(ctx.workdir, rel)) is None:
+        return None
+    pattern, sigs = str(check.get("pattern") or ""), check.get("_sigs")
+
+    def has(path) -> bool:
+        text = code_equiv.read(path)
+        return bool(text) and bool(search_wrapped(pattern, scan_text(code_view(text, check, path.name, sigs))))
+
+    if code_equiv.read(own) is None or has(own):
+        return None
+    for p in code_equiv.lesson_files(ctx.workdir):
+        if p != own and code_equiv.kind_of(p.name) == code_equiv.kind_of(own.name) and has(p):
+            return f"not in {own.name} yet (that line on screen is in {p.name})"
+    return None
 
 
 # What an error looks like in a terminal (server.checks.blocks.ERROR_FORM): a traceback, `XError:`, `error:` starting a
@@ -1154,6 +1179,9 @@ _OUTPUT_LABEL = re.compile(r"\b(printed|prints|shown|shows|displayed|logged|rend
                            r"|\boutput\s+(shown|printed|appears|visible|displayed)\b", re.I)
 # a pattern that looks like code: an escaped ( ) or =, an attribute dot (mnist\.load_data), a CamelCase name
 _CODE_PATTERN = re.compile(r"\\[()]|=|\\\.[A-Za-z_]|[a-z][A-Z]")
+# a JSX / HTML tag in a pattern (<Header, <\/footer), on a step whose file is markup or a component
+_MARKUP_TAG = re.compile(r"<\\?/?\s*[A-Za-z]")
+_MARKUP = (".jsx", ".tsx", ".html", ".htm", ".vue", ".svelte", ".astro")
 # a code line on screen: a print( call, a string literal opening after ( or closing before , / ), an f-string
 _CODE_MARK = re.compile(r"\bprint\s*\(|\(\s*[fbr]?['\"]|['\"]\s*[,)]|\bf['\"]")
 
@@ -1180,6 +1208,22 @@ def cell_not_run(step: dict, ctx: RunContext | None) -> bool:
         return False
     nb = _with_step_notebook(step, ctx).notebook
     return isinstance(nb, Notebook) and bool(nb.cells) and not nb.executed
+
+
+def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
+    """server.checks.code_equiv.broken_imports over the step's code files in the lesson folder: its targets', checks'
+    and own file, and the files its check labels name ("main.py calls add_numbers(2, 3)")."""
+    if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
+        return []
+    files = [f for f in _files(step) if code_equiv.kind_of(f)]
+    files += [f for c in [*(step.get("checks") or []), *(step.get("precision_checks") or [])]
+              if (f := code_equiv.file_in_label(str(c.get("label") or "")))]
+    if not files:
+        return []
+    try:
+        return code_equiv.broken_imports(ctx.workdir, list(dict.fromkeys(files)))
+    except (OSError, ValueError, RecursionError):
+        return []
 
 
 _RUN_ALL = re.compile(r"\brun\s+all\b|\brestart\b.{0,40}\brun\b", re.I)
@@ -1280,6 +1324,8 @@ def is_output_check(check: dict) -> bool:
         return check["output"]
     if _CODE_PATTERN.search(str(check.get("pattern") or "")):
         return False  # a pattern for code (model\.predict\(): a code check, whatever its label says
+    if _MARKUP_TAG.search(str(check.get("pattern") or "")) and str(check.get("file") or "").lower().endswith(_MARKUP):
+        return False  # "Header component rendered" = <Header in App.jsx: a component is rendered by the code that uses it
     return bool(_OUTPUT_LABEL.search(str(check.get("label") or "")))
 
 
@@ -1328,6 +1374,11 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         if step_passed(checks):
             checks = [*checks, {"checkId": f"{step.get('id', '')}-cell", "label": "Cell run", "status": "pending",
                                 "detail": "run the cell (Shift+Enter)"}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (broken := _broken_imports(step, ctx)) and (step_passed(checks) or step_passed(prec)):
+        # the step's files look finished, but one imports what its module no longer has: it crashes when run
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-imports", "label": "Imports resolve",
+                            "status": "fail", "detail": broken[0]}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (order := run_all_out_of_order(step, ctx)) is not None:
         checks = [*checks, {"checkId": f"{step.get('id', '')}-order", "label": "Cells ran in order from [1]",
