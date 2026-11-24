@@ -560,8 +560,11 @@ def gh_git_steps(segment: str) -> set[str]:
 
 
 # git commands whose first argument says which way the work goes: ``git merge main`` on the branch is the other way
-# round from ``git merge add-waffles`` on main
-_REF_DIRECTED = frozenset({"merge", "rebase", "cherry-pick", "revert"})
+# round from ``git merge add-waffles`` on main. Not revert / cherry-pick: their argument is a commit, which the learner
+# may name by its hash, by HEAD or by a branch that points at it, so another spelling is not another commit.
+_REF_DIRECTED = frozenset({"merge", "rebase"})
+# a ref that names a commit rather than a branch: HEAD (``HEAD``, ``@``, ``HEAD~2``) or a hash; it may be a branch's tip
+_COMMIT_REF = re.compile(r"(?:head|@)(?:[~^]\d*)*|[0-9a-f]{7,40}", re.I)
 
 
 def _ref_arg(segment: str) -> str | None:
@@ -574,10 +577,12 @@ def _ref_arg(segment: str) -> str | None:
 def _other_ref(segment: str, target: str) -> bool:
     """Does ``segment`` name another branch / commit than the step's ``target`` for a git command whose argument sets
     its direction (merge, rebase)? A remote's copy of the branch (``origin/add-waffles``) is the same one; a target
-    with a placeholder (``<branch>``) takes any."""
+    with a placeholder (``<branch>``) takes any, and HEAD or a hash on either side matches any ref (it may be that
+    branch's tip)."""
     a, t = _ref_arg(segment), _ref_arg(target)
-    if not a or not t or re.search(r"[<>{}\[\]~^@]|\.\.\.", t) or re.fullmatch(r"[0-9a-f]{7,40}", t):
-        return False  # a placeholder, or a commit counted back from HEAD / named by its hash: how far is the learner's
+    if not a or not t or re.search(r"[<>{}\[\]~^@]|\.\.\.", t) or _COMMIT_REF.fullmatch(t) \
+            or _COMMIT_REF.fullmatch(a):
+        return False  # a placeholder, or a commit (HEAD, counted back from it, a hash): how far back is the learner's
     a, t = a.lower(), t.lower()
     return a != t and not a.endswith("/" + t) and not t.endswith("/" + a)
 

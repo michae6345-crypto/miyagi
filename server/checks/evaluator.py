@@ -387,11 +387,19 @@ def _fresh(entry: os.DirEntry, since: float | None) -> bool:
         return False
 
 
-# Blender names a rendered animation by its frames ("0001-0048.mp4"); the step's own frame numbers ("frame range to
-# 1-96", "wait for frame 96", "96 frames")
+# Blender names a rendered animation by its frames ("0001-0048.mp4"); the step's own numbers for the render's range
+# or its end ("frame range to 1-96", "frames 1-96", "96 frames", "end frame 96", "End to 96", "wait for frame 96").
+# A keyframe or playhead's frame ("key it at frame 48", "go to frame 48", "on frame 1") is not the range.
 _FRAMES_NAME = re.compile(r"(?<!\d)(\d{3,})-(\d{3,})\.\w+$")
-_STEP_FRAMES = re.compile(r"\bframes?\b(?:\s+range)?(?:\s+(?:to|from|of))?\s+(\d+)(?:\s*(?:-|–|to)\s*(\d+))?|"
-                          r"(?<![\w.])(\d+)\s+frames\b", re.I)
+_TO = r"\s*(?:-|–|—|\bto\b|\bthrough\b|\.\.)\s*"
+_STEP_FRAMES = re.compile(
+    rf"\bframe\s+range\b(?:\s+(?:to|from|of|is|at))*\s*[:=]?\s*(\d+)(?:{_TO}(\d+))?|"
+    rf"\bframes\s+(\d+){_TO}(\d+)|"
+    r"(?<![\w.])(\d+)\s+frames\b|"
+    r"\b(?:end|last|final)\s+frame\b(?:\s+(?:to|of|is|at))*\s*[:=]?\s*(\d+)|"
+    r"\b(?-i:End)\s*(?:\bto\b|[:=])\s*(\d+)|"
+    r"\b(?:ends|ending|stops?)\s+(?:at|on)\s+frame\s+(\d+)|"
+    r"\bwait\s+(?:for|until|till)\s+frame\s+(\d+)", re.I)
 
 
 def _stale_frames(name: str, about: str) -> str | None:
@@ -2793,13 +2801,47 @@ def editor_problems(step: dict, ctx: RunContext | None) -> str | None:
 _PROMPT_ANSWER = re.compile(r"^\s*[✔✓√]\s*(?P<q>[^:›»?]{3,60}?)\s*[:?]?\s*(?:›|»|…)\s*(?P<a>\S.*?)\s*$")
 _CHOOSES = re.compile(r"\b(?:choos\w*|chose|select\w*|pick\w*|answer\w*)\b", re.I)
 _YES_NO = re.compile(r"^(?:y(?:es)?|no?|true|false|ok)$", re.I)
+# the options scaffolders offer for one question (create-vite's framework and variant, a language, a styling tool):
+# a step that names one of a group makes a choice for every prompt answered from that group
+# (no plain English words such as "next" or "solid", nor file extensions such as "js" or "css": "edit main.js" is not
+# a choice)
+_OPTION_GROUPS = tuple(frozenset(g.split()) for g in (
+    "vanilla vue react preact svelte qwik angular nuxt remix astro ember",
+    "typescript javascript swc",
+    "tailwind tailwindcss sass scss stylus postcss",
+))
+# words of a prompt's question that are not its subject ("Select a framework" is about the framework)
+_QUESTION_FILLER = frozenset("""select choose pick which what would you like use your want enter type the for with
+this that and project please option options""".split())
+
+
+def _yes_no_answer(answer: str) -> bool:
+    """A yes / no prompt's answer: "Yes", "n", or create-next-app's "No / Yes" (the choice is the highlighted one)."""
+    words = re.findall(r"[A-Za-z]+", answer)
+    return bool(words) and all(_YES_NO.match(w) for w in words)
+
+
+def _step_has(words: str, token: str) -> bool:
+    return bool(re.search(rf"(?<![\w-]){re.escape(token)}(?![\w-])", words, re.I))
+
+
+def _step_answers(question: str, tokens: list[str], words: str) -> bool:
+    """Does the step make a choice for this prompt: it names the question's subject ("variant", "framework") or
+    another option of the group the answer comes from (JavaScript for a "TypeScript + SWC" answer)?"""
+    subject = [w for w in re.findall(r"[a-z]{4,}", question.lower()) if w not in _QUESTION_FILLER]
+    if any(_step_has(words, w) for w in subject):
+        return True
+    low = {t.lower() for t in tokens}
+    options = set().union(*(g for g in _OPTION_GROUPS if g & low))
+    return any(_step_has(words, o) for o in options)
 
 
 def scaffold_choices(step: dict, ctx: RunContext | None) -> str | None:
     """A step that says which options to choose in a scaffolder ("run npm create vite@latest choosing my-react-app,
     React, and JavaScript"), whose terminal shows a prompt answered with none of the step's words ("✔ Select a
-    framework: › Vanilla"): the project is another template. Why, else None. Name prompts and yes / no answers are
-    the learner's own; only the newest answer to each question counts."""
+    framework: › Vanilla"): the project is another template. Why, else None. Name prompts and yes / no answers
+    ("No / Yes": which one was picked isn't in the text) are the learner's own, and so is a prompt the step makes no
+    choice for (the variant when it says only "choose React"); only the newest answer to each question counts."""
     if ctx is None or ctx.screen is None:
         return None
     words = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
@@ -2812,9 +2854,9 @@ def scaffold_choices(step: dict, ctx: RunContext | None) -> str | None:
                 answers[m.group("q").strip().lower()] = m.group("a")
     for q, a in answers.items():
         toks = [t for t in re.findall(r"[A-Za-z][\w+#.-]*", a) if len(t) >= 2]
-        if not toks or _YES_NO.match(a.strip()):
+        if not toks or _yes_no_answer(a) or not _step_answers(q, toks, words):
             continue
-        if not any(re.search(rf"(?<![\w-]){re.escape(t)}(?![\w-])", words, re.I) for t in toks):
+        if not any(_step_has(words, t) for t in toks):
             return f"the terminal shows “{q}: {a}”, which is not what the step chooses: scaffold it again and pick the " \
                    f"step's option"
     return None
