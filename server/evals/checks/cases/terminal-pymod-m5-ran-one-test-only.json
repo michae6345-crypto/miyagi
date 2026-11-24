@@ -1,0 +1,36 @@
+{
+ "id": "terminal-pymod-m5-ran-one-test-only",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Only one test ran: `python3 -m pytest -q test_operations.py::test_add` selects test_add, so '1 passed' and exit 0. The step runs the whole file; divide() uses // and test_divide (divide(5, 2) == 2.5) would fail, so 'every test passes' is not true.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m5"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a // b\n",
+   "main.py": "from operations import add\n\nprint(add(2, 3))\n",
+   "test_operations.py": "from operations import add, subtract, divide\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n"
+  },
+  "editor": "Code",
+  "run": {
+   "command": "python3 -m pytest -q test_operations.py::test_add",
+   "exit_code": 0,
+   "output_tail": [
+    ".                                                                        [100%]",
+    "1 passed in 0.01s"
+   ],
+   "running": false
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac calc % python3 -m pytest -q test_operations.py::test_add",
+    ".                                                                        [100%]",
+    "1 passed in 0.01s",
+    "tripi@mac calc % "
+   ]
+  }
+ }
+}

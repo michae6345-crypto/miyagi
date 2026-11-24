@@ -1,0 +1,43 @@
+{
+ "id": "terminal-shell-pwd-home-in-chain",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Intro to the terminal, 'Find where you are'. Done as one line, `cd ~ && pwd`, which printed '/Users/tripi'; the learner then ran `ls -a`, so pwd is the last pwd but not the last command.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Come back home",
+  "instructions": "Go back to your home folder (cd on its own, or cd ~), then run pwd to check where you are. Your home folder is /Users/ followed by your user name.",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "pwd",
+    "caption": "Print the folder you are in"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "screen_contains",
+    "label": "pwd prints your home folder",
+    "app": "Terminal",
+    "pattern": "^/Users/[^/\\s]+\\s*$"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac / % cd ~ && pwd",
+    "/Users/tripi",
+    "tripi@mac ~ % ls -a",
+    ".\t\t.zshrc\t\tDocuments\tLibrary\t\tPictures",
+    "..\t\tDesktop\t\tDownloads\tMovies\t\tPublic",
+    "tripi@mac ~ % "
+   ]
+  }
+ }
+}

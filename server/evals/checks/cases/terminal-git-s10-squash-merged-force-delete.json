@@ -1,0 +1,36 @@
+{
+ "id": "terminal-git-s10-squash-merged-force-delete",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done: the PR was squash-merged ('Update heading (#1)' on main), so `git branch -d` refused with 'not fully merged'; git's own hint says to use -D, the learner did ('Deleted branch update-name'), and the remote branch was deleted (' - [deleted]  update-name').",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s10"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/.git": {
+    "dir": true
+   },
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Let's Get Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git log --oneline -1",
+    "8e9f0a1 (HEAD -> main, origin/main) Update heading (#1)",
+    "tripi@mac gitgoing % git branch -d update-name",
+    "error: the branch 'update-name' is not fully merged",
+    "hint: If you are sure you want to delete it, run 'git branch -D update-name'",
+    "hint: Disable this message with \"git config advice.forceDeleteBranch false\"",
+    "tripi@mac gitgoing % git branch -D update-name",
+    "Deleted branch update-name (was 5d6e7f8).",
+    "tripi@mac gitgoing % git push --delete origin update-name",
+    "To https://github.com/ada-learner/GitGoing.git",
+    " - [deleted]         update-name",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

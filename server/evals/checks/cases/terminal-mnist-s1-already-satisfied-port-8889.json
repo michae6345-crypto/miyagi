@@ -1,0 +1,35 @@
+{
+ "id": "terminal-mnist-s1-already-satisfied-port-8889",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done, odd-looking: every package was already in the venv ('Requirement already satisfied', plus pip's '[notice] A new release of pip is available'), and 8888 was taken by another Jupyter, so the server moved to 'http://localhost:8889'. The venv is active and Jupyter is running.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "venv/bin/activate": "# venv\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac mnist % source venv/bin/activate",
+    "(venv) tripi@mac mnist % pip install jupyter tensorflow numpy matplotlib",
+    "Requirement already satisfied: jupyter in ./venv/lib/python3.12/site-packages (1.1.1)",
+    "Requirement already satisfied: tensorflow in ./venv/lib/python3.12/site-packages (2.18.0)",
+    "Requirement already satisfied: numpy in ./venv/lib/python3.12/site-packages (2.0.2)",
+    "Requirement already satisfied: matplotlib in ./venv/lib/python3.12/site-packages (3.9.2)",
+    "",
+    "[notice] A new release of pip is available: 24.2 -> 24.3.1",
+    "[notice] To update, run: pip install --upgrade pip",
+    "(venv) tripi@mac mnist % jupyter notebook",
+    "[I 2026-11-24 09:52:40.311 ServerApp] The port 8888 is already in use, trying another port.",
+    "[I 2026-11-24 09:52:40.402 ServerApp] Jupyter Server 2.14.2 is running at:",
+    "[I 2026-11-24 09:52:40.402 ServerApp] http://localhost:8889/tree?token=b71f09aa",
+    "[I 2026-11-24 09:52:40.402 ServerApp]     http://127.0.0.1:8889/tree?token=b71f09aa",
+    "[I 2026-11-24 09:52:40.402 ServerApp] Use Control-C to stop this server and shut down all kernels (twice to skip confirmation)."
+   ]
+  }
+ }
+}

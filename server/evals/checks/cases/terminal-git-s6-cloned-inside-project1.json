@@ -1,0 +1,37 @@
+{
+ "id": "terminal-git-s6-cloned-inside-project1",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The lesson's own common mistake: the clone ran inside project1 (the prompt says project1), so GitGoing is a repository nested in another repository (project1/GitGoing). 'Cloning into' and `cd gitgoing` are both on screen, but the step says to clone from Documents, not inside project1.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "project1/.git": {
+    "dir": true
+   },
+   "project1/learning.py": "print(\"learning git\")\n\ndef my_function():\n    return \"waiting\"\n",
+   "project1/GitGoing/.git": {
+    "dir": true
+   },
+   "project1/GitGoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Let's Get Started</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac project1 % git clone https://github.com/LadyKerr/GitGoing.git",
+    "Cloning into 'GitGoing'...",
+    "remote: Enumerating objects: 12, done.",
+    "remote: Counting objects: 100% (12/12), done.",
+    "remote: Compressing objects: 100% (9/9), done.",
+    "remote: Total 12 (delta 2), reused 8 (delta 1), pack-reused 0 (from 0)",
+    "Receiving objects: 100% (12/12), done.",
+    "Resolving deltas: 100% (2/2), done.",
+    "tripi@mac project1 % cd gitgoing",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}
