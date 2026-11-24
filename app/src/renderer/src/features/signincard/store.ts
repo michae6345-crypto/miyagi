@@ -10,8 +10,12 @@
  *                                                          sent. Its pill line is dropped here, since the card or the
  *                                                          line says it better.
  *
+ * MIC-30: when miyagi-cloud's signin_mode (features/session, POST /v1/session) is "build" or "all" and the learner is a
+ * guest (not signed in, install not linked), the same card shows as a new lesson build starts (the first
+ * lesson.building of a build), without waiting for the cloud to refuse the claim. "off": the notice alone, as before.
+ *
  * State:
- *   signin   the sign-in card is up (401 signin_required), until Sign in succeeds, Not now or Esc
+ *   signin   the sign-in card is up (401 signin_required, or a guest's build start), until Sign in succeeds, Not now or Esc
  *   cap      the cap line (429), until Esc or CAP_MS
  *   tried    Sign in was pressed from this card (its failure line shows under the buttons)
  *   visible  which of the two is the one on the island right now (Esc closes only what the learner sees)
@@ -20,6 +24,8 @@ import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { dismissNotice, notify } from '../../core/lesson'
 import { signInWith, useAuth } from '../auth/store'
+import { promptsOnBuild } from '../session/model'
+import { useSession } from '../session/store'
 import { capLine, classify, parseNotice, SIGNIN, type CapKind } from './notice'
 
 export const CAP_MS = 10_000
@@ -88,6 +94,29 @@ onMessage('error', (p) => {
   queueMicrotask(() => dismissNotice('engine-error'))
 })
 
+// A guest starts a new lesson build while the cloud wants an account for it (signin_mode "build" / "all"): once per build.
+let building = false
+/** One lesson.building frame. Returns true when it put the card up (for the test). */
+export function buildStarted(p: { failed?: boolean }, now: Date = new Date()): boolean {
+  if (p.failed) {
+    building = false
+    return false
+  }
+  if (building) return false
+  building = true
+  if (!promptsOnBuild(useSession.getState().view, !!useAuth.getState().user)) return false
+  set({ signin: { at: now.getTime() }, tried: false })
+  return true
+}
+const buildDone = (): void => {
+  building = false
+}
+onMessage('lesson.building', (p) => {
+  buildStarted(p)
+})
+onMessage('lesson.ready', buildDone)
+onMessage('lesson.ended', buildDone)
+
 // Signed in (here or in the login window): the card has done its job.
 useAuth.subscribe((s, prev) => {
   if (!s.user || prev.user) return
@@ -104,6 +133,7 @@ onUi('dismiss', () => {
   else if (v === 'cap') closeCap()
 })
 onUi('reset', () => {
+  buildDone()
   clearTimeout(capTimer)
   set({ signin: undefined, cap: undefined, tried: false, visible: undefined })
 })

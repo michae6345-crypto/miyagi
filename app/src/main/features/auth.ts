@@ -331,10 +331,19 @@ export function refreshedAccessToken(): Promise<string | undefined> {
 }
 
 let signedInHook: (() => void) | undefined
-/** features/cloudLink.ts: runs right after each successful Google sign-in (the session is stored by then). */
+/** features/cloudSession.ts: runs right after each successful Google sign-in (the session is stored by then). */
 export function onSignedIn(fn: () => void): void {
   signedInHook = fn
 }
+
+let signedOutHook: (() => void) | undefined
+/** features/cloudSession.ts: runs when the session ends (Sign out, or a refresh Supabase refused). */
+export function onSignedOut(fn: () => void): void {
+  signedOutHook = fn
+}
+
+/** A Google session is held right now (login on). Main process only. */
+export const isSignedIn = (): boolean => loginEnabled() && signedIn
 
 export default defineMainFeature({
   id: 'auth',
@@ -405,11 +414,13 @@ export default defineMainFeature({
 
     const setSession = (s: Session | undefined): void => {
       const before = session ? JSON.stringify(publicUser(session.user)) : ''
+      const ended = !!session && !s
       session = s
       signedIn = !!s
       failures = 0
       persist()
       schedule()
+      if (ended) signedOutHook?.() // cloudSession.ts: drop the account's plan and use from the cache
       if ((s ? JSON.stringify(publicUser(s.user)) : '') !== before) announce()
     }
 
@@ -643,7 +654,7 @@ export default defineMainFeature({
             const s = r.session
             setSession(s)
             decide() // the gate's login part opens
-            signedInHook?.() // cloudLink.ts: link this Mac's install token to the learner (async, never in the way)
+            signedInHook?.() // cloudSession.ts: POST /v1/session (links this Mac's install token; async, never in the way)
             f.finish({ ok: true, user: publicUser(s.user) })
           })
         })

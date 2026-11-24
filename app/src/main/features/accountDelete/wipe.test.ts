@@ -25,7 +25,7 @@ function touch(p: string): void {
 
 test('the list names every file the code keeps in userData (read from the code, see wipe.ts)', () => {
   const names = eraseTargets(w).map((t) => t.what)
-  for (const f of ['keys.bin', 'auth.bin', 'login.json', 'cloud-link.json', 'install.bin', 'onboarding.json', 'age.json', 'prefs.json', 'reminders.json', 'updates.json', 'player-bounds.json']) {
+  for (const f of ['keys.bin', 'auth.bin', 'login.json', 'cloud-link.json', 'session.json', 'install.bin', 'onboarding.json', 'age.json', 'prefs.json', 'reminders.json', 'updates.json', 'player-bounds.json']) {
     assert.ok(names.includes(f), f)
     assert.ok(names.includes(`${f}.tmp`), `${f}.tmp`)
   }

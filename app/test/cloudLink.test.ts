@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import auth, { accessToken } from '../src/main/features/auth'
 import cloud, { installToken } from '../src/main/features/cloud'
-import cloudLink, { createLinker, jwtClaims, readRecord, type LinkerDeps } from '../src/main/features/cloudLink'
+import cloudSession from '../src/main/features/cloudSession'
+import { createLinker, jwtClaims, readRecord, type LinkerDeps } from '../src/main/features/cloudLink'
 import { CLOUD, FakeCloud, FakeSupabase, hitCallback, makeHarness, makeJwt, lockSignInPort, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
 
 const ALICE = { sub: 'user-alice', email: 'alice@example.com', name: 'Alice Test' }
@@ -174,7 +175,7 @@ describe('wired to auth.ts and cloud.ts', () => {
     // cloud.ts keeps the token module-wide: wait for THIS test's mint (the fake cloud is new per test).
     await until(() => fake.installs.has(installToken()?.token ?? ''))
     auth.setup(h.ctx)
-    cloudLink.setup(h.ctx)
+    cloudSession.setup(h.ctx) // owns the triggers since MIC-30; this fake cloud has no /v1/session (404) → /v1/link
   }
   afterEach(() => {
     delete process.env.MIYAGI_CLOUD_URL

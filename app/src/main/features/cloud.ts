@@ -19,8 +19,9 @@
  *      "ok" cancels a heal still waiting (a late token_invalid about the token just replaced). A disabled install (403)
  *      sends no token_invalid: config.status.cloud says "unauthorized" and onboarding shows it.
  *
- *   6. installToken() / onInstallToken(): the token for features/cloudLink.ts (POST /v1/link ties it to the signed-in
- *      Supabase user). Main process only.
+ *   6. installToken() / onInstallToken(): the token for features/cloudSession.ts (POST /v1/session, or /v1/link on an
+ *      older cloud, ties it to the signed-in Supabase user). healInstall(): the same self-heal, for a 401 there. Main
+ *      process only.
  *
  * Handles: cloud:get → CloudView (no token), cloud:retry → CloudView. Broadcasts feat:cloud CloudView.
  */
@@ -151,6 +152,34 @@ export function forgetInstall(): void {
   forgetRef?.()
 }
 
+let healRef: (() => void) | undefined
+/**
+ * features/cloudSession.ts, after miyagi-cloud answered 401 bad_install_token: run the self-heal (the same backoff as
+ * the engine's cloud.token_invalid) and resolve true once a new token is in, false when none came within `waitMs` (the
+ * heal is waiting out its window, or the mint failed). Main process only.
+ */
+export function healInstall(waitMs = 15_000): Promise<boolean> {
+  const heal = healRef
+  if (!heal) return Promise.resolve(false)
+  const before = current?.token
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (ok: boolean): void => {
+      if (done) return
+      done = true
+      off()
+      clearTimeout(t)
+      resolve(ok)
+    }
+    const off = onInstallToken(() => {
+      if (current && current.token !== before) finish(true)
+    })
+    const t = setTimeout(() => finish(false), waitMs)
+    t.unref?.()
+    heal()
+  })
+}
+
 /** Called whenever the install token appears or changes (first mint, self-heal). Returns what unsubscribes. */
 export function onInstallToken(fn: () => void): () => void {
   installListeners.add(fn)
@@ -267,6 +296,7 @@ export default defineMainFeature({
     }
     const healer = createHealer(heal)
     ctx.engine.onCloudTokenInvalid(() => healer.invalid())
+    healRef = () => healer.invalid()
     // The engine answers each config.keys with config.status; cloud "ok" means it holds a token the proxy accepts.
     ctx.engine.onEvent((e) => {
       if (e.type === 'config.status' && e.payload.cloud === 'ok') healer.cancel()

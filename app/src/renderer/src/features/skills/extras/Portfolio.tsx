@@ -46,7 +46,7 @@ function loadImage(path: string): Promise<string | undefined> {
 }
 
 /** The picture for an image artifact: a data: image as it is, a local file through main, else undefined. */
-function usePicture(path?: string): string | undefined {
+export function usePicture(path?: string): string | undefined {
   // An absolute path on this Mac; anything else (a URL, a relative name) never loads.
   const local = !!path && path.startsWith('/')
   const [src, setSrc] = useState<string | undefined>(() => (path && isDataImage(path) ? path : undefined))

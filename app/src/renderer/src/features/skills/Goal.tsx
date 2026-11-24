@@ -14,7 +14,8 @@ import { color, elevation, fill, highlight, radius2, spring, type2, typeScale } 
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import type { SkillGraph } from './model'
-import { CARD_BG } from './SkillNode'
+/** A goal card's fill (the page's overlay layer). */
+const CARD_BG = 'var(--l-overlay)'
 
 function ProjectSquare({ size = 40, dashed = false }: { size?: number; dashed?: boolean }): ReactNode {
   return (
