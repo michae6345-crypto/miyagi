@@ -1,0 +1,36 @@
+{
+ "id": "vscode-pymod-m2-import-in-test-tab",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Split editor: main.py (left) has print(add(2, 3)) but no import; the 'from operations import add' line on screen is at the top of test_operations.py (right). python3 main.py raises NameError: name 'add' is not defined. Both patterns are on screen, from two different files.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m2"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "print(add(2, 3))\n",
+   "test_operations.py": "from operations import add, subtract, divide\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "CALC",
+    "main.py",
+    "operations.py",
+    "test_operations.py",
+    "main.py",
+    "test_operations.py",
+    "print(add(2, 3))",
+    "from operations import add, subtract, divide",
+    "def test_add():",
+    "assert add(2, 3) == 5",
+    "def test_subtract():",
+    "assert subtract(5, 2) == 3"
+   ]
+  }
+ }
+}

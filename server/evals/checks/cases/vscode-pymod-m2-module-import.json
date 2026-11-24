@@ -1,0 +1,30 @@
+{
+ "id": "vscode-pymod-m2-module-import",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "import operations + print(operations.add(2, 3)) is the other standard way to use a function from another module; python3 main.py prints 5 (on screen). Same module, same function, same call.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m2"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "import operations\n\nprint(operations.add(2, 3))\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "main.py",
+    "import operations",
+    "print(operations.add(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "5",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}

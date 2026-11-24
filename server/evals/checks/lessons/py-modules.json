@@ -1,0 +1,155 @@
+{
+ "_comment": "Eval fixture (server/evals/checks): a text lesson in the shape of demo/cache/lessons/text-43e26ca1d86c37ed.json, continuing the calculator as a multi-file project (operations.py, main.py, test_operations.py). Only the steps the cases use.",
+ "lesson": {
+  "title": "Split your calculator into modules",
+  "editor": "Code"
+ },
+ "steps": [
+  {
+   "id": "m2",
+   "index": 2,
+   "title": "Import add into main.py",
+   "kind": "code",
+   "what": "main.py uses add() from operations.py",
+   "action": "In main.py, import add from operations and print add(2, 3)",
+   "instructions": "At the top of main.py, type the import line, then the print line below it.",
+   "code": "from operations import add\n\nprint(add(2, 3))",
+   "file": "main.py",
+   "checks": [
+    {
+     "id": "m2c1",
+     "type": "screen_contains",
+     "label": "main.py imports add from operations",
+     "app": "Code",
+     "pattern": "from\\s+operations\\s+import\\s+add"
+    },
+    {
+     "id": "m2c2",
+     "type": "screen_contains",
+     "label": "main.py calls add(2, 3)",
+     "app": "Code",
+     "pattern": "print\\(add\\(2,\\s*3\\)\\)"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "m2p1",
+     "type": "file_contains",
+     "label": "The import is in main.py",
+     "file": "main.py",
+     "pattern": "^from\\s+operations\\s+import\\s+add"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "main.py",
+     "match": "from operations import add",
+     "caption": "Import add at the top of main.py"
+    }
+   ],
+   "hints": [
+    "The module name is the file name without .py.",
+    "The import goes at the very top of main.py."
+   ],
+   "common_mistakes": [
+    "Typing import operations.py (with .py).",
+    "Putting the import in test_operations.py instead of main.py."
+   ]
+  },
+  {
+   "id": "m4",
+   "index": 4,
+   "title": "Rename add to add_numbers",
+   "kind": "code",
+   "what": "add() is called add_numbers() everywhere",
+   "action": "Rename add to add_numbers with F2 (Rename Symbol) so every file follows",
+   "instructions": "Put the cursor on add in operations.py, press F2, type add_numbers and press Enter. VS Code updates main.py and the test too.",
+   "code": "def add_numbers(a, b):\n    return a + b",
+   "file": "operations.py",
+   "checks": [
+    {
+     "id": "m4c1",
+     "type": "screen_contains",
+     "label": "operations.py defines add_numbers",
+     "app": "Code",
+     "pattern": "def\\s+add_numbers\\(a,\\s*b\\):"
+    },
+    {
+     "id": "m4c2",
+     "type": "screen_contains",
+     "label": "main.py calls add_numbers(2, 3)",
+     "app": "Code",
+     "pattern": "add_numbers\\(2,\\s*3\\)"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "m4p1",
+     "type": "file_contains",
+     "label": "main.py imports add_numbers",
+     "file": "main.py",
+     "pattern": "import\\s+add_numbers"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "operations.py",
+     "match": "def add(a, b):",
+     "caption": "Press F2 on add"
+    }
+   ],
+   "hints": [
+    "F2 renames a symbol in every file that uses it; Find and Replace only changes the open file."
+   ],
+   "common_mistakes": [
+    "Renaming the def by hand and forgetting the import line in main.py (ImportError)."
+   ]
+  },
+  {
+   "id": "m5",
+   "index": 5,
+   "title": "Run the tests",
+   "kind": "run",
+   "what": "pytest runs test_operations.py and every test passes",
+   "action": "Run python3 -m pytest -q in the VS Code terminal",
+   "instructions": "In the terminal, run python3 -m pytest -q and check that every test passes.",
+   "code": "python3 -m pytest -q",
+   "file": "test_operations.py",
+   "run_command": "python3 -m pytest -q",
+   "expected_output": "3 passed",
+   "checks": [
+    {
+     "id": "m5c1",
+     "type": "screen_contains",
+     "label": "pytest reports the tests passed",
+     "app": "Terminal",
+     "pattern": "\\d+\\s+passed"
+    },
+    {
+     "id": "m5c2",
+     "type": "screen_absent",
+     "label": "No failing tests",
+     "app": "Terminal",
+     "pattern": "failed|Error"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "m5p1",
+     "type": "command_exit_ok",
+     "label": "pytest exits 0",
+     "command": "python3 -m pytest -q"
+    }
+   ],
+   "targets": [],
+   "hints": [
+    "Run it from the project folder, where test_operations.py is."
+   ],
+   "common_mistakes": [
+    "Running pytest from the parent folder: no tests ran."
+   ]
+  }
+ ]
+}

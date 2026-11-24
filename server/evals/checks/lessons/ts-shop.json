@@ -1,0 +1,149 @@
+{
+ "_comment": "Eval fixture (server/evals/checks): a React + TypeScript (Vite) shop project with a shared src/utils.ts, in the shape of demo/cache/lessons/516197461c0dacf3.json. Only the steps the cases use.",
+ "lesson": {
+  "title": "Shared helpers in a React + TypeScript app",
+  "editor": "Code"
+ },
+ "steps": [
+  {
+   "id": "t2",
+   "index": 2,
+   "title": "Use formatPrice in the cart",
+   "kind": "code",
+   "instructions": "In src/components/Cart.tsx, import formatPrice from ../utils and show each price as {formatPrice(item.price)}.",
+   "code": "import { formatPrice } from '../utils'\n\n<span>{formatPrice(item.price)}</span>",
+   "file": "src/components/Cart.tsx",
+   "checks": [
+    {
+     "id": "t2c1",
+     "type": "screen_contains",
+     "label": "Cart.tsx imports formatPrice",
+     "app": "Code",
+     "pattern": "import\\s*\\{\\s*formatPrice\\s*\\}\\s*from\\s*['\"]\\.\\./utils['\"]"
+    },
+    {
+     "id": "t2c2",
+     "type": "screen_contains",
+     "label": "Prices go through formatPrice",
+     "app": "Code",
+     "pattern": "formatPrice\\(\\s*item\\.price\\s*\\)"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "t2p1",
+     "type": "file_contains",
+     "label": "formatPrice is used in Cart.tsx",
+     "file": "shop/src/components/Cart.tsx",
+     "pattern": "formatPrice\\("
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "src/components/Cart.tsx",
+     "match": "import { formatPrice } from '../utils'",
+     "caption": "Import the helper at the top of Cart.tsx"
+    }
+   ],
+   "hints": [
+    "Named exports are imported with curly braces."
+   ],
+   "common_mistakes": [
+    "import formatPrice from '../utils' (no braces) for a named export."
+   ]
+  },
+  {
+   "id": "t3",
+   "index": 3,
+   "title": "Build for production",
+   "kind": "run",
+   "instructions": "In the terminal, run npm run build. It type-checks with tsc, then Vite writes the dist/ folder.",
+   "run_command": "npm run build",
+   "expected_output": "built in",
+   "checks": [
+    {
+     "id": "t3c1",
+     "type": "screen_contains",
+     "label": "Vite build finished",
+     "app": "Terminal",
+     "pattern": "built\\s+in"
+    },
+    {
+     "id": "t3c2",
+     "type": "screen_absent",
+     "label": "Build has no errors",
+     "app": "Terminal",
+     "pattern": "error|ERR!"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "t3p1",
+     "type": "file_exists",
+     "label": "dist/index.html written",
+     "file": "shop/dist/index.html"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Terminal",
+     "match": "npm run build",
+     "caption": "Build the app"
+    }
+   ],
+   "hints": [
+    "A type error stops the build before Vite runs."
+   ],
+   "common_mistakes": [
+    "Reading the output of an earlier build."
+   ]
+  },
+  {
+   "id": "t4",
+   "index": 4,
+   "title": "Run the unit tests",
+   "kind": "run",
+   "instructions": "Run npm test. Jest runs src/utils.test.ts; every test should pass.",
+   "run_command": "npm test",
+   "expected_output": "passed",
+   "checks": [
+    {
+     "id": "t4c1",
+     "type": "screen_contains",
+     "label": "Jest reports passing tests",
+     "app": "Terminal",
+     "pattern": "\\d+\\s+passed"
+    },
+    {
+     "id": "t4c2",
+     "type": "screen_absent",
+     "label": "No failing tests",
+     "app": "Terminal",
+     "pattern": "failed"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "t4p1",
+     "type": "command_exit_ok",
+     "label": "npm test exits 0",
+     "command": "npm test"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Terminal",
+     "match": "npm test",
+     "caption": "Run the tests"
+    }
+   ],
+   "hints": [
+    "A ✕ next to a test name is a failing test."
+   ],
+   "common_mistakes": [
+    "Stopping at the first green line when another test failed."
+   ]
+  }
+ ]
+}

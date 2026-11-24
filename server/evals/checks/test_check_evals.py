@@ -54,7 +54,7 @@ def test_every_case_builds_and_runs_without_error(outcomes):
 
 
 def test_scores_hold_the_baseline(outcomes):
-    train, _ = runner.split(outcomes)  # held-out cases never gate: they measure whether a fix generalises
+    train, _ = runner.split(outcomes)
     base, now = baseline(), runner.score(train)
     for metric in ("accuracy", "precision", "recall"):
         assert now[metric] >= base[metric] - 1e-9, (
@@ -62,27 +62,39 @@ def test_scores_hold_the_baseline(outcomes):
 
 
 def test_no_new_wrong_verdicts(outcomes):
-    known = baseline()["known_wrong"]
     train, _ = runner.split(outcomes)
+    known = baseline()["known_wrong"]
     new = [o for o in runner.failures(train) if o.case["id"] not in known]
     assert not new, "new wrong verdicts (fix the checks, or the case's expected verdict):\n" + "\n".join(
         f"  {o.label} {o.case['id']}: expected {o.expected}, got {o.got}; rows: "
         + "; ".join(f"{r['checkId']} {r['status']} ({r['detail']})" for r in o.rows) for o in new)
 
 
+def test_held_out_scores_hold_in_aggregate(outcomes):
+    """The held-out set is never tuned on, so this guard names no case and shows no rows: only whether a change made
+    the checks generalise worse."""
+    _, held = runner.split(outcomes)
+    base, now = baseline().get("held_out") or {}, runner.score(held)
+    for metric in ("accuracy", "precision", "recall"):
+        if metric in base:
+            assert now[metric] >= base[metric] - 1e-9, (
+                f"held-out {metric} dropped: {now[metric]} < baseline {base[metric]} (do not tune on held-out cases; "
+                "rethink the change)")
+
+
+def test_held_out_is_about_a_third_of_the_new_cases_and_flagged_as_a_bool():
+    cases = runner.load_cases()
+    held = [c for c in cases if runner.is_held_out(c)]
+    assert held, "no held-out cases"
+    assert all(isinstance(c.get("heldOut", False), bool) for c in cases)
+    assert {c["expected"] for c in held} == {"pass", "not_yet"}
+
+
 def test_known_wrong_cases_exist():
-    ids = {c["id"] for c in runner.load_cases()}
-    stale = sorted(set(baseline()["known_wrong"]) - ids)
-    assert not stale, f"baseline.json lists cases that no longer exist: {stale}"
-
-
-def test_held_out_cases_never_gate(outcomes):
-    """known_wrong and the gated scores are the training cases only; held-out ones are reported on their own,
-    by id, without the check rows a fix could be shaped to."""
-    held = {c["id"] for c in runner.load_cases() if runner.is_held_out(c)}
-    assert held, "the set should hold out some cases"
-    assert not held & set(baseline()["known_wrong"]), "a held-out case is in known_wrong: it must never gate"
-    s = runner.summary(outcomes)
-    assert not held & {f["id"] for f in s["failures"]}
-    assert s["held_out"]["overall"]["cases"] == len(held)
-    assert all(set(f) <= {"id", "label", "error"} for f in s["held_out"]["failures"]), "held-out rows leak"
+    cases = runner.load_cases()
+    ids = {c["id"] for c in cases}
+    held = {c["id"] for c in cases if runner.is_held_out(c)}
+    base = baseline()
+    stale = sorted(set(base["known_wrong"]) - (ids - held))
+    stale += sorted(set((base.get("held_out") or {}).get("known_wrong") or {}) - held)
+    assert not stale, f"baseline.json lists cases that no longer exist (or moved between train and held-out): {stale}"

@@ -1,0 +1,31 @@
+{
+ "id": "vscode-tsshop-t2-multi-named-import",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "formatPrice is imported in the same braces as formatDate (import { formatDate, formatPrice } from '../utils'), which is the same named import; each price renders through formatPrice(item.price).",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatDate, formatPrice } from '../utils'\n\nexport function Cart({ items }: CartProps) {\n  return (\n    <ul>\n      {items.map(item => <li key={item.id}>{item.name} <span>{formatPrice(item.price)}</span></li>)}\n    </ul>\n  )\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Cart.tsx",
+    "import { formatDate, formatPrice } from '../utils'",
+    "export function Cart({ items }: CartProps) {",
+    "return (",
+    "<ul>",
+    "{items.map(item => <li key={item.id}>{item.name} <span>{formatPrice(item.price)}</span></li>)}",
+    "</ul>",
+    ")",
+    "}"
+   ]
+  }
+ }
+}

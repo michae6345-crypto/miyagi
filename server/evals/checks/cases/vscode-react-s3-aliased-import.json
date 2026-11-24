@@ -1,0 +1,38 @@
+{
+ "id": "vscode-react-s3-aliased-import",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "A default import takes any local name: import SiteHeader from './Header.jsx' and <SiteHeader/> render the Header component from Header.jsx, and the page shows 'My website'. Header.jsx itself is exactly as asked; nothing later in the lesson depends on the local name in App.jsx.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/App.jsx": "import SiteHeader from './Header.jsx'\n\nfunction App() {\n  return (<SiteHeader/>)\n}\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "MY-REACT-APP",
+    "src",
+    "App.jsx",
+    "Header.jsx",
+    "main.jsx",
+    "App.jsx",
+    "import SiteHeader from './Header.jsx'",
+    "function App() {",
+    "return (<SiteHeader/>)",
+    "}",
+    "export default App"
+   ],
+   "Google Chrome": [
+    "localhost:5173",
+    "My website"
+   ]
+  }
+ }
+}
