@@ -121,7 +121,8 @@ def _engine_version() -> str:
 ENGINE_VERSION = _engine_version()
 CONTRACT_VERSION = getattr(contract, "CONTRACT_VERSION", None) or "2026-11-20"  # W0-1: the shapes this engine sends
 V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
-               "panel.state", "review.start", "data.delete", "set_goal", "skills.ack")
+               "panel.state", "review.start", "data.delete", "set_goal", "skills.ack",
+               "activity.get", "bon.get", "bon.import")  # ui-v4 Activity + bon (orchestrator/activity_feed.py)
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
@@ -355,6 +356,14 @@ def _log_token_refusal(method: str, path: str, scope: dict, headers: dict) -> No
                         "0.0.7 (reinstall it from vscode-ext/); its editor events are ignored until then")
         return
     log.warning("refused %s %s from %s (%s)", method, path, where, why)
+
+
+def _erases_activity(what: Any) -> bool:
+    """data.delete: activity and bon go with "Delete my data" (no `what`, the pre-ui-v4 app) and with the ui-v4 kinds
+    that cover them (UI-V4.md section 5: `progress`, `all`); `what: ["notes"]` keeps them."""
+    if not what:
+        return True
+    return any(k in ("progress", "all", "activity", "bon") for k in what if isinstance(k, str))
 
 
 def parse_command(raw: dict) -> Any:
@@ -627,6 +636,13 @@ class Engine:
         self._cloud_tasks: set[asyncio.Task] = set()
         self._screen_boot: asyncio.Task | None = None
         self.hub.on_progress_event = self.forget_reads
+        try:  # Activity + bon: minutes per day, the lifetime passed-step counter, milestones (activity_feed.py)
+            from .activity_feed import ActivityFeed
+
+            self.activity: Any = ActivityFeed(self.hub.emit)
+        except Exception as e:  # noqa: BLE001
+            log.warning("activity unavailable: %s", e)
+            self.activity = None
         self._reads: dict[str, tuple[float, Any]] = {}  # coalesced app reads: key -> (when, result)
         self._reads_inflight: dict[str, asyncio.Future] = {}
         self._reads_gen = 0  # bumped by forget_reads: an older in-flight read must not cache its stale result
@@ -658,7 +674,12 @@ class Engine:
             self.seen_lesson = ((payload or {}).get("lesson") or {}).get("id")
         if (note := getattr(self.screen, "note_ui", None)) is not None:
             note(type_, payload)  # the targeter never boxes Miyagi's own text (cards, captions) seen on screen
+        feed = getattr(self, "activity", None)
+        if feed is not None and type_ == "step.passed":
+            payload = feed.annotate(self.session, type_, payload)  # ui-v4: key / counted / assisted / skillIds
         await self.hub.emit(type_, self.session._tagged(type_, payload or {}))  # epoch / gen: which lesson and step
+        if feed is not None and type_ in ("step.passed", "card"):
+            await feed.observe(self.session, type_, payload)  # bon after a counted pass, activity, a finished lesson
 
     async def ingest(self, ev: dict) -> None:
         self.recorder.record(ev)
@@ -790,6 +811,8 @@ class Engine:
             caps.append("review.start")
         if hasattr(self.session, "panel_state"):
             caps.append("panel.state")
+        if getattr(self, "activity", None) is not None:
+            caps += ["activity.get", "bon.get", "bon.import"]  # ui-v4 Activity + bon (activity_feed.py)
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
         caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
         return caps
@@ -948,8 +971,20 @@ class Engine:
             await self.skills_ack(p.until)
         elif type_ == "panel.state":
             await s.panel_state(p.open, _rect(p.rect))
+        elif type_ in ("activity.get", "bon.get", "bon.import"):  # ui-v4 Activity + bon (activity_feed.py)
+            feed = getattr(self, "activity", None)
+            if feed is None:
+                return
+            if type_ == "activity.get":  # the snapshot; `activity` pushes follow on change (at most one every 10 s)
+                await reply("activity", feed.get())
+            elif type_ == "bon.get":
+                await reply("bon", feed.bon())
+            else:  # once per Mac: the app's localStorage count; the engine keeps the larger
+                await reply("bon", await feed.import_bon(p.steps, getattr(p, "seen", None)))
         elif type_ == "data.delete":  # Settings > Privacy > Delete my data: the engine's local lesson notes go too
             await asyncio.to_thread(_wipe_context_memory, s)  # no reply: the app's sheet already says what it erased
+            if getattr(self, "activity", None) is not None and _erases_activity(getattr(p, "what", None)):
+                await self.activity.erase()  # minutes, recent passes and bon's counter are the learner's data too
 
     async def library_start(self, lid: str) -> None:
         """library.start: a cached lesson, with no build and no lesson-writing model call. The cached graph's workdir is
@@ -1080,6 +1115,9 @@ class Engine:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+        if getattr(self, "activity", None) is not None:
+            with contextlib.suppress(Exception):
+                await self.activity.flush()
         if self._ask_preload is not None:  # an import in a worker thread: done in well under a second
             with contextlib.suppress(Exception):
                 await self._ask_preload
@@ -1091,6 +1129,11 @@ class Engine:
                 await self.session.tick()
             except Exception:
                 log.exception("tick failed")
+            if getattr(self, "activity", None) is not None:
+                try:
+                    await self.activity.tick(self.session)  # active lesson minutes (idle left out)
+                except Exception:
+                    log.exception("activity tick failed")
 
     async def _avoid_loop(self) -> None:
         """t9: every 0.5 s while a lesson runs, VS Code's quick-pick -> screen.avoid when it changed (quick_pick.py)."""
@@ -1174,6 +1217,8 @@ class Engine:
             await self.hub.emit("config.status", apply_keys(keys))
             if erased:
                 await asyncio.to_thread(_wipe_context_memory, s)
+                if getattr(self, "activity", None) is not None:
+                    await self.activity.erase()
             if server_config.token_invalid_pending():  # the same dead token again (e.g. after a reconnect): say it again
                 await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})
         elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
