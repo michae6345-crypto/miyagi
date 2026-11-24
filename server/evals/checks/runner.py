@@ -10,6 +10,10 @@ the lesson folder in a temp dir, calls evaluate_gate exactly as the orchestrator
   recall    = of the steps that were done, how many the checks passed     (1 - recall: false "not yet"s)
 A false pass is the worse error (the learner moves on with broken work), so failures are listed false passes first.
 
+Held-out cases ("heldOut": true) are scored and reported on their own and are NEVER used to tune the checks: the
+default report and the pytest gate (baseline.json) cover the training cases only; held-out ones show as one score line,
+and their wrong verdicts only with --held-out (for whoever judges a fix, after it is made).
+
 No model call, no network, no screen: pure functions on files written to a temp folder.
 """
 from __future__ import annotations
@@ -31,7 +35,7 @@ CASES_DIR = HERE / "cases"
 BASELINE = HERE / "baseline.json"
 
 VERDICTS = ("pass", "not_yet")
-KINDS = ("jupyter", "vscode", "terminal", "metric")
+KINDS = ("jupyter", "vscode", "terminal", "metric", "blender", "cad")
 TRAPS = ("none", "false_pass", "false_fail")
 
 
@@ -65,28 +69,53 @@ def validate_case(case: dict) -> list[str]:
         out.append("step must be an object")
     if not str(case.get("why") or "").strip():
         out.append("why (the reason for the expected verdict) is required")
+    if not isinstance(case.get("heldOut", False), bool):
+        out.append("heldOut must be true or false")
     return out
 
 
-_LESSONS: dict[str, dict] = {}
+def held_out(case: dict) -> bool:
+    """A held-out case: scored and reported apart, never used to tune the checks."""
+    return case.get("heldOut") is True
+
+
+def split(outcomes: list["Outcome"]) -> tuple[list["Outcome"], list["Outcome"]]:
+    """(training outcomes, held-out outcomes)."""
+    return [o for o in outcomes if not held_out(o.case)], [o for o in outcomes if held_out(o.case)]
+
+
+_LESSONS: dict[tuple[str, bool], dict] = {}
+
+
+def _lesson(path: str, adapt: bool) -> dict:
+    """A lesson JSON from the repo; with ``adapt``, as the engine runs an app lesson (Blender, AutoCAD...):
+    server.lesson.app_lesson.adapt drops its file / command checks and pins its screen checks to the app's window."""
+    key = (path, adapt)
+    if key not in _LESSONS:
+        graph = json.loads((ROOT / path).read_text(encoding="utf-8"))
+        if adapt:
+            from server.lesson import app_lesson
+
+            app_lesson.adapt(graph)
+        _LESSONS[key] = graph
+    return _LESSONS[key]
 
 
 def resolve_step(case: dict) -> dict:
-    """The case's step: {"lesson": <repo path>, "id": <step id>} (+ optional "patch": shallow overrides, and
-    "drop_checks": check ids to remove), or an inline step with its own "checks"."""
+    """The case's step: {"lesson": <repo path>, "id": <step id>} (+ optional "adapt": true to run the lesson through
+    app_lesson.adapt first, "patch": shallow overrides, and "drop_checks": check ids to remove), or an inline step
+    with its own "checks"."""
     spec = case["step"]
     if "lesson" in spec:
         path = spec["lesson"]
-        if path not in _LESSONS:
-            _LESSONS[path] = json.loads((ROOT / path).read_text(encoding="utf-8"))
-        lesson = _LESSONS[path]
+        lesson = _lesson(path, bool(spec.get("adapt")))
         steps = lesson.get("steps") or (lesson.get("lesson") or {}).get("steps") or []
         try:
             step = copy.deepcopy(next(s for s in steps if s.get("id") == spec["id"]))
         except StopIteration:
             raise ValueError(f"{case['id']}: no step {spec['id']!r} in {path}") from None
     else:
-        step = {k: copy.deepcopy(v) for k, v in spec.items() if k not in ("patch", "drop_checks")}
+        step = {k: copy.deepcopy(v) for k, v in spec.items() if k not in ("patch", "drop_checks", "adapt")}
     step.update(copy.deepcopy(spec.get("patch") or {}))
     drop = set(spec.get("drop_checks") or [])
     if drop:
@@ -148,7 +177,9 @@ def _cell(c: dict, n: int) -> dict:
 
 
 def build_workdir(files: dict[str, Any], root: Path) -> None:
-    """Write the case's lesson folder: a str is a text file, {"notebook": {...}} an .ipynb, {"dir": true} a folder."""
+    """Write the case's lesson folder: a str is a text file, {"notebook": {...}} an .ipynb, {"dir": true} a folder,
+    {"json": <value>} a JSON document (indent 1, as a headless dump script prints it: the bpy / FreeCAD facts of a
+    saved .blend / .FCStd, recorded as a fixture)."""
     for rel, spec in (files or {}).items():
         p = root / rel
         if os.path.isabs(rel) or ".." in Path(rel).parts:
@@ -159,10 +190,12 @@ def build_workdir(files: dict[str, Any], root: Path) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(spec, dict) and "notebook" in spec:
             p.write_text(json.dumps(_notebook(spec["notebook"])), encoding="utf-8")
+        elif isinstance(spec, dict) and "json" in spec:
+            p.write_text(json.dumps(spec["json"], indent=1) + "\n", encoding="utf-8")
         elif isinstance(spec, str):
             p.write_text(spec, encoding="utf-8")
         else:
-            raise ValueError(f"case file {rel!r}: a string, {{'notebook': ...}} or {{'dir': true}}")
+            raise ValueError(f"case file {rel!r}: a string, {{'notebook': ...}}, {{'json': ...}} or {{'dir': true}}")
 
 
 def _num(v: Any) -> float:
@@ -274,17 +307,29 @@ def failures(outcomes: list[Outcome]) -> list[Outcome]:
     return sorted((o for o in outcomes if not o.correct), key=lambda o: (order[o.label], o.case["id"]))
 
 
-def summary(outcomes: list[Outcome]) -> dict[str, Any]:
-    return {
-        "overall": score(outcomes),
-        "by_kind": breakdown(outcomes, "kind"),
-        "by_trap": breakdown(outcomes, "trap"),
-        "failures": [{"id": o.case["id"], "label": o.label, "expected": o.expected, "got": o.got,
-                      "kind": o.case["kind"], "trap": o.case.get("trap", "none"), "why": o.case["why"],
-                      "rows": [f"{r['checkId']} {r['status']}: {r['label']} ({r['detail']})" for r in o.rows],
-                      **({"error": o.error} if o.error else {})}
-                     for o in failures(outcomes)],
+def _failure_rows(outcomes: list[Outcome]) -> list[dict[str, Any]]:
+    return [{"id": o.case["id"], "label": o.label, "expected": o.expected, "got": o.got,
+             "kind": o.case["kind"], "trap": o.case.get("trap", "none"), "why": o.case["why"],
+             "rows": [f"{r['checkId']} {r['status']}: {r['label']} ({r['detail']})" for r in o.rows],
+             **({"error": o.error} if o.error else {})}
+            for o in failures(outcomes)]
+
+
+def summary(outcomes: list[Outcome], show_held_out: bool = False) -> dict[str, Any]:
+    """Scores of the training cases (overall, by kind, by trap, wrong verdicts), plus the held-out cases' score on
+    its own. The held-out wrong verdicts are listed only with ``show_held_out``."""
+    train, held = split(outcomes)
+    out: dict[str, Any] = {
+        "overall": score(train),
+        "by_kind": breakdown(train, "kind"),
+        "by_trap": breakdown(train, "trap"),
+        "failures": _failure_rows(train),
+        "held_out": {"overall": score(held)},
     }
+    if show_held_out:
+        out["held_out"].update(by_kind=breakdown(held, "kind"), by_trap=breakdown(held, "trap"),
+                               failures=_failure_rows(held))
+    return out
 
 
 # ------------------------------------------------------------------ report
@@ -294,19 +339,8 @@ def _fmt_score(s: dict) -> str:
             f"(n={s['cases']} TP={s['tp']} TN={s['tn']} FP={s['fp']} FN={s['fn']})")
 
 
-def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None = None) -> str:
-    s = summary(outcomes)
-    lines = ["Step-check eval (server.checks.evaluate_gate, offline, no model call)", ""]
-    lines.append(f"{'overall':<18}" + _fmt_score(s["overall"]))
-    for k, v in s["by_kind"].items():
-        lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
-    for k, v in s["by_trap"].items():
-        lines.append(f"{'trap ' + k:<18}" + _fmt_score(v))
-    if wall_s is not None:
-        lines.append(f"\n{len(outcomes)} cases in {wall_s:.2f}s")
-    fails = s["failures"]
-    lines.append("")
-    lines.append(f"{len(fails)} wrong verdict(s), worst first:" if fails else "no wrong verdicts")
+def _fmt_failures(fails: list[dict[str, Any]], which: str) -> list[str]:
+    lines = [f"{len(fails)} wrong verdict(s){which}, worst first:" if fails else f"no wrong verdicts{which}"]
     for f in fails:
         what = "FALSE PASS" if f["label"] == "FP" else "FALSE NOT-YET"
         lines.append(f"  [{what}] {f['id']} ({f['kind']}, trap={f['trap']}): expected {f['expected']}, got {f['got']}")
@@ -315,23 +349,56 @@ def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None 
             lines.append(f"      error: {f['error']}")
         for r in f["rows"]:
             lines.append(f"      {r}")
+    return lines
+
+
+def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None = None,
+           show_held_out: bool = False) -> str:
+    s = summary(outcomes, show_held_out=show_held_out)
+    train, held = split(outcomes)
+    lines = ["Step-check eval (server.checks.evaluate_gate, offline, no model call)", ""]
+    lines.append(f"{'overall':<18}" + _fmt_score(s["overall"]))
+    for k, v in s["by_kind"].items():
+        lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
+    for k, v in s["by_trap"].items():
+        lines.append(f"{'trap ' + k:<18}" + _fmt_score(v))
+    if held:
+        lines.append(f"{'held-out':<18}" + _fmt_score(s["held_out"]["overall"]))
+    if wall_s is not None:
+        lines.append(f"\n{len(train)} training + {len(held)} held-out cases in {wall_s:.2f}s")
+    lines.append("")
+    lines += _fmt_failures(s["failures"], "")
+    if held and show_held_out:
+        lines.append("")
+        for k, v in s["held_out"]["by_kind"].items():
+            lines.append(f"{'held-out ' + k:<18}" + _fmt_score(v))
+        lines += _fmt_failures(s["held_out"]["failures"], " in the HELD-OUT cases (never tune on these)")
+    elif held:
+        lines.append("")
+        lines.append(f"{len(held)} held-out case(s) scored apart, never used to tune the checks "
+                     "(--held-out lists their wrong verdicts)")
     if verbose:
         lines.append("")
         lines.append("all cases:")
-        for o in outcomes:
+        for o in train + (held if show_held_out else []):
+            tag = "  [held-out]" if held_out(o.case) else ""
             lines.append(f"  {o.label} {o.case['id']:<52} expected {o.expected:<8} got {o.got:<8} via {o.via}"
-                         f"  {o.ms:.0f} ms")
+                         f"  {o.ms:.0f} ms{tag}")
     return "\n".join(lines)
 
 
 def baseline_from(outcomes: list[Outcome]) -> dict[str, Any]:
-    s = score(outcomes)
+    train, held = split(outcomes)
+    s, h = score(train), score(held)
+    keys = ("cases", "accuracy", "precision", "recall", "fp", "fn")
     return {
         "_comment": "Written by `python -m server.evals.checks --write-baseline`. test_check_evals.py fails when a "
-                    "score drops below these or a case outside known_wrong gets a wrong verdict. Raise it when the "
-                    "checks get better.",
-        **{k: s[k] for k in ("cases", "accuracy", "precision", "recall", "fp", "fn")},
-        "known_wrong": {o.case["id"]: o.label for o in failures(outcomes)},
+                    "training score drops below these or a training case outside known_wrong gets a wrong verdict. "
+                    "Raise it when the checks get better. held_out is the held-out cases' score, for the record "
+                    "only: never a target to tune on, and no case ids.",
+        **{k: s[k] for k in keys},
+        "known_wrong": {o.case["id"]: o.label for o in failures(train)},
+        "held_out": {k: h[k] for k in keys},
     }
 
 
@@ -342,6 +409,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-k", help="only cases whose id contains this")
     ap.add_argument("-v", "--verbose", action="store_true", help="list every case")
     ap.add_argument("--json", action="store_true", help="print the summary as JSON")
+    ap.add_argument("--held-out", action="store_true",
+                    help="also list the held-out cases' wrong verdicts (to judge a fix, never to tune one)")
     ap.add_argument("--write-baseline", action="store_true", help=f"write {BASELINE.name} from this run")
     args = ap.parse_args(argv)
 
@@ -352,9 +421,9 @@ def main(argv: list[str] | None = None) -> int:
     outcomes = run_all(cases)
     wall = time.perf_counter() - t0
     if args.json:
-        print(json.dumps({**summary(outcomes), "wall_s": round(wall, 3)}, indent=1))
+        print(json.dumps({**summary(outcomes, show_held_out=args.held_out), "wall_s": round(wall, 3)}, indent=1))
     else:
-        print(report(outcomes, verbose=args.verbose, wall_s=wall))
+        print(report(outcomes, verbose=args.verbose, wall_s=wall, show_held_out=args.held_out))
     if args.write_baseline:
         if args.k:
             print("--write-baseline needs the full set (no -k)", file=sys.stderr)

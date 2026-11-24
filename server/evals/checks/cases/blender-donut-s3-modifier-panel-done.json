@@ -1,0 +1,33 @@
+{
+ "id": "blender-donut-s3-modifier-panel-done",
+ "kind": "blender",
+ "trap": "none",
+ "expected": "pass",
+ "why": "Done: the torus's modifier stack shows a Subdivision modifier (Catmull-Clark, Levels Viewport 2) and the learner shaded it smooth.",
+ "step": {
+  "lesson": "server/workspace/tests/fixtures/blender_donut.json",
+  "id": "s3",
+  "adapt": true
+ },
+ "workspace": {
+  "screen": {
+   "Blender": [
+    "Object Mode View Select Add Object",
+    "Scene Collection",
+    "Collection",
+    "Camera",
+    "Light",
+    "Torus",
+    "Torus",
+    "Add Modifier",
+    "Subdivision",
+    "Catmull-Clark",
+    "Simple",
+    "Levels Viewport 2",
+    "Render 2",
+    "Optimize Display",
+    "Advanced"
+   ]
+  }
+ }
+}

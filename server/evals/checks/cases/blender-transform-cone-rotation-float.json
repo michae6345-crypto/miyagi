@@ -1,0 +1,240 @@
+{
+ "id": "blender-transform-cone-rotation-float",
+ "kind": "blender",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done, but odd-looking: Intro to Blender lesson 2 (\"The cube is at X 2, the cone is turned 90 degrees and the sphere is half size\"). The learner typed exactly R X 90, but Blender stores rotation as float32 radians (1.5707963705062866), so the dump's degrees read 90.00000250447816. That is 90 degrees; a check wanting the literal 90 or 90.0 calls it wrong.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Place the three shapes",
+  "file": "shapes.blend",
+  "instructions": "Move the cube to X 2 (G X 2), turn the cone 90 degrees around X (R X 90) and scale the sphere to half size (S 0.5). Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Cube at X 2",
+    "file": "shapes.scene.json",
+    "pattern": "\"name\":\\s*\"Cube\",\\s*\"type\":\\s*\"MESH\",\\s*\"location\":\\s*\\[\\s*2(?:\\.0+)?,"
+   },
+   {
+    "id": "s6c2",
+    "type": "file_contains",
+    "label": "Cone turned 90 degrees",
+    "file": "shapes.scene.json",
+    "pattern": "\"name\":\\s*\"Cone\",[^}]*?\"rotation_deg\":\\s*\\[\\s*90(?:\\.0+)?\\s*[,\\]]"
+   },
+   {
+    "id": "s6c3",
+    "type": "file_contains",
+    "label": "Sphere at half size",
+    "file": "shapes.scene.json",
+    "pattern": "\"scale\":\\s*\\[\\s*0\\.5,\\s*0\\.5,\\s*0\\.5\\s*\\]"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "shapes.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see mug.scene.json)\n",
+   "shapes.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "shapes.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Cube",
+       "type": "MESH",
+       "location": [
+        2.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Cone",
+       "type": "MESH",
+       "location": [
+        0.0,
+        3.0,
+        0.0
+       ],
+       "rotation_deg": [
+        90.00000250447816,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 33,
+        "edges": 64,
+        "faces": 33,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Sphere",
+       "type": "MESH",
+       "location": [
+        -2.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        0.5,
+        0.5,
+        0.5
+       ],
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 960,
+        "faces": 480,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

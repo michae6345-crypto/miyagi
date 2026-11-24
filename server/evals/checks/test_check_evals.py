@@ -1,5 +1,7 @@
-"""The step-check eval set (server/evals/checks/cases) must not get worse: accuracy, precision and recall stay at or
-above baseline.json, and no case outside its known_wrong list gets a wrong verdict. Offline: no model, no network.
+"""The step-check eval set (server/evals/checks/cases) must not get worse: on the training cases, accuracy, precision
+and recall stay at or above baseline.json, and no case outside its known_wrong list gets a wrong verdict. Held-out
+cases ("heldOut": true) are never part of this gate (they are never used to tune the checks): only scored apart.
+Offline: no model, no network.
 
     python -m pytest server/evals/checks -q
     python -m server.evals.checks -v            # the scores and the wrong verdicts, worst first
@@ -53,8 +55,12 @@ def test_every_case_builds_and_runs_without_error(outcomes):
     assert not broken, broken
 
 
+def train(outcomes: list[runner.Outcome]) -> list[runner.Outcome]:
+    return runner.split(outcomes)[0]
+
+
 def test_scores_hold_the_baseline(outcomes):
-    base, now = baseline(), runner.score(outcomes)
+    base, now = baseline(), runner.score(train(outcomes))
     for metric in ("accuracy", "precision", "recall"):
         assert now[metric] >= base[metric] - 1e-9, (
             f"{metric} dropped: {now[metric]} < baseline {base[metric]}\n\n" + runner.report(outcomes))
@@ -62,7 +68,7 @@ def test_scores_hold_the_baseline(outcomes):
 
 def test_no_new_wrong_verdicts(outcomes):
     known = baseline()["known_wrong"]
-    new = [o for o in runner.failures(outcomes) if o.case["id"] not in known]
+    new = [o for o in runner.failures(train(outcomes)) if o.case["id"] not in known]
     assert not new, "new wrong verdicts (fix the checks, or the case's expected verdict):\n" + "\n".join(
         f"  {o.label} {o.case['id']}: expected {o.expected}, got {o.got}; rows: "
         + "; ".join(f"{r['checkId']} {r['status']} ({r['detail']})" for r in o.rows) for o in new)
@@ -72,3 +78,14 @@ def test_known_wrong_cases_exist():
     ids = {c["id"] for c in runner.load_cases()}
     stale = sorted(set(baseline()["known_wrong"]) - ids)
     assert not stale, f"baseline.json lists cases that no longer exist: {stale}"
+
+
+def test_held_out_cases_stay_out_of_the_gate_and_the_default_report(outcomes):
+    held = [o for o in outcomes if runner.held_out(o.case)]
+    assert held, "the set should keep some held-out cases"
+    assert len(held) < len(outcomes) / 2
+    held_ids = {o.case["id"] for o in held}
+    assert not held_ids & set(baseline()["known_wrong"]), "baseline.json must not name held-out cases"
+    text = runner.report(outcomes, verbose=True)
+    assert not [i for i in held_ids if i in text], "the default report must not name held-out cases"
+    assert all(i in runner.report(outcomes, verbose=True, show_held_out=True) for i in held_ids)
