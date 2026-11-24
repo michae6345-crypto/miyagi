@@ -1,0 +1,32 @@
+{
+ "id": "terminal-git-s8-push-rejected",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The push was rejected: ' ! [rejected]  update-name -> update-name (fetch first)' and 'error: failed to push some refs'. The ref line the check looks for is inside the rejection.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s8"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Let's Get Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Code": [
+    "index.html",
+    "<h1>Let's Get Git Going</h1>"
+   ],
+   "Terminal": [
+    "tripi@mac gitgoing % git push origin update-name",
+    "To https://github.com/ada-learner/GitGoing.git",
+    " ! [rejected]        update-name -> update-name (fetch first)",
+    "error: failed to push some refs to 'https://github.com/ada-learner/GitGoing.git'",
+    "hint: Updates were rejected because the remote contains work that you do not",
+    "hint: have locally. Integrate the remote changes (e.g.",
+    "hint: 'git pull ...') before pushing again.",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

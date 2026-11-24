@@ -11,6 +11,7 @@ python -m server.evals.checks            # scores + wrong verdicts, worst first
 python -m server.evals.checks -v         # plus every case
 python -m server.evals.checks -k jupyter # only ids containing "jupyter"
 python -m server.evals.checks --json
+python -m server.evals.checks --show-held-out    # also the held-out wrong verdicts' rows (read, never tune on)
 python -m server.evals.checks --write-baseline   # after the checks improve or cases are added
 python -m pytest server/evals/checks -q  # fails below baseline.json or on a new wrong verdict
 ```
@@ -27,6 +28,7 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
   "id": "jupyter-mnist-s2-typed-not-run",   // = file name
   "kind": "jupyter",                        // jupyter | vscode | terminal | metric
   "trap": "false_pass",                     // none | false_pass (a near miss that looks done) | false_fail (done, but looks odd)
+  "heldOut": true,                          // optional: a held-out case (see below); default false = train
   "expected": "not_yet",                    // pass | not_yet
   "why": "T10-CP7: the cell is typed but never run ...",
   "precision_mode": false,                  // optional: evaluate_gate(precision_mode=...)
@@ -51,9 +53,52 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
 ```
 
 Lessons used: the MNIST Jupyter video lesson (`5c0ea8a49f419487`, with the learner's real notebook from desktop
-test 10), the calculator and NN-from-scratch text lessons, the Git, React/Vite and convection-PINN video lessons.
+test 10), the calculator and NN-from-scratch text lessons, the Git, React/Vite and convection-PINN video lessons,
+and the coach eval's git interactive-rebase lesson (`evals/coach/lessons/git-interactive-rebase.json`).
 
-## Baseline (56 cases, Nov 22 2026, origin/integration/live)
+## Train and held-out
+
+About a third of each new round's cases carry `"heldOut": true`. They are scored and reported on their own (the
+`held-out` line; `summary()["held_out"]`, `baseline.json` → `held_out` / `known_wrong_held_out`), never mixed into
+the train numbers, and they are **never used to tune a fix**: fixes are made against train cases only, and the
+held-out score says whether a fix generalises. The report lists a held-out wrong verdict by id only;
+`--show-held-out` prints its rows, for reading after a fix round, not for picking the next fix. The pytest gate
+still fails when a held-out case newly goes wrong (a regression guard, not a tuning target). Every held-out case's
+trap kind also has train cases.
+
+## Baseline (76 cases: 69 train + 7 held out, Nov 24 2026, origin/integration/live)
+
+Round 1 of the accuracy loop added 20 terminal / git cases (13 train, 7 held out): commands typed vs run, a
+command's own echo vs its result (errors after `git add`, `git commit`, `git clone`, `git push`), branches created
+vs switched, multi-step shells (`cd x; git init`), package installs (pip resolver notice, venv not activated,
+npm 10's `npm error`), exit codes on a hidden terminal.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (69) | 0.855 | 0.811 | 0.909 | 7 | 3 |
+| train terminal (29) | 0.655 | 0.588 | 0.769 | 7 | 3 |
+| held out (7) | 0.143 | 0.167 | 0.500 | 5 | 1 |
+
+Known wrong train verdicts (`known_wrong`), worst first:
+
+- **FP `terminal-git-s2-init-wrong-folder-chain`**: `cd projct1; git init` initialised `~`; "Initialized empty"
+  is on screen, so it passes.
+- **FP `terminal-git-s3-touch-ls-not-staged`**: the file names in an `ls` listing pass "Staged learning.py".
+- **FP `terminal-git-s4-add-not-a-repo`**, **`-s5-commit-nothing-added`**, **`-s6-clone-not-found`**,
+  **`-s8-push-rejected`**: the pattern matches the command line itself (or the `[rejected]` ref line), and the
+  error that follows (`fatal:`, `nothing added to commit`, `! [rejected]`) is never weighed.
+- **FP `terminal-git-s7-branch-created-not-switched`**: `update-name` in `git branch`'s list, HEAD still on main.
+- **FN `terminal-git-s2-reinitialized`**: "Reinitialized existing Git repository" is not "Initialized empty".
+- **FN `terminal-mnist-s1-pip-resolver-error-installed`**: pip's `ERROR: pip's dependency resolver ...` notice
+  fails "No terminal errors" although "Successfully installed" follows.
+- **FN `terminal-rebase-s3-continue-twice`**: a later, harmless `fatal: No rebase in progress?` fails
+  "No rebase conflicts" after "Successfully rebased".
+
+Held-out wrong verdicts (`known_wrong_held_out`), ids only: `terminal-calc-s2-hidden-exit-1-after-5`,
+`terminal-git-s7-fish-typed-not-run`, `terminal-git-s7-pathspec-error`, `terminal-mnist-s1-forgot-activate`,
+`terminal-react-s1-npm10-error` (FP); `terminal-git-s8-push-ligature-arrow` (FN).
+
+## First baseline (56 cases, Nov 22 2026; all eight fixed in 2b86a0db)
 
 | | acc | prec | rec | FP | FN |
 |---|---|---|---|---|---|

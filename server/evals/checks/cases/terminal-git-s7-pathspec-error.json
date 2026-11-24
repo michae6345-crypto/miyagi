@@ -1,0 +1,24 @@
+{
+ "id": "terminal-git-s7-pathspec-error",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "`git checkout update-name` without -b: the branch does not exist, git says \"error: pathspec 'update-name' did not match any file(s) known to git\". The branch name on screen is in the error.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git checkout update-name",
+    "error: pathspec 'update-name' did not match any file(s) known to git",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

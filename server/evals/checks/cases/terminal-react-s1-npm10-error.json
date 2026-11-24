@@ -1,0 +1,30 @@
+{
+ "id": "terminal-react-s1-npm10-error",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "npm 10 prints 'npm error' (not the old 'npm ERR!'): the dev server from before was stopped (^C) and the latest `npm run dev`, in the wrong folder, failed with 'npm error enoent Could not read package.json'. The 'ready in' / localhost lines are stale scrollback.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "VITE v5.4.10  ready in 312 ms",
+    "➜  Local:   http://localhost:5173/",
+    "^C",
+    "tripi@mac Desktop % npm run dev",
+    "npm error code ENOENT",
+    "npm error syscall open",
+    "npm error path /Users/tripi/Desktop/package.json",
+    "npm error errno -2",
+    "npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/Users/tripi/Desktop/package.json'",
+    "npm error A complete log of this run can be found in: /Users/tripi/.npm/_logs/2026-11-24T10_02_11_093Z-debug-0.log",
+    "tripi@mac Desktop % "
+   ]
+  }
+ }
+}
