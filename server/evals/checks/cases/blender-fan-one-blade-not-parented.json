@@ -1,0 +1,292 @@
+{
+ "id": "blender-fan-one-blade-not-parented",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender animation lesson 5 (\"The blades are children of the hub and only the hub has rotation keyframes\"). The learner box-selected the blades, but Blade3 sat behind the hub and was not in the selection, so Ctrl+P > Object parented only Blade1 and Blade2 to the Hub; Blade3's parent is still none. The hub is keyed (Z 0 -> 360 over 48 frames), so when the animation plays two blades spin and Blade3 hangs still in the air. A child of Hub and the hub's rotation keys are both in the dump.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Parent the blades to the hub",
+  "file": "fan.blend",
+  "instructions": "Select all three blades, then Shift+click the Hub last so it is the active object, and press Ctrl+P > Object. Then click only the Hub, press I > Rotation on frame 1, go to frame 48, type R Z 360 and press I > Rotation again. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "Blades parented to the hub",
+    "file": "fan.scene.json",
+    "pattern": "\"parent\":\\s*\"Hub\""
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "Hub has rotation keys",
+    "file": "fan.scene.json",
+    "pattern": "\"name\":\\s*\"Hub\"[\\s\\S]*?\"data_path\":\\s*\"rotation_euler\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "fan.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see fan.scene.json)\n",
+   "fan.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "fan.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 48,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "camera": "Camera"
+     },
+     "objects": [
+      {
+       "name": "Hub",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        1.5
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.4,
+        0.4,
+        0.2
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "HubAction",
+        "fcurves": [
+         {
+          "data_path": "rotation_euler",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            48.0,
+            6.283185
+           ]
+          ],
+          "interpolation": [
+           "LINEAR",
+           "LINEAR"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Blade1",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.2,
+        0.3,
+        0.02
+       ],
+       "parent": "Hub",
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Blade2",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        120.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.2,
+        0.3,
+        0.02
+       ],
+       "parent": "Hub",
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Blade3",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        1.5
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        240.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.2,
+        0.3,
+        0.02
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,42 @@
+{
+ "id": "autocad-dxf-wheels-radius-18",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss on the toy car's wheels step (\"two wheels 18 mm across\"). At the CIRCLE prompt the learner typed 18 straight away, which AutoCAD takes as the radius (the default option); the Diameter option needs D first. Both CIRCLEs on WHEELS have group 40 = 18.0: 36 mm wheels that overlap each other's arches and reach 18 mm below the car. An 18 is in the file (the radius, and a profile vertex at X 18), and so are two circles on WHEELS, but the wheels are twice the size.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Draw the wheels",
+  "file": "toy_car.dxf",
+  "instructions": "Make WHEELS the current layer. Run CIRCLE, click the centre at 25,0, type D for Diameter and enter 18; repeat at 95,0. Save the drawing as toy_car.dxf (SAVEAS > AutoCAD 2018 DXF).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Two wheel circles",
+    "file": "toy_car.dxf",
+    "pattern": "\\bCIRCLE\\b"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Wheels 18 mm across",
+    "file": "toy_car.dxf",
+    "pattern": "\\b18(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s4c3",
+    "type": "file_contains",
+    "label": "On layer WHEELS",
+    "file": "toy_car.dxf",
+    "pattern": "\\bWHEELS\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "toy_car.dxf": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n3\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nLAYER\n2\nBODY\n70\n0\n62\n5\n6\nCONTINUOUS\n0\nLAYER\n2\nWHEELS\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n8\nBODY\n90\n8\n70\n1\n10\n0.0\n20\n0.0\n10\n120.0\n20\n0.0\n10\n120.0\n20\n28.0\n10\n84.0\n20\n28.0\n10\n66.0\n20\n45.0\n10\n30.0\n20\n45.0\n10\n18.0\n20\n28.0\n10\n0.0\n20\n28.0\n0\nCIRCLE\n8\nWHEELS\n10\n25.0\n20\n0.0\n30\n0.0\n40\n18.0\n0\nCIRCLE\n8\nWHEELS\n10\n95.0\n20\n0.0\n30\n0.0\n40\n18.0\n0\nENDSEC\n0\nEOF\n"
+  }
+ }
+}
