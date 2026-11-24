@@ -55,7 +55,7 @@ g.document = { hasFocus: () => true }
 g.location = { hash: '', search: '', pathname: '/' }
 
 const N = require('../src/renderer/src/features/signincard/notice') as typeof import('../src/renderer/src/features/signincard/notice')
-const { parseNotice, classify, capKind, formatReset, capLine, SIGNIN } = N
+const { parseNotice, classify, capKind, formatReset, capLine, SIGNIN, REGION_LINE } = N
 
 const LA = { timeZone: 'America/Los_Angeles', locale: 'en-US' }
 const NOW = new Date('2026-11-24T18:00:00Z') // 10:00 AM in Los Angeles
@@ -114,6 +114,18 @@ describe('classify', () => {
       assert.equal(capKind(reason), cap, reason)
       assert.deepEqual(classify({ reason, status: 429 }), { kind: 'cap', cap }, reason)
     }
+  })
+})
+
+describe('region (451 region_unavailable)', () => {
+  test('a 451 or reason region_unavailable is the region line, never the sign-in card', () => {
+    assert.deepEqual(classify({ reason: 'region_unavailable', status: 451 }), { kind: 'region' })
+    assert.deepEqual(classify({ reason: '451', status: 451 }), { kind: 'region' })
+    assert.deepEqual(parseNotice({ reason: 'region_unavailable', status: 451 }), { reason: 'region_unavailable', status: 451 })
+  })
+  test("the cloud's own words, calm and short", () => {
+    assert.equal(REGION_LINE, "miyagi isn't available in your region yet.")
+    assert.ok(words(REGION_LINE) <= 12 && !/sign in/i.test(REGION_LINE))
   })
 })
 
@@ -223,6 +235,36 @@ describe('store', () => {
     await new Promise((r) => setTimeout(r, 0))
     assert.equal(useSignInCard.getState().signin, undefined)
     assert.ok(useLesson.getState().notices.some((n) => n.id === 'engine-error'))
+  })
+
+  test('cloud.notice 451 region_unavailable: the region line, no sign-in card after it, Esc closes it, once per launch', () => {
+    fresh()
+    send('cloud.notice', { reason: 'signin_required', status: 401 })
+    assert.ok(useSignInCard.getState().signin)
+    send('cloud.notice', { reason: 'region_unavailable', status: 451 })
+    assert.ok(useSignInCard.getState().region)
+    assert.equal(useSignInCard.getState().signin, undefined) // signing in would not help
+    assert.equal(receive({ reason: 'signin_required', status: 401 }), null)
+    setVisible('region', true)
+    emitUi('dismiss')
+    assert.equal(useSignInCard.getState().region, undefined)
+    assert.equal(receive({ reason: 'region_unavailable', status: 451 }), null) // not again this launch
+    assert.equal(S.buildStarted({}), false) // a build start never brings the sign-in card back
+  })
+
+  test('the install mint answered 451 (main cloud.ts): the region line, Not now closes it', () => {
+    fresh()
+    assert.equal(S.cloudView({ region: false }), null)
+    assert.equal(S.cloudView({ region: true }), 'region')
+    assert.ok(useSignInCard.getState().region)
+    S.closeRegion()
+    assert.equal(useSignInCard.getState().region, undefined)
+  })
+
+  test('the error fallback carries a region notice too', () => {
+    fresh()
+    send('error', { message: "miyagi isn't available in your region yet.", notice: { reason: 'region_unavailable', status: 451 } })
+    assert.ok(useSignInCard.getState().region)
   })
 
   test('a signed-in learner gets no card; a token 401 gets nothing', () => {

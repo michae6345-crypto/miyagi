@@ -17,6 +17,8 @@
  * State:
  *   signin   the sign-in card is up (401 signin_required, or a guest's build start), until Sign in succeeds, Not now or Esc
  *   cap      the cap line (429), until Esc or CAP_MS
+ *   region   the region line (451 region_unavailable, from the engine's cloud.notice or main's install mint): no Sign
+ *            in (it would not help), until Not now or Esc. Once per launch: a learner who closed it is not told again
  *   tried    Sign in was pressed from this card (its failure line shows under the buttons)
  *   visible  which of the two is the one on the island right now (Esc closes only what the learner sees)
  */
@@ -26,14 +28,17 @@ import { dismissNotice, notify } from '../../core/lesson'
 import { signInWith, useAuth } from '../auth/store'
 import { promptsOnBuild } from '../session/model'
 import { useSession } from '../session/store'
-import { capLine, classify, parseNotice, SIGNIN, type CapKind } from './notice'
+import { capLine, classify, parseNotice, REGION_NOTICE, SIGNIN, type CapKind } from './notice'
 
 export const CAP_MS = 10_000
 
-type Shown = 'signin' | 'cap'
+type Shown = 'signin' | 'cap' | 'region'
 type State = {
   signin?: { at: number }
   cap?: { kind: CapKind; line: string; at: number }
+  region?: { at: number }
+  /** The region line was shown this launch (it is not shown again, and no sign-in card follows it). */
+  regionSeen?: boolean
   tried: boolean
   visible?: Shown
 }
@@ -49,7 +54,13 @@ export function receive(raw: unknown, now: Date = new Date()): Shown | null {
   const n = parseNotice(raw)
   const c = n && classify(n)
   if (!n || !c) return null
+  if (c.kind === 'region') {
+    if (get().regionSeen) return null
+    set({ region: { at: now.getTime() }, regionSeen: true, signin: undefined, tried: false }) // signing in would not help
+    return 'region'
+  }
   if (c.kind === 'signin') {
+    if (get().regionSeen) return null // the region block answers first: signing in would not help
     if (useAuth.getState().user) return null // signed in since: the next build claim will go through
     set({ signin: { at: now.getTime() }, tried: false })
     return 'signin'
@@ -65,6 +76,10 @@ export function receive(raw: unknown, now: Date = new Date()): Shown | null {
 
 export function notNow(): void {
   set({ signin: undefined, tried: false })
+}
+
+export function closeRegion(): void {
+  set({ region: undefined })
 }
 
 export function closeCap(): void {
@@ -104,6 +119,7 @@ export function buildStarted(p: { failed?: boolean }, now: Date = new Date()): b
   }
   if (building) return false
   building = true
+  if (get().regionSeen) return false // the region block: a sign-in card would not help
   if (!promptsOnBuild(useSession.getState().view, !!useAuth.getState().user)) return false
   set({ signin: { at: now.getTime() }, tried: false })
   return true
@@ -116,6 +132,12 @@ onMessage('lesson.building', (p) => {
 })
 onMessage('lesson.ready', buildDone)
 onMessage('lesson.ended', buildDone)
+
+/** main/features/cloud.ts's CloudView (index.tsx subscribes): POST /v1/install answered 451 region_unavailable, so no
+ *  engine notice can come (no token). Returns what it showed. */
+export function cloudView(c: { region?: boolean } | undefined): Shown | null {
+  return c?.region ? receive(REGION_NOTICE) : null
+}
 
 // Signed in (here or in the login window): the card has done its job.
 useAuth.subscribe((s, prev) => {
@@ -130,10 +152,11 @@ useAuth.subscribe((s, prev) => {
 onUi('dismiss', () => {
   const v = get().visible
   if (v === 'signin') notNow()
+  else if (v === 'region') closeRegion()
   else if (v === 'cap') closeCap()
 })
 onUi('reset', () => {
   buildDone()
   clearTimeout(capTimer)
-  set({ signin: undefined, cap: undefined, tried: false, visible: undefined })
+  set({ signin: undefined, cap: undefined, region: undefined, regionSeen: false, tried: false, visible: undefined })
 })

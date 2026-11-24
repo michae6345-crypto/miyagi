@@ -4,6 +4,8 @@
  *   SignInCard  "Sign in to build new lessons" / "Lessons you've opened still work." Sign in (the ONE primary) starts
  *               the Google flow; Not now (quiet) and Esc close it. While the browser is out, Sign in spins.
  *   CapLine     one line: what ran out and when it comes back, in local time. Esc closes it; it leaves on its own.
+ *   RegionLine  "miyagi isn't available in your region yet." (451 region_unavailable). No Sign in: it would not help.
+ *               Not now and Esc close it.
  *
  * No hue for any of it (no red, no amber): this is information, the lesson still builds on this Mac.
  */
@@ -15,10 +17,10 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { fade } from '../../core/ui/motion'
 import { color, spring, type2 } from '../../core/theme'
 import { useAuth } from '../auth/store'
-import { SIGNIN } from './notice'
-import { closeCap, notNow, setVisible, signIn, useSignInCard } from './store'
+import { REGION_LINE, SIGNIN } from './notice'
+import { closeCap, closeRegion, notNow, setVisible, signIn, useSignInCard } from './store'
 
-function useShown(which: 'signin' | 'cap'): void {
+function useShown(which: 'signin' | 'cap' | 'region'): void {
   useEffect(() => {
     setVisible(which, true)
     return () => setVisible(which, false)
@@ -69,6 +71,32 @@ export function SignInCard(): ReactNode {
       )}
     </div>
   )
+}
+
+export function RegionLine(): ReactNode {
+  useShown('region')
+  const part = usePart()
+  return (
+    <motion.div
+      {...part(0)}
+      data-hit
+      data-signincard="region"
+      role="status"
+      aria-live="polite"
+      className="flex items-center"
+      style={{ padding: '8px 8px 8px 16px', gap: 10, color: color.text, fontSize: type2.sm, lineHeight: '18px', fontWeight: 500 }}
+    >
+      <MiyagiMark size={16} />
+      <span className="min-w-0 flex-1">{REGION_LINE}</span>
+      <QuietButton label={SIGNIN.notNow} onClick={closeRegion} />
+      <Keycap k="dismiss" />
+    </motion.div>
+  )
+}
+
+/** The 56 slot: the region line when there is one (it outlasts a cap), else the cap line. */
+export function NoticeLine(): ReactNode {
+  return useSignInCard((s) => !!s.region) ? <RegionLine /> : <CapLine />
 }
 
 export function CapLine(): ReactNode {
