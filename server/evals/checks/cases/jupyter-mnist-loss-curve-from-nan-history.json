@@ -1,0 +1,96 @@
+{
+ "id": "jupyter-mnist-loss-curve-from-nan-history",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "MNIST 'Plot the training loss per epoch' (the loss curve shows under the cell). After s5 passed, the learner tried Adam(learning_rate=1.0) in the training cell and re-ran it ([5]): every epoch now ends 'loss: nan', and `history` is that run's. The plot cell ([6]) ran with no error and drew an axes titled 'Training loss', but matplotlib skips NaN, so the axes are empty, with the default -0.04 to 0.04 ticks. There is no curve to read; the training it would show diverged. Not done: retrain with the default rate, then plot.",
+ "step": {
+  "id": "mn5s6",
+  "title": "Plot the training loss per epoch",
+  "instructions": "In mnist.ipynb, plot history.history['loss'] with plt.plot, label the axes epoch and loss, title it 'Training loss' and run the cell so the curve shows under it.",
+  "file": "mnist.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "mnist.ipynb",
+    "match": "plt.plot(history.history['loss'])",
+    "caption": "Plot the loss each epoch"
+   }
+  ],
+  "code": "plt.plot(history.history['loss'])\nplt.xlabel('epoch')\nplt.ylabel('loss')\nplt.title('Training loss')\nplt.show()",
+  "checks": [
+   {
+    "id": "mn5s6c1",
+    "type": "screen_contains",
+    "label": "Loss history plotted",
+    "app": "Code",
+    "pattern": "plt\\.plot\\(\\s*history\\.history\\[['\"]loss['\"]\\]"
+   },
+   {
+    "id": "mn5s6c2",
+    "type": "screen_contains",
+    "label": "Loss curve shown under the cell",
+    "app": "Code",
+    "output": true,
+    "pattern": "Training\\s+loss"
+   },
+   {
+    "id": "mn5s6c3",
+    "type": "screen_absent",
+    "label": "No cell error",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 3,
+     "counts": [
+      1,
+      2,
+      3
+     ],
+     "append": [
+      {
+       "source": "model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1.0),\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)",
+       "stdout": "Epoch 1/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0991 - loss: nan\nEpoch 2/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0991 - loss: nan\nEpoch 3/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0991 - loss: nan\nEpoch 4/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0991 - loss: nan\nEpoch 5/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0991 - loss: nan\n",
+       "count": 5
+      },
+      {
+       "source": "plt.plot(history.history['loss'])\nplt.xlabel('epoch')\nplt.ylabel('loss')\nplt.title('Training loss')\nplt.show()",
+       "stdout": "",
+       "image": true,
+       "count": 6
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[6]",
+    "plt.plot(history.history['loss'])",
+    "plt.xlabel('epoch')",
+    "plt.ylabel('loss')",
+    "plt.title('Training loss')",
+    "plt.show()",
+    "Training loss",
+    "0.04",
+    "0.02",
+    "0.00",
+    "-0.02",
+    "-0.04",
+    "-0.04 -0.02 0.00 0.02 0.04",
+    "epoch",
+    "loss"
+   ]
+  }
+ }
+}

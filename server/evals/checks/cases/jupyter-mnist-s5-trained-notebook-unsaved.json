@@ -1,0 +1,56 @@
+{
+ "id": "jupyter-mnist-s5-trained-notebook-unsaved",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "MNIST s5. The learner typed the compile/fit cell, pressed Cmd+S out of habit, then ran it. VS Code's autosave is off, so mnist.ipynb on disk still has the cell's source with no run count and no output, but the editor shows [4] and all five epochs finishing at 'accuracy: 0.9858 - loss: 0.0462'. The cell ran and the model trained past 0.95; an unsaved notebook is not an unrun cell, and the tutor must not make the learner save (no Cmd+S chores). Done.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 3,
+     "counts": [
+      1,
+      2,
+      3
+     ],
+     "append": [
+      {
+       "source": "model.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)",
+       "run": false
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb \u25cf",
+    "[4]",
+    "model.compile(optimizer='adam',",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['accuracy'])",
+    "history = model.fit(",
+    "train_images,",
+    "train_labels,",
+    "epochs=5",
+    "Epoch 1/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.8794 - loss: 0.4258",
+    "Epoch 2/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9643 - loss: 0.1193",
+    "Epoch 3/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9756 - loss: 0.0802",
+    "Epoch 4/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9822 - loss: 0.0588",
+    "Epoch 5/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9858 - loss: 0.0462"
+   ]
+  }
+ }
+}

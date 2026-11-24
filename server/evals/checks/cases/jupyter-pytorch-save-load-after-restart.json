@@ -1,0 +1,103 @@
+{
+ "id": "jupyter-pytorch-save-load-after-restart",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "PyTorch plan, 'Save and load a model' (model.pt exists and the reloaded model gives the same predictions). In the old kernel the learner built the model [2], trained it [3] and saved it [4]; then, as the step says, restarted, re-ran the data cell [1] and ran the new load cell [2]. The model, training and save cells keep their old counts and outputs from before the restart, which is the point: the fresh Net loaded from model.pt prints [0.0, 1.0, 1.0, 0.0] with nothing trained in this kernel. model.pt is on disk. Done.",
+ "step": {
+  "id": "pt9s3",
+  "title": "Restart the kernel and load the saved model",
+  "instructions": "Restart the kernel so nothing trained is left in memory. Run the first cell again (imports and the four XOR points), then in a new cell build a fresh model of the same shape, load model.pt into it and print its rounded predictions. They should be 0, 1, 1, 0 without training again.",
+  "file": "xor.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "xor.ipynb",
+    "match": "fresh.load_state_dict(torch.load('model.pt'))",
+    "caption": "Load the saved weights"
+   }
+  ],
+  "code": "fresh = nn.Sequential(nn.Linear(2, 8), nn.Tanh(), nn.Linear(8, 1), nn.Sigmoid())\nfresh.load_state_dict(torch.load('model.pt'))\nprint(fresh(X).round().squeeze().tolist())",
+  "checks": [
+   {
+    "id": "pt9s3c1",
+    "type": "file_exists",
+    "label": "model.pt saved",
+    "file": "model.pt"
+   },
+   {
+    "id": "pt9s3c2",
+    "type": "screen_contains",
+    "label": "Weights loaded into a fresh model",
+    "app": "Code",
+    "pattern": "load_state_dict\\(\\s*torch\\.load\\("
+   },
+   {
+    "id": "pt9s3c3",
+    "type": "screen_contains",
+    "label": "Reloaded predictions printed as 0, 1, 1, 0",
+    "app": "Code",
+    "output": true,
+    "pattern": "\\[\\s*0\\.0,\\s*1\\.0,\\s*1\\.0,\\s*0\\.0\\s*\\]"
+   },
+   {
+    "id": "pt9s3c4",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "xor.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch\nfrom torch import nn\n\nX = torch.tensor([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])\ny = torch.tensor([[0.], [1.], [1.], [0.]])",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "torch.manual_seed(0)\nmodel = nn.Sequential(nn.Linear(2, 8), nn.Tanh(), nn.Linear(8, 1), nn.Sigmoid())\nloss_fn = nn.MSELoss()\noptimizer = torch.optim.SGD(model.parameters(), lr=0.5)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "for epoch in range(2000):\n    optimizer.zero_grad()\n    loss = loss_fn(model(X), y)\n    loss.backward()\n    optimizer.step()\n    if epoch % 200 == 0:\n        print(f'epoch {epoch} loss {loss.item():.4f}')\n\nprint(model(X).round().squeeze().tolist())",
+       "stdout": "epoch 0 loss 0.2614\nepoch 200 loss 0.2488\nepoch 400 loss 0.2391\nepoch 600 loss 0.2103\nepoch 800 loss 0.1522\nepoch 1000 loss 0.0817\nepoch 1200 loss 0.0346\nepoch 1400 loss 0.0164\nepoch 1600 loss 0.0101\nepoch 1800 loss 0.0072\n[0.0, 1.0, 1.0, 0.0]\n",
+       "count": 3
+      },
+      {
+       "source": "torch.save(model.state_dict(), 'model.pt')",
+       "run": true,
+       "count": 4
+      },
+      {
+       "source": "fresh = nn.Sequential(nn.Linear(2, 8), nn.Tanh(), nn.Linear(8, 1), nn.Sigmoid())\nfresh.load_state_dict(torch.load('model.pt'))\nprint(fresh(X).round().squeeze().tolist())",
+       "stdout": "[0.0, 1.0, 1.0, 0.0]\n",
+       "count": 2
+      }
+     ]
+    }
+   },
+   "model.pt": "PK\u0003\u0004 torch zip placeholder"
+  },
+  "screen": {
+   "Code": [
+    "xor.ipynb",
+    "Restarted .venv (Python 3.12.7)",
+    "[4]",
+    "torch.save(model.state_dict(), 'model.pt')",
+    "[2]",
+    "fresh = nn.Sequential(nn.Linear(2, 8), nn.Tanh(), nn.Linear(8, 1), nn.Sigmoid())",
+    "fresh.load_state_dict(torch.load('model.pt'))",
+    "print(fresh(X).round().squeeze().tolist())",
+    "[0.0, 1.0, 1.0, 0.0]"
+   ]
+  }
+ }
+}

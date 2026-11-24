@@ -73,6 +73,58 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 3: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r3-0`)
+
+18 new cases (12 train, 6 held out), no engine change. Steps from the MNIST video lesson (`5c0ea8a49f419487`: s2
+load, s5 fit, s6 predict, s7 evaluate) and, inline, the step shapes earlier rounds took from Adrian's catalog plans
+(`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`): Intro to Jupyter ("Run order and what the kernel keeps",
+"Restart and run all"), PyTorch ("Write the training loop", "Hold out data and measure accuracy", "Save and load a
+model", the sine-wave project's validation loss) and the MNIST "plot the training loss" step. One new inline step:
+PyTorch "Restart the kernel and load the saved model" (`pt9s3`).
+
+The traps: a normalise cell run three times (`/ 255` again each time, its own print says max `1.53787e-05`), the
+model cell re-run after training so predict ran on a fresh network (counts `[5]` model, `[4]` fit, `[6]` predict,
+no restart), held-out accuracy printed as a count (`val acc 121.0` of 200), Restart + Run All whose last cell
+raised `NameError: name 'plt'` below the fold. Done-but-odd: a NaN fit left in an old cell above a rebuilt model's
+clean refit, `metrics=['acc']` (`acc: 0.9858`), a fit that finished on screen in a notebook not saved since it was
+typed (no Cmd+S chores), `fit(..., verbose=0)` then `print(history.history['accuracy'][-1])`, an XOR loss with one
+spike that recovers, a noisy sine validation loss that ends below a quarter, goal-cell re-runs that leave count gaps.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (171: 159 earlier + 12 new) | 0.953 | 0.948 | 0.948 | 4 | 4 |
+| train, the 12 new | 0.333 | | | 4 | 4 |
+| held-out (61: 55 earlier + 6 new) | 0.508 | 0.406 | 0.542 | 19 | 11 |
+| held-out, the 6 new | 0.167 | | | 3 | 2 |
+
+Train wrong verdicts (all new; the 159 earlier train cases still score right):
+
+- **FP `jupyter-mnist-s2-normalize-cell-rerun`**: every s2 row is about code on screen or an error; a cell that
+  rewrites its own input (`x = x.astype(...) / 255`) run again without the cell that loads `x` is not weighed, nor
+  its printed max.
+- **FP `jupyter-mnist-s6-predict-after-model-rebuilt`**: `stale_inputs` only blames cells above with a count after
+  the step's cell; a cell that rebinds `model` (count `[5]`) after the cell that trained it (`[4]`) and before the
+  predict (`[6]`) is not seen.
+- **FP `jupyter-pytorch-val-acc-count-not-fraction`**: `metric_threshold > 0.9` takes `121.0` as an accuracy; a
+  value outside 0..1 for an accuracy (a count) is never questioned.
+- **FP `jupyter-restart-run-all-last-cell-error-offscreen`**: "No cell error after Run All" reads the screen only;
+  the notebook's own error output in its last cell is not read.
+- **FN `jupyter-mnist-s5-nan-then-rebuilt-refit`**: `_sibling_divergence` reads every output of the step's cells,
+  so the old cell's `loss: nan` fails the newer cell's clean run.
+- **FN `jupyter-mnist-s5-metrics-acc-alias`**: `accuracy:\s*...` refuses `acc: 0.9858`, so s5c3 waits forever.
+- **FN `jupyter-mnist-s5-trained-notebook-unsaved`**: `cell_not_run` trusts the saved file (no count, no output)
+  over the screen showing `[4]` and all five epochs.
+- **FN `jupyter-mnist-s5-verbose0-history-printed`**: no epoch lines, so the metric waits; the printed
+  `history.history['accuracy'][-1]` value is not read as the accuracy.
+
+Seen right (train): the XOR spike (0.2203 -> 0.4917 -> 0.0061) still reads as falling; the noisy sine validation
+loss passes; an empty validation split's `val nan` rows fail; count gaps from re-runs pass.
+
+Held-out wrong verdicts among the 6 new (ids only, all in `baseline.json` → `held_out.known_wrong`):
+`jupyter-mnist-loss-curve-from-nan-history`, `jupyter-mnist-s5-fit-on-test-set`,
+`jupyter-pytorch-sine-val-loss-not-a-quarter` (FP); `jupyter-mnist-s7-test-acc-printed-as-fraction`,
+`jupyter-pytorch-save-load-after-restart` (FN).
+
 ## Round 2 fixes (Nov 24 2026, `claude/eng-check-fixes-r2`)
 
 The four round-2 case sets merged: 214 cases, 159 train + 55 held out. Every fix is general (no lesson ids, no case
