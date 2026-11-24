@@ -172,6 +172,11 @@ export interface EngineEvents {
    *  with cloud "ok" (the new token's answer) cancels a heal still waiting. Not sent for an install an operator disabled (403):
    *  config.status.cloud says "unauthorized" instead. */
   "cloud.token_invalid": { reason?: "unknown_token" };
+  /** The miyagi cloud would not take a shared lesson build claim (server/lesson/cloud_cache.py on_notice). The lesson is built on
+   *  this Mac either way. reason: the cloud's error or cap name ("signin_required", "lesson_builds", "anon_daily_cap", ...);
+   *  status: its HTTP status (401 sign-in required, 403, 429 a cap); resets_at: ISO time a cap resets, when the cloud says.
+   *  The app shows its sign-in card (401) or cap line (429). Never carries the token or a user id. */
+  "cloud.notice": { reason: string; status: number; resets_at?: string };
   /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
   "lesson.ended": { lessonId?: string; reason: string };
   "error": { message: string; epoch?: number; gen?: number };
