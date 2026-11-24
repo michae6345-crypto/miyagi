@@ -20,6 +20,7 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `POST /v1/install` | none; 20 per network per hour and 60 per day, shared with `/v1/register`; `NEW_INSTALLS_PER_DAY` (500) in all per UTC day | What the desktop app calls. Body `{app, os, arch}` (all optional, extra fields ignored) → `{token, token_id}`. `token` is `mi_` + 32 random bytes urlsafe (46 characters); `token_id` is the first 12 hex characters of its sha256, the same id the admin views and `/admin/tokens/{prefix}/disable` use. Past the daily new-install cap: 429 `miyagi_full` (see "Install minting"). |
 | `POST /v1/register` | same limits | Older form. Body `{install_id, app_version, platform}` → `{token, token_id}`, same token shape. |
 | `POST /v1/link` | install token | Links the install to a Google-signed-in miyagi account. See "Accounts" below. |
+| `POST /v1/session` | install token + Supabase access token | What the app calls after sign-in and on launch: verifies and links like `/v1/link` (idempotent), then answers the account's plan, today's caps and use, and the sign-in mode. See "Signing in". |
 | `POST /v1/account/delete` | install token (+ the Supabase access token when signed in) | Deletes everything the cloud holds for the install and, signed in, for the whole account, then the Supabase auth user. See "Deleting an account". |
 | `POST /v1/anthropic/messages` (also `/v1/anthropic/v1/messages`) | install token (linked, with `REQUIRE_SIGNIN=all`) | Messages API through our key, request body rebuilt from an allowlist (below). |
 | `POST /v1/gemini/{model}:generateContent` and `:streamGenerateContent` (also under `/v1/gemini/v1beta/models/`) | install token (linked, with `REQUIRE_SIGNIN=all`) | **Off by default** (D1: Claude only): 403 `gemini_disabled`. With `ALLOWED_GEMINI_MODELS` set: generateContent through our key, body rebuilt from an allowlist (below). |
@@ -401,6 +402,50 @@ before anything else: no cap is read, no slot taken, no body read. The flat shap
 - Privacy policy: say that building a lesson needs an account (`build`), or that using miyagi does (`all`). A Blueprint sync writes `render.yaml`'s `"0"` back over
 a dashboard value: change `render.yaml` too when the flag goes on.
 
+## Signing in: `POST /v1/session`
+
+The desktop app's one call after Google sign-in and on every launch while signed in. It runs the same code as
+`/v1/link` (`link_from_request`: install token check, 16 KB body, Supabase JWT verification, idempotent link), so the
+install is linked on the first call and every later call is a no-op link, then answers what the account UI needs.
+`/v1/link` stays as it is for older apps.
+
+```
+POST /v1/session
+Authorization: Bearer <mi_ install token>
+{"access_token": "<Supabase user access token (JWT)>"}
+
+200 {"account": {"id": "<jwt sub>", "email_verified": true | false},
+     "plan": "free" | "pro",
+     "caps": {"daily_usd": 3.0 | null, "used_usd": 0.42, "tokens": 20000000 | null, "used_tokens": 183000,
+              "resets_at": "2026-11-25T00:00:00Z"},
+     "linked": true,
+     "signin_mode": "off" | "build" | "all"}
+401 {"error": "bad_install_token"}    missing, unknown or disabled install token (checked first)
+403 {"error": "bad_access_token"}     not a valid Google sign-in for this project
+403 {"error": "too_many_installs"}    the user already has LINK_MAX_INSTALLS_PER_USER other installs
+503 {"error": "link_unavailable"}     the JWKS cannot be fetched
+```
+
+- `caps` are the signed-in user's own daily caps, every install of theirs together: `daily_usd` is
+  `LINKED_DAILY_USD`, `tokens` is `LINKED_DAILY_TOKENS` (`null` when the cap is off or the plan is `pro`); `used_usd` and
+  `used_tokens` are exactly what those caps are checked against (`Store.user_usage_today`: estimated dollars with the
+  reservations of calls in flight, relinked installs' spend included; settled tokens). The global `DAILY_USD_CAP` is
+  not shown.
+- `signin_mode` is `REQUIRE_SIGNIN` (see "Sign-in required"), so the app knows whether building, or everything, needs
+  the account.
+- `email_verified` comes from the token's `user_metadata` (Google's own flag, copied by Supabase). It is shown to the
+  user only: `user_metadata` is the user's to edit, so the proxy never decides anything on it.
+- Never in the answer or a log line: the email, the access token, the install token. The log line has the 12-hex
+  token-hash prefix and `linked=1` only; the account id is in the answer, never in a log.
+- Open in every `REQUIRE_SIGNIN` mode, rate limited per client IP like `/v1/link` (not per token), 503
+  `proxy_disabled` while paused like every `/v1` route.
+
+**Not a Google "Desktop app" client.** Adrian's notes (`research/launch/SOLUTIONS.md` R20 step 4, decision D15) name a
+"Google Desktop client with PKCE that hands the ID token to Supabase" as the free alternative to Supabase Pro's custom
+domain for a branded consent screen. That is an app and console change (a Desktop OAuth client in Google Cloud, its
+client id added to Supabase's Google provider, `signInWithIdToken` in the app); the session it ends in is an ordinary
+Supabase Google session, which this route and `/v1/link` already accept. Nothing on the cloud side changes for it.
+
 ## Deleting an account: `POST /v1/account/delete`
 
 ```
@@ -584,7 +629,7 @@ cap is gone. New installs over the daily cap get their own type, `miyagi_full` (
   request: method, path, status, latency, model, token counts, token-hash prefix, and `rl=` for a rate-limit 429.
   Uvicorn's access log is turned off because it would print query strings.
 - Body size limit: `MAX_GEMINI_BODY_MB` (2) on `/v1/gemini/*`; 4 KB on `/v1/install`, `/v1/register` and every
-  `/admin` route; 16 KB on `/v1/link`; 32 KB on `/v1/events`; `MAX_BODY_MB` (2) elsewhere. `Guard` checks it on
+  `/admin` route; 16 KB on `/v1/link` and `/v1/session`; 32 KB on `/v1/events`; `MAX_BODY_MB` (2) elsewhere. `Guard` checks it on
   `Content-Length` and while reading chunked bodies, before any route buffers the body, and the small routes read
   their body under `BODY_READ_TIMEOUT_S` (408 after) and validate it themselves instead of through a FastAPI body
   parameter (which read up to 2 MB with no time limit before the handler ran). Body bytes in memory are bounded in

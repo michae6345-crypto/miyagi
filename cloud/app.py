@@ -694,7 +694,7 @@ def body_limit(path: str) -> int:
     """The most body bytes Guard lets a request to `path` send (declared Content-Length and running count)."""
     if path in SMALL_BODY_PATHS or _is_admin(path):
         return SMALL_BODY_MAX
-    if path in ("/v1/link", "/v1/account/delete"):
+    if path in ("/v1/link", "/v1/session", "/v1/account/delete"):
         return LINK_MAX_BODY
     if path == "/v1/events":
         return EVENTS_MAX_BYTES
@@ -2225,8 +2225,12 @@ def link_error(status: int, kind: str) -> JSONResponse:
     return JSONResponse({"error": kind}, status_code=status)
 
 
-@app.post("/v1/link")
-async def link(request: Request):
+async def link_from_request(request: Request) -> tuple[str, dict, dict] | JSONResponse:
+    """The one code path of POST /v1/link and POST /v1/session: check the install token (401 bad_install_token), read
+    the small body (413, 408), verify its Supabase access token (403 bad_access_token, 503 link_unavailable) and link
+    the install to that user (403 too_many_installs). Linking is idempotent: the same pair keeps its first linked_at,
+    another account on the same install replaces the user. Returns (token hash, token row, claims) or the response.
+    Neither the access token nor the email nor the user id is logged."""
     token = presented_token(request)
     h = hash_token(token) if token and len(token) <= 200 else None
     row = store.get_token(h) if h else None
@@ -2247,12 +2251,50 @@ async def link(request: Request):
         return link_error(503, "link_unavailable")
     except supabase_auth.BadAccessToken:
         return link_error(403, "bad_access_token")
-    user_id = claims["sub"]
-    if not store.link_user_capped(h, user_id, LINK_MAX_INSTALLS_PER_USER):
+    if not store.link_user_capped(h, claims["sub"], LINK_MAX_INSTALLS_PER_USER):
         log.warning("link refused: the user already has %d installs linked", LINK_MAX_INSTALLS_PER_USER)
         return link_error(403, "too_many_installs")
     request.state.linked = 1
-    return {"ok": True, "user_id": user_id}
+    return h, row, claims
+
+
+@app.post("/v1/link")
+async def link(request: Request):
+    linked = await link_from_request(request)
+    if isinstance(linked, JSONResponse):
+        return linked
+    return {"ok": True, "user_id": linked[2]["sub"]}
+
+
+# --------------------------------------------------------------------------- accounts: POST /v1/session
+#
+# What the desktop app calls after sign-in and on launch: the same token checks, JWT verification and idempotent link
+# as /v1/link (link_from_request), then what the account's UI needs: its plan, today's caps and use, and the sign-in
+# mode. Open in every REQUIRE_SIGNIN mode (it is how an install gets linked), rate limited per client IP like /v1/link.
+# The answer never carries the email, the access token or the install token.
+
+def _cap_or_none(cap: float | int) -> float | int | None:
+    return cap if cap and cap > 0 else None
+
+
+@app.post("/v1/session")
+async def session(request: Request):
+    linked = await link_from_request(request)
+    if isinstance(linked, JSONResponse):
+        return linked
+    token_hash, row, claims = linked
+    user_id = claims["sub"]
+    meta = claims.get("user_metadata")
+    # informational only (user_metadata is the user's to edit, so nothing here decides on it): the app's account card
+    email_verified = isinstance(meta, dict) and meta.get("email_verified") is True
+    plan = row.get("plan") or "free"
+    c = _caps(token_hash)
+    reqs, usd, tokens = store.user_usage_today(user_id)
+    return {"account": {"id": user_id, "email_verified": email_verified}, "plan": plan, "linked": True,
+            "caps": {"daily_usd": _cap_or_none(c["usd_cap"]), "used_usd": round(usd, 4),
+                     "tokens": _cap_or_none(c["token_cap"]), "used_tokens": tokens,
+                     "resets_at": _iso(_next_utc_midnight())},
+            "signin_mode": REQUIRE_SIGNIN}
 
 
 # --------------------------------------------------------------------------- accounts: POST /v1/account/delete
