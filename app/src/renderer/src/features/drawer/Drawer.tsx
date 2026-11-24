@@ -819,15 +819,17 @@ function SourceRow({ source }: { source: Source }): ReactNode {
       <KindTile source={source} />
       <span className="min-w-0 flex-1">
         {/* QA Q22: the title and meta wrap (two lines at most for the title) instead of cutting off mid-word. */}
-        <span className="line-clamp-2 block break-words text-[13px] font-medium leading-[17px]" style={{ color: glass.text }}>
+        {/* No `block` here: it would override line-clamp's display:-webkit-box and the clamp would never apply. */}
+        <span className="line-clamp-2 break-words text-[13px] font-medium leading-[17px]" style={{ color: glass.text }}>
           {source.title}
         </span>
         {(source.meta || host) && (
-          <span className="flex min-w-0 flex-wrap text-[12px] leading-[16px]" style={{ color: glass.faint }}>
-            {source.meta && <span className="min-w-0 break-words">{source.meta}</span>}
+          <span className="flex min-w-0 flex-wrap gap-x-[0.3em] text-[12px] leading-[16px]" style={{ color: glass.faint }}>
+            {/* The separator ends the meta (glued by a no-break space), so when the host wraps no line begins with a dot. */}
+            {source.meta && <span className="min-w-0 break-words">{host ? `${source.meta}\u00a0·` : source.meta}</span>}
             {host && (
-              <span data-link-host className="shrink-0 whitespace-pre">
-                {source.meta ? ` · ${host}` : host}
+              <span data-link-host className="shrink-0 whitespace-nowrap">
+                {host}
               </span>
             )}
           </span>
