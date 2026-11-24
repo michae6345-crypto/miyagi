@@ -4,7 +4,8 @@
  *
  *   SIGN_IN_FILES        what auth.ts keeps in userData: the encrypted session (auth.bin), the "made a choice at the
  *                        login" flag (login.json), cloudLink.ts's note of the linked account (cloud-link.json: the
- *                        Supabase user id, never a token), and their write-then-rename leftovers. The link row on
+ *                        Supabase user id, never a token), cloudSession.ts's cache of the account's plan and use
+ *                        (session.json), and their write-then-rename leftovers. The link row on
  *                        miyagi-cloud stays (no cloud delete endpoint yet); the next sign-in links again.
  *   removeFiles(dir, …)  unlink each one that exists → true when none is left behind
  *
@@ -14,7 +15,7 @@
 import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const SIGN_IN_FILES = ['auth.bin', 'auth.bin.tmp', 'login.json', 'login.json.tmp', 'cloud-link.json', 'cloud-link.json.tmp'] as const
+export const SIGN_IN_FILES = ['auth.bin', 'auth.bin.tmp', 'login.json', 'login.json.tmp', 'cloud-link.json', 'cloud-link.json.tmp', 'session.json', 'session.json.tmp'] as const
 
 type Fs = { existsSync(p: string): boolean; unlinkSync(p: string): void }
 

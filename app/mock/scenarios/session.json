@@ -1,0 +1,25 @@
+{
+  "name": "session",
+  "on": {
+    "connect": "ss_connect"
+  },
+  "segments": {
+    "ss_connect": [
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "idle"
+        }
+      },
+      {
+        "wait": 1500,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Watching the tutorial",
+          "progress": 0.1
+        }
+      }
+    ]
+  }
+}

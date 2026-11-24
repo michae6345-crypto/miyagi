@@ -12,7 +12,8 @@
  *   401 {"error": "bad_install_token"}         403 {"error": "bad_access_token"}
  *   503 {"error": "link_unavailable"}          404: an older cloud without /v1/link
  *
- * When it runs:
+ * Since Nov 24 (MIC-30) features/cloudSession.ts calls POST /v1/session first and this linker only on its 404 (an
+ * older cloud). When it ran on its own (kept for reference):
  *   - right after each successful Google sign-in (auth.ts onSignedIn), always;
  *   - once on launch (a few seconds after start, never on the UI's path) and whenever the install token appears or
  *     changes (first mint, self-heal), only when a session exists and this install is not linked to that user yet.
@@ -25,14 +26,10 @@
  * anonymously and stays linked on the cloud side; a different learner signing in links again.
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { defineMainFeature } from '../context'
-import { accessToken, loginEnabled, onSignedIn } from './auth'
-import { installToken, onInstallToken, type InstallInfo } from './cloud'
+import type { InstallInfo } from './cloud'
 
 const LINK_TIMEOUT_MS = 10_000
-/** The launch check waits this long, so it never competes with the first windows. */
-const LAUNCH_DELAY_MS = 4_000
 const USER_ID_RE = /^[A-Za-z0-9._:@-]{1,128}$/
 
 /** What cloud-link.json holds. Never a token. */
@@ -167,21 +164,12 @@ export function createLinker(deps: LinkerDeps): Linker {
   }
 }
 
+/**
+ * The triggers (sign-in, launch, a new install token) moved to features/cloudSession.ts (Nov 24, MIC-30): it calls
+ * POST /v1/session and uses this linker only when the cloud answers 404 (an older cloud). This feature registers
+ * nothing, so /v1/link is never sent twice.
+ */
 export default defineMainFeature({
   id: 'cloudLink',
-  setup(ctx) {
-    const linker = createLinker({
-      fetch: (input, init) => fetch(input, init),
-      accessToken,
-      install: installToken,
-      file: join(ctx.app.getPath('userData'), 'cloud-link.json')
-    })
-    const check = (): void => {
-      if (loginEnabled()) void linker.link()
-    }
-    onSignedIn(() => void linker.link({ force: true }))
-    const off = onInstallToken(check)
-    ctx.app.on('before-quit', off)
-    void ctx.app.whenReady().then(() => setTimeout(check, LAUNCH_DELAY_MS).unref?.())
-  }
+  setup() {}
 })
