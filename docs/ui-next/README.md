@@ -18,16 +18,19 @@ The live pages, redone on Nov 23 to use the whole window (`mock/v4.js`, `mock/v4
 
 - `home`, `progress`, `library`, `settings`, `settings-apps`, `settings-data`, `plans`
 - for a new learner: `home-empty`, `library-empty`, `progress-empty`
+- behind those: `plan` (a preset plan), `course` (a playlist as a plan), `lesson`, `lesson-blender`
+- setup: `onboard-1`, `onboard-2`, `onboard-3`
 
-From Nov 22, unchanged: `plan`, `plan-playlist`, `plan-goal`, `lesson-blender`, `skills-cad`. The two plan dialogs now sit on the wider catalog.
+From Nov 22, unchanged: `plan-playlist`, `plan-goal`, `skills-cad`. The two plan dialogs now sit on the wider catalog.
 
-The Nov 22 one-column version of each live page still loads with `-v3` on its name: `home-v3`, `progress-v3`, `library-v3`, `settings-v3`, `settings-apps-v3`, `settings-data-v3`, `plans-v3`, `home-empty-v3`, `library-empty-v3`, `progress-empty-v3`.
+The earlier version of each live page still loads with `-v3` on its name: `home-v3`, `progress-v3`, `library-v3`, `settings-v3`, `plans-v3`, `plan-v3`, `course-v3`, `lesson-v3`, `onboard-1-v3` and so on.
 
-The earlier screens still load from the same file: `skills-path`, `skills-map`, `skills-tracks`, `skills-steps`, `skills-proof`, `skills-share`, `skills-empty`, `course`, `lesson`, `home-link` and `onboard-1` to `onboard-3`.
+The skill tree screens still load from the same file: `skills-path`, `skills-map`, `skills-tracks`, `skills-steps`, `skills-proof`, `skills-share`, `skills-empty`, and `home-link`.
 
 The rules behind the pages:
 
 - Content is 1040 px wide. Home and Progress are two columns: a 684 px main column and a 316 px rail, with one hairline between them. Settings is two columns of groups. Library and Plans use the full width.
+- A plan, a playlist and a lesson are a full-width table with two blocks side by side under it. A setup step keeps its one button on the left and has a quiet rail on the right.
 - Numbers sit on one line with hairlines between them. No stat tiles and no dot grids. Charts are plain bars.
 - Lists are rows or tables with a hairline between rows. The only card is Continue.
 - One sidebar on screen. Settings swaps the app sidebar for its own list.
@@ -42,7 +45,7 @@ To render a screen:
 node tools/render.mjs <out dir> 1440 900 2 "home-light=file:///<path>/mock/index.html?s=home&t=light"
 ```
 
-For a page taller than the window, add `&h=<height>` to the URL and pass the same height in place of 900. The heights used for the shots: `home` 1356, `progress` 1717, `library` 1460, `settings` 973, `plans` 2505, `home-empty` 958, `library-empty` 1137.
+For a page taller than the window, add `&h=<height>` to the URL and pass the same height in place of 900. The heights used for the shots: `home` 1356, `progress` 1717, `library` 1460, `settings` 973, `plans` 2505, `home-empty` 958, `library-empty` 1137, `plan` 1223, `course` 1096, `lesson` 1072, `lesson-blender` 959.
 
 ## The catalog
 
