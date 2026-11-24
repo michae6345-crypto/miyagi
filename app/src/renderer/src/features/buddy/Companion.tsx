@@ -20,8 +20,8 @@
  * words as the learner's screen. Only a bubble with buttons takes the mouse (data-hit); nothing else here does.
  *
  * Reduced motion: no flights. It fades in where it would have landed, with its words whole, and fades out.
- * Stands down with the loops when Michael's features/annotate is mounted (Reach.tsx), unless the stage's ?together
- * is on: then his stroke does the circling and the buddy does everything else.
+ * The character is the one that draws (Adrian, Nov 23). It stands down, with its loops, only for a cut of Michael's
+ * features/annotate that still draws (Reach.tsx useStandDown, marks.ts standsDown).
  */
 import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -138,10 +138,12 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const total = usePointing((s) => s.total)
   const trip = usePointing((s) => s.trip)
   const cheer = usePointing((s) => s.cheer)
+  /** A spotlight box, not the engine's own mark: the spotlight's caption has the right of it, so the buddy takes the left. */
+  const bridged = usePointing((s) => s.bridged)
   const talk = useTalk()
   const el = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion() ?? false
-  const standDown = useStandDown('buddy')
+  const standDown = useStandDown()
   const here = useHere(marks, layout)
   const first = standDown ? undefined : here[0]
   const key = first?.key
@@ -181,8 +183,8 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const spot = useMemo(() => {
     if (rx === undefined || ry === undefined || rw === undefined || rh === undefined) return undefined
     const ring = ringBox({ x: rx, y: ry, w: rw, h: rh }, { x: 0, y: 0, w: layout.width, h: layout.height })
-    return { ...perch(ring, size, { x: wa.x, y: wa.y, w: wa.width, h: wa.height }), ring }
-  }, [rx, ry, rw, rh, size, layout.width, layout.height, wa.x, wa.y, wa.width, wa.height])
+    return { ...perch(ring, size, { x: wa.x, y: wa.y, w: wa.width, h: wa.height }, bridged ? 'left' : 'right'), ring }
+  }, [rx, ry, rw, rh, size, layout.width, layout.height, wa.x, wa.y, wa.width, wa.height, bridged])
   const bx = spot?.body.x
   const by = spot?.body.y
 

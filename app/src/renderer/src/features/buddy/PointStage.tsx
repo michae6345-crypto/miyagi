@@ -6,6 +6,8 @@
  *   One / Far      the coach points at one thing
  *   Tour           three things, one at a time, with Next
  *   Clear          the engine's { clear: true }
+ *   Spotlight      today's pointing: a `spotlight` box (press again to clear it). The buddy goes to it only until the
+ *                  engine has sent an annotate, so press it on a fresh load, before the others
  *   Hold to talk   hold it: the buddy comes to the pointer and listens; let go: it thinks, then answers
  *   the ask box    type a question about the fake screen and press Enter: the same, typed
  *   a click anywhere on the desktop points there
@@ -24,8 +26,15 @@ import { say, sendHome, setActivity, setResponder, summon } from './talk'
 /** Send it the way the engine does, through the bus, so whichever layer draws `annotate` gets it. The cast goes with the contract. */
 const annotate = (payload: AnnotatePayload): void => dispatch({ type: 'annotate', payload } as never)
 
+/** A `spotlight` event, as the engine sends it: today's pointing, which the buddy follows until the engine sends annotate (pointing.ts spotlit). */
+const spotlight = (payload: { rect: Pick<Mark, 'x' | 'y' | 'w' | 'h'>; caption: string } | { clear: true }): void => {
+  spotOn = !('clear' in payload)
+  dispatch({ type: 'spotlight', payload } as never)
+}
+let spotOn = false
+
 /** Where the strip sits in the stage: bottom left, above the Dock. */
-export const POINT_STAGE = { x: 20, y: Math.round(STAGE.height * 0.855), w: 760, h: 40 }
+export const POINT_STAGE = { x: 20, y: Math.round(STAGE.height * 0.855), w: 840, h: 40 }
 
 /** Share-of-the-stage rects, so everything lands in the same places at any ?size. */
 const at = (x: number, y: number, w: number, h: number): Pick<Mark, 'x' | 'y' | 'w' | 'h'> => ({ x: Math.round(x * STAGE.width), y: Math.round(y * STAGE.height), w: Math.round(w * STAGE.width), h: Math.round(h * STAGE.height) })
@@ -169,6 +178,9 @@ export function PointStage(): ReactNode {
       ))}
       <button data-preset="Home" style={chip} onClick={sendHome}>
         Home
+      </button>
+      <button data-preset="Spot" style={chip} title="Today's pointing: a spotlight box, as the engine sends it. Only before the first annotate (reload first)." onClick={() => spotlight(spotOn ? { clear: true } : { rect: SPOT.loss, caption: 'Watch the loss fall' })}>
+        Spotlight
       </button>
       <span style={{ width: 1, alignSelf: 'stretch', margin: '8px 4px', background: fill.rule }} />
       <button data-preset="Talk" style={chip} onMouseDown={talkDown} onMouseUp={talkUp} onMouseLeave={talkUp}>

@@ -12,14 +12,17 @@
  *        - Esc.
  *        A new circle-to-ask (a new askId) starts fresh. A new step keeps only the marks sent for that step and
  *        forgets what was gone; step.passed, the lesson ending and a reset clear everything.
- * Not here: his bridge that also circles today's spotlight boxes until the engine sends its first annotate.
+ * Today's pointing, as in his store: until the engine has sent one `annotate`, every new spotlight box the spotlight
+ * feature shows also gets a mark (why 'point', no label: the spotlight says its own words), so the buddy goes there
+ * before the engine speaks annotate (spotlit, fed by wire.ts). When the spotlight hides, that mark goes with it and may
+ * come back. A Show me press is an explicit ask, so its box is marked again even if the learner already reached it.
  *
  * Nothing here takes the mouse: the layer is click-through, always.
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
-import type { Point, Rect } from '../../core/geometry'
-import { fadeAt, HOLD, holdFor, mergeMarks, validMarks, type Known, type Mark, type Shown } from './marks'
+import { sameRect, type Point, type Rect } from '../../core/geometry'
+import { fadeAt, HOLD, holdFor, isDrawable, knownKey, mergeMarks, validMarks, type Known, type Mark, type Shown } from './marks'
 
 /**
  * Where the buddy is. 'home': in the notch. 'out': flying somewhere. 'perched': sitting beside the mark `at` (its
@@ -38,8 +41,10 @@ export type Trip = { phase: 'home' | 'out' | 'perched' | 'follow' | 'back'; at?:
  * cheer  bumped each time the learner gets to a mark: the buddy hops.
  * total  how many marks the set now up started with. The buddy takes them one at a time, so with marks.length this
  *        is its place in the tour: step total - marks.length + 1 of total.
+ * bridged  the marks now up are the spotlight's box (spotlit), not the engine's annotate. The spotlight rings that
+ *        box itself and puts its caption to the right of it, so the buddy draws no loop there and sits on the left.
  */
-export const usePointing = create<{ marks: Shown[]; lean: number; pose?: Rect; trip: Trip; cheer: number; total: number }>(() => ({ marks: [], lean: 0, trip: { phase: 'home' }, cheer: 0, total: 0 }))
+export const usePointing = create<{ marks: Shown[]; lean: number; pose?: Rect; trip: Trip; cheer: number; total: number; bridged: boolean }>(() => ({ marks: [], lean: 0, trip: { phase: 'home' }, cheer: 0, total: 0, bridged: false }))
 const get = usePointing.getState
 const set = usePointing.setState
 
@@ -52,6 +57,12 @@ const gone = new Map<string, Known>()
 /** The ask the current `gone` belongs to: a new circle-to-ask starts fresh. */
 let lastAsk: string | undefined
 let hold: ReturnType<typeof setTimeout> | undefined
+/** The engine speaks annotate: spotlight boxes are no longer bridged. */
+let engineAnnotates = false
+/** The last spotlight box bridged, so the engine's re-reads of one box mark it once. */
+let lastSpot: Rect | undefined
+/** A spotlight box within this many px of the last one is the same box (the spotlight's own JITTER_PX). */
+const SPOT_JITTER = 8
 
 function stopHold(): void {
   clearTimeout(hold)
@@ -81,7 +92,42 @@ export function forget(): void {
   stopHold()
   gone.clear()
   lastAsk = undefined
+  lastSpot = undefined
   if (get().marks.length || get().total) set({ marks: [], total: 0 })
+}
+
+/**
+ * Take the marks away without remembering them as gone: the thing they pointed at went away, the learner did not
+ * reach it, so it may be marked again when it comes back.
+ */
+function withdraw(): void {
+  stopHold()
+  if (get().marks.length || get().total) set({ marks: [], total: 0 })
+}
+
+/**
+ * Today's pointing: the spotlight feature now shows this box (screen points), or nothing (it hid: the engine cleared
+ * it, or its app left the front). `again`: a Show me press asked for it. Does nothing once the engine sends annotate.
+ */
+export function spotlit(rect: Rect | undefined, again = false): void {
+  if (engineAnnotates) return
+  if (!rect) {
+    lastSpot = undefined
+    return withdraw()
+  }
+  if (!isDrawable(rect)) return
+  const mark: Mark = { x: rect.x, y: rect.y, w: rect.w, h: rect.h, why: 'point' }
+  if (again) {
+    // Forget that it was reached or timed out, and let it be born again.
+    for (let k = knownKey(mark, gone.values()); k !== undefined; k = knownKey(mark, gone.values())) gone.delete(k)
+    const up = knownKey(mark, get().marks)
+    if (up !== undefined) set({ marks: get().marks.filter((m) => m.key !== up) })
+    lastSpot = undefined
+  }
+  if (lastSpot && sameRect(lastSpot, rect, SPOT_JITTER)) return
+  lastSpot = rect
+  if (!get().bridged) set({ bridged: true })
+  show([mark])
 }
 
 /**
@@ -106,6 +152,8 @@ export function show(incoming: readonly Mark[], holdMs: number = HOLD.base, now 
 
 /** One `annotate` payload: { marks, holdMs? } or { clear: true }. Anything else is ignored. */
 export function annotate(payload: unknown): void {
+  engineAnnotates = true
+  if (get().bridged) set({ bridged: false })
   if (!payload || typeof payload !== 'object') return
   const p = payload as { marks?: unknown; holdMs?: unknown; clear?: unknown }
   if (p.clear) return fade()
@@ -131,13 +179,17 @@ onMessage('step.started', (p) => {
   const keep = get().marks.filter((m) => m.stepId && m.stepId === p?.stepId)
   stopHold()
   gone.clear()
+  lastSpot = undefined
   set({ marks: keep, total: keep.length })
   if (keep.length) hold = setTimeout(() => fade(), HOLD.base)
 })
 onMessage('step.passed', forget)
 onMessage('lesson.ready', forget)
 onMessage('lesson.ended', forget)
-onUi('reset', forget)
+onUi('reset', () => {
+  forget()
+  engineAnnotates = false
+})
 onUi('dismiss', () => {
   fade() // Esc: the learner wants the screen back. Never claims the event, so cards still close.
 })

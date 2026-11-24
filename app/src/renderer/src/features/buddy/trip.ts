@@ -98,12 +98,12 @@ export function gazeOf(f: Flight): Point {
  * Where the buddy sits for a mark: beside its loop, to the right on the circled line when it and its bubble fit,
  * else below, else to the left, else above (marks.ts labelAt). `body` is the buddy's center, the point everything
  * else is placed from. To the left of the loop it is mirrored: the buddy is next to the thing and its bubble runs
- * off to the left of it.
+ * off to the left of it. `prefer`: the side to try first ('left' beside a spotlight box: its caption has the right).
  */
-export function perch(ring: Rect, bubble: { w: number; h: number }, bounds: Rect): { body: Point; side: LabelSide; mirrored: boolean; w: number } {
+export function perch(ring: Rect, bubble: { w: number; h: number }, bounds: Rect, prefer: 'right' | 'left' = 'right'): { body: Point; side: LabelSide; mirrored: boolean; w: number } {
   const w = spanWidth(bubble.w)
   const h = Math.max(BODY.size, bubble.h)
-  const at = labelAt(ring, { w, h }, bounds, 'right')
+  const at = labelAt(ring, { w, h }, bounds, prefer)
   const mirrored = at.side === 'left'
   return { body: { x: mirrored ? at.x + w - BODY.size / 2 : at.x + BODY.size / 2, y: at.y + h / 2 }, side: at.side, mirrored, w }
 }

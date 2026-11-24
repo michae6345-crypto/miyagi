@@ -61,6 +61,25 @@ const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinit
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 const hasId = (m: { id?: unknown }): boolean => typeof m.id === 'string' && !!m.id
 
+/** The feature that also draws `annotate`: Michael's features/annotate. */
+export const OTHER_DRAWER = 'annotate'
+/** What this rule reads of a registered feature (core/registry Feature). `yieldsToBuddy`: that feature says the buddy draws. */
+export type Registered = { id: string; overlayLayers?: readonly unknown[]; yieldsToBuddy?: boolean }
+
+/**
+ * One stroke per mark, ever. Adrian picked the character to draw (Nov 23), so it draws unless a build also has
+ * features/annotate still drawing: an older cut of that feature, which knows nothing of this one, would circle every
+ * mark a second time. That feature yields by saying so (`yieldsToBuddy: true` on what it registers) and drawing
+ * nothing while this one is in the build. Until it says so, this one stands down for it, as it has since Nov 22.
+ *   only this feature                      the character draws
+ *   both, features/annotate as it was      it draws, the character stands down
+ *   both, features/annotate yielding       the character draws
+ */
+export function standsDown(features: readonly Registered[]): boolean {
+  const other = features.find((f) => f.id === OTHER_DRAWER)
+  return !!other && (other.overlayLayers?.length ?? 0) > 0 && other.yieldsToBuddy !== true
+}
+
 /** The first LABEL_WORDS words on one line, never literal backticks; nothing when there are no words. */
 export function cleanLabel(label: unknown): string | undefined {
   if (typeof label !== 'string') return undefined

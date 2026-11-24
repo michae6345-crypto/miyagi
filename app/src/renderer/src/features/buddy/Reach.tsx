@@ -11,9 +11,10 @@
  * to come wear a small number, so the learner can see there is more and where.
  *
  * One stroke per mark, ever: Michael's features/annotate (michael/app-buddy-draw) draws the same `annotate` event.
- * When that feature is mounted this layer and the buddy draw NOTHING and only the bonsai's point pose (the lean) is
- * kept going, so the two can be merged in either order without a mark being circled twice. Which one draws in the
- * end is one line here (STAND_DOWN_FOR). A third way, his stroke with this character, is behind ?together (below).
+ * The character is the one that draws (Adrian, Nov 23). While a cut of that feature that still draws is in the build,
+ * this layer and the buddy draw NOTHING and only the bonsai's point pose (the lean) is kept going, so the two can be
+ * merged in either order without a mark being circled twice; once that feature yields, this one draws (marks.ts
+ * standsDown has the rule).
  *
  * Look: the buddy's own color, the one the learner picked (skin.ts). No glow, no gradient, no arrowhead. Like the spotlight's ring it sits on an
  * ink keyline so it reads over a light app. It never takes a click (no data-hit) and the stroke is not reported as
@@ -30,7 +31,7 @@ import { notchOf } from '../../core/notchGeometry'
 import { getFeatures } from '../../core/registry'
 import { color, pill, shadows } from '../../core/theme'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
-import { createReach, DRAW, drawTime, reach, ribbon, type Reach, type Shown } from './marks'
+import { createReach, DRAW, drawTime, reach, ribbon, standsDown, type Reach, type Registered, type Shown } from './marks'
 import { useSkin } from './skin'
 import { reached, usePointing } from './pointing'
 
@@ -52,23 +53,13 @@ const LEAN_REACH = 520
 const MIN_ON_SCREEN = 0.5
 /** The small number a mark still to come wears: this big (px). */
 const NEXT = 20
-/** The feature that also draws `annotate`. While it is mounted, the buddy's layers draw nothing. */
-const STAND_DOWN_FOR = 'annotate'
-
 /**
- * What steps aside while it is mounted. By default everything: no loop and no buddy (what Michael was told on Nov 22).
- * The browser stage's ?together shows the other way the two could fit: his stroke circles the thing, and the buddy
- * still flies there, says what it is, listens and answers. Only the loops (and the tour's numbers) step aside then.
+ * Does the buddy (its loops, the character and its bubble) stand down for Michael's features/annotate? Only for a cut
+ * of it that still draws (marks.ts standsDown): the character is the one that draws (Adrian, Nov 23).
+ * Read on first render, not at import: the registry fills in while features load.
  */
-const TOGETHER = typeof location !== 'undefined' && new URLSearchParams(location.search).has('together')
-
-/**
- * Michael's layer is mounted: does this part of the buddy stand down? `part`: 'loops' (the stroke and the numbers) or
- * 'buddy' (the character and its bubble). Read on first render, not at import: the registry fills in while features load.
- */
-export function useStandDown(part: 'loops' | 'buddy' = 'loops'): boolean {
-  const there = useMemo(() => getFeatures().some((f) => f.id === STAND_DOWN_FOR), [])
-  return there && (part === 'loops' || !TOGETHER)
+export function useStandDown(): boolean {
+  return useMemo(() => standsDown(getFeatures() as readonly Registered[]), [])
 }
 
 /**
@@ -134,7 +125,9 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
 
   const near = usePointer(el, here)
 
-  const show = standDown ? [] : drawn
+  // A spotlight box is ringed by the spotlight itself: the buddy sits by it and points, and draws no second ring.
+  const bridged = usePointing((s) => s.bridged)
+  const show = standDown || bridged ? [] : drawn
   return (
     <div ref={el} className="pointer-events-none absolute inset-0" data-buddy-reach={show.length || undefined} data-stand-down={standDown || undefined}>
       <svg className="absolute inset-0 h-full w-full" style={{ overflow: 'visible' }} aria-hidden>
