@@ -11,15 +11,20 @@ buddy-draw should apply or redo it there. Today the buddy side already yields th
 while features/annotate is mounted), so nothing is drawn twice in the meantime. Also from Adrian with it: the engine's
 `holdMs` should be longer than 6 s, and the loop color should follow bon's color (skin.ts).
 
-## bon's count from the engine (v4-bon)
+## bon's count from the engine (v4-bon, ui-v4 contract)
 
-- `engine.ts` reads the engine's passed-step counter and hands it to `growth.ts` `syncSteps`. The ui-v4 contract
-  (`shared/contracts/UI-V4.md`, `contract: ui-v4 ...`) was not on `origin/michael/app-ui-v4` yet, so `passedOf` reads
-  a local typed placeholder (`EngineBon`: `bon.passed`, `activity.stepsPassed`, `stepsPassed`, `passedSteps`, or a
-  `passedTotal` on `step.passed`). When the contract lands, keep only its field in `passedOf`.
-- The engine's count never lowers the one shown (max of the two), and a sync is quiet: the level-up moment plays only on
-  a live `step.passed` that is not skipped and not `already` (wire.ts).
-- The localStorage count (`miyagi.buddy.growth`) stays as the fallback for an engine that sends no count.
+- `engine.ts` (pure, `createBonLink`) is wired in `wire.ts`. On every `engine.hello`: `bon.import {steps, seen}` once per
+  Mac (the localStorage count, flag `miyagi.buddy.imported`; the engine keeps the larger), then `bon.get {}`. Each only
+  when the hello lists it (`shared/contracts/UI-V4.md` section 2); an older engine gets neither.
+- Every `bon` message (`BonState`): `syncSteps(steps)`. The engine's count never lowers the one shown (max of the two),
+  and a sync is quiet. A window that opens mid-session misses the hello but follows the count through localStorage.
+- `step.passed`: a ui-v4 pass (it carries `counted`, or the hello listed `bon.get` and it carries `key`) grows bon only
+  when `counted: true`, under the engine's `key`. Any other pass (older engine, pre-ui-v4 scenarios: the mock's default
+  hello lists every V2 command) counts locally when not skipped and not `already`: the fallback. The level-up moment
+  plays on that pass (wire.ts), not on `bon.grew`, so it plays once.
+- Open: after `data.delete progress` the engine's count drops but the max rule keeps the local one shown.
+- Stage: `?scenario=ui-v4` (bon.get answers 24 Sapling; "Can I move on?" passes s3 counted, Budding) and
+  `?scenario=buddy` (bon.get answers 14; a counted pass levels up to Sapling, the same key again does not count).
 
 ## The living bonsai in the notch
 

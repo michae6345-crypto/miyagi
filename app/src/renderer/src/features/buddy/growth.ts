@@ -20,8 +20,9 @@
  *   passStep(key)     the engine said a step passed (wire.ts). `key` is the lesson and the step: one step counts once.
  *   progressOf(steps) the level, its name, and how far to the next one: what the growth card shows
  *
- * The count comes from the engine (v4, engine.ts): its passed-step counter, kept with the learner's progress so it
- * survives a new computer. sync(n) takes it. The engine's count never lowers the one shown (a pass counted here a
+ * The count comes from the engine (ui-v4 `bon`, engine.ts): its passed-step counter, kept with the learner's progress
+ * so it survives a new computer. sync(n) takes it. The count kept here before the engine kept one is handed to it once
+ * per Mac (bon.import: local(), imported(), markImported()). The engine's count never lowers the one shown (a pass counted here a
  * moment before the engine's next answer would otherwise flicker back), and a sync never plays the level-up moment:
  * that belongs to the live step.passed.
  * The local count is the fallback, for an engine that does not send one yet: localStorage `miyagi.buddy.growth` in
@@ -81,6 +82,8 @@ export function progressOf(steps: number): Progress {
 }
 
 export const GROWTH_KEY = 'miyagi.buddy.growth'
+/** Set once this Mac's local count was handed to the engine (bon.import). */
+export const IMPORTED_KEY = 'miyagi.buddy.imported'
 /** How many passed steps are remembered by name, so a replayed pass is not counted twice. */
 const SEEN_MAX = 400
 
@@ -95,6 +98,11 @@ export type Growth = {
   /** The engine's passed-step count (contract ui-v4). Quiet: no level-up moment. Ignores anything not a count. */
   sync: (engineSteps: unknown) => void
   onStorage: (key: string | null, value: string | null) => void
+  /** The count kept in localStorage (the app only), for bon.import; undefined when none was ever kept. */
+  local: () => { steps: number; seen: string[] } | undefined
+  /** Was the local count handed to the engine on this Mac? (The browser stage has nothing to hand over: always true.) */
+  imported: () => boolean
+  markImported: () => void
 }
 
 function parse(raw: string | null | undefined): Saved | undefined {
@@ -168,6 +176,26 @@ export function createGrowth(env: Env): Growth {
       }
       if (store.getState().steps !== mem.steps) store.setState({ steps: mem.steps, level: levelFor(mem.steps) })
     },
+    local: () => {
+      const saved = read()
+      return saved ? { steps: saved.steps, seen: saved.seen } : undefined
+    },
+    imported: () => {
+      if (!env.app) return true
+      try {
+        return !!env.storage?.getItem(IMPORTED_KEY)
+      } catch {
+        return false
+      }
+    },
+    markImported: () => {
+      if (!env.app) return
+      try {
+        env.storage?.setItem(IMPORTED_KEY, '1')
+      } catch {
+        // No storage: nothing was kept to hand over either.
+      }
+    },
     onStorage: (key, value) => {
       if (!env.app || key !== GROWTH_KEY) return
       const next = parse(value)
@@ -194,3 +222,6 @@ if (here && app) window.addEventListener('storage', (e) => growth.onStorage(e.ke
 export const useGrowth = growth.store
 export const passStep = growth.pass
 export const syncSteps = growth.sync
+export const localSteps = growth.local
+export const bonImported = growth.imported
+export const markBonImported = growth.markImported
