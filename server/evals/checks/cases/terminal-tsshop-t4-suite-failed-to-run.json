@@ -1,0 +1,38 @@
+{
+ "id": "terminal-tsshop-t4-suite-failed-to-run",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Jest's 'Tests: 3 passed, 3 total' counts only the suite that ran: Cart.test.tsx failed to compile ('Test suite failed to run', error TS2305: '../utils' has no exported member 'formatCurrency'), so its tests never ran ('Test Suites: 1 failed, 1 passed, 2 total'). Not every test passes.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t4"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.test.tsx": "import { formatCurrency } from '../utils'\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> jest",
+    "FAIL  src/components/Cart.test.tsx",
+    "● Test suite failed to run",
+    "src/components/Cart.test.tsx:1:10 - error TS2305: Module '\"../utils\"' has no exported member 'formatCurrency'.",
+    "1 import { formatCurrency } from '../utils'",
+    "           ~~~~~~~~~~~~~~",
+    "PASS  src/utils.test.ts",
+    "Test Suites: 1 failed, 1 passed, 2 total",
+    "Tests:       3 passed, 3 total",
+    "Snapshots:   0 total",
+    "Time:        1.204 s",
+    "Ran all test suites.",
+    "tripi@mac shop %"
+   ]
+  }
+ }
+}

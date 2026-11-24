@@ -1,0 +1,39 @@
+{
+ "id": "terminal-pymod-m5-collection-error-after-pass",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "The first pytest run passed (3 passed), then add was renamed to add_numbers in operations.py only. The newest run can't import the test module (ImportError while importing test module, 'Interrupted: 1 error during collection', '1 error in 0.07s'): no test ran. The green line is the older run.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m5"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add_numbers(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add_numbers\n\nprint(add_numbers(2, 3))\n",
+   "test_operations.py": "from operations import add, subtract, divide\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac calc % python3 -m pytest -q",
+    "...                                                                      [100%]",
+    "3 passed in 0.02s",
+    "tripi@mac calc % python3 -m pytest -q",
+    "==================================== ERRORS ====================================",
+    "____________________ ERROR collecting test_operations.py _____________________",
+    "ImportError while importing test module '/Users/tripi/calc/test_operations.py'.",
+    "test_operations.py:1: in <module>",
+    "from operations import add, subtract, divide",
+    "E   ImportError: cannot import name 'add' from 'operations' (/Users/tripi/calc/operations.py)",
+    "=========================== short test summary info ============================",
+    "ERROR test_operations.py",
+    "!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!",
+    "1 error in 0.07s",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}

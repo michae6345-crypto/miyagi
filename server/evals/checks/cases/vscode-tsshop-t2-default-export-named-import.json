@@ -1,0 +1,30 @@
+{
+ "id": "vscode-tsshop-t2-default-export-named-import",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "utils.ts has formatPrice only as its default export (export default function formatPrice), so Cart's named import { formatPrice } doesn't resolve: the Problems panel shows ts(2614) and Vite fails with 'does not provide an export named formatPrice'. Cart.tsx alone is exactly the step's code.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export default function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n\nexport function Cart({ items }: CartProps) {\n  return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.price)}</li>)}</ul>)\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Cart.tsx",
+    "import { formatPrice } from '../utils'",
+    "export function Cart({ items }: CartProps) {",
+    "return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.price)}</li>)}</ul>)",
+    "}",
+    "PROBLEMS 1",
+    "Cart.tsx src/components 1",
+    "Module '\"../utils\"' has no exported member 'formatPrice'. Did you mean to use 'import formatPrice from \"../utils\"' instead? ts(2614) [Ln 1, Col 10]"
+   ]
+  }
+ }
+}
