@@ -92,6 +92,8 @@ export class FakeCloud {
   linkStatus?: 401 | 403 | 404 | 503 | 500
   /** Serve POST /v1/session with this account state; unset = 404 (a cloud older than the route). */
   session?: { plan?: string; signin_mode?: string; caps?: Record<string, unknown> }
+  /** 451: answer /v1/install (and /v1/session) with the region block (cloud/app.py REGION_UNAVAILABLE). */
+  region?: boolean
   private n = 0
 
   /** A good Supabase JWT for this project (the fake's rule: sig "good", aud authenticated, not expired) → its claims. */
@@ -108,6 +110,9 @@ export class FakeCloud {
 
   async handle(url: URL, call: Call): Promise<Response> {
     this.calls.push(call)
+    if (this.region && (url.pathname === '/v1/install' || url.pathname === '/v1/session')) {
+      return json(451, { error: 'region_unavailable', message: "miyagi isn't available in your region yet." })
+    }
     if (url.pathname === '/v1/install' && call.method === 'POST') {
       const token = `mi_testinstalltoken${String(++this.n).padStart(4, '0')}`
       this.installs.add(token)

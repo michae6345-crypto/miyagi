@@ -11,6 +11,7 @@
  *   403 bad_access_token    → refresh the Supabase session once, then retry once (403 too_many_installs: no retry)
  *   503 / 5xx / offline     → keep the cached answer, try again with a backoff (30 s, 2 min, 10 min, 30 min)
  *   404                     → an older cloud without the route: POST /v1/link instead (cloudLink.ts createLinker)
+ *   451 region_unavailable  → the cloud's region block: 'region', final (no heal, no re-mint, no backoff retry)
  *
  * The answer is cached in memory and in userData/session.json: {plan, caps, signinMode, linked, fetchedAt}. Never a
  * token, never the email, never the account id. Calls run one after another; sync() never throws. Log lines carry a
@@ -35,6 +36,7 @@ export type SessionOutcome =
   | 'signed-out'
   | 'expired' // the access token is expired and could not be refreshed
   | 'refused' // 401 / 403 after the one retry, or too_many_installs
+  | 'region' // 451 region_unavailable: not retried, nothing re-minted
   | 'failed' // 503, another status, a bad answer, offline, timeout: cache kept, retry scheduled
 
 export type SessionDeps = {
@@ -238,6 +240,12 @@ export function createSessionClient(deps: SessionDeps): SessionClient {
         log(`[session] could not reach the cloud: ${a === 'timeout' ? 'timeout' : 'request failed'}; will retry`)
         backoff()
         return 'failed'
+      }
+      if (a.status === 451 || errorKind(a.body) === 'region_unavailable') {
+        failures = 0
+        cancelRetry()
+        log('[session] not available in this region; not retrying')
+        return 'region'
       }
       if (a.status === 404) {
         const linked = await deps.legacyLink()
