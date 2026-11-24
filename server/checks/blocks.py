@@ -257,6 +257,11 @@ _CANCELLED = re.compile(r"\^C\s*$")
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
 
 
+def continuation(row: str) -> bool:
+    """Is a terminal row one of the shell's continuation prompts (``dquote> to the menu"``, ``heredoc> EOF``)?"""
+    return bool(_CONTINUATION.match(row))
+
+
 def _unfinished(text: str) -> bool:
     """Is a command (its continuation rows joined with newlines) still open: a quote, a backtick or a ``$(`` not
     closed yet, or a last line ending in ``|`` / ``&&`` / ``\\``?"""
@@ -322,13 +327,15 @@ _SKIPPED = re.compile(r"\b(\d+)\s+(?:skipped|pending|todo|deselected)\b", re.I)
 _TEST_SUMMARY = re.compile(r"^\s*Tests?:|\bpassed\b|\bpassing\b|^\s*=+.*\b(?:passed|failed)\b", re.I)
 
 
-def skipped_tests(output: list[str]) -> int:
+def skipped_tests(output: list[str], in_files: bool = False) -> int:
     """How many tests a test run's summary says it skipped (Jest's ``Tests: 2 skipped, 1 passed, 3 total``, pytest's
-    ``1 passed, 2 skipped``, mocha's ``2 pending``), else 0."""
+    ``1 passed, 2 skipped``, mocha's ``2 pending``), else 0. ``in_files``: only the ones a test file skipped
+    (skipped / pending), not the ones the command line left out (pytest's ``deselected``) or ``todo`` tests."""
     n = 0
     for row in output:
         if _TEST_SUMMARY.search(row):
-            n = max(n, sum(int(m.group(1)) for m in _SKIPPED.finditer(row)))
+            n = max(n, sum(int(m.group(1)) for m in _SKIPPED.finditer(row)
+                           if not in_files or m.group(0).split()[-1].lower() in ("skipped", "pending")))
     return n
 
 

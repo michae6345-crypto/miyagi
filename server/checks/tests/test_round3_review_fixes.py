@@ -157,3 +157,36 @@ def test_a_skip_the_step_expects_does_not_fail():
     assert _gate(step, screen=_PYTEST_RUN)["passed"]
     more = _term("me@mac s % pytest", "===== 1 passed, 2 skipped in 0.1s =====", "me@mac s % ")
     assert not _gate(step, screen=more)["passed"]
+
+
+# -- second review: no new false passes ------------------------------------------------------------------------------
+
+def test_a_multi_line_commit_closed_on_its_continuation_row_but_not_entered_has_not_run():
+    typed = ['me@mac p % git commit -m "Add waffles', 'dquote> to the menu"']
+    assert not _gate(_COMMIT_STEP, screen=_term(*typed))["passed"]
+    # same as the single-line command typed and not entered
+    assert not _gate(_COMMIT_STEP, screen=_term('me@mac p % git commit -m "Add waffles to the menu"'))["passed"]
+    # once Enter is pressed and the commit is printed, it passes
+    assert _gate(_COMMIT_STEP, screen=_term(*typed, "[main 1a2b3c4] Add waffles to the menu", "me@mac p % "))["passed"]
+
+
+def test_a_next_cell_run_after_a_triple_normalize_does_not_hide_it(tmp_path):
+    # [2] and [3] were the normalize cell too; [5] is the next step's cell, below it: it ran after, not in the gap
+    _nb(tmp_path, ("x = load()", 1), (_NORMALIZE, 4), ("model = build()", 5))
+    gate = _gate(_NB_STEP, workdir=str(tmp_path))
+    assert not gate["passed"] and "3 times" in gate["checks"][-1]["detail"]
+    # an inspect cell above it re-run after the normalize may have taken [2] and [3]
+    _nb(tmp_path, ("x = load()", 1), ("plt.imshow(x[0])", 5), (_NORMALIZE, 4))
+    assert _gate(_NB_STEP, workdir=str(tmp_path))["passed"]
+
+
+def test_deselected_tests_are_not_every_test_even_without_a_skip_in_the_files(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_io.py").write_text(
+        "import pytest\n\n\ndef test_a():\n    assert 1\n\n\n@pytest.mark.slow\ndef test_b():\n    assert 2\n")
+    run = _term('me@mac s % pytest -m "not slow"', "tests/test_io.py .", "===== 1 passed, 1 deselected in 0.1s =====",
+                "me@mac s % ")
+    gate = _gate(_PYTEST_STEP, screen=run, workdir=str(tmp_path))
+    assert not gate["passed"] and "skipped" in gate["checks"][0]["detail"]
+    assert blocks.skipped_tests(["===== 1 passed, 1 deselected, 2 skipped ====="]) == 3
+    assert blocks.skipped_tests(["===== 1 passed, 1 deselected, 2 skipped ====="], in_files=True) == 2

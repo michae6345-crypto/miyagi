@@ -1410,7 +1410,10 @@ def _not_the_steps_result(check: dict, ctx: RunContext, bl: list[blocks.Block], 
             if blocks.runs(s, t) and blocks.dry_run(s) and not blocks.dry_run(t):
                 return f"`{s}` only showed what it would do (a dry run): run `{t}`"
             if blocks.runs(s, t) and (skipped := blocks.skipped_tests(b.output)) > _expected_skips(check) \
-                    and _ALL_TESTS.search(str(check.get("_instructions") or "")) and _learner_skips(ctx) is not False:
+                    and _ALL_TESTS.search(str(check.get("_instructions") or "")) \
+                    and (skipped > blocks.skipped_tests(b.output, in_files=True) or _learner_skips(ctx) is not False):
+                # a skip the project ships in its test files (skipif) is exempt; deselected / todo tests are not: they
+                # come from the command line (pytest -m "not slow") or are not tests yet
                 return (f"{skipped} test(s) skipped, so not every test ran (a .only or .skip left in a test file?): "
                         f"remove it and run `{t}` again")
     if wrong := _commit_on_other_branch(cmds, bl, i, pattern):
@@ -1437,7 +1440,6 @@ def _not_the_steps_result(check: dict, ctx: RunContext, bl: list[blocks.Block], 
 
 
 _ALL_TESTS = re.compile(r"\b(?:every|all)\b[^.;]{0,30}\btests?\b|\btests?\b[^.;]{0,20}\ball\s+pass", re.I)
-_SKIP_COUNT = re.compile(r"\b(\d+)\s+(?:skipped|pending|todo|deselected)\b", re.I)
 # a test file: Jest / Vitest / Mocha (x.test.ts, x.spec.js, __tests__/x.js), pytest / unittest (test_x.py, x_test.py)
 _TEST_FILE = re.compile(r"(?:\.(?:test|spec)\.[cm]?[jt]sx?|^test_\w*\.py|_test\.py)$")
 # a skip or focus a learner adds to a test file and can take out again: test.skip / it.only / xit / fdescribe,
@@ -1451,7 +1453,7 @@ def _expected_skips(check: dict) -> int:
     """How many skipped tests the step itself expects (its instructions or the check's pattern say "1 skipped"), else
     0: a suite that ships a skipped test says so."""
     text = f"{check.get('_instructions') or ''} {check.get('pattern') or ''}"
-    return max((int(m.group(1)) for m in _SKIP_COUNT.finditer(text)), default=0)
+    return max((int(m.group(1)) for m in blocks._SKIPPED.finditer(text)), default=0)
 
 
 def _learner_skips(ctx: RunContext) -> bool | None:
@@ -1600,11 +1602,18 @@ def _ran_and_made(check: dict, ctx: RunContext, bl: list[blocks.Block]) -> Check
 
 def _without_typed_input(text: str) -> str:
     """Terminal text without its bottom row when that row is a prompt with text after it: a command typed (or being
-    typed) and not run yet. Only a row followed by more output, or by a new prompt, was executed."""
+    typed) and not run yet. Only a row followed by more output, or by a new prompt, was executed. A multi-line
+    command whose bottom rows are the shell's continuation rows (``dquote> to the menu"``, Enter not pressed yet, or
+    the shell still waiting) loses those rows and the prompt row they continue: it has not run either."""
     lines = text.split("\n")
     last = max((i for i, ln in enumerate(lines) if ln.strip()), default=None)
     if last is None:
         return text
+    if blocks.continuation(lines[last]):
+        top = last  # the first of the bottom continuation rows: the row above it is the prompt row they continue
+        while top > 0 and (not lines[top - 1].strip() or blocks.continuation(lines[top - 1])):
+            top -= 1
+        return "\n".join(lines[:max(top - 1, 0)] + lines[last + 1:])
     words = lines[last].split()
     if words and words[0] == "➜":  # oh-my-zsh: arrow, <dir>, [git:(branch)], [dirty mark], <command>
         rest = words[2:]
@@ -2160,9 +2169,10 @@ def rerun_self_update(step: dict, ctx: RunContext | None) -> str | None:
     are on no cell ([1] the load, then [4] here: [2] and [3] were this cell too), so the arithmetic was applied three
     times. Why, else None.
 
-    A missing count is only this cell's when nothing else can have taken it: no other cell has run since the maker (a
-    count above the maker's on another cell: an inspect cell re-run, ``plt.imshow(x[0])`` [4], may have taken [2]
-    too). And one missing count alone is not blamed: a run that raised before its assignment (a typo fixed, then
+    A missing count is only this cell's when nothing else can have taken it: no cell above this one has run since the
+    maker (a count above the maker's on a cell between the two: an inspect cell re-run, ``plt.imshow(x[0])`` [4], may
+    have taken [2] too). A cell below this one with a higher count ran after it (the next step's cell, [5]): it
+    explains nothing in the gap. And one missing count alone is not blamed: a run that raised before its assignment (a typo fixed, then
     re-run) or a deleted scratch cell leaves the same [1], [3]. Two or more (three runs, none of them on another cell)
     are."""
     nb = _step_notebook(step, ctx)
@@ -2179,8 +2189,8 @@ def rerun_self_update(step: dict, ctx: RunContext | None) -> str | None:
             if not makers:
                 continue
             made = max(makers)
-            if any(c.count is not None and c.count > made for k, c in enumerate(nb.cells) if k != i):
-                continue
+            if any(c.count is not None and c.count > made for c in nb.cells[:i]):
+                continue  # a cell above this one ran after the maker: it may have taken the missing counts too
             gap = [k for k in range(made + 1, cell.count) if k not in counts]
             if len(gap) >= 2 and len(gap) == cell.count - made - 1:
                 return (f"this cell ran {len(gap) + 1} times since {name} was made ([{max(makers)}]), so "
@@ -2252,7 +2262,11 @@ def _count_is_typescript(code_text: str, ctx: RunContext) -> bool:
     .py file, ESLint, another project's file), so it is taken as tsc's when a TypeScript error is on screen (the
     Problems panel's ``ts(2345)``, the terminal's ``error TS2345:``), else only when nothing else can have made it: no
     other checker's row on screen, and no file in the lesson folder another checker reads (a .py file, an ESLint
-    config)."""
+    config).
+
+    The tradeoff: any ESLint config (``eslint.config.js`` ships with Vite's react-ts template) or any .py file in the
+    lesson folder turns this status-bar rule off unless a ``ts(NNNN)`` / ``error TSNNNN`` is on screen too, so a tsc
+    error seen only as the status-bar count then passes; a Pylance or ESLint error never fails a tsc step."""
     term = "\n".join(t for app in _TERMINAL_APPS if (t := screen_text(ctx.screen, app)))
     if _TS_DIAGNOSTIC.search(code_text) or _TS_DIAGNOSTIC.search(term):
         return True
