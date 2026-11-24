@@ -392,10 +392,14 @@ def _fresh(entry: os.DirEntry, since: float | None) -> bool:
 # A keyframe or playhead's frame ("key it at frame 48", "go to frame 48", "on frame 1") is not the range.
 _FRAMES_NAME = re.compile(r"(?<!\d)(\d{3,})-(\d{3,})\.\w+$")
 _TO = r"\s*(?:-|–|—|\bto\b|\bthrough\b|\.\.)\s*"
+# "N frames" that is a rate, an offset or a part of the animation, not its length: "24 frames per second", "12 frames
+# of anticipation", "10 frames later", "every 5 frames"
+_NOT_LENGTH = (r"\s*(?:per\b|/|an?\s+second\b|each\b|later\b|earlier\b|after\b|before\b|ahead\b|forward\b|back\b"
+               r"|apart\b|of\b(?!\s+(?:the\s+)?(?:animation|video|footage|render)))")
 _STEP_FRAMES = re.compile(
     rf"\bframe\s+range\b(?:\s+(?:to|from|of|is|at))*\s*[:=]?\s*(\d+)(?:{_TO}(\d+))?|"
     rf"\bframes\s+(\d+){_TO}(\d+)|"
-    r"(?<![\w.])(\d+)\s+frames\b|"
+    rf"(?<![\w.])(?<!\bevery\s)(\d+)\s+frames\b(?!{_NOT_LENGTH})|"
     r"\b(?:end|last|final)\s+frame\b(?:\s+(?:to|of|is|at))*\s*[:=]?\s*(\d+)|"
     r"\b(?-i:End)\s*(?:\bto\b|[:=])\s*(\d+)|"
     r"\b(?:ends|ending|stops?)\s+(?:at|on)\s+frame\s+(\d+)|"
@@ -1407,6 +1411,15 @@ def _dev_server_error(b: blocks.Block) -> str | None:
     return bad
 
 
+def _restarted(bl: list[blocks.Block], i: int) -> bool:
+    """A later block starts block ``i``'s command again, maybe through another runner (the dev server stopped with ^C
+    after an error and restarted: ``npm run dev`` again, or ``yarn dev`` / ``npx vite``): block ``i``'s rows are an
+    earlier run's."""
+    mine = blocks.segments(bl[i].command or "")
+    return bool(mine) and any(blocks.runs(s, t) and blocks.runs(t, s) for n in bl[i + 1:] if n.command
+                              for s in blocks.segments(n.command) for t in mine)
+
+
 def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str) -> CheckResult | None:
     """A screen check on a terminal's history (or a command-line app's ``Command:`` rows), read per command
     (server.checks.blocks). None when the text has no command rows, or the pattern only matches across commands:
@@ -1427,13 +1440,13 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
     if absent:
         hit = None
         for i, b in enumerate(bl):
+            past = bool(b.command) and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()
+                                        or blocks.cured(bl, i) or blocks.retried(bl, i))
             m = _absent_hit(pattern, b.text)
-            if not m and _NO_ERRORS_LABEL.search(str(check.get("label") or "")) and (row := _dev_server_error(b)):
+            if not m and not past and not _restarted(bl, i) \
+                    and _NO_ERRORS_LABEL.search(str(check.get("label") or "")) and (row := _dev_server_error(b)):
                 return _result(check, "fail", f"still showing {row.strip()[:80]!r}{where}")
-            if not m:
-                continue
-            if b.command and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()
-                              or blocks.cured(bl, i) or blocks.retried(bl, i)):
+            if not m or past:
                 continue
             hit = hit or m
         if hit:
@@ -2015,7 +2028,7 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
               and not c.get("file") else c for c in checks]
     checks = [{**c, "_nb_file": f} if f and _is_kernel_check(c) else c for c in checks]  # t11: _saved_kernel reads it
     # "toUpperCase method called" on a bare name: the name without its call parentheses is the method, not its result
-    checks = [{**c, "pattern": f"{c['pattern']}\\s*\\("} if _wants_call(c) else c for c in checks]
+    checks = [{**c, "pattern": f"{c['pattern']}{_CALL_PARENS}"} if _wants_call(c) else c for c in checks]
     # a run step's "no error in the terminal" waits for the run (_not_visible) instead of passing on a hidden terminal
     run = step.get("kind") == "run" or any(str(t.get("file") or "").strip().lower() in ("(terminal)", "terminal")
                                            for t in step.get("targets") or []) or _command_step(step)
@@ -2077,6 +2090,9 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     return _no_cell_yet(step, checks, results, ctx)
 
 
+# what follows a called name: its parentheses, after TypeScript type arguments (``useState<number>(0)``,
+# ``useState<Map<string, number>>()``) or optional chaining (``onSave?.(x)``)
+_CALL_PARENS = r"(?:\s*<[^()\n]*>)?\s*(?:\?\.)?\("
 _CALLED_LABEL = re.compile(r"\b(?:call(?:s|ed|ing)?|invok\w*)\b(?!\s+[\"'“‘]?[A-Za-z_])", re.I)
 _BARE_NAME = re.compile(r"(?:\\?\.)?[A-Za-z_$][\w$]*(?:\\?\.[A-Za-z_$][\w$]*)*")
 

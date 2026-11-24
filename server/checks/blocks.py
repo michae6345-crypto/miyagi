@@ -567,11 +567,29 @@ _REF_DIRECTED = frozenset({"merge", "rebase"})
 _COMMIT_REF = re.compile(r"(?:head|@)(?:[~^]\d*)*|[0-9a-f]{7,40}", re.I)
 
 
+# merge / rebase options that take the next word as their value (``-m "Merge add-waffles"``, ``-X theirs``, ``-s
+# ours``, ``--onto main``, ``-x "npm test"``): that word is not the branch
+_REF_VALUE_OPTS = frozenset({"-m", "--message", "-X", "--strategy-option", "-s", "--strategy", "-F", "--file",
+                             "--into-name", "--onto", "-x", "--exec", "--cleanup"})
+
+
 def _ref_arg(segment: str) -> str | None:
+    """The branch / commit a ``git merge`` / ``git rebase`` names: its first word that is neither an option nor an
+    option's value."""
     ws = _command_words(segment)
     if len(ws) < 3 or _program(ws[0]) != "git" or ws[1] not in _REF_DIRECTED:
         return None
-    return next((w for w in ws[2:] if not w.startswith("-")), None)
+    skip = False
+    for w in ws[2:]:
+        if skip:
+            skip = False
+        elif w == "--":
+            continue
+        elif w.startswith("-"):
+            skip = w in _REF_VALUE_OPTS
+        else:
+            return w
+    return None
 
 
 def _other_ref(segment: str, target: str) -> bool:
@@ -587,16 +605,55 @@ def _other_ref(segment: str, target: str) -> bool:
     return a != t and not a.endswith("/" + t) and not t.endswith("/" + a)
 
 
+# git commands whose words after the subcommand name the remote and branch they work on: a later run for another
+# branch (``git push origin feature`` after ``git push origin main`` failed) is not the same command run again
+_REMOTE_DIRECTED = frozenset({"push", "pull", "fetch"})
+# their options that take the next word as their value (``-o ci.skip``, ``--repo url``)
+_REMOTE_VALUE_OPTS = frozenset({"-o", "--push-option", "--repo", "--upload-pack", "--receive-pack", "--depth",
+                                "--recurse-submodules", "--strategy", "-s", "--strategy-option", "-X"})
+
+
+def _remote_args(segment: str) -> list[str]:
+    """The remote / branch words of a ``git push`` / ``pull`` / ``fetch`` (``git push -u origin main`` -> [origin,
+    main])."""
+    ws = _command_words(segment)
+    out, skip = [], False
+    for w in ws[2:]:
+        if skip:
+            skip = False
+        elif w.startswith("-"):
+            skip = w in _REMOTE_VALUE_OPTS
+        else:
+            out.append(w.lower())
+    return out
+
+
+def _same_git_run(failed: str, later: str) -> bool:
+    """Does the ``later`` segment run the ``failed`` segment's git command again: the same subcommand, and for a
+    command that names its remote and branch, or the branch it merges / rebases, the same ones (either side may leave
+    them out: ``git push`` after ``git push -u origin main``)?"""
+    p, s = program_and_sub(failed)
+    if p != "git" or not s or program_and_sub(later) != (p, s):
+        return False
+    if s in _REF_DIRECTED:
+        return not _other_ref(later, failed)
+    if s in _REMOTE_DIRECTED:
+        a, b = _remote_args(failed), _remote_args(later)
+        return not a or not b or a == b
+    return True
+
+
 def retried(blocks: list[Block], i: int) -> bool:
     """Block ``i`` is a git command that failed, and a later run of the same git subcommand succeeded (``git commit
-    -m x pancakes.md`` -> ``error: pathspec``, then ``git add`` and ``git commit -m x``): the learner got past it."""
+    -m x pancakes.md`` -> ``error: pathspec``, then ``git add`` and ``git commit -m x``): the learner got past it. A
+    push / pull / fetch / merge / rebase must be for the same remote and branch (a push of another branch leaves the
+    failed one unpushed)."""
     b = blocks[i]
     if not b.command or b.failure() is None:
         return False
-    mine = {program_and_sub(s) for s in segments(b.command)}
-    mine = {m for m in mine if m[0] == "git" and m[1]}
+    mine = [s for s in segments(b.command) if program_and_sub(s)[0] == "git" and program_and_sub(s)[1]]
     return bool(mine) and any(
-        n.command and n.failure() is None and mine & {program_and_sub(s) for s in segments(n.command)}
+        n.command and n.failure() is None and any(_same_git_run(m, s) for m in mine for s in segments(n.command))
         for n in blocks[i + 1:])
 
 
