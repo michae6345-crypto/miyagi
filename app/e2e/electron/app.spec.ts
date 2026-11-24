@@ -55,11 +55,11 @@ test('first run: the home window opens on setup', async () => {
 })
 
 test('the sign-in card shows on a cloud.notice', async () => {
-  run = await launch({ ...SET_UP, SCENARIO: 'signincard' })
+  // mock/scenarios/e2e-signin.json: on connect the mock starts a lesson build that the cloud refuses (cloud.notice
+  // signin_required, status 401), as for a signed-out learner. Commands like dev.* never pass main's allowlist.
+  run = await launch({ ...SET_UP, SCENARIO: 'e2e-signin' })
   const overlay = await windowFor(run.app, 'overlay')
-  await expect(overlay.locator('[data-signincard]')).toHaveCount(0)
-  // The mock plays a lesson build that the cloud refuses (cloud.notice signin_required), like a signed-out learner.
-  await overlay.evaluate(() => (window as unknown as { tut: { send(c: unknown): void } }).tut.send({ type: 'dev.signincard.signin', payload: {} }))
   await expect(overlay.locator('[data-signincard="signin"]')).toBeVisible({ timeout: 30_000 })
+  await expect(overlay.getByRole('dialog')).toContainText(/sign in/i)
   expect(run.errors).toEqual([])
 })
