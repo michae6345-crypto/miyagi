@@ -16,10 +16,11 @@
  * Sleek and minimal (Adrian, Nov 21: "a lot seems very AI slop-ish"): type, spacing and one raised surface do the work.
  * No icon tiles or tool pills on rows; color stays for options (pastel chips) and passed (green). Tokens only.
  */
-import { ChevronRight } from 'lucide-react'
+import { Check, ChevronRight, type LucideIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { CSSProperties, ReactNode } from 'react'
-import { color, elevation, fill, highlight, layout, radius2, surface, type2, typeScale } from '../../core/theme'
+import { create } from 'zustand'
+import { color, fill, layout, radius2, surface, type2, typeScale, v4, v4c, v4type } from '../../core/theme'
 import { fade, press, spring } from '../../core/ui/motion'
 
 // ---- the content panel ------------------------------------------------------------------------------------------
@@ -33,23 +34,25 @@ export const PANEL_INSET = layout.pane.inset
  * hairline lift). The dot grid (PR #242) stays, quieter, as a halo under the page header that fades out before the
  * content's middle, so cards never sit on noise.
  */
+// v4 (Adrian's ui-next mock): the page is flat, the window's own paper (cream in light), no inset pane and no dot grid.
+// The keys stay so the spreads elsewhere (a lesson preview's ground, the Progress window) keep working.
 export const PANEL: CSSProperties = {
-  backgroundColor: 'var(--l-raised)',
-  backgroundImage: 'radial-gradient(ellipse 70% 60% at 50% 0%, transparent 0%, var(--l-raised) 100%), radial-gradient(var(--d-dot) 1px, transparent 1.4px)',
-  backgroundSize: '100% 100%, 20px 20px',
-  backgroundPosition: '0 0, 10px 10px',
-  borderRadius: layout.pane.radius,
-  boxShadow: `${highlight.card}, inset 0 0 0 1px var(--l-edge), ${elevation.pane}`
+  backgroundColor: v4c.page,
+  backgroundImage: 'none',
+  backgroundSize: 'auto',
+  backgroundPosition: '0 0',
+  borderRadius: 0,
+  boxShadow: 'none'
 }
 
 /**
- * A card on the pane (gallery tiles, ask boxes, Settings-style groups): one tone step up, a 1 px border and the faintest
- * top edge, radius 12 (layout.radius.card). No drop shadow in dark, a soft two-layer lift in light.
+ * A card on the page (v4: "the only card is Continue"; the ask box and the setup groups use it too): white on cream,
+ * radius 12, the mock's e2 lift (a ring and two soft shadows; dark: a white ring and black shadows).
  */
 export const CARD: CSSProperties = {
-  background: 'var(--l-overlay)',
-  borderRadius: layout.radius.card,
-  boxShadow: `${highlight.card}, inset 0 0 0 1px var(--l-border), ${elevation.tile}`
+  background: v4c.card,
+  borderRadius: v4.radius.card,
+  boxShadow: v4c.e2
 }
 
 /**
@@ -144,9 +147,10 @@ export const caption: CSSProperties = { fontSize: type2.xs, lineHeight: '16px', 
  * screen), less the pane's inset and the half-leading of the 32 px title line in its 36 px row. Handed to styles.css
  * (.mg-page-head) as variables, so the CSS never repeats the numbers.
  */
-const TITLE_LEAD = (layout.page.titleRow - parseInt(typeScale.pageTitle.lineHeight)) / 2
-const HEAD_TOP = layout.page.top - layout.pane.inset - TITLE_LEAD
-const HEAD_TOP_FULL = layout.page.topFull - layout.pane.inset - TITLE_LEAD
+// v4: the legacy header sits under the shell's 44 px top bar, so its title's top is the v4 page top (44) like PageFrame's.
+const TITLE_LEAD = (layout.page.titleRow - parseInt(v4type.title.lineHeight)) / 2
+const HEAD_TOP = v4.page.top - TITLE_LEAD
+const HEAD_TOP_FULL = v4.page.top - TITLE_LEAD
 
 /**
  * The page header (the shell renders it above every page but Home): the title and the page's own actions, on the same
@@ -155,11 +159,12 @@ const HEAD_TOP_FULL = layout.page.topFull - layout.pane.inset - TITLE_LEAD
  * The title row is 36 tall; the header ends layout.page.titleGap (24) under the title's line, and the page's column
  * starts layout.page.bodyTop (8) below that, so the first section sits 32 under the title on every page.
  */
-export function PageHeader({ title, caption: sub, right }: { title: ReactNode; caption?: ReactNode; right?: ReactNode }): ReactNode {
+export function LegacyPageHeader({ title, caption: sub, right }: { title: ReactNode; caption?: ReactNode; right?: ReactNode }): ReactNode {
   return (
     <header
       data-drag
       data-page-header
+      data-legacy-header
       className="mg-page-head flex shrink-0 items-center gap-[16px]"
       style={{
         ['--page-head-top' as string]: `${HEAD_TOP}px`,
@@ -171,7 +176,7 @@ export function PageHeader({ title, caption: sub, right }: { title: ReactNode; c
       {/* 36 tall whatever sits on the right (a search field), so the title's top is the same on every page. */}
       <div className="flex min-w-0 items-center" style={{ minHeight: layout.page.titleRow }}>
         <div className="flex min-w-0 items-baseline gap-[12px]">
-          <h1 className="m-0 shrink-0" style={{ ...typeScale.pageTitle, color: color.text }}>
+          <h1 className="m-0 shrink-0" style={{ ...v4type.title, color: color.text }}>
             {title}
           </h1>
           {sub && (
@@ -207,7 +212,7 @@ export function PageTitle({ children, right, sub }: { children: ReactNode; right
 export function SectionHead({ id, children, right }: { id?: string; children: ReactNode; right?: ReactNode }): ReactNode {
   return (
     <div className="flex min-h-[26px] items-center gap-[8px]" style={{ marginBottom: 8 }}>
-      <h2 id={id} className="m-0" style={{ ...typeScale.section, color: color.label }}>
+      <h2 id={id} className="m-0" style={{ ...v4type.sec, color: color.label }}>
         {children}
       </h2>
       {right && <div className="ml-auto flex items-center">{right}</div>}
@@ -317,3 +322,375 @@ export function RowChevron(): ReactNode {
     </motion.span>
   )
 }
+
+// =====================================================================================================================
+// v4: the wide row-and-table pages (Adrian's ui-next mock, Nov 23-24; core/theme.ts `v4`, `v4c`, `v4type`).
+//
+//   PageFrame    a page's own scroll area and its 1040 column, 44 under the shell's top bar, 40 px gutters (24 narrow)
+//   PageHeader   the page's title (32 / 700), its actions on the right, an optional one-line lede under it
+//   Section      a quiet section label (12.5 / 550), an optional count and a quiet link on the right ("Browse plans >")
+//   TwoCol       Home / Progress: a 684 main column and a 316 rail with one hairline; the rail drops under a 900 frame
+//   Columns      Settings: two columns of groups 56 apart; one column under a 760 frame
+//   Rows/ListRow a list with hairlines between rows (44 tall, 50 with a cover, 33 / 48 in a rail), hover wash, chevron
+//   Table        a full-width table: head 32, rows 46, hairlines, first column flush left
+//   Stats, Bar, Tag, PassedMark, ProgressRing   numbers on one line with hairlines, a 4 px bar, a quiet tag, the marks
+//
+// A page opts in by rendering <PageFrame>: the shell then hides its own (legacy) title for that page, so a page owns
+// its title, its actions and its lede. Brand: green only for passed (Bar `passed`, Tag `passed`, PassedMark), pastels
+// only on option chips (never here), one primary per surface (the page's, not these).
+// =====================================================================================================================
+
+/** The v4 gutter: 40, or 24 once the frame is under 760 (styles.css, container query on .mg-v4-frame). */
+const V4_GUTTER = `var(--v4-gutter, ${v4.page.gutter}px)`
+/** The column's full width (content + both gutters). */
+export const V4_W = v4.page.w + 2 * v4.page.gutter
+
+/**
+ * A v4 page: its own scroll area (so it works whether the shell's body scrolls or not) holding the 1040 column,
+ * centered in the main area, top-anchored 44 under the top bar.
+ */
+export function PageFrame({ children, top = v4.page.top, bottom = v4.page.bottom, style, data }: { children: ReactNode; top?: number; bottom?: number; style?: CSSProperties; data?: Record<string, string | boolean | undefined> }): ReactNode {
+  return (
+    <div data-v4-frame className="mg-v4-frame h-full min-h-0 w-full overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: `${v4c.track} transparent` }} {...data}>
+      <div data-v4-column className="flex w-full flex-col" style={{ maxWidth: V4_W, marginInline: 'auto', paddingInline: V4_GUTTER, paddingTop: top, paddingBottom: bottom, ...style }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** A v4 page title: 32 / 700, the page's actions on its right, a one-line lede under it. */
+export function PageHeader({ title, lede, caption, right }: { title: ReactNode; lede?: ReactNode; /** = lede */ caption?: ReactNode; right?: ReactNode }): ReactNode {
+  const line = lede ?? caption
+  return (
+    <header data-v4-header className="flex flex-col">
+      <div className="flex min-w-0 items-center gap-[16px]" style={{ minHeight: 38 }}>
+        <h1 className="m-0 min-w-0 truncate" style={{ ...v4type.title, color: color.text }}>
+          {title}
+        </h1>
+        {right && (
+          <div data-no-drag className="ml-auto flex shrink-0 items-center gap-[10px]">
+            {right}
+          </div>
+        )}
+      </div>
+      {line && (
+        <p className="m-0" style={{ ...v4type.lede, color: color.label, marginTop: 6 }}>
+          {line}
+        </p>
+      )}
+    </header>
+  )
+}
+
+/** A quiet text link on the right of a section label ("Browse plans >"), chrome: neutral, never a hue. */
+export function SectionLink({ children, onClick }: { children: ReactNode; onClick: () => void }): ReactNode {
+  return (
+    <button type="button" onClick={onClick} className="mg-v4-link ml-auto inline-flex cursor-pointer items-center gap-[3px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid" style={{ ...v4type.sec, fontWeight: 450, color: color.label, outlineColor: color.text, borderRadius: 4 }}>
+      {children}
+      <ChevronRight aria-hidden size={13} strokeWidth={1.8} />
+    </button>
+  )
+}
+
+/** A section: its label (and count, and link), then its content. `first`: 26 above instead of 30. */
+export function Section({ title, count, link, first = false, id, children, style }: { title: ReactNode; count?: number | string; link?: { label: string; onClick: () => void }; first?: boolean; id?: string; children?: ReactNode; style?: CSSProperties }): ReactNode {
+  return (
+    <section aria-labelledby={id} className="flex flex-col" style={style}>
+      <div className="flex items-center" style={{ marginTop: first ? v4.sec.first : v4.sec.top, marginBottom: v4.sec.bottom, minHeight: 18 }}>
+        <h2 id={id} className="m-0" style={{ ...v4type.sec, color: color.label }}>
+          {title}
+          {count != null && <span style={{ fontWeight: 450, color: color.faint, marginLeft: 6 }}>{count}</span>}
+        </h2>
+        {link && <SectionLink onClick={link.onClick}>{link.label}</SectionLink>}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+/** Home / Progress: a 684 main column and a 316 rail with one hairline; one column (rail under) in a narrow frame. */
+export function TwoCol({ main, rail }: { main: ReactNode; rail: ReactNode }): ReactNode {
+  return (
+    <div data-v4-two className="mg-v4-two">
+      <div data-v4-main className="flex min-w-0 flex-col">
+        {main}
+      </div>
+      <aside data-v4-rail className="mg-v4-rail flex min-w-0 flex-col">
+        {rail}
+      </aside>
+    </div>
+  )
+}
+
+/** Settings: two columns of groups 56 apart (one under a 760 frame). */
+export function Columns({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <div data-v4-columns className="mg-v4-cols">
+      {children}
+    </div>
+  )
+}
+
+/** A list of ListRows with a hairline between each (none around the hovered one). */
+export function Rows({ children, label, style }: { children: ReactNode; label?: string; style?: CSSProperties }): ReactNode {
+  return (
+    <div role="list" aria-label={label} className="mg-v4-rows flex flex-col" style={style}>
+      {children}
+    </div>
+  )
+}
+
+export type RowSize = 'row' | 'cover' | 'rail' | 'railTall'
+const ROW_H: Record<RowSize, number> = { row: v4.row.h, cover: v4.row.cover, rail: v4.row.rail, railTall: v4.row.railTall }
+
+/**
+ * A v4 list row: no box, 8 px in (and 8 out, so its text lines up with the section label), a wash on hover and when
+ * `current`. With `onClick` it is a button and ends in the ghost chevron (`chevron={false}` drops it).
+ */
+export function ListRow({ children, onClick, label, size = 'row', current = false, chevron = true, style, data }: { children: ReactNode; onClick?: () => void; label?: string; size?: RowSize; current?: boolean; chevron?: boolean; style?: CSSProperties; data?: Record<string, string> }): ReactNode {
+  const rail = size === 'rail' || size === 'railTall'
+  const base: CSSProperties = {
+    ...(rail ? { fontSize: 13.5, lineHeight: '18px' } : v4type.body),
+    minHeight: ROW_H[size],
+    padding: `0 ${v4.row.padX}px`,
+    margin: `0 -${v4.row.padX}px`,
+    gap: rail ? 10 : 12,
+    borderRadius: v4.radius.row,
+    color: color.text,
+    ...style
+  }
+  const cls = `mg-v4-row${current ? ' mg-v4-row-on' : ''} flex items-center`
+  if (!onClick)
+    return (
+      <div role="listitem" className={cls} style={base} {...data}>
+        {children}
+      </div>
+    )
+  return (
+    <button type="button" role="listitem" aria-label={label} aria-current={current || undefined} onClick={onClick} className={`${cls} mg-v4-row-btn cursor-pointer text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid`} style={{ ...base, outlineColor: color.text }} {...data}>
+      {children}
+      {chevron && <RowChev />}
+    </button>
+  )
+}
+
+/** The ghost chevron that ends a row that opens something (it wakes up with the row's hover, styles.css). */
+export function RowChev(): ReactNode {
+  return (
+    <span aria-hidden className="mg-v4-chev ml-auto flex shrink-0 items-center" style={{ color: v4c.ghost }}>
+      <ChevronRight size={14} strokeWidth={1.8} />
+    </span>
+  )
+}
+
+/** A row's name: 14 / 550 ink, one line. */
+export function RowName({ children, style }: { children: ReactNode; style?: CSSProperties }): ReactNode {
+  return (
+    <span className="min-w-0 truncate" style={{ ...v4type.row, color: color.text, ...style }}>
+      {children}
+    </span>
+  )
+}
+
+/** A row's quiet meta: 13 muted, tabular numbers, one line. */
+export function RowMeta({ children, style }: { children: ReactNode; style?: CSSProperties }): ReactNode {
+  return (
+    <span className="shrink-0 truncate" style={{ ...v4type.meta, color: color.label, ...style }}>
+      {children}
+    </span>
+  )
+}
+
+export type Column<T> = {
+  key: string
+  label: ReactNode
+  /** px, or a CSS width ('30%'); the rest share what is left. */
+  width?: number | string
+  align?: 'left' | 'right'
+  cell: (row: T) => ReactNode
+}
+
+/**
+ * A v4 table (Notion table view): head 32 (12.5 muted), rows 46, a hairline under each, the first column flush left.
+ * `onRow` makes each row open something (hover wash, Enter / Space); `current` washes one row; `fixed` = table-layout
+ * fixed with ellipsis (give the columns widths).
+ */
+export function Table<T>({ columns, rows, rowKey, onRow, current, fixed = false, label, rowLabel, head = true, style }: { columns: Column<T>[]; rows: T[]; rowKey: (r: T) => string; onRow?: (r: T) => void; current?: (r: T) => boolean; fixed?: boolean; label?: string; rowLabel?: (r: T) => string; head?: boolean; style?: CSSProperties }): ReactNode {
+  return (
+    <table aria-label={label} className={`mg-v4-tbl${fixed ? ' mg-v4-tbl-fx' : ''}`} style={style}>
+      <colgroup>
+        {columns.map((c) => (
+          <col key={c.key} style={{ width: c.width }} />
+        ))}
+      </colgroup>
+      {head && (
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c.key} scope="col" style={{ textAlign: c.align ?? 'left' }}>
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+      )}
+      <tbody>
+        {rows.map((r) => (
+          <tr
+            key={rowKey(r)}
+            className={`${onRow ? 'mg-v4-tr-btn' : ''}${current?.(r) ? ' mg-v4-tr-on' : ''}`}
+            tabIndex={onRow ? 0 : undefined}
+            aria-label={onRow ? rowLabel?.(r) : undefined}
+            onClick={onRow ? () => onRow(r) : undefined}
+            onKeyDown={
+              onRow
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onRow(r)
+                    }
+                  }
+                : undefined
+            }
+          >
+            {columns.map((c) => (
+              <td key={c.key} style={{ textAlign: c.align ?? 'left' }}>
+                {c.cell(r)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+/** Numbers on one line with hairlines between (no tiles): `sm` is the rail's size. */
+export function Stats({ items, size = 'md', style }: { items: Array<{ value: ReactNode; unit?: ReactNode; label: ReactNode }>; size?: 'md' | 'sm'; style?: CSSProperties }): ReactNode {
+  const sm = size === 'sm'
+  return (
+    <div data-v4-stats className="flex" style={style}>
+      {items.map((s, i) => (
+        <div key={i} className={sm ? 'flex-none' : 'min-w-0 flex-1'} style={{ padding: `0 ${sm ? 15 : 20}px`, paddingLeft: i === 0 ? 0 : undefined, borderLeft: i === 0 ? undefined : `1px solid ${v4c.hair2}` }}>
+          <b className="block whitespace-nowrap" style={{ ...(sm ? v4type.statSm : v4type.stat), color: color.text }}>
+            {s.value}
+            {s.unit && <small style={{ fontSize: sm ? 12.5 : 14, fontWeight: 550, color: color.label, letterSpacing: 0, marginLeft: 2 }}>{s.unit}</small>}
+          </b>
+          <span className="block whitespace-nowrap" style={{ fontSize: sm ? 12 : 12.5, lineHeight: '16px', color: color.label }}>
+            {s.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** A 4 px bar: ink on the track; `passed` (a skill mastered) is the only green one. `value` is 0..1. */
+export function Bar({ value, width, passed = false, label }: { value: number; width?: number | string; passed?: boolean; label?: string }): ReactNode {
+  const v = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
+  return (
+    <span role="img" aria-label={label ?? `${Math.round(v * 100)} percent`} className="block shrink-0 overflow-hidden" style={{ width, height: 4, borderRadius: 2, background: v4c.track }}>
+      <span className="block h-full" style={{ width: `${v * 100}%`, borderRadius: 2, background: passed ? color.green : color.text }} />
+    </span>
+  )
+}
+
+/** A quiet tag (a skill, a tool): `passed` is green-tinted (passed only), `out` an outline, `plain` the gray fill. */
+export function Tag({ children, tone = 'plain' }: { children: ReactNode; tone?: 'plain' | 'passed' | 'out' }): ReactNode {
+  const bg = tone === 'plain' ? v4c.fill2 : tone === 'passed' ? 'var(--c-green-tint)' : 'transparent'
+  return (
+    <span className="inline-flex shrink-0 items-center whitespace-nowrap" style={{ ...v4type.tag, height: 20, padding: '0 6px', borderRadius: v4.radius.tag, background: bg, color: tone === 'passed' ? 'var(--c-green-text)' : tone === 'out' ? color.label : color.text, boxShadow: tone === 'out' ? `inset 0 0 0 1px ${v4c.hair2}` : undefined }}>
+      {children}
+    </span>
+  )
+}
+
+/** The passed tick: a green disc with an ink check (green only means passed). */
+export function PassedMark({ size = 16 }: { size?: number }): ReactNode {
+  return (
+    <span aria-label="Passed" role="img" className="inline-grid shrink-0 place-items-center" style={{ width: size, height: size, borderRadius: '50%', background: color.green }}>
+      <Check size={Math.round(size * 0.62)} strokeWidth={3} style={{ color: 'var(--c-on-green)' }} />
+    </span>
+  )
+}
+
+/** A lesson in progress: the ink ring with its center dot; `todo` the ghost ring. */
+export function ProgressRing({ todo = false, size = 16 }: { todo?: boolean; size?: number }): ReactNode {
+  return (
+    <span aria-hidden className="relative inline-block shrink-0" style={{ width: size, height: size, borderRadius: '50%', boxShadow: `inset 0 0 0 1.6px ${todo ? v4c.ghost : color.text}` }}>
+      {!todo && <span className="absolute" style={{ inset: Math.round(size * 0.31), borderRadius: '50%', background: color.text }} />}
+    </span>
+  )
+}
+
+// ---- the sidebar's own list (Settings swaps the app sidebar for its own: "one sidebar on screen") ------------------
+
+export type SidebarItem = { id: string; label: string; icon: LucideIcon }
+export type SidebarList = {
+  /** The row at the top that goes back to the app sidebar ("Settings" with a back arrow). */
+  back: { label: string; onClick: () => void }
+  groups: Array<{ label?: string; items: SidebarItem[] }>
+  /** Pinned to the foot (About). */
+  foot?: SidebarItem[]
+  active: string
+  onPick: (id: string) => void
+}
+
+/**
+ * While a page shows its own list (Settings), the shell's sidebar renders it instead of the app's pages. A page sets it
+ * while it is on show and clears it when it leaves: `useEffect(() => { setSidebarList(list); return () => setSidebarList(null) }, [...])`.
+ */
+export const useSidebarList = create<{ list: SidebarList | null }>(() => ({ list: null }))
+export const setSidebarList = (list: SidebarList | null): void => useSidebarList.setState({ list })
+
+// ---- the top bar's breadcrumb ---------------------------------------------------------------------------------------
+
+/**
+ * The shell's top bar shows the page's name; a page that goes deeper adds its trail after it ("Settings / General",
+ * "Library / Intro to Blender"). Set it while the deeper view is on show, clear it (null) when it leaves. `page` says
+ * whose trail it is, so a hidden page's trail never shows on another page.
+ */
+export const useCrumbs = create<{ page: string | null; trail: string[] }>(() => ({ page: null, trail: [] }))
+export const setCrumbs = (page: string, trail: string[] | null): void => useCrumbs.setState(trail ? { page, trail } : { page: null, trail: [] })
+
+/** The top bar over every page (44 tall, Notion's): the breadcrumb, the last part in text color; drags the window. */
+export function TopBar({ crumbs, right }: { crumbs: string[]; right?: ReactNode }): ReactNode {
+  return (
+    <div data-drag data-v4-top className="flex shrink-0 items-center" style={{ height: v4.top, gap: 6, padding: '0 14px 0 18px' }}>
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center" style={{ ...v4type.crumb, color: color.label }}>
+        {crumbs.map((c, i) =>
+          i === crumbs.length - 1 ? (
+            <span key={i} aria-current="page" className="truncate" style={{ fontWeight: 500, color: color.text }}>
+              {c}
+            </span>
+          ) : (
+            <span key={i} className="flex shrink-0 items-center">
+              {c}
+              <span aria-hidden style={{ color: v4c.ghost, margin: '0 6px' }}>
+                /
+              </span>
+            </span>
+          )
+        )}
+      </nav>
+      {right && (
+        <div data-no-drag className="ml-auto flex items-center gap-[6px]">
+          {right}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---- the sidebar's Plans and Recent (fed by the data lane once the ui-v4 contract lands) ---------------------------
+
+export type SidebarPlan = { id: string; title: string; done: number; total: number; onOpen?: () => void }
+export type SidebarRecent = { id: string; title: string; passed: boolean; onOpen?: () => void }
+/**
+ * The learner's plans and recent lessons for the sidebar. Until the ui-v4 contract (activity, plans) is wired, plans
+ * stay empty (the section hides) and Recent comes from the library's lessons (Sidebar.tsx). A page or a data store can
+ * fill these: `setSidebarFeed({ plans })`.
+ */
+export const useSidebarFeed = create<{ plans: SidebarPlan[] | null; recent: SidebarRecent[] | null }>(() => ({ plans: null, recent: null }))
+export const setSidebarFeed = (feed: Partial<{ plans: SidebarPlan[] | null; recent: SidebarRecent[] | null }>): void => useSidebarFeed.setState(feed)
