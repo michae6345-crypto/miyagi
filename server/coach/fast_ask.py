@@ -761,6 +761,8 @@ async def warm(*, source: str | None = "keydown", ptt_id: str | None = None,
         return {"skipped": "offline"}
     if not llm.has_credentials():
         return {"skipped": "no key"}
+    if llm.region_blocked():  # 451 region_unavailable this run: no warm-up on every key-down
+        return {"skipped": "region"}
     await preload_off_loop()  # the first warm: the SDK imports off the loop, never during the hold's events
     task = _warm.get("task")
     if task is None or task.done():
@@ -1144,6 +1146,9 @@ async def ask_stream(crop: Any, crop_rect_points: Any, crop_w: int | None, crop_
     if not llm.has_credentials():
         res.error = "no_key"
         return finish("no_key")
+    if llm.region_blocked():  # the cloud card (CLOUD_ERRORS) at once, as for a refused call
+        res.error = "cloud:miyagi_region"
+        return finish("cloud:miyagi_region")
 
     model = choose_model(words)
     res.model = model

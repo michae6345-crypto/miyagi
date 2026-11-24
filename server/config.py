@@ -332,6 +332,7 @@ CLOUD_ERRORS = {  # plain card copy for the proxy's own refusals (no em dashes: 
     "miyagi_paused": "miyagi is paused for a moment. Try again in a few minutes.",
     "miyagi_quota": "You've reached today's limit. It resets tomorrow.",
     "miyagi_auth": "miyagi couldn't verify this Mac. Quit and reopen miyagi, then try again.",
+    "miyagi_region": "miyagi isn't available in your region yet.",  # the cloud's own words (451 region_unavailable)
 }
 
 
@@ -354,8 +355,10 @@ def _proxy_shaped(err: dict, status: int | None) -> bool:
 
 
 def cloud_error(exc: BaseException, provider: str = "anthropic") -> str | None:
-    """'miyagi_paused' | 'miyagi_quota' | 'miyagi_auth' when `exc` (an SDK status error from a `provider`
-    call) is the miyagi cloud turning the call away, else None. Look the card text up in CLOUD_ERRORS.
+    """'miyagi_paused' | 'miyagi_quota' | 'miyagi_auth' | 'miyagi_region' when `exc` (an SDK status error from a
+    `provider` call) is the miyagi cloud turning the call away, else None. Look the card text up in CLOUD_ERRORS.
+    miyagi_region: 451 region_unavailable (the cloud's region block): not a verdict on the token (no token_invalid, no
+    re-mint, config.status unchanged); region_blocked() turns true so callers stop calling the cloud this session.
 
     Read against claude/eng-proxy cloud/app.py: the kill switch is 503 `proxy_disabled` (paused); a disabled
     install is 403 `permission_error` and an unknown token 401 (auth, in cloud mode only); the quota stop is
@@ -377,6 +380,8 @@ def cloud_error(exc: BaseException, provider: str = "anthropic") -> str | None:
 
 def _classify_cloud(exc: BaseException, provider: str, status) -> str | None:
     body = _error_body(exc)
+    if body.get("error") == "region_unavailable" or (status == 451 and mode(provider) == "cloud"):
+        return "miyagi_region"  # the region block (cloud/app.py, D9): flat {"error": "region_unavailable", "message"}
     err = body.get("error") if isinstance(body.get("error"), dict) else {}
     typ = body.get("type")
     if typ in (None, "error"):
@@ -415,6 +420,7 @@ _verdict_lock = threading.Lock()
 _verdict: dict | None = None  # {"token": token id, "state": CloudState, "reason": str, "until": monotonic | None}
 _unknown: set[str] = set()  # token ids the proxy said it does not know (a 401): one cloud.token_invalid each
 _listeners: list[CloudListener] = []
+_region_url: str | None = None  # the cloud URL that answered 451 region_unavailable (for this engine run)
 
 
 def _token_id(token: str | None) -> str:
@@ -439,6 +445,34 @@ def on_cloud_verdict(fn: CloudListener) -> Callable[[], None]:
             _listeners.remove(fn)
 
     return off
+
+
+def region_blocked(provider: str | None = "anthropic") -> bool:
+    """The miyagi cloud said 451 region_unavailable this run and `provider` goes through it: callers make no more cloud
+    calls (the answer would be the same; a new token would not help, minting is blocked too). Lasts until the engine
+    restarts or the app points it at another cloud URL. provider None: any call to the cloud (the shared lesson cache)."""
+    url = _region_url
+    return url is not None and url == cloud_url() and (provider is None or mode(provider) == "cloud")
+
+
+def note_region_unavailable() -> None:
+    """A 451 region_unavailable from the cloud (an AI call, the shared lesson cache): remember it and tell the listeners
+    once ({"reason": "region_unavailable", "region": True, ...}). Never a token verdict."""
+    global _region_url
+    url = cloud_url()
+    if url is None:
+        return
+    with _verdict_lock:
+        if _region_url == url:
+            return
+        _region_url = url
+    log.warning("miyagi cloud: region_unavailable; no more cloud calls this run")
+    event = {"state": None, "reason": "region_unavailable", "token_invalid": False, "ttl": None, "region": True}
+    for fn in [*_listeners]:
+        try:
+            fn(event)
+        except Exception:  # a listener never breaks the caller's error handling
+            log.exception("cloud verdict listener failed")
 
 
 def cloud_verdict() -> dict | None:
@@ -486,6 +520,9 @@ def _exc_token(exc: BaseException) -> str | None:
 
 def _record_verdict(code: str, status, exc: BaseException, provider: str) -> None:
     global _verdict
+    if code == "miyagi_region":  # about where this Mac is, not about the token: whichever token the call carried
+        note_region_unavailable()
+        return
     if mode(provider) != "cloud":
         return
     token = cloud_token()
