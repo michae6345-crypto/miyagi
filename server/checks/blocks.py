@@ -227,9 +227,10 @@ class Block:
 
     def failure(self) -> str | None:
         """The output row that says the command failed, unless a later row says it got there anyway; else None. Also
-        a command that never ran (the shell is still waiting for its closing quote: zsh's ``dquote>``), and a ``git
-        config <key>`` with no value that printed nothing (a read of an unset key: git exits 1, nothing was set)."""
-        if self.command is not None and (cont := next((r for r in self.output if _CONTINUATION.match(r)), None)):
+        a command that never ran (the shell is still waiting for its closing quote: zsh's ``dquote>``, see
+        waiting_row), and a ``git config <key>`` with no value that printed nothing (a read of an unset key: git exits
+        1, nothing was set)."""
+        if self.command is not None and (cont := waiting_row(self.command, self.output)):
             return f"{cont.strip().split('>')[0]}> (the shell is waiting for the rest of the command: it never ran)"
         if self.command and not any(r.strip() for r in self.output) and any(
                 config_read(s) for s in segments(self.command)):
@@ -249,8 +250,60 @@ class Block:
 
 
 # the shell's continuation prompts (zsh: dquote> quote> bquote> cmdsubst> pipe> heredoc>; bash: a bare "> "): the
-# command above is not finished and has not run
-_CONTINUATION = re.compile(r"^\s*(?:(?:d|b)?quote|cmdsubst|pipe|heredoc|cmdand|cmdor)>\s*")
+# command above is not finished yet (zsh stacks them: "cmdsubst dquote>")
+_CONTINUATION = re.compile(r"^\s*(?:(?:d|b)?quote|cmdsubst|pipe|heredoc|cmdand|cmdor)"
+                           r"(?:\s+(?:(?:d|b)?quote|cmdsubst|pipe|heredoc|cmdand|cmdor))*>\s?")
+_CANCELLED = re.compile(r"\^C\s*$")
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
+
+
+def _unfinished(text: str) -> bool:
+    """Is a command (its continuation rows joined with newlines) still open: a quote, a backtick or a ``$(`` not
+    closed yet, or a last line ending in ``|`` / ``&&`` / ``\\``?"""
+    quote, depth, k = "", 0, 0
+    while k < len(text):
+        ch = text[k]
+        if ch == "\\" and quote != "'":
+            k += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"`":
+            quote = ch
+        elif text.startswith("$(", k):
+            depth, k = depth + 1, k + 1
+        elif ch == ")" and depth:
+            depth -= 1
+        k += 1
+    return bool(quote) or depth > 0 or text.rstrip().endswith(("|", "&&", "\\"))
+
+
+def waiting_row(command: str, output: list[str]) -> str | None:
+    """The continuation row (zsh's ``dquote>`` / ``heredoc>`` ...) that says the command above never ran, else None:
+    the shell is still waiting at it (it is the last row printed, and the command typed so far with every continuation
+    row is still open: a quote not closed, a heredoc without its end word), or the learner cancelled it there
+    (``dquote> ^C``, or a ``^C`` row under it). A quote closed on a later row (``dquote> to the menu"``), a heredoc
+    ended by its word (``heredoc> EOF``), and a command that printed something after its last continuation row ran."""
+    rows = [r for r in output if r.strip()]
+    conts = [k for k, r in enumerate(rows) if _CONTINUATION.match(r)]
+    if not conts:
+        return None
+    for k in conts:
+        if _CANCELLED.search(rows[k]) or (k + 1 < len(rows) and rows[k + 1].strip() == "^C"):
+            return rows[k]
+    last = conts[-1]
+    if last != len(rows) - 1:
+        return None
+    bodies = [_CONTINUATION.sub("", r, count=1) for r in rows[conts[0]:]]
+    if ends := [m.group(2) for m in _HEREDOC.finditer(command)]:
+        lines, at = [b.strip() for b in bodies], 0
+        for word in ends:
+            if word not in lines[at:]:
+                return rows[last]
+            at = lines.index(word, at) + 1
+        return None
+    return rows[last] if _unfinished("\n".join([command, *bodies])) else None
 # git config options that are not a key or a value
 _GIT_CONFIG_SCOPE = frozenset({"--global", "--local", "--system", "--worktree", "--type", "--bool", "--int", "--path"})
 

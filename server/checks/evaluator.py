@@ -1409,8 +1409,8 @@ def _not_the_steps_result(check: dict, ctx: RunContext, bl: list[blocks.Block], 
                 return f"`{s}` ran only some of the tests; run `{t}`"
             if blocks.runs(s, t) and blocks.dry_run(s) and not blocks.dry_run(t):
                 return f"`{s}` only showed what it would do (a dry run): run `{t}`"
-            if blocks.runs(s, t) and (skipped := blocks.skipped_tests(b.output)) \
-                    and _ALL_TESTS.search(str(check.get("_instructions") or "")):
+            if blocks.runs(s, t) and (skipped := blocks.skipped_tests(b.output)) > _expected_skips(check) \
+                    and _ALL_TESTS.search(str(check.get("_instructions") or "")) and _learner_skips(ctx) is not False:
                 return (f"{skipped} test(s) skipped, so not every test ran (a .only or .skip left in a test file?): "
                         f"remove it and run `{t}` again")
     if wrong := _commit_on_other_branch(cmds, bl, i, pattern):
@@ -1437,6 +1437,59 @@ def _not_the_steps_result(check: dict, ctx: RunContext, bl: list[blocks.Block], 
 
 
 _ALL_TESTS = re.compile(r"\b(?:every|all)\b[^.;]{0,30}\btests?\b|\btests?\b[^.;]{0,20}\ball\s+pass", re.I)
+_SKIP_COUNT = re.compile(r"\b(\d+)\s+(?:skipped|pending|todo|deselected)\b", re.I)
+# a test file: Jest / Vitest / Mocha (x.test.ts, x.spec.js, __tests__/x.js), pytest / unittest (test_x.py, x_test.py)
+_TEST_FILE = re.compile(r"(?:\.(?:test|spec)\.[cm]?[jt]sx?|^test_\w*\.py|_test\.py)$")
+# a skip or focus a learner adds to a test file and can take out again: test.skip / it.only / xit / fdescribe,
+# pytest's / unittest's unconditional skip. Never a conditional one a project ships (skipif, importorskip, a platform
+# check), nor test.todo.
+_LEARNER_SKIP = re.compile(r"\b(?:it|test|describe|context|suite)\.(?:only|skip)\s*\(|\b(?:xit|xtest|xdescribe|fit"
+                           r"|fdescribe|xcontext)\s*\(|@pytest\.mark\.skip\b(?!if)|@unittest\.skip\b(?!If|Unless)")
+
+
+def _expected_skips(check: dict) -> int:
+    """How many skipped tests the step itself expects (its instructions or the check's pattern say "1 skipped"), else
+    0: a suite that ships a skipped test says so."""
+    text = f"{check.get('_instructions') or ''} {check.get('pattern') or ''}"
+    return max((int(m.group(1)) for m in _SKIP_COUNT.finditer(text)), default=0)
+
+
+def _learner_skips(ctx: RunContext) -> bool | None:
+    """Did the learner skip tests? True when a test file in the lesson folder has a skip or focus the learner can
+    remove (``test.skip``, ``it.only``, ``@pytest.mark.skip``) and the file was saved during the lesson (or the lesson's
+    start is not known); False when the lesson's test files have none (the skips are platform skips the project
+    ships: ``skipif``, ``importorskip``) or only files from before the lesson started have them; None when it can't
+    tell (no lesson folder, no test file in it)."""
+    if not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    root, found, marked = os.path.abspath(ctx.workdir), False, []
+    for here, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in _SKIP_DIRS]
+        if os.path.relpath(here, root).count(os.sep) >= 5:
+            dirs[:] = []
+        for f in files:
+            if not (_TEST_FILE.search(f) or (os.path.basename(here) == "__tests__"
+                                             and re.search(r"\.[cm]?[jt]sx?$", f))):
+                continue
+            path = os.path.join(here, f)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read(FILE_SCAN_TOTAL)
+            except OSError:
+                continue
+            found = True
+            if _LEARNER_SKIP.search(text):
+                marked.append(path)
+    if not found:
+        return None
+    if not marked:
+        return False
+    if ctx.lesson_started_at is None:
+        return True
+    try:
+        return any(os.path.getmtime(p) >= ctx.lesson_started_at for p in marked)
+    except OSError:
+        return True
 _COMMIT_ROW = re.compile(r"^\s*\[([^\s\]]+)(?:\s+\(root-commit\))?\s+[0-9a-f]{7,40}\]")
 
 
@@ -2103,9 +2156,15 @@ def _self_updates(src: str) -> set[str]:
 
 def rerun_self_update(step: dict, ctx: RunContext | None) -> str | None:
     """The step's cell rewrites what it uses from itself (``train_images = train_images.astype('float32') / 255``) and
-    its run count says it ran more than once since the cell that made that value last ran: the counts between the two
-    are on no cell ([1] the load, then [4] here: [2] and [3] were this cell too), so the arithmetic was applied again
-    and again. Why, else None."""
+    its run count says it ran again and again since the cell that made that value last ran: the counts between the two
+    are on no cell ([1] the load, then [4] here: [2] and [3] were this cell too), so the arithmetic was applied three
+    times. Why, else None.
+
+    A missing count is only this cell's when nothing else can have taken it: no other cell has run since the maker (a
+    count above the maker's on another cell: an inspect cell re-run, ``plt.imshow(x[0])`` [4], may have taken [2]
+    too). And one missing count alone is not blamed: a run that raised before its assignment (a typo fixed, then
+    re-run) or a deleted scratch cell leaves the same [1], [3]. Two or more (three runs, none of them on another cell)
+    are."""
     nb = _step_notebook(step, ctx)
     if nb is None:
         return None
@@ -2119,8 +2178,11 @@ def rerun_self_update(step: dict, ctx: RunContext | None) -> str | None:
                       and (names := _py_names(c.source)) and name in names[0]]
             if not makers:
                 continue
-            gap = [k for k in range(max(makers) + 1, cell.count) if k not in counts]
-            if gap and len(gap) == cell.count - max(makers) - 1:
+            made = max(makers)
+            if any(c.count is not None and c.count > made for k, c in enumerate(nb.cells) if k != i):
+                continue
+            gap = [k for k in range(made + 1, cell.count) if k not in counts]
+            if len(gap) >= 2 and len(gap) == cell.count - made - 1:
                 return (f"this cell ran {len(gap) + 1} times since {name} was made ([{max(makers)}]), so "
                         f"{_first_line(cell.source)!r} was applied {len(gap) + 1} times: run the cell that makes "
                         f"{name} again, then this cell once")
@@ -2173,12 +2235,50 @@ def _scene_claims(step: dict, ctx: RunContext | None) -> list[str]:
 # VS Code's status bar problem counts: "⊗ 1 ⚠ 0" (errors, then warnings); OCR reads the circled x a few ways
 _PROBLEM_COUNT = re.compile(r"(?:⊗|Ⓧ|ⓧ|✖|⨂|⊘)\s*(\d+)\s*(?:⚠|△|▲|⚠️)\s*\d+")
 _TSC = re.compile(r"(?<![\w-])tsc(?![\w-])")
+# a TypeScript diagnostic on screen: VS Code's Problems panel / hover ("... ts(2345)"), tsc's "error TS2345:"
+_TS_DIAGNOSTIC = re.compile(r"\bts\(\d{3,5}\)|\berror\s+TS\d{3,5}\b")
+# another checker's row in the Problems panel (it feeds the same status-bar count)
+_OTHER_DIAGNOSTIC = re.compile(r"\b(?:Pylance|Pyright|pylint|flake8|[Rr]uff|mypy|ESLint|eslint|stylelint|rust-analyzer"
+                               r"|gopls|clangd|cSpell)\b|\(report[A-Z]\w+\)")
+# a lesson folder's files another language server or linter checks (its errors count in the status bar too)
+_OTHER_SOURCES = (".py", ".ipynb", ".go", ".rs", ".java", ".kt", ".c", ".cc", ".cpp", ".h", ".cs", ".rb", ".php",
+                  ".swift", ".scala", ".lua", ".r", ".dart")
+_LINTER_CONFIG = re.compile(r"^(?:\.eslintrc(?:\.\w+)?|eslint\.config\.[cm]?[jt]s|\.stylelintrc(?:\.\w+)?)$")
+_SKIP_DIRS = frozenset({"node_modules", "dist", "build", "out", "venv", "__pycache__"})
+
+
+def _count_is_typescript(code_text: str, ctx: RunContext) -> bool:
+    """Is VS Code's status-bar error count tsc's? The count covers the whole workspace in every language (Pylance on a
+    .py file, ESLint, another project's file), so it is taken as tsc's when a TypeScript error is on screen (the
+    Problems panel's ``ts(2345)``, the terminal's ``error TS2345:``), else only when nothing else can have made it: no
+    other checker's row on screen, and no file in the lesson folder another checker reads (a .py file, an ESLint
+    config)."""
+    term = "\n".join(t for app in _TERMINAL_APPS if (t := screen_text(ctx.screen, app)))
+    if _TS_DIAGNOSTIC.search(code_text) or _TS_DIAGNOSTIC.search(term):
+        return True
+    if _OTHER_DIAGNOSTIC.search(code_text):
+        return False
+    if not os.path.isabs(str(ctx.workdir or "")):
+        return True
+    root, seen = os.path.abspath(ctx.workdir), 0
+    for here, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in _SKIP_DIRS]
+        if os.path.relpath(here, root).count(os.sep) >= 4:
+            dirs[:] = []
+        for f in files:
+            seen += 1
+            if f.lower().endswith(_OTHER_SOURCES) or _LINTER_CONFIG.match(f):
+                return False
+        if seen > 2000:
+            break
+    return True
 
 
 def editor_problems(step: dict, ctx: RunContext | None) -> str | None:
     """A TypeScript step (it compiles with tsc, or its code is a .ts / .tsx file it says must have no errors) whose
     VS Code status bar counts errors (``⊗ 1``): tsc reports the same errors, whatever the terminal shows now (cleared,
-    or only the ``node dist/...`` run after it: tsc still writes the .js when there are errors). Why, else None."""
+    or only the ``node dist/...`` run after it: tsc still writes the .js when there are errors), when the count is
+    tsc's (_count_is_typescript: not a Pylance or ESLint error elsewhere in the workspace). Why, else None."""
     if ctx is None or ctx.screen is None:
         return None
     ts_file = _step_file(step).lower().endswith((".ts", ".tsx", ".mts", ".cts"))
@@ -2187,9 +2287,12 @@ def editor_problems(step: dict, ctx: RunContext | None) -> str | None:
     if not (_TSC.search(str(step.get("run_command") or "")) or (ts_file and error_check)):
         return None
     m = None
-    for m in _PROBLEM_COUNT.finditer(screen_text(ctx.screen, "Code") or ""):
+    code_text = screen_text(ctx.screen, "Code") or ""
+    for m in _PROBLEM_COUNT.finditer(code_text):
         pass
     if m is None or int(m.group(1)) == 0:
+        return None
+    if not _count_is_typescript(code_text, ctx):
         return None
     n = int(m.group(1))
     return f"VS Code shows {n} error{'s' if n != 1 else ''} in the code (⊗ {n}): fix it, then compile again"
