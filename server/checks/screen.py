@@ -186,6 +186,16 @@ def nonfinite_tolerant(pattern: str) -> str:
     return pattern[:a] + _NONFINITE + "|" + pattern[a:b] + pattern[b:]
 
 
+def wrapper_tolerant(pattern: str) -> str:
+    """A value printed inside a wrapper: ``loss tensor(0.2614, grad_fn=<MseLossBackward0>)`` (a PyTorch tensor printed
+    without ``.item()``), ``np.float32(0.5)``, ``array(0.25)``. The ``value`` group may follow an optional
+    ``name(`` so the number inside is read; the pattern is otherwise unchanged."""
+    at = pattern.find("(?P<value>")
+    if at < 0:
+        return pattern
+    return pattern[:at] + r"(?:[A-Za-z_][\w.]*\()?" + pattern[at:]
+
+
 def extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
     """Apply a check's ``metric_pattern`` to terminal text → ``[(step, value), ...]``.
 
@@ -193,7 +203,7 @@ def extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
     group is used, and without ``step`` the line order is the step (0, 1, 2, ...).
     Duplicate steps (the same line visible across screenshots) keep the last value.
     """
-    rx = safe_compile(nonfinite_tolerant(pattern))
+    rx = safe_compile(wrapper_tolerant(nonfinite_tolerant(pattern)))
     pts: dict[int, float] = {}
     order = 0
     for line in text.splitlines():

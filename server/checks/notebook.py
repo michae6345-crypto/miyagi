@@ -39,6 +39,7 @@ class Cell:
     errors: list[str] = field(default_factory=list)
     images: list[str] = field(default_factory=list)
     executed: bool = False
+    count: int | None = None  # its execution count ([4]): the kernel's run order
 
 
 # t10: never tutorial/ (the video's downloaded, finished notebook) or .miyagi-previous/ (an earlier run's set aside)
@@ -107,7 +108,9 @@ def read_notebook(path: str | os.PathLike | None) -> Notebook | None:
         nb.sources.append(_text(cell.get("source")))
         if cell.get("cell_type") != "code":
             continue
-        c = Cell(source=nb.sources[-1], executed=cell.get("execution_count") is not None)
+        n = cell.get("execution_count")
+        c = Cell(source=nb.sources[-1], executed=n is not None,
+                 count=n if isinstance(n, int) and not isinstance(n, bool) else None)
         for out in cell.get("outputs") or []:
             if not isinstance(out, dict):
                 continue

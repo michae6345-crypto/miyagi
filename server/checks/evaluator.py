@@ -31,6 +31,7 @@ from typing import Any, Literal, TypedDict
 from server.safety import regex_worker
 from server.safety.patterns import MAX_PATTERN_LEN, pattern_problem, safe_compile  # noqa: F401 - re-exported
 
+from . import blocks
 from .code_text import code_view, lang_of, signatures
 from .notebook import Notebook, find_notebook, read_notebook
 from .screen import extract_metrics, screen_lines, screen_text, search_screen, search_wrapped
@@ -489,6 +490,32 @@ def _diverged(ctx: RunContext, name: str, check: dict, since_step: int | None = 
     return _result(check, "fail", f"{name} diverged: {v} at step {s}")
 
 
+_NONFINITE_FIELD = re.compile(r"(?<![\w.])([A-Za-z_][\w]*)\s*[:=]?\s*[-+]?(nan|inf(?:inity)?)\b", re.I)
+
+
+def _sibling_divergence(ctx: RunContext, check: dict) -> str | None:
+    """Another metric on the check's own metric lines went NaN / inf (Keras: ``accuracy: 0.9563 - loss: nan``): the
+    weights are NaN, whatever this metric's epoch average still says. ``"loss: nan"``, else None."""
+    pattern = check.get("metric_pattern")
+    if not pattern:
+        return None
+    if _notebook_points(ctx, check):
+        texts = list(ctx.notebook.outputs)
+    else:
+        texts = [screen_text(ctx.screen, check.get("app")) or "", ctx.output_text()]
+    try:
+        rx = _compile(pattern)
+    except re.error:
+        return None
+    for line in scan_text("\n".join(texts)).splitlines():
+        if not (m := rx.search(line)):
+            continue
+        rest = line[:m.start()] + " " + line[m.end():]
+        if f := _NONFINITE_FIELD.search(rest):
+            return f"{f.group(1)}: {f.group(2)}"
+    return None
+
+
 def _no_metric(ctx: RunContext, name: str) -> str:
     """A finished run that printed no `name`, in plain words (test 7: a crash has no loss; the row says so and never
     shows an older run's): "no loss: the run stopped with an error" / "the run printed no loss"."""
@@ -515,6 +542,8 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     div = _diverged(ctx, name, check)
     if div:
         return div
+    if sib := _sibling_divergence(ctx, check):
+        return _result(check, "fail", f"{sib} on the {name.replace('_', ' ')} lines: the run diverged")
     pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
@@ -665,6 +694,8 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     div = _diverged(ctx, name, check, since_step=latest - window)
     if div:
         return div
+    if sib := _sibling_divergence(ctx, check):
+        return _result(check, "fail", f"{sib} on the {name.replace('_', ' ')} lines: the run diverged")
     win = [p for p in pts if p[0] >= latest - window]
     span = win[-1][0] - win[0][0]
     if len(win) < TREND_MIN_POINTS or span < TREND_MIN_COVERAGE * window:
@@ -745,6 +776,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code")))
     text = scan_text(text, SCREEN_SCAN_CHARS)  # the newest 4 KB of the window(s): never a whole scrollback
     try:
+        if not output and app != "Code" and (by_block := _on_blocks(check, ctx, absent, text, where)) is not None:
+            return by_block  # a terminal's (or AutoCAD's) history: read per command and its own output
         m = _absent_hit(pattern, text) if absent else search_wrapped(pattern, text)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
@@ -758,6 +791,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     if m:
         return _result(check, "pass", f"seen{where}")
     if app in _TERMINAL_APPS:  # the terminal is on screen, the output isn't: say that, not where to open it
+        if made := _ran_and_made(check, ctx, blocks.parse(text.split("\n"))):
+            return made
         if ctx.running:  # t11: the step's run is still live (a server never exits): not a fail yet
             return _result(check, "pending", f"not printed{where} yet: still running")
         return _result(check, "fail", "not printed by the last run: run it again" if ctx.run_finished
@@ -767,12 +802,10 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
 
 
-# What an error looks like in a terminal: a traceback, `XError:` / `XException:`, `Error:` / `error:` starting a line
-# (or a tool's `gcc: error:`), npm's `ERR!`, the shell's "command not found". The bare word anywhere else
-# ("Relative L2 Error: 3.1e-02", "error rate", "no errors") is a number the program prints, not a crash.
-_ERROR_FORM = re.compile(r"Traceback \(most recent call last\)|\b[A-Za-z_]\w*(?:Error|Exception)\s*:"
-                         r"|(?:^|:\s)\s*(?:Error|ERROR|error|Fatal|FATAL|fatal)\b\s*[:!]|\bnpm ERR!|command not found",
-                         re.M)
+# What an error looks like in a terminal (server.checks.blocks.ERROR_FORM): a traceback, `XError:`, `error:` starting a
+# line, npm's `ERR!`, "command not found", a test run's `1 failed`, a compiler's `error TS2305:`. The bare word anywhere
+# else ("Relative L2 Error: 3.1e-02", "error rate", "no errors") is a number the program prints, not a crash.
+_ERROR_FORM = blocks.ERROR_FORM
 _BARE_ERROR_WORD = re.compile(r"(?:errors?|exceptions?|failed|failure|fatal|traceback)", re.I)
 
 
@@ -791,6 +824,72 @@ def _absent_hit(pattern: str, text: str) -> re.Match[str] | None:
             if _ERROR_FORM.search(hay[start:len(hay) if end < 0 else end]):
                 return m
     return None
+
+
+def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str) -> CheckResult | None:
+    """A screen check on a terminal's history (or a command-line app's ``Command:`` rows), read per command
+    (server.checks.blocks). None when the text has no command rows, or the pattern only matches across commands:
+    the plain search decides then.
+
+    * screen_contains: the step's own terminal command (its Terminal target) must be among the commands that ran,
+      when any ran (``git branch x`` is not ``git checkout -b x``; ``touch`` / ``ls`` are not ``git add``); and the
+      match counts only in a command's newest run whose output shows no failure (``fatal:``, ``! [rejected]``,
+      ``nothing added to commit``, ``*Cancel*``) unless that failure is what the pattern looks for.
+    * screen_absent: a match counts unless its command got past it (pip's resolver notice, then ``Successfully
+      installed``), was run again since, or repeats an earlier command that already succeeded (``fatal: No rebase in
+      progress?``)."""
+    bl = blocks.parse(text.split("\n"))
+    if not blocks.has_commands(bl):
+        return None
+    pattern = str(check.get("pattern") or "")
+    if absent:
+        hit = None
+        for i, b in enumerate(bl):
+            m = _absent_hit(pattern, b.text)
+            if not m:
+                continue
+            if b.command and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()):
+                continue
+            hit = hit or m
+        if hit:
+            return _result(check, "fail", f"still showing {hit.group(0)[:80]!r}{where}")
+        return _result(check, "pass", f"not showing{where}")
+    targets = check.get("_target_cmds") or []
+    ran = [s for b in bl if b.command for s in blocks.segments(b.command)]
+    if targets and ran and not any(blocks.runs(s, t) for s in ran for t in targets):
+        return _ran_and_made(check, ctx, bl) or _result(check, "fail", f"`{targets[0]}` hasn't run yet")
+    hits = [i for i, b in enumerate(bl) if search_wrapped(pattern, b.text)]
+    if not hits:
+        return None
+    why = ""
+    for i in hits:
+        b = bl[i]
+        if b.command and blocks.superseded(bl, i):
+            why = why or f"that was an earlier `{b.command}`: the newest one didn't print it"
+            continue
+        bad = b.failure()
+        if bad and not search_wrapped(pattern, bad):
+            why = why or f"`{b.command or 'the command'}` failed: {bad.strip()[:80]!r}"
+            continue
+        return _result(check, "pass", f"seen{where}")
+    return _ran_and_made(check, ctx, bl) or _result(check, "fail", why)
+
+
+def _ran_and_made(check: dict, ctx: RunContext, bl: list[blocks.Block]) -> CheckResult | None:
+    """A terminal check whose words aren't on screen, passed on what the step's command made: its newest run (the
+    step's Terminal target) shows no failure, and every file the step's precision checks expect exists (they are all
+    file_exists: ``git init`` printed "Reinitialized existing Git repository", and project1/.git is there)."""
+    proof, targets = check.get("_file_proof") or [], check.get("_target_cmds") or []
+    if not proof or not targets or not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    last = next((b for b in reversed(bl) if b.command
+                 and any(blocks.runs(s, t) for s in blocks.segments(b.command) for t in targets)), None)
+    if last is None or last.failure():
+        return None
+    paths = [_resolve(ctx.workdir, p) for p in proof]
+    if not all(p and os.path.exists(p) for p in paths):
+        return None
+    return _result(check, "pass", f"ran `{last.command}`; {proof[0]} is there")
 
 
 def _without_typed_input(text: str) -> str:
@@ -997,6 +1096,17 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
                                            for t in step.get("targets") or []) or _command_step(step)
     checks = [{**c, "run": True} if run and c.get("type") == "screen_absent" and c.get("app") in _TERMINAL_APPS
               else c for c in checks]
+    # the step's own terminal commands (its Terminal targets), and the files they make when that is all its precision
+    # checks look for: _on_blocks / _ran_and_made read them
+    own = blocks.programs_of(str(step.get("run_command") or ""))
+    cmds = [str(t.get("match")).strip() for t in step.get("targets") or [] if t.get("app") in _TERMINAL_APPS
+            and blocks.is_command(str(t.get("match") or ""), own)]
+    prec = step.get("precision_checks") or []
+    proof = [str(c.get("file")) for c in prec if c.get("file")] \
+        if prec and all(c.get("type") == "file_exists" for c in prec) else []
+    if cmds:
+        checks = [{**c, "_target_cmds": cmds, **({"_file_proof": proof} if proof else {})}
+                  if c.get("type") == "screen_contains" and c.get("app") in _TERMINAL_APPS else c for c in checks]
     rc = str(step.get("run_command") or "").strip()
     if rc and not _CELL_ACTION.search(rc):  # a hidden terminal's output only counts when it is this command's run
         checks = [{**c, "_run_command": rc} if c.get("app") in _TERMINAL_APPS
@@ -1070,6 +1180,29 @@ def cell_not_run(step: dict, ctx: RunContext | None) -> bool:
         return False
     nb = _with_step_notebook(step, ctx).notebook
     return isinstance(nb, Notebook) and bool(nb.cells) and not nb.executed
+
+
+_RUN_ALL = re.compile(r"\brun\s+all\b|\brestart\b.{0,40}\brun\b", re.I)
+
+
+def run_all_out_of_order(step: dict, ctx: RunContext | None) -> str | None:
+    """A "Restart the kernel and run all" step: the notebook's code cells must have run top to bottom in one go, so
+    their run counts go up in cell order starting at [1] (the counts [1], [5], [4] mean cells re-run by hand,
+    bottom-up, without a restart). Why it isn't so, else None (not such a step, or no notebook to read)."""
+    if ctx is None or not _RUN_ALL.search(str(step.get("run_command") or "")) \
+            or not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    nb = ctx.notebook if isinstance(ctx.notebook, Notebook) else read_notebook(find_notebook(ctx.workdir, _files(step)))
+    cells = [c for c in (nb.cells if nb is not None else []) if c.source.strip()]
+    if not cells:
+        return None
+    if any(c.count is None for c in cells):
+        return "not every cell has run: Restart, then Run All"
+    counts = [c.count for c in cells]
+    if counts[0] != 1 or any(b <= a for a, b in zip(counts, counts[1:])):
+        shown = ", ".join(f"[{n}]" for n in counts)
+        return f"the run counts read {shown}: Restart the kernel, then Run All so they go 1, 2, 3"
+    return None
 
 
 _CELL_ACTION = re.compile(r"shift\s*\+\s*enter|^\s*(?:run|execute|press|click)\s+(?:the|a|all|each|this)\b", re.I)
@@ -1195,6 +1328,10 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         if step_passed(checks):
             checks = [*checks, {"checkId": f"{step.get('id', '')}-cell", "label": "Cell run", "status": "pending",
                                 "detail": "run the cell (Shift+Enter)"}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (order := run_all_out_of_order(step, ctx)) is not None:
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-order", "label": "Cells ran in order from [1]",
+                            "status": "fail", "detail": order}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if step_passed(checks):
         via: Literal["checks", "precision"] | None = "checks"
@@ -1335,23 +1472,9 @@ _ACTIVATION_ROW = re.compile(r"""(?:^|\s)(?:source|\.)\s+(?:\S*|"[^"]*|'[^']*)bi
                              r"|(?:^|\s)conda\s+activate\s+\S+\s*$")
 
 
-_SHELL_JOIN = {"&&", "||", ";", "|"}
-_PROMPT_MARKS = ("%", "$", "#", "❯")  # zsh %, bash $, root #, starship's arrow
-
-
-def _after_prompt(prev: str) -> bool:
-    """Is ``prev`` (the word before a program) the end of a shell prompt (``tripi@mac nn %``, ``me@box:~/lesson1$``,
-    starship's arrow, fish's ``~/nn>``) or a shell join (``cd nn && python3 x.py``)? Not ``100%`` (a progress bar in
-    the output): only a glued ``%`` after a digit is refused; a bash folder ending in a digit is still a prompt."""
-    if prev in _SHELL_JOIN or prev in _PROMPT_MARKS:
-        return True
-    if len(prev) < 2:
-        return False
-    if prev.endswith("%"):
-        return not prev[-2].isdigit()
-    if prev.endswith(">"):  # fish: user@host ~/nn>  (a path glued to >, never an arrow like ->)
-        return prev[0] in "~/"
-    return prev.endswith(_PROMPT_MARKS)
+_SHELL_JOIN = blocks.SHELL_JOIN
+_PROMPT_MARKS = blocks.PROMPT_MARKS
+_after_prompt = blocks.after_prompt
 
 
 def _starts_command(program: str, rest: list[str]) -> bool:
