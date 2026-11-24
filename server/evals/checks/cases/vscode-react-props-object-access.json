@@ -1,0 +1,78 @@
+{
+ "id": "vscode-react-props-object-access",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "MenuItem takes props and reads props.name and props.price instead of destructuring { name, price }. It renders the same three lines (Tacos: $9, Burrito: $11, Churros: $5); the plan's pass line is that MenuItem reads name and price props and is rendered three times, which holds. Destructuring is style, not the skill.",
+ "step": {
+  "id": "re4s3",
+  "title": "Read name and price in MenuItem",
+  "kind": "code",
+  "instructions": "In src/MenuItem.jsx, write a MenuItem component that takes name and price props (destructure them in the parameter list) and returns <li>{name}: ${price}</li>. In src/Menu.jsx, render three MenuItems with a name and a price each.",
+  "file": "src/MenuItem.jsx",
+  "code": "function MenuItem({ name, price }) {\n  return <li>{name}: ${price}</li>\n}\n\nexport default MenuItem\n\n// src/Menu.jsx\n<MenuItem name=\"Tacos\" price={9} />\n<MenuItem name=\"Burrito\" price={11} />\n<MenuItem name=\"Churros\" price={5} />",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/MenuItem.jsx",
+    "match": "function MenuItem(",
+    "caption": "Take name and price as props"
+   }
+  ],
+  "checks": [
+   {
+    "id": "re4s3c1",
+    "type": "screen_contains",
+    "label": "MenuItem destructures name and price",
+    "app": "Code",
+    "pattern": "function\\s+MenuItem\\s*\\(\\s*\\{\\s*name\\s*,\\s*price\\s*\\}\\s*\\)"
+   },
+   {
+    "id": "re4s3c2",
+    "type": "screen_contains",
+    "label": "MenuItem shows the name and price",
+    "app": "Code",
+    "pattern": "\\{\\s*name\\s*\\}[\\s\\S]*\\{\\s*price\\s*\\}"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "re4s3p1",
+    "type": "file_exists",
+    "label": "MenuItem file exists",
+    "file": "food-truck/src/MenuItem.jsx"
+   },
+   {
+    "id": "re4s3p2",
+    "type": "file_contains",
+    "label": "Menu renders three MenuItems",
+    "file": "food-truck/src/Menu.jsx",
+    "pattern": "<MenuItem[\\s\\S]*<MenuItem[\\s\\S]*<MenuItem"
+   }
+  ],
+  "hints": [
+   "Props arrive as one object; { name, price } in the parameter list pulls the two out."
+  ],
+  "common_mistakes": [
+   "Writing function MenuItem(name, price): the first argument is the whole props object."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "food-truck/src/MenuItem.jsx": "function MenuItem(props) {\n  return <li>{props.name}: ${props.price}</li>\n}\n\nexport default MenuItem\n",
+   "food-truck/src/Menu.jsx": "import MenuItem from './MenuItem.jsx'\n\nfunction Menu() {\n  return (\n    <ul>\n      <MenuItem name=\"Tacos\" price={9} />\n      <MenuItem name=\"Burrito\" price={11} />\n      <MenuItem name=\"Churros\" price={5} />\n    </ul>\n  )\n}\n\nexport default Menu\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "MenuItem.jsx",
+    "Menu.jsx",
+    "function MenuItem(props) {",
+    "return <li>{props.name}: ${props.price}</li>",
+    "}",
+    "export default MenuItem"
+   ]
+  }
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "id": "terminal-tsshop-t3-sourcemap-warning-built",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "npm run build ran tsc -b (no output: no type errors) and vite build, which wrote dist/ and finished '✓ built in 1.84s'. Above that Vite printed its known sourcemap warning for a dependency's 'use client' directive ('Error when using sourcemap for reporting an error: Can't resolve original location of error.'). That is a warning, not a build failure: the build exited 0 and dist/index.html is fresh.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t3"
+ },
+ "workspace": {
+  "files": {
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc -b && vite build\",\n    \"test\": \"jest\"\n  }\n}\n",
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n\ntype Item = { id: number; name: string; price: number }\ntype CartProps = { items: Item[] }\n\nexport function Cart({ items }: CartProps) {\n  return (\n    <ul>\n      {items.map(item => (\n        <li key={item.id}>\n          {item.name} <span>{formatPrice(item.price)}</span>\n        </li>\n      ))}\n    </ul>\n  )\n}\n",
+   "shop/dist/index.html": "<!doctype html>\n<html><head><script type=\"module\" src=\"/assets/index-C9xq2LmA.js\"></script></head><body><div id=\"root\"></div></body></html>\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm run build",
+    "> shop@0.0.0 build",
+    "> tsc -b && vite build",
+    "vite v5.4.10 building for production...",
+    "node_modules/react-hot-toast/dist/index.mjs (1:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.",
+    "✓ 61 modules transformed.",
+    "dist/index.html                   0.46 kB │ gzip:  0.30 kB",
+    "dist/assets/index-DiwrgTda.css    1.39 kB │ gzip:  0.72 kB",
+    "dist/assets/index-C9xq2LmA.js   152.08 kB │ gzip: 49.37 kB",
+    "✓ built in 1.84s",
+    "tripi@mac shop %"
+   ]
+  },
+  "run": {
+   "command": "npm run build",
+   "exit_code": 0,
+   "output_tail": [
+    "dist/assets/index-C9xq2LmA.js   152.08 kB │ gzip: 49.37 kB",
+    "✓ built in 1.84s"
+   ],
+   "running": false
+  }
+ }
+}

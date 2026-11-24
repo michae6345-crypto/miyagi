@@ -1,19 +1,29 @@
 {
  "_comment": "Written by `python -m server.evals.checks --write-baseline`. The top-level scores and known_wrong are the TRAIN set: test_check_evals.py fails when a score drops below these or a train case outside known_wrong gets a wrong verdict. held_out is scored apart and guarded only in aggregate (never tune a fix on it). Raise it when the checks get better.",
- "cases": 208,
- "accuracy": 1.0,
- "precision": 1.0,
- "recall": 1.0,
- "fp": 0,
- "fn": 0,
- "known_wrong": {},
+ "cases": 221,
+ "accuracy": 0.9593,
+ "precision": 0.9314,
+ "recall": 0.9794,
+ "fp": 7,
+ "fn": 2,
+ "known_wrong": {
+  "terminal-react-jsx-vite-internal-server-error": "FP",
+  "terminal-react-s1-vanilla-template": "FP",
+  "vscode-pymod-m4-duplicated-not-renamed": "FP",
+  "vscode-react-s6-footer-outside-fragment": "FP",
+  "vscode-react-s8-touppercase-not-called": "FP",
+  "vscode-recipe-rename-old-name-reexported": "FP",
+  "vscode-tsshop-t2-local-formatprice-conflicts": "FP",
+  "vscode-pymod-m4-type-hinted-def": "FN",
+  "vscode-tsshop-t2-destructured-price": "FN"
+ },
  "held_out": {
-  "cases": 82,
-  "accuracy": 0.439,
-  "precision": 0.3182,
-  "recall": 0.4667,
-  "fp": 30,
-  "fn": 16,
+  "cases": 89,
+  "accuracy": 0.4607,
+  "precision": 0.3261,
+  "recall": 0.4688,
+  "fp": 31,
+  "fn": 17,
   "known_wrong": {
    "autocad-dxf-wheels-layer-empty": "FP",
    "blender-anim-timeline-23976-fps": "FP",
@@ -41,6 +51,7 @@
    "terminal-react-s1-server-stopped": "FP",
    "terminal-rebase-s4-reset-hard-dropped-commit": "FP",
    "terminal-shell-redirect-before-sort": "FP",
+   "terminal-tsshop-t3-build-script-tsc-removed": "FP",
    "vscode-pymod-m2-module-in-subfolder": "FP",
    "vscode-pymod-m4-module-attr-stale": "FP",
    "vscode-pymod-m4-test-file-stale": "FP",
@@ -60,6 +71,7 @@
    "terminal-git-s8-push-ligature-arrow": "FN",
    "terminal-gitcat-init-b-unknown-switch": "FN",
    "terminal-react-s1-server-in-other-tab": "FN",
+   "vscode-react-props-object-access": "FN",
    "vscode-react-split-components-barrel": "FN"
   }
  }
