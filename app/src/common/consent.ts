@@ -20,7 +20,7 @@ export const LEGAL_URL = { terms: 'https://miyagi.study/terms', privacy: 'https:
 
 /** Who runs miyagi and how to reach them, wherever the app shows a contact (Adrian, Nov 21). */
 export const OPERATOR = 'the miyagi team'
-export const CONTACT_EMAIL = 'hello@miyagi.study'
+export const CONTACT_EMAIL = 'support@miyagi.study'
 
 /** The record of the learner's "By continuing you agree": which version, and when (an ISO 8601 time from main). */
 export type Consent = { version: string; at: string }
