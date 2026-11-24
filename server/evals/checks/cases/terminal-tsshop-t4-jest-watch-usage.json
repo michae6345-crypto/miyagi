@@ -1,0 +1,46 @@
+{
+ "id": "terminal-tsshop-t4-jest-watch-usage",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "ts-shop t4. The project's test script is `jest --watchAll`, so `npm test` ran every suite ('Test Suites: 1 passed', 'Tests: 3 passed, 3 total', 'Ran all test suites.') and stayed in watch mode, printing Jest's Watch Usage menu, whose line ' › Press f to run only failed tests.' has the word 'failed' in it. No test failed: the step is done.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t4"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n",
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"version\": \"0.0.0\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc && vite build\",\n    \"test\": \"jest --watchAll\"\n  }\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> jest --watchAll",
+    "PASS  src/utils.test.ts",
+    "formatPrice",
+    "✓ adds a dollar sign (2 ms)",
+    "✓ rounds to cents (1 ms)",
+    "✓ formats zero",
+    "Test Suites: 1 passed, 1 total",
+    "Tests:       3 passed, 3 total",
+    "Snapshots:   0 total",
+    "Time:        0.584 s",
+    "Ran all test suites.",
+    "Watch Usage",
+    " › Press f to run only failed tests.",
+    " › Press o to only run tests related to changed files.",
+    " › Press p to filter by a filename regex pattern.",
+    " › Press t to filter by a test name regex pattern.",
+    " › Press q to quit watch mode.",
+    " › Press Enter to trigger a test run."
+   ]
+  },
+  "run": {
+   "command": "npm test",
+   "running": true
+  }
+ }
+}

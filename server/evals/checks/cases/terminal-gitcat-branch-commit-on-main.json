@@ -1,0 +1,66 @@
+{
+ "id": "terminal-gitcat-branch-commit-on-main",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Work on a branch' (passes: the add-waffles branch has one commit that main does not have). The learner committed before switching: '[main 5d6e7f8] Add waffles', then `git switch -c add-waffles`. The commit is on main, and the new branch points at the same commit, so add-waffles has nothing main lacks. Every line the checks look for is on screen, in the wrong order.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Commit waffles.md on the branch",
+  "instructions": "Make a branch named add-waffles and switch to it with git switch -c add-waffles. Then git add waffles.md and git commit -m \"Add waffles\". main stays as it was.",
+  "run_command": "git switch -c add-waffles",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git switch -c add-waffles",
+    "caption": "Make the branch and move to it"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "screen_contains",
+    "label": "On the add-waffles branch",
+    "app": "Terminal",
+    "pattern": "Switched\\s+to\\s+a\\s+new\\s+branch\\s+'add-waffles'|\\*\\s+add-waffles"
+   },
+   {
+    "id": "s4c2",
+    "type": "screen_contains",
+    "label": "waffles.md committed",
+    "app": "Terminal",
+    "pattern": "\\]\\s+Add\\s+waffles"
+   },
+   {
+    "id": "s4c3",
+    "type": "file_exists",
+    "label": "waffles.md exists",
+    "file": "cookbook/waffles.md"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/waffles.md": "# Waffles\n\n- 2 cups flour\n- 2 eggs\n",
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git add waffles.md",
+    "tripi@mac cookbook % git commit -m \"Add waffles\"",
+    "[main 5d6e7f8] Add waffles",
+    " 1 file changed, 4 insertions(+)",
+    " create mode 100644 waffles.md",
+    "tripi@mac cookbook % git switch -c add-waffles",
+    "Switched to a new branch 'add-waffles'",
+    "tripi@mac cookbook % git branch",
+    "* add-waffles",
+    "  main",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

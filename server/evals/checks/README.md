@@ -73,6 +73,39 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 3: terminal and git workflows (Nov 24 2026, `claude/eng-evals-r3-2`)
+
+20 new terminal cases (13 train, 7 held out), no engine change. Steps from the Git video lesson
+(`8b6203eb5ec8c6f6`: s1 config, s2 init, s5 commit, s7 branch, s8 push, s9 pull, s10 delete), the coach eval's
+interactive-rebase lesson (s1, s3, s4), `ts-shop.json` t4 (Jest) and `py-modules.json` m5 (pytest), and, inline,
+from Adrian's catalog plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`): Intro to Git and GitHub ("Set
+up Git and make a repository", "Stage and commit", "Work on a branch", "Fix a merge conflict", "Connect to GitHub
+with an SSH key") and Intro to the terminal ("Write a shell script", "Pipes and grep").
+
+The traps (typed vs run, wrong order, a command that looks like the real one): `git config` keys typed without
+values (read, not set), a commit left at zsh's `dquote>` prompt, `git push --dry-run`, a waffles commit made on main
+before `git switch -c`, a remote delete typed but not run under a local "Deleted branch" line, a rebase whose todo
+kept every `pick` (it finishes at once; the debug line stays), `git reset --hard` at an edit stop (the commit is
+dropped, not split), `git switch` without -c, "Already up to date." beside a `git show --stat` diffstat, a merge
+committed with `=======` left in the file, `> rain.txt | sort` (saved unsorted), curly quotes in `git commit -m`.
+Done-but-odd: `git init project1` from ~, a rebasing pull (no Fast-forward, no diffstat), a `git log` fatal before
+the first commit, Jest's watch menu ("Press f to run only failed tests"), PEP 668's `externally-managed-environment`
+before a venv, "permission denied" before `chmod +x`, `git init -b` unknown to an older Git, `ssh -T` exiting 1 on
+success.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (172: 159 earlier + 13 new) | 0.965 | 0.949 | 0.974 | 4 | 2 |
+| train, the 13 new | 0.538 | | | 4 | 2 |
+| held-out (62: 55 earlier + 7 new) | 0.516 | 0.412 | 0.583 | 20 | 10 |
+| held-out, the 7 new | 0.286 | | | 4 | 1 |
+
+Train wrong verdicts (all new; the 159 earlier train cases still score right): FP
+`terminal-git-s1-config-keys-without-values`, `terminal-git-s5-commit-unclosed-quote`, `terminal-git-s8-push-dry-run`,
+`terminal-gitcat-branch-commit-on-main`; FN `terminal-git-s9-pull-rebased-no-diffstat`,
+`terminal-rebase-s1-log-fatal-before-first-commit`. Held-out wrong: ids in `baseline.json` → `held_out.known_wrong`;
+not read while fixing.
+
 ## Round 2 fixes (Nov 24 2026, `claude/eng-check-fixes-r2`)
 
 The four round-2 case sets merged: 214 cases, 159 train + 55 held out. Every fix is general (no lesson ids, no case

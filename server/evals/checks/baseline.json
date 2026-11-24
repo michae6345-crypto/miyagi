@@ -1,19 +1,26 @@
 {
  "_comment": "Written by `python -m server.evals.checks --write-baseline`. The top-level scores and known_wrong are the TRAIN set: test_check_evals.py fails when a score drops below these or a train case outside known_wrong gets a wrong verdict. held_out is scored apart and guarded only in aggregate (never tune a fix on it). Raise it when the checks get better.",
- "cases": 159,
- "accuracy": 1.0,
- "precision": 1.0,
- "recall": 1.0,
- "fp": 0,
- "fn": 0,
- "known_wrong": {},
+ "cases": 172,
+ "accuracy": 0.9651,
+ "precision": 0.9487,
+ "recall": 0.9737,
+ "fp": 4,
+ "fn": 2,
+ "known_wrong": {
+  "terminal-git-s1-config-keys-without-values": "FP",
+  "terminal-git-s5-commit-unclosed-quote": "FP",
+  "terminal-git-s8-push-dry-run": "FP",
+  "terminal-gitcat-branch-commit-on-main": "FP",
+  "terminal-git-s9-pull-rebased-no-diffstat": "FN",
+  "terminal-rebase-s1-log-fatal-before-first-commit": "FN"
+ },
  "held_out": {
-  "cases": 55,
-  "accuracy": 0.5455,
-  "precision": 0.4483,
-  "recall": 0.5909,
-  "fp": 16,
-  "fn": 9,
+  "cases": 62,
+  "accuracy": 0.5161,
+  "precision": 0.4118,
+  "recall": 0.5833,
+  "fp": 20,
+  "fn": 10,
   "known_wrong": {
    "autocad-dxf-wheels-layer-empty": "FP",
    "blender-anim-timeline-23976-fps": "FP",
@@ -26,9 +33,13 @@
    "terminal-calc-s2-hidden-exit-1-after-5": "FP",
    "terminal-git-s7-fish-typed-not-run": "FP",
    "terminal-git-s7-pathspec-error": "FP",
+   "terminal-git-s9-pull-up-to-date-show-stat": "FP",
+   "terminal-gitcat-conflict-separator-left": "FP",
    "terminal-mnist-s1-forgot-activate": "FP",
    "terminal-mnist-s1-jupyter-shut-down": "FP",
    "terminal-react-s1-server-stopped": "FP",
+   "terminal-rebase-s4-reset-hard-dropped-commit": "FP",
+   "terminal-shell-redirect-before-sort": "FP",
    "vscode-pymod-m2-module-in-subfolder": "FP",
    "vscode-pymod-m4-test-file-stale": "FP",
    "autocad-toy-car-s2-presspull": "FN",
@@ -39,7 +50,8 @@
    "jupyter-pip-resolver-notice-installed": "FN",
    "jupyter-sklearn-cv-kfold-object": "FN",
    "terminal-git-s6-gh-repo-clone": "FN",
-   "terminal-git-s8-push-ligature-arrow": "FN"
+   "terminal-git-s8-push-ligature-arrow": "FN",
+   "terminal-gitcat-init-b-unknown-switch": "FN"
   }
  }
 }

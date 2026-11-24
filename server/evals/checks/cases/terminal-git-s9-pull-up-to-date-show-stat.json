@@ -1,0 +1,36 @@
+{
+ "id": "terminal-git-s9-pull-up-to-date-show-stat",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Git lesson s9. The pull request isn't merged on GitHub yet: `git pull` on main says 'Already up to date.' `git show --stat` then shows the old 'Initial commit' (its '6 insertions(+)' is that commit's diffstat, not something the pull brought). index.html on main still has the old heading: no merged changes were pulled.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s9"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Let's Get Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git switch main",
+    "Switched to branch 'main'",
+    "Your branch is up to date with 'origin/main'.",
+    "tripi@mac gitgoing % git pull",
+    "Already up to date.",
+    "tripi@mac gitgoing % git show --stat",
+    "commit 2b7e9f0a1c3d4e5f60718293a4b5c6d7e8f90a1b (HEAD -> main, origin/main, origin/HEAD)",
+    "Author: Ada Learner <ada@example.com>",
+    "Date:   Mon Nov 23 18:02:11 2026 -0800",
+    "",
+    "    Initial commit",
+    "",
+    " index.html | 6 ++++++",
+    " 1 file changed, 6 insertions(+)",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

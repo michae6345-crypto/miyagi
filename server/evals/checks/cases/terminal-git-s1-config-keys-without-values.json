@@ -1,0 +1,25 @@
+{
+ "id": "terminal-git-s1-config-keys-without-values",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Git lesson s1. Each git config line was typed without its value (`git config --global user.name` with no name, `git config --global alias.i` with no `init`). With no value git only reads the key; both are unset, so it prints nothing. `git config --list` then shows no user.name and no alias.i. 'user.name' and 'alias.i' are on screen only inside the commands typed: nothing was set.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % git config --global user.name",
+    "tripi@mac ~ % git config --global user.email",
+    "tripi@mac ~ % git config --global alias.i",
+    "tripi@mac ~ % git config --list",
+    "credential.helper=osxkeychain",
+    "init.defaultbranch=main",
+    "tripi@mac ~ % "
+   ]
+  }
+ }
+}

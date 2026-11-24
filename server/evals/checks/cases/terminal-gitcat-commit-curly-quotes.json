@@ -1,0 +1,56 @@
+{
+ "id": "terminal-gitcat-commit-curly-quotes",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Stage and commit' (passes: the repository has one commit and it adds pancakes.md). The learner pasted the command with curly quotes, `git commit -m “Add pancake recipe”`. zsh doesn't treat “ ” as quotes, so git got -m “Add and two pathspecs: 'error: pathspec 'pancake' did not match any file(s) known to git'. Nothing was committed; `git log --oneline` says the branch has no commits yet. The command and pancakes.md are on screen, but there is no commit.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Commit pancakes.md",
+  "instructions": "In the cookbook folder, run git commit -m \"Add pancake recipe\" to save the staged pancakes.md as your first commit, then git log --oneline to see it.",
+  "run_command": "git commit -m \"Add pancake recipe\"",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git commit -m",
+    "caption": "Save the staged file as a commit"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "screen_contains",
+    "label": "Commit made with a message",
+    "app": "Terminal",
+    "pattern": "commit\\s+-m\\s+\\S*Add\\s+pancake"
+   },
+   {
+    "id": "s4c2",
+    "type": "screen_contains",
+    "label": "pancakes.md is in the commit",
+    "app": "Terminal",
+    "pattern": "pancakes\\.md"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 cup milk\n- 1 egg\n",
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git add pancakes.md",
+    "tripi@mac cookbook % git commit -m “Add pancake recipe”",
+    "error: pathspec 'pancake' did not match any file(s) known to git",
+    "error: pathspec 'recipe”' did not match any file(s) known to git",
+    "tripi@mac cookbook % git log --oneline",
+    "fatal: your current branch 'main' does not have any commits yet",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

@@ -1,0 +1,75 @@
+{
+ "id": "terminal-gitcat-conflict-separator-left",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Fix a merge conflict' (passes: the last commit has two parents and no file holds conflict markers). The learner deleted the '<<<<<<< HEAD' and '>>>>>>> more-milk' lines but left '=======' in pancakes.md, then git add and git commit made the merge commit ('[main 7a8b9c0] Merge more-milk'). Git doesn't check file contents on commit, so a conflict marker is now committed.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Resolve and commit the merge",
+  "instructions": "Open pancakes.md in VS Code, keep the milk line you want, delete the <<<<<<<, ======= and >>>>>>> marker lines and save. Then run git add pancakes.md and git commit -m \"Merge more-milk\" to finish the merge.",
+  "run_command": "git add pancakes.md && git commit -m \"Merge more-milk\"",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "pancakes.md",
+    "match": "=======",
+    "caption": "Remove every marker line"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "screen_absent",
+    "label": "No conflict markers left in pancakes.md",
+    "app": "Code",
+    "pattern": "<<<<<<<|>>>>>>>"
+   },
+   {
+    "id": "s5c2",
+    "type": "screen_contains",
+    "label": "Merge committed",
+    "app": "Terminal",
+    "pattern": "\\[main\\s+[0-9a-f]+\\]\\s+Merge"
+   },
+   {
+    "id": "s5c3",
+    "type": "file_contains",
+    "label": "pancakes.md keeps one milk line",
+    "file": "cookbook/pancakes.md",
+    "pattern": "cups?\\s+(of\\s+)?milk"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 2 cups of milk\n=======\n- 1 egg\n",
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "pancakes.md",
+    "# Pancakes",
+    "- 1 cup flour",
+    "- 2 cups of milk",
+    "=======",
+    "- 1 egg"
+   ],
+   "Terminal": [
+    "tripi@mac cookbook % git merge more-milk",
+    "Auto-merging pancakes.md",
+    "CONFLICT (content): Merge conflict in pancakes.md",
+    "Automatic merge failed; fix conflicts and then commit the result.",
+    "tripi@mac cookbook % git add pancakes.md",
+    "tripi@mac cookbook % git commit -m \"Merge more-milk\"",
+    "[main 7a8b9c0] Merge more-milk",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

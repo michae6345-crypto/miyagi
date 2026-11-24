@@ -1,0 +1,37 @@
+{
+ "id": "terminal-rebase-s4-reset-hard-dropped-commit",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Rebase lesson s4 (split one commit into two). At the edit stop the learner ran `git reset --hard HEAD~1` instead of `git reset HEAD~1`: 'HEAD is now at 1b2c3d4 Add index.js' threw away the README and login changes, then `git rebase --continue` finished with nothing to commit in their place. `git log --oneline` has no README or login commit and README.md is gone. The rebase succeeded, but the commit was dropped, not split.",
+ "step": {
+  "lesson": "evals/coach/lessons/git-interactive-rebase.json",
+  "id": "s4"
+ },
+ "workspace": {
+  "files": {
+   "login-app/index.js": "const express = require('express')\nconst app = express()\napp.use(express.json())\n\napp.post('/logout', (req, res) => {\n  res.json({ ok: true })\n})\n\napp.listen(3000)\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac login-app % git rebase --interactive HEAD~4",
+    "hint: Waiting for your editor to close the file... ",
+    "Stopped at a7d22de...  Add README and login endpoint",
+    "You can amend the commit now, with",
+    "  git commit --amend ",
+    "Once you are satisfied with your changes, run",
+    "  git rebase --continue",
+    "tripi@mac login-app % git reset --hard HEAD~1",
+    "HEAD is now at 1b2c3d4 Add index.js",
+    "tripi@mac login-app % git rebase --continue",
+    "Successfully rebased and updated refs/heads/feature/login.",
+    "tripi@mac login-app % git log --oneline",
+    "f3e4d5c (HEAD -> feature/login) Cleanup",
+    "e2d3c4b Add logout endpoint",
+    "1b2c3d4 (main) Add index.js",
+    "tripi@mac login-app % "
+   ]
+  }
+ }
+}

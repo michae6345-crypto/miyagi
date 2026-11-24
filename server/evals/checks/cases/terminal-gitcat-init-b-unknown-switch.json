@@ -1,0 +1,73 @@
+{
+ "id": "terminal-gitcat-init-b-unknown-switch",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Set up Git and make a repository' (passes: cookbook is a repository on a branch named main). The learner's older Git has no -b for init: `git init -b main` printed 'error: unknown switch `b'' and its usage. They ran plain `git init` ('Initialized empty Git repository in /Users/tripi/cookbook/.git/'), then `git checkout -b main` ('Switched to a new branch 'main''), and `git status` says 'On branch main' and 'No commits yet'. The repository is on main: done, after an error that changed nothing.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Make cookbook a repository on main",
+  "instructions": "In the cookbook folder, run git init -b main, then git status. It should say On branch main and No commits yet.",
+  "run_command": "git init -b main && git status",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git init -b main",
+    "caption": "Start a repository on main"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "screen_contains",
+    "label": "Repository initialized",
+    "app": "Terminal",
+    "pattern": "Initialized\\s+empty\\s+Git\\s+repository"
+   },
+   {
+    "id": "s4c2",
+    "type": "screen_contains",
+    "label": "git status says On branch main",
+    "app": "Terminal",
+    "pattern": "On\\s+branch\\s+main"
+   },
+   {
+    "id": "s4c3",
+    "type": "screen_absent",
+    "label": "No Git errors",
+    "app": "Terminal",
+    "pattern": "fatal:|error:"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git init -b main",
+    "error: unknown switch `b'",
+    "usage: git init [-q | --quiet] [--bare] [--template=<template-directory>] [--shared[=<permissions>]] [<directory>]",
+    "    --template <template-directory>",
+    "                          directory from which templates will be used",
+    "    --bare                create a bare repository",
+    "tripi@mac cookbook % git init",
+    "Initialized empty Git repository in /Users/tripi/cookbook/.git/",
+    "tripi@mac cookbook % git checkout -b main",
+    "Switched to a new branch 'main'",
+    "tripi@mac cookbook % git status",
+    "On branch main",
+    "",
+    "No commits yet",
+    "",
+    "nothing to commit (create/copy files and use \"git add\" to track)",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}
