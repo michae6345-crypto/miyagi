@@ -11,13 +11,26 @@ mac = pytest.mark.skipif(sys.platform != "darwin", reason="macOS capture")
 
 
 @mac
-def test_no_permission_raises_and_never_uses_fixture(monkeypatch, live_display):
+def test_no_permission_raises_and_never_uses_fixture(monkeypatch):
+    """Hermetic: the permission check is faked and the recovered frame is a fixture PNG served as a live capture."""
+    import os
+
     from server.screen import ScreenPermissionError, macos
     from server.screen.reader import ScreenReader
+    from server.screen.types import Rect
     monkeypatch.delenv("DEMO", raising=False)
     monkeypatch.delenv("TUT_SCREEN_FIXTURE", raising=False)
     monkeypatch.setattr(macos, "has_permission", lambda: False)
-    r = ScreenReader()
+    png = os.path.join(os.path.dirname(__file__), "..", "fixtures", "vscode_fullscreen_top.png")
+
+    def fake_capture(*_a, **_k):
+        return macos.Frame(macos.load_cgimage(png, cache=True), Rect(0, 0, 1728, 1117), 2.0, 0.0)
+    for name in ("capture_main_display_cli", "capture_main_display"):
+        monkeypatch.setattr(macos, name, fake_capture)
+    monkeypatch.setattr(macos, "list_windows", lambda *a, **k: [])
+    monkeypatch.setattr(macos, "target_display_id", lambda: None)
+    r = ScreenReader(use_ax=False, use_events=False)
+    r.use_sck = False                      # the fake capture stands in for screencapture
     events = []
     r.on_error(events.append)
     with pytest.raises(ScreenPermissionError):
