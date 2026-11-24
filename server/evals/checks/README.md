@@ -125,6 +125,49 @@ Held-out wrong verdicts (ids only, in `baseline.json` → `held_out.known_wrong`
 `jupyter-timeit-second-uses-time` (FP); `jupyter-mnist-loss-curve-pandas-plot`,
 `jupyter-pip-resolver-notice-installed`, `jupyter-sklearn-cv-kfold-object` (FN).
 
+## Round 2: multi-file VS Code projects, Python and JS/TS/React (Nov 24 2026, `claude/eng-evals-r2-1`)
+
+20 new cases (13 train, 7 held out), no engine change: imports across files, renamed symbols, tests passing, build
+output and dev servers. Steps from `py-modules.json` (m2, m4, m5), `ts-shop.json` (t2, t3, t4), the React/Vite
+lesson (s1, s3, s6), and two inline steps written from Adrian's catalog plans in the lesson builder's shape: Intro
+to VS Code "Jump around and rename safely" (scaleRecipe defined in recipe-utils.js, called from scale.js, CommonJS)
+and Intro to TypeScript "Set up tsconfig with strict on" (strict true, `npx tsc` writes dist/index.js).
+
+Traps: a name called but not imported (a wrapper added instead of a rename), a `require` that still destructures the
+old name, a named import of a default-only export, a component imported from where it isn't (`./Header` vs
+`src/components/`), `"strict": true` outside `compilerOptions` (tsc ignores it), `npx vite build` run by hand to get
+past a tsc error, a Vite server from another project, a Jest suite that failed to compile under an all-green
+`Tests:` line, a pytest collection error under an older green run. Done-but-odd: a parenthesised multi-line import,
+a path alias (`@/utils`), a utils folder with an `index.ts`, an arrow-function definition, a rename finished in a
+file that isn't on screen, `Error` inside a passing test's name, `error` as a chunk file name, tsc's silent success
+after an earlier error.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (121 = 108 + 13 new), before any fix | 0.934 | 0.914 | 0.946 | 5 | 3 |
+| train, the 13 new cases | 0.385 | 0.000 | 0.500 | 5 | 3 |
+| held-out (34 = 27 + 7 new) | 0.529 | 0.409 | 0.750 | 13 | 3 |
+
+Train wrong verdicts (in `baseline.json` → `known_wrong`), worst first:
+
+- **FP `terminal-react-s1-other-project-server`**: `ready in` / `localhost:` from a Vite server started in another
+  project (`~/shop`, `> shop@0.0.0 dev`); the lesson's project folder was never created.
+- **FP `vscode-pymod-m4-wrapper-not-imported`**: main.py calls `add_numbers` but imports only `add` (NameError on
+  screen); `_broken_imports` checks that imported names exist, not that called names are imported.
+- **FP `vscode-react-s3-header-in-components-unresolved`**: `import Header from './Header'` with the file in
+  `src/components/`; the unresolved path (and Vite's "Failed to resolve import" in the terminal) isn't weighed.
+- **FP `vscode-recipe-rename-require-stale`**: `const { scale } = require('./recipe-utils')` after the export became
+  `scaleRecipe`; CommonJS `require` destructuring isn't read as an import.
+- **FP `vscode-ts-tsconfig-strict-outside-compileroptions`**: the `"strict": true` regex matches a top-level key
+  tsc ignores.
+- **FN `vscode-pymod-m4-main-off-screen`**: F2 renamed every file on disk; `main.py calls add_numbers(2, 3)` is
+  graded on the screen (only operations.py open), not on main.py.
+- **FN `vscode-recipe-rename-arrow-fn`**: `const scaleRecipe = (recipe, factor) =>` fails `function\s+scaleRecipe`.
+- **FN `vscode-tsshop-t2-path-alias`**: `from '@/utils'` (a tsconfig / Vite alias for src/) fails the `'../utils'`
+  pattern.
+
+Held-out wrong verdicts: ids in `baseline.json` → `held_out.known_wrong` (one new); not read while fixing.
+
 ## Round 1 fixes (Nov 24 2026, `claude/eng-check-fixes-r1`)
 
 The four round-1 case sets merged: 135 cases, 108 train + 27 held out. Every fix is general (no lesson ids, no case

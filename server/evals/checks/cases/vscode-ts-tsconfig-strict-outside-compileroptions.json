@@ -1,0 +1,78 @@
+{
+ "id": "vscode-ts-tsconfig-strict-outside-compileroptions",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "\"strict\": true sits at the top level of tsconfig.json, outside compilerOptions, where tsc ignores it: strict mode is off. That's why npx tsc compiled src/index.ts with no output although greet(name) has an implicit-any parameter, which strict mode rejects (TS7006).",
+ "step": {
+  "id": "ts2s2",
+  "title": "Turn on strict mode and compile",
+  "kind": "run",
+  "instructions": "In tsconfig.json, set \"strict\": true inside compilerOptions (next to \"outDir\": \"dist\"), then run npx tsc in the terminal. It compiles src/index.ts to dist/index.js.",
+  "file": "tsconfig.json",
+  "run_command": "npx tsc",
+  "code": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"commonjs\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\",\n    \"strict\": true\n  }\n}",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "tsconfig.json",
+    "match": "\"compilerOptions\"",
+    "caption": "strict goes inside compilerOptions"
+   }
+  ],
+  "checks": [
+   {
+    "id": "ts2s2c1",
+    "type": "file_contains",
+    "label": "tsconfig.json sets strict to true",
+    "file": "tsconfig.json",
+    "pattern": "\"strict\"\\s*:\\s*true"
+   },
+   {
+    "id": "ts2s2c2",
+    "type": "file_exists",
+    "label": "npx tsc wrote dist/index.js",
+    "file": "dist/index.js"
+   },
+   {
+    "id": "ts2s2c3",
+    "type": "screen_absent",
+    "label": "tsc reports no errors",
+    "app": "Terminal",
+    "pattern": "error\\s+TS\\d+"
+   }
+  ],
+  "hints": [
+   "tsc prints nothing when it succeeds."
+  ],
+  "common_mistakes": [
+   "Putting strict outside compilerOptions, where tsc ignores it."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "tsconfig.json": "{\n  \"strict\": true,\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"commonjs\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\"\n  }\n}\n",
+   "src/index.ts": "function greet(name) {\n  return `Hello, ${name}!`\n}\n\nconsole.log(greet('Ada'))\n",
+   "dist/index.js": "\"use strict\";\nfunction greet(name) {\n    return `Hello, ${name}!`;\n}\nconsole.log(greet('Ada'));\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "tsconfig.json",
+    "{",
+    "\"strict\": true,",
+    "\"compilerOptions\": {",
+    "\"target\": \"ES2020\",",
+    "\"module\": \"commonjs\",",
+    "\"rootDir\": \"src\",",
+    "\"outDir\": \"dist\"",
+    "}",
+    "}"
+   ],
+   "Terminal": [
+    "tripi@mac hello-ts % npx tsc",
+    "tripi@mac hello-ts %"
+   ]
+  }
+ }
+}

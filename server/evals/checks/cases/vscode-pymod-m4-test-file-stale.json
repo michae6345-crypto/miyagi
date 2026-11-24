@@ -1,0 +1,37 @@
+{
+ "id": "vscode-pymod-m4-test-file-stale",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Renamed with Find and Replace in the two open files, not F2: operations.py and main.py say add_numbers and python3 main.py prints 5, but test_operations.py (closed) still imports add and asserts add(2, 3) == 5. operations.py no longer defines add, so the test module can't import. The step is a rename every file follows.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m4"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add_numbers(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add_numbers\n\nprint(add_numbers(2, 3))\n",
+   "test_operations.py": "from operations import add, subtract, divide\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "operations.py",
+    "main.py",
+    "def add_numbers(a, b):",
+    "return a + b",
+    "def subtract(a, b):",
+    "return a - b",
+    "from operations import add_numbers",
+    "print(add_numbers(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "5",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}

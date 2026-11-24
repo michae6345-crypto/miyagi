@@ -1,0 +1,35 @@
+{
+ "id": "vscode-react-s3-components-folder-done",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Header lives in src/components/ (a common layout) and App.jsx imports it from './components/Header', extension left off as Vite allows, and renders <Header />. It resolves and the page shows the header; the file isn't where the video put it, which doesn't matter for this step.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{}\n",
+   "my-react-app/src/components/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/App.jsx": "import Header from './components/Header'\n\nfunction App() {\n  return (<Header />)\n}\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "import Header from './components/Header'",
+    "function App() {",
+    "return (<Header />)",
+    "}",
+    "export default App"
+   ],
+   "Terminal": [
+    "VITE v5.4.10  ready in 301 ms",
+    "➜  Local:   http://localhost:5173/",
+    "3:44:12 PM [vite] hmr update /src/App.jsx"
+   ]
+  }
+ }
+}

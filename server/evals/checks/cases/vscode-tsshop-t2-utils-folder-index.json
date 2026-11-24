@@ -1,0 +1,35 @@
+{
+ "id": "vscode-tsshop-t2-utils-folder-index",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "utils is a folder now: src/utils/index.ts re-exports formatPrice from ./price and formatDate from ./date, so '../utils' resolves to utils/index.ts and the import works. Cart.tsx is exactly the step's code.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils/price.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n",
+   "shop/src/utils/date.ts": "export function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/utils/index.ts": "export { formatPrice } from './price'\nexport { formatDate } from './date'\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n\nexport function Cart({ items }: CartProps) {\n  return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.price)}</li>)}</ul>)\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "utils",
+    "date.ts",
+    "index.ts",
+    "price.ts",
+    "Cart.tsx",
+    "import { formatPrice } from '../utils'",
+    "export function Cart({ items }: CartProps) {",
+    "return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.price)}</li>)}</ul>)",
+    "}"
+   ]
+  }
+ }
+}

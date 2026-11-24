@@ -1,0 +1,30 @@
+{
+ "id": "vscode-tsshop-t2-path-alias",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "The project maps @/ to src/ (tsconfig paths and the vite.config.ts alias), so '@/utils' is the same module as '../utils': Cart.tsx imports formatPrice and every price goes through it. No problems in the status bar.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/tsconfig.json": "{\n  \"compilerOptions\": {\n    \"jsx\": \"react-jsx\",\n    \"strict\": true,\n    \"baseUrl\": \".\",\n    \"paths\": { \"@/*\": [\"src/*\"] }\n  },\n  \"include\": [\"src\"]\n}\n",
+   "shop/vite.config.ts": "import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\nimport path from 'path'\n\nexport default defineConfig({\n  plugins: [react()],\n  resolve: { alias: { '@': path.resolve(__dirname, './src') } },\n})\n",
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '@/utils'\n\nexport function Cart({ items }: CartProps) {\n  return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.price)}</li>)}</ul>)\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Cart.tsx",
+    "import { formatPrice } from '@/utils'",
+    "export function Cart({ items }: CartProps) {",
+    "return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.price)}</li>)}</ul>)",
+    "}",
+    "⊗ 0 ⚠ 0"
+   ]
+  }
+ }
+}
