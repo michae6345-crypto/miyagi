@@ -1,0 +1,36 @@
+{
+ "id": "jupyter-mnist-s7-restart-name-error",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "After a kernel restart the learner ran only the evaluate cell: NameError, model is not defined. VS Code keeps the older cells' outputs after a restart (training still shows 0.9858), but the kernel has no model and the evaluate cell printed no accuracy.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 5,
+     "append": [
+      {
+       "source": "test_loss, test_accuracy = model.evaluate(test_images, test_labels)\nprint(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+       "count": 1,
+       "error": "NameError: name 'model' is not defined"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "test_loss, test_accuracy = model.evaluate(test_images, test_labels)",
+    "print(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+    "NameError: name 'model' is not defined"
+   ]
+  }
+ }
+}

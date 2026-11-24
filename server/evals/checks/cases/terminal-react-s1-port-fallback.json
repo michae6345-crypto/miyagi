@@ -1,0 +1,32 @@
+{
+ "id": "terminal-react-s1-port-fallback",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Port 5173 was taken (another dev server), so Vite moved to 5174 and is ready: the dev server runs, just on another port. 'Port 5173 is in use' is a notice, not an error.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{}\n"
+  },
+  "editor": "Code",
+  "run": {
+   "running": true
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac my-react-app % npm run dev",
+    "> my-react-app@0.0.0 dev",
+    "> vite",
+    "Port 5173 is in use, trying another one...",
+    "VITE v5.4.10  ready in 287 ms",
+    "➜  Local:   http://localhost:5174/",
+    "➜  Network: use --host to expose",
+    "➜  press h + enter to show help"
+   ]
+  }
+ }
+}

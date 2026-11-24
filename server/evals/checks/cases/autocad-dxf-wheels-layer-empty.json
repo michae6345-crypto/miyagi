@@ -1,0 +1,29 @@
+{
+ "id": "autocad-dxf-wheels-layer-empty",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: the WHEELS layer exists in the DXF's layer table, but both wheel CIRCLEs are still on layer 0 (group code 8 = 0): the learner made the layer and forgot to move the wheels onto it. The name WHEELS is in the file only as an empty layer.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Put the wheels on their own layer",
+  "file": "toy_car.dxf",
+  "instructions": "Make a layer named WHEELS (LAYER), move both wheel circles of the side profile onto it, then save the drawing as toy_car.dxf (SAVEAS > AutoCAD 2018 DXF).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Wheels on the WHEELS layer",
+    "file": "toy_car.dxf",
+    "pattern": "\\bWHEELS\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "toy_car.dxf": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n3\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nLAYER\n2\nBODY\n70\n0\n62\n5\n6\nCONTINUOUS\n0\nLAYER\n2\nWHEELS\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n8\nBODY\n90\n8\n70\n1\n10\n0.0\n20\n0.0\n10\n120.0\n20\n0.0\n10\n120.0\n20\n28.0\n10\n84.0\n20\n28.0\n10\n66.0\n20\n45.0\n10\n30.0\n20\n45.0\n10\n18.0\n20\n28.0\n10\n0.0\n20\n28.0\n0\nCIRCLE\n8\n0\n10\n25.0\n20\n0.0\n30\n0.0\n40\n9.0\n0\nCIRCLE\n8\n0\n10\n95.0\n20\n0.0\n30\n0.0\n40\n9.0\n0\nENDSEC\n0\nEOF\n"
+  }
+ }
+}

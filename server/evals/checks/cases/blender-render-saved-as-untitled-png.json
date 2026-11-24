@@ -1,0 +1,28 @@
+{
+ "id": "blender-render-saved-as-untitled-png",
+ "kind": "blender",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done: Intro to Blender lesson 10 passes when \"A PNG render is saved next to the .blend file\". The learner rendered (F12) and used Image > Save As, keeping Blender's default name untitled.png in the mug's folder. That is a PNG render next to mug.blend; the step never asked for a file name.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Render and save an image",
+  "file": "mug.blend",
+  "instructions": "Render the mug with F12, then in the render window choose Image > Save As and save it as a PNG next to mug.blend.",
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "file_exists",
+    "label": "PNG render saved",
+    "file": "mug.png"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mug.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see mug.scene.json)\n",
+   "untitled.png": "PNG (a 1920x1080 render of the mug)\n"
+  }
+ }
+}

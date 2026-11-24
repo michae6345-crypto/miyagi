@@ -1,0 +1,28 @@
+{
+ "id": "terminal-mnist-s1-pip-resolver-error-installed",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Reused venv: pip prints its 'ERROR: pip's dependency resolver does not currently take into account ...' notice about an old pandas the lesson never uses, then 'Successfully installed' the four packages, and the Jupyter server is running. The install worked; that ERROR line is a warning about a different package.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "venv/bin/activate": "# venv\n"
+  },
+  "screen": {
+   "Terminal": [
+    "(venv) tripi@mac mnist % pip3 install jupyter tensorflow numpy matplotlib",
+    "Installing collected packages: numpy, matplotlib, tensorflow, jupyter",
+    "ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.",
+    "pandas 1.3.5 requires numpy<1.22,>=1.17.3, but you have numpy 2.0.2 which is incompatible.",
+    "Successfully installed jupyter-1.1.1 tensorflow-2.18.0 numpy-2.0.2 matplotlib-3.9.2",
+    "(venv) tripi@mac mnist % jupyter notebook",
+    "[I 2026-11-15 07:33:12.512 ServerApp] Jupyter Server 2.14.2 is running at:",
+    "[I 2026-11-15 07:33:12.512 ServerApp] http://localhost:8888/tree?token=3f9c"
+   ]
+  }
+ }
+}

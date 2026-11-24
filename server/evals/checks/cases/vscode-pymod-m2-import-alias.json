@@ -1,0 +1,30 @@
+{
+ "id": "vscode-pymod-m2-import-alias",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "from operations import add as plus, then print(plus(2, 3)): add imported under a local alias and called; python3 main.py prints 5. A renamed symbol at the import site, not a different function.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m2"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add as plus\n\nprint(plus(2, 3))\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "main.py",
+    "from operations import add as plus",
+    "print(plus(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "5",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}

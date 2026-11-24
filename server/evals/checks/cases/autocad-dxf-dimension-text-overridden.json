@@ -1,0 +1,35 @@
+{
+ "id": "autocad-dxf-dimension-text-overridden",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: the body measures 118.5 mm (the DIMENSION's measurement, group 42, and the polyline both say 118.5). The learner typed 120 over the dimension text (group 1 override) instead of fixing the profile. The drawing says 120, the geometry doesn't.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Dimension the car's length",
+  "file": "toy_car.dxf",
+  "instructions": "Add a linear dimension (DIMLINEAR) along the bottom edge of the car body on the DIMS layer. The body should measure 120 mm; fix the profile if it doesn't. Save toy_car.dxf.",
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": "Length dimension added",
+    "file": "toy_car.dxf",
+    "pattern": "\\bDIMENSION\\b"
+   },
+   {
+    "id": "s5c2",
+    "type": "file_contains",
+    "label": "Body is 120 mm long",
+    "file": "toy_car.dxf",
+    "pattern": "\\b120(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "toy_car.dxf": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n4\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nLAYER\n2\nBODY\n70\n0\n62\n5\n6\nCONTINUOUS\n0\nLAYER\n2\nWHEELS\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nLAYER\n2\nDIMS\n70\n0\n62\n3\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n8\nBODY\n90\n8\n70\n1\n10\n0.0\n20\n0.0\n10\n118.5\n20\n0.0\n10\n118.5\n20\n28.0\n10\n82.95\n20\n28.0\n10\n65.175\n20\n45.0\n10\n29.625\n20\n45.0\n10\n17.775\n20\n28.0\n10\n0.0\n20\n28.0\n0\nCIRCLE\n8\nWHEELS\n10\n25.0\n20\n0.0\n30\n0.0\n40\n9.0\n0\nCIRCLE\n8\nWHEELS\n10\n93.5\n20\n0.0\n30\n0.0\n40\n9.0\n0\nDIMENSION\n8\nDIMS\n2\n*D1\n10\n118.5\n20\n-15.0\n30\n0.0\n11\n59.25\n21\n-15.0\n31\n0.0\n70\n32\n1\n120\n3\nISO-25\n13\n0.0\n23\n0.0\n33\n0.0\n14\n118.5\n24\n0.0\n34\n0.0\n42\n118.5\n0\nENDSEC\n0\nEOF\n"
+  }
+ }
+}

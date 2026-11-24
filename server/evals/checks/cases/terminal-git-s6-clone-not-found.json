@@ -1,0 +1,25 @@
+{
+ "id": "terminal-git-s6-clone-not-found",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The URL has a typo (GitGoin): git printed 'Cloning into' and then 'remote: Repository not found' / 'fatal: repository ... not found', and the following `cd gitgoing` failed. No clone, no folder.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % git clone https://github.com/LadyKerr/GitGoin.git",
+    "Cloning into 'GitGoin'...",
+    "remote: Repository not found.",
+    "fatal: repository 'https://github.com/LadyKerr/GitGoin.git/' not found",
+    "tripi@mac ~ % cd gitgoing",
+    "cd: no such file or directory: gitgoing",
+    "tripi@mac ~ % "
+   ]
+  }
+ }
+}

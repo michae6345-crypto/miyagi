@@ -31,6 +31,7 @@ from typing import Any, Literal, TypedDict
 from server.safety import regex_worker
 from server.safety.patterns import MAX_PATTERN_LEN, pattern_problem, safe_compile  # noqa: F401 - re-exported
 
+from . import blocks, code_equiv, model_files
 from .code_text import code_view, lang_of, signatures
 from .notebook import Notebook, find_notebook, read_notebook
 from .screen import extract_metrics, screen_lines, screen_text, search_screen, search_wrapped
@@ -81,6 +82,10 @@ class RunContext:
     # the lesson folder when the orchestrator doesn't hand one in. False: none (looked, nothing there). t10:
     # evaluate_step narrows it to the step's own cells (Notebook.only): outputs / errors / ran are those cells' only.
     notebook: Any = None
+    # When the step (else the lesson) began, epoch seconds, when the orchestrator knows: a file whose mtime is older
+    # was there before the step, so it is never the file the step saved under a name of its own (_claim_any_names).
+    step_started_at: float | None = None
+    lesson_started_at: float | None = None
 
     @property
     def after_segment(self) -> bool:
@@ -253,11 +258,14 @@ def scan_windows(text: str | None, limit: int = FILE_SCAN_CHARS,
         end = start + overlap
 
 
-def _search_file(rx: Any, text: str) -> tuple[Any, int] | None:
-    """(the first match, its 1-based line in `text`) over scan_windows(text), newest window first; None."""
+def _search_file(rx: Any, text: str, accept: Any = None) -> tuple[Any, int] | None:
+    """(the first match, its 1-based line in `text`) over scan_windows(text), newest window first; None. With
+    ``accept(line, matched_text)``, the first match it accepts."""
     for off, sc in scan_windows(text):
-        if m := rx.search(sc.text):
-            return m, text.count("\n", 0, off) + sc.line_of(m.start())
+        for m in rx.finditer(sc.text) if accept is not None else filter(None, [rx.search(sc.text)]):
+            line = text.count("\n", 0, off) + sc.line_of(m.start())
+            if accept is None or accept(line, m.group(0)):
+                return m, line
     return None
 
 
@@ -339,9 +347,89 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", "check has no 'file'")
     if not _resolve(ctx.workdir, rel):
         return _result(check, "fail", f"{rel} is outside the lesson folder")
-    if os.path.exists(_resolve(ctx.workdir, rel)):
+    path = _resolve(ctx.workdir, rel)
+    if os.path.exists(path):
+        if why := model_files.empty_mesh(path):  # an export with nothing in it is not the model saved
+            return _result(check, "fail", why)
         return _result(check, "pass", f"{rel} exists")
+    if isinstance(other := check.get("_any_name"), str) and os.path.isfile(os.path.join(os.path.dirname(path), other)):
+        # the step never named the file ("save it as a PNG next to mug.blend"): Blender's untitled.png is that PNG
+        return _result(check, "pass", f"{other} saved (any name will do)")
     return _result(check, "fail", f"{rel} not found")
+
+
+# What an app writes out under a name of its own (a render, an export, a plot saved from a viewer): the only kinds of
+# file a step may leave unnamed. Never code, a notebook, a project or a text file: "a new Python file for the math
+# helpers" is the operations.py the lesson goes on to import, and main.py beside it is not that file.
+EXPORT_EXTS = frozenset(""".png .jpg .jpeg .webp .tif .tiff .bmp .gif .exr .hdr .pdf .mp4 .mov .webm .mkv .avi
+.stl .obj .3mf .ply .fbx .glb .gltf .dae .usd .usdz .abc .step .stp .iges .igs .sat .dwg .dxf .dwf""".split())
+
+
+def _name_words(name: str) -> set[str]:
+    """The words of a file name, lower case (``Box_Base.stl`` / ``BoxBase.stl`` -> {box, base}; ``lid.stl`` ->
+    {lid}); words under 3 letters dropped."""
+    stem = os.path.splitext(os.path.basename(name))[0]
+    parts = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+", stem)
+    return {w.lower() for w in parts if len(w) >= 3}
+
+
+def _fresh(entry: os.DirEntry, since: float | None) -> bool:
+    if since is None:
+        return True
+    try:
+        return entry.stat().st_mtime >= since - 1.0  # 1 s of file-system time granularity
+    except OSError:
+        return False
+
+
+def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[dict]:
+    """The file_exists checks of one list whose file the step never names (not in its title, instructions or the
+    check's label) and whose kind an app writes out under a name of its own (EXPORT_EXTS) may pass on another file of
+    that kind in that folder. Each such check gets ``_any_name``: the file it may take, else False.
+
+    A file counts once per step (two exports, base.stl and lid.stl, are never both one Box_Base.stl), and a check takes
+    a file whose name holds its own word first (Box_Base.stl for base.stl); never a file another check names, one whose
+    name holds another check's word, or (when the context says when the step or lesson began) one that was already
+    there before."""
+    if not about.strip() or not os.path.isabs(str(ctx.workdir or "")):
+        return checks
+    since = ctx.step_started_at if ctx.step_started_at is not None else ctx.lesson_started_at
+    exists = [(i, c) for i, c in enumerate(checks) if c.get("type") == "file_exists" and c.get("file")]
+    named = {os.path.normcase(p) for _, c in exists if (p := _resolve(ctx.workdir, str(c["file"])))}
+    words = {i: _name_words(str(c["file"])) for i, c in exists}
+    want: dict[int, list[os.DirEntry]] = {}
+    for i, c in exists:
+        rel = str(c["file"])
+        base, ext = os.path.basename(rel).lower(), os.path.splitext(rel)[1].lower()
+        path = _resolve(ctx.workdir, rel)
+        if ext not in EXPORT_EXTS or not path or os.path.exists(path) \
+                or base in f"{about} {c.get('label') or ''}".lower():
+            continue
+        try:
+            found = [e for e in os.scandir(os.path.dirname(path)) if e.is_file() and not e.name.startswith(".")
+                     and e.name.lower().endswith(ext) and os.path.normcase(e.path) not in named
+                     and _fresh(e, since) and not model_files.empty_mesh(e.path)]
+            found.sort(key=lambda e: e.stat().st_mtime, reverse=True)  # newest first
+        except OSError:
+            found = []
+        want[i] = found
+    if not want:
+        return checks
+    taken: set[str] = set()
+    got: dict[int, str] = {}
+    for own_word in (True, False):  # a file named for the check first, then any file named for no other check
+        for i, found in want.items():
+            if i in got:
+                continue
+            others = set().union(*(w for j, w in words.items() if j != i)) - words[i]
+            for e in found:
+                ws = _name_words(e.name)
+                if e.path in taken or (ws & others) or (own_word and not ws & words[i]):
+                    continue
+                got[i] = e.name
+                taken.add(e.path)
+                break
+    return [{**c, "_any_name": got.get(i, False)} if i in want else c for i, c in enumerate(checks)]
 
 
 def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
@@ -361,17 +449,36 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", f"{rel} not found")
     except OSError as exc:
         return _result(check, "fail", f"cannot read {rel}: {exc.strerror}")
+    if why := model_files.empty_mesh(path):
+        return _result(check, "fail", why)
     view = code_view(full, check, rel, check.get("_sigs")) if lang_of(rel) else full  # no comments, one function
+    subjects: list[str] = []
+    if rel.lower().endswith(".json") and (sc := model_files.scoped_json(view, str(check.get("_subject") or ""))):
+        view, subjects = sc  # a scene dump: only what the step is about (the Mug, not the default Cube)
+    on = f" for {', '.join(subjects)}" if subjects else ""
+    accept = None
+    if rel.lower().endswith(".dxf"):
+        lines = view.split("\n")
+        accept = lambda n, s: model_files.dxf_numeric_ok(lines, n, s)  # noqa: E731
     try:  # 64 KB windows (up to 1 MB), no line over 2 KB: what one lesson search may cost is bounded
-        hit = _search_file(_compile(pattern), view)
+        rx = _compile(pattern)
+        # float noise in a model / data dump (90.00000250447816 is 90.0); never in code, where 0.0010004 is a value
+        dump = model_files.is_dump(rel)
+        if why := model_files.every_instance(check, model_files.rounded(view) if dump else view, rx):
+            return _result(check, "fail", f"{why} in {rel}{on}")
+        hit = _search_file(rx, view, accept)
+        if hit is None and dump and (r := model_files.rounded(view)) != view:
+            hit = _search_file(rx, r, accept)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if hit:
         line = hit[1]
+        if subjects:
+            return _result(check, "pass", f"found in {rel}{on}")
         if view.count("\n") != full.count("\n") and (at := full.find(hit[0].group(0))) >= 0:
             line = full.count("\n", 0, at) + 1  # the check was scoped to a function: the line in the whole file
         return _result(check, "pass", f"found in {rel}:{line}")
-    return _result(check, "fail", f"not in {rel} yet")
+    return _result(check, "fail", f"not in {rel}{on} yet")
 
 
 def _script_tokens(command: str) -> list[str]:
@@ -489,6 +596,63 @@ def _diverged(ctx: RunContext, name: str, check: dict, since_step: int | None = 
     return _result(check, "fail", f"{name} diverged: {v} at step {s}")
 
 
+_NONFINITE_FIELD = re.compile(r"(?<![\w.])([A-Za-z_][\w]*)\s*[:=]?\s*[-+]?(nan|inf(?:inity)?)\b", re.I)
+_FIRST_EPOCH = re.compile(r"^\s*Epoch\s+1\s*/\s*\d+", re.I)  # Keras's header row of a run's first epoch
+
+
+def _newest_run(text: str, rx: Any, check: dict, ctx: RunContext) -> list[str]:
+    """The rows of the newest run in ``text`` (as _diverged reads only from ``since_step``): in a terminal's history,
+    the output of the newest command that printed a metric row (of the step's run command, when one is known); then,
+    in that, the rows from the last restart on (a run's ``Epoch 1/`` header again, or the pattern's step going back).
+    A finished re-run is never judged on the NaN of the run before it."""
+    rows = text.split("\n")
+    bl = blocks.parse(rows)
+    if blocks.has_commands(bl):
+        printed = [b for b in bl if b.command and any(rx.search(r) for r in b.output)]
+        rc = [s for c in (ctx.command, check.get("_run_command")) if c for s in blocks.segments(str(c))]
+        own = [b for b in printed if any(blocks.runs(s, t) for s in blocks.segments(b.command or "") for t in rc)]
+        if own or printed:
+            rows = (own or printed)[-1].output
+    start, prev = 0, None
+    for i, row in enumerate(rows):
+        if _FIRST_EPOCH.match(row):
+            start, prev = i, None
+            continue
+        if not (m := rx.search(row)) or m.groupdict().get("step") is None:
+            continue
+        try:
+            step = float(m.group("step"))
+        except ValueError:
+            continue
+        if prev is not None and step < prev:
+            start = i
+        prev = step
+    return rows[start:]
+
+
+def _sibling_divergence(ctx: RunContext, check: dict) -> str | None:
+    """Another metric on the check's own metric lines went NaN / inf (Keras: ``accuracy: 0.9563 - loss: nan``): the
+    weights are NaN, whatever this metric's epoch average still says. ``"loss: nan"``, else None."""
+    pattern = check.get("metric_pattern")
+    if not pattern:
+        return None
+    if _notebook_points(ctx, check):
+        texts = list(ctx.notebook.outputs)
+    else:
+        texts = [screen_text(ctx.screen, check.get("app")) or "", ctx.output_text()]
+    try:
+        rx = _compile(pattern)
+    except re.error:
+        return None
+    for line in (ln for t in texts for ln in _newest_run(scan_text(t), rx, check, ctx)):
+        if not (m := rx.search(line)):
+            continue
+        rest = line[:m.start()] + " " + line[m.end():]
+        if f := _NONFINITE_FIELD.search(rest):
+            return f"{f.group(1)}: {f.group(2)}"
+    return None
+
+
 def _no_metric(ctx: RunContext, name: str) -> str:
     """A finished run that printed no `name`, in plain words (test 7: a crash has no loss; the row says so and never
     shows an older run's): "no loss: the run stopped with an error" / "the run printed no loss"."""
@@ -515,6 +679,8 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     div = _diverged(ctx, name, check)
     if div:
         return div
+    if sib := _sibling_divergence(ctx, check):
+        return _result(check, "fail", f"{sib} on the {name.replace('_', ' ')} lines: the run diverged")
     pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
@@ -665,6 +831,8 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     div = _diverged(ctx, name, check, since_step=latest - window)
     if div:
         return div
+    if sib := _sibling_divergence(ctx, check):
+        return _result(check, "fail", f"{sib} on the {name.replace('_', ' ')} lines: the run diverged")
     win = [p for p in pts if p[0] >= latest - window]
     span = win[-1][0] - win[0][0]
     if len(win) < TREND_MIN_POINTS or span < TREND_MIN_COVERAGE * window:
@@ -745,6 +913,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code")))
     text = scan_text(text, SCREEN_SCAN_CHARS)  # the newest 4 KB of the window(s): never a whole scrollback
     try:
+        if not output and app != "Code" and (by_block := _on_blocks(check, ctx, absent, text, where)) is not None:
+            return by_block  # a terminal's (or AutoCAD's) history: read per command and its own output
         m = _absent_hit(pattern, text) if absent else search_wrapped(pattern, text)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
@@ -755,9 +925,15 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         if m:
             return _result(check, "fail", f"still showing {m.group(0)[:80]!r}{where}")
         return _result(check, "pass", f"not showing{where}")
+    if m and not output and app == "Code" and (other := _in_another_file(check, ctx, text)):
+        return _result(check, "fail", other)
+    if m and not output and app not in ("Code", *_TERMINAL_APPS) and _only_in_open_menu(pattern, text):
+        return _result(check, "fail", f"{m.group(0)[:60]!r} is only an item of an open menu{where}: not added yet")
     if m:
         return _result(check, "pass", f"seen{where}")
     if app in _TERMINAL_APPS:  # the terminal is on screen, the output isn't: say that, not where to open it
+        if made := _ran_and_made(check, ctx, blocks.parse(text.split("\n"))):
+            return made
         if ctx.running:  # t11: the step's run is still live (a server never exits): not a fail yet
             return _result(check, "pending", f"not printed{where} yet: still running")
         return _result(check, "fail", "not printed by the last run: run it again" if ctx.run_finished
@@ -767,12 +943,59 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
 
 
-# What an error looks like in a terminal: a traceback, `XError:` / `XException:`, `Error:` / `error:` starting a line
-# (or a tool's `gcc: error:`), npm's `ERR!`, the shell's "command not found". The bare word anywhere else
-# ("Relative L2 Error: 3.1e-02", "error rate", "no errors") is a number the program prints, not a crash.
-_ERROR_FORM = re.compile(r"Traceback \(most recent call last\)|\b[A-Za-z_]\w*(?:Error|Exception)\s*:"
-                         r"|(?:^|:\s)\s*(?:Error|ERROR|error|Fatal|FATAL|fatal)\b\s*[:!]|\bnpm ERR!|command not found",
-                         re.M)
+# an app's "add something" menu: its header row ("Add", "Add Modifier", "Insert") then a long column of short labels
+_MENU_HEADER = re.compile(r"^\s*(?:Add|Insert|New|Create)(?:\s+[A-Z][A-Za-z]*)?\s*$")
+_MENU_ITEM = re.compile(r"^\s*[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}\s*$")  # 1-3 words, letters only (no "Levels 2")
+MENU_MIN_ITEMS = 8
+
+
+def _only_in_open_menu(pattern: str, text: str) -> bool:
+    """Is every line the pattern matches an item of an open menu (Blender's Add Modifier > Generate list, Shift+A >
+    Light)? A word in a menu is something the learner could add, not something added. A match across lines, or any
+    match outside a menu, is not."""
+    lines = text.split("\n")
+    menu: set[int] = set()
+    for i, ln in enumerate(lines):
+        if _MENU_HEADER.match(ln):
+            j = i + 1
+            while j < len(lines) and _MENU_ITEM.match(lines[j]):
+                j += 1
+            if j - i - 1 >= MENU_MIN_ITEMS:
+                menu |= set(range(i + 1, j))
+    if not menu:
+        return False
+    hits = [i for i, ln in enumerate(lines) if search_screen(pattern, ln)]
+    return bool(hits) and all(i in menu for i in hits)
+
+
+def _in_another_file(check: dict, ctx: RunContext, screen: str) -> str | None:
+    """A code line seen in VS Code that belongs to another file of the lesson (a split editor: the import is at the
+    top of test_operations.py, the call in main.py). The check's file (the one its label names, else the step's) is on
+    disk without the pattern, and another lesson file of the same language whose name is on screen (an open tab) has
+    it: why the screen doesn't count."""
+    if not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    rel = code_equiv.file_in_label(str(check.get("label") or "")) or str(check.get("file") or "")
+    if code_equiv.kind_of(rel) is None or (own := code_equiv.find_file(ctx.workdir, rel)) is None:
+        return None
+    pattern, sigs = str(check.get("pattern") or ""), check.get("_sigs")
+
+    def has(path) -> bool:
+        text = code_equiv.read(path)
+        return bool(text) and bool(search_wrapped(pattern, scan_text(code_view(text, check, path.name, sigs))))
+
+    if code_equiv.read(own) is None or has(own):
+        return None
+    for p in code_equiv.lesson_files(ctx.workdir):
+        if p != own and code_equiv.kind_of(p.name) == code_equiv.kind_of(own.name) and p.name in screen and has(p):
+            return f"not in {own.name} yet (that line on screen is in {p.name})"
+    return None
+
+
+# What an error looks like in a terminal (server.checks.blocks.ERROR_FORM): a traceback, `XError:`, `error:` starting a
+# line, npm's `ERR!`, "command not found", a test run's `1 failed`, a compiler's `error TS2305:`. The bare word anywhere
+# else ("Relative L2 Error: 3.1e-02", "error rate", "no errors") is a number the program prints, not a crash.
+_ERROR_FORM = blocks.ERROR_FORM
 _BARE_ERROR_WORD = re.compile(r"(?:errors?|exceptions?|failed|failure|fatal|traceback)", re.I)
 
 
@@ -791,6 +1014,82 @@ def _absent_hit(pattern: str, text: str) -> re.Match[str] | None:
             if _ERROR_FORM.search(hay[start:len(hay) if end < 0 else end]):
                 return m
     return None
+
+
+def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str) -> CheckResult | None:
+    """A screen check on a terminal's history (or a command-line app's ``Command:`` rows), read per command
+    (server.checks.blocks). None when the text has no command rows, or the pattern only matches across commands:
+    the plain search decides then.
+
+    * screen_contains: the step's own terminal command (its Terminal target) must be among the commands that ran,
+      when any ran (``git branch x`` is not ``git checkout -b x``; ``touch`` / ``ls`` are not ``git add``); and the
+      match counts only in a command's newest run whose output shows no failure (``fatal:``, ``! [rejected]``,
+      ``nothing added to commit``, ``*Cancel*``) unless that failure is what the pattern looks for. Seen only in an
+      earlier run while the newest is still live (``ctx.running``, no prompt back under it): pending, not a fail.
+    * screen_absent: a match counts unless its command got past it (pip's resolver notice, then ``Successfully
+      installed``), was run again since, or repeats an earlier command that already succeeded (``fatal: No rebase in
+      progress?``)."""
+    bl = blocks.parse(text.split("\n"))
+    if not blocks.has_commands(bl):
+        return None
+    pattern = str(check.get("pattern") or "")
+    if absent:
+        hit = None
+        for i, b in enumerate(bl):
+            m = _absent_hit(pattern, b.text)
+            if not m:
+                continue
+            if b.command and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()):
+                continue
+            hit = hit or m
+        if hit:
+            return _result(check, "fail", f"still showing {hit.group(0)[:80]!r}{where}")
+        return _result(check, "pass", f"not showing{where}")
+    targets = check.get("_target_cmds") or []
+    ran = [s for b in bl if b.command for s in blocks.segments(b.command)]
+    if targets and ran and not any(blocks.runs(s, t) for s in ran for t in targets):
+        return _ran_and_made(check, ctx, bl) or _result(check, "fail", f"`{targets[0]}` hasn't run yet")
+    hits = [i for i, b in enumerate(bl) if search_wrapped(pattern, b.text)]
+    if not hits:
+        return None
+    why, live = "", False
+    for i in hits:
+        b = bl[i]
+        if b.command and blocks.superseded(bl, i):
+            why = why or f"that was an earlier `{b.command}`: the newest one didn't print it"
+            me = blocks.norm(b.command)
+            newest = next(n for n in reversed(bl) if n.command and blocks.norm(n.command) == me)
+            # live: the newest run is the terminal's last command row (no prompt came back under it) and hasn't failed
+            last = next(n for n in reversed(bl) if n.command is not None)
+            live = live or (newest is last and newest.failure() is None)
+            continue
+        bad = b.failure()
+        if bad and not search_wrapped(pattern, bad):
+            why = why or f"`{b.command or 'the command'}` failed: {bad.strip()[:80]!r}"
+            continue
+        return _result(check, "pass", f"seen{where}")
+    if made := _ran_and_made(check, ctx, bl):
+        return made
+    if live and ctx.running:  # the newest run is still live (a dev server, a long build): it may print it yet
+        return _result(check, "pending", f"not printed by the newest run{where} yet: still running")
+    return _result(check, "fail", why)
+
+
+def _ran_and_made(check: dict, ctx: RunContext, bl: list[blocks.Block]) -> CheckResult | None:
+    """A terminal check whose words aren't on screen, passed on what the step's command made: its newest run (the
+    step's Terminal target) shows no failure, and every file the step's precision checks expect exists (they are all
+    file_exists: ``git init`` printed "Reinitialized existing Git repository", and project1/.git is there)."""
+    proof, targets = check.get("_file_proof") or [], check.get("_target_cmds") or []
+    if not proof or not targets or not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    last = next((b for b in reversed(bl) if b.command
+                 and any(blocks.runs(s, t) for s in blocks.segments(b.command) for t in targets)), None)
+    if last is None or last.failure():
+        return None
+    paths = [_resolve(ctx.workdir, p) for p in proof]
+    if not all(p and os.path.exists(p) for p in paths):
+        return None
+    return _result(check, "pass", f"ran `{last.command}`; {proof[0]} is there")
 
 
 def _without_typed_input(text: str) -> str:
@@ -997,6 +1296,27 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
                                            for t in step.get("targets") or []) or _command_step(step)
     checks = [{**c, "run": True} if run and c.get("type") == "screen_absent" and c.get("app") in _TERMINAL_APPS
               else c for c in checks]
+    # the step's own terminal commands (its Terminal targets), and the files they make when that is all its precision
+    # checks look for: _on_blocks / _ran_and_made read them
+    # what the step is about, in its own words: a scene dump is read for the objects it names (model_files), and a file
+    # it never names ("save it as a PNG next to mug.blend") may have any name
+    about = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
+    checks = [{**c, "_subject": f"{about} {c.get('label') or ''}"} if c.get("type") == "file_contains"
+              and str(c.get("file") or "").lower().endswith(".json") else c for c in checks]
+    if which == "all":  # each list on its own: a file counts once in a list, and the lists are alternatives
+        n = len(step.get("checks") or [])
+        checks = [*_claim_any_names(checks[:n], about, ctx), *_claim_any_names(checks[n:], about, ctx)]
+    else:
+        checks = _claim_any_names(checks, about, ctx)
+    own = blocks.programs_of(str(step.get("run_command") or ""))
+    cmds = [str(t.get("match")).strip() for t in step.get("targets") or [] if t.get("app") in _TERMINAL_APPS
+            and blocks.is_command(str(t.get("match") or ""), own)]
+    prec = step.get("precision_checks") or []
+    proof = [str(c.get("file")) for c in prec if c.get("file")] \
+        if prec and all(c.get("type") == "file_exists" for c in prec) else []
+    if cmds:
+        checks = [{**c, "_target_cmds": cmds, **({"_file_proof": proof} if proof else {})}
+                  if c.get("type") == "screen_contains" and c.get("app") in _TERMINAL_APPS else c for c in checks]
     rc = str(step.get("run_command") or "").strip()
     if rc and not _CELL_ACTION.search(rc):  # a hidden terminal's output only counts when it is this command's run
         checks = [{**c, "_run_command": rc} if c.get("app") in _TERMINAL_APPS
@@ -1044,6 +1364,9 @@ _OUTPUT_LABEL = re.compile(r"\b(printed|prints|shown|shows|displayed|logged|rend
                            r"|\boutput\s+(shown|printed|appears|visible|displayed)\b", re.I)
 # a pattern that looks like code: an escaped ( ) or =, an attribute dot (mnist\.load_data), a CamelCase name
 _CODE_PATTERN = re.compile(r"\\[()]|=|\\\.[A-Za-z_]|[a-z][A-Z]")
+# a JSX / HTML tag in a pattern (<Header, <\/footer), on a step whose file is markup or a component
+_MARKUP_TAG = re.compile(r"<\\?/?\s*[A-Za-z]")
+_MARKUP = (".jsx", ".tsx", ".html", ".htm", ".vue", ".svelte", ".astro")
 # a code line on screen: a print( call, a string literal opening after ( or closing before , / ), an f-string
 _CODE_MARK = re.compile(r"\bprint\s*\(|\(\s*[fbr]?['\"]|['\"]\s*[,)]|\bf['\"]")
 
@@ -1070,6 +1393,45 @@ def cell_not_run(step: dict, ctx: RunContext | None) -> bool:
         return False
     nb = _with_step_notebook(step, ctx).notebook
     return isinstance(nb, Notebook) and bool(nb.cells) and not nb.executed
+
+
+def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
+    """server.checks.code_equiv.broken_imports over the step's code files in the lesson folder: its targets', checks'
+    and own file, and the files its check labels name ("main.py calls add_numbers(2, 3)")."""
+    if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
+        return []
+    files = [f for f in _files(step) if code_equiv.kind_of(f)]
+    files += [f for c in [*(step.get("checks") or []), *(step.get("precision_checks") or [])]
+              if (f := code_equiv.file_in_label(str(c.get("label") or "")))]
+    if not files:
+        return []
+    try:
+        return code_equiv.broken_imports(ctx.workdir, list(dict.fromkeys(files)))
+    except (OSError, ValueError, RecursionError):
+        return []
+
+
+_RUN_ALL = re.compile(r"\brun\s+all\b|\brestart\b.{0,40}\brun\b", re.I)
+
+
+def run_all_out_of_order(step: dict, ctx: RunContext | None) -> str | None:
+    """A "Restart the kernel and run all" step: the notebook's code cells must have run top to bottom in one go, so
+    their run counts go up in cell order starting at [1] (the counts [1], [5], [4] mean cells re-run by hand,
+    bottom-up, without a restart). Why it isn't so, else None (not such a step, or no notebook to read)."""
+    if ctx is None or not _RUN_ALL.search(str(step.get("run_command") or "")) \
+            or not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    nb = ctx.notebook if isinstance(ctx.notebook, Notebook) else read_notebook(find_notebook(ctx.workdir, _files(step)))
+    cells = [c for c in (nb.cells if nb is not None else []) if c.source.strip()]
+    if not cells:
+        return None
+    if any(c.count is None for c in cells):
+        return "not every cell has run: Restart, then Run All"
+    counts = [c.count for c in cells]
+    if counts[0] != 1 or any(b <= a for a, b in zip(counts, counts[1:])):
+        shown = ", ".join(f"[{n}]" for n in counts)
+        return f"the run counts read {shown}: Restart the kernel, then Run All so they go 1, 2, 3"
+    return None
 
 
 _CELL_ACTION = re.compile(r"shift\s*\+\s*enter|^\s*(?:run|execute|press|click)\s+(?:the|a|all|each|this)\b", re.I)
@@ -1147,6 +1509,8 @@ def is_output_check(check: dict) -> bool:
         return check["output"]
     if _CODE_PATTERN.search(str(check.get("pattern") or "")):
         return False  # a pattern for code (model\.predict\(): a code check, whatever its label says
+    if _MARKUP_TAG.search(str(check.get("pattern") or "")) and str(check.get("file") or "").lower().endswith(_MARKUP):
+        return False  # "Header component rendered" = <Header in App.jsx: a component is rendered by the code that uses it
     return bool(_OUTPUT_LABEL.search(str(check.get("label") or "")))
 
 
@@ -1195,6 +1559,15 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         if step_passed(checks):
             checks = [*checks, {"checkId": f"{step.get('id', '')}-cell", "label": "Cell run", "status": "pending",
                                 "detail": "run the cell (Shift+Enter)"}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (step_passed(checks) or step_passed(prec)) and (broken := _broken_imports(step, ctx)):
+        # the step's files look finished, but one imports what its module no longer has: it crashes when run
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-imports", "label": "Imports resolve",
+                            "status": "fail", "detail": broken[0]}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (order := run_all_out_of_order(step, ctx)) is not None:
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-order", "label": "Cells ran in order from [1]",
+                            "status": "fail", "detail": order}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if step_passed(checks):
         via: Literal["checks", "precision"] | None = "checks"
@@ -1335,23 +1708,9 @@ _ACTIVATION_ROW = re.compile(r"""(?:^|\s)(?:source|\.)\s+(?:\S*|"[^"]*|'[^']*)bi
                              r"|(?:^|\s)conda\s+activate\s+\S+\s*$")
 
 
-_SHELL_JOIN = {"&&", "||", ";", "|"}
-_PROMPT_MARKS = ("%", "$", "#", "❯")  # zsh %, bash $, root #, starship's arrow
-
-
-def _after_prompt(prev: str) -> bool:
-    """Is ``prev`` (the word before a program) the end of a shell prompt (``tripi@mac nn %``, ``me@box:~/lesson1$``,
-    starship's arrow, fish's ``~/nn>``) or a shell join (``cd nn && python3 x.py``)? Not ``100%`` (a progress bar in
-    the output): only a glued ``%`` after a digit is refused; a bash folder ending in a digit is still a prompt."""
-    if prev in _SHELL_JOIN or prev in _PROMPT_MARKS:
-        return True
-    if len(prev) < 2:
-        return False
-    if prev.endswith("%"):
-        return not prev[-2].isdigit()
-    if prev.endswith(">"):  # fish: user@host ~/nn>  (a path glued to >, never an arrow like ->)
-        return prev[0] in "~/"
-    return prev.endswith(_PROMPT_MARKS)
+_SHELL_JOIN = blocks.SHELL_JOIN
+_PROMPT_MARKS = blocks.PROMPT_MARKS
+_after_prompt = blocks.after_prompt
 
 
 def _starts_command(program: str, rest: list[str]) -> bool:

@@ -212,4 +212,9 @@ def code_view(text: str, check: dict, filename: str | None = None, sigs: dict[st
             text = canonical_params(text, sigs)
         if (fn := function_of(check)) and (scoped := function_scope(text, fn)) is not None:
             text = scoped
+    # the same code in its canonical form too (import aliases, one name per import, <Fragment> as <>): code_equiv
+    from .code_equiv import equivalent_view
+
+    if (same := equivalent_view(text, filename or check.get("file"))) is not None:
+        text = text + "\n" + same
     return text

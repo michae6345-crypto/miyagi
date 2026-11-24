@@ -1,0 +1,39 @@
+{
+ "id": "jupyter-mnist-s6-probabilities-not-indexed",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The lesson's listed common mistake: view_classify(image, probabilities) instead of probabilities[0]. model.predict ran (its 1/1 progress line printed) but barh got a (1, 10) array and raised, leaving an empty figure. The probability chart the step is about was never drawn.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 4,
+     "append": [
+      {
+       "source": "def view_classify(image, probabilities):\n    fig, (ax1, ax2) = plt.subplots(figsize=(6,9), ncols=2)\n    ax1.imshow(image)\n    ax1.axis('off')\n    ax2.barh(np.arange(10), probabilities)\n    ax2.set_aspect(0.1)\n    ax2.set_yticks(np.arange(10))\n    ax2.set_yticklabels(np.arange(10))\n    ax2.set_title('Class Probability')\n    ax2.set_xlim(0, 1.1)\n    plt.tight_layout()\n\nimage, label = test_images[0], test_labels[0]\nprobabilities = model.predict(image.reshape(1, 28, 28, 1))\nview_classify(image, probabilities)",
+       "stdout": "1/1 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 0s 24ms/step\n",
+       "image": true,
+       "error": "ValueError: shape mismatch: objects cannot be broadcast to a single shape.  Mismatch is between arg 0 with shape (10,) and arg 2 with shape (1, 10)."
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "def view_classify(image, probabilities):",
+    "ax2.set_title('Class Probability')",
+    "probabilities = model.predict(image.reshape(1, 28, 28, 1))",
+    "view_classify(image, probabilities)",
+    "1/1 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 0s 24ms/step"
+   ]
+  }
+ }
+}

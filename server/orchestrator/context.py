@@ -47,6 +47,10 @@ class RunContext:
     runs: list[RunInfo] = field(default_factory=list)  # all runs this step, oldest first
     screen: Any = None  # {app: [lines]} from the screen reader, or None
     editor: str | None = None  # "Code" in a VS Code lesson: check details then name VS Code's terminal
+    # wall clock when this step / the lesson began, when known (server.checks: a file older than that was already
+    # in the folder, never the one the step exported under a name of its own)
+    step_started_at: float | None = None
+    lesson_started_at: float | None = None
 
     @property
     def running(self) -> bool:

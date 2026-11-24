@@ -1,0 +1,26 @@
+{
+ "id": "autocad-toy-car-s2-presspull",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done, by another road: the toy car's s2 asks to \"extrude the profile 20 mm with EXTRUDE\". The learner clicked inside the closed profile with PRESSPULL and pulled it 20, which makes the same 20 mm extruded solid (a careful tutor accepts it). The command line never shows the word EXTRUDE.",
+ "step": {
+  "lesson": "server/workspace/tests/fixtures/autocad_toy_car.json",
+  "id": "s2",
+  "adapt": true
+ },
+ "workspace": {
+  "screen": {
+   "AutoCAD 2025": [
+    "Command: PRESSPULL",
+    "Select object or bounded area:",
+    "Specify extrusion height or [Multiple]: 20",
+    "Command:",
+    "Model",
+    "Layout1",
+    "Layout2"
+   ]
+  }
+ }
+}

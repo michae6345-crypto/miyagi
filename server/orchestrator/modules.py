@@ -393,7 +393,9 @@ class Modules:
         candidates = {"workdir": ctx.workdir, "last_run": ctx.last_run, "metrics": ctx.metrics,
                       "exit_code": ctx.exit_code, "output_tail": ctx.output_tail,
                       "command": ctx.command, "runs": ctx.runs, "running": ctx.running,
-                      "screen": ctx.screen, "editor": getattr(ctx, "editor", None)}
+                      "screen": ctx.screen, "editor": getattr(ctx, "editor", None),
+                      "step_started_at": getattr(ctx, "step_started_at", None),
+                      "lesson_started_at": getattr(ctx, "lesson_started_at", None)}
         return cls(**{k: v for k, v in candidates.items() if k in params})
 
     def evaluate_gate(self, step: dict, ctx: RunContext, screen: Any = None, precision_mode: bool = False) -> dict:

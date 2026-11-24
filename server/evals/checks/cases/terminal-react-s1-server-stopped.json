@@ -1,0 +1,30 @@
+{
+ "id": "terminal-react-s1-server-stopped",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "The dev server started (ready in 301 ms) and was then stopped with Ctrl+C: ^C and a fresh prompt follow, so localhost:5173 no longer serves the app the next steps watch in the browser. Start it again.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac my-react-app % npm run dev",
+    "> my-react-app@0.0.0 dev",
+    "> vite",
+    "VITE v5.4.10  ready in 301 ms",
+    "➜  Local:   http://localhost:5173/",
+    "➜  Network: use --host to expose",
+    "^C",
+    "tripi@mac my-react-app %"
+   ]
+  }
+ }
+}

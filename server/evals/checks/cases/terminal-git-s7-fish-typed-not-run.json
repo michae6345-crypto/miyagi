@@ -1,0 +1,26 @@
+{
+ "id": "terminal-git-s7-fish-typed-not-run",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "fish shell: the prompt is 'tripi@mac ~/gitgoing (main)>'. `git checkout -b update-name` is typed on the last prompt but not run (after Enter the prompt would read (update-name)>).",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~/gitgoing (main)> git status",
+    "On branch main",
+    "Your branch is up to date with 'origin/main'.",
+    "nothing to commit, working tree clean",
+    "tripi@mac ~/gitgoing (main)> git checkout -b update-name"
+   ]
+  }
+ }
+}
