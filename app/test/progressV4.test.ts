@@ -16,6 +16,7 @@ import {
   dayKey,
   EMPTY_V4,
   freshLabel,
+  fromGraph,
   goalLine,
   guide,
   hm,
@@ -31,6 +32,7 @@ import {
   whenLabel,
   type V4
 } from '../src/renderer/src/features/progress/v4/model'
+import { buildSkillGraph } from '../src/renderer/src/features/skills/model'
 
 // Sunday Nov 22 2026, 6 PM local (the mock's today).
 const NOW = new Date(2026, 10, 22, 18, 0).getTime()
@@ -230,5 +232,31 @@ describe('labels', () => {
   it('keeps "about 2.5 hr" on one line', () => {
     assert.equal(aboutHr(150), 'about\u00a02.5\u00a0hr')
     assert.doesNotMatch(aboutHr(20), / /)
+  })
+})
+
+describe('rail from the skill graph (QA R3-04: progress without goal / need / review)', () => {
+  const graph = buildSkillGraph(first('uiv4_progress', 'progress'), NOW)
+  const r = fromGraph(graph)
+  it('the goal is the graph goal, counted in skills', () => {
+    assert.ok(r.goal)
+    assert.equal(r.goal.title, graph?.goal?.label)
+    assert.ok(r.goal.total > 0 && r.goal.mastered <= r.goal.total)
+  })
+  it('closest to mastered: practicing skills by steps passed, furthest along first', () => {
+    assert.deepEqual(
+      r.near.map((s) => `${s.label} ${s.done}/${s.need}`),
+      ['Layers as matrices 3/5', 'Broadcasting 2/4', 'Modifiers 2/5']
+    )
+  })
+  it('keep fresh: the graph keepFresh skills, with when they were last practiced', () => {
+    assert.deepEqual(
+      r.fresh.map((f) => f.label),
+      ['Transforms']
+    )
+    assert.ok(r.fresh[0].lastAt)
+  })
+  it('no graph: nothing made up', () => {
+    assert.deepEqual(fromGraph(undefined), { near: [], fresh: [] })
   })
 })

@@ -27,6 +27,7 @@ import { canReview, requestDashboard, startGoal, startReview, startSaved, useDas
 import type { DashData, DashTrack } from '../../dashboard/types'
 import { openLauncher } from '../../library/Library'
 import { useLibrary } from '../../library/store'
+import { useSkillGraph } from '../../skills/store'
 import { setPage } from '../../shell/store'
 import { PageColumn } from '../../shell/ui'
 import { Scroller } from '../../shell/pages/Column'
@@ -38,6 +39,8 @@ import {
   EMPTY_V4,
   dayLabel,
   freshLabel,
+  fromGraph,
+  type FreshRow,
   GOAL_PICKS,
   goalLine,
   guide,
@@ -450,12 +453,17 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
   const steps = useGrowth((g) => g.steps)
   // The engine's bon (`bon`), else the local count; never Seed at 0 while activity counts passed steps.
   const passed = bonSteps(v4, steps)
-  const near = closest(v4)
-  const fresh = (data?.review?.items ?? []).slice(0, 3)
+  // The engine's own goal / need / review first; else the skill graph the Skills and Home pages draw (QA R3-04).
+  const graph = fromGraph(useSkillGraph(now))
+  const goal = v4.goal ?? graph.goal
+  const own = closest(v4)
+  const near = own.length ? own : graph.near
+  const review = (data?.review?.items ?? []).slice(0, 3)
+  const fresh: FreshRow[] = review.length ? review.map((r) => ({ ...r, key: r.skillId ?? r.label })) : graph.fresh
   return (
     <aside data-progress-rail aria-label="Your numbers" style={stacked ? { marginTop: 40, paddingTop: 30, borderTop: hair } : { borderLeft: hair, padding: '0 0 48px 32px' }}>
       <Bon passed={passed} />
-      {v4.goal && (
+      {goal && (
         <>
           <Sec link="Change" onLink={() => setPage('skills')}>
             Goal
@@ -464,17 +472,17 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
             <div className="flex items-center gap-[8px]" style={{ fontSize: type2.md }}>
               <Flag size={15} strokeWidth={1.8} style={muted} />
               <b className="truncate" style={{ fontWeight: 560, color: color.text }}>
-                {v4.goal.title}
+                {goal.title}
               </b>
             </div>
             <div style={{ margin: '11px 0 8px' }}>
-              <Meter done={v4.goal.mastered} total={v4.goal.total} width={RAIL_W - 32} />
+              <Meter done={goal.mastered} total={goal.total} width={RAIL_W - 32} />
             </div>
             <div className="flex justify-between gap-[12px]" style={{ fontSize: 13, color: color.label, ...num }}>
               <span className="whitespace-nowrap">
-                {v4.goal.mastered} of {v4.goal.total} skills
+                {goal.mastered} of {goal.total} skills
               </span>
-              <span className="truncate">{goalLine(v4.goal)}</span>
+              <span className="truncate">{goalLine(goal)}</span>
             </div>
           </div>
         </>
@@ -516,13 +524,13 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
         <>
           <Sec
             link={v4.reviewMinutes ? `${v4.reviewMinutes} min` : undefined}
-            onLink={v4.reviewMinutes && canReview() ? () => startReview(fresh[0], ROUTE) : undefined}
+            onLink={v4.reviewMinutes && review.length > 0 && canReview() ? () => startReview(review[0], ROUTE) : undefined}
           >
             Keep fresh
           </Sec>
           <div className="mg-v4-rows">
             {fresh.map((r) => (
-              <RRow key={r.skillId ?? r.label}>
+              <RRow key={r.key}>
                 <RefreshCw size={15} strokeWidth={1.8} style={{ ...muted, flex: 'none' }} />
                 <span style={rl}>{plain(r.label)}</span>
                 <span style={rr}>{freshLabel(r, now)}</span>

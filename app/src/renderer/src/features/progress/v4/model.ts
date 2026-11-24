@@ -18,6 +18,7 @@
  * Nothing is made up: a part that is missing stays empty and the page leaves it out (or shows steps where minutes
  * aren't known). Times are epoch seconds, epoch ms or ISO text; here they are epoch ms.
  */
+import type { SkillGraph } from '../../skills/model'
 
 export const DAY_MS = 86_400_000
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -395,6 +396,31 @@ export function closest(v: V4, n = 3): SkillSteps[] {
     .filter((s) => !s.mastered && s.done > 0 && s.done < s.need)
     .sort((a, b) => b.done / b.need - a.done / a.need || b.done - a.done)
     .slice(0, n)
+}
+
+/** A Keep fresh row: a review item from the engine's `progress.review`, or a graph keepFresh skill. */
+export type FreshRow = { key: string; label: string; lastAt?: number; when?: string; dueAt?: number }
+
+/**
+ * The rail's Goal, Closest to mastered and Keep fresh from the skill graph (progress.graph, the one the Skills and Home
+ * pages draw), for an engine whose `progress` carries no goal / need / review of its own (QA R3-04). The goal is the
+ * graph's (picked or inferred, as the Skills page names it); closest are practicing skills by evidence (steps passed
+ * of the steps behind it); keep fresh are the graph's keepFresh ids.
+ */
+export function fromGraph(g: SkillGraph | undefined, n = 3): { goal?: Goal; near: SkillSteps[]; fresh: FreshRow[] } {
+  if (!g) return { near: [], fresh: [] }
+  const goal: Goal | undefined = g.goal && g.goal.total > 0 ? { title: plain(g.goal.label), mastered: Math.min(g.goal.mastered, g.goal.total), total: g.goal.total } : undefined
+  const near = g.nodes
+    .filter((s) => s.kind !== 'capstone' && s.state === 'practicing' && s.evidence && s.evidence.done > 0 && s.evidence.done < s.evidence.total)
+    .map((s) => ({ label: plain(s.label), done: s.evidence!.done, need: s.evidence!.total, mastered: false }))
+    .sort((a, b) => b.done / b.need - a.done / a.need || b.done - a.done)
+    .slice(0, n)
+  const fresh = g.keepFresh
+    .map((id) => g.byId[id])
+    .filter((s): s is NonNullable<typeof s> => !!s)
+    .slice(0, n)
+    .map((s) => ({ key: s.id, label: plain(s.label), lastAt: s.lastPracticedAt ?? s.masteredAt, dueAt: s.dueAt }))
+  return { goal, near, fresh }
 }
 
 // ---- first run --------------------------------------------------------------------------------------------------
