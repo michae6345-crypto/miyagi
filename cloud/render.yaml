@@ -129,6 +129,10 @@ services:
         value: "0.50"
       - key: FREE_LESSON_BUILDS_PER_MONTH
         value: "3"
+      # Region block (D9). Off until the country database is on the disk and the app shows the 451 message:
+      # python scripts/fetch_country_db.py /var/data/dbip-country-lite.csv.gz, then COUNTRY_DB_PATH to that path.
+      - key: REGION_BLOCK
+        value: "0"
       - key: NEW_INSTALLS_PER_DAY  # new installs per UTC day, every network; past it "miyagi is full today" (D13)
         value: "500"
       - key: DAILY_USD_CAP         # global abuse brake in dollars per UTC day; unset/empty/0 = off. Never a low value:
