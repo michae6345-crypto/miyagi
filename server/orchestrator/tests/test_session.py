@@ -17,6 +17,13 @@ from server.orchestrator.session import LessonSession
 from shared.contracts.events import engine_message, parse_app_message
 
 
+def _core(p):
+    """step.passed without the ui-v4 skill tree fields (key, assisted, skillIds, proofId: test_skill_hooks covers them)."""
+    if isinstance(p, list):
+        return [_core(x) for x in p]
+    return {k: v for k, v in p.items() if k not in ("key", "assisted", "skillIds", "proofId")}
+
+
 class Clock:
     def __init__(self) -> None:
         self.t = 1000.0
@@ -170,7 +177,7 @@ def test_file_check_passes_and_advances(rig):
     types_ = [e["type"] for e in ev]
     assert types_[:2] == ["check.updated", "step.passed"]
     assert ev[0]["payload"]["status"] == "pass"
-    assert ev[1]["payload"] == {"stepId": "s1", "nextStepId": "s2"}
+    assert _core(ev[1]["payload"]) == {"stepId": "s1", "nextStepId": "s2"}
     assert {"type": "spotlight", "payload": {"clear": True}} in ev
     assert any(e["type"] == "step.started" and e["payload"]["stepId"] == "s2" for e in ev)
     i = types_.index("step.started")
@@ -261,8 +268,8 @@ def test_screen_checks_pass_from_ocr_and_watch_metric_patterns(tmp_path, monkeyp
         await rig.settle()
 
     run(go())
-    assert rig.of("step.passed")[0] == {"stepId": "s1", "nextStepId": "s2"}
-    assert rig.of("step.passed")[-1] == {"stepId": "s5", "nextStepId": "s6"}
+    assert _core(rig.of("step.passed")[0]) == {"stepId": "s1", "nextStepId": "s2"}
+    assert _core(rig.of("step.passed")[-1]) == {"stepId": "s5", "nextStepId": "s6"}
     assert rig.of("screen.seen")[0]["summary"] == "pinn_convection.py — sandbox"
 
 
@@ -362,7 +369,7 @@ def test_hero_ladder_concept_then_exact_fix_then_green(rig):
     spot = [e["payload"] for e in second if e["type"] == "spotlight"][-1]
     assert spot["matched"] == "    beta = 30" and spot["caption"] == off3[0]["title"]
     passed = [e["payload"] for e in fixed if e["type"] == "step.passed"]
-    assert passed == [{"stepId": "s6"}]  # last step: no nextStepId
+    assert _core(passed) == [{"stepId": "s6"}]  # last step: no nextStepId
     assert rig.s.phase == "done"
     assert fixed[-1]["type"] == "video.pause"  # t11: the completion panel never plays the video's outro behind it
     assert "video.play" not in [e["type"] for e in fixed[[e["type"] for e in fixed].index("step.passed"):]]
@@ -801,7 +808,7 @@ def test_record_then_replay_passes_the_hero_step(rig):
 
     run_id = run(go())
     assert run_id.startswith("replay-good")
-    assert rig.of("step.passed")[-1] == {"stepId": "s6"}
+    assert _core(rig.of("step.passed")[-1]) == {"stepId": "s6"}
 
 
 def test_spotlight_follows_target_and_precision_off(tmp_path, monkeypatch):
@@ -1534,7 +1541,7 @@ def test_long_video_builds_progressively(rig):
         await rig.settle()
         await rig.s.force_pass()  # s2: the last BUILT step
         await rig.settle()
-        assert rig.of("step.passed")[-1] == {"stepId": "s2", "pending": True}
+        assert _core(rig.of("step.passed")[-1]) == {"stepId": "s2", "pending": True}
         more = rig.of("card")[-1]
         assert more["title"] == "Building the next part…" and "(part 2 of 2)" in more["body"]
         assert rig.s.phase == "active" and rig.s.waiting_more
@@ -2283,7 +2290,7 @@ def test_skip_step_moves_on_without_a_pass(rig):
         await rig.settle()
 
     run(go())
-    assert rig.of("step.passed")[0] == {"stepId": "s1", "nextStepId": "s2", "skipped": True}
+    assert _core(rig.of("step.passed")[0]) == {"stepId": "s1", "nextStepId": "s2", "skipped": True}
     assert rig.of("step.started")[-1]["stepId"] == "s2"
     assert not any(p["status"] == "pass" for p in rig.of("check.updated"))  # never green
     assert {"state": "passed"} not in rig.of("status")

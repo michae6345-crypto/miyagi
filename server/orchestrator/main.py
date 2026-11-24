@@ -63,10 +63,11 @@ from shared.contracts import events as contract
 from shared.contracts.events import parse_app_message
 
 from server import config as server_config
+from server.skilltree import service as skills_service
 from server.plans import progress as plans_progress
 from server.plans import service as plans_service
 
-from . import config, recorder, stage
+from . import config, recorder, skill_hooks, stage
 from .hub import Hub, log_received
 from .modules import Modules
 from .screen_bridge import ScreenBridge
@@ -128,6 +129,8 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
+# ui-v4 skill tree (server/skilltree/service.py): proof.get, a local read answered beside the queue
+SKILL_INSTANT = frozenset({"proof.get"})
 # ui-v4 plans (server/plans/service.py): answered beside the queue. A plan lesson starts through learn / learn_url /
 # library.start carrying plan {id, index}.
 PLAN_INSTANT = frozenset(plans_service.COMMANDS)
@@ -861,6 +864,7 @@ class Engine:
         if getattr(self, "activity", None) is not None:
             caps += ["activity.get", "bon.get", "bon.import"]  # ui-v4 Activity + bon (activity_feed.py)
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
+        caps.append("proof.get")  # ui-v4 skill tree: a pass's proof (server/skilltree/proofs.py); the tree rides on progress
         caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
         caps += list(plans_service.COMMANDS)  # ui-v4 plans (server/plans); learn / learn_url / library.start take plan
         return caps
@@ -972,7 +976,25 @@ class Engine:
 
     async def _read_progress(self) -> dict | None:
         p = await asyncio.to_thread(progress_mod.progress)
-        return contract_progress(p) if p is not None else None
+        out = contract_progress(p) if p is not None else None
+        try:  # ui-v4: the catalog skill tree (tracks -> skills -> steps, mastery, review rounds) on progress.graph
+            from server.skilltree import graph as tree
+
+            current = self.session_skill_lesson()
+            merged = await asyncio.to_thread(tree.merge, out, current=current)
+            return merged or out
+        except Exception:  # noqa: BLE001 - the tree is an extra: progress still answers without it
+            log.exception("skill tree merge failed")
+            return out
+
+    def session_skill_lesson(self) -> dict | None:
+        """The running lesson for the Steps zoom: {lesson, steps, tags} (tags: stepId -> catalog skill ids)."""
+        s = self.session
+        g = s.graph if isinstance(s.graph, dict) else None
+        if not g:
+            return None
+        return {"lesson": dict(g.get("lesson") or {}), "steps": [dict(st) for st in (s.steps or []) if isinstance(st, dict)],
+                "tags": skill_hooks.tags(s)}
 
     async def skills_set_goal(self, capstone_id: str) -> None:
         """set_goal: kept in skills.json (the learner's state on this Mac). An id that is not a capstone is ignored when
@@ -1031,6 +1053,11 @@ class Engine:
                 await reply("bon", await feed.import_bon(p.steps, getattr(p, "seen", None)))
         elif type_ == "data.delete":  # Settings > Privacy > Delete my data: the engine's local lesson notes go too
             await asyncio.to_thread(_wipe_context_memory, s)  # no reply: the app's sheet already says what it erased
+            what = getattr(p, "what", None)
+            if skills_service.deletes_proofs(what):  # no `what` (Delete my data), proofs or all
+                await asyncio.to_thread(_wipe_skill_proofs)  # the skill tree's proofs (snippets of the learner's work)
+            if skills_service.deletes_record(what):  # no `what`, progress or all: skilltree.json (passes, step titles)
+                await asyncio.to_thread(_forget_skill_record)
             if getattr(self, "activity", None) is not None and _erases_activity(getattr(p, "what", None)):
                 await self.activity.erase()  # minutes, recent passes and bon's counter are the learner's data too
 
@@ -1142,6 +1169,8 @@ class Engine:
         if review_mod is None or library_mod is None:
             return None
         row = review_mod.find({"skillId": skill_id, "label": label})
+        if row is None and skill_id:  # ui-v4: a catalog skill ("bl.extrude") from graph.keepFresh (server/skilltree)
+            return self._catalog_review_graph(skill_id)
         if row is None or not isinstance(row.get("_lessonId"), str):
             return None
         lib_id = library_mod.index_by_lesson_id().get(row["_lessonId"])
@@ -1153,6 +1182,21 @@ class Engine:
             return None
         graph["lesson"].pop("workdir", None)
         graph["lesson"]["_folder"] = _library_folder(source)  # the finished lesson's own folder: the learner's code is there
+        return graph
+
+    def _catalog_review_graph(self, skill_id: str) -> dict | None:
+        from server.skilltree import review as tree_review
+
+        def find(lesson_id: str) -> dict | None:
+            lib_id = library_mod.index_by_lesson_id().get(lesson_id)
+            source = library_mod.load_graph(lib_id) if lib_id else None
+            if isinstance(source, dict):
+                source = {**source, "lesson": {**(source.get("lesson") or {}), "_folder": _library_folder(source)}}
+            return source
+
+        graph = tree_review.review_graph(skill_id, find)
+        if graph is not None:
+            graph["lesson"].pop("workdir", None)
         return graph
 
     async def _load_library(self, graph: dict, title: str, folder: str | None = None) -> None:
@@ -1282,6 +1326,9 @@ class Engine:
             await self.handle_v2(msg.type, p, reply)
             if msg.type == "library.list":
                 await self._offer_saved_lesson(ws, reply)
+        elif msg.type in SKILL_INSTANT:
+            s.note_app_v2()  # only a ui-v4 app sends proof.get: it draws the v2 surfaces
+            await skills_service.proof_get(p, reply)
         elif msg.type in PLAN_INSTANT:
             s.note_app_v2()  # only a ui-v4 app sends plans messages: it draws the v2 surfaces
             await plans_service.handle(msg.type, p, reply)
@@ -1400,6 +1447,26 @@ def _wipe_context_memory(session: Any = None) -> None:
         context_memory.wipe_all(session)
     except Exception:  # noqa: BLE001 - the keys already went; a leftover note is logged, never a crash
         log.exception("context memory wipe failed")
+
+
+def _wipe_skill_proofs() -> None:
+    """Delete my data, skill tree part: every proof of a pass (server/skilltree/proofs.py). Never raises."""
+    try:
+        from server.skilltree import proofs
+
+        proofs.wipe()
+    except Exception:  # noqa: BLE001 - a leftover proof is logged, never a crash
+        log.exception("skill proofs wipe failed")
+
+
+def _forget_skill_record() -> None:
+    """Delete my data, skill tree part: the per-skill record (server/skilltree/ledger.py). Never raises."""
+    try:
+        from server.skilltree import ledger
+
+        ledger.forget()
+    except Exception:  # noqa: BLE001 - a leftover record is logged, never a crash
+        log.exception("skill record forget failed")
 
 
 def _log_cloud_failure(fut: Any) -> None:
@@ -1588,7 +1655,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     await engine.dispatch(raw, ws)
                 except Exception:
                     log.exception("bad %s: %s", _brief(raw), _redact(raw))
-            elif raw.get("type") in V2_INSTANT or raw.get("type") in PLAN_INSTANT:  # a read never waits behind a build
+            elif (raw.get("type") in V2_INSTANT or raw.get("type") in SKILL_INSTANT
+                  or raw.get("type") in PLAN_INSTANT):  # a read never waits behind a build
                 t = asyncio.create_task(answer(raw))
                 side.add(t)
                 t.add_done_callback(side.discard)

@@ -10,6 +10,13 @@ from server.orchestrator.modules import Modules
 from server.orchestrator.screen_bridge import FakeScreen
 from server.orchestrator.tests.test_session import Rig, run
 
+
+def _core(p):
+    """step.passed without the ui-v4 skill tree fields (key, assisted, skillIds, proofId: test_skill_hooks covers them)."""
+    if isinstance(p, list):
+        return [_core(x) for x in p]
+    return {k: v for k, v in p.items() if k not in ("key", "assisted", "skillIds", "proofId")}
+
 DICE = 'import random\n\nroll = random.randint(1, 6)\nprint("You rolled:", roll)\n'
 DICE_BROKEN = 'import random\n\n\n\nroll = random.randint(1, 6)\nprint("You rolled:" roll)\n'  # frame 012000
 WEATHER = ('import requests\n\n\ndef get_weather(city):\n'
@@ -152,7 +159,7 @@ def test_requests_get_without_params_or_raise_for_status_does_not_pass(tmp_path,
         await _save(rig, screen, "weather.py", WEATHER)
 
     run(go())
-    assert rig.of("step.passed")[-1] == {"stepId": "s2", "nextStepId": "s3"}
+    assert _core(rig.of("step.passed")[-1]) == {"stepId": "s2", "nextStepId": "s3"}
 
 
 def test_the_judges_done_never_passes_rows_the_code_gate_fails(tmp_path, monkeypatch):

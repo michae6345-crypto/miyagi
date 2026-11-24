@@ -1,0 +1,6645 @@
+{
+"version":1,
+"source":"adrian/ui-next@822ee74a:docs/ui-next/catalog/catalog.json",
+"plans":[
+{
+"id":"intro-c",
+"title":"Intro to C",
+"topic":"code",
+"track":"c",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A train line as a linked list",
+"checks":[
+"line.c compiles with -Wall and no warnings",
+"The stops print in order with the inserted stop in the middle",
+"Every node is freed before the program ends"
+]
+},
+"skills":[
+{
+"id":"c.compile",
+"label":"Compile and run",
+"needs":[]
+},
+{
+"id":"c.types",
+"label":"Types and printf",
+"needs":[
+"c.compile"
+]
+},
+{
+"id":"c.control",
+"label":"If and loops",
+"needs":[
+"c.types"
+]
+},
+{
+"id":"c.functions",
+"label":"Functions",
+"needs":[
+"c.control"
+]
+},
+{
+"id":"c.arrays",
+"label":"Arrays",
+"needs":[
+"c.control"
+]
+},
+{
+"id":"c.strings",
+"label":"Strings",
+"needs":[
+"c.arrays"
+]
+},
+{
+"id":"c.pointers",
+"label":"Pointers",
+"needs":[
+"c.functions",
+"c.arrays"
+]
+},
+{
+"id":"c.structs",
+"label":"Structs",
+"needs":[
+"c.pointers"
+]
+},
+{
+"id":"c.memory",
+"label":"malloc and free",
+"needs":[
+"c.pointers"
+]
+},
+{
+"id":"c.headers",
+"label":"Header files",
+"needs":[
+"c.functions"
+]
+}
+],
+"lessons":[
+{
+"title":"Compile and run your first program",
+"goal":"Teach a complete beginner to write hello.c in VS Code with main and printf, compile it in the terminal with cc hello.c -o hello and run ./hello.",
+"grows":[
+"c.compile"
+],
+"check":"run"
+},
+{
+"title":"Types and printf",
+"goal":"Teach C int, double and char variables and printf format specifiers by building a paint calculator that prints the litres needed for a wall to two decimals.",
+"grows":[
+"c.types"
+],
+"check":"run"
+},
+{
+"title":"If, for and while",
+"goal":"Teach C if, else, for and while with the remainder operator by writing a prime finder that prints every prime below 50.",
+"grows":[
+"c.control"
+],
+"check":"run"
+},
+{
+"title":"Functions",
+"goal":"Teach C functions with prototypes, parameters and return values by writing a leap year checker with an is_leap function tested on four years.",
+"grows":[
+"c.functions"
+],
+"check":"run"
+},
+{
+"title":"Arrays",
+"goal":"Teach C arrays, indexing and looping with a length by storing the weights of seven parcels and printing the lightest, the heaviest and the average.",
+"grows":[
+"c.arrays"
+],
+"check":"run"
+},
+{
+"title":"Strings",
+"goal":"Teach C strings as char arrays that end in a zero byte, with strlen from string.h, by writing a palindrome checker.",
+"grows":[
+"c.strings"
+],
+"check":"run"
+},
+{
+"title":"Pointers",
+"goal":"Teach C pointers, with the address-of and dereference operators and passing by pointer, by writing a swap function that trades two ints.",
+"grows":[
+"c.pointers"
+],
+"check":"run"
+},
+{
+"title":"Structs",
+"goal":"Teach C structs, typedef and the arrow operator by building a product inventory of three items and a function that prints one through a pointer.",
+"grows":[
+"c.structs"
+],
+"check":"code"
+},
+{
+"title":"malloc and free",
+"goal":"Teach C heap memory with malloc, realloc and free by building a list of numbers that doubles its capacity as ten values are added.",
+"grows":[
+"c.memory"
+],
+"check":"run"
+},
+{
+"title":"Split code across files",
+"goal":"Teach C header files, include guards and compiling several files by moving count_vowels and reverse functions into textutil.h and textutil.c.",
+"grows":[
+"c.headers"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-csharp",
+"title":"Intro to C#",
+"topic":"code",
+"track":"c#",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A habit tracker",
+"checks":[
+"dotnet run builds and exits with no error",
+"Each habit prints its name and the percent of days done",
+"The habits print ordered by percent, highest first"
+]
+},
+"skills":[
+{
+"id":"cs.run",
+"label":"dotnet new and run",
+"needs":[]
+},
+{
+"id":"cs.types",
+"label":"Variables, types",
+"needs":[
+"cs.run"
+]
+},
+{
+"id":"cs.strings",
+"label":"String formatting",
+"needs":[
+"cs.types"
+]
+},
+{
+"id":"cs.conditions",
+"label":"If and switch",
+"needs":[
+"cs.types"
+]
+},
+{
+"id":"cs.loops",
+"label":"Loops",
+"needs":[
+"cs.conditions"
+]
+},
+{
+"id":"cs.methods",
+"label":"Methods",
+"needs":[
+"cs.loops"
+]
+},
+{
+"id":"cs.lists",
+"label":"Lists",
+"needs":[
+"cs.loops"
+]
+},
+{
+"id":"cs.dicts",
+"label":"Dictionaries",
+"needs":[
+"cs.lists"
+]
+},
+{
+"id":"cs.classes",
+"label":"Classes",
+"needs":[
+"cs.methods"
+]
+},
+{
+"id":"cs.linq",
+"label":"LINQ",
+"needs":[
+"cs.lists",
+"cs.methods"
+]
+}
+],
+"lessons":[
+{
+"title":"Create and run a console app",
+"goal":"Teach a complete beginner to create a C# console app with dotnet new console, edit Program.cs in VS Code to print a three-line haiku and run it with dotnet run.",
+"grows":[
+"cs.run"
+],
+"check":"run"
+},
+{
+"title":"Variables and types",
+"goal":"Teach C# int, double, decimal, bool, string and var by building a currency converter that turns an amount in dollars into euros at a fixed rate.",
+"grows":[
+"cs.types"
+],
+"check":"run"
+},
+{
+"title":"Strings and interpolation",
+"goal":"Teach C# string interpolation with format and alignment, plus Length and ToUpper, by printing a shop receipt with three items in neat columns.",
+"grows":[
+"cs.strings"
+],
+"check":"run"
+},
+{
+"title":"If, else and switch",
+"goal":"Teach C# if, else and the switch expression by writing a season finder that turns a month number into winter, spring, summer or autumn.",
+"grows":[
+"cs.conditions"
+],
+"check":"run"
+},
+{
+"title":"For, while and foreach",
+"goal":"Teach C# for, while and foreach loops by printing the first 15 Fibonacci numbers, starting from 0 and 1, and then their sum.",
+"grows":[
+"cs.loops"
+],
+"check":"run"
+},
+{
+"title":"Methods",
+"goal":"Teach C# methods with parameters, return values and optional parameters by building a BMI calculator with one method for the number and one for the label.",
+"grows":[
+"cs.methods"
+],
+"check":"run"
+},
+{
+"title":"Lists",
+"goal":"Teach the C# List with Add, Remove, Contains, Count, Sort and foreach by building a team lineup that signs players and drops one.",
+"grows":[
+"cs.lists"
+],
+"check":"run"
+},
+{
+"title":"Dictionaries",
+"goal":"Teach the C# Dictionary with add, lookup, TryGetValue and foreach by building a Morse code translator for letters and digits.",
+"grows":[
+"cs.dicts"
+],
+"check":"run"
+},
+{
+"title":"Classes and properties",
+"goal":"Teach C# classes with properties, a constructor and methods by building a Thermostat class whose target stays between 10 and 30 degrees.",
+"grows":[
+"cs.classes"
+],
+"check":"run"
+},
+{
+"title":"LINQ",
+"goal":"Teach C# LINQ with Where, OrderBy, Select and Average by reporting on marathon results, the runners under four hours sorted by finish time.",
+"grows":[
+"cs.linq"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-cpp",
+"title":"Intro to C++",
+"topic":"code",
+"track":"c++",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A deck of cards",
+"checks":[
+"cards.cpp compiles with -std=c++17 and runs",
+"The deck holds 52 different cards",
+"The hand of five prints sorted by rank"
+]
+},
+"skills":[
+{
+"id":"cpp.compile",
+"label":"Compile and run",
+"needs":[]
+},
+{
+"id":"cpp.types",
+"label":"Variables and cout",
+"needs":[
+"cpp.compile"
+]
+},
+{
+"id":"cpp.strings",
+"label":"std::string",
+"needs":[
+"cpp.types"
+]
+},
+{
+"id":"cpp.control",
+"label":"If and loops",
+"needs":[
+"cpp.types"
+]
+},
+{
+"id":"cpp.functions",
+"label":"Functions",
+"needs":[
+"cpp.control"
+]
+},
+{
+"id":"cpp.refs",
+"label":"References, const",
+"needs":[
+"cpp.functions"
+]
+},
+{
+"id":"cpp.vectors",
+"label":"Vectors",
+"needs":[
+"cpp.control"
+]
+},
+{
+"id":"cpp.maps",
+"label":"Maps",
+"needs":[
+"cpp.vectors"
+]
+},
+{
+"id":"cpp.classes",
+"label":"Classes",
+"needs":[
+"cpp.refs"
+]
+},
+{
+"id":"cpp.algorithms",
+"label":"Sort and lambdas",
+"needs":[
+"cpp.vectors",
+"cpp.functions"
+]
+}
+],
+"lessons":[
+{
+"title":"Compile and run your first program",
+"goal":"Teach a complete beginner to write banner.cpp in VS Code with iostream and std::cout, compile it with clang++ -std=c++17 and run it to print a name in a box of stars.",
+"grows":[
+"cpp.compile"
+],
+"check":"run"
+},
+{
+"title":"Variables, types and cout",
+"goal":"Teach C++ int, double, bool, const and auto with arithmetic by building a download time estimator from a file size and a connection speed.",
+"grows":[
+"cpp.types"
+],
+"check":"run"
+},
+{
+"title":"Strings",
+"goal":"Teach std::string in C++, with size, find, substr and replace, by writing a word censor that swaps one word in a sentence for stars.",
+"grows":[
+"cpp.strings"
+],
+"check":"run"
+},
+{
+"title":"If, for and while",
+"goal":"Teach C++ if, else, for and while by writing a coin change counter that breaks an amount in cents into the fewest quarters, dimes, nickels and pennies.",
+"grows":[
+"cpp.control"
+],
+"check":"run"
+},
+{
+"title":"Functions",
+"goal":"Teach C++ functions with parameters, return types, default arguments and overloading by writing time helpers that turn seconds into hours, minutes and seconds.",
+"grows":[
+"cpp.functions"
+],
+"check":"run"
+},
+{
+"title":"References and const",
+"goal":"Teach C++ references and const references by writing heal and damage functions that change a health bar in place and a print function that only reads it.",
+"grows":[
+"cpp.refs"
+],
+"check":"code"
+},
+{
+"title":"Vectors",
+"goal":"Teach std::vector in C++, with push_back, size, indexing and the range for loop, by logging lap times and printing the fastest lap and the average.",
+"grows":[
+"cpp.vectors"
+],
+"check":"run"
+},
+{
+"title":"Maps",
+"goal":"Teach std::map in C++, with insert, lookup, find and looping over pairs, by building a fruit stand price list and totalling an order.",
+"grows":[
+"cpp.maps"
+],
+"check":"run"
+},
+{
+"title":"Classes",
+"goal":"Teach C++ classes with private members, a constructor and const member functions by building a Fraction class that adds two fractions and simplifies the result.",
+"grows":[
+"cpp.classes"
+],
+"check":"run"
+},
+{
+"title":"Sort and lambdas",
+"goal":"Teach std::sort, std::find_if and lambdas from the C++ algorithm header by building a leaderboard that sorts players by score, highest first.",
+"grows":[
+"cpp.algorithms"
+],
+"check":"code"
+}
+]
+},
+{
+"id":"intro-go",
+"title":"Intro to Go",
+"topic":"code",
+"track":"go",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A print shop with three printers",
+"checks":[
+"go run . finishes with no error and go vet reports nothing",
+"Printing more pages than the paper left prints an out of paper error",
+"Main prints one summary per printer, received from a channel"
+]
+},
+"skills":[
+{
+"id":"go.run",
+"label":"go run and modules",
+"needs":[]
+},
+{
+"id":"go.variables",
+"label":"Variables, types",
+"needs":[
+"go.run"
+]
+},
+{
+"id":"go.control",
+"label":"If, for and switch",
+"needs":[
+"go.variables"
+]
+},
+{
+"id":"go.functions",
+"label":"Functions",
+"needs":[
+"go.control"
+]
+},
+{
+"id":"go.slices",
+"label":"Slices",
+"needs":[
+"go.control"
+]
+},
+{
+"id":"go.maps",
+"label":"Maps",
+"needs":[
+"go.slices"
+]
+},
+{
+"id":"go.structs",
+"label":"Structs, methods",
+"needs":[
+"go.functions"
+]
+},
+{
+"id":"go.errors",
+"label":"Errors",
+"needs":[
+"go.functions"
+]
+},
+{
+"id":"go.interfaces",
+"label":"Interfaces",
+"needs":[
+"go.structs"
+]
+},
+{
+"id":"go.goroutines",
+"label":"Goroutines",
+"needs":[
+"go.functions"
+]
+}
+],
+"lessons":[
+{
+"title":"Run your first Go program",
+"goal":"Teach a complete beginner to start a module with go mod init, write main.go in VS Code with package main and fmt.Println to print a two-line postcard, and run it with go run.",
+"grows":[
+"go.run"
+],
+"check":"run"
+},
+{
+"title":"Variables and types",
+"goal":"Teach Go var, the short := declaration, const, int, float64 and fmt.Printf by building a map scale converter that turns centimetres on a map into kilometres on the ground.",
+"grows":[
+"go.variables"
+],
+"check":"run"
+},
+{
+"title":"If, for and switch",
+"goal":"Teach Go if, the for loop in its three forms and switch by printing a grade letter table for the scores 50 to 100 in steps of 10.",
+"grows":[
+"go.control"
+],
+"check":"run"
+},
+{
+"title":"Functions and multiple returns",
+"goal":"Teach Go functions with typed parameters and multiple return values by writing a seating planner that returns both the full rows and the seats left over.",
+"grows":[
+"go.functions"
+],
+"check":"run"
+},
+{
+"title":"Slices",
+"goal":"Teach Go slices, with append, len, slicing and range, by building a waiting queue for a bakery that adds customers and serves from the front.",
+"grows":[
+"go.slices"
+],
+"check":"run"
+},
+{
+"title":"Maps",
+"goal":"Teach Go maps, with the comma ok check, delete and range, by building a capital city lookup that answers for known countries and reports unknown ones.",
+"grows":[
+"go.maps"
+],
+"check":"run"
+},
+{
+"title":"Structs and methods",
+"goal":"Teach Go structs and methods with value and pointer receivers by building a robot that moves on a grid and reports its position.",
+"grows":[
+"go.structs"
+],
+"check":"run"
+},
+{
+"title":"Errors",
+"goal":"Teach Go error values, with errors.New, fmt.Errorf and checking err against nil, by writing an age parser with strconv.Atoi that rejects words and negative numbers.",
+"grows":[
+"go.errors"
+],
+"check":"run"
+},
+{
+"title":"Interfaces",
+"goal":"Teach Go interfaces by writing a Notifier interface with email and text message senders and one function that sends through either.",
+"grows":[
+"go.interfaces"
+],
+"check":"code"
+},
+{
+"title":"Goroutines and channels",
+"goal":"Teach Go goroutines, channels and sync.WaitGroup by building a kitchen where three cooks each make a dish at once and report back on a channel.",
+"grows":[
+"go.goroutines"
+],
+"check":"code"
+}
+]
+},
+{
+"id":"intro-html-css",
+"title":"Intro to HTML and CSS",
+"topic":"code",
+"track":"web",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A portfolio page of your own",
+"checks":[
+"index.html has header, main and footer and links styles.css",
+"A flex container lays out at least three cards",
+"A media query changes the layout below 600 px wide"
+]
+},
+"skills":[
+{
+"id":"web.page",
+"label":"Page structure",
+"needs":[]
+},
+{
+"id":"web.text",
+"label":"Headings and lists",
+"needs":[
+"web.page"
+]
+},
+{
+"id":"web.links",
+"label":"Links and images",
+"needs":[
+"web.text"
+]
+},
+{
+"id":"web.semantic",
+"label":"Semantic tags",
+"needs":[
+"web.links"
+]
+},
+{
+"id":"web.forms",
+"label":"Forms",
+"needs":[
+"web.text"
+]
+},
+{
+"id":"web.selectors",
+"label":"CSS selectors",
+"needs":[
+"web.text"
+]
+},
+{
+"id":"web.type",
+"label":"Colors and fonts",
+"needs":[
+"web.selectors"
+]
+},
+{
+"id":"web.box",
+"label":"Box model",
+"needs":[
+"web.selectors"
+]
+},
+{
+"id":"web.flex",
+"label":"Flexbox",
+"needs":[
+"web.box"
+]
+},
+{
+"id":"web.responsive",
+"label":"Responsive layout",
+"needs":[
+"web.flex"
+]
+}
+],
+"lessons":[
+{
+"title":"Your first web page",
+"goal":"Teach a complete beginner to write index.html in VS Code with a doctype, head, title and body, add a heading and a paragraph to make an about me page, and open it in a browser.",
+"grows":[
+"web.page"
+],
+"check":"code"
+},
+{
+"title":"Headings, paragraphs and lists",
+"goal":"Teach HTML headings, paragraphs, strong and em, and ordered and unordered lists by writing a paper plane guide with a list of materials and numbered folding steps.",
+"grows":[
+"web.text"
+],
+"check":"code"
+},
+{
+"title":"Links and images",
+"goal":"Teach HTML links and images, with href, src, alt text and relative paths, by building a city guide page with three links and two pictures.",
+"grows":[
+"web.links"
+],
+"check":"code"
+},
+{
+"title":"Semantic page layout",
+"goal":"Teach the HTML tags header, nav, main, section and footer by laying out the home page of a cafe with a menu section and opening hours.",
+"grows":[
+"web.semantic"
+],
+"check":"code"
+},
+{
+"title":"Forms and inputs",
+"goal":"Teach HTML forms, with label, input types, required and button, by building a table booking form that asks for a name, an email and a number of guests.",
+"grows":[
+"web.forms"
+],
+"check":"code"
+},
+{
+"title":"Your first stylesheet",
+"goal":"Teach linking styles.css to an HTML page and CSS element, class and id selectors by styling the headings, the menu and one special dish on the cafe page.",
+"grows":[
+"web.selectors"
+],
+"check":"code"
+},
+{
+"title":"Colors and fonts",
+"goal":"Teach CSS color, background-color, font-family, font-size and line-height by styling a quote card with a dark background and large serif text.",
+"grows":[
+"web.type"
+],
+"check":"code"
+},
+{
+"title":"The box model",
+"goal":"Teach the CSS box model, with width, padding, border, margin and box-sizing, by building a profile card that is exactly 300 px wide.",
+"grows":[
+"web.box"
+],
+"check":"code"
+},
+{
+"title":"Flexbox",
+"goal":"Teach CSS flexbox, with display flex, justify-content, align-items and gap, by building a navigation bar with a logo on the left and links on the right.",
+"grows":[
+"web.flex"
+],
+"check":"code"
+},
+{
+"title":"Make it fit a phone",
+"goal":"Teach responsive CSS with the viewport meta tag and a media query by building a three-column pricing section that stacks into one column on a phone.",
+"grows":[
+"web.responsive"
+],
+"check":"code"
+}
+]
+},
+{
+"id":"intro-java",
+"title":"Intro to Java",
+"topic":"code",
+"track":"java",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A vending machine",
+"checks":[
+"VendingMachine.java compiles with javac and runs to the end",
+"Buying a sold out item prints an error and the program keeps going",
+"The final stock report lists every item with its count"
+]
+},
+"skills":[
+{
+"id":"java.run",
+"label":"Compile and run",
+"needs":[]
+},
+{
+"id":"java.types",
+"label":"Variables, types",
+"needs":[
+"java.run"
+]
+},
+{
+"id":"java.strings",
+"label":"Strings",
+"needs":[
+"java.types"
+]
+},
+{
+"id":"java.conditions",
+"label":"If and switch",
+"needs":[
+"java.types"
+]
+},
+{
+"id":"java.loops",
+"label":"Loops",
+"needs":[
+"java.conditions"
+]
+},
+{
+"id":"java.methods",
+"label":"Methods",
+"needs":[
+"java.loops"
+]
+},
+{
+"id":"java.arrays",
+"label":"Arrays, ArrayList",
+"needs":[
+"java.loops"
+]
+},
+{
+"id":"java.classes",
+"label":"Classes, objects",
+"needs":[
+"java.methods"
+]
+},
+{
+"id":"java.maps",
+"label":"HashMap",
+"needs":[
+"java.arrays"
+]
+},
+{
+"id":"java.exceptions",
+"label":"Exceptions",
+"needs":[
+"java.methods"
+]
+}
+],
+"lessons":[
+{
+"title":"Compile and run your first class",
+"goal":"Teach a complete beginner to write Hello.java in VS Code with a class and a main method, compile it with javac and run it with java to print a three-line welcome sign.",
+"grows":[
+"java.run"
+],
+"check":"run"
+},
+{
+"title":"Variables and types",
+"goal":"Teach Java int, double, boolean and String variables, arithmetic and casting by building a trip fuel cost calculator in FuelCost.java.",
+"grows":[
+"java.types"
+],
+"check":"run"
+},
+{
+"title":"Strings",
+"goal":"Teach Java String methods, with length, charAt, substring, toLowerCase and equals, by building a username maker from a first and a last name.",
+"grows":[
+"java.strings"
+],
+"check":"run"
+},
+{
+"title":"If, else and switch",
+"goal":"Teach Java if, else and switch by writing a rock paper scissors judge that takes two moves and prints who wins or that it is a tie.",
+"grows":[
+"java.conditions"
+],
+"check":"run"
+},
+{
+"title":"For and while loops",
+"goal":"Teach Java for and while loops by printing a savings table that grows 1000 dollars at 5 percent a year for ten years.",
+"grows":[
+"java.loops"
+],
+"check":"run"
+},
+{
+"title":"Methods",
+"goal":"Teach Java static methods with parameters, return types and overloading by writing a unit converter for miles to kilometres and pounds to kilograms.",
+"grows":[
+"java.methods"
+],
+"check":"run"
+},
+{
+"title":"Arrays and ArrayList",
+"goal":"Teach Java arrays and ArrayList by building a grade book that stores five scores, adds a sixth and prints the highest and the average.",
+"grows":[
+"java.arrays"
+],
+"check":"run"
+},
+{
+"title":"Classes and objects",
+"goal":"Teach Java classes with private fields, a constructor, methods and toString by building a BankAccount class with deposit and withdraw.",
+"grows":[
+"java.classes"
+],
+"check":"run"
+},
+{
+"title":"HashMap",
+"goal":"Teach the Java HashMap with put, get, getOrDefault and a loop over the keys by counting the votes in a class election and printing the winner.",
+"grows":[
+"java.maps"
+],
+"check":"run"
+},
+{
+"title":"Exceptions",
+"goal":"Teach Java try, catch and throw by writing a calculator that divides two numbers given as text and survives a zero and a word that is not a number.",
+"grows":[
+"java.exceptions"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-javascript",
+"title":"Intro to JavaScript",
+"topic":"code",
+"track":"javascript",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A workout log",
+"checks":[
+"workouts.js runs with node and no error",
+"The report prints one line per kind of workout with its minutes",
+"The grand total equals the sum of every workout"
+]
+},
+"skills":[
+{
+"id":"js.run",
+"label":"Running with Node",
+"needs":[]
+},
+{
+"id":"js.variables",
+"label":"Let and const",
+"needs":[
+"js.run"
+]
+},
+{
+"id":"js.strings",
+"label":"Template literals",
+"needs":[
+"js.variables"
+]
+},
+{
+"id":"js.conditions",
+"label":"If and else",
+"needs":[
+"js.variables"
+]
+},
+{
+"id":"js.loops",
+"label":"Loops",
+"needs":[
+"js.conditions"
+]
+},
+{
+"id":"js.functions",
+"label":"Functions",
+"needs":[
+"js.conditions"
+]
+},
+{
+"id":"js.arrays",
+"label":"Arrays",
+"needs":[
+"js.loops"
+]
+},
+{
+"id":"js.methods",
+"label":"Array methods",
+"needs":[
+"js.arrays",
+"js.functions"
+]
+},
+{
+"id":"js.objects",
+"label":"Objects",
+"needs":[
+"js.arrays"
+]
+},
+{
+"id":"js.async",
+"label":"Promises and await",
+"needs":[
+"js.functions"
+]
+}
+],
+"lessons":[
+{
+"title":"Run your first JavaScript file",
+"goal":"Teach a complete beginner to create hello.js in VS Code, print two lines with console.log and run it from the terminal with node.",
+"grows":[
+"js.run"
+],
+"check":"run"
+},
+{
+"title":"Let, const and numbers",
+"goal":"Teach JavaScript let, const and arithmetic by building a dinner bill splitter in split.js with a total, a number of people and a share each.",
+"grows":[
+"js.variables"
+],
+"check":"run"
+},
+{
+"title":"Strings and template literals",
+"goal":"Teach JavaScript strings, length, toUpperCase and template literals by printing a shipping label from a name, a street and a city.",
+"grows":[
+"js.strings"
+],
+"check":"run"
+},
+{
+"title":"If, else and comparisons",
+"goal":"Teach JavaScript comparisons, strict equality and if, else if, else by writing a password strength checker that prints weak, okay or strong.",
+"grows":[
+"js.conditions"
+],
+"check":"run"
+},
+{
+"title":"For and while loops",
+"goal":"Teach JavaScript for and while loops and the remainder operator by writing FizzBuzz for the numbers 1 to 30.",
+"grows":[
+"js.loops"
+],
+"check":"run"
+},
+{
+"title":"Functions and arrow functions",
+"goal":"Teach JavaScript functions, parameters, return values and arrow functions by writing a reading time estimator, once as a function declaration and once as an arrow function.",
+"grows":[
+"js.functions"
+],
+"check":"run"
+},
+{
+"title":"Arrays",
+"goal":"Teach JavaScript arrays by building a playlist. Push, pop, find a song with includes and indexOf, slice the first three and loop with for of.",
+"grows":[
+"js.arrays"
+],
+"check":"run"
+},
+{
+"title":"Map, filter and reduce",
+"goal":"Teach the JavaScript array methods map, filter and reduce by pricing a cart. Drop items under 5 dollars, add tax to the rest and sum the total.",
+"grows":[
+"js.methods"
+],
+"check":"run"
+},
+{
+"title":"Objects",
+"goal":"Teach JavaScript objects, properties, methods and arrays of objects by building an address book of three contacts and printing each one.",
+"grows":[
+"js.objects"
+],
+"check":"run"
+},
+{
+"title":"Promises and async await",
+"goal":"Teach JavaScript promises and async await by writing a wait function with setTimeout and a tea timer that prints three steps in order.",
+"grows":[
+"js.async"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-python",
+"title":"Intro to Python",
+"topic":"code",
+"track":"python",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A number guessing game",
+"checks":[
+"guess.py runs with no error",
+"The right number ends the game with the number of tries",
+"The best score is written to scores.txt"
+]
+},
+"skills":[
+{
+"id":"py.run",
+"label":"Running a script",
+"needs":[]
+},
+{
+"id":"py.variables",
+"label":"Variables",
+"needs":[
+"py.run"
+]
+},
+{
+"id":"py.strings",
+"label":"Strings",
+"needs":[
+"py.variables"
+]
+},
+{
+"id":"py.conditions",
+"label":"If and else",
+"needs":[
+"py.variables"
+]
+},
+{
+"id":"py.loops",
+"label":"Loops",
+"needs":[
+"py.conditions"
+]
+},
+{
+"id":"py.lists",
+"label":"Lists",
+"needs":[
+"py.loops"
+]
+},
+{
+"id":"py.functions",
+"label":"Functions",
+"needs":[
+"py.lists"
+]
+},
+{
+"id":"py.dicts",
+"label":"Dictionaries",
+"needs":[
+"py.lists"
+]
+},
+{
+"id":"py.files",
+"label":"Reading files",
+"needs":[
+"py.functions"
+]
+},
+{
+"id":"py.errors",
+"label":"Reading errors",
+"needs":[
+"py.run"
+]
+}
+],
+"lessons":[
+{
+"title":"Run your first Python file",
+"goal":"Teach a complete beginner to create hello.py in VS Code, print two lines and run it from the terminal with python3.",
+"grows":[
+"py.run"
+],
+"check":"run"
+},
+{
+"title":"Variables and numbers",
+"goal":"Teach Python variables and arithmetic by building a tip calculator in tip.py with a bill, a tip percent and a total.",
+"grows":[
+"py.variables"
+],
+"check":"run"
+},
+{
+"title":"Strings and f-strings",
+"goal":"Teach Python strings, indexing, upper and lower, and f-strings by printing a name badge from two variables.",
+"grows":[
+"py.strings"
+],
+"check":"run"
+},
+{
+"title":"If, elif and else",
+"goal":"Teach Python comparisons and if, elif, else by writing a ticket price picker for child, adult and senior ages.",
+"grows":[
+"py.conditions"
+],
+"check":"run"
+},
+{
+"title":"For and while loops",
+"goal":"Teach Python for loops with range and while loops by printing a times table and a countdown that stops at zero.",
+"grows":[
+"py.loops"
+],
+"check":"run"
+},
+{
+"title":"Lists",
+"goal":"Teach Python lists by building a shopping list. Append, remove, sort, slice and loop over it.",
+"grows":[
+"py.lists"
+],
+"check":"run"
+},
+{
+"title":"Functions",
+"goal":"Teach Python functions with parameters and return values by turning the tip calculator into a function and calling it three times.",
+"grows":[
+"py.functions"
+],
+"check":"code"
+},
+{
+"title":"Dictionaries",
+"goal":"Teach Python dictionaries by counting how often each word appears in a sentence and printing the top three.",
+"grows":[
+"py.dicts"
+],
+"check":"run"
+},
+{
+"title":"Read and write a file",
+"goal":"Teach reading and writing text files in Python with open and with, by saving a list of scores to scores.txt and reading it back.",
+"grows":[
+"py.files"
+],
+"check":"run"
+},
+{
+"title":"Read an error message",
+"goal":"Teach a beginner to read Python tracebacks by fixing three small broken scripts, a NameError, a TypeError and an IndexError.",
+"grows":[
+"py.errors"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-r",
+"title":"Intro to R",
+"topic":"data",
+"track":"r",
+"tool":{
+"id":"rstudio",
+"label":"RStudio"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"An air quality report",
+"checks":[
+"report.R runs from top to bottom with no error",
+"summary.csv has one row per month with the average wind speed",
+"A PNG chart made with ggplot2 is saved"
+]
+},
+"skills":[
+{
+"id":"r.script",
+"label":"Scripts in RStudio",
+"needs":[]
+},
+{
+"id":"r.vectors",
+"label":"Vectors",
+"needs":[
+"r.script"
+]
+},
+{
+"id":"r.functions",
+"label":"Functions",
+"needs":[
+"r.vectors"
+]
+},
+{
+"id":"r.frames",
+"label":"Data frames",
+"needs":[
+"r.vectors"
+]
+},
+{
+"id":"r.csv",
+"label":"CSV files",
+"needs":[
+"r.frames"
+]
+},
+{
+"id":"r.dplyr",
+"label":"Filter and arrange",
+"needs":[
+"r.frames"
+]
+},
+{
+"id":"r.pipes",
+"label":"Pipes and mutate",
+"needs":[
+"r.dplyr"
+]
+},
+{
+"id":"r.summarise",
+"label":"Group, summarise",
+"needs":[
+"r.pipes"
+]
+},
+{
+"id":"r.ggplot",
+"label":"ggplot2 charts",
+"needs":[
+"r.frames"
+]
+}
+],
+"lessons":[
+{
+"title":"Run your first R script",
+"goal":"Teach a complete beginner to make an R script in RStudio, store a name and a birth year with the arrow assignment, print an age and run it line by line and all at once.",
+"grows":[
+"r.script"
+],
+"check":"run"
+},
+{
+"title":"Vectors",
+"goal":"Teach R vectors, with c, indexing, vectorized math, mean, max and logical filters, by logging a week of commute times and finding the days over 40 minutes.",
+"grows":[
+"r.vectors"
+],
+"check":"run"
+},
+{
+"title":"Functions",
+"goal":"Teach writing R functions with arguments, default values and return by building a score rescaler that maps a vector of exam scores onto 0 to 100.",
+"grows":[
+"r.functions"
+],
+"check":"run"
+},
+{
+"title":"Data frames",
+"goal":"Teach R data frames, with data.frame, the dollar sign, nrow, str and adding a column, by building a table of five planets with diameter and moons.",
+"grows":[
+"r.frames"
+],
+"check":"run"
+},
+{
+"title":"Read and write a CSV",
+"goal":"Teach reading and writing CSV files in R with write.csv and read.csv by saving the planets table to planets.csv and loading it back.",
+"grows":[
+"r.csv"
+],
+"check":"file"
+},
+{
+"title":"Filter, select and arrange",
+"goal":"Teach installing and loading dplyr in R and its verbs filter, select and arrange by making a shortlist of fuel-saving cars from the built-in mtcars table.",
+"grows":[
+"r.dplyr"
+],
+"check":"run"
+},
+{
+"title":"Pipes and mutate",
+"goal":"Teach the R pipe and the dplyr verb mutate by building a metric version of the mtcars table with a kilometres per litre column, in one piped chain.",
+"grows":[
+"r.pipes"
+],
+"check":"run"
+},
+{
+"title":"Group and summarise",
+"goal":"Teach dplyr group_by and summarise in R by building a summary table of the average mpg and the number of cars for each cylinder count in mtcars.",
+"grows":[
+"r.summarise"
+],
+"check":"run"
+},
+{
+"title":"A scatter plot with ggplot2",
+"goal":"Teach ggplot2 in R, with ggplot, aes, geom_point and labs, by drawing a scatter plot of car weight against mpg and saving it with ggsave.",
+"grows":[
+"r.ggplot"
+],
+"check":"file"
+},
+{
+"title":"A bar chart from a summary",
+"goal":"Teach geom_col, fill and titles in ggplot2 in R by turning the average mpg per cylinder count into a labeled bar chart saved as a PNG.",
+"grows":[
+"r.ggplot",
+"r.summarise"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-rust",
+"title":"Intro to Rust",
+"topic":"code",
+"track":"rust",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A parking garage",
+"checks":[
+"cargo build finishes with no errors or warnings",
+"Parking in a full garage prints an error and does not panic",
+"Each vehicle kind prints its own fee"
+]
+},
+"skills":[
+{
+"id":"rs.cargo",
+"label":"Cargo",
+"needs":[]
+},
+{
+"id":"rs.variables",
+"label":"Let and mut",
+"needs":[
+"rs.cargo"
+]
+},
+{
+"id":"rs.functions",
+"label":"Functions",
+"needs":[
+"rs.variables"
+]
+},
+{
+"id":"rs.control",
+"label":"If and loops",
+"needs":[
+"rs.variables"
+]
+},
+{
+"id":"rs.ownership",
+"label":"Ownership",
+"needs":[
+"rs.functions"
+]
+},
+{
+"id":"rs.borrowing",
+"label":"Borrowing",
+"needs":[
+"rs.ownership"
+]
+},
+{
+"id":"rs.vectors",
+"label":"Vectors, strings",
+"needs":[
+"rs.borrowing",
+"rs.control"
+]
+},
+{
+"id":"rs.structs",
+"label":"Structs and impl",
+"needs":[
+"rs.borrowing"
+]
+},
+{
+"id":"rs.enums",
+"label":"Enums and match",
+"needs":[
+"rs.structs"
+]
+},
+{
+"id":"rs.result",
+"label":"Option and Result",
+"needs":[
+"rs.enums"
+]
+}
+],
+"lessons":[
+{
+"title":"Start a project with Cargo",
+"goal":"Teach a complete beginner to make a Rust project with cargo new, open src/main.rs in VS Code, change it to print a name and a favorite number, and run it with cargo run.",
+"grows":[
+"rs.cargo"
+],
+"check":"run"
+},
+{
+"title":"Let, mut and types",
+"goal":"Teach Rust let, mut, shadowing and the i32 and f64 types by building a phone battery tracker that starts full and drains over three apps.",
+"grows":[
+"rs.variables"
+],
+"check":"run"
+},
+{
+"title":"Functions and expressions",
+"goal":"Teach Rust functions with typed parameters, return types and a final expression as the return value by writing a pizza deal comparer that prices each pizza per square inch.",
+"grows":[
+"rs.functions"
+],
+"check":"run"
+},
+{
+"title":"If, loop, while and for",
+"goal":"Teach Rust if as an expression and the loop, while and for forms by writing a Collatz counter that prints how many steps 27 takes to reach 1.",
+"grows":[
+"rs.control"
+],
+"check":"run"
+},
+{
+"title":"Ownership and moves",
+"goal":"Teach Rust ownership and moves with String by writing a stamp function that takes a letter by value, adds a stamp and hands it back to the caller.",
+"grows":[
+"rs.ownership"
+],
+"check":"code"
+},
+{
+"title":"Borrowing and references",
+"goal":"Teach Rust shared and mutable references by building a guest book with one function that reads it by reference and one that signs it through a mutable reference.",
+"grows":[
+"rs.borrowing"
+],
+"check":"code"
+},
+{
+"title":"Vectors and strings",
+"goal":"Teach Rust Vec and String, with the vec macro, push, len, iter and a for loop over a reference, by building a delivery route that totals the distances between stops.",
+"grows":[
+"rs.vectors"
+],
+"check":"run"
+},
+{
+"title":"Structs and methods",
+"goal":"Teach Rust structs and impl blocks with self methods by building a water bottle that can drink, refill and report how much is left.",
+"grows":[
+"rs.structs"
+],
+"check":"run"
+},
+{
+"title":"Enums and match",
+"goal":"Teach Rust enums and match by building a traffic light with a next method that cycles the colors and a method that gives the wait in seconds.",
+"grows":[
+"rs.enums"
+],
+"check":"run"
+},
+{
+"title":"Option, Result and the ? operator",
+"goal":"Teach Rust Option and Result with match and the question mark operator by writing a price parser that sums prices given as text and reports the first bad one.",
+"grows":[
+"rs.result"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-sql",
+"title":"Intro to SQL",
+"topic":"data",
+"track":"sql",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A cinema box office database",
+"checks":[
+"cinema.db has three tables linked by id columns",
+"report.sql uses JOIN and GROUP BY",
+"The report returns one row per film, ordered by takings"
+]
+},
+"skills":[
+{
+"id":"sql.create",
+"label":"Tables and rows",
+"needs":[]
+},
+{
+"id":"sql.select",
+"label":"SELECT",
+"needs":[
+"sql.create"
+]
+},
+{
+"id":"sql.where",
+"label":"WHERE",
+"needs":[
+"sql.select"
+]
+},
+{
+"id":"sql.order",
+"label":"ORDER BY and LIMIT",
+"needs":[
+"sql.select"
+]
+},
+{
+"id":"sql.aggregate",
+"label":"COUNT, SUM and AVG",
+"needs":[
+"sql.where"
+]
+},
+{
+"id":"sql.group",
+"label":"GROUP BY",
+"needs":[
+"sql.aggregate"
+]
+},
+{
+"id":"sql.join",
+"label":"JOIN",
+"needs":[
+"sql.where"
+]
+},
+{
+"id":"sql.outer",
+"label":"LEFT JOIN",
+"needs":[
+"sql.join"
+]
+},
+{
+"id":"sql.modify",
+"label":"UPDATE and DELETE",
+"needs":[
+"sql.where"
+]
+}
+],
+"lessons":[
+{
+"title":"Create the record shop database",
+"goal":"Teach a complete beginner to create shop.db with sqlite3 in the VS Code terminal, using CREATE TABLE and INSERT to add the artists, albums and sales of a small record shop.",
+"grows":[
+"sql.create"
+],
+"check":"file"
+},
+{
+"title":"SELECT columns",
+"goal":"Teach SQL SELECT with chosen columns, AS and DISTINCT by writing prices.sql, a price list of every album in the record shop database.",
+"grows":[
+"sql.select"
+],
+"check":"run"
+},
+{
+"title":"Filter rows with WHERE",
+"goal":"Teach SQL WHERE with comparisons, AND, OR, LIKE and BETWEEN by listing the bargain bin of the record shop, albums under 10 dollars from before 1990.",
+"grows":[
+"sql.where"
+],
+"check":"run"
+},
+{
+"title":"Sort and limit",
+"goal":"Teach SQL ORDER BY, ASC, DESC and LIMIT by making a top five chart of the most expensive albums in the record shop.",
+"grows":[
+"sql.order"
+],
+"check":"run"
+},
+{
+"title":"Count, sum and average",
+"goal":"Teach the SQL functions COUNT, SUM, AVG, MIN and MAX by writing a one-row summary of the record shop with the album count, average price and copies sold.",
+"grows":[
+"sql.aggregate"
+],
+"check":"run"
+},
+{
+"title":"GROUP BY and HAVING",
+"goal":"Teach SQL GROUP BY and HAVING by tallying the copies sold per album in the sales table and keeping only albums that sold more than five.",
+"grows":[
+"sql.group"
+],
+"check":"run"
+},
+{
+"title":"Join two tables",
+"goal":"Teach the SQL inner JOIN with ON and table aliases by printing the record shop catalog, each album title next to the name of its artist.",
+"grows":[
+"sql.join"
+],
+"check":"run"
+},
+{
+"title":"LEFT JOIN and missing rows",
+"goal":"Teach SQL LEFT JOIN and IS NULL by finding the albums in the record shop that have never sold a copy.",
+"grows":[
+"sql.outer"
+],
+"check":"run"
+},
+{
+"title":"Join, group and rank",
+"goal":"Teach joining three tables with GROUP BY and ORDER BY in SQL by building a best sellers chart of copies sold per artist.",
+"grows":[
+"sql.join",
+"sql.group"
+],
+"check":"run"
+},
+{
+"title":"Update and delete rows",
+"goal":"Teach SQL UPDATE and DELETE with a WHERE clause by marking down every album from before 1980 by 2 dollars and removing one refunded sale.",
+"grows":[
+"sql.modify"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-swift",
+"title":"Intro to Swift",
+"topic":"code",
+"track":"swift",
+"tool":{
+"id":"xcode",
+"label":"Xcode"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A coin toss app",
+"checks":[
+"The project builds in Xcode with no errors",
+"The view keeps the tally in a property marked @State",
+"A button action calls toss and the view shows both counts"
+]
+},
+"skills":[
+{
+"id":"sw.run",
+"label":"Running in Xcode",
+"needs":[]
+},
+{
+"id":"sw.variables",
+"label":"Let and var",
+"needs":[
+"sw.run"
+]
+},
+{
+"id":"sw.control",
+"label":"Control flow",
+"needs":[
+"sw.variables"
+]
+},
+{
+"id":"sw.functions",
+"label":"Functions",
+"needs":[
+"sw.control"
+]
+},
+{
+"id":"sw.collections",
+"label":"Collections",
+"needs":[
+"sw.control"
+]
+},
+{
+"id":"sw.optionals",
+"label":"Optionals",
+"needs":[
+"sw.collections"
+]
+},
+{
+"id":"sw.structs",
+"label":"Structs",
+"needs":[
+"sw.functions"
+]
+},
+{
+"id":"sw.enums",
+"label":"Enums",
+"needs":[
+"sw.structs"
+]
+},
+{
+"id":"sw.closures",
+"label":"Closures",
+"needs":[
+"sw.functions",
+"sw.collections"
+]
+},
+{
+"id":"sw.swiftui",
+"label":"SwiftUI views",
+"needs":[
+"sw.structs",
+"sw.closures"
+]
+}
+],
+"lessons":[
+{
+"title":"Run your first Swift program",
+"goal":"Teach a complete beginner to make a Command Line Tool project in Xcode, write a three-item packing list with print in main.swift and run it.",
+"grows":[
+"sw.run"
+],
+"check":"run"
+},
+{
+"title":"Let, var and string interpolation",
+"goal":"Teach Swift let, var, type inference and string interpolation by building a running pace calculator from a distance in kilometres and a time in minutes.",
+"grows":[
+"sw.variables"
+],
+"check":"run"
+},
+{
+"title":"If, switch and loops",
+"goal":"Teach Swift if, switch over ranges and for in loops by printing a postage price table for parcels from 1 to 10 kilograms.",
+"grows":[
+"sw.control"
+],
+"check":"run"
+},
+{
+"title":"Functions and argument labels",
+"goal":"Teach Swift functions with argument labels, default values and return types by writing a hotel stay price function called with and without a nightly rate.",
+"grows":[
+"sw.functions"
+],
+"check":"run"
+},
+{
+"title":"Arrays and dictionaries",
+"goal":"Teach Swift arrays and dictionaries, with append, count, subscripts and for in, by building a school timetable of subjects and the room for each.",
+"grows":[
+"sw.collections"
+],
+"check":"run"
+},
+{
+"title":"Optionals",
+"goal":"Teach Swift optionals with if let, guard let and the nil coalescing operator by writing a locker lookup that handles a missing student and a bad number.",
+"grows":[
+"sw.optionals"
+],
+"check":"code"
+},
+{
+"title":"Structs",
+"goal":"Teach Swift structs with properties, a computed property and a mutating method by building a Bus that boards riders and reports the seats left.",
+"grows":[
+"sw.structs"
+],
+"check":"run"
+},
+{
+"title":"Enums",
+"goal":"Teach Swift enums with cases, raw values and switch by building a compass with a method that turns right from north to east to south to west.",
+"grows":[
+"sw.enums"
+],
+"check":"run"
+},
+{
+"title":"Closures",
+"goal":"Teach Swift closures and trailing closure syntax with sorted, filter and map by listing mountains over 4000 metres from tallest to shortest.",
+"grows":[
+"sw.closures"
+],
+"check":"run"
+},
+{
+"title":"Your first SwiftUI view",
+"goal":"Teach a first SwiftUI view in a new Xcode App project, with VStack, Text, Button and an @State property, by building a tap counter.",
+"grows":[
+"sw.swiftui"
+],
+"check":"code"
+}
+]
+},
+{
+"id":"intro-typescript",
+"title":"Intro to TypeScript",
+"topic":"code",
+"track":"typescript",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"next",
+"needs":[
+"intro-javascript"
+],
+"project":{
+"title":"A library loan tracker",
+"checks":[
+"npx tsc finishes with no errors with strict on",
+"No value in loans.ts is typed any",
+"The compiled script prints which books are out and which are in"
+]
+},
+"skills":[
+{
+"id":"ts.compile",
+"label":"Compiling with tsc",
+"needs":[
+"js.run"
+]
+},
+{
+"id":"ts.config",
+"label":"tsconfig",
+"needs":[
+"ts.compile"
+]
+},
+{
+"id":"ts.types",
+"label":"Type annotations",
+"needs":[
+"ts.compile"
+]
+},
+{
+"id":"ts.errors",
+"label":"Type errors",
+"needs":[
+"ts.types"
+]
+},
+{
+"id":"ts.functions",
+"label":"Typed functions",
+"needs":[
+"ts.types"
+]
+},
+{
+"id":"ts.arrays",
+"label":"Arrays and tuples",
+"needs":[
+"ts.types"
+]
+},
+{
+"id":"ts.interfaces",
+"label":"Interfaces",
+"needs":[
+"ts.functions",
+"js.objects"
+]
+},
+{
+"id":"ts.unions",
+"label":"Unions, narrowing",
+"needs":[
+"ts.interfaces"
+]
+},
+{
+"id":"ts.generics",
+"label":"Generics",
+"needs":[
+"ts.functions",
+"ts.arrays"
+]
+}
+],
+"lessons":[
+{
+"title":"Compile your first TypeScript file",
+"goal":"Teach a JavaScript learner to install TypeScript with npm, write greet.ts in VS Code with a typed name, compile it with npx tsc greet.ts and run greet.js with node.",
+"grows":[
+"ts.compile"
+],
+"check":"run"
+},
+{
+"title":"Set up tsconfig with strict on",
+"goal":"Teach tsconfig.json by building a starter project. Run npx tsc --init, set rootDir to src, outDir to dist and strict to true, then compile src/index.ts with npx tsc.",
+"grows":[
+"ts.config"
+],
+"check":"file"
+},
+{
+"title":"Type annotations",
+"goal":"Teach TypeScript type annotations for string, number and boolean by typing every variable in a taxi fare calculator in taxi.ts.",
+"grows":[
+"ts.types"
+],
+"check":"run"
+},
+{
+"title":"Read and fix type errors",
+"goal":"Teach reading TypeScript compiler errors by fixing a broken invoice script, one error at a time, until npx tsc reports none and no value is typed any.",
+"grows":[
+"ts.errors"
+],
+"check":"run"
+},
+{
+"title":"Typed functions",
+"goal":"Teach typed functions in TypeScript, with parameter types, return types and optional and default parameters, by writing a sales tax function called three ways.",
+"grows":[
+"ts.functions"
+],
+"check":"code"
+},
+{
+"title":"Arrays and tuples",
+"goal":"Teach TypeScript typed arrays and tuples by building a medal table as pairs of a country and a gold count and printing the country in the lead.",
+"grows":[
+"ts.arrays"
+],
+"check":"code"
+},
+{
+"title":"Interfaces",
+"goal":"Teach TypeScript interfaces with optional properties by describing a pet in a shelter roster and writing a function that lists the pets not yet adopted.",
+"grows":[
+"ts.interfaces"
+],
+"check":"code"
+},
+{
+"title":"Union types and narrowing",
+"goal":"Teach TypeScript union types, literal types and narrowing with a switch by writing an area calculator for circles, squares and rectangles.",
+"grows":[
+"ts.unions"
+],
+"check":"code"
+},
+{
+"title":"Generics",
+"goal":"Teach TypeScript generics by writing first, last and unique helpers that keep the element type, then using them on numbers and on strings.",
+"grows":[
+"ts.generics"
+],
+"check":"code"
+}
+]
+},
+{
+"id":"intro-arduino",
+"title":"Intro to Arduino",
+"topic":"code",
+"track":"arduino",
+"tool":{
+"id":"arduino",
+"label":"Arduino IDE"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A light metronome",
+"checks":[
+"The sketch compiles for the Uno with no errors",
+"The blink interval comes from analogRead through map and is timed with millis",
+"The Serial Monitor prints the beats per minute when the knob moves"
+]
+},
+"skills":[
+{
+"id":"ard.upload",
+"label":"Board and upload",
+"needs":[]
+},
+{
+"id":"ard.output",
+"label":"Digital output",
+"needs":[
+"ard.upload"
+]
+},
+{
+"id":"ard.serial",
+"label":"Serial Monitor",
+"needs":[
+"ard.upload"
+]
+},
+{
+"id":"ard.input",
+"label":"Buttons",
+"needs":[
+"ard.output"
+]
+},
+{
+"id":"ard.analog",
+"label":"Analog input",
+"needs":[
+"ard.serial"
+]
+},
+{
+"id":"ard.pwm",
+"label":"PWM",
+"needs":[
+"ard.output"
+]
+},
+{
+"id":"ard.map",
+"label":"Mapping values",
+"needs":[
+"ard.analog",
+"ard.pwm"
+]
+},
+{
+"id":"ard.sensor",
+"label":"Sensors",
+"needs":[
+"ard.analog"
+]
+},
+{
+"id":"ard.timing",
+"label":"Timing with millis",
+"needs":[
+"ard.input"
+]
+}
+],
+"lessons":[
+{
+"title":"Set up the board and upload Blink",
+"goal":"Teach a complete beginner the Arduino IDE. Plug in the Uno, pick the board and the port, open the Blink example, change the delay to 250 ms and upload it.",
+"grows":[
+"ard.upload"
+],
+"check":"code"
+},
+{
+"title":"Blink your own LED",
+"goal":"Teach pinMode, digitalWrite and delay in an Arduino sketch by wiring an LED and a 220 ohm resistor to pin 9 on a breadboard and flashing a short, short, long signal.",
+"grows":[
+"ard.output"
+],
+"check":"code"
+},
+{
+"title":"Print to the Serial Monitor",
+"goal":"Teach Serial.begin and Serial.println in an Arduino sketch by printing a count that goes up once a second and reading it in the Serial Monitor at 9600 baud.",
+"grows":[
+"ard.serial"
+],
+"check":"run"
+},
+{
+"title":"Read a button",
+"goal":"Teach digitalRead and INPUT_PULLUP in an Arduino sketch by wiring a push button to pin 2 and lighting the LED on pin 9 only while the button is held down.",
+"grows":[
+"ard.input"
+],
+"check":"code"
+},
+{
+"title":"Read a knob with analogRead",
+"goal":"Teach analogRead in an Arduino sketch by wiring a potentiometer to A0 and printing its reading, from 0 to 1023, to the Serial Monitor as you turn it.",
+"grows":[
+"ard.analog"
+],
+"check":"run"
+},
+{
+"title":"Fade an LED with PWM",
+"goal":"Teach analogWrite and the PWM pins of the Arduino Uno by fading the LED on pin 9 up and down with a for loop that runs from 0 to 255 and back.",
+"grows":[
+"ard.pwm"
+],
+"check":"code"
+},
+{
+"title":"Dim the LED with the knob",
+"goal":"Teach the Arduino map function by turning the knob reading on A0, 0 to 1023, into a brightness from 0 to 255 for the LED on pin 9, which makes a dimmer.",
+"grows":[
+"ard.map"
+],
+"check":"code"
+},
+{
+"title":"Read a light sensor",
+"goal":"Teach reading a sensor with an Arduino by wiring a photoresistor and a 10k resistor as a voltage divider on A1 and printing the light level twice a second.",
+"grows":[
+"ard.sensor"
+],
+"check":"run"
+},
+{
+"title":"Blink without delay",
+"goal":"Teach timing with millis in an Arduino sketch by blinking the LED on pin 9 every half second with no delay call, so the button on pin 2 still answers at once.",
+"grows":[
+"ard.timing"
+],
+"check":"code"
+},
+{
+"title":"Build a night light",
+"goal":"Teach acting on a sensor reading in an Arduino sketch by making a night light. The LED on pin 9 comes on when the light level on A1 drops below a threshold you pick.",
+"grows":[
+"ard.sensor"
+],
+"check":"code"
+}
+]
+},
+{
+"id":"intro-blender",
+"title":"Intro to Blender",
+"topic":"3d",
+"track":"blender",
+"tool":{
+"id":"blender",
+"label":"Blender"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A desk lamp, modeled and rendered",
+"checks":[
+"At least two mesh objects, one with a Subdivision or Bevel modifier",
+"Two different materials are assigned",
+"A render is saved as an image"
+]
+},
+"skills":[
+{
+"id":"bl.navigate",
+"label":"Viewport",
+"needs":[]
+},
+{
+"id":"bl.transform",
+"label":"Transforms",
+"needs":[
+"bl.navigate"
+]
+},
+{
+"id":"bl.edit",
+"label":"Edit mode",
+"needs":[
+"bl.transform"
+]
+},
+{
+"id":"bl.extrude",
+"label":"Extrude and inset",
+"needs":[
+"bl.edit"
+]
+},
+{
+"id":"bl.loops",
+"label":"Loops and bevels",
+"needs":[
+"bl.edit"
+]
+},
+{
+"id":"bl.modifiers",
+"label":"Modifiers",
+"needs":[
+"bl.extrude",
+"bl.loops"
+]
+},
+{
+"id":"bl.materials",
+"label":"Materials",
+"needs":[
+"bl.transform"
+]
+},
+{
+"id":"bl.lighting",
+"label":"Light and camera",
+"needs":[
+"bl.transform"
+]
+},
+{
+"id":"bl.render",
+"label":"Rendering",
+"needs":[
+"bl.materials",
+"bl.lighting"
+]
+}
+],
+"lessons":[
+{
+"title":"Move around the 3D viewport",
+"goal":"Teach a complete beginner the Blender viewport. Orbit, pan, zoom, the front, side and top views, and frame the selected object.",
+"grows":[
+"bl.navigate"
+],
+"check":"scene"
+},
+{
+"title":"Move, rotate and scale",
+"goal":"Teach G, R and S in Blender with axis keys and typed numbers by placing a cube, a cone and a sphere at set spots.",
+"grows":[
+"bl.transform"
+],
+"check":"scene"
+},
+{
+"title":"Edit mode: vertices, edges, faces",
+"goal":"Teach Blender Edit mode and the three select modes by pulling one edge of a cube up to make a wedge.",
+"grows":[
+"bl.edit"
+],
+"check":"scene"
+},
+{
+"title":"Extrude and inset: the cup",
+"goal":"Teach Blender inset and extrude by hollowing a cylinder into the cup of a mug.",
+"grows":[
+"bl.extrude"
+],
+"check":"scene"
+},
+{
+"title":"Loop cuts and bevels",
+"goal":"Teach Blender loop cuts and bevel by adding two loops for the handle and beveling the rim of the mug.",
+"grows":[
+"bl.loops"
+],
+"check":"scene"
+},
+{
+"title":"Build the handle",
+"goal":"Teach extruding faces and bridging edge loops in Blender by growing a handle out of the side of the mug.",
+"grows":[
+"bl.extrude",
+"bl.loops"
+],
+"check":"scene"
+},
+{
+"title":"Subdivision and smooth shading",
+"goal":"Teach Blender modifiers by adding Subdivision Surface at level 2 to the mug and turning on smooth shading.",
+"grows":[
+"bl.modifiers"
+],
+"check":"scene"
+},
+{
+"title":"Give it a material",
+"goal":"Teach Blender materials with the Principled BSDF by giving the mug a glossy ceramic color.",
+"grows":[
+"bl.materials"
+],
+"check":"scene"
+},
+{
+"title":"Light it and aim the camera",
+"goal":"Teach Blender lights and the camera by adding an area light and framing the whole mug in the camera view.",
+"grows":[
+"bl.lighting"
+],
+"check":"scene"
+},
+{
+"title":"Render and save an image",
+"goal":"Teach rendering in Blender. Pick a render engine, set the size, render and save a PNG.",
+"grows":[
+"bl.render"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-cad",
+"title":"Intro to CAD",
+"topic":"cad",
+"track":"cad",
+"tool":{
+"id":"freecad",
+"label":"FreeCAD"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A phone stand you could print",
+"checks":[
+"One solid body and every sketch fully constrained",
+"The slot fits a phone 75 mm wide with a lip of at least 8 mm",
+"A watertight STL is saved"
+]
+},
+"skills":[
+{
+"id":"cad.navigate",
+"label":"Workspace",
+"needs":[]
+},
+{
+"id":"cad.sketch",
+"label":"Sketching",
+"needs":[
+"cad.navigate"
+]
+},
+{
+"id":"cad.constrain",
+"label":"Constraints",
+"needs":[
+"cad.sketch"
+]
+},
+{
+"id":"cad.pad",
+"label":"Pad",
+"needs":[
+"cad.constrain"
+]
+},
+{
+"id":"cad.pocket",
+"label":"Pockets",
+"needs":[
+"cad.pad"
+]
+},
+{
+"id":"cad.fillet",
+"label":"Fillets",
+"needs":[
+"cad.pad"
+]
+},
+{
+"id":"cad.pattern",
+"label":"Patterns",
+"needs":[
+"cad.pocket"
+]
+},
+{
+"id":"cad.parametric",
+"label":"Changing sizes",
+"needs":[
+"cad.pocket",
+"cad.fillet"
+]
+},
+{
+"id":"cad.export",
+"label":"Export to print",
+"needs":[
+"cad.parametric"
+]
+}
+],
+"lessons":[
+{
+"title":"Find your way around FreeCAD",
+"goal":"Teach a complete beginner FreeCAD. Make a new document, switch to the Part Design workbench, create a body and move the view.",
+"grows":[
+"cad.navigate"
+],
+"check":"scene"
+},
+{
+"title":"Your first sketch",
+"goal":"Teach FreeCAD sketching by drawing a closed rectangle on the XY plane of a Part Design body.",
+"grows":[
+"cad.sketch"
+],
+"check":"scene"
+},
+{
+"title":"Constrain it fully",
+"goal":"Teach FreeCAD sketch constraints. Add length, width and position until the rectangle is fully constrained at 60 by 40 mm.",
+"grows":[
+"cad.constrain"
+],
+"check":"scene"
+},
+{
+"title":"Pad it into a plate",
+"goal":"Teach the Pad tool in FreeCAD Part Design by turning the 60 by 40 mm sketch into a plate 5 mm thick.",
+"grows":[
+"cad.pad"
+],
+"check":"scene"
+},
+{
+"title":"Sketch on a face and cut holes",
+"goal":"Teach sketching on a face and the Pocket tool in FreeCAD by cutting two 4 mm screw holes through the plate.",
+"grows":[
+"cad.pocket"
+],
+"check":"scene"
+},
+{
+"title":"Add the hook",
+"goal":"Teach adding a second feature in FreeCAD by sketching on the face of the plate and padding a hook 30 mm out.",
+"grows":[
+"cad.sketch",
+"cad.pad"
+],
+"check":"scene"
+},
+{
+"title":"Fillets and chamfers",
+"goal":"Teach the Fillet and Chamfer tools in FreeCAD by rounding the outer edges of the hook by 2 mm.",
+"grows":[
+"cad.fillet"
+],
+"check":"scene"
+},
+{
+"title":"Mirror and pattern",
+"goal":"Teach the Mirror and Linear Pattern tools in FreeCAD by repeating the screw hole four times along the plate.",
+"grows":[
+"cad.pattern"
+],
+"check":"scene"
+},
+{
+"title":"Change a dimension",
+"goal":"Teach parametric editing in FreeCAD. Reopen the first sketch, change 60 mm to 80 mm and fix what breaks.",
+"grows":[
+"cad.parametric"
+],
+"check":"scene"
+},
+{
+"title":"Export an STL to print",
+"goal":"Teach exporting a FreeCAD body as an STL for 3D printing and checking the size before you print.",
+"grows":[
+"cad.export"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-docker",
+"title":"Intro to Docker",
+"topic":"tools",
+"track":"docker",
+"tool":{
+"id":"docker",
+"label":"Docker Desktop"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A WordPress blog in one Compose file",
+"checks":[
+"docker compose ps shows two running services",
+"Both services store their data in named volumes",
+"localhost port 8080 answers with the WordPress setup page"
+]
+},
+"skills":[
+{
+"id":"dk.run",
+"label":"Running containers",
+"needs":[]
+},
+{
+"id":"dk.ports",
+"label":"Ports",
+"needs":[
+"dk.run"
+]
+},
+{
+"id":"dk.manage",
+"label":"Logs and cleanup",
+"needs":[
+"dk.ports"
+]
+},
+{
+"id":"dk.dockerfile",
+"label":"Dockerfiles",
+"needs":[
+"dk.manage"
+]
+},
+{
+"id":"dk.build",
+"label":"Building images",
+"needs":[
+"dk.dockerfile"
+]
+},
+{
+"id":"dk.volumes",
+"label":"Volumes and mounts",
+"needs":[
+"dk.ports"
+]
+},
+{
+"id":"dk.compose",
+"label":"Compose",
+"needs":[
+"dk.build",
+"dk.volumes"
+]
+},
+{
+"id":"dk.network",
+"label":"Services that talk",
+"needs":[
+"dk.compose"
+]
+}
+],
+"lessons":[
+{
+"title":"Run your first container",
+"goal":"Teach a complete beginner Docker Desktop on a Mac. Run docker run hello-world in the terminal, then read docker ps -a and docker images to see the container and the image it came from.",
+"grows":[
+"dk.run"
+],
+"check":"run"
+},
+{
+"title":"Serve a page and map a port",
+"goal":"Teach detached containers and port mapping in Docker by running nginx with -d, --name web and -p 8080:80, then opening localhost:8080 in the browser to see its welcome page.",
+"grows":[
+"dk.ports"
+],
+"check":"run"
+},
+{
+"title":"Logs, exec, stop and remove",
+"goal":"Teach looking after a Docker container. Read docker logs web, open a shell inside it with docker exec -it web sh, then stop and remove it with docker stop and docker rm.",
+"grows":[
+"dk.manage"
+],
+"check":"run"
+},
+{
+"title":"Write a Dockerfile",
+"goal":"Teach the Dockerfile instructions FROM and COPY by making a site folder with your own index.html and a Dockerfile that copies it into an nginx:alpine image.",
+"grows":[
+"dk.dockerfile"
+],
+"check":"code"
+},
+{
+"title":"Build and tag your image",
+"goal":"Teach docker build, tags and the layer cache by building the site as my-site:1.0, running it on port 8080, changing the page and building my-site:1.1.",
+"grows":[
+"dk.build"
+],
+"check":"run"
+},
+{
+"title":"Edit live with a bind mount",
+"goal":"Teach Docker bind mounts by running nginx with -v so the site folder on the Mac is the folder it serves, then editing index.html and seeing the change with no rebuild.",
+"grows":[
+"dk.volumes"
+],
+"check":"run"
+},
+{
+"title":"Keep data in a named volume",
+"goal":"Teach Docker named volumes by adding a line to log.txt in a volume named notes from one alpine container, then from a second, and reading both lines back from a third.",
+"grows":[
+"dk.volumes"
+],
+"check":"run"
+},
+{
+"title":"One file to run it with Compose",
+"goal":"Teach Docker Compose by writing compose.yaml with one web service that builds the site image, maps port 8080 and mounts the site folder, then using docker compose up -d and down.",
+"grows":[
+"dk.compose"
+],
+"check":"run"
+},
+{
+"title":"Add a database service",
+"goal":"Teach Compose services, environment values and the shared network by adding a Postgres service named db with a password and a named volume, then reaching db by name from web.",
+"grows":[
+"dk.network"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-excel",
+"title":"Intro to Excel",
+"topic":"tools",
+"track":"excel",
+"tool":{
+"id":"excel",
+"label":"Excel"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A bake sale sales report",
+"checks":[
+"Each sale row gets its price from an XLOOKUP on a price list",
+"A SUMIF or a PivotTable totals sales for each item",
+"A chart of sales by item has a title"
+]
+},
+"skills":[
+{
+"id":"xl.cells",
+"label":"Cells and ranges",
+"needs":[]
+},
+{
+"id":"xl.formulas",
+"label":"Formulas",
+"needs":[
+"xl.cells"
+]
+},
+{
+"id":"xl.functions",
+"label":"Functions",
+"needs":[
+"xl.formulas"
+]
+},
+{
+"id":"xl.references",
+"label":"Cell references",
+"needs":[
+"xl.functions"
+]
+},
+{
+"id":"xl.sumif",
+"label":"SUMIF and COUNTIF",
+"needs":[
+"xl.references"
+]
+},
+{
+"id":"xl.lookup",
+"label":"XLOOKUP",
+"needs":[
+"xl.references"
+]
+},
+{
+"id":"xl.sort",
+"label":"Sort and filter",
+"needs":[
+"xl.cells"
+]
+},
+{
+"id":"xl.pivot",
+"label":"Pivot tables",
+"needs":[
+"xl.sort"
+]
+},
+{
+"id":"xl.chart",
+"label":"Charts",
+"needs":[
+"xl.sumif"
+]
+}
+],
+"lessons":[
+{
+"title":"Enter a budget in cells and ranges",
+"goal":"Teach a complete beginner Excel on a Mac. Type a month of spending into a new workbook with headers for item, category, planned and actual in row 1 and twelve rows below, then save budget.xlsx.",
+"grows":[
+"xl.cells"
+],
+"check":"file"
+},
+{
+"title":"Write your first formulas",
+"goal":"Teach Excel formulas with the equals sign, cell references and the + - * / operators by working out planned minus actual for the first budget item in E2.",
+"grows":[
+"xl.formulas"
+],
+"check":"scene"
+},
+{
+"title":"Totals with SUM, AVERAGE and MAX",
+"goal":"Teach Excel functions and ranges with SUM, AVERAGE, MIN and MAX by adding a totals row under the budget and finding the average and the largest amount spent.",
+"grows":[
+"xl.functions"
+],
+"check":"scene"
+},
+{
+"title":"Relative and absolute references",
+"goal":"Teach relative and absolute references in Excel. Fill the difference formula down to row 13, then lock the total with $D$14 to work out each item's share of spending.",
+"grows":[
+"xl.references"
+],
+"check":"scene"
+},
+{
+"title":"SUMIF and COUNTIF",
+"goal":"Teach SUMIF and COUNTIF in Excel by building a summary beside the budget that totals the spending and counts the items in each category.",
+"grows":[
+"xl.sumif"
+],
+"check":"scene"
+},
+{
+"title":"Look things up with XLOOKUP",
+"goal":"Teach XLOOKUP in Excel by pulling each category's monthly limit from a small limits table into the budget rows, with a message for a category that is not found.",
+"grows":[
+"xl.lookup"
+],
+"check":"scene"
+},
+{
+"title":"Sort and filter",
+"goal":"Teach Sort and Filter in Excel by sorting the budget from the largest amount to the smallest, then filtering it to show only the Food category.",
+"grows":[
+"xl.sort"
+],
+"check":"scene"
+},
+{
+"title":"Summarise with a PivotTable",
+"goal":"Teach PivotTables in Excel by summarising the budget on a new sheet, with Category in the rows and the sum of Actual in the values.",
+"grows":[
+"xl.pivot"
+],
+"check":"scene"
+},
+{
+"title":"Make a chart",
+"goal":"Teach Excel charts by turning the category summary into a column chart with a chart title and axis titles, placed beside the budget.",
+"grows":[
+"xl.chart"
+],
+"check":"scene"
+}
+]
+},
+{
+"id":"intro-figma",
+"title":"Intro to Figma",
+"topic":"design",
+"track":"figma",
+"tool":{
+"id":"figma",
+"label":"Figma"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A two-screen sign-in flow",
+"checks":[
+"Two phone frames are built with auto layout",
+"A button component set with two variants is used on both frames",
+"A prototype link joins the frames and two PNG files are saved"
+]
+},
+"skills":[
+{
+"id":"fig.frames",
+"label":"Frames and canvas",
+"needs":[]
+},
+{
+"id":"fig.shapes",
+"label":"Shapes and text",
+"needs":[
+"fig.frames"
+]
+},
+{
+"id":"fig.layers",
+"label":"Layers, alignment",
+"needs":[
+"fig.shapes"
+]
+},
+{
+"id":"fig.autolayout",
+"label":"Auto layout",
+"needs":[
+"fig.layers"
+]
+},
+{
+"id":"fig.styles",
+"label":"Styles",
+"needs":[
+"fig.shapes"
+]
+},
+{
+"id":"fig.components",
+"label":"Components",
+"needs":[
+"fig.autolayout"
+]
+},
+{
+"id":"fig.variants",
+"label":"Variants",
+"needs":[
+"fig.components"
+]
+},
+{
+"id":"fig.prototype",
+"label":"Prototyping",
+"needs":[
+"fig.components"
+]
+},
+{
+"id":"fig.export",
+"label":"Export",
+"needs":[
+"fig.frames"
+]
+}
+],
+"lessons":[
+{
+"title":"Make a file and your first frame",
+"goal":"Teach a complete beginner Figma. Make a design file named Weather, add a frame with the Frame tool from a phone preset, rename it Home, and practice zooming and panning the canvas.",
+"grows":[
+"fig.frames"
+],
+"check":"scene"
+},
+{
+"title":"Shapes, text and fills",
+"goal":"Teach Figma shapes and text by drawing a rounded card on Home with the Rectangle tool, a yellow sun with the Ellipse tool and the temperature in large type with the Text tool.",
+"grows":[
+"fig.shapes"
+],
+"check":"scene"
+},
+{
+"title":"Name, group and align layers",
+"goal":"Teach the Figma Layers panel and the align tools by naming every layer of the weather card, grouping the sun with the temperature and centering the group on the card.",
+"grows":[
+"fig.layers"
+],
+"check":"scene"
+},
+{
+"title":"Auto layout for the today card",
+"goal":"Teach Figma auto layout (Shift+A) by turning the weather card into a vertical auto layout frame with 16 padding and 8 between items, then adding a line of text and watching the card grow.",
+"grows":[
+"fig.autolayout"
+],
+"check":"scene"
+},
+{
+"title":"Color and text styles",
+"goal":"Teach Figma styles by saving two color styles and two text styles from the weather card, applying them to its layers, then changing one style and watching every layer that uses it update.",
+"grows":[
+"fig.styles"
+],
+"check":"scene"
+},
+{
+"title":"Make a component for the day chip",
+"goal":"Teach Figma components by building a small day chip with a day name and a temperature, making it a component and placing five instances in a row on Home, each with its own text.",
+"grows":[
+"fig.components"
+],
+"check":"scene"
+},
+{
+"title":"Add a selected variant",
+"goal":"Teach Figma variants by adding a second variant to Day chip, naming the property State with the values Default and Selected, and switching one instance on Home to Selected.",
+"grows":[
+"fig.variants"
+],
+"check":"scene"
+},
+{
+"title":"Link two frames in a prototype",
+"goal":"Teach Figma prototyping by adding a second frame named Details, linking a Day chip to it with an On tap, Navigate to interaction, adding a way back and playing the prototype.",
+"grows":[
+"fig.prototype"
+],
+"check":"screen"
+},
+{
+"title":"Export the screens",
+"goal":"Teach exporting from Figma by adding export settings to the Home and Details frames, PNG at 2x, and saving both files to the Mac.",
+"grows":[
+"fig.export"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-fusion",
+"title":"Intro to Fusion",
+"topic":"cad",
+"track":"fusion",
+"tool":{
+"id":"fusion",
+"label":"Fusion"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A cable clip for a desk edge",
+"checks":[
+"One solid body and every sketch fully constrained",
+"The clip opening is 20 mm and the cable hole is 5 mm across",
+"An STL of the clip is saved"
+]
+},
+"skills":[
+{
+"id":"fus.navigate",
+"label":"Workspace",
+"needs":[]
+},
+{
+"id":"fus.sketch",
+"label":"Sketching",
+"needs":[
+"fus.navigate"
+]
+},
+{
+"id":"fus.constrain",
+"label":"Constraints",
+"needs":[
+"fus.sketch"
+]
+},
+{
+"id":"fus.extrude",
+"label":"Extrude",
+"needs":[
+"fus.constrain"
+]
+},
+{
+"id":"fus.fillet",
+"label":"Fillets, chamfers",
+"needs":[
+"fus.extrude"
+]
+},
+{
+"id":"fus.shell",
+"label":"Shell",
+"needs":[
+"fus.extrude"
+]
+},
+{
+"id":"fus.hole",
+"label":"Holes",
+"needs":[
+"fus.extrude"
+]
+},
+{
+"id":"fus.components",
+"label":"Components",
+"needs":[
+"fus.shell"
+]
+},
+{
+"id":"fus.timeline",
+"label":"Timeline edits",
+"needs":[
+"fus.fillet",
+"fus.hole"
+]
+},
+{
+"id":"fus.export",
+"label":"Export to print",
+"needs":[
+"fus.components"
+]
+}
+],
+"lessons":[
+{
+"title":"Find your way around Fusion",
+"goal":"Teach a complete beginner Autodesk Fusion. Start a new design, save it as Box, set the units to millimeters, and tour the Browser, the Timeline and the ViewCube while orbiting the view.",
+"grows":[
+"fus.navigate"
+],
+"check":"scene"
+},
+{
+"title":"Sketch the outline of the box",
+"goal":"Teach starting a sketch in Fusion by choosing Create Sketch on the XY plane, drawing a Center Rectangle from the origin for the footprint of a box and finishing the sketch.",
+"grows":[
+"fus.sketch"
+],
+"check":"scene"
+},
+{
+"title":"Dimension and constrain the sketch",
+"goal":"Teach Fusion sketch dimensions and constraints by sizing the box rectangle to 80 by 50 mm with Sketch Dimension and checking that every line turns black, fully constrained.",
+"grows":[
+"fus.constrain"
+],
+"check":"scene"
+},
+{
+"title":"Extrude it into a block",
+"goal":"Teach the Extrude tool in Fusion by pulling the 80 by 50 mm profile up 30 mm into a solid block and finding the new feature in the Timeline.",
+"grows":[
+"fus.extrude"
+],
+"check":"scene"
+},
+{
+"title":"Round the corners with Fillet",
+"goal":"Teach the Fillet tool in Fusion by rounding the four upright edges of the block with a 6 mm radius, and how Fillet differs from Chamfer.",
+"grows":[
+"fus.fillet"
+],
+"check":"scene"
+},
+{
+"title":"Hollow it out with Shell",
+"goal":"Teach the Shell tool in Fusion by removing the top face of the block and leaving walls and a floor 2 mm thick, which turns the block into an open box.",
+"grows":[
+"fus.shell"
+],
+"check":"scene"
+},
+{
+"title":"Add a cable hole",
+"goal":"Teach the Hole tool in Fusion by placing an 8 mm hole through one short wall of the box, centered on that wall, for a charging cable.",
+"grows":[
+"fus.hole"
+],
+"check":"scene"
+},
+{
+"title":"Make a lid as a second component",
+"goal":"Teach Fusion components by turning the box body into a component named Base, then making a new component named Lid and extruding a 3 mm lid from the projected outline of the box.",
+"grows":[
+"fus.components"
+],
+"check":"scene"
+},
+{
+"title":"Change a size from the Timeline",
+"goal":"Teach parametric editing in Fusion. Reopen the first sketch from the Timeline, change 80 mm to 100 mm and check that the fillets, the shell, the hole and the lid all rebuild.",
+"grows":[
+"fus.timeline"
+],
+"check":"scene"
+},
+{
+"title":"Export both parts as STL",
+"goal":"Teach exporting from Fusion for 3D printing by saving the Base and the Lid of the box as two STL mesh files and checking their size before printing.",
+"grows":[
+"fus.export"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-git",
+"title":"Intro to Git and GitHub",
+"topic":"tools",
+"track":"git",
+"tool":{
+"id":"terminal",
+"label":"Terminal"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A film list with a merged pull request",
+"checks":[
+"The GitHub repository has at least four commits on main",
+"One merged pull request came from a separate branch",
+"A .gitignore is committed and git status reports a clean working tree"
+]
+},
+"skills":[
+{
+"id":"git.init",
+"label":"Repositories",
+"needs":[]
+},
+{
+"id":"git.commit",
+"label":"Commits",
+"needs":[
+"git.init"
+]
+},
+{
+"id":"git.history",
+"label":"Log and diff",
+"needs":[
+"git.commit"
+]
+},
+{
+"id":"git.undo",
+"label":"Undo and ignore",
+"needs":[
+"git.history"
+]
+},
+{
+"id":"git.branch",
+"label":"Branches",
+"needs":[
+"git.commit"
+]
+},
+{
+"id":"git.merge",
+"label":"Merging",
+"needs":[
+"git.branch"
+]
+},
+{
+"id":"git.conflict",
+"label":"Merge conflicts",
+"needs":[
+"git.merge"
+]
+},
+{
+"id":"git.remote",
+"label":"Remotes and push",
+"needs":[
+"git.commit"
+]
+},
+{
+"id":"git.pr",
+"label":"Pull requests",
+"needs":[
+"git.remote",
+"git.branch"
+]
+}
+],
+"lessons":[
+{
+"title":"Set up Git and make a repository",
+"goal":"Teach a complete beginner Git in the macOS Terminal. Set user.name and user.email with git config, make a cookbook folder, run git init -b main inside it and read git status.",
+"grows":[
+"git.init"
+],
+"check":"run"
+},
+{
+"title":"Stage and commit",
+"goal":"Teach the Git working tree, the staging area and commits by writing pancakes.md in the cookbook, staging it with git add and saving it with git commit -m.",
+"grows":[
+"git.commit"
+],
+"check":"run"
+},
+{
+"title":"See what changed with log and diff",
+"goal":"Teach git diff, git diff --staged and git log --oneline by changing the pancake recipe in the cookbook twice and committing each change with a clear message.",
+"grows":[
+"git.history"
+],
+"check":"run"
+},
+{
+"title":"Undo a change and ignore files",
+"goal":"Teach git restore, git restore --staged and .gitignore by throwing away a bad edit to pancakes.md, unstaging a file and keeping .DS_Store out of the cookbook for good.",
+"grows":[
+"git.undo"
+],
+"check":"run"
+},
+{
+"title":"Work on a branch",
+"goal":"Teach Git branches with git switch -c and git branch by adding waffles.md to the cookbook on a branch named add-waffles while main stays as it was.",
+"grows":[
+"git.branch"
+],
+"check":"run"
+},
+{
+"title":"Merge a branch",
+"goal":"Teach git merge and reading git log --oneline --graph by merging add-waffles into main in the cookbook and deleting the branch once it is merged.",
+"grows":[
+"git.merge"
+],
+"check":"run"
+},
+{
+"title":"Fix a merge conflict",
+"goal":"Teach resolving a Git merge conflict. Change the same line of pancakes.md on main and on a branch, merge, read the conflict markers, choose the final text and commit the merge.",
+"grows":[
+"git.conflict"
+],
+"check":"run"
+},
+{
+"title":"Connect to GitHub with an SSH key",
+"goal":"Teach connecting Git on a Mac to GitHub. Make an ed25519 key with ssh-keygen, add the public key to the GitHub account and test the link with ssh -T git@github.com.",
+"grows":[
+"git.remote"
+],
+"check":"run"
+},
+{
+"title":"Push the cookbook to GitHub",
+"goal":"Teach Git remotes by making an empty repository on GitHub, linking it with git remote add origin and sending the cookbook up with git push -u origin main.",
+"grows":[
+"git.remote"
+],
+"check":"run"
+},
+{
+"title":"Open a pull request",
+"goal":"Teach the GitHub pull request flow. Push a branch that adds syrup.md to the cookbook, open a pull request on github.com, read the diff, merge it and update main with git pull.",
+"grows":[
+"git.pr"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-godot",
+"title":"Intro to Godot",
+"topic":"3d",
+"track":"godot",
+"tool":{
+"id":"godot",
+"label":"Godot"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A key and door room",
+"checks":[
+"The player is a CharacterBody2D whose script calls move_and_slide",
+"A signal from an Area2D key frees a StaticBody2D door",
+"A Label changes when the player reaches the exit"
+]
+},
+"skills":[
+{
+"id":"gd.editor",
+"label":"Editor and scenes",
+"needs":[]
+},
+{
+"id":"gd.nodes",
+"label":"Nodes",
+"needs":[
+"gd.editor"
+]
+},
+{
+"id":"gd.script",
+"label":"GDScript",
+"needs":[
+"gd.nodes"
+]
+},
+{
+"id":"gd.input",
+"label":"Input and movement",
+"needs":[
+"gd.script"
+]
+},
+{
+"id":"gd.instancing",
+"label":"Instancing scenes",
+"needs":[
+"gd.nodes"
+]
+},
+{
+"id":"gd.collision",
+"label":"Collisions",
+"needs":[
+"gd.input"
+]
+},
+{
+"id":"gd.signals",
+"label":"Signals",
+"needs":[
+"gd.script",
+"gd.collision"
+]
+},
+{
+"id":"gd.ui",
+"label":"Labels and UI",
+"needs":[
+"gd.signals"
+]
+},
+{
+"id":"gd.export",
+"label":"Exporting",
+"needs":[
+"gd.nodes"
+]
+}
+],
+"lessons":[
+{
+"title":"Make a project and a first scene",
+"goal":"Teach a complete beginner Godot 4. Make a new project, tour the Scene, FileSystem and Inspector docks, add a Node2D root named Main, save it as main.tscn and set it as the main scene.",
+"grows":[
+"gd.editor"
+],
+"check":"scene"
+},
+{
+"title":"Nodes and the scene tree",
+"goal":"Teach Godot nodes and parent and child trees by adding a Sprite2D under Main that shows icon.svg, moving it to 200, 150 in the Inspector and running the project.",
+"grows":[
+"gd.nodes"
+],
+"check":"scene"
+},
+{
+"title":"Your first GDScript",
+"goal":"Teach GDScript in Godot 4 by attaching a script to the Sprite2D that prints a line in _ready and spins the sprite in _process using delta and an exported speed variable.",
+"grows":[
+"gd.script"
+],
+"check":"code"
+},
+{
+"title":"A player that moves",
+"goal":"Teach player movement in Godot 4. Build player.tscn from a CharacterBody2D, a Sprite2D and a CollisionShape2D, then read Input.get_vector, set velocity and call move_and_slide.",
+"grows":[
+"gd.input"
+],
+"check":"code"
+},
+{
+"title":"Put the player in a walled room",
+"goal":"Teach instancing scenes and static collisions in Godot 4 by adding player.tscn to Main and boxing it in with four StaticBody2D walls that each have a CollisionShape2D.",
+"grows":[
+"gd.instancing",
+"gd.collision"
+],
+"check":"scene"
+},
+{
+"title":"A coin and the body_entered signal",
+"goal":"Teach Godot signals by building coin.tscn from an Area2D, connecting its body_entered signal to its own script and calling queue_free when the player touches the coin.",
+"grows":[
+"gd.signals"
+],
+"check":"code"
+},
+{
+"title":"Count coins with your own signal",
+"goal":"Teach custom signals in GDScript by declaring a collected signal in the coin, emitting it on pickup and connecting five coin instances to one function in Main that adds to a score.",
+"grows":[
+"gd.signals"
+],
+"check":"code"
+},
+{
+"title":"Show the score in a Label",
+"goal":"Teach Godot UI nodes by adding a CanvasLayer with a Label to Main and setting its text to the word Coins and the score each time a coin is collected.",
+"grows":[
+"gd.ui"
+],
+"check":"code"
+},
+{
+"title":"A countdown with a Timer node",
+"goal":"Teach the Godot Timer node and its timeout signal by giving the coin game a 30 second countdown, shown in a second Label, that stops the game when it reaches zero.",
+"grows":[
+"gd.signals",
+"gd.ui"
+],
+"check":"code"
+},
+{
+"title":"Export the game for Mac",
+"goal":"Teach exporting from Godot 4. Download the export templates, add a macOS preset in the Export window, set a bundle identifier and export the coin game as an app you can open.",
+"grows":[
+"gd.export"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-sheets",
+"title":"Intro to Google Sheets",
+"topic":"tools",
+"track":"sheets",
+"tool":{
+"id":"sheets",
+"label":"Google Sheets"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A fundraiser tracker",
+"checks":[
+"At least twelve donation rows with a SUMIF total for each team",
+"A VLOOKUP or INDEX and MATCH pulls each team's goal",
+"A chart compares money raised with the goal for each team"
+]
+},
+"skills":[
+{
+"id":"gs.cells",
+"label":"Cells and ranges",
+"needs":[]
+},
+{
+"id":"gs.formulas",
+"label":"Formulas",
+"needs":[
+"gs.cells"
+]
+},
+{
+"id":"gs.references",
+"label":"Cell references",
+"needs":[
+"gs.formulas"
+]
+},
+{
+"id":"gs.countif",
+"label":"COUNTIF and SUMIF",
+"needs":[
+"gs.references"
+]
+},
+{
+"id":"gs.vlookup",
+"label":"VLOOKUP",
+"needs":[
+"gs.references"
+]
+},
+{
+"id":"gs.index_match",
+"label":"INDEX and MATCH",
+"needs":[
+"gs.vlookup"
+]
+},
+{
+"id":"gs.sort",
+"label":"Sort and filter",
+"needs":[
+"gs.cells"
+]
+},
+{
+"id":"gs.pivot",
+"label":"Pivot tables",
+"needs":[
+"gs.sort"
+]
+},
+{
+"id":"gs.chart",
+"label":"Charts",
+"needs":[
+"gs.countif"
+]
+}
+],
+"lessons":[
+{
+"title":"Start a sign-up sheet",
+"goal":"Teach a complete beginner Google Sheets. Make a new spreadsheet named Club sign-ups, add headers for name, grade, event and paid, enter ten rows and freeze the header row.",
+"grows":[
+"gs.cells"
+],
+"check":"scene"
+},
+{
+"title":"Formulas and cell references",
+"goal":"Teach Google Sheets formulas with the equals sign, cell references, SUM and COUNTA by counting the sign-ups, totalling the money paid and working out the spots left from a cap of 30.",
+"grows":[
+"gs.formulas"
+],
+"check":"scene"
+},
+{
+"title":"Relative and absolute references",
+"goal":"Teach relative and absolute references in Google Sheets by filling a formula down that takes each member's payment away from a club fee kept in one cell locked with $ signs.",
+"grows":[
+"gs.references"
+],
+"check":"scene"
+},
+{
+"title":"COUNTIF and SUMIF",
+"goal":"Teach COUNTIF and SUMIF in Google Sheets by building a summary that counts the sign-ups and totals the money paid for each event.",
+"grows":[
+"gs.countif"
+],
+"check":"scene"
+},
+{
+"title":"Look up a fee with VLOOKUP",
+"goal":"Teach VLOOKUP with an exact match in Google Sheets by pulling each event's fee from an Events tab into the sign-up rows in place of the single club fee.",
+"grows":[
+"gs.vlookup"
+],
+"check":"scene"
+},
+{
+"title":"INDEX and MATCH",
+"goal":"Teach INDEX and MATCH in Google Sheets by finding which event meets in a given room on the Events tab, a lookup to the left that VLOOKUP cannot do.",
+"grows":[
+"gs.index_match"
+],
+"check":"scene"
+},
+{
+"title":"Sort and filter",
+"goal":"Teach sorting and filtering in Google Sheets. Sort the sign-ups by event and then by name, then create a filter that shows only the members who still owe money.",
+"grows":[
+"gs.sort"
+],
+"check":"scene"
+},
+{
+"title":"Count with a pivot table",
+"goal":"Teach pivot tables in Google Sheets by making one on a new tab with Event in the rows, Grade in the columns and a count of names in the values.",
+"grows":[
+"gs.pivot"
+],
+"check":"scene"
+},
+{
+"title":"Chart the sign-ups",
+"goal":"Teach charts in Google Sheets by turning the event summary into a bar chart with a chart title and axis titles.",
+"grows":[
+"gs.chart"
+],
+"check":"scene"
+}
+]
+},
+{
+"id":"intro-jupyter",
+"title":"Intro to Jupyter",
+"topic":"data",
+"track":"jupyter",
+"tool":{
+"id":"jupyter",
+"label":"Jupyter"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A notebook report on your own numbers",
+"checks":[
+"After Restart Kernel and Run All Cells no cell shows an error",
+"It has at least two Markdown cells and one chart image in an output",
+"An HTML export is saved next to the notebook"
+]
+},
+"skills":[
+{
+"id":"jup.cells",
+"label":"Running cells",
+"needs":[]
+},
+{
+"id":"jup.keys",
+"label":"Keyboard shortcuts",
+"needs":[
+"jup.cells"
+]
+},
+{
+"id":"jup.order",
+"label":"Run order",
+"needs":[
+"jup.cells"
+]
+},
+{
+"id":"jup.markdown",
+"label":"Markdown cells",
+"needs":[
+"jup.keys"
+]
+},
+{
+"id":"jup.magics",
+"label":"Help and magics",
+"needs":[
+"jup.order"
+]
+},
+{
+"id":"jup.plot",
+"label":"Charts in cells",
+"needs":[
+"jup.magics"
+]
+},
+{
+"id":"jup.kernel",
+"label":"Restart and run",
+"needs":[
+"jup.order"
+]
+},
+{
+"id":"jup.export",
+"label":"Export and share",
+"needs":[
+"jup.kernel",
+"jup.markdown"
+]
+}
+],
+"lessons":[
+{
+"title":"Start Jupyter and run a cell",
+"goal":"Teach a complete beginner Jupyter. Start JupyterLab from the terminal with jupyter lab, make a notebook named steps.ipynb and run one Python cell with Shift+Return.",
+"grows":[
+"jup.cells"
+],
+"check":"file"
+},
+{
+"title":"Command mode and edit mode",
+"goal":"Teach the two Jupyter notebook modes and the keys A, B, D D, M and Y by adding cells to steps.ipynb that hold a week of step counts in a list and print the total.",
+"grows":[
+"jup.keys"
+],
+"check":"run"
+},
+{
+"title":"Run order and what the kernel keeps",
+"goal":"Teach how a Jupyter kernel keeps variables between cells and why run order matters, by changing a daily goal in one cell of steps.ipynb and rerunning the cell that compares the steps to it.",
+"grows":[
+"jup.order"
+],
+"check":"run"
+},
+{
+"title":"Write notes in Markdown cells",
+"goal":"Teach Jupyter Markdown cells by giving steps.ipynb a title, a heading for each part, a bullet list that says what the numbers mean and one phrase in bold.",
+"grows":[
+"jup.markdown"
+],
+"check":"file"
+},
+{
+"title":"Help, tab completion and magics",
+"goal":"Teach finding help inside Jupyter with Tab, Shift+Tab and a question mark, and the %timeit and %whos magics, by timing two ways to total the week of steps.",
+"grows":[
+"jup.magics"
+],
+"check":"run"
+},
+{
+"title":"Install a package and draw a chart",
+"goal":"Teach installing a package from a Jupyter cell with %pip install matplotlib, then drawing a bar chart of steps per day that shows under the cell, with a title and axis labels.",
+"grows":[
+"jup.plot"
+],
+"check":"file"
+},
+{
+"title":"Restart and run all",
+"goal":"Teach the Jupyter Kernel menu. Use Restart Kernel and Run All Cells on steps.ipynb, find the cell that fails because it leans on a cell that was deleted, and fix the order.",
+"grows":[
+"jup.kernel"
+],
+"check":"run"
+},
+{
+"title":"Export and share the notebook",
+"goal":"Teach sharing a Jupyter notebook. Rerun steps.ipynb from the top so it is clean, then use Save and Export Notebook As in the File menu to save an HTML copy anyone can open.",
+"grows":[
+"jup.export"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-onshape",
+"title":"Intro to Onshape",
+"topic":"cad",
+"track":"onshape",
+"tool":{
+"id":"onshape",
+"label":"Onshape"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A hinge that opens and closes",
+"checks":[
+"The Part Studio has two parts and every sketch is fully defined",
+"A Revolute mate joins the two leaves in an assembly",
+"An STL of one leaf is exported"
+]
+},
+"skills":[
+{
+"id":"ons.documents",
+"label":"Documents and tabs",
+"needs":[]
+},
+{
+"id":"ons.sketch",
+"label":"Sketching",
+"needs":[
+"ons.documents"
+]
+},
+{
+"id":"ons.constrain",
+"label":"Constraints",
+"needs":[
+"ons.sketch"
+]
+},
+{
+"id":"ons.extrude",
+"label":"Extrude",
+"needs":[
+"ons.constrain"
+]
+},
+{
+"id":"ons.cut",
+"label":"Cuts and holes",
+"needs":[
+"ons.extrude"
+]
+},
+{
+"id":"ons.fillet",
+"label":"Fillets",
+"needs":[
+"ons.extrude"
+]
+},
+{
+"id":"ons.parts",
+"label":"Multiple parts",
+"needs":[
+"ons.cut"
+]
+},
+{
+"id":"ons.assembly",
+"label":"Assemblies",
+"needs":[
+"ons.parts"
+]
+},
+{
+"id":"ons.mates",
+"label":"Mates",
+"needs":[
+"ons.assembly"
+]
+},
+{
+"id":"ons.export",
+"label":"Versions, export",
+"needs":[
+"ons.parts"
+]
+}
+],
+"lessons":[
+{
+"title":"Make a document and look around",
+"goal":"Teach a complete beginner Onshape. Create a document named Wheel stand, set the units to millimeters, find the Part Studio and Assembly tabs and the Feature list, and rename the Part Studio to Parts.",
+"grows":[
+"ons.documents"
+],
+"check":"scene"
+},
+{
+"title":"Sketch the bracket outline",
+"goal":"Teach sketching in an Onshape Part Studio by starting a sketch on the Front plane and drawing the U-shaped outline of a bracket with the Line tool, ending where it began.",
+"grows":[
+"ons.sketch"
+],
+"check":"scene"
+},
+{
+"title":"Dimension and constrain the sketch",
+"goal":"Teach Onshape dimensions and constraints by making the bracket outline 40 mm wide and 50 mm tall with 5 mm walls, using Equal and Symmetric until the sketch turns black.",
+"grows":[
+"ons.constrain"
+],
+"check":"scene"
+},
+{
+"title":"Extrude the bracket",
+"goal":"Teach the Extrude tool in Onshape by turning the U-shaped sketch into a solid 20 mm deep and renaming the new part to Bracket in the parts list.",
+"grows":[
+"ons.extrude"
+],
+"check":"scene"
+},
+{
+"title":"Cut the axle holes",
+"goal":"Teach sketching on a face and Extrude with Remove in Onshape by drawing a 6 mm circle 35 mm up one arm of the Bracket and cutting it through both arms.",
+"grows":[
+"ons.cut"
+],
+"check":"scene"
+},
+{
+"title":"Round the edges with Fillet",
+"goal":"Teach the Fillet tool in Onshape by rounding the outer corners of the Bracket with a 3 mm radius and finding the new feature in the Feature list.",
+"grows":[
+"ons.fillet"
+],
+"check":"scene"
+},
+{
+"title":"Add the wheel as a second part",
+"goal":"Teach making a second part in one Onshape Part Studio by sketching a 40 mm circle with a 6 mm hole and extruding it 20 mm as a new part named Wheel, centered between the arms.",
+"grows":[
+"ons.parts"
+],
+"check":"scene"
+},
+{
+"title":"Put the parts in an assembly",
+"goal":"Teach Onshape assemblies by inserting the Bracket and the Wheel into the Assembly tab and using Fix to hold the Bracket still.",
+"grows":[
+"ons.assembly"
+],
+"check":"scene"
+},
+{
+"title":"Join them with a Revolute mate",
+"goal":"Teach Onshape mates and mate connectors by joining the hole in the Wheel to the hole in the Bracket with a Revolute mate, then dragging the Wheel to see it spin.",
+"grows":[
+"ons.mates"
+],
+"check":"scene"
+},
+{
+"title":"Save a version and export an STL",
+"goal":"Teach Onshape versions and export by saving a version named V1 of the Wheel stand document and exporting the Wheel as an STL file to the Mac.",
+"grows":[
+"ons.export"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-terminal",
+"title":"Intro to the terminal",
+"topic":"tools",
+"track":"terminal",
+"tool":{
+"id":"terminal",
+"label":"Terminal"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A script that tidies a messy folder",
+"checks":[
+"tidy.sh starts with a zsh shebang line and is executable",
+"After a run no .txt, .jpg or .png file is left loose in the folder",
+"It prints the number of files it moved"
+]
+},
+"skills":[
+{
+"id":"sh.navigate",
+"label":"Moving around",
+"needs":[]
+},
+{
+"id":"sh.files",
+"label":"Files and folders",
+"needs":[
+"sh.navigate"
+]
+},
+{
+"id":"sh.redirect",
+"label":"Writing to files",
+"needs":[
+"sh.files"
+]
+},
+{
+"id":"sh.read",
+"label":"Reading files",
+"needs":[
+"sh.redirect"
+]
+},
+{
+"id":"sh.globs",
+"label":"Wildcards",
+"needs":[
+"sh.files"
+]
+},
+{
+"id":"sh.pipes",
+"label":"Pipes and grep",
+"needs":[
+"sh.read"
+]
+},
+{
+"id":"sh.permissions",
+"label":"Permissions",
+"needs":[
+"sh.files"
+]
+},
+{
+"id":"sh.script",
+"label":"Shell scripts",
+"needs":[
+"sh.permissions",
+"sh.pipes"
+]
+},
+{
+"id":"sh.vars",
+"label":"Variables, loops",
+"needs":[
+"sh.script"
+]
+}
+],
+"lessons":[
+{
+"title":"Find where you are",
+"goal":"Teach a complete beginner the macOS Terminal and zsh. Use pwd, ls and cd with tab completion to walk from the home folder to / and back, and show hidden files with ls -a.",
+"grows":[
+"sh.navigate"
+],
+"check":"run"
+},
+{
+"title":"Make folders and files",
+"goal":"Teach mkdir, mkdir -p and touch in the macOS Terminal by building a trail-log folder in the home folder with notes and photos folders inside and three empty day notes.",
+"grows":[
+"sh.files"
+],
+"check":"file"
+},
+{
+"title":"Copy, move, rename and delete",
+"goal":"Teach cp, mv, rm and rm -r in the macOS Terminal, and that rm has no undo, by copying day1.txt to day1-backup.txt, renaming day3.txt to summit.txt and removing a scratch folder.",
+"grows":[
+"sh.files"
+],
+"check":"file"
+},
+{
+"title":"Write lines into a file",
+"goal":"Teach echo with > and >> in the macOS Terminal, and how > overwrites while >> adds, by writing three lines about the weather and the trail into each of the three trail-log notes.",
+"grows":[
+"sh.redirect"
+],
+"check":"file"
+},
+{
+"title":"Read files with cat, less and head",
+"goal":"Teach reading text in the macOS Terminal with cat, less, head, tail and wc -l, and looking up a flag with man, by checking the three trail-log notes without opening an editor.",
+"grows":[
+"sh.read"
+],
+"check":"run"
+},
+{
+"title":"Match many files with wildcards",
+"goal":"Teach the * and ? wildcards in zsh by listing every .txt note in trail-log, copying day1.txt and day2.txt into a backup folder with one cp command and removing day1-backup.txt.",
+"grows":[
+"sh.globs"
+],
+"check":"file"
+},
+{
+"title":"Pipes and grep",
+"goal":"Teach grep and the pipe in zsh by finding every line that mentions rain across the trail-log notes, sorting the matches, counting them with wc -l and saving the sorted lines to rain.txt.",
+"grows":[
+"sh.pipes"
+],
+"check":"file"
+},
+{
+"title":"Permissions and chmod",
+"goal":"Teach reading the rwx columns of ls -l and changing them with chmod in the macOS Terminal by making private.txt, a note that only its owner can read and write.",
+"grows":[
+"sh.permissions"
+],
+"check":"file"
+},
+{
+"title":"Write a shell script",
+"goal":"Teach a first zsh script on macOS. Write newday.sh in nano with a shebang line for zsh, make it executable with chmod +x and have it create a note named with today's date.",
+"grows":[
+"sh.script"
+],
+"check":"run"
+},
+{
+"title":"Variables, arguments and a loop",
+"goal":"Teach shell variables, the $1 argument and a for loop in zsh by writing count.sh, which takes a word and prints how many lines mention it in each trail-log note.",
+"grows":[
+"sh.vars"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-unity",
+"title":"Intro to Unity",
+"topic":"3d",
+"track":"unity",
+"tool":{
+"id":"unity",
+"label":"Unity"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A marble maze with a finish line",
+"checks":[
+"The Player has a Rigidbody and at least ten walls have colliders",
+"A trigger at the goal changes a UI text when the Player enters it",
+"A macOS build of the game is saved"
+]
+},
+"skills":[
+{
+"id":"un.editor",
+"label":"Editor windows",
+"needs":[]
+},
+{
+"id":"un.objects",
+"label":"GameObjects",
+"needs":[
+"un.editor"
+]
+},
+{
+"id":"un.components",
+"label":"Components",
+"needs":[
+"un.objects"
+]
+},
+{
+"id":"un.scripts",
+"label":"C# scripts",
+"needs":[
+"un.components"
+]
+},
+{
+"id":"un.input",
+"label":"Input and movement",
+"needs":[
+"un.scripts"
+]
+},
+{
+"id":"un.physics",
+"label":"Physics",
+"needs":[
+"un.components"
+]
+},
+{
+"id":"un.prefabs",
+"label":"Prefabs",
+"needs":[
+"un.scripts"
+]
+},
+{
+"id":"un.collisions",
+"label":"Triggers",
+"needs":[
+"un.physics",
+"un.prefabs"
+]
+},
+{
+"id":"un.ui",
+"label":"UI text",
+"needs":[
+"un.collisions"
+]
+},
+{
+"id":"un.build",
+"label":"Building",
+"needs":[
+"un.scripts"
+]
+}
+],
+"lessons":[
+{
+"title":"Find your way around the editor",
+"goal":"Teach a complete beginner the Unity editor. Make a new 3D project, tour the Scene view, Game view, Hierarchy, Inspector and Project window, and save the scene as Main.",
+"grows":[
+"un.editor"
+],
+"check":"scene"
+},
+{
+"title":"Build a floor and a player",
+"goal":"Teach Unity GameObjects and the Transform by adding a Plane named Floor at the origin and a Sphere named Player resting on it, placed by typing position values in the Inspector.",
+"grows":[
+"un.objects"
+],
+"check":"scene"
+},
+{
+"title":"Components and materials",
+"goal":"Teach Unity components by adding a Rigidbody to the Player with Add Component, pressing Play to watch gravity act on it, and giving the Player and the Floor their own colored materials.",
+"grows":[
+"un.components"
+],
+"check":"scene"
+},
+{
+"title":"Write your first C# script",
+"goal":"Teach Unity C# scripts by making a PlayerController MonoBehaviour, attaching it to the Player and logging a line from Start and the position from Update to the Console.",
+"grows":[
+"un.scripts"
+],
+"check":"code"
+},
+{
+"title":"Move the player with the keyboard",
+"goal":"Teach reading keyboard input in a Unity C# script and moving with physics by rolling the Player with AddForce on its Rigidbody in FixedUpdate, with a public speed field.",
+"grows":[
+"un.input"
+],
+"check":"code"
+},
+{
+"title":"Walls and colliders",
+"goal":"Teach Unity colliders and how a Rigidbody reacts to them by boxing in the Floor with four Cube walls, so the rolling Player bounces back and cannot fall off the edge.",
+"grows":[
+"un.physics"
+],
+"check":"scene"
+},
+{
+"title":"Make a coin prefab",
+"goal":"Teach Unity prefabs by shaping a flat Cylinder into a Coin with a script that spins it using Time.deltaTime, saving it as a prefab and placing eight copies on the Floor.",
+"grows":[
+"un.prefabs"
+],
+"check":"scene"
+},
+{
+"title":"Collect coins with triggers",
+"goal":"Teach Unity trigger colliders and OnTriggerEnter by ticking Is Trigger on the Coin collider, tagging the prefab Coin and hiding each coin the Player touches.",
+"grows":[
+"un.collisions"
+],
+"check":"code"
+},
+{
+"title":"Show the score on screen",
+"goal":"Teach Unity UI with a Canvas and a TextMeshPro text by counting collected coins in PlayerController and showing the count in the corner of the Game view.",
+"grows":[
+"un.ui"
+],
+"check":"code"
+},
+{
+"title":"Build the game for Mac",
+"goal":"Teach making a build in Unity. Add the Main scene to the scene list, choose the macOS platform, set the product name to Coin Roll and build an app that opens outside the editor.",
+"grows":[
+"un.build"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"intro-vscode",
+"title":"Intro to VS Code",
+"topic":"tools",
+"track":"vs code",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A temperature converter, set up alone",
+"checks":[
+"The folder holds temp.js, README.md and .vscode/settings.json",
+"The workspace settings turn on editor.formatOnSave",
+"node temp.js prints 212 for 100 degrees Celsius"
+]
+},
+"skills":[
+{
+"id":"vsc.folder",
+"label":"Folders and files",
+"needs":[]
+},
+{
+"id":"vsc.palette",
+"label":"Command Palette",
+"needs":[
+"vsc.folder"
+]
+},
+{
+"id":"vsc.multicursor",
+"label":"Multi-cursor",
+"needs":[
+"vsc.folder"
+]
+},
+{
+"id":"vsc.search",
+"label":"Find and replace",
+"needs":[
+"vsc.multicursor"
+]
+},
+{
+"id":"vsc.terminal",
+"label":"Terminal",
+"needs":[
+"vsc.folder"
+]
+},
+{
+"id":"vsc.navigate",
+"label":"Code navigation",
+"needs":[
+"vsc.search",
+"vsc.terminal"
+]
+},
+{
+"id":"vsc.extensions",
+"label":"Extensions",
+"needs":[
+"vsc.palette"
+]
+},
+{
+"id":"vsc.settings",
+"label":"Settings",
+"needs":[
+"vsc.extensions"
+]
+},
+{
+"id":"vsc.debug",
+"label":"Debugger",
+"needs":[
+"vsc.terminal"
+]
+}
+],
+"lessons":[
+{
+"title":"Open a folder and make files",
+"goal":"Teach a complete beginner VS Code. Open a new folder named recipe-box, tour the Activity Bar and the Explorer, then make README.md and recipe.txt with six ingredient names, one per line.",
+"grows":[
+"vsc.folder"
+],
+"check":"file"
+},
+{
+"title":"The Command Palette and Quick Open",
+"goal":"Teach the VS Code Command Palette (Shift+Cmd+P) and Quick Open (Cmd+P) by jumping between the two files and running Sort Lines Ascending on the ingredients in recipe.txt.",
+"grows":[
+"vsc.palette"
+],
+"check":"code"
+},
+{
+"title":"Edit many lines at once",
+"goal":"Teach VS Code multi-cursor editing with Option+click, Cmd+D and Option+Cmd+Down by turning the six plain lines into recipe.json, an array of objects that each have a name and cups.",
+"grows":[
+"vsc.multicursor"
+],
+"check":"code"
+},
+{
+"title":"Find and replace across files",
+"goal":"Teach VS Code find and replace in one file (Cmd+F) and across the whole folder (Shift+Cmd+F) by changing every cups to grams in recipe.json and README.md in one pass.",
+"grows":[
+"vsc.search"
+],
+"check":"code"
+},
+{
+"title":"Run code in the integrated terminal",
+"goal":"Teach the VS Code integrated terminal (Ctrl+`). Write scale.js that reads recipe.json and prints each amount doubled, run it with node, then split a second terminal beside the first.",
+"grows":[
+"vsc.terminal"
+],
+"check":"run"
+},
+{
+"title":"Jump around and rename safely",
+"goal":"Teach VS Code code navigation. Move the doubling into a function in its own file, jump to it with Go to Definition (F12) and rename it to scaleRecipe everywhere with Rename Symbol (F2).",
+"grows":[
+"vsc.navigate"
+],
+"check":"code"
+},
+{
+"title":"Install an extension",
+"goal":"Teach the VS Code Extensions view (Shift+Cmd+X) by installing Prettier, choosing it as the default formatter and running Format Document on scale.js.",
+"grows":[
+"vsc.extensions"
+],
+"check":"code"
+},
+{
+"title":"Settings and format on save",
+"goal":"Teach VS Code settings (Cmd+,) and how user and workspace settings differ by adding .vscode/settings.json to recipe-box with format on save turned on and a tab size of 2.",
+"grows":[
+"vsc.settings"
+],
+"check":"file"
+},
+{
+"title":"Find a bug with a breakpoint",
+"goal":"Teach the VS Code debugger. Set a breakpoint in scale.js, start it from Run and Debug with Node.js, step over lines and watch the variables to find why a new 250 gram item doubles to 250250.",
+"grows":[
+"vsc.debug"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"intro-xcode",
+"title":"Intro to Xcode",
+"topic":"code",
+"track":"xcode",
+"tool":{
+"id":"xcode",
+"label":"Xcode"
+},
+"level":"start",
+"needs":[],
+"project":{
+"title":"A reading list app",
+"checks":[
+"The project builds with no errors",
+"A List inside a NavigationStack shows at least five rows",
+"The detail view has a Button that changes a @State value"
+]
+},
+"skills":[
+{
+"id":"xc.project",
+"label":"Projects and files",
+"needs":[]
+},
+{
+"id":"xc.preview",
+"label":"Canvas preview",
+"needs":[
+"xc.project"
+]
+},
+{
+"id":"xc.views",
+"label":"Views, modifiers",
+"needs":[
+"xc.preview"
+]
+},
+{
+"id":"xc.stacks",
+"label":"Stacks and layout",
+"needs":[
+"xc.views"
+]
+},
+{
+"id":"xc.state",
+"label":"State and buttons",
+"needs":[
+"xc.stacks"
+]
+},
+{
+"id":"xc.simulator",
+"label":"Simulator",
+"needs":[
+"xc.project"
+]
+},
+{
+"id":"xc.lists",
+"label":"Lists",
+"needs":[
+"xc.stacks"
+]
+},
+{
+"id":"xc.navigation",
+"label":"Navigation",
+"needs":[
+"xc.lists"
+]
+},
+{
+"id":"xc.errors",
+"label":"Build errors",
+"needs":[
+"xc.simulator"
+]
+}
+],
+"lessons":[
+{
+"title":"Make a new SwiftUI project",
+"goal":"Teach a complete beginner Xcode. Make a new iOS App project named Plants with the SwiftUI interface, then tour the navigator, the editor, the inspector and ContentView.swift.",
+"grows":[
+"xc.project"
+],
+"check":"scene"
+},
+{
+"title":"See changes in the canvas preview",
+"goal":"Teach the Xcode canvas and the #Preview macro by changing the Hello, world text in ContentView to My plants and watching the preview update as you type.",
+"grows":[
+"xc.preview"
+],
+"check":"code"
+},
+{
+"title":"Text, images and modifiers",
+"goal":"Teach SwiftUI views and modifiers in Xcode by building a plant header from a Text in the title font and an SF Symbol leaf Image tinted green, with padding around both.",
+"grows":[
+"xc.views"
+],
+"check":"code"
+},
+{
+"title":"Lay out a card with stacks",
+"goal":"Teach VStack, HStack and Spacer in SwiftUI by arranging the leaf, a plant name and a watering note into a PlantCard view with a rounded background, checked in the Xcode canvas.",
+"grows":[
+"xc.stacks"
+],
+"check":"code"
+},
+{
+"title":"A button that changes state",
+"goal":"Teach @State and Button in SwiftUI by adding a Water button to PlantCard in Xcode that counts how many times the plant was watered and shows the count in a Text.",
+"grows":[
+"xc.state"
+],
+"check":"code"
+},
+{
+"title":"Run the app in the Simulator",
+"goal":"Teach running an app from Xcode. Pick an iPhone simulator as the run destination, build and run Plants with Cmd+R, tap Water and read a print line in the debug console, then stop the app.",
+"grows":[
+"xc.simulator"
+],
+"check":"run"
+},
+{
+"title":"Show many plants in a List",
+"goal":"Teach SwiftUI List in Xcode by making a Plant struct that is Identifiable, an array of five plants and a List that shows one row for each with its name and symbol.",
+"grows":[
+"xc.lists"
+],
+"check":"code"
+},
+{
+"title":"Navigate to a detail screen",
+"goal":"Teach NavigationStack and NavigationLink in SwiftUI by wrapping the plant List in Xcode so each row opens a PlantDetail view with the plant name as its title and the Water button.",
+"grows":[
+"xc.navigation"
+],
+"check":"code"
+},
+{
+"title":"Read and fix build errors",
+"goal":"Teach reading Xcode build errors. Break the Plants app in three small ways, find each one in the Issue navigator, use the fix-it where one is offered and build until it is clean.",
+"grows":[
+"xc.errors"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"blender-animation",
+"title":"Blender animation basics",
+"topic":"3d",
+"track":"blender",
+"tool":{
+"id":"blender",
+"label":"Blender"
+},
+"level":"next",
+"needs":[
+"intro-blender"
+],
+"project":{
+"title":"A rocket launch shot",
+"checks":[
+"The fins are children of the rocket body and only the body is keyed",
+"The rocket's Z curve starts flat and gets steeper over time",
+"A video of at least 72 frames is saved"
+]
+},
+"skills":[
+{
+"id":"bla.keyframes",
+"label":"Keyframes",
+"needs":[
+"bl.transform"
+]
+},
+{
+"id":"bla.timeline",
+"label":"Timeline",
+"needs":[
+"bla.keyframes"
+]
+},
+{
+"id":"bla.easing",
+"label":"Interpolation",
+"needs":[
+"bla.timeline"
+]
+},
+{
+"id":"bla.graph",
+"label":"Graph Editor",
+"needs":[
+"bla.easing"
+]
+},
+{
+"id":"bla.parenting",
+"label":"Parenting",
+"needs":[
+"bla.keyframes"
+]
+},
+{
+"id":"bla.timing",
+"label":"Timing and spacing",
+"needs":[
+"bla.graph"
+]
+},
+{
+"id":"bla.dopesheet",
+"label":"Dope Sheet",
+"needs":[
+"bla.timeline"
+]
+},
+{
+"id":"bla.camera",
+"label":"Camera moves",
+"needs":[
+"bla.graph",
+"bl.lighting"
+]
+},
+{
+"id":"bla.output",
+"label":"Rendering to video",
+"needs":[
+"bla.camera",
+"bl.render"
+]
+}
+],
+"lessons":[
+{
+"title":"Your first keyframes",
+"goal":"Teach keyframes in Blender by sliding a cube from X 0 to X 5. Insert Location keyframes with I at frame 1 and at frame 48, then play it back with Space.",
+"grows":[
+"bla.keyframes"
+],
+"check":"scene"
+},
+{
+"title":"The timeline and frame rate",
+"goal":"Teach Blender's Timeline. Set the frame rate to 24 fps and the end frame to 72, scrub, jump between keyframes and move the last key so the slide takes 3 seconds.",
+"grows":[
+"bla.timeline"
+],
+"check":"scene"
+},
+{
+"title":"Linear, Bezier and Constant",
+"goal":"Teach keyframe interpolation modes in Blender with T by making a clock with a minute hand that ticks in steps using Constant keys and a second hand that sweeps using Linear keys.",
+"grows":[
+"bla.easing"
+],
+"check":"scene"
+},
+{
+"title":"Shape motion in the Graph Editor",
+"goal":"Teach Blender's Graph Editor by opening the cube's X Location curve and moving the keyframe handles so the cube starts slowly and overshoots a little before it settles.",
+"grows":[
+"bla.graph"
+],
+"check":"scene"
+},
+{
+"title":"Parent one object to another",
+"goal":"Teach parenting in Blender with Ctrl P by building a simple desk fan with three blades parented to a hub, then keying only the hub so the blades spin with it.",
+"grows":[
+"bla.parenting"
+],
+"check":"scene"
+},
+{
+"title":"A bouncing ball",
+"goal":"Teach timing and spacing in Blender by animating a ball from frame 1 to frame 49 that drops and bounces three times, each bounce lower, with sharp turns at the floor in the Graph Editor.",
+"grows":[
+"bla.timing"
+],
+"check":"scene"
+},
+{
+"title":"Retime it in the Dope Sheet",
+"goal":"Teach Blender's Dope Sheet by selecting all of the ball's keyframes and scaling them so the bounce takes twice as long, then sliding single keys to fix the rhythm.",
+"grows":[
+"bla.dopesheet"
+],
+"check":"scene"
+},
+{
+"title":"Move the camera",
+"goal":"Teach camera animation in Blender by keying a slow push in toward the ball and adding a Track To constraint aimed at an empty so the shot stays framed.",
+"grows":[
+"bla.camera"
+],
+"check":"scene"
+},
+{
+"title":"Render the animation to a video",
+"goal":"Teach rendering an animation in Blender. Set the frame range to 1 to 96, set the output to an MP4 video with H.264, pick a folder and run Render Animation.",
+"grows":[
+"bla.output"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"blender-materials",
+"title":"Blender materials and light",
+"topic":"3d",
+"track":"blender",
+"tool":{
+"id":"blender",
+"label":"Blender"
+},
+"level":"next",
+"needs":[
+"intro-blender"
+],
+"project":{
+"title":"A bottle on a wooden table",
+"checks":[
+"A glass material and an image-textured material are both assigned",
+"The camera has depth of field on with a focus object set",
+"A Cycles render is saved as a PNG"
+]
+},
+"skills":[
+{
+"id":"blm.principled",
+"label":"Principled BSDF",
+"needs":[
+"bl.materials"
+]
+},
+{
+"id":"blm.glass",
+"label":"Glass and emission",
+"needs":[
+"blm.principled"
+]
+},
+{
+"id":"blm.nodes",
+"label":"Shader nodes",
+"needs":[
+"blm.principled"
+]
+},
+{
+"id":"blm.uv",
+"label":"UV unwrapping",
+"needs":[
+"bl.edit"
+]
+},
+{
+"id":"blm.textures",
+"label":"Image textures",
+"needs":[
+"blm.uv",
+"blm.nodes"
+]
+},
+{
+"id":"blm.world",
+"label":"HDRI world light",
+"needs":[
+"blm.nodes",
+"bl.lighting"
+]
+},
+{
+"id":"blm.three_point",
+"label":"Three-point light",
+"needs":[
+"bl.lighting"
+]
+},
+{
+"id":"blm.dof",
+"label":"Depth of field",
+"needs":[
+"blm.three_point"
+]
+},
+{
+"id":"blm.engines",
+"label":"Cycles and Eevee",
+"needs":[
+"blm.dof",
+"bl.render"
+]
+}
+],
+"lessons":[
+{
+"title":"Metal, plastic and rubber",
+"goal":"Teach Blender's Principled BSDF in depth. Make three spheres, one shiny plastic, one brushed metal and one dull rubber, using only Base Color, Metallic and Roughness.",
+"grows":[
+"blm.principled"
+],
+"check":"scene"
+},
+{
+"title":"Glass and glowing things",
+"goal":"Teach transmission, IOR and emission on Blender's Principled BSDF by making a glass ball with an IOR of 1.52 and a small bulb that glows.",
+"grows":[
+"blm.glass"
+],
+"check":"scene"
+},
+{
+"title":"Build a material from nodes",
+"goal":"Teach Blender's Shader Editor by wiring a Noise Texture through a Color Ramp into the Base Color of a Principled BSDF to make a marble ball.",
+"grows":[
+"blm.nodes"
+],
+"check":"scene"
+},
+{
+"title":"Unwrap a crate",
+"goal":"Teach UV unwrapping in Blender. Mark seams on a cube-shaped crate in Edit mode, unwrap it and arrange the islands in the UV Editor so none overlap.",
+"grows":[
+"blm.uv"
+],
+"check":"scene"
+},
+{
+"title":"Put an image texture on it",
+"goal":"Teach Image Texture nodes in Blender by putting a wood image on the unwrapped crate through Base Color and adding a roughness map set to Non-Color.",
+"grows":[
+"blm.textures"
+],
+"check":"scene"
+},
+{
+"title":"Light the scene with an HDRI",
+"goal":"Teach world lighting in Blender by loading an HDRI into an Environment Texture node on the World and setting its strength so it lights the crate on its own.",
+"grows":[
+"blm.world"
+],
+"check":"scene"
+},
+{
+"title":"Three-point lighting",
+"goal":"Teach three-point lighting in Blender by placing area lights named Key, Fill and Rim around the crate, with the key at least twice as strong as the fill.",
+"grows":[
+"blm.three_point"
+],
+"check":"scene"
+},
+{
+"title":"Depth of field",
+"goal":"Teach camera depth of field in Blender. Turn it on, set the focus object to the crate and lower the F-Stop to 2.8 so the background goes soft.",
+"grows":[
+"blm.dof"
+],
+"check":"scene"
+},
+{
+"title":"Cycles and Eevee settings",
+"goal":"Teach the difference between Cycles and Eevee in Blender by rendering the crate in both, with Cycles at 128 samples and denoising on, and saving the two images.",
+"grows":[
+"blm.engines"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"cad-3d-printing",
+"title":"CAD for 3D printing",
+"topic":"cad",
+"track":"cad",
+"tool":{
+"id":"freecad",
+"label":"FreeCAD"
+},
+"level":"next",
+"needs":[
+"intro-cad"
+],
+"project":{
+"title":"A battery holder with a snap-on cover",
+"checks":[
+"Two bodies, each with walls at least 1.2 mm thick",
+"The cover joins the holder with a snap fit and 0.2 to 0.4 mm of clearance",
+"Both parts are saved as STL files and slice with no supports"
+]
+},
+"skills":[
+{
+"id":"cadp.clearance",
+"label":"Clearances",
+"needs":[
+"cad.pocket"
+]
+},
+{
+"id":"cadp.walls",
+"label":"Wall thickness",
+"needs":[
+"cad.pad"
+]
+},
+{
+"id":"cadp.overhangs",
+"label":"Overhangs",
+"needs":[
+"cadp.walls",
+"cad.fillet"
+]
+},
+{
+"id":"cadp.orient",
+"label":"Print orientation",
+"needs":[
+"cadp.overhangs"
+]
+},
+{
+"id":"cadp.press",
+"label":"Press fits",
+"needs":[
+"cadp.clearance"
+]
+},
+{
+"id":"cadp.snap",
+"label":"Snap fits",
+"needs":[
+"cadp.press",
+"cadp.orient"
+]
+},
+{
+"id":"cadp.enclosure",
+"label":"Boxes and lids",
+"needs":[
+"cadp.walls",
+"cadp.clearance"
+]
+},
+{
+"id":"cadp.bosses",
+"label":"Screw bosses",
+"needs":[
+"cadp.enclosure",
+"cad.pattern"
+]
+},
+{
+"id":"cadp.slicer",
+"label":"Slicer check",
+"needs":[
+"cadp.orient",
+"cad.export"
+]
+}
+],
+"lessons":[
+{
+"title":"Clearance with a peg and three holes",
+"goal":"Teach clearance for 3D printing in FreeCAD Part Design by modelling a 10 mm peg and a test plate with holes of 10.0, 10.2 and 10.4 mm to find the fit your printer gives.",
+"grows":[
+"cadp.clearance"
+],
+"check":"scene"
+},
+{
+"title":"Wall thickness",
+"goal":"Teach wall thickness for 3D printing in FreeCAD by hollowing a 40 mm cube into an open tray with the Part Design Thickness tool, with 1.6 mm walls to suit a 0.4 mm nozzle.",
+"grows":[
+"cadp.walls"
+],
+"check":"scene"
+},
+{
+"title":"Overhangs and the 45 degree rule",
+"goal":"Teach overhangs for 3D printing in FreeCAD by adding a shelf to the side of the tray and holding it up with a 45 degree chamfer so it prints with no supports.",
+"grows":[
+"cadp.overhangs"
+],
+"check":"scene"
+},
+{
+"title":"Choose a print orientation",
+"goal":"Teach print orientation in FreeCAD by modelling an L bracket with a screw hole so that its largest flat face sits on the bed and the hole points straight up.",
+"grows":[
+"cadp.orient"
+],
+"check":"scene"
+},
+{
+"title":"A press fit for a magnet",
+"goal":"Teach press fits for 3D printing in FreeCAD by adding a pocket for a 6 mm round magnet to a fridge clip, sized from your clearance test, with a chamfered rim to guide it in.",
+"grows":[
+"cadp.press"
+],
+"check":"scene"
+},
+{
+"title":"A snap-fit hook",
+"goal":"Teach cantilever snap fits in FreeCAD by sketching a thin springy arm with a hooked tip and a slot that catches it, with 0.3 mm of clearance, laid flat so layers run along the arm.",
+"grows":[
+"cadp.snap"
+],
+"check":"scene"
+},
+{
+"title":"An enclosure base",
+"goal":"Teach designing a box for electronics in FreeCAD. Build the base of a 60 by 40 by 20 mm enclosure as its own body, with 2 mm walls, a 2 mm floor and rounded outer corners.",
+"grows":[
+"cadp.enclosure"
+],
+"check":"scene"
+},
+{
+"title":"A lid that fits",
+"goal":"Teach mating parts in FreeCAD by adding a second body, a lid with a lip that drops 3 mm into the enclosure base and leaves 0.2 mm of clearance on every side.",
+"grows":[
+"cadp.enclosure",
+"cadp.clearance"
+],
+"check":"scene"
+},
+{
+"title":"Screw bosses",
+"goal":"Teach screw bosses in FreeCAD by adding four corner posts to the base with 2.5 mm pilot holes for M3 screws, and four matching 3.4 mm clearance holes in the lid.",
+"grows":[
+"cadp.bosses"
+],
+"check":"scene"
+},
+{
+"title":"Export and check in a slicer",
+"goal":"Teach the last checks before printing. Export the base and the lid from FreeCAD as STL files, open them in a slicer such as PrusaSlicer, lay each flat on the bed and slice them.",
+"grows":[
+"cadp.slicer"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"neural-networks",
+"title":"Neural networks from scratch",
+"topic":"ai",
+"track":"neural networks",
+"tool":{
+"id":"jupyter",
+"label":"Jupyter"
+},
+"level":"next",
+"needs":[
+"numpy"
+],
+"project":{
+"title":"A network that finds a circle",
+"checks":[
+"The notebook imports numpy and no machine learning library",
+"The loss printed at the end is lower than the loss at the start",
+"Accuracy on the 200 points is at least 90 percent"
+]
+},
+"skills":[
+{
+"id":"nn.neuron",
+"label":"A single neuron",
+"needs":[
+"np.matrices"
+]
+},
+{
+"id":"nn.activation",
+"label":"Activations",
+"needs":[
+"nn.neuron"
+]
+},
+{
+"id":"nn.layer",
+"label":"Layers as matrices",
+"needs":[
+"nn.activation"
+]
+},
+{
+"id":"nn.forward",
+"label":"Forward pass",
+"needs":[
+"nn.layer"
+]
+},
+{
+"id":"nn.loss",
+"label":"Loss",
+"needs":[
+"nn.forward"
+]
+},
+{
+"id":"nn.gradients",
+"label":"Gradients by hand",
+"needs":[
+"nn.loss"
+]
+},
+{
+"id":"nn.descent",
+"label":"Gradient descent",
+"needs":[
+"nn.gradients"
+]
+},
+{
+"id":"nn.backprop",
+"label":"Backpropagation",
+"needs":[
+"nn.descent"
+]
+},
+{
+"id":"nn.training",
+"label":"Training a network",
+"needs":[
+"nn.backprop",
+"np.random"
+]
+}
+],
+"lessons":[
+{
+"title":"A single neuron",
+"goal":"Teach what one neuron computes using only NumPy in Jupyter. Write neuron(x, w, b) that returns the dot product of inputs and weights plus a bias, and try it on three inputs.",
+"grows":[
+"nn.neuron"
+],
+"check":"run"
+},
+{
+"title":"Activation functions",
+"goal":"Teach sigmoid, tanh and ReLU as NumPy functions that work on whole arrays, then add a sigmoid to the neuron so its output stays between 0 and 1.",
+"grows":[
+"nn.activation"
+],
+"check":"run"
+},
+{
+"title":"A layer is a matrix",
+"goal":"Teach a dense layer in NumPy as a weight matrix and a bias vector. Build a layer of 4 neurons that takes 3 inputs and send a batch of 5 samples through it with the @ operator.",
+"grows":[
+"nn.layer"
+],
+"check":"run"
+},
+{
+"title":"The forward pass",
+"goal":"Teach the forward pass of a two-layer network in NumPy. Write forward(X) for a 2-4-1 network that chains a hidden layer with tanh and an output layer with sigmoid.",
+"grows":[
+"nn.forward"
+],
+"check":"run"
+},
+{
+"title":"Measure the error with a loss",
+"goal":"Teach mean squared error and binary cross-entropy in NumPy by writing both as functions and scoring the untrained network's guesses against the right answers.",
+"grows":[
+"nn.loss"
+],
+"check":"run"
+},
+{
+"title":"Gradients by hand",
+"goal":"Teach the chain rule for one sigmoid neuron with squared error. Work out the gradient for the weights and the bias on paper, code it in NumPy and check it against a numerical gradient.",
+"grows":[
+"nn.gradients"
+],
+"check":"run"
+},
+{
+"title":"Gradient descent",
+"goal":"Teach gradient descent in NumPy by training the single neuron to act as an AND gate, nudging the weights and bias against the gradient with a learning rate for 2000 steps.",
+"grows":[
+"nn.descent"
+],
+"check":"run"
+},
+{
+"title":"Backpropagation through two layers",
+"goal":"Teach backpropagation in NumPy for the 2-4-1 network. Write backward so it returns a gradient for each weight matrix and bias, and check one of them against a numerical gradient.",
+"grows":[
+"nn.backprop"
+],
+"check":"run"
+},
+{
+"title":"Train a tiny network on XOR",
+"goal":"Teach a full training loop in NumPy. Train the 2-4-1 network on the four XOR points with forward, loss, backward and update, starting from seeded random weights, and print the loss as it falls.",
+"grows":[
+"nn.training"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"numpy",
+"title":"NumPy",
+"topic":"data",
+"track":"numpy",
+"tool":{
+"id":"jupyter",
+"label":"Jupyter"
+},
+"level":"next",
+"needs":[
+"intro-python"
+],
+"project":{
+"title":"A tiny image editor",
+"checks":[
+"The image has shape (64, 64) and the crop has shape (32, 32)",
+"The black and white image holds only the values 0 and 255",
+"The notebook has no for or while loop"
+]
+},
+"skills":[
+{
+"id":"np.arrays",
+"label":"Arrays",
+"needs":[
+"py.lists"
+]
+},
+{
+"id":"np.shape",
+"label":"Shape and dtype",
+"needs":[
+"np.arrays"
+]
+},
+{
+"id":"np.indexing",
+"label":"Indexing, slicing",
+"needs":[
+"np.shape"
+]
+},
+{
+"id":"np.masks",
+"label":"Boolean masks",
+"needs":[
+"np.indexing"
+]
+},
+{
+"id":"np.axis",
+"label":"Math along an axis",
+"needs":[
+"np.shape"
+]
+},
+{
+"id":"np.broadcast",
+"label":"Broadcasting",
+"needs":[
+"np.axis"
+]
+},
+{
+"id":"np.random",
+"label":"Random numbers",
+"needs":[
+"np.masks"
+]
+},
+{
+"id":"np.vectorise",
+"label":"Vectorising loops",
+"needs":[
+"np.broadcast",
+"py.loops"
+]
+},
+{
+"id":"np.matrices",
+"label":"Dot and matrices",
+"needs":[
+"np.indexing"
+]
+}
+],
+"lessons":[
+{
+"title":"Make your first arrays",
+"goal":"Teach NumPy arrays in Jupyter. Import numpy as np, build arrays with np.array, np.arange, np.zeros and np.linspace, and turn a list of seven Celsius temperatures into Fahrenheit in one line.",
+"grows":[
+"np.arrays"
+],
+"check":"run"
+},
+{
+"title":"Shape, dtype and reshape",
+"goal":"Teach ndim, shape, dtype, reshape and astype in NumPy by turning the numbers 1 to 12 into a 3 by 4 grid of floats.",
+"grows":[
+"np.shape"
+],
+"check":"run"
+},
+{
+"title":"Indexing and slicing",
+"goal":"Teach NumPy indexing and slicing on 2D arrays by pulling one row, one column and the middle 2 by 2 block out of a 4 by 4 grid of the numbers 0 to 15.",
+"grows":[
+"np.indexing"
+],
+"check":"run"
+},
+{
+"title":"Boolean masks",
+"goal":"Teach NumPy boolean masks and np.where by picking the days above 30 degrees out of a month of temperatures and counting them.",
+"grows":[
+"np.masks"
+],
+"check":"run"
+},
+{
+"title":"Math along an axis",
+"goal":"Teach sum, mean, max and argmax with the axis argument in NumPy by finding each student's average and each test's top score in a 5 by 3 table of scores.",
+"grows":[
+"np.axis"
+],
+"check":"run"
+},
+{
+"title":"Broadcasting",
+"goal":"Teach NumPy broadcasting rules by subtracting each test's mean from the 5 by 3 table of scores and scaling each column by a different weight, with no loop.",
+"grows":[
+"np.broadcast"
+],
+"check":"run"
+},
+{
+"title":"Random numbers with a seed",
+"goal":"Teach NumPy random numbers with np.random.default_rng and a seed by simulating 1000 rolls of two dice and counting how often the sum is 7.",
+"grows":[
+"np.random"
+],
+"check":"run"
+},
+{
+"title":"Replace a loop with array math",
+"goal":"Teach vectorising in NumPy by rewriting a Python for loop that finds the distance of 10000 points from the origin as one array expression, then timing both.",
+"grows":[
+"np.vectorise"
+],
+"check":"run"
+},
+{
+"title":"Dot product and matrices",
+"goal":"Teach the dot product and matrix multiplication in NumPy with np.dot and the @ operator by turning a square of four 2D points by 90 degrees with a 2 by 2 matrix.",
+"grows":[
+"np.matrices"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"pandas",
+"title":"pandas",
+"topic":"data",
+"track":"pandas",
+"tool":{
+"id":"jupyter",
+"label":"Jupyter"
+},
+"level":"next",
+"needs":[
+"intro-python"
+],
+"project":{
+"title":"A bike share report",
+"checks":[
+"The cleaned trips table has no missing start or end times",
+"A table lists the ten busiest stations by name with their trip counts",
+"A plot of trips by hour is saved as a PNG"
+]
+},
+"skills":[
+{
+"id":"pd.read",
+"label":"Reading a CSV",
+"needs":[
+"py.files"
+]
+},
+{
+"id":"pd.select",
+"label":"Selecting data",
+"needs":[
+"pd.read"
+]
+},
+{
+"id":"pd.filter",
+"label":"Filtering rows",
+"needs":[
+"pd.select"
+]
+},
+{
+"id":"pd.missing",
+"label":"Missing values",
+"needs":[
+"pd.select"
+]
+},
+{
+"id":"pd.columns",
+"label":"New columns",
+"needs":[
+"pd.missing"
+]
+},
+{
+"id":"pd.sort",
+"label":"Sorting and top n",
+"needs":[
+"pd.columns"
+]
+},
+{
+"id":"pd.groupby",
+"label":"Group by",
+"needs":[
+"pd.columns"
+]
+},
+{
+"id":"pd.merge",
+"label":"Merging tables",
+"needs":[
+"pd.groupby"
+]
+},
+{
+"id":"pd.plot",
+"label":"Quick plots",
+"needs":[
+"pd.groupby"
+]
+}
+],
+"lessons":[
+{
+"title":"Read a CSV into a DataFrame",
+"goal":"Teach pandas in Jupyter. Import pandas as pd, load orders.csv from a small coffee shop with pd.read_csv and look at it with head, shape, dtypes and info.",
+"grows":[
+"pd.read"
+],
+"check":"run"
+},
+{
+"title":"Select columns and rows",
+"goal":"Teach selecting in pandas with square brackets, loc and iloc by pulling the item and price columns and the first ten rows out of the coffee shop orders.",
+"grows":[
+"pd.select"
+],
+"check":"run"
+},
+{
+"title":"Filter rows with conditions",
+"goal":"Teach boolean filtering in pandas with comparisons, the & and | operators and isin by finding every latte that cost more than 4 dollars in the coffee shop orders.",
+"grows":[
+"pd.filter"
+],
+"check":"run"
+},
+{
+"title":"Clean up missing values",
+"goal":"Teach missing values in pandas with isna, dropna and fillna by counting the gaps in the coffee shop orders, filling missing quantities with 1 and dropping rows with no item.",
+"grows":[
+"pd.missing"
+],
+"check":"run"
+},
+{
+"title":"Add new columns",
+"goal":"Teach making new columns in pandas with arithmetic, pd.to_datetime and the dt accessor by adding a total column and a weekday column to the coffee shop orders.",
+"grows":[
+"pd.columns"
+],
+"check":"run"
+},
+{
+"title":"Sort and find the top ten",
+"goal":"Teach sort_values, nlargest and value_counts in pandas by listing the ten biggest coffee shop orders and the five items ordered most often.",
+"grows":[
+"pd.sort"
+],
+"check":"run"
+},
+{
+"title":"Group and summarise",
+"goal":"Teach df.groupby with sum, mean and agg in pandas by working out the sales and the average order size for each item and for each weekday in the coffee shop orders.",
+"grows":[
+"pd.groupby"
+],
+"check":"run"
+},
+{
+"title":"Merge two tables",
+"goal":"Teach pd.merge in pandas by joining the coffee shop orders to menu.csv on the item column to add each item's category, then totalling sales by category.",
+"grows":[
+"pd.merge"
+],
+"check":"run"
+},
+{
+"title":"Plot from a DataFrame",
+"goal":"Teach quick plots in pandas with df.plot, which draws with matplotlib, by making a bar chart of coffee shop sales for each weekday and saving it as sales.png.",
+"grows":[
+"pd.plot"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"plotting",
+"title":"Plotting with matplotlib",
+"topic":"data",
+"track":"plotting",
+"tool":{
+"id":"jupyter",
+"label":"Jupyter"
+},
+"level":"next",
+"needs":[
+"intro-python"
+],
+"project":{
+"title":"A four-panel picture of your week",
+"checks":[
+"One figure holds four axes, each with a title and axis labels",
+"The panels use a line, a bar, a scatter and a histogram",
+"The figure is saved as a PNG at least 1600 pixels wide"
+]
+},
+"skills":[
+{
+"id":"plt.line",
+"label":"Line plots",
+"needs":[
+"py.lists"
+]
+},
+{
+"id":"plt.labels",
+"label":"Labels and legends",
+"needs":[
+"plt.line"
+]
+},
+{
+"id":"plt.scatter",
+"label":"Scatter plots",
+"needs":[
+"plt.labels"
+]
+},
+{
+"id":"plt.bar",
+"label":"Bar charts",
+"needs":[
+"plt.labels"
+]
+},
+{
+"id":"plt.hist",
+"label":"Histograms",
+"needs":[
+"plt.bar"
+]
+},
+{
+"id":"plt.subplots",
+"label":"Subplots",
+"needs":[
+"plt.bar"
+]
+},
+{
+"id":"plt.style",
+"label":"Styling",
+"needs":[
+"plt.labels"
+]
+},
+{
+"id":"plt.annotate",
+"label":"Annotations",
+"needs":[
+"plt.style"
+]
+},
+{
+"id":"plt.save",
+"label":"Saving figures",
+"needs":[
+"plt.subplots"
+]
+}
+],
+"lessons":[
+{
+"title":"Your first line plot",
+"goal":"Teach matplotlib in Jupyter. Import matplotlib.pyplot as plt, make a figure and axes with plt.subplots and draw a week of temperatures as a line with ax.plot.",
+"grows":[
+"plt.line"
+],
+"check":"run"
+},
+{
+"title":"Titles, labels and a legend",
+"goal":"Teach ax.set_title, ax.set_xlabel, ax.set_ylabel and ax.legend in matplotlib by plotting two cities' temperatures on one chart and labelling everything.",
+"grows":[
+"plt.labels"
+],
+"check":"run"
+},
+{
+"title":"Scatter plots",
+"goal":"Teach ax.scatter in matplotlib with the s, c and alpha arguments by plotting hours of sleep against test scores for 50 students.",
+"grows":[
+"plt.scatter"
+],
+"check":"run"
+},
+{
+"title":"Bar charts",
+"goal":"Teach ax.bar and ax.barh in matplotlib by charting the votes for five favourite fruits, sorted from most to fewest.",
+"grows":[
+"plt.bar"
+],
+"check":"run"
+},
+{
+"title":"Histograms",
+"goal":"Teach ax.hist in matplotlib with the bins argument by showing how the sums of 500 rolls of two dice are spread.",
+"grows":[
+"plt.hist"
+],
+"check":"run"
+},
+{
+"title":"Subplots side by side",
+"goal":"Teach plt.subplots with rows and columns in matplotlib by putting a line plot and a bar chart of the same monthly rainfall side by side under one figure title.",
+"grows":[
+"plt.subplots"
+],
+"check":"run"
+},
+{
+"title":"Colors, markers and line styles",
+"goal":"Teach styling in matplotlib with color, linestyle, marker, linewidth, ax.grid and figsize by restyling the two-city chart so the lines are easy to tell apart.",
+"grows":[
+"plt.style"
+],
+"check":"run"
+},
+{
+"title":"Point out what matters",
+"goal":"Teach ax.annotate, ax.axhline and ax.text in matplotlib by marking the hottest day on the two-city chart with an arrow and a short note.",
+"grows":[
+"plt.annotate"
+],
+"check":"run"
+},
+{
+"title":"Save a figure",
+"goal":"Teach fig.savefig in matplotlib with dpi and bbox_inches, and fig.tight_layout, by saving the finished two-city chart as a PNG and a PDF.",
+"grows":[
+"plt.save"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"pytorch",
+"title":"PyTorch",
+"topic":"ai",
+"track":"pytorch",
+"tool":{
+"id":"jupyter",
+"label":"Jupyter"
+},
+"level":"next",
+"needs":[
+"neural-networks"
+],
+"project":{
+"title":"A model that fits a noisy sine wave",
+"checks":[
+"The model subclasses nn.Module and trains from a DataLoader",
+"Validation loss ends below a quarter of its first value",
+"sine.pt is saved and loads into a fresh model"
+]
+},
+"skills":[
+{
+"id":"pt.tensors",
+"label":"Tensors",
+"needs":[
+"nn.layer"
+]
+},
+{
+"id":"pt.autograd",
+"label":"Autograd",
+"needs":[
+"pt.tensors",
+"nn.gradients"
+]
+},
+{
+"id":"pt.module",
+"label":"nn.Module",
+"needs":[
+"pt.autograd",
+"nn.forward"
+]
+},
+{
+"id":"pt.optim",
+"label":"Loss, optimizers",
+"needs":[
+"pt.module",
+"nn.descent"
+]
+},
+{
+"id":"pt.loop",
+"label":"Training loop",
+"needs":[
+"pt.optim",
+"nn.training"
+]
+},
+{
+"id":"pt.data",
+"label":"Data loaders",
+"needs":[
+"pt.loop"
+]
+},
+{
+"id":"pt.eval",
+"label":"Evaluation",
+"needs":[
+"pt.data"
+]
+},
+{
+"id":"pt.device",
+"label":"Devices",
+"needs":[
+"pt.loop"
+]
+},
+{
+"id":"pt.save",
+"label":"Saving a model",
+"needs":[
+"pt.eval"
+]
+}
+],
+"lessons":[
+{
+"title":"Tensors",
+"goal":"Teach PyTorch tensors in Jupyter. Make tensors with torch.tensor, torch.zeros and torch.rand, read shape and dtype, and move a 3 by 4 example to NumPy and back.",
+"grows":[
+"pt.tensors"
+],
+"check":"run"
+},
+{
+"title":"Autograd",
+"goal":"Teach PyTorch autograd with requires_grad and backward by finding the gradient of a one-neuron squared error loss and comparing it with the gradient worked out by hand.",
+"grows":[
+"pt.autograd"
+],
+"check":"run"
+},
+{
+"title":"Build a model with nn.Module",
+"goal":"Teach torch.nn.Module in PyTorch. Write a class with two nn.Linear layers, a tanh between them and a forward method for a 2-8-1 network, then count its parameters.",
+"grows":[
+"pt.module"
+],
+"check":"run"
+},
+{
+"title":"Loss functions and optimizers",
+"goal":"Teach nn.BCEWithLogitsLoss and torch.optim.SGD in PyTorch by taking one training step on the four XOR points. Zero the gradients, call backward and step.",
+"grows":[
+"pt.optim"
+],
+"check":"run"
+},
+{
+"title":"Write the training loop",
+"goal":"Teach the PyTorch training loop. Train the 2-8-1 model on XOR with a forward pass, loss, zero_grad, backward and step in each epoch, and print the loss every 200 epochs.",
+"grows":[
+"pt.loop"
+],
+"check":"run"
+},
+{
+"title":"Datasets and DataLoader",
+"goal":"Teach TensorDataset and DataLoader in PyTorch by wrapping 1000 random 2D points, labelled by whether they sit above a sine curve, and looping over shuffled batches of 32.",
+"grows":[
+"pt.data"
+],
+"check":"run"
+},
+{
+"title":"Hold out data and measure accuracy",
+"goal":"Teach evaluation in PyTorch with random_split, model.eval and torch.no_grad by holding out 200 of the points and printing validation accuracy after each epoch.",
+"grows":[
+"pt.eval"
+],
+"check":"run"
+},
+{
+"title":"Use the Mac GPU",
+"goal":"Teach devices in PyTorch on a Mac. Pick mps when torch.backends.mps.is_available() is true and cpu otherwise, then move the model and every batch there with .to(device).",
+"grows":[
+"pt.device"
+],
+"check":"run"
+},
+{
+"title":"Save and load a model",
+"goal":"Teach saving in PyTorch with torch.save, state_dict and load_state_dict by writing the trained model to model.pt and loading it into a fresh copy.",
+"grows":[
+"pt.save"
+],
+"check":"file"
+}
+]
+},
+{
+"id":"react",
+"title":"React",
+"topic":"code",
+"track":"react",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"next",
+"needs":[
+"intro-javascript"
+],
+"project":{
+"title":"A flashcard app",
+"checks":[
+"npm run build finishes with no errors",
+"Cards render from an array with a key on each",
+"A form adds a card and an effect with a cleanup runs the study timer"
+]
+},
+"skills":[
+{
+"id":"re.vite",
+"label":"Vite project",
+"needs":[
+"js.run"
+]
+},
+{
+"id":"re.jsx",
+"label":"JSX",
+"needs":[
+"re.vite"
+]
+},
+{
+"id":"re.components",
+"label":"Components",
+"needs":[
+"re.jsx"
+]
+},
+{
+"id":"re.props",
+"label":"Props",
+"needs":[
+"re.components"
+]
+},
+{
+"id":"re.events",
+"label":"Events",
+"needs":[
+"re.components"
+]
+},
+{
+"id":"re.state",
+"label":"State",
+"needs":[
+"re.events"
+]
+},
+{
+"id":"re.lists",
+"label":"Lists and keys",
+"needs":[
+"re.props",
+"js.methods"
+]
+},
+{
+"id":"re.forms",
+"label":"Forms",
+"needs":[
+"re.state"
+]
+},
+{
+"id":"re.lifting",
+"label":"Sharing state",
+"needs":[
+"re.state",
+"re.props"
+]
+},
+{
+"id":"re.effects",
+"label":"Effects",
+"needs":[
+"re.state"
+]
+}
+],
+"lessons":[
+{
+"title":"Start a React app with Vite",
+"goal":"Teach a JavaScript learner to create a React app with npm create vite@latest, start it with npm install and npm run dev, and put their own heading in src/App.jsx.",
+"grows":[
+"re.vite"
+],
+"check":"code"
+},
+{
+"title":"Write JSX",
+"goal":"Teach JSX in React, with one root element, className and JavaScript in braces, by building an animal fact card that shows a name, a weight and a picture.",
+"grows":[
+"re.jsx"
+],
+"check":"code"
+},
+{
+"title":"Split a page into components",
+"goal":"Teach React function components, export and import by building a food truck page from Header, Menu and Footer components in their own files.",
+"grows":[
+"re.components"
+],
+"check":"code"
+},
+{
+"title":"Pass data with props",
+"goal":"Teach React props and destructuring by writing a MenuItem component with name and price props and using it for three dishes on the food truck page.",
+"grows":[
+"re.props"
+],
+"check":"code"
+},
+{
+"title":"Clicks and state",
+"goal":"Teach React click handlers and useState by building a light switch, a button that flips a room between light and dark and changes its own label.",
+"grows":[
+"re.events",
+"re.state"
+],
+"check":"code"
+},
+{
+"title":"State that counts",
+"goal":"Teach updating React state from the previous value, with several useState calls, by building a scoreboard for two teams with a reset button.",
+"grows":[
+"re.state"
+],
+"check":"code"
+},
+{
+"title":"Render a list",
+"goal":"Teach rendering lists in React with map and a key by showing a to-do list from an array of objects, with done items struck through.",
+"grows":[
+"re.lists"
+],
+"check":"code"
+},
+{
+"title":"Forms and controlled inputs",
+"goal":"Teach React controlled inputs, onChange and onSubmit by adding a form to the to-do list that appends a new item and clears the box.",
+"grows":[
+"re.forms"
+],
+"check":"code"
+},
+{
+"title":"Share state between components",
+"goal":"Teach lifting state up in React by building a searchable list of dog breeds where a SearchBox and a BreedList share one query held by their parent.",
+"grows":[
+"re.lifting"
+],
+"check":"code"
+},
+{
+"title":"Effects",
+"goal":"Teach React useEffect with a dependency array and a cleanup function by building a clock that ticks every second with setInterval.",
+"grows":[
+"re.effects"
+],
+"check":"code"
+}
+]
+},
+{
+"id":"scikit-learn",
+"title":"scikit-learn",
+"topic":"ai",
+"track":"scikit-learn",
+"tool":{
+"id":"jupyter",
+"label":"Jupyter"
+},
+"level":"next",
+"needs":[
+"pandas"
+],
+"project":{
+"title":"A handwritten digit reader",
+"checks":[
+"A test set is held out with train_test_split before any fitting",
+"Two pipelines are scored with 5-fold cross-validation",
+"The chosen model scores at least 0.95 on the test set"
+]
+},
+"skills":[
+{
+"id":"sk.data",
+"label":"Features, target",
+"needs":[
+"pd.select"
+]
+},
+{
+"id":"sk.split",
+"label":"Train, test split",
+"needs":[
+"sk.data"
+]
+},
+{
+"id":"sk.fit",
+"label":"Fit and predict",
+"needs":[
+"sk.split"
+]
+},
+{
+"id":"sk.score",
+"label":"Scoring",
+"needs":[
+"sk.fit"
+]
+},
+{
+"id":"sk.regress",
+"label":"Regression",
+"needs":[
+"sk.score"
+]
+},
+{
+"id":"sk.pipeline",
+"label":"Pipelines",
+"needs":[
+"sk.score"
+]
+},
+{
+"id":"sk.cv",
+"label":"Cross-validation",
+"needs":[
+"sk.pipeline"
+]
+},
+{
+"id":"sk.tune",
+"label":"Grid search",
+"needs":[
+"sk.cv"
+]
+},
+{
+"id":"sk.compare",
+"label":"Comparing models",
+"needs":[
+"sk.cv"
+]
+}
+],
+"lessons":[
+{
+"title":"Load data into X and y",
+"goal":"Teach how scikit-learn expects data. In Jupyter, load the wine dataset with load_wine(as_frame=True), look at it with pandas and split it into features X and a target y.",
+"grows":[
+"sk.data"
+],
+"check":"run"
+},
+{
+"title":"Train and test split",
+"goal":"Teach train_test_split in scikit-learn with test_size, random_state and stratify by holding out a quarter of the wine data for testing.",
+"grows":[
+"sk.split"
+],
+"check":"run"
+},
+{
+"title":"Fit and predict",
+"goal":"Teach the fit and predict pattern in scikit-learn by training a KNeighborsClassifier with 5 neighbours on the wine training set and predicting the test set.",
+"grows":[
+"sk.fit"
+],
+"check":"run"
+},
+{
+"title":"Score a classifier",
+"goal":"Teach scoring in scikit-learn with accuracy_score, confusion_matrix and classification_report by measuring the wine classifier on the test set.",
+"grows":[
+"sk.score"
+],
+"check":"run"
+},
+{
+"title":"Predict a number with regression",
+"goal":"Teach regression in scikit-learn with LinearRegression, mean_absolute_error and r2_score by predicting disease progression from the load_diabetes dataset.",
+"grows":[
+"sk.regress"
+],
+"check":"run"
+},
+{
+"title":"A pipeline with scaling",
+"goal":"Teach StandardScaler and make_pipeline in scikit-learn by putting scaling in front of the wine classifier and comparing test accuracy with and without it.",
+"grows":[
+"sk.pipeline"
+],
+"check":"run"
+},
+{
+"title":"Cross-validation",
+"goal":"Teach cross_val_score in scikit-learn with cv=5 by scoring the wine pipeline on five folds and printing the mean and the standard deviation.",
+"grows":[
+"sk.cv"
+],
+"check":"run"
+},
+{
+"title":"Tune a setting with a grid search",
+"goal":"Teach GridSearchCV in scikit-learn by trying n_neighbors from 1 to 15 in the wine pipeline and reading best_params_ and best_score_.",
+"grows":[
+"sk.tune"
+],
+"check":"run"
+},
+{
+"title":"Compare two models",
+"goal":"Teach comparing models fairly in scikit-learn by cross-validating the KNN pipeline against a LogisticRegression pipeline on the same folds and naming the better one.",
+"grows":[
+"sk.compare"
+],
+"check":"run"
+}
+]
+},
+{
+"id":"llm-basics",
+"title":"Working with language models",
+"topic":"ai",
+"track":"language models",
+"tool":{
+"id":"vscode",
+"label":"VS Code"
+},
+"level":"next",
+"needs":[
+"intro-python"
+],
+"project":{
+"title":"A quiz maker for your own notes",
+"checks":[
+"quiz.py reads the API key from the environment and not from the code",
+"The reply is parsed as JSON and checked to hold five questions with answers",
+"The quiz runs in the terminal and prints a score out of five"
+]
+},
+"skills":[
+{
+"id":"llm.keys",
+"label":"API keys",
+"needs":[
+"py.run"
+]
+},
+{
+"id":"llm.call",
+"label":"First API call",
+"needs":[
+"llm.keys",
+"py.functions"
+]
+},
+{
+"id":"llm.messages",
+"label":"Messages and roles",
+"needs":[
+"llm.call",
+"py.dicts"
+]
+},
+{
+"id":"llm.system",
+"label":"System prompts",
+"needs":[
+"llm.messages"
+]
+},
+{
+"id":"llm.json",
+"label":"JSON output",
+"needs":[
+"llm.system"
+]
+},
+{
+"id":"llm.errors",
+"label":"Errors and limits",
+"needs":[
+"llm.call",
+"py.errors"
+]
+},
+{
+"id":"llm.retrieval",
+"label":"Retrieval",
+"needs":[
+"llm.system",
+"py.files"
+]
+},
+{
+"id":"llm.tools",
+"label":"Tool calls",
+"needs":[
+"llm.json"
+]
+},
+{
+"id":"llm.check",
+"label":"Checking answers",
+"needs":[
+"llm.json"
+]
+}
+],
+"lessons":[
+{
+"title":"Keep your API key out of the code",
+"goal":"Teach keeping an API key safe. Set the key for a language model API as an environment variable in the VS Code terminal, read it in key_check.py with os.environ and print only whether it is set.",
+"grows":[
+"llm.keys"
+],
+"check":"run"
+},
+{
+"title":"Make your first API call",
+"goal":"Teach a first request to a language model API from Python in VS Code. Install the provider's SDK, send one question from ask.py and print only the text of the reply.",
+"grows":[
+"llm.call"
+],
+"check":"run"
+},
+{
+"title":"Messages and roles",
+"goal":"Teach the messages format of a language model API, a list of dictionaries with a role and content, by writing chat.py, a loop that keeps the whole conversation across turns.",
+"grows":[
+"llm.messages"
+],
+"check":"run"
+},
+{
+"title":"System prompts",
+"goal":"Teach system prompts with a language model API by turning chat.py into a patient maths tutor that gives a hint and never the final answer.",
+"grows":[
+"llm.system"
+],
+"check":"run"
+},
+{
+"title":"Ask for JSON and parse it",
+"goal":"Teach structured output with a language model API by asking for a recipe as JSON with fixed keys in recipe.py, parsing it with json.loads and catching a reply that is not valid JSON.",
+"grows":[
+"llm.json"
+],
+"check":"run"
+},
+{
+"title":"Handle errors and limits",
+"goal":"Teach handling failures from a language model API in Python with try and except, one retry after a short wait, and a cap on output tokens set on every request.",
+"grows":[
+"llm.errors"
+],
+"check":"code"
+},
+{
+"title":"Answer questions from a text file",
+"goal":"Teach simple retrieval with a language model API. In notes_qa.py, split notes.txt into paragraphs, pick the three that share the most words with the question and put only those in the prompt.",
+"grows":[
+"llm.retrieval"
+],
+"check":"run"
+},
+{
+"title":"Let the model call a function",
+"goal":"Teach tool calling with a language model API. Describe a get_weather function with a JSON schema, run it when the model asks for it and send the result back for the final answer.",
+"grows":[
+"llm.tools"
+],
+"check":"run"
+},
+{
+"title":"Check the model's answer",
+"goal":"Teach checking a language model's work in code. Ask a language model API to total a list of prices as JSON, add them up in Python too, and ask again once when the two totals differ.",
+"grows":[
+"llm.check"
+],
+"check":"run"
+}
+]
+}
+]
+}

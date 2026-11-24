@@ -48,6 +48,7 @@ from .card_copy import ran as _ran  # t7: a run in plain words ("Ran nn.py", not
 from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
+from . import skill_hooks  # skill tree (server/skilltree): assisted steps, passes, proofs; never breaks the lesson
 from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
 from . import nb_coach  # t12: a notebook step's code already in the notebook gets no box
 from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
@@ -719,6 +720,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._download_after_build = False  # "Download tutorial files" pressed on the preflight card
         self._setup_card: dict | None = None  # the last setup card sent (re-sent with install status)
         self.graph: dict | None = None
+        self.skill_events: list[dict] = []  # skill tree: what the last pass changed (skill_hooks.on_pass)
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
         self.idx = -1
@@ -4334,6 +4336,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if step["id"] not in self.skipped_steps:
                 self.skipped_steps.append(step["id"])  # a diagnosis for the step they left is no longer wanted
         await advice_clear.step_passed(self)  # t9 (V10): its "Not yet" card goes with the step
+        # ui-v4 skill tree: key, assisted, skillIds, proofId; records mastery / review rounds and the proof (local only)
+        payload.update(await skill_hooks.on_pass(self, step, skipped))
         await self.emit("step.passed", payload)
         if not skipped:
             self._say("step.passed", payload)
@@ -6097,6 +6101,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _action(self, kind: str, text: str | None = None, *, region: Any = None,
                       ask_id: str | None = None, capture: Any = None, release_t: float | None = None) -> None:
         step = self.step
+        if kind != "show_me":  # Show me counts once its box / snippet is actually up (below), never on "Nothing to point at"
+            skill_hooks.note_assist(self, kind)  # skill tree: a hint / show me / Do it for me on a step is not unassisted
         if step is not None:
             if kind in self.NOT_WORK_ACTIONS:
                 self._touch()
@@ -6194,12 +6200,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._lesson_show_me(gen, step)  # E15 + t5 (c): ONE box on the right line + its answer card
                 return
             quick = await self._show_where(step)  # exact match / window: instant
+            if quick:
+                skill_hooks.note_assist(self, "show_me", step)  # a box is up: the pass is assisted
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
             if self.lesson_mode and (cmd := self._run_command(step)):  # no Run ▷ / terminal on screen: never a box
                 await self._emit_card({"stepId": step["id"], "kind": "step", "title": "Run it",  # on a line of the file
                                        "body": f"Run it in the terminal: {cmd.splitlines()[0]}",
                                        "actions": ["run_command"]})
+                skill_hooks.note_assist(self, "show_me", step)  # the command itself was shown
                 return
             if self.m.has_pointing() and not stage.on(self):  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
                 screen = await self._screen_for_coach(step)
@@ -6211,6 +6220,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     if spot:
                         self._action_spot = True
                         await self._show_spot({**spot, **self._snippet(step)})
+                        skill_hooks.note_assist(self, "show_me", step)
                         return
                 if r and r.get("where") and not quick:
                     await self._emit_card({"stepId": step["id"], "kind": "where", "title": "Where to work",
@@ -8276,6 +8286,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         an Allowed argv runs, without a shell; anything else is shown "From the tutorial: check it before running"
         and never run. The first run of each distinct command in a session shows the exact command and waits for
         Yes (the same preview -> confirm as Do it for me: pending_patch {"run": ...} -> _apply_patch)."""
+        # skill tree: the engine ran the step's command (Run it for me, Do it for me on a run step, the Yes on "Run
+        # this command?"): a pass after it is assisted, never mastery, and keeps no proof of the engine's own output
+        skill_hooks.note_assist(self, "run_command", step)
         if stage.on(self):  # a Demo lesson: the recorded run of the lesson's own code (stage.py)
             await stage.run(self, step)
             return

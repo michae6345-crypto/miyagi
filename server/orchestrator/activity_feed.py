@@ -136,7 +136,16 @@ class ActivityFeed:
         except Exception:  # noqa: BLE001 - activity must never cost the lesson an event
             log.exception("activity: step.passed not recorded")
             return payload
-        return {**payload, **extra} if extra else payload
+        if not extra:
+            return payload
+        out = {**payload, **extra}
+        # the skill tree (skill_hooks.on_pass) already set the catalog skillIds (the SkillInfo ids) and its own assist
+        # rule: keep its ids, and a pass either side calls assisted stays assisted
+        if payload.get("skillIds"):
+            out["skillIds"] = payload["skillIds"]
+        if payload.get("assisted") is not None or "assisted" in extra:
+            out["assisted"] = bool(payload.get("assisted")) or bool(extra.get("assisted"))
+        return out
 
     async def observe(self, s: Any, type_: str, payload: dict | None) -> None:
         """After an event went out: the saves and pushes it owes (a counted pass, a finished lesson)."""

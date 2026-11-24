@@ -147,8 +147,13 @@ def test_passing_steps_counts_tags_step_passed_and_pushes_bon_then_activity(quie
         assert [p["key"] for p in sp] == [f"{lid}:{x}" for x in passed] and all(p["counted"] is True for p in sp)
         ready = {st["id"]: st.get("skillIds") for st in fake.of("lesson.ready")[-1]["steps"]} if fake.of("lesson.ready") \
             else {}
-        for p in sp:  # the same skill ids lesson.ready's StepSummary.skillIds carries
-            if ready.get(p["stepId"]):
+        from server.orchestrator import skill_hooks
+
+        tree = skill_hooks.tags(eng.session)  # a catalog lesson tags with catalog ids (UI-V4.md "Skill tags")
+        for p in sp:  # the skill tree's catalog ids when it has them, else lesson.ready's StepSummary.skillIds
+            if tree.get(p["stepId"]):
+                assert p["skillIds"] == tree[p["stepId"]]
+            elif ready.get(p["stepId"]):
                 assert p["skillIds"] == ready[p["stepId"]]
         bons = fake.of("bon")
         assert [b["steps"] for b in bons] == [1, 2, 3] and [b.get("grew") for b in bons] == [False, False, True]

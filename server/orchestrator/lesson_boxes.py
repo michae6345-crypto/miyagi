@@ -28,7 +28,7 @@ import logging
 import re
 from pathlib import Path
 
-from . import box_follow, spot_lines
+from . import box_follow, skill_hooks, spot_lines
 
 log = logging.getLogger("orchestrator.session")
 
@@ -432,6 +432,8 @@ class LessonBoxes:
             self._action_spot = True
             await self._show_spot(spot, owner="answer")
         await self._emit_card(card, window_s=2.0)
+        if spot is not None or kind != "done":  # a box or the line / code to type was shown: the pass is assisted
+            skill_hooks.note_assist(self, "show_me", step)
 
     def _fix_target(self, step: dict) -> dict | None:
         """_change_spot's line from the files alone: {path, line, kind, expect, caption[, yours]} or None."""

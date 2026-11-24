@@ -32,6 +32,13 @@ from server.orchestrator.modules import Modules
 from server.orchestrator.screen_bridge import FakeScreen
 from server.orchestrator.tests.test_session import Rig
 
+
+def _core(p):
+    """step.passed without the ui-v4 skill tree fields (key, assisted, skillIds, proofId: test_skill_hooks covers them)."""
+    if isinstance(p, list):
+        return [_core(x) for x in p]
+    return {k: v for k, v in p.items() if k not in ("key", "assisted", "skillIds", "proofId")}
+
 REPO = Path(__file__).resolve().parents[3]
 CACHED = REPO / "demo" / "cache" / "lessons" / "5c0ea8a49f419487.json"
 URL = "https://www.youtube.com/watch?v=VPlFpvLOgtQ"
@@ -290,7 +297,7 @@ def test_s1_passes_once_the_notebook_shows_the_venv_kernel(rp):
     rows = rp.rows("s1")
     assert {"s1c2", "s1c3"} <= set(rows) and all(r["status"] == "pass" for r in rows.values()), rows
     assert rows["s1c2"]["label"] == "Notebook kernel is .venv" and rows["s1c2"]["detail"].startswith("seen")
-    assert rp.of("step.passed")[0] == {"stepId": "s1", "nextStepId": "s2"}
+    assert _core(rp.of("step.passed")[0]) == {"stepId": "s1", "nextStepId": "s2"}
     assert rp.started("s2")
 
 
