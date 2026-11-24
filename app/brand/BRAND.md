@@ -83,8 +83,8 @@ How it's applied: buttons and chips are a solid pastel fill with ink text and ic
 
 ## Type
 
-- **Google Sans Flex** (`fonts/GoogleSansFlex.woff2`, SIL Open Font License) for the wordmark, headings, covers and slides. Medium 500 or SemiBold 600, tight tracking (−3 to −4.5%).
-- **The system font inside the app** (SF Pro on the Mac, Segoe on Windows) so the overlay feels built in. Sizes 13 / 15 / 20 / 28.
+- **Bricolage Grotesque inside the app, for everything** (Michael's call, Nov 24: "use Bricolage for everything"): body, headings, the island, launcher, cards, settings, buttons. Variable (opsz 12–96, wght 200–800), bundled offline in `app/src/renderer/src/assets/fonts/` (SIL Open Font License, `BricolageGrotesque-OFL.txt`), loaded by the `@font-face` in `app/src/renderer/src/styles.css`. `font-optical-sizing: auto`, so 12–14 px text uses the text cut. Titles 600 with slightly negative tracking; 12–14 px text at normal tracking; `tabular-nums` where digits line up. The system font (SF Pro / Segoe) is only the fallback.
+- **Google Sans Flex** (`fonts/GoogleSansFlex.woff2`, SIL Open Font License) for the wordmark (outlined in the files), covers and slides. Medium 500 or SemiBold 600, tight tracking (−3 to −4.5%).
 - Don't use Inter, Plus Jakarta Sans, Space Grotesk or a handwritten font.
 
 ## The app (the overlay)
@@ -135,7 +135,7 @@ fonts/                GoogleSansFlex.woff2, OFL.txt
 2. Use the cut for the size: `markLevel(px)` in `theme.ts`, or `<MiyagiMark size={n} />`, which picks it for you.
 3. Green means passed, a hollow white ring means off track, gray means watching. Nothing else is green, and nothing is amber. No red. Pastels (`brand.pastel` in `core/theme.ts`) are for options only, never status.
 4. Buttons: ink on light, white on dark. Never system blue, never green.
-5. App text in the system font; brand headings in Google Sans Flex. No Inter.
+5. App text in Bricolage Grotesque, headings included (Michael's call, Nov 24); system font only as the fallback. No Inter.
 6. No gradients, glows, sparkles, emoji or hand-drawn annotations (the one exception is the buddy stroke, Nov 22, under "The app": one thin mint stroke from the island, never green, no glow, click-through, fades).
 7. Copy: short, calm, plain. At most about 12 words of body per card, and at most one Miyagi line per card.
 

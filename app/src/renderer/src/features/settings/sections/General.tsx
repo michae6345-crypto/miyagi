@@ -8,7 +8,7 @@
  * Works with reads the engine's health rows when it has them; nothing is shown that the engine didn't say.
  */
 import { CodeXml, Compass, NotebookText, Wrench } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useState, type ReactNode } from 'react'
 import { VOICE_ENABLED } from '../../../../../common/flags'
 import type { IslandPlace } from '../../../../../common/notch'
 import { useLesson } from '../../../core/lesson'
@@ -23,8 +23,8 @@ import { color, copy, type2 } from '../../../core/theme'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
 import { PushToTalk } from '../../ptt/SettingsRows'
 import { useHealth } from '../permissions'
-import { PanelRows } from '../rows'
-import { Group, OnWord, PageHeader, Row } from '../ui'
+import { PanelRows, Select } from '../rows'
+import { Flat, Group, OnWord, PageHeader, Row } from '../ui'
 
 const PLACES: { value: IslandPlace; label: string }[] = [
   { value: 'notch', label: 'In the notch' },
@@ -32,7 +32,8 @@ const PLACES: { value: IslandPlace; label: string }[] = [
 ]
 
 /** Where the island lives. macOS only. */
-function IslandRow(): ReactNode {
+export function IslandRow({ label = 'Island' }: { label?: string } = {}): ReactNode {
+  const flat = useContext(Flat)
   const place = usePrefs((s) => s.island?.place ?? 'notch')
   const effective = useNotchInfo((s) => s.notch?.place)
   const mac = bridge.platform.os === 'mac'
@@ -56,19 +57,18 @@ function IslandRow(): ReactNode {
   const actual = effective ?? place
   const where = actual === 'notch' ? 'miyagi is in the notch now.' : 'miyagi is below the menu bar now.'
   const caption = place !== actual ? 'Moving miyagi…' : where
+  const pick = (p: IslandPlace): void => setPrefs({ island: { place: p } })
   return (
     <Row
-      label="Island"
+      label={label}
       caption={saved && place === actual ? `Saved. ${where}` : caption}
       right={
-        <Segmented
-          label="Island"
-          options={PLACES}
-          value={place}
-          onChange={(p) => {
-            setPrefs({ island: { place: p } })
-          }}
-        />
+        // The v4 page's narrow columns take a menu (Adrian's mock); the sheet keeps the two segments.
+        flat ? (
+          <Select label={label} options={PLACES} value={place} onChange={(v) => pick(v as IslandPlace)} />
+        ) : (
+          <Segmented label={label} options={PLACES} value={place} onChange={pick} />
+        )
       }
     />
   )
