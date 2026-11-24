@@ -36,7 +36,9 @@ Shots: `agents/shots/v4-library-r4-ours-*.png` next to `v4-library-r4-mock-*.png
 - Thumbnails are neutral grays (brand: pastels only on options), the mock's code lines are colored.
 - No "Connected" tag on Works in (no connection state for the tool yet), no Share or ⋯ menu, no grid/list toggle.
 - Lesson rows use the stage's sample items, so their Plan/Opened cells are empty until the engine (contract) sends plan and dates.
-- Playlist skills come from matching video titles to the plan's skills (offline); the goal plan keeps the base plan's lessons in order (the mock picks Fillets over Add the hook).
+- Playlist skills come from matching video titles to every catalog skill (`catalog.ts skillForTitle`: stemmed whole words, own tool first; no match = no chip, never a positional guess), so the Donut playlist shows Materials, Image textures, UV unwrapping and leaves Part 2 "Basic Modelling" blank where the mock says Transforms. The goal plan keeps the base plan's lessons in order (the mock picks Fillets over Add the hook).
+
+Fix pass r5 (Nov 24): Plans tables no longer clip (Plan column 150-224 px, Plan / Ends with / After wrap to two lines); playlist dialog keeps each video's playlist index when one is unchecked (skill count and each lesson's base lesson were taken from the wrong video); goal dialog's project line wraps; Library's Grows chips skip skill ids the catalog doesn't know (no more "Wt", "Vec"). Shots: `agents/shots/v4-library-r5-ours-*.png`.
 
 ## Core requests
 

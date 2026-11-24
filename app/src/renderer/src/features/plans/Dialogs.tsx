@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { color, elevation, fill, radius2, scrim, surface, tone, type Tone, type2 } from '../../core/theme'
-import { aboutHours, lengthLabel, planById, planFromGoal, playlistById, playlistIdOf, skillLabel, type Playlist } from './catalog'
+import { aboutHours, lengthLabel, planById, planFromGoal, playlistById, playlistIdOf, skillForTitle, skillLabel, type Plan, type PlanLesson, type Playlist } from './catalog'
 import { addPlan, closeDialog, usePlans } from './store'
 import { Thumb, artFor } from './Thumb'
 import { hair, meta, SkillChip, TableHead, TableRow } from './ui'
@@ -76,6 +76,8 @@ function Foot({ note, children }: { note: string; children: ReactNode }): ReactN
 // ---- from a playlist ------------------------------------------------------------------------------------------------
 
 const SHOWN = 6
+/** Up to two lines, then an ellipsis (a long project line wraps instead of clipping). */
+const clamp2 = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as const
 
 function PlaylistDialog(): ReactNode {
   const [link, setLink] = useState('')
@@ -86,29 +88,28 @@ function PlaylistDialog(): ReactNode {
   const plan = planById(list?.planId)
   useEffect(() => setPicked({}), [id])
   const on = (i: number): boolean => picked[i] !== false
-  const chosen = list ? list.videos.filter((_, i) => on(i)) : []
-  // A video grows the plan skill its title names ("Materials Tutorial" → Materials), else the skill of the plan's
-  // lesson at the same place. The contract's playlist answer will name it instead.
-  const grows = (i: number): string | undefined => {
-    const title = list?.videos[i]?.title.toLowerCase() ?? ''
-    const named = plan?.skills.find((s) => s.label.toLowerCase().split(/[^a-z]+/).some((w) => w.length > 3 && title.includes(w)))
-    if (named) return named.label
-    const l = plan?.lessons[Math.min(i, (plan?.lessons.length ?? 1) - 1)]
-    return l ? (skillLabel(l.grows[0]) ?? l.grows[0]) : undefined
-  }
-  const skills = new Set(chosen.map((_, i) => grows(i)).filter(Boolean)).size
+  // Each video keeps its index in the playlist: unchecking one never shifts another video's skill or base lesson.
+  const rows = useMemo(() => (list ? list.videos.map((v, i) => ({ v, i, skill: skillForTitle(v.title, plan) })) : []), [list, plan])
+  const chosen = rows.filter(({ i }) => on(i))
+  const skills = new Set(chosen.map((r) => r.skill?.id).filter(Boolean)).size
+  /** The catalog lesson a video stands in for: the plan's lesson that grows its skill, else the one at its place. */
+  const baseLesson = (r: (typeof rows)[number], p: Plan): PlanLesson =>
+    (r.skill && p.lessons.find((l) => l.grows.includes(r.skill!.id))) || p.lessons[Math.min(r.i, p.lessons.length - 1)]
   const add = (first: boolean): void => {
     if (!list || !plan) return
-    const videos = first ? list.videos.slice(0, 1) : chosen
+    const picks = first ? rows.slice(0, 1) : chosen
     addPlan({
       id: `playlist:${list.playlistId}`,
       title: list.title,
-      total: videos.length,
-      minutesLeft: Math.round(videos.reduce((n, v) => n + v.seconds, 0) / 60),
+      total: picks.length,
+      minutesLeft: Math.round(picks.reduce((n, r) => n + r.v.seconds, 0) / 60),
       art: plan.id,
       source: 'playlist',
       project: project && !first ? plan.project.title : undefined,
-      lessons: videos.map((v, i) => ({ ...plan.lessons[Math.min(i, plan.lessons.length - 1)], title: v.title, minutes: Math.round(v.seconds / 60), goal: `Teach me along with the video "${v.title}" by ${list.channel}.` }))
+      lessons: picks.map((r) => {
+        const base = baseLesson(r, plan)
+        return { ...base, grows: r.skill ? [r.skill.id] : base.grows, title: r.v.title, minutes: Math.round(r.v.seconds / 60), goal: `Teach me along with the video "${r.v.title}" by ${list.channel}.` }
+      })
     })
   }
   const template = '24px minmax(0,1fr) minmax(0,190px) 64px'
@@ -142,13 +143,13 @@ function PlaylistDialog(): ReactNode {
             </div>
             <div role="table" aria-label="Videos" style={{ marginTop: 16 }}>
               <TableHead cols={[{ label: '' }, { label: 'Video' }, { label: 'Becomes a lesson that grows' }, { label: 'Length', align: 'right' }]} template={template} />
-              {list.videos.slice(0, SHOWN).map((v, i) => (
+              {rows.slice(0, SHOWN).map(({ v, i, skill }) => (
                 <TableRow key={i} template={template} height={44} label={v.title}>
                   <input type="checkbox" aria-label={`Include ${v.title}`} checked={on(i)} onChange={(e) => setPicked((p) => ({ ...p, [i]: e.target.checked }))} style={{ width: 16, height: 16, accentColor: color.text }} />
                   <span className="truncate" style={{ fontWeight: 600, opacity: on(i) ? 1 : 0.5 }}>
                     {v.title}
                   </span>
-                  <span>{grows(i) && <SkillChip>{grows(i)}</SkillChip>}</span>
+                  <span>{skill && <SkillChip>{skill.label}</SkillChip>}</span>
                   <span style={{ ...meta, textAlign: 'right' }}>{Math.round(v.seconds / 60)} min</span>
                 </TableRow>
               ))}
@@ -263,10 +264,10 @@ function GoalDialog(): ReactNode {
               {built.project && (
                 <TableRow template={template} height={44} label="Project">
                   <Flag size={14} strokeWidth={1.6} style={{ color: color.label }} />
-                  <span className="truncate" style={{ fontWeight: 600 }}>
+                  <span style={{ fontWeight: 600, lineHeight: '18px', ...clamp2 }}>
                     Project · {built.project.title}
                   </span>
-                  <span className="truncate" style={{ ...meta, gridColumn: 'span 2' }}>
+                  <span style={{ ...meta, gridColumn: 'span 2', ...clamp2 }}>
                     {built.project.check}
                   </span>
                   <span style={{ ...meta, textAlign: 'right' }}>{built.project.minutes} min</span>

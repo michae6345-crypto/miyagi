@@ -91,6 +91,52 @@ export function checkedBy(p: Plan): string {
 const skillLabels = new Map(PLANS.flatMap((p) => p.skills.map((s) => [s.id, s.label] as const)))
 export const skillLabel = (id: string): string | undefined => skillLabels.get(id)
 
+/**
+ * The catalog skill a video title names ("Blender Basic UV Unwrapping Tutorial" -> UV unwrapping), or undefined. Every
+ * catalog skill is a candidate: the playlist's own plan first, then plans in the same tool, then the rest. Words are
+ * compared by stem ("Texturing" ~ "textures", "Modelling" ~ "model"), whole words only, so "Edit mode" never matches
+ * "Modelling". A skill of another tool needs every word of its label in the title; a skill of the playlist's own tool
+ * may match on its last word alone when no other skill uses that word ("Image textures" for "Basic Texturing"). No match means no chip, never a
+ * guess from the video's position.
+ */
+const TITLE_NOISE = new Set(['and', 'the', 'for', 'with', 'from', 'your', 'into', 'basic', 'basics', 'first', 'part', 'tutorial', 'beginner', 'beginners', 'course', 'lesson', 'intro', 'introduction', 'guide', 'building', 'making', 'using', 'getting', 'started', 'learn', 'learning', 'explained'])
+const stem = (w: string): string => w.replace(/(ings|ing|es|ed|s)$/, '').replace(/(.)\1$/, '$1')
+const stems = (t: string, tool = ''): string[] =>
+  t
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !TITLE_NOISE.has(w) && w !== tool)
+    .map(stem)
+const STEM_USES = new Map<string, number>()
+for (const p of PLANS) for (const k of p.skills) for (const w of new Set(stems(k.label))) STEM_USES.set(w, (STEM_USES.get(w) ?? 0) + 1)
+export function skillForTitle(title: string, plan: Plan | undefined): PlanSkill | undefined {
+  const tool = plan?.tool.label.toLowerCase() ?? ''
+  const words = new Set(stems(title, tool))
+  const own = plan ? PLANS.filter((p) => p.tool.id === plan.tool.id).sort((a, b) => (a === plan ? -1 : b === plan ? 1 : 0)) : []
+  const rest = PLANS.filter((p) => !own.includes(p))
+  const every = (label: string): boolean => {
+    const need = stems(label, tool)
+    return need.length > 0 && need.every((w) => words.has(w))
+  }
+  // The last word alone counts only when no other skill in the catalog uses that word ("textures" yes, "model" no).
+  const head = (label: string): boolean => {
+    const need = stems(label, tool)
+    const last = need[need.length - 1]
+    return !!last && words.has(last) && (STEM_USES.get(last) ?? 0) === 1
+  }
+  for (const test of [every, head]) {
+    for (const p of own) {
+      const s = p.skills.find((k) => test(k.label))
+      if (s) return s
+    }
+  }
+  for (const p of rest) {
+    const s = p.skills.find((k) => every(k.label))
+    if (s) return s
+  }
+  return undefined
+}
+
 /** The plan a lesson title belongs to (catalog titles are unique enough for this). */
 const lessonPlan = new Map(PLANS.flatMap((p) => p.lessons.map((l) => [l.title.toLowerCase(), p] as const)))
 export const planForLesson = (title: string): Plan | undefined => lessonPlan.get(title.toLowerCase())

@@ -20,6 +20,7 @@ import {
   playlistById,
   playlistIdOf,
   PLAYLISTS,
+  skillForTitle,
   skillLabel,
   START_HERE
 } from '../src/renderer/src/features/plans/catalog'
@@ -69,4 +70,16 @@ test('a goal builds a plan from the catalog, the picked tool first, ending in a 
   const fusion = planFromGoal('I want to 3D print a stand for my phone', 'fusion')
   assert.equal(fusion.from[0].tool.id, 'fusion')
   assert.deepEqual(planFromGoal('').lessons, [])
+})
+
+test('a playlist video grows the skill its title names, from any catalog plan; no match gives no skill', () => {
+  const blender = planById('intro-blender')
+  const label = (t: string): string | undefined => skillForTitle(t, blender)?.label
+  assert.equal(label('Blender Basic Materials Tutorial (Donut Part 4)'), 'Materials')
+  assert.equal(label('Blender Basic Texturing Tutorial (Donut Part 5)'), 'Image textures')
+  assert.equal(label('Blender Basic UV Unwrapping Tutorial (Donut Part 6)'), 'UV unwrapping')
+  // "Modelling" is not "Edit mode": whole words only, and no positional guess.
+  assert.equal(label('Blender Basic Modelling Tutorial (Donut Part 2)'), undefined)
+  // A word many skills share ("model") never picks one of them.
+  assert.equal(skillForTitle('Large Language Models explained briefly', planById('neural-networks')), undefined)
 })

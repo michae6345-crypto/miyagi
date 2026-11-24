@@ -82,7 +82,13 @@ function dayLabel(at: string | undefined): string {
   if (days === 1) return 'Yesterday'
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
-const growsOf = (i: LibraryItem): string[] => (i.teaches ?? []).slice(0, 2).map((id) => skillLabel(id) ?? id.split('.').pop()!.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()))
+/** The skills a lesson grows, as the catalog names them. An id the catalog doesn't know is left out (a raw id's last
+ *  segment read as chips like "Wt" or "Vec"). */
+const growsOf = (i: LibraryItem): string[] =>
+  (i.teaches ?? [])
+    .map((id) => skillLabel(id))
+    .filter((l): l is string => !!l)
+    .slice(0, 2)
 
 /** A short progress line: ink on the track (never green), a fixed width so every row's line lines up. */
 function ProgressLine({ done, total }: { done: number; total: number }): ReactNode {
