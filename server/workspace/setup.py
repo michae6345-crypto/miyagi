@@ -491,7 +491,7 @@ def _lesson_json(graph: dict) -> str:
     slim = {
         "lesson": {k: v for k, v in (graph.get("lesson") or {}).items() if k in ("title", "libraries")},
         "sources": [{k: s.get(k) for k in ("kind", "title", "url")} for s in graph.get("sources") or []],
-        "steps": [{k: s[k] for k in keep if k in s} for s in graph.get("steps") or []],
+        "steps": [{k: s[k] for k in keep if k in s} for s in paths.lesson_steps(graph)],
     }
     return json.dumps(slim, indent=1)[:50_000]
 
@@ -575,7 +575,7 @@ def notebook_lesson(graph: dict) -> bool:
     the cells with the lesson .venv's ipykernel, so the setup card must install it."""
     if {n.lower() for n in _lib_names(graph)} & _JUPYTER_FAMILY:
         return True
-    for st in graph.get("steps") or []:
+    for st in paths.lesson_steps(graph):
         if not isinstance(st, dict):
             continue
         if str(st.get("file") or "").lower().endswith(".ipynb"):
@@ -593,7 +593,7 @@ def _colab_lesson(graph: dict) -> bool:
     les = graph.get("lesson") or {}
     blob = " ".join([str(les.get(k) or "") for k in ("title", "goal")]
                     + [str(s.get("url") or "") for s in graph.get("sources") or [] if isinstance(s, dict)]
-                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps") or []
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in paths.lesson_steps(graph)
                        if isinstance(st, dict)]).lower()
     return "colab" in blob
 
@@ -601,7 +601,7 @@ def _colab_lesson(graph: dict) -> bool:
 def _python_lesson(graph: dict) -> bool:
     if notebook_lesson(graph) or {n.lower() for n in _lib_names(graph)} & {"python", "python3"}:
         return True
-    for st in graph.get("steps") or []:
+    for st in paths.lesson_steps(graph):
         if not isinstance(st, dict):
             continue
         files = [st.get("file")] + [x.get("file") for x in (st.get("targets") or []) + (st.get("checks") or [])

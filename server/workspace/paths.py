@@ -132,3 +132,15 @@ def build_workdir(source_url: str) -> str:
     a path that does not exist, so the builder plans for a learner starting from scratch instead
     of adapting checks to demo/pinn-lab's files. prepare() then sets the real folder."""
     return str(_hero_dir() if video_id(source_url) in _hero_video_ids() else lessons_root() / "_new")
+
+
+def lesson_steps(graph: dict) -> list[dict]:
+    """The lesson's steps for deciding the folder (starter files, what the learner creates, the setup card): its steps,
+    plus the ones still being built when only step 1 has arrived (server.lesson's step-1-first path sends step 1 with
+    the others as known so far in graph["build"]["upcomingSteps"], a field no event to the app carries)."""
+    steps = [s for s in (graph or {}).get("steps") or [] if isinstance(s, dict)]
+    lesson, build = (graph or {}).get("lesson"), (graph or {}).get("build")
+    if not (isinstance(lesson, dict) and lesson.get("complete") is False and isinstance(build, dict)):
+        return steps  # a finished lesson has every step itself
+    more = build.get("upcomingSteps") or []
+    return steps + [s for s in more if isinstance(s, dict) and s.get("index") not in {t.get("index") for t in steps}]

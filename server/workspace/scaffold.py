@@ -27,6 +27,8 @@ from server.safety.packages import ARCHIVE_SUFFIXES, decode_requirements
 from server.safety.patterns import safe_compile
 from server.untrusted import EXTRACT_RULE, wrap
 
+from . import paths
+
 log = logging.getLogger("server.workspace")
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
@@ -183,7 +185,7 @@ class Scaffold:
 
 def _all_checks(graph: dict) -> list[dict]:
     out = []
-    for s in graph.get("steps") or []:
+    for s in paths.lesson_steps(graph):  # with the steps still being built (step 1 first)
         for c in (s.get("checks") or []) + (s.get("precision_checks") or []):
             out.append({**c, "_step": s.get("index", s.get("id"))})
     return out
@@ -454,7 +456,7 @@ def _lesson_for_prompt(graph: dict) -> str:
     slim = {
         "lesson": {k: v for k, v in (graph.get("lesson") or {}).items() if k in ("title", "libraries")},
         "sources": [{k: s.get(k) for k in ("kind", "title", "url")} for s in graph.get("sources") or []],
-        "steps": [{k: s[k] for k in keep_step if k in s} for s in graph.get("steps") or []],
+        "steps": [{k: s[k] for k in keep_step if k in s} for s in paths.lesson_steps(graph)],
     }
     return json.dumps(slim, indent=1)[:60_000]
 
