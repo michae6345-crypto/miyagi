@@ -1,19 +1,26 @@
 {
  "_comment": "Written by `python -m server.evals.checks --write-baseline`. The top-level scores and known_wrong are the TRAIN set: test_check_evals.py fails when a score drops below these or a train case outside known_wrong gets a wrong verdict. held_out is scored apart and guarded only in aggregate (never tune a fix on it). Raise it when the checks get better.",
- "cases": 159,
- "accuracy": 1.0,
- "precision": 1.0,
- "recall": 1.0,
- "fp": 0,
- "fn": 0,
- "known_wrong": {},
+ "cases": 171,
+ "accuracy": 0.9649,
+ "precision": 0.9367,
+ "recall": 0.9867,
+ "fp": 5,
+ "fn": 1,
+ "known_wrong": {
+  "terminal-tsshop-t4-test-only-left-in": "FP",
+  "vscode-pymod-m2-old-def-shadows-import": "FP",
+  "vscode-react-s3-header-body-never-returns": "FP",
+  "vscode-ts-invoice-type-error-left": "FP",
+  "vscode-ts-tsconfig-strict-commented-out": "FP",
+  "vscode-tsshop-t2-ts-extension-import": "FN"
+ },
  "held_out": {
-  "cases": 55,
-  "accuracy": 0.5455,
-  "precision": 0.4483,
-  "recall": 0.5909,
-  "fp": 16,
-  "fn": 9,
+  "cases": 62,
+  "accuracy": 0.5161,
+  "precision": 0.4062,
+  "recall": 0.5417,
+  "fp": 19,
+  "fn": 11,
   "known_wrong": {
    "autocad-dxf-wheels-layer-empty": "FP",
    "blender-anim-timeline-23976-fps": "FP",
@@ -29,8 +36,11 @@
    "terminal-mnist-s1-forgot-activate": "FP",
    "terminal-mnist-s1-jupyter-shut-down": "FP",
    "terminal-react-s1-server-stopped": "FP",
+   "terminal-tsshop-t4-failing-test-skipped": "FP",
    "vscode-pymod-m2-module-in-subfolder": "FP",
+   "vscode-pymod-m4-module-attr-stale": "FP",
    "vscode-pymod-m4-test-file-stale": "FP",
+   "vscode-recipe-rename-esm-missing-extension": "FP",
    "autocad-toy-car-s2-presspull": "FN",
    "autocad-toy-car-s3-export-dialog-stl": "FN",
    "freecad-fillet-four-edges-two-features": "FN",
@@ -39,7 +49,9 @@
    "jupyter-pip-resolver-notice-installed": "FN",
    "jupyter-sklearn-cv-kfold-object": "FN",
    "terminal-git-s6-gh-repo-clone": "FN",
-   "terminal-git-s8-push-ligature-arrow": "FN"
+   "terminal-git-s8-push-ligature-arrow": "FN",
+   "terminal-react-s1-server-in-other-tab": "FN",
+   "vscode-react-split-components-barrel": "FN"
   }
  }
 }

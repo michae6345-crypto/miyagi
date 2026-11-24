@@ -1,0 +1,44 @@
+{
+ "id": "terminal-react-s1-server-in-other-tab",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "npm run dev is running in VS Code's first terminal (the terminal list shows 'node' and 'zsh'); the learner opened a second one with + and installed react-router-dom there, so the visible terminal shows npm install's output, not Vite's ready line. Chrome shows the app at localhost:5173 (Vite + React). The server is up.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{\n  \"name\": \"my-react-app\",\n  \"scripts\": {\n    \"dev\": \"vite\"\n  }\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "TERMINAL",
+    "node",
+    "zsh",
+    "tripi@mac my-react-app % npm install react-router-dom",
+    "added 3 packages, and audited 274 packages in 2s",
+    "41 packages are looking for funding",
+    "run `npm fund` for details",
+    "found 0 vulnerabilities",
+    "tripi@mac my-react-app %"
+   ],
+   "Google Chrome": [
+    "localhost:5173",
+    "Vite + React",
+    "count is 0",
+    "Edit src/App.jsx and save to test HMR"
+   ]
+  },
+  "run": {
+   "command": "npm run dev",
+   "running": true,
+   "output_tail": [
+    "➜  Local:   http://localhost:5173/"
+   ]
+  }
+ }
+}

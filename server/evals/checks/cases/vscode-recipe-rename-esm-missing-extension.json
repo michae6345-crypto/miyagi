@@ -1,0 +1,95 @@
+{
+ "id": "vscode-recipe-rename-esm-missing-extension",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "The project is ES modules (package.json type: module). The rename is done in both files, but scale.js imports './recipe-utils' without .js, and Node's ESM loader needs the extension: node scale.js stops with Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../recipe-utils' (Did you mean to import \"./recipe-utils.js\"?). Nothing prints.",
+ "step": {
+  "id": "vs6s3",
+  "title": "Rename scale to scaleRecipe",
+  "kind": "code",
+  "instructions": "In recipe-utils.js, put the cursor on scale, press F2, type scaleRecipe and press Enter. VS Code renames the function and every use of it, in scale.js too. Then run node scale.js.",
+  "file": "recipe-utils.js",
+  "code": "function scaleRecipe(recipe, factor) {\n  return recipe.map(item => ({ ...item, grams: item.grams * factor }))\n}\n\nmodule.exports = { scaleRecipe }",
+  "run_command": "node scale.js",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "recipe-utils.js",
+    "match": "function scale(",
+    "caption": "Press F2 on scale"
+   }
+  ],
+  "checks": [
+   {
+    "id": "vs6s3c1",
+    "type": "screen_contains",
+    "label": "recipe-utils.js defines scaleRecipe",
+    "app": "Code",
+    "pattern": "function\\s+scaleRecipe\\s*\\("
+   },
+   {
+    "id": "vs6s3c2",
+    "type": "screen_contains",
+    "label": "scale.js calls scaleRecipe",
+    "app": "Code",
+    "pattern": "scaleRecipe\\(\\s*recipe"
+   },
+   {
+    "id": "vs6s3c3",
+    "type": "screen_absent",
+    "label": "No errors when scale.js runs",
+    "app": "Terminal",
+    "pattern": "ReferenceError|TypeError|SyntaxError"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "vs6s3p1",
+    "type": "file_contains",
+    "label": "scale.js calls scaleRecipe",
+    "file": "scale.js",
+    "pattern": "scaleRecipe\\("
+   }
+  ],
+  "hints": [
+   "F2 renames a symbol in every file that uses it; Find and Replace only changes the open file."
+  ],
+  "common_mistakes": [
+   "Renaming the function by hand and leaving the old name in scale.js's require line."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "package.json": "{\n  \"name\": \"recipe-box\",\n  \"type\": \"module\"\n}\n",
+   "recipe.json": "[\n {\n  \"name\": \"flour\",\n  \"grams\": 250\n },\n {\n  \"name\": \"sugar\",\n  \"grams\": 100\n },\n {\n  \"name\": \"butter\",\n  \"grams\": 125\n },\n {\n  \"name\": \"milk\",\n  \"grams\": 200\n },\n {\n  \"name\": \"eggs\",\n  \"grams\": 120\n },\n {\n  \"name\": \"salt\",\n  \"grams\": 5\n }\n]\n",
+   "recipe-utils.js": "export function scaleRecipe(recipe, factor) {\n  return recipe.map(item => ({ ...item, grams: item.grams * factor }))\n}\n",
+   "scale.js": "import recipe from './recipe.json' with { type: 'json' }\nimport { scaleRecipe } from './recipe-utils'\n\nfor (const item of scaleRecipe(recipe, 2)) {\n  console.log(`${item.name}: ${item.grams} g`)\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "recipe-utils.js",
+    "scale.js",
+    "export function scaleRecipe(recipe, factor) {",
+    "return recipe.map(item => ({ ...item, grams: item.grams * factor }))",
+    "import recipe from './recipe.json' with { type: 'json' }",
+    "import { scaleRecipe } from './recipe-utils'",
+    "for (const item of scaleRecipe(recipe, 2)) {",
+    "console.log(`${item.name}: ${item.grams} g`)"
+   ],
+   "Terminal": [
+    "tripi@mac recipe-box % node scale.js",
+    "node:internal/modules/esm/resolve:265",
+    "throw new ERR_MODULE_NOT_FOUND(",
+    "^",
+    "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/tripi/recipe-box/recipe-utils' imported from /Users/tripi/recipe-box/scale.js",
+    "Did you mean to import \"./recipe-utils.js\"?",
+    "code: 'ERR_MODULE_NOT_FOUND',",
+    "Node.js v22.11.0",
+    "tripi@mac recipe-box %"
+   ]
+  }
+ }
+}

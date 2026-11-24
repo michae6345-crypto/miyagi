@@ -1,0 +1,36 @@
+{
+ "id": "vscode-tsshop-t2-call-in-jsx-comment",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The import is there, but the only formatPrice(item.price) is inside a JSX comment {/* ... */}: the learner commented it out while debugging and the list still renders the raw cents ({item.price}). VS Code greys the import ('formatPrice' is declared but its value is never read, ts(6133)). Prices don't go through formatPrice.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n\nexport function Cart({ items }: CartProps) {\n  return (\n    <ul>\n      {items.map(item => (\n        <li key={item.id}>\n          {/* <span>{formatPrice(item.price)}</span> */}\n          <span>{item.price}</span>\n        </li>\n      ))}\n    </ul>\n  )\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Cart.tsx",
+    "src > components > Cart.tsx",
+    "import { formatPrice } from '../utils'",
+    "export function Cart({ items }: CartProps) {",
+    "return (",
+    "<ul>",
+    "{items.map(item => (",
+    "<li key={item.id}>",
+    "{/* <span>{formatPrice(item.price)}</span> */}",
+    "<span>{item.price}</span>",
+    "</li>",
+    "))}",
+    "</ul>",
+    "⊗ 0 ⚠ 1"
+   ]
+  }
+ }
+}
