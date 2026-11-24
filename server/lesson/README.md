@@ -71,6 +71,21 @@ blog post with code blocks for this tutorial, the Claude path reads it before wr
   search, not from the chosen video, so they need a "this row is that video's code" test (linked from the video, same
   author/channel, or a title match Claude confirms) before they can be read as the tutorial's own code.
 
+## Step 1 first (`first_step.py`, lane eng-build-speed)
+On the Claude transcript path the learner gets step 1 as soon as it is built, not after the whole lesson: the captions
+and linked code load while the lesson caches are asked; step 1's detail call (and the segment steps merged into it)
+goes before the rest of the fan-out (`claude.PRIORITY`, one of the 4 Claude lanes kept for it); then step 1 alone goes
+through the same adapt pass, lint, retry, repair, link check and contract as every step, and out via
+`on_update(graph, complete=False)` (the orchestrator's existing progressive path: `lesson.ready`, then
+`lesson.updated` for s2..sN). The full build then reuses step 1's adapt result and locks step 1 (the cached lesson's
+step 1 is the one the learner got; `build.firstStep`). Offline model of a typical 10-minute video (recorded
+latencies, `python -m server.lesson.tests.speed_harness`): step 1 at ~15 s (~20 s when step 1 needs a lint retry)
+instead of ~36-39 s; on a deterministic fake the finished lesson's steps are the old build's (with the real model
+the adapt batches differ, so the wording can). A video whose title names an app waits for every step's detail first
+(app lesson or code lesson is a whole-lesson choice). The first graph carries the other steps in
+`build.upcomingSteps` for the starter files (`server.workspace.paths.lesson_steps`). The 4 Claude lanes are
+process-wide. `LESSON_FAST_FIRST_STEP=0` turns it all off.
+
 ## Lesson shape rules (from S3's 5-tutorial eval)
 - Playable from an empty folder: step 1 sets up any code/data/repo state the tutorial prepared off camera.
 - Every step has at least one check any learner passes with their own names/data (tool output, API names);

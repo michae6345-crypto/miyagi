@@ -15,7 +15,7 @@ from pathlib import Path
 
 import os
 
-from . import app_lesson, budget, claude, gemini, links, materials, timing, transcript
+from . import app_lesson, budget, claude, first_step, gemini, links, materials, timing, transcript
 from .transcript import parse_ts  # noqa: F401  (re-exported: claude.py, progressive.py, tests use builder.parse_ts)
 from .schema import (
     CHECK_TYPES,
@@ -51,6 +51,9 @@ STAGES = ("cache_hit", "watching", "reading_transcript", "writing_steps", "engin
           "planning", "first_steps", "more_steps", "provisional", "transcript_only")
 _progress: contextvars.ContextVar = contextvars.ContextVar("lesson_progress", default=None)
 _material_urls: contextvars.ContextVar = contextvars.ContextVar("lesson_material_urls", default=())
+# this build's captions + linked code, fetched from the start while the lesson caches are asked (_start_prefetch)
+_prefetched: contextvars.ContextVar = contextvars.ContextVar("lesson_prefetched", default=None)
+_first: contextvars.ContextVar = contextvars.ContextVar("lesson_first_step", default=None)  # first_step.FirstStep
 
 
 def _emit(stage: str, message: str = "") -> None:
@@ -137,6 +140,10 @@ async def build_lesson(
             if qs:
                 await qs.finish(g)
             return g
+        except BaseException:
+            if qs:
+                qs.stop(delivery=True)
+            raise
         finally:
             if qs:
                 qs.stop()
@@ -182,7 +189,7 @@ class _QuickStart:
     async def wrapped(self, graph: dict, complete: bool) -> None:
         self.real_sent = True
         self.final_sent = self.final_sent or complete
-        self.timer.cancel()
+        self.stop()
         r = self.on_update(graph, complete)
         if asyncio.iscoroutine(r):
             await r
@@ -213,12 +220,17 @@ class _QuickStart:
 
     async def finish(self, graph: dict) -> None:
         """The app saw a provisional step: make sure it gets the real, complete lesson through on_update too."""
-        self.timer.cancel()
+        self.stop()
         if self.provisional_sent and not self.final_sent:
             await self.wrapped(graph, True)
 
-    def stop(self) -> None:
-        self.timer.cancel()
+    def stop(self, *, delivery: bool = False) -> None:
+        """No placeholder any more. One already on its way (its on_update may be preparing the lesson folder, a
+        Claude call of up to ~25 s, or in the "ready" hold) is left to land, so the real steps that follow it are
+        loaded over it, not into a lesson that never loaded; `delivery` (the build failed or was cancelled) stops it
+        too."""
+        if delivery or not self.provisional_sent:
+            self.timer.cancel()
 
 
 _INTRO = re.compile(r"\b(intro(duction)?|welcome|overview|about|agenda|preview|demo|what we.?ll build)\b", re.I)
@@ -332,117 +344,200 @@ async def _build_lesson_impl(
     info = scan(workdir)
     key = cache_key(source_url, goal, workdir, info)
     path = CACHE_DIR / f"{key}.json"
-    if cache and not (refresh or readapt):
-        hit = path if path.is_file() else find_cached(vid, workdir, info)
-        if hit:
-            graph = json.loads(hit.read_text(encoding="utf-8"))
-            graph["lesson"]["workdir"] = workdir
-            log.info("lesson cache hit %s%s", hit.name, "" if hit == path else " (same video + workdir, different goal wording)")
-            _emit("cache_hit", hit.name)
-            _emit("done", hit.name)
-            return graph
-        shared = await _shared_lesson(vid, source_url, goal, workdir, info, key, path, claim)
-        if shared is not None:
-            return shared
-
-    if api_key:
-        gemini.set_api_key(api_key)
-    if anthropic_key:
-        claude.set_api_key(anthropic_key)
-    t0 = time.time()
-    from . import progressive
-
-    meta = normalize_video_meta(video_meta) if video_meta else {}
-    if not meta.get("length_s"):
-        try:
-            meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
-        except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
-            pass
-    if (not transcript_only and (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and engines()[0] == "gemini"
-            and not gemini.is_down() and budget.remaining() > 0):
-        try:
-            graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
-        except RuntimeError as e:
-            raise RuntimeError(human_error(str(e), meta)) from e
-        if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
-            CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
-            graph["build"]["fresh"] = True  # build_lesson shares it (never written to the cache file)
-        _emit("done", f"{time.time() - t0:.0f}s")
-        return graph
-
-    goal_task = asyncio.ensure_future(progressive.goal_match(goal, meta)) if meta.get("title") else None
+    # Step 1 first (first_step.py) and the captions fetched while the caches are asked: the Claude transcript path only
+    fast = first_step.enabled() and "claude" in (["claude"] if transcript_only else engines())
+    pre = _start_prefetch(vid) if fast and (transcript_only or refresh or not cache or not _draft_cached(vid, goal)) else None
+    first = (first_step.FirstStep(url=source_url, vid=vid, goal=goal, workdir=workdir, info=info, key=key,
+                                  on_update=on_update, transcript_only=transcript_only)
+             if fast and on_update is not None and (transcript_only or engines() == ["claude"]) else None)
+    tokens = (_prefetched.set(pre), _first.set(first))
     try:
-        draft = await _video_draft(source_url, vid, goal, refresh=refresh or not cache, detail=detail, write=cache,
-                                   transcript_only=transcript_only)
-    except RuntimeError as e:
-        if goal_task:
-            goal_task.cancel()
-        # a mid-length video Gemini couldn't finish in one go: build it in parts (shorter clips are what it handles)
-        if not transcript_only and (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
-            log.warning("one-pass build failed (%s); building in parts", str(e)[:150])
-            _emit("planning", "retrying in parts")
+        if cache and not (refresh or readapt):
+            hit = path if path.is_file() else find_cached(vid, workdir, info)
+            if hit:
+                graph = json.loads(hit.read_text(encoding="utf-8"))
+                graph["lesson"]["workdir"] = workdir
+                log.info("lesson cache hit %s%s", hit.name, "" if hit == path else " (same video + workdir, different goal wording)")
+                _emit("cache_hit", hit.name)
+                _emit("done", hit.name)
+                return graph
+            shared = await _shared_lesson(vid, source_url, goal, workdir, info, key, path, claim)
+            if shared is not None:
+                return shared
+
+        if api_key:
+            gemini.set_api_key(api_key)
+        if anthropic_key:
+            claude.set_api_key(anthropic_key)
+        t0 = time.time()
+        from . import progressive
+
+        meta = normalize_video_meta(video_meta) if video_meta else {}
+        if not meta.get("length_s"):
+            try:
+                meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
+            except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
+                pass
+        if (not transcript_only and (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and engines()[0] == "gemini"
+                and not gemini.is_down() and budget.remaining() > 0):
             try:
                 graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
-            except RuntimeError as e2:
-                raise RuntimeError(human_error(f"{e}\nparts: {e2}", meta)) from e2
+            except RuntimeError as e:
+                raise RuntimeError(human_error(str(e), meta)) from e
             if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
                 CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
-                graph["build"]["fresh"] = True
+                graph["build"]["fresh"] = True  # build_lesson shares it (never written to the cache file)
             _emit("done", f"{time.time() - t0:.0f}s")
             return graph
-        raise RuntimeError(human_error(str(e), meta)) from e
-    known_text, checked = await _known_text(vid), {}
-    bad_urls = await _bad_urls(draft["steps"], known_text, checked)
-    graph, warnings, adapted_ok, adapt_model = await _adapt(draft, goal, info, bad_urls)
-    # the adapt pass may write new links: verify the final text too, and strip what is still dead
-    final_bad = await _bad_urls(graph["steps"], known_text, checked)
-    warnings = warnings + links.strip_bad_urls(graph["steps"], final_bad)
-    warnings = list(draft.get("detail_failures") or []) + warnings
-    if not adapted_ok:
-        warnings = ["adapt pass failed (quota?): checks come from the video draft, not the learner's workdir; not cached, retry with readapt=True"] + warnings
-    n_signals = await add_community_mistakes(graph, source_url)
-    graph["lesson"]["id"] = f"lesson-{key[:8]}"
-    graph["lesson"]["builtBy"] = draft.get("_engine", "unknown")  # "gemini" = watched the video; "claude" = read the transcript
-    graph["lesson"]["workdir"] = workdir
-    graph["sources"] = [{"id": "src1", "kind": "video", "title": draft.get("title") or "Tutorial", "url": source_url, "videoId": vid}]
-    graph["lesson"]["complete"] = True
-    if transcript_only:
-        graph["lesson"]["transcriptOnly"] = True
-    if goal_task is not None:
+
+        goal_task = asyncio.ensure_future(progressive.goal_match(goal, meta)) if meta.get("title") else None
+        if first is not None:
+            first.goal_task = goal_task
         try:
-            graph["lesson"]["goalMatch"] = await asyncio.wait_for(goal_task, 10)
-        except Exception:  # noqa: BLE001
-            pass
-    graph["build"] = {
-        "adapted": adapted_ok,
-        "model": {"video": draft.get("_built_by", "unknown"), "adapt": adapt_model},
-        "seconds": round(time.time() - t0, 1),
-        "workdir_metrics": sorted(info.metrics),
-        "workdir_fp": workdir_fingerprint(workdir, info),
-        "community_signals": n_signals,
-        "warnings": warnings,
-    }
-    if draft.get("_timing"):
-        graph["build"]["timing"] = draft["_timing"]  # how many step starts were pinned to a chapter / caption line
-    if draft.get("_materials"):
-        graph["build"]["materials"] = draft["_materials"]  # the tutorial files the steps' code came from
-    use_lesson_venv(graph)  # t9 V6: no second venv / reinstall in a step (Miyagi's setup card fills the lesson's .venv)
-    use_lesson_notebook(graph)  # t10: a Jupyter lesson's own notebook (mnist.ipynb) in VS Code, never Untitled.ipynb
-    errs = schema_errors(graph)
-    if errs:
-        raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
-    if not adapted_ok or not cache:
-        log.warning("lesson built in %.1fs; not cached (%s)", time.time() - t0, "adapt pass failed" if not adapted_ok else "cache=False")
+            draft = await _video_draft(source_url, vid, goal, refresh=refresh or not cache, detail=detail, write=cache,
+                                       transcript_only=transcript_only)
+        except RuntimeError as e:
+            if goal_task:
+                goal_task.cancel()
+            # a mid-length video Gemini couldn't finish in one go: build it in parts (shorter clips are what it handles)
+            if not transcript_only and (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
+                log.warning("one-pass build failed (%s); building in parts", str(e)[:150])
+                _emit("planning", "retrying in parts")
+                try:
+                    graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
+                except RuntimeError as e2:
+                    raise RuntimeError(human_error(f"{e}\nparts: {e2}", meta)) from e2
+                if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
+                    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
+                    graph["build"]["fresh"] = True
+                _emit("done", f"{time.time() - t0:.0f}s")
+                return graph
+            raise RuntimeError(human_error(str(e), meta)) from e
+        if first is not None and draft.get("_engine") == "claude" and (transcript_only or engines() == ["claude"]):
+            first.start_from_draft(draft)  # a cached video draft: step 1 is built while the rest is adapted (no-op if
+            # it is already building from the watched draft)
+        known_text, checked = await _known_text(vid), (first.checked if first is not None else {})
+        bad_urls = await _bad_urls(draft["steps"], known_text, checked)
+        # step 1, when it was built early, is final: its adapt result is reused and it is never re-sent (locked)
+        locked = first.lock() if first is not None and first.building() else None
+        graph, warnings, adapted_ok, adapt_model = await _adapt(draft, goal, info, bad_urls, locked=locked)
+        # the adapt pass may write new links: verify the final text too, and strip what is still dead
+        final_bad = await _bad_urls(graph["steps"], known_text, checked)
+        warnings = warnings + links.strip_bad_urls(graph["steps"], final_bad)
+        warnings = list(draft.get("detail_failures") or []) + warnings
+        if not adapted_ok:
+            warnings = ["adapt pass failed (quota?): checks come from the video draft, not the learner's workdir; not cached, retry with readapt=True"] + warnings
+        n_signals = await add_community_mistakes(graph, source_url)
+        graph["lesson"]["id"] = f"lesson-{key[:8]}"
+        graph["lesson"]["builtBy"] = draft.get("_engine", "unknown")  # "gemini" = watched the video; "claude" = read the transcript
+        graph["lesson"]["workdir"] = workdir
+        graph["sources"] = [{"id": "src1", "kind": "video", "title": draft.get("title") or "Tutorial", "url": source_url, "videoId": vid}]
+        graph["lesson"]["complete"] = True
+        if transcript_only:
+            graph["lesson"]["transcriptOnly"] = True
+        if goal_task is not None:
+            try:
+                graph["lesson"]["goalMatch"] = await asyncio.wait_for(goal_task, 10)
+            except Exception:  # noqa: BLE001
+                pass
+        graph["build"] = {
+            "adapted": adapted_ok,
+            "model": {"video": draft.get("_built_by", "unknown"), "adapt": adapt_model},
+            "seconds": round(time.time() - t0, 1),
+            "workdir_metrics": sorted(info.metrics),
+            "workdir_fp": workdir_fingerprint(workdir, info),
+            "community_signals": n_signals,
+            "warnings": warnings,
+        }
+        if draft.get("_timing"):
+            graph["build"]["timing"] = draft["_timing"]  # how many step starts were pinned to a chapter / caption line
+        if draft.get("_materials"):
+            graph["build"]["materials"] = draft["_materials"]  # the tutorial files the steps' code came from
+        lock = first.result if first is not None else None
+        if lock is not None and lock.get("notebook"):
+            graph["lesson"]["notebook"] = lock["notebook"]  # the notebook step 1 already named (and the workspace made)
+        use_lesson_venv(graph)  # t9 V6: no second venv / reinstall in a step (Miyagi's setup card fills the lesson's .venv)
+        if lock is None or lock.get("notebook"):  # step 1 went out as a non-notebook lesson: the lesson stays one
+            use_lesson_notebook(graph)  # t10: a Jupyter lesson's own notebook (mnist.ipynb) in VS Code, never Untitled.ipynb
+        if lock is not None:
+            _lock_first_step(graph, lock)
+        errs = schema_errors(graph)
+        if errs:
+            raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
+        if first is not None:
+            await first.delivered()  # the full lesson never reaches the app before its step 1 did
+        if not adapted_ok or not cache:
+            log.warning("lesson built in %.1fs; not cached (%s)", time.time() - t0, "adapt pass failed" if not adapted_ok else "cache=False")
+            _emit("done", f"{time.time() - t0:.0f}s")
+            return graph
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
+        log.info("lesson built in %.1fs -> %s (%d warnings)", time.time() - t0, path, len(warnings))
+        graph["build"]["fresh"] = True
         _emit("done", f"{time.time() - t0:.0f}s")
         return graph
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
-    log.info("lesson built in %.1fs -> %s (%d warnings)", time.time() - t0, path, len(warnings))
-    graph["build"]["fresh"] = True
-    _emit("done", f"{time.time() - t0:.0f}s")
-    return graph
+
+    except Exception:
+        if first is not None and first.sending:
+            await first.delivered()  # step 1 is with the learner (or on its way): it lands before the error does
+        raise
+    finally:
+        _prefetched.reset(tokens[0])
+        _first.reset(tokens[1])
+        _stop_prefetch(pre)
+        if first is not None:
+            first.close()
+
+
+def _draft_cached(vid: str, goal: str) -> bool:
+    """Is this video's draft for this goal in the raw draft cache (_video_draft reads it instead of watching)?"""
+    gh = hashlib.sha256(" ".join(goal.lower().split()).encode()).hexdigest()[:8]
+    return (RAW_DIR / f"{vid}-{gh}.json").is_file()
+
+
+def _start_prefetch(vid: str) -> dict:
+    """The captions (and the watch page they come with) and the tutorial's linked code, started at the top of a build
+    so they load while the local and shared lesson caches are asked; claude_draft takes them over. Free requests only
+    (YouTube, the linked code), never a model call. Cancelled if the build ends without using them (a cache hit)."""
+    tasks = {"info": asyncio.ensure_future(transcript.fetch_video_info(vid)),
+             "materials": asyncio.ensure_future(_materials(vid, _material_urls.get()))}
+    for t in tasks.values():
+        t.add_done_callback(first_step._retrieve)  # a failure no one awaited (a cache hit) is not an asyncio warning
+    return tasks
+
+
+def _stop_prefetch(pre: dict | None) -> None:
+    for t in (pre or {}).values():
+        if not t.done():
+            t.cancel()
+
+
+def _lock_first_step(graph: dict, lock: dict) -> None:
+    """The finished graph's step 1 is the one the learner already has (first_step.py), byte for byte. Logs when the full
+    build would have made it differently (a lesson-wide decision the early step could not see yet)."""
+    sent = copy.deepcopy(lock["step"])
+    full = graph["steps"][0]
+    same = full == sent
+    if not same:
+        keys = sorted(k for k in set(sent) | set(full) if sent.get(k) != full.get(k))
+        log.warning("first step early: the full build's step 1 differs in %s; keeping the one the learner has", keys)
+    # explanations the full build placed in step 1 (step 2's call reads 15 s before its start) go to step 2, never lost
+    def key(e: dict) -> tuple:
+        return (e.get("t"), e.get("topic"))
+
+    have = {key(e) for e in sent.get("explanations") or []}
+    extra = [e for e in full.get("explanations") or [] if key(e) not in have]
+    if extra and len(graph["steps"]) > 1:
+        nxt = graph["steps"][1]
+        own = nxt.get("explanations") or []
+        seen = {key(e) for e in own}
+        moved = sorted((e for e in extra if key(e) not in seen), key=lambda e: e.get("t", 0))
+        # step 2's own (inside its clip) stay first, in time order: its "jump to the explanation" is the first one
+        nxt["explanations"] = sorted(own, key=lambda e: e.get("t", 0)) + moved
+    graph["steps"][0] = sent
+    graph["build"]["firstStep"] = {"seconds": lock.get("seconds"), "same": same, "adaptModel": lock.get("adapt_model")}
 
 
 async def _shared_lesson(vid: str, source_url: str, goal: str, workdir: str, info: WorkdirInfo, key: str, path: Path,
@@ -615,9 +710,11 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
     async def claude_draft() -> dict:
         t0 = time.time()
         _emit("reading_transcript")
-        mats = asyncio.ensure_future(_materials(vid, _material_urls.get()))  # in parallel with the captions
+        pre = _prefetched.get() or {}  # started at the top of the build (_start_prefetch): taken over once
+        info_task = pre.pop("info", None)
+        mats = pre.pop("materials", None) or asyncio.ensure_future(_materials(vid, _material_urls.get()))  # in parallel with the captions
         try:
-            info = await transcript.fetch_video_info(vid)
+            info = await (info_task if info_task is not None else transcript.fetch_video_info(vid))
         except BaseException:
             mats.cancel()
             raise
@@ -625,13 +722,19 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
         if files:
             info = {**info, "materials": files}  # a copy: the transcript cache never holds them
         _emit("writing_steps", f"{len(info.get('transcript') or [])} transcript lines")
+        first = _first.get() if order == ["claude"] else None  # step 1 first: never while Gemini races this draft
+        if first is not None:
+            first.video_info = info
         last: Exception | None = None
         for _attempt in range(2):
+            hooks = claude.DETAIL_HOOKS.set(first)
             try:
                 draft = normalize_draft(await claude.watch_transcript(info, goal))
                 break
             except ValueError as e:  # unusable timestamps / no steps: ask again
                 last = e
+            finally:
+                claude.DETAIL_HOOKS.reset(hooks)
         else:
             raise RuntimeError(f"unusable step list ({last})")
         # no frames: pin each step's start to the chapter mark / caption line where it begins (timing.py)
@@ -1006,45 +1109,147 @@ async def _bad_urls(steps: list[dict], known_text: str, checked: dict) -> set[st
         return set()
 
 
-async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] | None = None) -> tuple[dict, list[str], bool, str | None]:
+async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] | None = None, *, locked=None,
+                 partial: bool = False, context: list[dict] | None = None,
+                 keep: dict | None = None) -> tuple[dict, list[str], bool, str | None]:
     """-> (graph, leftover warnings, whether any adapt call succeeded, model that served it).
 
     Round 1 adapts every step. Later rounds re-send only the steps that still have problems (with
     just their feedback), and the loop stops as soon as a round doesn't reduce the problem count,
-    keeping the best graph seen; repair cleans up whatever is left."""
+    keeping the best graph seen; repair cleans up whatever is left.
+
+    Step 1 first (first_step.py): `locked` is an awaitable of step 1's lock (first_step.FirstStep.result: its adapt
+    result and the lesson-wide choices it was built with; None when it was not built early). Round 1 adapts the other steps while it is awaited; a locked step is final: never sent again,
+    its problems never retried. `partial`: `draft` is step 1 alone (the early build), so lesson-wide lint problems ("no
+    metric check" in a lesson whose training step is not built yet) are not its to fix. `context`: the lesson's other
+    steps as known so far, for lesson-wide decisions (normalize_checks). `keep` receives the adapt results by step."""
     known_files = set(info.files)
     adapted: dict[int, dict] = {}
+    frozen: set[int] = set()
     used: str | None = None
     best: tuple[int, dict] | None = None
     targets = list(draft["steps"])
     feedback: list[str] | None = None
+    summary = info.summary_for_prompt()
+    app = ...  # decided here (normalize_checks), unless step 1 went out with its own choice
+
+    def build(steps: list[dict]) -> dict:
+        return normalize_checks(assemble(draft, goal, {"steps": steps}), info.metrics, context, app=app)
+
+    def done(*result):
+        if keep is not None:
+            keep.update(adapted)
+        return result
+
     for attempt in range(ADAPT_ATTEMPTS):
         try:
-            out, used = await _adapt_call(goal, {"steps": targets}, info.summary_for_prompt(), feedback)
+            if attempt == 0 and locked is not None:
+                out, used, lock = await _adapt_with_lock(goal, targets, summary, locked)
+                if lock:
+                    frozen = set(lock["adapted"])
+                    adapted.update(lock["adapted"])
+                    app = lock.get("app")  # the lesson-wide app / code choice step 1 went out with
+            else:
+                out, used = await _adapt_call(goal, {"steps": targets}, summary, feedback)
         except RuntimeError as e:
             log.warning("adapt pass failed (attempt %d): %s", attempt + 1, e)
             if not adapted:  # nothing to improve on; the video draft's checks are the fallback
-                graph = repair(normalize_checks(assemble(draft, goal, {"steps": []}), info.metrics), info)
-                return graph, lint(graph, info.metrics, known_files), False, None
+                graph = repair(build([]), info)
+                return done(graph, _leftover(graph, info, known_files, partial), False, None)
             break
         for st in out.get("steps") or []:
-            if isinstance(st.get("index"), int):
+            if isinstance(st.get("index"), int) and st["index"] not in frozen:
                 adapted[st["index"]] = st
-        graph = normalize_checks(assemble(draft, goal, {"steps": list(adapted.values())}), info.metrics)
+        graph = build(list(adapted.values()))
         problems = schema_errors(graph) + lint(graph, info.metrics, known_files) + links.url_problems(graph["steps"], bad_urls or set())
+        if partial:
+            problems = [p for p in problems if _STEP_PROBLEM.match(p)]
+        if frozen:
+            problems = [p for p in problems if not ((m := _STEP_PROBLEM.match(p)) and int(m.group(1)) in frozen)]
         if not problems:
-            return graph, [], True, used
+            return done(graph, [], True, used)
         if best is not None and len(problems) >= best[0]:
             log.info("adapt attempt %d: %d problems (no better than %d); stopping", attempt + 1, len(problems), best[0])
             break
         best = (len(problems), graph)
         bad = {int(m.group(1)) for p in problems if (m := _STEP_PROBLEM.match(p))}
         graph_level = [p for p in problems if not _STEP_PROBLEM.match(p)]
-        targets = [st for st in draft["steps"] if graph_level or st["index"] in bad]
+        targets = [st for st in draft["steps"] if (graph_level or st["index"] in bad) and st["index"] not in frozen]
+        if not targets:
+            break
         feedback = problems
         log.info("adapt attempt %d: %d problems in %d step(s), retrying those", attempt + 1, len(problems), len(targets))
-    graph = repair(best[1] if best else graph, info)
-    return graph, lint(graph, info.metrics, known_files), True, used
+    graph = repair(best[1] if best else build(list(adapted.values())), info)
+    return done(graph, _leftover(graph, info, known_files, partial), True, used)
+
+
+def _leftover(graph: dict, info: WorkdirInfo, known_files: set[str], partial: bool) -> list[str]:
+    problems = lint(graph, info.metrics, known_files)
+    return [p for p in problems if _STEP_PROBLEM.match(p)] if partial else problems
+
+
+async def _adapt_with_lock(goal: str, targets: list[dict], summary: str, locked) -> tuple[dict, str | None, dict | None]:
+    """Round 1 when step 1 may be locked. -> (adapt output, model, lock or None); raises RuntimeError like _adapt_call
+    when nothing could be adapted.
+    - The lock is already known (the usual case: step 1 was built while the other details ran): a lock -> the other
+      steps are adapted; no lock -> exactly the old round 1 (every step, the old batches).
+    - Still building: the other steps are adapted while it is awaited; if it then fails, step 1 is adapted at once,
+      alongside whatever is still running.
+    A cancelled build stops waiting for step 1 at once (first_step.close() then stops step 1's build too)."""
+    lock_task = asyncio.ensure_future(locked)
+    await asyncio.sleep(0)  # a lock that is already there resolves now
+    if lock_task.done():
+        lock = _lock_result(lock_task)
+        if lock is None:
+            out, used = await _adapt_call(goal, {"steps": targets}, summary, None)
+            return out, used, None
+        rest = [st for st in targets if st["index"] != 1]
+        out, used = await _adapt_call(goal, {"steps": rest}, summary, None) if rest else ({"steps": []}, None)
+        return out, used, lock
+    rest = [st for st in targets if st["index"] != 1]
+    first = [st for st in targets if st["index"] == 1]
+
+    async def adapt(steps: list[dict]):
+        try:
+            return await _adapt_call(goal, {"steps": steps}, summary, None)
+        except RuntimeError as e:
+            return e
+
+    rest_task = asyncio.ensure_future(adapt(rest)) if rest else None
+    first_task = None
+    try:
+        await asyncio.wait({lock_task})  # never raises for the lock's own failure; a cancel of this build does
+        lock = _lock_result(lock_task)
+        if lock is None and first:
+            first_task = asyncio.ensure_future(adapt(first))
+        res = await rest_task if rest_task is not None else ({"steps": []}, None)
+        res1 = await first_task if first_task is not None else None
+    except BaseException:
+        for t in (lock_task, rest_task, first_task):
+            if t is not None and not t.done():
+                t.cancel()
+        raise
+    if lock:
+        if isinstance(res, RuntimeError):
+            raise res
+        return res[0], res[1], lock
+    parts = [r for r in (res, res1) if r is not None]
+    ok = [r for r in parts if not isinstance(r, RuntimeError)]
+    if not ok:
+        raise next(r for r in parts if isinstance(r, RuntimeError))
+    for r in parts:
+        if isinstance(r, RuntimeError):
+            log.warning("adapt batch failed: %s", str(r)[:200])  # like a failed batch: those steps keep the draft's checks
+    return {"steps": [st for r in ok for st in r[0].get("steps") or []]}, next((r[1] for r in ok if r[1]), None), None
+
+
+def _lock_result(t) -> dict | None:
+    """The value of step 1's lock (a done task, or a plain value); a failed lock is no lock."""
+    if isinstance(t, asyncio.Future):
+        if t.cancelled() or t.exception() is not None:
+            return None
+        return t.result() or None
+    return t or None
 
 
 def assemble(draft: dict, goal: str, adapted: dict) -> dict:
@@ -1121,10 +1326,16 @@ def tag_setup_steps(graph: dict) -> None:
             step["setup"], step["requires"] = True, tools
 
 
-def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
-    """Deterministic fixes applied before lint (no model call)."""
+def normalize_checks(graph: dict, known_metrics: set[str], context: list[dict] | None = None, *, app=...) -> dict:
+    """Deterministic fixes applied before lint (no model call). `context`: the lesson's other steps when `graph` holds
+    only some of them (step 1 built early): a lesson where any of them writes code is a code lesson, never an app one.
+    `app`: the app-or-code choice already made for this lesson (step 1 went out with it): lesson["app"] or None."""
     tag_setup_steps(graph)
-    app_lesson.adapt(graph)  # Nov 22: an AutoCAD / Blender lesson talks about the app and checks the app, never files
+    if app is ...:
+        if not (context and app_lesson.has_code({"steps": context})):
+            app_lesson.adapt(graph)  # Nov 22: an AutoCAD / Blender lesson talks about the app and checks the app, never files
+    elif app:
+        app_lesson.adapt(graph, force=True)
     libs = (graph.get("lesson") or {}).get("libraries") or {}
     for step in graph["steps"]:
         # "it runs" checks: a Python Traceback never shows up in a Vite/cargo/git terminal
