@@ -64,6 +64,8 @@ from shared.contracts.events import parse_app_message
 
 from server import config as server_config
 from server.skilltree import service as skills_service
+from server.plans import progress as plans_progress
+from server.plans import service as plans_service
 
 from . import config, recorder, skill_hooks, stage
 from .hub import Hub, log_received
@@ -129,6 +131,9 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
 # ui-v4 skill tree (server/skilltree/service.py): proof.get, a local read answered beside the queue
 SKILL_INSTANT = frozenset({"proof.get"})
+# ui-v4 plans (server/plans/service.py): answered beside the queue. A plan lesson starts through learn / learn_url /
+# library.start carrying plan {id, index}.
+PLAN_INSTANT = frozenset(plans_service.COMMANDS)
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
                      "ask.warm"})  # ask.warm: the push-to-talk hold; never waits behind a build (coach/fast_ask.py)
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
@@ -637,6 +642,7 @@ class Engine:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._cloud_off: Any = None  # removes the cloud verdict listener (watch_cloud)
         self._notice_off: Any = None  # removes the shared lesson cache notice listener (watch_cloud)
+        self._region_noticed = False  # cloud.notice region_unavailable goes out once per engine run
         self._cloud_tasks: set[asyncio.Task] = set()
         self._screen_boot: asyncio.Task | None = None
         self.hub.on_progress_event = self.forget_reads
@@ -650,6 +656,8 @@ class Engine:
         self._reads: dict[str, tuple[float, Any]] = {}  # coalesced app reads: key -> (when, result)
         self._reads_inflight: dict[str, asyncio.Future] = {}
         self._reads_gen = 0  # bumped by forget_reads: an older in-flight read must not cache its stale result
+        # the plan lesson running now (ui-v4 plans): (plan id, index, engine lesson id once lesson.ready linked it)
+        self._plan_ref: tuple[str, int, str | None] | None = None
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -684,6 +692,11 @@ class Engine:
         await self.hub.emit(type_, self.session._tagged(type_, payload or {}))  # epoch / gen: which lesson and step
         if feed is not None and type_ in ("step.passed", "card"):
             await feed.observe(self.session, type_, payload)  # bon after a counted pass, activity, a finished lesson
+        if getattr(self, "_plan_ref", None) is not None and type_ in ("lesson.ready", "lesson.complete", "lesson.ended"):
+            try:
+                await self._plan_lesson_event(type_, payload)
+            except Exception:  # noqa: BLE001
+                log.exception("plan lesson link failed")
 
     async def ingest(self, ev: dict) -> None:
         self.recorder.record(ev)
@@ -729,9 +742,21 @@ class Engine:
             return
         if isinstance(notice.get("resets_at"), str) and notice["resets_at"]:
             payload["resets_at"] = notice["resets_at"][:40]
-        self._on_loop(lambda: self.hub.emit("cloud.notice", payload))
+        self._on_loop(lambda: self._send_notice(payload))
+
+    async def _send_notice(self, payload: dict) -> None:
+        """cloud.notice to the app. region_unavailable (451, from an AI call or the shared lesson cache): once per engine
+        run, however many calls the cloud turned away."""
+        if payload.get("reason") == "region_unavailable":
+            if getattr(self, "_region_noticed", False):
+                return
+            self._region_noticed = True
+        await self.hub.emit("cloud.notice", payload)
 
     async def _announce_cloud(self, event: dict) -> None:
+        if event.get("region"):  # 451 region_unavailable: a notice, never a token verdict (no token_invalid, no status)
+            await self._send_notice({"reason": "region_unavailable", "status": 451})
+            return
         if event.get("token_invalid"):
             await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})  # never the token or its hash
         await self.hub.emit("config.status", key_status())
@@ -841,6 +866,7 @@ class Engine:
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
         caps.append("proof.get")  # ui-v4 skill tree: a pass's proof (server/skilltree/proofs.py); the tree rides on progress
         caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
+        caps += list(plans_service.COMMANDS)  # ui-v4 plans (server/plans); learn / learn_url / library.start take plan
         return caps
 
     def hello(self, restored: bool = False) -> dict:
@@ -1061,6 +1087,56 @@ class Engine:
         log.info("library.start: %s (lesson %s)", lid, lesson.get("id"))
         await s._run_build("", title, factory=lambda: self._load_library(graph, title))
 
+    async def plan_lesson(self, ref: Any, library_id: str | None = None) -> None:
+        """A learn / learn_url / library.start carrying plan {id, index}: that plan lesson is now in progress (every app
+        gets `plans`); the engine lesson it becomes is linked when it loads (lesson.ready), so its completion marks
+        the plan lesson done. Any other lesson start clears the link target."""
+        self._plan_ref = None
+        if ref is None:
+            return
+        key, index = getattr(ref, "id", None), getattr(ref, "index", None)
+        if not isinstance(key, str) or not plans_progress.KEY_RE.fullmatch(key) or not isinstance(index, int):
+            return
+        try:
+            v = await asyncio.to_thread(plans_progress.lesson_starting, key, index, library_id=library_id)
+        except Exception:  # noqa: BLE001 - the lesson itself still starts
+            log.exception("plan lesson %s/%s: could not note the start", key, index)
+            return
+        if v is None:
+            log.info("plan lesson: no lesson %s in plan %s", index, key)
+            return
+        self._plan_ref = (key, index, None)
+        await self.push_plans()
+
+    async def push_plans(self) -> None:
+        """`plans` to every app (a plan lesson started or finished)."""
+        try:
+            await self.hub.emit("plans", await asyncio.to_thread(plans_service.plans_payload))
+        except Exception:  # noqa: BLE001 - a plans push never costs the lesson
+            log.exception("plans push failed")
+
+    async def _plan_lesson_event(self, type_: str, payload: dict | None) -> None:
+        """lesson.ready links the running plan lesson to its engine lesson; lesson.complete / lesson.ended push
+        `plans` (the plan lesson is done once history.json has its lesson)."""
+        ref = self._plan_ref
+        if ref is None:
+            return
+        if type_ == "lesson.ready":
+            lid = ((payload or {}).get("lesson") or {}).get("id")
+            if isinstance(lid, str) and lid:
+                await asyncio.to_thread(plans_progress.link_lesson, ref[0], ref[1], lid)
+                self._plan_ref = (ref[0], ref[1], lid)
+        elif type_ in ("lesson.complete", "lesson.ended"):
+            linked = ref[2]
+            if linked is None:
+                return  # the lesson that was running before the plan lesson ended: the plan lesson is not linked yet
+            if type_ == "lesson.ended":
+                ended = (payload or {}).get("lessonId")
+                if isinstance(ended, str) and ended and ended != linked:
+                    return  # another lesson's end, never the plan lesson's
+                self._plan_ref = None
+            await self.push_plans()
+
     async def review_start(self, skill_id: str, label: str) -> None:
         """review.start {skillId?, label?}: a quick spaced review of one mastered skill, with no build and no model call.
         The steps behind the skill are replayed from its lesson's cached graph (sessions/review.py), in that lesson's own
@@ -1240,34 +1316,36 @@ class Engine:
         if (msg.type == "action" and getattr(p, "kind", None) in ("resume", "end_lesson")
                 or msg.type == "card.closed" and getattr(p, "kind", None) == "resume"):
             self._offer_answered = True  # Nov 21: answered or closed: the saved-lesson card is not offered again
-        if msg.type in V2_INSTANT:
-            async def reply(type_: str, payload: dict) -> None:
-                if ws is None:
-                    await self.hub.emit(type_, payload)
-                else:
-                    await self.hub.send_to(ws, type_, payload)
+        async def reply(type_: str, payload: dict) -> None:
+            if ws is None:
+                await self.hub.emit(type_, payload)
+            else:
+                await self.hub.send_to(ws, type_, payload)
 
+        if msg.type in V2_INSTANT:
             await self.handle_v2(msg.type, p, reply)
             if msg.type == "library.list":
                 await self._offer_saved_lesson(ws, reply)
         elif msg.type in SKILL_INSTANT:
-            async def reply(type_: str, payload: dict) -> None:
-                if ws is None:
-                    await self.hub.emit(type_, payload)
-                else:
-                    await self.hub.send_to(ws, type_, payload)
-
             s.note_app_v2()  # only a ui-v4 app sends proof.get: it draws the v2 surfaces
             await skills_service.proof_get(p, reply)
+        elif msg.type in PLAN_INSTANT:
+            s.note_app_v2()  # only a ui-v4 app sends plans messages: it draws the v2 surfaces
+            await plans_service.handle(msg.type, p, reply)
         elif msg.type == "library.start":
+            await self.plan_lesson(getattr(p, "plan", None), library_id=p.id)
             await self.library_start(p.id)
         elif msg.type == "review.start":
+            self._plan_ref = None
             await self.review_start(p.skillId, p.label)
         elif msg.type == "learn":
+            await self.plan_lesson(getattr(p, "plan", None))
             await s.learn(p.query, getattr(p, "mode", None))
         elif msg.type == "learn_url":
+            await self.plan_lesson(getattr(p, "plan", None))
             await s.learn_url(p.url, transcript_only=getattr(p, "transcriptOnly", None) is True)
         elif msg.type == "build_lesson":
+            self._plan_ref = None
             await s.build_lesson(p.resultIds)
         elif msg.type == "action":
             circle = {}  # circle to ask (Nov 22): only when the app sent them, so older callers are unchanged
@@ -1577,7 +1655,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     await engine.dispatch(raw, ws)
                 except Exception:
                     log.exception("bad %s: %s", _brief(raw), _redact(raw))
-            elif raw.get("type") in V2_INSTANT or raw.get("type") in SKILL_INSTANT:  # a read never waits behind a build
+            elif (raw.get("type") in V2_INSTANT or raw.get("type") in SKILL_INSTANT
+                  or raw.get("type") in PLAN_INSTANT):  # a read never waits behind a build
                 t = asyncio.create_task(answer(raw))
                 side.add(t)
                 t.add_done_callback(side.discard)

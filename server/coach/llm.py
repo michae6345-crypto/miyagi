@@ -256,6 +256,11 @@ def cloud_mode() -> bool:
     return _cfg is not None and _cfg.mode("anthropic") == "cloud"
 
 
+def region_blocked() -> bool:
+    """The miyagi cloud said 451 region_unavailable this run (server.config.region_blocked): no more calls through it."""
+    return _cfg is not None and _cfg.region_blocked("anthropic")
+
+
 def _key(purpose: str, user_text: str) -> str:
     """The fixture name: purpose + a hash of the user text with its <untrusted> fences (random nonces) taken out."""
     return f"{purpose}-{hashlib.sha256(_unfence(user_text).encode()).hexdigest()[:10]}"
@@ -323,6 +328,8 @@ async def structured_call(
         raise CoachLLMError(f"{purpose}: offline mode (DEMO / ORCH_STUBS), no live call", "offline")
     if not has_credentials():
         raise CoachLLMError("no ANTHROPIC_API_KEY", "no_key")
+    if region_blocked():  # the same answer as a call would get, without the call
+        raise CoachLLMError(f"{purpose}: miyagi_region: {_cfg.CLOUD_ERRORS['miyagi_region']}", "cloud")
 
     import anthropic
 
@@ -456,6 +463,8 @@ async def warm(requests: list[dict] | None = None) -> dict:
     out: dict[str, Any] = {}
     if not has_credentials():
         return {"skipped": "no key"}
+    if region_blocked():
+        return {"skipped": "region"}
     client = get_client()
     t0 = time.monotonic()
     if not cloud_mode():  # the miyagi cloud forwards /v1/messages only (no models endpoint)

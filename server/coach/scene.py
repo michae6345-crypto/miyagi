@@ -339,6 +339,8 @@ async def look(image: Any, step: dict, *, step_file: str | None = None, run: str
         raise llm.CoachLLMError("scene: offline mode (DEMO / ORCH_STUBS), no live call", "offline")
     if client is None and not llm.has_credentials():
         raise llm.CoachLLMError("scene: no ANTHROPIC_API_KEY", "no_key")
+    if client is None and llm.region_blocked():  # 451 region_unavailable this run: a look every 5 s would hammer it
+        raise llm.CoachLLMError("scene: miyagi_region", "cloud")
     jpeg, size = await asyncio.to_thread(encode, image, mask, scale, origin)
     text = step_brief(step, step_file=step_file, run=run, spot=spot, front_app=front_app)
     content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
@@ -363,6 +365,8 @@ async def look(image: Any, step: dict, *, step_file: str | None = None, run: str
         except ImportError:  # pragma: no cover
             raise llm.CoachLLMError(f"scene: {type(e).__name__}", "api") from e
         if isinstance(e, anthropic.APIStatusError):
+            if llm._cfg is not None and (code := llm._cfg.cloud_error(e)):  # e.g. 451: region_blocked() from now on
+                raise llm.CoachLLMError(f"scene: {code}", "cloud") from e
             raise llm.CoachLLMError(f"scene: API {e.status_code}", "api") from e
         if isinstance(e, anthropic.APIConnectionError):
             raise llm.CoachLLMError("scene: connection error", "connection") from e
