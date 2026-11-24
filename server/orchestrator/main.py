@@ -950,6 +950,7 @@ class Engine:
             await s.panel_state(p.open, _rect(p.rect))
         elif type_ == "data.delete":  # Settings > Privacy > Delete my data: the engine's local lesson notes go too
             await asyncio.to_thread(_wipe_context_memory, s)  # no reply: the app's sheet already says what it erased
+            await asyncio.to_thread(_wipe_skill_proofs)  # the skill tree's proofs (snippets of the learner's work)
 
     async def library_start(self, lid: str) -> None:
         """library.start: a cached lesson, with no build and no lesson-writing model call. The cached graph's workdir is
@@ -1246,6 +1247,16 @@ def _wipe_context_memory(session: Any = None) -> None:
         context_memory.wipe_all(session)
     except Exception:  # noqa: BLE001 - the keys already went; a leftover note is logged, never a crash
         log.exception("context memory wipe failed")
+
+
+def _wipe_skill_proofs() -> None:
+    """Delete my data, skill tree part: every proof of a pass (server/skilltree/proofs.py). Never raises."""
+    try:
+        from server.skilltree import proofs
+
+        proofs.wipe()
+    except Exception:  # noqa: BLE001 - a leftover proof is logged, never a crash
+        log.exception("skill proofs wipe failed")
 
 
 def _log_cloud_failure(fut: Any) -> None:

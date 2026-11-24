@@ -48,6 +48,7 @@ from .card_copy import ran as _ran  # t7: a run in plain words ("Ran nn.py", not
 from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
+from . import skill_hooks  # skill tree (server/skilltree): assisted steps, passes, proofs; never breaks the lesson
 from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
 from . import nb_coach  # t12: a notebook step's code already in the notebook gets no box
 from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
@@ -717,6 +718,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._download_after_build = False  # "Download tutorial files" pressed on the preflight card
         self._setup_card: dict | None = None  # the last setup card sent (re-sent with install status)
         self.graph: dict | None = None
+        self.skill_update: dict | None = None  # skill tree: what the last pass changed (skill_hooks.on_pass)
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
         self.idx = -1
@@ -4317,6 +4319,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._say("step.passed", payload)
             await curated.on_step_passed(self, step)  # curated: the training run passed -> their run in the panel
         self._record("step_skipped" if skipped else "step_passed", {"nextStepId": payload.get("nextStepId")}, step)
+        self.skill_update = await skill_hooks.on_pass(self, step, skipped)  # skill tree: mastery, reviews, proof (local)
         await self._status("watching" if skipped else "passed")
         await self.emit("spotlight", {"clear": True})
         if nxt:  # Nov 15: steps whose code is already in the file pass at once, ONE card (quiet_save.advance)
@@ -6074,6 +6077,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _action(self, kind: str, text: str | None = None, *, region: Any = None,
                       ask_id: str | None = None, capture: Any = None, release_t: float | None = None) -> None:
         step = self.step
+        skill_hooks.note_assist(self, kind)  # skill tree: a hint / show me / Do it for me on a step is not unassisted
         if step is not None:
             if kind in self.NOT_WORK_ACTIONS:
                 self._touch()
