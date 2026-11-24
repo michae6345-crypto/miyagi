@@ -7,6 +7,7 @@ export const THEMES = ['dark', 'light'] as const
 export type Theme = (typeof THEMES)[number]
 
 /** A fixed instant, so "today", streaks and dates render the same on every run. */
+const SETTLE_MS = 3000
 const NOW = new Date('2026-11-24T15:00:00Z')
 
 /** Hidden before the screenshot: the desktop wallpaper (large, not ours), blinking carets, video frames. */
@@ -52,14 +53,17 @@ export function startupMs(scenario: string): number {
 }
 
 export async function openStage(page: Page, query: Record<string, string>, theme: Theme): Promise<void> {
-  await page.clock.setFixedTime(NOW)
+  // Fake clock (Date, timers, animation frames): every scenario event, app timer (auto-hide, collapse) and spring
+  // lands at the same virtual moment on any machine. Real waits shot different states on a slower CI runner.
+  await page.clock.install({ time: NOW })
   await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
   // Offline: only the stage itself (YouTube embeds, fonts CDNs, the cloud are never reached).
   await page.route(/^https?:\/\/(?!localhost[:/]|127\.0\.0\.1[:/])/, (r) => r.abort())
   await page.goto('/?' + new URLSearchParams({ ...query, appearance: theme }).toString(), { waitUntil: 'load' })
   await page.evaluate(() => document.fonts.ready)
   await page.addStyleTag({ content: HIDE_CSS })
-  // The scenario's scripted start-up (capped), then springs and enter transitions: reduced motion shortens them.
+  // Virtual time: the scenario's scripted start-up (capped), then SETTLE_MS for app timers and transitions.
   const sc = query.scenario ?? 'full'
-  await page.waitForTimeout(Math.min(startupMs(sc), 10_000) + 1200)
+  await page.clock.runFor(Math.min(startupMs(sc), 10_000) + SETTLE_MS)
+  await page.evaluate(() => document.fonts.ready)
 }
