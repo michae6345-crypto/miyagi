@@ -45,9 +45,10 @@ function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { child
       exit={gone}
       whileTap={PRESS}
       transition={{ ...spring, delay }}
-      // Keep the caret in the input: rows are pointer targets, not focus stops.
+      // A click keeps the caret in the input; Tab still reaches the row (Launcher's Tab order, Q15) and moves the highlight.
       onMouseDown={(e) => e.preventDefault()}
       onMouseMove={onHover}
+      onFocus={onHover}
       onClick={onPick}
     >
       {children}
@@ -337,6 +338,7 @@ export function ReadyRow({
       transition={spring}
       onMouseDown={(e) => e.preventDefault()}
       onMouseMove={onHover}
+      onFocus={onHover}
       onClick={onPick}
     >
       <span className="min-w-0 flex-1 truncate text-[14px] text-white">{item.title}</span>

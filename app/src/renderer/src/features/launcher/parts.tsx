@@ -212,6 +212,7 @@ function AskLine({
       whileTap={PRESS}
       transition={enter(delay)}
       onMouseMove={onHover}
+      onFocus={onHover}
       {...rest}
     >
       <span className="min-w-0 flex-1 truncate">{text}</span>
@@ -397,7 +398,8 @@ export function Action({
 
 /**
  * End lesson during a lesson (Michael's desktop test 3, item 8): a small quiet link in the footer, never a row, so a
- * stray Enter or ↓ then Enter can't end a lesson. No key reaches it (not a focus stop, no keycap). Like the bar's End,
+ * stray Enter or ↓ then Enter can't end a lesson. No shortcut reaches it (no keycap); Tab walks onto it like every control
+ * (Q15), and it still takes two presses there (it keeps focus between them: data-end). Like the bar's End,
  * the first click arms it ("Tap to end", a little brighter) and a second click while armed ends the lesson. Neutral
  * chrome even when armed: the white button stays the one primary (Continue).
  */
@@ -415,6 +417,7 @@ export function EndLink({ armed, onClick }: { armed: boolean; onClick: () => voi
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       title={armed ? 'Click again to end the lesson' : 'End this lesson'}
+      data-end
       data-armed={armed || undefined}
     >
       <Square size={10} strokeWidth={2} className="shrink-0" />
