@@ -1,0 +1,68 @@
+{
+ "id": "terminal-rust-cargo-run-already-built",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to Rust plan (docs/ui-next/catalog/plans/intro-rust.json), 'Start a project with Cargo' (passes: cargo run builds the project and prints two lines). The learner ran `cargo build` after editing main.rs, cleared the terminal, then `cargo run`: nothing changed since the build, so Cargo prints only 'Finished `dev` profile ...' and 'Running `target/debug/trail`' (no 'Compiling' line) and the program's two lines. Exit 0. Done.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Run the project with Cargo",
+  "instructions": "Change src/main.rs so it prints two lines: a greeting and how far you walked on day 1. Then run cargo run: Cargo compiles the project and runs it.",
+  "run_command": "cargo run",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "cargo run",
+    "caption": "Build and run"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "screen_contains",
+    "label": "Cargo builds the project",
+    "app": "Terminal",
+    "pattern": "Compiling\\s+trail\\s+v0\\.1\\.0"
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "main.rs prints two lines",
+    "file": "trail/src/main.rs",
+    "pattern": "(?s)println!.*println!"
+   },
+   {
+    "id": "s3c3",
+    "type": "screen_absent",
+    "label": "No compile errors",
+    "app": "Terminal",
+    "pattern": "error(\\[E\\d+\\])?:"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail/Cargo.toml": "[package]\nname = \"trail\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+   "trail/src/main.rs": "fn main() {\n    println!(\"Hello from the trail!\");\n    println!(\"Day 1: 12 km\");\n}\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail % cargo run",
+    "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s",
+    "     Running `target/debug/trail`",
+    "Hello from the trail!",
+    "Day 1: 12 km",
+    "tripi@mac trail % "
+   ]
+  },
+  "run": {
+   "command": "cargo run",
+   "exit_code": 0,
+   "output_tail": [
+    "Hello from the trail!",
+    "Day 1: 12 km"
+   ]
+  }
+ }
+}

@@ -1,0 +1,62 @@
+{
+ "id": "terminal-shell-count-sh-no-argument",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to the terminal plan (docs/ui-next/catalog/plans/intro-terminal.json), 'Variables, arguments and a loop' (passes: ./count.sh rain prints one line for each note with its count). The script is right, but the learner ran `./count.sh` with no word. $1 is empty, and `grep -ci \"\"` matches every line, so each note prints 3 (its line count). With rain the counts are 2, 1 and 1. A line per note with a number is on screen, but not the rain counts the step asks for.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Count a word in every note",
+  "instructions": "Write count.sh: it takes a word as $1 and, for each file in notes, prints the file name and how many lines mention the word (grep -ci). Make it executable with chmod +x count.sh, then run ./count.sh rain.",
+  "run_command": "./count.sh rain",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "./count.sh rain",
+    "caption": "Run it with a word"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "file_contains",
+    "label": "count.sh reads its first argument",
+    "file": "trail-log/count.sh",
+    "pattern": "\\$1|\\$\\{1\\}"
+   },
+   {
+    "id": "s10c2",
+    "type": "file_contains",
+    "label": "count.sh loops over the notes",
+    "file": "trail-log/count.sh",
+    "pattern": "for\\s+\\w+\\s+in"
+   },
+   {
+    "id": "s10c3",
+    "type": "screen_contains",
+    "label": "./count.sh prints a count for each note",
+    "app": "Terminal",
+    "pattern": "notes/day1\\.txt:?\\s+\\d+"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/notes/day1.txt": "Woke to rain on the tent\nAfternoon rain, trail muddy\nCamp by the river\n",
+   "trail-log/notes/day2.txt": "Light rain\nSun by noon\nSaw a heron\n",
+   "trail-log/notes/summit.txt": "Reached the summit\nRain cloud below us\nCold wind\n",
+   "trail-log/count.sh": "#!/bin/zsh\nword=$1\nfor f in notes/*.txt; do\n  echo \"$f: $(grep -ci \"$word\" \"$f\")\"\ndone\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail-log % chmod +x count.sh",
+    "tripi@mac trail-log % ./count.sh",
+    "notes/day1.txt: 3",
+    "notes/day2.txt: 3",
+    "notes/summit.txt: 3",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}
