@@ -1,0 +1,83 @@
+{
+ "id": "jupyter-restart-run-all-one-cell-skipped",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Intro to Jupyter plan, 'Restart and run all' (every code cell ran with no error and the run counts go up in order from 1). After the restart the learner pressed Shift+Enter down the notebook instead of Run All and skipped the weekly-total cell: the counts read [1], [2], [ ], [3]. The goal comparison still works (it does not need the total), so there is a [1] and no error, but one code cell never ran in this kernel and the total is gone from the notebook.",
+ "step": {
+  "id": "jup7s3",
+  "title": "Restart the kernel and run every cell",
+  "instructions": "In steps.ipynb, click Restart, then Run All. Every cell should run top to bottom, numbered from [1], with no error.",
+  "file": "steps.ipynb",
+  "run_command": "Restart the kernel, then run all cells",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "caption": "Restart, then Run All"
+   }
+  ],
+  "checks": [
+   {
+    "id": "jup7s3c1",
+    "type": "screen_contains",
+    "label": "Cells numbered from [1]",
+    "app": "Code",
+    "pattern": "\\[\\s*1\\s*\\]"
+   },
+   {
+    "id": "jup7s3c2",
+    "type": "screen_absent",
+    "label": "No cell error after Run All",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "goal = 8000",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "total = sum(steps)\nprint(f'Total this week: {total}')",
+       "run": false
+      },
+      {
+       "source": "days_met = sum(s >= goal for s in steps)\nprint(f'{days_met} of 7 days reached the goal of {goal}')",
+       "stdout": "4 of 7 days reached the goal of 8000\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "[1]",
+    "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+    "[2]",
+    "goal = 8000",
+    "[ ]",
+    "total = sum(steps)",
+    "print(f'Total this week: {total}')",
+    "[3]",
+    "days_met = sum(s >= goal for s in steps)",
+    "print(f'{days_met} of 7 days reached the goal of {goal}')",
+    "4 of 7 days reached the goal of 8000"
+   ]
+  }
+ }
+}

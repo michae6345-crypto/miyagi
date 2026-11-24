@@ -76,6 +76,53 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 5: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r5-0`)
+
+17 new cases (11 train, 6 held out), no engine change (the runner already scores `heldOut` apart). Steps: the MNIST
+video lesson (s5 fit, s7 evaluate), the NN-from-scratch text lesson (nn4, terminal) and, inline in the lesson
+builder's shape, lessons from Adrian's catalog plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`):
+PyTorch ("Datasets and DataLoader" `pt6s4`, "Hold out data and measure accuracy" `pt7s3`, "Use the Mac GPU"
+`pt8s4`), NumPy ("Random numbers with a seed" `np7s4`), Neural networks ("Train a tiny network on XOR" `nn9s5`),
+Plotting ("Subplots side by side" `pl6s4`), pandas ("Plot from a DataFrame" `pd9s4`) and Intro to Jupyter ("Install
+a package and draw a chart" `jup6s5`, "Restart and run all" `jup7s3`).
+
+The traps: a DataLoader without `shuffle=True` over points made in linspace order; `xb.to(device)` not assigned
+(`mps:0 cpu`); held-out accuracy that sits above 0.9 for epochs and ends at 0.865; a seeded generator made in an
+earlier cell and the rolls cell re-run (a new count); `plt.subplots(2, 1)` where the step wants one row; a groupby on
+`item` instead of `weekday` with sales.png saved; a notebook whose `goal` cell was deleted, restarted and never run
+again (old counts [1], [3], [4]); a cell skipped after a restart ([1], [2], [ ], [3]); Keras accuracy above 0.95 for
+three epochs while the loss doubles and the last epoch reads 0.9102. Done-but-odd: `print(len(loader),
+tuple(xb.shape))` -> `32 (32, 2)`; Out[3] `(device(type='mps', index=0), ...)`; a seeded cell run twice ([1], [3]);
+XOR's loss flat at 0.2500 for half the run, then falling to 0.0051; a stale ModuleNotFoundError above the chart cell
+from before `%pip install`; `model.fit` re-run (epoch 1 already at 0.9874); `model.evaluate(..., verbose=0)` (no
+progress line); a stale unsaved-file run in the terminal scrollback above the run that converged.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (268: 257 earlier + 11 new) | 0.974 | 0.966 | 0.974 | 4 | 3 |
+| train, the 11 new | 0.364 | | | 4 | 3 |
+| held-out (114: 108 earlier + 6 new) | 0.447 | 0.318 | 0.500 | 43 | 20 |
+| held-out, the 6 new | 0.667 | | | 1 | 1 |
+
+Train wrong verdicts (all new; the 257 earlier train cases still score right), in `baseline.json` → `known_wrong`:
+
+- **FP `jupyter-numpy-dice-rng-in-earlier-cell-rerun`**: the seed, the roll and a printed count are all there; nothing
+  sees that the generator lives in an earlier cell than the one the step re-runs.
+- **FP `jupyter-plot-subplots-stacked-two-rows`**: `plt.subplots(` matches; the (rows, cols) the instructions give
+  are not compared.
+- **FP `jupyter-pytorch-device-batch-not-reassigned`**: the output pattern accepts any two device names; a bare
+  `xb.to(device)` (result dropped) and two different devices are not weighed.
+- **FP `jupyter-restart-run-all-restarted-not-run`**: a [1] and no error; the old counts skip [2] and no cell defines
+  `goal` any more.
+- **FN `jupyter-chart-old-import-error-above`**: `No cell error` reads the stale ModuleNotFoundError of an earlier
+  cell that an install below it has since fixed.
+- **FN `jupyter-mnist-s7-evaluate-verbose0`**: s7c3 wants evaluate's progress line, which `verbose=0` never prints.
+- **FN `jupyter-pytorch-device-repr-out`**: the device pair shown as Out[n] (`device(type='mps', index=0)`) does not
+  read as `mps:0`.
+
+Held-out wrong verdicts (ids only): `jupyter-pandas-plot-by-item-not-weekday` (FP),
+`jupyter-pytorch-loader-shape-tuple` (FN).
+
 ## Round 4 fixes (Nov 24 2026, `claude/eng-check-fixes-r4`)
 
 The four round-4 case sets merged: 365 cases, 257 train + 108 held out (75 new: 49 train, 26 held out). Every fix is

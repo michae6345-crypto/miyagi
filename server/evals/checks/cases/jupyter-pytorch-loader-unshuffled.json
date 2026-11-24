@@ -1,0 +1,95 @@
+{
+ "id": "jupyter-pytorch-loader-unshuffled",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "PyTorch plan, 'Datasets and DataLoader' (loop over shuffled batches of 32; 32 batches, first batch (32, 2)). The learner left out shuffle=True. Both printed lines are right (batches: 32, torch.Size([32, 2])) and batch_size=32 is on screen, but the points were made in x0 order (linspace), so without shuffling every epoch walks the same 32 batches from left to right: the first batch is always the 32 leftmost points. The instructions spell out shuffle=True and say why; the step is not done until the loader shuffles.",
+ "step": {
+  "id": "pt6s4",
+  "title": "Wrap the points in a DataLoader",
+  "instructions": "In sine.ipynb, wrap X and y in a TensorDataset and make loader = DataLoader(dataset, batch_size=32, shuffle=True) so every epoch sees the 1000 points in a new order. Print len(loader) and the shape of the first batch of points.",
+  "file": "sine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "sine.ipynb",
+    "match": "DataLoader(dataset",
+    "caption": "Batches of 32, shuffled"
+   }
+  ],
+  "code": "dataset = TensorDataset(X, y)\nloader = DataLoader(dataset, batch_size=32, shuffle=True)\nprint('batches:', len(loader))\nxb, yb = next(iter(loader))\nprint('first batch:', xb.shape)",
+  "checks": [
+   {
+    "id": "pt6s4c1",
+    "type": "screen_contains",
+    "label": "DataLoader made",
+    "app": "Code",
+    "pattern": "DataLoader\\("
+   },
+   {
+    "id": "pt6s4c2",
+    "type": "screen_contains",
+    "label": "Batches of 32",
+    "app": "Code",
+    "pattern": "batch_size\\s*=\\s*32"
+   },
+   {
+    "id": "pt6s4c3",
+    "type": "screen_contains",
+    "label": "The loader has 32 batches",
+    "app": "Code",
+    "output": true,
+    "pattern": "batches:\\s*32\\b"
+   },
+   {
+    "id": "pt6s4c4",
+    "type": "screen_contains",
+    "label": "First batch has shape (32, 2)",
+    "app": "Code",
+    "output": true,
+    "pattern": "torch\\.Size\\(\\[\\s*32,\\s*2\\s*\\]\\)"
+   },
+   {
+    "id": "pt6s4c5",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "sine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch\nfrom torch.utils.data import TensorDataset, DataLoader\n\ntorch.manual_seed(0)\nx0 = torch.linspace(-3.14, 3.14, 1000)\nx1 = torch.rand(1000) * 4 - 2\nX = torch.stack([x0, x1], dim=1)\ny = (x1 > torch.sin(x0)).float().unsqueeze(1)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "dataset = TensorDataset(X, y)\nloader = DataLoader(dataset, batch_size=32)\nprint('batches:', len(loader))\nxb, yb = next(iter(loader))\nprint('first batch:', xb.shape)",
+       "stdout": "batches: 32\nfirst batch: torch.Size([32, 2])\n",
+       "count": 2
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "sine.ipynb",
+    "[2]",
+    "dataset = TensorDataset(X, y)",
+    "loader = DataLoader(dataset, batch_size=32)",
+    "print('batches:', len(loader))",
+    "xb, yb = next(iter(loader))",
+    "print('first batch:', xb.shape)",
+    "batches: 32",
+    "first batch: torch.Size([32, 2])"
+   ]
+  }
+ }
+}
