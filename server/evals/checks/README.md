@@ -73,6 +73,56 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 2 fixes (Nov 24 2026, `claude/eng-check-fixes-r2`)
+
+The four round-2 case sets merged: 214 cases, 159 train + 55 held out. Every fix is general (no lesson ids, no case
+text); each has a regression test in `server/checks/tests/test_round2_fixes.py`. Fixed against the train cases only;
+the held-out wrong verdicts were never read (ids only) while fixing.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (159), before | 0.780 | 0.706 | 0.857 | 25 | 10 |
+| train (159), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (55), before | 0.455 | 0.382 | 0.591 | 21 | 9 |
+| held-out (55), after | 0.545 | 0.448 | 0.591 | 16 | 9 |
+
+Held-out: 5 wrong verdicts became right (one of the 15 new round-2 ones, four from round 1), none became wrong.
+
+What changed in `server/checks`:
+
+- **Scene dumps as the app evaluates them** (`model_files.scene_view`): an animated channel holds its keyframe's
+  value at the current frame (an unkeyed move is lost on the next frame change); a material in a slot no face uses
+  is not on the object; a body's sketch that is neither its tip nor used by a feature is an abandoned try; an Edit
+  mode step reads each object's mesh size (dimensions at scale 1). A second reading (`alt_views`): a primitive whose
+  scale was applied (scale 1, dimensions changed) has the scale its size means; a Radius r is a Diameter 2r. The step's
+  own comparison between two named things ("the Key at least twice the Fill's power") is checked on the dump
+  (`claims`, a gate row "Scene matches the step"). An STL the step prints must be a closed shell (`open_mesh`).
+  AutoCAD names (layer, block, style groups of a DXF) match in any case.
+- **Terminal history** (`blocks.py`): "is not a git command" is a failure; AutoCAD's UNDO takes back the commands it
+  names ("Everything has been undone": all of them); a match under a `git status` section other than the one the
+  label names ("untracked", "staged") doesn't count once a status listing is on screen; the step's command run with
+  the prompt in another folder of the lesson than its files' (and not one an earlier command made) doesn't count; a
+  test run that selects some tests (`::name`, `-k`, `--lf`, jest `-t`) is not the suite; a home-folder label wants
+  the prompt user's folder; an every / each / per label holds for every row of the pattern's shape; a command the
+  step names that failed last and never ran again (`git commit` -> "no changes added to commit") fails the step;
+  text the learner quoted in a command (a commit message) matches in any case.
+- **Notebooks**: a Markdown pattern (`"# `, `"## `, `"- `) on a Markdown step reads Markdown cells only, and a
+  "headings" label counts any level below the title; an exported notebook's HTML is read without its code inputs
+  unless the label is about code; a Keras fit whose last `Epoch k/N` has k < N is unfinished (pending; fail after an
+  error or a kernel crash); "The Kernel crashed" on screen fails a notebook step; a cell run after a restart without a
+  cell above it that sets up what it reads (the counts before its own all on cells above) fails ("The kernel has what
+  the cell needs"); a step whose code spans cells needs all of them run; a metric printed as bare `step value` rows
+  by the step's own `print(epoch, loss.item())` is read; a matrix drawn as a figure (`ConfusionMatrixDisplay`) reads
+  as numpy's printout from its OCR rows.
+- **Code across files** (`code_equiv.py`): a Python name used but never imported, defined in another lesson module,
+  fails "Imports resolve"; CommonJS `const { x } = require('./m')` is checked against `module.exports`; a relative
+  import of a file that doesn't exist fails; `const f = (a) =>` / `function` expressions read as `function f(a)`;
+  an import through a tsconfig `paths` alias reads as the relative import it means; a label naming a file that isn't
+  open on screen is read from that file on disk; a JSON config key the step's code puts in a section
+  (`compilerOptions.strict`) fails when it sits elsewhere.
+
+Held-out wrong after the fixes (25): ids in `baseline.json` → `held_out.known_wrong`; not read.
+
 ## Round 2: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r2-0`)
 
 19 new cases (12 train, 7 held out), no engine change. Steps from the MNIST video lesson (`5c0ea8a49f419487`: s5

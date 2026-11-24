@@ -37,7 +37,7 @@ ERROR_FORM = re.compile(r"Traceback \(most recent call last\)|\b[A-Za-z_]\w*(?:E
 # commit, a command-line app's command was cancelled or unknown
 FAILURE_ROW = re.compile(ERROR_FORM.pattern + r"|[Nn]o such file or directory|^\s*!\s*\[(?:remote )?rejected\]"
                          r"|\bnothing added to commit\b|\bno changes added to commit\b|\*Cancel\*"
-                         r"|^\s*Unknown command\b", re.M)
+                         r"|^\s*Unknown command\b|\bis not a [\w-]+ command\b", re.M)
 # a later row that says the command got there anyway (pip's resolver notice, then the install)
 SUCCESS_ROW = re.compile(r"^\s*(?:Successfully\b|✓\s)")
 _AUTOCAD_COMMAND = re.compile(r"^\s*Command:\s*(.*)$")
@@ -96,6 +96,119 @@ def prompt_command(row: str) -> str | None:
             continue
         if _looks_like_prompt_start(ws[:j]) or w in ("$", "❯"):
             return " ".join(ws[j + 1:])
+    return None
+
+
+def _path_base(path: str) -> str | None:
+    path = path.strip().rstrip("/")
+    if not path:
+        return "/" if path == "" else None
+    return path if path == "~" else path.rsplit("/", 1)[-1] or None
+
+
+def prompt_dir(row: str) -> str | None:
+    """The folder a shell prompt row shows (its last part: ``tripi@mac shop %`` -> ``shop``, ``me@box:~/a/b$`` ->
+    ``b``, ``~`` for home), else None (not a prompt row, or the prompt shows no folder)."""
+    ws = row.split()
+    if not ws or _AUTOCAD_COMMAND.match(row):
+        return None
+    if ws[0] == "➜":
+        return _path_base(ws[1]) if len(ws) > 1 and not ws[1].endswith(":") else None
+    for j, w in enumerate(ws):
+        if w in SHELL_JOIN or not after_prompt(w):
+            continue
+        glued = w.rstrip("%$#❯>") if len(w) > 1 else ""
+        if j == 0:
+            if not glued or not (len(w) > 1 and ("@" in w or ":" in w or w[0] in "~/")):
+                continue
+            body = glued.split(":", 1)[1] if ":" in glued else ("" if "@" in glued else glued)
+            return _path_base(body) if body else None
+        if not (_looks_like_prompt_start(ws[:j]) or w in ("$", "❯")):
+            continue
+        if glued:
+            body = glued.split(":", 1)[1] if ":" in glued else ("" if "@" in glued else glued)
+            return _path_base(body) if body else None
+        prev = ws[j - 1]
+        if "@" in prev:
+            return _path_base(prev.split(":", 1)[1]) if ":" in prev else None
+        return _path_base(prev)
+    return None
+
+
+def prompt_user(row: str) -> str | None:
+    """The user name a ``user@host`` prompt shows, else None."""
+    m = re.match(r"^\s*(?:\([^)]*\)\s*)?([\w.-]+)@[\w.-]+", row)
+    return m.group(1) if m and prompt_command(row) is not None else None
+
+
+# ---------------------------------------------------------------- AutoCAD's UNDO
+
+_UNDO_ALL = re.compile(r"\beverything has been undone\b", re.I)
+_UNDO_NAMES = re.compile(r"^\s*(?:[A-Z][A-Z0-9_]{1,20})(?:\s+[A-Z][A-Z0-9_]{1,20})*\s*$")
+
+
+def _app_command(b: "Block") -> str:
+    return (b.command or "").strip().lstrip("_.'").split(" ")[0].upper()
+
+
+def is_undo(b: "Block") -> bool:
+    """A command-line app's UNDO / U (AutoCAD): its output names what it took back."""
+    return bool(b.rows) and bool(_AUTOCAD_COMMAND.match(b.rows[0])) and _app_command(b) in ("UNDO", "U")
+
+
+def undone(blocks: list["Block"]) -> set[int]:
+    """Indices of the blocks a later UNDO took back: all of them before an UNDO that says "Everything has been
+    undone" (UNDO > Back), else, for each command name the UNDO lists (``ARC LINE``), the newest earlier block of
+    that command."""
+    out: set[int] = set()
+    for j, b in enumerate(blocks):
+        if not is_undo(b):
+            continue
+        before = [i for i in range(j) if blocks[i].command and i not in out and not is_undo(blocks[i])]
+        if any(_UNDO_ALL.search(r) for r in b.output):
+            out |= set(before)
+            continue
+        for row in b.output:
+            if not _UNDO_NAMES.match(row):
+                continue
+            for name in row.split():
+                hit = next((i for i in reversed(before) if i not in out and _app_command(blocks[i]) == name), None)
+                if hit is not None:
+                    out.add(hit)
+    return out
+
+
+# ---------------------------------------------------------------- a test run of part of the suite
+
+_SELECT_FLAGS = frozenset({"-k", "--lf", "--last-failed", "--deselect", "-t", "--testNamePattern", "-run", "--grep",
+                           "-g", "--only", "--testPathPattern"})
+
+
+def narrows(segment: str, target: str) -> bool:
+    """Does a test run ``segment`` select only some tests (``pytest x.py::test_add``, ``-k add``, ``--lf``, jest's
+    ``-t``) where the step's ``target`` runs them all?"""
+    tw = set(words(target))
+    for w in words(segment):
+        if w in tw:
+            continue
+        flag = w.split("=", 1)[0]
+        if "::" in w or flag in _SELECT_FLAGS:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------- git status sections
+
+_GIT_SECTION = re.compile(r"^\s*(Changes to be committed|Changes not staged for commit|Untracked files|Unmerged paths)"
+                          r"\s*:\s*$")
+
+
+def git_section(rows: list[str], k: int) -> str | None:
+    """The ``git status`` section row ``k`` of a block's ``rows`` is listed under ("Untracked files", "Changes to be
+    committed" ...), else None."""
+    for r in reversed(rows[:k]):
+        if m := _GIT_SECTION.match(r):
+            return m.group(1)
     return None
 
 

@@ -16,6 +16,7 @@ Status semantics (``CheckStatus`` in ``shared/contracts/events.ts``):
 """
 from __future__ import annotations
 
+import ast
 import bisect
 import dataclasses
 import json
@@ -349,7 +350,8 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", f"{rel} is outside the lesson folder")
     path = _resolve(ctx.workdir, rel)
     if os.path.exists(path):
-        if why := model_files.empty_mesh(path):  # an export with nothing in it is not the model saved
+        # an export with nothing in it, or an open shell where the step prints it, is not the model saved
+        if why := model_files.empty_mesh(path) or (check.get("_print") and model_files.open_mesh(path)):
             return _result(check, "fail", why)
         return _result(check, "pass", f"{rel} exists")
     if isinstance(other := check.get("_any_name"), str) and os.path.isfile(os.path.join(os.path.dirname(path), other)):
@@ -432,6 +434,101 @@ def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[di
     return [{**c, "_any_name": got.get(i, False)} if i in want else c for i, c in enumerate(checks)]
 
 
+# a file_contains pattern for Markdown syntax at a line's start (a "# title", "## heading", "- item" in a saved .ipynb's
+# source strings)
+_MD_PATTERN = re.compile(r'^(?:\(\?[a-zA-Z]+\))?(?:\\?"|\^)?(?:\\?#|\[[-*+]{1,3}\]|\\[-*+]|[-+]\\s|\\?>)')
+_HEADING_LABEL = re.compile(r"\bheadings?\b", re.I)
+_LEVEL_WORDS = re.compile(r"\blevel\b|\bh[1-6]\b|#", re.I)
+
+
+def _markdown_cells(text: str, check: dict) -> str:
+    """A notebook's Markdown cells only, written as VS Code saves them (one JSON string per source line): a ``#`` line
+    in a code cell is a Python comment, never a title. A check about headings (not "the title", not a level) reads any
+    heading below the title as one (``### Results`` is a heading)."""
+    try:
+        nb = json.loads(text)
+    except ValueError:
+        return text
+    cells = nb.get("cells") if isinstance(nb, dict) else None
+    if not isinstance(cells, list):
+        return text
+    label = str(check.get("label") or "")
+    any_level = bool(_HEADING_LABEL.search(label)) and not _LEVEL_WORDS.search(label) \
+        and not re.search(r"\btitle\b", label, re.I)
+    out = []
+    for c in cells:
+        if not isinstance(c, dict) or c.get("cell_type") != "markdown":
+            continue
+        src = c.get("source")
+        src = "".join(str(x) for x in src) if isinstance(src, list) else str(src or "")
+        lines = src.splitlines(keepends=True)
+        if any_level:
+            lines = [re.sub(r"^#{3,6}(?=\s)", "##", ln) for ln in lines]
+        out.append({"cell_type": "markdown", "source": lines})
+    return json.dumps({"cells": out}, indent=1, ensure_ascii=False)
+
+
+_CODE_LABEL = re.compile(r"\b(?:code|source|input|function|import|def|class|cells?)\b", re.I)
+_NB_EXPORT = re.compile(r"jp-Notebook|jp-CodeCell|class=\"input_area\"|jp-InputArea")
+_HTML_CODE_INPUT = re.compile(r"<div class=\"(?:highlight|input_area)[^\"]*\">\s*<pre>.*?</pre>\s*</div>", re.S)
+
+
+def _without_code_inputs(html: str) -> str:
+    """A notebook exported to HTML (nbconvert / Jupyter's Export) without its cells' code: what is left is what the
+    page shows as notes and outputs. A chart's title in ``plt.title('Steps per day')`` is code, not a chart. Line
+    structure kept. Any other HTML is left as it is."""
+    if not _NB_EXPORT.search(html):
+        return html
+    return _HTML_CODE_INPUT.sub(lambda m: "\n" * m.group(0).count("\n"), html)
+
+
+def _jsonc(text: str) -> Any:
+    """A JSON-with-comments file (tsconfig.json, VS Code settings) as data, else None."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    from .code_text import strip_comments
+
+    try:
+        return json.loads(re.sub(r",(\s*[}\]])", r"\1", strip_comments(text, "c")))
+    except ValueError:
+        return None
+
+
+def _key_paths(node: Any, key: str, path: tuple = ()) -> list[tuple]:
+    out = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == key:
+                out.append(path)
+            out += _key_paths(v, key, path + (k,))
+    elif isinstance(node, list):
+        for v in node:
+            out += _key_paths(v, key, path)
+    return out
+
+
+def _misplaced_key(check: dict, text: str, rel: str) -> str | None:
+    """A config option at the wrong level: the step's own code shows where its key goes (``"strict": true`` inside
+    ``compilerOptions``), and the learner's file has that key only somewhere else, where the tool ignores it."""
+    code = check.get("_json_code")
+    m = model_files._KEY_PATTERN.match(str(check.get("pattern") or ""))
+    if not code or not m:
+        return None
+    want = _key_paths(_jsonc(str(code)), m.group(1))
+    if len(want) != 1 or not want[0]:
+        return None
+    doc = _jsonc(text)
+    if doc is None:
+        return None
+    got = _key_paths(doc, m.group(1))
+    if not got or want[0] in got:
+        return None
+    where = "the top level" if got[0] == () else f"inside {got[0][-1]}"
+    return f'"{m.group(1)}" is at {where} of {os.path.basename(rel)}, not inside {want[0][-1]}: it is ignored there'
+
+
 def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
     rel, pattern = check.get("file"), check.get("pattern")
     if not rel or not pattern:
@@ -449,16 +546,25 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", f"{rel} not found")
     except OSError as exc:
         return _result(check, "fail", f"cannot read {rel}: {exc.strerror}")
-    if why := model_files.empty_mesh(path):
+    if why := model_files.empty_mesh(path) or (check.get("_print") and model_files.open_mesh(path)):
         return _result(check, "fail", why)
     view = code_view(full, check, rel, check.get("_sigs")) if lang_of(rel) else full  # no comments, one function
+    if rel.lower().endswith(".ipynb") and check.get("_markdown") and _MD_PATTERN.match(pattern):
+        view = _markdown_cells(full, check)  # a Markdown title / heading / list is one only in a Markdown cell
+    if rel.lower().endswith((".html", ".htm")) and not _CODE_LABEL.search(str(check.get("label") or "")):
+        view = _without_code_inputs(view)  # an exported notebook's code is not its output
     subjects: list[str] = []
+    if rel.lower().endswith(".json"):
+        if (sem := model_files.scene_view(view, str(check.get("_subject") or ""))) is not None:
+            view = sem  # the scene as the app evaluates it (keyed values, used materials, the body's own sketches)
+        if why := _misplaced_key(check, view, rel):
+            return _result(check, "fail", why)
     if rel.lower().endswith(".json") and (sc := model_files.scoped_json(view, str(check.get("_subject") or ""))):
         view, subjects = sc  # a scene dump: only what the step is about (the Mug, not the default Cube)
     on = f" for {', '.join(subjects)}" if subjects else ""
     accept = None
+    lines = view.split("\n")
     if rel.lower().endswith(".dxf"):
-        lines = view.split("\n")
         accept = lambda n, s: model_files.dxf_numeric_ok(lines, n, s)  # noqa: E731
     try:  # 64 KB windows (up to 1 MB), no line over 2 KB: what one lesson search may cost is bounded
         rx = _compile(pattern)
@@ -469,6 +575,13 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         hit = _search_file(rx, view, accept)
         if hit is None and dump and (r := model_files.rounded(view)) != view:
             hit = _search_file(rx, r, accept)
+        if hit is None and rel.lower().endswith(".json"):
+            for alt in model_files.alt_views(view):  # an applied scale, a Radius for a Diameter: the same model
+                if (hit := _search_file(rx, model_files.rounded(alt))) is not None:
+                    break
+        if hit is None and rel.lower().endswith(".dxf"):  # AutoCAD names (layers, blocks) ignore case
+            hit = _search_file(safe_compile(pattern, re.MULTILINE | re.IGNORECASE), view,
+                               lambda n, s: model_files.dxf_name_ok(lines, n))
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if hit:
@@ -555,7 +668,64 @@ def _notebook_points(ctx: RunContext, check: dict | None) -> list[tuple[int, flo
     nb, pattern = ctx.notebook, (check or {}).get("metric_pattern")
     if not pattern or not isinstance(nb, Notebook) or not nb.outputs:
         return []
-    return [(int(s), float(v)) for s, v in extract_metrics(pattern, "\n".join(nb.outputs))]
+    text = "\n".join(nb.outputs)
+    pts = [(int(s), float(v)) for s, v in extract_metrics(pattern, text)]
+    if not pts and (bare := _bare_metric_pattern(check or {}, nb)):
+        pts = [(int(s), float(v)) for s, v in extract_metrics(bare, text)]
+    return pts
+
+
+_BARE_ROW = r"^\s*(?P<step>\d+)\s*[,:;|]?\s+(?P<value>[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
+_PRINT_ARGS = re.compile(r"\bprint\s*\(([^\n]*)\)")
+
+
+def _bare_metric_pattern(check: dict, nb: Notebook) -> str | None:
+    """The learner printed the metric their own way, without the words the check's pattern expects
+    (``print(epoch, loss.item())`` -> ``0 0.2614``): rows of a step number and a value count when the step's own cell
+    prints the metric (a print( call naming it) and the pattern reads a step and a value."""
+    name, pattern = str(check.get("metric") or ""), str(check.get("metric_pattern") or "")
+    if not re.fullmatch(r"\w+", name) or "(?P<step>" not in pattern or "(?P<value>" not in pattern:
+        return None
+    for c in nb.cells:
+        for m in _PRINT_ARGS.finditer(c.source):
+            args = [a.strip() for a in m.group(1).split(",")]
+            if len(args) == 2 and re.search(rf"\b{re.escape(name)}\b", args[1]) \
+                    and not re.search(r"['\"]", m.group(1)):
+                return _BARE_ROW
+    return None
+
+
+_EPOCH_HEADER = re.compile(r"^\s*Epoch\s+(\d+)\s*/\s*(\d+)\b", re.I | re.M)
+
+
+def _unfinished_fit(check: dict, ctx: RunContext) -> CheckResult | None:
+    """A Keras fit whose output stops before its last epoch (``Epoch 4/5`` with nothing after, or ``Epoch 2/5`` and an
+    interrupt): the model has not trained the epochs the step asks for, whatever accuracy a half-done epoch shows. It
+    is still running (pending) or it stopped with an error / a crashed kernel (fail)."""
+    if not _notebook_points(ctx, check):
+        return None
+    nb = ctx.notebook
+    heads = _EPOCH_HEADER.findall("\n".join(nb.outputs))
+    if not heads or int(heads[-1][0]) >= int(heads[-1][1]):
+        return None
+    k, n = heads[-1]
+    if nb.errors or _kernel_crashed(ctx):
+        return _result(check, "fail", f"training stopped in epoch {k} of {n}: run the cell again")
+    return _result(check, "pending", f"training is at epoch {k} of {n}")
+
+
+_KERNEL_CRASH = re.compile(r"\bThe Kernel crashed\b|\bkernel (?:has )?died\b|\bKernel Restarting\b|\bkernel crashed\b",
+                           re.I)
+
+
+def _kernel_crashed(ctx: RunContext) -> str | None:
+    """The notebook's kernel crashed on screen (VS Code: "The Kernel crashed while executing code ..."; Jupyter: "The
+    kernel appears to have died"): everything the kernel held (the model, its weights) is gone."""
+    text = screen_text(ctx.screen, "Code") if ctx.screen is not None else None
+    if not text:
+        return None
+    m = _KERNEL_CRASH.search(text) or re.search(r"\bkernel appears to have died\b", text, re.I)
+    return m.group(0) if m else None
 
 
 def _raw_series(ctx: RunContext, name: str, check: dict | None = None) -> list[tuple[int, float]]:
@@ -686,6 +856,8 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
         if ctx.run_finished:
             return _result(check, "fail", _no_metric(ctx, name))
         return _waiting_for_metric(check, ctx, name)
+    if unfinished := _unfinished_fit(check, ctx):
+        return unfinished
     eligible = [p for p in pts if by_step is None or p[0] <= by_step]
     latest_step = pts[-1][0]
     # a notebook cell's Keras lines are per-epoch averages already: its last one is the result (t10: 0.9858)
@@ -896,6 +1068,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
                 return _result(check, "pass", f"{'printed' if output else 'typed'} in {nb.path.name}")
             if output and _plotted(pattern, nb):
                 return _result(check, "pass", f"plotted in {nb.path.name}")
+            if output and _drawn_matrix(pattern, nb, screen_lines(ctx.screen, app) or []):
+                return _result(check, "pass", f"drawn as a figure in {nb.path.name}")
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if output and nb is not None and not nb.executed:
@@ -931,6 +1105,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         return _result(check, "fail", f"{m.group(0)[:60]!r} is only an item of an open menu{where}: not added yet")
     if m:
         return _result(check, "pass", f"seen{where}")
+    if app == "Code" and not output and (disk := _off_screen_file(check, ctx, text)):
+        return disk
     if app in _TERMINAL_APPS:  # the terminal is on screen, the output isn't: say that, not where to open it
         if made := _ran_and_made(check, ctx, blocks.parse(text.split("\n"))):
             return made
@@ -966,6 +1142,26 @@ def _only_in_open_menu(pattern: str, text: str) -> bool:
         return False
     hits = [i for i, ln in enumerate(lines) if search_screen(pattern, ln)]
     return bool(hits) and all(i in menu for i in hits)
+
+
+def _off_screen_file(check: dict, ctx: RunContext, screen: str) -> CheckResult | None:
+    """A code check whose label names another lesson file ("main.py calls add_numbers(2, 3)") that isn't open on
+    screen (its name nowhere in VS Code's text): that file on disk answers it (F2 renamed every file; only
+    operations.py is open)."""
+    rel = code_equiv.file_in_label(str(check.get("label") or ""))
+    if not rel or not os.path.isabs(str(ctx.workdir or "")) or os.path.basename(rel) in screen:
+        return None
+    path = code_equiv.find_file(ctx.workdir, rel)
+    text = code_equiv.read(path) if path is not None else None
+    if not text:
+        return None
+    try:
+        if search_wrapped(str(check.get("pattern") or ""), scan_text(code_view(text, check, path.name,
+                                                                                check.get("_sigs")))):
+            return _result(check, "pass", f"found in {path.name} (not open on screen)")
+    except re.error:
+        return None
+    return None
 
 
 def _in_another_file(check: dict, ctx: RunContext, screen: str) -> str | None:
@@ -1050,11 +1246,17 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
     if targets and ran and not any(blocks.runs(s, t) for s in ran for t in targets):
         return _ran_and_made(check, ctx, bl) or _result(check, "fail", f"`{targets[0]}` hasn't run yet")
     hits = [i for i, b in enumerate(bl) if search_wrapped(pattern, b.text)]
+    if not hits:  # the learner's own quoted text (a commit message) keeps the case they typed it in
+        hits = [i for i, b in enumerate(bl) if b.command and _quoted_hit(pattern, b.command)]
     if not hits:
         return None
-    why, live = "", False
+    why, live, refused = "", False, False
+    gone = blocks.undone(bl)
     for i in hits:
         b = bl[i]
+        if blocks.is_undo(b) or i in gone:  # AutoCAD's UNDO took that command back (its output names it too)
+            why = why or f"`{b.command}` was undone"
+            continue
         if b.command and blocks.superseded(bl, i):
             why = why or f"that was an earlier `{b.command}`: the newest one didn't print it"
             me = blocks.norm(b.command)
@@ -1067,12 +1269,151 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
         if bad and not search_wrapped(pattern, bad):
             why = why or f"`{b.command or 'the command'}` failed: {bad.strip()[:80]!r}"
             continue
+        if other := _not_the_steps_result(check, ctx, bl, i, pattern):
+            why, refused = why or other, True
+            continue
+        if left := _abandoned(check, bl):
+            return _result(check, "fail", left)
         return _result(check, "pass", f"seen{where}")
-    if made := _ran_and_made(check, ctx, bl):
+    if not refused and (made := _ran_and_made(check, ctx, bl)):  # its words on screen say it isn't so: never
         return made
     if live and ctx.running:  # the newest run is still live (a dev server, a long build): it may print it yet
         return _result(check, "pending", f"not printed by the newest run{where} yet: still running")
     return _result(check, "fail", why)
+
+
+_QUOTED = re.compile(r"\"([^\"\n]+)\"|'([^'\n]+)'")
+
+
+def _quoted_hit(pattern: str, command: str) -> bool:
+    """Is ``pattern`` (case aside) in a quoted argument of ``command`` (``git commit -m "Add waiting file"``)? Text the
+    learner chose (a message, a name) is theirs to capitalise."""
+    try:
+        rx = safe_compile(pattern, re.MULTILINE | re.IGNORECASE)
+    except re.error:
+        return False
+    return any(q and rx.search(q) for m in _QUOTED.finditer(command) for q in m.groups())
+
+
+_UNIVERSAL_LABEL = re.compile(r"\b(?:each|every|all|per)\b", re.I)
+_LITERAL_NUMBER = re.compile(r"(?<![\\{,\d])\d+(?![\d,}])")
+_HOME_PATH = re.compile(r"^\s*/(?:Users|home)/([^/\s]+)\s*$")
+_GIT_SECTION_WORDS = {"untracked": "Untracked files", "staged": "Changes to be committed"}
+
+
+def _scan_steps_cmds(check: dict) -> list[str]:
+    return [*(check.get("_target_cmds") or []), *([check["_run_command"]] if check.get("_run_command") else [])]
+
+
+def _not_the_steps_result(check: dict, ctx: RunContext, bl: list[blocks.Block], i: int, pattern: str) -> str | None:
+    """Why a command's clean output that matches the check is still not what the step asked for, else None:
+
+    * it ran in another folder of the lesson than the one the step's files go in (a dev server of another project,
+      a clone inside project1);
+    * a test run of part of the suite (``pytest x.py::test_add``) for a step that runs every test;
+    * the label names a ``git status`` section ("untracked", "staged") and the file is listed under another;
+    * the label is about the home folder and the path printed is another user's folder (``/Users/Shared``);
+    * the label says every / each / per and another row of the same shape doesn't match (``2 notes/summit.txt``)."""
+    b = bl[i]
+    label = str(check.get("label") or "")
+    cmds = _scan_steps_cmds(check)
+    segs = blocks.segments(b.command or "")
+    if b.command and (where := _ran_elsewhere(check, ctx, bl, i)):
+        return where
+    for s in segs:
+        for t in cmds:
+            if blocks.runs(s, t) and blocks.narrows(s, t):
+                return f"`{s}` ran only some of the tests; run `{t}`"
+    want = next((sec for word, sec in _GIT_SECTION_WORDS.items() if re.search(rf"\b{word}\b", label, re.I)), None)
+    status_shown = any(blocks.git_section(e.rows, len(e.rows)) for e in bl)  # a git status listing is on screen
+    if want and status_shown and not re.search(r"\b(?:un|not\s+)staged\b", label, re.I):
+        rows = [k for k, r in enumerate(b.rows) if search_wrapped(pattern, r)]
+        if not any(blocks.git_section(b.rows, k) == want for k in rows):
+            return f"not listed under {want!r} in git status"
+    if re.search(r"\bhome\b", label, re.I) and b.command is not None and (user := blocks.prompt_user(b.rows[0])):
+        paths = [m for r in b.output if (h := search_screen(pattern, r)) and (m := _HOME_PATH.match(h.group(0)))]
+        if paths and all(m.group(1) != user for m in paths):
+            return f"{paths[-1].group(0).strip()} is not your home folder (/Users/{user})"
+    if _UNIVERSAL_LABEL.search(label) and (shape_p := _LITERAL_NUMBER.sub(r"\\d+", pattern)) != pattern:
+        try:
+            shape, rx = safe_compile(shape_p, re.MULTILINE), safe_compile(pattern, re.MULTILINE)
+        except re.error:
+            return None
+        for r in b.output:
+            if shape.search(r) and not rx.search(r):
+                return f"not every one: {r.strip()[:80]!r}"
+    return None
+
+
+def _lesson_dirs(workdir: str, name: str, depth: int = 3) -> list[str]:
+    """The folders of the lesson folder named ``name`` (case aside), as paths relative to it, ``depth`` levels down at
+    most (never .git / node_modules / .venv)."""
+    out: list[str] = []
+    root = os.path.abspath(workdir)
+    for here, dirs, _ in os.walk(root):
+        rel = os.path.relpath(here, root)
+        level = 0 if rel == "." else rel.count(os.sep) + 1
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__")]
+        if level >= depth:
+            dirs[:] = []
+        for d in dirs:
+            if d.casefold() == name.casefold():
+                out.append(os.path.join(rel, d).replace(os.sep, "/").removeprefix("./"))
+    return out
+
+
+def _ran_elsewhere(check: dict, ctx: RunContext, bl: list[blocks.Block], i: int) -> str | None:
+    """The step's own command ran with the prompt in a folder of the lesson that holds none of the files the step makes
+    (its file_exists proofs) and isn't inside their folder: ``npm run dev`` in ~/shop for my-react-app, ``git clone`` in
+    project1 for gitgoing/. None when it can't tell (the prompt shows no folder, or the folder is not in the lesson), or
+    when an earlier command on screen made or named that folder (``npm create vite my-app``: the learner's own name
+    for the step's project)."""
+    b = bl[i]
+    proof, cmds = check.get("_file_proof") or [], check.get("_target_cmds") or []
+    if not proof or not cmds or not os.path.isabs(str(ctx.workdir or "")) or not b.rows:
+        return None
+    if not any(blocks.runs(s, t) for s in blocks.segments(b.command or "") for t in cmds):
+        return None
+    d = blocks.prompt_dir(b.rows[0])
+    if not d or d in ("~", "/"):
+        return None
+    found = _lesson_dirs(str(ctx.workdir), d)
+    if not found:
+        return None
+    for e in bl[:i]:
+        for s in blocks.segments(e.command or ""):
+            ws = blocks.words(s)
+            if ws and blocks.program_and_sub(s)[0] != "cd" \
+                    and any(w.rstrip("/").rsplit("/", 1)[-1].casefold() == d.casefold() for w in ws[1:]):
+                return None
+    for c in found:
+        for p in proof:
+            top = p.replace("\\", "/").strip("/").split("/")[0]
+            pdir = os.path.dirname(p.replace("\\", "/").strip("/"))
+            if pdir == c or pdir.startswith(c + "/") or (pdir and (c == top or c.startswith(top + "/"))):
+                return None
+    return f"`{b.command}` ran in {d}, not where {proof[0]} goes"
+
+
+def _abandoned(check: dict, bl: list[blocks.Block]) -> str | None:
+    """A command the step asks for by name ("commit the edit ... and push": ``git commit``) whose newest run failed
+    (``no changes added to commit``) and was never run again: that part of the step never happened, whatever later
+    commands printed."""
+    text = str(check.get("_instructions") or "")
+    progs = {blocks.program_and_sub(t)[0] for t in _scan_steps_cmds(check)} - {""}
+    if not text or not progs:
+        return None
+    newest: dict[tuple[str, str], int] = {}
+    for i, b in enumerate(bl):
+        for s in blocks.segments(b.command or ""):
+            p, sub = blocks.program_and_sub(s)
+            if p in progs and sub and re.fullmatch(r"[a-z][\w-]*", sub) \
+                    and re.search(rf"(?<![\w-]){re.escape(sub)}(?![\w-])", text, re.I):
+                newest[(p, sub)] = i
+    for i in newest.values():
+        if (bad := bl[i].failure()) and not blocks.redundant(bl, i):
+            return f"`{bl[i].command}` failed: {bad.strip()[:80]!r}"
+    return None
 
 
 def _ran_and_made(check: dict, ctx: RunContext, bl: list[blocks.Block]) -> CheckResult | None:
@@ -1128,6 +1469,45 @@ def _plotted(pattern: str, nb: Notebook) -> bool:
             continue
         if any(_PLOT_TEXT.search(ln) and rx.search(ln) for ln in scan_text(c.source).splitlines()):
             return True
+    return False
+
+
+_TRAILING_INTS = re.compile(r"(?:^|\s)(-?\d+(?:\s+-?\d+)+)\s*$")
+MATRIX_MAX_ROWS = 200
+
+
+def _drawn_matrix(pattern: str, nb: Notebook, lines: list[str]) -> bool:
+    """A matrix check written for numpy's printout (``[[13  0  1] [ 1 11  4] ...]``) on a matrix the step's cell drew
+    as a figure (``ConfusionMatrixDisplay``, a heatmap): the figure's cells read on screen as rows of numbers (OCR:
+    ``0 13 0 1`` with the row's tick label first, ``True label 1 1 11 4``). Consecutive rows ending in numbers are
+    written as numpy prints them (their last N numbers each) and searched. Only when one of the step's cells ran
+    without an error and displayed an image."""
+    if r"\[\[" not in pattern and "[[" not in pattern:
+        return False
+    if not any(c.executed and not c.errors and any(str(m).startswith("image/") for m in c.images) for c in nb.cells):
+        return False
+    rows = [(m.group(1).split() if (m := _TRAILING_INTS.search(ln)) else None) for ln in lines[-MATRIX_MAX_ROWS:]]
+    try:
+        rx = _compile(pattern)
+    except re.error:
+        return False
+    i = 0
+    while i < len(rows):
+        if rows[i] is None:
+            i += 1
+            continue
+        j = i
+        while j < len(rows) and rows[j] is not None:
+            j += 1
+        run = rows[i:j]
+        for a in range(len(run)):
+            for b in range(a + 2, len(run) + 1):
+                width = min(len(r) for r in run[a:b])
+                for n in range(2, width + 1):
+                    text = "[[" + "]\n [".join(" ".join(r[-n:]) for r in run[a:b]) + "]]"
+                    if rx.search(text):
+                        return True
+        i = j
     return False
 
 
@@ -1303,6 +1683,17 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     about = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
     checks = [{**c, "_subject": f"{about} {c.get('label') or ''}"} if c.get("type") == "file_contains"
               and str(c.get("file") or "").lower().endswith(".json") else c for c in checks]
+    # the step's own JSON code says where a config key goes (strict inside compilerOptions)
+    if str(step.get("code") or "").strip().startswith("{"):
+        checks = [{**c, "_json_code": step["code"]} if c.get("type") == "file_contains"
+                  and str(c.get("file") or "").lower().endswith(".json") else c for c in checks]
+    # a mesh the step prints must be a closed shell; a Markdown step's "# title" is one only in a Markdown cell
+    checks = [{**c, "_print": True} if c.get("type") in FILE_CHECK_TYPES and str(c.get("file") or "").lower()
+              .endswith(".stl") and model_files.PRINT_WORDS.search(f"{about} {c.get('label') or ''}") else c
+              for c in checks]
+    checks = [{**c, "_markdown": True} if c.get("type") == "file_contains" and str(c.get("file") or "").lower()
+              .endswith(".ipynb") and re.search(r"\bmarkdown\b", f"{about} {c.get('label') or ''}", re.I) else c
+              for c in checks]
     if which == "all":  # each list on its own: a file counts once in a list, and the lists are alternatives
         n = len(step.get("checks") or [])
         checks = [*_claim_any_names(checks[:n], about, ctx), *_claim_any_names(checks[n:], about, ctx)]
@@ -1317,6 +1708,11 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     if cmds:
         checks = [{**c, "_target_cmds": cmds, **({"_file_proof": proof} if proof else {})}
                   if c.get("type") == "screen_contains" and c.get("app") in _TERMINAL_APPS else c for c in checks]
+    checks = [{**c, "_instructions": about} if c.get("type") == "screen_contains" and c.get("app") in _TERMINAL_APPS
+              else c for c in checks]
+    if os.path.isabs(str(ctx.workdir or "")):  # the lesson folder: a code file's project config (path aliases)
+        checks = [{**c, "_root": str(ctx.workdir)} if c.get("type") in ("screen_contains", "file_contains")
+                  and c.get("app") not in _TERMINAL_APPS else c for c in checks]
     rc = str(step.get("run_command") or "").strip()
     if rc and not _CELL_ACTION.search(rc):  # a hidden terminal's output only counts when it is this command's run
         checks = [{**c, "_run_command": rc} if c.get("app") in _TERMINAL_APPS
@@ -1392,7 +1788,72 @@ def cell_not_run(step: dict, ctx: RunContext | None) -> bool:
     if ctx is None or not _RUN_THE_CELL.search(str(step.get("run_command") or "")):
         return False
     nb = _with_step_notebook(step, ctx).notebook
-    return isinstance(nb, Notebook) and bool(nb.cells) and not nb.executed
+    # every one of its cells: "run both" with the second still unrun is not done
+    return isinstance(nb, Notebook) and bool(nb.cells) and (not nb.executed or any(
+        not c.executed for c in nb.cells if c.source.strip()))
+
+
+def _py_names(src: str) -> tuple[set[str], set[str], set[str]] | None:
+    """(names a cell's code binds, names it binds or changes, names it reads): assignment targets, def / class / import
+    names; changed, too, a name whose method a statement calls (``model.compile(...)``, ``history = model.fit(...)``
+    change ``model``). IPython magics and shell lines are left out. None when it doesn't parse."""
+    code = "\n".join("pass" if ln.lstrip().startswith(("%", "!")) else ln for ln in src.splitlines())
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+    writes: set[str] = set()
+    reads: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            (writes if isinstance(node.ctx, ast.Store) else reads).add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            writes.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            writes |= {(a.asname or a.name).split(".")[0] for a in node.names}
+    changes = set(writes)
+    for stmt in tree.body:
+        call = stmt.value if isinstance(stmt, (ast.Expr, ast.Assign, ast.AnnAssign)) else None
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) \
+                and isinstance(call.func.value, ast.Name):
+            changes.add(call.func.value.id)
+    return writes, changes, reads
+
+
+def stale_inputs(step: dict, ctx: RunContext | None) -> str | None:
+    """A notebook step's cell ran in a kernel where a cell above it, that sets up what it uses, had not run: after a
+    restart the counts [1], [2], [3] above and the step's cell at [4] are that kernel's whole history, so the training
+    cell still showing [19] (from the kernel before) never ran in it, and the model that predicted was never trained.
+    Why, else None. Only when the counts before the step's cell's own are all on cells above it (nothing else can have
+    run in that kernel)."""
+    if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    nb = ctx.notebook if isinstance(ctx.notebook, Notebook) else None
+    if nb is None or not nb.cells:
+        nb = read_notebook(find_notebook(ctx.workdir, _files(step)))
+    if nb is None or not nb.cells:
+        return None
+    for i in step_cells(nb, step):
+        cell = nb.cells[i]
+        if cell.count is None or not cell.executed:
+            continue
+        above = [c for c in nb.cells[:i] if c.source.strip()]
+        if not all(any(c.count == k for c in above) for k in range(1, cell.count)):
+            continue
+        mine = _py_names(cell.source)
+        if mine is None:
+            continue
+        for c in above:
+            if c.count is not None and c.count <= cell.count:  # ran before it (an equal count: can't tell)
+                continue
+            theirs = _py_names(c.source)
+            need = sorted((theirs[1] & mine[2]) - mine[0]) if theirs else []
+            if need:
+                when = f"[{c.count}], from before a kernel restart" if c.count is not None else "never run"
+                first = c.source.strip().splitlines()[0][:60]
+                return (f"the cell that sets up {need[0]} ({first!r}, {when}) didn't run before this one: run it, "
+                        f"then this cell again")
+    return None
 
 
 def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
@@ -1409,6 +1870,28 @@ def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
         return code_equiv.broken_imports(ctx.workdir, list(dict.fromkeys(files)))
     except (OSError, ValueError, RecursionError):
         return []
+
+
+def _scene_claims(step: dict, ctx: RunContext | None) -> list[str]:
+    """model_files.claims over the JSON scene dumps the step's file checks read: what its own words compare between two
+    of the scene's things that the saved scene contradicts."""
+    if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
+        return []
+    text = " ".join(str(step.get(k) or "") for k in ("title", "instructions", "what", "action"))
+    files = {str(c.get("file")) for c in [*(step.get("checks") or []), *(step.get("precision_checks") or [])]
+             if c.get("type") in FILE_CHECK_TYPES and str(c.get("file") or "").lower().endswith(".json")}
+    out: list[str] = []
+    for rel in sorted(files):
+        path = _resolve(ctx.workdir, rel)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                raw = fh.read(FILE_SCAN_TOTAL)
+            doc = json.loads(model_files.scene_view(raw, text) or raw)
+        except (OSError, ValueError):
+            continue
+        if isinstance(doc, dict):
+            out += model_files.claims(text, doc)
+    return out
 
 
 _RUN_ALL = re.compile(r"\brun\s+all\b|\brestart\b.{0,40}\brun\b", re.I)
@@ -1477,14 +1960,21 @@ def step_cells(nb: Notebook, step: dict) -> list[int]:
         flat = re.sub(r"\s+", " ", src)
         return sum(1 for r in rxs if r.search(src) or r.search(flat))
 
+    lines = {" ".join(ln.split()) for ln in str(step.get("code") or "").splitlines() if len(ln.strip()) >= 16}
+    by_line = [i for i, c in enumerate(nb.cells) if lines and any(" ".join(ln.split()) in lines
+                                                                  for ln in c.source.splitlines())]
     by_target = [i for i, c in enumerate(nb.cells) if hits(targets, c.source)]
     if by_target:
-        return sorted(set(by_target) | {i for i, c in enumerate(nb.cells) if hits(code, c.source) >= 2})
+        # its code may span cells ("one with %timeit sum(steps), and one that makes steps_array ..."): a cell holding a
+        # whole line of the step's code, right after the step's own cells, is one of them too
+        own = set(by_target) | {i for i, c in enumerate(nb.cells) if hits(code, c.source) >= 2}
+        for i in by_line:
+            if i - 1 in own:
+                own.add(i)
+        return sorted(own)
     if code:
         return [i for i, c in enumerate(nb.cells) if hits(code, c.source)]
-    lines = {" ".join(ln.split()) for ln in str(step.get("code") or "").splitlines() if len(ln.strip()) >= 16}
-    return [i for i, c in enumerate(nb.cells) if lines and any(" ".join(ln.split()) in lines
-                                                                 for ln in c.source.splitlines())]
+    return by_line
 
 
 def _files(step: dict) -> list[str]:
@@ -1560,10 +2050,24 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
             checks = [*checks, {"checkId": f"{step.get('id', '')}-cell", "label": "Cell run", "status": "pending",
                                 "detail": "run the cell (Shift+Enter)"}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (step_passed(checks) or step_passed(prec)) and is_notebook_step(step) and ctx is not None:
+        # the kernel that ran the step's cell is gone, or ran it without a cell above it that the cell needs
+        crash = _kernel_crashed(ctx)
+        why = f"{crash} on screen: restart the kernel and run the notebook again" if crash else stale_inputs(step, ctx)
+        if why:
+            checks = [*checks, {"checkId": f"{step.get('id', '')}-kernel", "label": "The kernel has what the cell needs",
+                                "status": "fail", "detail": why}]
+            return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (step_passed(checks) or step_passed(prec)) and (broken := _broken_imports(step, ctx)):
         # the step's files look finished, but one imports what its module no longer has: it crashes when run
         checks = [*checks, {"checkId": f"{step.get('id', '')}-imports", "label": "Imports resolve",
                             "status": "fail", "detail": broken[0]}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (step_passed(checks) or step_passed(prec)) and (wrong := _scene_claims(step, ctx)):
+        # every fact the checks look for is there, but the step's own comparison ("Key at least twice the Fill's
+        # power") is not what the saved scene says
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-scene", "label": "Scene matches the step",
+                            "status": "fail", "detail": wrong[0]}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (order := run_all_out_of_order(step, ctx)) is not None:
         checks = [*checks, {"checkId": f"{step.get('id', '')}-order", "label": "Cells ran in order from [1]",
