@@ -13,6 +13,7 @@
  *   plans[]               {id?, title, done, total}
  *   milestones[]          {label, at}: dated, engine-made (the Nov 24 trim pass took them off the page; kept here)
  *   skills[].skills[]     per skill `reps` and `need` (steps to master) for "Closest to mastered"
+ *   review.minutes        how long the Keep fresh review takes ("4 min" over the rail's Keep fresh)
  *
  * Nothing is made up: a part that is missing stays empty and the page leaves it out (or shows steps where minutes
  * aren't known). Times are epoch seconds, epoch ms or ISO text; here they are epoch ms.
@@ -25,6 +26,9 @@ const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 const str = (v: unknown, max = 160): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
 const count = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < 1e7 ? Math.floor(v) : undefined)
+
+/** A skill or step label as plain text: the engine writes code names in markdown backticks ("Training with `fit`"). */
+export const plain = (s: string): string => s.replace(/`+/g, '').replace(/\s+/g, ' ').trim()
 
 /** Epoch seconds, epoch ms or ISO text, as ms. A bare date is that day's local noon. */
 export function toMs(v: unknown): number | undefined {
@@ -84,6 +88,8 @@ export type V4 = {
   passes: Pass[]
   totals: { minutes?: number; steps?: number; lessons?: number }
   bonPassed?: number
+  /** Minutes the Keep fresh review takes, when the engine says. */
+  reviewMinutes?: number
   goal?: Goal
   plans: Plan[]
   milestones: Milestone[]
@@ -123,13 +129,13 @@ export function readV4(raw: unknown): V4 {
   for (const x of list(Array.isArray(m.recent) ? m.recent : m.passed)) {
     const r = rec(x)
     const at = toMs(r.at ?? r.passedAt)
-    const step = str(r.step) || str(r.title) || str(r.stepTitle)
+    const step = plain(str(r.step) || str(r.title) || str(r.stepTitle))
     if (!at || !step) continue
     passes.push({
       at,
       step,
-      skill: str(r.skill, 60) || undefined,
-      lesson: str(r.lesson, 120) || str(r.lessonTitle, 120) || undefined
+      skill: plain(str(r.skill, 60)) || undefined,
+      lesson: plain(str(r.lesson, 120) || str(r.lessonTitle, 120)) || undefined
     })
   }
   passes.sort((a, b) => b.at - a.at)
@@ -140,8 +146,9 @@ export function readV4(raw: unknown): V4 {
     lessons: count(t.lessons)
   }
   const bonPassed = count(rec(m.bon).passed)
+  const reviewMinutes = count(rec(m.review).minutes) || undefined
   const g = rec(m.goal)
-  const gTitle = str(g.title, 120)
+  const gTitle = plain(str(g.title, 120))
   const gTotal = count(g.total)
   const goal: Goal | undefined =
     gTitle && gTotal
@@ -156,7 +163,7 @@ export function readV4(raw: unknown): V4 {
   const plans: Plan[] = []
   for (const x of list(m.plans)) {
     const p = rec(x)
-    const title = str(p.title, 120)
+    const title = plain(str(p.title, 120))
     const total = count(p.total)
     if (!title || !total) continue
     plans.push({
@@ -178,7 +185,7 @@ export function readV4(raw: unknown): V4 {
   for (const tr of list(m.skills)) {
     for (const x of list(rec(tr).skills ?? rec(tr).items)) {
       const s = rec(x)
-      const label = str(s.label, 80)
+      const label = plain(str(s.label, 80))
       const need = count(s.need)
       if (!label || !need) continue
       skills.push({
@@ -195,6 +202,7 @@ export function readV4(raw: unknown): V4 {
     passes,
     totals,
     bonPassed,
+    reviewMinutes,
     goal,
     plans,
     milestones,
@@ -313,6 +321,16 @@ export function dayLabel(at: number, now: number): string {
 export function agoLabel(at: number, now: number): string {
   const days = Math.max(0, Math.round((dayStart(now) - dayStart(at)) / DAY_MS))
   return days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
+}
+/** The right side of a Keep fresh row: when it was last practiced, else when it is due, else "due" (never blank). */
+export function freshLabel(r: { lastAt?: number; when?: string; dueAt?: number }, now: number): string {
+  if (r.lastAt) return agoLabel(r.lastAt, now)
+  if (r.when) return r.when
+  if (r.dueAt && dayStart(r.dueAt) > dayStart(now)) {
+    const days = Math.round((dayStart(r.dueAt) - dayStart(now)) / DAY_MS)
+    return days === 1 ? 'due tomorrow' : `due in ${days} days`
+  }
+  return 'due'
 }
 /** "about 3 hours, around Dec 4" from the goal's minutes left and date. */
 export function goalLine(g: Goal): string | undefined {
@@ -465,7 +483,8 @@ export const GOAL_PICKS: readonly GoalPick[] = [
 ]
 /** "about 3 hr" / "about 2.5 hr" / "about 45 min". */
 export function aboutHr(min: number): string {
-  if (min < 60) return `about ${min} min`
+  // Non-breaking spaces: "about 2.5 hr" never splits over two lines.
+  if (min < 60) return `about\u00a0${min}\u00a0min`
   const h = Math.round((min / 60) * 2) / 2
-  return `about ${h} hr`
+  return `about\u00a0${h}\u00a0hr`
 }

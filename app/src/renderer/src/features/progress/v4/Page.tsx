@@ -12,6 +12,7 @@
  */
 import { Check, ChevronRight, Compass, Flag, Play, RefreshCw, SquarePen } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useLesson } from '../../../core/lesson'
 import { PrimaryButton } from '../../../core/ui/atoms'
 import { color, fill, type2 } from '../../../core/theme'
@@ -21,7 +22,7 @@ import { LEVELS, progressOf, useGrowth } from '../../buddy/growth'
 import { NAME } from '../../buddy/name'
 import { continueList } from '../../dashboard/continue'
 import { nodeStates, prereqs } from '../../dashboard/model'
-import { requestDashboard, startGoal, startSaved, useDash } from '../../dashboard/store'
+import { canReview, requestDashboard, startGoal, startReview, startSaved, useDash } from '../../dashboard/store'
 import type { DashData, DashTrack } from '../../dashboard/types'
 import { openLauncher } from '../../library/Library'
 import { useLibrary } from '../../library/store'
@@ -29,15 +30,16 @@ import { setPage } from '../../shell/store'
 import { PageColumn } from '../../shell/ui'
 import { Scroller } from '../../shell/pages/Column'
 import {
-  agoLabel,
   aboutHr,
   allNums,
   closest,
   dayLabel,
+  freshLabel,
   GOAL_PICKS,
   goalLine,
   guide,
   hm,
+  plain,
   STARTER_PLANS,
   STARTERS,
   weekBars,
@@ -167,28 +169,39 @@ function Tag({ children }: { children: ReactNode }): ReactNode {
 
 const hair = `1px solid ${color.hairline}`
 
-/** A table-like list: a header row, then rows with a hairline between them. */
-function Table({ cols, head, rows, rowH = 40, label }: { cols: string; head: Array<{ t: string; right?: boolean }>; rows: ReactNode[][]; rowH?: number; label: string }): ReactNode {
+const clamp2: CSSProperties = {
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  whiteSpace: 'normal',
+  lineHeight: 1.3
+}
+
+type Col = { t: string; right?: boolean; wrap?: boolean }
+
+/**
+ * A table-like list: a header row, then rows with a hairline between them. One grid for the whole table (rows are
+ * `display: contents`), so `max-content` columns line up across rows the way an HTML table's do. A `wrap` column runs
+ * to two lines instead of cutting its text off.
+ */
+function Table({ cols, head, rows, rowH = 40, label }: { cols: string; head: Col[]; rows: ReactNode[][]; rowH?: number; label: string }): ReactNode {
+  const GAP = 16
   return (
-    <div role="table" aria-label={label} style={{ fontSize: type2.md }}>
-      <div
-        role="row"
-        className="grid items-center"
-        style={{
-          gridTemplateColumns: cols,
-          height: 32,
-          borderBottom: hair,
-          columnGap: 16
-        }}
-      >
-        {head.map((h) => (
+    <div role="table" aria-label={label} className="grid" style={{ gridTemplateColumns: cols, fontSize: type2.md }}>
+      <div role="row" style={{ display: 'contents' }}>
+        {head.map((h, j) => (
           <span
             key={h.t}
             role="columnheader"
+            className="flex items-center whitespace-nowrap"
             style={{
+              height: 32,
+              borderBottom: hair,
+              paddingRight: j < head.length - 1 ? GAP : 0,
+              justifyContent: h.right ? 'flex-end' : 'flex-start',
               fontSize: 12.5,
-              color: color.label,
-              textAlign: h.right ? 'right' : 'left'
+              color: color.label
             }}
           >
             {h.t}
@@ -196,20 +209,21 @@ function Table({ cols, head, rows, rowH = 40, label }: { cols: string; head: Arr
         ))}
       </div>
       {rows.map((r, i) => (
-        <div
-          key={i}
-          role="row"
-          className="grid items-center"
-          style={{
-            gridTemplateColumns: cols,
-            minHeight: rowH,
-            borderBottom: i < rows.length - 1 ? hair : undefined,
-            columnGap: 16
-          }}
-        >
+        <div key={i} role="row" style={{ display: 'contents' }}>
           {r.map((c, j) => (
-            <div key={j} role="cell" className="min-w-0 truncate" style={{ textAlign: head[j]?.right ? 'right' : 'left' }}>
-              {c}
+            <div
+              key={j}
+              role="cell"
+              className="flex min-w-0 items-center"
+              style={{
+                minHeight: rowH,
+                padding: `5px ${j < r.length - 1 ? GAP : 0}px 5px 0`,
+                borderBottom: i < rows.length - 1 ? hair : undefined
+              }}
+            >
+              <div className={head[j]?.wrap ? 'min-w-0 flex-1' : 'min-w-0 flex-1 truncate'} style={{ textAlign: head[j]?.right ? 'right' : 'left', ...(head[j]?.wrap ? clamp2 : null) }}>
+                {c}
+              </div>
             </div>
           ))}
         </div>
@@ -359,10 +373,10 @@ function trackNext(t: DashTrack): string {
   if (t.total > 0 && t.mastered >= t.total) return 'Done'
   const states = nodeStates(t)
   const open = t.skills.find((s) => states[s.id] === 'practicing') ?? t.skills.find((s) => states[s.id] === 'available')
-  if (open) return open.label
+  if (open) return plain(open.label)
   const locked = t.skills.find((s) => states[s.id] === 'locked')
   if (!locked) return ''
-  const label = (id: string): string => t.skills.find((s) => s.id === id)?.label ?? id
+  const label = (id: string): string => plain(t.skills.find((s) => s.id === id)?.label ?? id)
   const needs = prereqs(t, locked.id).map(label)
   return needs.length ? `Needs ${needs.length > 1 ? `${needs.slice(0, -1).join(', ')} and ${needs[needs.length - 1]}` : needs[0]}` : ''
 }
@@ -465,8 +479,8 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
           <div className="mg-v4-rows">
             {near.map((s) => (
               <RRow key={s.label}>
-                <span style={rl}>{s.label}</span>
-                <Meter done={s.done} total={s.need} />
+                <span style={{ ...rl, ...clamp2, padding: '6px 0' }}>{s.label}</span>
+                <Meter done={s.done} total={s.need} width={48} />
                 <span style={{ ...rr, width: 74, textAlign: 'right' }}>
                   {s.done} of {s.need} steps
                 </span>
@@ -494,13 +508,18 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
       )}
       {fresh.length > 0 && (
         <>
-          <Sec>Keep fresh</Sec>
+          <Sec
+            link={v4.reviewMinutes ? `${v4.reviewMinutes} min` : undefined}
+            onLink={v4.reviewMinutes && canReview() ? () => startReview(fresh[0], ROUTE) : undefined}
+          >
+            Keep fresh
+          </Sec>
           <div className="mg-v4-rows">
             {fresh.map((r) => (
               <RRow key={r.skillId ?? r.label}>
                 <RefreshCw size={15} strokeWidth={1.8} style={{ ...muted, flex: 'none' }} />
-                <span style={rl}>{r.label}</span>
-                <span style={rr}>{r.lastAt ? agoLabel(r.lastAt, now) : (r.when ?? '')}</span>
+                <span style={rl}>{plain(r.label)}</span>
+                <span style={rr}>{freshLabel(r, now)}</span>
               </RRow>
             ))}
           </div>
@@ -694,6 +713,34 @@ function FirstRail({ stacked }: { stacked: boolean }): ReactNode {
 
 // ---- the page ---------------------------------------------------------------------------------------------------
 
+/**
+ * The mock puts the primary on the title's row. The title is the shell's PageHeader, which takes no `right` from a
+ * page yet (Core request to the shell lane), so the button is portaled into this page's own header, as its right slot
+ * (the header lays it out: `ml-auto`, centered on the 36 px title row). No header found (another host): it stays inline.
+ */
+function TitleRight({ children }: { children: ReactNode }): ReactNode {
+  const mark = useRef<HTMLSpanElement>(null)
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    const head = mark.current?.closest('section')?.querySelector<HTMLElement>('[data-page-header]')
+    // Only an empty right side: never next to something the shell put there.
+    setSlot(head && !head.querySelector('[data-no-drag]:not([data-progress-primary])') ? head : null)
+  }, [])
+  return (
+    <>
+      <span ref={mark} hidden />
+      {slot
+        ? createPortal(
+            <div data-no-drag data-progress-primary className="ml-auto flex shrink-0 items-center">
+              {children}
+            </div>,
+            slot
+          )
+        : children}
+    </>
+  )
+}
+
 function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wide: boolean }): ReactNode {
   const minutes = v4.minutesKnown
   const wk = weekNums(v4, now)
@@ -754,7 +801,7 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
           <Table
             label="Tracks"
             cols={wide ? 'minmax(120px,1.1fr) 150px minmax(0,1.6fr) 100px' : 'minmax(100px,1fr) 130px minmax(0,1.2fr)'}
-            head={[{ t: 'Track' }, { t: 'Mastered' }, { t: 'Next' }, ...(wide ? [{ t: 'Last practiced', right: true }] : [])]}
+            head={[{ t: 'Track' }, { t: 'Mastered' }, { t: 'Next', wrap: true }, ...(wide ? [{ t: 'Last practiced', right: true }] : [])]}
             rowH={40}
             rows={tracks.map((t) => {
               const next = trackNext(t)
@@ -795,8 +842,8 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
           <Sec link={`All ${all.steps || v4.passes.length}`}>Recently passed</Sec>
           <Table
             label="Recently passed"
-            cols={wide ? '112px minmax(0,1.7fr) 112px minmax(0,1fr)' : '108px minmax(0,1fr) 112px'}
-            head={[{ t: 'When' }, { t: 'Step' }, { t: 'Skill' }, ...(wide ? [{ t: 'Lesson' }] : [])]}
+            cols={wide ? 'max-content minmax(0,1.25fr) max-content minmax(0,1fr)' : 'max-content minmax(0,1fr) max-content'}
+            head={[{ t: 'When' }, { t: 'Step' }, { t: 'Skill' }, ...(wide ? [{ t: 'Lesson', wrap: true }] : [])]}
             rowH={40}
             rows={v4.passes.slice(0, 8).map((p) => [
               <span key="w" style={muted}>
@@ -804,7 +851,7 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
               </span>,
               <span key="s" className="flex min-w-0 items-center gap-[10px]">
                 <PassCheck />
-                <b className="truncate" style={{ fontWeight: 550, color: color.text }}>
+                <b className="min-w-0" style={{ ...clamp2, fontWeight: 550, color: color.text }}>
                   {p.step}
                 </b>
               </span>,
@@ -858,12 +905,12 @@ export function ProgressV4(): ReactNode {
     <Scroller>
       <PageColumn wide top={0} data={{ 'data-progress-v4': first ? 'first' : 'full' }}>
         <div ref={ref} className="w-full">
-          {/* The lede and the one primary sit under the shell's title (the header is the shell lane's). */}
-          <div className="flex items-center gap-[16px]" style={{ marginBottom: 30, minHeight: 32 }}>
-            <p className="m-0 min-w-0 flex-1 truncate" style={{ fontSize: 14.5, color: color.label }}>
+          {/* The lede right under the shell's title; the one primary on the title's row, as in the mock (TitleRight). */}
+          <div className="flex items-center gap-[16px]" style={{ marginBottom: 26, minHeight: 20 }}>
+            <p className="m-0 min-w-0 flex-1 truncate" style={{ fontSize: 14.5, lineHeight: '20px', color: color.label }}>
               {lede}
             </p>
-            {primary}
+            <TitleRight>{primary}</TitleRight>
           </div>
           <div
             className={two ? 'grid items-start' : 'flex flex-col'}

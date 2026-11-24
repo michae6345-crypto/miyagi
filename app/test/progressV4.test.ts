@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { allNums, closest, dayKey, goalLine, guide, hm, readV4, weekBars, weekNums, weeks12, whenLabel } from '../src/renderer/src/features/progress/v4/model'
+import { aboutHr, allNums, closest, dayKey, freshLabel, goalLine, guide, hm, plain, readV4, weekBars, weekNums, weeks12, whenLabel } from '../src/renderer/src/features/progress/v4/model'
 
 // Sunday Nov 22 2026, 6 PM local.
 const NOW = new Date(2026, 10, 22, 18, 0).getTime()
@@ -142,5 +142,30 @@ describe('charts and numbers', () => {
       c.map((s) => s.label),
       ['B', 'A']
     )
+  })
+})
+
+describe('labels', () => {
+  it('drops markdown backticks from skill and step names', () => {
+    assert.equal(plain('Training with `fit`'), 'Training with fit')
+    const v = readV4({
+      recent: [{ at: NOW, step: 'Call `np.dot`', skill: '`fit`' }],
+      skills: [{ skills: [{ label: 'Training with `fit`', reps: 1, need: 3 }] }]
+    })
+    assert.equal(v.passes[0].step, 'Call np.dot')
+    assert.equal(v.passes[0].skill, 'fit')
+    assert.equal(v.skills[0].label, 'Training with fit')
+  })
+  it('never leaves a Keep fresh row blank', () => {
+    assert.equal(freshLabel({ lastAt: NOW - 3 * 86_400_000 }, NOW), '3 days ago')
+    assert.equal(freshLabel({ when: 'Saturday' }, NOW), 'Saturday')
+    assert.equal(freshLabel({ dueAt: NOW + 2 * 86_400_000 }, NOW), 'due in 2 days')
+    assert.equal(freshLabel({}, NOW), 'due')
+  })
+  it('reads the review minutes and keeps "about 2.5 hr" on one line', () => {
+    assert.equal(readV4({ review: { minutes: 4 } }).reviewMinutes, 4)
+    assert.equal(readV4({ review: { minutes: 0 } }).reviewMinutes, undefined)
+    assert.equal(aboutHr(150), 'about 2.5 hr')
+    assert.doesNotMatch(aboutHr(20), / /)
   })
 })

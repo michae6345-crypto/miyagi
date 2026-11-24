@@ -36,15 +36,30 @@ Shots: `agents/shots/v4-progress-r{2..4}-* (r2 has the mocks)` (ours vs mock, li
 `milestones[] {label, at}` (read, not shown: the trim pass cut them), `skills[].skills[].need` (steps to master).
 First-run lessons, plans and goals are local constants from Adrian's catalog (`STARTERS`, `STARTER_PLANS`, `GOAL_PICKS`).
 
+## Fix pass (Nov 24, review r5)
+
+- Recently passed: one grid per table (rows `display: contents`), When and Skill `max-content`, Lesson takes the rest
+  and wraps to two lines (no more "Move, rotate and ..."); a long step wraps too. Tracks' Next wraps instead of cutting.
+- `model.ts` `plain()`: skill, step, lesson, goal and plan names lose markdown backticks ("Training with fit");
+  Closest to mastered names wrap to two lines (48 px meter).
+- Keep fresh: `freshLabel()` (ago, else `when`, else "due in N days", else "due"), never a blank right side; the header
+  shows "N min" when `review.minutes` is known (a link to `review.start` once the engine lists it).
+- First run plan cards: "about 2.5 hr" uses non-breaking spaces, so it never splits.
+- Title: the primary is portaled into this page's own shell header as its right slot (on the title row, as in the
+  mock) and the lede sits at the top of the body, 20 px under the title (the shell header's padding; the mock has 6 px).
+- Shots: `agents/shots/v4-progress-r5-*` (ours light/dark, 1024/1280/1728, first run; the mock at 1280).
+
 ## Remaining differences vs the mock
 
-- Title: the shell's header draws "Progress" (26 px); the mock's 32 px title has the primary on its row and the lede
-  6 px under it. Here the lede + primary sit one row under the title (Core request to the shell lane: let a page pass
-  `caption` and `right` to PageHeader).
+- Title: the shell's header draws "Progress" (26 px); the mock's 32 px title has the lede 6 px under it. The primary is
+  on the title row through a portal (TitleRight in Page.tsx); drop it once PageHeader takes `caption` / `right` from a
+  page (Core request to the shell lane), which also closes the last 14 px.
 - The rail shows bon (the buddy, growing with passes) instead of the mock's bonsai with "one leaf for each skill".
 - Primary is the brand pill (`PrimaryButton`), no ↩ keycap (no `return` kind in `bridge.platform.keys`).
 - Milestones are not shown (Adrian's Nov 24 trim pass cut them; the data is read).
-- Keep fresh has no "4 min" total, and "All 58" is not a link yet (no full passes list page).
+- "4 min" over Keep fresh is plain text until the engine lists `review.start`; "All 58" is not a link yet (no full
+  passes list page).
+- First-run plan cards at 1280: the meta line wraps before "about 2.5 hr" (the cards are 157 px; the mock's are wider).
 - First-run covers are simple drawings, not Adrian's illustrated covers.
 
 ## Core requests

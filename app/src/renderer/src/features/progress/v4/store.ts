@@ -148,5 +148,7 @@ function withSample(raw: unknown): unknown {
     })
     return { ...tr, skills }
   })
+  // The mock's "Keep fresh · 4 min".
+  m.review = { ...(m.review && typeof m.review === 'object' ? (m.review as Record<string, unknown>) : {}), minutes: 4 }
   return m
 }
