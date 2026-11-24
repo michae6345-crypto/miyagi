@@ -55,7 +55,13 @@ export function startupMs(scenario: string): number {
 export async function openStage(page: Page, query: Record<string, string>, theme: Theme): Promise<void> {
   // Fake clock (Date, timers, animation frames): every scenario event, app timer (auto-hide, collapse) and spring
   // lands at the same virtual moment on any machine. Real waits shot different states on a slower CI runner.
+  // STAGE_CPU_THROTTLE=6: run N times slower (a busy CI runner) to prove the shots do not depend on speed.
+  const throttle = Number(process.env.STAGE_CPU_THROTTLE ?? 0)
+  if (throttle > 1) await (await page.context().newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: throttle })
   await page.clock.install({ time: NOW })
+  // Paused: an installed clock still follows real time, so a slow runner leaked real seconds in. Now only runFor
+  // below moves time (checked: Date.now() holds across navigation and a real 2 s wait).
+  await page.clock.pauseAt(new Date(NOW.getTime() + 1000))
   await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
   // Offline: only the stage itself (YouTube embeds, fonts CDNs, the cloud are never reached).
   await page.route(/^https?:\/\/(?!localhost[:/]|127\.0\.0\.1[:/])/, (r) => r.abort())
@@ -65,5 +71,12 @@ export async function openStage(page: Page, query: Record<string, string>, theme
   // Virtual time: the scenario's scripted start-up (capped), then SETTLE_MS for app timers and transitions.
   const sc = query.scenario ?? 'full'
   await page.clock.runFor(Math.min(startupMs(sc), 10_000) + SETTLE_MS)
-  await page.evaluate(() => document.fonts.ready)
+  // Layout that reacts to rendering (a panel measures its content with a ResizeObserver, then springs to the new
+  // height on animation frames) starts after a real paint. Let the page paint for real, then move virtual time, a few
+  // rounds, so those animations finish too.
+  for (let i = 0; i < 5; i++) {
+    await page.evaluate(() => document.fonts.ready)
+    await page.waitForTimeout(120)
+    await page.clock.runFor(800)
+  }
 }
