@@ -231,6 +231,7 @@ def test_reader_produces_live_frames_whatever_sck_does(monkeypatch, no_windows, 
     assert obs is not None and obs.source == "live" and r.status == "ok"
     assert obs.capture == ("sck" if outcome == "works" else "cli")
     assert any("def" in b.text for b in obs.blocks)
+    assert r.use_sck is (outcome != "no_binding")  # a stall, decline or failure is temporary; only no binding is final
 
 
 def test_missing_sck_binding_falls_back_for_good_and_says_so_once(monkeypatch, no_windows, caplog):
