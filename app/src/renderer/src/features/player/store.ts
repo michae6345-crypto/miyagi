@@ -830,7 +830,17 @@ if (!isElectron && typeof document !== 'undefined') document.addEventListener('v
 registerWebHandler('player:dock', () => undefined)
 registerWebHandler('player:hover', () => undefined)
 registerWebHandler('player:visible', () => pageVisible())
-// The stage's Vite server serves the host page itself (vite.web.config.ts), on the stage's own origin.
-registerWebHandler('player:host', () => `${location.origin}/player-host.html`)
+// The stage's Vite server serves the host page itself (vite.web.config.ts), from its own loopback origin like main
+// (QA Q13: framed from the stage's origin, Chrome warns the sandbox can be escaped); the stage's origin if it can't say.
+registerWebHandler('player:host', async () => {
+  const same = `${location.origin}/player-host.html`
+  try {
+    const r = await fetch('/__miyagi/player-host', { cache: 'no-store' })
+    const url = ((await r.json()) as { url?: unknown }).url
+    return typeof url === 'string' && /^http:\/\/(127\.0\.0\.1|localhost):\d{1,5}\/player-host\.html$/.test(url) ? url : same
+  } catch {
+    return same
+  }
+})
 
 if (import.meta.env.DEV && isHost) Object.assign(window, { __player: { player, usePlayer, now, yt: () => yt } })
