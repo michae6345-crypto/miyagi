@@ -236,7 +236,8 @@ def test_steps_behind_a_skill_and_the_review_graph():
     assert [s["id"] for s in rg["steps"]] == ["s2"]
     assert rg["lesson"]["id"] != g["lesson"]["id"] and rg["lesson"]["id"].startswith("review-")
     assert rg["lesson"]["title"] == "Review: Build the MLP"
-    assert review.review_of(rg) == {"key": k, "label": "Build the MLP", "skillId": "build-the-mlp"}
+    assert review.review_of(rg) == {"key": k, "label": "Build the MLP", "skillId": "build-the-mlp",
+                                    "lessonId": g["lesson"]["id"]}  # activity's stable step key
     assert len(g["steps"]) == 6 and "review" not in g["lesson"]  # the finished lesson is untouched
     assert review.review_of(g) is None
     assert review.review_graph(g, "No such skill", k) is None
