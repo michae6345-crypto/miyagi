@@ -4,8 +4,8 @@
 
 ## Goal
 After a Google sign-in and on every launch while signed in, the app asks miyagi-cloud for the account's state
-(`POST /v1/session`, merged on `claude/eng-proxy-next` in PR #264). Settings › Your own key shows the plan and today's
-use ("$0.42 of $3.00 today · resets 4:00 PM", local time). When the cloud wants an account to build (`signin_mode`
+(`POST /v1/session`, merged on `claude/eng-proxy-next` in PR #264). Settings › Account (the shell Account page, first
+in the v4 settings list) and Settings › Your own key show the plan and today's use ("$0.42 of $3.00 today · resets 4:00 PM", local time). When the cloud wants an account to build (`signin_mode`
 "build" or "all") and the learner is a guest, the sign-in card shows as a new lesson build starts.
 
 ## Owns
@@ -15,7 +15,7 @@ use ("$0.42 of $3.00 today · resets 4:00 PM", local time). When the cloud wants
   `app/agents/shots/session-*.png`, `~/miyagi/tools/playwright/session.mjs`
 - Small edits: `cloudLink.ts` (triggers moved out; createLinker kept for the 404 fallback), `cloud.ts` (`healInstall()`),
   `auth.ts` (`onSignedOut`, `isSignedIn`), `accountDelete/wipe.ts` + `settings/erase.ts` (session.json), Settings
-  `sections/Account.tsx` (the plan group), `signincard/store.ts` (the build-start hook), `test/harness.ts` (FakeCloud
+  `sections/Account.tsx` (the plan group), `shell/pages/AccountPage.tsx` (PlanLine atop the Account group), `signincard/store.ts` (the build-start hook), `test/harness.ts` (FakeCloud
   serves /v1/session when `session` is set)
 
 ## Contract
@@ -37,7 +37,9 @@ POST <cloud>/v1/session   Authorization: Bearer <mi_ install token>   {"access_t
 
 ## Test
 `npm run dev:web -- --port 5262 --strictPort`, then
-- `/?scenario=settings&window=library&page=settings&auth=signedin&session=caps` › Your own key (also `session=pro`)
+- `/?scenario=settings&window=library&page=settings&auth=signedin&session=caps&v2Cloud=0` › Account (the shipped
+  page; without `v2Cloud=0` the stage shows the v2 mock), or › Your own key
+  (also `session=pro`)
 - `/?scenario=session&session=build` (or `all`, or `none` = off): a build starts after 1.5 s; the card shows for
   build/all, not for off
 Shots: `node ~/miyagi/tools/playwright/session.mjs 5262 app/agents/shots` (headless).

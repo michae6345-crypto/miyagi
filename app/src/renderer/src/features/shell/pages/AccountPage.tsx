@@ -3,7 +3,9 @@
  *
  * Shipped (LOGIN_ENABLED, v2Cloud off): the real login (features/auth; main keeps the session, the page only sees
  * {name, email, avatarInitial}):
- *   signed in    who you are, linked accounts, this device, Use your own key (Settings page > Your key), Sign out
+ *   signed in    who you are, linked accounts, this device, Use your own key (Settings page > Your key), Sign out;
+ *                with an answer from miyagi-cloud (features/session, MIC-30) the plan and today's use top the Account
+ *                group ("Free plan · $0.42 of $3.00 today · resets 4:00 PM", local time)
  *   signed out   one calm card, "Sign in to sync your progress across Macs"; Sign in opens the sign-in sheet over
  *                this page (AccountSheet.tsx), never a second window
  *   loading      skeleton cards until auth:get answers (no answer reads as signed out)
@@ -26,6 +28,8 @@ import { loadAccount, useAccount } from '../../account/store'
 import { Avatar } from '../../auth/Avatar'
 import { LIVE, PROVIDER_LABEL, authOn, type Provider } from '../../auth/model'
 import { loadAuth, useAuth } from '../../auth/store'
+import { capsLine, planLabel as sessionPlan } from '../../session/model'
+import { loadSession, useSession } from '../../session/store'
 import { addDays, dayKey, dayStart } from '../../dashboard/model'
 import { useDash } from '../../dashboard/store'
 import { SkeletonCard, Tile } from '../../library/motion'
@@ -204,6 +208,18 @@ function SignIn(): ReactNode {
   )
 }
 
+/** MIC-30: the plan and today's use, from POST /v1/session. Nothing when signed out or before the cloud answered. */
+function PlanLine(): ReactNode {
+  const view = useSession((s) => s.view)
+  if (!view?.signedIn || (!view.plan && !view.caps)) return null
+  return (
+    <div data-session-plan className="flex flex-col gap-[2px]" style={{ padding: '10px 16px', borderBottom: `1px solid ${fill.hairline}` }}>
+      <span style={{ fontSize: type2.md, color: color.text }}>{sessionPlan(view.plan)}</span>
+      {view.caps && <span style={{ fontSize: type2.sm, color: color.label }}>{capsLine(view.caps)}</span>}
+    </div>
+  )
+}
+
 function KeyLine({ last = true }: { last?: boolean }): ReactNode {
   const ownKey = useAccount((s) => s.ownKey)
   return <Line label="Your own key" value={ownKey === undefined ? undefined : ownKey ? 'On' : 'Off'} onClick={toYourKey} last={last} />
@@ -248,6 +264,7 @@ function LoginAccount(): ReactNode {
   useEffect(() => {
     void loadAuth()
     void loadAccount() // only for the "Your own key" On / Off (settings:get); account:get is null here
+    void loadSession() // MIC-30: main refreshes from the cloud in the background when its answer is old
   }, [])
 
   if (!loaded)
@@ -285,6 +302,7 @@ function LoginAccount(): ReactNode {
         right={
           <>
             <Group label="Account" i={1}>
+              <PlanLine />
               <KeyLine />
             </Group>
             <ThisMac />
