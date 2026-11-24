@@ -20,9 +20,13 @@
  *   passStep(key)     the engine said a step passed (wire.ts). `key` is the lesson and the step: one step counts once.
  *   progressOf(steps) the level, its name, and how far to the next one: what the growth card shows
  *
- * Kept like the color (skin.ts): localStorage `miyagi.buddy.growth` in the app, shared by every window and followed
- * through the `storage` event; memory only in the browser stage, where ?level=<1-8> or ?steps=<n> sets it.
- * Core request (brief): the count belongs with the learner's progress in the engine, so it survives a new computer.
+ * The count comes from the engine (v4, engine.ts): its passed-step counter, kept with the learner's progress so it
+ * survives a new computer. sync(n) takes it. The engine's count never lowers the one shown (a pass counted here a
+ * moment before the engine's next answer would otherwise flicker back), and a sync never plays the level-up moment:
+ * that belongs to the live step.passed.
+ * The local count is the fallback, for an engine that does not send one yet: localStorage `miyagi.buddy.growth` in
+ * the app, shared by every window and followed through the `storage` event; memory only in the browser stage, where
+ * ?level=<1-8> or ?steps=<n> sets it.
  *
  * createGrowth() is the whole of it without the browser, so test/buddyGrowth.test.ts can run it.
  */
@@ -81,13 +85,15 @@ export const GROWTH_KEY = 'miyagi.buddy.growth'
 const SEEN_MAX = 400
 
 type GrowthState = { steps: number; level: number; grew: number }
-type Saved = { steps: number; seen: string[] }
+type Saved = { steps: number; seen: string[]; engine?: number }
 type Env = { app: boolean; search?: string; storage?: Pick<Storage, 'getItem' | 'setItem'> }
 
 export type Growth = {
   store: UseBoundStore<StoreApi<GrowthState>>
   /** Count one passed step. Returns the new level when this pass leveled bon up, else undefined. */
   pass: (key: string) => number | undefined
+  /** The engine's passed-step count (contract ui-v4). Quiet: no level-up moment. Ignores anything not a count. */
+  sync: (engineSteps: unknown) => void
   onStorage: (key: string | null, value: string | null) => void
 }
 
@@ -97,7 +103,8 @@ function parse(raw: string | null | undefined): Saved | undefined {
     const v = JSON.parse(raw) as { steps?: unknown; seen?: unknown }
     if (typeof v.steps !== 'number' || !Number.isFinite(v.steps) || v.steps < 0) return undefined
     const seen = Array.isArray(v.seen) ? v.seen.filter((k): k is string => typeof k === 'string').slice(-SEEN_MAX) : []
-    return { steps: Math.floor(v.steps), seen }
+    const engine = (v as { engine?: unknown }).engine
+    return { steps: Math.floor(v.steps), seen, ...(typeof engine === 'number' && Number.isFinite(engine) && engine >= 0 ? { engine: Math.floor(engine) } : {}) }
   } catch {
     return undefined
   }
@@ -133,7 +140,7 @@ export function createGrowth(env: Env): Growth {
         return undefined
       }
       const before = levelFor(mem.steps)
-      mem = { steps: mem.steps + 1, seen: [...mem.seen, key].slice(-SEEN_MAX) }
+      mem = { ...mem, steps: mem.steps + 1, seen: [...mem.seen, key].slice(-SEEN_MAX) }
       if (env.app) {
         try {
           env.storage?.setItem(GROWTH_KEY, JSON.stringify(mem))
@@ -145,6 +152,21 @@ export function createGrowth(env: Env): Growth {
       const up = level > before
       store.setState((s) => ({ steps: mem.steps, level, grew: up ? s.grew + 1 : s.grew }))
       return up ? level : undefined
+    },
+    sync: (engineSteps) => {
+      if (typeof engineSteps !== 'number' || !Number.isFinite(engineSteps) || engineSteps < 0) return
+      const n = Math.floor(engineSteps)
+      mem = read() ?? mem
+      if (mem.engine === n && mem.steps >= n) return
+      mem = { ...mem, steps: Math.max(mem.steps, n), engine: n }
+      if (env.app) {
+        try {
+          env.storage?.setItem(GROWTH_KEY, JSON.stringify(mem))
+        } catch {
+          // No storage: the engine's count still shows in this window.
+        }
+      }
+      if (store.getState().steps !== mem.steps) store.setState({ steps: mem.steps, level: levelFor(mem.steps) })
     },
     onStorage: (key, value) => {
       if (!env.app || key !== GROWTH_KEY) return
@@ -171,3 +193,4 @@ if (here && app) window.addEventListener('storage', (e) => growth.onStorage(e.ke
 
 export const useGrowth = growth.store
 export const passStep = growth.pass
+export const syncSteps = growth.sync
