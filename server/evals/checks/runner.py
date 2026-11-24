@@ -360,7 +360,6 @@ def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None 
             lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
     if wall_s is not None:
         lines.append(f"\n{len(outcomes)} cases in {wall_s:.2f}s")
-    fails = s["failures"]
     lines.append("")
     lines.append(f"{len(fails)} wrong verdict(s), worst first:" if fails else "no wrong verdicts")
     for f in fails:

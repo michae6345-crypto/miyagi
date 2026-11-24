@@ -1,0 +1,36 @@
+{
+ "id": "terminal-git-s8-push-ligature-arrow",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "A good push (new branch on origin, upstream set). The terminal font has ligatures, so OCR reads the ref line as 'update-name → update-name' with an arrow glyph instead of '->'.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s8"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Let's Get Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Code": [
+    "index.html",
+    "<h1>Let's Get Git Going</h1>"
+   ],
+   "Terminal": [
+    "tripi@mac gitgoing % git push -u origin update-name",
+    "Enumerating objects: 5, done.",
+    "Counting objects: 100% (5/5), done.",
+    "Writing objects: 100% (3/3), 312 bytes | 312.00 KiB/s, done.",
+    "Total 3 (delta 1), reused 0 (delta 0), pack-reused 0",
+    "remote: Create a pull request for 'update-name' on GitHub by visiting:",
+    "remote:      https://github.com/ada-learner/GitGoing/pull/new/update-name",
+    "To https://github.com/ada-learner/GitGoing.git",
+    " * [new branch]      update-name → update-name",
+    "branch 'update-name' set up to track 'origin/update-name'.",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

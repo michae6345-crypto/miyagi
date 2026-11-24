@@ -1,0 +1,25 @@
+{
+ "id": "terminal-git-s7-branch-created-not-switched",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "`git branch update-name` creates the branch but does not switch to it: `git branch` lists '* main' with update-name below it. The step is create AND switch; HEAD is still on main.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git branch update-name",
+    "tripi@mac gitgoing % git branch",
+    "* main",
+    "  update-name",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

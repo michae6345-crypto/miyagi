@@ -35,6 +35,7 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
   "id": "jupyter-mnist-s2-typed-not-run",   // = file name
   "kind": "jupyter",                        // jupyter | vscode | terminal | metric
   "trap": "false_pass",                     // none | false_pass (a near miss that looks done) | false_fail (done, but looks odd)
+  "heldOut": true,                          // optional: a held-out case (see below); default false = train
   "expected": "not_yet",                    // pass | not_yet
   "heldOut": false,                         // optional: true = held-out (scored apart, never tuned on)
   "why": "T10-CP7: the cell is typed but never run ...",
@@ -64,7 +65,8 @@ Lessons used: the MNIST Jupyter video lesson (`5c0ea8a49f419487`, with the learn
 test 10), the calculator and NN-from-scratch text lessons, the Git, React/Vite and convection-PINN video lessons,
 and two fixture lessons in `lessons/` written in the same step shape for multi-file projects: `py-modules.json` (the
 calculator split into operations.py / main.py / test_operations.py: an import, an F2 rename, pytest) and
-`ts-shop.json` (a React + TypeScript Vite app with a shared src/utils.ts: a named import, `npm run build`, Jest).
+`ts-shop.json` (a React + TypeScript Vite app with a shared src/utils.ts: a named import, `npm run build`, Jest),
+and the coach eval's git interactive-rebase lesson (`evals/coach/lessons/git-interactive-rebase.json`).
 Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/plans`, commit 213c9238): Intro to
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
@@ -116,6 +118,38 @@ Train wrong verdicts (`baseline.json` → `known_wrong`):
   (`import x as y`, `import mod` + `mod.f()`, a default import under another name, several names in one `{ }`,
   `<Fragment>` for `<>`) fail patterns that hard-code the video's form. (s3c2 "Header component rendered" is also
   read as an output check because of the word "rendered".)
+
+## Round 1: terminal and git (Nov 24 2026, 20 new cases, 7 held out)
+
+Round 1 of the accuracy loop added 20 terminal / git cases (13 train, 7 held out): commands typed vs run, a
+command's own echo vs its result (errors after `git add`, `git commit`, `git clone`, `git push`), branches created
+vs switched, multi-step shells (`cd x; git init`), package installs (pip resolver notice, venv not activated,
+npm 10's `npm error`), exit codes on a hidden terminal.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (69) | 0.855 | 0.811 | 0.909 | 7 | 3 |
+| train terminal (29) | 0.655 | 0.588 | 0.769 | 7 | 3 |
+| held out (7) | 0.143 | 0.167 | 0.500 | 5 | 1 |
+
+Known wrong train verdicts (`known_wrong`), worst first:
+
+- **FP `terminal-git-s2-init-wrong-folder-chain`**: `cd projct1; git init` initialised `~`; "Initialized empty"
+  is on screen, so it passes.
+- **FP `terminal-git-s3-touch-ls-not-staged`**: the file names in an `ls` listing pass "Staged learning.py".
+- **FP `terminal-git-s4-add-not-a-repo`**, **`-s5-commit-nothing-added`**, **`-s6-clone-not-found`**,
+  **`-s8-push-rejected`**: the pattern matches the command line itself (or the `[rejected]` ref line), and the
+  error that follows (`fatal:`, `nothing added to commit`, `! [rejected]`) is never weighed.
+- **FP `terminal-git-s7-branch-created-not-switched`**: `update-name` in `git branch`'s list, HEAD still on main.
+- **FN `terminal-git-s2-reinitialized`**: "Reinitialized existing Git repository" is not "Initialized empty".
+- **FN `terminal-mnist-s1-pip-resolver-error-installed`**: pip's `ERROR: pip's dependency resolver ...` notice
+  fails "No terminal errors" although "Successfully installed" follows.
+- **FN `terminal-rebase-s3-continue-twice`**: a later, harmless `fatal: No rebase in progress?` fails
+  "No rebase conflicts" after "Successfully rebased".
+
+Held-out wrong verdicts (ids only): `terminal-calc-s2-hidden-exit-1-after-5`,
+`terminal-git-s7-fish-typed-not-run`, `terminal-git-s7-pathspec-error`, `terminal-mnist-s1-forgot-activate`,
+`terminal-react-s1-npm10-error` (FP); `terminal-git-s8-push-ligature-arrow` (FN).
 
 ## Baseline (56 cases, Nov 22 2026, origin/integration/live; historical, since fixed)
 

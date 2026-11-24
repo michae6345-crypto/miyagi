@@ -1,5 +1,5 @@
 """The step-check eval set (server/evals/checks/cases) must not get worse: accuracy, precision and recall stay at or
-above baseline.json, and no case outside its known_wrong list gets a wrong verdict. Offline: no model, no network.
+above baseline.json (train and held-out apart), and no train case outside known_wrong gets a wrong verdict. Offline: no model, no network.
 
     python -m pytest server/evals/checks -q
     python -m server.evals.checks -v            # the scores and the wrong verdicts, worst first
@@ -58,7 +58,7 @@ def test_scores_hold_the_baseline(outcomes):
     base, now = baseline(), runner.score(train)
     for metric in ("accuracy", "precision", "recall"):
         assert now[metric] >= base[metric] - 1e-9, (
-            f"{metric} dropped: {now[metric]} < baseline {base[metric]}\n\n" + runner.report(outcomes))
+            f"train {metric} dropped: {now[metric]} < baseline {base[metric]}\n\n" + runner.report(outcomes))
 
 
 def test_no_new_wrong_verdicts(outcomes):

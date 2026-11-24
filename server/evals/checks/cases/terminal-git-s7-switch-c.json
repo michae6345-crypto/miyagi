@@ -1,0 +1,23 @@
+{
+ "id": "terminal-git-s7-switch-c",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "The learner used the modern `git switch -c update-name` instead of the video's `git checkout -b`: 'Switched to a new branch 'update-name''. Same result.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git switch -c update-name",
+    "Switched to a new branch 'update-name'",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}
