@@ -1956,6 +1956,8 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     checks = [{**c, "file": f} if f and c.get("type") == "screen_contains" and c.get("app") == "Code"
               and not c.get("file") else c for c in checks]
     checks = [{**c, "_nb_file": f} if f and _is_kernel_check(c) else c for c in checks]  # t11: _saved_kernel reads it
+    # "toUpperCase method called" on a bare name: the name without its call parentheses is the method, not its result
+    checks = [{**c, "pattern": f"{c['pattern']}\\s*\\("} if _wants_call(c) else c for c in checks]
     # a run step's "no error in the terminal" waits for the run (_not_visible) instead of passing on a hidden terminal
     run = step.get("kind") == "run" or any(str(t.get("file") or "").strip().lower() in ("(terminal)", "terminal")
                                            for t in step.get("targets") or []) or _command_step(step)
@@ -2014,6 +2016,20 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     checks = [{**c, "_code": code} if c.get("type") == "screen_contains" and is_output_check(c) else c for c in checks]
     results = [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
     return _no_cell_yet(step, checks, results, ctx)
+
+
+_CALLED_LABEL = re.compile(r"\b(?:call(?:s|ed|ing)?|invok\w*)\b(?!\s+[\"'“‘]?[A-Za-z_])", re.I)
+_BARE_NAME = re.compile(r"(?:\\?\.)?[A-Za-z_$][\w$]*(?:\\?\.[A-Za-z_$][\w$]*)*")
+
+
+def _wants_call(check: dict) -> bool:
+    """A code check whose label says the function / method is called ("toUpperCase method called") and whose pattern
+    is only its name: the call needs its parentheses (``{food2.toUpperCase}`` renders the method itself). "A material
+    called Wood" (called = named) and non-code files are left alone."""
+    return (check.get("type") in ("screen_contains", "file_contains") and check.get("app") not in _TERMINAL_APPS
+            and code_equiv.kind_of(str(check.get("file") or "")) is not None
+            and bool(_BARE_NAME.fullmatch(str(check.get("pattern") or "")))
+            and bool(_CALLED_LABEL.search(str(check.get("label") or ""))))
 
 
 def _no_cell_yet(step: dict, checks: list[dict], results: list[CheckResult], ctx: RunContext) -> list[CheckResult]:
@@ -2310,6 +2326,43 @@ def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
         return code_equiv.broken_imports(ctx.workdir, list(dict.fromkeys(files)))
     except (OSError, ValueError, RecursionError):
         return []
+
+
+_RENAME = re.compile(r"\brenam\w*\s+(?:the\s+\w+\s+)?[`'\"]?([A-Za-z_$][\w$]*)(?:\(\))?[`'\"]?\s+(?:to|as)\s+"
+                     r"[`'\"]?([A-Za-z_$][\w$]*)(?![\w$.])", re.I)
+
+
+def renamed_leftover(step: dict, ctx: RunContext | None) -> str | None:
+    """A step that renames a function / name ("Rename add to add_numbers") after which a lesson code file still binds
+    the old name at its top level: a copy under the new name (both defs), or the old name kept as an alias
+    (``export const scale = scaleRecipe``). The files that still import the old name never followed the rename. Why,
+    else None."""
+    if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    kind = code_equiv.kind_of(_step_file(step))
+    if kind is None:
+        return None
+    m = next((m for k in ("title", "action", "what") if (m := _RENAME.search(str(step.get(k) or "")))), None)
+    if m is None or m.group(1) == m.group(2):
+        return None
+    old = m.group(1)
+    try:
+        files = [p for p in code_equiv.lesson_files(ctx.workdir) if code_equiv.kind_of(p.name) == kind]
+    except OSError:
+        return None
+    where, users = None, []
+    for p in files:
+        text = code_equiv.read(p)
+        if text is None:
+            continue
+        if where is None and (line := code_equiv.defines_top_level(p, text, old)) is not None:
+            where = f"{p.name}:{line}"
+        if code_equiv.uses_name(p, text, old):
+            users.append(p.name)
+    if where is None:
+        return None
+    still = f" ({', '.join(users)} still import{'s' if len(users) == 1 else ''} it)" if users else ""
+    return f"{old} is still defined at {where}{still}: rename it with F2 so every file follows, don't keep the old name"
 
 
 def _scene_claims(step: dict, ctx: RunContext | None) -> list[str]:
@@ -2623,6 +2676,10 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         # the terminal looks clean (cleared, or only the run after the compile is on screen), but VS Code counts errors
         checks = [*checks, {"checkId": f"{step.get('id', '')}-problems", "label": "No problems in the code",
                             "status": "fail", "detail": problems}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (step_passed(checks) or step_passed(prec)) and (left := renamed_leftover(step, ctx)):
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-renamed", "label": "The old name is gone",
+                            "status": "fail", "detail": left}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (step_passed(checks) or step_passed(prec)) and (other := scaffold_choices(step, ctx)):
         checks = [*checks, {"checkId": f"{step.get('id', '')}-choices", "label": "Made with the step's choices",

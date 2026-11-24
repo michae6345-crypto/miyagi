@@ -97,7 +97,41 @@ def _py_view(text: str) -> str:
         for f in sorted(set(re.findall(rf"(?<![\w.]){re.escape(local)}\.(\w+)", text))):
             extra.append(f"from {mod} import {f}")
         body = re.sub(rf"(?<![\w.]){re.escape(local)}\.(?=\w)", "", body)
+    # a def with type hints is the same def: ``def add(a: int, b: int) -> int:`` is ``def add(a, b):``
+    for m in _PY_DEF.finditer(text):
+        plain = ", ".join(_unannotated(p) for p in _top_level_split(m.group(3)) if p.strip())
+        line = f"{m.group(1)}def {m.group(2)}({plain}):"
+        if line.strip() != m.group(0).strip():
+            extra.append(line)
     return body + ("\n" + "\n".join(extra) if extra else "")
+
+
+_PY_DEF = re.compile(r"^([ \t]*(?:async[ \t]+)?)def[ \t]+(\w+)[ \t]*\(([^()\n]*(?:\([^()\n]*\)[^()\n]*)*)\)"
+                     r"[ \t]*(?:->[^:\n]+)?:", re.M)
+
+
+def _top_level_split(params: str) -> list[str]:
+    """Parameters split on the commas outside brackets (``x: dict[str, int], y`` -> two)."""
+    out, depth, cur = [], 0, ""
+    for ch in params:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    return [*out, cur]
+
+
+def _unannotated(param: str) -> str:
+    """``b: int = 2`` -> ``b=2``; ``a: int`` -> ``a``."""
+    m = re.match(r"\s*(\**\s*[A-Za-z_]\w*)\s*(?::[^=]*)?(=.*)?$", param)
+    if not m:
+        return param.strip()
+    return m.group(1).replace(" ", "") + (m.group(2).strip() if m.group(2) else "")
 
 
 def _stem(path: str) -> str:
@@ -132,6 +166,7 @@ def _js_view(text: str, file: Path | None = None, root: Path | None = None) -> s
                 extra.append(f"import {{ {f} }} from {q}{path}{q}")
             body = re.sub(rf"(?<![\w.$]){re.escape(star)}\.(?=\w)", "", body)
     body = _FRAGMENT_CLOSE.sub("</>", _FRAGMENT_OPEN.sub("<>", body))
+    extra += _destructured_callbacks(text)
     # a function bound to a name (const f = (a, b) => ..., const f = function (a, b) {...}) is `function f(a, b)`
     for m in _JS_BOUND_FN.finditer(text):
         params = next((g for g in m.groups()[1:] if g is not None), "")
@@ -146,6 +181,44 @@ def _js_view(text: str, file: Path | None = None, root: Path | None = None) -> s
             for name, _ in _names(m.group(2) or ""):
                 extra.append(f"import {{ {name} }} from {q}{rel}{q}")
     return body + ("\n" + "\n".join(extra) if extra else "")
+
+
+# a callback over a list that destructures each element: items.map(({ id, price }) => ...)
+_DESTRUCTURED_CALLBACK = re.compile(r"\b([A-Za-z_$][\w$]*)\s*\.\s*(?:map|forEach|filter|find|findIndex|some|every|"
+                                    r"flatMap)\s*\(\s*\(\s*\{([^{}()]*)\}\s*(?::[^()=]*)?\)\s*=>")
+
+
+def _singular(name: str) -> str | None:
+    low = name.lower()
+    if low.endswith("ies") and len(name) > 4:
+        return name[:-3] + "y"
+    if low.endswith(("ses", "xes", "ches", "shes")):
+        return name[:-2]
+    if low.endswith("s") and not low.endswith("ss") and len(name) > 2:
+        return name[:-1]
+    return None
+
+
+def _destructured_callbacks(text: str) -> list[str]:
+    """``items.map(({ id, price }) => <li>{formatPrice(price)}</li>)`` read as the callback that takes the element
+    (``item``, the list's name in the singular) and uses ``item.price``: each such callback's body once more, the
+    destructured fields written as the element's properties."""
+    out = []
+    for m in _DESTRUCTURED_CALLBACK.finditer(text):
+        elem = _singular(m.group(1))
+        fields = [f.split(":")[-1].split("=")[0].strip() for f in m.group(2).split(",")]
+        fields = [f for f in fields if _IDENT.fullmatch(f)]
+        if not elem or not fields:
+            continue
+        depth, k = 1, m.end()  # the callback runs to the call's closing parenthesis
+        while k < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[k], 0)
+            k += 1
+        seg = text[m.end():k - 1 if not depth else k]
+        for f in fields:
+            seg = _rename(seg, f, f"{elem}.{f}")
+        out.append(f"{m.group(1)}.map(({elem}) =>{seg})")
+    return out
 
 
 _SCRIPT_EXT = re.compile(r"\.(?:[cm]?[jt]sx?)$")
@@ -528,8 +601,140 @@ def silent_components(text: str) -> list[str]:
     return out
 
 
-def _js_broken(path: Path, text: str) -> list[str]:
+def _js_top_level(text: str, name: str) -> int | None:
+    """The 1-based line where ``text`` declares ``name`` at the top level (``function name``, ``const name =``,
+    ``class name``, exported or not), else None."""
+    m = re.search(rf"^(?:export[ \t]+(?:default[ \t]+)?)?(?:async[ \t]+)?(?:function[ \t]*\*?[ \t]*|(?:const|let|var|"
+                  rf"class)[ \t]+){re.escape(name)}(?![\w$])", text, re.M)
+    return text.count("\n", 0, m.start()) + 1 if m else None
+
+
+def _js_shadowed(path: Path, text: str) -> list[str]:
+    """A name the file imports and also declares itself at the top level (an old ``function formatPrice`` left below
+    ``import { formatPrice } from '../utils'``): TypeScript's TS2440 "Import declaration conflicts with local
+    declaration", a SyntaxError ("has already been declared") in JavaScript."""
     out = []
+    for m in _JS_IMPORT.finditer(text):
+        locals_ = [local for _, local in _names(m.group(2) or "")]
+        if m.group(1) and m.group(1) != "type":
+            locals_.append(m.group(1))
+        for local in locals_:
+            if (line := _js_top_level(text, local)) is not None:
+                out.append(f"{path.name} declares its own {local} (line {line}) beside the {local} it imports from "
+                           f"'{m.group(5)}': delete it so the import is used")
+    return out
+
+
+def defines_top_level(path: Path, text: str, name: str) -> int | None:
+    """The 1-based line where a lesson code file binds ``name`` at its top level (a Python def / class / assignment,
+    a JavaScript function / const / let / var / class), else None."""
+    if kind_of(path.name) == "py":
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError, RecursionError):
+            return None
+        for stmt in tree.body:
+            bound = [stmt.name] if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else \
+                [t.id for t in stmt.targets if isinstance(t, ast.Name)] if isinstance(stmt, ast.Assign) else \
+                [stmt.target.id] if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) else []
+            if name in bound:
+                return stmt.lineno
+        return None
+    return _js_top_level(text, name)
+
+
+def uses_name(path: Path, text: str, name: str) -> bool:
+    """Does a lesson code file import ``name`` (``from m import name``, ``import { name } from``)?"""
+    if kind_of(path.name) == "py":
+        return any(name in [n for n, _ in _from_names(m)] for m in _PY_FROM.finditer(text))
+    return any(name in [n for n, _ in _names(m.group(2) or "")] for m in _JS_IMPORT.finditer(text))
+
+
+def _skip_braces(s: str, i: int) -> int:
+    """The index just past the ``}`` that closes the ``{`` at ``s[i]`` (strings and template literals skipped)."""
+    depth, quote = 0, ""
+    while i < len(s):
+        ch = s[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"`":
+            quote = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return i
+
+
+def _tag_end(s: str, i: int) -> int:
+    """The index of the ``>`` that ends the tag opened at ``s[i]`` (quoted attribute values and ``{...}`` skipped)."""
+    quote = ""
+    while i < len(s):
+        ch = s[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "{":
+            i = _skip_braces(s, i)
+            continue
+        elif ch == ">":
+            return i
+        i += 1
+    return i
+
+
+_RETURN_JSX = re.compile(r"\breturn\s*\(\s*(?=<)")
+
+
+def adjacent_jsx(text: str) -> list[int]:
+    """The 1-based lines of each ``return ( ... )`` whose JSX has two elements side by side at the top (``<>...</>``
+    then ``<Footer/>``): "Adjacent JSX elements must be wrapped in an enclosing tag", the file doesn't compile."""
+    out = []
+    for m in _RETURN_JSX.finditer(text):
+        i, depth, roots = m.end(), 0, 0
+        while i < len(text):
+            ch = text[i]
+            if ch == "{":
+                i = _skip_braces(text, i)
+                continue
+            if ch == ")" and depth == 0:
+                break
+            if ch == "<" and i + 1 < len(text) and (text[i + 1].isalpha() or text[i + 1] in ">/"):
+                end = _tag_end(text, i)
+                if text[i + 1] == "/":
+                    depth -= 1
+                else:
+                    if depth == 0:
+                        roots += 1
+                    if text[end - 1] != "/":
+                        depth += 1
+                i = end + 1
+                if depth < 0:
+                    break
+                continue
+            if depth == 0 and not ch.isspace():
+                break  # not plain JSX (an expression around it): leave it alone
+            i += 1
+        if roots > 1:
+            out.append(text.count("\n", 0, m.start()) + 1)
+    return out
+
+
+def _js_broken(path: Path, text: str) -> list[str]:
+    out = _js_shadowed(path, text)
+    if path.suffix.lower() in (".jsx", ".tsx", ".js"):
+        for line in adjacent_jsx(text):
+            out.append(f"{path.name} returns two JSX elements side by side (line {line}): wrap them in one "
+                       f"<>...</> fragment")
     if path.suffix.lower() in (".jsx", ".tsx", ".js"):
         for name in silent_components(text):
             out.append(f"{name} in {path.name} never returns its JSX (its body is in {{ }} with no return), so it "
