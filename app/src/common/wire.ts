@@ -60,14 +60,27 @@ const KNOWN = new Set<string>([
   'blocker',
   'library',
   'library.item',
-  'progress'
+  'progress',
+  // ui-v4 (Nov 24, shared/contracts/UI-V4.md): listed here once so the app lanes only add their onMessage handlers
+  'activity',
+  'bon',
+  'plans',
+  'playlist',
+  'plan.proposal',
+  'link.preview',
+  'proof',
+  'data'
 ] satisfies (keyof EngineEvents | 'config.status')[])
 
 /**
  * v2 commands the app may send only when the engine listed them in engine.hello.capabilities (core/lesson.ts
  * `canSend`). An older engine would answer them with an error, so they are never sent blind.
  */
-export const V2_COMMANDS = ['health.get', 'permission.open', 'library.list', 'library.get', 'library.start', 'progress.get', 'panel.state'] as const satisfies readonly (keyof AppCommands)[]
+export const V2_COMMANDS = ['health.get', 'permission.open', 'library.list', 'library.get', 'library.start', 'progress.get', 'panel.state',
+  // the engine's review.start / data.delete (listed in its hello since Nov 22), now in the contract
+  'review.start', 'data.delete',
+  // ui-v4 (Nov 24, shared/contracts/UI-V4.md), gated like the rest: sent only when engine.hello lists them
+  'activity.get', 'bon.get', 'bon.import', 'plans.list', 'plan.start', 'plan.remove', 'playlist.get', 'plan.propose', 'link.get', 'proof.get', 'data.get'] as const satisfies readonly (keyof AppCommands)[]
 export type V2Command = (typeof V2_COMMANDS)[number]
 
 /** Parse one WebSocket frame. Accepts `{type, payload}` (contract) and, leniently, flat `{type, ...fields}`. */
